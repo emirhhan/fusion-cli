@@ -11,16 +11,15 @@
 Python 3.11+ gerekir.
 
 ```bash
-make venv        # .venv oluşturur (python3.12)
-make install     # paketi ve geliştirme bağımlılıklarını kurar
-cp .env.example .env
+git clone <depo-adresi> && cd fusion-cli
+./setup.sh
 ```
 
-İlk kurulumda kullanıcı dizinine şablon bırakmak için:
+Bu kadar. Betik uygun Python sürümünü bulur, `.venv` oluşturur, paketi kurar,
+`.env` dosyanı hazırlar ve kurulumu doğrular. Tekrar çalıştırmak güvenlidir:
+var olan `.venv` ve `.env`'e dokunmaz, eksik olanı tamamlar.
 
-```bash
-.venv/bin/fusion setup
-```
+Geliştirme araçlarını da (ruff, mypy, pytest) istiyorsan `./setup.sh --dev`.
 
 `.env` içine en az bir sağlayıcı anahtarı gir:
 

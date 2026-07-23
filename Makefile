@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: venv install format lint type test check clean
+.PHONY: setup venv install format lint type test check clean
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -8,8 +8,12 @@ RUFF     := $(VENV_BIN)ruff
 MYPY     := $(VENV_BIN)mypy
 PYTEST   := $(VENV_BIN)pytest
 
+# Tek adımlık kurulum: uygun Python'u bulur, .venv kurar, .env'i hazırlar.
+setup:
+	./setup.sh --dev
+
 venv:
-	python3.12 -m venv .venv
+	./setup.sh
 
 install:
 	$(PY) -m pip install --quiet --upgrade pip
