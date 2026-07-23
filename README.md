@@ -3,9 +3,10 @@
 Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
 
 > **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
-> bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı ve **fusion
-> motoru** (paralel adaylar + hakem + sentez). Araçlar, agent motoru, bellek ve REPL
-> henüz taşınmadı — kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
+> bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı, **fusion
+> motoru** (paralel adaylar + hakem + sentez) ve **araç katmanı** (15 araç, tehlike
+> tespiti, diff önizlemesi). Agent motoru, bellek ve REPL henüz taşınmadı — kalanlar
+> için [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
 
@@ -84,6 +85,9 @@ cli → ui → engines → { providers, memory, observability } → config → c
   üretmez: `VerdictSource` gibi semantik kodlar döner, metni `ui` seçer.
 - **`core.concurrency`** — zaman bütçeli paralel toplama (straggler kesme + mutlak üst
   sınır). Modelden ve sağlayıcıdan bağımsızdır; sahte gecikmelerle test edilir.
+- **`tools`** — kayıt defteri + saf executor'lar. Bir araç = şema + executor + `mutating`
+  bayrağı; yeni araç eklemek kayıt defterine bir satır eklemektir, motor kodu değişmez.
+  Executor'lar konsola yazmaz, onay sormaz, modül-global durum tutmaz.
 - **`ui`** — Rich importunun bulunduğu tek yer. Kullanıcıya görünen tüm Türkçe metin
   `ui/messages.py`'de toplanır.
 

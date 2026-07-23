@@ -5,7 +5,6 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
 ## Taşınacak (eski projede mevcut, henüz taşınmadı)
 
-- Araç katmanı: kayıt defteri, executor'lar, tehlike tespiti, diff önizleme
 - Agent motoru: tool-calling döngüsü, reflexion, öz-eleştiri, alt-ajan
 - Bellek: performans belleği, ders belleği, semantik kod indeksi, embedding seçimi
 - REPL: prompt_toolkit girişi, onay modları, slash komut kayıt defteri, tema
@@ -40,3 +39,10 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 - **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında hakem bazen ikisine puan
   veriyor. Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama puan tablosu
   eksik görünüyor. Prompt'ta "her adaya puan ver" vurgusu denenebilir.
+
+- **Yol sınırlaması yok.** Araçlar proje kökü dışına da yazabilir (eski davranış korundu;
+  onay akışı + diff önizlemesi kullanıcıyı koruyor). İstenirse `ToolContext`'e kök dışına
+  yazmayı reddeden ya da ayrıca onay isteyen bir kip eklenebilir.
+- **`web_search` HTML kazımaya dayanıyor.** İki uç denenerek dayanıklılık sağlandı ama
+  sayfa yapısı değişirse ikisi de bozulabilir. Kazıma mantığı saf fonksiyonlarda ve
+  testli; uç değişirse yalnızca regex güncellenir.
