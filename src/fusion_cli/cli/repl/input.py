@@ -38,8 +38,11 @@ from typing import Any
 from ...engines.agent.approval import ApprovalMode
 from ...ui import messages, theme
 
-#: Yapıştırılan metin bu satırdan uzunsa katlanarak tek satırda özetlenir.
+#: Yapıştırma bu satır ya da bu karakter sayısını aşarsa tek satırlık yer tutucuya
+#: katlanır (ikisinden biri yeterli). Karakter eşiği, az satırlı ama çok uzun tek
+#: satırlık yapıştırmaları da yakalar (Claude'un davranışına benzer).
 FOLD_PASTE_LINES = 10
+FOLD_PASTE_CHARS = 600
 
 #: Giriş satırının başındaki işaret. Kısa tutulur: her satırda tekrarlanır.
 PROMPT_SYMBOL = "❯"
@@ -91,11 +94,19 @@ class ReplInput:
         tutucu girer; gerçek metin `_pastes`'te saklanır ve gönderimde açılır.
         """
         line_count = text.count("\n") + 1
-        if not self._fold_paste or line_count <= FOLD_PASTE_LINES:
+        long_enough = line_count > FOLD_PASTE_LINES or len(text) > FOLD_PASTE_CHARS
+        if not self._fold_paste or not long_enough:
             buffer.insert_text(text)
             return
         self._paste_seq += 1
-        token = messages.REPL_PASTE_FOLDED.format(count=line_count, index=self._paste_seq)
+        # Çok satırlıysa satır sayısı daha anlamlı; tek satırlık uzun yapıştırmada
+        # "1 satır" yanıltıcı olur, karakter sayısı gösterilir.
+        if line_count > 1:
+            token = messages.REPL_PASTE_FOLDED.format(count=line_count, index=self._paste_seq)
+        else:
+            token = messages.REPL_PASTE_FOLDED_CHARS.format(
+                count=len(text), index=self._paste_seq
+            )
         self._pastes[token] = text
         buffer.insert_text(token)
 

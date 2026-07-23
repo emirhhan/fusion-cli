@@ -345,6 +345,36 @@ def test_katlanan_yapistirma_gonderimde_tam_metne_acilir(tmp_path, monkeypatch):
     assert acik == f"şuna bak: {pasted} teşekkürler"
 
 
+def test_az_satirli_ama_uzun_yapistirma_da_katlanir(tmp_path, monkeypatch):
+    """Satır sayısı eşik altında olsa bile karakter sayısı yüksekse katlanmalı."""
+    from fusion_cli.cli.repl.input import FOLD_PASTE_CHARS, FOLD_PASTE_LINES
+
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    # Tek satır ama eşiğin çok üstünde karakter.
+    uzun = "x" * (FOLD_PASTE_CHARS + 100)
+    assert uzun.count("\n") + 1 <= FOLD_PASTE_LINES  # satır sayısı eşik altında
+
+    reader.fold_paste_into(buffer, uzun)
+
+    assert buffer.text != uzun  # tampona ham metin girmedi
+    assert "\n" not in buffer.text  # tek satır yer tutucu
+    assert reader.expand_pastes(buffer.text) == uzun  # gönderimde tam metin geri gelir
+
+
+def test_hem_kisa_hem_az_satirli_yapistirma_katlanmaz(tmp_path, monkeypatch):
+    from fusion_cli.cli.repl.input import FOLD_PASTE_CHARS
+
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    kisa = "birkaç satır\niki\nüç"
+    assert len(kisa) < FOLD_PASTE_CHARS
+
+    reader.fold_paste_into(buffer, kisa)
+
+    assert buffer.text == kisa
+
+
 def test_kisa_yapistirma_oldugu_gibi_girer(tmp_path, monkeypatch):
     reader = _reader(tmp_path, monkeypatch)
     buffer = _FakeBuffer()

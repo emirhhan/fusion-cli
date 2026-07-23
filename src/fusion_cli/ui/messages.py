@@ -230,6 +230,7 @@ REPL_MODEL_USAGE = (
     "[add <ad> <id> [etiket…]] | [rm <ad>]   ·   liste için: /model"
 )
 REPL_PASTE_FOLDED = "⧉ {count} satır yapıştırıldı [#{index}]"
+REPL_PASTE_FOLDED_CHARS = "⧉ {count} karakter yapıştırıldı [#{index}]"
 
 # --- Komut açıklamaları ---------------------------------------------------- #
 CMD_HELP = "komut listesini göster"
