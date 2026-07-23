@@ -301,6 +301,86 @@ def test_mod_dongusu_giriste_de_calisir(tmp_path, monkeypatch):
     assert reader.cycle_mode() is not ApprovalMode.AUTO
 
 
+class _FakeBuffer:
+    """insert_text'i biriktiren minik tampon taklidi."""
+
+    def __init__(self) -> None:
+        self.text = ""
+
+    def insert_text(self, text: str) -> None:
+        self.text += text
+
+
+def _reader(tmp_path, monkeypatch):
+    from fusion_cli.cli.repl.input import ReplInput
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    return ReplInput(Path(tmp_path) / "history", ["/help"], mode=ApprovalMode.AUTO)
+
+
+def test_uzun_yapistirma_tampona_tek_satir_girer(tmp_path, monkeypatch):
+    """40 satırlık yapıştırma tampona tek satır olarak girmeli; yükseklik patlamaz."""
+    from fusion_cli.cli.repl.input import FOLD_PASTE_LINES
+
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    pasted = "\n".join(f"satir-{i}" for i in range(40))
+    assert FOLD_PASTE_LINES < 40  # eşiğin üstünde olduğundan emin ol
+
+    reader.fold_paste_into(buffer, pasted)
+
+    assert buffer.text.count("\n") == 0  # tampona tek satır girdi
+    assert "40" in buffer.text  # yer tutucu satır sayısını gösteriyor
+
+
+def test_katlanan_yapistirma_gonderimde_tam_metne_acilir(tmp_path, monkeypatch):
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    pasted = "\n".join(f"satir-{i}" for i in range(40))
+
+    reader.fold_paste_into(buffer, pasted)
+    acik = reader.expand_pastes(f"şuna bak: {buffer.text} teşekkürler")
+
+    assert pasted in acik
+    assert acik == f"şuna bak: {pasted} teşekkürler"
+
+
+def test_kisa_yapistirma_oldugu_gibi_girer(tmp_path, monkeypatch):
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    kisa = "tek satır metin"
+
+    reader.fold_paste_into(buffer, kisa)
+
+    assert buffer.text == kisa
+    assert reader.expand_pastes(buffer.text) == kisa
+
+
+def test_katlama_kapaliyken_yapistirma_oldugu_gibi_girer(tmp_path, monkeypatch):
+    reader = _reader(tmp_path, monkeypatch)
+    reader.toggle_fold()  # katlamayı kapat
+    buffer = _FakeBuffer()
+    uzun = "\n".join(f"satir-{i}" for i in range(40))
+
+    reader.fold_paste_into(buffer, uzun)
+
+    assert buffer.text == uzun
+
+
+def test_birden_cok_yapistirma_ayri_ayri_acilir(tmp_path, monkeypatch):
+    reader = _reader(tmp_path, monkeypatch)
+    buffer = _FakeBuffer()
+    ilk = "\n".join(f"a-{i}" for i in range(40))
+    ikinci = "\n".join(f"b-{i}" for i in range(40))
+
+    reader.fold_paste_into(buffer, ilk)
+    buffer.insert_text(" ve ")
+    reader.fold_paste_into(buffer, ikinci)
+
+    acik = reader.expand_pastes(buffer.text)
+    assert acik == f"{ilk} ve {ikinci}"
+
+
 def test_exit_veda_mesajini_kendisi_basmaz(registry, state):
     """Veda mesajı kapanışta basılır; komut da basarsa satır iki kez görünür."""
     assert _calistir(registry, state, "/exit") == ""

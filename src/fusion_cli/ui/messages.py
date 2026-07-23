@@ -229,7 +229,7 @@ REPL_MODEL_USAGE = (
     "Kullanım: /model [agent|judge <id>] | [cand <ad|no> <id>] | "
     "[add <ad> <id> [etiket…]] | [rm <ad>]   ·   liste için: /model"
 )
-REPL_PASTE_FOLDED = "  … ({count} satır yapıştırıldı — göstermek için Ctrl-V)"
+REPL_PASTE_FOLDED = "⧉ {count} satır yapıştırıldı [#{index}]"
 
 # --- Komut açıklamaları ---------------------------------------------------- #
 CMD_HELP = "komut listesini göster"

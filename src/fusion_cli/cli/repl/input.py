@@ -14,6 +14,15 @@ Terminal TTY değilse (boru hattı, CI, test) prompt_toolkit hiç kurulmaz ve d�
    Menü rezervasyonu kapatıldı; durum çubuğu tek satır olduğu için yeniden çizim
    güvenli.
 
+3. **Uzun yapıştırma tampona GİRMEZ.** prompt_toolkit her belge satırı için bir
+   ekran satırı çizer; 200 satırlık bir yapıştırma giriş penceresini 200 satıra
+   büyütüp konuşmayı ekrandan yukarı iterdi. Bir `Processor` yalnızca satır
+   içeriğini değiştirebilir, satır SAYISINI değiştiremez — bu yüzden görsel
+   katlama yüksekliği düşürmezdi. Çözüm: yapıştırma yakalanır, gerçek metin yan
+   bir tabloda saklanır ve tampona tek satırlık bir yer tutucu konur; satır
+   gönderilirken yer tutucu tam metne geri açılır. Böylece model tam metni alır,
+   giriş alanı tek satır kalır.
+
 3. **Durum çubuğunun ters-renkli zemini yok.** prompt_toolkit'in varsayılan
    `bottom-toolbar` stili tam genişlikte beyaz bir şerit çiziyordu. Stil
    geçersiz kılınarak sönük, zeminsiz bir satıra indirildi.
@@ -51,6 +60,10 @@ class ReplInput:
         self.context: str = ""
         self._session: Any = None
         self._fold_paste = True
+        #: Katlanan yapıştırmaların yer tutucu → tam metin eşlemesi. Her satır
+        #: gönderiminden önce temizlenir; yalnızca o satır boyunca yaşar.
+        self._pastes: dict[str, str] = {}
+        self._paste_seq = 0
         if sys.stdin.isatty():
             self._session = _build_session(self, history_path, words)
 
@@ -70,7 +83,31 @@ class ReplInput:
     def fold_paste(self) -> bool:
         return self._fold_paste
 
+    def fold_paste_into(self, buffer: Any, text: str) -> None:
+        """Yapıştırmayı tampona koy. Uzunsa metni saklayıp yer tutucu bırakır.
+
+        Kısa yapıştırma (eşik altı) ya da katlama kapalıysa metin olduğu gibi
+        eklenir — eski davranış. Uzunsa tampona yalnızca tek satırlık bir yer
+        tutucu girer; gerçek metin `_pastes`'te saklanır ve gönderimde açılır.
+        """
+        line_count = text.count("\n") + 1
+        if not self._fold_paste or line_count <= FOLD_PASTE_LINES:
+            buffer.insert_text(text)
+            return
+        self._paste_seq += 1
+        token = messages.REPL_PASTE_FOLDED.format(count=line_count, index=self._paste_seq)
+        self._pastes[token] = text
+        buffer.insert_text(token)
+
+    def expand_pastes(self, line: str) -> str:
+        """Satırdaki yer tutucuları sakladıkları tam metinle değiştir."""
+        for token, text in self._pastes.items():
+            line = line.replace(token, text)
+        return line
+
     async def prompt(self) -> str:
+        # Yer tutucular yalnızca içinde bulunulan satır boyunca geçerli.
+        self._pastes.clear()
         if self._session is None:
             # Düz `input()` bloklar; ayrı bir thread'e alınmazsa arka plandaki
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
@@ -81,7 +118,7 @@ class ReplInput:
         line = await self._session.prompt_async(
             HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
         )
-        return str(line)
+        return self.expand_pastes(str(line))
 
     def status_bar(self) -> Any:
         """Ekranın altındaki tek satırlık durum çubuğu.
@@ -108,6 +145,7 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         from prompt_toolkit.completion import WordCompleter
         from prompt_toolkit.history import FileHistory
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.keys import Keys
 
         history_path.parent.mkdir(parents=True, exist_ok=True)
         bindings = KeyBindings()
@@ -121,6 +159,12 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         def _fold(event: Any) -> None:
             owner.toggle_fold()
             event.app.invalidate()
+
+        @bindings.add(Keys.BracketedPaste)
+        def _paste(event: Any) -> None:
+            # Yapıştırma varsayılan olarak tampona AKMAZ: uzunsa metin saklanır ve
+            # yerine tek satırlık yer tutucu konur (bkz. modül başlığı, madde 3).
+            owner.fold_paste_into(event.current_buffer, event.data)
 
         return PromptSession(
             history=FileHistory(str(history_path)),
@@ -137,7 +181,6 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
             # doğru silinemiyor ve prompt kopyaları ekranda birikiyordu.
             reserve_space_for_menu=0,
             key_bindings=bindings,
-            input_processors=[_paste_fold_processor(owner)],
         )
     except Exception:
         # prompt_toolkit kurulamadı (terminal desteklemiyor, ortam kısıtlı…).
@@ -160,26 +203,3 @@ def _toolbar_style() -> Any:
             "bottom-toolbar.text": "noreverse bg:default",
         }
     )
-
-
-def _paste_fold_processor(owner: ReplInput) -> Any:
-    """Uzun yapıştırmaları tek satırlık özete katlayan işleyici.
-
-    Sınıf çalışma anında kurulur: `prompt_toolkit.Processor` taban sınıfı ancak
-    kütüphane yüklendiğinde erişilebilirdir ve bu modül TTY olmayan ortamlarda
-    kütüphaneyi hiç yüklememelidir.
-    """
-    from prompt_toolkit.formatted_text import FormattedText
-    from prompt_toolkit.layout.processors import Processor, Transformation
-
-    class PasteFold(Processor):
-        def apply_transformation(self, transformation_input: Any) -> Any:
-            lines = transformation_input.document.lines
-            if not owner.fold_paste or len(lines) <= FOLD_PASTE_LINES:
-                return Transformation(transformation_input.fragments)
-            if transformation_input.lineno == 0:
-                summary = messages.REPL_PASTE_FOLDED.format(count=len(lines))
-                return Transformation(FormattedText([("class:dim italic", summary)]))
-            return Transformation(FormattedText([]))
-
-    return PasteFold()
