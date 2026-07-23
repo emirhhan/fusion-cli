@@ -53,6 +53,31 @@ FUSION_SCORE_TABLE_MODEL = "Model"
 FUSION_SCORE_TABLE_SCORE = "Puan"
 FUSION_ALL_ANSWERS = "{name} · {latency} ms"
 
+# --- Agent ---------------------------------------------------------------- #
+AGENT_TOOL_OK = "{name} {summary}"
+AGENT_TOOL_FAILED = "{name} başarısız · {summary}"
+AGENT_SUBAGENT_STARTED = "alt-ajan devraldı: {task}"
+AGENT_SUBAGENT_FINISHED = "alt-ajan bitti · {count} araç çağrısı"
+AGENT_COUNCIL = "council: çoklu modele danışılıyor…"
+AGENT_SELF_REVIEW_STARTED = "öz-denetim çalışıyor…"
+AGENT_SELF_REVIEW_CLEAN = "öz-denetim: sorun yok"
+AGENT_SELF_REVIEW_ISSUE = "öz-denetim bir sorun buldu; düzeltiliyor…"
+AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
+AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıldı"
+AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+
+# --- Onay ----------------------------------------------------------------- #
+APPROVAL_TITLE = "onay gerekiyor · {tool}"
+CONFIRM_QUESTION = "  onaylıyor musun? (e/h, Enter = evet)"
+DANGER_WARNING = "⚠ geri alınamaz işlem: {reason}"
+AGENT_ASKS = "agent soruyor"
+ANSWER_PROMPT = "  cevabın"
+NO_ANSWER_AVAILABLE = (
+    "(kullanıcı cevap veremedi — etkileşimsiz ortam. Soru sormayı bırak, "
+    "elindeki bilgiyle en makul kararı ver ve devam et.)"
+)
+
 # --- run ------------------------------------------------------------------ #
 RUN_EMPTY_TASK = "Görev metni boş olamaz."
 RUN_UNKNOWN_TASK_TYPE = "Bilinmeyen görev tipi: {given}. Geçerli olanlar: {valid}"
+RUN_UNKNOWN_MODE = "Bilinmeyen onay modu: {given}. Geçerli olanlar: {valid}"

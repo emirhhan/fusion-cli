@@ -7,6 +7,7 @@ yerine `view_file` çağırmayı tercih eder ve bu bir hataya dönüşmemelidir.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Iterable, Iterator
 
 from ..core.errors import FusionError
@@ -53,12 +54,14 @@ class ToolRegistry:
         permitted = set(allowed)
         return [tool.schema() for name, tool in self._tools.items() if name in permitted]
 
-    def execute(self, name: str, args: ToolArgs, context: ToolContext) -> ToolResult:
+    async def execute(self, name: str, args: ToolArgs, context: ToolContext) -> ToolResult:
         """Bir aracı çalıştır ve HER durumda `ToolResult` döndür.
 
         İstisnaların sonuca çevrildiği TEK yer burasıdır: executor'lar kendi
         try/except kalabalığını taşımaz, motor da araç çağrısı yüzünden çökmez.
         Model hatayı okur ve düzeltilmiş bir çağrı yapabilir.
+
+        Senkron ve asenkron executor'lar aynı şekilde çalıştırılır.
         """
         tool = self.get(name)
         if tool is None:
@@ -66,7 +69,8 @@ class ToolRegistry:
                 f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: {', '.join(self.names())}"
             )
         try:
-            return tool.run(args, context)
+            outcome = tool.run(args, context)
+            return await outcome if inspect.isawaitable(outcome) else outcome
         except ArgumentError as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu

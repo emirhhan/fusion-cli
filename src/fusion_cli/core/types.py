@@ -6,6 +6,7 @@ veri taşıması dict ile değil bu tiplerle yapılır (RULES.md "Katman Sınır
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -23,11 +24,34 @@ class TokenUsage:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCall:
+    """Modelin yapmak istediği araç çağrısı.
+
+    `arguments` modelin ürettiği HAM JSON metnidir; bozuk olabilir. Ayrıştırma
+    araç katmanının sınırında yapılır, burada değil.
+    """
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True, slots=True)
 class Message:
-    """Sohbet mesajı. `role`: system | user | assistant | tool."""
+    """Sohbet mesajı.
+
+    `role`: system | user | assistant | tool. Araç sonucu mesajlarında `tool_call_id`
+    ve `name` doldurulur; modelin araç isteğini taşıyan assistant mesajında `tool_calls`.
+    """
 
     role: str
     content: str
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
+    name: str | None = None
+    #: Araç sonucu mesajlarında aracın başarılı olup olmadığı. Diğer rollerde None.
+    #: Başarı metinden TAHMİN EDİLMEZ; üreten taraf bu alanı doldurur.
+    ok: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +82,8 @@ class CompletionRequest:
     max_tokens: int
     timeout_s: float
     max_retries: int = 0
+    #: Modele verilecek araç şemaları. Boşsa araç çağrısı istenmez.
+    tools: tuple[Mapping[str, object], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +101,8 @@ class ModelResult:
     ok: bool
     usage: TokenUsage = field(default_factory=TokenUsage)
     error: str | None = None
+    #: Modelin bu turda yapmak istediği araç çağrıları.
+    tool_calls: tuple[ToolCall, ...] = ()
 
     @property
     def is_rate_limited(self) -> bool:

@@ -16,4 +16,5 @@ INFO = "#58A6FF"
 
 ICON_OK = "✓"
 ICON_ERROR = "✗"
+ICON_DENIED = "⊘"
 ICON_STATUS = "›"

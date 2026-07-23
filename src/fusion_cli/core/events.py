@@ -11,6 +11,7 @@ kanallarda akar; dinleyici her kanalı ayrı tamponlar, satırlar birbirini böl
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
@@ -89,6 +90,76 @@ class FusionCompleted(Event):
     """Fusion turu bitti; nihai cevap ve aday kayıtları hazır."""
 
     result: FusionResult
+
+
+class ToolOutcome(Enum):
+    """Bir araç çağrısının görünür sonucu.
+
+    Reddedilme ne başarı ne hatadır; kullanıcıya da öyle gösterilmemelidir.
+    """
+
+    OK = "ok"
+    FAILED = "failed"
+    DENIED = "denied"
+    BLOCKED = "blocked"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecuted(Event):
+    """Bir araç çağrısı sonuçlandı."""
+
+    name: str
+    args: Mapping[str, object]
+    outcome: ToolOutcome
+    output: str
+
+
+@dataclass(frozen=True, slots=True)
+class SubAgentStarted(Event):
+    """Bir alt-göreve temiz bağlamlı alt-ajan atandı."""
+
+    task: str
+
+
+@dataclass(frozen=True, slots=True)
+class SubAgentFinished(Event):
+    """Alt-ajan işini bitirdi."""
+
+    tool_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class CouncilConsulted(Event):
+    """Zor bir karar için çoklu-model danışması başlatıldı."""
+
+    question: str
+
+
+@dataclass(frozen=True, slots=True)
+class SelfReviewStarted(Event):
+    """Tur sonrası öz-denetim başladı."""
+
+
+@dataclass(frozen=True, slots=True)
+class SelfReviewFinished(Event):
+    """Öz-denetim bitti. `issue_found` ise düzeltici tur çalışacak."""
+
+    issue_found: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ContextCompressed(Event):
+    """Uzun geçmiş özetlenerek kısaltıldı."""
+
+    before: int
+    after: int
+
+
+@dataclass(frozen=True, slots=True)
+class StepLimitReached(Event):
+    """Agent adım sınırına dayandı; tur zorla sonlandırıldı."""
+
+    limit: int
 
 
 @dataclass(frozen=True, slots=True)

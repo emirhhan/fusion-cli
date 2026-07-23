@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from dataclasses import fields
+from pathlib import Path
 
 import typer
 from rich.console import Console
@@ -20,10 +21,13 @@ from .. import __version__
 from ..config.loader import load_config
 from ..config.models import Config
 from ..core.errors import FusionError
+from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
+from ..engines.agent.approval import ApprovalMode
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
-from .session import run_task
+from .prompter import ConsolePrompter
+from .session import run_agent_task, run_task
 
 app = typer.Typer(
     add_completion=False,
@@ -73,6 +77,51 @@ def run(
     )
     if result.source is VerdictSource.NONE:
         raise typer.Exit(1)
+
+
+@app.command()
+def agent(
+    task: str = typer.Argument(..., help="Agent'a verilecek görev."),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        "-m",
+        help="Onay modu: auto (otomatik, yıkıcı komutta sorar) | "
+        "plan (yalnız planla) | security (her değişikliği sor)",
+    ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+) -> None:
+    """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
+    if not task.strip():
+        raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    approval = _parse_mode(mode)
+
+    config = load_config()
+    root = Path.cwd()
+    renderer = ConsoleRenderer(console, show_progress=not quiet)
+
+    outcome = asyncio.run(
+        run_agent_task(
+            task,
+            config,
+            sinks=(renderer,),
+            prompter_factory=lambda flush: ConsolePrompter(
+                console, ToolContext(root=root), flush=flush
+            ),
+            mode=approval,
+            root=root,
+        )
+    )
+    if not outcome.final_text.strip():
+        raise typer.Exit(1)
+
+
+def _parse_mode(raw: str) -> ApprovalMode:
+    try:
+        return ApprovalMode(raw.strip().lower())
+    except ValueError:
+        valid = ", ".join(item.value for item in ApprovalMode)
+        raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=raw, valid=valid)) from None
 
 
 @app.command()

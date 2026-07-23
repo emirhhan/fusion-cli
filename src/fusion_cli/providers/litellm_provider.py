@@ -27,6 +27,7 @@ from ..core.types import (
     StreamItem,
     TextChunk,
     TokenUsage,
+    ToolCall,
 )
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
@@ -84,12 +85,15 @@ class LiteLlmProvider:
     def _call_kwargs(self, request: CompletionRequest, *, stream: bool) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": self._model,
-            "messages": [{"role": m.role, "content": m.content} for m in request.messages],
+            "messages": [_to_wire(message) for message in request.messages],
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
             "timeout": request.timeout_s,
             "num_retries": request.max_retries,
         }
+        if request.tools:
+            kwargs["tools"] = [dict(schema) for schema in request.tools]
+            kwargs["tool_choice"] = "auto"
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}
@@ -116,6 +120,7 @@ class LiteLlmProvider:
             latency_ms=self._elapsed_ms(started),
             ok=True,
             usage=_response_usage(response),
+            tool_calls=_response_tool_calls(response),
         )
 
     def _rebuild(
@@ -125,7 +130,7 @@ class LiteLlmProvider:
         try:
             rebuilt = litellm.stream_chunk_builder(
                 chunks,
-                messages=[{"role": m.role, "content": m.content} for m in request.messages],
+                messages=[_to_wire(message) for message in request.messages],
             )
         except Exception:
             rebuilt = None
@@ -161,6 +166,48 @@ def _response_usage(response: Any) -> TokenUsage:
         prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
         completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
     )
+
+
+def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
+    """SDK yanıtındaki araç çağrılarını proje tipine çevir."""
+    try:
+        raw = response.choices[0].message.tool_calls
+    except (AttributeError, IndexError, TypeError):
+        return ()
+    if not raw:
+        return ()
+    calls: list[ToolCall] = []
+    for item in raw:
+        try:
+            calls.append(
+                ToolCall(
+                    id=str(item.id),
+                    name=str(item.function.name),
+                    arguments=str(item.function.arguments or "{}"),
+                )
+            )
+        except AttributeError:
+            continue
+    return tuple(calls)
+
+
+def _to_wire(message: Message) -> dict[str, Any]:
+    """Proje mesajını sağlayıcının beklediği sözlüğe çevir."""
+    wire: dict[str, Any] = {"role": message.role, "content": message.content}
+    if message.tool_calls:
+        wire["tool_calls"] = [
+            {
+                "id": call.id,
+                "type": "function",
+                "function": {"name": call.name, "arguments": call.arguments},
+            }
+            for call in message.tool_calls
+        ]
+    if message.tool_call_id is not None:
+        wire["tool_call_id"] = message.tool_call_id
+    if message.name is not None:
+        wire["name"] = message.name
+    return wire
 
 
 def _chunk_text(chunk: Any) -> str:

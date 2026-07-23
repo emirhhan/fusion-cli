@@ -1,0 +1,9 @@
+Aşağıda bir agent oturumunun ESKİ kısmı var. Bunu, konuşmanın devamı için gereken
+TÜM önemli bilgiyi koruyan kısa bir özete indir: ne istendi, hangi dosyalar,
+kararlar ve bulgular önemli, nerede kalındı.
+
+Madde madde ve öz yaz. Kod, dosya yolu, fonksiyon adı gibi kritik ayrıntıları ATMA.
+Türkçe yaz.
+
+Oturum:
+{trace}

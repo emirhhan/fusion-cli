@@ -78,8 +78,8 @@ def test_gecersiz_adresler_atlanir():
 # --- Görev listesi ---------------------------------------------------------- #
 
 
-def test_gorev_listesi_yazilir_ve_render_edilir(registry, context):
-    sonuc = registry.execute(
+async def test_gorev_listesi_yazilir_ve_render_edilir(registry, context):
+    sonuc = await registry.execute(
         "todo_write",
         {
             "todos": [
@@ -95,25 +95,33 @@ def test_gorev_listesi_yazilir_ve_render_edilir(registry, context):
     assert sonuc.output.splitlines() == ["☒ planla", "▶ yaz", "☐ test et"]
 
 
-def test_gorev_listesi_baglamda_saklanir(registry, context):
-    registry.execute("todo_write", {"todos": [{"content": "a", "status": "pending"}]}, context)
+async def test_gorev_listesi_baglamda_saklanir(registry, context):
+    await registry.execute(
+        "todo_write", {"todos": [{"content": "a", "status": "pending"}]}, context
+    )
 
     assert context.todos.items[0].content == "a"
     assert context.todos.has_pending
 
 
-def test_hepsi_tamamlaninca_bekleyen_kalmaz(registry, context):
-    registry.execute("todo_write", {"todos": [{"content": "a", "status": "completed"}]}, context)
+async def test_hepsi_tamamlaninca_bekleyen_kalmaz(registry, context):
+    await registry.execute(
+        "todo_write", {"todos": [{"content": "a", "status": "completed"}]}, context
+    )
 
     assert not context.todos.has_pending
 
 
-def test_iki_baglam_ayri_liste_tutar(registry, tmp_path):
+async def test_iki_baglam_ayri_liste_tutar(registry, tmp_path):
     ana = ToolContext(root=tmp_path)
     alt = ToolContext(root=tmp_path)
 
-    registry.execute("todo_write", {"todos": [{"content": "ana is", "status": "pending"}]}, ana)
-    registry.execute("todo_write", {"todos": [{"content": "alt is", "status": "pending"}]}, alt)
+    await registry.execute(
+        "todo_write", {"todos": [{"content": "ana is", "status": "pending"}]}, ana
+    )
+    await registry.execute(
+        "todo_write", {"todos": [{"content": "alt is", "status": "pending"}]}, alt
+    )
 
     assert ana.todos.items[0].content == "ana is"
     assert alt.todos.items[0].content == "alt is"
@@ -123,8 +131,8 @@ def test_bilinmeyen_durum_beklemede_sayilir():
     assert parse_todos([{"content": "a", "status": "uydurma"}])[0].status is TodoStatus.PENDING
 
 
-def test_bos_icerikli_madde_reddedilir(registry, context):
-    sonuc = registry.execute(
+async def test_bos_icerikli_madde_reddedilir(registry, context):
+    sonuc = await registry.execute(
         "todo_write", {"todos": [{"content": "  ", "status": "pending"}]}, context
     )
 

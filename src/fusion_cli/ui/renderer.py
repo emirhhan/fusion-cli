@@ -15,6 +15,7 @@ Veriyolu olayları zaten sırayla verdiği için burada eşzamanlılık kaygıs�
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import ClassVar
 
 from rich.console import Console
@@ -25,14 +26,23 @@ from rich.table import Table
 from ..core.events import (
     CandidatesStarted,
     Channel,
+    ContextCompressed,
+    CouncilConsulted,
     ErrorOccurred,
     Event,
     FusionCompleted,
     JudgingStarted,
     ModelCallFinished,
     ModelCallStarted,
+    SelfReviewFinished,
+    SelfReviewStarted,
     StatusChanged,
+    StepLimitReached,
+    SubAgentFinished,
+    SubAgentStarted,
     TokenReceived,
+    ToolExecuted,
+    ToolOutcome,
     TurnFinished,
 )
 from ..core.types import FusionResult, VerdictSource
@@ -85,6 +95,28 @@ class ConsoleRenderer:
             )
         elif isinstance(event, FusionCompleted):
             self._fusion_result(event.result)
+        elif isinstance(event, ToolExecuted):
+            self._tool_executed(event)
+        elif isinstance(event, SubAgentStarted):
+            self._status(messages.AGENT_SUBAGENT_STARTED.format(task=_shorten(event.task, 60)))
+        elif isinstance(event, SubAgentFinished):
+            self._status(messages.AGENT_SUBAGENT_FINISHED.format(count=event.tool_calls))
+        elif isinstance(event, CouncilConsulted):
+            self._status(messages.AGENT_COUNCIL)
+        elif isinstance(event, SelfReviewStarted):
+            self._status(messages.AGENT_SELF_REVIEW_STARTED)
+        elif isinstance(event, SelfReviewFinished):
+            self._status(
+                messages.AGENT_SELF_REVIEW_ISSUE
+                if event.issue_found
+                else messages.AGENT_SELF_REVIEW_CLEAN
+            )
+        elif isinstance(event, ContextCompressed):
+            self._status(
+                messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
+            )
+        elif isinstance(event, StepLimitReached):
+            self._error(messages.AGENT_STEP_LIMIT.format(limit=event.limit))
         elif isinstance(event, ErrorOccurred):
             self._error(event.message)
         elif isinstance(event, TurnFinished):
@@ -142,6 +174,30 @@ class ConsoleRenderer:
         self._close_line()
         label = f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]"
         self._console.print(f"{label} {escape(message)}")
+
+    # -- Agent araç kartı ---------------------------------------------------- #
+
+    #: Araç sonucuna göre simge ve renk. Reddedilme ne ✓ ne ✗ ile gösterilir.
+    _OUTCOME_STYLES: ClassVar[dict[ToolOutcome, tuple[str, str]]] = {
+        ToolOutcome.OK: (theme.ICON_OK, theme.OK),
+        ToolOutcome.FAILED: (theme.ICON_ERROR, theme.ERROR),
+        ToolOutcome.DENIED: (theme.ICON_DENIED, theme.WARN),
+        ToolOutcome.BLOCKED: (theme.ICON_DENIED, theme.DIM),
+    }
+
+    def _tool_executed(self, event: ToolExecuted) -> None:
+        """Araç çağrısını iki satırlık kompakt kart olarak bas."""
+        self._close_line()
+        icon, color = self._OUTCOME_STYLES[event.outcome]
+        args = _shorten(_format_args(event.args), 78)
+        summary = _shorten(event.output.replace("\n", " "), 96)
+
+        self._console.print(
+            f"  [{color}]{icon} {escape(event.name)}[/{color}] "
+            f"[{theme.DIM}]{escape(args)}[/{theme.DIM}]"
+        )
+        if summary:
+            self._console.print(f"    [{theme.DIM}]{escape(summary)}[/{theme.DIM}]")
 
     # -- Fusion sonucu ------------------------------------------------------- #
 
@@ -227,3 +283,13 @@ def _score_color(score: float) -> str:
     if score >= 0.6:
         return theme.WARN
     return theme.ERROR
+
+
+def _format_args(args: Mapping[str, object]) -> str:
+    return ", ".join(f"{key}={value}" for key, value in args.items())
+
+
+def _shorten(text: str, limit: int) -> str:
+    """Uzun metni tek satıra sığdır. Araç kartı ekranı taşırmamalıdır."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"

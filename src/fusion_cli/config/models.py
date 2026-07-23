@@ -35,6 +35,12 @@ class RuntimeConfig:
     candidate_hard_cap_s: float
     #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
     synthesis: bool
+    #: Agent modunda ardışık araç turu üst sınırı.
+    agent_max_steps: int
+    #: Agent: tur bitince denetçi model sonucu kontrol eder, gerekirse düzeltir.
+    self_review: bool
+    #: Agent: araç hatasında modele "farklı yaklaş" notu enjekte edilir.
+    reflexion: bool
 
 
 @dataclass(frozen=True, slots=True)

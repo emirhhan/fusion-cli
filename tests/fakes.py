@@ -114,6 +114,9 @@ def make_config(**overrides):
         "straggler_grace_s": 0.05,
         "candidate_hard_cap_s": 1.0,
         "synthesis": True,
+        "agent_max_steps": 8,
+        "self_review": False,
+        "reflexion": True,
     }
     runtime.update(runtime_overrides)
 
@@ -148,3 +151,84 @@ def patch_providers(monkeypatch, module, by_name):
         return EventingProvider(provider, publisher=publisher, role=spec.name, channel=channel)
 
     monkeypatch.setattr(module, "build_provider", _build)
+
+
+class ScriptedProvider:
+    """Sırayla verilen ModelResult'ları döndüren sağlayıcı (agent döngüsü testleri için)."""
+
+    def __init__(self, results):
+        self._results = list(results)
+        self.calls = 0
+        self.seen_messages = []
+        self.seen_requests = []
+
+    @property
+    def label(self):
+        return "scripted"
+
+    async def complete(self, request):
+        return self._next(request)
+
+    async def stream(self, request):
+        from fusion_cli.core.types import StreamDone, TextChunk
+
+        result = self._next(request)
+        if result.text:
+            yield TextChunk(result.text)
+        yield StreamDone(result)
+
+    def _next(self, request):
+        self.seen_messages.append(list(request.messages))
+        self.seen_requests.append(list(request.tools))
+        self.calls += 1
+        if not self._results:
+            return _sonuc("(betik bitti)")
+        return self._results.pop(0)
+
+
+def _sonuc(text="", *, tool_calls=(), ok=True, error=None):
+    from fusion_cli.core.types import ModelResult
+
+    return ModelResult(
+        name="agent",
+        model="sahte",
+        text=text,
+        latency_ms=1,
+        ok=ok,
+        error=error,
+        tool_calls=tuple(tool_calls),
+    )
+
+
+def model_result(text="", *, tool_calls=(), ok=True, error=None):
+    return _sonuc(text, tool_calls=tool_calls, ok=ok, error=error)
+
+
+def tool_call(name, **args):
+    import json
+
+    from fusion_cli.core.types import ToolCall
+
+    return ToolCall(id=f"call_{name}", name=name, arguments=json.dumps(args))
+
+
+class AlwaysApprove:
+    async def confirm(self, request):
+        return True
+
+
+class AlwaysReject:
+    async def confirm(self, request):
+        return False
+
+
+class ScriptedAsker:
+    """ask_user için sabit cevap veren sahte kullanıcı."""
+
+    def __init__(self, answer="sahte cevap"):
+        self.answer = answer
+        self.questions = []
+
+    async def ask(self, question):
+        self.questions.append(question)
+        return self.answer

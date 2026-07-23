@@ -15,7 +15,7 @@ dağınık biçimde değil, tek bir bayrakla cevaplanır.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -96,7 +96,11 @@ class ToolContext:
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya
 #: sistemi / kabuk / ağ üzerindedir, terminale ya da kullanıcıya değil.
-ToolExecutor = Callable[[ToolArgs, ToolContext], ToolResult]
+#:
+#: Asenkron da olabilir: alt-ajan devri ya da çoklu-model danışma gibi araçlar doğası
+#: gereği bekler. Kayıt defteri ikisini de aynı şekilde çalıştırır, çağıran taraf farkı
+#: bilmez — bu sayede motorda "şu araç özel" diye bir dal açılmaz.
+ToolExecutor = Callable[[ToolArgs, ToolContext], ToolResult | Awaitable[ToolResult]]
 
 
 @dataclass(frozen=True, slots=True)

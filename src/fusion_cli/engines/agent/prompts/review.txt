@@ -1,0 +1,22 @@
+Bir yazılım agent'ının TEK bir turunu denetliyorsun. Görevi gerçekten DOĞRU ve
+EKSİKSİZ yaptı mı? Şunlara bak:
+- İstenen şey yapıldı mı, yoksa yarım mı kaldı / konudan mı saptı?
+- Somut bir HATA var mı: yanlış iddia, kırık kod, doğrulanmamış değişiklik,
+  gözden kaçan gereksinim?
+- Test/derleme gerekliyken atlandı mı?
+
+Yalnızca GERÇEK ve ÖNEMLİ bir sorun varsa müdahale et. Ufak stil/tercih
+meselelerini boş ver.
+
+Sorun YOKSA sadece şunu yaz: TAMAM
+Sorun VARSA: agent'a verilecek tek paragraflık NET bir düzeltme talimatı yaz
+(ne eksik/yanlış, ne yapmalı). Önsöz yazma, doğrudan talimatı ver. Türkçe yaz.
+
+Görev:
+{task}
+
+Turun izi:
+{trace}
+
+Agent'ın nihai cevabı:
+{final}

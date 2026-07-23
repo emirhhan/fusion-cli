@@ -5,7 +5,6 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
 ## Taşınacak (eski projede mevcut, henüz taşınmadı)
 
-- Agent motoru: tool-calling döngüsü, reflexion, öz-eleştiri, alt-ajan
 - Bellek: performans belleği, ders belleği, semantik kod indeksi, embedding seçimi
 - REPL: prompt_toolkit girişi, onay modları, slash komut kayıt defteri, tema
 - Gözlemlenebilirlik: Langfuse izleme, oturum maliyeti takibi
@@ -33,9 +32,12 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
   (`z-ai/glm-5.2` NIM'de hiç yoktu, `tencent/hy3:free` ücretsizlikten çıkmıştı). Modelleri
   canlı katalogdan listeleyen bir komut (`fusion models --fetch`) faydalı olur.
 
-- **`LlmProvider.stream()` henüz kullanılmıyor.** Protokolde tanımlı ve testli; agent
-  motoru geldiğinde tüketilecek. Fusion modunda bilinçli olarak akış YOK: hakem ve sentez
-  paralel çalıştığı için, akan cevabın ortasına arka plan ilerlemesi düşmesin diye.
+- **Akış fusion modunda bilinçli olarak kapalı.** Hakem ve sentez paralel çalıştığı için,
+  akan cevabın ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.
+- **Ders belleği yok.** Agent şu an her turda sıfırdan başlıyor; eski projedeki
+  "öğrendiği dersi sistem promptuna enjekte etme" davranışı bellek katmanıyla gelecek.
+- **`--mode` her turda yeniden veriliyor.** REPL geldiğinde shift-tab ile mod döngüsü
+  kurulacak; tek seferlik CLI'da bayrak yeterli.
 - **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında hakem bazen ikisine puan
   veriyor. Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama puan tablosu
   eksik görünüyor. Prompt'ta "her adaya puan ver" vurgusu denenebilir.

@@ -48,6 +48,16 @@ runtime:
   # Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir (bir çağrı daha ekler).
   synthesis: true
 
+  # --- Agent davranışı ---
+  # Ardışık araç turu üst sınırı. Model bir döngüye takılırsa tur burada kesilir.
+  agent_max_steps: 25
+  # Tur bitince denetçi model sonucu kontrol eder; somut sorun bulursa TEK düzeltici
+  # tur çalışır. Bir hakem çağrısı ekler, çıktı daha sağlam olur. Hız istiyorsan kapat.
+  self_review: true
+  # Araç hata döndürünce modele "ne yanlış gitti, farklı yaklaş" notu enjekte edilir.
+  # EK MODEL ÇAĞRISI YOK; körlemesine tekrarı önler.
+  reflexion: true
+
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
 # sentez hepsinin en iyi yanlarını tek cevapta birleştirir.

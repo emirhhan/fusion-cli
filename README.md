@@ -4,9 +4,9 @@
 
 > **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
 > bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı, **fusion
-> motoru** (paralel adaylar + hakem + sentez) ve **araç katmanı** (15 araç, tehlike
-> tespiti, diff önizlemesi). Agent motoru, bellek ve REPL henüz taşınmadı — kalanlar
-> için [docs/BACKLOG.md](docs/BACKLOG.md).
+> motoru** (paralel adaylar + hakem + sentez), **araç katmanı** (18 araç) ve **agent
+> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan). Bellek ve REPL henüz
+> taşınmadı — kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
 
@@ -37,6 +37,31 @@ sağlayıcının hız sınırına takılmaz.
 .venv/bin/fusion config show                               # etkin yapılandırma
 .venv/bin/fusion version
 ```
+
+### Agent modu
+
+```bash
+.venv/bin/fusion agent "hesap.py'daki hatayi bul ve duzelt, sonra testleri calistir"
+.venv/bin/fusion agent "..." --mode plan       # yalnız planla, hiçbir şeyi değiştirme
+.venv/bin/fusion agent "..." --mode security   # her değişikliği tek tek sor
+```
+
+Agent dosya okur/yazar, komut çalıştırır, web'de arar, görev listesi tutar, zor
+kararlarda çoklu modele danışır (`council`) ve büyük işleri alt-ajana devreder.
+
+**Onay modları:**
+
+| Mod | Davranış |
+|-----|----------|
+| `auto` (varsayılan) | Değiştirici işlemlere otomatik evet — **ama** yıkıcı komutta (rm -rf, force push) yine sorar |
+| `plan` | Hiçbir değişiklik yapılmaz; yalnızca uygulanabilir bir plan üretilir |
+| `security` | Her değiştirici işlem diff önizlemesiyle tek tek sorulur |
+
+Onay istenen her işlem için **önce ne olacağı gösterilir**: dosya değişikliklerinde
+renkli unified diff, kabuk komutlarında çalıştırılacak komutun kendisi.
+
+Etkileşimsiz ortamda (CI, boru hattı) onay alınamazsa işlem **reddedilir** — sessizce
+"evet" varsayılmaz.
 
 ### Fusion nasıl çalışır
 
@@ -85,6 +110,9 @@ cli → ui → engines → { providers, memory, observability } → config → c
   üretmez: `VerdictSource` gibi semantik kodlar döner, metni `ui` seçer.
 - **`core.concurrency`** — zaman bütçeli paralel toplama (straggler kesme + mutlak üst
   sınır). Modelden ve sağlayıcıdan bağımsızdır; sahte gecikmelerle test edilir.
+- **`engines.agent`** — tool-calling döngüsü. Refleksiyon (araç hatasında yön verme,
+  ek model çağrısı yok), otomatik devam, öz-denetim (denetçi model + tek düzeltici tur)
+  ve alt-ajan devri. Onay bir protokolün arkasındadır; motor hangi modda olduğunu bilmez.
 - **`tools`** — kayıt defteri + saf executor'lar. Bir araç = şema + executor + `mutating`
   bayrağı; yeni araç eklemek kayıt defterine bir satır eklemektir, motor kodu değişmez.
   Executor'lar konsola yazmaz, onay sormaz, modül-global durum tutmaz.
