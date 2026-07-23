@@ -18,6 +18,7 @@ dependencies = [
     "rich>=13.7,<15",
     "python-dotenv>=1.0,<2",
     "chromadb>=0.5,<2",
+    "prompt_toolkit>=3.0,<4",
 ]
 
 [project.optional-dependencies]
@@ -71,6 +72,8 @@ ignore = [
 "src/fusion_cli/memory/code_index.py" = ["ANN401"]
 "src/fusion_cli/memory/embeddings.py" = ["ANN401"]
 "src/fusion_cli/memory/performance.py" = ["ANN401"]
+# prompt_toolkit da tip bilgisi yayımlamıyor; sınır bu tek dosyada.
+"src/fusion_cli/cli/repl/input.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin
@@ -83,7 +86,7 @@ warn_unreachable = true
 
 [[tool.mypy.overrides]]
 # Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
-module = ["litellm.*", "chromadb.*"]
+module = ["litellm.*", "chromadb.*", "prompt_toolkit.*"]
 ignore_missing_imports = true
 
 

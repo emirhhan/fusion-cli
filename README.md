@@ -5,9 +5,9 @@
 > **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
 > bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı, **fusion
 > motoru** (paralel adaylar + hakem + sentez), **araç katmanı** (18 araç) ve **agent
-> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan) ve **bellek**
-> (öz-öğrenme, ders belleği, anlamsal kod indeksi). REPL henüz taşınmadı —
-> kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
+> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan), **bellek**
+> (öz-öğrenme, ders belleği, anlamsal kod indeksi) ve **REPL**. Kalan işler için
+> [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
 
@@ -28,6 +28,42 @@ cp .env.example .env
 sağlayıcının hız sınırına takılmaz.
 
 ## Kullanım
+
+Argümansız çalıştırınca interaktif oturum açılır:
+
+```bash
+.venv/bin/fusion
+```
+
+```
+███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗
+██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║
+█████╗  ██║   ██║███████╗██║██║   ██║██╔██╗ ██║
+██╔══╝  ██║   ██║╚════██║██║██║   ██║██║╚██╗██║
+██║     ╚██████╔╝███████║██║╚██████╔╝██║ ╚████║
+╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+ücretsiz LLM füzyonu · araçlar · öz-öğrenen bellek
+
+motor: agent │ onay: auto │ görev: general │ model: nemotron-super
+fusion ❯
+```
+
+**shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
+çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.
+
+| Grup | Komutlar |
+|------|----------|
+| Motor | `/agent` `/fusion` |
+| Onay | `/auto` `/plan` `/security` |
+| Agent | `/reset` `/compact` |
+| Fusion | `/type <tip>` `/all` `/synth` |
+| Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
+| Bilgi | `/models` `/help` `/clear` `/exit` |
+
+Ders çıkarımı **arka planda** çalışır: bir sonraki komutu beklemez, oturum
+kapanırken tamamlanması beklenir.
+
+### Tek seferlik kullanım
 
 ```bash
 .venv/bin/fusion run "Python'da bir dosyayı satır satır nasıl okurum?"

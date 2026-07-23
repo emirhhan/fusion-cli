@@ -19,7 +19,7 @@ Zamanı dolduran işler iptal edilir; toplanan sonuçlar bitiş SIRASIYLA döner
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Coroutine, Sequence
 from typing import TypeVar
 
 T = TypeVar("T")
@@ -88,3 +88,42 @@ async def _cancel(tasks: set[asyncio.Task[T]]) -> None:
         task.cancel()
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class BackgroundTasks:
+    """Turu bekletmeden çalışacak işler.
+
+    Ders çıkarımı gibi öğrenme işleri kullanıcının bir sonraki komutunu beklet-
+    memelidir; ama başıboş da bırakılamaz — sahipsiz bir task çöp toplayıcı ya da
+    olay döngüsünün kapanmasıyla sessizce iptal olur ve öğrenme kaybolur.
+
+    Bu yüzden işler burada TUTULUR ve oturum kapanırken `drain()` ile beklenir.
+    Hatalar yutulmaz; `failures` üzerinden görünür kalır.
+    """
+
+    def __init__(self) -> None:
+        self._tasks: set[asyncio.Task[None]] = set()
+        self.failures: list[str] = []
+
+    def spawn(self, coroutine: Coroutine[object, object, None]) -> None:
+        task = asyncio.ensure_future(coroutine)
+        self._tasks.add(task)
+        task.add_done_callback(self._finish)
+
+    async def drain(self) -> None:
+        """Bekleyen tüm işleri tamamla."""
+        while self._tasks:
+            pending = tuple(self._tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
+
+    @property
+    def pending(self) -> int:
+        return len(self._tasks)
+
+    def _finish(self, task: asyncio.Task[None]) -> None:
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            self.failures.append(f"{type(error).__name__}: {error}")

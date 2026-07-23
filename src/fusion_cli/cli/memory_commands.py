@@ -40,7 +40,7 @@ def show_stats() -> None:
     if not rows:
         console.print(f"[{theme.DIM}]{messages.MEMORY_EMPTY_STATS}[/{theme.DIM}]")
         return
-    console.print(_stats_table(rows))
+    console.print(stats_table(rows))
 
 
 @app.command("lessons")
@@ -51,7 +51,7 @@ def show_lessons() -> None:
     if not lessons:
         console.print(f"[{theme.DIM}]{messages.MEMORY_EMPTY_LESSONS}[/{theme.DIM}]")
         return
-    console.print(_lessons_table(lessons))
+    console.print(lessons_table(lessons))
 
 
 @app.command("seed")
@@ -121,7 +121,7 @@ def _open() -> Memory:
     return memory
 
 
-def _stats_table(rows: tuple[ModelStats, ...]) -> Table:
+def stats_table(rows: tuple[ModelStats, ...]) -> Table:
     table = Table(title=messages.MEMORY_TABLE_TITLE)
     table.add_column(messages.MEMORY_TABLE_MODEL, style="bold")
     table.add_column(messages.MEMORY_TABLE_SAMPLES, justify="right")
@@ -139,7 +139,7 @@ def _stats_table(rows: tuple[ModelStats, ...]) -> Table:
     return table
 
 
-def _lessons_table(lessons: tuple[Lesson, ...]) -> Table:
+def lessons_table(lessons: tuple[Lesson, ...]) -> Table:
     mistakes = sum(1 for lesson in lessons if lesson.kind is LessonKind.MISTAKE)
     table = Table(
         title=messages.LESSON_TABLE_TITLE.format(

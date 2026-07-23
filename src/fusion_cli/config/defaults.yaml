@@ -17,7 +17,7 @@
 #   2) o model tamamen erişilemezse bambaşka bir aile (gpt-oss) devralır.
 # Böylece tek nokta arızası kalmaz.
 agent:
-  name: nemotron-3-super
+  name: nemotron-super
   model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
   tags: [code, agent, reasoning]
   fallback:

@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.concurrency import BackgroundTasks
 from ...core.events import (
     Channel,
     ContextCompressed,
@@ -95,6 +96,9 @@ class AgentDeps:
     code_index: CodeIndex | None = None
     #: Öğrenilen dersler. Yoksa hatırlama ve ders çıkarımı atlanır.
     lessons: LessonMemory | None = None
+    #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
+    #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
+    background: BackgroundTasks | None = None
     channel: Channel = Channel.MAIN
 
 
@@ -324,7 +328,18 @@ async def _learn(task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode
     if plan_mode or outcome.tool_calls_made == 0:
         return
 
-    lessons = await learning.extract_lessons(task, outcome.messages, config=deps.config)
+    work = _extract_and_store(task, list(outcome.messages), deps)
+    if deps.background is None:
+        await work
+    else:
+        deps.background.spawn(work)
+
+
+async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps) -> None:
+    """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
+    if deps.lessons is None:
+        return
+    lessons = await learning.extract_lessons(task, messages, config=deps.config)
     stored = learning.store_lessons(lessons, deps.lessons)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))

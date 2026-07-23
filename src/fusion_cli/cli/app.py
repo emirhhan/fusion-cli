@@ -28,12 +28,13 @@ from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from . import memory_commands
 from .prompter import ConsolePrompter
+from .repl import run_repl
 from .session import open_memory, run_agent_task, run_task
 
 app = typer.Typer(
     add_completion=False,
-    no_args_is_help=True,
-    help="Ücretsiz LLM'lerle çalışan agentic CLI.",
+    invoke_without_command=True,
+    help="Ücretsiz LLM'lerle çalışan agentic CLI. Argümansız çalıştırılırsa REPL açılır.",
 )
 config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
 app.add_typer(config_app, name="config")
@@ -44,6 +45,25 @@ console = Console()
 
 #: Yapılandırmadaki `task_model_map` ile aynı anahtarlar.
 TASK_TYPES = ("general", "code", "reasoning", "agent")
+
+
+@app.callback()
+def main_callback(ctx: typer.Context) -> None:
+    """Argümansız çağrıldığında interaktif oturumu başlat."""
+    if ctx.invoked_subcommand is not None:
+        return
+    config = load_config()
+    root = Path.cwd()
+    raise typer.Exit(
+        asyncio.run(
+            run_repl(
+                config,
+                memory=open_memory(config, root=root),
+                root=root,
+                console=console,
+            )
+        )
+    )
 
 
 @app.command()
