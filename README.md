@@ -3,9 +3,9 @@
 Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
 
 > **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
-> bir yapıya faz faz taşınmasıdır. Şu an **Faz 1** tamamlanmıştır: yapılandırma, sağlayıcı
-> katmanı ve tek modelle çalışan `run` komutu. Fusion motoru, araçlar, bellek ve REPL
-> sonraki fazlarda gelir — yol haritası için [docs/BACKLOG.md](docs/BACKLOG.md).
+> bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı ve **fusion
+> motoru** (paralel adaylar + hakem + sentez). Araçlar, agent motoru, bellek ve REPL
+> henüz taşınmadı — kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
 
@@ -29,10 +29,24 @@ sağlayıcının hız sınırına takılmaz.
 
 ```bash
 .venv/bin/fusion run "Python'da bir dosyayı satır satır nasıl okurum?"
-.venv/bin/fusion run "kısa bir cevap ver" --quiet   # ilerleme satırlarını gizle
-.venv/bin/fusion config show                        # etkin yapılandırma
+.venv/bin/fusion run "bir REST API tasarla" --type code    # görev tipine göre model önceliği
+.venv/bin/fusion run "2+2?" --all                          # tüm aday cevaplarını göster
+.venv/bin/fusion run "kısa cevapla" --no-synthesis         # hakemin seçtiği cevabı göster
+.venv/bin/fusion run "kısa cevapla" --quiet                # ilerleme satırlarını gizle
+.venv/bin/fusion config show                               # etkin yapılandırma
 .venv/bin/fusion version
 ```
+
+### Fusion nasıl çalışır
+
+1. Görev tüm adaylara **paralel** sorulur. Her adayın kendi yedek zinciri vardır ve
+   yedekler birincil ile **aynı anda** denenir; ilk başarılı yanıt kazanır.
+2. Yeterli cevap geldiğinde yavaş adaylara kısa bir ek süre tanınır, sonra kesilir.
+   İlk cevaptan itibaren mutlak bir üst sınır işler: soğuk bir uç turu kilitleyemez.
+3. **Hakem ve sentez paralel çalışır** — ikisi de yalnızca aday cevaplarını okur, biri
+   diğerini beklemez. Gecikme ikisinin toplamı değil, uzun olanı kadardır.
+4. Hakem yetişemez ya da bozuk çıktı verirse sezgisel kazanan seçilir; sentez cevabı
+   yine üretilir. Kullanıcı hiçbir senaryoda beklemede kalmaz.
 
 ## Yapılandırma
 
@@ -66,6 +80,10 @@ cli → ui → engines → { providers, memory, observability } → config → c
 - **`observability.bus`** — olay veriyolu. Motorlar konsolu **hiç tanımaz**; tiplenmiş
   olay yayınlar, veriyolu bunları **sırayla** dinleyicilere dağıtır. Çıktı çakışması
   yapısal olarak imkânsızdır.
+- **`engines.fusion`** — paralel adaylar, hakem, sentez. Kullanıcıya gösterilecek METİN
+  üretmez: `VerdictSource` gibi semantik kodlar döner, metni `ui` seçer.
+- **`core.concurrency`** — zaman bütçeli paralel toplama (straggler kesme + mutlak üst
+  sınır). Modelden ve sağlayıcıdan bağımsızdır; sahte gecikmelerle test edilir.
 - **`ui`** — Rich importunun bulunduğu tek yer. Kullanıcıya görünen tüm Türkçe metin
   `ui/messages.py`'de toplanır.
 

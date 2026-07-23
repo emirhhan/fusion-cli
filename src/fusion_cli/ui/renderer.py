@@ -15,19 +15,27 @@ Veriyolu olayları zaten sırayla verdiği için burada eşzamanlılık kaygıs�
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.markup import escape
+from rich.table import Table
 
 from ..core.events import (
+    CandidatesStarted,
     Channel,
     ErrorOccurred,
     Event,
+    FusionCompleted,
+    JudgingStarted,
     ModelCallFinished,
     ModelCallStarted,
     StatusChanged,
     TokenReceived,
     TurnFinished,
 )
+from ..core.types import FusionResult, VerdictSource
 from . import messages, theme
 
 _CHANNEL_LABELS = {
@@ -39,9 +47,16 @@ _CHANNEL_LABELS = {
 class ConsoleRenderer:
     """Olayları Rich konsoluna basan dinleyici."""
 
-    def __init__(self, console: Console | None = None, *, show_progress: bool = True) -> None:
+    def __init__(
+        self,
+        console: Console | None = None,
+        *,
+        show_progress: bool = True,
+        show_all_answers: bool = False,
+    ) -> None:
         self._console = console or Console()
         self._show_progress = show_progress
+        self._show_all_answers = show_all_answers
         self._line_open = False
         self._active_channel: Channel | None = None
 
@@ -56,6 +71,20 @@ class ConsoleRenderer:
             self._status(messages.MODEL_CALL_STARTED.format(role=event.role, model=event.model))
         elif isinstance(event, ModelCallFinished):
             self._model_finished(event)
+        elif isinstance(event, CandidatesStarted):
+            self._status(
+                messages.FUSION_CANDIDATES.format(
+                    count=len(event.names), names=", ".join(event.names)
+                )
+            )
+        elif isinstance(event, JudgingStarted):
+            self._status(
+                messages.FUSION_JUDGING_AND_SYNTHESIZING
+                if event.with_synthesis
+                else messages.FUSION_JUDGING
+            )
+        elif isinstance(event, FusionCompleted):
+            self._fusion_result(event.result)
         elif isinstance(event, ErrorOccurred):
             self._error(event.message)
         elif isinstance(event, TurnFinished):
@@ -113,3 +142,88 @@ class ConsoleRenderer:
         self._close_line()
         label = f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]"
         self._console.print(f"{label} {escape(message)}")
+
+    # -- Fusion sonucu ------------------------------------------------------- #
+
+    #: Kazananın nasıl belirlendiğine göre başlık metni.
+    _SOURCE_LABELS: ClassVar[dict[VerdictSource, str]] = {
+        VerdictSource.SINGLE: messages.FUSION_SINGLE,
+        VerdictSource.FALLBACK: messages.FUSION_JUDGE_FALLBACK,
+    }
+
+    def _fusion_result(self, result: FusionResult) -> None:
+        self._close_line()
+        if result.source is VerdictSource.NONE:
+            return  # cevapsız tur: hatayı `ErrorOccurred` zaten bildirdi
+
+        self._console.print()
+        self._console.print(f"[bold {theme.ACCENT}]{self._headline(result)}[/bold {theme.ACCENT}]")
+        # Hakemin gerekçesi KAZANAN adayı anlatır. Sentez gösterildiğinde ekrandaki
+        # metin kazananın metni değildir; gerekçeyi orada göstermek yanıltıcı olur.
+        if result.reason and not result.synthesized:
+            self._console.print(f"[{theme.DIM}]{escape(result.reason)}[/{theme.DIM}]")
+        self._console.print()
+        # Nihai cevap markdown olarak basılır; kod blokları ve listeler okunur kalır.
+        self._console.print(Markdown(result.final_answer))
+        self._console.print()
+
+        self._candidate_summary(result)
+        if self._show_all_answers:
+            self._all_answers(result)
+        self._score_table(result)
+
+    def _headline(self, result: FusionResult) -> str:
+        if result.synthesized:
+            return messages.FUSION_SYNTHESIZED
+        label = self._SOURCE_LABELS.get(result.source)
+        if label is not None:
+            return label
+        return messages.FUSION_WINNER.format(winner=result.winner)
+
+    def _candidate_summary(self, result: FusionResult) -> None:
+        parts = []
+        for candidate in result.candidates:
+            if candidate.ok and candidate.text:
+                mark = "★" if candidate.name == result.winner else theme.ICON_OK
+                parts.append(
+                    f"[{theme.OK}]{mark} {escape(candidate.name)} "
+                    f"{candidate.latency_ms}ms[/{theme.OK}]"
+                )
+            else:
+                parts.append(
+                    f"[{theme.ERROR}]{theme.ICON_ERROR} {escape(candidate.name)}[/{theme.ERROR}]"
+                )
+        self._console.print(
+            f"[{theme.DIM}]{messages.FUSION_CANDIDATE_SUMMARY}[/{theme.DIM}] " + " ".join(parts)
+        )
+
+    def _all_answers(self, result: FusionResult) -> None:
+        for candidate in result.successful:
+            title = messages.FUSION_ALL_ANSWERS.format(
+                name=candidate.name, latency=candidate.latency_ms
+            )
+            style = theme.OK if candidate.name == result.winner else theme.INFO
+            self._console.print()
+            self._console.print(f"[{style}]{escape(title)}[/{style}]")
+            self._console.print(Markdown(candidate.text))
+
+    def _score_table(self, result: FusionResult) -> None:
+        if not result.scores:
+            return
+        table = Table(show_edge=False, pad_edge=False, box=None)
+        table.add_column(messages.FUSION_SCORE_TABLE_MODEL, style="bold")
+        table.add_column(messages.FUSION_SCORE_TABLE_SCORE, justify="right")
+        for name, score in sorted(result.scores.items(), key=lambda item: item[1], reverse=True):
+            mark = " ★" if name == result.winner else ""
+            table.add_row(
+                escape(name) + mark, f"[{_score_color(score)}]{score:.2f}[/{_score_color(score)}]"
+            )
+        self._console.print(table)
+
+
+def _score_color(score: float) -> str:
+    if score >= 0.8:
+        return theme.OK
+    if score >= 0.6:
+        return theme.WARN
+    return theme.ERROR

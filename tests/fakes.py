@@ -93,3 +93,58 @@ def request(**overrides) -> CompletionRequest:
     }
     defaults.update(overrides)
     return CompletionRequest(**defaults)
+
+
+def make_config(**overrides):
+    """Testler için tam bir Config. Alanlar override ile değiştirilebilir."""
+    from pathlib import Path as _Path
+
+    from fusion_cli.config.models import Config, RuntimeConfig
+    from fusion_cli.core.types import ModelSpec
+
+    runtime_overrides = overrides.pop("runtime", {})
+    runtime = {
+        "request_timeout_s": 5.0,
+        "max_retries": 0,
+        "temperature": 0.0,
+        "max_tokens": 32,
+        "judge_timeout_s": 5.0,
+        "judge_max_tokens": 64,
+        "min_successful_candidates": 1,
+        "straggler_grace_s": 0.05,
+        "candidate_hard_cap_s": 1.0,
+        "synthesis": True,
+    }
+    runtime.update(runtime_overrides)
+
+    defaults = {
+        "agent": ModelSpec(name="agent", model="sahte/agent"),
+        "candidates": (
+            ModelSpec(name="a", model="sahte/a"),
+            ModelSpec(name="b", model="sahte/b"),
+            ModelSpec(name="c", model="sahte/c"),
+        ),
+        "judge": ModelSpec(name="hakem", model="sahte/hakem"),
+        "task_model_map": {"general": "a", "code": "c"},
+        "runtime": RuntimeConfig(**runtime),
+        "source": _Path("test"),
+    }
+    defaults.update(overrides)
+    return Config(**defaults)
+
+
+def patch_providers(monkeypatch, module, by_name):
+    """`build_provider`'ı sahte sağlayıcılarla değiştir.
+
+    `by_name`: rol adı → FakeProvider. Olay yayını istenirse EventingProvider ile sarılır.
+    """
+    from fusion_cli.core.events import Channel
+    from fusion_cli.providers.eventing import EventingProvider
+
+    def _build(spec, *, publisher, channel=Channel.MAIN, clock=None):
+        provider = by_name[spec.name]
+        if publisher is None:
+            return provider
+        return EventingProvider(provider, publisher=publisher, role=spec.name, channel=channel)
+
+    monkeypatch.setattr(module, "build_provider", _build)

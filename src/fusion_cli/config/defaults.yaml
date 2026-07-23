@@ -32,3 +32,55 @@ runtime:
   max_retries: 1
   temperature: 0.3
   max_tokens: 2048
+
+  # --- Fusion zamanlaması ---
+  # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
+  # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
+  judge_timeout_s: 20
+  # Reasoning modelleri önce "düşünür", sonra JSON verir; ikisi bu bütçeye sığmalıdır.
+  judge_max_tokens: 1024
+  # Bu sayının altında başarılı aday kalırsa tur cevapsız biter.
+  min_successful_candidates: 1
+  # Yeterli cevap geldikten sonra yavaş adaylara tanınan ek süre.
+  straggler_grace_s: 6.0
+  # İlk cevaptan itibaren adaylar için mutlak üst sınır: soğuk bir uç turu kilitleyemez.
+  candidate_hard_cap_s: 25.0
+  # Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir (bir çağrı daha ekler).
+  synthesis: true
+
+# ---------------------------------------------------------------------------
+# Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
+# sentez hepsinin en iyi yanlarını tek cevapta birleştirir.
+#
+# Üçü de 2026-07-23'te canlı ölçümle doğrulanmıştır. Her adayın yedeği bilinçli
+# olarak FARKLI bir sağlayıcıdadır: bir sağlayıcının kotası dolduğunda havuz çökmez.
+candidates:
+  - name: nemotron-super
+    model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+    tags: [reasoning, general]
+    fallback:
+      - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+  - name: nemotron-nano
+    model: openrouter/nvidia/nemotron-3-nano-30b-a3b:free
+    tags: [general]
+    fallback:
+      - nvidia_nim/nvidia/nemotron-3-nano-30b-a3b
+  - name: gpt-oss
+    model: openrouter/openai/gpt-oss-20b:free
+    tags: [code, agent]
+    fallback: []
+
+# Hakem + sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
+judge:
+  name: hakem
+  model: openrouter/openai/gpt-oss-20b:free
+  fallback:
+    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+
+# Görev tipine göre öne alınacak aday. Yalnızca yukarıda tanımlı bir ad yazılabilir.
+task_model_map:
+  general: nemotron-super
+  code: gpt-oss
+  reasoning: nemotron-super
+  agent: gpt-oss

@@ -27,7 +27,7 @@ from .models import Config, RuntimeConfig
 from .paths import bundled_defaults, env_file_candidates, user_config_candidates
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
-_SECTIONS = ("agent", "runtime")
+_SECTIONS = ("agent", "candidates", "judge", "task_model_map", "runtime")
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
 T = TypeVar("T")
@@ -59,9 +59,48 @@ def load_config(path: str | Path | None = None) -> Config:
     _reject_unknown(merged, _SECTIONS, "yapılandırma kökü")
     return Config(
         agent=_build(ModelSpec, merged["agent"], "agent"),
+        candidates=_build_candidates(merged["candidates"]),
+        judge=_build(ModelSpec, merged["judge"], "judge"),
+        task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build(RuntimeConfig, merged["runtime"], "runtime"),
         source=source,
     )
+
+
+def _build_candidates(raw: object) -> tuple[ModelSpec, ...]:
+    """Aday listesini doğrula: boş olamaz, adlar benzersiz olmalı."""
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError("candidates: en az bir aday tanımlı olmalı.")
+    specs = tuple(_build(ModelSpec, item, f"candidates[{index}]") for index, item in enumerate(raw))
+    names = [spec.name for spec in specs]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ConfigError(
+            f"candidates: aday adları benzersiz olmalı, tekrar eden: {', '.join(duplicates)}"
+        )
+    return specs
+
+
+def _build_task_map(raw: object, candidates: object) -> dict[str, str]:
+    """Görev tipi eşlemesi var olmayan bir adayı işaret edemez."""
+    if not isinstance(raw, dict):
+        raise ConfigError(f"task_model_map: sözlük bekleniyordu, gelen: {type(raw).__name__}")
+    known = {
+        item.get("name")
+        for item in (candidates if isinstance(candidates, list) else [])
+        if isinstance(item, dict)
+    }
+    mapping: dict[str, str] = {}
+    for task_type, name in raw.items():
+        if not isinstance(name, str):
+            raise ConfigError(f"task_model_map.{task_type}: metin bekleniyordu.")
+        if name not in known:
+            raise ConfigError(
+                f"task_model_map.{task_type}: '{name}' adlı aday tanımlı değil. "
+                f"Tanımlı adaylar: {', '.join(sorted(str(k) for k in known))}"
+            )
+        mapping[str(task_type)] = name
+    return mapping
 
 
 # --------------------------------------------------------------------------- #

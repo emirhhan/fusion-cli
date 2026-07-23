@@ -20,6 +20,7 @@ from .. import __version__
 from ..config.loader import load_config
 from ..config.models import Config
 from ..core.errors import FusionError
+from ..core.types import ModelSpec, VerdictSource
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from .session import run_task
@@ -35,19 +36,42 @@ app.add_typer(config_app, name="config")
 console = Console()
 
 
+#: Yapılandırmadaki `task_model_map` ile aynı anahtarlar.
+TASK_TYPES = ("general", "code", "reasoning", "agent")
+
+
 @app.command()
 def run(
-    task: str = typer.Argument(..., help="Modele verilecek görev ya da soru."),
+    task: str = typer.Argument(..., help="Modellere verilecek görev ya da soru."),
+    task_type: str = typer.Option(
+        "general", "--type", "-t", help=f"Görev tipi: {' | '.join(TASK_TYPES)}"
+    ),
+    show_all: bool = typer.Option(False, "--all", help="Tüm aday cevaplarını göster."),
+    no_synthesis: bool = typer.Option(
+        False, "--no-synthesis", help="Sentezi kapat; hakemin seçtiği cevabı göster."
+    ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
 ) -> None:
-    """Bir görevi tek modelle çalıştır ve cevabı akıtarak göster."""
+    """Görevi tüm adaylara paralel sor, hakem ve sentezle en iyi cevabı üret."""
     if not task.strip():
         raise typer.BadParameter(messages.RUN_EMPTY_TASK)
+    if task_type not in TASK_TYPES:
+        raise typer.BadParameter(
+            messages.RUN_UNKNOWN_TASK_TYPE.format(given=task_type, valid=", ".join(TASK_TYPES))
+        )
 
     config = load_config()
-    renderer = ConsoleRenderer(console, show_progress=not quiet)
-    result = asyncio.run(run_task(task, config, sinks=(renderer,)))
-    if not result.ok:
+    renderer = ConsoleRenderer(console, show_progress=not quiet, show_all_answers=show_all)
+    result = asyncio.run(
+        run_task(
+            task,
+            config,
+            sinks=(renderer,),
+            task_type=task_type,
+            synthesis=False if no_synthesis else None,
+        )
+    )
+    if result.source is VerdictSource.NONE:
         raise typer.Exit(1)
 
 
@@ -72,18 +96,28 @@ def _print_config(config: Config) -> None:
     )
     console.print(f"[{theme.DIM}]{source}[/{theme.DIM}]\n")
 
-    console.print(f"[bold]{messages.CONFIG_HEADING_AGENT}[/bold]")
-    console.print(f"  {config.agent.name}: [{theme.ACCENT}]{config.agent.model}[/{theme.ACCENT}]")
-    if config.agent.fallback:
-        for fallback in config.agent.fallback:
-            console.print(f"  [{theme.DIM}]yedek: {fallback}[/{theme.DIM}]")
-    else:
-        console.print(f"  [{theme.DIM}]{messages.CONFIG_FALLBACK_NONE}[/{theme.DIM}]")
+    console.print(f"[bold]{messages.CONFIG_HEADING_CANDIDATES}[/bold]")
+    for candidate in config.candidates:
+        _print_spec(candidate)
+    console.print(f"\n[bold]{messages.CONFIG_HEADING_JUDGE}[/bold]")
+    _print_spec(config.judge)
+    console.print(f"\n[bold]{messages.CONFIG_HEADING_AGENT}[/bold]")
+    _print_spec(config.agent)
 
     console.print(f"\n[bold]{messages.CONFIG_HEADING_RUNTIME}[/bold]")
     for field in fields(config.runtime):
         value = getattr(config.runtime, field.name)
         console.print(f"  [{theme.DIM}]{field.name}:[/{theme.DIM}] {value}")
+
+
+def _print_spec(spec: ModelSpec) -> None:
+    tags = f" [{theme.DIM}]({', '.join(spec.tags)})[/{theme.DIM}]" if spec.tags else ""
+    console.print(f"  {spec.name}: [{theme.ACCENT}]{spec.model}[/{theme.ACCENT}]{tags}")
+    if spec.fallback:
+        for fallback in spec.fallback:
+            console.print(f"    [{theme.DIM}]yedek: {fallback}[/{theme.DIM}]")
+    else:
+        console.print(f"    [{theme.DIM}]{messages.CONFIG_FALLBACK_NONE}[/{theme.DIM}]")
 
 
 def main() -> None:

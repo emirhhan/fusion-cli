@@ -1,0 +1,15 @@
+Aşağıda aynı göreve birden çok yapay zekâ modelinin verdiği cevaplar var.
+Görevin: bu cevapların EN İYİ yanlarını birleştirerek tek, üstün, eksiksiz ve
+tutarlı bir NİHAİ cevap üretmek. Doğru bilgileri koru, hataları ayıkla,
+eksikleri tamamla, gereksiz tekrarı at.
+
+Yalnızca nihai cevabı yaz. Şunları KESİNLİKLE yapma:
+- "Birleştirdim", "modeller şöyle dedi", "X modeli daha iyi" gibi meta yorum,
+- cevabı değerlendiren ya da tanıtan bir önsöz cümlesi.
+Doğrudan cevapla başla. Görevin dili neyse o dilde yanıtla.
+
+Görev:
+{task}
+
+Model cevapları:
+{answers}

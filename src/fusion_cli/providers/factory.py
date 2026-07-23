@@ -22,14 +22,21 @@ from .litellm_provider import LiteLlmProvider, configure_litellm
 def build_provider(
     spec: ModelSpec,
     *,
-    publisher: EventPublisher,
+    publisher: EventPublisher | None,
     channel: Channel = Channel.MAIN,
     clock: Clock | None = None,
 ) -> LlmProvider:
-    """`ModelSpec`'ten kullanıma hazır, dayanıklı ve olay yayınlayan sağlayıcı üret."""
+    """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
+
+    `publisher=None` verilirse olay yayını katmanı hiç eklenmez: çağrı SESSİZ olur.
+    Hakem ve sentez böyle çağrılır — arka plan işleri kullanıcının okuduğu cevabın
+    ortasına ilerleme satırı düşürmemelidir.
+    """
     configure_litellm()
     inner = HedgedProvider(
         [LiteLlmProvider(model, role=spec.name, clock=clock) for model in spec.models],
         role=spec.name,
     )
+    if publisher is None:
+        return inner
     return EventingProvider(inner, publisher=publisher, role=spec.name, channel=channel)

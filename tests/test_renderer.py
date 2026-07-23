@@ -112,3 +112,80 @@ def test_quiet_modda_durum_basilmaz_ama_metin_akar():
     cikti = buffer.getvalue()
     assert "gizli" not in cikti
     assert "gorunur" in cikti
+
+
+def _fusion_sonuc(**overrides):
+    from fusion_cli.core.types import FusionResult, ModelResult, VerdictSource
+
+    aday = ModelResult(name="a", model="m", text="A cevabi", latency_ms=10, ok=True)
+    defaults = {
+        "task": "t",
+        "task_type": "general",
+        "winner": "a",
+        "final_answer": "nihai cevap",
+        "source": VerdictSource.JUDGE,
+        "candidates": (aday,),
+        "reason": "a daha net anlatmis",
+        "scores": {"a": 0.9},
+        "synthesized": False,
+    }
+    defaults.update(overrides)
+    return FusionResult(**defaults)
+
+
+def test_sentez_gosterilirken_hakem_gerekcesi_basilmaz():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc(synthesized=True)))
+
+    cikti = buffer.getvalue()
+    assert "sentezlenmiş" in cikti
+    # Gerekçe kazananı anlatır; sentez metninin yanında gösterilmesi yanıltıcı olur.
+    assert "a daha net anlatmis" not in cikti
+
+
+def test_sentez_yokken_hakem_gerekcesi_basilir():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    cikti = buffer.getvalue()
+    assert "kazanan: a" in cikti
+    assert "a daha net anlatmis" in cikti
+
+
+def test_cevapsiz_turda_fusion_bloku_basilmaz():
+    from fusion_cli.core.events import FusionCompleted
+    from fusion_cli.core.types import VerdictSource
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc(source=VerdictSource.NONE, final_answer="")))
+
+    assert buffer.getvalue().strip() == ""
+
+
+def test_tum_cevaplar_secenegi_aday_metinlerini_gosterir():
+    from fusion_cli.core.events import FusionCompleted
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_all_answers=True)
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    assert "A cevabi" in buffer.getvalue()
+
+
+def test_puan_tablosu_kazanani_isaretler():
+    from fusion_cli.core.events import FusionCompleted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(FusionCompleted(_fusion_sonuc()))
+
+    assert "0.90" in buffer.getvalue()

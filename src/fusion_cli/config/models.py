@@ -23,6 +23,18 @@ class RuntimeConfig:
     max_retries: int
     temperature: float
     max_tokens: int
+    #: Hakem için sıkı son tarih. Aşılırsa sezgisel kazanan seçilir, tur durmaz.
+    judge_timeout_s: float
+    #: Hakem bütçesi. Reasoning modelleri düşünme + JSON'u buraya sığdırmalıdır.
+    judge_max_tokens: int
+    #: Bu sayının altında başarılı aday kalırsa tur cevapsız biter.
+    min_successful_candidates: int
+    #: Yeterli cevap geldikten sonra yavaş adaylara tanınan ek süre.
+    straggler_grace_s: float
+    #: İlk cevaptan itibaren adaylar için mutlak üst sınır.
+    candidate_hard_cap_s: float
+    #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
+    synthesis: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +42,12 @@ class Config:
     """Uygulamanın tüm yapılandırması. Katmanlara ham dict değil bu nesne geçer."""
 
     agent: ModelSpec
+    #: Fusion havuzu: aynı göreve paralel sorulan modeller.
+    candidates: tuple[ModelSpec, ...]
+    #: Hakem ve sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
+    judge: ModelSpec
+    #: Görev tipi → tercih edilen aday adı. Bellek katmanı geldiğinde bunu ezecek.
+    task_model_map: dict[str, str]
     runtime: RuntimeConfig
     #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
     source: Path | None

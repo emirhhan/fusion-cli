@@ -1,96 +1,105 @@
-"""Oturum akışı — uçtan uca, ağ olmadan."""
+"""Oturum akışı — fusion motoru uçtan uca, ağ olmadan."""
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
+import json
 
 from fusion_cli.cli import session
-from fusion_cli.config.models import Config, RuntimeConfig
-from fusion_cli.core.events import (
-    ErrorOccurred,
-    ModelCallFinished,
-    ModelCallStarted,
-    StatusChanged,
-    TokenReceived,
-    TurnFinished,
-)
-from fusion_cli.core.types import ModelSpec
+from fusion_cli.core.events import ErrorOccurred, FusionCompleted, TurnFinished
+from fusion_cli.core.types import VerdictSource
+from fusion_cli.engines.fusion import engine as fusion_engine
 
-from .fakes import FakeProvider, RecordingSink
+from .fakes import FakeProvider, RecordingSink, make_config, patch_providers
 
 
-@pytest.fixture
-def config():
-    return Config(
-        agent=ModelSpec(name="agent", model="sahte/model"),
-        runtime=RuntimeConfig(request_timeout_s=5.0, max_retries=0, temperature=0.0, max_tokens=32),
-        source=Path("test"),
+def _hakem(winner):
+    return FakeProvider("hakem", chunks=(json.dumps({"winner": winner, "scores": {}}),))
+
+
+def _kur(monkeypatch, saglayicilar):
+    patch_providers(monkeypatch, fusion_engine, saglayicilar)
+
+
+async def test_basarili_tur_fusion_sonucu_olayi_yayinlar(monkeypatch):
+    _kur(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", chunks=("A",)),
+            "b": FakeProvider("b", chunks=("B",)),
+            "c": FakeProvider("c", chunks=("C",)),
+            "hakem": _hakem("a"),
+        },
     )
-
-
-def _sahte_saglayici(monkeypatch, provider):
-    from fusion_cli.providers.eventing import EventingProvider
-
-    def _build(spec, *, publisher, channel=None, clock=None):
-        from fusion_cli.core.events import Channel
-
-        return EventingProvider(
-            provider, publisher=publisher, role=spec.name, channel=channel or Channel.MAIN
-        )
-
-    monkeypatch.setattr(session, "build_provider", _build)
-
-
-async def test_basarili_gorev_metni_akitir_ve_sonuc_dondurur(monkeypatch, config):
-    _sahte_saglayici(monkeypatch, FakeProvider("sahte", chunks=("mer", "haba")))
     sink = RecordingSink()
 
-    result = await session.run_task("selam", config, sinks=(sink,))
+    result = await session.run_task("gorev", make_config(), sinks=(sink,), synthesis=False)
 
-    assert result.ok
-    assert result.text == "merhaba"
-    metin = "".join(e.text for e in sink.events if isinstance(e, TokenReceived))
-    assert metin == "merhaba"
+    assert result.source is VerdictSource.JUDGE
+    tamamlanan = [event for event in sink.events if isinstance(event, FusionCompleted)]
+    assert len(tamamlanan) == 1
+    assert tamamlanan[0].result.winner == "a"
+    assert isinstance(sink.events[-1], TurnFinished)
 
 
-async def test_olay_sirasi_beklenen_akisi_izler(monkeypatch, config):
-    _sahte_saglayici(monkeypatch, FakeProvider("sahte", chunks=("a",)))
+async def test_cevapsiz_tur_hata_olayi_yayinlar(monkeypatch):
+    _kur(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", ok=False, error="503"),
+            "b": FakeProvider("b", ok=False, error="503"),
+            "c": FakeProvider("c", ok=False, error="503"),
+            "hakem": _hakem("a"),
+        },
+    )
     sink = RecordingSink()
 
-    await session.run_task("selam", config, sinks=(sink,))
+    result = await session.run_task("gorev", make_config(), sinks=(sink,))
 
-    tipler = [type(event) for event in sink.events]
-    assert tipler[0] is StatusChanged
-    assert tipler[1] is ModelCallStarted
-    assert ModelCallFinished in tipler
-    assert tipler[-1] is TurnFinished
-
-
-async def test_basarisiz_cagri_hata_olayi_yayinlar(monkeypatch, config):
-    _sahte_saglayici(monkeypatch, FakeProvider("sahte", ok=False, error="503 sunucu"))
-    sink = RecordingSink()
-
-    result = await session.run_task("selam", config, sinks=(sink,))
-
-    assert not result.ok
+    assert result.source is VerdictSource.NONE
     hatalar = [event for event in sink.events if isinstance(event, ErrorOccurred)]
     assert hatalar and hatalar[0].fatal
+    assert not any(isinstance(event, FusionCompleted) for event in sink.events)
 
 
-async def test_hiz_siniri_ozel_mesaj_uretir(monkeypatch, config):
-    _sahte_saglayici(monkeypatch, FakeProvider("sahte", ok=False, error="429 rate limit"))
+async def test_hiz_siniri_ozel_mesaj_uretir(monkeypatch):
+    _kur(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", ok=False, error="429 rate limit"),
+            "b": FakeProvider("b", ok=False, error="429 rate limit"),
+            "c": FakeProvider("c", ok=False, error="429 rate limit"),
+            "hakem": _hakem("a"),
+        },
+    )
     sink = RecordingSink()
 
-    await session.run_task("selam", config, sinks=(sink,))
+    await session.run_task("gorev", make_config(), sinks=(sink,))
 
     hata = next(event for event in sink.events if isinstance(event, ErrorOccurred))
     assert "kota" in hata.message.lower()
 
 
-def test_istek_yapilandirmadaki_calisma_zamani_ayarlarini_kullanir(config):
-    request = session.build_request("selam", config)
+async def test_gorev_tipi_motora_gecirilir(monkeypatch):
+    _kur(
+        monkeypatch,
+        {
+            "a": FakeProvider("a", chunks=("A",)),
+            "b": FakeProvider("b", chunks=("B",)),
+            "c": FakeProvider("c", chunks=("C",)),
+            "hakem": _hakem("c"),
+        },
+    )
+    sink = RecordingSink()
+
+    result = await session.run_task(
+        "gorev", make_config(), sinks=(sink,), task_type="code", synthesis=False
+    )
+
+    assert result.task_type == "code"
+
+
+def test_istek_yapilandirmadaki_calisma_zamani_ayarlarini_kullanir():
+    request = session.build_request("selam", make_config())
 
     assert request.max_tokens == 32
     assert request.timeout_s == 5.0

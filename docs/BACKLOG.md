@@ -3,9 +3,8 @@
 Taşıma sırasında ortaya çıkan, o fazın kapsamına girmediği için ertelenen işler.
 CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
-## Faz 2+ için taşınacak (eski projede mevcut, henüz taşınmadı)
+## Taşınacak (eski projede mevcut, henüz taşınmadı)
 
-- Fusion motoru: paralel adaylar, straggler kesme, hakem, sentez
 - Araç katmanı: kayıt defteri, executor'lar, tehlike tespiti, diff önizleme
 - Agent motoru: tool-calling döngüsü, reflexion, öz-eleştiri, alt-ajan
 - Bellek: performans belleği, ders belleği, semantik kod indeksi, embedding seçimi
@@ -34,3 +33,10 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 - **Model kataloğu kayması:** varsayılan modeller sağlayıcı tarafında sessizce kaybolabiliyor
   (`z-ai/glm-5.2` NIM'de hiç yoktu, `tencent/hy3:free` ücretsizlikten çıkmıştı). Modelleri
   canlı katalogdan listeleyen bir komut (`fusion models --fetch`) faydalı olur.
+
+- **`LlmProvider.stream()` henüz kullanılmıyor.** Protokolde tanımlı ve testli; agent
+  motoru geldiğinde tüketilecek. Fusion modunda bilinçli olarak akış YOK: hakem ve sentez
+  paralel çalıştığı için, akan cevabın ortasına arka plan ilerlemesi düşmesin diye.
+- **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında hakem bazen ikisine puan
+  veriyor. Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama puan tablosu
+  eksik görünüyor. Prompt'ta "her adaya puan ver" vurgusu denenebilir.

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
-from .types import ModelResult
+from .types import FusionResult, ModelResult
 
 
 class Channel(Enum):
@@ -68,6 +68,27 @@ class ErrorOccurred(Event):
 
     message: str
     fatal: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CandidatesStarted(Event):
+    """Aday modeller paralel olarak çalışmaya başladı."""
+
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class JudgingStarted(Event):
+    """Hakem (ve istenmişse sentez) aşaması başladı."""
+
+    with_synthesis: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FusionCompleted(Event):
+    """Fusion turu bitti; nihai cevap ve aday kayıtları hazır."""
+
+    result: FusionResult
 
 
 @dataclass(frozen=True, slots=True)

@@ -7,6 +7,7 @@ veri taşıması dict ile değil bu tiplerle yapılır (RULES.md "Katman Sınır
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,3 +108,45 @@ class StreamDone:
 
 #: Bir akışın ürettiği öğeler. Akış daima tek bir `StreamDone` ile biter.
 StreamItem = TextChunk | StreamDone
+
+
+class VerdictSource(Enum):
+    """Kazananın nasıl belirlendiği. Motor METİN üretmez; kullanıcıya gösterilecek
+    açıklamayı bu koda bakarak `ui` katmanı seçer."""
+
+    JUDGE = "judge"  # hakem değerlendirdi ve seçti
+    SINGLE = "single"  # tek geçerli cevap vardı, hakem atlandı
+    FALLBACK = "fallback"  # hakem yetişemedi/bozuk çıktı verdi, ilk aday seçildi
+    NONE = "none"  # hiçbir aday yanıt veremedi
+
+
+@dataclass(frozen=True, slots=True)
+class Verdict:
+    """Hakem kararı."""
+
+    winner: str
+    scores: dict[str, float]
+    reason: str
+    #: Hakem çıktısı ayrıştırılabildi mi? False ise sezgisel kazanan seçilmiştir.
+    parsed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class FusionResult:
+    """Bir fusion turunun tüm çıktısı: kazanan, nihai cevap ve aday kayıtları."""
+
+    task: str
+    task_type: str
+    winner: str
+    final_answer: str
+    source: VerdictSource
+    candidates: tuple[ModelResult, ...]
+    #: Hakemin kendi gerekçesi (model çıktısı). Hakem çalışmadıysa boştur.
+    reason: str = ""
+    scores: dict[str, float] = field(default_factory=dict)
+    synthesized: bool = False
+
+    @property
+    def successful(self) -> tuple[ModelResult, ...]:
+        """Metin üretebilen adaylar."""
+        return tuple(candidate for candidate in self.candidates if candidate.ok and candidate.text)
