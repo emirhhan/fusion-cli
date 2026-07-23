@@ -156,3 +156,24 @@ def test_hata_mesaji_suclu_dosyayi_soyler(tmp_path):
         load_config(yol)
 
     assert str(yol) in str(hata.value)
+
+
+def test_adi_degisen_ayar_eski_adiyla_da_calisir(tmp_path):
+    """`agent_max_iterations` → `agent_max_steps`; yeniden adlandırma kullanıcıyı vurmamalı."""
+    path = _yaz(tmp_path, {"runtime": {"agent_max_iterations": 42}})
+
+    assert load_config(path).runtime.agent_max_steps == 42
+
+
+def test_yeni_ad_yazilmissa_eski_ad_onu_ezmez(tmp_path):
+    path = _yaz(tmp_path, {"runtime": {"agent_max_iterations": 42, "agent_max_steps": 7}})
+
+    assert load_config(path).runtime.agent_max_steps == 7
+
+
+def test_tasinmamis_ayar_sebebiyle_reddedilir(tmp_path):
+    """Genel 'bilinmeyen anahtar' listesi yerine ne olduğunu söylemeli."""
+    path = _yaz(tmp_path, {"runtime": {"live_input": True}})
+
+    with pytest.raises(ConfigError, match="artık yok"):
+        load_config(path)

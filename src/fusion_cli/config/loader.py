@@ -60,7 +60,9 @@ def load_config(path: str | Path | None = None) -> Config:
     if source is not None:
         if not source.is_file():
             raise ConfigError(f"Yapılandırma dosyası bulunamadı: {source}")
-        merged = _deep_merge(defaults, _read_yaml(source))
+        user = _read_yaml(source)
+        _reject_removed(user)
+        merged = _deep_merge(defaults, _apply_renames(user))
     else:
         merged = defaults
 
@@ -160,6 +162,48 @@ def _read_yaml(path: Path) -> YamlMapping:
     return raw
 
 
+#: Taşıma sırasında ADI DEĞİŞEN ayarlar: eski ad → yeni ad.
+#: Kullanıcının elindeki config'in yeniden adlandırma yüzünden patlaması,
+#: davranışın korunduğu bir taşımada kabul edilebilir değil.
+RENAMED_KEYS = {
+    "runtime": {"agent_max_iterations": "agent_max_steps"},
+}
+
+#: Taşınmayan ayarlar: neden yok olduklarını söyleyebilmek için. Sessizce
+#: yutulmazlar — kullanıcı bir şey ayarladığını sanıp beklentiye girmesin.
+REMOVED_KEYS = {
+    "runtime": {"live_input": "tur sürerken canlı giriş henüz taşınmadı"},
+}
+
+
+def _apply_renames(data: YamlMapping) -> YamlMapping:
+    """Eski adla yazılmış ayarları yeni adlarına taşı."""
+    result = dict(data)
+    for section, renames in RENAMED_KEYS.items():
+        raw = result.get(section)
+        if not isinstance(raw, dict):
+            continue
+        section_data = dict(raw)
+        for old, new in renames.items():
+            if old in section_data:
+                # Yeni ad da yazılmışsa kullanıcının açık tercihi odur.
+                section_data.setdefault(new, section_data[old])
+                del section_data[old]
+        result[section] = section_data
+    return result
+
+
+def _reject_removed(data: YamlMapping) -> None:
+    """Taşınmamış ayarlar için genel liste yerine sebebini söyleyen hata ver."""
+    for section, removed in REMOVED_KEYS.items():
+        raw = data.get(section)
+        if not isinstance(raw, dict):
+            continue
+        for key, reason in removed.items():
+            if key in raw:
+                raise ConfigError(f"{section}.{key}: bu ayar artık yok — {reason}. Satırı sil.")
+
+
 def _first_existing(candidates: tuple[Path, ...]) -> Path | None:
     return next((candidate for candidate in candidates if candidate.is_file()), None)
 
@@ -187,6 +231,7 @@ def _reject_unknown(data: YamlMapping, allowed: tuple[str, ...], where: str) -> 
         raise ConfigError(
             f"{where}: bilinmeyen anahtar {', '.join(unknown)}. "
             f"Beklenenler: {', '.join(sorted(allowed))}"
+            "\nYalnızca DEĞİŞTİRMEK istediğin anahtarları yaz; gerisi zaten varsayılan."
         )
 
 
