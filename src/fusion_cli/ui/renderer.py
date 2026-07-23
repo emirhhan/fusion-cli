@@ -32,6 +32,8 @@ from ..core.events import (
     Event,
     FusionCompleted,
     JudgingStarted,
+    LessonsLearned,
+    LessonsRecalled,
     ModelCallFinished,
     ModelCallStarted,
     SelfReviewFinished,
@@ -111,6 +113,10 @@ class ConsoleRenderer:
                 if event.issue_found
                 else messages.AGENT_SELF_REVIEW_CLEAN
             )
+        elif isinstance(event, LessonsRecalled):
+            self._status(messages.AGENT_LESSONS_RECALLED.format(count=event.count))
+        elif isinstance(event, LessonsLearned):
+            self._status(messages.AGENT_LESSONS_LEARNED.format(count=event.count))
         elif isinstance(event, ContextCompressed):
             self._status(
                 messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)

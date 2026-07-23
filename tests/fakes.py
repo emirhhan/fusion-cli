@@ -117,8 +117,11 @@ def make_config(**overrides):
         "agent_max_steps": 8,
         "self_review": False,
         "reflexion": True,
+        "lessons": False,
     }
     runtime.update(runtime_overrides)
+
+    from fusion_cli.config.models import EmbeddingConfig
 
     defaults = {
         "agent": ModelSpec(name="agent", model="sahte/agent"),
@@ -130,6 +133,8 @@ def make_config(**overrides):
         "judge": ModelSpec(name="hakem", model="sahte/hakem"),
         "task_model_map": {"general": "a", "code": "c"},
         "runtime": RuntimeConfig(**runtime),
+        "embedding": EmbeddingConfig(provider="local", model="test"),
+        "memory_dir": _Path("/tmp/fusion-test-memory"),
         "source": _Path("test"),
     }
     defaults.update(overrides)

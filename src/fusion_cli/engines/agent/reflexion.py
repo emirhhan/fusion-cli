@@ -9,7 +9,17 @@ bir davranış düzeltmesidir.
 
 from __future__ import annotations
 
+import re
+
 from ...core.types import Message
+
+#: Somut teslim işaretleri: kod parçası, dosya:satır referansı ya da dosya yolu.
+#: Kısa ama SOMUT bir cevap ("src/app.py:42") yarım kalmış sayılmamalıdır.
+_CONCRETE_MARKERS = (
+    re.compile(r"`"),  # satır içi kod ya da kod bloğu
+    re.compile(r"\S+\.\w{1,6}:\d+"),  # dosya:satır referansı
+    re.compile(r"\S+/\S+\.\w{1,6}"),  # dosya yolu
+)
 
 STANDARD_NOTE = (
     "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Kısaca ne yanlış "
@@ -22,6 +32,9 @@ PERSISTENT_NOTE = (
     "farklı bir yol, araç ya da parametre dene. Kendi başına aşamayacağın bir durumsa "
     "ask_user ile kullanıcıdan destek iste."
 )
+
+#: Bu uzunluğun altındaki cevaplar "somut teslim" içermiyorsa yarım sayılır.
+SHORT_ANSWER_CHARS = 80
 
 AUTO_CONTINUE_NOTE = (
     "[otomatik-devam] İşi yarım bıraktın gibi görünüyor. Niyet beyan etmek yerine ya bir "
@@ -43,12 +56,24 @@ def looks_unfinished(
 ) -> bool:
     """Model araçsız bitirdi ama iş açıkça yarım mı?
 
-    Dil-bağımsız iki sezgisel:
+    Dil-bağımsız sezgiseller:
     - Tamamlanmamış todo maddesi varsa iş bitmemiştir.
-    - Bu turda araç çağrıldıysa ama nihai metin çok kısa ve kod/teslim içermiyorsa,
-      model işe başlayıp bitirmeden durmuş olabilir.
+    - Bu turda araç çağrıldıysa ve nihai metin hem KISA hem de SOMUT bir teslim
+      içermiyorsa, model işe başlayıp bitirmeden durmuş olabilir.
+
+    "Somut teslim" kontrolü kritik: `src/app.py:42` gibi kısa ama tam bir cevabı
+    yarım sanıp modeli tekrar konuşturmak, aynı cevabın iki kez basılmasına yol açar.
     """
     if has_pending_todos:
         return True
     text = final_text.strip()
-    return tool_calls_last_turn > 0 and len(text) < 80 and "`" not in text
+    return (
+        tool_calls_last_turn > 0
+        and len(text) < SHORT_ANSWER_CHARS
+        and not has_concrete_deliverable(text)
+    )
+
+
+def has_concrete_deliverable(text: str) -> bool:
+    """Metin somut bir teslim taşıyor mu? (kod, dosya yolu ya da dosya:satır)"""
+    return any(marker.search(text) for marker in _CONCRETE_MARKERS)

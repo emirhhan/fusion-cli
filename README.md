@@ -5,8 +5,9 @@
 > **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
 > bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı, **fusion
 > motoru** (paralel adaylar + hakem + sentez), **araç katmanı** (18 araç) ve **agent
-> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan). Bellek ve REPL henüz
-> taşınmadı — kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
+> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan) ve **bellek**
+> (öz-öğrenme, ders belleği, anlamsal kod indeksi). REPL henüz taşınmadı —
+> kalanlar için [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
 
@@ -63,6 +64,28 @@ renkli unified diff, kabuk komutlarında çalıştırılacak komutun kendisi.
 Etkileşimsiz ortamda (CI, boru hattı) onay alınamazsa işlem **reddedilir** — sessizce
 "evet" varsayılmaz.
 
+### Öğrenen bellek
+
+Sistem kullandıkça iyileşir. Üç ayrı bellek vardır:
+
+```bash
+.venv/bin/fusion memory seed        # 28 küratörlü başlangıç dersini yükle
+.venv/bin/fusion memory reindex     # kod tabanını anlamsal indeksle (artımlı)
+.venv/bin/fusion memory stats       # hangi model hangi görevde iyi
+.venv/bin/fusion memory lessons     # agent ne öğrendi
+.venv/bin/fusion memory where       # bellek diskte nerede
+.venv/bin/fusion feedback general nemotron-super good
+```
+
+| Bellek | Ne yapar |
+|--------|----------|
+| **Performans** | Her fusion turunda adayların puanı/gecikmesi kaydedilir; sonraki turda sıralama buna göre değişir. Ölçüt: ortalama puan − hafif gecikme cezası (ceza 0.1 ile sınırlı, hız kaliteyi ezmez). |
+| **Ders** | Agent her görevden somut dersler çıkarır; benzer bir görevde bunlar sistem promptuna geri enjekte edilir. Alakasız dersler mesafe eşiğiyle elenir — prompt gürültüyle zehirlenmez. |
+| **Kod indeksi** | `search_codebase` aracını besler. Artımlıdır: parça kimliği içeriği kapsadığı için değişmemiş dosyalar yeniden gömülmez. |
+
+Bellek istenmezse `--no-memory`; erişilemezse uygulama **boş belleğe düşer ve
+çalışmaya devam eder**, sessizce öğrenmemek yerine durumu bildirir.
+
 ### Fusion nasıl çalışır
 
 1. Görev tüm adaylara **paralel** sorulur. Her adayın kendi yedek zinciri vardır ve
@@ -113,6 +136,9 @@ cli → ui → engines → { providers, memory, observability } → config → c
 - **`engines.agent`** — tool-calling döngüsü. Refleksiyon (araç hatasında yön verme,
   ek model çağrısı yok), otomatik devam, öz-denetim (denetçi model + tek düzeltici tur)
   ve alt-ajan devri. Onay bir protokolün arkasındadır; motor hangi modda olduğunu bilmez.
+- **`memory`** — üç bellek de `core.memory` protokollerinin arkasındadır; motorlar
+  ChromaDB'yi tanımaz. `--no-memory` "hiçbir şey yapmayan" bir uygulama vererek
+  karşılanır, motor kodunda `if bellek varsa` dalı oluşmaz.
 - **`tools`** — kayıt defteri + saf executor'lar. Bir araç = şema + executor + `mutating`
   bayrağı; yeni araç eklemek kayıt defterine bir satır eklemektir, motor kodu değişmez.
   Executor'lar konsola yazmaz, onay sormaz, modül-global durum tutmaz.

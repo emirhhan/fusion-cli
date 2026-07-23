@@ -57,6 +57,9 @@ runtime:
   # Araç hata döndürünce modele "ne yanlış gitti, farklı yaklaş" notu enjekte edilir.
   # EK MODEL ÇAĞRISI YOK; körlemesine tekrarı önler.
   reflexion: true
+  # Her görevden ders çıkarılır ve benzer görevlerde sistem promptunda hatırlatılır.
+  # Öz-gelişimin çekirdeği; bir model çağrısı ekler.
+  lessons: true
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
@@ -94,3 +97,12 @@ task_model_map:
   code: gpt-oss
   reasoning: nemotron-super
   agent: gpt-oss
+
+# ---------------------------------------------------------------------------
+# Anlamsal arama için gömme sağlayıcısı (ders belleği + kod indeksi).
+#   local — ChromaDB gömülü ONNX modeli. Hızlı, çevrimdışı, anahtarsız. Türkçe: orta.
+#   nim   — NVIDIA NIM ücretsiz çok-dilli gömme. Türkçe daha iyi ama her sorguya
+#           ağ gecikmesi ekler. Erişilemezse SESSİZCE yerele düşülür.
+embedding:
+  provider: local
+  model: nvidia/nv-embedqa-e5-v5

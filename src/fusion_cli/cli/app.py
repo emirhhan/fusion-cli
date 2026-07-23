@@ -26,8 +26,9 @@ from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
+from . import memory_commands
 from .prompter import ConsolePrompter
-from .session import run_agent_task, run_task
+from .session import open_memory, run_agent_task, run_task
 
 app = typer.Typer(
     add_completion=False,
@@ -36,6 +37,7 @@ app = typer.Typer(
 )
 config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
 app.add_typer(config_app, name="config")
+app.add_typer(memory_commands.app, name="memory")
 
 console = Console()
 
@@ -53,6 +55,9 @@ def run(
     show_all: bool = typer.Option(False, "--all", help="Tüm aday cevaplarını göster."),
     no_synthesis: bool = typer.Option(
         False, "--no-synthesis", help="Sentezi kapat; hakemin seçtiği cevabı göster."
+    ),
+    no_memory: bool = typer.Option(
+        False, "--no-memory", help="Belleği kullanma ve yazma (öğrenme kapalı)."
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
 ) -> None:
@@ -73,6 +78,7 @@ def run(
             sinks=(renderer,),
             task_type=task_type,
             synthesis=False if no_synthesis else None,
+            memory=open_memory(config, root=Path.cwd(), enabled=not no_memory),
         )
     )
     if result.source is VerdictSource.NONE:
@@ -88,6 +94,9 @@ def agent(
         "-m",
         help="Onay modu: auto (otomatik, yıkıcı komutta sorar) | "
         "plan (yalnız planla) | security (her değişikliği sor)",
+    ),
+    no_memory: bool = typer.Option(
+        False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
 ) -> None:
@@ -110,6 +119,7 @@ def agent(
             ),
             mode=approval,
             root=root,
+            memory=open_memory(config, root=root, enabled=not no_memory),
         )
     )
     if not outcome.final_text.strip():
@@ -122,6 +132,16 @@ def _parse_mode(raw: str) -> ApprovalMode:
     except ValueError:
         valid = ", ".join(item.value for item in ApprovalMode)
         raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=raw, valid=valid)) from None
+
+
+@app.command()
+def feedback(
+    task_type: str = typer.Argument(..., help="Görev tipi (general | code | reasoning | agent)."),
+    model: str = typer.Argument(..., help="Geri bildirim verilecek aday adı."),
+    verdict: str = typer.Argument(..., help="good | bad | revise"),
+) -> None:
+    """Bir modelin son sonucuna geri bildirim ver; bellek buna göre öğrenir."""
+    memory_commands.feedback(task_type, model, verdict)
 
 
 @app.command()

@@ -41,6 +41,18 @@ class RuntimeConfig:
     self_review: bool
     #: Agent: araç hatasında modele "farklı yaklaş" notu enjekte edilir.
     reflexion: bool
+    #: Agent: her görevden ders çıkarılır ve benzer görevlerde promptta hatırlatılır.
+    lessons: bool
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingConfig:
+    """Anlamsal arama için gömme sağlayıcısı."""
+
+    #: "local" (ChromaDB gömülü ONNX, çevrimdışı) | "nim" (NVIDIA NIM, çok-dilli)
+    provider: str
+    #: NIM seçilirse kullanılacak model kimliği.
+    model: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,5 +67,8 @@ class Config:
     #: Görev tipi → tercih edilen aday adı. Bellek katmanı geldiğinde bunu ezecek.
     task_model_map: dict[str, str]
     runtime: RuntimeConfig
+    embedding: EmbeddingConfig
+    #: Kalıcı belleğin (vektör deposu) tutulduğu dizin.
+    memory_dir: Path
     #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
     source: Path | None

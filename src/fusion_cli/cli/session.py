@@ -22,6 +22,7 @@ from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
 from ..engines.fusion import run_fusion
+from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.bus import EventBus
 from ..ui import messages
 
@@ -55,6 +56,7 @@ async def run_task(
     sinks: tuple[EventSink, ...],
     task_type: str = "general",
     synthesis: bool | None = None,
+    memory: Memory | None = None,
 ) -> FusionResult:
     """Görevi fusion motoruyla çalıştır ve sonucu döndür.
 
@@ -65,8 +67,15 @@ async def run_task(
         for sink in sinks:
             bus.subscribe(sink)
 
+        store = memory or null_memory()
+        _warn_if_unavailable(store, bus)
         result = await run_fusion(
-            task, config, publisher=bus, task_type=task_type, synthesis=synthesis
+            task,
+            config,
+            publisher=bus,
+            task_type=task_type,
+            synthesis=synthesis,
+            memory=store.performance,
         )
         if result.source is VerdictSource.NONE:
             bus.publish(ErrorOccurred(_failure_message(result), fatal=True))
@@ -92,6 +101,7 @@ async def run_agent_task(
     mode: ApprovalMode = ApprovalMode.AUTO,
     root: Path | None = None,
     interactive: bool | None = None,
+    memory: Memory | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -107,6 +117,8 @@ async def run_agent_task(
         # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
         # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.
         prompter = prompter_factory(bus.drain)
+        store = memory or null_memory()
+        _warn_if_unavailable(store, bus)
         tool_context = ToolContext(root=root or Path.cwd())
         deps = AgentDeps(
             config=config,
@@ -114,6 +126,8 @@ async def run_agent_task(
             policy=build_policy(mode, prompter),
             tool_context=tool_context,
             asker=prompter if can_ask else None,
+            code_index=store.code_index if store.enabled else None,
+            lessons=store.lessons,
         )
         outcome = await run_agent(task, deps, plan_mode=mode is ApprovalMode.PLAN)
 
@@ -121,3 +135,19 @@ async def run_agent_task(
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
         bus.publish(TurnFinished())
         return outcome
+
+
+def open_memory(config: Config, *, root: Path, enabled: bool = True) -> Memory:
+    """Belleği aç. Kapalıysa ya da açılamıyorsa boş belleğe düşer."""
+    return build_memory(config, root=root) if enabled else null_memory()
+
+
+def _warn_if_unavailable(memory: Memory, bus: EventBus) -> None:
+    """Bellek açılamadıysa kullanıcıya söyle — sessizce öğrenmemek kabul edilemez."""
+    if memory.unavailable_reason is not None:
+        bus.publish(
+            ErrorOccurred(
+                messages.MEMORY_UNAVAILABLE.format(reason=memory.unavailable_reason),
+                fatal=False,
+            )
+        )

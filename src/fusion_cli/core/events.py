@@ -148,6 +148,20 @@ class SelfReviewFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class LessonsRecalled(Event):
+    """Göreve benzer dersler hatırlandı ve prompta eklendi."""
+
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class LessonsLearned(Event):
+    """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı."""
+
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class ContextCompressed(Event):
     """Uzun geçmiş özetlenerek kısaltıldı."""
 

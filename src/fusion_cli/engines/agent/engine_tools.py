@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ...memory.code_index import format_matches
 from ...tools.registry import ToolRegistry
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -43,6 +44,8 @@ def build_agent_registry(
     extended = _clone(registry)
     extended.register(_spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
     extended.register(_council_tool(deps))
+    if deps.code_index is not None:
+        extended.register(_search_codebase_tool(deps))
     if deps.asker is not None:
         extended.register(_ask_user_tool(deps.asker, deps))
     return extended
@@ -134,6 +137,30 @@ def _council_tool(deps: AgentDeps) -> Tool:
                 "question": {**_STRING, "description": "danışılacak zor soru ya da karar"}
             },
             "required": ["question"],
+        },
+        run=_run,
+    )
+
+
+def _search_codebase_tool(deps: AgentDeps) -> Tool:
+    def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        query = args.get("query")
+        if not isinstance(query, str) or not query.strip():
+            return ToolResult.failure("'query' alanı boş olmayan bir metin olmalı.")
+        index = deps.code_index
+        if index is None:  # pragma: no cover - araç yalnızca indeks varken kaydedilir
+            return ToolResult.failure("Kod indeksi kullanılamıyor.")
+        return ToolResult(format_matches(index.search(query)))
+
+    return Tool(
+        name="search_codebase",
+        description="Kod tabanında ANLAMSAL ara. 'Auth nerede yönetiliyor?' gibi KAVRAMSAL "
+        "soruları grep'ten iyi cevaplar; ilgili dosya:satır parçalarını döner. "
+        "Kesin bir metni ararken bunu değil search_code kullan.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {**_STRING, "description": "kavramsal arama sorgusu"}},
+            "required": ["query"],
         },
         run=_run,
     )

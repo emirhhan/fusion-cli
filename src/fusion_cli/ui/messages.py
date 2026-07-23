@@ -65,6 +65,37 @@ AGENT_SELF_REVIEW_ISSUE = "öz-denetim bir sorun buldu; düzeltiliyor…"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıldı"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+AGENT_LESSONS_RECALLED = "{count} ilgili ders hatırlandı"
+AGENT_LESSONS_LEARNED = "{count} yeni ders belleğe kazındı"
+
+# --- Bellek --------------------------------------------------------------- #
+MEMORY_UNAVAILABLE = "bellek kullanılamıyor, öğrenme kapalı: {reason}"
+MEMORY_DISABLED = "bellek kapalı (--no-memory)"
+MEMORY_EMPTY_STATS = "Henüz performans kaydı yok. Önce birkaç `fusion run` çalıştır."
+MEMORY_EMPTY_LESSONS = "Henüz ders yok. `fusion memory seed` ile başlangıç derslerini yükle."
+MEMORY_SEEDED = "{count} yeni küratörlü ders yüklendi ({total} tanenin içinden)."
+MEMORY_REINDEXED = (
+    "{total} parça indekslendi (+{added} yeni, -{removed} eski, {unchanged} değişmemiş)."
+)
+MEMORY_FEEDBACK_APPLIED = "'{model}' modeline '{verdict}' geri bildirimi işlendi ({task_type})."
+MEMORY_FEEDBACK_MISSING = "Bu görev tipi ve model için kayıt bulunamadı."
+MEMORY_LOCATION = "bellek dizini: {path}"
+
+MEMORY_TABLE_TITLE = "Model performansı (fusion öz-öğrenmesi)"
+LESSON_TABLE_TITLE = "Öğrenilen dersler — {mistakes} kaçınılacak · {successes} uygulanacak"
+MEMORY_TABLE_MODEL = "Model"
+MEMORY_TABLE_SAMPLES = "Örnek"
+MEMORY_TABLE_SCORE = "Ort. Puan"
+MEMORY_TABLE_WINS = "Galibiyet"
+MEMORY_TABLE_LATENCY = "Ort. Gecikme"
+LESSON_TABLE_KIND = "Tür"
+LESSON_TABLE_SOURCE = "Kaynak"
+LESSON_TABLE_TEXT = "Ders"
+LESSON_KIND_MISTAKE = "kaçın"
+LESSON_KIND_SUCCESS = "uygula"
+LESSON_SOURCE_SEED = "hazır"
+LESSON_SOURCE_LEARNED = "öğrenildi"
+LESSON_SOURCE_MANUAL = "elle"
 
 # --- Onay ----------------------------------------------------------------- #
 APPROVAL_TITLE = "onay gerekiyor · {tool}"
@@ -81,3 +112,4 @@ NO_ANSWER_AVAILABLE = (
 RUN_EMPTY_TASK = "Görev metni boş olamaz."
 RUN_UNKNOWN_TASK_TYPE = "Bilinmeyen görev tipi: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_MODE = "Bilinmeyen onay modu: {given}. Geçerli olanlar: {valid}"
+RUN_UNKNOWN_FEEDBACK = "Bilinmeyen geri bildirim: {given}. Geçerli olanlar: {valid}"

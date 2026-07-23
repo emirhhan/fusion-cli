@@ -18,6 +18,8 @@ APP_NAME = "fusion-cli"
 ENV_CONFIG = "FUSION_CONFIG"
 #: Proje kökünü işaret eden, taşınabilir kurulumlar için kullanılan ortam değişkeni.
 ENV_HOME = "FUSION_HOME"
+#: Kalıcı belleğin yerini doğrudan belirleyen ortam değişkeni.
+ENV_MEMORY_DIR = "FUSION_MEMORY_DIR"
 
 
 def user_config_dir() -> Path:
@@ -36,6 +38,14 @@ def user_data_dir() -> Path:
         return Path(base) / APP_NAME
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
+
+
+def memory_dir() -> Path:
+    """Vektör belleğinin tutulduğu dizin. Ortam değişkeniyle taşınabilir."""
+    override = os.environ.get(ENV_MEMORY_DIR)
+    if override:
+        return Path(override).expanduser()
+    return user_data_dir() / "memory"
 
 
 def bundled_defaults() -> Path:

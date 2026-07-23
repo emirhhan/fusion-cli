@@ -17,6 +17,7 @@ dependencies = [
     "typer>=0.12,<1",
     "rich>=13.7,<15",
     "python-dotenv>=1.0,<2",
+    "chromadb>=0.5,<2",
 ]
 
 [project.optional-dependencies]
@@ -63,19 +64,35 @@ ignore = [
 # LiteLLM tip bilgisi yayımlamıyor. `Any` YALNIZCA bu SDK sınırında kullanılır ve
 # sınırın dışına çıkmadan `ModelResult`/`StreamItem` tiplerine normalize edilir.
 "src/fusion_cli/providers/litellm_provider.py" = ["ANN401"]
+# ChromaDB de tip bilgisi yayımlamıyor. Aynı gerekçe: `Any` bu sınırda kalır,
+# dışarı `core.memory` tipleri (Lesson, Outcome, CodeMatch…) olarak çıkar.
+"src/fusion_cli/memory/store.py" = ["ANN401"]
+"src/fusion_cli/memory/lessons.py" = ["ANN401"]
+"src/fusion_cli/memory/code_index.py" = ["ANN401"]
+"src/fusion_cli/memory/embeddings.py" = ["ANN401"]
+"src/fusion_cli/memory/performance.py" = ["ANN401"]
 
 [tool.mypy]
-python_version = "3.11"
+# python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin
+# surumunu kullanir. 3.11'e sabitlemek, bagimliliklarin 3.12 sozdizimli stub'larini
+# (numpy) ayristirilamaz kiliyordu. 3.11 uyumlulugu CI matrisinde gercekten
+# calistirilarak dogrulaniyor; sozdizimi denetimiyle degil.
 files = ["src"]
 strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-# LiteLLM tip bilgisi yayımlamıyor; sınır yalnızca providers katmanında.
-module = ["litellm.*"]
+# Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
+module = ["litellm.*", "chromadb.*"]
 ignore_missing_imports = true
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    # Gerçek vektör deposuna dokunan testler: yavaştır (gömme modeli yüklenir).
+    # Hızlı geri bildirim için: pytest -m "not slow"
+    "slow: ChromaDB kuran ve gerçek gömme yapan testler",
+]

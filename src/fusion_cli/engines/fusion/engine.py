@@ -30,6 +30,7 @@ from ...core.events import (
     JudgingStarted,
     ModelCallFinished,
 )
+from ...core.memory import Outcome, PerformanceMemory
 from ...core.types import (
     CompletionRequest,
     FusionResult,
@@ -57,10 +58,15 @@ async def run_fusion(
     publisher: EventPublisher,
     task_type: str = "general",
     synthesis: bool | None = None,
+    memory: PerformanceMemory | None = None,
 ) -> FusionResult:
-    """Görevi tüm adaylara sorup hakem + sentez ile nihai cevabı üret."""
+    """Görevi tüm adaylara sorup hakem + sentez ile nihai cevabı üret.
+
+    `memory` verilirse aday sıralaması geçmiş başarıya göre iyileşir ve tur sonunda
+    her adayın performansı kaydedilir — kapalı bir öğrenme döngüsü.
+    """
     runtime = config.runtime
-    specs = order_candidates(config, task_type)
+    specs = order_candidates(config, task_type, memory=memory)
     use_synthesis = runtime.synthesis if synthesis is None else synthesis
 
     publisher.publish(CandidatesStarted(names=tuple(spec.name for spec in specs)))
@@ -76,7 +82,7 @@ async def run_fusion(
         task, usable, config, publisher=publisher, use_synthesis=use_synthesis
     )
     winning = next(result for result in usable if result.name == verdict.winner)
-    return FusionResult(
+    result = FusionResult(
         task=task,
         task_type=task_type,
         winner=verdict.winner,
@@ -87,6 +93,29 @@ async def run_fusion(
         scores=verdict.scores,
         synthesized=synthesized is not None,
     )
+    _remember(result, memory)
+    return result
+
+
+def _remember(result: FusionResult, memory: PerformanceMemory | None) -> None:
+    """Her başarılı adayın performansını kaydet (öz-öğrenme verisi)."""
+    if memory is None:
+        return
+    for candidate in result.successful:
+        memory.record(
+            Outcome(
+                task=result.task,
+                task_type=result.task_type,
+                model_name=candidate.name,
+                # Hakem puan vermediyse kazanana 1.0, diğerlerine nötr 0.5 yazılır.
+                score=result.scores.get(
+                    candidate.name, 1.0 if candidate.name == result.winner else 0.5
+                ),
+                latency_ms=candidate.latency_ms,
+                tokens=candidate.usage.total_tokens,
+                won=candidate.name == result.winner,
+            )
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -94,15 +123,35 @@ async def run_fusion(
 # --------------------------------------------------------------------------- #
 
 
-def order_candidates(config: Config, task_type: str) -> tuple[ModelSpec, ...]:
-    """Görev tipine göre tercih edilen adayı öne al; sıralama kararlı kalır.
+def order_candidates(
+    config: Config, task_type: str, *, memory: PerformanceMemory | None = None
+) -> tuple[ModelSpec, ...]:
+    """Tercih edilen adayı öne al; sıralama kararlı kalır.
 
-    Bellek katmanı geldiğinde geçmiş başarı bu sıralamayı burada ezecek.
+    Öncelik sırası: (1) bellekte bu görev tipinde en iyi olan model, (2) yapılandırmadaki
+    `task_model_map`. Bellek zamanla yapılandırmayı ezer — sistem kullandıkça öğrenir.
     """
-    preferred = config.task_model_map.get(task_type)
-    if preferred is None:
+    preferred = _preferred_names(config, task_type, memory)
+    if not preferred:
         return config.candidates
-    return tuple(sorted(config.candidates, key=lambda spec: 0 if spec.name == preferred else 1))
+    return tuple(sorted(config.candidates, key=lambda spec: _rank(spec.name, preferred)))
+
+
+def _preferred_names(config: Config, task_type: str, memory: PerformanceMemory | None) -> list[str]:
+    known = {spec.name for spec in config.candidates}
+    names: list[str] = []
+    if memory is not None:
+        best = memory.best_model(task_type)
+        if best in known:
+            names.append(str(best))
+    mapped = config.task_model_map.get(task_type)
+    if mapped in known and mapped not in names:
+        names.append(str(mapped))
+    return names
+
+
+def _rank(name: str, preferred: list[str]) -> int:
+    return preferred.index(name) if name in preferred else len(preferred)
 
 
 async def _call_candidates(

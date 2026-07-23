@@ -5,7 +5,6 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
 ## Taşınacak (eski projede mevcut, henüz taşınmadı)
 
-- Bellek: performans belleği, ders belleği, semantik kod indeksi, embedding seçimi
 - REPL: prompt_toolkit girişi, onay modları, slash komut kayıt defteri, tema
 - Gözlemlenebilirlik: Langfuse izleme, oturum maliyeti takibi
 
@@ -34,8 +33,6 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
 - **Akış fusion modunda bilinçli olarak kapalı.** Hakem ve sentez paralel çalıştığı için,
   akan cevabın ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.
-- **Ders belleği yok.** Agent şu an her turda sıfırdan başlıyor; eski projedeki
-  "öğrendiği dersi sistem promptuna enjekte etme" davranışı bellek katmanıyla gelecek.
 - **`--mode` her turda yeniden veriliyor.** REPL geldiğinde shift-tab ile mod döngüsü
   kurulacak; tek seferlik CLI'da bayrak yeterli.
 - **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında hakem bazen ikisine puan
@@ -48,3 +45,11 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 - **`web_search` HTML kazımaya dayanıyor.** İki uç denenerek dayanıklılık sağlandı ama
   sayfa yapısı değişirse ikisi de bozulabilir. Kazıma mantığı saf fonksiyonlarda ve
   testli; uç değişirse yalnızca regex güncellenir.
+
+- **Ders çıkarımı turu uzatıyor.** Şu an tur bitiminde beklenerek çalışıyor (~2 sn).
+  REPL geldiğinde arka plana alınıp kullanıcı yazarken tamamlanmalı.
+- **Model bazen bozuk çıktı üretiyor.** `nemotron-3-super` yüksek bağlamda token
+  çorbası üretebiliyor (gerçek bir turda görüldü). Öz-denetim bunu yakalayıp düzeltici
+  tur açtı, yani sistem kurtardı — ama tekrarlarsa aday havuzu gözden geçirilmeli.
+- **ChromaDB kurulumu ağır** (~350 MB, onnxruntime dâhil). Depolama protokol arkasında
+  olduğu için daha hafif bir arka uca (ör. sqlite-vec) geçmek `memory/` dışına dokunmaz.

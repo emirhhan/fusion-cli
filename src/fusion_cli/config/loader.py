@@ -23,11 +23,11 @@ from dotenv import load_dotenv
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
-from .models import Config, RuntimeConfig
-from .paths import bundled_defaults, env_file_candidates, user_config_candidates
+from .models import Config, EmbeddingConfig, RuntimeConfig
+from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
-_SECTIONS = ("agent", "candidates", "judge", "task_model_map", "runtime")
+_SECTIONS = ("agent", "candidates", "judge", "task_model_map", "runtime", "embedding")
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
 T = TypeVar("T")
@@ -63,6 +63,8 @@ def load_config(path: str | Path | None = None) -> Config:
         judge=_build(ModelSpec, merged["judge"], "judge"),
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build(RuntimeConfig, merged["runtime"], "runtime"),
+        embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),
+        memory_dir=memory_dir(),
         source=source,
     )
 

@@ -29,17 +29,21 @@ from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
+    LessonsLearned,
+    LessonsRecalled,
     SelfReviewFinished,
     SelfReviewStarted,
     StepLimitReached,
     ToolExecuted,
     ToolOutcome,
 )
+from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
 from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
+from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
-from . import compaction, reflexion, review
+from . import compaction, learning, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .engine_tools import UserAsker, build_agent_registry
 
@@ -87,6 +91,10 @@ class AgentDeps:
     base_registry: ToolRegistry = field(default_factory=build_registry)
     #: Kullanıcıya soru sorabilen taraf. Yoksa `ask_user` aracı hiç sunulmaz.
     asker: UserAsker | None = None
+    #: Anlamsal kod araması. Yoksa `search_codebase` aracı hiç sunulmaz.
+    code_index: CodeIndex | None = None
+    #: Öğrenilen dersler. Yoksa hatırlama ve ders çıkarımı atlanır.
+    lessons: LessonMemory | None = None
     channel: Channel = Channel.MAIN
 
 
@@ -102,7 +110,13 @@ async def run_agent(
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir."""
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    messages = _initial_messages(task, history, plan_mode=plan_mode, extra_system=extra_system)
+    remembered = _recall_lessons(task, deps)
+    messages = _initial_messages(
+        task,
+        history,
+        plan_mode=plan_mode,
+        extra_system="\n\n".join(part for part in (remembered, extra_system) if part),
+    )
 
     outcome = await _drive(messages, deps, registry, plan_mode=plan_mode)
 
@@ -110,6 +124,7 @@ async def run_agent(
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
+    await _learn(task, outcome, deps, plan_mode=plan_mode)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     return outcome
 
@@ -286,6 +301,33 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
+
+
+def _recall_lessons(task: str, deps: AgentDeps) -> str:
+    """Göreve benzer dersleri hatırla ve sistem promptuna eklenecek bloğu üret."""
+    if deps.lessons is None or not deps.config.runtime.lessons:
+        return ""
+    recalled = deps.lessons.recall(task)
+    if recalled:
+        deps.publisher.publish(LessonsRecalled(count=len(recalled)))
+    return as_prompt_block(recalled)
+
+
+async def _learn(task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> None:
+    """Turdan ders çıkar ve belleğe yaz.
+
+    Yalnızca GERÇEK İŞ yapıldıysa (araç çağrısı varsa) çalışır: sohbet turlarından
+    ders çıkarmak hem boşuna model çağrısıdır hem de belleği değersiz kayıtla doldurur.
+    """
+    if deps.lessons is None or not deps.config.runtime.lessons:
+        return
+    if plan_mode or outcome.tool_calls_made == 0:
+        return
+
+    lessons = await learning.extract_lessons(task, outcome.messages, config=deps.config)
+    stored = learning.store_lessons(lessons, deps.lessons)
+    if stored:
+        deps.publisher.publish(LessonsLearned(count=stored))
 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:

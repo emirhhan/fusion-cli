@@ -45,7 +45,7 @@ def _sonuc(source):
 
 
 def _sahte_tur(monkeypatch, source, kayit=None):
-    async def _sahte(task, config, *, sinks, task_type="general", synthesis=None):
+    async def _sahte(task, config, *, sinks, task_type="general", synthesis=None, memory=None):
         if kayit is not None:
             kayit.update(task_type=task_type, synthesis=synthesis)
         return _sonuc(source)
@@ -56,13 +56,13 @@ def _sahte_tur(monkeypatch, source, kayit=None):
 def test_run_basarili_sonucta_sifir_doner(monkeypatch):
     _sahte_tur(monkeypatch, VerdictSource.JUDGE)
 
-    assert runner.invoke(app_module.app, ["run", "merhaba"]).exit_code == 0
+    assert runner.invoke(app_module.app, ["run", "merhaba", "--no-memory"]).exit_code == 0
 
 
 def test_run_cevapsiz_sonucta_bir_doner(monkeypatch):
     _sahte_tur(monkeypatch, VerdictSource.NONE)
 
-    assert runner.invoke(app_module.app, ["run", "merhaba"]).exit_code == 1
+    assert runner.invoke(app_module.app, ["run", "merhaba", "--no-memory"]).exit_code == 1
 
 
 def test_run_gecersiz_gorev_tipini_reddeder():
@@ -75,6 +75,8 @@ def test_run_secenekleri_oturuma_gecirilir(monkeypatch):
     kayit = {}
     _sahte_tur(monkeypatch, VerdictSource.JUDGE, kayit)
 
-    runner.invoke(app_module.app, ["run", "merhaba", "--type", "code", "--no-synthesis"])
+    runner.invoke(
+        app_module.app, ["run", "merhaba", "--type", "code", "--no-synthesis", "--no-memory"]
+    )
 
     assert kayit == {"task_type": "code", "synthesis": False}
