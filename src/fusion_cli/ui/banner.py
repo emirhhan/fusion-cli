@@ -85,7 +85,7 @@ def print_welcome(console: Console, info: SessionInfo, *, clear: bool = True) ->
     blocks: list[RenderableType] = [
         Text(),
         _welcome_panel(info, console.width),
-        _facts_line(info),
+        _facts_line(info, console.width),
     ]
     for block in blocks:
         console.print(block)
@@ -183,19 +183,36 @@ def _section(title: str, body: str) -> Group:
     return Group(Text(title, style=f"bold {theme.ACCENT}"), Text(body, style=theme.DIM))
 
 
-def _facts_line(info: SessionInfo) -> Text:
-    """Oturum bilgileri — kutunun altında tek, yatay satır."""
-    line = Text("  ")
-    fields = (
+def _facts_line(info: SessionInfo, width: int) -> Text:
+    """Oturum bilgileri — kutunun altında TEK satır.
+
+    Sarmaması gerekir: sarınca alt satırda öksüz bir parça kalıyor ve dağınık
+    görünüyor. Sığmazsa en az kritik alandan başlayarak (dizin, sonra bellek)
+    alan düşürülür — dizin zaten kabuk promptunda görünür.
+    """
+    fields = [
         (messages.WELCOME_FIELD_ENGINE, info.engine, theme.ACCENT),
         (messages.WELCOME_FIELD_APPROVAL, info.approval, mode_color(info.approval)),
         (messages.WELCOME_FIELD_MODEL, info.model, theme.INFO),
-        (messages.WELCOME_FIELD_DIR, info.working_dir, theme.DIM),
         (messages.WELCOME_FIELD_MEMORY, _memory_text(info.lesson_count), theme.OK),
-    )
+        (messages.WELCOME_FIELD_DIR, info.working_dir, theme.DIM),
+    ]
+    while fields and _facts_width(fields) > width:
+        fields.pop()
+    return _join_facts(fields)
+
+
+def _facts_width(fields: list[tuple[str, str, str]]) -> int:
+    """Satırın kaç sütun tutacağı (girinti ve ayraçlar dâhil)."""
+    content = sum(len(label) + 1 + len(value) for label, value, _ in fields)
+    return 2 + content + 3 * max(0, len(fields) - 1)
+
+
+def _join_facts(fields: list[tuple[str, str, str]]) -> Text:
+    line = Text("  ")
     for index, (label, value, color) in enumerate(fields):
         if index:
-            line.append("  ·  ", style=theme.DIM)
+            line.append(" · ", style=theme.DIM)
         line.append(f"{label} ", style=theme.DIM)
         line.append(value, style=color)
     return line

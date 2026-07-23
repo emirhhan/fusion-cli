@@ -316,3 +316,100 @@ def test_dusunme_blogu_olmadan_metin_aynen_akar():
     renderer.handle(TokenReceived(Channel.MAIN, "duz cevap\n"))
 
     assert buffer.getvalue().splitlines()[0] == "duz cevap"
+
+
+# --- Çalışma göstergesi ile akış çakışması ------------------------------------ #
+
+
+class _SpyIndicator:
+    """Göstergenin YARIM SATIR üstünde başlatılıp başlatılmadığını izler."""
+
+    def __init__(self, renderer):
+        self._renderer = renderer
+        self.running = False
+        self.resumed_on_open_line = False
+
+    def start(self, label, *, model=""):
+        self.running = True
+        if self._renderer._line_open:
+            self.resumed_on_open_line = True
+
+    def update(self, **kwargs):
+        return None
+
+    def pause(self):
+        return None
+
+    def resume(self):
+        if self._renderer._line_open:
+            self.resumed_on_open_line = True
+
+    def finish(self):
+        return None
+
+
+def _renderer_with_spy():
+    renderer, buffer = _renderer()
+    spy = _SpyIndicator(renderer)
+    renderer._work = spy
+    return renderer, buffer, spy
+
+
+def test_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    """Regresyon: Rich Live `transient` modda durunca çizdiği satırı siler.
+
+    Satır ortasında başlatılırsa modelin cevabını silip götürüyordu — gerçek bir
+    turda cevap ekrandan kayboldu.
+    """
+    from fusion_cli.core.events import SelfReviewStarted
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim kalan cevap"))  # newline YOK
+    renderer.handle(SelfReviewStarted())
+
+    assert not spy.resumed_on_open_line
+
+
+def test_arac_sonrasi_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim"))
+    renderer.handle(
+        ToolExecuted(name="read_file", args={"path": "a"}, outcome=ToolOutcome.OK, output="x")
+    )
+
+    assert not spy.resumed_on_open_line
+
+
+def test_model_cagrisi_gosterge_yarim_satirin_ustunde_baslatilmaz():
+    from fusion_cli.core.events import ModelCallStarted
+
+    renderer, _, spy = _renderer_with_spy()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim"))
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+
+    assert not spy.resumed_on_open_line
+
+
+def test_cevap_metni_tur_boyunca_korunur():
+    """Akan cevap, gösterge ve öz-denetim olaylarından sonra da ekranda kalmalı."""
+    from fusion_cli.core.events import (
+        ModelCallStarted,
+        SelfReviewFinished,
+        SelfReviewStarted,
+        TurnFinished,
+    )
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+    renderer.handle(TokenReceived(Channel.MAIN, "Merhaba, ben Fusion."))
+    renderer.handle(SelfReviewStarted())
+    renderer.handle(SelfReviewFinished(issue_found=False))
+    renderer.handle(TurnFinished())
+
+    assert "Merhaba, ben Fusion." in buffer.getvalue()

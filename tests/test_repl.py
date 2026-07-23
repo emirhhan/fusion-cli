@@ -509,3 +509,20 @@ def test_gosterge_calisirken_yeni_etiket_sureyi_sifirlamaz():
     gosterge.update(label="ikinci")
 
     assert gosterge._state.started_at == baslangic
+
+
+def test_bilgi_satiri_sarmaz():
+    """Sarınca alt satırda öksüz parça kalıyor; sığmazsa alan düşürülür."""
+    for width in (60, 72, 80, 100, 140):
+        satirlar = _welcome_output(width).splitlines()
+        bilgi = next(satir for satir in satirlar if "motor" in satir)
+
+        assert len(bilgi) <= width, (width, bilgi)
+
+
+def test_dar_terminalde_once_dizin_dusurulur():
+    """Dizin zaten kabuk promptunda görünür; en az kritik alan odur."""
+    dar = _welcome_output(60)
+
+    assert "motor" in dar
+    assert "dizin" not in dar

@@ -109,30 +109,25 @@ class ConsoleRenderer:
             )
             self._begin_work(messages.WORK_CANDIDATES.format(count=len(event.names)))
         elif isinstance(event, JudgingStarted):
-            self._work.update(
-                label=messages.WORK_SYNTHESIZING if event.with_synthesis else messages.WORK_JUDGING
+            self._resume_work(
+                messages.WORK_SYNTHESIZING if event.with_synthesis else messages.WORK_JUDGING
             )
-            self._work.resume()
         elif isinstance(event, FusionCompleted):
             self._fusion_result(event.result)
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
-            self._work.update(label=messages.WORK_THINKING)
-            self._work.resume()
+            self._resume_work(messages.WORK_THINKING)
         elif isinstance(event, SubAgentStarted):
             self._status(messages.AGENT_SUBAGENT_STARTED.format(task=_shorten(event.task, 60)))
-            self._work.update(label=messages.WORK_SUBAGENT)
-            self._work.resume()
+            self._resume_work(messages.WORK_SUBAGENT)
         elif isinstance(event, SubAgentFinished):
             self._status(messages.AGENT_SUBAGENT_FINISHED.format(count=event.tool_calls))
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
-            self._work.update(label=messages.WORK_COUNCIL)
-            self._work.resume()
+            self._resume_work(messages.WORK_COUNCIL)
         elif isinstance(event, SelfReviewStarted):
             # Ayrı satır basılmaz; sonucu hemen ardından geliyor.
-            self._work.update(label=messages.WORK_REVIEW)
-            self._work.resume()
+            self._resume_work(messages.WORK_REVIEW)
         elif isinstance(event, SelfReviewFinished):
             self._status(
                 messages.AGENT_SELF_REVIEW_ISSUE
@@ -251,12 +246,23 @@ class ConsoleRenderer:
         Zaten çalışan bir tur varsa süre sıfırlanmaz — kullanıcı turun TAMAMININ
         ne kadar sürdüğünü görmek ister, tek bir model çağrısının değil.
         """
-        self._close_line()
         if self._work.running:
-            self._work.update(label=label)
-            self._work.resume()
+            self._resume_work(label)
             return
+        self._close_line()
         self._work.start(label, model=model)
+
+    def _resume_work(self, label: str) -> None:
+        """Göstergeyi güvenle yeniden göster.
+
+        KRİTİK: gösterge asla YARIM SATIRIN üstünde başlatılmaz. Rich `Live`
+        `transient` modda durduğunda çizdiği bölgeyi siler; satır ortasında
+        başlatılırsa o satırı — yani modelin cevabını — silip götürür.
+        `_close_line()` hem göstergeyi duraklatır hem satırı kapatır.
+        """
+        self._close_line()
+        self._work.update(label=label)
+        self._work.resume()
 
     def _finish_work(self) -> None:
         """Turu bitir ve özet satırını bas."""
