@@ -64,23 +64,12 @@ Bilinçli olarak taşınmayan iki şey:
   İstenirse olay veriyolu üzerinden çakışmasız bir canlı input kurulabilir.
 - **Akış fusion modunda kapalı.** Hakem ve sentez paralel çalıştığı için, akan cevabın
   ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.
-- **Terminal yeniden boyutlandırmada `❯` giriş işareti çoğalabiliyor.** Pencere
-  sürüklenerek boyutlandırıldığında ekranda alt alta `❯` kopyaları birikiyor. Kök neden
-  uygulama kodunda değil, prompt_toolkit'te (3.0.52): `Application._on_resize` her
-  SIGWINCH'te ÖNCE kendi bayat imleç modeline göre siliyor, SONRA CPR ile konumu yeniden
-  istiyor. macOS Terminal.app / iTerm gibi geçmiş tamponunu yeniden saran (reflow)
-  emülatörlerde bu bayat silme yanlış satırları temizliyor ve eski işaretler yetim
-  kalıyor. Uygulama tarafındaki makul hafifletmeler zaten uygulanmış (alt alanda tek
-  satır, tamamlama menüsü rezervasyonu kapalı). Temiz bir uygulama-katmanı kancası yok;
-  gerçek çözüm ya tam-ekran/alternatif tampon kipi (uygulamanın akan-çıktı tasarımıyla
-  çelişir) ya da prompt_toolkit yaması. Reflow yapmayan emülatörlerde (pyte ile doğrulandı)
-  sorun oluşmuyor.
-  Sonradan reflow yapan terminal taklit edilerek **birebir tekrar üretildi** (pyte grid'inden
-  mantıksal satırlar yeniden kurulup yeni genişlikte sarılıyor; resize dizisi sonrası 4 yetim
-  `❯` kalıyor). Kök neden kesinleşti: `Renderer.erase` imleci BAYAT iç modele göre yukarı
-  taşıyıp siliyor; reflow satırları kaydırınca yanlış satır siliniyor, eski `❯` bloğu kalıyor.
-  `bottom_toolbar` etkiyi büyütüyor çünkü çizilen bloğu tek satırdan çok-satıra çıkarıyor.
-  **Tek temiz uygulama-katmanı çözümü:** durum çubuğunu `bottom_toolbar`'dan `rprompt`'a
-  (giriş satırının sağ ucu) taşımak → blok tek satıra iner, çoğalma biter. Kullanıcı görünümü
-  korumayı tercih ettiği için UYGULANMADI; alt çubuk korundu, bug kabul edildi. Fikir
-  değişirse düzeltme hazır ve artık test edilebilir.
+
+## Çözüldü
+
+- **Terminal yeniden boyutlandırmada `❯` çoğalması.** Alta sabitlenmiş `bottom_toolbar`
+  durum çubuğu, reflow eden terminallerde prompt_toolkit'in bayat imleç modeliyle yaptığı
+  silmeyi ıskalatıp `❯` kopyaları biriktiriyordu. Durum, giriş satırının içine (❯'nin
+  soluna) alındı; ayrı çok-satırlı widget kalktı. Reflow taklit eden headless harness ile
+  doğrulandı: fix öncesi 4-5 yetim `❯`, sonrası 1. `rprompt` denendi ama yetersizdi (3);
+  yalnızca durumu giriş satırına almak tam çözdü.

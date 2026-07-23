@@ -8,11 +8,14 @@ Terminal TTY değilse (boru hattı, CI, test) prompt_toolkit hiç kurulmaz ve d�
 1. **Giriş satırı ve çalışan tur ASLA aynı anda ekranda olmaz.** Tur çalışırken
    prompt kapalıdır; çalışan turu Ctrl-C keser.
 
-2. **Ekranın altında yalnızca TEK satır ayrılır.** Yeniden boyutlandırmada prompt
-   kopyalarının ekranda birikmesinin sebebi, tamamlama menüsü için varsayılan
-   olarak ayrılan 8 satırdı: terminal küçüldüğünde bu blok doğru silinemiyordu.
-   Menü rezervasyonu kapatıldı; durum çubuğu tek satır olduğu için yeniden çizim
-   güvenli.
+2. **Durum bilgisi alta sabitlenmiş bir widget DEĞİL, sol prompt'un parçasıdır.**
+   Eskiden durum bir `bottom_toolbar` idi; alta sabitlenmiş bu ayrı widget, terminal
+   yeniden boyutlandırıldığında (özellikle geçmiş tamponunu yeniden saran Terminal.app
+   / iTerm'de) prompt_toolkit'in bayat imleç modeliyle yaptığı silmeyi ıskalatıp `❯`
+   kopyalarını ekranda biriktiriyordu. Durum, giriş satırının içine (❯'nin soluna)
+   alınınca o çok-satırlı widget ortadan kalkar ve yeniden boyutlandırma temiz kalır —
+   ölçümle doğrulandı (bkz. prompt_message). Tamamlama menüsü rezervasyonu da kapalıdır
+   (`reserve_space_for_menu=0`).
 
 3. **Uzun yapıştırma tampona GİRMEZ.** prompt_toolkit her belge satırı için bir
    ekran satırı çizer; 200 satırlık bir yapıştırma giriş penceresini 200 satıra
@@ -22,10 +25,6 @@ Terminal TTY değilse (boru hattı, CI, test) prompt_toolkit hiç kurulmaz ve d�
    bir tabloda saklanır ve tampona tek satırlık bir yer tutucu konur; satır
    gönderilirken yer tutucu tam metne geri açılır. Böylece model tam metni alır,
    giriş alanı tek satır kalır.
-
-3. **Durum çubuğunun ters-renkli zemini yok.** prompt_toolkit'in varsayılan
-   `bottom-toolbar` stili tam genişlikte beyaz bir şerit çiziyordu. Stil
-   geçersiz kılınarak sönük, zeminsiz bir satıra indirildi.
 """
 
 from __future__ import annotations
@@ -124,29 +123,38 @@ class ReplInput:
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
             # İşaret basılmaz: kullanıcı mesajı zaten bant olarak çiziliyor.
             return await asyncio.to_thread(input, "")
-        from prompt_toolkit.formatted_text import HTML
-
-        line = await self._session.prompt_async(
-            HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
-        )
+        # Mesaj bir callable olarak verilir: shift-tab modu değiştirip invalidate
+        # edince prompt_toolkit yeniden çağırır ve durum canlı güncellenir.
+        line = await self._session.prompt_async(self.prompt_message)
         return self.expand_pastes(str(line))
 
-    def status_bar(self) -> Any:
-        """Ekranın altındaki tek satırlık durum çubuğu.
+    def prompt_message(self) -> Any:
+        """Giriş satırının sol prompt'u: durum bilgisi + `❯` işareti.
 
-        Her yeniden çizimde çağrılır; shift-tab ile mod değişince kendiliğinden
-        güncellenir.
+        Durum eskiden ekranın altında ayrı bir `bottom_toolbar` idi. Ayrı, alta
+        sabitlenmiş bir widget, terminal yeniden boyutlandırıldığında (özellikle
+        reflow eden emülatörlerde) prompt_toolkit'in bayat imleç modeliyle yaptığı
+        silmeyi ıskalatıp `❯` kopyalarını ekranda biriktiriyordu. Durum, giriş
+        satırının PARÇASI olarak çizilince o çok-satırlı widget ortadan kalkar ve
+        yeniden boyutlandırma temiz kalır (ölçümle doğrulandı).
+
+        Her yeniden çizimde çağrılır; mod değişince kendiliğinden güncellenir.
         """
         from prompt_toolkit.formatted_text import HTML
 
+        return HTML(
+            f"{self.status_line()} <style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
+        )
+
+    def status_line(self) -> str:
+        """Sol prompt'taki durum parçası (mod + bağlam). İpucu burada gösterilmez;
+        o `/help` ve karşılama kutusunda yaşar — inline'da giriş genişliğini yer."""
         color = _MODE_COLORS.get(self.mode.value, theme.DIM)
-        parts = [
-            f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>",
-            f"<style fg='{theme.DIM}'>{self.context}</style>" if self.context else "",
-            f"<style fg='{theme.DIM}'>{messages.REPL_ON_OFF_HINT}</style>",
-        ]
+        parts = [f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>"]
+        if self.context:
+            parts.append(f"<style fg='{theme.DIM}'>{self.context}</style>")
         separator = f"<style fg='{theme.DIM}'> · </style>"
-        return HTML(" " + separator.join(part for part in parts if part))
+        return separator.join(parts)
 
 
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
@@ -180,8 +188,9 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         return PromptSession(
             history=FileHistory(str(history_path)),
             completer=WordCompleter(words, sentence=True),
-            bottom_toolbar=owner.status_bar,
-            style=_toolbar_style(),
+            # Durum çubuğu bir bottom_toolbar DEĞİL: alta sabitlenmiş widget yeniden
+            # boyutlandırmada ❯ kopyaları biriktiriyordu. Durum artık sol prompt'un
+            # parçası (bkz. prompt_message).
             # Girilen satır prompt_toolkit tarafından SİLİNİR; kullanıcı mesajını
             # kendimiz tam genişlikte bir bant olarak çiziyoruz (bkz. ui.renderer).
             erase_when_done=True,
@@ -197,20 +206,3 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         # prompt_toolkit kurulamadı (terminal desteklemiyor, ortam kısıtlı…).
         # Düz girişe düşmek kabul edilebilir; REPL çalışmaya devam etmelidir.
         return None
-
-
-def _toolbar_style() -> Any:
-    """Durum çubuğunun varsayılan ters-renkli zeminini kaldır.
-
-    prompt_toolkit `bottom-toolbar` için açık gri zemin + siyah yazı kullanır; bu
-    terminalin altında dikkat çeken çirkin bir şerit oluşturuyor. Sönük ve
-    zeminsiz bir satır, bilgiyi verir ama gözü çekmez.
-    """
-    from prompt_toolkit.styles import Style
-
-    return Style.from_dict(
-        {
-            "bottom-toolbar": "noreverse bg:default",
-            "bottom-toolbar.text": "noreverse bg:default",
-        }
-    )

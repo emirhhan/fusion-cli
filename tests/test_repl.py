@@ -514,25 +514,50 @@ def _status_text(mode, context=""):
 
     reader = ReplInput(Path("/tmp/fusion-test-history"), ["/help"], mode=mode)
     reader.context = context
-    return re.sub(r"<[^>]+>", "", reader.status_bar().value)
+    # Durum artık giriş satırının içinde (sol prompt); prompt_message'dan okunur.
+    return re.sub(r"<[^>]+>", "", reader.prompt_message().value)
 
 
-def test_durum_cubugu_modu_ve_baglami_gosterir():
+def test_durum_modu_ve_baglami_gosterir():
     metin = _status_text(ApprovalMode.SECURITY, "agent · general · model-x")
 
     assert "security" in metin
     assert "model-x" in metin
 
 
-def test_durum_cubugu_tek_satira_sigar():
+def test_durum_prompt_isaretiyle_birlikte_gelir():
+    """Durum, ❯ giriş işaretinin solunda aynı satırda olmalı."""
+    from fusion_cli.cli.repl.input import PROMPT_SYMBOL
+
+    metin = _status_text(ApprovalMode.AUTO, "agent · general · nemotron")
+
+    assert PROMPT_SYMBOL in metin
+    assert metin.index("auto") < metin.index(PROMPT_SYMBOL)  # durum önce, ❯ sonra
+
+
+def test_durum_tek_satira_sigar():
     """80 sütunluk terminalde sarmamalı."""
     metin = _status_text(ApprovalMode.SECURITY, "agent · reasoning · nemotron-super")
 
     assert len(metin) <= 80
 
 
-def test_durum_cubugu_baglamsiz_da_calisir():
+def test_durum_baglamsiz_da_calisir():
     assert "auto" in _status_text(ApprovalMode.AUTO)
+
+
+def test_mod_degisince_prompt_guncellenir():
+    """shift-tab modu değiştirince prompt mesajı yeni modu yansıtmalı (callable)."""
+    import re
+
+    from fusion_cli.cli.repl.input import ReplInput
+
+    reader = ReplInput(Path("/tmp/fusion-test-history2"), ["/help"], mode=ApprovalMode.AUTO)
+    once = re.sub(r"<[^>]+>", "", reader.prompt_message().value)
+    reader.cycle_mode()
+    sonra = re.sub(r"<[^>]+>", "", reader.prompt_message().value)
+
+    assert once != sonra  # aynı callable, değişen mod → değişen metin
 
 
 # --- Çalışma göstergesi -------------------------------------------------------- #
