@@ -74,4 +74,13 @@ Bilinçli olarak taşınmayan iki şey:
   satır, tamamlama menüsü rezervasyonu kapalı). Temiz bir uygulama-katmanı kancası yok;
   gerçek çözüm ya tam-ekran/alternatif tampon kipi (uygulamanın akan-çıktı tasarımıyla
   çelişir) ya da prompt_toolkit yaması. Reflow yapmayan emülatörlerde (pyte ile doğrulandı)
-  sorun oluşmuyor — headless olarak birebir tekrar üretilemedi.
+  sorun oluşmuyor.
+  Sonradan reflow yapan terminal taklit edilerek **birebir tekrar üretildi** (pyte grid'inden
+  mantıksal satırlar yeniden kurulup yeni genişlikte sarılıyor; resize dizisi sonrası 4 yetim
+  `❯` kalıyor). Kök neden kesinleşti: `Renderer.erase` imleci BAYAT iç modele göre yukarı
+  taşıyıp siliyor; reflow satırları kaydırınca yanlış satır siliniyor, eski `❯` bloğu kalıyor.
+  `bottom_toolbar` etkiyi büyütüyor çünkü çizilen bloğu tek satırdan çok-satıra çıkarıyor.
+  **Tek temiz uygulama-katmanı çözümü:** durum çubuğunu `bottom_toolbar`'dan `rprompt`'a
+  (giriş satırının sağ ucu) taşımak → blok tek satıra iner, çoğalma biter. Kullanıcı görünümü
+  korumayı tercih ettiği için UYGULANMADI; alt çubuk korundu, bug kabul edildi. Fikir
+  değişirse düzeltme hazır ve artık test edilebilir.
