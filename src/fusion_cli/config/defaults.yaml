@@ -1,0 +1,28 @@
+# Fusion-CLI varsayılan yapılandırması — TEK DOĞRULUK KAYNAĞI.
+#
+# Kod içinde varsayılan değer YAZILMAZ; her ayarın varsayılanı burada durur.
+# Kullanıcı yapılandırması bunun ÜZERİNE derin birleştirilir, bu dosya değişmez.
+#
+# Model kimlikleri LiteLLM biçimindedir: "<sağlayıcı>/<model>"
+#   OpenRouter  -> openrouter/<id>
+#   NVIDIA NIM  -> nvidia_nim/<id>
+
+# Agent motorunun kullandığı model. `fallback` yedek zinciridir: birincil model ile
+# AYNI ANDA denenir, ilk başarılı yanıt kazanır (hedged istek). Böylece bir sağlayıcı
+# 429/soğuk başlangıç verse bile tur beklemez.
+agent:
+  name: glm-5.2
+  model: nvidia_nim/z-ai/glm-5.2
+  tags: [code, agent]
+  fallback:
+    - openrouter/tencent/hy3:free
+    - nvidia_nim/mistralai/mistral-medium-3.5-128b
+
+# Çalışma zamanı davranışı.
+runtime:
+  # Takılan çağrı bu sürede düşer; yedek zinciri zaten paralel çalıştığı için tur durmaz.
+  request_timeout_s: 45
+  # Sağlayıcı içi yeniden deneme. Hedging zaten yatay dayanıklılık sağladığından düşük tutulur.
+  max_retries: 1
+  temperature: 0.3
+  max_tokens: 2048

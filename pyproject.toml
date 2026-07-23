@@ -1,0 +1,81 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fusion-cli"
+version = "0.2.0.dev0"
+description = "Ücretsiz LLM'lerle çalışan, iki motorlu, öz-öğrenen agentic CLI"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+# Bağımlılıklar alt VE üst sınırlı: büyük sürüm atlamaları kurulumu sessizce bozmasın.
+dependencies = [
+    "litellm>=1.51,<2",
+    "pyyaml>=6.0,<7",
+    "typer>=0.12,<1",
+    "rich>=13.7,<15",
+    "python-dotenv>=1.0,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<2",
+    "ruff>=0.6,<1",
+    "mypy>=1.11,<2",
+    "types-PyYAML>=6,<7",
+]
+
+[project.scripts]
+fusion = "fusion_cli.cli.app:main"
+fusion-cli = "fusion_cli.cli.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"fusion_cli.config" = ["*.yaml"]
+
+# --------------------------------------------------------------------------- #
+# Kalite kapısı — tek yerde tanımlı, editör ayarına bırakılmaz.
+# --------------------------------------------------------------------------- #
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "ANN", "ASYNC", "PTH"]
+ignore = [
+    # RUF001-003 Latin dışı "belirsiz" karakterleri işaretler. Bu projenin metinleri
+    # bilinçli olarak Türkçedir (CLAUDE.md "Dil"); ı/ş/ğ/ç uyarı üretmemelidir.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Testlerde tip anotasyonu zorunlu değil; okunabilirlik önce gelir.
+"tests/*" = ["ANN"]
+# LiteLLM tip bilgisi yayımlamıyor. `Any` YALNIZCA bu SDK sınırında kullanılır ve
+# sınırın dışına çıkmadan `ModelResult`/`StreamItem` tiplerine normalize edilir.
+"src/fusion_cli/providers/litellm_provider.py" = ["ANN401"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+# LiteLLM tip bilgisi yayımlamıyor; sınır yalnızca providers katmanında.
+module = ["litellm.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
