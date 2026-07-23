@@ -189,3 +189,80 @@ def test_puan_tablosu_kazanani_isaretler():
     renderer.handle(FusionCompleted(_fusion_sonuc()))
 
     assert "0.90" in buffer.getvalue()
+
+
+# --- Düşünme metni ayıklama --------------------------------------------------- #
+
+
+def test_kapali_dusunme_blogu_gosterilmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>uzun uzun dusunuyorum</think>Cevap: 42\n"))
+
+    cikti = buffer.getvalue()
+    assert "dusunuyorum" not in cikti
+    assert "Cevap: 42" in cikti
+
+
+def test_kapanmamis_dusunme_blogu_sizdirilmaz():
+    """Akış sürerken kapanış gelebilir; kapanmamış açılıştan sonrası tutulur."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "Basliyorum. <think>gizli olmali"))
+
+    cikti = buffer.getvalue()
+    assert "Basliyorum." in cikti
+    assert "gizli" not in cikti
+
+
+def test_dusunme_parca_parca_gelse_de_gizlenir():
+    renderer, buffer = _renderer()
+
+    for parca in ("<th", "ink>giz", "li plan</thi", "nk>Gorunur cevap\n"):
+        renderer.handle(TokenReceived(Channel.MAIN, parca))
+
+    cikti = buffer.getvalue()
+    assert "gizli plan" not in cikti
+    assert "Gorunur cevap" in cikti
+
+
+def test_dusunme_sonrasi_metin_tekrar_basilmaz():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "onsoz "))
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>ara dusunce</think>"))
+    renderer.handle(TokenReceived(Channel.MAIN, "sonrasi\n"))
+
+    assert buffer.getvalue().count("onsoz") == 1
+
+
+def test_tur_bitince_tampon_temizlenir():
+    from fusion_cli.core.events import TurnFinished
+
+    renderer, buffer = _renderer()
+    renderer.handle(TokenReceived(Channel.MAIN, "ilk tur\n"))
+    renderer.handle(TurnFinished())
+    renderer.handle(TokenReceived(Channel.MAIN, "ikinci tur\n"))
+
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar == ["ilk tur", "ikinci tur"]
+
+
+def test_dusunmeyle_ilgisiz_kucuktur_isareti_kaybolmaz():
+    """`<` ile biten gerçek bir cevap tur sonunda serbest bırakılmalı."""
+    from fusion_cli.core.events import TurnFinished
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "sonuc: a < b"))
+    renderer.handle(TurnFinished())
+
+    assert "a < b" in buffer.getvalue()
+
+
+def test_dusunme_blogu_olmadan_metin_aynen_akar():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "duz cevap\n"))
+
+    assert buffer.getvalue().splitlines()[0] == "duz cevap"

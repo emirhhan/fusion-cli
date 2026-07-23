@@ -49,6 +49,7 @@ from ..core.events import (
 )
 from ..core.types import FusionResult, VerdictSource
 from . import messages, theme
+from .text import strip_thinking
 
 _CHANNEL_LABELS = {
     Channel.SUBAGENT: "alt-ajan",
@@ -71,6 +72,10 @@ class ConsoleRenderer:
         self._show_all_answers = show_all_answers
         self._line_open = False
         self._active_channel: Channel | None = None
+        # Kanal başına ham akış tamponu. Düşünme bloklarının kapanışını beklemek
+        # için ham metni saklamak zorundayız; görünür kısmı ondan türetiriz.
+        self._raw: dict[Channel, str] = {}
+        self._shown: dict[Channel, int] = {}
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -128,6 +133,7 @@ class ConsoleRenderer:
         elif isinstance(event, ErrorOccurred):
             self._error(event.message)
         elif isinstance(event, TurnFinished):
+            self._flush_streams()
             self._close_line()
             self._active_channel = None
 
@@ -136,14 +142,38 @@ class ConsoleRenderer:
     def _write_stream(self, channel: Channel, text: str) -> None:
         if not text:
             return
+        self._raw[channel] = self._raw.get(channel, "") + text
+        visible = strip_thinking(self._raw[channel], streaming=True)
+        shown = self._shown.get(channel, 0)
+        if len(visible) <= shown:
+            return  # gelen parça tamamen düşünme metniydi; basılacak bir şey yok
+
         if channel is not self._active_channel:
             self._close_line()
             self._channel_header(channel)
             self._active_channel = channel
+
+        fresh = visible[shown:]
         # `out` ham yazar: model çıktısındaki köşeli parantezler Rich markup'ı
         # sanılıp yorumlanmaz, çıktı bozulmaz.
-        self._console.out(text, end="", highlight=False)
-        self._line_open = not text.endswith("\n")
+        self._console.out(fresh, end="", highlight=False)
+        self._shown[channel] = len(visible)
+        self._line_open = not fresh.endswith("\n")
+
+    def _flush_streams(self) -> None:
+        """Akış bitti: geri tutulan son parçaları bas ve tamponları boşalt.
+
+        Akış sırasında `<think>` etiketinin başlangıcı olabilecek parça geri
+        tutulur; tur bitince bu belirsizlik ortadan kalkar.
+        """
+        for channel, raw in self._raw.items():
+            visible = strip_thinking(raw)
+            shown = self._shown.get(channel, 0)
+            if len(visible) > shown:
+                self._console.out(visible[shown:], end="", highlight=False)
+                self._line_open = not visible.endswith("\n")
+        self._raw.clear()
+        self._shown.clear()
 
     def _channel_header(self, channel: Channel) -> None:
         label = _CHANNEL_LABELS.get(channel)

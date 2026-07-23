@@ -5,8 +5,16 @@ CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
 ## Taşıma tamamlandı
 
-Eski projedeki tüm özellikler yeni yapıya taşındı: fusion motoru, araç katmanı,
-agent motoru, öz-öğrenen bellek, REPL, maliyet takibi ve Langfuse izleme.
+Eski projeyle **özellik eşitliği doğrulandı**: 31 slash komutunun ve 24 aracın tamamı
+yeni yapıda mevcut (karşılaştırma betikle yapıldı, elle değil).
+
+Bilinçli olarak taşınmayan iki şey:
+
+- **`live_input`** (tur çalışırken canlı giriş) — eski projede deneyseldi ve varsayılan
+  olarak kapalıydı. Satır bozulmalarının kaynağı buydu; yeni yapıda giriş satırı ve akan
+  çıktı asla aynı anda ekranda değil. İstenirse olay veriyolu üzerinden çakışmasız
+  biçimde kurulabilir.
+- **`agent_max_iterations`** → `agent_max_steps` olarak yeniden adlandırıldı (aynı işlev).
 
 ## Eski projeden düzeltilerek taşınan hatalar
 

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
+from ...config.permissions import is_allowed
 from ...core.tools import Tool, ToolArgs
 from ...tools.safety import danger_reason
 
@@ -49,6 +50,8 @@ class ApprovalRequest:
     args: ToolArgs
     #: Yıkıcı olduğu tespit edildiyse gerekçesi, değilse None.
     danger: str | None
+    #: Kullanıcının izin listesinde (.claude/settings.local.json) mi?
+    pre_allowed: bool = False
 
 
 class Prompter(Protocol):
@@ -76,12 +79,18 @@ class AutoApproval:
 
 
 class SecurityApproval:
-    """Her değiştirici işlemi tek tek sorar."""
+    """Her değiştirici işlemi tek tek sorar.
+
+    İstisna: kullanıcının kendi izin listesine yazdığı komutlar sorulmaz — kullanıcı
+    o kararı zaten vermiştir. Yıkıcı komutlar bu istisnadan yararlanamaz.
+    """
 
     def __init__(self, prompter: Prompter) -> None:
         self._prompter = prompter
 
     async def decide(self, request: ApprovalRequest) -> Decision:
+        if request.pre_allowed and request.danger is None:
+            return Decision.ALLOW
         return _from_answer(await self._prompter.confirm(request))
 
 
@@ -101,9 +110,22 @@ def build_policy(mode: ApprovalMode, prompter: Prompter) -> ApprovalPolicy:
     return AutoApproval(prompter)
 
 
-def build_request(tool: Tool, args: ToolArgs) -> ApprovalRequest:
-    """Onay isteğini kur; yıkıcılık tespiti burada tek kez yapılır."""
-    return ApprovalRequest(tool=tool, args=args, danger=danger_reason(tool.name, args))
+def build_request(
+    tool: Tool, args: ToolArgs, allowed_commands: frozenset[str] = frozenset()
+) -> ApprovalRequest:
+    """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır."""
+    command = args.get("command")
+    pre_allowed = (
+        tool.name == "run_shell"
+        and isinstance(command, str)
+        and is_allowed(command, allowed_commands)
+    )
+    return ApprovalRequest(
+        tool=tool,
+        args=args,
+        danger=danger_reason(tool.name, args),
+        pre_allowed=pre_allowed,
+    )
 
 
 def _from_answer(approved: bool) -> Decision:

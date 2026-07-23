@@ -16,6 +16,14 @@ from typing import TYPE_CHECKING, Protocol
 from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...memory.code_index import format_matches
+from ...tools.capabilities import (
+    Capability,
+    CapabilityRegistry,
+    load_agent_prompt,
+    load_skill_text,
+    map_tools,
+    search,
+)
 from ...tools.registry import ToolRegistry
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -43,7 +51,11 @@ def build_agent_registry(
     registry = deps.base_registry
     extended = _clone(registry)
     extended.register(_spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
+    # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
+    extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
+    if deps.capabilities is not None:
+        _register_capability_tools(extended, deps, depth=depth, run_agent=run_agent)
     if deps.code_index is not None:
         extended.register(_search_codebase_tool(deps))
     if deps.asker is not None:
@@ -184,3 +196,147 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         },
         run=_run,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Skill / agent kütüphanesi
+# --------------------------------------------------------------------------- #
+
+
+def _register_capability_tools(
+    registry: ToolRegistry,
+    deps: AgentDeps,
+    *,
+    depth: int,
+    run_agent: Callable[..., Awaitable[AgentOutcome]],
+) -> None:
+    """Kütüphanede içerik varsa arama ve devretme araçlarını aç.
+
+    Boş bir kütüphane için araç sunmak modelin bulunmayan bir şeyi aramasına yol
+    açar; bu yüzden yalnızca gerçekten girdi varken kaydedilir.
+    """
+    library = deps.capabilities
+    if library is None:
+        return
+    if library.skills():
+        registry.register(_find_skill_tool(library))
+        registry.register(_read_skill_tool(library))
+    if library.agents():
+        registry.register(_find_agent_tool(library))
+        registry.register(_invoke_agent_tool(deps, depth=depth, run_agent=run_agent))
+
+
+def _find_skill_tool(library: CapabilityRegistry) -> Tool:
+    def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        query = str(args.get("query", ""))
+        hits = search(library.skills(), query)
+        return ToolResult(_format(hits) or "(eşleşen skill yok)")
+
+    return Tool(
+        name="find_skill",
+        description="Uzman SKILL kütüphanesinde ara. Adları ezbere bilmezsin; ihtiyaç "
+        "duyduğunda ARA, sonra read_skill ile talimatı yükle. Tahmin etme.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {**_STRING, "description": "aranan yetenek"}},
+            "required": ["query"],
+        },
+        run=_run,
+    )
+
+
+def _read_skill_tool(library: CapabilityRegistry) -> Tool:
+    def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        name = str(args.get("name", ""))
+        skill = library.get_skill(name)
+        if skill is None:
+            return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
+        return ToolResult(load_skill_text(skill.path))
+
+    return Tool(
+        name="read_skill",
+        description="Bir SKILL'in tam talimatını yükle (find_skill ile bulduğun ad).",
+        parameters={
+            "type": "object",
+            "properties": {"name": _STRING},
+            "required": ["name"],
+        },
+        run=_run,
+    )
+
+
+def _find_agent_tool(library: CapabilityRegistry) -> Tool:
+    def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        hits = search(library.agents(), str(args.get("query", "")))
+        return ToolResult(_format(hits) or "(eşleşen agent yok)")
+
+    return Tool(
+        name="find_agent",
+        description="Uzman AGENT kütüphanesinde ara. Uygun bir uzman bulursan işi "
+        "invoke_agent ile ona devret.",
+        parameters={
+            "type": "object",
+            "properties": {"query": {**_STRING, "description": "aranan uzmanlık"}},
+            "required": ["query"],
+        },
+        run=_run,
+    )
+
+
+def _invoke_agent_tool(
+    deps: AgentDeps, *, depth: int, run_agent: Callable[..., Awaitable[AgentOutcome]]
+) -> Tool:
+    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        from .loop import AgentDeps as _Deps
+
+        library = deps.capabilities
+        name, task = str(args.get("name", "")), str(args.get("task", ""))
+        if library is None or not name or not task.strip():
+            return ToolResult.failure("'name' ve 'task' alanları dolu olmalı.")
+        agent = library.get_agent(name)
+        if agent is None:
+            return ToolResult.failure(f"'{name}' adlı agent yok. find_agent ile ara.")
+        if depth >= MAX_AGENT_DEPTH:
+            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevi kendin yap.")
+
+        deps.publisher.publish(SubAgentStarted(task=f"{name}: {task}"))
+        sub_deps = _Deps(
+            config=deps.config,
+            publisher=deps.publisher,
+            policy=deps.policy,
+            tool_context=ToolContext(root=context.root),
+            base_registry=deps.base_registry,
+            asker=deps.asker,
+            code_index=deps.code_index,
+            lessons=deps.lessons,
+            capabilities=library,
+            channel=Channel.SUBAGENT,
+        )
+        outcome = await run_agent(
+            task,
+            sub_deps,
+            depth=depth + 1,
+            self_review=False,
+            # Uzmanın kendi talimatı sistem promptuna eklenir; kısıtladığı araç
+            # seti varsa yalnızca onlar sunulur.
+            extra_system=load_agent_prompt(agent.path),
+            allowed_tools=map_tools(agent.tools),
+        )
+        deps.publisher.publish(SubAgentFinished(tool_calls=outcome.tool_calls_made))
+        return ToolResult(outcome.final_text or "(uzman boş yanıt verdi)")
+
+    return Tool(
+        name="invoke_agent",
+        description="Bir UZMAN AGENT'a alt-görev devret (find_agent ile bulduğun ad). "
+        "Uzman kendi talimatı ve araçlarıyla çalışıp sonucu döner.",
+        parameters={
+            "type": "object",
+            "properties": {"name": _STRING, "task": _STRING},
+            "required": ["name", "task"],
+        },
+        run=_run,
+    )
+
+
+def _format(hits: tuple[Capability, ...]) -> str:
+    return "\n".join(f"- {item.name} — {item.description}" for item in hits)

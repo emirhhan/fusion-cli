@@ -1,0 +1,87 @@
+"""Oturum içi model değiştirme.
+
+`Config` ve `ModelSpec` frozen'dır: mutasyon yoktur, her işlem YENİ bir yapılandırma
+döndürür. Bu sayede yarım kalmış bir değişiklik oturumu bozamaz ve fonksiyonlar
+saftır — ağ, dosya ya da yan etki olmadan test edilir.
+
+Değişiklik yalnızca oturum boyunca yaşar; kalıcı olması için `config.yaml`'a yazılır.
+"""
+
+from __future__ import annotations
+
+from dataclasses import replace
+
+from ..core.errors import ConfigError
+from ..core.types import ModelSpec
+from .models import Config
+
+
+def set_agent_model(config: Config, model_id: str) -> Config:
+    """Agent rolünün modelini değiştir."""
+    return replace(config, agent=replace(config.agent, model=_validated(model_id)))
+
+
+def set_judge_model(config: Config, model_id: str) -> Config:
+    """Hakem (ve sentez) rolünün modelini değiştir."""
+    return replace(config, judge=replace(config.judge, model=_validated(model_id)))
+
+
+def set_candidate_model(config: Config, key: str, model_id: str) -> Config:
+    """Bir fusion adayının modelini değiştir. `key`: aday adı ya da 1-tabanlı sıra."""
+    index = resolve_candidate(config, key)
+    candidates = list(config.candidates)
+    candidates[index] = replace(candidates[index], model=_validated(model_id))
+    return replace(config, candidates=tuple(candidates))
+
+
+def add_candidate(config: Config, name: str, model_id: str, tags: tuple[str, ...] = ()) -> Config:
+    """Havuza yeni aday ekle."""
+    if config.candidate_by_name(name) is not None:
+        raise ConfigError(f"'{name}' adlı aday zaten var.")
+    spec = ModelSpec(name=name, model=_validated(model_id), tags=tags)
+    return replace(config, candidates=(*config.candidates, spec))
+
+
+def remove_candidate(config: Config, name: str) -> Config:
+    """Havuzdan aday çıkar. Son aday çıkarılamaz — fusion en az bir modele ihtiyaç duyar."""
+    if config.candidate_by_name(name) is None:
+        raise ConfigError(f"'{name}' adlı aday yok.")
+    if len(config.candidates) <= 1:
+        raise ConfigError("En az bir aday kalmalı.")
+    remaining = tuple(item for item in config.candidates if item.name != name)
+    return replace(config, candidates=remaining)
+
+
+def resolve_candidate(config: Config, key: str) -> int:
+    """Aday adını ya da 1-tabanlı sırasını 0-tabanlı indekse çevir."""
+    wanted = key.strip()
+    if wanted.isdigit():
+        index = int(wanted) - 1
+        if not 0 <= index < len(config.candidates):
+            raise ConfigError(f"Aday sırası aralık dışı: {wanted}")
+        return index
+    for index, candidate in enumerate(config.candidates):
+        if candidate.name == wanted:
+            return index
+    known = ", ".join(item.name for item in config.candidates)
+    raise ConfigError(f"'{wanted}' adlı aday yok. Tanımlı adaylar: {known}")
+
+
+def format_models(config: Config) -> str:
+    """Etkin modelleri tek metinde özetle."""
+    lines = [f"agent : {config.agent.model}", f"hakem : {config.judge.model}", "adaylar:"]
+    for index, candidate in enumerate(config.candidates, 1):
+        tags = f"  [{', '.join(candidate.tags)}]" if candidate.tags else ""
+        lines.append(f"  {index}. {candidate.name}: {candidate.model}{tags}")
+    return "\n".join(lines)
+
+
+def _validated(model_id: str) -> str:
+    """Model kimliği `<sağlayıcı>/<model>` biçiminde olmalıdır."""
+    cleaned = model_id.strip()
+    if "/" not in cleaned:
+        raise ConfigError(
+            f"Geçersiz model kimliği: '{cleaned}'. Biçim: <sağlayıcı>/<model> "
+            "(ör. openrouter/openai/gpt-oss-20b:free). Liste için: fusion models --fetch"
+        )
+    return cleaned

@@ -106,3 +106,18 @@ task_model_map:
 embedding:
   provider: local
   model: nvidia/nv-embedqa-e5-v5
+
+# ---------------------------------------------------------------------------
+# Havuza EKLENECEK adaylar. `candidates` yazarsan varsayılanların yerini alır;
+# burası ise onların YANINA ekler. Yerel/açık kaynak modeller için doğru yer:
+#
+# extra_candidates:
+#   - name: qwen-yerel
+#     model: ollama/qwen2.5-coder:7b     # önce: ollama serve && ollama pull …
+#     tags: [code]
+#   - name: llama-yerel
+#     model: ollama/llama3.1:8b
+#     tags: [general]
+#
+# vLLM / LM Studio için:  openai/<model>  + OPENAI_API_BASE=http://localhost:8000/v1
+# Not: yerel modeller tool-calling desteklemeyebilir; agent modunda düz sohbete düşer.

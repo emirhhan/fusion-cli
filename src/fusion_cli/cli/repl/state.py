@@ -11,10 +11,21 @@ from enum import Enum
 from pathlib import Path
 
 from ...config.models import Config
+from ...config.permissions import load_allowed_commands
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMode
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
+from ...tools.capabilities import CapabilityRegistry
+from .macros import Mode
+
+
+@dataclass(frozen=True, slots=True)
+class Reminder:
+    """Kullanıcının kurduğu, süresi dolunca gösterilecek hatırlatma."""
+
+    due_in_seconds: int
+    text: str
 
 
 class Engine(Enum):
@@ -46,6 +57,30 @@ class ReplState:
     last_fusion: FusionResult | None = None
     #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
     cost: CostTracker = field(default_factory=CostTracker)
+    #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
+    capabilities: CapabilityRegistry | None = None
+    #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
+    pending_task: str = ""
+    #: Bekleyen görevin davranış kipi (hedef, mülakat…).
+    pending_mode: Mode = Mode.NONE
+
+    def take_pending(self) -> tuple[str, Mode]:
+        """Bekleyen görevi al ve temizle."""
+        task, mode = self.pending_task, self.pending_mode
+        self.pending_task, self.pending_mode = "", Mode.NONE
+        return task, mode
+
+    #: `.claude/settings.local.json` içindeki onaysız komutlar.
+    allowed_commands: frozenset[str] = frozenset()
+    #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
+    reminders: list[Reminder] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.capabilities is None:
+            self.capabilities = CapabilityRegistry(Path.home(), self.root)
+        if not self.allowed_commands:
+            self.allowed_commands = load_allowed_commands(self.root)
+
     running: bool = True
 
     def cycle_approval(self) -> ApprovalMode:

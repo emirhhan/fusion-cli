@@ -44,6 +44,7 @@ from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, T
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
+from ...tools.capabilities import CapabilityRegistry
 from . import compaction, learning, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .engine_tools import UserAsker, build_agent_registry
@@ -96,6 +97,10 @@ class AgentDeps:
     code_index: CodeIndex | None = None
     #: Öğrenilen dersler. Yoksa hatırlama ve ders çıkarımı atlanır.
     lessons: LessonMemory | None = None
+    #: Skill/agent kütüphanesi. Yoksa arama ve devretme araçları hiç sunulmaz.
+    capabilities: CapabilityRegistry | None = None
+    #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
+    allowed_commands: frozenset[str] = frozenset()
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
@@ -111,8 +116,14 @@ async def run_agent(
     extra_system: str = "",
     depth: int = 0,
     self_review: bool | None = None,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
 ) -> AgentOutcome:
-    """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir."""
+    """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
+
+    `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
+    kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
+    """
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     remembered = _recall_lessons(task, deps)
     messages = _initial_messages(
@@ -122,7 +133,14 @@ async def run_agent(
         extra_system="\n\n".join(part for part in (remembered, extra_system) if part),
     )
 
-    outcome = await _drive(messages, deps, registry, plan_mode=plan_mode)
+    outcome = await _drive(
+        messages,
+        deps,
+        registry,
+        plan_mode=plan_mode,
+        allowed_tools=allowed_tools,
+        step_limit=step_limit,
+    )
 
     should_review = deps.config.runtime.self_review if self_review is None else self_review
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
@@ -151,13 +169,16 @@ async def _drive(
     registry: ToolRegistry,
     *,
     plan_mode: bool,
+    allowed_tools: set[str] | None = None,
+    step_limit: int | None = None,
 ) -> AgentOutcome:
     state = _State()
     final_text = ""
-    limit = deps.config.runtime.agent_max_steps
+    # Hedef kipi gibi ısrarcı görevler daha çok adım ister; varsayılan yapılandırmadan gelir.
+    limit = step_limit or deps.config.runtime.agent_max_steps
 
     for _ in range(limit):
-        result = await _call_model(messages, deps, registry)
+        result = await _call_model(messages, deps, registry, allowed_tools)
         if not result.ok:
             return AgentOutcome(result.error or "", messages, state.tool_calls_made)
 
@@ -180,7 +201,10 @@ async def _drive(
 
 
 async def _call_model(
-    messages: list[Message], deps: AgentDeps, registry: ToolRegistry
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    allowed_tools: set[str] | None = None,
 ) -> ModelResult:
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
@@ -190,7 +214,7 @@ async def _call_model(
         max_tokens=runtime.max_tokens,
         timeout_s=runtime.request_timeout_s,
         max_retries=runtime.max_retries,
-        tools=tuple(registry.schemas()),
+        tools=tuple(registry.schemas(_permitted(allowed_tools, registry))),
     )
     provider = build_provider(deps.config.agent, publisher=deps.publisher, channel=deps.channel)
 
@@ -206,6 +230,17 @@ async def _call_model(
         ok=False,
         error="Model akışı sonuç üretmeden bitti.",
     )
+
+
+#: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
+#: ya da belirsizliği gideremez.
+ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"})
+
+
+def _permitted(allowed_tools: set[str] | None, registry: ToolRegistry) -> set[str] | None:
+    if allowed_tools is None:
+        return None
+    return (allowed_tools | ALWAYS_ALLOWED) & set(registry.names())
 
 
 def _should_auto_continue(
@@ -259,7 +294,7 @@ async def _execute(
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     tool = registry.get(call.name)
     if tool is not None and tool.mutating:
-        decision = await deps.policy.decide(build_request(tool, args))
+        decision = await deps.policy.decide(build_request(tool, args, deps.allowed_commands))
         if decision is not Decision.ALLOW:
             # Reddetme ve engelleme HATA DEĞİLDİR: refleksiyon tetiklenmemeli,
             # model yalnızca farklı bir yol denemeli.

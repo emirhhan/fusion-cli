@@ -32,6 +32,7 @@ from . import memory_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
+from .setup_command import run_setup
 
 app = typer.Typer(
     add_completion=False,
@@ -190,6 +191,18 @@ def feedback(
 ) -> None:
     """Bir modelin son sonucuna geri bildirim ver; bellek buna göre öğrenir."""
     memory_commands.feedback(task_type, model, verdict)
+
+
+@app.command()
+def setup() -> None:
+    """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
+    run_setup(console)
+
+
+@app.command()
+def stats() -> None:
+    """Model performans tablosu (`fusion memory stats` ile aynı)."""
+    memory_commands.show_stats()
 
 
 @app.command()

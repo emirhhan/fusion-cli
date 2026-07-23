@@ -27,7 +27,15 @@ from .models import Config, EmbeddingConfig, RuntimeConfig
 from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
-_SECTIONS = ("agent", "candidates", "judge", "task_model_map", "runtime", "embedding")
+_SECTIONS = (
+    "agent",
+    "candidates",
+    "extra_candidates",
+    "judge",
+    "task_model_map",
+    "runtime",
+    "embedding",
+)
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
 T = TypeVar("T")
@@ -59,7 +67,7 @@ def load_config(path: str | Path | None = None) -> Config:
     _reject_unknown(merged, _SECTIONS, "yapılandırma kökü")
     return Config(
         agent=_build(ModelSpec, merged["agent"], "agent"),
-        candidates=_build_candidates(merged["candidates"]),
+        candidates=_build_candidates(merged["candidates"], merged.get("extra_candidates")),
         judge=_build(ModelSpec, merged["judge"], "judge"),
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build(RuntimeConfig, merged["runtime"], "runtime"),
@@ -69,11 +77,23 @@ def load_config(path: str | Path | None = None) -> Config:
     )
 
 
-def _build_candidates(raw: object) -> tuple[ModelSpec, ...]:
-    """Aday listesini doğrula: boş olamaz, adlar benzersiz olmalı."""
+def _build_candidates(raw: object, extra: object = None) -> tuple[ModelSpec, ...]:
+    """Aday listesini doğrula: boş olamaz, adlar benzersiz olmalı.
+
+    `extra_candidates` havuza EKLER, yerini almaz. Derin birleştirmede bir liste
+    tamamen değiştirilir; varsayılanları koruyup yanına yerel bir model (Ollama,
+    vLLM) eklemek isteyen kullanıcı için ekleyici bir bölüm gereklidir.
+    """
     if not isinstance(raw, list) or not raw:
         raise ConfigError("candidates: en az bir aday tanımlı olmalı.")
     specs = tuple(_build(ModelSpec, item, f"candidates[{index}]") for index, item in enumerate(raw))
+    if extra is not None:
+        if not isinstance(extra, list):
+            raise ConfigError("extra_candidates: liste bekleniyordu.")
+        specs += tuple(
+            _build(ModelSpec, item, f"extra_candidates[{index}]")
+            for index, item in enumerate(extra)
+        )
     names = [spec.name for spec in specs]
     duplicates = sorted({name for name in names if names.count(name) > 1})
     if duplicates:

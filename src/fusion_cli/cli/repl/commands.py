@@ -13,11 +13,15 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from ...config import model_select
+from ...config.models import Config
+from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...ui import messages
-from .state import TASK_TYPES, Engine, ReplState
+from . import macros
+from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
 CommandResult = str
@@ -159,6 +163,89 @@ def _learn(state: ReplState, argument: str) -> str:
     return messages.REPL_LEARN_SAVED
 
 
+def _model(state: ReplState, argument: str) -> str:
+    """`/model` — oturum içinde model değiştir.
+
+    Alt komutlar: agent <id> | judge <id> | cand <ad|no> <id> | add <ad> <id> [etiket…]
+    | rm <ad>. Argümansız çağrı etkin modelleri listeler.
+    """
+    parts = argument.split()
+    if not parts:
+        return model_select.format_models(state.config)
+    try:
+        state.config, message = _apply_model_command(state, parts)
+    except ConfigError as error:
+        return str(error)
+    return message
+
+
+def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, str]:
+    action, arguments = parts[0].lower(), parts[1:]
+    config = state.config
+
+    if action == "agent" and len(arguments) == 1:
+        return model_select.set_agent_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
+            role="agent", model=arguments[0]
+        )
+    if action == "judge" and len(arguments) == 1:
+        return model_select.set_judge_model(config, arguments[0]), messages.REPL_MODEL_SET.format(
+            role="hakem", model=arguments[0]
+        )
+    if action == "cand" and len(arguments) == 2:
+        updated = model_select.set_candidate_model(config, arguments[0], arguments[1])
+        return updated, messages.REPL_MODEL_SET.format(
+            role=f"aday {arguments[0]}", model=arguments[1]
+        )
+    if action == "add" and len(arguments) >= 2:
+        updated = model_select.add_candidate(
+            config, arguments[0], arguments[1], tuple(arguments[2:])
+        )
+        return updated, messages.REPL_MODEL_ADDED.format(name=arguments[0], model=arguments[1])
+    if action == "rm" and len(arguments) == 1:
+        return model_select.remove_candidate(
+            config, arguments[0]
+        ), messages.REPL_MODEL_REMOVED.format(name=arguments[0])
+    return config, messages.REPL_MODEL_USAGE
+
+
+def _macro(name: str) -> Handler:
+    """Makroyu çalıştırılacak göreve çevir ve durumda beklet.
+
+    Makrolar model çağırır; komut işleyicileri ise saftır ve senkrondur. Bu yüzden
+    işleyici yalnızca görevi HAZIRLAR, çalıştırmayı REPL döngüsü üstlenir.
+    """
+
+    def _handler(state: ReplState, argument: str) -> str:
+        macro = macros.get(name)
+        if macro is None:  # pragma: no cover - kayıt defteri ile senkron
+            return ""
+        if macro.argument_required and not argument.strip():
+            return messages.REPL_MACRO_NEEDS_ARGUMENT.format(name=name)
+        state.engine = Engine.AGENT
+        state.pending_task = macro.build(argument)
+        state.pending_mode = macro.mode
+        return messages.REPL_MACRO_STARTED.format(name=name)
+
+    return _handler
+
+
+def _schedule(state: ReplState, argument: str) -> str:
+    """`/schedule <saniye>` — belirtilen süre sonra hatırlatma kur.
+
+    Hatırlatma doğrudan konsola YAZMAZ: bekleyen hatırlatma listesine düşer ve
+    REPL döngüsü bir sonraki uygun anda gösterir. Eski projede ayrı bir thread
+    doğrudan yazdığı için uyarı giriş satırının ortasına biniyordu.
+    """
+    try:
+        seconds = int(argument.strip())
+    except ValueError:
+        return messages.REPL_SCHEDULE_USAGE
+    if seconds <= 0:
+        return messages.REPL_SCHEDULE_USAGE
+    state.reminders.append(Reminder(due_in_seconds=seconds, text=messages.REPL_SCHEDULE_FIRED))
+    return messages.REPL_SCHEDULE_SET.format(seconds=seconds)
+
+
 def _seed(state: ReplState, argument: str) -> str:
     added = seed(state.memory.lessons)
     return messages.MEMORY_SEEDED.format(count=added, total=len(SEED_LESSONS))
@@ -207,7 +294,26 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    *(
+        SlashCommand(
+            name,
+            summary,
+            _macro(name),
+            group="Makro",
+            usage="<görev>" if macros.MACROS[name].argument_required else "[görev]",
+        )
+        for name, summary in (
+            ("goal", messages.CMD_GOAL),
+            ("grill-me", messages.CMD_GRILL),
+            ("bug", messages.CMD_BUG),
+            ("commit", messages.CMD_COMMIT),
+            ("review", messages.CMD_REVIEW),
+            ("browser", messages.CMD_BROWSER),
+        )
+    ),
+    SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
 )
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü

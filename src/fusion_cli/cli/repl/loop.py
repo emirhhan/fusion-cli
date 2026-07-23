@@ -34,13 +34,17 @@ from ...observability.tracing import LangfuseTracer
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
-from . import help_view
+from . import help_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, parse
 from .input import ReplInput
-from .state import Engine, ReplState
+from .macros import Mode
+from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
 HISTORY_FILE = "repl_history"
+
+#: Hedef kipinde adım sınırı yükselir: pes etmemek daha çok deneme gerektirir.
+GOAL_STEP_LIMIT = 100
 
 
 async def run_repl(config: Config, *, memory: Memory, root: Path, console: Console) -> int:
@@ -51,6 +55,10 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
         config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
     )
     background = BackgroundTasks()
+
+    # Modeli arka planda ısıt: soğuk bir uç ilk turda 15-30 sn bekletebiliyor.
+    # Kullanıcı banner'ı okuyup ilk komutunu yazarken bu süre geçmiş olur.
+    background.spawn(_warm_up(state))
 
     banner.print_banner(console)
     _print_status(console, state)
@@ -75,6 +83,38 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     return 0
 
 
+def _arm_reminders(state: ReplState, console: Console, background: BackgroundTasks) -> None:
+    """Kurulmuş hatırlatmaları arka plan işine çevir."""
+    for reminder in state.reminders:
+        background.spawn(_remind(reminder, console))
+    state.reminders.clear()
+
+
+async def _remind(reminder: Reminder, console: Console) -> None:
+    await asyncio.sleep(reminder.due_in_seconds)
+    console.print(f"[{theme.WARN}]{reminder.text}[/{theme.WARN}]")
+
+
+async def _warm_up(state: ReplState) -> None:
+    """Agent modeline en küçük çağrıyı yap; sonucu yok sayılır.
+
+    Amaç yalnızca sağlayıcı tarafındaki soğuk başlangıcı tetiklemektir. Hata
+    olursa sessizce geçilir: ısıtma bir iyileştirmedir, oturumu etkilememeli.
+    """
+    from ...core.types import CompletionRequest, Message
+    from ...providers.factory import build_provider
+
+    request = CompletionRequest(
+        messages=(Message("user", "hi"),),
+        temperature=0.0,
+        max_tokens=1,
+        timeout_s=state.config.runtime.request_timeout_s,
+        max_retries=0,
+    )
+    # Sessiz sağlayıcı: ısıtma ne gösterilir ne de muhasebeye girer (1 token).
+    await build_provider(state.config.agent, publisher=None).complete(request)
+
+
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:
     """Kullanıcıdan satır al. Ctrl-D/EOF'ta None döner (çıkış)."""
     try:
@@ -96,6 +136,12 @@ async def _handle(
 ) -> None:
     if line.startswith("/"):
         await _run_command(line, state, registry, reader, console)
+        # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron
+        # kalsın diye çalıştırma buraya bırakılmıştır.
+        _arm_reminders(state, console, background)
+        task, mode = state.take_pending()
+        if task:
+            await _run_turn(task, state, console, background, mode=mode)
         return
     await _run_turn(line, state, console, background)
 
@@ -129,10 +175,15 @@ async def _run_command(
 
 
 async def _run_turn(
-    line: str, state: ReplState, console: Console, background: BackgroundTasks
+    line: str,
+    state: ReplState,
+    console: Console,
+    background: BackgroundTasks,
+    *,
+    mode: Mode = Mode.NONE,
 ) -> None:
     """Bir mesajı aktif motora gönder. Ctrl-C turu keser, REPL'den çıkmaz."""
-    task = asyncio.ensure_future(_dispatch(line, state, console, background))
+    task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
     with _cancel_on_interrupt(task):
         try:
             await task
@@ -142,12 +193,16 @@ async def _run_turn(
 
 
 async def _dispatch(
-    line: str, state: ReplState, console: Console, background: BackgroundTasks
+    line: str,
+    state: ReplState,
+    console: Console,
+    background: BackgroundTasks,
+    mode: Mode = Mode.NONE,
 ) -> None:
     if state.engine is Engine.FUSION:
         await _fusion_turn(line, state, console)
     else:
-        await _agent_turn(line, state, console, background)
+        await _agent_turn(line, state, console, background, mode)
 
 
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
@@ -171,7 +226,11 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
 
 
 async def _agent_turn(
-    line: str, state: ReplState, console: Console, background: BackgroundTasks
+    line: str,
+    state: ReplState,
+    console: Console,
+    background: BackgroundTasks,
+    mode: Mode = Mode.NONE,
 ) -> None:
     from ...engines.agent import run_agent
     from ...engines.agent.approval import build_policy
@@ -192,6 +251,8 @@ async def _agent_turn(
             asker=prompter,
             code_index=state.memory.code_index if state.memory.enabled else None,
             lessons=state.memory.lessons,
+            capabilities=state.capabilities,
+            allowed_commands=state.allowed_commands,
             background=background,
         )
         outcome = await run_agent(
@@ -199,6 +260,8 @@ async def _agent_turn(
             deps,
             history=state.history,
             plan_mode=state.approval.value == "plan",
+            extra_system=macros.mode_prompt(mode),
+            step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
         )
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))

@@ -16,6 +16,12 @@ make install     # paketi ve geliştirme bağımlılıklarını kurar
 cp .env.example .env
 ```
 
+İlk kurulumda kullanıcı dizinine şablon bırakmak için:
+
+```bash
+.venv/bin/fusion setup
+```
+
 `.env` içine en az bir sağlayıcı anahtarı gir:
 
 - **NVIDIA NIM** (ücretsiz): <https://build.nvidia.com/>
@@ -55,10 +61,44 @@ fusion ❯
 | Agent | `/reset` `/compact` |
 | Fusion | `/type <tip>` `/all` `/synth` |
 | Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
-| Bilgi | `/models` `/cost` `/help` `/clear` `/exit` |
+| Bilgi | `/models` `/model` `/cost` `/help` `/clear` `/exit` |
+| Makro | `/goal` `/grill-me` `/bug` `/commit` `/review` `/browser` `/schedule` |
 
 Ders çıkarımı **arka planda** çalışır: bir sonraki komutu beklemez, oturum
-kapanırken tamamlanması beklenir.
+kapanırken tamamlanması beklenir. Agent modeli oturum açılırken arka planda ısıtılır;
+soğuk bir uç ilk turu bekletmez.
+
+**Makrolar** sık yapılan işleri tek komuta indirir:
+
+```
+/goal <görev>       hedefe ulaşana kadar pes etme (adım sınırı yükselir)
+/grill-me <görev>   kod yazmadan önce gereksinimleri sorularla netleştir
+/bug [ipucu]        hatayı bul, kök nedeni tespit et, düzelt, doğrula
+/commit [bağlam]    değişiklikleri incele ve conventional commit ile kaydet
+/review [odak]      güvenlik ve mimari açısından code review
+/browser <konu>     web'de araştır ve kaynaklarıyla özetle
+```
+
+**Model değişimi** oturum içinde yapılabilir (kalıcı olması için `config.yaml`'a yaz):
+
+```
+/model                              etkin modelleri listele
+/model agent <id>                   agent modelini değiştir
+/model cand <ad|no> <id>            bir fusion adayını değiştir
+/model add <ad> <id> [etiket…]      havuza aday ekle
+/model rm <ad>                      havuzdan aday çıkar
+```
+
+### Skill ve agent kütüphanesi
+
+Claude Code ekosistemindeki uzman talimatlar ve ajanlar otomatik bulunur:
+`~/.claude/skills/**/SKILL.md`, `~/.claude/agents/*.md` ve projenin `.claude/` dizini.
+
+Agent bunları `find_skill` / `read_skill` / `find_agent` ile **arar** — liste prompta
+basılmaz, bağlam boşa harcanmaz. `invoke_agent` ile bir uzmana alt görev devredilir;
+uzman kendi talimatı ve (bildirdiyse) kısıtlı araç setiyle çalışır.
+
+Kütüphanede içerik yoksa bu araçlar modele hiç sunulmaz.
 
 ### Tek seferlik kullanım
 

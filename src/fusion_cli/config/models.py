@@ -72,3 +72,7 @@ class Config:
     memory_dir: Path
     #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
     source: Path | None
+
+    def candidate_by_name(self, name: str) -> ModelSpec | None:
+        """Ada göre aday bul; yoksa None."""
+        return next((item for item in self.candidates if item.name == name), None)

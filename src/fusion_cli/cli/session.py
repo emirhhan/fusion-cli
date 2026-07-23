@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ..config.models import Config
+from ..config.permissions import load_allowed_commands
 from ..core.events import ErrorOccurred, EventSink, FusionCompleted, TurnFinished
 from ..core.tools import ToolContext
 from ..core.types import CompletionRequest, FusionResult, Message, VerdictSource
@@ -28,6 +29,7 @@ from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
 from ..observability.json_sink import JsonRenderer
 from ..observability.tracing import LangfuseTracer
+from ..tools.capabilities import CapabilityRegistry
 from ..ui import messages
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -132,6 +134,8 @@ async def run_agent_task(
             asker=prompter if can_ask else None,
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
+            capabilities=CapabilityRegistry(Path.home(), tool_context.root),
+            allowed_commands=load_allowed_commands(tool_context.root),
         )
         outcome = await run_agent(task, deps, plan_mode=mode is ApprovalMode.PLAN)
 
