@@ -85,6 +85,8 @@ class ConsoleRenderer:
         # Model çalışırken görünen canlı satır. Ekrana bir şey basılmadan önce
         # daima duraklatılır; akan metnin üstüne binmez.
         self._work = WorkIndicator(self._console)
+        #: Basılmayı bekleyen durum satırı — bkz. `_status`.
+        self._pending_status: str | None = None
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -172,6 +174,8 @@ class ConsoleRenderer:
     def _write_stream(self, channel: Channel, text: str) -> None:
         if not text:
             return
+        # Bekleyen durum satırı cevabın ÖNÜNE basılmalı; sıra bozulmamalı.
+        self._flush_status()
         self._raw[channel] = self._raw.get(channel, "") + text
         visible = strip_thinking(self._raw[channel], streaming=True)
         shown = self._shown.get(channel, 0)
@@ -223,6 +227,7 @@ class ConsoleRenderer:
         halde düzeltici turun cevabı işaretsiz kalıp öncekinin devamı gibi görünür.
         """
         self._close_line()
+        self._flush_status()
         self._active_channel = None
 
     def _close_line(self) -> None:
@@ -239,10 +244,28 @@ class ConsoleRenderer:
     # -- Diğer olaylar ------------------------------------------------------- #
 
     def _status(self, message: str) -> None:
+        """Durum satırını KUYRUĞA al; basmayı bir adım geciktir.
+
+        Turun son durum satırı (çoğunlukla `öz-denetim · sorun yok`) ile süre/token
+        özeti ayrı iki satıra bölününce ekran gereksiz yere uzuyordu. Bir adım
+        geciktirince turun sonunda hangi satırın son olduğu bilinir ve özet onun
+        sonuna parantez içinde yazılır. Bekleyen satır, ekrana başka bir şey
+        basılmadan önce (`_close_line`) mutlaka boşaltılır; sıra bozulmaz.
+        Canlı ilerleme hissi zaten çalışma göstergesinden geliyor.
+        """
         if not self._show_progress:
             return
         self._end_block()
+        self._pending_status = message
+
+    def _flush_status(self, detail: str = "") -> None:
+        """Bekleyen durum satırını bas. `detail` verilirse sonuna parantezle ekle."""
+        message, self._pending_status = self._pending_status, None
+        if message is None:
+            return
         body = escape(message)
+        if detail:
+            body += f" ({escape(detail)})"
         self._console.print(f"[{theme.DIM}]{theme.ICON_STATUS} {body}[/{theme.DIM}]")
 
     def _model_finished(self, event: ModelCallFinished) -> None:
@@ -295,11 +318,22 @@ class ConsoleRenderer:
         self._work.resume()
 
     def _finish_work(self) -> None:
-        """Turu bitir ve özet satırını bas."""
-        summary = self._work.finish()
-        if summary is not None:
-            self._console.print()
-            self._console.print(summary)
+        """Turu bitir ve özeti bas.
+
+        Bekleyen bir durum satırı varsa özet ayrı satır açmaz, onun sonuna
+        parantez içinde girer.
+        """
+        detail = self._work.finish()
+        if self._pending_status is not None:
+            self._flush_status(detail or "")
+            return
+        if detail is None:
+            return
+        summary = Text("  ")
+        summary.append(f"{theme.ICON_DONE} ", style=theme.ACCENT)
+        summary.append(detail, style=theme.DIM)
+        self._console.print()
+        self._console.print(summary)
 
     # -- Agent araç kartı ---------------------------------------------------- #
 

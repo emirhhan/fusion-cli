@@ -10,6 +10,8 @@ from fusion_cli.core.events import (
     Channel,
     ErrorOccurred,
     ModelCallFinished,
+    ModelCallStarted,
+    SelfReviewFinished,
     StatusChanged,
     TokenReceived,
     TurnFinished,
@@ -33,6 +35,7 @@ def test_yarim_satir_varken_durum_satiri_metnin_ustune_binmez():
 
     renderer.handle(TokenReceived(Channel.MAIN, "yarim cumle"))
     renderer.handle(StatusChanged("araç çalıştı"))
+    renderer.handle(TurnFinished())  # bekleyen durum satırını boşaltır
 
     satirlar = buffer.getvalue().splitlines()
     assert satirlar[0] == f"{MARK} yarim cumle"
@@ -101,6 +104,7 @@ def test_basarili_model_cagrisi_sure_ve_token_gosterir():
     )
 
     renderer.handle(ModelCallFinished(role="agent", result=result))
+    renderer.handle(TurnFinished())
 
     cikti = buffer.getvalue()
     assert "2.9s" in cikti and "10" in cikti
@@ -476,3 +480,43 @@ def test_kesintisiz_akis_tek_isaret_alir():
     renderer.handle(TokenReceived(Channel.MAIN, "iki\n"))
 
     assert buffer.getvalue().count(MARK) == 1
+
+
+# --- Özet satırı --------------------------------------------------------------- #
+
+
+def test_ozet_son_durum_satirinin_yanina_parantezle_girer():
+    """İki ayrı satır ekranı gereksiz uzatıyordu."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="nemotron", model="nemotron"))
+    renderer.handle(SelfReviewFinished(issue_found=False))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[-1].count("(") == 1
+    assert satirlar[-1].endswith(")")
+    assert "öz-denetim" in satirlar[-1]
+
+
+def test_durum_satiri_yoksa_ozet_kendi_satirinda_basilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="nemotron", model="nemotron"))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[-1].strip().startswith(theme.ICON_DONE)
+
+
+def test_bekleyen_durum_satiri_cevabin_uzerine_binmez():
+    """Geciktirme sırayı bozmamalı: durum satırı kendinden sonraki metinden önce."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(StatusChanged("araç çalıştı"))
+    renderer.handle(TokenReceived(Channel.MAIN, "cevap\n"))
+    renderer.handle(TurnFinished())
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert "araç çalıştı" in satirlar[0]
+    assert satirlar[1] == f"{MARK} cevap"

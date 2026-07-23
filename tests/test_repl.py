@@ -448,8 +448,7 @@ def test_gosterge_baslayip_ozet_dondurur():
     ozet = gosterge.finish()
 
     assert ozet is not None
-    metin = ozet.plain
-    assert "231 token" in metin and "model-x" in metin
+    assert "231 token" in ozet and "model-x" in ozet
 
 
 def test_gosterge_is_yapilmadiysa_ozet_basmaz():
@@ -467,7 +466,7 @@ def test_gosterge_tokenlari_biriktirir():
     gosterge.update(tokens=100)
     gosterge.update(tokens=50)
 
-    assert "150 token" in gosterge.finish().plain
+    assert "150 token" in gosterge.finish()
 
 
 def test_gosterge_terminal_disinda_ciktiyi_kirletmez():

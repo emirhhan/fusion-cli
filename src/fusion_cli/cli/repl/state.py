@@ -50,6 +50,8 @@ class ReplState:
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"
     show_all_answers: bool = False
+    #: Açılış dolgusu hâlâ ekranda mı? İlk mesajda ekran dolgusuz yeniden çizilir.
+    welcome_padded: bool = True
     synthesis: bool | None = None
     #: Agent motorunun çok-turlu sohbet geçmişi.
     history: list[Message] = field(default_factory=list)

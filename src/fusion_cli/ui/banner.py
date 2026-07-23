@@ -8,10 +8,11 @@ Tasarım kararları:
   bir ipucu ve projenin ne olduğu. Dikey yığmak ekranın yarısını yiyordu.
 - **Tam genişlik.** Kutu terminale yayılır; sabit genişlik geniş ekranda ortada
   asılı kalıyordu.
-- **Konuşma yukarıdan akar.** Karşılamadan sonra boşluk bırakılmaz: ilk mesaj
-  hemen kutunun altından başlar ve ekran doldukça doğal olarak yukarı kayar.
-  Dolgu bırakmak, ilk mesajı ekranın dibine iterek üstte kocaman boş bir alan
-  bırakıyordu.
+- **Giriş altta, konuşma üstte.** Açılışta kutunun altı boşlukla doldurulur;
+  giriş satırı ekranın dibine oturur. Kullanıcı ilk mesajını gönderdiğinde ekran
+  temizlenip karşılama DOLGUSUZ basılır: konuşma kutunun hemen altından başlar ve
+  ekran doldukça doğal olarak yukarı kayar. Böylece dolgu yalnızca boş oturumda
+  yaşar, konuşmanın ortasında kocaman bir boşluğa dönüşmez.
 - **Dar terminalde küçülür.** Büyük imza sığmıyorsa tek satırlık sürümüne iner;
   hiçbir genişlikte taşma olmaz.
 
@@ -37,6 +38,8 @@ LOGO_WIDTH = 47
 MIN_TEXT_WIDTH = 34
 #: Bu genişliğin altında büyük imza sığmaz; tek satırlık sürüme inilir.
 MIN_LOGO_WIDTH = LOGO_WIDTH + MIN_TEXT_WIDTH + 10
+#: Giriş satırı ve altındaki durum çubuğu için ekranın dibinde bırakılan yer.
+PROMPT_RESERVED_LINES = 3
 
 _LOGO_LINES = (
     "███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗",
@@ -77,8 +80,14 @@ def gradient(text: str, start: str = theme.ACCENT, end: str = theme.ACCENT_ALT) 
     return rendered
 
 
-def print_welcome(console: Console, info: SessionInfo, *, clear: bool = True) -> None:
-    """Ekranı temizle, karşılamayı bas ve girişi ekranın altına indir."""
+def print_welcome(
+    console: Console, info: SessionInfo, *, clear: bool = True, pad: bool = True
+) -> None:
+    """Ekranı temizle ve karşılamayı bas.
+
+    `pad` açıkken kutunun altı boşlukla doldurulur; giriş satırı ekranın dibine
+    oturur. İlk mesajdan sonra dolgusuz basılır (bkz. modül açıklaması).
+    """
     if clear:
         console.clear()
 
@@ -89,6 +98,19 @@ def print_welcome(console: Console, info: SessionInfo, *, clear: bool = True) ->
     ]
     for block in blocks:
         console.print(block)
+    if pad:
+        _pad_to_bottom(console, blocks)
+
+
+def _pad_to_bottom(console: Console, blocks: list[RenderableType]) -> None:
+    """Girişi ekranın dibine indirecek kadar boş satır bas.
+
+    Yükseklik ölçülerek bulunur, sabit sayı varsayılmaz: kutunun boyu terminal
+    genişliğine göre değişiyor. Sığmıyorsa hiç dolgu basılmaz — taşma, dibe
+    yapıştırmaktan daha kötüdür.
+    """
+    used = sum(len(console.render_lines(block, console.options, pad=False)) for block in blocks)
+    console.print("\n" * max(0, console.height - used - PROMPT_RESERVED_LINES), end="")
 
 
 def print_status(

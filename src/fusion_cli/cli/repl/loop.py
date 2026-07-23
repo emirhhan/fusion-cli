@@ -61,7 +61,6 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     background.spawn(_warm_up(state))
 
     banner.print_welcome(console, session_info(state))
-    console.print()
     _sync_status_bar(reader, state)
 
     try:
@@ -128,6 +127,10 @@ async def _handle(
     console: Console,
     background: BackgroundTasks,
 ) -> None:
+    if state.welcome_padded:
+        # Açılış dolgusu konuşmanın ortasında dev bir boşluğa dönüşmesin.
+        banner.print_welcome(console, session_info(state), pad=False)
+        state.welcome_padded = False
     ConsoleRenderer(console).print_user_message(line)
     if line.startswith("/"):
         await _run_command(line, state, registry, reader, console)

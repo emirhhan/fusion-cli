@@ -13,6 +13,7 @@ from fusion_cli.core.events import (
     TokenReceived,
     ToolExecuted,
     ToolOutcome,
+    TurnFinished,
 )
 from fusion_cli.core.types import ModelResult, TokenUsage
 from fusion_cli.observability.cost import CostTracker
@@ -246,6 +247,7 @@ def test_on_plan_cagrisi_bitince_ozet_basar():
     )
 
     renderer.handle(_bitti("agent"))
+    renderer.handle(TurnFinished())  # durum satırı tur sonunda basılır
 
     cikti = buffer.getvalue()
     assert "agent" in cikti and "token" in cikti

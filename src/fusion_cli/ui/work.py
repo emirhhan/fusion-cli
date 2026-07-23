@@ -104,17 +104,19 @@ class WorkIndicator:
         if self._state is not None and self._live is None:
             self._show()
 
-    def finish(self) -> Text | None:
-        """Turu bitir ve özet satırını döndür. Hiç çalışmadıysa None."""
+    def finish(self) -> str | None:
+        """Turu bitir ve özet metnini döndür. Hiç çalışmadıysa None.
+
+        Metin döner, biçimlenmiş satır değil: çağıran taraf bunu ister tek başına
+        bir özet satırı olarak, ister bir durum satırının sonuna parantez içinde
+        basar. Sunum kararı göstergenin işi değil.
+        """
         self.pause()
         state, self._state = self._state, None
         # Hiç iş yapılmadıysa (token da model de yok) özet basmaya değmez.
         if state is None or (not state.tokens and not state.model):
             return None
-        summary = Text("  ")
-        summary.append(f"{theme.ICON_DONE} ", style=theme.ACCENT)
-        summary.append(_details(state.elapsed_ms, state.tokens, state.model), style=theme.DIM)
-        return summary
+        return _details(state.elapsed_ms, state.tokens, state.model)
 
     def _show(self) -> None:
         if not self._enabled or self._state is None:
