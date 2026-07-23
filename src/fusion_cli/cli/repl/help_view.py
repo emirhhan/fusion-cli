@@ -22,8 +22,9 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
     if name == "help":
         _help(registry, console)
     elif name == "clear":
-        console.clear()
-        banner.print_banner(console)
+        from .loop import session_info
+
+        banner.print_welcome(console, session_info(state))
     elif name == "stats":
         _stats(state, console)
     elif name == "lessons":

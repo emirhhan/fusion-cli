@@ -84,13 +84,13 @@ def test_hata_mesajindaki_markup_yorumlanmaz():
     assert "[token]" in buffer.getvalue()
 
 
-def test_basarili_model_cagrisi_gecikme_ve_token_gosterir():
+def test_basarili_model_cagrisi_sure_ve_token_gosterir():
     renderer, buffer = _renderer()
     result = ModelResult(
         name="agent",
         model="m",
         text="x",
-        latency_ms=120,
+        latency_ms=2900,
         ok=True,
         usage=TokenUsage(prompt_tokens=3, completion_tokens=7),
     )
@@ -98,7 +98,34 @@ def test_basarili_model_cagrisi_gecikme_ve_token_gosterir():
     renderer.handle(ModelCallFinished(role="agent", result=result))
 
     cikti = buffer.getvalue()
-    assert "120" in cikti and "10" in cikti
+    assert "2.9s" in cikti and "10" in cikti
+
+
+def test_model_cagri_baslangici_basilmaz():
+    """Yedek zinciriyle birlikte model kimliği ekranı kaplıyordu."""
+    from fusion_cli.core.events import ModelCallStarted
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(ModelCallStarted(role="agent", model="a/b | c/d | e/f"))
+
+    assert buffer.getvalue() == ""
+
+
+def test_uzun_saglayici_hatasi_ozetlenir():
+    renderer, buffer = _renderer()
+    uzun = (
+        "RateLimitError: litellm.RateLimitError: OpenrouterException - "
+        '{"error":{"message":"Rate limit exceeded","code":429}} LiteLLM Retried: 1 times'
+    )
+    result = ModelResult(name="a", model="m", text="", latency_ms=1, ok=False, error=uzun)
+
+    renderer.handle(ModelCallFinished(role="a", result=result))
+
+    cikti = buffer.getvalue()
+    assert "RateLimitError" in cikti
+    assert "LiteLLM Retried" not in cikti
+    assert len(cikti) < 200
 
 
 def test_quiet_modda_durum_basilmaz_ama_metin_akar():
@@ -141,7 +168,7 @@ def test_sentez_gosterilirken_hakem_gerekcesi_basilmaz():
     renderer.handle(FusionCompleted(_fusion_sonuc(synthesized=True)))
 
     cikti = buffer.getvalue()
-    assert "sentezlenmiş" in cikti
+    assert "sentez" in cikti
     # Gerekçe kazananı anlatır; sentez metninin yanında gösterilmesi yanıltıcı olur.
     assert "a daha net anlatmis" not in cikti
 

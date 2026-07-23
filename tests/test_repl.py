@@ -303,3 +303,97 @@ def test_mod_dongusu_giriste_de_calisir(tmp_path, monkeypatch):
 def test_exit_veda_mesajini_kendisi_basmaz(registry, state):
     """Veda mesajı kapanışta basılır; komut da basarsa satır iki kez görünür."""
     assert _calistir(registry, state, "/exit") == ""
+
+
+# --- Karşılama ekranı --------------------------------------------------------- #
+
+
+def _welcome_output(width, *, lesson_count=28):
+    import io
+    import re
+
+    from rich.console import Console
+
+    from fusion_cli.ui.banner import SessionInfo, print_welcome
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=width, no_color=True)
+    print_welcome(
+        console,
+        SessionInfo(
+            version="1.0",
+            engine="agent",
+            approval="auto",
+            model="test-model",
+            working_dir="~/proje",
+            lesson_count=lesson_count,
+        ),
+        clear=False,
+    )
+    return re.sub(r"\x1b\[[0-9;]*m", "", buffer.getvalue())
+
+
+def test_karsilama_oturum_bilgisini_gosterir():
+    cikti = _welcome_output(100)
+
+    assert "test-model" in cikti
+    assert "~/proje" in cikti
+    assert "28 ders" in cikti
+
+
+def test_karsilama_kutusu_terminali_tasmaz():
+    for width in (72, 88, 100, 140):
+        satirlar = [satir for satir in _welcome_output(width).splitlines() if satir.strip()]
+
+        assert all(len(satir) <= width for satir in satirlar), width
+
+
+def test_dar_terminalde_tek_sutuna_iner():
+    """İki sütunu zorlamak dar terminalde her satırı üç kez sardırıyor."""
+    dar = _welcome_output(72)
+
+    # Tek sütunda "Başlarken" başlığı satırın başına yakın durur.
+    baslik = next(satir for satir in dar.splitlines() if "Başlarken" in satir)
+    assert baslik.index("Başlarken") < 10
+
+
+def test_genis_terminalde_iki_sutun_kullanilir():
+    genis = _welcome_output(100)
+
+    baslik = next(satir for satir in genis.splitlines() if "Başlarken" in satir)
+    assert baslik.index("Başlarken") > 20
+
+
+def test_bellek_kapaliysa_belirtilir():
+    assert "kapalı" in _welcome_output(100, lesson_count=None)
+
+
+# --- Durum çubuğu -------------------------------------------------------------- #
+
+
+def _status_text(mode, context=""):
+    import re
+
+    from fusion_cli.cli.repl.input import ReplInput
+
+    reader = ReplInput(Path("/tmp/fusion-test-history"), ["/help"], mode=mode)
+    reader.context = context
+    return re.sub(r"<[^>]+>", "", reader.status_bar().value)
+
+
+def test_durum_cubugu_modu_ve_baglami_gosterir():
+    metin = _status_text(ApprovalMode.SECURITY, "agent · general · model-x")
+
+    assert "security" in metin
+    assert "model-x" in metin
+
+
+def test_durum_cubugu_tek_satira_sigar():
+    """80 sütunluk terminalde sarmamalı."""
+    metin = _status_text(ApprovalMode.SECURITY, "agent · reasoning · nemotron-super")
+
+    assert len(metin) <= 80
+
+
+def test_durum_cubugu_baglamsiz_da_calisir():
+    assert "auto" in _status_text(ApprovalMode.AUTO)

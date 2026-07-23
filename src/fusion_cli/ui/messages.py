@@ -15,9 +15,8 @@ VERSION = "fusion-cli {version}"
 
 # --- Durum ---------------------------------------------------------------- #
 STATUS_THINKING = "düşünüyor…"
-MODEL_CALL_STARTED = "{role} çalışıyor · {model}"
-MODEL_CALL_OK = "{role} yanıtladı · {latency} ms · {tokens} token"
-MODEL_CALL_FAILED = "{role} yanıt veremedi · {error}"
+MODEL_CALL_OK = "{role} · {duration} · {tokens} token"
+MODEL_CALL_FAILED = "{role} · {error}"
 
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"
@@ -39,19 +38,19 @@ CONFIG_HEADING_RUNTIME = "Çalışma zamanı"
 CONFIG_FALLBACK_NONE = "(yedek tanımlı değil)"
 
 # --- Fusion --------------------------------------------------------------- #
-FUSION_CANDIDATES = "{count} model düşünüyor: {names}"
-FUSION_JUDGING = "hakem değerlendiriyor…"
-FUSION_JUDGING_AND_SYNTHESIZING = "hakem ve sentez paralel çalışıyor…"
+FUSION_CANDIDATES = "{count} model düşünüyor · {names}"
+FUSION_JUDGING = "hakem…"
+FUSION_JUDGING_AND_SYNTHESIZING = "hakem + sentez…"
 
 FUSION_WINNER = "kazanan: {winner}"
-FUSION_SYNTHESIZED = "sentezlenmiş cevap (adayların en iyi yanlarının birleşimi)"
+FUSION_SYNTHESIZED = "sentez · adayların en iyi yanlarının birleşimi"
 FUSION_SINGLE = "tek geçerli cevap; hakem atlandı"
 FUSION_JUDGE_FALLBACK = "hakem yetişemedi; ilk geçerli aday seçildi"
 
 FUSION_CANDIDATE_SUMMARY = "adaylar:"
 FUSION_SCORE_TABLE_MODEL = "Model"
 FUSION_SCORE_TABLE_SCORE = "Puan"
-FUSION_ALL_ANSWERS = "{name} · {latency} ms"
+FUSION_ALL_ANSWERS = "{name} · {duration}"
 
 # --- Agent ---------------------------------------------------------------- #
 AGENT_TOOL_OK = "{name} {summary}"
@@ -59,9 +58,8 @@ AGENT_TOOL_FAILED = "{name} başarısız · {summary}"
 AGENT_SUBAGENT_STARTED = "alt-ajan devraldı: {task}"
 AGENT_SUBAGENT_FINISHED = "alt-ajan bitti · {count} araç çağrısı"
 AGENT_COUNCIL = "council: çoklu modele danışılıyor…"
-AGENT_SELF_REVIEW_STARTED = "öz-denetim çalışıyor…"
-AGENT_SELF_REVIEW_CLEAN = "öz-denetim: sorun yok"
-AGENT_SELF_REVIEW_ISSUE = "öz-denetim bir sorun buldu; düzeltiliyor…"
+AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
+AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıldı"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
@@ -142,7 +140,33 @@ REPL_SHOW_ALL = "tüm aday cevapları: {state}"
 REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
-REPL_ON_OFF_HINT = "shift-tab: onay modu · Ctrl-C: turu durdur · Ctrl-D: çık"
+REPL_ON_OFF_HINT = "shift-tab mod · /help"
+
+# --- Karşılama ekranı ------------------------------------------------------ #
+APP_NAME = "Fusion CLI"
+WELCOME_FIELD_ENGINE = "motor"
+WELCOME_FIELD_APPROVAL = "onay"
+WELCOME_FIELD_MODEL = "model"
+WELCOME_FIELD_DIR = "dizin"
+WELCOME_FIELD_MEMORY = "bellek"
+WELCOME_MEMORY_ON = "açık · {count} ders"
+WELCOME_MEMORY_OFF = "kapalı"
+
+WELCOME_START_TITLE = "Başlarken"
+WELCOME_START_ITEMS = (
+    ("mesaj yaz", "aktif motora gönderir"),
+    ("/help", "tüm komutlar"),
+    ("/agent · /fusion", "motor değiştir"),
+    ("shift-tab", "onay modunu döndür"),
+)
+
+WELCOME_ABILITY_TITLE = "Neler yapabilir"
+WELCOME_ABILITY_ITEMS = (
+    ("araçlar", "dosya, kabuk, web, görev listesi"),
+    ("fusion", "3 model + hakem + sentez"),
+    ("bellek", "öğrendiğini benzer görevde hatırlar"),
+    ("güvenlik", "diff önizlemesi, yıkıcı komutta onay"),
+)
 REPL_UNKNOWN_COMMAND = "bilinmeyen komut: /{name} — komut listesi için /help"
 REPL_TURN_CANCELLED = "tur durduruldu"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."

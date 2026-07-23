@@ -60,15 +60,9 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     # Kullanıcı banner'ı okuyup ilk komutunu yazarken bu süre geçmiş olur.
     background.spawn(_warm_up(state))
 
-    banner.print_banner(console)
-    _print_status(console, state)
-    if not memory.enabled:
-        console.print(
-            f"[{theme.WARN}]"
-            f"{messages.MEMORY_UNAVAILABLE.format(reason=memory.unavailable_reason)}"
-            f"[/{theme.WARN}]"
-        )
+    banner.print_welcome(console, session_info(state))
     console.print()
+    _sync_status_bar(reader, state)
 
     try:
         while state.running:
@@ -163,6 +157,7 @@ async def _run_command(
 
     result = command.handler(state, argument)
     reader.mode = state.approval
+    _sync_status_bar(reader, state)
     if result:
         console.print(f"[{theme.DIM}]{result}[/{theme.DIM}]")
     if command.name in {"agent", "fusion", "auto", "plan", "security", "type"}:
@@ -313,6 +308,33 @@ async def _shutdown(background: BackgroundTasks, console: Console) -> None:
     for failure in background.failures:
         console.print(f"[{theme.DIM}]arka plan: {failure}[/{theme.DIM}]")
     console.print(f"[{theme.DIM}]{messages.REPL_GOODBYE}[/{theme.DIM}]")
+
+
+def _sync_status_bar(reader: ReplInput, state: ReplState) -> None:
+    """Durum çubuğundaki bağlamı güncel tut (motor, görev tipi, model)."""
+    reader.context = f"{state.engine.value} · {state.task_type} · {state.config.agent.name}"
+
+
+def session_info(state: ReplState) -> banner.SessionInfo:
+    """Karşılama kutusunda gösterilecek oturum bilgilerini topla."""
+    from ... import __version__
+
+    return banner.SessionInfo(
+        version=__version__,
+        engine=state.engine.value,
+        approval=state.approval.value,
+        model=state.config.agent.name,
+        working_dir=_short_path(state.root),
+        lesson_count=state.memory.lessons.count() if state.memory.enabled else None,
+    )
+
+
+def _short_path(path: Path) -> str:
+    """Ev dizinini `~` ile kısalt: uzun mutlak yol kutuyu taşırır."""
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
 
 
 def _print_status(console: Console, state: ReplState) -> None:

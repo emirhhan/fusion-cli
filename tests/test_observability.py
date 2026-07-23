@@ -231,17 +231,75 @@ def test_arka_plan_cagrisi_ilerleme_satiri_basmaz():
     assert buffer.getvalue() == ""
 
 
-def test_on_plan_cagrisi_ilerleme_satiri_basar():
+def test_on_plan_cagrisi_bitince_ozet_basar():
+    """Başlangıç satırı hiç basılmaz (gürültü); bitişte süre ve token gösterilir."""
     import io
 
     from rich.console import Console
 
-    from fusion_cli.core.events import ModelCallStarted
     from fusion_cli.ui.renderer import ConsoleRenderer
 
     buffer = io.StringIO()
     renderer = ConsoleRenderer(Console(file=buffer, force_terminal=False, width=200, no_color=True))
 
-    renderer.handle(ModelCallStarted(role="agent", model="m"))
+    renderer.handle(_bitti("agent"))
 
-    assert "agent" in buffer.getvalue()
+    cikti = buffer.getvalue()
+    assert "agent" in cikti and "token" in cikti
+
+
+# --- Biçimlendirme ------------------------------------------------------------ #
+
+
+def test_sure_insan_olceginde_bicimlenir():
+    from fusion_cli.ui.text import format_duration
+
+    assert format_duration(840) == "840ms"
+    assert format_duration(2900) == "2.9s"
+    assert format_duration(72_000) == "1m12s"
+
+
+def test_hata_ozeti_json_govdesini_atar():
+    from fusion_cli.ui.text import summarize_error
+
+    ozet = summarize_error('APIError: sunucu hatasi {"detay": "cok uzun"} LiteLLM Retried: 1 times')
+
+    assert ozet == "APIError: sunucu hatasi"
+
+
+def test_hata_ozeti_tekrarlanan_sinif_adini_teke_indirir():
+    from fusion_cli.ui.text import summarize_error
+
+    ham = "RateLimitError: litellm.RateLimitError: RateLimitError: OpenrouterException - x"
+
+    assert summarize_error(ham) == "RateLimitError: OpenrouterException - x"
+
+
+def test_hata_ozeti_saglayici_aciklamasini_korur():
+    """Asıl bilgi atılan JSON gövdesinin içinde; kaybolmamalı."""
+    from fusion_cli.ui.text import summarize_error
+
+    ham = (
+        "RateLimitError: litellm.RateLimitError: OpenrouterException - "
+        '{"error":{"message":"Rate limit exceeded: free-models-per-day","code":429}}'
+    )
+
+    ozet = summarize_error(ham)
+
+    assert "Rate limit exceeded" in ozet
+    # Sağlayıcı istisna adı kullanıcıya bir şey söylemiyor; atılmalı.
+    assert "OpenrouterException" not in ozet
+
+
+def test_hata_ozeti_cumledeki_noktayi_modul_oneki_sanmaz():
+    from fusion_cli.ui.text import summarize_error
+
+    ozet = summarize_error("Timeout: APITimeoutError - Request timed out. Error_str: bitti")
+
+    assert "Request timed out." in ozet
+
+
+def test_hata_ozeti_ust_sinirda_kirpar():
+    from fusion_cli.ui.text import ERROR_SUMMARY_CHARS, summarize_error
+
+    assert len(summarize_error("x" * 500)) <= ERROR_SUMMARY_CHARS

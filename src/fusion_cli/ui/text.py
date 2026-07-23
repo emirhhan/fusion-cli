@@ -45,3 +45,95 @@ def _pending_open_length(text: str) -> int:
         if text.endswith(THINK_OPEN[:length]):
             return length
     return 0
+
+
+#: Bu sürenin altındaki ölçümler milisaniye olarak gösterilir.
+_MS_THRESHOLD = 1_000
+#: Hata özetinde gösterilecek en fazla karakter. 80 sütunluk bir terminalde
+#: önekle birlikte tek satıra sığacak şekilde seçilmiştir.
+ERROR_SUMMARY_CHARS = 60
+#: Sağlayıcı JSON gövdesindeki açıklama alanı.
+_JSON_MESSAGE = re.compile(r'"message"\s*:\s*"([^"]{3,200})"')
+
+
+def format_duration(milliseconds: int) -> str:
+    """Süreyi insan ölçeğinde yaz: 840ms, 2.9s, 1m12s."""
+    if milliseconds < _MS_THRESHOLD:
+        return f"{milliseconds}ms"
+    seconds = milliseconds / 1000
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, remainder = divmod(int(seconds), 60)
+    return f"{minutes}m{remainder:02d}s"
+
+
+def summarize_error(error: str) -> str:
+    """Sağlayıcı hatasını tek satırlık okunur bir özete indir.
+
+    Ham hatalar üç ayrı gürültü kaynağı taşır ve ekranı kaplar:
+
+    - JSON gövdesi, HTTP başlıkları ve yeniden deneme sayacı,
+    - SDK'nın sardığı katmanlar yüzünden TEKRARLANAN hata sınıfı adı
+      (`RateLimitError: litellm.RateLimitError: RateLimitError: …`),
+    - modül önekleri (`litellm.`).
+
+    Üçü de burada temizlenir; kalan bilgi kullanıcının ihtiyaç duyduğudur.
+    """
+    flat = " ".join(error.split())
+    chain = _dedupe_segments(_cut_at_noise(flat))
+    # Asıl açıklama çoğu zaman atacağımız JSON gövdesinin içindedir. Varsa onu
+    # kullanırız ve aradaki sağlayıcı istisna adlarını atarız: kullanıcıya
+    # "OpenrouterException" değil, ne olduğu lazım.
+    detail = _extract_message(flat)
+    if not detail:
+        return _shorten(chain)
+    error_class = chain.split(":", 1)[0].strip()
+    return _shorten(f"{error_class} · {detail}" if error_class else detail)
+
+
+def _extract_message(text: str) -> str:
+    """Sağlayıcının JSON gövdesindeki insan-okunur açıklamayı çıkar."""
+    match = _JSON_MESSAGE.search(text)
+    return match.group(1).strip() if match else ""
+
+
+def _cut_at_noise(text: str) -> str:
+    """Yapılandırılmış gürültünün başladığı yerden itibaren at."""
+    for marker in ("LiteLLM Retried", " {", " - {"):
+        position = text.find(marker)
+        if position > 0:
+            text = text[:position]
+    return text.strip(" -")
+
+
+def _dedupe_segments(text: str) -> str:
+    """`A: litellm.A: A: B` → `A: B`. Modül öneki atılır, tekrarlar teke iner."""
+    segments: list[str] = []
+    seen: set[str] = set()
+    for raw in text.split(": "):
+        segment = _strip_module_prefix(raw.strip())
+        if not segment:
+            continue
+        key = segment.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        segments.append(segment)
+    return ": ".join(segments)
+
+
+def _strip_module_prefix(segment: str) -> str:
+    """`litellm.RateLimitError` → `RateLimitError`.
+
+    Yalnızca noktalı TEK BİR tanımlayıcıya uygulanır; boşluk içeren bir parça
+    cümledir ve içindeki nokta modül ayracı değildir.
+    """
+    if " " in segment or "." not in segment:
+        return segment
+    return segment.rsplit(".", 1)[-1]
+
+
+def _shorten(text: str) -> str:
+    if len(text) <= ERROR_SUMMARY_CHARS:
+        return text
+    return text[: ERROR_SUMMARY_CHARS - 1] + "…"

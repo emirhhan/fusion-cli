@@ -38,18 +38,30 @@ Argümansız çalıştırınca interaktif oturum açılır:
 .venv/bin/fusion
 ```
 
-```
-███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗
-██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║
-█████╗  ██║   ██║███████╗██║██║   ██║██╔██╗ ██║
-██╔══╝  ██║   ██║╚════██║██║██║   ██║██║╚██╗██║
-██║     ╚██████╔╝███████║██║╚██████╔╝██║ ╚████║
-╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-ücretsiz LLM füzyonu · araçlar · öz-öğrenen bellek
+Ekran temizlenir ve oturum bilgisiyle açılır:
 
-motor: agent │ onay: auto │ görev: general │ model: nemotron-super
-fusion ❯
 ```
+╭─ Fusion CLI 0.2.0 ───────────────────────────────────────────────────────╮
+│                                                                          │
+│  ✦ FUSION                         Başlarken                              │
+│  ücretsiz LLM füzyonu · araçlar   mesaj yaz         aktif motora gönderir│
+│  · öz-öğrenen bellek              /help             tüm komutlar         │
+│                                   /agent · /fusion  motor değiştir       │
+│   motor agent                     shift-tab         onay modunu döndür   │
+│    onay auto                                                             │
+│   model nemotron-super            Neler yapabilir                        │
+│   dizin ~/Desktop/proje           araçlar   dosya, kabuk, web, görev     │
+│  bellek açık · 28 ders            fusion    3 model + hakem + sentez     │
+│                                   bellek    öğrendiğini hatırlar         │
+│                                   güvenlik  diff önizlemesi, onay        │
+╰──────────────────────────────────────────────────────────────────────────╯
+
+❯ mesajını yaz
+ ⏵ auto · agent · general · nemotron-super · shift-tab mod · /help
+```
+
+Alttaki durum çubuğu ekrana sabittir ve onay modu değişince kendiliğinden güncellenir.
+Dar terminalde karşılama kutusu iki sütundan tek sütuna iner; hiçbir genişlikte taşmaz.
 
 **shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
 çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.

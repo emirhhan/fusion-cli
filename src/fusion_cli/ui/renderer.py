@@ -49,7 +49,7 @@ from ..core.events import (
 )
 from ..core.types import FusionResult, VerdictSource
 from . import messages, theme
-from .text import strip_thinking
+from .text import format_duration, strip_thinking, summarize_error
 
 _CHANNEL_LABELS = {
     Channel.SUBAGENT: "alt-ajan",
@@ -85,8 +85,10 @@ class ConsoleRenderer:
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
-            if not event.background:
-                self._status(messages.MODEL_CALL_STARTED.format(role=event.role, model=event.model))
+            # Bilinçli olarak basılmaz. Fusion'da adaylar zaten `CandidatesStarted`
+            # ile duyuruldu; agent'ta hemen ardından metin akmaya başlıyor. Yedek
+            # zinciriyle birlikte model kimliği üç satıra sarıp ekranı kaplıyordu.
+            return
         elif isinstance(event, ModelCallFinished):
             if not event.background:
                 self._model_finished(event)
@@ -113,7 +115,8 @@ class ConsoleRenderer:
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
         elif isinstance(event, SelfReviewStarted):
-            self._status(messages.AGENT_SELF_REVIEW_STARTED)
+            # Sonucu hemen ardından geliyor; iki satır harcamaya değmez.
+            return
         elif isinstance(event, SelfReviewFinished):
             self._status(
                 messages.AGENT_SELF_REVIEW_ISSUE
@@ -201,12 +204,17 @@ class ConsoleRenderer:
             self._status(
                 messages.MODEL_CALL_OK.format(
                     role=event.role,
-                    latency=result.latency_ms,
+                    duration=format_duration(result.latency_ms),
                     tokens=result.usage.total_tokens,
                 )
             )
             return
-        self._error(messages.MODEL_CALL_FAILED.format(role=event.role, error=result.error or ""))
+        # Sağlayıcı hataları çok uzun olabiliyor; ekranı kaplamasın, özü görünsün.
+        self._error(
+            messages.MODEL_CALL_FAILED.format(
+                role=event.role, error=summarize_error(result.error or "")
+            )
+        )
 
     def _error(self, message: str) -> None:
         self._close_line()
@@ -279,22 +287,25 @@ class ConsoleRenderer:
         for candidate in result.candidates:
             if candidate.ok and candidate.text:
                 mark = "★" if candidate.name == result.winner else theme.ICON_OK
+                duration = format_duration(candidate.latency_ms)
                 parts.append(
-                    f"[{theme.OK}]{mark} {escape(candidate.name)} "
-                    f"{candidate.latency_ms}ms[/{theme.OK}]"
+                    f"[{theme.OK}]{mark} {escape(candidate.name)}[/{theme.OK}]"
+                    f" [{theme.DIM}]{duration}[/{theme.DIM}]"
                 )
             else:
                 parts.append(
                     f"[{theme.ERROR}]{theme.ICON_ERROR} {escape(candidate.name)}[/{theme.ERROR}]"
                 )
+        separator = f" [{theme.DIM}]·[/{theme.DIM}] "
         self._console.print(
-            f"[{theme.DIM}]{messages.FUSION_CANDIDATE_SUMMARY}[/{theme.DIM}] " + " ".join(parts)
+            f"[{theme.DIM}]{messages.FUSION_CANDIDATE_SUMMARY}[/{theme.DIM}] "
+            + separator.join(parts)
         )
 
     def _all_answers(self, result: FusionResult) -> None:
         for candidate in result.successful:
             title = messages.FUSION_ALL_ANSWERS.format(
-                name=candidate.name, latency=candidate.latency_ms
+                name=candidate.name, duration=format_duration(candidate.latency_ms)
             )
             style = theme.OK if candidate.name == result.winner else theme.INFO
             self._console.print()

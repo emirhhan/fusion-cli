@@ -3,10 +3,20 @@
 Terminal TTY değilse (boru hattı, CI, test) prompt_toolkit hiç kurulmaz ve düz
 `input()`'a düşülür; otomasyon kırılmaz.
 
-Tasarım kararı: giriş satırı ve çalışan tur ASLA aynı anda ekranda olmaz. Eski
-projede kalıcı bir giriş satırı ile Rich çıktısı aynı anda imleci yönetiyor,
-satırlar birbirini bozuyordu. Burada tur çalışırken prompt kapalıdır; çalışan
-turu Ctrl-C keser.
+İki tasarım kararı görüntüyü belirler:
+
+1. **Giriş satırı ve çalışan tur ASLA aynı anda ekranda olmaz.** Tur çalışırken
+   prompt kapalıdır; çalışan turu Ctrl-C keser.
+
+2. **Ekranın altında yalnızca TEK satır ayrılır.** Yeniden boyutlandırmada prompt
+   kopyalarının ekranda birikmesinin sebebi, tamamlama menüsü için varsayılan
+   olarak ayrılan 8 satırdı: terminal küçüldüğünde bu blok doğru silinemiyordu.
+   Menü rezervasyonu kapatıldı; durum çubuğu tek satır olduğu için yeniden çizim
+   güvenli.
+
+3. **Durum çubuğunun ters-renkli zemini yok.** prompt_toolkit'in varsayılan
+   `bottom-toolbar` stili tam genişlikte beyaz bir şerit çiziyordu. Stil
+   geçersiz kılınarak sönük, zeminsiz bir satıra indirildi.
 """
 
 from __future__ import annotations
@@ -22,12 +32,23 @@ from ...ui import messages, theme
 #: Yapıştırılan metin bu satırdan uzunsa katlanarak tek satırda özetlenir.
 FOLD_PASTE_LINES = 10
 
+#: Giriş satırının başındaki işaret. Kısa tutulur: her satırda tekrarlanır.
+PROMPT_SYMBOL = "❯"
+
+#: Durum çubuğunda modun önüne konan işaret.
+STATUS_MARK = "⏵"
+
+#: Onay modunun durum çubuğundaki rengi — riskli mod göze çarpsın.
+_MODE_COLORS = {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}
+
 
 class ReplInput:
     """Komut geçmişi, tamamlama ve shift-tab ile mod döngüsü sunan giriş."""
 
     def __init__(self, history_path: Path, words: list[str], *, mode: ApprovalMode) -> None:
         self.mode = mode
+        #: Durum çubuğunda gösterilen bağlam. REPL her değişiklikte günceller.
+        self.context: str = ""
         self._session: Any = None
         self._fold_paste = True
         if sys.stdin.isatty():
@@ -53,19 +74,30 @@ class ReplInput:
         if self._session is None:
             # Düz `input()` bloklar; ayrı bir thread'e alınmazsa arka plandaki
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
-            return await asyncio.to_thread(input, "fusion ❯ ")
+            return await asyncio.to_thread(input, f"{PROMPT_SYMBOL} ")
         from prompt_toolkit.formatted_text import HTML
 
-        line = await self._session.prompt_async(HTML("<b><ansimagenta>fusion</ansimagenta></b> ❯ "))
+        line = await self._session.prompt_async(
+            HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
+        )
         return str(line)
 
-    def toolbar(self) -> Any:
+    def status_bar(self) -> Any:
+        """Ekranın altındaki tek satırlık durum çubuğu.
+
+        Her yeniden çizimde çağrılır; shift-tab ile mod değişince kendiliğinden
+        güncellenir.
+        """
         from prompt_toolkit.formatted_text import HTML
 
-        return HTML(
-            f" onay: <b>{self.mode.value}</b>  "
-            f"<style fg='{theme.DIM}'>{messages.REPL_ON_OFF_HINT}</style>"
-        )
+        color = _MODE_COLORS.get(self.mode.value, theme.DIM)
+        parts = [
+            f"<style fg='{color}'>{STATUS_MARK} {self.mode.value}</style>",
+            f"<style fg='{theme.DIM}'>{self.context}</style>" if self.context else "",
+            f"<style fg='{theme.DIM}'>{messages.REPL_ON_OFF_HINT}</style>",
+        ]
+        separator = f"<style fg='{theme.DIM}'> · </style>"
+        return HTML(" " + separator.join(part for part in parts if part))
 
 
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
@@ -92,15 +124,38 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         return PromptSession(
             history=FileHistory(str(history_path)),
             completer=WordCompleter(words, sentence=True),
-            complete_while_typing=True,
+            bottom_toolbar=owner.status_bar,
+            style=_toolbar_style(),
+            # Tamamlama Tab ile açılır. Yazarken açılması hem gürültülüdür hem de
+            # menü için ekran altında yer ayrılmasına yol açar.
+            complete_while_typing=False,
+            # Menü için HİÇ yer ayrılmaz: ayrılan satırlar yeniden boyutlandırmada
+            # doğru silinemiyor ve prompt kopyaları ekranda birikiyordu.
+            reserve_space_for_menu=0,
             key_bindings=bindings,
-            bottom_toolbar=owner.toolbar,
             input_processors=[_paste_fold_processor(owner)],
         )
     except Exception:
         # prompt_toolkit kurulamadı (terminal desteklemiyor, ortam kısıtlı…).
         # Düz girişe düşmek kabul edilebilir; REPL çalışmaya devam etmelidir.
         return None
+
+
+def _toolbar_style() -> Any:
+    """Durum çubuğunun varsayılan ters-renkli zeminini kaldır.
+
+    prompt_toolkit `bottom-toolbar` için açık gri zemin + siyah yazı kullanır; bu
+    terminalin altında dikkat çeken çirkin bir şerit oluşturuyor. Sönük ve
+    zeminsiz bir satır, bilgiyi verir ama gözü çekmez.
+    """
+    from prompt_toolkit.styles import Style
+
+    return Style.from_dict(
+        {
+            "bottom-toolbar": "noreverse bg:default",
+            "bottom-toolbar.text": "noreverse bg:default",
+        }
+    )
 
 
 def _paste_fold_processor(owner: ReplInput) -> Any:
