@@ -57,6 +57,63 @@ async def test_yikici_komutta_gerekce_gosterilir(tmp_path):
     assert "geri alınamaz" in buffer.getvalue()
 
 
+async def test_soru_sirasinda_canli_gosterge_duraklatilir(tmp_path):
+    """Agent soru sorarken 'hazırlanıyor…' canlı satırı duraklatılmalı.
+
+    Duraklatılmazsa Live'ın yenileme iş parçacığı her ~100ms'de cevap istemini
+    ve kullanıcının yazdığını siler; kullanıcı yazamaz görünür.
+    """
+    import contextlib
+
+    olaylar: list[str] = []
+
+    @contextlib.contextmanager
+    def _suspend():
+        olaylar.append("duraklat")
+        try:
+            yield
+        finally:
+            olaylar.append("devam")
+
+    async def _flush():
+        olaylar.append("bosalt")
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    prompter = ConsolePrompter(
+        console, ToolContext(root=tmp_path), flush=_flush, suspend=_suspend
+    )
+
+    await prompter.ask("soru?")
+
+    # Önce duraklat, en son devam; boşaltma ikisinin arasında kalmalı.
+    assert olaylar[0] == "duraklat"
+    assert olaylar[-1] == "devam"
+    assert "bosalt" in olaylar[1:-1]
+
+
+async def test_onay_sirasinda_canli_gosterge_duraklatilir(tmp_path):
+    import contextlib
+
+    olaylar: list[str] = []
+
+    @contextlib.contextmanager
+    def _suspend():
+        olaylar.append("duraklat")
+        try:
+            yield
+        finally:
+            olaylar.append("devam")
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    prompter = ConsolePrompter(console, ToolContext(root=tmp_path), suspend=_suspend)
+
+    await prompter.confirm(build_request(_arac(), {"path": "a.txt", "content": "x"}))
+
+    assert olaylar == ["duraklat", "devam"]
+
+
 async def test_terminali_devralmadan_once_veriyolu_bosaltilir(tmp_path):
     """Onay paneli, veriyolunda bekleyen çıktının ortasına düşmemeli."""
     sirali = []

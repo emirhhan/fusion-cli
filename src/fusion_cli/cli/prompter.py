@@ -9,8 +9,10 @@ onayladığını görmeden evet dememelidir.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractContextManager
 
 from rich.console import Console
 from rich.panel import Panel
@@ -35,23 +37,29 @@ class ConsolePrompter:
         tool_context: ToolContext,
         *,
         flush: Callable[[], Awaitable[None]] | None = None,
+        suspend: Callable[[], AbstractContextManager[None]] | None = None,
     ) -> None:
         self._console = console
         self._tool_context = tool_context
         # Terminali devralmadan önce olay veriyolunu boşaltır. Bunsuz, doğrudan
         # yazdığımız onay paneli veriyolunda bekleyen satırlarla sırasız karışır.
         self._flush = flush
+        # Terminali devralırken canlı çalışma göstergesini (Live "hazırlanıyor…")
+        # duraklatır. Bunsuz Live'ın yenileme iş parçacığı cevap istemini ve
+        # kullanıcının yazdığını her ~100ms'de siler; giriş yapılamaz görünür.
+        self._suspend = suspend
         self._interactive = sys.stdin.isatty()
 
     async def confirm(self, request: ApprovalRequest) -> bool:
-        await self._drain()
-        self._render_preview(request)
-        if request.danger is not None:
-            self._console.print(
-                f"[{theme.ERROR}]{messages.DANGER_WARNING.format(reason=request.danger)}"
-                f"[/{theme.ERROR}]"
-            )
-        answer = self._ask(messages.CONFIRM_QUESTION)
+        with self._suspended():
+            await self._drain()
+            self._render_preview(request)
+            if request.danger is not None:
+                self._console.print(
+                    f"[{theme.ERROR}]{messages.DANGER_WARNING.format(reason=request.danger)}"
+                    f"[/{theme.ERROR}]"
+                )
+            answer = self._ask(messages.CONFIRM_QUESTION)
         # Boş cevap iki anlama gelir: kullanıcı Enter'a bastı (onay) ya da ortam
         # etkileşimsiz (cevap yok). İkincisinde onay varsaymak kabul edilemez.
         if not answer and not self._interactive:
@@ -59,14 +67,24 @@ class ConsolePrompter:
         return _is_affirmative(answer)
 
     async def ask(self, question: str) -> str:
-        await self._drain()
-        self._console.print(
-            Panel(question, title=f"[bold]{messages.AGENT_ASKS}[/bold]", border_style=theme.INFO)
-        )
-        answer = self._ask(messages.ANSWER_PROMPT)
+        with self._suspended():
+            await self._drain()
+            self._console.print(
+                Panel(
+                    question, title=f"[bold]{messages.AGENT_ASKS}[/bold]", border_style=theme.INFO
+                )
+            )
+            answer = self._ask(messages.ANSWER_PROMPT)
         # Etkileşimsiz ortamda "hayır" demek yanlış olur: bu bir evet/hayır sorusu
         # değil, serbest metinli bir sorudur. Model cevap alamadığını bilmelidir.
         return answer or messages.NO_ANSWER_AVAILABLE
+
+    def _suspended(self) -> AbstractContextManager[None]:
+        """Etkileşim boyunca canlı göstergeyi duraklatan bağlam.
+
+        Gösterge bağlanmamışsa (test, boru hattı) hiçbir şey yapmaz.
+        """
+        return self._suspend() if self._suspend is not None else contextlib.nullcontext()
 
     async def _drain(self) -> None:
         if self._flush is not None:

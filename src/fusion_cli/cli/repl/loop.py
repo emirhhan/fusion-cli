@@ -243,7 +243,14 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
-        prompter = ConsolePrompter(console, ToolContext(root=state.root), flush=bus.drain)
+        prompter = ConsolePrompter(
+            console,
+            ToolContext(root=state.root),
+            flush=bus.drain,
+            # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
+            # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
+            suspend=renderer.suspended,
+        )
         deps = AgentDeps(
             config=state.config,
             publisher=bus,

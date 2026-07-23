@@ -15,7 +15,8 @@ Veriyolu olayları zaten sırayla verdiği için burada eşzamanlılık kaygıs�
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import contextlib
+from collections.abc import Iterator, Mapping
 from typing import ClassVar
 
 from rich.console import Console
@@ -168,6 +169,20 @@ class ConsoleRenderer:
         self._console.print()
         self._console.print(band)
         self._console.print()
+
+    @contextlib.contextmanager
+    def suspended(self) -> Iterator[None]:
+        """Canlı çalışma göstergesini bir etkileşim boyunca duraklat.
+
+        Prompter, kullanıcıya soru/onay sorarken terminali devralır. Live'ın
+        yenileme iş parçacığı bu sırada durmazsa cevap istemini ve kullanıcının
+        yazdığını sürekli siler. Bittiğinde gösterge kaldığı yerden sürer.
+        """
+        self._work.pause()
+        try:
+            yield
+        finally:
+            self._work.resume()
 
     # -- Akış --------------------------------------------------------------- #
 
