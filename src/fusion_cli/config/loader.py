@@ -64,6 +64,18 @@ def load_config(path: str | Path | None = None) -> Config:
     else:
         merged = defaults
 
+    try:
+        return _assemble(merged, source)
+    except ConfigError as exc:
+        # Hangi dosyanın suçlu olduğu söylenmezse kullanıcı aramak zorunda kalıyor;
+        # dosya birden çok yerde olabiliyor (FUSION_CONFIG, ./, kullanıcı dizini).
+        if source is None:
+            raise
+        raise ConfigError(f"{exc} (dosya: {source})") from exc
+
+
+def _assemble(merged: dict[str, object], source: Path | None) -> Config:
+    """Birleştirilmiş sözlüğü doğrulayıp `Config` kur."""
     _reject_unknown(merged, _SECTIONS, "yapılandırma kökü")
     return Config(
         agent=_build(ModelSpec, merged["agent"], "agent"),
@@ -232,9 +244,15 @@ def _convert(value: object, target: object, where: str) -> object:
 
 
 def _convert_tuple(value: object, target: object, where: str) -> tuple[object, ...]:
+    (item_type, *_) = get_args(target)
+    # Metin listesi beklenen yere yazılan TEK metin, tek elemanlı liste sayılır.
+    # Önceki sürüm `fallback: str | list[str]` kabul ediyordu; kullanıcıların
+    # elindeki `fallback: bir/model` yazan config'ler yükleme anında patlamasın.
+    # Belirsizlik yok: metin listesinde tek metnin başka anlamı olamaz.
+    if item_type is str and isinstance(value, str):
+        return (value,)
     if isinstance(value, (str, bytes)) or not isinstance(value, (list, tuple)):
         raise ConfigError(f"{where}: liste bekleniyordu, gelen: {type(value).__name__}")
-    (item_type, *_) = get_args(target)
     return tuple(_convert(item, item_type, f"{where}[{index}]") for index, item in enumerate(value))
 
 

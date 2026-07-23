@@ -71,8 +71,9 @@ def test_boolean_tam_sayi_yerine_gecemez(tmp_path):
         load_config(path)
 
 
-def test_liste_beklenen_yere_metin_verilemez(tmp_path):
-    path = _yaz(tmp_path, {"agent": {"fallback": "tek-model"}})
+def test_liste_beklenen_yere_sayi_verilemez(tmp_path):
+    """Tek METİN kabul edilir (bkz. eski biçim uyumu) ama sayı kabul edilmez."""
+    path = _yaz(tmp_path, {"agent": {"fallback": 3}})
 
     with pytest.raises(ConfigError, match="liste bekleniyordu"):
         load_config(path)
@@ -112,3 +113,46 @@ def test_models_birincil_ve_yedekleri_sirayla_tekilleştirir():
     spec = ModelSpec(name="a", model="m1", fallback=("m2", "m1", "m3"))
 
     assert spec.models == ("m1", "m2", "m3")
+
+
+# --- Eski biçimle uyum --------------------------------------------------------- #
+
+
+def test_tek_metin_yedek_liste_sayilir(tmp_path):
+    """Önceki sürüm `fallback: str | list[str]` kabul ediyordu; kırılmamalı."""
+    yol = tmp_path / "config.yaml"
+    yol.write_text(
+        "candidates:\n"
+        "  - name: tek\n"
+        "    model: saglayici/model\n"
+        "    tags: [general]\n"
+        "    fallback: saglayici/yedek\n"
+        "task_model_map:\n"
+        "  general: tek\n"
+        "  code: tek\n"
+        "  reasoning: tek\n"
+        "  agent: tek\n",
+        encoding="utf-8",
+    )
+
+    config = load_config(yol)
+
+    assert config.candidates[0].fallback == ("saglayici/yedek",)
+
+
+def test_tek_metin_etiket_de_liste_sayilir(tmp_path):
+    yol = tmp_path / "config.yaml"
+    yol.write_text("agent:\n  fallback: saglayici/yedek\n", encoding="utf-8")
+
+    assert load_config(yol).agent.fallback == ("saglayici/yedek",)
+
+
+def test_hata_mesaji_suclu_dosyayi_soyler(tmp_path):
+    """Config birden çok yerde aranıyor; hangisinin bozuk olduğu yazmalı."""
+    yol = tmp_path / "config.yaml"
+    yol.write_text("runtime:\n  max_tokens: cok\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError) as hata:
+        load_config(yol)
+
+    assert str(yol) in str(hata.value)
