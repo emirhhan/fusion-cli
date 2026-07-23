@@ -58,3 +58,14 @@ Bilinçli olarak taşınmayan iki şey:
   İstenirse olay veriyolu üzerinden çakışmasız bir canlı input kurulabilir.
 - **Akış fusion modunda kapalı.** Hakem ve sentez paralel çalıştığı için, akan cevabın
   ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.
+- **Terminal yeniden boyutlandırmada `❯` giriş işareti çoğalabiliyor.** Pencere
+  sürüklenerek boyutlandırıldığında ekranda alt alta `❯` kopyaları birikiyor. Kök neden
+  uygulama kodunda değil, prompt_toolkit'te (3.0.52): `Application._on_resize` her
+  SIGWINCH'te ÖNCE kendi bayat imleç modeline göre siliyor, SONRA CPR ile konumu yeniden
+  istiyor. macOS Terminal.app / iTerm gibi geçmiş tamponunu yeniden saran (reflow)
+  emülatörlerde bu bayat silme yanlış satırları temizliyor ve eski işaretler yetim
+  kalıyor. Uygulama tarafındaki makul hafifletmeler zaten uygulanmış (alt alanda tek
+  satır, tamamlama menüsü rezervasyonu kapalı). Temiz bir uygulama-katmanı kancası yok;
+  gerçek çözüm ya tam-ekran/alternatif tampon kipi (uygulamanın akan-çıktı tasarımıyla
+  çelişir) ya da prompt_toolkit yaması. Reflow yapmayan emülatörlerde (pyte ile doğrulandı)
+  sorun oluşmuyor — headless olarak birebir tekrar üretilemedi.
