@@ -119,7 +119,7 @@ class LiteLlmProvider:
             text=_response_text(response),
             latency_ms=self._elapsed_ms(started),
             ok=True,
-            usage=_response_usage(response),
+            usage=_response_usage(response, self._model),
             tool_calls=_response_tool_calls(response),
         )
 
@@ -158,14 +158,38 @@ def _response_text(response: Any) -> str:
     return str(content or "").strip()
 
 
-def _response_usage(response: Any) -> TokenUsage:
+def _response_usage(response: Any, model: str) -> TokenUsage:
     usage = getattr(response, "usage", None)
     if usage is None:
         return TokenUsage()
+    prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+    completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
     return TokenUsage(
-        prompt_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
-        completion_tokens=int(getattr(usage, "completion_tokens", 0) or 0),
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=estimate_cost(model, prompt_tokens, completion_tokens),
     )
+
+
+def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    """Modelin fiyat tablosuna göre tahmini maliyet (USD).
+
+    Fiyat bilinmiyorsa (yeni ya da yerel model) 0 döner: bilinmeyen bir maliyeti
+    uydurmaktansa sıfır göstermek dürüsttür.
+    """
+    try:
+        cost = litellm.completion_cost(
+            completion_response={
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                }
+            },
+            model=model,
+        )
+    except Exception:
+        return 0.0
+    return float(cost or 0.0)
 
 
 def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:

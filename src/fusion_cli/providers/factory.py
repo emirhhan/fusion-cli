@@ -25,12 +25,17 @@ def build_provider(
     publisher: EventPublisher | None,
     channel: Channel = Channel.MAIN,
     clock: Clock | None = None,
+    background: bool = False,
 ) -> LlmProvider:
     """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
 
-    `publisher=None` verilirse olay yayını katmanı hiç eklenmez: çağrı SESSİZ olur.
-    Hakem ve sentez böyle çağrılır — arka plan işleri kullanıcının okuduğu cevabın
-    ortasına ilerleme satırı düşürmemelidir.
+    `background=True` verilirse çağrı kullanıcıya ilerleme satırı olarak GÖSTERİLMEZ
+    ama olayları yine de yayınlanır. Görünürlük ile muhasebe ayrı şeylerdir: hakem,
+    sentez, öz-denetim ve ders çıkarımı arka planda çalışır ama harcadıkları token
+    sayıma girmelidir.
+
+    `publisher=None` yalnızca olay veriyolu hiç kurulmamışsa (ör. birim testi)
+    kullanılır; bu durumda çağrı tamamen sessizdir ve muhasebeye de girmez.
     """
     configure_litellm()
     inner = HedgedProvider(
@@ -39,4 +44,6 @@ def build_provider(
     )
     if publisher is None:
         return inner
-    return EventingProvider(inner, publisher=publisher, role=spec.name, channel=channel)
+    return EventingProvider(
+        inner, publisher=publisher, role=spec.name, channel=channel, background=background
+    )

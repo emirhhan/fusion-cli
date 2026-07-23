@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.events import EventPublisher
 from ...core.types import CompletionRequest, Message, ModelResult
 from ...providers.factory import build_provider
 from . import history
@@ -36,7 +37,12 @@ def parse_feedback(text: str) -> str:
 
 
 async def review_turn(
-    task: str, final_text: str, messages: list[Message], *, config: Config
+    task: str,
+    final_text: str,
+    messages: list[Message],
+    *,
+    config: Config,
+    publisher: EventPublisher | None = None,
 ) -> str:
     """Turu denetle. Düzeltme gerekiyorsa talimatı, gerekmiyorsa boş metin döner."""
     trace = history.transcript(messages)
@@ -48,11 +54,11 @@ async def review_turn(
         .replace("{trace}", trace)
         .replace("{final}", final_text[:1500])
     )
-    result = await _ask(prompt, config)
+    result = await _ask(prompt, config, publisher)
     return parse_feedback(result.text) if result.ok else ""
 
 
-async def _ask(prompt: str, config: Config) -> ModelResult:
+async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:
     request = CompletionRequest(
         messages=(Message("user", prompt),),
         temperature=0.1,
@@ -60,6 +66,6 @@ async def _ask(prompt: str, config: Config) -> ModelResult:
         timeout_s=config.runtime.judge_timeout_s,
         max_retries=config.runtime.max_retries,
     )
-    # Sessiz sağlayıcı: denetim arka plan işidir, kullanıcının okuduğu cevabın
-    # ortasına ilerleme satırı düşürmemelidir.
-    return await build_provider(config.judge, publisher=None).complete(request)
+    # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
+    provider = build_provider(config.judge, publisher=publisher, background=True)
+    return await provider.complete(request)

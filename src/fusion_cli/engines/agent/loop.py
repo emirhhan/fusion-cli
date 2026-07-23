@@ -290,7 +290,7 @@ def parse_arguments(raw: str) -> dict[str, object]:
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
     deps.publisher.publish(SelfReviewStarted())
     feedback = await review.review_turn(
-        task, outcome.final_text, outcome.messages, config=deps.config
+        task, outcome.final_text, outcome.messages, config=deps.config, publisher=deps.publisher
     )
     deps.publisher.publish(SelfReviewFinished(issue_found=bool(feedback)))
     if not feedback:
@@ -339,7 +339,9 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
     """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
     if deps.lessons is None:
         return
-    lessons = await learning.extract_lessons(task, messages, config=deps.config)
+    lessons = await learning.extract_lessons(
+        task, messages, config=deps.config, publisher=deps.publisher
+    )
     stored = learning.store_lessons(lessons, deps.lessons)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))
@@ -347,7 +349,7 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
-    compressed = await compaction.compress(messages, config=deps.config)
+    compressed = await compaction.compress(messages, config=deps.config, publisher=deps.publisher)
     if len(compressed) < before:
         deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
     return compressed

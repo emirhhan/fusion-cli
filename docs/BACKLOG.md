@@ -3,54 +3,50 @@
 Taşıma sırasında ortaya çıkan, o fazın kapsamına girmediği için ertelenen işler.
 CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
-## Taşınacak (eski projede mevcut, henüz taşınmadı)
+## Taşıma tamamlandı
 
-- Gözlemlenebilirlik: Langfuse izleme, oturum maliyeti takibi (`/cost`)
+Eski projedeki tüm özellikler yeni yapıya taşındı: fusion motoru, araç katmanı,
+agent motoru, öz-öğrenen bellek, REPL, maliyet takibi ve Langfuse izleme.
+
+## Eski projeden düzeltilerek taşınan hatalar
+
+- **Maliyet takibi çağrı yollarını atlıyordu** (yalnızca streaming turları sayılıyordu).
+  Çözüldü: tek kaynak `ModelCallFinished` olayı; görünürlük (`background` bayrağı) ile
+  muhasebe ayrıldı. Hakem, sentez, öz-denetim, ders çıkarımı ve bağlam sıkıştırma artık
+  gösterilmiyor ama sayılıyor.
+- **`config.yaml` iki kopya halinde elle senkronlanıyordu.** Çözüldü: tek `defaults.yaml`.
+- **Kod içi varsayılanlar dosyadaki değerlerle ayrışmıştı.** Çözüldü: dataclass'ta
+  varsayılan yok; eksik alan yükleme anında hata veriyor ve test bunu kilitliyor.
+- **Çıktı çakışması** (cümlenin ortası araç kartının altına düşüyordu). Çözüldü: motorlar
+  konsolu tanımıyor, olaylar tek veriyolundan sırayla akıyor.
+- **Görev listesi modül-global'di**; alt-ajanlar ana ajanınkini eziyordu. Çözüldü:
+  `ToolContext` üzerinde taşınıyor.
+- **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
+  aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
 ## Karar bekleyen
 
-- **Yapılandırma taşması:** `config show` çıktısı büyüdükçe tablo görünümüne geçmeli mi?
-- **`--json` çıktısı:** olay veriyolu hazır; JSON dinleyicisi eklemek kolay. Hangi fazda?
-- **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` sınırları yeterli mi?
-
-## Eski projeden düzeltilerek taşınacak hatalar
-
-- Maliyet takibi eski projede yalnızca streaming turlarında çalışıyordu; hakem/sentez/ders
-  çağrıları sayıma girmiyordu. Yeni yapıda tek kaynak: `ModelCallFinished` olayı.
-- `config.yaml` iki kopya halinde elle senkronlanıyordu. Çözüldü: tek `defaults.yaml`.
-- Kod içi varsayılanlar ile dosyadaki değerler ayrışmıştı. Çözüldü: dataclass'ta varsayılan yok.
+- **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst
+  sınırları yeterli mi?
+- **Yol sınırlaması:** araçlar proje kökü dışına da yazabiliyor (eski davranış korundu;
+  onay akışı + diff önizlemesi koruyor). `ToolContext`'e kök dışını reddeden bir kip
+  eklenmeli mi?
+- **`config show` görünümü:** yapılandırma büyüdükçe tablo görünümüne geçmeli mi?
 
 ## İzlenecek
 
-- **Reasoning modeli çıktısı:** `nemotron-3-super` bir reasoning modelidir. Kısa
-  `max_tokens` bütçesinde düşünme metni cevabın yerine geçebiliyor (24 token'lık probda
-  görüldü; 2048'de sorun yok). Eski projede bunun için `<think>` ayıklaması vardı.
-  Agent motoru gelince gerçek bir sorun çıkarsa sağlayıcı dekoratörü olarak eklenmeli.
-- **Model kataloğu kayması:** varsayılan modeller sağlayıcı tarafında sessizce kaybolabiliyor
-  (`z-ai/glm-5.2` NIM'de hiç yoktu, `tencent/hy3:free` ücretsizlikten çıkmıştı). Modelleri
-  canlı katalogdan listeleyen bir komut (`fusion models --fetch`) faydalı olur.
-
-- **Akış fusion modunda bilinçli olarak kapalı.** Hakem ve sentez paralel çalıştığı için,
-  akan cevabın ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.
-- **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında hakem bazen ikisine puan
-  veriyor. Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama puan tablosu
-  eksik görünüyor. Prompt'ta "her adaya puan ver" vurgusu denenebilir.
-
-- **Yol sınırlaması yok.** Araçlar proje kökü dışına da yazabilir (eski davranış korundu;
-  onay akışı + diff önizlemesi kullanıcıyı koruyor). İstenirse `ToolContext`'e kök dışına
-  yazmayı reddeden ya da ayrıca onay isteyen bir kip eklenebilir.
-- **`web_search` HTML kazımaya dayanıyor.** İki uç denenerek dayanıklılık sağlandı ama
-  sayfa yapısı değişirse ikisi de bozulabilir. Kazıma mantığı saf fonksiyonlarda ve
-  testli; uç değişirse yalnızca regex güncellenir.
-
-- **Model bazen bozuk çıktı üretiyor.** `nemotron-3-super` yüksek bağlamda token
-  çorbası üretebiliyor (gerçek bir turda görüldü). Öz-denetim bunu yakalayıp düzeltici
-  tur açtı, yani sistem kurtardı — ama tekrarlarsa aday havuzu gözden geçirilmeli.
+- **Model bazen bozuk çıktı üretiyor.** `nemotron-3-super` yüksek bağlamda token çorbası
+  üretebiliyor (gerçek bir turda görüldü). Öz-denetim yakalayıp düzeltici tur açtı, sistem
+  kurtardı — ama tekrarlarsa aday havuzu gözden geçirilmeli. `fusion models --fetch` ile
+  canlı katalogdan alternatif bakılabilir.
+- **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında bazen ikisine puan veriyor.
+  Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama tablo eksik görünüyor.
+- **`web_search` HTML kazımaya dayanıyor.** İki uç denenerek dayanıklılık sağlandı; kazıma
+  mantığı saf fonksiyonlarda ve testli, uç değişirse yalnızca regex güncellenir.
 - **ChromaDB kurulumu ağır** (~350 MB, onnxruntime dâhil). Depolama protokol arkasında
   olduğu için daha hafif bir arka uca (ör. sqlite-vec) geçmek `memory/` dışına dokunmaz.
-
-- **Canlı input yok.** Tur çalışırken yazamıyorsun; giriş satırı ve akan çıktı bilinçli
+- **Canlı input yok.** Tur çalışırken yazılamıyor; giriş satırı ve akan çıktı bilinçli
   olarak aynı anda ekranda değil (eski projedeki satır bozulmalarının kaynağı buydu).
   İstenirse olay veriyolu üzerinden çakışmasız bir canlı input kurulabilir.
-- **`/cost` yok.** Token/maliyet takibi henüz taşınmadı; olay veriyolu hazır olduğu için
-  `ModelCallFinished` dinleyen bir toplayıcı eklemek yeterli olacak.
+- **Akış fusion modunda kapalı.** Hakem ve sentez paralel çalıştığı için, akan cevabın
+  ortasına arka plan ilerlemesi düşmesin diye. Agent modu akıtarak çalışır.

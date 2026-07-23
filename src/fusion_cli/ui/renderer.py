@@ -80,9 +80,11 @@ class ConsoleRenderer:
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
-            self._status(messages.MODEL_CALL_STARTED.format(role=event.role, model=event.model))
+            if not event.background:
+                self._status(messages.MODEL_CALL_STARTED.format(role=event.role, model=event.model))
         elif isinstance(event, ModelCallFinished):
-            self._model_finished(event)
+            if not event.background:
+                self._model_finished(event)
         elif isinstance(event, CandidatesStarted):
             self._status(
                 messages.FUSION_CANDIDATES.format(

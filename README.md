@@ -2,11 +2,8 @@
 
 Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
 
-> **Durum: yeniden yazım sürüyor.** Bu depo, önceki sürümün katmanlı ve test edilebilir
-> bir yapıya taşınmasıdır. Şu an çalışan: yapılandırma, sağlayıcı katmanı, **fusion
-> motoru** (paralel adaylar + hakem + sentez), **araç katmanı** (18 araç) ve **agent
-> motoru** (tool-calling, onay modları, öz-denetim, alt-ajan), **bellek**
-> (öz-öğrenme, ders belleği, anlamsal kod indeksi) ve **REPL**. Kalan işler için
+> **Durum: taşıma tamamlandı.** Bu depo, önceki sürümün katmanlı ve test edilebilir bir
+> yapıya yeniden yazılmasıdır. Açık kalan başlıklar ve alınacak kararlar için
 > [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
@@ -58,7 +55,7 @@ fusion ❯
 | Agent | `/reset` `/compact` |
 | Fusion | `/type <tip>` `/all` `/synth` |
 | Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
-| Bilgi | `/models` `/help` `/clear` `/exit` |
+| Bilgi | `/models` `/cost` `/help` `/clear` `/exit` |
 
 Ders çıkarımı **arka planda** çalışır: bir sonraki komutu beklemez, oturum
 kapanırken tamamlanması beklenir.
@@ -71,6 +68,9 @@ kapanırken tamamlanması beklenir.
 .venv/bin/fusion run "2+2?" --all                          # tüm aday cevaplarını göster
 .venv/bin/fusion run "kısa cevapla" --no-synthesis         # hakemin seçtiği cevabı göster
 .venv/bin/fusion run "kısa cevapla" --quiet                # ilerleme satırlarını gizle
+.venv/bin/fusion run "..." --json                          # olayları JSONL olarak yaz
+.venv/bin/fusion models                                    # yapılandırılmış modeller
+.venv/bin/fusion models --fetch                            # canlı katalogdan ücretsiz modeller
 .venv/bin/fusion config show                               # etkin yapılandırma
 .venv/bin/fusion version
 ```
@@ -178,6 +178,10 @@ cli → ui → engines → { providers, memory, observability } → config → c
 - **`tools`** — kayıt defteri + saf executor'lar. Bir araç = şema + executor + `mutating`
   bayrağı; yeni araç eklemek kayıt defterine bir satır eklemektir, motor kodu değişmez.
   Executor'lar konsola yazmaz, onay sormaz, modül-global durum tutmaz.
+- **`observability`** — veriyoluna takılan dinleyiciler: maliyet toplayıcı, Langfuse
+  izleyici ve JSON çıktısı. Üçü de motor koduna dokunmadan eklendi — mimarinin sınavı
+  buydu. Görünürlük ile muhasebe ayrıdır: arka plan çağrıları (hakem, sentez, öz-denetim,
+  ders çıkarımı) ekranda **gösterilmez** ama token sayımına **girer**.
 - **`ui`** — Rich importunun bulunduğu tek yer. Kullanıcıya görünen tüm Türkçe metin
   `ui/messages.py`'de toplanır.
 
@@ -192,6 +196,25 @@ make format    # biçimlendir
 
 Testler ağ erişimi yapmaz; sağlayıcı çağrıları sahte nesnelerle karşılanır
 (`tests/fakes.py`). CI yerelde çalıştırılan kapının birebir aynısını çalıştırır.
+
+## Gözlemlenebilirlik
+
+```bash
+.venv/bin/fusion run "..." --json | jq          # her olay tek satır JSON
+```
+
+`/cost` oturumda harcanan token'ı rol bazında gösterir. **Her** model çağrısı sayılır —
+aday, hakem, sentez, öz-denetim, ders çıkarımı, alt-ajan.
+
+Langfuse izleme opsiyoneldir:
+
+```bash
+pip install "fusion-cli[tracing]"
+# .env: LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY, LANGFUSE_HOST
+```
+
+Anahtar yoksa, örnek değerse ya da paket kurulu değilse izleme **sessizce kapalı** kalır
+ve uygulama tam olarak çalışmaya devam eder.
 
 ## Lisans
 

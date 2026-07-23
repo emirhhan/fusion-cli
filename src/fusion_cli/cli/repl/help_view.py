@@ -11,6 +11,7 @@ from rich.table import Table
 
 from ...core.types import ModelSpec
 from ...ui import banner, messages, theme
+from ...ui.tables import cost_summary, cost_table
 from ..memory_commands import lessons_table, stats_table
 from .commands import CommandRegistry
 from .state import ReplState
@@ -29,6 +30,8 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         _lessons(state, console)
     elif name == "models":
         _models(state, console)
+    elif name == "cost":
+        _cost(state, console)
     elif name == "compact":
         from .loop import compact_history
 
@@ -64,6 +67,16 @@ def _lessons(state: ReplState, console: Console) -> None:
         console.print(f"[{theme.DIM}]{messages.MEMORY_EMPTY_LESSONS}[/{theme.DIM}]")
         return
     console.print(lessons_table(lessons))
+
+
+def _cost(state: ReplState, console: Console) -> None:
+    if not state.cost.calls:
+        console.print(f"[{theme.DIM}]{messages.COST_EMPTY}[/{theme.DIM}]")
+        return
+    console.print(cost_table(state.cost))
+    console.print(f"[{theme.DIM}]{cost_summary(state.cost)}[/{theme.DIM}]")
+    if state.cost.total.cost_usd == 0:
+        console.print(f"[{theme.DIM}]{messages.COST_FREE_NOTE}[/{theme.DIM}]")
 
 
 def _models(state: ReplState, console: Console) -> None:

@@ -149,11 +149,17 @@ def patch_providers(monkeypatch, module, by_name):
     from fusion_cli.core.events import Channel
     from fusion_cli.providers.eventing import EventingProvider
 
-    def _build(spec, *, publisher, channel=Channel.MAIN, clock=None):
+    def _build(spec, *, publisher, channel=Channel.MAIN, clock=None, background=False):
         provider = by_name[spec.name]
         if publisher is None:
             return provider
-        return EventingProvider(provider, publisher=publisher, role=spec.name, channel=channel)
+        return EventingProvider(
+            provider,
+            publisher=publisher,
+            role=spec.name,
+            channel=channel,
+            background=background,
+        )
 
     monkeypatch.setattr(module, "build_provider", _build)
 

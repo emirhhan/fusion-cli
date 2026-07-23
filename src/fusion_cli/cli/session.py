@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -24,6 +25,9 @@ from ..engines.agent.loop import AgentDeps
 from ..engines.fusion import run_fusion
 from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.bus import EventBus
+from ..observability.cost import CostTracker
+from ..observability.json_sink import JsonRenderer
+from ..observability.tracing import LangfuseTracer
 from ..ui import messages
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -151,3 +155,35 @@ def _warn_if_unavailable(memory: Memory, bus: EventBus) -> None:
                 fatal=False,
             )
         )
+
+
+@dataclass(frozen=True, slots=True)
+class Observers:
+    """Bir turu izleyen dinleyiciler ve kapanışta yapılacaklar."""
+
+    sinks: tuple[EventSink, ...]
+    cost: CostTracker
+    tracer: LangfuseTracer
+
+    def finish(self) -> None:
+        """Bekleyen izleme kayıtlarını gönder."""
+        self.tracer.flush()
+
+
+def build_observers(
+    task: str, *, renderer: EventSink | None = None, as_json: bool = False
+) -> Observers:
+    """Turu izleyecek dinleyicileri kur.
+
+    Sıra önemlidir: render önce gelir ki kullanıcı çıktıyı beklemesin. İzleme ve
+    maliyet toplama sessizdir, ekrana bir şey basmaz.
+    """
+    cost = CostTracker()
+    tracer = LangfuseTracer(task=task)
+    sinks: list[EventSink] = []
+    if as_json:
+        sinks.append(JsonRenderer())
+    elif renderer is not None:
+        sinks.append(renderer)
+    sinks.extend((cost, tracer))
+    return Observers(sinks=tuple(sinks), cost=cost, tracer=tracer)

@@ -30,6 +30,7 @@ from ...core.types import FusionResult
 from ...engines.agent.compaction import compress
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
+from ...observability.tracing import LangfuseTracer
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
@@ -153,14 +154,19 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
     renderer = ConsoleRenderer(console, show_all_answers=state.show_all_answers)
-    result: FusionResult = await run_task(
-        line,
-        state.config,
-        sinks=(renderer,),
-        task_type=state.task_type,
-        synthesis=state.synthesis,
-        memory=state.memory,
-    )
+    tracer = LangfuseTracer(task=line)
+    try:
+        result: FusionResult = await run_task(
+            line,
+            state.config,
+            # Maliyet toplayıcı OTURUM boyunca yaşar: her tur aynı toplayıcıyı besler.
+            sinks=(renderer, state.cost, tracer),
+            task_type=state.task_type,
+            synthesis=state.synthesis,
+            memory=state.memory,
+        )
+    finally:
+        tracer.flush()
     state.last_fusion = result
 
 
@@ -172,8 +178,11 @@ async def _agent_turn(
     from ...engines.agent.loop import AgentDeps
 
     renderer = ConsoleRenderer(console)
+    tracer = LangfuseTracer(task=line)
     async with EventBus() as bus:
         bus.subscribe(renderer)
+        bus.subscribe(state.cost)
+        bus.subscribe(tracer)
         prompter = ConsolePrompter(console, ToolContext(root=state.root), flush=bus.drain)
         deps = AgentDeps(
             config=state.config,
@@ -194,6 +203,7 @@ async def _agent_turn(
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
         bus.publish(TurnFinished())
+    tracer.flush()
     state.history = outcome.messages
 
 

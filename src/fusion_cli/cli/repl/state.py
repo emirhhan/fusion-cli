@@ -14,6 +14,7 @@ from ...config.models import Config
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMode
 from ...memory.factory import Memory
+from ...observability.cost import CostTracker
 
 
 class Engine(Enum):
@@ -43,6 +44,8 @@ class ReplState:
     history: list[Message] = field(default_factory=list)
     #: Son fusion sonucu — geri bildirim komutları buna uygulanır.
     last_fusion: FusionResult | None = None
+    #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
+    cost: CostTracker = field(default_factory=CostTracker)
     running: bool = True
 
     def cycle_approval(self) -> ApprovalMode:

@@ -19,6 +19,7 @@ import re
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.events import EventPublisher
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
@@ -54,7 +55,11 @@ def parse_lessons(text: str, task: str) -> tuple[Lesson, ...]:
 
 
 async def extract_lessons(
-    task: str, messages: list[Message], *, config: Config
+    task: str,
+    messages: list[Message],
+    *,
+    config: Config,
+    publisher: EventPublisher | None = None,
 ) -> tuple[Lesson, ...]:
     """Oturumdan ders çıkar. Model erişilemezse ya da çıktı bozuksa boş döner."""
     trace = history.transcript(messages)
@@ -68,8 +73,9 @@ async def extract_lessons(
         timeout_s=config.runtime.request_timeout_s,
         max_retries=config.runtime.max_retries,
     )
-    # Sessiz sağlayıcı: ders çıkarımı arka plan işidir, kullanıcı ilerlemesini kirletmez.
-    result = await build_provider(config.judge, publisher=None).complete(request)
+    # Arka plan işi: gösterilmez ama harcadığı token muhasebeye girer.
+    provider = build_provider(config.judge, publisher=publisher, background=True)
+    result = await provider.complete(request)
     return parse_lessons(result.text, task) if result.ok else ()
 
 

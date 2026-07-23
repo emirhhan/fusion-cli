@@ -205,7 +205,7 @@ def _patch(monkeypatch, saglayicilar):
 def _sabit_sentez(metin):
     from fusion_cli.core.types import ModelResult
 
-    async def _synthesize(task, answers, config):
+    async def _synthesize(task, answers, config, publisher):
         return ModelResult(name="sentez", model="m", text=metin, latency_ms=1, ok=True)
 
     return _synthesize

@@ -128,7 +128,7 @@ async def test_esik_altinda_gecmise_dokunulmaz():
 
 
 async def test_ozet_uretilemezse_gecmis_degismez(monkeypatch):
-    async def _bos(trace, config):
+    async def _bos(trace, config, publisher):
         return ""
 
     monkeypatch.setattr(compaction, "_summarize", _bos)
@@ -146,7 +146,7 @@ async def test_ozet_uretilemezse_gecmis_degismez(monkeypatch):
 
 
 async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
-    async def _ozet(trace, config):
+    async def _ozet(trace, config, publisher):
         return "kisa ozet"
 
     monkeypatch.setattr(compaction, "_summarize", _ozet)

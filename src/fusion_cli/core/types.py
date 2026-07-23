@@ -13,14 +13,29 @@ from enum import Enum
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
-    """Bir çağrının token tüketimi."""
+    """Bir çağrının token tüketimi ve tahmini maliyeti.
+
+    Maliyet SAĞLAYICI SINIRINDA hesaplanır: fiyat model kimliğine bağlıdır ve
+    yalnızca orada bilinir. Üst katmanlar yalnızca toplama yapar — eski projede
+    maliyet takibi bazı çağrı yollarını atlıyordu, çünkü toplama birden çok yerde
+    yapılıyordu.
+    """
 
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    #: Tahmini maliyet (USD). Ücretsiz modellerde 0.
+    cost_usd: float = 0.0
 
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
+
+    def __add__(self, other: TokenUsage) -> TokenUsage:
+        return TokenUsage(
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            cost_usd=self.cost_usd + other.cost_usd,
+        )
 
 
 @dataclass(frozen=True, slots=True)

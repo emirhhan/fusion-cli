@@ -45,6 +45,11 @@ class ModelCallStarted(Event):
 
     role: str
     model: str
+    #: Arka plan işi mi? (hakem, sentez, öz-denetim, ders çıkarımı…)
+    #: Bu çağrılar kullanıcıya ilerleme satırı olarak GÖSTERİLMEZ ama muhasebeye
+    #: girer. Görünürlük ile muhasebe ayrı şeylerdir; eski projede birbirine
+    #: karıştıkları için maliyet takibi çağrı yollarını sessizce atlıyordu.
+    background: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +58,8 @@ class ModelCallFinished(Event):
 
     role: str
     result: ModelResult
+    #: Arka plan işi mi? Bkz. `ModelCallStarted.background`.
+    background: bool = False
 
 
 @dataclass(frozen=True, slots=True)

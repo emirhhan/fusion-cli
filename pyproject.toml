@@ -22,6 +22,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Langfuse izleme opsiyoneldir: herkesin kurmasına gerek yok, anahtarsız zaten
+# sessizce kapalı çalışır.
+tracing = ["langfuse>=3.0,<4"]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<2",
@@ -86,7 +89,9 @@ warn_unreachable = true
 
 [[tool.mypy.overrides]]
 # Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
-module = ["litellm.*", "chromadb.*", "prompt_toolkit.*"]
+# langfuse OPSİYONEL bir ekstradır; kurulu olmayabilir ve kod bunu zaten
+# ImportError ile ele alır (izleme sessizce kapanır).
+module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*"]
 ignore_missing_imports = true
 
 

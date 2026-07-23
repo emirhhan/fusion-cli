@@ -24,12 +24,7 @@ from pathlib import Path
 
 from ...config.models import Config
 from ...core.concurrency import gather_with_cutoff
-from ...core.events import (
-    CandidatesStarted,
-    EventPublisher,
-    JudgingStarted,
-    ModelCallFinished,
-)
+from ...core.events import CandidatesStarted, EventPublisher, JudgingStarted
 from ...core.memory import Outcome, PerformanceMemory
 from ...core.types import (
     CompletionRequest,
@@ -196,17 +191,14 @@ async def _judge_and_synthesize(
 
     publisher.publish(JudgingStarted(with_synthesis=use_synthesis))
     verdict_result, synthesis_result = await asyncio.gather(
-        _judge(task, answers, config),
-        _synthesize(task, answers, config) if use_synthesis else _none(),
+        _judge(task, answers, config, publisher),
+        _synthesize(task, answers, config, publisher) if use_synthesis else _none(),
     )
 
     if verdict_result is not None and verdict_result.ok:
         verdict = parse_verdict(verdict_result.text, names)
     else:
         verdict = Verdict(winner=names[0], scores={}, reason="", parsed=False)
-    if verdict_result is not None:
-        publisher.publish(ModelCallFinished(role=config.judge.name, result=verdict_result))
-
     synthesized = (
         synthesis_result.text
         if synthesis_result is not None and synthesis_result.ok and synthesis_result.text
@@ -215,7 +207,9 @@ async def _judge_and_synthesize(
     return verdict, synthesized
 
 
-async def _judge(task: str, answers: str, config: Config) -> ModelResult | None:
+async def _judge(
+    task: str, answers: str, config: Config, publisher: EventPublisher
+) -> ModelResult | None:
     """Hakemi SIKI bir son tarihle çağır. Yetişemezse None döner ve sezgisel kazanan seçilir."""
     request = _request(
         task,
@@ -225,7 +219,8 @@ async def _judge(task: str, answers: str, config: Config) -> ModelResult | None:
         timeout_s=config.runtime.judge_timeout_s,
         temperature=0.0,
     )
-    provider = build_provider(config.judge, publisher=None)
+    # Arka plan işi: ilerleme satırı gösterilmez ama harcadığı token muhasebeye girer.
+    provider = build_provider(config.judge, publisher=publisher, background=True)
     try:
         return await asyncio.wait_for(
             provider.complete(request), timeout=config.runtime.judge_timeout_s + 2
@@ -234,14 +229,17 @@ async def _judge(task: str, answers: str, config: Config) -> ModelResult | None:
         return None
 
 
-async def _synthesize(task: str, answers: str, config: Config) -> ModelResult:
+async def _synthesize(
+    task: str, answers: str, config: Config, publisher: EventPublisher
+) -> ModelResult:
     request = _request(
         task,
         config,
         max_tokens=config.runtime.max_tokens,
         prompt=_fill(_SYNTHESIS_PROMPT, task, answers),
     )
-    return await build_provider(config.judge, publisher=None).complete(request)
+    provider = build_provider(config.judge, publisher=publisher, background=True)
+    return await provider.complete(request)
 
 
 async def _none() -> None:

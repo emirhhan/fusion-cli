@@ -33,27 +33,37 @@ class EventingProvider:
         publisher: EventPublisher,
         role: str,
         channel: Channel = Channel.MAIN,
+        background: bool = False,
     ) -> None:
         self._inner = inner
         self._publisher = publisher
         self._role = role
         self._channel = channel
+        self._background = background
 
     @property
     def label(self) -> str:
         return self._inner.label
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
-        self._publisher.publish(ModelCallStarted(role=self._role, model=self._inner.label))
+        self._publisher.publish(self._started())
         result = await self._inner.complete(request)
-        self._publisher.publish(ModelCallFinished(role=self._role, result=result))
+        self._publisher.publish(self._finished(result))
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
-        self._publisher.publish(ModelCallStarted(role=self._role, model=self._inner.label))
+        self._publisher.publish(self._started())
         async for item in self._inner.stream(request):
             if isinstance(item, TextChunk):
                 self._publisher.publish(TokenReceived(channel=self._channel, text=item.text))
             elif isinstance(item, StreamDone):
-                self._publisher.publish(ModelCallFinished(role=self._role, result=item.result))
+                self._publisher.publish(self._finished(item.result))
             yield item
+
+    def _started(self) -> ModelCallStarted:
+        return ModelCallStarted(
+            role=self._role, model=self._inner.label, background=self._background
+        )
+
+    def _finished(self, result: ModelResult) -> ModelCallFinished:
+        return ModelCallFinished(role=self._role, result=result, background=self._background)

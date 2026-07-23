@@ -207,11 +207,12 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
 )
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
-RENDERED_COMMANDS = frozenset({"help", "clear", "stats", "lessons", "models", "compact"})
+RENDERED_COMMANDS = frozenset({"help", "clear", "stats", "lessons", "models", "compact", "cost"})
 
 
 def parse(line: str) -> tuple[str, str]:

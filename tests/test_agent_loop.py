@@ -64,7 +64,7 @@ def _deps(tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, 
 
 
 def _kur(monkeypatch, provider):
-    def _build(spec, *, publisher=None, channel=None, clock=None):
+    def _build(spec, *, publisher=None, channel=None, clock=None, background=False):
         return provider
 
     monkeypatch.setattr(agent_loop, "build_provider", _build)
@@ -351,7 +351,7 @@ async def test_oz_denetim_sorun_bulursa_duzeltici_tur_calisir(monkeypatch, tmp_p
 async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
     _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
 
-    async def _sikistir(messages, *, config):
+    async def _sikistir(messages, *, config, publisher=None):
         return messages[:1]
 
     monkeypatch.setattr(agent_loop.compaction, "compress", _sikistir)
@@ -381,7 +381,7 @@ def test_gecerli_json_ayristirilir():
 
 
 def _sabit_denetim(sonuc):
-    async def _review(task, final_text, messages, *, config):
+    async def _review(task, final_text, messages, *, config, publisher=None):
         return sonuc
 
     return _review

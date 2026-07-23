@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...config.models import Config
+from ...core.events import EventPublisher
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
 from . import history
@@ -19,7 +20,9 @@ _PROMPT = (Path(__file__).parent / "prompts" / "compress.txt").read_text(encodin
 SUMMARY_MAX_TOKENS = 600
 
 
-async def compress(messages: list[Message], *, config: Config) -> list[Message]:
+async def compress(
+    messages: list[Message], *, config: Config, publisher: EventPublisher | None = None
+) -> list[Message]:
     """Geçmiş eşiği aştıysa eski kısmı özetle. Aksi halde aynen döndür."""
     if not history.needs_compression(messages):
         return messages
@@ -33,13 +36,13 @@ async def compress(messages: list[Message], *, config: Config) -> list[Message]:
     if not trace.strip():
         return messages
 
-    summary = await _summarize(trace, config)
+    summary = await _summarize(trace, config, publisher)
     if not summary:
         return messages
     return [Message("user", f"[önceki konuşmanın özeti]\n{summary}"), *recent]
 
 
-async def _summarize(trace: str, config: Config) -> str:
+async def _summarize(trace: str, config: Config, publisher: EventPublisher | None) -> str:
     request = CompletionRequest(
         messages=(Message("user", _PROMPT.replace("{trace}", trace)),),
         temperature=0.1,
@@ -47,5 +50,7 @@ async def _summarize(trace: str, config: Config) -> str:
         timeout_s=config.runtime.request_timeout_s,
         max_retries=config.runtime.max_retries,
     )
-    result = await build_provider(config.judge, publisher=None).complete(request)
+    # Arka plan işi: gösterilmez ama muhasebeye girer.
+    provider = build_provider(config.judge, publisher=publisher, background=True)
+    result = await provider.complete(request)
     return result.text.strip() if result.ok else ""
