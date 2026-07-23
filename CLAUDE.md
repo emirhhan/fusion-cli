@@ -43,6 +43,7 @@
 
 - Commit mesajları conventional commit formatında yazılır: `feat(scope): …`, `fix(scope): …`, `refactor(scope): …`, `test(scope): …`, `docs: …`, `chore: …`.
 - Açıklama kısmı Türkçe yazılır (eski repodaki düzenin aynısı).
+- **Commit mesajında faz/aşama/sprint numarası geçmez.** Mesaj yapılan işi anlatır; "Faz 1", "Adım 2" gibi etiketler yazılmaz. Faz kavramı yalnızca planlama içindir, git geçmişinde yeri yoktur.
 - Commit mesajına author/co-author bilgisi eklenmez.
 - Kalite kapısından geçmemiş kod commit edilmez.
 

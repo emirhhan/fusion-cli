@@ -10,13 +10,19 @@
 # Agent motorunun kullandığı model. `fallback` yedek zinciridir: birincil model ile
 # AYNI ANDA denenir, ilk başarılı yanıt kazanır (hedged istek). Böylece bir sağlayıcı
 # 429/soğuk başlangıç verse bile tur beklemez.
+#
+# Aşağıdaki üçlü 2026-07-23'te canlı ölçümle DOĞRULANMIŞTIR (yanıt süreleri: 1.1s / 1.1s / 2.5s).
+# Yedek zinciri bilinçli olarak hem farklı SAĞLAYICIYA hem farklı MODELE yayılır:
+#   1) NIM kotası dolarsa aynı model OpenRouter'dan gelir,
+#   2) o model tamamen erişilemezse bambaşka bir aile (gpt-oss) devralır.
+# Böylece tek nokta arızası kalmaz.
 agent:
-  name: glm-5.2
-  model: nvidia_nim/z-ai/glm-5.2
-  tags: [code, agent]
+  name: nemotron-3-super
+  model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+  tags: [code, agent, reasoning]
   fallback:
-    - openrouter/tencent/hy3:free
-    - nvidia_nim/mistralai/mistral-medium-3.5-128b
+    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - openrouter/openai/gpt-oss-20b:free
 
 # Çalışma zamanı davranışı.
 runtime:
