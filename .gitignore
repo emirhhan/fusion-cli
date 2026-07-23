@@ -1,0 +1,29 @@
+# Sırlar — asla commit edilmez
+.env
+.env.*
+!.env.example
+
+# Claude — kişisel ayarlar (proje geneli settings.json commit edilir)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Araç önbellekleri
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Çalışma zamanı verisi (vektör bellek, indeks, REPL geçmişi)
+.fusion/
+
+# İşletim sistemi
+.DS_Store
