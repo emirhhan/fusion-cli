@@ -44,9 +44,15 @@ Bilinçli olarak taşınmayan iki şey:
 ## İzlenecek
 
 - **Model bazen bozuk çıktı üretiyor.** `nemotron-3-super` yüksek bağlamda token çorbası
-  üretebiliyor (gerçek bir turda görüldü). Öz-denetim yakalayıp düzeltici tur açtı, sistem
-  kurtardı — ama tekrarlarsa aday havuzu gözden geçirilmeli. `fusion models --fetch` ile
-  canlı katalogdan alternatif bakılabilir.
+  üretebiliyor (gerçek bir turda görüldü; basit bir "VPN ne işe yarar" sorusunda "We need
+  to answer:" ardından uzun token çorbası olarak tekrarlandı). Öz-denetim her iki seferde
+  de yakalayıp düzeltici tur açtı, sistem kurtardı ve doğru cevabı verdi. Mimari gerilim:
+  agent modu token'ları CANLI akıtır, öz-denetim ise tur bittikten SONRA çalışır; bu yüzden
+  ham çöp düzeltmeden önce ekranda görünür. Gizlemek ya akışı (çekirdek özellik) feda eder
+  ya da güvenilmez sezgisel gerektirir — bu yüzden gösterim tarafına dokunulmadı. Gerçek
+  kaldıraç model seçimi: tekrar sıklaşırsa varsayılan agent modeli daha kararlı bir ücretsiz
+  modelle değiştirilmeli (davranış/kimlik değişikliği — ayrıca konuşulur). `fusion models
+  --fetch` ile canlı katalogdan alternatif bakılabilir.
 - **Hakem eksik puanlama yapabiliyor:** üç aday yanıtladığında bazen ikisine puan veriyor.
   Ayrıştırıcı yalnızca geçerli adları aldığı için sorun çıkmıyor ama tablo eksik görünüyor.
 - **`web_search` HTML kazımaya dayanıyor.** İki uç denenerek dayanıklılık sağlandı; kazıma
