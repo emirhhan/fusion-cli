@@ -22,6 +22,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
 from rich.table import Table
+from rich.text import Text
 
 from ..core.events import (
     CandidatesStarted,
@@ -152,6 +153,20 @@ class ConsoleRenderer:
             self._active_channel = None
             self._finish_work()
 
+    def print_user_message(self, text: str) -> None:
+        """Kullanıcının mesajını tam genişlikte bir bant olarak bas.
+
+        Konuşmanın kimin sözü olduğu tek bakışta görünmeli. prompt_toolkit'in
+        bıraktığı satır silinir (`erase_when_done`) ve yerine bu bant çizilir.
+        """
+        self._end_block()
+        band = Text(f" {theme.ICON_PROMPT} ", style=f"{theme.ACCENT} on {theme.SURFACE}")
+        band.append(text, style=f"bold on {theme.SURFACE}")
+        band.pad_right(max(0, self._console.width - band.cell_len))
+        self._console.print()
+        self._console.print(band)
+        self._console.print()
+
     # -- Akış --------------------------------------------------------------- #
 
     def _write_stream(self, channel: Channel, text: str) -> None:
@@ -191,9 +206,24 @@ class ConsoleRenderer:
         self._shown.clear()
 
     def _channel_header(self, channel: Channel) -> None:
+        """Akışın başına kimin konuştuğunu gösteren işaret koy."""
         label = _CHANNEL_LABELS.get(channel)
         if label is not None:
             self._console.print(f"[{theme.ACCENT_ALT}]┌ {label}[/{theme.ACCENT_ALT}]")
+            return
+        # Ana kanal: cevabın ilk satırının başına işaret — satır sonu YOK, metin
+        # hemen ardından akacak.
+        self._console.out(f"{theme.ICON_ANSWER} ", end="", highlight=False, style=theme.ACCENT)
+
+    def _end_block(self) -> None:
+        """Akış bloğunu kapat.
+
+        Araya başka bir çıktı (durum, araç kartı, hata) girdiğinde cevap bloğu
+        biter; sonraki metin YENİ bir blok olarak kendi işaretiyle başlar. Aksi
+        halde düzeltici turun cevabı işaretsiz kalıp öncekinin devamı gibi görünür.
+        """
+        self._close_line()
+        self._active_channel = None
 
     def _close_line(self) -> None:
         """Yarım kalmış akış satırını kapat ve canlı göstergeyi duraklat.
@@ -211,7 +241,7 @@ class ConsoleRenderer:
     def _status(self, message: str) -> None:
         if not self._show_progress:
             return
-        self._close_line()
+        self._end_block()
         body = escape(message)
         self._console.print(f"[{theme.DIM}]{theme.ICON_STATUS} {body}[/{theme.DIM}]")
 
@@ -234,7 +264,7 @@ class ConsoleRenderer:
         )
 
     def _error(self, message: str) -> None:
-        self._close_line()
+        self._end_block()
         label = f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]"
         self._console.print(f"{label} {escape(message)}")
 
@@ -268,6 +298,7 @@ class ConsoleRenderer:
         """Turu bitir ve özet satırını bas."""
         summary = self._work.finish()
         if summary is not None:
+            self._console.print()
             self._console.print(summary)
 
     # -- Agent araç kartı ---------------------------------------------------- #
@@ -282,7 +313,7 @@ class ConsoleRenderer:
 
     def _tool_executed(self, event: ToolExecuted) -> None:
         """Araç çağrısını iki satırlık kompakt kart olarak bas."""
-        self._close_line()
+        self._end_block()
         icon, color = self._OUTCOME_STYLES[event.outcome]
         args = _shorten(_format_args(event.args), 78)
         summary = _shorten(event.output.replace("\n", " "), 96)
@@ -303,7 +334,7 @@ class ConsoleRenderer:
     }
 
     def _fusion_result(self, result: FusionResult) -> None:
-        self._close_line()
+        self._end_block()
         if result.source is VerdictSource.NONE:
             return  # cevapsız tur: hatayı `ErrorOccurred` zaten bildirdi
 

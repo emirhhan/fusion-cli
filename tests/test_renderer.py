@@ -15,7 +15,11 @@ from fusion_cli.core.events import (
     TurnFinished,
 )
 from fusion_cli.core.types import ModelResult, TokenUsage
+from fusion_cli.ui import theme
 from fusion_cli.ui.renderer import ConsoleRenderer
+
+#: Cevabın başındaki işaret; akan metnin önüne konur.
+MARK = theme.ICON_ANSWER
 
 
 def _renderer():
@@ -31,7 +35,7 @@ def test_yarim_satir_varken_durum_satiri_metnin_ustune_binmez():
     renderer.handle(StatusChanged("araç çalıştı"))
 
     satirlar = buffer.getvalue().splitlines()
-    assert satirlar[0] == "yarim cumle"
+    assert satirlar[0] == f"{MARK} yarim cumle"
     assert "araç çalıştı" in satirlar[1]
 
 
@@ -41,8 +45,7 @@ def test_tam_satirdan_sonra_bos_satir_eklenmez():
     renderer.handle(TokenReceived(Channel.MAIN, "tam satir\n"))
     renderer.handle(StatusChanged("durum"))
 
-    assert buffer.getvalue().splitlines()[0] == "tam satir"
-    assert "" not in buffer.getvalue().splitlines()[:1]
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} tam satir"
 
 
 def test_kanal_degisiminde_satir_kapatilir_ve_baslik_basilir():
@@ -51,9 +54,8 @@ def test_kanal_degisiminde_satir_kapatilir_ve_baslik_basilir():
     renderer.handle(TokenReceived(Channel.MAIN, "ana akis"))
     renderer.handle(TokenReceived(Channel.SUBAGENT, "alt akis"))
 
-    cikti = buffer.getvalue()
-    satirlar = cikti.splitlines()
-    assert satirlar[0] == "ana akis"
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar[0] == f"{MARK} ana akis"
     assert "alt-ajan" in satirlar[1]
     assert satirlar[2] == "alt akis"
 
@@ -65,7 +67,7 @@ def test_ayni_kanalda_pespese_parcalar_birlesir():
     renderer.handle(TokenReceived(Channel.MAIN, "haba"))
     renderer.handle(TurnFinished())
 
-    assert buffer.getvalue().splitlines()[0] == "merhaba"
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} merhaba"
 
 
 def test_model_ciktisindaki_koseli_parantez_markup_sanilmaz():
@@ -294,8 +296,8 @@ def test_tur_bitince_tampon_temizlenir():
     renderer.handle(TurnFinished())
     renderer.handle(TokenReceived(Channel.MAIN, "ikinci tur\n"))
 
-    satirlar = buffer.getvalue().splitlines()
-    assert satirlar == ["ilk tur", "ikinci tur"]
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar == [f"{MARK} ilk tur", f"{MARK} ikinci tur"]
 
 
 def test_dusunmeyle_ilgisiz_kucuktur_isareti_kaybolmaz():
@@ -315,7 +317,7 @@ def test_dusunme_blogu_olmadan_metin_aynen_akar():
 
     renderer.handle(TokenReceived(Channel.MAIN, "duz cevap\n"))
 
-    assert buffer.getvalue().splitlines()[0] == "duz cevap"
+    assert buffer.getvalue().splitlines()[0] == f"{MARK} duz cevap"
 
 
 # --- Çalışma göstergesi ile akış çakışması ------------------------------------ #
@@ -413,3 +415,64 @@ def test_cevap_metni_tur_boyunca_korunur():
     renderer.handle(TurnFinished())
 
     assert "Merhaba, ben Fusion." in buffer.getvalue()
+
+
+# --- Kullanıcı mesajı bandı ---------------------------------------------------- #
+
+
+def test_kullanici_mesaji_tam_genislikte_bant_olur():
+    """Konuşmanın kimin sözü olduğu tek bakışta görünmeli."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=60, no_color=True)
+    renderer = ConsoleRenderer(console)
+
+    renderer.print_user_message("Merhaba")
+
+    bant = next(satir for satir in buffer.getvalue().splitlines() if "Merhaba" in satir)
+    assert bant.startswith(f" {theme.ICON_PROMPT} Merhaba")
+    # Zeminin tüm satırı kaplaması için sağa doldurulur.
+    assert len(bant) == 60
+
+
+def test_kullanici_mesajinin_etrafinda_nefes_birakilir():
+    renderer, buffer = _renderer()
+
+    renderer.print_user_message("Merhaba")
+
+    satirlar = buffer.getvalue().splitlines()
+    assert satirlar[0].strip() == ""
+    assert satirlar[-1].strip() == ""
+
+
+def test_bant_yarim_kalan_akisin_uzerine_binmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim cevap"))
+    renderer.print_user_message("yeni mesaj")
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[0] == f"{MARK} yarim cevap"
+
+
+def test_araya_giren_ciktidan_sonra_cevap_yeni_blok_olur():
+    """Düzeltici turun cevabı işaretsiz kalıp öncekinin devamı gibi görünüyordu."""
+    from fusion_cli.core.events import SelfReviewFinished
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "ilk cevap\n"))
+    renderer.handle(SelfReviewFinished(issue_found=True))
+    renderer.handle(TokenReceived(Channel.MAIN, "duzeltilmis cevap\n"))
+
+    satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
+    assert satirlar[0] == f"{MARK} ilk cevap"
+    assert satirlar[-1] == f"{MARK} duzeltilmis cevap"
+
+
+def test_kesintisiz_akis_tek_isaret_alir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "bir "))
+    renderer.handle(TokenReceived(Channel.MAIN, "iki\n"))
+
+    assert buffer.getvalue().count(MARK) == 1

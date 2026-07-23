@@ -128,6 +128,7 @@ async def _handle(
     console: Console,
     background: BackgroundTasks,
 ) -> None:
+    ConsoleRenderer(console).print_user_message(line)
     if line.startswith("/"):
         await _run_command(line, state, registry, reader, console)
         # Makrolar görev HAZIRLAR, çalıştırmaz: komut işleyicileri saf ve senkron

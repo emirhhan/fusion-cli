@@ -14,8 +14,13 @@ WARN = "#D29922"
 ERROR = "#F85149"
 INFO = "#58A6FF"
 
+#: Kullanıcı mesajı bandının zemini — koyu temada hafifçe ayrışır.
+SURFACE = "#1B1F27"
+
 ICON_OK = "✓"
 ICON_ERROR = "✗"
 ICON_DENIED = "⊘"
 ICON_DONE = "✦"
 ICON_STATUS = "›"
+ICON_PROMPT = "❯"
+ICON_ANSWER = "●"

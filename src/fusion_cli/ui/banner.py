@@ -8,8 +8,10 @@ Tasarım kararları:
   bir ipucu ve projenin ne olduğu. Dikey yığmak ekranın yarısını yiyordu.
 - **Tam genişlik.** Kutu terminale yayılır; sabit genişlik geniş ekranda ortada
   asılı kalıyordu.
-- **Giriş alanı en altta.** Karşılamadan sonra ekranın altına kadar boşluk
-  bırakılır; yazma alanı durum çubuğunun hemen üstünde, alışılmış yerinde durur.
+- **Konuşma yukarıdan akar.** Karşılamadan sonra boşluk bırakılmaz: ilk mesaj
+  hemen kutunun altından başlar ve ekran doldukça doğal olarak yukarı kayar.
+  Dolgu bırakmak, ilk mesajı ekranın dibine iterek üstte kocaman boş bir alan
+  bırakıyordu.
 - **Dar terminalde küçülür.** Büyük imza sığmıyorsa tek satırlık sürümüne iner;
   hiçbir genişlikte taşma olmaz.
 
@@ -35,8 +37,6 @@ LOGO_WIDTH = 47
 MIN_TEXT_WIDTH = 34
 #: Bu genişliğin altında büyük imza sığmaz; tek satırlık sürüme inilir.
 MIN_LOGO_WIDTH = LOGO_WIDTH + MIN_TEXT_WIDTH + 10
-#: Giriş satırı + durum çubuğu için ekranın altında bırakılan yer.
-BOTTOM_RESERVED_LINES = 2
 
 _LOGO_LINES = (
     "███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗",
@@ -89,8 +89,6 @@ def print_welcome(console: Console, info: SessionInfo, *, clear: bool = True) ->
     ]
     for block in blocks:
         console.print(block)
-
-    _pad_to_bottom(console, blocks)
 
 
 def print_status(
@@ -222,20 +220,6 @@ def _memory_text(lesson_count: int | None) -> str:
     if lesson_count is None:
         return messages.WELCOME_MEMORY_OFF
     return messages.WELCOME_MEMORY_ON.format(count=lesson_count)
-
-
-def _pad_to_bottom(console: Console, blocks: list[RenderableType]) -> None:
-    """Giriş satırı ekranın altına insin diye boşluk bırak.
-
-    Yalnızca gerçek terminalde yapılır: boru hattında ya da testte ekran
-    yüksekliği anlamsızdır ve çıktı boş satırlarla kirlenir.
-    """
-    if not console.is_terminal:
-        return
-    used = sum(len(console.render_lines(block, console.options, pad=False)) for block in blocks)
-    remaining = console.size.height - used - BOTTOM_RESERVED_LINES
-    if remaining > 1:
-        console.print("\n" * (remaining - 1), end="")
 
 
 def _blend(start: str, end: str, ratio: float) -> str:

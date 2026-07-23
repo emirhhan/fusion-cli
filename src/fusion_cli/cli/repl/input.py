@@ -74,7 +74,8 @@ class ReplInput:
         if self._session is None:
             # Düz `input()` bloklar; ayrı bir thread'e alınmazsa arka plandaki
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
-            return await asyncio.to_thread(input, f"{PROMPT_SYMBOL} ")
+            # İşaret basılmaz: kullanıcı mesajı zaten bant olarak çiziliyor.
+            return await asyncio.to_thread(input, "")
         from prompt_toolkit.formatted_text import HTML
 
         line = await self._session.prompt_async(
@@ -126,6 +127,9 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
             completer=WordCompleter(words, sentence=True),
             bottom_toolbar=owner.status_bar,
             style=_toolbar_style(),
+            # Girilen satır prompt_toolkit tarafından SİLİNİR; kullanıcı mesajını
+            # kendimiz tam genişlikte bir bant olarak çiziyoruz (bkz. ui.renderer).
+            erase_when_done=True,
             # Tamamlama Tab ile açılır. Yazarken açılması hem gürültülüdür hem de
             # menü için ekran altında yer ayrılmasına yol açar.
             complete_while_typing=False,
