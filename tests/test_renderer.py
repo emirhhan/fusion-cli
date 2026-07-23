@@ -85,7 +85,10 @@ def test_hata_mesajindaki_markup_yorumlanmaz():
 
 
 def test_basarili_model_cagrisi_sure_ve_token_gosterir():
-    renderer, buffer = _renderer()
+    """Ayrıntı yalnızca fusion modunda basılır; agent'ta tur özeti yeterli."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_call_details=True)
     result = ModelResult(
         name="agent",
         model="m",
@@ -99,6 +102,26 @@ def test_basarili_model_cagrisi_sure_ve_token_gosterir():
 
     cikti = buffer.getvalue()
     assert "2.9s" in cikti and "10" in cikti
+
+
+def test_agent_modunda_adim_ayrintisi_basilmaz():
+    """Her adım için satır basmak tur özetiyle çakışıyor ve gürültü oluyor."""
+    renderer, buffer = _renderer()
+    result = ModelResult(name="agent", model="m", text="x", latency_ms=100, ok=True)
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert buffer.getvalue() == ""
+
+
+def test_basarisiz_cagri_moddan_bagimsiz_gosterilir():
+    """Hata her zaman görünmeli; sessizce yutulamaz."""
+    renderer, buffer = _renderer()
+    result = ModelResult(name="a", model="m", text="", latency_ms=1, ok=False, error="ag yok")
+
+    renderer.handle(ModelCallFinished(role="a", result=result))
+
+    assert "ag yok" in buffer.getvalue()
 
 
 def test_model_cagri_baslangici_basilmaz():

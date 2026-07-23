@@ -38,30 +38,38 @@ Argümansız çalıştırınca interaktif oturum açılır:
 .venv/bin/fusion
 ```
 
-Ekran temizlenir ve oturum bilgisiyle açılır:
+Ekran temizlenir, karşılama tam genişlikte açılır ve giriş alanı ekranın altına iner:
 
 ```
-╭─ Fusion CLI 0.2.0 ───────────────────────────────────────────────────────╮
-│                                                                          │
-│  ✦ FUSION                         Başlarken                              │
-│  ücretsiz LLM füzyonu · araçlar   mesaj yaz         aktif motora gönderir│
-│  · öz-öğrenen bellek              /help             tüm komutlar         │
-│                                   /agent · /fusion  motor değiştir       │
-│   motor agent                     shift-tab         onay modunu döndür   │
-│    onay auto                                                             │
-│   model nemotron-super            Neler yapabilir                        │
-│   dizin ~/Desktop/proje           araçlar   dosya, kabuk, web, görev     │
-│  bellek açık · 28 ders            fusion    3 model + hakem + sentez     │
-│                                   bellek    öğrendiğini hatırlar         │
-│                                   güvenlik  diff önizlemesi, onay        │
-╰──────────────────────────────────────────────────────────────────────────╯
+╭─ Fusion CLI 0.2.0 ──────────────────────────────────────────────────────────────╮
+│                                                                                 │
+│  ███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗    İpucu                       │
+│  ██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║    Karmaşık bir görevde        │
+│  █████╗  ██║   ██║███████╗██║██║   ██║██╔██╗ ██║    shift-tab ile plan moduna…  │
+│  ██╔══╝  ██║   ██║╚════██║██║██║   ██║██║╚██╗██║    ─────────────────────────── │
+│  ██║     ╚██████╔╝███████║██║╚██████╔╝██║ ╚████║    Fusion nedir?               │
+│  ╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝    Ücretsiz LLM'lerle çalışan… │
+│                                                                                 │
+╰─────────────────────────────────────────────────────────────────────────────────╯
+  motor agent  ·  onay auto  ·  model nemotron-super  ·  bellek açık · 28 ders
+
+
 
 ❯ mesajını yaz
  ⏵ auto · agent · general · nemotron-super · shift-tab mod · /help
 ```
 
+Model çalışırken canlı bir satır ne olduğunu ve ne kadar sürdüğünü gösterir; tur
+bitince tek satırlık özete iner:
+
+```
+⠋ hazırlanıyor…  3s · 231 token · nemotron-super     ← çalışırken
+✦ 4.1s · 1.2k token · nemotron-super                 ← bitince
+```
+
 Alttaki durum çubuğu ekrana sabittir ve onay modu değişince kendiliğinden güncellenir.
-Dar terminalde karşılama kutusu iki sütundan tek sütuna iner; hiçbir genişlikte taşmaz.
+İpucu çalışma dizinine göre seçilir: aynı projede hep aynı, farklı projede farklı.
+Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte taşma olmaz.
 
 **shift-tab** onay modunu döndürür · **Ctrl-C** çalışan turu durdurur (oturumdan
 çıkmaz) · **Ctrl-D** çıkar. Komut listesi için `/help`.

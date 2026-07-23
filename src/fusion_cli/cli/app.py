@@ -96,7 +96,9 @@ def run(
         )
 
     config = load_config()
-    renderer = ConsoleRenderer(console, show_progress=not quiet, show_all_answers=show_all)
+    renderer = ConsoleRenderer(
+        console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
+    )
     observers = build_observers(task, renderer=renderer, as_json=as_json)
     result = asyncio.run(
         run_task(

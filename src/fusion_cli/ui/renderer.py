@@ -50,6 +50,7 @@ from ..core.events import (
 from ..core.types import FusionResult, VerdictSource
 from . import messages, theme
 from .text import format_duration, strip_thinking, summarize_error
+from .work import WorkIndicator
 
 _CHANNEL_LABELS = {
     Channel.SUBAGENT: "alt-ajan",
@@ -66,16 +67,23 @@ class ConsoleRenderer:
         *,
         show_progress: bool = True,
         show_all_answers: bool = False,
+        show_call_details: bool = False,
     ) -> None:
         self._console = console or Console()
         self._show_progress = show_progress
         self._show_all_answers = show_all_answers
+        # Fusion'da hangi adayın ne kadar sürdüğü bilgi verir; agent'ta her adım
+        # için satır basmak tur özetiyle çakışır ve gürültü olur.
+        self._show_call_details = show_call_details
         self._line_open = False
         self._active_channel: Channel | None = None
         # Kanal başına ham akış tamponu. Düşünme bloklarının kapanışını beklemek
         # için ham metni saklamak zorundayız; görünür kısmı ondan türetiriz.
         self._raw: dict[Channel, str] = {}
         self._shown: dict[Channel, int] = {}
+        # Model çalışırken görünen canlı satır. Ekrana bir şey basılmadan önce
+        # daima duraklatılır; akan metnin üstüne binmez.
+        self._work = WorkIndicator(self._console)
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -85,12 +93,13 @@ class ConsoleRenderer:
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
-            # Bilinçli olarak basılmaz. Fusion'da adaylar zaten `CandidatesStarted`
-            # ile duyuruldu; agent'ta hemen ardından metin akmaya başlıyor. Yedek
-            # zinciriyle birlikte model kimliği üç satıra sarıp ekranı kaplıyordu.
-            return
-        elif isinstance(event, ModelCallFinished):
+            # Satır BASILMAZ: yedek zinciriyle birlikte model kimliği üç satıra
+            # sarıp ekranı kaplıyordu. Bunun yerine canlı gösterge başlatılır.
             if not event.background:
+                self._begin_work(messages.WORK_THINKING, model=event.role)
+        elif isinstance(event, ModelCallFinished):
+            self._work.update(tokens=event.result.usage.total_tokens)
+            if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, CandidatesStarted):
             self._status(
@@ -98,25 +107,32 @@ class ConsoleRenderer:
                     count=len(event.names), names=", ".join(event.names)
                 )
             )
+            self._begin_work(messages.WORK_CANDIDATES.format(count=len(event.names)))
         elif isinstance(event, JudgingStarted):
-            self._status(
-                messages.FUSION_JUDGING_AND_SYNTHESIZING
-                if event.with_synthesis
-                else messages.FUSION_JUDGING
+            self._work.update(
+                label=messages.WORK_SYNTHESIZING if event.with_synthesis else messages.WORK_JUDGING
             )
+            self._work.resume()
         elif isinstance(event, FusionCompleted):
             self._fusion_result(event.result)
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
+            self._work.update(label=messages.WORK_THINKING)
+            self._work.resume()
         elif isinstance(event, SubAgentStarted):
             self._status(messages.AGENT_SUBAGENT_STARTED.format(task=_shorten(event.task, 60)))
+            self._work.update(label=messages.WORK_SUBAGENT)
+            self._work.resume()
         elif isinstance(event, SubAgentFinished):
             self._status(messages.AGENT_SUBAGENT_FINISHED.format(count=event.tool_calls))
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
+            self._work.update(label=messages.WORK_COUNCIL)
+            self._work.resume()
         elif isinstance(event, SelfReviewStarted):
-            # Sonucu hemen ardından geliyor; iki satır harcamaya değmez.
-            return
+            # Ayrı satır basılmaz; sonucu hemen ardından geliyor.
+            self._work.update(label=messages.WORK_REVIEW)
+            self._work.resume()
         elif isinstance(event, SelfReviewFinished):
             self._status(
                 messages.AGENT_SELF_REVIEW_ISSUE
@@ -139,6 +155,7 @@ class ConsoleRenderer:
             self._flush_streams()
             self._close_line()
             self._active_channel = None
+            self._finish_work()
 
     # -- Akış --------------------------------------------------------------- #
 
@@ -184,7 +201,12 @@ class ConsoleRenderer:
             self._console.print(f"[{theme.ACCENT_ALT}]┌ {label}[/{theme.ACCENT_ALT}]")
 
     def _close_line(self) -> None:
-        """Yarım kalmış akış satırını kapat. Panel/durum satırı asla metnin üstüne binmez."""
+        """Yarım kalmış akış satırını kapat ve canlı göstergeyi duraklat.
+
+        Ekrana bir şey basmadan önce çağrılan tek nokta burasıdır; gösterge de
+        burada durdurulur ki hiçbir çıktı onun üstüne binmesin.
+        """
+        self._work.pause()
         if self._line_open:
             self._console.out("")
             self._line_open = False
@@ -220,6 +242,27 @@ class ConsoleRenderer:
         self._close_line()
         label = f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]"
         self._console.print(f"{label} {escape(message)}")
+
+    # -- Çalışma göstergesi -------------------------------------------------- #
+
+    def _begin_work(self, label: str, *, model: str = "") -> None:
+        """Bekleme başladı: göstergeyi kur ya da etiketini güncelle.
+
+        Zaten çalışan bir tur varsa süre sıfırlanmaz — kullanıcı turun TAMAMININ
+        ne kadar sürdüğünü görmek ister, tek bir model çağrısının değil.
+        """
+        self._close_line()
+        if self._work.running:
+            self._work.update(label=label)
+            self._work.resume()
+            return
+        self._work.start(label, model=model)
+
+    def _finish_work(self) -> None:
+        """Turu bitir ve özet satırını bas."""
+        summary = self._work.finish()
+        if summary is not None:
+            self._console.print(summary)
 
     # -- Agent araç kartı ---------------------------------------------------- #
 

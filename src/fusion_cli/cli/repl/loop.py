@@ -203,7 +203,9 @@ async def _dispatch(
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
-    renderer = ConsoleRenderer(console, show_all_answers=state.show_all_answers)
+    renderer = ConsoleRenderer(
+        console, show_all_answers=state.show_all_answers, show_call_details=True
+    )
     tracer = LangfuseTracer(task=line)
     try:
         result: FusionResult = await run_task(
@@ -329,12 +331,19 @@ def session_info(state: ReplState) -> banner.SessionInfo:
     )
 
 
+#: Bilgi satırında gösterilecek en fazla yol parçası. Uzun yollar satırı sardırıyor.
+PATH_SEGMENTS = 2
+
+
 def _short_path(path: Path) -> str:
-    """Ev dizinini `~` ile kısalt: uzun mutlak yol kutuyu taşırır."""
+    """Yolu kısalt: ev dizini `~`, geri kalanı son birkaç parça."""
     try:
         return f"~/{path.relative_to(Path.home())}"
     except ValueError:
-        return str(path)
+        parts = path.parts
+        if len(parts) <= PATH_SEGMENTS:
+            return str(path)
+        return "…/" + "/".join(parts[-PATH_SEGMENTS:])
 
 
 def _print_status(console: Console, state: ReplState) -> None:

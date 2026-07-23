@@ -240,7 +240,10 @@ def test_on_plan_cagrisi_bitince_ozet_basar():
     from fusion_cli.ui.renderer import ConsoleRenderer
 
     buffer = io.StringIO()
-    renderer = ConsoleRenderer(Console(file=buffer, force_terminal=False, width=200, no_color=True))
+    renderer = ConsoleRenderer(
+        Console(file=buffer, force_terminal=False, width=200, no_color=True),
+        show_call_details=True,
+    )
 
     renderer.handle(_bitti("agent"))
 

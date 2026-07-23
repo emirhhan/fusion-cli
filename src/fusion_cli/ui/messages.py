@@ -63,6 +63,17 @@ AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıldı"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+
+# --- Çalışma göstergesi ---------------------------------------------------- #
+WORK_TOKENS = "{count} token"
+WORK_THINKING = "hazırlanıyor…"
+WORK_CANDIDATES = "{count} model düşünüyor…"
+WORK_JUDGING = "hakem değerlendiriyor…"
+WORK_SYNTHESIZING = "hakem + sentez çalışıyor…"
+WORK_TOOL = "{name} çalışıyor…"
+WORK_SUBAGENT = "alt-ajan çalışıyor…"
+WORK_COUNCIL = "çoklu modele danışılıyor…"
+WORK_REVIEW = "öz-denetim…"
 AGENT_LESSONS_RECALLED = "{count} ilgili ders hatırlandı"
 AGENT_LESSONS_LEARNED = "{count} yeni ders belleğe kazındı"
 
@@ -151,6 +162,32 @@ WELCOME_FIELD_DIR = "dizin"
 WELCOME_FIELD_MEMORY = "bellek"
 WELCOME_MEMORY_ON = "açık · {count} ders"
 WELCOME_MEMORY_OFF = "kapalı"
+
+WELCOME_TIP_TITLE = "İpucu"
+WELCOME_TIPS = (
+    "Karmaşık bir görevde `shift-tab` ile `plan` moduna geç: Fusion önce planı "
+    "çıkarır, sen onaylayınca uygular.",
+    "Zor bir kararda agent'a `council` aracını kullandır: soruyu birden çok modele "
+    "danışıp ortak akılla cevaplar.",
+    "`/fusion` ile aynı soruyu üç modele birden sor; hakem en iyisini seçer, sentez "
+    "hepsinin en iyi yanlarını birleştirir.",
+    "`/learn <kural>` ile kalıcı bir kural öğret; Fusion benzer görevlerde bunu "
+    "kendiliğinden hatırlar.",
+    "`/memory reindex` ile kod tabanını indeksle; agent 'X nerede yapılıyor?' "
+    "sorularını grep yerine anlamca cevaplar.",
+    "Riskli bir işte `shift-tab` ile `security` moduna geç: her değişiklik diff "
+    "önizlemesiyle tek tek onayına sunulur.",
+    "`/model` ile oturum içinde model değiştirebilirsin; `fusion models --fetch` "
+    "canlı katalogdan ücretsiz modelleri listeler.",
+    "Uzun bir oturumda `/compact` ile geçmişi özetleyip bağlam limitinden tasarruf et.",
+)
+
+WELCOME_ABOUT_TITLE = "Fusion nedir?"
+WELCOME_ABOUT_TEXT = (
+    "Ücretsiz LLM'lerle çalışan bir kodlama asistanı. Dosya okur/yazar, komut "
+    "çalıştırır, web'de arar; aynı soruyu birden çok modele paralel sorup hakemle "
+    "en iyi cevabı seçer. Her görevden ders çıkarır ve benzer bir işte hatırlar."
+)
 
 WELCOME_START_TITLE = "Başlarken"
 WELCOME_START_ITEMS = (

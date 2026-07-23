@@ -13,6 +13,7 @@ from fusion_cli.core.memory import Feedback, LessonKind, LessonSource
 from fusion_cli.core.types import FusionResult, Message, VerdictSource
 from fusion_cli.engines.agent.approval import ApprovalMode
 from fusion_cli.memory.factory import null_memory
+from fusion_cli.ui import banner as banner_module
 
 from .fakes import make_config
 
@@ -348,20 +349,45 @@ def test_karsilama_kutusu_terminali_tasmaz():
         assert all(len(satir) <= width for satir in satirlar), width
 
 
-def test_dar_terminalde_tek_sutuna_iner():
-    """İki sütunu zorlamak dar terminalde her satırı üç kez sardırıyor."""
+def test_dar_terminalde_buyuk_imza_yerine_tek_satirlik_kullanilir():
+    """Büyük imza dar terminalde sağ sütuna okunabilir yer bırakmıyor."""
     dar = _welcome_output(72)
 
-    # Tek sütunda "Başlarken" başlığı satırın başına yakın durur.
-    baslik = next(satir for satir in dar.splitlines() if "Başlarken" in satir)
-    assert baslik.index("Başlarken") < 10
+    assert "✦ FUSION" in dar
+    assert "███████╗" not in dar
 
 
-def test_genis_terminalde_iki_sutun_kullanilir():
-    genis = _welcome_output(100)
+def test_genis_terminalde_buyuk_imza_solda_durur():
+    genis = _welcome_output(120)
 
-    baslik = next(satir for satir in genis.splitlines() if "Başlarken" in satir)
-    assert baslik.index("Başlarken") > 20
+    assert "███████╗" in genis
+    baslik = next(satir for satir in genis.splitlines() if "İpucu" in satir)
+    # İki sütunlu düzende sağ sütun büyük imzanın sağında başlar.
+    assert baslik.index("İpucu") > banner_module.LOGO_WIDTH
+
+
+def test_karsilama_ipucu_ve_tanitim_icerir():
+    cikti = _welcome_output(120)
+
+    assert "İpucu" in cikti
+    assert "Fusion nedir?" in cikti
+
+
+def test_ipucu_secimi_kararli():
+    """Aynı projede hep aynı ipucu görünmeli; ekran her açılışta değişmemeli."""
+    from fusion_cli.ui.banner import pick_tip
+
+    assert pick_tip("~/proje") == pick_tip("~/proje")
+
+
+def test_farkli_projelerde_farkli_ipucu_gelebilir():
+    from fusion_cli.ui.banner import pick_tip
+    from fusion_cli.ui.messages import WELCOME_TIPS
+
+    secilenler = {pick_tip(f"~/proje{index}") for index in range(40)}
+
+    assert len(secilenler) > 1
+    assert secilenler <= set(WELCOME_TIPS)
 
 
 def test_bellek_kapaliysa_belirtilir():
@@ -397,3 +423,89 @@ def test_durum_cubugu_tek_satira_sigar():
 
 def test_durum_cubugu_baglamsiz_da_calisir():
     assert "auto" in _status_text(ApprovalMode.AUTO)
+
+
+# --- Çalışma göstergesi -------------------------------------------------------- #
+
+
+def _indicator():
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui.work import WorkIndicator
+
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=100, no_color=True)
+    return WorkIndicator(console), buffer
+
+
+def test_gosterge_baslayip_ozet_dondurur():
+    gosterge, _ = _indicator()
+
+    gosterge.start("hazırlanıyor…", model="model-x")
+    gosterge.update(tokens=231)
+    ozet = gosterge.finish()
+
+    assert ozet is not None
+    metin = ozet.plain
+    assert "231 token" in metin and "model-x" in metin
+
+
+def test_gosterge_is_yapilmadiysa_ozet_basmaz():
+    gosterge, _ = _indicator()
+
+    gosterge.start("bekliyor…")
+
+    assert gosterge.finish() is None
+
+
+def test_gosterge_tokenlari_biriktirir():
+    gosterge, _ = _indicator()
+    gosterge.start("x", model="m")
+
+    gosterge.update(tokens=100)
+    gosterge.update(tokens=50)
+
+    assert "150 token" in gosterge.finish().plain
+
+
+def test_gosterge_terminal_disinda_ciktiyi_kirletmez():
+    gosterge, buffer = _indicator()
+
+    gosterge.start("hazırlanıyor…", model="m")
+    gosterge.pause()
+    gosterge.finish()
+
+    assert buffer.getvalue() == ""
+
+
+def test_gosterge_bittikten_sonra_calismiyor():
+    gosterge, _ = _indicator()
+    gosterge.start("x", model="m")
+
+    gosterge.finish()
+
+    assert not gosterge.running
+
+
+def test_token_sayisi_kisaltilir():
+    from fusion_cli.ui.work import format_tokens
+
+    assert format_tokens(840) == "840"
+    assert format_tokens(1234) == "1.2k"
+    assert format_tokens(12_500) == "12.5k"
+
+
+def test_gosterge_calisirken_yeni_etiket_sureyi_sifirlamaz():
+    """Kullanıcı TURUN tamamının ne kadar sürdüğünü görmek ister."""
+    import time
+
+    gosterge, _ = _indicator()
+    gosterge.start("ilk", model="m")
+    baslangic = gosterge._state.started_at
+    time.sleep(0.01)
+
+    gosterge.update(label="ikinci")
+
+    assert gosterge._state.started_at == baslangic
