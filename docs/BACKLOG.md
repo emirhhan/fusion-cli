@@ -98,3 +98,13 @@ Bilinçli olarak taşınmayan iki şey:
   tiplerinin varlığını doğruluyor, sırayı değil; tek satırlık bir sıra assert'i eklenebilir.
 - **ansi_bridge renk testini güçlendir (isteğe bağlı).** Test yalnızca `\x1b[` varlığını
   kontrol ediyor; renge-özgü SGR assert'i (ör. `\x1b[31m`) daha güçlü kanıt olurdu.
+
+## Faz 4 — ANSI renkli konuşma (tekerlek için düz metne dönüldü)
+
+Faz 2'de konuşma alanı önce `FormattedTextControl(ANSI)` + `vertical_scroll` idi
+(renkli), ama gerçek Terminal.app'te fare tekerleği bu kurulumda kaydırmadı. Tekerlek
+yalnızca kanıtlanmış spike4 reçetesiyle çalışıyor: `mouse_support=False` + `?1h` (app
+cursor mode → tekerlek=ok tuşu) + düz metin `TextArea` + İMLEÇ-tabanlı kaydırma.
+Bu yüzden konuşma düz metne alındı; ANSI renkler (markdown/kod/renkli diff) şimdilik
+gitti. Faz 4: ANSI'yi çözen VE tekerlekle kaydırılabilen bir kontrol için ayrı bir
+spike gerekiyor (tekerlek=ok tuşu yolunu koruyarak renkli içeriği göstermek).

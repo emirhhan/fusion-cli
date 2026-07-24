@@ -1,4 +1,4 @@
-"""ANSI köprüsü — Rich çıktısını ANSI olarak biriktirir."""
+"""Metin köprüsü — Rich çıktısını düz metin olarak biriktirir."""
 
 from __future__ import annotations
 
@@ -27,10 +27,13 @@ def test_drain_yeni_deltayi_dondurur_ve_biriktirir():
     assert kopru.text == delta1 + delta2
 
 
-def test_konsol_renk_uretir():
+def test_konsol_duz_metin_uretir():
     from fusion_cli.cli.repl.ansi_bridge import AnsiBridge
 
     kopru = AnsiBridge()
     kopru.console.print("[red]hata[/red]")
     delta = kopru.drain()
-    assert "\x1b[" in delta  # ANSI kaçış dizisi üretildi (force_terminal)
+    # Düz metin modu: renk markup'ı çözülür ama ANSI kaçış dizisi YOK (TextArea
+    # ham kaçış gösterirdi). İçerik görünür kalır.
+    assert "hata" in delta
+    assert "\x1b[" not in delta

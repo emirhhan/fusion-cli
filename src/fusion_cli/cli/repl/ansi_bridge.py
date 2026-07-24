@@ -1,9 +1,13 @@
-"""ANSI köprüsü — Rich render mantığını yeniden yazmadan tam-ekrana taşır.
+"""Metin köprüsü — Rich render mantığını yeniden yazmadan tam-ekrana taşır.
 
 `ConsoleRenderer` bir Rich `Console`'a yazar. Burada o console'u stdout yerine bir
-`StringIO`'ya bağlarız ve `force_terminal=True` ile renk üretmesini sağlarız.
-Böylece tüm biçimlendirme (markdown, kod, tablo, renkli diff) ANSI olarak birikir
-ve konuşma alanına akıtılabilir.
+`StringIO`'ya bağlarız. Böylece markdown/tablo/liste gibi tüm YERLEŞİM
+biçimlendirmesi metin olarak birikir ve konuşma alanına akıtılabilir.
+
+Not: Şu an DÜZ METİN üretiyoruz (force_terminal yok → renk kodu yok). Konuşma
+alanı düz metin `TextArea` olduğundan ANSI renk kodları ham kaçış olarak görünürdü;
+bu yüzden renk devre dışı. Renkli çıktı (ANSI'yi çözen kaydırılabilir kontrol) Faz
+4'te ayrı bir spike ile geri gelecek — bkz. docs/BACKLOG.md.
 """
 
 from __future__ import annotations
@@ -14,13 +18,13 @@ from rich.console import Console
 
 
 class AnsiBridge:
-    """Rich çıktısını ANSI metnine çeviren tamponlu köprü."""
+    """Rich çıktısını düz metne çeviren tamponlu köprü."""
 
     def __init__(self) -> None:
         self._buffer = io.StringIO()
-        # force_terminal: StringIO'da bile renk üret. soft_wrap: satırları Rich
-        # kendisi sarmasın; sarma prompt_toolkit tarafında yapılır.
-        self._console = Console(file=self._buffer, force_terminal=True, soft_wrap=True)
+        # Düz metin: force_terminal YOK → renk kodu üretilmez (TextArea ham kaçış
+        # gösterirdi). soft_wrap: satırları Rich sarmasın; sarma prompt_toolkit'te.
+        self._console = Console(file=self._buffer, soft_wrap=True)
         self._text = ""
         self._okundu = 0
 
