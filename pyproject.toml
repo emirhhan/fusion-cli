@@ -79,6 +79,8 @@ ignore = [
 "src/fusion_cli/cli/repl/input.py" = ["ANN401"]
 # screen.py de prompt_toolkit Application'ıyla çalışır; `Any` bu sınırda kalır.
 "src/fusion_cli/cli/repl/screen.py" = ["ANN401"]
+# screen_spike.py aynı prompt_toolkit sınırında çalışan (kanıtlanmamış) denemedir.
+"src/fusion_cli/cli/repl/screen_spike.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin

@@ -339,6 +339,13 @@ async def run_screen_repl(state: ReplState) -> int:
     `run_async()` await edilir.
     """
     import asyncio
+    import os
+
+    # SPIKE (Faz 4 Task 2, commit edilmez): renkli konuşma denemesi.
+    if os.environ.get("FUSION_SPIKE") == "1":
+        from .screen_spike import run_spike
+
+        return await run_spike(state)
 
     from .screen_turn import run_turn
 
