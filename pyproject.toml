@@ -87,7 +87,7 @@ ignore = [
 # surumunu kullanir. 3.11'e sabitlemek, bagimliliklarin 3.12 sozdizimli stub'larini
 # (numpy) ayristirilamaz kiliyordu. 3.11 uyumlulugu CI matrisinde gercekten
 # calistirilarak dogrulaniyor; sozdizimi denetimiyle degil.
-files = ["src", "evals"]
+files = ["src", "evals", "prompt_opt"]
 strict = true
 warn_unreachable = true
 

@@ -20,11 +20,11 @@ install:
 	$(PY) -m pip install --quiet -e ".[dev]"
 
 format:
-	$(RUFF) format src tests evals
+	$(RUFF) format src tests evals prompt_opt
 
 lint:
-	$(RUFF) format --check src tests evals
-	$(RUFF) check src tests evals
+	$(RUFF) format --check src tests evals prompt_opt
+	$(RUFF) check src tests evals prompt_opt
 
 type:
 	$(MYPY)
