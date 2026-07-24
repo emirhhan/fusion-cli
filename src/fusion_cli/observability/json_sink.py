@@ -16,17 +16,24 @@ from enum import Enum
 from typing import TextIO
 
 from ..core.events import Event
+from ..core.redaction import redact
 
 
 class JsonRenderer:
-    """Her olayı tek satır JSON olarak yazan dinleyici."""
+    """Her olayı tek satır JSON olarak yazan dinleyici.
+
+    Olay alanları (araç argümanı/çıktısı, hata mesajı) kullanıcı komutundan veya
+    sağlayıcı istisnasından gelen sır içerebilir. Serileştirilen satır diske/akışa
+    yazılmadan önce `redact`'ten geçer: JSONL çıktısına sır sızmaz.
+    """
 
     def __init__(self, stream: TextIO | None = None) -> None:
         self._stream = stream or sys.stdout
 
     def handle(self, event: Event) -> None:
         payload = {"event": type(event).__name__, **_fields(event)}
-        self._stream.write(json.dumps(payload, ensure_ascii=False, default=_encode) + "\n")
+        line = json.dumps(payload, ensure_ascii=False, default=_encode)
+        self._stream.write(redact(line) + "\n")
         self._stream.flush()
 
 

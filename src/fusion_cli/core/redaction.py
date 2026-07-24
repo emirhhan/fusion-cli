@@ -33,7 +33,23 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+#: Sır/kişisel veri eşleşmelerinin yerine yazılan işaret.
+REDACTED_MARK = "[gizlendi]"
+
+
 def contains_sensitive(text: str) -> bool:
     """Metin bir sır ya da kişisel veri içeriyor mu."""
 
     return any(pattern.search(text) for pattern in _SENSITIVE_PATTERNS)
+
+
+def redact(text: str) -> str:
+    """Metindeki her sır/kişisel veri eşleşmesini `REDACTED_MARK` ile değiştir.
+
+    `contains_sensitive` ile aynı desen listesini kullanır: log, trace ve JSONL
+    çıktısı gibi sırların sızabileceği çıkış noktaları bu tek fonksiyondan geçer.
+    """
+    redacted = text
+    for pattern in _SENSITIVE_PATTERNS:
+        redacted = pattern.sub(REDACTED_MARK, redacted)
+    return redacted

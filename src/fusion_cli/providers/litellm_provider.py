@@ -19,6 +19,7 @@ import litellm
 
 from ..core.clock import SystemClock
 from ..core.protocols import Clock
+from ..core.redaction import redact
 from ..core.types import (
     CompletionRequest,
     Message,
@@ -103,13 +104,15 @@ class LiteLlmProvider:
         return int((self._clock.monotonic() - started) * 1000)
 
     def _failure(self, exc: Exception, started: float) -> ModelResult:
+        # httpx/litellm istisna metni bazen istek URL'ini veya Authorization
+        # header'ını (API anahtarı) içerir; hata yukarı akmadan önce redakte edilir.
         return ModelResult(
             name=self._role,
             model=self._model,
             text="",
             latency_ms=self._elapsed_ms(started),
             ok=False,
-            error=f"{type(exc).__name__}: {exc}",
+            error=redact(f"{type(exc).__name__}: {exc}"),
         )
 
     def _success(self, response: Any, started: float) -> ModelResult:
