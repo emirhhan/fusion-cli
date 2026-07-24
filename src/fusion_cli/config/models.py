@@ -49,6 +49,11 @@ class RuntimeConfig:
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False
+    #: Agent: zor görevlerde serbest döngü yerine aşamalı workflow (localize→plan→
+    #: patch→verify→review) çalışır. Varsayılan kapalı: mevcut davranış korunur.
+    workflow_mode: bool = False
+    #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
+    workflow_max_model_calls: int = 12
 
 
 @dataclass(frozen=True, slots=True)

@@ -51,6 +51,7 @@ from ...tools.safety import danger_reason
 from ..playbook import Playbook, run_playbook
 from ..playbook.library import PLAYBOOKS, ShellStepRunner
 from ..playbook.matching import find_match
+from ..workflow import Budget, Stage, StageOutcome, run_workflow
 from . import compaction, learning, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .classify import classify_task, recall_scope, scope_of
@@ -141,6 +142,8 @@ async def run_agent(
         played = await _maybe_run_playbook(task, deps)
         if played is not None:
             return played
+        if deps.config.runtime.workflow_mode:
+            return await _run_workflow(task, deps)
 
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     kind = classify_task(task)
@@ -384,6 +387,71 @@ async def _maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None
         final_text=result.summary,
         messages=[Message("assistant", result.summary)],
         tool_calls_made=len(result.ran_steps),
+    )
+
+
+#: Her aşamaya modele verilecek odaklı Türkçe yönerge. `{task}` görev, `{notes}`
+#: önceki aşamaların birikmiş notlarıdır. Aşama dar tutulur: bütçe boşa gitmesin.
+_STAGE_PROMPTS: dict[Stage, str] = {
+    Stage.LOCALIZE: (
+        "AŞAMA: Yer belirleme. Şu görev için değişikliğin yapılacağı yeri bul "
+        "(dosya:satır). Henüz DEĞİŞİKLİK YAPMA, yalnızca yeri raporla.\n\nGörev: {task}"
+    ),
+    Stage.PLAN: (
+        "AŞAMA: Plan. Aşağıdaki bulgulara dayanarak EN KÜÇÜK değişikliğin planını "
+        "maddeler halinde çıkar. Kod yazma.\n\nGörev: {task}\n\nBulgular:\n{notes}"
+    ),
+    Stage.PATCH: (
+        "AŞAMA: Yama. Planı uygula: yalnızca gerekli en küçük değişikliği yap. "
+        "Kapsam dışına çıkma.\n\nGörev: {task}\n\nPlan:\n{notes}"
+    ),
+    Stage.VERIFY: (
+        "AŞAMA: Doğrulama. Yaptığın değişikliği syntax/lint/test çalıştırarak doğrula. "
+        "Kırılan varsa en dar düzeltmeyi uygula.\n\nGörev: {task}\n\nYapılan:\n{notes}"
+    ),
+    Stage.REVIEW: (
+        "AŞAMA: Gözden geçirme. Değişikliğin diff'ini gözden geçir; kapsam dışı ya da "
+        "gereksiz bir şey varsa geri al ve kısa bir özet ver.\n\nGörev: {task}\n\nÖzet:\n{notes}"
+    ),
+}
+
+
+class _AgentStageExecutor:
+    """Her workflow aşamasını, odaklı bir alt-turla (run_agent) çalıştıran köprü."""
+
+    def __init__(self, task: str, deps: AgentDeps) -> None:
+        self._task = task
+        self._deps = deps
+
+    async def run(self, stage: Stage, notes: dict[Stage, str]) -> StageOutcome:
+        prompt = _STAGE_PROMPTS[stage].format(task=self._task, notes=_format_notes(notes))
+        # depth=1: üstteki workflow/playbook/öz-denetim dalları yeniden tetiklenmesin.
+        outcome = await run_agent(prompt, self._deps, depth=1, self_review=False)
+        ok = outcome.ok and not outcome.hit_step_limit
+        # Model çağrısı ~ araç turu + son cevap turu. Bütçe kapısını besleyen tahmin.
+        return StageOutcome(
+            ok=ok, model_calls=outcome.tool_calls_made + 1, note=outcome.final_text.strip()[:500]
+        )
+
+
+def _format_notes(notes: dict[Stage, str]) -> str:
+    if not notes:
+        return "(yok)"
+    return "\n".join(f"[{stage.value}] {note}" for stage, note in notes.items())
+
+
+async def _run_workflow(task: str, deps: AgentDeps) -> AgentOutcome:
+    """Aşamalı workflow'u bütçe kapısıyla çalıştır ve sonucu agent turu sonucuna çevir."""
+    executor = _AgentStageExecutor(task, deps)
+    budget = Budget(max_model_calls=deps.config.runtime.workflow_max_model_calls)
+    result = await run_workflow(executor, budget=budget)
+    text = result.final_note or result.summary
+    return AgentOutcome(
+        final_text=text,
+        messages=[Message("assistant", text)],
+        tool_calls_made=len(result.stages_run),
+        hit_step_limit=result.budget_exhausted,
+        ok=result.ok,
     )
 
 

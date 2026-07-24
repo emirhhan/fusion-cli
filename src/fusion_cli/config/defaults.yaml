@@ -68,6 +68,11 @@ runtime:
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
   playbooks: false
+  # Zor görevlerde serbest döngü yerine aşamalı workflow (localize→plan→patch→verify→
+  # review) çalışır; tur başına SABİT model-çağrısı bütçesiyle maliyet öngörülebilir olur.
+  # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
+  workflow_mode: false
+  workflow_max_model_calls: 12
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,
