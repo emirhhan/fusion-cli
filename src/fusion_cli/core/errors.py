@@ -24,3 +24,7 @@ class ConfigError(FusionError):
 
 class ProviderError(FusionError):
     """LLM sağlayıcı katmanı hiç kurulamadı (ör. tanımlı model yok)."""
+
+
+class EvalError(FusionError):
+    """Değerlendirme seti okunamadı, doğrulanamadı ya da geçersiz ölçüt içeriyor."""
