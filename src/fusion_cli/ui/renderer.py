@@ -20,9 +20,7 @@ from collections.abc import Iterator, Mapping
 from typing import ClassVar
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.markup import escape
-from rich.table import Table
 from rich.text import Text
 
 from ..core.events import (
@@ -49,8 +47,9 @@ from ..core.events import (
     ToolOutcome,
     TurnFinished,
 )
-from ..core.types import FusionResult, VerdictSource
+from ..core.types import FusionResult
 from . import messages, theme
+from .fusion_view import render_fusion_result
 from .text import format_duration, strip_thinking, summarize_error
 from .work import WorkIndicator
 
@@ -378,91 +377,9 @@ class ConsoleRenderer:
 
     # -- Fusion sonucu ------------------------------------------------------- #
 
-    #: Kazananın nasıl belirlendiğine göre başlık metni.
-    _SOURCE_LABELS: ClassVar[dict[VerdictSource, str]] = {
-        VerdictSource.SINGLE: messages.FUSION_SINGLE,
-        VerdictSource.FALLBACK: messages.FUSION_JUDGE_FALLBACK,
-    }
-
     def _fusion_result(self, result: FusionResult) -> None:
         self._end_block()
-        if result.source is VerdictSource.NONE:
-            return  # cevapsız tur: hatayı `ErrorOccurred` zaten bildirdi
-
-        self._console.print()
-        self._console.print(f"[bold {theme.ACCENT}]{self._headline(result)}[/bold {theme.ACCENT}]")
-        # Hakemin gerekçesi KAZANAN adayı anlatır. Sentez gösterildiğinde ekrandaki
-        # metin kazananın metni değildir; gerekçeyi orada göstermek yanıltıcı olur.
-        if result.reason and not result.synthesized:
-            self._console.print(f"[{theme.DIM}]{escape(result.reason)}[/{theme.DIM}]")
-        self._console.print()
-        # Nihai cevap markdown olarak basılır; kod blokları ve listeler okunur kalır.
-        self._console.print(Markdown(result.final_answer))
-        self._console.print()
-
-        self._candidate_summary(result)
-        if self._show_all_answers:
-            self._all_answers(result)
-        self._score_table(result)
-
-    def _headline(self, result: FusionResult) -> str:
-        if result.synthesized:
-            return messages.FUSION_SYNTHESIZED
-        label = self._SOURCE_LABELS.get(result.source)
-        if label is not None:
-            return label
-        return messages.FUSION_WINNER.format(winner=result.winner)
-
-    def _candidate_summary(self, result: FusionResult) -> None:
-        parts = []
-        for candidate in result.candidates:
-            if candidate.ok and candidate.text:
-                mark = "★" if candidate.name == result.winner else theme.ICON_OK
-                duration = format_duration(candidate.latency_ms)
-                parts.append(
-                    f"[{theme.OK}]{mark} {escape(candidate.name)}[/{theme.OK}]"
-                    f" [{theme.DIM}]{duration}[/{theme.DIM}]"
-                )
-            else:
-                parts.append(
-                    f"[{theme.ERROR}]{theme.ICON_ERROR} {escape(candidate.name)}[/{theme.ERROR}]"
-                )
-        separator = f" [{theme.DIM}]·[/{theme.DIM}] "
-        self._console.print(
-            f"[{theme.DIM}]{messages.FUSION_CANDIDATE_SUMMARY}[/{theme.DIM}] "
-            + separator.join(parts)
-        )
-
-    def _all_answers(self, result: FusionResult) -> None:
-        for candidate in result.successful:
-            title = messages.FUSION_ALL_ANSWERS.format(
-                name=candidate.name, duration=format_duration(candidate.latency_ms)
-            )
-            style = theme.OK if candidate.name == result.winner else theme.INFO
-            self._console.print()
-            self._console.print(f"[{style}]{escape(title)}[/{style}]")
-            self._console.print(Markdown(candidate.text))
-
-    def _score_table(self, result: FusionResult) -> None:
-        if not result.scores:
-            return
-        table = Table(show_edge=False, pad_edge=False, box=None)
-        table.add_column(messages.FUSION_SCORE_TABLE_MODEL, style="bold")
-        table.add_column(messages.FUSION_SCORE_TABLE_SCORE, justify="right")
-        for name, score in sorted(result.scores.items(), key=lambda item: item[1], reverse=True):
-            mark = " ★" if name == result.winner else ""
-            table.add_row(
-                escape(name) + mark, f"[{_score_color(score)}]{score:.2f}[/{_score_color(score)}]"
-            )
-        self._console.print(table)
-
-
-def _score_color(score: float) -> str:
-    if score >= 0.8:
-        return theme.OK
-    if score >= 0.6:
-        return theme.WARN
-    return theme.ERROR
+        render_fusion_result(self._console, result, show_all_answers=self._show_all_answers)
 
 
 def _format_args(args: Mapping[str, object]) -> str:
