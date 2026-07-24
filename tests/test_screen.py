@@ -62,3 +62,22 @@ def test_kaydirma_imleci_satir_bazli_tasir_ve_sinirlanir():
 
     scroll_lines(buf, +1000)  # alt sınır
     assert buf.document.cursor_position_row == 19
+
+
+def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
+    from fusion_cli.cli.repl.screen import FusionScreen
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    app = ekran.application
+
+    assert app.full_screen is True
+    assert app.mouse_support() is False  # Filter çağrılınca False
+
+
+def test_kabuk_appendi_konusmaya_yazar():
+    from fusion_cli.cli.repl.screen import FusionScreen
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    ekran.append("[ben] merhaba\n")
+
+    assert "[ben] merhaba" in ekran.conversation_buffer.text
