@@ -9,6 +9,11 @@ Reçete (gerçek Terminal.app'te ölçülerek doğrulandı):
 - full_screen=True (alternatif ekran)
 - mouse_support=False (agresif fare takibi resize'ı bozuyor)
 - reset_cursor_key_mode → uygulama imleç modu (tekerlek = ok tuşu, scrollback'e kaçmaz)
+
+Konuşma alanı: düz TextArea yerine `AnsiBridge` metnini renkli gösteren
+`FormattedTextControl(ANSI(...))` sarılı, salt-okunur, kaydırılabilir bir Window.
+Kaydırma imleçle değil `window.vertical_scroll` ile yapılır; temel takip modu ile
+kullanıcı en alttaysa yeni içerik alta yapışır, yukarı kaydırdıysa yerinde kalır.
 """
 
 from __future__ import annotations
@@ -19,12 +24,14 @@ from typing import Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.document import Document
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame, TextArea
+
+from .ansi_bridge import AnsiBridge
 
 #: Uygulama imleç + keypad modu (DECCKM + DECKPAM). Terminal.app tekerleği ok
 #: tuşuna çevirip uygulamaya yollar; kendi scrollback'ini kaydırmaz.
@@ -43,24 +50,9 @@ def install_app_cursor_mode(app: Any) -> None:
     app.output.reset_cursor_key_mode = lambda: app.output.write_raw(APP_CURSOR_ON)
 
 
-def append_text(buffer: Buffer, text: str) -> None:
-    """Konuşma tamponuna metin ekle; imleci sona al (takip modu)."""
-    new = buffer.text + text
-    buffer.set_document(Document(new, cursor_position=len(new)), bypass_readonly=True)
-
-
-def scroll_lines(buffer: Buffer, delta: int) -> None:
-    """İmleci `delta` satır taşı; pencere imleci görünür tutmak için kayar.
-
-    Salt-okunur, odaklı olmayan pencerede `vertical_scroll`'u doğrudan sürmek işe
-    yaramaz: imleç sondayken prompt_toolkit her çizimde en alta çeker.
-    """
-    doc = buffer.document
-    row = max(0, min(doc.line_count - 1, doc.cursor_position_row + delta))
-    buffer.set_document(
-        Document(buffer.text, cursor_position=doc.translate_row_col_to_index(row, 0)),
-        bypass_readonly=True,
-    )
+def clamp_scroll(vertical_scroll: int, delta: int, max_scroll: int) -> int:
+    """Dikey kaydırmayı `[0, max_scroll]` aralığında tutarak `delta` kadar taşı."""
+    return max(0, min(max_scroll, vertical_scroll + delta))
 
 
 #: Yukarı/aşağı bir kaydırmada kaç satır (page için katı).
@@ -69,26 +61,31 @@ _SCROLL_PAGE = 8
 
 
 class FusionScreen:
-    """Tam-ekran kabuk: banner + konuşma + çalışma satırı + giriş kutusu."""
+    """Tam-ekran kabuk: banner + konuşma (ANSI) + çalışma satırı + giriş kutusu."""
 
     def __init__(self, banner: str, on_submit: Callable[[str], None]) -> None:
         self._on_submit = on_submit
-        self._conversation = TextArea(
-            text="",
-            read_only=True,
-            scrollbar=True,
-            focusable=True,
+        self._bridge = AnsiBridge()
+        self._work_text = ""
+        # Kullanıcı en alttaysa yeni içerik takip edilir; yukarı kaydırdıysa yerinde kalır.
+        self._follow = True
+
+        self._conversation_window = Window(
+            content=FormattedTextControl(lambda: ANSI(self._bridge.text)),
             wrap_lines=True,
+            always_hide_cursor=True,
         )
-        self._work = Window(content=FormattedTextControl(""), height=1)
+        self._work_window = Window(
+            content=FormattedTextControl(lambda: ANSI(self._work_text)), height=1
+        )
         self._input = TextArea(height=1, prompt="❯ ", multiline=False, wrap_lines=False)
         self._input.accept_handler = self._handle_submit
 
         root = HSplit(
             [
                 Window(content=FormattedTextControl(banner), height=3),
-                Frame(self._conversation, title="konuşma"),
-                self._work,
+                Frame(self._conversation_window, title="konuşma"),
+                self._work_window,
                 Frame(self._input, title="mesaj"),
             ]
         )
@@ -100,12 +97,39 @@ class FusionScreen:
         )
 
     @property
-    def conversation_buffer(self) -> Buffer:
-        return self._conversation.buffer
+    def bridge(self) -> AnsiBridge:
+        return self._bridge
 
-    def append(self, text: str) -> None:
-        append_text(self._conversation.buffer, text)
+    @property
+    def conversation_text(self) -> str:
+        return self._bridge.text
+
+    @property
+    def work_text(self) -> str:
+        return self._work_text
+
+    def set_work(self, text: str) -> None:
+        self._work_text = text
         self.application.invalidate()
+
+    def clear_work(self) -> None:
+        self._work_text = ""
+        self.application.invalidate()
+
+    def after_event(self) -> None:
+        """Motor olayından sonra: köprüyü drain et, takip modundaysa en alta çek."""
+        self._bridge.drain()
+        if self._follow:
+            self._scroll_to_bottom()
+        self.application.invalidate()
+
+    def _scroll_to_bottom(self) -> None:
+        info = self._conversation_window.render_info
+        if info is None:
+            return
+        self._conversation_window.vertical_scroll = max(
+            0, info.content_height - info.window_height
+        )
 
     def _handle_submit(self, _buff: Buffer) -> bool:
         text = self._input.text.strip()
@@ -122,33 +146,42 @@ class FusionScreen:
         def _exit(event: Any) -> None:
             event.app.exit()
 
+        def _kaydir(delta: int) -> None:
+            info = self._conversation_window.render_info
+            max_scroll = (
+                0 if info is None else max(0, info.content_height - info.window_height)
+            )
+            self._conversation_window.vertical_scroll = clamp_scroll(
+                self._conversation_window.vertical_scroll, delta, max_scroll
+            )
+            # Kullanıcı en alttan ayrıldıysa takip modunu kapat; alta döndüyse aç.
+            self._follow = self._conversation_window.vertical_scroll >= max_scroll
+            self.application.invalidate()
+
         @kb.add("up", eager=True)
         def _up(_e: Any) -> None:
-            scroll_lines(self._conversation.buffer, -_SCROLL_STEP)
-            self.application.invalidate()
+            _kaydir(-_SCROLL_STEP)
 
         @kb.add("down", eager=True)
         def _down(_e: Any) -> None:
-            scroll_lines(self._conversation.buffer, +_SCROLL_STEP)
-            self.application.invalidate()
+            _kaydir(+_SCROLL_STEP)
 
         @kb.add("pageup", eager=True)
         def _pgup(_e: Any) -> None:
-            scroll_lines(self._conversation.buffer, -_SCROLL_PAGE)
-            self.application.invalidate()
+            _kaydir(-_SCROLL_PAGE)
 
         @kb.add("pagedown", eager=True)
         def _pgdn(_e: Any) -> None:
-            scroll_lines(self._conversation.buffer, +_SCROLL_PAGE)
-            self.application.invalidate()
+            _kaydir(+_SCROLL_PAGE)
 
         return kb
 
 
 def echo_submit(screen: FusionScreen, text: str) -> None:
     """İskelet doğrulaması için basit eko turu. Faz 2'de gerçek motorla değişir."""
-    screen.append(f"\n[ben] {text}\n")
-    screen.append(f"[eko] {text}\n")
+    screen.bridge.console.print(f"\n[ben] {text}")
+    screen.bridge.console.print(f"[eko] {text}")
+    screen.after_event()
 
 
 _DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
@@ -161,7 +194,7 @@ async def run_screen_demo() -> None:
 
     Async'tir çünkü çağrı yolu (asyncio.run(run_repl(...))) zaten çalışan bir
     event loop içindedir; senkron application.run() içeriden yeniden asyncio.run()
-    çağırıp "çalışan event loop içinde asyncio.run() olmaz" hatası verir. Bu yüzden
+    çağırıp "çalışan event loop içinde asyncio.run()" hatası verir. Bu yüzden
     prompt_toolkit'in coroutine arayüzü run_async() await edilir.
     """
     screen = FusionScreen(banner=_DEMO_BANNER, on_submit=lambda t: None)

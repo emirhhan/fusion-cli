@@ -31,37 +31,33 @@ def test_imlec_modu_uygulama_moduna_alinir():
     assert APP_CURSOR_ON == "\x1b[?1h\x1b="
 
 
-def _bos_buffer():
-    from prompt_toolkit.buffer import Buffer
+def test_clamp_scroll_sinirlar_icinde_kalir():
+    from fusion_cli.cli.repl.screen import clamp_scroll
 
-    return Buffer(read_only=False)
-
-
-def test_metin_sona_eklenir_ve_imlec_sonda():
-    from fusion_cli.cli.repl.screen import append_text
-
-    buf = _bos_buffer()
-    append_text(buf, "birinci\n")
-    append_text(buf, "ikinci\n")
-
-    assert buf.text == "birinci\nikinci\n"
-    assert buf.cursor_position == len(buf.text)
+    assert clamp_scroll(5, -2, 10) == 3
+    assert clamp_scroll(5, -100, 10) == 0    # üst sınır
+    assert clamp_scroll(5, +100, 10) == 10   # alt sınır (max_scroll)
+    assert clamp_scroll(0, +3, 0) == 0       # kaydırılacak yer yoksa 0
 
 
-def test_kaydirma_imleci_satir_bazli_tasir_ve_sinirlanir():
-    from fusion_cli.cli.repl.screen import append_text, scroll_lines
+def test_konusma_kopruden_beslenir():
+    from fusion_cli.cli.repl.screen import FusionScreen
 
-    buf = _bos_buffer()
-    append_text(buf, "\n".join(f"satir-{i}" for i in range(20)))
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    ekran.bridge.console.print("merhaba")
+    ekran.after_event()
 
-    scroll_lines(buf, -5)  # 5 satır yukarı
-    assert buf.document.cursor_position_row == 19 - 5
+    assert "merhaba" in ekran.conversation_text
 
-    scroll_lines(buf, -1000)  # üst sınır
-    assert buf.document.cursor_position_row == 0
 
-    scroll_lines(buf, +1000)  # alt sınır
-    assert buf.document.cursor_position_row == 19
+def test_calisma_satiri_ayarlanir_ve_temizlenir():
+    from fusion_cli.cli.repl.screen import FusionScreen
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    ekran.set_work("hazırlanıyor…")
+    assert "hazırlanıyor" in ekran.work_text
+    ekran.clear_work()
+    assert ekran.work_text == ""
 
 
 def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
@@ -72,26 +68,6 @@ def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
 
     assert app.full_screen is True
     assert app.mouse_support() is False  # Filter çağrılınca False
-
-
-def test_kabuk_appendi_konusmaya_yazar():
-    from fusion_cli.cli.repl.screen import FusionScreen
-
-    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
-    ekran.append("[ben] merhaba\n")
-
-    assert "[ben] merhaba" in ekran.conversation_buffer.text
-
-
-def test_eko_turu_kullanici_ve_yaniti_yazar():
-    from fusion_cli.cli.repl.screen import FusionScreen, echo_submit
-
-    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
-    echo_submit(ekran, "vpn nedir")
-
-    metin = ekran.conversation_buffer.text
-    assert "[ben] vpn nedir" in metin
-    assert "[eko] vpn nedir" in metin
 
 
 def test_demo_calistirici_calisan_loop_icinde_await_edilir():
