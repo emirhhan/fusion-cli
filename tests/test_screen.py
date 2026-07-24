@@ -60,14 +60,15 @@ def test_calisma_satiri_ayarlanir_ve_temizlenir():
     assert ekran.work_text == ""
 
 
-def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
+def test_kabuk_full_screen_ve_mouse_acik_kurulur():
     from fusion_cli.cli.repl.screen import FusionScreen
 
     ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
     app = ekran.application
 
     assert app.full_screen is True
-    assert app.mouse_support() is False  # Filter çağrılınca False
+    # Fare desteği açık: tekerlek konuşmayı kaydırır. Filter çağrılınca True.
+    assert app.mouse_support() is True
 
 
 def test_screen_repl_calisan_loop_icinde_await_edilir():

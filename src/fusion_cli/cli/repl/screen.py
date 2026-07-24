@@ -103,7 +103,11 @@ class FusionScreen:
             layout=Layout(root, focused_element=self._input),
             key_bindings=self._bindings(),
             full_screen=True,
-            mouse_support=False,
+            # Fare tekerleği konuşmayı kaydırsın: prompt_toolkit'in yerleşik scroll
+            # işleyicisi tekerlek olaylarını imlecin üstündeki pencereye uygular.
+            # Not: reçetenin eski "fare desteği resize'ı bozar" gerekçesi aslında
+            # konuşma penceresinin height=None ile çökmesiydi; o düzeltildi.
+            mouse_support=True,
         )
 
     @property
