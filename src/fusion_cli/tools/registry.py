@@ -10,7 +10,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Iterable, Iterator
 
-from ..core.errors import FusionError
+from ..core.errors import FusionError, PathAccessError
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from .args import ArgumentError
 
@@ -71,7 +71,7 @@ class ToolRegistry:
         try:
             outcome = tool.run(args, context)
             return await outcome if inspect.isawaitable(outcome) else outcome
-        except ArgumentError as exc:
+        except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu
         # düşürmez; modele okunabilir biçimde iletilir ve düzeltme şansı doğar.

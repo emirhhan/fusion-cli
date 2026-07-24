@@ -26,5 +26,9 @@ class ProviderError(FusionError):
     """LLM sağlayıcı katmanı hiç kurulamadı (ör. tanımlı model yok)."""
 
 
+class PathAccessError(FusionError):
+    """Kısıtlı kipte proje kökü dışına çıkan bir dosya yoluna erişilmek istendi."""
+
+
 class EvalError(FusionError):
     """Değerlendirme seti okunamadı, doğrulanamadı ya da geçersiz ölçüt içeriyor."""

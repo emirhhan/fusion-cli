@@ -92,6 +92,10 @@ class ToolContext:
     root: Path
     #: Bu tura ait görev listesi.
     todos: TodoList = field(default_factory=TodoList)
+    #: True ise dosya araçları yalnızca `root` altında çalışır; kök dışına çıkan
+    #: yol, `..` ile dışarı taşan yol ve köke sızdıran symlink reddedilir. Varsayılan
+    #: kapalıdır: eski davranış (kök dışına da yazma) korunur, kısıtlama opt-in'dir.
+    restrict_to_root: bool = False
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

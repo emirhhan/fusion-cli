@@ -171,3 +171,52 @@ async def test_mutlak_yol_kok_dizine_baglanmaz(registry, context, tmp_path):
     await _calistir(registry, context, "write_file", path=str(hedef), content="x")
 
     assert hedef.read_text(encoding="utf-8") == "x"
+
+
+# --- Kısıtlı kip: kök dışına erişim reddi ---------------------------------- #
+
+
+@pytest.fixture
+def kisitli_context(tmp_path):
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    return ToolContext(root=calisma, restrict_to_root=True)
+
+
+async def test_kisitli_kipte_kok_ici_yazma_calisir(registry, kisitli_context):
+    sonuc = await _calistir(registry, kisitli_context, "write_file", path="a.txt", content="x")
+
+    assert sonuc.ok
+    assert (kisitli_context.root / "a.txt").read_text(encoding="utf-8") == "x"
+
+
+async def test_kisitli_kipte_mutlak_kok_disi_yazma_reddedilir(
+    registry, kisitli_context, tmp_path
+):
+    disarida = tmp_path / "disarida.txt"
+
+    sonuc = await _calistir(
+        registry, kisitli_context, "write_file", path=str(disarida), content="x"
+    )
+
+    assert not sonuc.ok and "kök" in sonuc.output
+    assert not disarida.exists()
+
+
+async def test_kisitli_kipte_traversal_kok_disina_cikamaz(registry, kisitli_context, tmp_path):
+    (tmp_path / "gizli.txt").write_text("sir", encoding="utf-8")
+
+    sonuc = await _calistir(registry, kisitli_context, "read_file", path="../gizli.txt")
+
+    assert not sonuc.ok and "kök" in sonuc.output
+
+
+async def test_kisitli_kipte_symlink_kok_disini_hedeflerse_reddedilir(
+    registry, kisitli_context, tmp_path
+):
+    (tmp_path / "gizli.txt").write_text("sir", encoding="utf-8")
+    (kisitli_context.root / "link.txt").symlink_to(tmp_path / "gizli.txt")
+
+    sonuc = await _calistir(registry, kisitli_context, "read_file", path="link.txt")
+
+    assert not sonuc.ok and "kök" in sonuc.output

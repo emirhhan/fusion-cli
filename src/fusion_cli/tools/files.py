@@ -14,14 +14,30 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..core.constants import MAX_DIR_ENTRIES, MAX_READ_BYTES, VISIBLE_DOTFILES
+from ..core.errors import PathAccessError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import ArgumentError, optional_str, require_list, require_str, require_text
 
 
 def resolve_path(context: ToolContext, raw: str) -> Path:
-    """Kullanıcı/model yolunu çözümle: `~` açılır, göreli yol köke bağlanır."""
+    """Kullanıcı/model yolunu çözümle: `~` açılır, göreli yol köke bağlanır.
+
+    `context.restrict_to_root` açıksa yol kök altında olmak zorundadır: sembolik
+    linkler çözülür (`resolve`) ve sonuç köke bağlı değilse `PathAccessError`
+    fırlatılır. Böylece `..` ile dışarı taşma ve köke sızdıran symlink engellenir.
+    """
     path = Path(raw).expanduser()
-    return path if path.is_absolute() else context.root / path
+    resolved = path if path.is_absolute() else context.root / path
+    if not context.restrict_to_root:
+        return resolved
+    root = context.root.resolve()
+    # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
+    concrete = resolved.resolve()
+    if concrete != root and root not in concrete.parents:
+        raise PathAccessError(
+            f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})"
+        )
+    return concrete
 
 
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
