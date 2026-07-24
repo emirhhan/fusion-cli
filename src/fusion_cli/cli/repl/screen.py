@@ -154,17 +154,22 @@ def echo_submit(screen: FusionScreen, text: str) -> None:
 _DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
 
 
-def run_screen_demo() -> None:
+async def run_screen_demo() -> None:
     """Eko kabuğunu gerçek terminalde çalıştır (elle doğrulama).
 
     Reçete: uygulama imleç modu kurulur; çıkışta normal moda dönülür.
+
+    Async'tir çünkü çağrı yolu (asyncio.run(run_repl(...))) zaten çalışan bir
+    event loop içindedir; senkron application.run() içeriden yeniden asyncio.run()
+    çağırıp "çalışan event loop içinde asyncio.run() olmaz" hatası verir. Bu yüzden
+    prompt_toolkit'in coroutine arayüzü run_async() await edilir.
     """
     screen = FusionScreen(banner=_DEMO_BANNER, on_submit=lambda t: None)
     # on_submit kabuğun kendisine ihtiyaç duyduğundan kapanışla bağlanır:
     screen._on_submit = lambda t: echo_submit(screen, t)
     install_app_cursor_mode(screen.application)
     try:
-        screen.application.run()
+        await screen.application.run_async()
     finally:
         sys.stdout.write(APP_CURSOR_OFF)
         sys.stdout.flush()

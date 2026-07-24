@@ -94,8 +94,15 @@ def test_eko_turu_kullanici_ve_yaniti_yazar():
     assert "[eko] vpn nedir" in metin
 
 
-def test_demo_calistirici_mevcut(monkeypatch):
-    """run_screen_demo çağrılabilir olmalı; app.run yerine sahte konur (headless)."""
+def test_demo_calistirici_calisan_loop_icinde_await_edilir():
+    """run_screen_demo zaten çalışan bir event loop'tan await edilebilmeli.
+
+    Gerçek çağrı yolu asyncio.run(run_repl(...)) içinde olduğundan, demo senkron
+    application.run() çağırırsa 'çalışan event loop içinde asyncio.run()' hatası
+    verir. Bu yüzden async olmalı ve app.run_async()'i await etmeli.
+    """
+    import asyncio
+
     import fusion_cli.cli.repl.screen as screen_mod
 
     cagrildi = {"run": False, "restore": False}
@@ -103,7 +110,7 @@ def test_demo_calistirici_mevcut(monkeypatch):
     class _SahteApp:
         full_screen = True
 
-        def run(self) -> None:
+        async def run_async(self) -> None:
             cagrildi["run"] = True
 
     _gercek_screen = screen_mod.FusionScreen
@@ -113,13 +120,22 @@ def test_demo_calistirici_mevcut(monkeypatch):
         s.application = _SahteApp()  # type: ignore[attr-defined]
         return s
 
-    monkeypatch.setattr(screen_mod, "FusionScreen", _sahte_screen)
-    monkeypatch.setattr(screen_mod, "install_app_cursor_mode", lambda app: None)
-    monkeypatch.setattr(
-        screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True)
-    )
+    async def _senaryo(mp) -> None:
+        mp.setattr(screen_mod, "FusionScreen", _sahte_screen)
+        mp.setattr(screen_mod, "install_app_cursor_mode", lambda app: None)
+        mp.setattr(
+            screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True)
+        )
+        # Zaten bir event loop içindeyiz; demo bu loop'u bozmadan koşmalı.
+        await screen_mod.run_screen_demo()
 
-    screen_mod.run_screen_demo()
+    from _pytest.monkeypatch import MonkeyPatch
+
+    mp = MonkeyPatch()
+    try:
+        asyncio.run(_senaryo(mp))
+    finally:
+        mp.undo()
 
     assert cagrildi["run"] is True
     assert cagrildi["restore"] is True  # çıkışta mod geri alındı

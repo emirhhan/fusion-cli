@@ -54,7 +54,7 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     if os.environ.get("FUSION_FULLSCREEN") == "1":
         from .screen import run_screen_demo
 
-        run_screen_demo()
+        await run_screen_demo()
         return 0
 
     state = ReplState(config=config, memory=memory, root=root)
