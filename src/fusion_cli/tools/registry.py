@@ -7,12 +7,24 @@ yerine `view_file` çağırmayı tercih eder ve bu bir hataya dönüşmemelidir.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 from collections.abc import Iterable, Iterator
 
 from ..core.errors import FusionError, PathAccessError
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
 from .args import ArgumentError
+
+
+def _run_sync(run: ToolExecutor, args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Senkron executor'ı thread içinde çağırıp `ToolResult` döndür.
+
+    Yalnızca `iscoroutinefunction` False olan executor'lar buraya gelir; dönüş
+    her zaman `ToolResult`'tur (Awaitable değil).
+    """
+    result = run(args, context)
+    assert isinstance(result, ToolResult)  # senkron yol: Awaitable dönmez
+    return result
 
 
 class ToolRegistry:
@@ -61,7 +73,10 @@ class ToolRegistry:
         try/except kalabalığını taşımaz, motor da araç çağrısı yüzünden çökmez.
         Model hatayı okur ve düzeltilmiş bir çağrı yapabilir.
 
-        Senkron ve asenkron executor'lar aynı şekilde çalıştırılır.
+        Senkron ve asenkron executor'lar aynı şekilde çalıştırılır. Senkron
+        executor'lar (shell, dosya I/O, ChromaDB sorgusu gibi bloklayan işler)
+        `asyncio.to_thread` ile ayrı bir iş parçacığında çalıştırılır: event
+        loop bloklanmaz, arka plan işleri (ders çıkarımı, model ısıtma) stall olmaz.
         """
         tool = self.get(name)
         if tool is None:
@@ -69,8 +84,11 @@ class ToolRegistry:
                 f"Bilinmeyen araç: {name}. Kullanılabilir araçlar: {', '.join(self.names())}"
             )
         try:
-            outcome = tool.run(args, context)
-            return await outcome if inspect.isawaitable(outcome) else outcome
+            if inspect.iscoroutinefunction(tool.run):
+                outcome = tool.run(args, context)
+                return await outcome  # type: ignore[no-any-return]  # coroutine ToolResult döndürür
+            # Senkron executor: bloklamaması için thread'e alınır.
+            return await asyncio.to_thread(_run_sync, tool.run, args, context)
         except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu
