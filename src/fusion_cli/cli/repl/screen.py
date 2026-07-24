@@ -5,20 +5,21 @@ imleç modeliyle yaptığı silmeyi ıskalatıp giriş işareti kopyaları birik
 ve yukarı kaydırınca eski shell çıktısı görünüyordu. Ekranı uygulama sahiplenince
 bu sınıf hatalar ortadan kalkar.
 
-Reçete (gerçek Terminal.app'te ölçülerek doğrulandı):
-- full_screen=True (alternatif ekran)
-- mouse_support=False (agresif fare takibi resize'ı bozuyor)
-- reset_cursor_key_mode → uygulama imleç modu (tekerlek = ok tuşu, scrollback'e kaçmaz)
+Reçete:
+- full_screen=True (alternatif ekran; resize temiz, scrollback izole)
+- mouse_support=True (prompt_toolkit tekerleği yerleşik Window kaydırmasına çevirir)
+- konuşma penceresi greedy yükseklikte (Dimension(min=1)) ki ekranı doldursun; yoksa
+  içerik yüksekliğine çöker, ekran yarım kalır ve eski scrollback sızar.
 
 Konuşma alanı: düz TextArea yerine `AnsiBridge` metnini renkli gösteren
 `FormattedTextControl(ANSI(...))` sarılı, salt-okunur, kaydırılabilir bir Window.
-Kaydırma imleçle değil `window.vertical_scroll` ile yapılır; temel takip modu ile
-kullanıcı en alttaysa yeni içerik alta yapışır, yukarı kaydırdıysa yerinde kalır.
+Kaydırma `window.vertical_scroll` ile yapılır (fare tekerleği + ok/PageUp); temel
+takip modu ile kullanıcı en alttaysa yeni içerik alta yapışır, yukarı kaydırdıysa
+yerinde kalır.
 """
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -36,22 +37,6 @@ from .ansi_bridge import AnsiBridge
 
 if TYPE_CHECKING:
     from .state import ReplState
-
-#: Uygulama imleç + keypad modu (DECCKM + DECKPAM). Terminal.app tekerleği ok
-#: tuşuna çevirip uygulamaya yollar; kendi scrollback'ini kaydırmaz.
-APP_CURSOR_ON = "\x1b[?1h\x1b="
-#: Çıkışta normal imleç/keypad moduna dönüş.
-APP_CURSOR_OFF = "\x1b[?1l\x1b>"
-
-
-def install_app_cursor_mode(app: Any) -> None:
-    """prompt_toolkit'in tek seferlik `reset_cursor_key_mode` çağrısını, normal
-    mod (`?1l`) yerine uygulama modu (`?1h\x1b=`) yayacak şekilde değiştir.
-
-    Tek seferlik olması kritik: her render'da yeniden yaymak Terminal.app'te metin
-    bozulmasına yol açıyor (spike geçmişinde doğrulandı).
-    """
-    app.output.reset_cursor_key_mode = lambda: app.output.write_raw(APP_CURSOR_ON)
 
 
 def clamp_scroll(vertical_scroll: int, delta: int, max_scroll: int) -> int:
@@ -103,10 +88,11 @@ class FusionScreen:
             layout=Layout(root, focused_element=self._input),
             key_bindings=self._bindings(),
             full_screen=True,
-            # Kanıtlanmış reçete (fullscreen_spike4): mouse_support=False + app-cursor
-            # mode (?1h). Terminal.app tekerleği ok tuşuna çevirir; agresif fare takibi
-            # yok, resize temiz kalır. Tekerlek up/down bağlamalarını tetikler.
-            mouse_support=False,
+            # Fare desteği açık: prompt_toolkit'in yerleşik Window._mouse_handler'ı
+            # tekerlek olaylarını (SCROLL_UP/DOWN) imlecin üstündeki pencerede
+            # vertical_scroll'a çevirir → tekerlek konuşmayı kaydırır. Alt-ekran
+            # (full_screen) scrollback'i zaten izole ediyor; ?1h hilesine gerek yok.
+            mouse_support=True,
         )
 
     @property
@@ -203,8 +189,9 @@ _DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
 async def run_screen_repl(state: ReplState) -> int:
     """Tam-ekran kabuğu gerçek motorla çalıştır (elle doğrulama / deneysel yol).
 
-    Reçete: uygulama imleç modu kurulur; çıkışta normal moda dönülür. Faz 1
-    regresyonu: zaten çalışan event loop içinde `run_async()` await edilir.
+    Kaydırma prompt_toolkit'in yerleşik fare desteğiyle yapılır (mouse_support=True);
+    tekerlek konuşmayı kaydırır. Bu yüzden eski ?1h app-cursor hilesine gerek yok.
+    Faz 1 regresyonu: zaten çalışan event loop içinde `run_async()` await edilir.
     """
     import asyncio
 
@@ -223,10 +210,5 @@ async def run_screen_repl(state: ReplState) -> int:
         task.add_done_callback(turn_tasks.discard)
 
     screen._on_submit = _start
-    install_app_cursor_mode(screen.application)
-    try:
-        await screen.application.run_async()
-    finally:
-        sys.stdout.write(APP_CURSOR_OFF)
-        sys.stdout.flush()
+    await screen.application.run_async()
     return 0
