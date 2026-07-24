@@ -77,6 +77,8 @@ ignore = [
 "src/fusion_cli/memory/performance.py" = ["ANN401"]
 # prompt_toolkit da tip bilgisi yayımlamıyor; sınır bu tek dosyada.
 "src/fusion_cli/cli/repl/input.py" = ["ANN401"]
+# screen.py de prompt_toolkit Application'ıyla çalışır; `Any` bu sınırda kalır.
+"src/fusion_cli/cli/repl/screen.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin
