@@ -109,3 +109,24 @@ def test_screen_repl_calisan_loop_icinde_await_edilir():
 
     assert cagrildi["run"] is True
     assert cagrildi["restore"] is True  # çıkışta mod geri alındı
+
+
+def test_konusma_penceresi_dikey_alani_doldurur():
+    """Konuşma penceresi greedy yükseklikte (min=1, üst sınır yok) olmalı.
+
+    Yoksa pencere içerik yüksekliğine çöker; HSplit ekranı doldurmaz, full_screen
+    boyanmayan alt bölgeyi bırakır ve eski terminal içeriği (scrollback) sızar,
+    resize'da giriş satırı kayar. TextArea (Faz 1'in temiz konuşma alanı) tam da
+    bu yüzden height=D(min=1) kullanıyordu.
+    """
+    from prompt_toolkit.layout.dimension import to_dimension
+
+    from fusion_cli.cli.repl.screen import FusionScreen
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+
+    # Buggy hâlde height=None'dı: Window içerik yüksekliğine çöküyordu. Açık bir
+    # Dimension(min=1) verilmeli ki mevcut dikey alanı doldursun (TextArea gibi).
+    assert ekran._conversation_window.height is not None
+    boyut = to_dimension(ekran._conversation_window.height)
+    assert boyut.min == 1
