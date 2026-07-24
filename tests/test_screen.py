@@ -92,3 +92,34 @@ def test_eko_turu_kullanici_ve_yaniti_yazar():
     metin = ekran.conversation_buffer.text
     assert "[ben] vpn nedir" in metin
     assert "[eko] vpn nedir" in metin
+
+
+def test_demo_calistirici_mevcut(monkeypatch):
+    """run_screen_demo çağrılabilir olmalı; app.run yerine sahte konur (headless)."""
+    import fusion_cli.cli.repl.screen as screen_mod
+
+    cagrildi = {"run": False, "restore": False}
+
+    class _SahteApp:
+        full_screen = True
+
+        def run(self) -> None:
+            cagrildi["run"] = True
+
+    _gercek_screen = screen_mod.FusionScreen
+
+    def _sahte_screen(*a, **k):
+        s = object.__new__(_gercek_screen)
+        s.application = _SahteApp()  # type: ignore[attr-defined]
+        return s
+
+    monkeypatch.setattr(screen_mod, "FusionScreen", _sahte_screen)
+    monkeypatch.setattr(screen_mod, "install_app_cursor_mode", lambda app: None)
+    monkeypatch.setattr(
+        screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True)
+    )
+
+    screen_mod.run_screen_demo()
+
+    assert cagrildi["run"] is True
+    assert cagrildi["restore"] is True  # çıkışta mod geri alındı

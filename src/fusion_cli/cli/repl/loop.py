@@ -49,6 +49,14 @@ GOAL_STEP_LIMIT = 100
 
 async def run_repl(config: Config, *, memory: Memory, root: Path, console: Console) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
+    import os
+
+    if os.environ.get("FUSION_FULLSCREEN") == "1":
+        from .screen import run_screen_demo
+
+        run_screen_demo()
+        return 0
+
     state = ReplState(config=config, memory=memory, root=root)
     registry = build_registry()
     reader = ReplInput(

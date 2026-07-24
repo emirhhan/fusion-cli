@@ -13,6 +13,7 @@ Reçete (gerçek Terminal.app'te ölçülerek doğrulandı):
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -148,3 +149,22 @@ def echo_submit(screen: FusionScreen, text: str) -> None:
     """İskelet doğrulaması için basit eko turu. Faz 2'de gerçek motorla değişir."""
     screen.append(f"\n[ben] {text}\n")
     screen.append(f"[eko] {text}\n")
+
+
+_DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
+
+
+def run_screen_demo() -> None:
+    """Eko kabuğunu gerçek terminalde çalıştır (elle doğrulama).
+
+    Reçete: uygulama imleç modu kurulur; çıkışta normal moda dönülür.
+    """
+    screen = FusionScreen(banner=_DEMO_BANNER, on_submit=lambda t: None)
+    # on_submit kabuğun kendisine ihtiyaç duyduğundan kapanışla bağlanır:
+    screen._on_submit = lambda t: echo_submit(screen, t)
+    install_app_cursor_mode(screen.application)
+    try:
+        screen.application.run()
+    finally:
+        sys.stdout.write(APP_CURSOR_OFF)
+        sys.stdout.flush()
