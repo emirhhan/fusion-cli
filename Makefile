@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: setup venv install format lint type test check clean
+.PHONY: setup venv install format lint type test check clean eval
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -33,6 +33,12 @@ test:
 	$(PYTEST)
 
 check: lint type test
+
+# Değerlendirme seti: başlangıç görevlerini koştur, raporu eval-report.json'a yaz.
+# GERÇEK model çağrısı yapar (ağ + anahtar gerekir). İki raporu karşılaştırmak için:
+#   $(PY) -m evals compare eski.json yeni.json
+eval:
+	$(PY) -m evals run evals/suite/starter.yaml --out eval-report.json
 
 clean:
 	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache src/*.egg-info

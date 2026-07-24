@@ -80,7 +80,12 @@ def _parse_criterion(raw: object) -> SuccessCriterion:
     value = raw[field]
 
     if field_type == "int":
-        return SuccessCriterion(kind=kind, expected_exit_code=int(cast(int, value)))
+        command = raw.get("command")
+        return SuccessCriterion(
+            kind=kind,
+            expected_exit_code=int(cast(int, value)),
+            command=str(command) if command is not None else None,
+        )
     if field == "expected_path":
         return SuccessCriterion(kind=kind, expected_path=str(value))
     return SuccessCriterion(kind=kind, keyword=str(value))

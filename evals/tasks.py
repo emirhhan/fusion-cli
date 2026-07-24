@@ -30,6 +30,9 @@ class SuccessCriterion:
     kind: CriterionKind
     #: EXIT_CODE için beklenen çıkış kodu.
     expected_exit_code: int | None = None
+    #: EXIT_CODE için, görev sonrası çalıştırılıp çıkış kodu ölçülecek komut.
+    #: Verilmezse çıkış kodu agent turunun kendi sonucundan gelir (0 = temiz bitti).
+    command: str | None = None
     #: FILE_CHANGED için değişmesi beklenen dosya yolu.
     expected_path: str | None = None
     #: KEYWORD için çıktıda aranan metin.

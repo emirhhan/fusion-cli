@@ -1,68 +1,60 @@
-# Başlangıç değerlendirme seti.
+# Başlangıç değerlendirme seti — KENDİ KENDİNE YETER.
 #
-# Her görev bir istek ve tek bir ölçülebilir başarı ölçütüdür. Ölçüt türleri:
-#   - exit_code:   çalıştırılan komutun çıkış kodu `expected_exit_code`'a eşit mi
-#   - file_changed: `expected_path` değişen dosyalar arasında mı
-#   - keyword:     çıktı metninde `keyword` geçiyor mu
+# Her görev boş bir çalışma dizininde (scratch) koşturulur; depoya bağımlı değildir.
+# Böylece `python -m evals run` kutudan çıkar çıkmaz anlamlı ölçüm verir.
+#
+# Ölçüt türleri:
+#   - file_changed: `expected_path` çalışma dizininde oluştu/değişti mi
+#   - keyword:      agent'ın nihai cevabında `keyword` geçiyor mu
+#   - exit_code:    görev sonrası `command` çalıştırılınca çıkış kodu `expected_exit_code` mi
 #
 # Kural: secret/PII yok. Görevler zamanla büyür (hedef 20-40); bu dosya çekirdektir.
 tasks:
-  - id: hello-yaz
-    request: "Proje köküne 'merhaba dünya' yazan hello.py adında bir dosya oluştur."
+  - id: hello-dosyasi-olustur
+    request: "Çalışma dizinine, çalıştırıldığında 'merhaba dünya' yazan hello.py adında bir Python dosyası oluştur."
     criterion:
       kind: file_changed
       expected_path: hello.py
 
-  - id: readme-baslik-ekle
-    request: "README.md dosyasının başına 'Kurulum' başlıklı bir bölüm ekle."
+  - id: hello-calisir
+    request: "Çalışma dizinine, çalıştırıldığında 'merhaba dünya' yazan hello.py oluştur; python hello.py hatasız çalışmalı."
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python hello.py
+
+  - id: notlar-dosyasi
+    request: "notes.txt adında bir dosya oluştur ve içine tek satır 'ilk not' yaz."
+    criterion:
+      kind: file_changed
+      expected_path: notes.txt
+
+  - id: json-olustur
+    request: "config.json adında geçerli bir JSON dosyası oluştur; içinde \"ad\" anahtarı bulunsun."
+    criterion:
+      kind: file_changed
+      expected_path: config.json
+
+  - id: toplama-fonksiyonu
+    request: "topla(a, b) fonksiyonunu içeren toplama.py oluştur; iki sayının toplamını döndürsün."
+    criterion:
+      kind: file_changed
+      expected_path: toplama.py
+
+  - id: python-surumu-soru
+    request: "Bir Python dosyasının uzantısı nedir? Kısaca cevapla."
+    criterion:
+      kind: keyword
+      keyword: .py
+
+  - id: markdown-baslik
+    request: "README.md adında bir dosya oluştur ve ilk satırına '# Proje' başlığını yaz."
     criterion:
       kind: file_changed
       expected_path: README.md
 
-  - id: testler-gecmeli
-    request: "Depodaki testleri çalıştır ve hepsinin geçtiğini doğrula."
-    criterion:
-      kind: exit_code
-      expected_exit_code: 0
-
-  - id: lint-temiz
-    request: "ruff check çalıştır; kod stilinin temiz olduğunu doğrula."
-    criterion:
-      kind: exit_code
-      expected_exit_code: 0
-
-  - id: fonksiyon-adi-bul
-    request: "Kod tabanında kosinüs benzerliğini hesaplayan fonksiyonun adını bul."
-    criterion:
-      kind: keyword
-      keyword: cosine
-
-  - id: bagimlilik-listele
-    request: "Projenin doğrudan bağımlılıklarından litellm'in adını çıktı olarak ver."
-    criterion:
-      kind: keyword
-      keyword: litellm
-
-  - id: gitignore-venv
-    request: ".gitignore dosyasında .venv göz ardı ediliyor mu, doğrula."
-    criterion:
-      kind: keyword
-      keyword: .venv
-
-  - id: yeni-modul-ekle
-    request: "src altında toplama yapan bir util modülü ekle."
+  - id: shell-script
+    request: "merhaba.sh adında, ekrana 'selam' yazan bir bash betiği oluştur."
     criterion:
       kind: file_changed
-      expected_path: src/fusion_cli/core/mathx.py
-
-  - id: surum-oku
-    request: "pyproject.toml içindeki proje sürümünü oku ve yazdır."
-    criterion:
-      kind: keyword
-      keyword: "0.2.0"
-
-  - id: format-uygula
-    request: "ruff format çalıştır; kodun biçimlendirilmiş olduğunu doğrula."
-    criterion:
-      kind: exit_code
-      expected_exit_code: 0
+      expected_path: merhaba.sh

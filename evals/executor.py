@@ -1,0 +1,139 @@
+"""Görev yürütücü — bir EvalTask'ı agent'la izole bir çalışma dizininde koşturur.
+
+Her görev, boş (ya da bir tohumdan kopyalanmış) taze bir çalışma dizininde çalışır;
+görevler birbirini kirletmez. Yürütücü şunları gözlemler:
+
+- **değişen dosyalar** — çalışma öncesi/sonrası içerik özeti karşılaştırılır,
+- **çıktı metni** — agent'ın nihai cevabı (keyword ölçütü için),
+- **çıkış kodu** — EXIT_CODE ölçütünde, görev sonrası çalıştırılan `command`'ın kodu,
+- **süre / model çağrısı** — metrikler için.
+
+Asıl agent bir `AgentRunner` protokolünün arkasındadır: gerçek çalıştırma modeli çağırır
+(ağ), ama yürütücünün gözlem mantığı sahte bir koşucuyla ağsız test edilir.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import shutil
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from evals.execution import TaskExecution
+from evals.tasks import CriterionKind, EvalTask
+from fusion_cli.core.constants import SHELL_TIMEOUT_S
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunObservation:
+    """Bir agent çalıştırmasından yürütücüye dönen gözlem."""
+
+    output_text: str
+    model_calls: int
+
+
+class AgentRunner(Protocol):
+    """Bir isteği belirli bir kök dizinde agent'la çalıştıran taraf."""
+
+    async def run(self, request: str, *, root: Path) -> AgentRunObservation: ...
+
+
+class Clock(Protocol):
+    """Süre ölçümü için monoton saat (testte sahte verilebilir)."""
+
+    def monotonic(self) -> float: ...
+
+
+class AgentTaskExecutor:
+    """Bir EvalTask'ı izole çalışma dizininde koşturup gözlemleri toplar."""
+
+    def __init__(
+        self,
+        agent_runner: AgentRunner,
+        *,
+        workspace_root: Path,
+        clock: Clock,
+        seed_dir: Path | None = None,
+    ) -> None:
+        self._agent_runner = agent_runner
+        self._workspace_root = workspace_root
+        self._clock = clock
+        self._seed_dir = seed_dir
+
+    async def run(self, task: EvalTask) -> TaskExecution:
+        workspace = self._prepare_workspace(task.id)
+        before = _snapshot(workspace)
+
+        start = self._clock.monotonic()
+        observation = await self._agent_runner.run(task.request, root=workspace)
+        duration = self._clock.monotonic() - start
+
+        changed = _changed_files(before, _snapshot(workspace))
+        exit_code = await self._exit_code(task, workspace)
+
+        return TaskExecution(
+            task_id=task.id,
+            exit_code=exit_code,
+            changed_files=frozenset(changed),
+            output_text=observation.output_text,
+            model_calls=observation.model_calls,
+            retries=0,
+            duration_seconds=duration,
+        )
+
+    # ----------------------------------------------------------------------- #
+
+    def _prepare_workspace(self, task_id: str) -> Path:
+        workspace = self._workspace_root / task_id
+        if workspace.exists():
+            shutil.rmtree(workspace)
+        if self._seed_dir is not None:
+            shutil.copytree(self._seed_dir, workspace)
+        else:
+            workspace.mkdir(parents=True)
+        return workspace
+
+    async def _exit_code(self, task: EvalTask, workspace: Path) -> int | None:
+        if task.criterion.kind is not CriterionKind.EXIT_CODE or not task.criterion.command:
+            return None
+        try:
+            process = await asyncio.create_subprocess_shell(
+                task.criterion.command,
+                cwd=str(workspace),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError:
+            return 1
+        try:
+            return await asyncio.wait_for(process.wait(), timeout=SHELL_TIMEOUT_S)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            return 1
+
+
+def _snapshot(root: Path) -> dict[str, str]:
+    """Dizindeki tüm dosyaların göreli yol → içerik özeti eşlemesi."""
+    snapshot: dict[str, str] = {}
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        relative = str(path.relative_to(root))
+        snapshot[relative] = _hash_file(path)
+    return snapshot
+
+
+def _changed_files(before: dict[str, str], after: dict[str, str]) -> set[str]:
+    """Eklenen ya da içeriği değişen dosyaların göreli yolları."""
+    return {path for path, digest in after.items() if before.get(path) != digest}
+
+
+def _hash_file(path: Path) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        # Okunamayan dosya "değişti" sayılsın diye benzersiz bir işaret döndür.
+        return "unreadable"

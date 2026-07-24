@@ -271,7 +271,7 @@ def test_gercek_baslangic_seti_yuklenir():
 
     path = Path(__file__).resolve().parents[1] / "evals" / "suite" / "starter.yaml"
     tasks = load_tasks(path)
-    assert len(tasks) >= 10
+    assert len(tasks) >= 6
     assert all(task.id for task in tasks)
 
 
