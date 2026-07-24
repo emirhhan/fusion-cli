@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from ...config.models import Config
 from ...core.events import EventPublisher
 from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
+from ...core.redaction import contains_sensitive
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
 from . import history
@@ -32,6 +34,16 @@ _JSON_ARRAY = re.compile(r"\[.*\]", re.DOTALL)
 EXTRACT_MAX_TOKENS = 400
 #: Bir turdan alınacak en fazla ders. Model coşarsa bellek çöple dolmasın.
 MAX_LESSONS_PER_TURN = 3
+#: İki dersin "çok benzer" sayıldığı token örtüşmesi (Jaccard) eşiği.
+DEDUP_JACCARD_THRESHOLD = 0.6
+#: Çelişki adayı sayılmak için gereken asgari token örtüşmesi (aynı konu).
+CONTRADICTION_OVERLAP_THRESHOLD = 0.4
+#: Bir tokenın anlamlı sayılması için asgari uzunluk (kısa ekler gürültüdür).
+_MIN_TOKEN_LENGTH = 3
+#: Türkçe olumsuzluk işaretleri: iki ders aynı konuda ama zıt kutupsa çelişir.
+_NEGATION_MARKERS = frozenset(
+    {"yapma", "etme", "kullanma", "silme", "gomme", "gömme", "asla", "degil", "değil", "yok"}
+)
 
 
 def parse_lessons(text: str, task: str) -> tuple[Lesson, ...]:
@@ -82,6 +94,98 @@ async def extract_lessons(
 def store_lessons(lessons: tuple[Lesson, ...], memory: LessonMemory) -> int:
     """Dersleri belleğe yaz; YENİ eklenen sayısını döndür (tekilleştirme belleğin işi)."""
     return sum(1 for lesson in lessons if memory.add(lesson))
+
+
+# --------------------------------------------------------------------------- #
+# Yazım kapısı — bellek çöple/zehirle dolmasın
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenResult:
+    """Tek bir ders adayının kapıdan geçme kararı."""
+
+    accepted: bool
+    #: Reddedildiyse Türkçe gerekçe; kabul edildiyse boş.
+    reason: str = ""
+    #: Mevcut bir dersle çeliştiği işaretlendi mi (tek başına engellemez).
+    contradiction: bool = False
+
+
+def has_measurable_evidence(messages: list[Message]) -> bool:
+    """Turda ölçülebilir kanıt (bir araç çıktısı) var mı.
+
+    Kanıtsız — yalnızca modelin iddiasına dayanan — ders belleğe girmez: doğrulanmamış
+    bir davranış kuralı gelecekteki turları yanlış yönlendirebilir.
+    """
+
+    return any(message.role == "tool" for message in messages)
+
+
+def screen_lesson(
+    lesson: Lesson, existing: tuple[Lesson, ...], *, has_evidence: bool
+) -> ScreenResult:
+    """Bir ders adayını dört kapıdan geçir: kanıt, sır, tekilleştirme, çelişki."""
+
+    if not has_evidence:
+        return ScreenResult(accepted=False, reason="ölçülebilir kanıt yok")
+    if contains_sensitive(lesson.text):
+        return ScreenResult(accepted=False, reason="sır/kişisel veri içeriyor")
+    # Çelişki tekilleştirmeden ÖNCE bakılır: zıt kutuplu bir ders yüksek token
+    # örtüşmesine rağmen kopya DEĞİLDİR — reddedilmez, işaretlenerek kabul edilir.
+    contradiction = any(contradicts(lesson.text, item.text) for item in existing)
+    if not contradiction and is_near_duplicate(lesson.text, tuple(item.text for item in existing)):
+        return ScreenResult(accepted=False, reason="çok benzer ders zaten var")
+    return ScreenResult(accepted=True, contradiction=contradiction)
+
+
+def screen_lessons(
+    candidates: tuple[Lesson, ...], existing: tuple[Lesson, ...], *, has_evidence: bool
+) -> tuple[Lesson, ...]:
+    """Adayları kapıdan geçir; kabul edilenler sonrakiler için de "mevcut" sayılır."""
+
+    accepted: list[Lesson] = []
+    known = existing
+    for lesson in candidates:
+        if screen_lesson(lesson, known, has_evidence=has_evidence).accepted:
+            accepted.append(lesson)
+            known = (*known, lesson)
+    return tuple(accepted)
+
+
+def is_near_duplicate(
+    text: str, existing_texts: tuple[str, ...], threshold: float = DEDUP_JACCARD_THRESHOLD
+) -> bool:
+    """Metin, mevcut derslerden birine token örtüşmesi olarak çok benziyor mu."""
+
+    tokens = _tokens(text)
+    if not tokens:
+        return False
+    return any(_jaccard(tokens, _tokens(other)) >= threshold for other in existing_texts)
+
+
+def contradicts(text: str, other: str) -> bool:
+    """İki ders aynı konuda (yüksek örtüşme) ama zıt kutupta mı (olumsuzluk farkı)."""
+
+    overlap = _jaccard(_tokens(text), _tokens(other))
+    if overlap < CONTRADICTION_OVERLAP_THRESHOLD:
+        return False
+    return _is_negative(text) != _is_negative(other)
+
+
+def _tokens(text: str) -> frozenset[str]:
+    words = re.split(r"[^0-9a-zçğıöşü]+", text.lower())
+    return frozenset(word for word in words if len(word) >= _MIN_TOKEN_LENGTH)
+
+
+def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
+    if not left or not right:
+        return 0.0
+    return len(left & right) / len(left | right)
+
+
+def _is_negative(text: str) -> bool:
+    return bool(_tokens(text) & _NEGATION_MARKERS)
 
 
 def _to_lesson(item: object, task: str) -> Lesson | None:

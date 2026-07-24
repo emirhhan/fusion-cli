@@ -38,7 +38,7 @@ from ...core.events import (
     ToolExecuted,
     ToolOutcome,
 )
-from ...core.memory import CodeIndex, LessonMemory
+from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.tools import ToolContext, ToolResult
 from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
 from ...memory.lessons import as_prompt_block
@@ -79,6 +79,8 @@ class AgentOutcome:
     tool_calls_made: int = 0
     #: Adım sınırına dayanıldı mı?
     hit_step_limit: bool = False
+    #: Tur temiz bitti mi? Model akışı hata verirse False. Ders güvenini besler.
+    ok: bool = True
 
 
 @dataclass(slots=True)
@@ -125,7 +127,8 @@ async def run_agent(
     kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
     """
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    remembered = _recall_lessons(task, deps)
+    recalled = _recall_lessons(task, deps)
+    remembered = as_prompt_block(recalled)
     messages = _initial_messages(
         task,
         history,
@@ -147,6 +150,7 @@ async def run_agent(
         outcome = await _self_review(task, outcome, deps)
 
     await _learn(task, outcome, deps, plan_mode=plan_mode)
+    _reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     return outcome
 
@@ -180,7 +184,7 @@ async def _drive(
     for _ in range(limit):
         result = await _call_model(messages, deps, registry, allowed_tools)
         if not result.ok:
-            return AgentOutcome(result.error or "", messages, state.tool_calls_made)
+            return AgentOutcome(result.error or "", messages, state.tool_calls_made, ok=False)
 
         messages.append(Message("assistant", result.text, tool_calls=result.tool_calls))
 
@@ -342,14 +346,31 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     return correction
 
 
-def _recall_lessons(task: str, deps: AgentDeps) -> str:
-    """Göreve benzer dersleri hatırla ve sistem promptuna eklenecek bloğu üret."""
+def _recall_lessons(task: str, deps: AgentDeps) -> tuple[Lesson, ...]:
+    """Göreve benzer, güveni eşiğin üstünde dersleri hatırla."""
     if deps.lessons is None or not deps.config.runtime.lessons:
-        return ""
+        return ()
     recalled = deps.lessons.recall(task)
     if recalled:
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
-    return as_prompt_block(recalled)
+    return recalled
+
+
+def _reinforce_recalled(
+    recalled: tuple[Lesson, ...], outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool
+) -> None:
+    """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
+
+    Ders bir davranışı önerdi ve tur başarıyla bittiyse güven artar; tur başarısızsa
+    (model hata verdi ya da adım sınırına dayanıldı) güven düşer — yanlış ders zamanla
+    eşiğin altına inip enjekte edilmez olur.
+    """
+    if deps.lessons is None or not deps.config.runtime.lessons:
+        return
+    if plan_mode or not recalled:
+        return
+    success = outcome.ok and not outcome.hit_step_limit
+    deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
 
 
 async def _learn(task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> None:
@@ -377,7 +398,14 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
     lessons = await learning.extract_lessons(
         task, messages, config=deps.config, publisher=deps.publisher
     )
-    stored = learning.store_lessons(lessons, deps.lessons)
+    # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
+    # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.
+    screened = learning.screen_lessons(
+        lessons,
+        deps.lessons.all(),
+        has_evidence=learning.has_measurable_evidence(messages),
+    )
+    stored = learning.store_lessons(screened, deps.lessons)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))
 

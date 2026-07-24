@@ -19,13 +19,12 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from ..core.memory import Lesson, LessonKind, LessonSource
+from ..core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
+from .lesson_ranking import Candidate, select_lessons
+from .lesson_scoring import reinforced
 from .store import get_collection
 
 COLLECTION = "agent_lessons"
-
-#: Kosinüs mesafesi eşiği: 0 aynı, 1 ilgisiz. Bunun ötesindeki dersler alakasız sayılır.
-MAX_RELEVANCE_DISTANCE = 0.66
 
 #: Süreç geneli yazma kilidi. Farklı örnekler olsa bile aynı dosyaya yazılır.
 _write_lock = threading.Lock()
@@ -52,14 +51,7 @@ class ChromaLessonMemory:
             self._collection.add(
                 ids=[uuid.uuid4().hex],
                 documents=[text],
-                metadatas=[
-                    {
-                        "task": lesson.task[:500],
-                        "kind": lesson.kind.value,
-                        "source": lesson.source.value,
-                        "timestamp": time.time(),
-                    }
-                ],
+                metadatas=[_to_metadata(lesson)],
             )
             return True
 
@@ -68,20 +60,39 @@ class ChromaLessonMemory:
         if not total or not task.strip():
             return ()
 
-        # Geniş çek, sonra mesafeye göre ele: alakalı `limit` tanesini yakalamak için.
+        # Geniş çek, sonra saf sıralayıcıyla ele: alaka VE güven eşiğini geçen `limit`
+        # dersi yakalamak için aday havuzunu bilerek geniş tutuyoruz.
         result = self._collection.query(query_texts=[task], n_results=min(limit * 3, total))
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
         distances = (result.get("distances") or [[]])[0] or [0.0] * len(documents)
 
-        relevant = [
-            _to_lesson(document, metadata)
+        candidates = tuple(
+            Candidate(lesson=_to_lesson(document, metadata), distance=float(distance))
             for document, metadata, distance in zip(documents, metadatas, distances, strict=False)
-            if distance <= MAX_RELEVANCE_DISTANCE
-        ]
-        # Hatalar öne: bir şeyi yanlış yapmamak, doğru yapmayı hatırlamaktan kritiktir.
-        relevant.sort(key=lambda lesson: 0 if lesson.kind is LessonKind.MISTAKE else 1)
-        return tuple(relevant[:limit])
+        )
+        return select_lessons(candidates, limit=limit)
+
+    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+        """Metni eşleşen derslerin güvenini tur sonucuna göre günceller."""
+        wanted = {text.strip().lower() for text in texts if text.strip()}
+        if not wanted:
+            return 0
+        with _write_lock:
+            rows = self._collection.get()
+            ids = rows.get("ids") or []
+            documents = rows.get("documents") or []
+            metadatas = rows.get("metadatas") or []
+            updated = 0
+            for row_id, document, metadata in zip(ids, documents, metadatas, strict=False):
+                if document.strip().lower() not in wanted:
+                    continue
+                lesson = reinforced(_to_lesson(document, metadata), success=success)
+                self._collection.update(
+                    ids=[row_id], documents=[document], metadatas=[_to_metadata(lesson)]
+                )
+                updated += 1
+            return updated
 
     def all(self) -> tuple[Lesson, ...]:
         rows = self._collection.get()
@@ -104,12 +115,34 @@ class ChromaLessonMemory:
         return any(document.strip().lower() == normalized for document in existing)
 
 
+def _to_metadata(lesson: Lesson) -> dict[str, Any]:
+    """Dersi ChromaDB metadata'sına çevir. Güven/sayaç alanları burada kalıcılaşır."""
+    return {
+        "task": lesson.task[:500],
+        "kind": lesson.kind.value,
+        "source": lesson.source.value,
+        "confidence": float(lesson.confidence),
+        "success_count": int(lesson.success_count),
+        "failure_count": int(lesson.failure_count),
+        "scope": lesson.scope[:100],
+        "trigger": lesson.trigger[:200],
+        "timestamp": time.time(),
+    }
+
+
 def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
+    # Geriye dönük uyumluluk: güven/sayaç alanları taşınmadan önce yazılmış eski
+    # kayıtlar bu alanları içermez; makul varsayılanlarla okunur.
     return Lesson(
         text=document,
         kind=_enum(LessonKind, metadata.get("kind"), LessonKind.SUCCESS),
         task=str(metadata.get("task", "")),
         source=_enum(LessonSource, metadata.get("source"), LessonSource.LEARNED),
+        confidence=float(metadata.get("confidence", DEFAULT_LESSON_CONFIDENCE)),
+        success_count=int(metadata.get("success_count", 0)),
+        failure_count=int(metadata.get("failure_count", 0)),
+        scope=str(metadata.get("scope", "")),
+        trigger=str(metadata.get("trigger", "")),
     )
 
 

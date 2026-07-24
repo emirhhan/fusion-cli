@@ -37,15 +37,35 @@ class LessonSource(Enum):
     MANUAL = "manual"  # kullanıcı elle öğretti
 
 
+#: Bir dersin başlangıç güveni. Yeni ve eski (alan taşınmadan yazılmış) kayıtlar
+#: bu değerle okunur: ders bir kez denenir, sonucuna göre güveni artar/azalır.
+DEFAULT_LESSON_CONFIDENCE = 1.0
+
+
 @dataclass(frozen=True, slots=True)
 class Lesson:
-    """Gelecekte davranışı değiştirecek somut bir ders."""
+    """Gelecekte davranışı değiştirecek somut bir ders.
+
+    `confidence`, `success_count` ve `failure_count` dersin öz-düzeltmesini taşır:
+    enjekte edildiği tur başarısızsa güven düşer, başarılıysa artar. Güveni eşiğin
+    altına düşen ders artık enjekte edilmez (yerel zehirlenmeye karşı koruma).
+    """
 
     text: str
     kind: LessonKind
     #: Dersin çıktığı görev bağlamı. Anlamsal geri çağırmada kullanılır.
     task: str = ""
     source: LessonSource = LessonSource.LEARNED
+    #: Dersin güncel güveni (0..1). Eşiğin altındaki ders enjekte edilmez.
+    confidence: float = DEFAULT_LESSON_CONFIDENCE
+    #: Enjekte edildiği turların kaçında iş başarıyla bitti.
+    success_count: int = 0
+    #: Enjekte edildiği turların kaçında iş başarısız oldu.
+    failure_count: int = 0
+    #: İsteğe bağlı görev-türü kapsamı (bugfix/refactor/…); boş = her kapsam.
+    scope: str = ""
+    #: İsteğe bağlı tetikleyici ipucu; boş = serbest.
+    trigger: str = ""
 
 
 class Feedback(Enum):
@@ -132,7 +152,15 @@ class LessonMemory(Protocol):
         ...
 
     def recall(self, task: str, limit: int = 4) -> tuple[Lesson, ...]:
-        """Göreve YETERİNCE BENZER dersleri getir. Alakasızlar elenir."""
+        """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir."""
+        ...
+
+    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+        """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
+
+        `success=False` güveni düşürür ve `failure_count`'u artırır; `True` tersi.
+        Güncellenen ders sayısını döndürür.
+        """
         ...
 
     def all(self) -> tuple[Lesson, ...]: ...
