@@ -52,10 +52,10 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     import os
 
     if os.environ.get("FUSION_FULLSCREEN") == "1":
-        from .screen import run_screen_demo
+        from .screen import run_screen_repl
 
-        await run_screen_demo()
-        return 0
+        state = ReplState(config=config, memory=memory, root=root)
+        return await run_screen_repl(state)
 
     state = ReplState(config=config, memory=memory, root=root)
     registry = build_registry()

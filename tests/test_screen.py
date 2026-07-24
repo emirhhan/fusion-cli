@@ -70,13 +70,8 @@ def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
     assert app.mouse_support() is False  # Filter çağrılınca False
 
 
-def test_demo_calistirici_calisan_loop_icinde_await_edilir():
-    """run_screen_demo zaten çalışan bir event loop'tan await edilebilmeli.
-
-    Gerçek çağrı yolu asyncio.run(run_repl(...)) içinde olduğundan, demo senkron
-    application.run() çağırırsa 'çalışan event loop içinde asyncio.run()' hatası
-    verir. Bu yüzden async olmalı ve app.run_async()'i await etmeli.
-    """
+def test_screen_repl_calisan_loop_icinde_await_edilir():
+    """run_screen_repl zaten çalışan event loop'tan await edilebilmeli; mod geri alınmalı."""
     import asyncio
 
     import fusion_cli.cli.repl.screen as screen_mod
@@ -102,8 +97,7 @@ def test_demo_calistirici_calisan_loop_icinde_await_edilir():
         mp.setattr(
             screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True)
         )
-        # Zaten bir event loop içindeyiz; demo bu loop'u bozmadan koşmalı.
-        await screen_mod.run_screen_demo()
+        await screen_mod.run_screen_repl(state=None)  # type: ignore[arg-type]
 
     from _pytest.monkeypatch import MonkeyPatch
 

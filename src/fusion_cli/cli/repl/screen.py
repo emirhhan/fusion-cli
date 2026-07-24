@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.buffer import Buffer
@@ -32,6 +32,9 @@ from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.widgets import Frame, TextArea
 
 from .ansi_bridge import AnsiBridge
+
+if TYPE_CHECKING:
+    from .state import ReplState
 
 #: Uygulama imleç + keypad modu (DECCKM + DECKPAM). Terminal.app tekerleği ok
 #: tuşuna çevirip uygulamaya yollar; kendi scrollback'ini kaydırmaz.
@@ -187,22 +190,33 @@ def echo_submit(screen: FusionScreen, text: str) -> None:
 _DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
 
 
-async def run_screen_demo() -> None:
-    """Eko kabuğunu gerçek terminalde çalıştır (elle doğrulama).
+async def run_screen_repl(state: ReplState) -> int:
+    """Tam-ekran kabuğu gerçek motorla çalıştır (elle doğrulama / deneysel yol).
 
-    Reçete: uygulama imleç modu kurulur; çıkışta normal moda dönülür.
-
-    Async'tir çünkü çağrı yolu (asyncio.run(run_repl(...))) zaten çalışan bir
-    event loop içindedir; senkron application.run() içeriden yeniden asyncio.run()
-    çağırıp "çalışan event loop içinde asyncio.run()" hatası verir. Bu yüzden
-    prompt_toolkit'in coroutine arayüzü run_async() await edilir.
+    Reçete: uygulama imleç modu kurulur; çıkışta normal moda dönülür. Faz 1
+    regresyonu: zaten çalışan event loop içinde `run_async()` await edilir.
     """
+    import asyncio
+
+    from .screen_turn import run_turn
+
     screen = FusionScreen(banner=_DEMO_BANNER, on_submit=lambda t: None)
-    # on_submit kabuğun kendisine ihtiyaç duyduğundan kapanışla bağlanır:
-    screen._on_submit = lambda t: echo_submit(screen, t)
+
+    # Çalışan tur görevlerine referans tut: aksi hâlde GC görevi erkenden
+    # toplayıp turu yarıda kesebilir (asyncio zayıf referansla tutar).
+    tur_gorevleri: set[asyncio.Task[None]] = set()
+
+    def _baslat(text: str) -> None:
+        # Turu arka plan görevi yap: giriş kutusu bloklanmasın, çıktı akarken çizilsin.
+        gorev = asyncio.ensure_future(run_turn(text, state, screen))
+        tur_gorevleri.add(gorev)
+        gorev.add_done_callback(tur_gorevleri.discard)
+
+    screen._on_submit = _baslat
     install_app_cursor_mode(screen.application)
     try:
         await screen.application.run_async()
     finally:
         sys.stdout.write(APP_CURSOR_OFF)
         sys.stdout.flush()
+    return 0
