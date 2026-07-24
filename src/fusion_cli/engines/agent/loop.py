@@ -21,25 +21,22 @@ yapmaz: alt-ajan devri de dosya okumak da kayıt defterinden geçer.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
-from ...core.constants import SHELL_TIMEOUT_S
 from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
-    LessonsLearned,
-    LessonsRecalled,
     SelfReviewFinished,
     SelfReviewStarted,
     StepLimitReached,
     ToolExecuted,
     ToolOutcome,
 )
-from ...core.memory import CodeIndex, Lesson, LessonMemory
+from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
 from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
 from ...core.verification import Verifier
@@ -47,16 +44,11 @@ from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
-from ...tools.safety import danger_reason
-from ..playbook import Playbook, run_playbook
-from ..playbook.library import PLAYBOOKS, ShellStepRunner
-from ..playbook.matching import find_match
-from ..workflow import Budget, Stage, StageOutcome, run_workflow
-from . import compaction, learning, reflexion, review
+from . import compaction, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .classify import classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
-from .verification import resolve_turn_success
+from .playbook_stage import maybe_run_playbook, run_workflow_stages
 
 _PROMPTS = Path(__file__).parent / "prompts"
 SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
@@ -139,15 +131,15 @@ async def run_agent(
     kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
     """
     if not plan_mode and depth == 0:
-        played = await _maybe_run_playbook(task, deps)
+        played = await maybe_run_playbook(task, deps)
         if played is not None:
             return played
         if deps.config.runtime.workflow_mode:
-            return await _run_workflow(task, deps)
+            return await run_workflow_stages(task, deps, run_agent)
 
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     kind = classify_task(task)
-    recalled = _recall_lessons(task, deps, scope=recall_scope(kind))
+    recalled = learning_steps.recall_lessons(task, deps, scope=recall_scope(kind))
     remembered = as_prompt_block(recalled)
     messages = _initial_messages(
         task,
@@ -169,8 +161,8 @@ async def run_agent(
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
-    await _learn(task, outcome, deps, plan_mode=plan_mode, scope=scope_of(kind))
-    await _reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
+    await learning_steps.learn(task, outcome, deps, plan_mode=plan_mode, scope=scope_of(kind))
+    await learning_steps.reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     return outcome
 
@@ -364,179 +356,6 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
-
-
-async def _maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
-    """İstek bir playbook'u tetikliyorsa deterministik akışı çalıştır.
-
-    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan bir playbook
-    çalıştırılır; akış başarısız olur (checks kırılır → geri alınır) ise None dönülür
-    ve normal agent akışına düşülür — model devralır.
-    """
-    if not deps.config.runtime.playbooks:
-        return None
-    playbook = find_match(PLAYBOOKS, task)
-    if playbook is None or not _all_commands_safe(playbook):
-        return None
-
-    runner = ShellStepRunner(cwd=str(deps.tool_context.root), timeout_s=SHELL_TIMEOUT_S)
-    result = await run_playbook(playbook, runner)
-    if not result.ok:
-        return None
-    return AgentOutcome(
-        final_text=result.summary,
-        messages=[Message("assistant", result.summary)],
-        tool_calls_made=len(result.ran_steps),
-    )
-
-
-#: Her aşamaya modele verilecek odaklı Türkçe yönerge. `{task}` görev, `{notes}`
-#: önceki aşamaların birikmiş notlarıdır. Aşama dar tutulur: bütçe boşa gitmesin.
-_STAGE_PROMPTS: dict[Stage, str] = {
-    Stage.LOCALIZE: (
-        "AŞAMA: Yer belirleme. Şu görev için değişikliğin yapılacağı yeri bul "
-        "(dosya:satır). Henüz DEĞİŞİKLİK YAPMA, yalnızca yeri raporla.\n\nGörev: {task}"
-    ),
-    Stage.PLAN: (
-        "AŞAMA: Plan. Aşağıdaki bulgulara dayanarak EN KÜÇÜK değişikliğin planını "
-        "maddeler halinde çıkar. Kod yazma.\n\nGörev: {task}\n\nBulgular:\n{notes}"
-    ),
-    Stage.PATCH: (
-        "AŞAMA: Yama. Planı uygula: yalnızca gerekli en küçük değişikliği yap. "
-        "Kapsam dışına çıkma.\n\nGörev: {task}\n\nPlan:\n{notes}"
-    ),
-    Stage.VERIFY: (
-        "AŞAMA: Doğrulama. Yaptığın değişikliği syntax/lint/test çalıştırarak doğrula. "
-        "Kırılan varsa en dar düzeltmeyi uygula.\n\nGörev: {task}\n\nYapılan:\n{notes}"
-    ),
-    Stage.REVIEW: (
-        "AŞAMA: Gözden geçirme. Değişikliğin diff'ini gözden geçir; kapsam dışı ya da "
-        "gereksiz bir şey varsa geri al ve kısa bir özet ver.\n\nGörev: {task}\n\nÖzet:\n{notes}"
-    ),
-}
-
-
-class _AgentStageExecutor:
-    """Her workflow aşamasını, odaklı bir alt-turla (run_agent) çalıştıran köprü."""
-
-    def __init__(self, task: str, deps: AgentDeps) -> None:
-        self._task = task
-        self._deps = deps
-
-    async def run(self, stage: Stage, notes: dict[Stage, str]) -> StageOutcome:
-        prompt = _STAGE_PROMPTS[stage].format(task=self._task, notes=_format_notes(notes))
-        # depth=1: üstteki workflow/playbook/öz-denetim dalları yeniden tetiklenmesin.
-        outcome = await run_agent(prompt, self._deps, depth=1, self_review=False)
-        ok = outcome.ok and not outcome.hit_step_limit
-        # Model çağrısı ~ araç turu + son cevap turu. Bütçe kapısını besleyen tahmin.
-        return StageOutcome(
-            ok=ok, model_calls=outcome.tool_calls_made + 1, note=outcome.final_text.strip()[:500]
-        )
-
-
-def _format_notes(notes: dict[Stage, str]) -> str:
-    if not notes:
-        return "(yok)"
-    return "\n".join(f"[{stage.value}] {note}" for stage, note in notes.items())
-
-
-async def _run_workflow(task: str, deps: AgentDeps) -> AgentOutcome:
-    """Aşamalı workflow'u bütçe kapısıyla çalıştır ve sonucu agent turu sonucuna çevir."""
-    executor = _AgentStageExecutor(task, deps)
-    budget = Budget(max_model_calls=deps.config.runtime.workflow_max_model_calls)
-    result = await run_workflow(executor, budget=budget)
-    text = result.final_note or result.summary
-    return AgentOutcome(
-        final_text=text,
-        messages=[Message("assistant", text)],
-        tool_calls_made=len(result.stages_run),
-        hit_step_limit=result.budget_exhausted,
-        ok=result.ok,
-    )
-
-
-def _all_commands_safe(playbook: Playbook) -> bool:
-    """Playbook'un tüm komutları (adım/geri-alma/doğrulama) yıkıcı desen içermiyor mu."""
-    commands = [step.command for step in playbook.steps]
-    commands += [step.rollback for step in playbook.steps if step.rollback]
-    commands += list(playbook.checks)
-    return all(danger_reason("run_shell", {"command": command}) is None for command in commands)
-
-
-def _recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Lesson, ...]:
-    """Göreve benzer, güveni eşiğin üstünde ve kapsamına uyan dersleri hatırla."""
-    if deps.lessons is None or not deps.config.runtime.lessons:
-        return ()
-    recalled = deps.lessons.recall(task, scope=scope)
-    if recalled:
-        deps.publisher.publish(LessonsRecalled(count=len(recalled)))
-    return recalled
-
-
-async def _reinforce_recalled(
-    recalled: tuple[Lesson, ...], outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool
-) -> None:
-    """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
-
-    Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
-    devredeyse) kapı geçti. Kod değiştiren turdan sonra kapı çalıştırılır; böylece
-    "doğrulamadan bitirme" gibi kurallar dekoratif kalmaz, gerçekten uygulanır.
-    """
-    if deps.lessons is None or not deps.config.runtime.lessons:
-        return
-    if plan_mode or not recalled:
-        return
-    verification = None
-    if deps.verifier is not None and outcome.tool_calls_made > 0:
-        verification = await deps.verifier.verify()
-    success = resolve_turn_success(
-        outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
-    )
-    deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
-
-
-async def _learn(
-    task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, scope: str
-) -> None:
-    """Turdan ders çıkar ve belleğe yaz.
-
-    Yalnızca GERÇEK İŞ yapıldıysa (araç çağrısı varsa) çalışır: sohbet turlarından
-    ders çıkarmak hem boşuna model çağrısıdır hem de belleği değersiz kayıtla doldurur.
-    """
-    if deps.lessons is None or not deps.config.runtime.lessons:
-        return
-    if plan_mode or outcome.tool_calls_made == 0:
-        return
-
-    work = _extract_and_store(task, list(outcome.messages), deps, scope=scope)
-    if deps.background is None:
-        await work
-    else:
-        deps.background.spawn(work)
-
-
-async def _extract_and_store(
-    task: str, messages: list[Message], deps: AgentDeps, *, scope: str
-) -> None:
-    """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
-    if deps.lessons is None:
-        return
-    lessons = await learning.extract_lessons(
-        task, messages, config=deps.config, publisher=deps.publisher
-    )
-    # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
-    # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.
-    screened = learning.screen_lessons(
-        lessons,
-        deps.lessons.all(),
-        has_evidence=learning.has_measurable_evidence(messages),
-    )
-    # Öğrenilen ders, görevin kapsamıyla etiketlenir: benzer kapsamda daha isabetli
-    # geri çağrılır, alakasız kapsamda enjekte edilmez.
-    scoped = tuple(replace(lesson, scope=scope) for lesson in screened)
-    stored = learning.store_lessons(scoped, deps.lessons)
-    if stored:
-        deps.publisher.publish(LessonsLearned(count=stored))
 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
