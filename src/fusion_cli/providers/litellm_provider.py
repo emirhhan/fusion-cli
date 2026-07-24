@@ -15,8 +15,6 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
-import litellm
-
 from ..core.clock import SystemClock
 from ..core.protocols import Clock
 from ..core.redaction import redact
@@ -35,8 +33,22 @@ from ..core.types import (
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
 
 
+def _litellm() -> Any:  # litellm modülü; tip stub'ı yok, SDK sınırında Any kaçınılmaz.
+    """LiteLLM'i tembel yükle ve döndür.
+
+    `litellm` import'u ~1.6s sürer ve CLI'ın soğuk açılışının neredeyse tamamıdır;
+    modül tepesinde import edilirse `--help`/`--version`/`setup` gibi LLM'e hiç
+    dokunmayan yollar da bu bedeli öder. chromadb ile aynı disiplin: gerçekten
+    çağrı yapıldığı anda yüklenir. Python import önbelleği tekrar yüklemeyi önler.
+    """
+    import litellm
+
+    return litellm
+
+
 def configure_litellm() -> None:
     """LiteLLM'i bir kez ayarla. Import anında değil, açık çağrıyla yapılır."""
+    litellm = _litellm()
     litellm.suppress_debug_info = True
     # Sağlayıcının desteklemediği parametreleri sessizce at (ör. bazı uçlarda temperature).
     litellm.drop_params = True
@@ -59,7 +71,7 @@ class LiteLlmProvider:
     async def complete(self, request: CompletionRequest) -> ModelResult:
         started = self._clock.monotonic()
         try:
-            response = await litellm.acompletion(**self._call_kwargs(request, stream=False))
+            response = await _litellm().acompletion(**self._call_kwargs(request, stream=False))
         except Exception as exc:
             # Sağlayıcı hataları BEKLENEN durumdur (429, 5xx, zaman aşımı, soğuk uç):
             # akışı kesmemek için exception'a değil sonuç nesnesine çevrilir.
@@ -70,7 +82,7 @@ class LiteLlmProvider:
         started = self._clock.monotonic()
         chunks: list[Any] = []
         try:
-            response = await litellm.acompletion(**self._call_kwargs(request, stream=True))
+            response = await _litellm().acompletion(**self._call_kwargs(request, stream=True))
             async for chunk in response:
                 chunks.append(chunk)
                 text = _chunk_text(chunk)
@@ -131,7 +143,7 @@ class LiteLlmProvider:
     ) -> ModelResult:
         """Akış parçalarını tek yanıta toparla; toparlanamazsa metni parçalardan birleştir."""
         try:
-            rebuilt = litellm.stream_chunk_builder(
+            rebuilt = _litellm().stream_chunk_builder(
                 chunks,
                 messages=[_to_wire(message) for message in request.messages],
             )
@@ -181,7 +193,7 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
     uydurmaktansa sıfır göstermek dürüsttür.
     """
     try:
-        cost = litellm.completion_cost(
+        cost = _litellm().completion_cost(
             completion_response={
                 "usage": {
                     "prompt_tokens": prompt_tokens,
