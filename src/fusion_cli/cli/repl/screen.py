@@ -204,15 +204,15 @@ async def run_screen_repl(state: ReplState) -> int:
 
     # Çalışan tur görevlerine referans tut: aksi hâlde GC görevi erkenden
     # toplayıp turu yarıda kesebilir (asyncio zayıf referansla tutar).
-    tur_gorevleri: set[asyncio.Task[None]] = set()
+    turn_tasks: set[asyncio.Task[None]] = set()
 
-    def _baslat(text: str) -> None:
+    def _start(text: str) -> None:
         # Turu arka plan görevi yap: giriş kutusu bloklanmasın, çıktı akarken çizilsin.
-        gorev = asyncio.ensure_future(run_turn(text, state, screen))
-        tur_gorevleri.add(gorev)
-        gorev.add_done_callback(tur_gorevleri.discard)
+        task = asyncio.ensure_future(run_turn(text, state, screen))
+        turn_tasks.add(task)
+        task.add_done_callback(turn_tasks.discard)
 
-    screen._on_submit = _baslat
+    screen._on_submit = _start
     install_app_cursor_mode(screen.application)
     try:
         await screen.application.run_async()
