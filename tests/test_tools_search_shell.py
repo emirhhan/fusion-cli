@@ -103,6 +103,13 @@ async def test_git_yalnizca_salt_okunur_komutlara_izin_verir(registry, context):
     assert not sonuc.ok and "salt-okunur" in sonuc.output
 
 
+async def test_git_bos_alt_komut_cokertmez(registry, context):
+    # Boş/yalnızca-boşluk subcommand IndexError ile çökmemeli; anlaşılır hata dönmeli.
+    sonuc = await _calistir(registry, context, "git", subcommand="   ")
+
+    assert not sonuc.ok and "boş olmayan" in sonuc.output
+
+
 async def test_git_status_calisir(registry, context, tmp_path):
     # Depo kurulumu bloklayan bir çağrı; olay döngüsünü tıkamaması için ayrı thread'de.
     await asyncio.to_thread(subprocess.run, ["git", "init", "-q"], cwd=tmp_path, check=True)

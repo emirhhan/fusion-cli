@@ -43,10 +43,25 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r"\bgit\s+clean\s+-[a-zA-Z]*f", "izlenmeyen dosyaları kalıcı silme"),
     _rule(r"\bgit\s+checkout\s+--\s+\.", "tüm yerel değişiklikleri geri alma"),
     _rule(r"\b(curl|wget)\b.*\|\s*(sudo\s+)?(ba)?sh\b", "internetten indirilen kodu çalıştırma"),
+    # Process substitution ile indirilen kodu çalıştırma: bash <(curl …). Boru
+    # yakalamayan bu biçim yukarıdaki desene takılmaz, ayrıca yakalanır.
+    _rule(r"<\s*\(\s*(curl|wget)\b", "internetten indirilen kodu çalıştırma"),
+    # base64/açık kodu çözüp kabuğa boşaltma: echo … | base64 -d | sh.
+    _rule(r"\bbase64\b.*(-d|--decode)\b.*\|\s*(ba)?sh\b", "kodlanmış kodu çözüp çalıştırma"),
     _rule(r"\bsudo\b", "yükseltilmiş yetkiyle çalıştırma"),
     _rule(r"\bkill\s+-9\b", "süreci zorla sonlandırma"),
     _rule(r"\bpkill\b", "ada göre süreç sonlandırma"),
     _rule(r"\b(npm|pip|pip3|yarn|pnpm)\s+.*(uninstall|remove)\b", "paket kaldırma"),
+    # find ile toplu silme/komut çalıştırma: -delete ya da -exec rm.
+    _rule(r"\bfind\b.*-delete\b", "find ile toplu dosya silme"),
+    _rule(r"\bfind\b.*-exec\s+rm\b", "find ile toplu dosya silme"),
+    # Python tek-satır ile yıkıcı işlem: python -c "... rmtree/os.system/remove ...".
+    _rule(
+        r"\bpython[0-9.]*\s+-c\b.*\b(rmtree|os\.system|os\.remove|unlink|subprocess)\b",
+        "Python tek-satırıyla yıkıcı işlem",
+    ),
+    # Dosyayı sıfırlama: truncate -s 0.
+    _rule(r"\btruncate\b.*-s\s*0\b", "dosya içeriğini sıfırlama"),
 )
 
 

@@ -45,6 +45,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 def git(args: ToolArgs, context: ToolContext) -> ToolResult:
     subcommand = require_str(args, "subcommand")
+    # require_str boş/yalnızca-boşluk girdiyi zaten reddeder; parts en az bir öğe taşır.
     parts = subcommand.split()
     if parts[0] not in READONLY_GIT_SUBCOMMANDS:
         allowed = ", ".join(sorted(READONLY_GIT_SUBCOMMANDS))
