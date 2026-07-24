@@ -74,6 +74,33 @@ def test_kabuk_full_screen_ve_mouse_kapali_kurulur():
     assert app.mouse_support() is False
 
 
+def test_modal_acikken_kaydirma_tuslari_devre_disi():
+    """Metin modalı açıkken ok/PageUp konuşmayı kaydırmamalı; tuşlar giriş
+    kutusuna gitmeli. Kaydırma bağlamalarının filtresi modal-açıkken False döner."""
+    from prompt_toolkit.keys import Keys
+
+    from fusion_cli.cli.repl.screen import FusionScreen
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    kb = ekran.application.key_bindings
+    assert kb is not None
+
+    def _kaydirma_bindingi(key):
+        for b in kb.bindings:
+            if b.keys == (key,) and b.filter is not None:
+                return b
+        raise AssertionError(f"{key} için kaydırma bağlaması bulunamadı")
+
+    for key in (Keys.Up, Keys.Down, Keys.PageUp, Keys.PageDown):
+        binding = _kaydirma_bindingi(key)
+        # Modal kapalı: kaydırma aktif.
+        ekran._modal_kind = None
+        assert binding.filter() is True
+        # Modal açık: kaydırma susar.
+        ekran._modal_kind = "text"
+        assert binding.filter() is False
+
+
 def test_screen_repl_calisan_loop_icinde_await_edilir():
     """run_screen_repl zaten çalışan event loop'tan await edilebilmeli; mod geri alınmalı."""
     import asyncio

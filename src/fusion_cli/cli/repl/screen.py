@@ -298,19 +298,23 @@ class FusionScreen:
             self._follow = row >= doc.line_count - 1
             self.application.invalidate()
 
-        @kb.add("up", eager=True)
+        # Kaydırma yalnızca modal KAPALIYKEN. Modal (özellikle metin girişi) açıkken
+        # ok/PageUp giriş kutusunun imlecine gitmeli, arkadaki konuşmayı kaydırmamalı.
+        _modal_kapali = Condition(lambda: self._modal_kind is None)
+
+        @kb.add("up", filter=_modal_kapali, eager=True)
         def _up(_e: Any) -> None:
             _scroll(-_SCROLL_STEP)
 
-        @kb.add("down", eager=True)
+        @kb.add("down", filter=_modal_kapali, eager=True)
         def _down(_e: Any) -> None:
             _scroll(+_SCROLL_STEP)
 
-        @kb.add("pageup", eager=True)
+        @kb.add("pageup", filter=_modal_kapali, eager=True)
         def _pgup(_e: Any) -> None:
             _scroll(-_SCROLL_PAGE)
 
-        @kb.add("pagedown", eager=True)
+        @kb.add("pagedown", filter=_modal_kapali, eager=True)
         def _pgdn(_e: Any) -> None:
             _scroll(+_SCROLL_PAGE)
 
