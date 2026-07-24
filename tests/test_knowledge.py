@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from fusion_cli.core.memory import Lesson
 from fusion_cli.knowledge import (
     KnowledgeEntry,
@@ -61,6 +63,25 @@ def test_ed25519_bozuk_imza_istisna_firlatmaz():
 
     # Bozuk hex/imza baytları False dönmeli, çökme değil.
     assert verify(b"x", "zzz-gecersiz-hex", _PUBLIC_KEY) is False
+
+
+def test_cryptography_yoksa_anlasilir_hata(monkeypatch):
+    import builtins
+
+    from fusion_cli.core.errors import KnowledgeError
+    from fusion_cli.knowledge import signing
+
+    gercek_import = builtins.__import__
+
+    def sahte_import(name, *args, **kwargs):
+        if name.startswith("cryptography"):
+            raise ModuleNotFoundError("No module named 'cryptography'")
+        return gercek_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", sahte_import)
+
+    with pytest.raises(KnowledgeError, match="cryptography"):
+        signing.sign(b"x", _PRIVATE_KEY)
 
 
 # --------------------------------------------------------------------------- #

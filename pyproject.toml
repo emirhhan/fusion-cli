@@ -83,6 +83,8 @@ ignore = [
 "src/fusion_cli/cli/repl/screen.py" = ["ANN401"]
 # screen_spike.py aynı prompt_toolkit sınırında çalışan (kanıtlanmamış) denemedir.
 "src/fusion_cli/cli/repl/screen_spike.py" = ["ANN401"]
+# cryptography tembel yüklenir ve tip stub'ı yok; `Any` yalnızca bu sınırda kalır.
+"src/fusion_cli/knowledge/signing.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin

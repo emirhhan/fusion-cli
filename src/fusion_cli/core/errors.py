@@ -32,3 +32,7 @@ class PathAccessError(FusionError):
 
 class EvalError(FusionError):
     """Değerlendirme seti okunamadı, doğrulanamadı ya da geçersiz ölçüt içeriyor."""
+
+
+class KnowledgeError(FusionError):
+    """Ortak bilgi paketi işlenemedi (ör. imza için gerekli bağımlılık yok)."""
