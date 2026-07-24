@@ -19,6 +19,8 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "chromadb>=0.5,<2",
     "prompt_toolkit>=3.0,<4",
+    # Ortak bilgi paketinin Ed25519 imza doğrulaması için (stdlib'de Ed25519 yok).
+    "cryptography>=42,<46",
 ]
 
 [project.optional-dependencies]

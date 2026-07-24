@@ -15,12 +15,12 @@ from .signing import sign
 
 
 def build_manifest(
-    entries: tuple[KnowledgeEntry, ...], *, version: int, key: str
+    entries: tuple[KnowledgeEntry, ...], *, version: int, private_key: str
 ) -> KnowledgeManifest:
-    """Girişlerin özetlerini doldur, içeriği imzala ve manifesti üret."""
+    """Girişlerin özetlerini doldur, içeriği ÖZEL anahtarla imzala ve manifesti üret."""
 
     hashed = with_hashes(entries)
-    signature = sign(signable_bytes(version, hashed), key)
+    signature = sign(signable_bytes(version, hashed), private_key)
     return KnowledgeManifest(version=version, entries=hashed, signature=signature)
 
 

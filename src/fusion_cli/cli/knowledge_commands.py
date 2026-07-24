@@ -14,7 +14,7 @@ from rich.console import Console
 
 from ..config.loader import load_config
 from ..knowledge import KnowledgeManifest, read_manifest, status, sync
-from ..knowledge.signing import DEFAULT_INTEGRITY_KEY
+from ..knowledge.signing import DEFAULT_PUBLIC_KEY
 from ..memory.factory import Memory, build_memory
 from ..ui import theme
 
@@ -56,7 +56,7 @@ def knowledge_sync(
     """Paketi doğrula ve yalnızca değişen dersleri yerel belleğe uygula."""
     manifest = _read_or_exit(package)
     memory = _open_memory()
-    report = sync(manifest, memory.lessons, state_path=_state_path(), key=DEFAULT_INTEGRITY_KEY)
+    report = sync(manifest, memory.lessons, state_path=_state_path(), public_key=DEFAULT_PUBLIC_KEY)
     if not report.ok:
         console.print(f"[{theme.ERROR}]{_MSG_SYNC_FAIL}[/{theme.ERROR}]")
         for problem in report.problems:

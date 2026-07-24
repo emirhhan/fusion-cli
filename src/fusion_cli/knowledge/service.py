@@ -51,11 +51,11 @@ def sync(
     memory: LessonMemory,
     *,
     state_path: Path,
-    key: str,
+    public_key: str,
 ) -> SyncReport:
-    """Manifesti doğrula ve yalnızca değişen dersleri belleğe uygula."""
+    """Manifesti doğrula (AÇIK anahtarla) ve yalnızca değişen dersleri belleğe uygula."""
 
-    validation = validate_manifest(manifest, key=key)
+    validation = validate_manifest(manifest, public_key=public_key)
     if not validation.ok:
         return SyncReport(ok=False, problems=validation.problems)
 

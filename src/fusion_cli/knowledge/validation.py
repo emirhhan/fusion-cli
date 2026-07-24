@@ -27,13 +27,13 @@ class ValidationResult:
     problems: tuple[str, ...] = ()
 
 
-def validate_manifest(manifest: KnowledgeManifest, *, key: str) -> ValidationResult:
-    """Manifesti imza, bütünlük ve sır kapılarından geçir."""
+def validate_manifest(manifest: KnowledgeManifest, *, public_key: str) -> ValidationResult:
+    """Manifesti imza (AÇIK anahtarla), bütünlük ve sır kapılarından geçir."""
 
     problems: list[str] = []
 
     payload = signable_bytes(manifest.version, manifest.entries)
-    if not manifest.signature or not verify(payload, manifest.signature, key):
+    if not manifest.signature or not verify(payload, manifest.signature, public_key):
         problems.append("imza geçersiz")
 
     for entry in manifest.entries:
