@@ -50,7 +50,9 @@ runtime:
 
   # --- Agent davranışı ---
   # Ardışık araç turu üst sınırı. Model bir döngüye takılırsa tur burada kesilir.
-  agent_max_steps: 25
+  # Yalnızca patolojik döngüye karşı emniyet supabı; normal uzun işleri kesmemesi
+  # için yüksek tutulur (25 pratikte çok işi yarıda kesiyordu).
+  agent_max_steps: 200
   # Tur bitince denetçi model sonucu kontrol eder; somut sorun bulursa TEK düzeltici
   # tur çalışır. Bir hakem çağrısı ekler, çıktı daha sağlam olur. Hız istiyorsan kapat.
   self_review: true
