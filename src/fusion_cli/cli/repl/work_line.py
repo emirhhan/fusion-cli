@@ -38,24 +38,24 @@ class WorkLineSink:
             self._model = event.role
             self._tokens = 0
             self._started_at = time.monotonic()
-            self._yayınla()
+            self._publish()
         elif isinstance(event, ModelCallFinished):
             if event.background:
                 return
             self._tokens += event.result.usage.total_tokens
-            self._yayınla()
+            self._publish()
         elif isinstance(event, TurnFinished):
             self._on_clear()
 
-    def _yayınla(self) -> None:
+    def _publish(self) -> None:
         """Süre · token · model — boş olanları atlayarak çalışma satırını yayınla."""
         elapsed_ms = int((time.monotonic() - self._started_at) * 1000)
-        parcalar = [format_duration(elapsed_ms)]
+        parts = [format_duration(elapsed_ms)]
         if self._tokens:
-            parcalar.append(
+            parts.append(
                 messages.WORK_TOKENS.format(count=format_tokens(self._tokens))
             )
         if self._model:
-            parcalar.append(self._model)
-        detay = " · ".join(parcalar)
+            parts.append(self._model)
+        detay = " · ".join(parts)
         self._on_update(f"  {messages.WORK_THINKING}  {detay}")
