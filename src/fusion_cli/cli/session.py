@@ -23,6 +23,7 @@ from ..core.types import CompletionRequest, FusionResult, Message, VerdictSource
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
+from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
 from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.bus import EventBus
@@ -136,6 +137,7 @@ async def run_agent_task(
             lessons=store.lessons,
             capabilities=CapabilityRegistry(Path.home(), tool_context.root),
             allowed_commands=load_allowed_commands(tool_context.root),
+            verifier=build_verifier(config, root=tool_context.root),
         )
         outcome = await run_agent(task, deps, plan_mode=mode is ApprovalMode.PLAN)
 

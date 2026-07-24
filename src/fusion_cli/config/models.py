@@ -43,6 +43,9 @@ class RuntimeConfig:
     reflexion: bool
     #: Agent: her görevden ders çıkarılır ve benzer görevlerde promptta hatırlatılır.
     lessons: bool
+    #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
+    #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
+    verification_commands: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

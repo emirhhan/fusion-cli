@@ -1,0 +1,110 @@
+"""Faz 3 — görev sınıflandırıcı + doğrulamayı derse bağlama.
+
+Sınıflandırıcı saf eşleme olarak; doğrulama kararı saf; CommandVerifier gerçek ama
+hafif kabuk komutlarıyla (true/false) test edilir — ağ/model yok.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from fusion_cli.core.verification import VerificationResult
+from fusion_cli.engines.agent.classify import (
+    TaskKind,
+    classify_task,
+    recall_scope,
+    scope_of,
+)
+from fusion_cli.engines.agent.verification import CommandVerifier, resolve_turn_success
+
+# --------------------------------------------------------------------------- #
+# Sınıflandırıcı — saf
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("request_text", "expected"),
+    [
+        ("Login sayfasındaki hatayı düzelt", TaskKind.BUGFIX),
+        ("Bu fonksiyon için pytest testi yaz", TaskKind.TEST),
+        ("Şu modülü refactor et ve böl", TaskKind.REFACTOR),
+        ("Bir landing sayfası için HTML oluştur", TaskKind.WEBSITE),
+        ("README dosyasına kurulum belgesi ekle", TaskKind.DOCS),
+        ("Yeni bir özellik ekle: dışa aktarma", TaskKind.FEATURE),
+        ("Auth nerede yönetiliyor, incele", TaskKind.EXPLORE),
+        ("selam nasılsın", TaskKind.GENERAL),
+    ],
+)
+def test_siniflandirici_dogru_turu_secer(request_text, expected):
+    assert classify_task(request_text) is expected
+
+
+def test_bugfix_test_ten_once_gelir_oncelik():
+    # Hem "test" hem "hata" geçiyor; öncelik sırası bugfix'i seçmeli.
+    assert classify_task("testteki hatayı düzelt") is TaskKind.BUGFIX
+
+
+def test_scope_of_general_bos_doner():
+    assert scope_of(TaskKind.GENERAL) == ""
+    assert scope_of(TaskKind.BUGFIX) == "bugfix"
+
+
+def test_recall_scope_general_filtre_uygulamaz():
+    assert recall_scope(TaskKind.GENERAL) is None
+    assert recall_scope(TaskKind.REFACTOR) == "refactor"
+
+
+# --------------------------------------------------------------------------- #
+# Doğrulama kararı — saf
+# --------------------------------------------------------------------------- #
+
+
+def test_dogrulama_yokken_temel_sinyal_kullanilir():
+    assert resolve_turn_success(outcome_ok=True, hit_step_limit=False, verification=None) is True
+    assert resolve_turn_success(outcome_ok=False, hit_step_limit=False, verification=None) is False
+    assert resolve_turn_success(outcome_ok=True, hit_step_limit=True, verification=None) is False
+
+
+def test_dogrulama_gecerse_basarili():
+    ok = VerificationResult(ok=True)
+    assert resolve_turn_success(outcome_ok=True, hit_step_limit=False, verification=ok) is True
+
+
+def test_dogrulama_kirikken_tur_basarisiz():
+    fail = VerificationResult(ok=False, summary="pytest kırıldı")
+    assert resolve_turn_success(outcome_ok=True, hit_step_limit=False, verification=fail) is False
+
+
+def test_temel_sinyal_kotuyken_dogrulama_gecse_bile_basarisiz():
+    ok = VerificationResult(ok=True)
+    assert resolve_turn_success(outcome_ok=False, hit_step_limit=False, verification=ok) is False
+
+
+# --------------------------------------------------------------------------- #
+# CommandVerifier — gerçek ama hafif kabuk
+# --------------------------------------------------------------------------- #
+
+
+async def test_verifier_tum_komutlar_gecerse_ok(tmp_path):
+    verifier = CommandVerifier(("true", "true"), cwd=str(tmp_path), timeout_s=10.0)
+    result = await verifier.verify()
+    assert result.ok is True
+
+
+async def test_verifier_ilk_basarisiz_komutta_durur(tmp_path):
+    verifier = CommandVerifier(("false", "true"), cwd=str(tmp_path), timeout_s=10.0)
+    result = await verifier.verify()
+    assert result.ok is False
+    assert "false" in result.summary
+
+
+async def test_verifier_zaman_asimi_basarisizlik(tmp_path):
+    verifier = CommandVerifier(("sleep 5",), cwd=str(tmp_path), timeout_s=0.2)
+    result = await verifier.verify()
+    assert result.ok is False
+    assert "zaman aşımı" in result.summary
+
+
+async def test_verifier_bos_komut_listesi_ok(tmp_path):
+    verifier = CommandVerifier((), cwd=str(tmp_path), timeout_s=10.0)
+    assert (await verifier.verify()).ok is True

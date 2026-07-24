@@ -21,7 +21,7 @@ yapmaz: alt-ajan devri de dosya okumak da kayıt defterinden geçer.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ...config.models import Config
@@ -41,13 +41,16 @@ from ...core.events import (
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.tools import ToolContext, ToolResult
 from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
+from ...core.verification import Verifier
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
 from . import compaction, learning, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
+from .classify import classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
+from .verification import resolve_turn_success
 
 _PROMPTS = Path(__file__).parent / "prompts"
 SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
@@ -107,6 +110,9 @@ class AgentDeps:
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
     channel: Channel = Channel.MAIN
+    #: Verilirse kod değiştiren tur sonrası doğrulama kapısı çalışır ve sonucu ders
+    #: güvenini besler. Verilmezse (varsayılan) mevcut davranış birebir korunur.
+    verifier: Verifier | None = None
 
 
 async def run_agent(
@@ -127,7 +133,8 @@ async def run_agent(
     kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
     """
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    recalled = _recall_lessons(task, deps)
+    kind = classify_task(task)
+    recalled = _recall_lessons(task, deps, scope=recall_scope(kind))
     remembered = as_prompt_block(recalled)
     messages = _initial_messages(
         task,
@@ -149,8 +156,8 @@ async def run_agent(
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
-    await _learn(task, outcome, deps, plan_mode=plan_mode)
-    _reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
+    await _learn(task, outcome, deps, plan_mode=plan_mode, scope=scope_of(kind))
+    await _reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     return outcome
 
@@ -346,34 +353,41 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     return correction
 
 
-def _recall_lessons(task: str, deps: AgentDeps) -> tuple[Lesson, ...]:
-    """Göreve benzer, güveni eşiğin üstünde dersleri hatırla."""
+def _recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Lesson, ...]:
+    """Göreve benzer, güveni eşiğin üstünde ve kapsamına uyan dersleri hatırla."""
     if deps.lessons is None or not deps.config.runtime.lessons:
         return ()
-    recalled = deps.lessons.recall(task)
+    recalled = deps.lessons.recall(task, scope=scope)
     if recalled:
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
     return recalled
 
 
-def _reinforce_recalled(
+async def _reinforce_recalled(
     recalled: tuple[Lesson, ...], outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool
 ) -> None:
     """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
 
-    Ders bir davranışı önerdi ve tur başarıyla bittiyse güven artar; tur başarısızsa
-    (model hata verdi ya da adım sınırına dayanıldı) güven düşer — yanlış ders zamanla
-    eşiğin altına inip enjekte edilmez olur.
+    Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
+    devredeyse) kapı geçti. Kod değiştiren turdan sonra kapı çalıştırılır; böylece
+    "doğrulamadan bitirme" gibi kurallar dekoratif kalmaz, gerçekten uygulanır.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
     if plan_mode or not recalled:
         return
-    success = outcome.ok and not outcome.hit_step_limit
+    verification = None
+    if deps.verifier is not None and outcome.tool_calls_made > 0:
+        verification = await deps.verifier.verify()
+    success = resolve_turn_success(
+        outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
+    )
     deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
 
 
-async def _learn(task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool) -> None:
+async def _learn(
+    task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, scope: str
+) -> None:
     """Turdan ders çıkar ve belleğe yaz.
 
     Yalnızca GERÇEK İŞ yapıldıysa (araç çağrısı varsa) çalışır: sohbet turlarından
@@ -384,14 +398,16 @@ async def _learn(task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode
     if plan_mode or outcome.tool_calls_made == 0:
         return
 
-    work = _extract_and_store(task, list(outcome.messages), deps)
+    work = _extract_and_store(task, list(outcome.messages), deps, scope=scope)
     if deps.background is None:
         await work
     else:
         deps.background.spawn(work)
 
 
-async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps) -> None:
+async def _extract_and_store(
+    task: str, messages: list[Message], deps: AgentDeps, *, scope: str
+) -> None:
     """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
     if deps.lessons is None:
         return
@@ -405,7 +421,10 @@ async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps
         deps.lessons.all(),
         has_evidence=learning.has_measurable_evidence(messages),
     )
-    stored = learning.store_lessons(screened, deps.lessons)
+    # Öğrenilen ders, görevin kapsamıyla etiketlenir: benzer kapsamda daha isabetli
+    # geri çağrılır, alakasız kapsamda enjekte edilmez.
+    scoped = tuple(replace(lesson, scope=scope) for lesson in screened)
+    stored = learning.store_lessons(scoped, deps.lessons)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))
 

@@ -244,6 +244,7 @@ async def _agent_turn(
     from ...engines.agent import run_agent
     from ...engines.agent.approval import build_policy
     from ...engines.agent.loop import AgentDeps
+    from ...engines.agent.verification import build_verifier
 
     renderer = ConsoleRenderer(console)
     tracer = LangfuseTracer(task=line)
@@ -270,6 +271,7 @@ async def _agent_turn(
             capabilities=state.capabilities,
             allowed_commands=state.allowed_commands,
             background=background,
+            verifier=build_verifier(state.config, root=state.root),
         )
         outcome = await run_agent(
             line,
