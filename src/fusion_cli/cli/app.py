@@ -28,7 +28,7 @@ from ..engines.agent.approval import ApprovalMode
 from ..ui import messages, theme
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
-from . import memory_commands
+from . import knowledge_commands, memory_commands
 from .prompter import ConsolePrompter
 from .repl import run_repl
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
@@ -42,6 +42,7 @@ app = typer.Typer(
 config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görüntüle.")
 app.add_typer(config_app, name="config")
 app.add_typer(memory_commands.app, name="memory")
+app.add_typer(knowledge_commands.app, name="knowledge")
 
 console = Console()
 
