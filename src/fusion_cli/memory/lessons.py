@@ -16,10 +16,12 @@ from __future__ import annotations
 import threading
 import time
 import uuid
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
 from ..core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
+from .hybrid import CANDIDATE_MULTIPLIER, bm25_scores, reciprocal_rank_fusion
 from .lesson_ranking import Candidate, select_lessons
 from .lesson_scoring import reinforced
 from .store import get_collection
@@ -55,23 +57,35 @@ class ChromaLessonMemory:
             )
             return True
 
-    def recall(self, task: str, limit: int = 4) -> tuple[Lesson, ...]:
+    def recall(self, task: str, limit: int = 4, *, scope: str | None = None) -> tuple[Lesson, ...]:
         total = self.count()
         if not total or not task.strip():
             return ()
 
-        # Geniş çek, sonra saf sıralayıcıyla ele: alaka VE güven eşiğini geçen `limit`
-        # dersi yakalamak için aday havuzunu bilerek geniş tutuyoruz.
-        result = self._collection.query(query_texts=[task], n_results=min(limit * 3, total))
+        # Geniş çek, sonra hibrit skorla ele: embedding'in ıskaladığı birebir terim
+        # eşleşmesini lexical katman kurtarsın diye aday havuzunu bilerek geniş tutuyoruz.
+        result = self._collection.query(
+            query_texts=[task], n_results=min(limit * CANDIDATE_MULTIPLIER, total)
+        )
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
-        distances = (result.get("distances") or [[]])[0] or [0.0] * len(documents)
+        distances = [float(distance) for distance in (result.get("distances") or [[]])[0]] or [
+            0.0
+        ] * len(documents)
 
+        lexical = bm25_scores(task, list(documents))
+        fused = reciprocal_rank_fusion(distances, lexical)
         candidates = tuple(
-            Candidate(lesson=_to_lesson(document, metadata), distance=float(distance))
-            for document, metadata, distance in zip(documents, metadatas, distances, strict=False)
+            replace(
+                Candidate(lesson=_to_lesson(document, metadata), distance=distance),
+                lexical=lexical_score,
+                fused=fused_score,
+            )
+            for document, metadata, distance, lexical_score, fused_score in zip(
+                documents, metadatas, distances, lexical, fused, strict=False
+            )
         )
-        return select_lessons(candidates, limit=limit)
+        return select_lessons(candidates, limit=limit, scope=scope)
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
         """Metni eşleşen derslerin güvenini tur sonucuna göre günceller."""

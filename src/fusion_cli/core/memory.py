@@ -151,8 +151,12 @@ class LessonMemory(Protocol):
         """Dersi kaydet. Zaten varsa False döner (tekilleştirme)."""
         ...
 
-    def recall(self, task: str, limit: int = 4) -> tuple[Lesson, ...]:
-        """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir."""
+    def recall(self, task: str, limit: int = 4, *, scope: str | None = None) -> tuple[Lesson, ...]:
+        """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir.
+
+        `scope` verilirse yalnızca o görev-türü kapsamındaki (ya da kapsamsız/genel)
+        dersler döner. Geri çağırma hibrittir: embedding + lexical (BM25) birleşir.
+        """
         ...
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:

@@ -32,7 +32,7 @@ class NullLessonMemory:
     def add(self, lesson: Lesson) -> bool:
         return False
 
-    def recall(self, task: str, limit: int = 4) -> tuple[Lesson, ...]:
+    def recall(self, task: str, limit: int = 4, *, scope: str | None = None) -> tuple[Lesson, ...]:
         return ()
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:

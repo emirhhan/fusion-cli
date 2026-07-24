@@ -15,6 +15,7 @@ from typing import Any
 
 from ..core.memory import CodeMatch, IndexStats
 from .chunking import MAX_CHUNKS, Chunk, build_chunks
+from .hybrid import CANDIDATE_MULTIPLIER, bm25_scores, reciprocal_rank_fusion
 from .store import get_collection
 
 #: Tek seferde gömülecek parça sayısı. Çok büyük yığınlar bellek ve istek sınırını zorlar.
@@ -40,19 +41,30 @@ class ChromaCodeIndex:
         )
 
     def search(self, query: str, limit: int = 6) -> tuple[CodeMatch, ...]:
-        if not query.strip() or self._collection.count() == 0:
+        total = self._collection.count()
+        if not query.strip() or total == 0:
             return ()
-        result = self._collection.query(query_texts=[query], n_results=limit)
+        # Geniş aday havuzu çek, hibrit skorla yeniden sırala: kod aramasında birebir
+        # tanımlayıcı (fonksiyon/değişken adı) eşleşmesi lexical katmanla öne gelir.
+        pool = min(limit * CANDIDATE_MULTIPLIER, total)
+        result = self._collection.query(query_texts=[query], n_results=pool)
         metadatas = (result.get("metadatas") or [[]])[0]
         documents = (result.get("documents") or [[]])[0]
+        distances = [float(distance) for distance in (result.get("distances") or [[]])[0]] or [
+            0.0
+        ] * len(documents)
+
+        lexical = bm25_scores(query, list(documents))
+        fused = reciprocal_rank_fusion(distances, lexical)
+        order = sorted(range(len(documents)), key=lambda index: fused[index], reverse=True)
         return tuple(
             CodeMatch(
-                path=str(metadata.get("path", "?")),
-                start_line=int(metadata.get("start", 0)),
-                end_line=int(metadata.get("end", 0)),
-                snippet=document,
+                path=str(metadatas[index].get("path", "?")),
+                start_line=int(metadatas[index].get("start", 0)),
+                end_line=int(metadatas[index].get("end", 0)),
+                snippet=documents[index],
             )
-            for metadata, document in zip(metadatas, documents, strict=False)
+            for index in order[:limit]
         )
 
     def reindex(self, limit: int = MAX_CHUNKS) -> IndexStats:
