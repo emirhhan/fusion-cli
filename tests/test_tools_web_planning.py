@@ -5,9 +5,15 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.tools import TodoStatus, ToolContext
-from fusion_cli.tools import build_registry
+from fusion_cli.tools import build_registry, web
 from fusion_cli.tools.planning import parse_todos
-from fusion_cli.tools.web import _DDG_RESULT, clean_result_url, parse_results, strip_html
+from fusion_cli.tools.web import (
+    _DDG_RESULT,
+    clean_result_url,
+    parse_results,
+    strip_html,
+    url_block_reason,
+)
 
 
 @pytest.fixture
@@ -73,6 +79,64 @@ def test_gecersiz_adresler_atlanir():
     html = '<a class="result__a" href="javascript:void(0)">Kotu</a>'
 
     assert parse_results(html, _DDG_RESULT) == []
+
+
+# --- SSRF doğrulama (saf) --------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://127.0.0.1/",
+        "http://127.0.0.1:8080/admin",
+        "http://169.254.169.254/latest/meta-data/",  # bulut metadata ucu
+        "http://[::1]/",
+        "http://10.0.0.5/",
+        "http://192.168.1.1/",
+        "http://172.16.0.1/",
+        "http://0.0.0.0/",
+        "file:///etc/passwd",
+        "gopher://x/",
+        "ftp://host/dosya",
+    ],
+)
+def test_ssrf_tehlikeli_adresler_engellenir(url):
+    assert url_block_reason(url) is not None, url
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://8.8.8.8/",  # genel IP, çözülmeye gerek yok
+        "https://93.184.216.34/sayfa",  # example.com'un genel IP'si
+    ],
+)
+def test_ssrf_genel_adresler_gecer(url):
+    assert url_block_reason(url) is None, url
+
+
+def test_ssrf_alan_adi_ozel_ip_ye_cozulurse_engellenir(monkeypatch):
+    def sahte_getaddrinfo(host, port, **kwargs):
+        return [(0, 0, 0, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(web.socket, "getaddrinfo", sahte_getaddrinfo)
+
+    assert url_block_reason("http://kotu-alan-adi.example/") is not None
+
+
+def test_ssrf_cozulemeyen_alan_adi_engellenir(monkeypatch):
+    def patlat(host, port, **kwargs):
+        raise web.socket.gaierror("çözülemedi")
+
+    monkeypatch.setattr(web.socket, "getaddrinfo", patlat)
+
+    assert "çözülemedi" in url_block_reason("http://yok.example/")
+
+
+async def test_web_fetch_ozel_adresi_reddeder(registry, context):
+    sonuc = await registry.execute("web_fetch", {"url": "http://169.254.169.254/"}, context)
+
+    assert not sonuc.ok and "erişilemez" in sonuc.output
 
 
 # --- Görev listesi ---------------------------------------------------------- #

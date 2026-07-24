@@ -34,6 +34,9 @@ GIT_TIMEOUT_S = 30.0
 WEB_TIMEOUT_S = 20.0
 #: Web aramasından döndürülecek en fazla sonuç.
 MAX_WEB_RESULTS = 8
+#: `web_fetch` için elle takip edilecek en fazla yönlendirme. Her adım SSRF'e karşı
+#: yeniden doğrulanır; sonsuz/uzun yönlendirme zinciri bu sınırla kesilir.
+MAX_WEB_REDIRECTS = 5
 
 #: Keşif ve arama sırasında atlanan gürültü dizinleri.
 SKIP_DIRECTORIES = frozenset(

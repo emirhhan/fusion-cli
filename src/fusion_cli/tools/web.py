@@ -11,17 +11,27 @@ sonuna çevrilir, HTML varlıkları çözülür. Model ham etiket kalabalığı 
 from __future__ import annotations
 
 import html as html_module
+import ipaddress
 import re
+import socket
 from collections.abc import Callable
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 import httpx
 
-from ..core.constants import MAX_OUTPUT_CHARS, MAX_WEB_RESULTS, WEB_TIMEOUT_S
+from ..core.constants import (
+    MAX_OUTPUT_CHARS,
+    MAX_WEB_REDIRECTS,
+    MAX_WEB_RESULTS,
+    WEB_TIMEOUT_S,
+)
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 
 _USER_AGENT = "Mozilla/5.0 (fusion-cli)"
+
+#: `web_fetch`'in izin verdiği tek şemalar. `file://`, `gopher://` vb. reddedilir.
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
 
 _SCRIPT_BLOCK = re.compile(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>")
 _LINE_BREAK = re.compile(r"(?is)<br\s*/?>")
@@ -36,17 +46,46 @@ _DDG_LITE_RESULT = re.compile(r'(?is)<a[^>]+href="([^"]+)"[^>]*class="result-lin
 
 def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = _normalize_url(require_str(args, "url"))
+    reason = url_block_reason(url)
+    if reason is not None:
+        return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+
     try:
-        with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
-            response = client.get(url, headers={"User-Agent": _USER_AGENT})
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            body = response.text
+        content_type, body = _fetch_following_redirects(url)
     except httpx.HTTPError as exc:
         return ToolResult.failure(f"Sayfa çekilemedi ({type(exc).__name__}): {exc}")
+    except _BlockedRedirectError as exc:
+        return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
     text = strip_html(body) if _looks_like_html(content_type, body) else body
     return ToolResult(text[:MAX_OUTPUT_CHARS] or "(boş içerik)")
+
+
+class _BlockedRedirectError(Exception):
+    """Bir yönlendirme SSRF doğrulamasını geçemedi ya da zincir çok uzadı."""
+
+
+def _fetch_following_redirects(url: str) -> tuple[str, str]:
+    """Yönlendirmeleri ELLE, her adımı SSRF'e karşı doğrulayarak takip et.
+
+    `httpx`'in kendi `follow_redirects`'i ara hedefleri denetlemez; dış bir URL
+    302 ile localhost/metadata'ya yönlendirebilir. Bu yüzden her yönlendirme
+    yeni bir doğrulamadan (`url_block_reason`) geçirilir.
+    """
+    current = url
+    # follow_redirects=False: yönlendirmeyi httpx değil biz yönetiriz.
+    with httpx.Client(follow_redirects=False, timeout=WEB_TIMEOUT_S) as client:
+        for _ in range(MAX_WEB_REDIRECTS + 1):
+            response = client.get(current, headers={"User-Agent": _USER_AGENT})
+            if not response.is_redirect:
+                response.raise_for_status()
+                return response.headers.get("content-type", ""), response.text
+            location = response.headers.get("location", "")
+            current = urljoin(current, location)
+            reason = url_block_reason(current)
+            if reason is not None:
+                raise _BlockedRedirectError(reason)
+        raise _BlockedRedirectError(f"en fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı")
 
 
 def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -108,6 +147,47 @@ def parse_results(html: str, pattern: re.Pattern[str]) -> list[str]:
         if len(results) >= MAX_WEB_RESULTS:
             break
     return results
+
+
+def url_block_reason(url: str) -> str | None:
+    """URL SSRF açısından güvenli mi? Engellenmeliyse Türkçe gerekçe, değilse None.
+
+    Saf ve test edilebilir: yalnızca ad çözümlemesi (`socket.getaddrinfo`) dışa
+    çıkar. Reddedilenler: http/https dışı şema, hostsuz adres, özel/loopback/
+    link-local/multicast/rezerve IP aralıkları ve bunlara çözülen alan adları
+    (DNS rebinding'e karşı çözülmüş IP denetlenir).
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in _ALLOWED_SCHEMES:
+        return f"yalnızca http/https desteklenir (verilen: {parsed.scheme or 'şema yok'})"
+    host = parsed.hostname
+    if not host:
+        return "adreste host yok"
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or 80, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return f"alan adı çözülemedi: {host}"
+    for info in infos:
+        address = str(info[4][0])
+        if _is_blocked_ip(address):
+            return f"özel/yerel ağ adresi ({address})"
+    return None
+
+
+def _is_blocked_ip(address: str) -> bool:
+    """Bu IP özel/loopback/link-local/rezerve mi? (metadata IP'si dâhil)"""
+    try:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
+        return True  # Çözülemeyen bir şeyi güvenli varsaymayız.
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local  # 169.254.0.0/16 — bulut metadata ucu buradadır
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
 
 
 def _normalize_url(url: str) -> str:
