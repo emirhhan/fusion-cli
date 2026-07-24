@@ -26,6 +26,7 @@ from pathlib import Path
 
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
+from ...core.constants import SHELL_TIMEOUT_S
 from ...core.events import (
     Channel,
     ContextCompressed,
@@ -46,6 +47,10 @@ from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
+from ...tools.safety import danger_reason
+from ..playbook import Playbook, run_playbook
+from ..playbook.library import PLAYBOOKS, ShellStepRunner
+from ..playbook.matching import find_match
 from . import compaction, learning, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .classify import classify_task, recall_scope, scope_of
@@ -132,6 +137,11 @@ async def run_agent(
     `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
     kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
     """
+    if not plan_mode and depth == 0:
+        played = await _maybe_run_playbook(task, deps)
+        if played is not None:
+            return played
+
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     kind = classify_task(task)
     recalled = _recall_lessons(task, deps, scope=recall_scope(kind))
@@ -351,6 +361,38 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
+
+
+async def _maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
+    """İstek bir playbook'u tetikliyorsa deterministik akışı çalıştır.
+
+    Opt-in (varsayılan kapalı). Yalnızca tüm komutları güvenli olan bir playbook
+    çalıştırılır; akış başarısız olur (checks kırılır → geri alınır) ise None dönülür
+    ve normal agent akışına düşülür — model devralır.
+    """
+    if not deps.config.runtime.playbooks:
+        return None
+    playbook = find_match(PLAYBOOKS, task)
+    if playbook is None or not _all_commands_safe(playbook):
+        return None
+
+    runner = ShellStepRunner(cwd=str(deps.tool_context.root), timeout_s=SHELL_TIMEOUT_S)
+    result = await run_playbook(playbook, runner)
+    if not result.ok:
+        return None
+    return AgentOutcome(
+        final_text=result.summary,
+        messages=[Message("assistant", result.summary)],
+        tool_calls_made=len(result.ran_steps),
+    )
+
+
+def _all_commands_safe(playbook: Playbook) -> bool:
+    """Playbook'un tüm komutları (adım/geri-alma/doğrulama) yıkıcı desen içermiyor mu."""
+    commands = [step.command for step in playbook.steps]
+    commands += [step.rollback for step in playbook.steps if step.rollback]
+    commands += list(playbook.checks)
+    return all(danger_reason("run_shell", {"command": command}) is None for command in commands)
 
 
 def _recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Lesson, ...]:

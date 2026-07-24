@@ -64,6 +64,10 @@ runtime:
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.
   verification_commands: []
+  # İstek bir playbook'u (deterministik çok-adımlı akış) tetiklerse serbest ReAct
+  # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
+  # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
+  playbooks: false
 
 # ---------------------------------------------------------------------------
 # Fusion havuzu: aynı görev bu modellere PARALEL sorulur, hakem en iyisini seçer,

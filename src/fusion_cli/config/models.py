@@ -46,6 +46,9 @@ class RuntimeConfig:
     #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
     #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
     verification_commands: tuple[str, ...] = ()
+    #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
+    #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
+    playbooks: bool = False
 
 
 @dataclass(frozen=True, slots=True)
