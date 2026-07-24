@@ -70,6 +70,7 @@ class ConsoleRenderer:
         show_progress: bool = True,
         show_all_answers: bool = False,
         show_call_details: bool = False,
+        live_progress: bool = True,
     ) -> None:
         self._console = console or Console()
         self._show_progress = show_progress
@@ -84,8 +85,9 @@ class ConsoleRenderer:
         self._raw: dict[Channel, str] = {}
         self._shown: dict[Channel, int] = {}
         # Model çalışırken görünen canlı satır. Ekrana bir şey basılmadan önce
-        # daima duraklatılır; akan metnin üstüne binmez.
-        self._work = WorkIndicator(self._console)
+        # daima duraklatılır; akan metnin üstüne binmez. Tam-ekran köprüsünde
+        # `live_progress=False` verilir: Live yerine layout çalışma satırı beslenir.
+        self._work = WorkIndicator(self._console, enabled=live_progress)
         #: Basılmayı bekleyen durum satırı — bkz. `_status`.
         self._pending_status: str | None = None
 
