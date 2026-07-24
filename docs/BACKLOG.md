@@ -84,3 +84,17 @@ Bilinçli olarak taşınmayan iki şey:
   (giriş satırının sağ ucu) taşımak → blok tek satıra iner, çoğalma biter. Kullanıcı görünümü
   korumayı tercih ettiği için UYGULANMADI; alt çubuk korundu, bug kabul edildi. Fikir
   değişirse düzeltme hazır ve artık test edilebilir.
+
+## Faz 4'e ertelenen (tam-ekran TUI, Faz 2 final incelemesinden)
+
+- **Gerçek-terminal takip-modu doğrulaması.** Konuşma alanı `FormattedTextControl(ANSI)`
+  + `vertical_scroll` ile kayıyor. Risk: takip modu × `wrap_lines=True` × prompt_toolkit'in
+  render-zamanı cursor-scroll clamp'i (`containers.py` `_scroll_when_linewrapping`) manuel
+  kaydırmayı geri çekebilir. Yalnızca gerçek Terminal.app'te doğrulanır; kod salt-okunur
+  ve `always_hide_cursor=True` bilinen imleç tuzağını atlatır, ama görsel doğrulama Faz 4
+  cilasında yapılmalı.
+- **Sink-sırası test pini (isteğe bağlı).** `screen_turn.run_turn`'ün sink demeti sırası
+  load-bearing (renderer, pump'tan ÖNCE köprü console'una yazmalı). Mevcut test sink
+  tiplerinin varlığını doğruluyor, sırayı değil; tek satırlık bir sıra assert'i eklenebilir.
+- **ansi_bridge renk testini güçlendir (isteğe bağlı).** Test yalnızca `\x1b[` varlığını
+  kontrol ediyor; renge-özgü SGR assert'i (ör. `\x1b[31m`) daha güçlü kanıt olurdu.
