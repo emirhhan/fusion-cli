@@ -11,6 +11,7 @@ ayrı bir proxy sunucusu çalıştırmaya gerek yoktur.
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -31,6 +32,8 @@ from ..core.types import (
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
+
+_logger = logging.getLogger(__name__)
 
 
 def _litellm() -> Any:  # litellm modülü; tip stub'ı yok, SDK sınırında Any kaçınılmaz.
@@ -202,7 +205,10 @@ def estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> flo
             },
             model=model,
         )
-    except Exception:
+    # Geniş yakalama bilinçli: litellm bilinmeyen/yerel modelde çeşitli istisna
+    # tipleri fırlatabilir. Maliyet 0'a düşer ama SESSİZ değil — teşhis için loglanır.
+    except Exception as exc:
+        _logger.debug("maliyet hesaplanamadı (model=%s): %s", model, exc)
         return 0.0
     return float(cost or 0.0)
 

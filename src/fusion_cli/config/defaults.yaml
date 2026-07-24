@@ -32,6 +32,10 @@ runtime:
   max_retries: 1
   temperature: 0.3
   max_tokens: 2048
+  # Hakem/sentez/ısıtma gibi deterministik olması gereken çağrılar için sıcaklık.
+  judge_temperature: 0.0
+  # Ders çıkarımı, bağlam sıkıştırma, öz-denetim gibi yardımcı çağrılar için sıcaklık.
+  utility_temperature: 0.1
 
   # --- Fusion zamanlaması ---
   # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan

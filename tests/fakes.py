@@ -107,6 +107,8 @@ def make_config(**overrides):
         "request_timeout_s": 5.0,
         "max_retries": 0,
         "temperature": 0.0,
+        "judge_temperature": 0.0,
+        "utility_temperature": 0.1,
         "max_tokens": 32,
         "judge_timeout_s": 5.0,
         "judge_max_tokens": 64,

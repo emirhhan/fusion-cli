@@ -10,13 +10,14 @@ olmalıdır.
 
 from __future__ import annotations
 
-import time
 import uuid
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from ..core.clock import SystemClock
 from ..core.memory import Feedback, ModelStats, Outcome
+from ..core.protocols import Clock
 from .store import get_collection
 
 COLLECTION = "model_performance"
@@ -30,8 +31,9 @@ LATENCY_SATURATION_MS = 60_000.0
 class ChromaPerformanceMemory:
     """ChromaDB destekli performans belleği."""
 
-    def __init__(self, directory: Path) -> None:
+    def __init__(self, directory: Path, *, clock: Clock | None = None) -> None:
         self._collection = get_collection(directory, COLLECTION)
+        self._clock = clock or SystemClock()
 
     def record(self, outcome: Outcome) -> None:
         self._collection.add(
@@ -45,7 +47,7 @@ class ChromaPerformanceMemory:
                     "latency_ms": int(outcome.latency_ms),
                     "tokens": int(outcome.tokens),
                     "won": bool(outcome.won),
-                    "timestamp": time.time(),
+                    "timestamp": self._clock.now(),
                 }
             ],
         )

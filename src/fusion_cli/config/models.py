@@ -23,6 +23,13 @@ class RuntimeConfig:
     max_retries: int
     temperature: float
     max_tokens: int
+    #: Deterministik olması gereken çağrılar (hakem, sentez, ısıtma) için sıcaklık.
+    #: Ana `temperature`'dan ayrıdır: kullanıcı yaratıcılığı artırsa bile hakem
+    #: JSON'a sadık kalmalı, seçim kararlı olmalıdır.
+    judge_temperature: float
+    #: Yardımcı arka plan çağrıları (ders çıkarımı, bağlam sıkıştırma, öz-denetim)
+    #: için düşük ama sıfır olmayan sıcaklık.
+    utility_temperature: float
     #: Hakem için sıkı son tarih. Aşılırsa sezgisel kazanan seçilir, tur durmaz.
     judge_timeout_s: float
     #: Hakem bütçesi. Reasoning modelleri düşünme + JSON'u buraya sığdırmalıdır.

@@ -107,7 +107,7 @@ async def _warm_up(state: ReplState) -> None:
 
     request = CompletionRequest(
         messages=(Message("user", "hi"),),
-        temperature=0.0,
+        temperature=state.config.runtime.judge_temperature,
         max_tokens=1,
         timeout_s=state.config.runtime.request_timeout_s,
         max_retries=0,

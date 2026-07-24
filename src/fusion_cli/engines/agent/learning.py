@@ -80,7 +80,7 @@ async def extract_lessons(
 
     request = CompletionRequest(
         messages=(Message("user", _PROMPT.replace("{task}", task).replace("{trace}", trace)),),
-        temperature=0.1,
+        temperature=config.runtime.utility_temperature,
         max_tokens=EXTRACT_MAX_TOKENS,
         timeout_s=config.runtime.request_timeout_s,
         max_retries=config.runtime.max_retries,

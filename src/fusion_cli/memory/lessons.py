@@ -14,13 +14,14 @@ promptuna geri enjekte edilir. Zamanla aynı hataları tekrarlamaz.
 from __future__ import annotations
 
 import threading
-import time
 import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..core.clock import SystemClock
 from ..core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
+from ..core.protocols import Clock
 from .hybrid import CANDIDATE_MULTIPLIER, bm25_scores, reciprocal_rank_fusion
 from .lesson_ranking import Candidate, select_lessons
 from .lesson_scoring import reinforced
@@ -36,8 +37,14 @@ class ChromaLessonMemory:
     """ChromaDB destekli ders belleği."""
 
     def __init__(
-        self, directory: Path, *, embedding_function: Any = None, suffix: str = ""
+        self,
+        directory: Path,
+        *,
+        embedding_function: Any = None,
+        suffix: str = "",
+        clock: Clock | None = None,
     ) -> None:
+        self._clock = clock or SystemClock()
         # Gömme sağlayıcısı değişirse vektör boyutu da değişir; koleksiyon adına ek
         # koyulur ki farklı boyutlu kayıtlar aynı koleksiyonda karışmasın.
         name = f"{COLLECTION}_{suffix}" if suffix else COLLECTION
@@ -53,7 +60,7 @@ class ChromaLessonMemory:
             self._collection.add(
                 ids=[uuid.uuid4().hex],
                 documents=[text],
-                metadatas=[_to_metadata(lesson)],
+                metadatas=[_to_metadata(lesson, self._clock.now())],
             )
             return True
 
@@ -103,7 +110,9 @@ class ChromaLessonMemory:
                     continue
                 lesson = reinforced(_to_lesson(document, metadata), success=success)
                 self._collection.update(
-                    ids=[row_id], documents=[document], metadatas=[_to_metadata(lesson)]
+                    ids=[row_id],
+                    documents=[document],
+                    metadatas=[_to_metadata(lesson, self._clock.now())],
                 )
                 updated += 1
             return updated
@@ -129,7 +138,7 @@ class ChromaLessonMemory:
         return any(document.strip().lower() == normalized for document in existing)
 
 
-def _to_metadata(lesson: Lesson) -> dict[str, Any]:
+def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
     """Dersi ChromaDB metadata'sına çevir. Güven/sayaç alanları burada kalıcılaşır."""
     return {
         "task": lesson.task[:500],
@@ -140,7 +149,7 @@ def _to_metadata(lesson: Lesson) -> dict[str, Any]:
         "failure_count": int(lesson.failure_count),
         "scope": lesson.scope[:100],
         "trigger": lesson.trigger[:200],
-        "timestamp": time.time(),
+        "timestamp": timestamp,
     }
 
 

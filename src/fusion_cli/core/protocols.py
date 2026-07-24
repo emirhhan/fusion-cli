@@ -38,3 +38,7 @@ class Clock(Protocol):
     def monotonic(self) -> float:
         """Süre ölçümü için monoton saniye."""
         ...
+
+    def now(self) -> float:
+        """Duvar saati zaman damgası (Unix epoch saniyesi)."""
+        ...

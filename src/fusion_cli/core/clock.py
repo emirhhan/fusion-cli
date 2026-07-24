@@ -14,3 +14,6 @@ class SystemClock:
 
     def monotonic(self) -> float:
         return time.perf_counter()
+
+    def now(self) -> float:
+        return time.time()

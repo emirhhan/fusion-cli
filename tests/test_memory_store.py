@@ -33,7 +33,39 @@ def _sonuc(model, *, score=0.9, latency=1000, won=True, task_type="general"):
     )
 
 
+class _CasusClock:
+    """Enjekte edilen saatin timestamp için kullanıldığını doğrulayan sahte saat."""
+
+    def __init__(self, sabit: float) -> None:
+        self._sabit = sabit
+        self.now_cagrildi = 0
+
+    def monotonic(self) -> float:
+        return self._sabit
+
+    def now(self) -> float:
+        self.now_cagrildi += 1
+        return self._sabit
+
+
 # --- Performans belleği ------------------------------------------------------ #
+
+
+def test_performans_kaydi_enjekte_edilen_saati_kullanir(tmp_path):
+    saat = _CasusClock(1234.0)
+    bellek = ChromaPerformanceMemory(tmp_path, clock=saat)
+
+    bellek.record(_sonuc("m"))
+
+    assert saat.now_cagrildi == 1  # timestamp time.time() değil, Clock'tan geldi
+
+
+def test_ders_kaydi_enjekte_edilen_saati_kullanir(tmp_path):
+    saat = _CasusClock(1234.0)
+    bellek = ChromaLessonMemory(tmp_path, clock=saat)
+
+    assert bellek.add(Lesson(text="dosyayi once oku", kind=LessonKind.SUCCESS))
+    assert saat.now_cagrildi == 1
 
 
 def test_kayit_sonrasi_en_iyi_model_bulunur(tmp_path):

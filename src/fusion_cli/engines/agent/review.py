@@ -61,7 +61,7 @@ async def review_turn(
 async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:
     request = CompletionRequest(
         messages=(Message("user", prompt),),
-        temperature=0.1,
+        temperature=config.runtime.utility_temperature,
         max_tokens=config.runtime.judge_max_tokens,
         timeout_s=config.runtime.judge_timeout_s,
         max_retries=config.runtime.max_retries,

@@ -217,7 +217,7 @@ async def _judge(
         max_tokens=config.runtime.judge_max_tokens,
         prompt=_fill(_JUDGE_PROMPT, task, answers),
         timeout_s=config.runtime.judge_timeout_s,
-        temperature=0.0,
+        temperature=config.runtime.judge_temperature,
     )
     # Arka plan işi: ilerleme satırı gösterilmez ama harcadığı token muhasebeye girer.
     provider = build_provider(config.judge, publisher=publisher, background=True)

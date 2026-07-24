@@ -45,7 +45,7 @@ async def compress(
 async def _summarize(trace: str, config: Config, publisher: EventPublisher | None) -> str:
     request = CompletionRequest(
         messages=(Message("user", _PROMPT.replace("{trace}", trace)),),
-        temperature=0.1,
+        temperature=config.runtime.utility_temperature,
         max_tokens=SUMMARY_MAX_TOKENS,
         timeout_s=config.runtime.request_timeout_s,
         max_retries=config.runtime.max_retries,
