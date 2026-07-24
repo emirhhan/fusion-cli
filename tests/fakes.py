@@ -96,7 +96,12 @@ def request(**overrides) -> CompletionRequest:
 
 
 def make_config(**overrides):
-    """Testler için tam bir Config. Alanlar override ile değiştirilebilir."""
+    """Testler için tam bir Config. Alanlar override ile değiştirilebilir.
+
+    `memory_dir` verilmezse izole geçici bir dizin kullanılır; testler paylaşımlı
+    bir `/tmp` yolunu paylaşmaz (RULES: testler yalnızca izole geçici alana yazar).
+    """
+    import tempfile
     from pathlib import Path as _Path
 
     from fusion_cli.config.models import Config, RuntimeConfig
@@ -136,7 +141,7 @@ def make_config(**overrides):
         "task_model_map": {"general": "a", "code": "c"},
         "runtime": RuntimeConfig(**runtime),
         "embedding": EmbeddingConfig(provider="local", model="test"),
-        "memory_dir": _Path("/tmp/fusion-test-memory"),
+        "memory_dir": _Path(tempfile.mkdtemp(prefix="fusion-test-memory-")),
         "source": _Path("test"),
     }
     defaults.update(overrides)

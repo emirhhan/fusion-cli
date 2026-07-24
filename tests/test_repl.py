@@ -509,10 +509,12 @@ def test_bellek_kapaliysa_belirtilir():
 
 def _status_text(mode, context=""):
     import re
+    import tempfile
 
     from fusion_cli.cli.repl.input import ReplInput
 
-    reader = ReplInput(Path("/tmp/fusion-test-history"), ["/help"], mode=mode)
+    history = Path(tempfile.mkdtemp(prefix="fusion-test-history-")) / "history"
+    reader = ReplInput(history, ["/help"], mode=mode)
     reader.context = context
     return re.sub(r"<[^>]+>", "", reader.status_bar().value)
 
