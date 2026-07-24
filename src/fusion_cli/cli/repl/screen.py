@@ -112,7 +112,14 @@ class FusionScreen:
         )
         self.application: Application[Any] = Application(
             layout=Layout(
-                FloatContainer(content=root, floats=[Float(self._modal_layer())]),
+                FloatContainer(
+                    content=root,
+                    # Sınırlı (bounded) modal kutusu. Konumsuz Float, imleç-tabanlı
+                    # yerleştirme yoluna girip konuşmanın kaydırma imleciyle etkileşerek
+                    # layout'u bozuyor (resize'da satır kayması + scrollback sızması).
+                    # Açık top/left/right vererek bu yolu tamamen atlıyoruz.
+                    floats=[Float(self._modal_layer(), top=2, left=6, right=6)],
+                ),
                 focused_element=self._input,
             ),
             key_bindings=self._bindings(),
