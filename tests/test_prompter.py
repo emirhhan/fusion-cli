@@ -80,9 +80,7 @@ async def test_soru_sirasinda_canli_gosterge_duraklatilir(tmp_path):
 
     buffer = io.StringIO()
     console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
-    prompter = ConsolePrompter(
-        console, ToolContext(root=tmp_path), flush=_flush, suspend=_suspend
-    )
+    prompter = ConsolePrompter(console, ToolContext(root=tmp_path), flush=_flush, suspend=_suspend)
 
     await prompter.ask("soru?")
 

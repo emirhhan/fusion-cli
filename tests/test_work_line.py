@@ -31,9 +31,7 @@ def test_model_baslayinca_calisma_satiri_guncellenir():
     temizlendi: list[bool] = []
     sink = WorkLineSink(satirlar.append, lambda: temizlendi.append(True))
 
-    sink.handle(
-        ModelCallStarted(role="nemotron", model="nemotron-super", background=False)
-    )
+    sink.handle(ModelCallStarted(role="nemotron", model="nemotron-super", background=False))
 
     assert satirlar, "başlangıçta bir çalışma satırı yayınlanmalı"
     assert "nemotron" in satirlar[-1]
@@ -45,9 +43,7 @@ def test_token_bilgisi_satira_yansir():
     satirlar: list[str] = []
     sink = WorkLineSink(satirlar.append, lambda: None)
 
-    sink.handle(
-        ModelCallStarted(role="nemotron", model="nemotron-super", background=False)
-    )
+    sink.handle(ModelCallStarted(role="nemotron", model="nemotron-super", background=False))
     sink.handle(_bitti(1200))
 
     assert "1.2k" in satirlar[-1]  # format_tokens: 1200 → 1.2k
@@ -59,9 +55,7 @@ def test_arka_plan_cagrilari_yok_sayilir():
     satirlar: list[str] = []
     sink = WorkLineSink(satirlar.append, lambda: None)
 
-    sink.handle(
-        ModelCallStarted(role="judge", model="hakem", background=True)
-    )
+    sink.handle(ModelCallStarted(role="judge", model="hakem", background=True))
 
     assert not satirlar, "arka plan çağrısı çalışma satırı yayınlamamalı"
 
@@ -72,9 +66,7 @@ def test_tur_bitince_satir_temizlenir():
     temizlendi: list[bool] = []
     sink = WorkLineSink(lambda s: None, lambda: temizlendi.append(True))
 
-    sink.handle(
-        ModelCallStarted(role="nemotron", model="nemotron-super", background=False)
-    )
+    sink.handle(ModelCallStarted(role="nemotron", model="nemotron-super", background=False))
     sink.handle(TurnFinished())
 
     assert temizlendi == [True]

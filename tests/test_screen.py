@@ -125,9 +125,7 @@ def test_screen_repl_calisan_loop_icinde_await_edilir():
     async def _senaryo(mp) -> None:
         mp.setattr(screen_mod, "FusionScreen", _sahte_screen)
         mp.setattr(screen_mod, "install_app_cursor_mode", lambda app: None)
-        mp.setattr(
-            screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True)
-        )
+        mp.setattr(screen_mod.sys.stdout, "write", lambda s: cagrildi.__setitem__("restore", True))
         await screen_mod.run_screen_repl(state=None)  # type: ignore[arg-type]
 
     from _pytest.monkeypatch import MonkeyPatch

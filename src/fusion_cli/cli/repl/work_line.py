@@ -20,9 +20,7 @@ from ...ui.work import format_tokens
 class WorkLineSink:
     """Model olaylarını dinleyip çalışma satırı metnini besler."""
 
-    def __init__(
-        self, on_update: Callable[[str], None], on_clear: Callable[[], None]
-    ) -> None:
+    def __init__(self, on_update: Callable[[str], None], on_clear: Callable[[], None]) -> None:
         self._on_update = on_update
         self._on_clear = on_clear
         self._model = ""
@@ -52,9 +50,7 @@ class WorkLineSink:
         elapsed_ms = int((time.monotonic() - self._started_at) * 1000)
         parts = [format_duration(elapsed_ms)]
         if self._tokens:
-            parts.append(
-                messages.WORK_TOKENS.format(count=format_tokens(self._tokens))
-            )
+            parts.append(messages.WORK_TOKENS.format(count=format_tokens(self._tokens)))
         if self._model:
             parts.append(self._model)
         detay = " · ".join(parts)

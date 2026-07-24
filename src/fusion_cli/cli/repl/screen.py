@@ -94,9 +94,7 @@ class FusionScreen:
             focusable=True,
             wrap_lines=True,
         )
-        self._work_window = Window(
-            content=FormattedTextControl(lambda: self._work_text), height=1
-        )
+        self._work_window = Window(content=FormattedTextControl(lambda: self._work_text), height=1)
         self._input = TextArea(height=1, prompt="❯ ", multiline=False, wrap_lines=False)
         self._input.accept_handler = self._handle_submit
         self._modal_input = TextArea(height=1, multiline=False, wrap_lines=False)

@@ -104,9 +104,7 @@ class ReplInput:
         if line_count > 1:
             token = messages.REPL_PASTE_FOLDED.format(count=line_count, index=self._paste_seq)
         else:
-            token = messages.REPL_PASTE_FOLDED_CHARS.format(
-                count=len(text), index=self._paste_seq
-            )
+            token = messages.REPL_PASTE_FOLDED_CHARS.format(count=len(text), index=self._paste_seq)
         self._pastes[token] = text
         buffer.insert_text(token)
 

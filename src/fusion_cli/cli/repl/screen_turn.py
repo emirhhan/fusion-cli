@@ -58,9 +58,7 @@ async def run_turn(line: str, state: ReplState, screen: FusionScreen) -> None:
     her olayda köprüyü boşaltıp ekranı tazeler. Maliyet toplayıcı OTURUM boyunca
     yaşar: her tur aynı toplayıcıyı besler.
     """
-    renderer = ConsoleRenderer(
-        screen.bridge.console, live_progress=False, show_call_details=True
-    )
+    renderer = ConsoleRenderer(screen.bridge.console, live_progress=False, show_call_details=True)
     work = WorkLineSink(screen.set_work, screen.clear_work)
     pump = PumpSink(screen.after_event)
     sinks = (renderer, work, pump, state.cost)
