@@ -1,8 +1,7 @@
 """Tur koşucusu — girişi motora bağlar, çıktıyı tam-ekran konuşmaya akıtır.
 
-Faz 2 kapsamı: fusion + agent turları akar. Onay/soru full-screen'de terminal
-devralınamadığından etkileşimsiz karşılanır (reddet / cevap yok); gerçek modal
-Faz 3'te eklenir.
+fusion + agent turları akar. Onay/soru, tam-ekranda `ScreenPrompter` üzerinden
+modal diyalogla karşılanır (evet/hayır ve serbest metin).
 """
 
 from __future__ import annotations
@@ -12,7 +11,6 @@ from typing import TYPE_CHECKING
 
 from ...core.events import Event
 from ...engines.agent.approval import ApprovalRequest
-from ...ui import messages
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
 from .state import Engine
@@ -23,14 +21,23 @@ if TYPE_CHECKING:  # pragma: no cover
     from .state import ReplState
 
 
-class NonInteractivePrompter:
-    """Full-screen'de stdin okunamaz: onayı reddeder, soruya cevap yok döner."""
+class ScreenPrompter:
+    """Motor onay/soru çağrılarını tam-ekran modalına köprüler."""
+
+    def __init__(self, screen: FusionScreen) -> None:
+        self._screen = screen
 
     async def confirm(self, request: ApprovalRequest) -> bool:
-        return False
+        return await self._screen.ask_confirm(_preview(request), request.danger)
 
     async def ask(self, question: str) -> str:
-        return messages.NO_ANSWER_AVAILABLE
+        return await self._screen.ask_text(question)
+
+
+def _preview(request: ApprovalRequest) -> str:
+    """Onaya sunulan araç çağrısının düz metin özeti: araç adı + argümanlar."""
+    pairs = ", ".join(f"{key}={value!r}" for key, value in request.args.items())
+    return f"{request.tool.name}({pairs})"
 
 
 class PumpSink:
@@ -72,9 +79,9 @@ async def run_turn(line: str, state: ReplState, screen: FusionScreen) -> None:
             line,
             state.config,
             sinks=sinks,
-            prompter_factory=lambda _drain: NonInteractivePrompter(),
+            prompter_factory=lambda _drain: ScreenPrompter(screen),
             mode=state.approval,
             root=state.root,
-            interactive=False,
+            interactive=True,
             memory=state.memory,
         )

@@ -15,16 +15,6 @@ def _repl_state(engine: Engine, tmp_path) -> ReplState:
     return ReplState(config=make_config(), memory=null_memory(), root=tmp_path, engine=engine)
 
 
-@pytest.mark.asyncio
-async def test_etkilesimsiz_prompter_reddeder():
-    from fusion_cli.cli.repl.screen_turn import NonInteractivePrompter
-
-    prompter = NonInteractivePrompter()
-    assert await prompter.confirm(object()) is False
-    cevap = await prompter.ask("emin misin?")
-    assert isinstance(cevap, str)
-
-
 def test_pump_her_olayda_geri_cagirir():
     from fusion_cli.cli.repl.screen_turn import PumpSink
 
@@ -107,6 +97,8 @@ async def test_agent_motoru_secilir_ve_sinks_dogru(monkeypatch, tmp_path):
     async def sahte_run_agent_task(line, config, **kwargs):
         yakalanan["engine"] = "agent"
         yakalanan["sinks"] = kwargs["sinks"]
+        yakalanan["interactive"] = kwargs["interactive"]
+        yakalanan["prompter_factory"] = kwargs["prompter_factory"]
         return object()
 
     monkeypatch.setattr(screen_turn, "run_task", sahte_run_task)
@@ -118,3 +110,47 @@ async def test_agent_motoru_secilir_ve_sinks_dogru(monkeypatch, tmp_path):
     assert yakalanan["engine"] == "agent"
     tipler = _sinks_tiplerini_topla(yakalanan["sinks"])
     assert tipler == {"renderer": True, "work": True, "pump": True}
+    # Onay/soru modalı için: etkileşimli + prompter ScreenPrompter olmalı.
+    assert yakalanan["interactive"] is True
+    from fusion_cli.cli.repl.screen_turn import ScreenPrompter
+
+    prompter = yakalanan["prompter_factory"](lambda: None)
+    assert isinstance(prompter, ScreenPrompter)
+
+
+@pytest.mark.asyncio
+async def test_screen_prompter_confirm_ve_ask_ekrana_koprular():
+    from types import SimpleNamespace
+
+    from fusion_cli.cli.repl.screen_turn import ScreenPrompter
+    from fusion_cli.engines.agent.approval import ApprovalRequest
+
+    istek = ApprovalRequest(
+        tool=SimpleNamespace(name="run_shell"),  # type: ignore[arg-type]
+        args={"cmd": "ls"},
+        danger="tehlike",
+    )
+
+    class _SahteEkran:
+        def __init__(self) -> None:
+            self.confirm_cagrisi: tuple[str, str | None] | None = None
+            self.text_sorusu: str | None = None
+
+        async def ask_confirm(self, preview: str, danger: str | None = None) -> bool:
+            self.confirm_cagrisi = (preview, danger)
+            return True
+
+        async def ask_text(self, question: str) -> str:
+            self.text_sorusu = question
+            return "cevap"
+
+    ekran = _SahteEkran()
+    prompter = ScreenPrompter(ekran)  # type: ignore[arg-type]
+
+    assert await prompter.confirm(istek) is True
+    assert ekran.confirm_cagrisi is not None
+    assert "run_shell" in ekran.confirm_cagrisi[0]
+    assert ekran.confirm_cagrisi[1] == "tehlike"
+
+    assert await prompter.ask("hangi dosya?") == "cevap"
+    assert ekran.text_sorusu == "hangi dosya?"
