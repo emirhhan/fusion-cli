@@ -142,3 +142,9 @@ class FusionScreen:
             self.application.invalidate()
 
         return kb
+
+
+def echo_submit(screen: FusionScreen, text: str) -> None:
+    """İskelet doğrulaması için basit eko turu. Faz 2'de gerçek motorla değişir."""
+    screen.append(f"\n[ben] {text}\n")
+    screen.append(f"[eko] {text}\n")

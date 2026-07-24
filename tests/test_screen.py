@@ -81,3 +81,14 @@ def test_kabuk_appendi_konusmaya_yazar():
     ekran.append("[ben] merhaba\n")
 
     assert "[ben] merhaba" in ekran.conversation_buffer.text
+
+
+def test_eko_turu_kullanici_ve_yaniti_yazar():
+    from fusion_cli.cli.repl.screen import FusionScreen, echo_submit
+
+    ekran = FusionScreen(banner="✦ fusion", on_submit=lambda s: None)
+    echo_submit(ekran, "vpn nedir")
+
+    metin = ekran.conversation_buffer.text
+    assert "[ben] vpn nedir" in metin
+    assert "[eko] vpn nedir" in metin
