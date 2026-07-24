@@ -36,10 +36,13 @@ Bilinçli olarak taşınmayan iki şey:
 
 - **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst
   sınırları yeterli mi?
-- **Yol sınırlaması:** araçlar proje kökü dışına da yazabiliyor (eski davranış korundu;
-  onay akışı + diff önizlemesi koruyor). `ToolContext`'e kök dışını reddeden bir kip
-  eklenmeli mi?
 - **`config show` görünümü:** yapılandırma büyüdükçe tablo görünümüne geçmeli mi?
+- **Ortam değişkeni erişimini `config`'e toplama:** RULES "tüm ortam erişimi config
+  katmanındadır" der. Şu an `memory/embeddings.py` ve `providers/catalog.py`
+  `NVIDIA_NIM_API_KEY`'i doğrudan `os.getenv` ile okuyor; `providers/litellm_provider.py`
+  NIM taban adresini `os.environ`'a yazıyor; `cli/repl` `FUSION_SPIKE`/`FUSION_FULLSCREEN`
+  bayraklarını okuyor. API anahtarı okumaları config'e taşınmalı (litellm'in `os.environ`
+  yazması SDK'nın görmesi için gerekli olabilir — o ayrıca değerlendirilir).
 
 ## İzlenecek
 
