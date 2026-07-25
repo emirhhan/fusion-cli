@@ -16,6 +16,22 @@ from ..core.types import ModelSpec
 from .models import Config
 
 
+def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
+    """Agent turunda kullanılacak modeli görev tipine göre seç.
+
+    `task_model_map` uzun süre yalnızca fusion motorunda uygulanıyordu; agent her
+    zaman `agent:` rolünü kullanıyordu. Yani haritada "code" için başka bir model
+    yazmak agent modunda hiçbir şey değiştirmiyor, yapılandırma yalan söylüyordu.
+
+    Haritada karşılık yoksa ya da yazan ad tanımlı bir aday değilse `agent:` rolüne
+    düşülür: yapılandırmadaki bir yazım hatası turu çökertmez.
+    """
+    mapped = config.task_model_map.get(task_type)
+    if not mapped:
+        return config.agent
+    return config.candidate_by_name(str(mapped)) or config.agent
+
+
 def set_agent_model(config: Config, model_id: str) -> Config:
     """Agent rolünün modelini değiştir."""
     return replace(config, agent=replace(config.agent, model=_validated(model_id)))

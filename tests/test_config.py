@@ -13,6 +13,8 @@ from fusion_cli.config.paths import bundled_defaults
 from fusion_cli.core.errors import ConfigError
 from fusion_cli.core.types import ModelSpec
 
+from .fakes import make_config
+
 
 def _yaz(tmp_path, data):
     path = tmp_path / "config.yaml"
@@ -177,3 +179,46 @@ def test_tasinmamis_ayar_sebebiyle_reddedilir(tmp_path):
 
     with pytest.raises(ConfigError, match="artık yok"):
         load_config(path)
+
+
+# --- Agent rolü için görev tipine göre model seçimi -------------------------- #
+
+
+def test_agent_modeli_gorev_tipine_gore_secilir():
+    """`task_model_map` yalnızca fusion'a değil agent turuna da uygulanır."""
+    from fusion_cli.config.model_select import select_agent_spec
+
+    config = make_config(task_model_map={"code": "c"})
+
+    secilen = select_agent_spec(config, "code")
+
+    assert secilen.name == "c"
+
+
+def test_haritada_karsiligi_yoksa_agent_rolu_kullanilir():
+    from fusion_cli.config.model_select import select_agent_spec
+
+    config = make_config(task_model_map={"code": "c"})
+
+    assert select_agent_spec(config, "reasoning").name == config.agent.name
+
+
+def test_haritadaki_ad_tanimsizsa_agent_rolune_dusulur():
+    """Yapılandırmadaki yazım hatası turu çökertmemeli."""
+    from fusion_cli.config.model_select import select_agent_spec
+
+    config = make_config(task_model_map={"code": "boyle-bir-aday-yok"})
+
+    assert select_agent_spec(config, "code").name == config.agent.name
+
+
+def test_varsayilan_haritadaki_tum_adlar_tanimli_adaylardir():
+    """Harita artık agent turunu da yönlendiriyor: yazım hatası sessizce kalite kaybı olur."""
+    config = load_config()
+    tanimli = {spec.name for spec in config.candidates}
+
+    bilinmeyen = {
+        tip: ad for tip, ad in config.task_model_map.items() if ad not in tanimli
+    }
+
+    assert not bilinmeyen, f"tanımlı aday olmayan adlar: {bilinmeyen}"

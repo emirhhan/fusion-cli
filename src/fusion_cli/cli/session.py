@@ -106,6 +106,7 @@ async def run_agent_task(
     sinks: tuple[EventSink, ...],
     prompter_factory: PrompterFactory,
     mode: ApprovalMode = ApprovalMode.AUTO,
+    task_type: str = "general",
     root: Path | None = None,
     interactive: bool | None = None,
     memory: Memory | None = None,
@@ -138,6 +139,7 @@ async def run_agent_task(
             capabilities=CapabilityRegistry(Path.home(), tool_context.root),
             allowed_commands=load_allowed_commands(tool_context.root),
             verifier=build_verifier(config, root=tool_context.root),
+            task_type=task_type,
         )
         outcome = await run_agent(task, deps, plan_mode=mode is ApprovalMode.PLAN)
 

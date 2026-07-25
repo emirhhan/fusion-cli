@@ -24,6 +24,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...config.model_select import select_agent_spec
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...core.events import (
@@ -108,6 +109,9 @@ class AgentDeps:
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
     channel: Channel = Channel.MAIN
+    #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
+    #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
+    task_type: str = "general"
     #: Verilirse kod değiştiren tur sonrası doğrulama kapısı çalışır ve sonucu ders
     #: güvenini besler. Verilmezse (varsayılan) mevcut davranış birebir korunur.
     verifier: Verifier | None = None
@@ -232,8 +236,9 @@ async def _call_model(
         max_retries=runtime.max_retries,
         tools=tuple(registry.schemas(_permitted(allowed_tools, registry))),
     )
+    spec = select_agent_spec(deps.config, deps.task_type)
     provider = build_provider(
-        deps.config.agent,
+        spec,
         publisher=deps.publisher,
         hedge_delay_s=runtime.hedge_delay_s,
         channel=deps.channel,
@@ -244,8 +249,8 @@ async def _call_model(
         if isinstance(item, StreamDone):
             result = item.result
     return result or ModelResult(
-        name=deps.config.agent.name,
-        model=deps.config.agent.model,
+        name=spec.name,
+        model=spec.model,
         text="",
         latency_ms=0,
         ok=False,

@@ -79,6 +79,7 @@ async def run_turn(line: str, state: ReplState, screen: FusionScreen) -> None:
             sinks=sinks,
             prompter_factory=lambda _drain: ScreenPrompter(screen),
             mode=state.approval,
+            task_type=state.task_type,
             root=state.root,
             interactive=True,
             memory=state.memory,

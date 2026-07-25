@@ -136,12 +136,24 @@ judge:
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
 
-# Görev tipine göre öne alınacak aday. Yalnızca yukarıda tanımlı bir ad yazılabilir.
+# Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
+# tanınmayan ad sessizce `agent:` rolüne düşer.
+#
+# Bu harita İKİ motoru birden yönlendirir:
+#   fusion — bu adayı havuzun başına alır (hakem yine hepsini görür),
+#   agent  — turu doğrudan bu modelle çalıştırır.
+#
+# Anahtarlar kullanıcının `/type` ile seçtiği tiplerdir (general, code, reasoning, agent).
+#
+# `code` ve `agent` eskiden gpt-oss'a (20B) bakıyordu. Harita agent motorunda hiç
+# uygulanmadığı için bunun bir etkisi yoktu; artık uygulandığına göre kodlama turlarını
+# havuzun en küçük modeline yönlendirmek doğrudan kalite kaybı olurdu. İkisi de
+# nemotron-super'a alındı: kod ve araç kullanımı havuzun en yetenekli modelini ister.
 task_model_map:
   general: nemotron-super
-  code: gpt-oss
+  code: nemotron-super
   reasoning: nemotron-super
-  agent: gpt-oss
+  agent: nemotron-super
 
 # ---------------------------------------------------------------------------
 # Anlamsal arama için gömme sağlayıcısı (ders belleği + kod indeksi).
