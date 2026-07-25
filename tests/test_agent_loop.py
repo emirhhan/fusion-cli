@@ -605,3 +605,36 @@ async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
     await run_agent("site yap", deps)
 
     assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
+
+
+async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_path, sink):
+    """Öz-denetimin düzeltici turu KENDİ kapı turlarını çalıştırmamalı.
+
+    Gerçek hata: bu tur `verify=False` almıyordu, dolayısıyla kendi içinde iki kapı
+    turu daha açıyordu. Üst sınır 2 konmuşken toplam 4 tura çıkıyor, maliyet sessizce
+    ikiye katlanıyordu.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+                model_result("oz denetim duzeltmesi"),
+                model_result("kapi duzeltmesi"),
+                model_result("kapi duzeltmesi 2"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("bir sorun var"))
+    dogrulayici = _SahteDogrulayici(VerificationResult(ok=False, findings=("sorun",)))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = dogrulayici
+
+    await run_agent("site yap", deps)
+
+    assert dogrulayici.calls <= 2, (
+        f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
+    )

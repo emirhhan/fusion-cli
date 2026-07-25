@@ -384,6 +384,9 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
         deps,
         history=outcome.messages,
         self_review=False,
+        # Kapı bu turda çalışmaz: dış döngü zaten doğrulayacak. Aksi halde iç içe
+        # doğrulama olur ve MAX_VERIFY_ROUNDS sessizce ikiye katlanır.
+        verify=False,
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
