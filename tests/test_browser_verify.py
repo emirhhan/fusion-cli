@@ -22,6 +22,7 @@ def _gozlem(**overrides) -> PageObservation:
         "oversized_icons": (),
         "clipped": (),
         "small_targets": (),
+        "empty_sections": (),
     }
     defaults.update(overrides)
     return PageObservation(**defaults)  # type: ignore[arg-type]
@@ -170,3 +171,19 @@ def test_ayni_ogenin_farkli_genisliklerdeki_olcumu_tekillestirilir():
     ham = [("a.link", 18, 14), ("a.link", 18, 14), ("button.x", 10, 10)]
 
     assert len(_tekil_ucluler(ham)) == 2
+
+
+def test_bos_bolum_bildirilir():
+    """Başlığı olan ama içi boş bölüm: sayfa geçerli görünür, içerik yoktur.
+
+    Gerçek hata: <script> etiketi düştüğü için Kategoriler, Çok Satanlar ve Müşteri
+    Yorumları bölümleri tamamen boş kaldı. Konsol tertemizdi, HTML geçerliydi.
+    """
+    bulgular = page_findings((_gozlem(empty_sections=("section#kategoriler", "section#urunler")),))
+
+    assert any("boş" in b.lower() for b in bulgular)
+    assert any("kategoriler" in b for b in bulgular)
+
+
+def test_dolu_bolum_bildirilmez():
+    assert page_findings((_gozlem(empty_sections=()),)) == ()

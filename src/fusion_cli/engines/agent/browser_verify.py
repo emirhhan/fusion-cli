@@ -49,6 +49,8 @@ class PageObservation:
     clipped: tuple[tuple[str, int, int], ...] = ()
     #: (seçici, genişlik, yükseklik) — dokunma için çok küçük tıklanabilir öğeler.
     small_targets: tuple[tuple[str, int, int], ...] = ()
+    #: Başlığı olan ama içi boş bölümlerin seçicileri.
+    empty_sections: tuple[str, ...] = ()
 
 
 def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
@@ -61,6 +63,7 @@ def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
         bulgular.extend(_icons(page))
         bulgular.extend(_clipped(page))
         bulgular.extend(_targets(page))
+        bulgular.extend(_empty(page))
     return tuple(bulgular)
 
 
@@ -140,6 +143,22 @@ def _targets(page: PageObservation) -> list[str]:
     return [
         f"{page.name} içinde {len(page.small_targets)} dokunma hedefi 24x24 px'ten küçük "
         f"(WCAG 2.2 SC 2.5.8): {ornek}. Dolgu ya da min-height ekle."
+    ]
+
+
+def _empty(page: PageObservation) -> list[str]:
+    """Başlığı olan ama içi boş bölüm — sayfa geçerli görünür, içerik yoktur.
+
+    Gerçek hata: <script> etiketi düştüğü için JavaScript'in doldurduğu bölümlerin
+    hepsi boş kaldı. Konsol tertemizdi (çalışan kod yok), HTML geçerliydi, metin
+    kapısı temiz dedi. Belirtiyi doğrudan ölçmek gerekiyordu.
+    """
+    if not page.empty_sections:
+        return []
+    return [
+        f"{page.name} içinde {len(page.empty_sections)} bölümün başlığı var ama içi BOŞ: "
+        f"{', '.join(page.empty_sections[:MAX_ITEMS_PER_KIND])}. İçeriği üreten kod "
+        "çalışmıyor ya da hiç çağrılmıyor."
     ]
 
 
@@ -229,6 +248,7 @@ class BrowserVerifier:
             "clipped": [],
             "smallTargets": [],
         }
+        bos_bolumler: list[str] = []
         try:
             for width in VIEWPORTS:
                 await page.set_viewport_size({"width": width, "height": 900})
@@ -241,6 +261,9 @@ class BrowserVerifier:
                 olculen = await page.evaluate(_LAYOUT_PROBE)
                 for anahtar, bulunan in layout.items():
                     bulunan.extend(_as_triples(olculen.get(anahtar)))
+                ham_bos = olculen.get("emptySections")
+                if isinstance(ham_bos, list):
+                    bos_bolumler.extend(str(item) for item in ham_bos)
         finally:
             await page.close()
 
@@ -252,6 +275,7 @@ class BrowserVerifier:
             oversized_icons=_tekil_ucluler(layout["oversizedIcons"]),
             clipped=_tekil_ucluler(layout["clipped"]),
             small_targets=_tekil_ucluler(layout["smallTargets"]),
+            empty_sections=tuple(dict.fromkeys(bos_bolumler)),
         )
 
 
@@ -319,5 +343,16 @@ _LAYOUT_PROBE = """() => {
         }
     }
 
-    return {oversizedIcons, clipped, smallTargets};
+    // 4) Başlığı olan ama içi boş bölüm. İçerik JavaScript'le geliyorsa ve JS
+    //    çalışmıyorsa sayfa geçerli görünür ama boştur.
+    const emptySections = [];
+    for (const s of document.querySelectorAll('section, [id]')) {
+        const baslik = s.querySelector('h1, h2, h3');
+        if (!baslik || !s.id) continue;
+        const govde = s.innerText.replace(baslik.innerText, '').trim();
+        const ogeler = s.querySelectorAll('img, a, button, input, li, p').length;
+        if (govde.length < 20 && ogeler === 0) emptySections.push('#' + s.id);
+    }
+
+    return {oversizedIcons, clipped, smallTargets, emptySections};
 }"""
