@@ -51,6 +51,8 @@ class PageObservation:
     small_targets: tuple[tuple[str, int, int], ...] = ()
     #: Başlığı olan ama içi boş bölümlerin seçicileri.
     empty_sections: tuple[str, ...] = ()
+    #: (seçici, yükseklik, ekran yüksekliği) — ekranı aşan yardımcı bloklar.
+    oversized_blocks: tuple[tuple[str, int, int], ...] = ()
 
 
 def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
@@ -64,6 +66,7 @@ def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
         bulgular.extend(_clipped(page))
         bulgular.extend(_targets(page))
         bulgular.extend(_empty(page))
+        bulgular.extend(_oversized(page))
     return tuple(bulgular)
 
 
@@ -162,6 +165,26 @@ def _empty(page: PageObservation) -> list[str]:
     ]
 
 
+def _oversized(page: PageObservation) -> list[str]:
+    """Footer/header gibi yardımcı bloklar ekran boyunu aşmamalı.
+
+    Ölçülen gerçek hata: model tüm footer bağlantı gruplarını tek div'e koydu; o
+    sütun 1109px'e uzadı, footer 1237px oldu (ekranın %137'si) ve telif satırı
+    ortada asılı kaldı. Devasa bir footer, yanlış DOM yapısının belirtisidir.
+    """
+    if not page.oversized_blocks:
+        return []
+    detay = ", ".join(
+        f"{secici} {boy}px (ekran {ekran}px)"
+        for secici, boy, ekran in page.oversized_blocks[:MAX_ITEMS_PER_KIND]
+    )
+    return [
+        f"{page.name} içinde yardımcı blok ekran yüksekliğini aşıyor: {detay}. "
+        "Muhtemelen içerik tek sütuna yığılmış — grupları ayrı grid öğesi yap ve "
+        "kapsayıcıya align-items: start ver."
+    ]
+
+
 def _farkli_sayi(items: Sequence[str]) -> int:
     """Kaç FARKLI sorun var? Aynı kaynağın üç kez düşmesi üç sorun değildir."""
     return len(set(items))
@@ -249,6 +272,7 @@ class BrowserVerifier:
             "smallTargets": [],
         }
         bos_bolumler: list[str] = []
+        buyuk_bloklar: list[tuple[str, int, int]] = []
         try:
             for width in VIEWPORTS:
                 await page.set_viewport_size({"width": width, "height": 900})
@@ -264,6 +288,7 @@ class BrowserVerifier:
                 ham_bos = olculen.get("emptySections")
                 if isinstance(ham_bos, list):
                     bos_bolumler.extend(str(item) for item in ham_bos)
+                buyuk_bloklar.extend(_as_triples(olculen.get("oversizedBlocks")))
         finally:
             await page.close()
 
@@ -276,6 +301,7 @@ class BrowserVerifier:
             clipped=_tekil_ucluler(layout["clipped"]),
             small_targets=_tekil_ucluler(layout["smallTargets"]),
             empty_sections=tuple(dict.fromkeys(bos_bolumler)),
+            oversized_blocks=_tekil_ucluler(buyuk_bloklar),
         )
 
 
@@ -365,5 +391,15 @@ _LAYOUT_PROBE = """() => {
         if (govde.length < 20 && ogeler === 0) emptySections.push('#' + s.id);
     }
 
-    return {oversizedIcons, clipped, smallTargets, emptySections};
+    // 5) Ekran boyunu aşan yardımcı blok. Footer/header bir sayfa kadar uzunsa
+    //    içerik tek sütuna yığılmış demektir.
+    const oversizedBlocks = [];
+    for (const e of document.querySelectorAll('footer, header')) {
+        const y = Math.round(e.getBoundingClientRect().height);
+        if (y > window.innerHeight) {
+            oversizedBlocks.push([e.tagName.toLowerCase(), y, window.innerHeight]);
+        }
+    }
+
+    return {oversizedIcons, clipped, smallTargets, emptySections, oversizedBlocks};
 }"""

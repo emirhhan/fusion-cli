@@ -57,7 +57,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
     bulgular.extend(_stilsiz_siniflar(html, css))
     bulgular.extend(_tutarsiz_tutarlar(html, js))
     bulgular.extend(_palet_baypasi(css, js, html))
-    bulgular.extend(_baglanmamis_dosyalar(files, html))
+    bulgular.extend(_baglanmamis_dosyalar(files, html, js))
     bulgular.extend(_olcek_disi_bosluklar(css))
     return tuple(bulgular)
 
@@ -206,7 +206,7 @@ def _notr_mu(renk: str) -> bool:
     return max(r, g, b) - min(r, g, b) <= 24
 
 
-def _baglanmamis_dosyalar(files: Mapping[str, str], html: str) -> list[str]:
+def _baglanmamis_dosyalar(files: Mapping[str, str], html: str, js: str) -> list[str]:
     """Üretilen CSS/JS dosyası HTML'den referans ediliyor mu?
 
     Gerçek hata: düzeltici tur index.html'i yeniden yazarken <script src="script.js">
@@ -223,6 +223,12 @@ def _baglanmamis_dosyalar(files: Mapping[str, str], html: str) -> list[str]:
         if not ad.lower().endswith((".css", ".js")):
             continue
         if re.search(rf'(?:src|href)\s*=\s*["\'][^"\']*{re.escape(ad)}', html, re.I):
+            continue
+        # Bir JS dosyası başka bir JS'ten import ediliyorsa BAĞLIDIR; modül grafiği
+        # HTML'den geçmek zorunda değil (ES modülleri, yardımcı dosyalar).
+        if ad.lower().endswith(".js") and re.search(
+            rf'(?:import|require)\s*\(?[^;\n]*["\'][^"\']*{re.escape(ad)}', js, re.I
+        ):
             continue
         etiket = "<script src=…>" if ad.lower().endswith(".js") else "<link rel=stylesheet>"
         bulgular.append(

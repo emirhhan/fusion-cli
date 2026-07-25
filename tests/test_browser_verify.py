@@ -23,6 +23,7 @@ def _gozlem(**overrides) -> PageObservation:
         "clipped": (),
         "small_targets": (),
         "empty_sections": (),
+        "oversized_blocks": (),
     }
     defaults.update(overrides)
     return PageObservation(**defaults)  # type: ignore[arg-type]
@@ -198,3 +199,19 @@ def test_ekran_disi_cekmece_erisilemez_sayilmaz():
     from fusion_cli.engines.agent.browser_verify import _LAYOUT_PROBE
 
     assert "position" in _LAYOUT_PROBE and "fixed" in _LAYOUT_PROBE
+
+
+def test_devasa_footer_bildirilir():
+    """Footer ekran yüksekliğini aşıyorsa yapısı yanlıştır.
+
+    Ölçülen gerçek hata: model tüm bağlantı gruplarını tek div'e koydu, o sütun
+    1109px'e uzadı ve footer 1237px oldu — 900px'lik ekranın %137'si.
+    """
+    bulgular = page_findings((_gozlem(oversized_blocks=(("footer", 1237, 900),)),))
+
+    assert any("footer" in b.lower() for b in bulgular)
+    assert any("1237" in b for b in bulgular)
+
+
+def test_makul_footer_bildirilmez():
+    assert page_findings((_gozlem(oversized_blocks=()),)) == ()

@@ -1,8 +1,15 @@
 # Web arayüzü referansı — somut değerler
 
-Bu referans WEBSITE görevlerinde otomatik yüklenir. Amacı estetik öğüt vermek değil,
-KOPYALANABİLİR değer vermek. "İyi tipografi kullan" bir modele hiçbir şey söylemez;
-aşağıdaki ölçekler söyler.
+## ÖNCE BUNU YAP: scaffold_web
+
+Web arayüzü yapmaya başlarken İLK iş `scaffold_web` aracını çağırmaktır. Aşağıdaki
+ölçeklerin, biçimlendiricilerin ve doğru sıralı sayfa iskeletinin ÇALIŞAN halini diske
+yazar (`tokens.css`, `format.js`, `index.html`). Var olan dosyayı ezmez.
+
+Sonrasında kural okumana gerek kalmaz: dosyaları DOLDURURSUN. `tokens.css` ve
+`format.js` yeniden yazılmaz, oldukları gibi kullanılır.
+
+Aşağıdaki bölümler o dosyalarda ne olduğunu ve neden öyle olduğunu anlatır.
 
 ## Ölçekler — bu sayıları kullan, yenisini uydurma
 
@@ -326,3 +333,77 @@ Kurallar:
   ritmi bozar.
 - Aynı hiyerarşideki her bölüm aynı dikey boşluğu alır. Bir bölümü öne çıkarmak
   istiyorsan boşlukla değil zeminle, ölçekle ya da genişlikle çıkar.
+
+### Footer — çok sütunlu bağlantı bloğu
+
+Ölçülen gerçek hata: model tüm bağlantı gruplarını TEK bir `<div>` içine koydu; o sütun
+1109px'e uzadı, footer 1237px oldu (ekranın %137'si) ve telif satırı ortada asılı kaldı.
+Her grup AYRI bir grid öğesidir; telif satırı grid'in DIŞINDA, tam genişlikte durur.
+
+```html
+<footer class="site-footer">
+  <div class="container footer__grid">
+    <div class="footer__brand">
+      <h3>Marka</h3>
+      <p>Tek cümlelik tanım.</p>
+    </div>
+    <!-- HER GRUP AYRI <nav>: tek div içine yığma -->
+    <nav class="footer__col" aria-label="Kurumsal">
+      <h4>Kurumsal</h4>
+      <ul><li><a href="/hakkimizda">Hakkımızda</a></li><li><a href="/kariyer">Kariyer</a></li></ul>
+    </nav>
+    <nav class="footer__col" aria-label="Müşteri Hizmetleri">
+      <h4>Müşteri Hizmetleri</h4>
+      <ul><li><a href="/sss">SSS</a></li><li><a href="/iletisim">İletişim</a></li></ul>
+    </nav>
+    <nav class="footer__col" aria-label="Yasal">
+      <h4>Yasal</h4>
+      <ul><li><a href="/gizlilik">Gizlilik</a></li><li><a href="/kosullar">Koşullar</a></li></ul>
+    </nav>
+  </div>
+  <!-- Telif: grid'in DIŞINDA, tam genişlik -->
+  <div class="container footer__bottom">
+    <small>© 2026 Marka. Tüm hakları saklıdır.</small>
+    <ul class="footer__pay"><li>Visa</li><li>Mastercard</li></ul>
+  </div>
+</footer>
+```
+
+```css
+.site-footer { background: var(--navy); color: #fff; padding-block: var(--space-8) var(--space-5); }
+.footer__grid { display: grid; gap: var(--space-6);
+                grid-template-columns: 2fr repeat(3, 1fr); align-items: start; }
+.footer__col h4 { font-size: var(--text-base); margin-bottom: var(--space-3); }
+.footer__col ul { list-style: none; display: grid; gap: var(--space-2); }
+.footer__bottom { display: flex; justify-content: space-between; align-items: center;
+                  gap: var(--space-4); flex-wrap: wrap;
+                  margin-top: var(--space-6); padding-top: var(--space-5);
+                  border-top: 1px solid rgb(255 255 255 / 0.12); }
+@media (max-width: 768px) { .footer__grid { grid-template-columns: 1fr 1fr; } }
+```
+
+Kurallar:
+- `align-items: start` ZORUNLU. Varsayılan `stretch` tüm sütunları en uzun sütun
+  kadar uzatır ve footer devasa görünür.
+- Bağlantı grubu 6'yı geçmesin; geçiyorsa grupları birleştir. Footer bir site
+  haritası değildir.
+- Footer yüksekliği ekran yüksekliğini AŞMAMALI. Aşıyorsa yapı yanlıştır.
+
+### Para biçimlendirme — bölme yapma
+
+Ölçülen gerçek hata: veri `price: 14999` (yani 14.999 TL) iken model
+`(price / 100)` yazdı ve sayfada **₺149,99** göründü — sekiz ürünün fiyatı da 100 kat
+yanlış çıktı, sayfa kusursuz görünüyordu.
+
+Fiyatı ANA BİRİMDE (TL) sakla ve olduğu gibi biçimlendir:
+
+```js
+const tl = new Intl.NumberFormat('tr-TR', { style: 'currency', currency: 'TRY',
+                                            minimumFractionDigits: 0 });
+tl.format(14999);   // "₺14.999"   ✅
+tl.format(14999/100); // "₺149,99"  ❌ kuruş varsayımı — YAPMA
+```
+
+Veriyi kuruş cinsinden saklıyorsan bunu alan adında belirt (`priceKurus`) ve tek yerde
+çevir. Bir kez yazdıktan sonra ekrandaki ilk fiyatın şartnamedeki değerle aynı
+olduğunu GÖZLE doğrula.

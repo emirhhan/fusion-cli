@@ -10,7 +10,7 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 from __future__ import annotations
 
 from ..core.tools import Tool
-from . import files, planning, search, shell, web
+from . import files, planning, scaffold_tool, search, shell, web
 from .registry import ToolRegistry
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
@@ -110,6 +110,18 @@ _TOOLS: tuple[Tool, ...] = (
             ["path", "edits"],
         ),
         run=files.multi_edit,
+        mutating=True,
+    ),
+    Tool(
+        name="scaffold_web",
+        description="Web sitesi/uygulama arayüzü yapmaya BAŞLARKEN İLK bunu çağır. "
+        "Hazır tasarım token'ları (tokens.css), test edilmiş biçimlendiriciler "
+        "(format.js) ve doğru sıralı sayfa iskeletini (index.html) diske yazar. "
+        "Var olan dosyayı EZMEZ. Sonra bu dosyaları doldurursun.",
+        parameters=_schema(
+            {"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []
+        ),
+        run=scaffold_tool.scaffold_web,
         mutating=True,
     ),
     Tool(

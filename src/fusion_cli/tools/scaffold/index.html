@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BAŞLIK</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Bölüm sırası ikna sırasıdır: dikkat → değer → kanıt → eylem.
+       Bölüm EKLE/ÇIKAR ama sırayı bozma. -->
+
+  <header class="site-header">
+    <div class="container header__inner">
+      <a class="logo" href="/">MARKA</a>
+      <nav aria-label="Ana menü"><!-- menü bağlantıları --></nav>
+      <div class="header__actions"><!-- arama + ikon butonları --></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section hero" id="hero" aria-labelledby="hero-h">
+      <div class="container">
+        <h1 id="hero-h">BAŞLIK</h1>
+        <p>ALT METİN</p>
+        <div class="hero__cta">
+          <a class="btn btn--primary" href="#urunler">BİRİNCİL EYLEM</a>
+          <a class="btn btn--ghost" href="#kampanyalar">İKİNCİL EYLEM</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Buraya içerik bölümleri: kategoriler, ürünler, kampanya, güven, yorumlar -->
+
+    <section class="section" id="bulten" aria-labelledby="bulten-h">
+      <div class="container">
+        <h2 id="bulten-h">BÜLTEN BAŞLIĞI</h2>
+        <form id="bulten-form" novalidate>
+          <label class="sr-only" for="bulten-eposta">E-posta</label>
+          <input id="bulten-eposta" type="email" placeholder="ornek@site.com" required>
+          <button class="btn btn--primary" type="submit">Abone Ol</button>
+          <p id="bulten-mesaj" role="status"></p>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer__grid">
+      <div class="footer__brand"><h3>MARKA</h3><p>TEK CÜMLE</p></div>
+      <!-- HER bağlantı grubu AYRI <nav>: tek div'e yığma, footer devleşir -->
+    </div>
+    <div class="container footer__bottom">
+      <small>© 2026 MARKA. Tüm hakları saklıdır.</small>
+    </div>
+  </footer>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>

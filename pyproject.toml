@@ -47,6 +47,7 @@ fusion-cli = "fusion_cli.cli.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
+"fusion_cli.tools" = ["scaffold/*"]
 "fusion_cli.config" = ["*.yaml"]
 
 # --------------------------------------------------------------------------- #
