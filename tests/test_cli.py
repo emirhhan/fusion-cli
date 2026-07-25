@@ -122,8 +122,9 @@ def test_temizleme_kapaliyken_scrollback_silinmez():
 
 
 def _ornek_oturum() -> dict:
-    from fusion_cli.ui.banner import SessionInfo
     import dataclasses
+
+    from fusion_cli.ui.banner import SessionInfo
 
     alanlar = {f.name: f for f in dataclasses.fields(SessionInfo)}
     ornek: dict = {}

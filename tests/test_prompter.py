@@ -125,3 +125,35 @@ async def test_terminali_devralmadan_once_veriyolu_bosaltilir(tmp_path):
     await prompter.ask("soru?")
 
     assert sirali == ["bosaltildi", "bosaltildi"]
+
+
+# --- Resize teşhisi ---------------------------------------------------------- #
+#
+# prompt_toolkit #1933: terminal yeniden boyutlandırılınca istem kopyalanıyor.
+# Kök neden renderer.erase()'in GÖRELİ imleç hareketi; tam genişlikteki
+# bottom_toolbar daralmada iki satıra sarıyor ve silme aritmetiği kayıyor.
+# Bu anahtar mekanizmayı kod değiştirmeden doğrulamak içindir.
+
+
+def test_toolbar_ortam_degiskeniyle_kapatilabilir(monkeypatch):
+    from fusion_cli.cli.repl.input import toolbar_enabled
+
+    monkeypatch.setenv("FUSION_NO_TOOLBAR", "1")
+
+    assert toolbar_enabled() is False
+
+
+def test_toolbar_varsayilan_olarak_aciktir(monkeypatch):
+    from fusion_cli.cli.repl.input import toolbar_enabled
+
+    monkeypatch.delenv("FUSION_NO_TOOLBAR", raising=False)
+
+    assert toolbar_enabled() is True
+
+
+def test_bos_deger_toolbari_kapatmaz(monkeypatch):
+    from fusion_cli.cli.repl.input import toolbar_enabled
+
+    monkeypatch.setenv("FUSION_NO_TOOLBAR", "")
+
+    assert toolbar_enabled() is True

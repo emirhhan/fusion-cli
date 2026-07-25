@@ -147,6 +147,22 @@ class ReplInput:
         return HTML(" " + separator.join(part for part in parts if part))
 
 
+def toolbar_enabled() -> bool:
+    """Alt bilgi çubuğu gösterilsin mi?
+
+    prompt_toolkit #1933: terminal yeniden boyutlandırılınca istem ekranda
+    kopyalanıyor. Kök neden `renderer.erase()`'in GÖRELİ imleç hareketidir: tam
+    genişlikteki `bottom_toolbar` daralmada iki satıra sarınca `cursor_up` eksik
+    kalıyor ve eski istem silinemiyor.
+
+    `FUSION_NO_TOOLBAR=1` çubuğu kapatır. Amaç teşhis: kopyalanma bitiyorsa
+    mekanizma doğrulanmış olur.
+    """
+    import os
+
+    return os.environ.get("FUSION_NO_TOOLBAR", "") != "1"
+
+
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
     """prompt_toolkit oturumunu kur. Kurulamazsa None → düz girişe düşülür."""
     try:
@@ -178,7 +194,7 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         return PromptSession(
             history=FileHistory(str(history_path)),
             completer=WordCompleter(words, sentence=True),
-            bottom_toolbar=owner.status_bar,
+            bottom_toolbar=owner.status_bar if toolbar_enabled() else None,
             style=_toolbar_style(),
             # Girilen satır prompt_toolkit tarafından SİLİNİR; kullanıcı mesajını
             # kendimiz tam genişlikte bir bant olarak çiziyoruz (bkz. ui.renderer).
