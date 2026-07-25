@@ -56,6 +56,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
     bulgular.extend(_eksik_main(html))
     bulgular.extend(_stilsiz_siniflar(html, css))
     bulgular.extend(_tutarsiz_tutarlar(html, js))
+    bulgular.extend(_palet_baypasi(css, js, html))
     return tuple(bulgular)
 
 
@@ -144,3 +145,43 @@ def _tutarsiz_tutarlar(html: str, js: str) -> list[str]:
             "kullanıcıya verilen söz ile kodun davranışı çelişiyor olabilir."
         )
     return bulgular
+
+
+def _palet_baypasi(css: str, js: str, html: str) -> list[str]:
+    """CSS'te palet tanımlıyken başka renklerin elle yazılması.
+
+    Gerçek hata: `:root` içinde lacivert/turuncu palet duruyordu ama ürün kartlarını
+    üreten JavaScript `#2563eb` kullanıyordu. Model "belirtilen paletle" diyordu;
+    palet dosyadaydı ama arayüzde değildi.
+
+    Yalnızca `:root` gerçekten bir palet tanımlıyorsa çalışır — yoksa neyin ihlal
+    olduğu bilinemez. Nötr renkler (gri, siyah, beyaz) muaftır: gölge ve kenarlık
+    renkleri marka paletiyle çelişmez.
+    """
+    kok = re.search(r":root\s*\{([^}]*)\}", css, re.I)
+    if not kok:
+        return []
+    palet = {renk.lower() for renk in re.findall(r"#[0-9a-fA-F]{3,8}", kok.group(1))}
+    if len(palet) < 2:
+        return []
+
+    disaridakiler: list[str] = []
+    for kaynak in (js, html, css[kok.end() :]):
+        for renk in re.findall(r"#[0-9a-fA-F]{6}\b", kaynak):
+            dusuk = renk.lower()
+            if dusuk in palet or _notr_mu(dusuk) or dusuk in disaridakiler:
+                continue
+            disaridakiler.append(dusuk)
+    if not disaridakiler:
+        return []
+    return [
+        f"CSS'te palet tanımlı ama {len(disaridakiler)} farklı renk paletin dışından "
+        f"elle yazılmış: {', '.join(disaridakiler[:6])}. Bunları :root'taki değişkenlere "
+        "bağla; aksi halde sayfa bildirilen paletle görünmez."
+    ]
+
+
+def _notr_mu(renk: str) -> bool:
+    """Gri/siyah/beyaz mı? R, G ve B birbirine çok yakınsa nötr sayılır."""
+    r, g, b = (int(renk[i : i + 2], 16) for i in (1, 3, 5))
+    return max(r, g, b) - min(r, g, b) <= 24

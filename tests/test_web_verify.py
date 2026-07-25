@@ -146,3 +146,44 @@ def test_temiz_sayfa_hic_bulgu_uretmez():
     css = ".kart { color: red; }"
 
     assert inspect_web_output({"a.html": html, "a.css": css}) == ()
+
+
+# --- Tasarım token'ı baypası ------------------------------------------------- #
+#
+# Gerçek koşuda CSS :root'ta lacivert/turuncu palet tanımlıydı ama ürün kartlarını
+# üreten script.js `#2563eb` gibi başka maviler kullanıyordu. Model "belirtilen
+# paletle" dedi; palet dosyada duruyordu ama arayüzde kullanılmıyordu.
+
+
+def test_paletin_disinda_hex_kullanimi_bildirilir():
+    css = ":root { --navy: #15345B; --orange: #FF7A00; }\n.btn { background: var(--navy); }"
+    js = 'el.innerHTML = `<button style="background:#2563eb">Al</button>`;'
+
+    bulgular = inspect_web_output({"a.html": "<main>x</main>", "a.css": css, "a.js": js})
+
+    assert _bulgu_var(bulgular, "#2563eb")
+    assert _bulgu_var(bulgular, "palet")
+
+
+def test_paletteki_renk_bildirilmez():
+    css = ":root { --navy: #15345B; }"
+    js = 'el.style.background = "#15345B";'
+
+    assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.css": css,
+                                              "a.js": js}), "palet")
+
+
+def test_notr_gri_ve_siyah_beyaz_bildirilmez():
+    """Gri tonlar, gölge ve kenarlık renkleri palet ihlali sayılmaz."""
+    css = ":root { --navy: #15345B; }"
+    js = 'x = "#ffffff"; y = "#000000"; z = "#e5e7eb"; w = "#6b7280";'
+
+    assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.css": css,
+                                              "a.js": js}), "palet")
+
+
+def test_palet_tanimli_degilse_kontrol_yapilmaz():
+    """:root'ta palet yoksa neyin ihlal olduğu bilinemez."""
+    js = 'x = "#2563eb";'
+
+    assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.js": js}), "palet")

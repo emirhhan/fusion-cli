@@ -43,6 +43,12 @@ class PageObservation:
     failed_requests: tuple[str, ...] = ()
     #: (genişlik, gerçek içerik genişliği) — yalnızca taşma olan genişlikler.
     overflowing: tuple[tuple[int, int], ...] = ()
+    #: (seçici, ikon yüksekliği, kapsayıcı yüksekliği) — orantısız büyük ikonlar.
+    oversized_icons: tuple[tuple[str, int, int], ...] = ()
+    #: (seçici, kapsayıcı sağ kenarı, öğe sağ kenarı) — kırpılmış, erişilemez içerik.
+    clipped: tuple[tuple[str, int, int], ...] = ()
+    #: (seçici, genişlik, yükseklik) — dokunma için çok küçük tıklanabilir öğeler.
+    small_targets: tuple[tuple[str, int, int], ...] = ()
 
 
 def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
@@ -52,6 +58,9 @@ def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
         bulgular.extend(_console(page))
         bulgular.extend(_requests(page))
         bulgular.extend(_overflow(page))
+        bulgular.extend(_icons(page))
+        bulgular.extend(_clipped(page))
+        bulgular.extend(_targets(page))
     return tuple(bulgular)
 
 
@@ -86,6 +95,51 @@ def _overflow(page: PageObservation) -> list[str]:
     return [
         f"{page.name} yatay taşma yapıyor ({detay}); sayfa yana kayıyor. "
         "Taşan öğeyi bul ve genişliğini sınırla."
+    ]
+
+
+def _icons(page: PageObservation) -> list[str]:
+    """Boyut verilmemiş SVG absürt büyüklükte render edilir; çok yaygın, tartışmasız bozuk.
+
+    Ölçüt MUTLAK boyuttur: kapsayıcı içeriğe göre şiştiği için "ikon kapsayıcıdan
+    büyük" kuralı hiç ateşlemiyordu — gerçek çıktıda 95px'lik kalp, 111px'lik butonun
+    içindeydi ve oran testini geçiyordu.
+    """
+    if not page.oversized_icons:
+        return []
+    ornek = ", ".join(
+        f"{secici} ({boy}x{en}px)"
+        for secici, boy, en in page.oversized_icons[:MAX_ITEMS_PER_KIND]
+    )
+    return [
+        f"{page.name} içinde {len(page.oversized_icons)} ikon devasa boyutta: {ornek}. "
+        "İkonlar 16-48px olur; bu SVG'lere width/height verilmemiş, kapsayıcı da "
+        "onlara göre şişmiş."
+    ]
+
+
+def _clipped(page: PageObservation) -> list[str]:
+    """Kapsayıcıyı taşan ama KAYDIRILAMAYAN içerik kullanıcıya hiç ulaşmaz."""
+    if not page.clipped:
+        return []
+    ornek = ", ".join(secici for secici, _, _ in page.clipped[:MAX_ITEMS_PER_KIND])
+    return [
+        f"{page.name} içinde {len(page.clipped)} öğe ekranın dışına taşıyor ve sayfa "
+        f"yatay kaydırılamıyor — bu içeriğe erişilemiyor: {ornek}. Sarmalayan bir "
+        "düzene (wrap/grid) çevir ya da kapsayıcıyı kaydırılabilir yap."
+    ]
+
+
+def _targets(page: PageObservation) -> list[str]:
+    """WCAG 2.2 SC 2.5.8: tıklanabilir öğe en az 24x24 CSS px olmalı."""
+    if not page.small_targets:
+        return []
+    ornek = ", ".join(
+        f"{secici} ({en}x{boy})" for secici, en, boy in page.small_targets[:MAX_ITEMS_PER_KIND]
+    )
+    return [
+        f"{page.name} içinde {len(page.small_targets)} dokunma hedefi 24x24 px'ten küçük "
+        f"(WCAG 2.2 SC 2.5.8): {ornek}. Dolgu ya da min-height ekle."
     ]
 
 
@@ -167,6 +221,14 @@ class BrowserVerifier:
         )
         page.on("requestfailed", lambda req: failed.append(req.url[:120]))
 
+        # Düzen ölçümü HER genişlikte yapılır. Yalnızca en darda ölçmek yanlış bir
+        # varsayımdı: gerçek çıktıda devasa ikon ve kırpılmış yorum kartı yalnızca
+        # 1440px'te ortaya çıkıyordu, 375px'te kartlar alt alta dizildiği için kayboluyordu.
+        layout: dict[str, list[tuple[str, int, int]]] = {
+            "oversizedIcons": [],
+            "clipped": [],
+            "smallTargets": [],
+        }
         try:
             for width in VIEWPORTS:
                 await page.set_viewport_size({"width": width, "height": 900})
@@ -175,6 +237,10 @@ class BrowserVerifier:
                 # 1px tolerans: yuvarlama farkı taşma sayılmamalı.
                 if isinstance(actual, int | float) and actual > width + 1:
                     overflowing.append((width, int(actual)))
+
+                olculen = await page.evaluate(_LAYOUT_PROBE)
+                for anahtar, bulunan in layout.items():
+                    bulunan.extend(_as_triples(olculen.get(anahtar)))
         finally:
             await page.close()
 
@@ -183,4 +249,75 @@ class BrowserVerifier:
             console_errors=tuple(console_errors),
             failed_requests=tuple(failed),
             overflowing=tuple(overflowing),
+            oversized_icons=_tekil_ucluler(layout["oversizedIcons"]),
+            clipped=_tekil_ucluler(layout["clipped"]),
+            small_targets=_tekil_ucluler(layout["smallTargets"]),
         )
+
+
+def _tekil_ucluler(rows: list[tuple[str, int, int]]) -> tuple[tuple[str, int, int], ...]:
+    """Aynı öğe birden çok genişlikte ölçülür; seçiciye göre tekilleştir."""
+    return tuple(dict.fromkeys(rows))
+
+
+def _as_triples(rows: object) -> tuple[tuple[str, int, int], ...]:
+    """Tarayıcıdan gelen ham listeyi tiplenmiş üçlülere çevir; bozuk satırı atla."""
+    if not isinstance(rows, list):
+        return ()
+    triples: list[tuple[str, int, int]] = []
+    for row in rows:
+        if isinstance(row, list) and len(row) == 3:
+            secici, birinci, ikinci = row
+            triples.append((str(secici), int(birinci), int(ikinci)))
+    return tuple(triples)
+
+
+#: Sayfa içinde çalışan ölçüm. Yorum DEĞİL ölçüm döndürür; karar Python tarafında.
+_LAYOUT_PROBE = """() => {
+    const ad = (e) => e.tagName.toLowerCase() +
+        (e.className && typeof e.className === 'string'
+            ? '.' + e.className.trim().split(/\\s+/)[0] : '');
+
+    // 1) Etkileşimli kontrol içinde ABSÜRT büyük ikon. Kapsayıcı içeriğe göre şiştiği
+    //    için "ikon kapsayıcıdan büyük" kuralı hiç ateşlemez; ölçüt mutlak boyuttur.
+    //    Pratikte ikonlar 16-48px'tir; 64px üstü neredeyse her zaman eksik width/height.
+    const oversizedIcons = [];
+    for (const kap of document.querySelectorAll('button, a')) {
+        const ikon = kap.querySelector('svg, img');
+        if (!ikon) continue;
+        const ik = ikon.getBoundingClientRect();
+        if (ik.height > 64 && kap.innerText.trim().length < 3) {
+            oversizedIcons.push([ad(kap), Math.round(ik.height), Math.round(ik.width)]);
+        }
+    }
+
+    // 2) Görüntü alanını taşan AMA sayfa yatay kaydırılamayan içerik: kırpılır ve
+    //    kullanıcı ona hiç ulaşamaz. Sayfa kayabiliyorsa içerik erişilebilir demektir.
+    const clipped = [];
+    const kayabilir = document.documentElement.scrollWidth > window.innerWidth + 1;
+    if (!kayabilir) {
+        const tasiyor = (e) => {
+            const r = e.getBoundingClientRect();
+            return r.width > 0 && r.right > window.innerWidth + 4;
+        };
+        for (const e of document.querySelectorAll('section *, main *')) {
+            // Yalnızca EN DIŞTAKİ taşan öğe bildirilir: bir kart taşıyorsa içindeki
+            // her başlık ve paragraf da taşar ve 58 satırlık gürültü üretirdi.
+            if (!tasiyor(e) || (e.parentElement && tasiyor(e.parentElement))) continue;
+            clipped.push([ad(e), Math.round(window.innerWidth),
+                          Math.round(e.getBoundingClientRect().right)]);
+        }
+    }
+
+    // 3) WCAG 2.2 SC 2.5.8 — tıklanabilir öğe en az 24x24 CSS px.
+    const smallTargets = [];
+    for (const e of document.querySelectorAll('a[href], button, input, select')) {
+        const r = e.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) continue;
+        if (r.width < 24 || r.height < 24) {
+            smallTargets.push([ad(e), Math.round(r.width), Math.round(r.height)]);
+        }
+    }
+
+    return {oversizedIcons, clipped, smallTargets};
+}"""

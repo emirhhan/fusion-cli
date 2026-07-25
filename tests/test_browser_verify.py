@@ -19,6 +19,9 @@ def _gozlem(**overrides) -> PageObservation:
         "console_errors": (),
         "failed_requests": (),
         "overflowing": (),
+        "oversized_icons": (),
+        "clipped": (),
+        "small_targets": (),
     }
     defaults.update(overrides)
     return PageObservation(**defaults)  # type: ignore[arg-type]
@@ -112,3 +115,58 @@ async def test_html_yoksa_tarayici_hic_acilmaz(tmp_path, monkeypatch):
     context.touched.add(tmp_path / "script.js")
 
     assert (await BrowserVerifier(context).verify()).ok
+
+
+# --- Ölçülen ama bildirilmeyen hatalar --------------------------------------- #
+#
+# Hepsi gerçek bir koşunun çıktısında GÖRÜLDÜ: favori kalbi butonunun 2,5 katıydı,
+# üçüncü müşteri yorumu kapsayıcıyı taşıp erişilemez hale gelmişti, 17 tıklanabilir
+# öğe 32px'in altındaydı. Üçü de ölçülebilir; hiçbiri bildirilmiyordu.
+
+
+def test_devasa_ikon_bildirilir():
+    bulgular = page_findings((_gozlem(oversized_icons=(("button.favorite-btn", 100, 40),)),))
+
+    assert any("ikon" in b.lower() for b in bulgular)
+    assert any("favorite-btn" in b for b in bulgular)
+
+
+def test_orantili_ikon_bildirilmez():
+    assert page_findings((_gozlem(oversized_icons=()),)) == ()
+
+
+def test_erisilemeyen_icerik_bildirilir():
+    bulgular = page_findings((_gozlem(clipped=(("div.review-card", 1440, 1900),)),))
+
+    assert any("erişilemiyor" in b.lower() or "kırpıl" in b.lower() for b in bulgular)
+    assert any("review-card" in b for b in bulgular)
+
+
+def test_kucuk_dokunma_hedefi_bildirilir():
+    bulgular = page_findings((_gozlem(small_targets=(("a.footer-link", 18, 14),)),))
+
+    assert any("dokunma" in b.lower() for b in bulgular)
+
+
+def test_bulgular_sayfa_basina_gruplanir():
+    """Her sorun türü için TEK satır: 17 küçük hedef 17 satır üretmemeli."""
+    hedefler = tuple((f"a.link-{i}", 18, 14) for i in range(17))
+
+    bulgular = page_findings((_gozlem(small_targets=hedefler),))
+
+    assert len(bulgular) == 1
+    assert "17" in bulgular[0]
+
+
+def test_ayni_ogenin_farkli_genisliklerdeki_olcumu_tekillestirilir():
+    """Sayfa üç genişlikte ölçülür; birebir aynı ölçüm üç kez bildirilmemeli.
+
+    Ölçü DAHİL tekilleştirilir: aynı öğe farklı genişlikte farklı boyut alıyorsa bu
+    ayrı bir bulgudur. Yalnızca seçiciye göre tekilleştirmek 16 küçük hedefi 2'ye
+    indiriyordu — sayı yalan söylüyordu.
+    """
+    from fusion_cli.engines.agent.browser_verify import _tekil_ucluler
+
+    ham = [("a.link", 18, 14), ("a.link", 18, 14), ("button.x", 10, 10)]
+
+    assert len(_tekil_ucluler(ham)) == 2
