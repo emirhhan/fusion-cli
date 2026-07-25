@@ -230,10 +230,24 @@ embedding:
 # `low` bilinçli olarak paketin varsayılanıyla (agent: nemotron-super) aynıdır:
 # hiç kademe seçmemiş bir kullanıcı ile `low` seçen kullanıcı aynı modeli kullanır.
 #
-# Model kimlikleri 2026-07-25'te OpenRouter ücretsiz kataloğundan doğrulanmıştır.
+# MERDİVENİN EKSENİ (2026-07-26'da canlı OpenRouter kataloğundan doğrulandı):
+#   low     Nemotron 3 Super   120B/12B   genel amaçlı, paketin varsayılanı
+#   medium  Ling 3.0 Flash     124B/5.1B  ajans işlerine ayarlı, token-verimli
+#   high    Laguna S 2.1       118B/8B    kodlamaya ÖZEL (Terminal-Bench 2.1: %70.2)
+#   ultra   Laguna M.1         Poolside amiral gemisi, aynı ailenin üstü
+#   premium Nemotron 3 Ultra   550B/55B   1M bağlam — havuzun tartışmasız zirvesi
+#
+# Basamaklar saf boyut DEĞİLDİR ve öyleymiş gibi de yazılmaz: ücretsiz katmanda
+# 120B sınıfının üstünde tek bir model var (premium). Ortadaki üç basamak boyutça
+# birbirine yakındır, fark UZMANLAŞMADIR — genel → ajans → kodlama → amiral gemisi.
+# Etiketler bu yüzden "bir üstü" demez, modeli ve gerekçesini yazar.
+#
+# NVIDIA her kademede vardır: NIM anahtarı olan kullanıcı onu birincil ya da yedek
+# olarak kullanır, olmayan kullanıcıda zincir sessizce OpenRouter'a düşer. Her rolün
+# zincirinde en az bir `openrouter/` modeli bulunur; bu bir KURALDIR, testi vardır.
 tiers:
   - name: low
-    label: Varsayılan — hızlı ve dengeli
+    label: Nemotron 3 Super 120B — varsayılan, hızlı ve dengeli
     agent:
       name: nemotron-super
       model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
@@ -255,19 +269,21 @@ tiers:
         tags: [code, agent]
 
   - name: medium
-    label: Daha büyük model — 550B, geniş bağlam
+    label: Ling 3.0 Flash 124B — ajans işlerine ayarlı, token-verimli
     agent:
-      name: nemotron-ultra
-      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      name: ling-flash
+      model: openrouter/inclusionai/ling-3.0-flash:free
       tags: [code, agent, reasoning]
-      fallback: [nvidia_nim/nvidia/nemotron-3-super-120b-a12b]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
       model: openrouter/openai/gpt-oss-20b:free
       fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
     candidates:
-      - name: nemotron-ultra
-        model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      - name: ling-flash
+        model: openrouter/inclusionai/ling-3.0-flash:free
         tags: [reasoning, general]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
       - name: nemotron-super
@@ -276,65 +292,74 @@ tiers:
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: high
-    label: Kodlamaya ayarlı model
+    label: Laguna S 2.1 118B — kodlamaya özel ajan modeli
     agent:
-      name: laguna-m
-      model: openrouter/poolside/laguna-m.1:free
+      name: laguna-s
+      model: openrouter/poolside/laguna-s-2.1:free
       tags: [code, agent, reasoning]
-      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+      fallback:
+        - openrouter/poolside/laguna-xs-2.1:free
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
       model: openrouter/openai/gpt-oss-20b:free
       fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
     candidates:
-      - name: laguna-m
-        model: openrouter/poolside/laguna-m.1:free
+      - name: laguna-s
+        model: openrouter/poolside/laguna-s-2.1:free
         tags: [code, agent]
+        fallback: [openrouter/poolside/laguna-xs-2.1:free]
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         tags: [reasoning, general]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: ultra
-    label: Gemma 4 — 31B, güçlü genel dil
+    label: Laguna M.1 — Poolside amiral gemisi, karmaşık mühendislik için
     agent:
-      name: gemma-4
-      model: openrouter/google/gemma-4-31b-it:free
+      name: laguna-m
+      model: openrouter/poolside/laguna-m.1:free
       tags: [code, agent, reasoning]
-      fallback: [openrouter/google/gemma-4-26b-a4b-it:free]
+      fallback:
+        - openrouter/poolside/laguna-s-2.1:free
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
       model: openrouter/openai/gpt-oss-20b:free
       fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
     candidates:
-      - name: gemma-4
-        model: openrouter/google/gemma-4-31b-it:free
-        tags: [general, reasoning]
-        fallback: [openrouter/google/gemma-4-26b-a4b-it:free]
+      - name: laguna-m
+        model: openrouter/poolside/laguna-m.1:free
+        tags: [code, agent]
+        fallback: [openrouter/poolside/laguna-s-2.1:free]
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        tags: [code, agent]
+        tags: [reasoning, general]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: premium
-    label: Ling 3.0 — en geniş aday havuzu
+    label: Nemotron 3 Ultra 550B — 1M bağlam, havuzun en yetenekli modeli
     agent:
-      name: ling-flash
-      model: openrouter/inclusionai/ling-3.0-flash:free
+      name: nemotron-ultra
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
       tags: [code, agent, reasoning]
-      fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+      fallback:
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
     judge:
       name: hakem
       model: openrouter/openai/gpt-oss-20b:free
       fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
     candidates:
-      - name: ling-flash
-        model: openrouter/inclusionai/ling-3.0-flash:free
-        tags: [general, reasoning]
       - name: nemotron-ultra
         model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-        tags: [reasoning]
+        tags: [reasoning, code]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
       - name: laguna-m
         model: openrouter/poolside/laguna-m.1:free
         tags: [code, agent]
+        fallback:
+          - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+          - openrouter/nvidia/nemotron-3-super-120b-a12b:free

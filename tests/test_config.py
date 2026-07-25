@@ -239,6 +239,30 @@ def test_varsayilan_kademeler_yuklenir():
     ]
 
 
+def test_her_kademe_rolunun_openrouter_yedegi_vardir():
+    """NIM anahtarı olmayan kullanıcıda hiçbir rol boşta kalmamalıdır.
+
+    Ürün ücretsiz LLM'lerle çalışmayı vaat ediyor ve OpenRouter anahtarı tek
+    başına yeterli olmalı. Bir rolün zinciri yalnızca `nvidia_nim/` modellerden
+    oluşursa o kademe NIM'siz kullanıcıda sessizce çöker — hata mesajı da
+    "model yanıt vermedi" olur, sebebi görünmez.
+    """
+    config = load_config()
+
+    yedeksiz = [
+        (kademe.name, rol_adi, spec.models)
+        for kademe in config.tiers
+        for rol_adi, spec in [
+            ("agent", kademe.agent),
+            ("judge", kademe.judge),
+            *[(f"aday:{aday.name}", aday) for aday in kademe.candidates],
+        ]
+        if not any(model.startswith("openrouter/") for model in spec.models)
+    ]
+
+    assert yedeksiz == []
+
+
 def test_kademe_adiyla_bulunur_ve_buyuk_harf_duyarsizdir():
     config = load_config()
 
