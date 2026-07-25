@@ -48,6 +48,31 @@ def test_esik_ustunde_sikistirma_gerekir():
     assert history.needs_compression(buyuk)
 
 
+def test_siradan_kodlama_oturumu_sikistirmaya_takilmaz():
+    """Birkaç dosya okuyan normal bir tur, geçmişini kaybetmemeli.
+
+    Eski eşik (24.000 karakter ≈ 6k token) modelin bağlam penceresinin %1'inden azdı:
+    agent üç beş dosya okur okumaz geçmişi 600 token'lık bir özete iniyor, az önce
+    okuduğu dosyayı unutup uydurmaya başlıyordu.
+    """
+    oturum = [Message("user", "şu hatayı düzelt")]
+    for sira in range(5):
+        oturum.append(Message("assistant", "", tool_calls=(_arac_cagrisi(str(sira)),)))
+        # 8 KB ≈ 200 satırlık sıradan bir kaynak dosya.
+        oturum.append(Message("tool", "k" * 8_000, tool_call_id=str(sira), name="read_file"))
+
+    assert not history.needs_compression(oturum)
+
+
+def test_korunan_mesaj_sayisi_birkac_arac_turunu_kapsar():
+    """Bir araç turu 2 mesajdır (çağrı + sonuç); 6 mesaj yalnızca 3 tura yeterdi."""
+    assert history.KEEP_RECENT_MESSAGES >= 16
+
+
+def _arac_cagrisi(kimlik: str) -> ToolCall:
+    return ToolCall(id=kimlik, name="read_file", arguments="{}")
+
+
 def test_iz_arac_cagrilarini_ve_sonuclarini_korur():
     iz = history.transcript(_mesajlar())
 
@@ -150,8 +175,11 @@ async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
         return "kisa ozet"
 
     monkeypatch.setattr(compaction, "_summarize", _ozet)
-    mesajlar = [Message("user", "x" * 30_000)] + [
-        Message("user" if i % 2 == 0 else "assistant", f"m{i}") for i in range(8)
+    # Eşiği ve korunan mesaj sayısını sabitten türet: değerler ayarlandığında test
+    # yanlış sebeple kırılmasın.
+    mesajlar = [Message("user", "x" * (history.COMPRESS_THRESHOLD_CHARS + 1))] + [
+        Message("user" if i % 2 == 0 else "assistant", f"m{i}")
+        for i in range(history.KEEP_RECENT_MESSAGES + 2)
     ]
 
     sonuc = await compaction.compress(mesajlar, config=make_config())

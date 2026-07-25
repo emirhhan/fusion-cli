@@ -16,9 +16,25 @@ from collections.abc import Sequence
 from ...core.types import Message
 
 #: Geçmiş bu karakter sayısını aşınca sıkıştırma denenir.
-COMPRESS_THRESHOLD_CHARS = 24_000
+#:
+#: Değer havuzun EN DAR bağlam penceresinden türetilir; en genişinden değil, çünkü
+#: yedeğe düşen tur da aynı geçmişi taşır. En dar pencere gpt-oss-20b'de 131.072
+#: token (karşılaştırma: nemotron-3-super 262.144–1.000.000).
+#:
+#:   kullanılabilir ≈ 131.072 − çıktı bütçesi (8.192) − sistem promptu + araç şemaları (~4.000)
+#:                  ≈ 119.000 token
+#:   geçmişe ayrılan ≈ yarısı ≈ 59.000 token
+#:   Türkçe + kod için ihtiyatlı oran 3 karakter/token ≈ 177.000 karakter
+#:
+#: Eski değer 24.000 karakterdi (≈6k token): en dar pencerenin bile %5'i. Agent üç beş
+#: dosya okur okumaz geçmişini bir özete indiriyor, az önce okuduğunu unutuyordu.
+COMPRESS_THRESHOLD_CHARS = 177_000
 #: Sıkıştırmada birebir korunacak en son mesaj sayısı.
-KEEP_RECENT_MESSAGES = 6
+#:
+#: Bir araç turu İKİ mesajdır (çağrı + sonuç), yani 6 yalnızca 3 tur demekti: özet
+#: alındığı anda agent son üç adımı dışında her şeyi kaybediyordu. 20 mesaj ≈ 10 araç
+#: turu — sıkıştırmadan sonra işe devam edebilecek kadar somut bağlam kalır.
+KEEP_RECENT_MESSAGES = 20
 #: Oturum izinde tek bir mesajdan alınacak en fazla karakter.
 TRACE_MESSAGE_CHARS = 300
 #: Oturum izinin toplam uzunluğu.

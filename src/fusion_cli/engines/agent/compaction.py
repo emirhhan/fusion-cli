@@ -17,7 +17,15 @@ from . import history
 _PROMPT = (Path(__file__).parent / "prompts" / "compress.txt").read_text(encoding="utf-8")
 
 #: Özet için ayrılan token bütçesi.
-SUMMARY_MAX_TOKENS = 600
+#:
+#: Sıkıştırma eşiği yükseldiği için özetlenen geçmiş de büyüdü; 600 token artık atılan
+#: içeriği temsil edemezdi.
+SUMMARY_MAX_TOKENS = 2_000
+#: Özetleyiciye verilecek oturum izinin uzunluğu.
+#:
+#: Eskiden 6.000 karakterdi. Eşik 177.000 karaktere çıkınca özetleyici, attığı geçmişin
+#: ancak %3'ünü görüyor olurdu — özet yalnızca gördüğü kadarını temsil eder.
+TRACE_CHARS = 60_000
 
 
 async def compress(
@@ -32,7 +40,7 @@ async def compress(
         return messages
 
     old, recent = messages[:cut], messages[cut:]
-    trace = history.transcript(old, limit=6_000)
+    trace = history.transcript(old, limit=TRACE_CHARS)
     if not trace.strip():
         return messages
 
