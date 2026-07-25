@@ -78,7 +78,10 @@ def _preview_edit(args: ToolArgs, context: ToolContext) -> str:
     search, replacement = args.get("old"), args.get("new")
     if not isinstance(search, str) or not isinstance(replacement, str):
         raise ArgumentError("'old' ve 'new' metin olmalı.")
-    new_text = old_text.replace(search, replacement, 1)
+    # Önizleme uygulanacak değişikliğin AYNISINI göstermelidir: toplu değiştirmeyi
+    # tek eşleşme gibi göstermek, kullanıcıya yanlış şeyi onaylatır.
+    limit = -1 if args.get("replace_all") is True else 1
+    new_text = old_text.replace(search, replacement, limit)
     return (
         unified_diff(old_text, new_text, display_path(path, context))
         or "(eşleşme yok / değişiklik yok)"
@@ -91,8 +94,10 @@ def _preview_multi_edit(args: ToolArgs, context: ToolContext) -> str:
         return f"(dosya yok: {path})"
     old_text = path.read_text(encoding="utf-8")
     new_text = old_text
-    for search, replacement in parse_edits(args.get("edits")):
-        new_text = new_text.replace(search, replacement, 1)
+    for search, replacement, replace_all in parse_edits(args.get("edits")):
+        # Önizleme, uygulanacak değişikliğin AYNISINI göstermelidir; toplu değiştirme
+        # tek eşleşme gibi gösterilirse kullanıcı yanlış şeyi onaylar.
+        new_text = new_text.replace(search, replacement, -1 if replace_all else 1)
     return unified_diff(old_text, new_text, display_path(path, context)) or "(değişiklik yok)"
 
 

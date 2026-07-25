@@ -261,3 +261,85 @@ def test_basarisiz_duzenleme_iz_birakmaz(tmp_path):
     files.edit_file({"path": "a.txt", "old": "olmayan", "new": "y"}, context)
 
     assert not context.touched
+
+
+# --- Toplu değiştirme -------------------------------------------------------- #
+#
+# Gerçek hata: kapı "19 boş bağlantı var" dedi, model 19 özdeş href="#" metnini
+# değiştirmek istedi ve araç "benzersiz olmalı" diye reddetti. Tek tek düzeltmek 19
+# çağrı, tamamını yeniden yazmak <script> etiketini düşürme riski. Model doğru şeyi
+# istedi, araç veremedi; tur 62 model çağrısı harcayıp düzeltemedi.
+
+
+def test_replace_all_tum_eslesmeleri_degistirir(tmp_path):
+    dosya = tmp_path / "a.html"
+    dosya.write_text('<a href="#">1</a><a href="#">2</a><a href="#">3</a>', encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+
+    sonuc = files.edit_file(
+        {"path": "a.html", "old": 'href="#"', "new": 'href="/kurumsal"', "replace_all": True},
+        context,
+    )
+
+    assert sonuc.ok, sonuc.output
+    assert 'href="#"' not in dosya.read_text(encoding="utf-8")
+    assert "3" in sonuc.output, "kaç değişiklik yapıldığı bildirilmeli"
+
+
+def test_replace_all_olmadan_benzersizlik_hala_sart(tmp_path):
+    """Varsayılan davranış korunur: kör toplu değiştirme kazara veri bozar."""
+    dosya = tmp_path / "a.html"
+    dosya.write_text('<a href="#">1</a><a href="#">2</a>', encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.html", "old": 'href="#"', "new": "x"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "benzersiz" in sonuc.output
+
+
+def test_replace_all_eslesme_yoksa_yine_hata_verir(tmp_path):
+    (tmp_path / "a.txt").write_text("icerik", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.txt", "old": "yok", "new": "x", "replace_all": True},
+        ToolContext(root=tmp_path),
+    )
+
+    assert not sonuc.ok
+    assert "bulunamadı" in sonuc.output
+
+
+def test_benzersizlik_hatasi_replace_all_secenegini_soyler(tmp_path):
+    """Model çıkış yolunu bilmeli; aksi halde döngüye giriyor."""
+    dosya = tmp_path / "a.html"
+    dosya.write_text('<a href="#">1</a><a href="#">2</a>', encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.html", "old": 'href="#"', "new": "x"}, ToolContext(root=tmp_path)
+    )
+
+    assert "replace_all" in sonuc.output
+
+
+def test_multi_edit_de_replace_all_destekler(tmp_path):
+    """Aynı sıkışma multi_edit'te de vardı: her düzenleme benzersizlik istiyordu."""
+    dosya = tmp_path / "a.html"
+    dosya.write_text('<a href="#">1</a><a href="#">2</a><p>eski</p>', encoding="utf-8")
+
+    sonuc = files.multi_edit(
+        {
+            "path": "a.html",
+            "edits": [
+                {"old": 'href="#"', "new": 'href="/x"', "replace_all": True},
+                {"old": "eski", "new": "yeni"},
+            ],
+        },
+        ToolContext(root=tmp_path),
+    )
+
+    metin = dosya.read_text(encoding="utf-8")
+    assert sonuc.ok, sonuc.output
+    assert 'href="#"' not in metin
+    assert "yeni" in metin

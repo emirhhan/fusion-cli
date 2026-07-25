@@ -76,10 +76,22 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     old = require_str(args, "old")
     new = require_text(args, "new")
+    replace_all = args.get("replace_all") is True
 
     if not path.exists():
         return ToolResult.failure(f"Dosya yok: {path}")
     text = path.read_text(encoding="utf-8")
+
+    if replace_all:
+        # Tekrar eden aynı metni tek çağrıda düzeltmek için. Benzersizlik şartı
+        # olmadan çalışır ama METİN VAR OLMALIDIR: sessizce hiçbir şey yapmamak,
+        # modele "düzelttim" yanılgısı verir.
+        count = text.count(old)
+        if count == 0:
+            return ToolResult.failure(_NOT_FOUND)
+        path.write_text(text.replace(old, new), encoding="utf-8")
+        context.touched.add(path)
+        return ToolResult(f"düzenlendi: {path} ({count} değişiklik)")
 
     problem = _match_problem(text, old, position=None)
     if problem is not None:
@@ -99,16 +111,25 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
     original = path.read_text(encoding="utf-8")
 
     working = original
-    for position, (old, new) in enumerate(edits, 1):
+    toplam = 0
+    for position, (old, new, replace_all) in enumerate(edits, 1):
+        if replace_all:
+            count = working.count(old)
+            if count == 0:
+                # Atomiklik: tek bir düzenleme tutmazsa dosyaya HİÇ dokunulmaz.
+                return ToolResult.failure(f"{position}. düzenleme: {_NOT_FOUND}")
+            working = working.replace(old, new)
+            toplam += count
+            continue
         problem = _match_problem(working, old, position=position)
         if problem is not None:
-            # Atomiklik: tek bir düzenleme tutmazsa dosyaya HİÇ dokunulmaz.
             return ToolResult.failure(problem)
         working = working.replace(old, new, 1)
+        toplam += 1
 
     path.write_text(working, encoding="utf-8")
     context.touched.add(path)
-    return ToolResult(f"düzenlendi: {path} ({len(edits)} değişiklik uygulandı)")
+    return ToolResult(f"düzenlendi: {path} ({toplam} değişiklik uygulandı)")
 
 
 def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -130,11 +151,11 @@ def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:
 # --------------------------------------------------------------------------- #
 
 
-def parse_edits(raw: object) -> tuple[tuple[str, str], ...]:
-    """`edits` listesini (old, new) çiftlerine çevir; biçim bozuksa hata ver."""
+def parse_edits(raw: object) -> tuple[tuple[str, str, bool], ...]:
+    """`edits` listesini (old, new, replace_all) üçlülerine çevir; bozuksa hata ver."""
     if not isinstance(raw, list):
         raise ArgumentError("'edits' bir liste olmalı.")
-    edits: list[tuple[str, str]] = []
+    edits: list[tuple[str, str, bool]] = []
     for position, item in enumerate(raw, 1):
         if not isinstance(item, dict):
             raise ArgumentError(f"{position}. düzenleme bir sözlük olmalı: {{'old':…, 'new':…}}")
@@ -143,8 +164,15 @@ def parse_edits(raw: object) -> tuple[tuple[str, str], ...]:
             raise ArgumentError(f"{position}. düzenleme: 'old' boş olmayan bir metin olmalı.")
         if not isinstance(new, str):
             raise ArgumentError(f"{position}. düzenleme: 'new' metin olmalı.")
-        edits.append((old, new))
+        edits.append((old, new, item.get("replace_all") is True))
     return tuple(edits)
+
+
+#: Eşleşme bulunamadığında modele dönen açıklama.
+_NOT_FOUND = (
+    "'old' metni dosyada bulunamadı. Birebir eşleşmeli — önce dosyayı okuyup metni "
+    "oradan kopyala."
+)
 
 
 def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
@@ -154,11 +182,10 @@ def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
         return None
     prefix = f"{position}. düzenleme: " if position is not None else ""
     if count == 0:
-        return (
-            f"{prefix}'old' metni dosyada bulunamadı. Birebir eşleşmeli — "
-            "önce dosyayı okuyup metni oradan kopyala."
-        )
+        return f"{prefix}{_NOT_FOUND}"
     return (
-        f"{prefix}'old' metni {count} kez geçiyor; benzersiz olmalı. "
-        "Çevresinden birkaç satır daha ekleyerek eşleşmeyi daralt."
+        f"{prefix}'old' metni {count} kez geçiyor; benzersiz olmalı. HEPSİNİ aynı "
+        'şekilde değiştirecekseniz replace_all: true ekleyin — tek çağrıda biter. '
+        "Yalnızca birini değiştirecekseniz çevresinden birkaç satır daha ekleyerek "
+        "eşleşmeyi daraltın."
     )

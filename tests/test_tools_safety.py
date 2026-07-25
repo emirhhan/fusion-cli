@@ -208,3 +208,18 @@ def test_eksik_alan_mesaji_modele_ne_yapacagini_soyler():
         require_str({"content": "x" * 15_000}, "path")
 
     assert "path" in str(hata.value)
+
+
+def test_replace_all_onizlemesi_tum_degisiklikleri_gosterir(tmp_path):
+    """Onay ekranı gerçekte olacak şeyi göstermeli; yoksa kullanıcı yanılır."""
+    dosya = tmp_path / "a.html"
+    dosya.write_text('<a href="#">1</a>\n<a href="#">2</a>\n', encoding="utf-8")
+
+    onizleme = preview_change(
+        "edit_file",
+        {"path": "a.html", "old": 'href="#"', "new": 'href="/x"', "replace_all": True},
+        ToolContext(root=tmp_path),
+    )
+
+    assert onizleme is not None
+    assert onizleme.count('href="/x"') >= 2

@@ -65,12 +65,18 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="edit_file",
         description="Bir dosyada birebir eşleşen 'old' metnini 'new' ile değiştir. "
-        "'old' dosyada BENZERSİZ olmalı; değilse çevresinden birkaç satır daha ekle.",
+        "'old' varsayılan olarak BENZERSİZ olmalı; tekrar eden bir metnin HEPSİNİ "
+        "değiştirecekseniz replace_all: true kullanın (tek çağrıda biter).",
         parameters=_schema(
             {
                 "path": _STRING,
-                "old": {**_STRING, "description": "Değiştirilecek mevcut metin (benzersiz)"},
+                "old": {**_STRING, "description": "Değiştirilecek mevcut metin"},
                 "new": {**_STRING, "description": "Yeni metin"},
+                "replace_all": {
+                    "type": "boolean",
+                    "description": "true ise tüm eşleşmeler değişir ve benzersizlik "
+                    "aranmaz. Aynı metin dosyada çok kez geçiyorsa bunu kullanın.",
+                },
             },
             ["path", "old", "new"],
         ),
@@ -86,8 +92,19 @@ _TOOLS: tuple[Tool, ...] = (
                 "path": _STRING,
                 "edits": {
                     "type": "array",
-                    "description": "[{'old': 'benzersiz metin', 'new': 'yeni metin'}, …]",
-                    "items": _schema({"old": _STRING, "new": _STRING}, ["old", "new"]),
+                    "description": "[{'old': 'metin', 'new': 'yeni', 'replace_all': false}, …]",
+                    "items": _schema(
+                        {
+                            "old": _STRING,
+                            "new": _STRING,
+                            "replace_all": {
+                                "type": "boolean",
+                                "description": "true ise bu düzenlemenin tüm "
+                                "eşleşmeleri değişir ve benzersizlik aranmaz.",
+                            },
+                        },
+                        ["old", "new"],
+                    ),
                 },
             },
             ["path", "edits"],
