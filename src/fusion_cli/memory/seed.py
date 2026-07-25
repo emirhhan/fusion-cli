@@ -32,6 +32,12 @@ SEED_LESSONS: tuple[Lesson, ...] = tuple(
             "kullan; biri tutmazsa hiçbiri uygulanmaz, yarım kalmış dosya riski olmaz.",
         ),
         (
+            "büyük dosya yazma",
+            _M,
+            "write_file çağrısında 'path' alanını HER ZAMAN içerikten önce yaz. İçerik "
+            "büyük olduğunda sona bırakılan 'path' düşüyor ve tüm içerik boşa gidiyor.",
+        ),
+        (
             "yeni dosya oluşturma",
             _S,
             "write_file dosyanın TAMAMINI yazar. Var olan bir dosyayı kısmen değiştireceksen "

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voltiva - Akıllı Ev Aletleri</title>
+    <meta name="description" content="Voltiva - Günlük hayatı kolaylaştıran elektronik ev aletlerini avantajlı fiyatlarla keşfet.">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Üst Bilgi Çubuğu -->
+    <header class="top-bar">
+        <div class="container">
+            <span>2.000 TL üzeri ücretsiz kargo</span>
+            <span>14 gün içinde kolay iade</span>
+            <span>Güvenli ödeme</span>
+        </div>
+    </header>
+
+    <!-- Ana Header -->
+    <header class="main-header">
+        <div class="container">
+            <div class="logo">
+                <h1>Voltiva</h1>
+            </div>
+            <nav class="nav-menu">
+                <ul>
+                    <li><a href="#kategoriler">Kategoriler</a></li>
+                    <li><a href="#kampanyalar">Kampanyalar</a></li>
+                    <li><a href="#cok-satanlar">Çok Satanlar</a></li>
+                </ul>
+            </nav>
+            <div class="header-actions">
+                <div class="search-box">
+                    <input type="search" id="search-input" placeholder="Ürün ara..." aria-label="Ürün ara">
+                    <button type="button" id="search-btn" aria-label="Ara"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.002 1.002 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/></svg></button>
+                </div>
+                <div class="action-icons">
+                    <button class="icon-btn" id="cart-btn" aria-label="Sepetim"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-cart" viewBox="0 0 16 16"><path d="M0 1.5A.5.5 0 0 1 .5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 5 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L1.5 2.146A.5.5 0 0 1 1.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 7 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L3.5 2.146A.5.5 0 0 1 3.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 9 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L5.5 2.146A.5.5 0 0 1 5.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 11 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L7.5 2.146A.5.5 0 0 1 7.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 12 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L9.5 2.146A.5.5 0 0 1 9.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 14 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L11.5 2.146A.5.5 0 0 1 11.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 13 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L10.5 2.146A.5.5 0 0 1 10.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 12 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L9.5 2.146A.5.5 0 0 1 9.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 11 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L8.5 2.146A.5.5 0 0 1 8.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 10 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L7.5 2.146A.5.5 0 0 1 7.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 9 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L6.5 2.146A.5.5 0 0 1 6.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 8 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L5.5 2.146A.5.5 0 0 1 5.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 7 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L4.5 2.146A.5.5 0 0 1 4.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 6 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L3.5 2.146A.5.5 0 0 1 3.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 5 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L2.5 2.146A.5.5 0 0 1 2.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 4 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L1.5 2.146A.5.5 0 0 1 1.5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 3 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L.5 2.146A.5.5 0 0 1 .5 1h2a.5.5 0 0 1 .353.146l1.5 1.5A.5.5 0 0 1 2 7h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1-.146-.354L.5 2.146A.5.5 0 0 1 .5 1z"/></svg><span id="cart-count" class="badge">0</span></button>
+                    <button class="icon-btn" id="fav-btn" aria-label="Favorilerim"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-heart" viewBox="0 0 16 16"><path d="m8 2.748-.717-.737C5.6.281 2.514.878 1.4 3.053c-.523 1.023-.641 2.5.314 4.385.92 1.815 2.834 3.952 6.286 6.374 3.452-2.422 5.365-4.559 6.286-6.374.955-1.886.836-3.362.314-4.385C13.486.878 10.4.281 8.717 2.748zM8 15c-7.33 0-12.604-6.027-12.604-13.445 0-.425.034-.838.102-1.241l-.003-.266a32.484 32.484 0 0 1-.034-.022l-.002-.018c-.015-.123-.046-.332-.124-.517C3.31.193 4.665.08 6.05.183c1.396.103 2.85.383 4.013.776 1.165.393 2.382.82 3.462 1.33 1.08-.51 2.22-.995 3.19-1.592.97-.597 1.913-1.18 2.73-1.755.815-.575 1.64-1.09 2.322-1.553.682-.463 1.33-.88 1.835-1.23.505-.35.976-.639 1.38-.865.404-.226.78-.418 1.09-.571.31-.153.586-.282.81-.384.224-.102.414-.186.57-.246.156-.06.283-.11.386-.149.093-.039.176-.074.246-.097.123-.023.233-.045.33-.064.107-.019.203-.036.286-.05.083-.014.153-.026.21-.037.067-.011.124-.021.168-.031.044-.009.078-.016.101-.023.023-.004.036-.007.046-.01.013-.002.021-.004.028-.006.004-.001.006-.002.008-.003.001-.001.002-.001.003-.001z"/></svg><span id="fav-count" class="badge">0</span></button>
+                    <button class="icon-btn" id="user-btn" aria-label="Hesabım"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-person" viewBox="0 0 16 16"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1h3s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1h-3zm-4 0s-1 0-1-1 0-4 4-4 4 3 4 4-1 1-1 1H8z"/></svg></button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Bölümü -->
+    <section class="hero">
+        <div class="container">
+            <h1>Evin için akıllı teknolojiler</h1>
+            <p>Günlük hayatını kolaylaştıran elektronik ev aletlerini avantajlı fiyatlarla keşfet.</p>
+            <div class="hero-buttons">
+                <a href="#cok-satanlar" class="btn primary">Ürünleri Keşfet</a>
+                <a href="#kampanyalar" class="btn secondary">Kampanyaları Gör</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Kategoriler -->
+    <section id="kategoriler" class="categories">
+        <div class="container">
+            <h2>Kategoriler</h2>
+            <div class="category-grid">
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Robot+Süpürge" alt="Robot Süpürge">
+                    <h3>Robot Süpürgeler</h3>
+                </article>
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Kahve+Makinesi" alt="Kahve Makinesi">
+                    <h3>Kahve Makineleri</h3>
+                </article>
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Airfryer" alt="Airfryer">
+                    <h3>Airfryer</h3>
+                </article>
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Blender+Mikser" alt="Blender ve Mikser">
+                    <h3>Blender ve Mikser</h3>
+                </article>
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Ütü" alt="Ütü">
+                    <h3>Ütüler</h3>
+                </article>
+                <article class="category-card">
+                    <img src="https://via.placeholder.com/300x200?text=Kişisel+Bakım" alt="Kişisel Bakım">
+                    <h3>Kişisel Bakım</h3>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Çok Satanlar -->
+    <section id="cok-satanlar" class="bestsellers">
+        <div class="container">
+            <h2>Çok Satanlar</h2>
+            <div class="product-grid" id="product-grid">
+                <!-- Ürün kartları JavaScript ile doldurulacak -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Kampanya Bannerları -->
+    <section id="kampanyalar" class="campaigns">
+        <div class="container">
+            <div class="campaign-banner">
+                <img src="https://via.placeholder.com/800x300?text=Kahve+keyfini+evine+ta%C5%9F%C4%B1" alt="Kahve keyfini evine taşı">
+                <div class="banner-content">
+                    <h3>Kahve keyfini evine taşı</h3>
+                    <p>Özel kahve makineleri ile gününüzü energik başlatın.</p>
+                    <a href="#kampanyalar" class="btn secondary">Keşfet</a>
+                </div>
+            </div>
+            <div class="campaign-banner">
+                <img src="https://via.placeholder.com/800x300?text=Temizlikte+akıllı+d%C3%B6nem" alt="Temizlikte akıllı dönem">
+                <div class="banner-content">
+                    <h3>Temizlikte akıllı dönem</h3>
+                    <p>Robot süpürgeler ve akıllı temizlik cihazlarıyla zaman kazanın.</p>
+                    <a href="#kampanyalar" class="btn secondary">Keşfet</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Avantajlar -->
+    <section class="advantages">
+        <div class="container">
+            <h2>Avantajlarımız</h2>
+            <div class="advantages-grid">
+                <div class="advantage-card">
+                    <div class="icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-truck" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 0 0-4H1a2 2 0 1 0 0 4h2.5a1.5 1.5 0 0 1 1.5 1.5V14a.5.5 0 0 1-1 0v-1.5a1.5 1.5 0 0 1-1.5-1.5H1A1.5 1.5 0 0 1 0 12.5V3.5zM6 5a1 1 0 1 0-2 0 1 1 0 0 0 2 0zm9 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0zM7.5 8a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1z"/></svg>
+                    </div>
+                    <h3>Ücretsiz Kargo</h3>
+                    <p>2.000 TL üzeri siparişlerde ücretsiz kargo.</p>
+                </div>
+                <div class="advantage-card">
+                    <div class="icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-shield-lock" viewBox="0 0 16 16"><path d="M5.338 1.59a61.44 61.44 0 0 0-2.837.856.481.481 0 0 0-.328.39c-.554 4.157.726 7.19 2.253 9.188a10.725 10.725 0 0 0 2.287 2.233c.346.244.652.42.893.533.12.057.218.095.293.118a.55.55 0 0 0 .101.025.615.615 0 0 0 .1-.025c.037-.012.074-.02.109-.034a.55.55 0 0 0 .15-.007c.266.02.52.025.774.025.255 0 .508-.005.757-.014.249-.009.486-.022.716-.041a11.775 11.775 0 0 0 3.157-.504c1.243-.963 1.628-2.462 1.628-3.953C14.756 4.29 13.023 2.346 10.31 2.05a9.865 9.865 0 0 0-2.971-.083c-.625.244-1.21.57-1.694.943C7.59 3.21 6.058 3.581 4.5 3.923a61.44 61.44 0 0 0-2.837.856z"/><path d="M10.5 7a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 0 1h-2V8a1 1 0 1 1-2 0V7h-2a.5.5 0 0 1 .5-.5z"/></svg>
+                    </div>
+                    <h3>Güvenli Ödeme</h3>
+                    <p>Güvenli ödeme altyapısı ile güvenli alışveriş.</p>
+                </div>
+                <div class="advantage-card">
+                    <div class="icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-truck-front" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 0 0-4H1a2 2 0 1 0 0 4h2.5a1.5 1.5 0 0 1 1.5 1.5V14a.5.5 0 0 1-1 0v-1.5a1.5 1.5 0 0 1-1.5-1.5H1A1.5 1.5 0 0 1 0 12.5V3.5zM6 5a1 1 0 1 0-2 0 1 1 0 0 0 2 0zm9 0a1 1 0 1 0-2 0 1 1 0 0 0 2 0zM7.5 8a.5 .5 0 1 0 0-1 .5 .5 0 0 0 0 1z"/></svg>
+                    </div>
+                    <h3>Hızlı Teslimat</h3>
+                    <p>1-3 iş günü içinde kapınızda.</p>
+                </div>
+                <div class="advantage-card">
+                    <div class="icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-arrow-counterclockwise" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/><path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.363a.25.25 0 0 0 0 .416l1.184 1.323a.25 .25 0 0 0 .416-.09l.812-.418z"/></svg>
+                    </div>
+                    <h3>Kolay İade</h3>
+                    <p>14 gün içinde sorunsuz iade ve değişim.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Müşteri Yorumları -->
+    <section class="reviews">
+        <div class="container">
+            <h2>Müşteri Yorumları</h2>
+            <div class="reviews-slider" id="reviews-slider">
+                <!-- Yorum kartları JS ile doldurulacak -->
+            </div>
+        </div>
+    </section>
+
+    <!-- Bülten Formu -->
+    <section class="newsletter">
+        <div class="container">
+            <div class="newsletter-content">
+                <h2>Kampanyaları kaçırmayın</h2>
+                <p>En yeni kampanyalar ve özel teklifler için e-posta adresinizi bırakın.</p>
+                <form id="newsletter-form">
+                    <input type="email" id="newsletter-input" placeholder="E-posta adresiniz" required aria-label="E-posta adresiniz">
+                    <button type="submit" class="btn primary">Abone Ol</button>
+                    <p id="newsletter-message" class="message"></p>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-column">
+                    <h3>Voltiva</h3>
+                    <p>Akıllı ev aletleri ile günlük yaşamınızı kolaylaştırıyoruz.</p>
+                </div>
+                <div class="footer-column">
+                    <h3>Müşteri Hizmetleri</h3>
+                    <ul>
+                        <li><a href="#">SSS</a></li

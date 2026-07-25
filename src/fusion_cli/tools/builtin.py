@@ -49,8 +49,13 @@ _TOOLS: tuple[Tool, ...] = (
         "Var olan bir dosyanın bir kısmını değiştireceksen bunu değil edit_file kullan.",
         parameters=_schema(
             {
-                "path": _STRING,
-                "content": {**_STRING, "description": "Dosyanın yeni tam içeriği"},
+                # Açıklamada sıra vurgulanır: içerik büyükse model küçük alanı sona
+                # bırakıp bazen hiç üretmiyor ve tur boşa gidiyor.
+                "path": {**_STRING, "description": "Dosya yolu. İLK bu alanı yaz."},
+                "content": {
+                    **_STRING,
+                    "description": "Dosyanın yeni tam içeriği. 'path' YAZILDIKTAN SONRA gelir.",
+                },
             },
             ["path", "content"],
         ),

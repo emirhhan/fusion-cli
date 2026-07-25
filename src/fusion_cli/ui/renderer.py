@@ -382,8 +382,25 @@ class ConsoleRenderer:
         render_fusion_result(self._console, result, show_all_answers=self._show_all_answers)
 
 
+#: Bu uzunluğu aşan argüman değeri ham gösterilmez, yerine boyutu yazılır.
+_ARG_VALUE_LIMIT = 48
+
+
 def _format_args(args: Mapping[str, object]) -> str:
-    return ", ".join(f"{key}={value}" for key, value in args.items())
+    """Araç argümanlarını tek satırda özetle.
+
+    Büyük değerler (dosya içeriği gibi) boyutuyla gösterilir. Ham basılırlarsa tek bir
+    alan satırı doldurur ve geri kalanı kesilip kaybolur: `write_file` çağrısında model
+    içeriği önce yazdığında sondaki hatalı `path` ekrana hiç ulaşmıyor, kullanıcı hangi
+    alanın sorunlu olduğunu göremiyordu. Her alanın GÖRÜNMESİ, birinin tam görünmesinden
+    daha değerlidir.
+    """
+    return ", ".join(f"{key}={_format_value(value)}" for key, value in args.items())
+
+
+def _format_value(value: object) -> str:
+    text = str(value)
+    return text if len(text) <= _ARG_VALUE_LIMIT else f"<{len(text)} karakter>"
 
 
 def _shorten(text: str, limit: int) -> str:

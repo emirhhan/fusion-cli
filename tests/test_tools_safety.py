@@ -182,3 +182,29 @@ def test_kok_disindaki_dosya_mutlak_yolla_gosterilir(context, tmp_path):
 
     assert str(disarida) in onizleme
     disarida.unlink()
+
+
+# --- Argüman hataları ------------------------------------------------------- #
+
+
+def test_eksik_alan_ile_bos_alan_ayri_mesaj_verir():
+    """Model hatasını düzeltebilmek için hangisi olduğunu bilmeli."""
+    from fusion_cli.tools.args import ArgumentError, require_str
+
+    with pytest.raises(ArgumentError) as eksik:
+        require_str({"content": "x"}, "path")
+    with pytest.raises(ArgumentError) as bos:
+        require_str({"path": "  ", "content": "x"}, "path")
+
+    assert str(eksik.value) != str(bos.value)
+    assert "eksik" in str(eksik.value).lower()
+
+
+def test_eksik_alan_mesaji_modele_ne_yapacagini_soyler():
+    """Model 15 KB'lık içeriği körlemesine tekrar üretmemeli."""
+    from fusion_cli.tools.args import ArgumentError, require_str
+
+    with pytest.raises(ArgumentError) as hata:
+        require_str({"content": "x" * 15_000}, "path")
+
+    assert "path" in str(hata.value)

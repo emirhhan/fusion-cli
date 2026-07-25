@@ -520,3 +520,35 @@ def test_bekleyen_durum_satiri_cevabin_uzerine_binmez():
     satirlar = [satir for satir in buffer.getvalue().splitlines() if satir.strip()]
     assert "araç çalıştı" in satirlar[0]
     assert satirlar[1] == f"{MARK} cevap"
+
+
+# --- Araç argümanlarının gösterimi ------------------------------------------ #
+
+
+def test_uzun_arguman_degeri_ozetlenir_diger_alanlar_gorunur_kalir():
+    """Büyük içerik satırı doldurup diğer alanları ekrandan silmemeli.
+
+    Gerçek bir hatanın izi: model write_file'ı content'i önce yazarak çağırdığında
+    15 KB'lık içerik kartı dolduruyor, sondaki hatalı `path` ekrana hiç ulaşmıyordu.
+    Kullanıcı hangi alanın sorunlu olduğunu göremiyordu.
+    """
+    from fusion_cli.ui.renderer import _format_args
+
+    metin = _format_args({"content": "x" * 15_000, "path": ""})
+
+    assert "path=" in metin
+    assert "x" * 100 not in metin
+
+
+def test_kisa_arguman_degerleri_oldugu_gibi_gosterilir():
+    from fusion_cli.ui.renderer import _format_args
+
+    assert _format_args({"path": "src/app.py"}) == "path=src/app.py"
+
+
+def test_uzun_deger_uzunlugunu_bildirir():
+    from fusion_cli.ui.renderer import _format_args
+
+    metin = _format_args({"content": "y" * 2_048})
+
+    assert "2048" in metin or "2.048" in metin

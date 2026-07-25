@@ -20,6 +20,14 @@ class ArgumentError(FusionError):
 
 def require_str(args: ToolArgs, key: str) -> str:
     value = args.get(key)
+    if key not in args:
+        # Eksik ile boş AYRI hatalardır. Büyük içerikli çağrılarda (write_file) model
+        # küçük alanı sona yazıp bazen hiç üretmiyor; "boş olmalı" demek onu yanlış
+        # yönlendirip aynı devasa içeriği körlemesine tekrar ürettiriyordu.
+        raise ArgumentError(
+            f"'{key}' alanı eksik: çağrıda hiç gönderilmemiş. Aynı çağrıyı '{key}' "
+            f"alanını EKLEYEREK tekrarla; büyük alanları yazmadan ÖNCE '{key}' yaz."
+        )
     if not isinstance(value, str) or not value.strip():
         raise ArgumentError(f"'{key}' alanı boş olmayan bir metin olmalı.")
     return value
