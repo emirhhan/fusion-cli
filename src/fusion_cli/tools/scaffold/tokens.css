@@ -72,3 +72,36 @@ a { color: inherit; }
 .icon-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 1ms !important; } }
+
+/* Mobil menü — masaüstünde GİZLİ. Gizlenmezse header'ın altında başıboş bir
+   bant olarak durur (ölçülen gerçek hata: 1440x284 px boş alan). */
+.mobile-menu { display: none; }
+.nav__toggle { display: none; }
+@media (max-width: 768px) {
+  .mobile-menu.is-open { display: block; }
+  .nav__toggle { display: grid; }
+  .site-nav { display: none; }
+}
+
+/* Yandan açılan panel (mini sepet, filtre). Sayfa akışında DEĞİL: `fixed` olmazsa
+   footer'ın altına düşer (ölçülen gerçek hata). */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 100%);
+  z-index: 100; background: var(--white); box-shadow: var(--shadow-lg);
+  display: flex; flex-direction: column;
+  transform: translateX(100%); transition: transform var(--dur) var(--ease);
+}
+.drawer.is-open { transform: translateX(0); }
+.drawer__head { display: flex; align-items: center; justify-content: space-between;
+                gap: var(--space-3); padding: var(--space-5);
+                border-bottom: 1px solid var(--gray-200); }
+.drawer__body { flex: 1; overflow-y: auto; padding: var(--space-5); }
+.drawer__foot { padding: var(--space-5); border-top: 1px solid var(--gray-200); }
+.drawer-backdrop { position: fixed; inset: 0; z-index: 99; background: rgb(0 0 0 / .4);
+                   opacity: 0; pointer-events: none; transition: opacity var(--dur) var(--ease); }
+.drawer-backdrop.is-open { opacity: 1; pointer-events: auto; }
+
+/* Eski fiyat — YALNIZCA eski fiyatı sar. Ölçülen hata: model <s> etiketini fiyat
+   bloğunun tamamına sardı ve güncel fiyat, puan, stok bilgisi de üstü çizili çıktı. */
+.price__old { text-decoration: line-through; color: var(--gray-400); font-size: var(--text-sm); }
+.price__now { font-size: var(--text-xl); font-weight: 700; color: var(--brand); }

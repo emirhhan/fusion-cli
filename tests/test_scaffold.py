@@ -154,3 +154,46 @@ def test_iskelet_scriptleri_dogru_sirada_bagliyor(tmp_path):
     html = (tmp_path / "index.html").read_text(encoding="utf-8")
 
     assert html.index("format.js") < html.index("script.js")
+
+
+def test_yer_tutucu_gorsel_fonksiyonu_var(tmp_path):
+    """Model elle SVG yazınca <rect>'i kapatmadı ve 12 görselin 8'i yüklenmedi."""
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    js = (tmp_path / "format.js").read_text(encoding="utf-8")
+
+    assert "placeholderImage" in js
+    assert "encodeURIComponent" in js, "elle kaçış hataya açık"
+
+
+def test_tokens_mobil_menuyu_masaustunde_gizler(tmp_path):
+    """Gizlenmezse header'ın altında 1440x284 boş bant kalıyor."""
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    css = (tmp_path / "tokens.css").read_text(encoding="utf-8")
+
+    assert ".mobile-menu { display: none; }" in css
+    assert "max-width: 768px" in css
+
+
+def test_tokens_yandan_panel_stili_tasiyor(tmp_path):
+    """Sepet paneli fixed olmazsa footer'ın altına düşüyor."""
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    css = (tmp_path / "tokens.css").read_text(encoding="utf-8")
+
+    assert ".drawer" in css and "position: fixed" in css
+
+
+def test_tokens_fiyat_stilleri_ayrik(tmp_path):
+    """line-through YALNIZCA eski fiyata; model tüm bloğa sarıyordu."""
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    css = (tmp_path / "tokens.css").read_text(encoding="utf-8")
+
+    assert ".price__old" in css and "line-through" in css
+    assert ".price__now" in css

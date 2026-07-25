@@ -34,3 +34,20 @@ function formatPercent(oran) {
 function isValidEmail(deger) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(deger).trim());
 }
+
+/* Yer tutucu görsel — ELLE SVG YAZMA, bunu çağır.
+ *
+ * Ölçülen gerçek hata: model data URI içindeki SVG'yi elle yazarken <rect>'i
+ * kapatmadı ve 12 görselin 8'i hiç yüklenmedi. encodeURIComponent doğru kaçışı
+ * garanti eder.
+ *
+ * placeholderImage('Robot Süpürge') -> geçerli data URI
+ */
+function placeholderImage(etiket, en = 400, boy = 400) {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${en} ${boy}">` +
+    `<rect width="${en}" height="${boy}" fill="#e5e7eb"/>` +
+    `<text x="${en / 2}" y="${boy / 2}" font-family="system-ui,sans-serif" font-size="24"` +
+    ` fill="#6b7280" text-anchor="middle" dominant-baseline="middle">${etiket}</text></svg>`;
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}

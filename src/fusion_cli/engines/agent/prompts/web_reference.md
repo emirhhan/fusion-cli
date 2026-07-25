@@ -102,8 +102,18 @@ Her etkileşimli öğe için dört durum tanımla: `:hover`, `:focus-visible`, `
 ## Görseller
 
 Ağdaki placeholder servislerine (via.placeholder.com, placehold.it, lorempixel.com)
-GÜVENME — kapandılar, sayfa kırık açılır. Yer tutucu gerekiyorsa inline SVG data URI
-üret ve **okunur** olsun: düz bir zemin + ortada büyük etiket, 12px'lik gri yazı değil.
+GÜVENME — kapandılar, sayfa kırık açılır.
+
+**Yer tutucu görseli ELLE YAZMA.** `format.js` içindeki hazır fonksiyonu çağır:
+
+```js
+placeholderImage('Robot Süpürge')        // geçerli data URI döner
+placeholderImage('Banner', 800, 300)     // boyut verilebilir
+```
+
+Ölçülen gerçek hata: model data URI içindeki SVG'yi elle yazarken `<rect>`'i
+kapatmadı ve 12 görselin 8'i hiç yüklenmedi. Aşağıdaki örnek yalnızca yapının nasıl
+göründüğünü anlatır; üretimde yukarıdaki fonksiyonu kullan.
 
 ```html
 <img width="400" height="400" alt="Ürün adı"
@@ -169,6 +179,13 @@ Aşağıdaki parçalar yukarıdaki ölçekleri kullanır. Yapıyı kopyala, içe
 ### Ürün kartı
 
 Fiyat hiyerarşisi: güncel fiyat büyük ve koyu, eski fiyat küçük ve üstü çizili.
+Üstü çizgi YALNIZCA eski fiyata uygulanır — `tokens.css` içindeki `.price__old` ve
+`.price__now` sınıflarını kullan. Ölçülen hata: model `<s>` etiketini fiyat bloğunun
+TAMAMINA sardı ve güncel fiyat, puan, stok bilgisi de üstü çizili çıktı.
+
+Mobil menü ve yandan açılan sepet paneli için de hazır sınıflar var: `.mobile-menu`
+(masaüstünde otomatik gizli), `.drawer` + `.drawer-backdrop` (`is-open` sınıfıyla
+açılır). Panel `position: fixed` olmazsa footer'ın altına düşer.
 
 ```html
 <article class="card">
