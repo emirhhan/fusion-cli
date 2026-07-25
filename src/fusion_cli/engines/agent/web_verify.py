@@ -58,6 +58,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
     bulgular.extend(_tutarsiz_tutarlar(html, js))
     bulgular.extend(_palet_baypasi(css, js, html))
     bulgular.extend(_baglanmamis_dosyalar(files, html))
+    bulgular.extend(_olcek_disi_bosluklar(css))
     return tuple(bulgular)
 
 
@@ -65,6 +66,19 @@ def _birlestir(files: Mapping[str, str], suffixes: tuple[str, ...]) -> str:
     return "\n".join(
         icerik for ad, icerik in files.items() if ad.lower().endswith(suffixes)
     )
+
+
+def _tam_belge(html: str) -> bool:
+    """Bu bir tam sayfa mı, yoksa şablon parçası mı?
+
+    `<body>` de sayfa göstergesidir: `<main>` sorgusu için yeterli.
+    """
+    return bool(re.search(r"<(?:html|head|body)[\s>]", html, re.I))
+
+
+def _head_var(html: str) -> bool:
+    """Belgede <head> var mı? `<script>`/`<link>` etiketleri oraya konur."""
+    return bool(re.search(r"<(?:html|head)[\s>]", html, re.I))
 
 
 def _olu_gorseller(html: str) -> list[str]:
@@ -92,6 +106,10 @@ def _bos_baglantilar(html: str) -> list[str]:
 
 
 def _eksik_main(html: str) -> list[str]:
+    # Yalnızca TAM belgede anlamlı: bir şablon/bileşen parçasında <main> olmaz ve
+    # orada aramak yanlış pozitif üretir (Django/Rails şablonları, e-posta parçaları).
+    if not _tam_belge(html):
+        return []
     if re.search(r"<main[\s>]", html, re.I):
         return []
     return ["Sayfanın ana içeriği <main> etiketiyle sarılmamış; semantic HTML eksik."]
@@ -197,8 +215,7 @@ def _baglanmamis_dosyalar(files: Mapping[str, str], html: str) -> list[str]:
 
     Yol değil DOSYA ADI aranır: `./js/script.js` de geçerli bir referanstır.
     """
-    # Yalnızca TAM belgede anlamlı: bir HTML parçasında <script>/<link> aramak yanlış.
-    if not re.search(r"<(?:html|head)[\s>]", html, re.I):
+    if not _head_var(html):
         return []
 
     bulgular: list[str] = []
@@ -213,3 +230,50 @@ def _baglanmamis_dosyalar(files: Mapping[str, str], html: str) -> list[str]:
             f"yüklemiyor. HTML'e {etiket} etiketini ekle."
         )
     return bulgular
+
+
+#: Boşluk taşıyan CSS özellikleri. Yalnızca bunlara bakılır: `border`, `outline`,
+#: `font-size` gibi değerler ölçeğe uymak zorunda değildir.
+_SPACING_PROPS = re.compile(
+    r"\b(padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|block|inline))?"
+    r"\s*:\s*([^;}]+)",
+    re.I,
+)
+#: 1-2px hairline/kenarlık payı boşluk sayılmaz.
+_MIN_SPACING_PX = 3
+
+
+def _ekle(bozuk: list[str], piksel: float, etiket: str) -> None:
+    """4'ün katı değilse listeye ekle. 1-2px hairline payı boşluk sayılmaz."""
+    if piksel < _MIN_SPACING_PX or piksel % 4 == 0 or etiket in bozuk:
+        return
+    bozuk.append(etiket)
+
+
+def _olcek_disi_bosluklar(css: str) -> list[str]:
+    """4'ün katı olmayan piksel boşlukları bildir.
+
+    Model boşlukları göz kararı veriyor (13px, 17px, 42px) ve sayfa ritmi bozuluyor.
+    Referanstaki ölçek tavsiyedir; ölçülebilir olduğu için zorunlu kılınabilir.
+
+    `var()`, `rem`, `%`, `clamp()` gibi değerler ölçek dışı SAYILMAZ — zaten doğru
+    yaklaşımdır ve piksel kuralına tabi değildir.
+    """
+    if not css.strip():
+        return []
+    bozuk: list[str] = []
+    for _, deger in _SPACING_PROPS.findall(css):
+        if "var(" in deger or "calc(" in deger or "clamp(" in deger:
+            continue
+        for sayi in re.findall(r"([\d.]+)px", deger):
+            _ekle(bozuk, float(sayi), f"{sayi}px")
+        # rem de piksel ölçeğine düşer: referans yokken model rem kullanıyor.
+        for sayi in re.findall(r"([\d.]+)rem", deger):
+            _ekle(bozuk, float(sayi) * 16, f"{sayi}rem")
+    if not bozuk:
+        return []
+    return [
+        f"{len(bozuk)} boşluk değeri 4'lük ölçeğin dışında: {', '.join(bozuk[:8])}. "
+        "Boşlukları ölçeğe oturt (4, 8, 12, 16, 24, 32, 48, 64, 96) ya da "
+        ":root'taki --space-* değişkenlerini kullan; göz kararı boşluk ritmi bozar."
+    ]

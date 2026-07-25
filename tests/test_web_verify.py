@@ -229,3 +229,77 @@ def test_alt_dizindeki_referans_da_sayilir():
     html = "<html><main>x</main><script src='./js/script.js'></script></html>"
 
     assert not _bulgu_var(inspect_web_output({"a.html": html, "script.js": "x"}), "bağlanmamış")
+
+
+# --- Parça HTML koruması ----------------------------------------------------- #
+
+
+def test_html_parcasinda_main_aranmaz():
+    """Şablon/bileşen parçasında <main> olmaz; orada aramak yanlış pozitiftir."""
+    parca = '<div class="kart"><h3>Başlık</h3><p>metin</p></div>'
+
+    assert not _bulgu_var(inspect_web_output({"kart.html": parca}), "<main>")
+
+
+def test_tam_belgede_main_aranir():
+    tam = "<html><head></head><body><section>x</section></body></html>"
+
+    assert _bulgu_var(inspect_web_output({"index.html": tam}), "<main>")
+
+
+# --- Boşluk ölçeği ----------------------------------------------------------- #
+#
+# Model boşlukları göz kararı veriyor (13px, 17px, 42px). Referansta 4'ün katlarından
+# oluşan bir ölçek var ama tavsiye tavsiyedir; ölçülebilir olan zorunlu kılınabilir.
+
+
+def test_olcek_disi_bosluk_bildirilir():
+    css = ".a { padding: 13px; } .b { margin: 17px 0; } .c { gap: 42px; }"
+
+    bulgular = inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css})
+
+    assert _bulgu_var(bulgular, "13px")
+    assert _bulgu_var(bulgular, "ölçek") or _bulgu_var(bulgular, "boşluk")
+
+
+def test_olcekteki_bosluk_bildirilmez():
+    css = ".a { padding: 16px 24px; } .b { gap: 8px; } .c { margin-block: 96px; }"
+
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "ölçek"
+    )
+
+
+def test_ince_cizgi_degerleri_bildirilmez():
+    """1-2px kenarlık/hairline boşluk sayılmaz."""
+    css = ".a { padding: 2px; } .b { margin: 1px; }"
+
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "ölçek"
+    )
+
+
+def test_degisken_ve_gorece_birimler_bildirilmez():
+    """var(), rem, %, clamp() ölçek dışı sayılmaz — zaten doğru yaklaşım."""
+    css = ".a { padding: var(--space-5); } .b { gap: 1.5rem; } .c { margin: clamp(1rem,2vw,3rem); }"
+
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "ölçek"
+    )
+
+
+def test_olcek_disi_rem_de_bildirilir():
+    """Referans yokken model rem kullanıyor; ölçek kuralı orada da geçerli."""
+    css = ".a { padding: 1.1rem; }"  # 17.6px
+
+    assert _bulgu_var(
+        inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "1.1rem"
+    )
+
+
+def test_olcekteki_rem_bildirilmez():
+    css = ".a { padding: 1.5rem; } .b { gap: 0.5rem; }"  # 24px, 8px
+
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<html><main>x</main></html>", "a.css": css}), "ölçek"
+    )
