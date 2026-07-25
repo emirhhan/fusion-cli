@@ -198,6 +198,341 @@ SEED_LESSONS: tuple[Lesson, ...] = tuple(
             "run_shell ya da arama çok uzun çıktı üretecekse daralt (head, grep, --oneline, -n). "
             "Binlerce satırı bağlama boca etme.",
         ),
+        # --- Frontend: mimari ------------------------------------------------
+        (
+            "website oluşturma",
+            _S,
+            "Kod yazmadan önce net bir stil yönü seç (editorial, brutalism, glassmorphism, "
+            "bento, swiss...). 'temiz minimal' bir yön değildir; şablon görünümlü çıktı üretir.",
+        ),
+        (
+            "website oluşturma",
+            _M,
+            "Varsayılan şablon üretme: ortalanmış başlık + gradyan blob + jenerik CTA, tek "
+            "vurgu rengiyle gri-beyaz kart ızgarası. Hiyerarşi, katman, ritim ve karakter kat.",
+        ),
+        (
+            "react bileşen mimarisi",
+            _S,
+            "Bileşeni sorumluluklara böl: UI, veri erişimi ve state ayrı. Tekrarlanan bloğu "
+            "reusable component yap, sayfa dosyasını orchestration katmanı olarak kullan. "
+            "~250 satır sınır.",
+        ),
+        (
+            "next.js app router",
+            _S,
+            "Server/client ayrımına dikkat: 'use client' yalnızca etkileşim/state gereken "
+            "yaprak bileşende. Veri çekmeyi server component'te yap; client'a veri prop olarak in.",
+        ),
+        (
+            "react hook kuralları",
+            _M,
+            "Hook'ları koşul/döngü içinde çağırma; üst seviyede sabit sırada olmalı. useEffect "
+            "bağımlılık dizisini eksik bırakma; her okunan değer diziye girmeli, "
+            "yoksa stale closure.",
+        ),
+        (
+            "react performans",
+            _S,
+            "Gereksiz render'ı ölç sonra çöz: React DevTools Profiler. Erken memo/useCallback "
+            "serpiştirme; asıl maliyet büyük liste ve pahalı hesap. Liste öğelerine kararlı "
+            "key ver (index değil).",
+        ),
+        (
+            "state yönetimi",
+            _S,
+            "Sunucu state'ini (TanStack Query/SWR) client store'a (Zustand/Jotai) kopyalama. "
+            "Türetilebilen değeri saklama, hesapla. Paylaşılabilir state'i (filtre/sekme/arama) "
+            "URL'de tut.",
+        ),
+        # --- Frontend: CSS / stil --------------------------------------------
+        (
+            "css tasarım token",
+            _S,
+            "Renk/tipografi/boşluğu CSS custom property olarak tanımla, tekrar tekrar hardcode "
+            "etme. clamp() ile akışkan ölçek, oklch() ile renk. Tek yerden değiştirilebilir olsun.",
+        ),
+        (
+            "css animasyon",
+            _M,
+            "Yalnızca compositor-dostu özellikleri animasyonla: transform, opacity, clip-path. "
+            "width/height/top/left/margin/font-size animasyonlama; layout tetikler, kasar.",
+        ),
+        (
+            "responsive tasarım",
+            _S,
+            "320/375/768/1024/1440/1920'de test et; yatay taşma olmamalı. Geniş içeriği (tablo, "
+            "kod bloğu) overflow-x:auto ile kendi kutusunda kaydır, sayfa gövdesi yatay kaymamalı.",
+        ),
+        (
+            "erişilebilirlik",
+            _S,
+            "Semantik HTML önce: header/nav/main/section/footer, div yığını değil. Etkileşimli "
+            "öğede klavye erişimi + görünür focus. Renk kontrastı ve prefers-reduced-motion'a uy.",
+        ),
+        (
+            "web tipografi",
+            _S,
+            "En çok iki font ailesi. font-display:swap, yalnızca kritik ağırlığı preload et. "
+            "Ölçek kontrastıyla hiyerarşi kur; her şeyi aynı boyutta verme.",
+        ),
+        # --- Backend / API ---------------------------------------------------
+        (
+            "api tasarımı",
+            _S,
+            "Tutarlı zarf kullan: success bayrağı + data (hata varsa null) + error mesajı. "
+            "Sayfalı yanıtta meta (total/page/limit). Hata durumunda anlamlı HTTP kodu döndür.",
+        ),
+        (
+            "api güvenliği",
+            _M,
+            "Tüm girdiyi sistem sınırında doğrula (şema tabanlı). Dış veriye (API yanıtı, "
+            "kullanıcı girdisi, dosya) güvenme. State değiştiren endpoint'te CSRF + rate "
+            "limit olsun.",
+        ),
+        (
+            "kimlik doğrulama",
+            _M,
+            "Parolayı düz saklama; bcrypt/argon2 ile hash'le. Token'ı log'a yazma. Yetki "
+            "kontrolünü her istekte sunucuda yap, client'taki gizlemeye güvenme (yetki atlatma).",
+        ),
+        (
+            "veri doğrulama",
+            _S,
+            "Girdiyi işlemeden önce şema ile doğrula (pydantic/zod). Hızlı ve net hata ver. "
+            "Client tarafı doğrulama UX içindir; asıl güvenlik sunucu tarafı doğrulamadır.",
+        ),
+        # --- Veritabanı ------------------------------------------------------
+        (
+            "sql sorgu",
+            _M,
+            "SQL'i string birleştirmeyle kurma; parametreli sorgu kullan (injection). Sorguya "
+            "LIMIT koy, sınırsız çekme. N+1 sorgudan kaçın: JOIN ya da toplu (batch) yükle.",
+        ),
+        (
+            "veritabanı şeması",
+            _S,
+            "Migration geri-alınabilir yaz; production'da tabloyu doğrudan elle değiştirme. "
+            "Sık sorgulanan kolona index ekle; ama her kolona değil (yazma maliyeti).",
+        ),
+        (
+            "veritabanı migrasyonu",
+            _M,
+            "Yıkıcı migration (kolon silme, tip değişimi) tek adımda deploy etme: önce ekle, "
+            "geç, sonra sil (expand-contract). Veri kaybı geri alınamaz.",
+        ),
+        # --- Test ------------------------------------------------------------
+        (
+            "test yazma",
+            _S,
+            "Önce testi yaz ve KIRILDIĞINI gör (RED), sonra en az kodla geçir (GREEN), sonra "
+            "iyileştir. AAA deseni: Arrange-Act-Assert. Test adı davranışı anlatsın.",
+        ),
+        (
+            "test kapsamı",
+            _S,
+            "Mutlu yolu değil kenar durumları test et: boş girdi, null, sınır değer, hata yolu. "
+            "%80 kapsam hedefle ama kapsam yüzdesi değil, gerçek davranış güvencesi asıl amaç.",
+        ),
+        (
+            "test izolasyonu",
+            _M,
+            "Testler birbirine sızmasın: paylaşılan global state, sıralama bağımlılığı, gerçek ağ/"
+            "saat kullanma. Dış bağımlılığı mock'la; testi deterministik tut, timeout'a dayanma.",
+        ),
+        (
+            "flaky test",
+            _M,
+            "Ara sıra kırılan testi 'tekrar çalıştır'la geçme. Nedeni bul: yarış durumu, sabit "
+            "bekleme (sleep), sıra bağımlılığı ya da gerçek zaman/rastgelelik. "
+            "Deterministik hale getir.",
+        ),
+        # --- Hata teşhisi / debug --------------------------------------------
+        (
+            "sistematik hata ayıklama",
+            _S,
+            "Düzeltme önermeden önce hatayı ÜRET ve izole et. Hipotez kur, en küçük değişiklikle "
+            "test et, doğrula. Tahmine dayalı 'shotgun' düzeltme yapma; kök nedeni bul.",
+        ),
+        (
+            "sessiz hata",
+            _M,
+            "Hatayı sessizce yutma (boş except, yutulan promise, kör fallback). Açıkça yakala, "
+            "bağlamıyla logla, yukarı ilet. Yanlış fallback gerçek sorunu gizler.",
+        ),
+        (
+            "regresyon",
+            _S,
+            "Bir bug'ı düzeltmeden önce onu YAKALAYAN başarısız bir test yaz, sonra düzelt "
+            "(yeşile çevir). Böylece hata bir daha döndüğünde test yakalar.",
+        ),
+        # --- Kod kalitesi / refactor -----------------------------------------
+        (
+            "refactor",
+            _S,
+            "Davranış koruyan refactor'da önce testlerin yeşil olduğunu gör, değiştir, tekrar "
+            "yeşil olduğunu gör. Refactor ile davranış değişikliğini aynı commit'te karıştırma.",
+        ),
+        (
+            "dead code temizliği",
+            _M,
+            "Kullanılmayan kodu 'belki lazım olur' diye tutma (YAGNI). Ama silmeden önce gerçekten "
+            "kullanılmadığını araçla doğrula (grep/knip/ts-prune); dinamik çağrı olabilir.",
+        ),
+        (
+            "fonksiyon boyutu",
+            _S,
+            "Fonksiyonu küçük ve tek sorumluluklu tut (<50 satır). Derin içe geçmeyi (>4 seviye) "
+            "erken return ile düzleştir. Sihirli sayıyı adlandırılmış sabite çıkar.",
+        ),
+        (
+            "değişmezlik",
+            _S,
+            "Var olan nesneyi yerinde değiştirme; değiştirilmiş yeni kopya döndür. Gizli yan "
+            "etkiyi önler, hata ayıklamayı kolaylaştırır. Python'da frozen dataclass/tuple "
+            "tercih et.",
+        ),
+        (
+            "erken soyutlama",
+            _M,
+            "İki kez tekrar görmeden soyutlama üretme (YAGNI). Spekülatif genellik, yanlış "
+            "soyutlamaya kilitler. Tekrar gerçekleşince, spekülatifken değil, refactor et.",
+        ),
+        # --- Güvenlik (genel) ------------------------------------------------
+        (
+            "xss önleme",
+            _M,
+            "Kullanıcı girdisini sanitize etmeden HTML'e enjekte etme. innerHTML / "
+            "dangerouslySetInnerHTML'den kaçın; mecbursan vetted bir sanitizer'dan geçir. "
+            "Şablon değerlerini escape et.",
+        ),
+        (
+            "yol gezinme",
+            _M,
+            "Kullanıcıdan gelen dosya yolunu doğrulamadan kullanma (../ ile üst dizine çıkabilir). "
+            "Kökten sonra normalize et, kök dışına çıkanı reddet.",
+        ),
+        (
+            "bağımlılık güvenliği",
+            _S,
+            "Yeni paket eklemeden önce bakımlı ve güvenilir mi bak. CDN'den yüklerken SRI kullan. "
+            "Bilinen açıkları tara (pip-audit/npm audit). Kritik bağımlılığı mümkünse "
+            "kendin barındır.",
+        ),
+        # --- Performans ------------------------------------------------------
+        (
+            "performans optimizasyonu",
+            _M,
+            "Ölçmeden optimize etme (erken optimizasyon). Önce profille, darboğazı bul, sonra "
+            "düzelt. Okunabilirliği kurnazlığa feda etme; asıl kazanç genellikle algoritma/IO'da.",
+        ),
+        (
+            "önbellekleme",
+            _S,
+            "Pahalı ve sık tekrarlanan hesabı/isteği önbellekle; ama geçersizleştirme stratejisini "
+            "en baştan tasarla. Stale-while-revalidate: önbelleği hemen dön, arkada tazele.",
+        ),
+        (
+            "paralel yükleme",
+            _S,
+            "Bağımsız veriyi paralel çek; parent-child istek şelalesinden kaçın. Bağımsız "
+            "okumaları/aramaları tek turda topla, her biri için ayrı gecikme harcama.",
+        ),
+        # --- Python ----------------------------------------------------------
+        (
+            "python tip ipuçları",
+            _S,
+            "Tüm fonksiyon imzasına tip anotasyonu ver. Değişmez veri için frozen dataclass / "
+            "NamedTuple. Protocol ile duck-typing arayüzü tanımla, somut sınıfa bağlanma.",
+        ),
+        (
+            "python hata yönetimi",
+            _M,
+            "Çıplak 'except:' yazma; yakalayacağın istisnayı daralt. Kaynağı with "
+            "(context manager) ile yönet, elle kapatma unutma. print yerine logging kullan.",
+        ),
+        (
+            "python paketleme",
+            _S,
+            "Bağımlılığı üst VE alt sınırla sabitle; büyük sürüm atlaması kurulumu sessizce "
+            "bozmasın. Sırları .env + ortam değişkeninden oku, koda gömme; gerekli sır "
+            "başlangıçta yoksa hata ver.",
+        ),
+        # --- TypeScript / JS -------------------------------------------------
+        (
+            "typescript tip güvenliği",
+            _M,
+            "'any' ile tip sistemini susturma; unknown + daraltma kullan. Non-null '!' assertion'ı "
+            "körlemesine serpme. strict modu aç; tsc --noEmit ile değişiklikten sonra "
+            "tip kontrol et.",
+        ),
+        (
+            "async doğruluğu",
+            _M,
+            "await'i unutma; floating promise sessiz hataya yol açar. Bağımsız promise'leri "
+            "Promise.all ile paralelle, sırayla await'leme. try/catch ile reddi yakala.",
+        ),
+        # --- CLI / araç geliştirme -------------------------------------------
+        (
+            "cli tasarımı",
+            _S,
+            "Komut çıkış kodunu doğru döndür (başarı 0, hata !=0). Hata mesajını stderr'e, sonucu "
+            "stdout'a yaz. Yıkıcı işlemde onay iste; --yes ile atlanabilsin.",
+        ),
+        (
+            "dosya kodlaması",
+            _M,
+            "Dosya okuma/yazmada encoding varsayma; açıkça UTF-8 ver. errors='ignore' ile "
+            "bozulmayı örtme, nedenini araştır. Yol birleştirmede os.path/pathlib kullan, "
+            "string ekleme değil.",
+        ),
+        # --- Deployment / ortam ----------------------------------------------
+        (
+            "docker",
+            _S,
+            "Çok aşamalı (multi-stage) build ile imajı küçült; build araçlarını runtime imajına "
+            "taşıma. .dockerignore ile gereksiz dosyayı dışla. Sırları imaja gömme, "
+            "runtime'da ver.",
+        ),
+        (
+            "ortam yapılandırması",
+            _S,
+            "Yapılandırmayı koddan ayır (12-factor): ortam değişkeni. Kod içi varsayılanla "
+            "dosyadaki değeri ayrıştırma; tek kaynak olsun. Gerekli değişken eksikse "
+            "başlangıçta net hata ver.",
+        ),
+        (
+            "ci/cd",
+            _S,
+            "Merge öncesi tüm otomatik kontrol (lint/type/test) yeşil olmalı. Kalite kapısından "
+            "geçmemiş kodu birleştirme. Çakışmayı çöz, dalı hedefle güncel tut.",
+        ),
+        # --- Dokümantasyon ---------------------------------------------------
+        (
+            "dokümantasyon",
+            _S,
+            "Ne yaptığını değil NEDEN yaptığını yorumla; kod zaten 'ne'yi gösterir. Yorumu kodla "
+            "senkron tut, yoksa yanıltır (comment rot). README'yi çalışan minimal örnekle başlat.",
+        ),
+        # --- Genel mühendislik disiplini -------------------------------------
+        (
+            "araştırma önce",
+            _S,
+            "Sıfırdan yazmadan önce ara: benzer bir çözüm, kütüphane ya da örnek var mı. "
+            "Battle-tested kütüphane, elle yazılan çözümden iyidir. Tekerleği yeniden icat etme.",
+        ),
+        (
+            "planlama",
+            _S,
+            "Karmaşık işe kodla başlama; önce planla, fazlara böl, bağımlılık ve riski belirle. "
+            "Bir fazı yarım bırakma; kapsam büyürse fazı böl, sessizce genişletme.",
+        ),
+        (
+            "kod incelemesi",
+            _S,
+            "İş bitince gözden geçir: güvenlik önce (sır/injection/yetki), sonra kalite (boyut/"
+            "isim/hata yönetimi). Hardcode edilmiş sır ya da debug print bırakma.",
+        ),
     )
 )
 
