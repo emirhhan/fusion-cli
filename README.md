@@ -88,6 +88,7 @@ Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte
 | Agent | `/reset` `/compact` |
 | Fusion | `/type <tip>` `/all` `/synth` |
 | Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
+| Model | `/level [kademe]` `/development` |
 | Bilgi | `/models` `/model` `/cost` `/help` `/clear` `/exit` |
 | Makro | `/goal` `/grill-me` `/bug` `/commit` `/review` `/browser` `/schedule` |
 
@@ -106,7 +107,36 @@ soğuk bir uç ilk turu bekletmez.
 /browser <konu>     web'de araştır ve kaynaklarıyla özetle
 ```
 
-**Model değişimi** oturum içinde yapılabilir (kalıcı olması için `config.yaml`'a yaz):
+**Kademe seçimi** — `/level` tüm motoru tek seçimle bir seviyeye alır. Seçim ekranı
+ok tuşlarıyla gezilir ve merdiven logodaki gibi turuncudan pembeye boyanır. Merdivenin
+tamamı **ücretsiz** havuzdan kurulur; bir kademe seçmek fatura üretmez.
+
+| Kademe | Model | Neden |
+|--------|-------|-------|
+| `low` | nemotron-3-super-120b (NIM) | mevcut varsayılan — hızlı ve dengeli |
+| `medium` | nemotron-3-nano-omni-30b reasoning | reasoning eklenir |
+| `high` | gemma-4-31b-it | farklı aile, 262k bağlam |
+| `ultra` | nemotron-3-super-120b (ücretsiz katman) | ağır işler |
+| `premium` | nemotron-3-ultra-550b | 1M bağlam — havuzun en yetenekli modeli |
+
+```
+/level                              seçim ekranını aç
+/level premium                      ekran açmadan doğrudan uygula
+```
+
+**Kaynak seçerek model değişimi** — `/development` önce kaynağı, sonra canlı
+katalogdan modeli sorar. Seçilen model agent, hakem ve havuzun tamamına uygulanır.
+
+```
+1. OpenRouter modelleri (ücretsiz)
+2. NVIDIA modelleri (ücretsiz)     NVIDIA_NIM_API_KEY ister
+3. OpenRouter modelleri (ücretli)  seçilirse uyarı verilir
+4. Özel model                      istediğin alias'ı gir (ör. ollama/qwen2.5-coder:7b)
+```
+
+İki komutun seçimi de `config.yaml`'a **kalıcı** yazılır; dosyadaki diğer ayarlar korunur.
+
+**Tekil model değişimi** oturum içinde yapılabilir:
 
 ```
 /model                              etkin modelleri listele
