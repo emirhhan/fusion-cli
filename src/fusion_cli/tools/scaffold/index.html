@@ -56,6 +56,9 @@
     </div>
   </footer>
 
-  <script type="module" src="script.js"></script>
+  <!-- Klasik betik: ES modülü file:// altında CORS ile engellenir.
+       format.js ÖNCE gelir; script.js onun fonksiyonlarını kullanır. -->
+  <script src="format.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>

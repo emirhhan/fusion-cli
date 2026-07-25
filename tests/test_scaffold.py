@@ -126,3 +126,31 @@ def test_iskeleden_sonra_write_file_calisir(tmp_path):
     sonuc = file_tools.write_file({"path": "style.css", "content": ".x{}"}, context)
 
     assert sonuc.ok
+
+
+def test_iskele_dosyadan_acilinca_calisir(tmp_path):
+    """ES modülleri file:// protokolünde CORS ile ENGELLENİR.
+
+    Gerçek hata: iskele `<script type="module">` + `import` kullanıyordu; kullanıcı
+    index.html'i çift tıklayıp açtığında JavaScript hiç yüklenmedi ve iki bölüm boş
+    kaldı. Üretilen sayfa sunucusuz da açılabilmelidir.
+    """
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    js = (tmp_path / "format.js").read_text(encoding="utf-8")
+
+    assert 'type="module"' not in html, "modül tipi file:// altında çalışmaz"
+    assert "export " not in js, "export ES modülü gerektirir"
+    assert "format.js" in html, "format.js doğrudan bağlanmalı"
+
+
+def test_iskelet_scriptleri_dogru_sirada_bagliyor(tmp_path):
+    """format.js, onu kullanan script.js'ten ÖNCE yüklenmeli."""
+    context = ToolContext(root=tmp_path)
+    scaffold_web({"path": "."}, context)
+
+    html = (tmp_path / "index.html").read_text(encoding="utf-8")
+
+    assert html.index("format.js") < html.index("script.js")

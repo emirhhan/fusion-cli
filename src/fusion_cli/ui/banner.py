@@ -80,6 +80,11 @@ def gradient(text: str, start: str = theme.ACCENT, end: str = theme.ACCENT_ALT) 
     return rendered
 
 
+#: Kaydırma geçmişini (scrollback) temizleyen ANSI dizisi. `console.clear()` bunu
+#: yapmaz; yalnızca görünen ekranı siler.
+_CLEAR_SCROLLBACK = "\x1b[3J"
+
+
 def print_welcome(
     console: Console, info: SessionInfo, *, clear: bool = True, pad: bool = True
 ) -> None:
@@ -90,6 +95,13 @@ def print_welcome(
     """
     if clear:
         console.clear()
+        # `console.clear()` yalnızca GÖRÜNEN ekranı siler; kaydırma geçmişi (scrollback)
+        # olduğu gibi kalır ve kullanıcı yukarı kaydırınca fusion'dan önceki terminal
+        # çıktısını görür — bir uygulamaya girilmiş hissi vermez. `ESC [ 3 J` geçmişi de
+        # temizler. Yalnızca ilk karşılamada yapılır; sonraki yeniden çizimlerde oturumun
+        # kendi geçmişi korunmalıdır.
+        console.file.write(_CLEAR_SCROLLBACK)
+        console.file.flush()
 
     blocks: list[RenderableType] = [
         Text(),

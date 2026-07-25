@@ -80,3 +80,60 @@ def test_run_secenekleri_oturuma_gecirilir(monkeypatch):
     )
 
     assert kayit == {"task_type": "code", "synthesis": False}
+
+
+# --- Giriş ekranı ------------------------------------------------------------ #
+
+
+def test_karsilama_kaydirma_gecmisini_de_temizler():
+    """console.clear() yalnızca görünen ekranı siler; scrollback kalır.
+
+    Kullanıcı fusion'a girip yukarı kaydırınca eski terminal mesajlarını görüyordu —
+    bir CLI uygulamasına girilmiş hissi vermiyordu. `ESC [ 3 J` scrollback'i de siler.
+    """
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui import banner
+
+    tampon = io.StringIO()
+    console = Console(file=tampon, width=80, force_terminal=True)
+
+    banner.print_welcome(console, banner.SessionInfo(**_ornek_oturum()), clear=True)
+
+    assert "\x1b[3J" in tampon.getvalue(), "scrollback temizleme dizisi yazılmadı"
+
+
+def test_temizleme_kapaliyken_scrollback_silinmez():
+    """İlk mesajdan sonraki yeniden çizimlerde geçmiş korunmalı."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui import banner
+
+    tampon = io.StringIO()
+    console = Console(file=tampon, width=80, force_terminal=True)
+
+    banner.print_welcome(console, banner.SessionInfo(**_ornek_oturum()), clear=False)
+
+    assert "\x1b[3J" not in tampon.getvalue()
+
+
+def _ornek_oturum() -> dict:
+    from fusion_cli.ui.banner import SessionInfo
+    import dataclasses
+
+    alanlar = {f.name: f for f in dataclasses.fields(SessionInfo)}
+    ornek: dict = {}
+    for ad, alan in alanlar.items():
+        if alan.type in ("str", str) or "str" in str(alan.type):
+            ornek[ad] = "x"
+        elif "bool" in str(alan.type):
+            ornek[ad] = True
+        elif "int" in str(alan.type):
+            ornek[ad] = 1
+        else:
+            ornek[ad] = "x"
+    return ornek
