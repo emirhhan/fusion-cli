@@ -32,6 +32,19 @@ SEED_LESSONS: tuple[Lesson, ...] = tuple(
             "kullan; biri tutmazsa hiçbiri uygulanmaz, yarım kalmış dosya riski olmaz.",
         ),
         (
+            "tekrar eden metni düzeltme",
+            _S,
+            "Aynı metin dosyada çok kez geçiyorsa edit_file'a replace_all: true ver; "
+            "tek çağrıda biter. Benzersizlik hatasını tek tek çözmeye çalışma.",
+        ),
+        (
+            "dosyayı baştan yazma riski",
+            _M,
+            "Var olan bir sayfayı write_file ile baştan yazarken <script> ve <link> "
+            "etiketleri düşüyor; sayfa sessizce boşalır, konsolda hata bile çıkmaz. "
+            "Küçük düzeltmelerde edit_file kullan; baştan yazdıysan etiketleri doğrula.",
+        ),
+        (
             "web sayfası için görsel seçme",
             _M,
             "via.placeholder.com, placehold.it ve lorempixel.com KAPANDI; kullanan sayfa "

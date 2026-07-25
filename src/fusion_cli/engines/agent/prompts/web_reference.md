@@ -121,3 +121,114 @@ birebir aynı olmalıdır.
 - Her bölüme aynı `padding` ve aynı gölgeyi vermek. Hiyerarşi ölçekten doğar.
 - `<div>` yığını. `header`, `nav`, `main`, `section`, `footer` kullan; sayfada tam
   bir `<main>` bulunmalı.
+
+## Çalışan örnek — bunları taklit et
+
+Aşağıdaki parçalar yukarıdaki ölçekleri kullanır. Yapıyı kopyala, içeriği projeye uyarla.
+
+### Sticky header + ikon butonları
+
+İkonun boyutu HER ZAMAN `<svg>` üzerinde yazılır; yoksa devasa render edilir.
+
+```html
+<header class="site-header">
+  <div class="container header__inner">
+    <a class="logo" href="/">Marka</a>
+    <nav aria-label="Ana menü"><a href="/kategoriler">Kategoriler</a></nav>
+    <div class="header__actions">
+      <button class="icon-btn" aria-label="Sepet">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" aria-hidden="true"><path d="M6 6h15l-1.5 9h-12z"/></svg>
+        <span class="badge">0</span>
+      </button>
+    </div>
+  </div>
+</header>
+```
+
+```css
+.site-header { position: sticky; top: 0; z-index: 50; background: var(--white);
+               border-bottom: 1px solid var(--gray-200); }
+.header__inner { display: flex; align-items: center; gap: var(--space-5); height: 64px; }
+.header__actions { margin-left: auto; display: flex; gap: var(--space-2); }
+.icon-btn { position: relative; width: 40px; height: 40px; display: grid;
+            place-items: center; border: 0; background: none; border-radius: var(--radius-md); }
+.icon-btn:hover { background: var(--gray-100); }
+.badge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px;
+         display: grid; place-items: center; font-size: 11px; border-radius: var(--radius-full);
+         background: var(--accent); color: var(--white); }
+```
+
+### Ürün kartı
+
+Fiyat hiyerarşisi: güncel fiyat büyük ve koyu, eski fiyat küçük ve üstü çizili.
+
+```html
+<article class="card">
+  <div class="card__media">
+    <img src="…" alt="Ürün adı" width="400" height="400" loading="lazy">
+    <span class="card__badge">%25</span>
+  </div>
+  <div class="card__body">
+    <p class="card__kicker">Kategori</p>
+    <h3 class="card__title">Ürün adı</h3>
+    <p class="card__price"><s>19.999 TL</s> <strong>14.999 TL</strong></p>
+    <div class="card__actions">
+      <button class="btn btn--primary">Sepete Ekle</button>
+      <button class="icon-btn" aria-label="Favorilere ekle">
+        <svg width="20" height="20" …></svg>
+      </button>
+    </div>
+  </div>
+</article>
+```
+
+```css
+.card { display: flex; flex-direction: column; background: var(--white);
+        border: 1px solid var(--gray-200); border-radius: var(--radius-md);
+        overflow: hidden; transition: box-shadow var(--dur) var(--ease); }
+.card:hover { box-shadow: var(--shadow-md); }
+.card__media { position: relative; aspect-ratio: 1; background: var(--gray-100); }
+.card__media img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.card__badge { position: absolute; top: var(--space-3); left: var(--space-3);
+               padding: 2px var(--space-2); border-radius: var(--radius-sm);
+               background: var(--accent); color: var(--white); font-size: var(--text-xs); }
+.card__body { padding: var(--space-5); display: grid; gap: var(--space-2); }
+.card__kicker { font-size: var(--text-xs); color: var(--gray-500);
+                text-transform: uppercase; letter-spacing: 0.04em; }
+.card__title { font-size: var(--text-lg); line-height: var(--leading-tight); }
+.card__price s { font-size: var(--text-sm); color: var(--gray-500); }
+.card__price strong { font-size: var(--text-xl); color: var(--brand); }
+.card__actions { display: flex; gap: var(--space-2); align-items: center; }
+.card__actions .btn { flex: 1; }
+```
+
+### Bölüm kabuğu
+
+```html
+<section class="section" id="cok-satanlar" aria-labelledby="cok-satanlar-h">
+  <div class="container">
+    <header class="section__head">
+      <h2 id="cok-satanlar-h">Çok Satanlar</h2>
+      <a class="link" href="/urunler">Tümünü gör</a>
+    </header>
+    <div class="grid"><!-- kartlar --></div>
+  </div>
+</section>
+```
+
+```css
+.section { padding-block: clamp(48px, 6vw, 96px); }
+.section:nth-of-type(even) { background: var(--gray-50); }  /* ritim: zemin değişimi */
+.section__head { display: flex; align-items: baseline; justify-content: space-between;
+                 gap: var(--space-4); margin-bottom: var(--space-6); }
+```
+
+## JavaScript ile içerik üretiyorsan
+
+- Üretilen markup da `var(--…)` kullanır; şablon dizesine hex renk gömme.
+- `init()`'i **tanımladığın gibi çağır** ve `DOMContentLoaded`'a bağla; çağrılmayan
+  render fonksiyonu = boş bölüm.
+- HTML'e `<script src="…">` etiketini eklemeyi UNUTMA. Dosyayı yeniden yazarken en sık
+  düşen şey budur ve sayfa sessizce boşalır — konsolda hata bile çıkmaz.
+- Bir bölümü JS dolduruyorsa, HTML'de o bölümün kapsayıcısı ve `id`'si bulunmalıdır.
