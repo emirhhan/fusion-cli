@@ -89,6 +89,24 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class TierSpec:
+    """Tek bir model kademesi (low, medium, high, ultra, premium).
+
+    Kademe üç rolü BİRLİKTE taşır: kullanıcı tek seçimle motorun tamamını o seviyeye
+    alır. Roller ayrı ayrı seçilseydi tutarsız bileşim (küçük agent + büyük hakem)
+    sessizce kurulabilirdi; kademe bunu yapısal olarak imkânsız kılar.
+    """
+
+    #: Kullanıcının yazdığı kademe adı (`low`, `medium`, …). Küçük harf.
+    name: str
+    #: Seçim ekranında adın yanında görünen kısa açıklama.
+    label: str
+    agent: ModelSpec
+    judge: ModelSpec
+    candidates: tuple[ModelSpec, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     """Uygulamanın tüm yapılandırması. Katmanlara ham dict değil bu nesne geçer."""
 
@@ -108,7 +126,15 @@ class Config:
     #: Görme yetenekli model (görsel doğrulama kapısı). Tanımlı değilse kapı hiç
     #: kurulmaz; görme opsiyoneldir.
     vision: ModelSpec | None = None
+    #: Seçilebilir model kademeleri, `defaults.yaml`'daki yazım SIRASIYLA. Sıra
+    #: anlamlıdır: seçim ekranı bu sırayı gösterir ve renk geçişini buna yayar.
+    tiers: tuple[TierSpec, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""
         return next((item for item in self.candidates if item.name == name), None)
+
+    def tier_by_name(self, name: str) -> TierSpec | None:
+        """Ada göre kademe bul (büyük/küçük harf duyarsız); yoksa None."""
+        wanted = name.strip().lower()
+        return next((item for item in self.tiers if item.name == wanted), None)

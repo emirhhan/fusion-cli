@@ -217,8 +217,133 @@ def test_varsayilan_haritadaki_tum_adlar_tanimli_adaylardir():
     config = load_config()
     tanimli = {spec.name for spec in config.candidates}
 
-    bilinmeyen = {
-        tip: ad for tip, ad in config.task_model_map.items() if ad not in tanimli
-    }
+    bilinmeyen = {tip: ad for tip, ad in config.task_model_map.items() if ad not in tanimli}
 
     assert not bilinmeyen, f"tanımlı aday olmayan adlar: {bilinmeyen}"
+
+
+# --------------------------------------------------------------------------- #
+# Model kademeleri
+# --------------------------------------------------------------------------- #
+
+
+def test_varsayilan_kademeler_yuklenir():
+    config = load_config()
+
+    assert [kademe.name for kademe in config.tiers] == [
+        "low",
+        "medium",
+        "high",
+        "ultra",
+        "premium",
+    ]
+
+
+def test_kademe_adiyla_bulunur_ve_buyuk_harf_duyarsizdir():
+    config = load_config()
+
+    assert config.tier_by_name("PREMIUM") is not None
+    assert config.tier_by_name(" low ").name == "low"
+    assert config.tier_by_name("boyle-bir-kademe-yok") is None
+
+
+def test_kademe_uygulanınca_uc_rol_birden_degisir():
+    from fusion_cli.config.model_select import apply_tier
+
+    config = load_config()
+    kademe = config.tier_by_name("premium")
+
+    yeni = apply_tier(config, "premium")
+
+    assert yeni.agent == kademe.agent
+    assert yeni.judge == kademe.judge
+    assert yeni.candidates == kademe.candidates
+
+
+def test_kademe_uygulamak_config_i_mutasyona_ugratmaz():
+    from fusion_cli.config.model_select import apply_tier
+
+    config = load_config()
+    onceki_agent = config.agent
+
+    apply_tier(config, "premium")
+
+    assert config.agent == onceki_agent
+
+
+def test_kademe_gorev_haritasini_yeni_havuza_tasir():
+    """Harita eski kademenin adlarını işaret ederse agent sessizce role düşerdi."""
+    from fusion_cli.config.model_select import apply_tier
+
+    config = load_config()
+
+    yeni = apply_tier(config, "premium")
+
+    tanimli = {spec.name for spec in yeni.candidates}
+    assert set(yeni.task_model_map.values()) <= tanimli
+
+
+def test_haritada_ayni_ad_yeni_havuzda_da_varsa_korunur():
+    from fusion_cli.config.model_select import apply_tier
+
+    config = load_config()
+    # `ultra` havuzunda gemma-31b var; `high` kademesinin haritası onu işaret eder.
+    yuksek = apply_tier(config, "high")
+    assert yuksek.task_model_map
+
+    ustu = apply_tier(yuksek, "ultra")
+
+    assert ustu.task_model_map["code"] in {spec.name for spec in ustu.candidates}
+
+
+def test_bilinmeyen_kademe_anlasilir_hata_verir():
+    from fusion_cli.config.model_select import apply_tier
+
+    with pytest.raises(ConfigError, match="kademe yok"):
+        apply_tier(load_config(), "yok-boyle")
+
+
+def test_kademe_adlari_benzersiz_olmali(tmp_path):
+    config = load_config()
+    ham = yaml.safe_load(bundled_defaults().read_text(encoding="utf-8"))
+    ham["tiers"] = [ham["tiers"][0], ham["tiers"][0]]
+
+    path = _yaz(tmp_path, {"tiers": ham["tiers"]})
+
+    with pytest.raises(ConfigError, match="benzersiz"):
+        load_config(path)
+    assert config.tiers
+
+
+def test_kademe_adi_kucuk_harf_olmali(tmp_path):
+    ham = yaml.safe_load(bundled_defaults().read_text(encoding="utf-8"))
+    kademe = dict(ham["tiers"][0])
+    kademe["name"] = "LOW"
+
+    path = _yaz(tmp_path, {"tiers": [kademe]})
+
+    with pytest.raises(ConfigError, match="küçük harf"):
+        load_config(path)
+
+
+def test_kademe_listesi_bos_olamaz(tmp_path):
+    path = _yaz(tmp_path, {"tiers": []})
+
+    with pytest.raises(ConfigError, match="en az bir kademe"):
+        load_config(path)
+
+
+def test_her_kademede_en_az_bir_aday_vardir():
+    config = load_config()
+
+    for kademe in config.tiers:
+        assert kademe.candidates, f"{kademe.name}: aday havuzu boş"
+
+
+def test_kademe_modelleri_saglayici_onekiyle_yazilir():
+    """Model kimliği `<sağlayıcı>/<model>` biçiminde olmalı; yoksa çağrı yönlenemez."""
+    config = load_config()
+
+    for kademe in config.tiers:
+        for spec in (kademe.agent, kademe.judge, *kademe.candidates):
+            assert "/" in spec.model, f"{kademe.name}: {spec.model}"

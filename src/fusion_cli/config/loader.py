@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
-from .models import Config, EmbeddingConfig, RuntimeConfig
+from .models import Config, EmbeddingConfig, RuntimeConfig, TierSpec
 from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
@@ -36,6 +36,7 @@ _SECTIONS = (
     "task_model_map",
     "runtime",
     "embedding",
+    "tiers",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -91,7 +92,31 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),
         memory_dir=memory_dir(),
         source=source,
+        tiers=_build_tiers(merged["tiers"]),
     )
+
+
+def _build_tiers(raw: object) -> tuple[TierSpec, ...]:
+    """Kademe listesini doğrula: boş olamaz, adlar benzersiz ve küçük harf olmalı.
+
+    Ad benzersizliği şart: `tier_by_name` ilk eşleşeni döndürür, bir ad iki kez
+    yazılırsa ikincisi sessizce ölü tanım olurdu.
+    """
+    if not isinstance(raw, list) or not raw:
+        raise ConfigError("tiers: en az bir kademe tanımlı olmalı.")
+    specs = tuple(_build(TierSpec, item, f"tiers[{index}]") for index, item in enumerate(raw))
+    for spec in specs:
+        if spec.name != spec.name.lower():
+            raise ConfigError(f"tiers: kademe adı küçük harf olmalı, gelen: '{spec.name}'")
+        if not spec.candidates:
+            raise ConfigError(f"tiers.{spec.name}: en az bir aday tanımlı olmalı.")
+    names = [spec.name for spec in specs]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise ConfigError(
+            f"tiers: kademe adları benzersiz olmalı, tekrar eden: {', '.join(duplicates)}"
+        )
+    return specs
 
 
 def _build_candidates(raw: object, extra: object = None) -> tuple[ModelSpec, ...]:
