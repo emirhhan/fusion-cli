@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fusion-cli"
-version = "0.2.0.dev0"
+version = "0.3.0a1"
 description = "Ücretsiz LLM'lerle çalışan, iki motorlu, öz-öğrenen agentic CLI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,9 +46,14 @@ fusion-cli = "fusion_cli.cli.app:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# Kodun ÇALIŞMA ANINDA okuduğu veri dosyaları. Eksik girdi, wheel'den kurulan sürümü
+# ilk komutta çökertir: prompt dosyaları import anında okunuyor. `tests/test_packaging.py`
+# bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
-"fusion_cli.tools" = ["scaffold/*"]
 "fusion_cli.config" = ["*.yaml"]
+"fusion_cli.tools" = ["scaffold/*"]
+"fusion_cli.engines.agent" = ["prompts/*"]
+"fusion_cli.engines.fusion" = ["prompts/*"]
 
 # --------------------------------------------------------------------------- #
 # Kalite kapısı — tek yerde tanımlı, editör ayarına bırakılmaz.
