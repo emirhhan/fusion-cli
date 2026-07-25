@@ -155,6 +155,14 @@ class SelfReviewFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class VerificationFailed(Event):
+    """Doğrulama kapısı somut ihlal buldu; düzeltici tur çalışacak."""
+
+    summary: str
+    findings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LessonsRecalled(Event):
     """Göreve benzer dersler hatırlandı ve prompta eklendi."""
 

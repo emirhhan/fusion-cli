@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from ...core.events import LessonsLearned, LessonsRecalled
 from ...core.memory import Lesson
 from ...core.types import Message
+from ...core.verification import VerificationResult
 from . import learning
 from .verification import resolve_turn_success
 
@@ -33,21 +34,27 @@ def recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Le
 
 
 async def reinforce_recalled(
-    recalled: tuple[Lesson, ...], outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool
+    recalled: tuple[Lesson, ...],
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    plan_mode: bool,
+    verification: VerificationResult | None = None,
 ) -> None:
     """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
 
     Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
-    devredeyse) kapı geçti. Kod değiştiren turdan sonra kapı çalıştırılır; böylece
-    "doğrulamadan bitirme" gibi kurallar dekoratif kalmaz, gerçekten uygulanır.
+    devredeyse) kapı geçti. Böylece "doğrulamadan bitirme" gibi kurallar dekoratif
+    kalmaz, gerçekten uygulanır.
+
+    `verification` DIŞARIDAN gelir: kapı tur başına bir kez çalışır ve aynı sonuç hem
+    modele düzeltme talimatı olur hem buraya sinyal olarak düşer. Burada ikinci kez
+    çalıştırmak hem israftı hem de iki farklı cevap alma riskiydi.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
     if plan_mode or not recalled:
         return
-    verification = None
-    if deps.verifier is not None and outcome.tool_calls_made > 0:
-        verification = await deps.verifier.verify()
     success = resolve_turn_success(
         outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
     )

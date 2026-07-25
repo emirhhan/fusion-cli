@@ -428,3 +428,90 @@ async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_
     assert olay.outcome is ToolOutcome.BLOCKED
     arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
     assert "PLAN MODU" in arac_mesaji.content
+
+
+# --- Doğrulama kapısının geri besleme yolu ----------------------------------- #
+#
+# Bugüne kadar doğrulama sonucu YALNIZCA ders güvenini besliyordu; modele hiç
+# ulaşmıyordu. Yani kapı kırılsa bile agent bunu öğrenmiyor, çıktı değişmiyordu.
+
+
+class _SahteDogrulayici:
+    """İstenen sonucu döndüren doğrulayıcı; kaç kez çağrıldığını sayar."""
+
+    def __init__(self, sonuc):
+        self._sonuc = sonuc
+        self.calls = 0
+
+    async def verify(self):
+        self.calls += 1
+        return self._sonuc
+
+
+async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+                model_result("duzeltildi"),
+            ]
+        ),
+    )
+    dogrulayici = _SahteDogrulayici(
+        VerificationResult(ok=False, summary="2 sorun", findings=("boş bağlantı: 18 adet",))
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("site yap", deps)
+
+    assert dogrulayici.calls == 1, "kapı tur başına bir kez çalışmalı"
+    assert sonuc.final_text == "duzeltildi"
+    gonderilen = provider.seen_messages[-1]
+    assert any("boş bağlantı: 18 adet" in mesaj.content for mesaj in gonderilen), (
+        "somut bulgu modele ulaşmalı"
+    )
+
+
+async def test_kapi_gecerse_duzeltici_tur_acilmaz(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=True))
+
+    await run_agent("site yap", deps)
+
+    assert provider.calls == 2
+
+
+async def test_dogrulayici_yoksa_kapi_hic_calismaz(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert provider.calls == 1
+
+
+async def test_plan_modunda_kapi_calismaz(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(monkeypatch, ScriptedProvider([model_result("plan")]))
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=False, findings=("sorun",)))
+
+    await run_agent("gorev", deps, plan_mode=True)
+
+    assert deps.verifier.calls == 0

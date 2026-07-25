@@ -18,6 +18,12 @@ class VerificationResult:
     ok: bool
     #: İlk başarısız komut / kısa özet (log ve teşhis için). Başarıda boş olabilir.
     summary: str = ""
+    #: Modele geri verilecek SOMUT ihlaller, her biri tek satır.
+    #:
+    #: Özet insan içindir; bulgular modele düzeltme talimatı olarak gider. Ölçüldü:
+    #: model araç sonucuna tepki veriyor, prompt metnine vermiyor — bu yüzden kapının
+    #: çıktısı "bir sorun var" değil, "şu satırda şu yanlış" olmalıdır.
+    findings: tuple[str, ...] = ()
 
 
 class Verifier(Protocol):

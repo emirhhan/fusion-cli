@@ -36,11 +36,12 @@ from ...core.events import (
     StepLimitReached,
     ToolExecuted,
     ToolOutcome,
+    VerificationFailed,
 )
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
 from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
-from ...core.verification import Verifier
+from ...core.verification import VerificationResult, Verifier
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
@@ -128,6 +129,7 @@ async def run_agent(
     self_review: bool | None = None,
     allowed_tools: set[str] | None = None,
     step_limit: int | None = None,
+    verify: bool = True,
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -165,8 +167,16 @@ async def run_agent(
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
+    verification = await _verify(
+        outcome, deps, plan_mode=plan_mode, depth=depth, enabled=verify
+    )
+    if verification is not None and not verification.ok and verification.findings:
+        outcome = await _fix_findings(verification, outcome, deps)
+
     await learning_steps.learn(task, outcome, deps, plan_mode=plan_mode, scope=scope_of(kind))
-    await learning_steps.reinforce_recalled(recalled, outcome, deps, plan_mode=plan_mode)
+    await learning_steps.reinforce_recalled(
+        recalled, outcome, deps, plan_mode=plan_mode, verification=verification
+    )
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     return outcome
 
@@ -363,6 +373,51 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
         deps,
         history=outcome.messages,
         self_review=False,
+    )
+    correction.tool_calls_made += outcome.tool_calls_made
+    return correction
+
+
+async def _verify(
+    outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int, enabled: bool
+) -> VerificationResult | None:
+    """Doğrulama kapısını tur başına BİR KEZ çalıştır.
+
+    Sonuç iki yere birden gider: modele düzeltme talimatı ve ders güvenine sinyal.
+    İki kez çalıştırmak hem israf hem de iki farklı cevap alma riskidir.
+
+    İş yapılmadıysa (araç çağrısı yok) kapı anlamsızdır; plan modunda ise hiçbir şey
+    değişmediği için hiç çalışmaz.
+    """
+    if not enabled or deps.verifier is None or plan_mode or depth > 0:
+        return None
+    if outcome.tool_calls_made == 0:
+        return None
+    return await deps.verifier.verify()
+
+
+async def _fix_findings(
+    verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
+) -> AgentOutcome:
+    """Somut bulguları modele düzeltme talimatı olarak ver ve TEK düzeltici tur aç.
+
+    Model çağrısı EKLEMEZ (talimat deterministik üretilir) ama düzeltici turun kendisi
+    bir tur maliyetindedir. Öz-denetimdeki disiplinin aynısı: ikinci bir kapı turu yok,
+    sonsuz düzeltme döngüsü yok.
+    """
+    deps.publisher.publish(
+        VerificationFailed(summary=verification.summary, findings=verification.findings)
+    )
+    bulgular = "\n".join(f"- {finding}" for finding in verification.findings)
+    correction = await run_agent(
+        "Doğrulama kapısı üretilen çıktıda şu somut sorunları buldu. Hepsini düzelt; "
+        "düzeltemeyeceğin varsa nedenini tek cümleyle yaz.\n\n"
+        f"{bulgular}",
+        deps,
+        history=outcome.messages,
+        self_review=False,
+        # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
+        verify=False,
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
