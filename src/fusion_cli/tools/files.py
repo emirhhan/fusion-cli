@@ -71,8 +71,22 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 
 def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
+    kurtarma = _kurtarma(args, context)
+    if kurtarma is not None:
+        return kurtarma
+
     path = resolve_path(context, require_str(args, "path"))
-    content = require_text(args, "content")
+    if "content" in args:
+        content = require_text(args, "content")
+        context.pending.take()  # eski saklanan içerik ASLA kullanılmaz
+    else:
+        # Saklanan içerik BİR KEZ kullanılır; sonraki çağrıya sızmamalı.
+        content = context.pending.take()
+        if not content:
+            return ToolResult.failure(
+                "'content' alanı eksik ve saklanmış içerik de yok. Dosyanın tam "
+                "içeriğini gönder."
+            )
 
     existed = path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +94,28 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.touched.add(path)
     action = "güncellendi" if existed else "oluşturuldu"
     return ToolResult(f"{action}: {path} ({len(content)} karakter)")
+
+
+def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
+    """`path` eksik ama içerik varsa içeriği sakla ve yalnızca yolu iste.
+
+    Beş koşuda 14 kez yaşandı: model büyük içeriği yazıp sondaki küçük `path` alanını
+    hiç üretmiyor. Eskiden içerik çöpe gidiyor ve model 15 KB'ı baştan üretiyordu.
+    Artık içerik saklanıyor; model tek satırlık bir çağrıyla işi bitiriyor.
+
+    Yol TAHMİN EDİLMEZ — yanlış tahmin var olan bir dosyanın üzerine yazmak demektir.
+    """
+    if "path" in args and str(args.get("path") or "").strip():
+        return None
+    icerik = args.get("content")
+    if not isinstance(icerik, str) or not icerik:
+        return None
+    context.pending.content = icerik
+    return ToolResult.failure(
+        f"'path' alanı eksik. İçeriğini SAKLADIM ({len(icerik)} karakter); tekrar "
+        "gönderme. Aynı aracı YALNIZCA path vererek çağır: "
+        '{"path": "dizin/dosya.uzanti"}'
+    )
 
 
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:

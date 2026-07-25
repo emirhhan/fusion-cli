@@ -403,3 +403,59 @@ def test_buyuk_dosya_kirpildigini_soyler(tmp_path):
     # Türkçe büyük/küçük dönüşümü tuzaklıdır ("KIRPILDI".lower() → "kirpildi");
     # metin olduğu gibi aranır.
     assert "KIRPILDI" in sonuc.output
+
+
+# --- Eksik path kurtarması --------------------------------------------------- #
+#
+# Beş koşuda toplam 14 kez oldu; yarım kalan 5. koşuda write_file çağrılarının
+# %50'sini vurdu. Model içeriği önce yazıp sondaki küçük 'path' alanını düşürüyor.
+# Her hata, 15 KB'lık içeriğin baştan üretilmesi demekti.
+
+
+def test_path_eksikse_icerik_saklanir(tmp_path):
+    context = ToolContext(root=tmp_path)
+
+    sonuc = files.write_file({"content": "<h1>uzun içerik</h1>"}, context)
+
+    assert not sonuc.ok
+    assert context.pending.content == "<h1>uzun içerik</h1>"
+    # Türkçe küçültme tuzaklıdır ("YALNIZCA".lower() → "yalnizca"); metin olduğu gibi aranır.
+    assert "YALNIZCA" in sonuc.output, "modele içeriği tekrar göndermemesi söylenmeli"
+
+
+def test_saklanan_icerik_yalnizca_path_ile_yazilir(tmp_path):
+    context = ToolContext(root=tmp_path)
+    files.write_file({"content": "<h1>merhaba</h1>"}, context)
+
+    sonuc = files.write_file({"path": "a.html"}, context)
+
+    assert sonuc.ok, sonuc.output
+    assert (tmp_path / "a.html").read_text(encoding="utf-8") == "<h1>merhaba</h1>"
+
+
+def test_kurtarma_kullanildiktan_sonra_temizlenir(tmp_path):
+    """Saklanan içerik bir kez kullanılır; sonraki çağrıya sızmamalı."""
+    context = ToolContext(root=tmp_path)
+    files.write_file({"content": "ilk"}, context)
+    files.write_file({"path": "a.txt"}, context)
+
+    sonuc = files.write_file({"path": "b.txt"}, context)
+
+    assert not sonuc.ok
+    assert context.pending.content == ""
+
+
+def test_content_verilirse_saklanan_yok_sayilir(tmp_path):
+    """Model içeriği gerçekten gönderdiyse eski saklanan içerik ASLA kullanılmaz."""
+    context = ToolContext(root=tmp_path)
+    files.write_file({"content": "eski"}, context)
+
+    files.write_file({"path": "a.txt", "content": "yeni"}, context)
+
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "yeni"
+
+
+def test_ikisi_de_yoksa_arguman_hatasi(tmp_path):
+    """path da content da yoksa aracın kendi doğrulaması devreye girer."""
+    with pytest.raises(ArgumentError):
+        files.write_file({}, ToolContext(root=tmp_path))

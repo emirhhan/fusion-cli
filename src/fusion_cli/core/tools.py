@@ -84,6 +84,25 @@ class TodoList:
         return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)
 
 
+class PendingWrite:
+    """`write_file` içeriğinin geçici sakladığı yer.
+
+    Model büyük içerikte sondaki küçük `path` alanını düşürüyor (beş koşuda 14 kez;
+    birinde çağrıların yarısı). İçeriği çöpe atmak 15 KB'lık dosyanın baştan
+    üretilmesi demekti. Saklanır ve model YALNIZCA yolu göndererek işi bitirir.
+
+    Yol TAHMİN EDİLMEZ: yanlış tahmin var olan bir dosyanın üzerine yazmak demektir.
+    """
+
+    def __init__(self) -> None:
+        self.content = ""
+
+    def take(self) -> str:
+        """Saklanan içeriği al ve temizle: bir kez kullanılır, sonrakine sızmaz."""
+        icerik, self.content = self.content, ""
+        return icerik
+
+
 @dataclass(frozen=True, slots=True)
 class ToolContext:
     """Araçların çalıştığı ortam. Executor'lar dış dünyaya buradan erişir."""
@@ -97,6 +116,9 @@ class ToolContext:
     #: Doğrulama kapısı yalnızca buraya bakar: kök dizini taramak, agent'ın hiç
     #: dokunmadığı dosyalar hakkında bulgu üretirdi. Yalnızca başarılı yazma iz bırakır.
     touched: set[Path] = field(default_factory=set)
+    #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
+    #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
+    pending: PendingWrite = field(default_factory=lambda: PendingWrite())
     #: True ise dosya araçları yalnızca `root` altında çalışır; kök dışına çıkan
     #: yol, `..` ile dışarı taşan yol ve köke sızdıran symlink reddedilir. Varsayılan
     #: kapalıdır: eski davranış (kök dışına da yazma) korunur, kısıtlama opt-in'dir.

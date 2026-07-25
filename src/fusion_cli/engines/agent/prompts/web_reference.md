@@ -232,3 +232,97 @@ Fiyat hiyerarşisi: güncel fiyat büyük ve koyu, eski fiyat küçük ve üstü
 - HTML'e `<script src="…">` etiketini eklemeyi UNUTMA. Dosyayı yeniden yazarken en sık
   düşen şey budur ve sayfa sessizce boşalır — konsolda hata bile çıkmaz.
 - Bir bölümü JS dolduruyorsa, HTML'de o bölümün kapsayıcısı ve `id`'si bulunmalıdır.
+
+## İkonlar — path verisini UYDURMA, buradan kopyala
+
+Ölçüldü: model SVG `d` verisini ezberden yazmaya çalışıyor ve bozuk şekiller çıkıyor
+(sepet ikonu tanınmaz hale geliyor). Aşağıdakiler doğrulanmış Feather/Lucide
+verileridir. Hepsi `viewBox="0 0 24 24"`, `fill="none"`, `stroke="currentColor"`,
+`stroke-width="2"`, `stroke-linecap="round"`, `stroke-linejoin="round"` ile kullanılır.
+
+```html
+<!-- Kalıp: boyutu HER ZAMAN yaz -->
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <!-- ↓ aşağıdaki gövdelerden birini koy -->
+</svg>
+```
+
+| İkon | Gövde |
+|---|---|
+| arama | `<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>` |
+| sepet | `<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>` |
+| kalp (favori) | `<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>` |
+| kullanıcı | `<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>` |
+| menü | `<line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="18" y2="18"/>` |
+| kapat | `<path d="M18 6 6 18"/><path d="m6 6 12 12"/>` |
+| yıldız (dolu) | `fill="currentColor"` ile: `<path d="M11.5 2.9a.5.5 0 0 1 1 0l2.2 4.5 4.9.7a.5.5 0 0 1 .3.9l-3.6 3.5.9 4.9a.5.5 0 0 1-.8.5L12 15.6l-4.4 2.3a.5.5 0 0 1-.8-.5l.9-4.9-3.6-3.5a.5.5 0 0 1 .3-.9l4.9-.7Z"/>` |
+| kargo/kamyon | `<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>` |
+| kalkan (güvenlik) | `<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1Z"/>` |
+| iade/geri | `<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>` |
+| onay | `<path d="M20 6 9 17l-5-5"/>` |
+| çöp (sil) | `<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>` |
+| artı / eksi | `<path d="M5 12h14"/><path d="M12 5v14"/>` &nbsp;/&nbsp; `<path d="M5 12h14"/>` |
+| ok sağ | `<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>` |
+| e-posta | `<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>` |
+| telefon | `<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>` |
+
+Bu listede olmayan bir ikon gerekirse: ya listeden anlamca en yakınını kullan ya da
+metinle çöz. **Path verisi uydurma** — bozuk şekil, ikonsuzluktan kötüdür.
+
+Ağdan ikon kütüphanesi (Font Awesome, Bootstrap Icons, Material Icons) `<link>`
+etmeden sınıf adı yazma: sınıf yazıp kütüphaneyi yüklememek sayfayı boş kare
+kutularla doldurur — ölçülen gerçek bir hata.
+
+## Sayfa kurgusu — bölümlerin sırası rastgele değildir
+
+Bir açılış sayfası bir ikna sırası (funnel) izler: **dikkat → değer → kanıt → eylem**.
+Bölümleri bu sıraya oturt; sıra bozulursa sayfa "parça yığını" gibi durur.
+
+**E-ticaret ana sayfası**
+1. Duyuru çubuğu (kargo/iade/ödeme güveni) — ince, tek satır
+2. Header (logo, menü, arama, hesap/favori/sepet)
+3. Hero — tek net vaat + iki buton (birincil dolu, ikincil çerçeveli)
+4. Kategoriler — gezinme, kartlardan önce
+5. Öne çıkan ürünler — asıl ticari içerik, sayfanın merkezi
+6. Kampanya bandı — ritmi kırar, farklı zemin
+7. Güven blokları (garanti, güvenli ödeme, hızlı teslimat, kolay iade)
+8. Müşteri yorumları — sosyal kanıt, eylemden hemen önce
+9. Bülten — tek alan + tek buton
+10. Footer — kurumsal, hizmet, yasal, iletişim, ödeme yöntemleri
+
+**SaaS / ürün açılış sayfası**
+Header → Hero (vaat + CTA) → sosyal kanıt şeridi (logolar) → problem/çözüm →
+özellikler (3-6) → nasıl çalışır (3 adım) → fiyatlandırma → SSS → son CTA → footer
+
+**Uygulama arayüzü (dashboard)**
+Kenar çubuğu (birincil gezinme) + üst çubuk (bağlam, arama, hesap) →
+özet metrikler (üstte, 3-4 kart) → asıl tablo/grafik → ikincil paneller.
+Pazarlama hero'su KOYMA; ilk ekranda iş yapılır.
+
+Kurallar:
+- **Sayfada tek birincil eylem vardır.** Her bölüme dolu turuncu buton koyma; ikincil
+  eylemler çerçeveli ya da bağlantı olur.
+- Yorum ve güven blokları eylemden ÖNCE gelir, sonra değil.
+- Ardışık iki bölüm aynı zeminde olmaz; `--white` ve `--gray-50` dönüşümlü kullan.
+- Bir bölüm tek cümlelik içerikse ayrı bölüm olmayı hak etmiyordur; birleştir.
+
+## Dikey ritim — boşluk göz kararı değildir
+
+| Yer | Değer |
+|---|---|
+| Bölümler arası (`padding-block`) | `clamp(48px, 6vw, 96px)` |
+| Bölüm başlığı ile içeriği arası | `var(--space-6)` = 32px |
+| Kartlar arası (`gap`) | `var(--space-5)` = 24px |
+| Kart içinde satırlar arası | `var(--space-2)` = 8px |
+| Başlık ile alt metni arası | `var(--space-3)` = 12px |
+| Buton grubu (`gap`) | `var(--space-3)` = 12px |
+| Form alanları arası | `var(--space-4)` = 16px |
+| Sayfa yan boşluğu | `var(--space-5)`, geniş ekranda `container` sınırlar |
+
+- Ölçek DIŞINDA değer yazma (13px, 17px, 42px gibi). Ara değer gerekiyorsa ölçeği
+  gözden geçir, uydurma.
+- Boşluğu `margin` yerine kapsayıcıda `gap` ile ver; çift boşluk (margin+gap)
+  ritmi bozar.
+- Aynı hiyerarşideki her bölüm aynı dikey boşluğu alır. Bir bölümü öne çıkarmak
+  istiyorsan boşlukla değil zeminle, ölçekle ya da genişlikle çıkar.
