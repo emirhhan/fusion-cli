@@ -170,3 +170,36 @@ async def test_tamamlanan_yanit_kesik_isaretlenmez(monkeypatch):
     sonuc = await _saglayici().complete(request())
 
     assert not sonuc.truncated
+
+
+# --- Görsel taşıyan mesajlar ------------------------------------------------- #
+
+
+def test_gorselsiz_mesaj_duz_metin_kalir():
+    """Mevcut davranış korunur: görsel yoksa içerik dizgedir, liste değil."""
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    assert _to_wire(Message("user", "merhaba"))["content"] == "merhaba"
+
+
+def test_gorselli_mesaj_cok_parcali_icerige_cevrilir():
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    wire = _to_wire(Message("user", "bu ne?", images=("data:image/png;base64,AAA",)))
+
+    icerik = wire["content"]
+    assert isinstance(icerik, list)
+    assert icerik[0] == {"type": "text", "text": "bu ne?"}
+    assert icerik[1]["type"] == "image_url"
+    assert icerik[1]["image_url"]["url"] == "data:image/png;base64,AAA"
+
+
+def test_birden_cok_gorsel_sirayla_eklenir():
+    from fusion_cli.core.types import Message
+    from fusion_cli.providers.litellm_provider import _to_wire
+
+    wire = _to_wire(Message("user", "karşılaştır", images=("data:a", "data:b")))
+
+    assert [p["image_url"]["url"] for p in wire["content"][1:]] == ["data:a", "data:b"]

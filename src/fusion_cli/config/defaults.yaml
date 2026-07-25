@@ -119,6 +119,15 @@ runtime:
   # Playwright ZORUNLU DEĞİLDİR: `pip install "fusion-cli[web]"` ile gelir ve ardından
   # `playwright install chromium` gerekir. Kurulu değilse kapı sessizce geçer.
   browser_verification: true
+  # Üretilen sayfa bölgelere kırpılıp GÖREN bir modele dar sorular sorulur
+  # (header tek satırda mı, hero'da aşırı boşluk var mı, metin okunuyor mu).
+  #
+  # Varsayılan KAPALI ve bu bilinçli. Ölçüm (2026-07-25): ücretsiz görme modelleri
+  # tek soru + kırpılmış bölge ile doğru cevap veriyor ("kalp ikonu çok büyük"), ama
+  # açık uçlu "hataları listele" ile ya susuyor ya olmayan hata uyduruyor; dört soru
+  # tek çağrıda sorulunca ayırt etme gücü sıfıra düşüyor. Bu yüzden her soru ayrı
+  # çağrıdır ve pahalıdır. Geometriyle ÖLÇÜLEBİLEN hiçbir şey buraya sorulmaz.
+  visual_verification: false
   # İstek bir playbook'u (deterministik çok-adımlı akış) tetiklerse serbest ReAct
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
@@ -158,6 +167,14 @@ judge:
   fallback:
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+
+# Görme yetenekli model — görsel doğrulama kapısı için (visual_verification: true ise).
+# Ölçüm (2026-07-25): dar soru + kırpılmış bölge ile doğru cevap veriyor.
+vision:
+  name: goz
+  model: nvidia_nim/nvidia/nemotron-nano-12b-v2-vl
+  fallback:
+    - openrouter/nvidia/nemotron-nano-12b-v2-vl:free
 
 # Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
 # tanınmayan ad sessizce `agent:` rolüne düşer.

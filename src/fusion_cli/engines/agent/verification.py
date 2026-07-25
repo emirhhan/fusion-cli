@@ -23,6 +23,7 @@ from ...core.constants import SHELL_TIMEOUT_S
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
+from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output
 
 #: Web kapısının denetlediği dosya uzantıları.
@@ -76,6 +77,8 @@ def build_verifier(
     if config.runtime.browser_verification and tool_context is not None:
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
         verifiers.append(BrowserVerifier(tool_context))
+    if config.runtime.visual_verification and tool_context is not None and config.vision:
+        verifiers.append(VisualVerifier(tool_context, config))
 
     if not verifiers:
         return None

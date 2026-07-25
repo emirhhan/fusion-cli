@@ -147,6 +147,7 @@ def make_config(**overrides):
             ModelSpec(name="c", model="sahte/c"),
         ),
         "judge": ModelSpec(name="hakem", model="sahte/hakem"),
+        "vision": None,
         "task_model_map": {"general": "a", "code": "c"},
         "runtime": RuntimeConfig(**runtime),
         "embedding": EmbeddingConfig(provider="local", model="test"),

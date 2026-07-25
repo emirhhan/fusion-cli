@@ -67,6 +67,10 @@ class Message:
     #: Araç sonucu mesajlarında aracın başarılı olup olmadığı. Diğer rollerde None.
     #: Başarı metinden TAHMİN EDİLMEZ; üreten taraf bu alanı doldurur.
     ok: bool | None = None
+    #: Mesaja eklenen görseller (data URI). Doluysa sağlayıcı sınırında içerik
+    #: çok parçalı biçime çevrilir; boşsa mesaj düz metin kalır ve mevcut davranış
+    #: birebir korunur.
+    images: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -291,8 +291,16 @@ def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
 
 
 def _to_wire(message: Message) -> dict[str, Any]:
-    """Proje mesajını sağlayıcının beklediği sözlüğe çevir."""
-    wire: dict[str, Any] = {"role": message.role, "content": message.content}
+    """Proje mesajını sağlayıcının beklediği sözlüğe çevir.
+
+    Görsel yoksa içerik DÜZ METİN kalır: çok parçalı biçim bazı uçlarda desteklenmez
+    ve gereksiz yere davranış değiştirir.
+    """
+    icerik: Any = message.content
+    if message.images:
+        icerik = [{"type": "text", "text": message.content}]
+        icerik += [{"type": "image_url", "image_url": {"url": url}} for url in message.images]
+    wire: dict[str, Any] = {"role": message.role, "content": icerik}
     if message.tool_calls:
         wire["tool_calls"] = [
             {

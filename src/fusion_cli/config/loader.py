@@ -32,6 +32,7 @@ _SECTIONS = (
     "candidates",
     "extra_candidates",
     "judge",
+    "vision",
     "task_model_map",
     "runtime",
     "embedding",
@@ -83,6 +84,8 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         agent=_build(ModelSpec, merged["agent"], "agent"),
         candidates=_build_candidates(merged["candidates"], merged.get("extra_candidates")),
         judge=_build(ModelSpec, merged["judge"], "judge"),
+        # Görme opsiyoneldir: tanımlı değilse görsel kapı hiç kurulmaz.
+        vision=_build(ModelSpec, merged["vision"], "vision") if merged.get("vision") else None,
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build(RuntimeConfig, merged["runtime"], "runtime"),
         embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),

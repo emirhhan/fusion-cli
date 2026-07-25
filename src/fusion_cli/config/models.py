@@ -64,6 +64,10 @@ class RuntimeConfig:
     #: kaynak, yatay taşma). `fusion-cli[web]` ekstrası gerekir; kurulu değilse
     #: kapı sessizce geçer.
     browser_verification: bool = True
+    #: Agent: üretilen sayfa kırpılıp GÖREN bir modele dar sorular sorulur.
+    #: Varsayılan KAPALI: ölçümde ücretsiz görme modelleri açık uçlu kullanımda
+    #: güvenilmez çıktı verdi ve her soru ayrı çağrı olduğu için maliyetlidir.
+    visual_verification: bool = False
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False
@@ -101,6 +105,9 @@ class Config:
     memory_dir: Path
     #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
     source: Path | None
+    #: Görme yetenekli model (görsel doğrulama kapısı). Tanımlı değilse kapı hiç
+    #: kurulmaz; görme opsiyoneldir.
+    vision: ModelSpec | None = None
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""
