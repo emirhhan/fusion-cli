@@ -320,7 +320,18 @@ _LAYOUT_PROBE = """() => {
     const clipped = [];
     const kayabilir = document.documentElement.scrollWidth > window.innerWidth + 1;
     if (!kayabilir) {
+        // position:fixed öğeler belge akışının DIŞINDADIR: kapalı çekmece, modal ve
+        // toast bilinçli olarak ekran dışında park edilir. Bunları "erişilemeyen
+        // içerik" saymak yanlış pozitiftir — gerçek bir koşuda mini sepet böyle
+        // bildirildi.
+        const akisDisi = (e) => {
+            for (let n = e; n && n !== document.body; n = n.parentElement) {
+                if (getComputedStyle(n).position === 'fixed') return true;
+            }
+            return false;
+        };
         const tasiyor = (e) => {
+            if (akisDisi(e)) return false;
             const r = e.getBoundingClientRect();
             return r.width > 0 && r.right > window.innerWidth + 4;
         };

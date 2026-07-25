@@ -187,3 +187,14 @@ def test_bos_bolum_bildirilir():
 
 def test_dolu_bolum_bildirilmez():
     assert page_findings((_gozlem(empty_sections=()),)) == ()
+
+
+def test_ekran_disi_cekmece_erisilemez_sayilmaz():
+    """position:fixed öğeler akış dışıdır: kapalı mini sepet, modal, toast.
+
+    Gerçek yanlış pozitif: kapalı mini sepet translateX ile ekran dışında park
+    edilmişti ve kapı bunu "erişilemeyen içerik" diye bildiriyordu.
+    """
+    from fusion_cli.engines.agent.browser_verify import _LAYOUT_PROBE
+
+    assert "position" in _LAYOUT_PROBE and "fixed" in _LAYOUT_PROBE
