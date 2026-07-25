@@ -6,11 +6,22 @@ hem `complete` hem `stream` için çalışır ve sarmaladığı şeyin ne olduğ
 yeni bir sağlayıcı eklendiğinde dayanıklılık davranışı bedava gelir.
 
 Davranış:
-- Tüm alt sağlayıcılar AYNI ANDA başlatılır; gecikme = min(hepsi), toplam değil.
+- Birincil sağlayıcıya bir ÖNCELİK PENCERESİ (`hedge_delay_s`) tanınır; o pencerede
+  çıktı üretirse yedekler hiç başlatılmaz.
+- Pencere dolar ya da birincil hata verirse yedekler başlatılır ve yarış başlar.
 - İlk başarılı yanıt kazanır; kalanlar iptal edilir.
 - Hiçbiri başaramazsa hata fırlatılmaz; tüm hataları birleştiren `ok=False` sonuç döner.
 - Akışta ilk ÇIKTI ÜRETEN akış kazanır (yalnız bağlantı açan değil): soğuk ya da hemen
   hata veren bir uç turu kilitleyemez.
+
+Öncelik penceresi neden var: yedek zinciri bilinçli olarak farklı SAĞLAYICI ve farklı
+MODEL içerir, dolayısıyla yedekler çoğu zaman birincilden küçük ve hızlıdır. Gecikmesiz
+yarıştırmada küçük model neredeyse her turda kazanır ve yapılandırmada yazan birincil
+model pratikte hiç kullanılmaz — dayanıklılık sessizce kalite kaybına dönüşür. Pencere,
+yedekleri yalnızca GERÇEK arıza durumunda (yavaşlık, 429, soğuk uç) devreye sokar.
+
+`hedge_delay_s=0` bugüne kadarki "hepsi aynı anda" davranışıdır; artık varsayılan değil,
+açık bir tercihtir.
 """
 
 from __future__ import annotations
@@ -30,11 +41,16 @@ _Opened = tuple[int, StreamItem | None]
 class HedgedProvider:
     """Birden çok sağlayıcıyı yarıştıran sağlayıcı."""
 
-    def __init__(self, providers: Sequence[LlmProvider], *, role: str) -> None:
+    def __init__(
+        self, providers: Sequence[LlmProvider], *, role: str, hedge_delay_s: float = 0.0
+    ) -> None:
         if not providers:
             raise ProviderError(f"'{role}' için tanımlı model yok.")
         self._providers = tuple(providers)
         self._role = role
+        # Mekanizmanın nötr değeri: gecikme yok. Ürünün gerçek değeri yapılandırmadan
+        # (`defaults.yaml` → `runtime.hedge_delay_s`) gelir; burada varsayılan TUTULMAZ.
+        self._hedge_delay_s = hedge_delay_s
 
     @property
     def label(self) -> str:
@@ -44,10 +60,26 @@ class HedgedProvider:
         if len(self._providers) == 1:
             return await self._providers[0].complete(request)
 
-        tasks = [asyncio.create_task(provider.complete(request)) for provider in self._providers]
+        primary = asyncio.create_task(self._providers[0].complete(request))
+        tasks = [primary]
+        yarisacaklar = tasks
         failures: list[ModelResult] = []
         try:
-            for finished in asyncio.as_completed(tasks):
+            if await _priority_window(primary, self._hedge_delay_s):
+                # Birincil pencerede bitti: başarılıysa yedekler HİÇ başlatılmaz.
+                result = primary.result()
+                if result.ok:
+                    return result
+                # Başarısız: sonucu burada tükettik, yarışa tekrar sokmuyoruz.
+                failures.append(result)
+                yarisacaklar = []
+
+            yedekler = [
+                asyncio.create_task(provider.complete(request))
+                for provider in self._providers[1:]
+            ]
+            tasks.extend(yedekler)
+            for finished in asyncio.as_completed([*yarisacaklar, *yedekler]):
                 result = await finished
                 if result.ok:
                     return result
@@ -62,23 +94,36 @@ class HedgedProvider:
                 yield item
             return
 
+        # Akış nesnesi tembeldir: oluşturmak sağlayıcıyı ÇAĞIRMAZ, ilk `anext` çağırır.
+        # Bu yüzden yedeklerin akışı pencere dolmadan yaratılsa bile ağ trafiği doğmaz;
+        # yedek yalnızca `_open` görevi başlatıldığında gerçekten çalışır.
         streams = [provider.stream(request) for provider in self._providers]
-        openers = [
-            asyncio.create_task(_open(index, stream)) for index, stream in enumerate(streams)
-        ]
+        primary = asyncio.create_task(_open(0, streams[0]))
+        openers = [primary]
+        yarisacaklar = openers
         winner: tuple[int, StreamItem] | None = None
         failures: list[ModelResult] = []
 
         try:
-            for finished in asyncio.as_completed(openers):
-                index, opened = await finished
-                if opened is None:
-                    continue
-                if isinstance(opened, StreamDone) and not opened.result.ok:
-                    failures.append(opened.result)
-                    continue
-                winner = (index, opened)
-                break
+            if await _priority_window(primary, self._hedge_delay_s):
+                index, opened = primary.result()
+                if opened is not None and not _is_failed_open(opened):
+                    winner = (index, opened)
+                else:
+                    if opened is not None:
+                        failures.append(opened.result)  # type: ignore[union-attr]
+                    yarisacaklar = []
+
+            if winner is None:
+                yedekler = [
+                    asyncio.create_task(_open(index, stream))
+                    for index, stream in enumerate(streams)
+                    if index > 0
+                ]
+                openers.extend(yedekler)
+                winner, failures = await self._yaris(
+                    [*yarisacaklar, *yedekler], failures, winner
+                )
         finally:
             await _cancel_all(openers)
 
@@ -96,6 +141,23 @@ class HedgedProvider:
         async for item in streams[winning_index]:
             yield item
 
+    async def _yaris(
+        self,
+        openers: Sequence[asyncio.Task[_Opened]],
+        failures: list[ModelResult],
+        winner: tuple[int, StreamItem] | None,
+    ) -> tuple[tuple[int, StreamItem] | None, list[ModelResult]]:
+        """Açılan akışlar arasında ilk ÇIKTI ÜRETENİ seç."""
+        for finished in asyncio.as_completed(openers):
+            index, opened = await finished
+            if opened is None:
+                continue
+            if _is_failed_open(opened):
+                failures.append(opened.result)  # type: ignore[union-attr]
+                continue
+            return (index, opened), failures
+        return winner, failures
+
     def _all_failed(self, failures: Sequence[ModelResult]) -> ModelResult:
         errors = "; ".join(failure.error or "bilinmeyen hata" for failure in failures)
         return ModelResult(
@@ -106,6 +168,24 @@ class HedgedProvider:
             ok=False,
             error=errors or "tüm sağlayıcılar yanıt veremedi",
         )
+
+
+def _is_failed_open(opened: StreamItem) -> bool:
+    """Akış hiç çıktı üretmeden başarısız mı bitti?"""
+    return isinstance(opened, StreamDone) and not opened.result.ok
+
+
+async def _priority_window(primary: asyncio.Task[Any], delay_s: float) -> bool:
+    """Birinciline öncelik penceresi tanı; pencerede bittiyse True.
+
+    Gecikme 0 ise beklenmez ve False döner: yedekler hemen başlar (eski davranış).
+    Birincil pencereden ÖNCE hata verirse de True döner — çağıran sonucu inceleyip
+    yedeklere geçer, yani hata anında geldiğinde pencere boşuna beklenmez.
+    """
+    if delay_s <= 0:
+        return False
+    await asyncio.wait({primary}, timeout=delay_s)
+    return primary.done()
 
 
 async def _open(index: int, stream: AsyncIterator[StreamItem]) -> _Opened:

@@ -64,7 +64,9 @@ def _deps(tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, 
 
 
 def _kur(monkeypatch, provider):
-    def _build(spec, *, publisher=None, channel=None, clock=None, background=False):
+    def _build(
+        spec, *, publisher=None, hedge_delay_s=0.0, channel=None, clock=None, background=False
+    ):
         return provider
 
     monkeypatch.setattr(agent_loop, "build_provider", _build)

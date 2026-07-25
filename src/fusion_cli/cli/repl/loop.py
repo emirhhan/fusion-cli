@@ -113,7 +113,11 @@ async def _warm_up(state: ReplState) -> None:
         max_retries=0,
     )
     # Sessiz sağlayıcı: ısıtma ne gösterilir ne de muhasebeye girer (1 token).
-    await build_provider(state.config.agent, publisher=None).complete(request)
+    await build_provider(
+        state.config.agent,
+        publisher=None,
+        hedge_delay_s=state.config.runtime.hedge_delay_s,
+    ).complete(request)
 
 
 async def _read_line(reader: ReplInput, state: ReplState) -> str | None:

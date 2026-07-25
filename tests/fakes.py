@@ -26,6 +26,9 @@ class FakeProvider:
         self._ok = ok
         self._error = error
         self.cancelled = False
+        #: Sağlayıcı gerçekten çağrıldı mı? Gecikmeli yarıştırmada "yedek hiç
+        #: başlatılmadı" iddiasını doğrulamak için gerekir.
+        self.started = False
 
     @property
     def label(self):
@@ -43,6 +46,7 @@ class FakeProvider:
         )
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
+        self.started = True
         try:
             await asyncio.sleep(self._delay)
         except asyncio.CancelledError:
@@ -51,6 +55,7 @@ class FakeProvider:
         return self._result()
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
+        self.started = True
         try:
             await asyncio.sleep(self._delay)
         except asyncio.CancelledError:
@@ -115,6 +120,10 @@ def make_config(**overrides):
         "judge_temperature": 0.0,
         "utility_temperature": 0.1,
         "max_tokens": 32,
+        # Testlerde öncelik penceresi kapalıdır: sahte sağlayıcılar milisaniyelerle
+        # çalışır, gerçek pencere (2.5s) her testi bekletirdi. Pencerenin kendi
+        # davranışı `test_hedged.py` içinde açıkça sınanır.
+        "hedge_delay_s": 0.0,
         "judge_timeout_s": 5.0,
         "judge_max_tokens": 64,
         "min_successful_candidates": 1,
@@ -156,7 +165,9 @@ def patch_providers(monkeypatch, module, by_name):
     from fusion_cli.core.events import Channel
     from fusion_cli.providers.eventing import EventingProvider
 
-    def _build(spec, *, publisher, channel=Channel.MAIN, clock=None, background=False):
+    def _build(
+        spec, *, publisher, hedge_delay_s=0.0, channel=Channel.MAIN, clock=None, background=False
+    ):
         provider = by_name[spec.name]
         if publisher is None:
             return provider

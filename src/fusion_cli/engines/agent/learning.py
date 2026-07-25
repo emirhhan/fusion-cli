@@ -86,7 +86,12 @@ async def extract_lessons(
         max_retries=config.runtime.max_retries,
     )
     # Arka plan işi: gösterilmez ama harcadığı token muhasebeye girer.
-    provider = build_provider(config.judge, publisher=publisher, background=True)
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        hedge_delay_s=config.runtime.hedge_delay_s,
+        background=True,
+    )
     result = await provider.complete(request)
     return parse_lessons(result.text, task) if result.ok else ()
 

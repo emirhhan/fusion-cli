@@ -232,7 +232,12 @@ async def _call_model(
         max_retries=runtime.max_retries,
         tools=tuple(registry.schemas(_permitted(allowed_tools, registry))),
     )
-    provider = build_provider(deps.config.agent, publisher=deps.publisher, channel=deps.channel)
+    provider = build_provider(
+        deps.config.agent,
+        publisher=deps.publisher,
+        hedge_delay_s=runtime.hedge_delay_s,
+        channel=deps.channel,
+    )
 
     result: ModelResult | None = None
     async for item in provider.stream(request):

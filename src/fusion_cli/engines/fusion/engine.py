@@ -161,7 +161,7 @@ async def _call_candidates(
 
     def _factory(spec: ModelSpec) -> Callable[[], Awaitable[ModelResult]]:
         # Sağlayıcı closure'a bağlanır; `gather_with_cutoff` çağrıyı kendi başlatır.
-        provider = build_provider(spec, publisher=publisher)
+        provider = build_provider(spec, publisher=publisher, hedge_delay_s=runtime.hedge_delay_s)
         return lambda: provider.complete(request)
 
     return await gather_with_cutoff(
@@ -220,7 +220,12 @@ async def _judge(
         temperature=config.runtime.judge_temperature,
     )
     # Arka plan işi: ilerleme satırı gösterilmez ama harcadığı token muhasebeye girer.
-    provider = build_provider(config.judge, publisher=publisher, background=True)
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        hedge_delay_s=config.runtime.hedge_delay_s,
+        background=True,
+    )
     try:
         return await asyncio.wait_for(
             provider.complete(request), timeout=config.runtime.judge_timeout_s + 2
@@ -238,7 +243,12 @@ async def _synthesize(
         max_tokens=config.runtime.max_tokens,
         prompt=_fill(_SYNTHESIS_PROMPT, task, answers),
     )
-    provider = build_provider(config.judge, publisher=publisher, background=True)
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        hedge_delay_s=config.runtime.hedge_delay_s,
+        background=True,
+    )
     return await provider.complete(request)
 
 

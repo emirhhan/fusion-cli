@@ -32,6 +32,20 @@ runtime:
   max_retries: 1
   temperature: 0.3
   max_tokens: 2048
+  # Yedek zinciri devreye girmeden önce BİRİNCİL modele tanınan öncelik penceresi.
+  #
+  # Yedekler bilinçli olarak farklı sağlayıcı ve farklı modeldir, dolayısıyla çoğu
+  # zaman birincilden küçük ve hızlıdır. Pencere olmadan küçük yedek neredeyse her
+  # turda yarışı kazanır ve yukarıda yazan birincil model pratikte hiç kullanılmaz —
+  # dayanıklılık sessizce kalite kaybına dönüşür.
+  #
+  # Değer ÖLÇÜMLE belirlendi (2026-07-25, nvidia_nim/nemotron-3-super, 15 araç şemalı
+  # agent çağrısı, 6 örnek): ilk token süresi ortanca 1.09s, maksimum 1.60s. 2.5s tüm
+  # sıcak turları birincile bırakır; uç gerçekten soğuksa (ölçülen soğuk başlangıç
+  # 6.37s) ya da 429 dönerse yedekler yine devreye girer.
+  #
+  # 0 yazılırsa eski davranışa (hepsi aynı anda) dönülür.
+  hedge_delay_s: 2.5
   # Hakem/sentez/ısıtma gibi deterministik olması gereken çağrılar için sıcaklık.
   judge_temperature: 0.0
   # Ders çıkarımı, bağlam sıkıştırma, öz-denetim gibi yardımcı çağrılar için sıcaklık.

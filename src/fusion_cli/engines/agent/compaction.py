@@ -51,6 +51,11 @@ async def _summarize(trace: str, config: Config, publisher: EventPublisher | Non
         max_retries=config.runtime.max_retries,
     )
     # Arka plan işi: gösterilmez ama muhasebeye girer.
-    provider = build_provider(config.judge, publisher=publisher, background=True)
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        hedge_delay_s=config.runtime.hedge_delay_s,
+        background=True,
+    )
     result = await provider.complete(request)
     return result.text.strip() if result.ok else ""

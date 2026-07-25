@@ -67,5 +67,10 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
         max_retries=config.runtime.max_retries,
     )
     # Arka plan işi: ilerleme satırı GÖSTERİLMEZ ama harcadığı token muhasebeye girer.
-    provider = build_provider(config.judge, publisher=publisher, background=True)
+    provider = build_provider(
+        config.judge,
+        publisher=publisher,
+        hedge_delay_s=config.runtime.hedge_delay_s,
+        background=True,
+    )
     return await provider.complete(request)

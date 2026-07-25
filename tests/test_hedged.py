@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from fusion_cli.core.errors import ProviderError
@@ -102,6 +104,86 @@ async def test_stream_hepsi_basarisizsa_tek_streamdone_ile_biter():
     assert len(items) == 1
     assert isinstance(items[0], StreamDone)
     assert not items[0].result.ok
+
+
+# --------------------------------------------------------------------------- #
+# Gecikmeli yarıştırma — birincil modele öncelik penceresi
+#
+# Gecikmesiz yarıştırma yedekliliği KALİTE KUMARINA çevirir: yedek zinciri bilinçli
+# olarak daha küçük/hızlı modeller içerir ve düşünen birincil modeli her turda yener.
+# Ölçüm (2026-07-25): birincil modelin TTFT ortancası 1.09s, maksimumu 1.60s; küçük
+# yedek bunun altında üretir. Öncelik penceresi bu yüzden vardır.
+# --------------------------------------------------------------------------- #
+
+
+async def test_birincil_pencerede_uretirse_yedek_hic_baslatilmaz():
+    birincil = FakeProvider("birincil", chunks=("iyi",), delay=0.02)
+    yedek = FakeProvider("yedek", chunks=("zayif",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=1.0)
+
+    parcalar = [item.text async for item in hedged.stream(request()) if isinstance(item, TextChunk)]
+
+    assert parcalar == ["iyi"]
+    assert not yedek.started, "birincil zamanında ürettiyse yedek hiç çağrılmamalı"
+
+
+async def test_complete_birincil_pencerede_uretirse_yedek_hic_baslatilmaz():
+    birincil = FakeProvider("birincil", chunks=("iyi",), delay=0.02)
+    yedek = FakeProvider("yedek", delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=1.0)
+
+    result = await hedged.complete(request())
+
+    assert result.model == "birincil"
+    assert not yedek.started
+
+
+async def test_birincil_gecikirse_yedek_devralir():
+    birincil = FakeProvider("birincil", chunks=("gec",), delay=5.0)
+    yedek = FakeProvider("yedek", chunks=("kurtarma",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=0.05)
+
+    parcalar = [item.text async for item in hedged.stream(request()) if isinstance(item, TextChunk)]
+
+    assert parcalar == ["kurtarma"]
+
+
+async def test_birincil_hata_verirse_pencere_beklenmeden_yedege_gecilir():
+    """429 anında dönerse öncelik penceresi boşuna beklenmemeli."""
+    birincil = FakeProvider("birincil", ok=False, error="429", delay=0.0)
+    yedek = FakeProvider("yedek", chunks=("kurtarma",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=5.0)
+
+    basla = asyncio.get_running_loop().time()
+    parcalar = [item.text async for item in hedged.stream(request()) if isinstance(item, TextChunk)]
+    gecen = asyncio.get_running_loop().time() - basla
+
+    assert parcalar == ["kurtarma"]
+    assert gecen < 1.0, "hata anında geldiyse pencere beklenmemeli"
+
+
+async def test_complete_birincil_hata_verirse_pencere_beklenmez():
+    birincil = FakeProvider("birincil", ok=False, error="429", delay=0.0)
+    yedek = FakeProvider("yedek", chunks=("ok",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=5.0)
+
+    basla = asyncio.get_running_loop().time()
+    result = await hedged.complete(request())
+
+    assert result.model == "yedek"
+    assert asyncio.get_running_loop().time() - basla < 1.0
+
+
+async def test_gecikme_sifirsa_bugunku_yaristirma_korunur():
+    """hedge_delay_s=0 açık bir tercih: tüm sağlayıcılar aynı anda başlar."""
+    yavas = FakeProvider("yavas", chunks=("y",), delay=0.5)
+    hizli = FakeProvider("hizli", chunks=("h",), delay=0.0)
+    hedged = HedgedProvider([yavas, hizli], role="agent", hedge_delay_s=0.0)
+
+    result = await hedged.complete(request())
+
+    assert result.model == "hizli"
+    assert yavas.started
 
 
 async def test_tek_saglayicida_yaristirma_yapilmaz():
