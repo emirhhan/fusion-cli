@@ -390,11 +390,19 @@ def _recall_skill(kind: TaskKind, deps: AgentDeps, *, depth: int) -> str:
     Yalnızca ana turda: alt-ajanlar zaten dar bir göreve odaklıdır ve kendi
     talimatlarını taşır.
     """
-    if deps.capabilities is None or depth > 0:
+    if depth > 0:
         return ""
-    return skill_recall.as_prompt_block(
-        skill_recall.select_skill(deps.capabilities.skills(), kind)
-    )
+    # İkisi farklı işe yarar ve birlikte verilir: fusion referansı NASIL inşa
+    # edileceğini somut ölçeklerle söyler, kullanıcının skill'i hangi YÖNÜN
+    # seçileceğini anlatır.
+    parcalar = [skill_recall.reference_block(kind)]
+    if deps.capabilities is not None:
+        parcalar.append(
+            skill_recall.as_prompt_block(
+                skill_recall.select_skill(deps.capabilities.skills(), kind)
+            )
+        )
+    return "\n\n".join(parca for parca in parcalar if parca)
 
 
 async def _verify(

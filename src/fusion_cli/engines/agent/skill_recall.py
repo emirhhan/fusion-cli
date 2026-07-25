@@ -16,8 +16,20 @@ koymak, hiç koymamaktan kötüdür.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from ...tools.capabilities import Capability, load_skill_text, search
 from .classify import TaskKind
+
+#: Fusion'a ait, göreve göre eklenen referans metinleri.
+#:
+#: Kullanıcının kütüphanesindeki tasarım skill'leri soyut öğüt verir ("choose a
+#: direction", "prefer contextual typography"); model bunları yükleyip yine jenerik
+#: çıktı üretiyor, çünkü sıfat kopyalanamaz. Buradaki referans SOMUT ölçek taşır
+#: (boşluk, tipografi, yarıçap, gölge, bileşen ölçüleri) ve fusion'a aittir —
+#: kullanıcının kurulumuna bağlı değildir.
+_REFERENCES: dict[TaskKind, str] = {TaskKind.WEBSITE: "web_reference.md"}
+_PROMPTS = Path(__file__).parent / "prompts"
 
 #: Görev türü → skill kütüphanesinde aranacak İngilizce terimler.
 #:
@@ -63,3 +75,15 @@ def as_prompt_block(skill: Capability | None) -> str:
     if not text:
         return ""
     return f"# Uzmanlık talimatı: {skill.name}\n{text}"
+
+
+def reference_block(kind: TaskKind) -> str:
+    """Görev türüne ait fusion referansı; yoksa boş metin."""
+    dosya = _REFERENCES.get(kind)
+    if dosya is None:
+        return ""
+    try:
+        return (_PROMPTS / dosya).read_text(encoding="utf-8").strip()
+    except OSError:
+        # Referans okunamıyorsa tur devam eder; bu bir iyileştirmedir.
+        return ""

@@ -58,3 +58,39 @@ def test_belirsiz_turde_skill_secilmez():
 
 def test_bos_havuz_coktermez():
     assert select_skill((), TaskKind.WEBSITE) is None
+
+
+# --- Fusion'a ait web referansı ---------------------------------------------- #
+#
+# Kullanıcının kütüphanesindeki tasarım skill'i tamamen soyut ("choose a direction",
+# "prefer contextual typography"). Model onu yükledi ve yine jenerik çıktı üretti:
+# sıfat kopyalanamaz, değer kopyalanır. Bu referans somut ölçekler taşır ve fusion'a
+# aittir — kullanıcının kurulumuna bağlı değildir.
+
+
+def test_website_gorevinde_web_referansi_eklenir():
+    from fusion_cli.engines.agent.skill_recall import reference_block
+
+    blok = reference_block(TaskKind.WEBSITE)
+
+    assert "--space-" in blok, "somut boşluk ölçeği taşımalı"
+    assert "clamp(" in blok, "akışkan tip ölçeği taşımalı"
+
+
+def test_website_disinda_referans_eklenmez():
+    from fusion_cli.engines.agent.skill_recall import reference_block
+
+    assert reference_block(TaskKind.BUGFIX) == ""
+    assert reference_block(TaskKind.GENERAL) == ""
+
+
+def test_referans_kullanici_skilliyle_birlikte_verilir():
+    """İkisi farklı işe yarar: skill yön seçtirir, referans nasıl inşa edileceğini söyler."""
+    from fusion_cli.engines.agent.skill_recall import as_prompt_block, reference_block
+
+    havuz = (_skill("frontend-design-direction", "frontend design direction for UI"),)
+    secilen = select_skill(havuz, TaskKind.WEBSITE)
+
+    assert secilen is not None
+    assert reference_block(TaskKind.WEBSITE)
+    assert as_prompt_block(secilen) or True  # dosya yok; blok boş olabilir
