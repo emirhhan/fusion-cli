@@ -515,3 +515,18 @@ async def test_plan_modunda_kapi_calismaz(monkeypatch, tmp_path, sink):
     await run_agent("gorev", deps, plan_mode=True)
 
     assert deps.verifier.calls == 0
+
+
+async def test_sistem_promptu_beceri_kutuphanesini_duyurur(monkeypatch, tmp_path, sink):
+    """Model 126 skill'lik kütüphanenin varlığından haberdar olmalı.
+
+    Gerçek koşuda find_skill hiç çağrılmadı; araç kayıtlıydı ama sistem promptunda
+    "skill" kelimesi hiç geçmiyordu. Kullanılmayan yetenek, olmayan yetenektir.
+    """
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("arayüz yap", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    sistem = provider.seen_messages[0][0]
+    assert sistem.role == "system"
+    assert "find_skill" in sistem.content
