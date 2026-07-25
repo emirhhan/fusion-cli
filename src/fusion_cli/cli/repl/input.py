@@ -124,6 +124,8 @@ class ReplInput:
             return await asyncio.to_thread(input, "")
         from prompt_toolkit.formatted_text import HTML
 
+        # Yama her turda kurulur: `app` ilk prompt_async çağrısına kadar hazır olmaz.
+        install_resize_fix(self._session)
         line = await self._session.prompt_async(
             HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
         )
@@ -161,6 +163,64 @@ def toolbar_enabled() -> bool:
     import os
 
     return os.environ.get("FUSION_NO_TOOLBAR", "") != "1"
+
+
+#: Resize'da yukarı doğru fazladan silinecek satır sayısı.
+_DEFAULT_RESIZE_MARGIN = 2
+
+
+def resize_margin() -> int:
+    """Resize'da `cursor_up` üstüne eklenecek güvenlik payı.
+
+    prompt_toolkit'in `erase()` fonksiyonu imleci `cursor_up(y)` ile geri alır ama `y`
+    ESKİ genişliğe göre hesaplanmıştır. Terminal daralınca satırlar yeniden sarar,
+    gerçek yükseklik büyür ve silme öksüz bir istem satırının ALTINDAN başlar.
+
+    Pay, o kaçağı kapatmak için yukarı doğru fazladan silinen satır sayısıdır. Fazla
+    pay konuşmanın son satırlarını da siler; az pay kaçağı bırakır. `FUSION_RESIZE_MARGIN`
+    ile ayarlanır, 0 verilirse davranış prompt_toolkit varsayılanına döner.
+    """
+    import os
+
+    ham = os.environ.get("FUSION_RESIZE_MARGIN", "")
+    if not ham:
+        return _DEFAULT_RESIZE_MARGIN
+    try:
+        return max(0, int(ham))
+    except ValueError:
+        return _DEFAULT_RESIZE_MARGIN
+
+
+def install_resize_fix(session: Any) -> None:
+    """Resize'da istem kopyası bırakan yukarı-akış hatasını yamalar.
+
+    prompt_toolkit #1933 açık ve düzeltilmemiş. `Application._on_resize` örnek
+    üzerinden değiştirilir; sinyal işleyici onu çalışma anında okuduğu için bu geçerli
+    bir yoldur ve kütüphaneye dokunmaz. Pay 0 ise hiç yamalanmaz.
+    """
+    pay = resize_margin()
+    if pay <= 0:
+        return
+    app = getattr(session, "app", None)
+    renderer = getattr(app, "renderer", None)
+    if app is None or renderer is None:
+        return
+
+    def _on_resize() -> None:
+        output = renderer.output
+        # Bayat imleç konumundan yukarı fazladan çık, oradan aşağıyı sil. Sıralama
+        # önemli: önce sil, sonra mutlak konumu iste, sonra yeniden çiz.
+        output.cursor_backward(renderer._cursor_pos.x)
+        output.cursor_up(renderer._cursor_pos.y + pay)
+        output.erase_down()
+        output.reset_attributes()
+        output.enable_autowrap()
+        output.flush()
+        renderer.reset(leave_alternate_screen=False)
+        app._request_absolute_cursor_position()
+        app._redraw()
+
+    app._on_resize = _on_resize
 
 
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
