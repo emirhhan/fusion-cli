@@ -125,13 +125,31 @@ async def test_web_dogrulayici_varsayilan_olarak_kurulur(tmp_path):
     assert build_verifier(make_config(), root=tmp_path, tool_context=context) is not None
 
 
-async def test_web_dogrulayici_kapatilabilir(tmp_path):
+async def test_tum_kapilar_kapatilabilir(tmp_path):
+    """Hiçbir kapı etkin değilse doğrulama tamamen kapalıdır."""
     from fusion_cli.core.tools import ToolContext
     from fusion_cli.engines.agent.verification import build_verifier
 
-    config = make_config(runtime={"web_verification": False})
+    config = make_config(runtime={"web_verification": False, "browser_verification": False})
 
     assert build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path)) is None
+
+
+async def test_kapilar_ayri_ayri_kapatilabilir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import BrowserVerifier, WebVerifier, build_verifier
+
+    context = ToolContext(root=tmp_path)
+
+    yalniz_tarayici = build_verifier(
+        make_config(runtime={"web_verification": False}), root=tmp_path, tool_context=context
+    )
+    yalniz_metin = build_verifier(
+        make_config(runtime={"browser_verification": False}), root=tmp_path, tool_context=context
+    )
+
+    assert isinstance(yalniz_tarayici, BrowserVerifier)
+    assert isinstance(yalniz_metin, WebVerifier)
 
 
 async def test_web_dogrulayici_yalnizca_dokunulan_dosyalara_bakar(tmp_path):

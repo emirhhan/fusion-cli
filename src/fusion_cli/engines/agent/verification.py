@@ -22,6 +22,7 @@ from ...config.models import Config
 from ...core.constants import SHELL_TIMEOUT_S
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult, Verifier
+from .browser_verify import BrowserVerifier
 from .web_verify import inspect_web_output
 
 #: Web kapısının denetlediği dosya uzantıları.
@@ -54,9 +55,12 @@ def build_verifier(
 
     - **Komut kapısı** — yapılandırılmış `verification_commands` (ruff/mypy/pytest).
       Opt-in kalır: komut yazılmadıkça çalışmaz.
-    - **Web kapısı** — üretilen HTML/CSS/JS'i mekanik olarak denetler. Varsayılan
+    - **Web kapısı** — üretilen HTML/CSS/JS'i METİN olarak denetler. Varsayılan
       AÇIKTIR. Opt-in bırakılsaydı kimse doldurmadığı için hiçbir şey değişmezdi;
       ölçtüğümüz hatalar (kırık görsel, boş bağlantı) her koşuda tekrarlıyordu.
+    - **Tarayıcı kapısı** — sayfayı gerçekten açıp ÖLÇER (konsol hatası, yüklenemeyen
+      kaynak, yatay taşma). Playwright opsiyonel ekstradır; kurulu değilse sessizce
+      geçer, zorunlu bağımlılık eklenmez.
 
     None döndürmek doğrulamanın tamamen kapalı olması demektir.
     """
@@ -69,6 +73,9 @@ def build_verifier(
         )
     if config.runtime.web_verification and tool_context is not None:
         verifiers.append(WebVerifier(tool_context))
+    if config.runtime.browser_verification and tool_context is not None:
+        # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
+        verifiers.append(BrowserVerifier(tool_context))
 
     if not verifiers:
         return None

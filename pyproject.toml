@@ -27,6 +27,10 @@ dependencies = [
 # Langfuse izleme opsiyoneldir: herkesin kurmasına gerek yok, anahtarsız zaten
 # sessizce kapalı çalışır.
 tracing = ["langfuse>=3.0,<4"]
+# Tarayıcı doğrulama kapısı opsiyoneldir: sayfayı açıp konsol hatası, yüklenemeyen
+# kaynak ve yatay taşma ölçer. Kurulmazsa kapı sessizce geçer, çevrimdışı kimlik korunur.
+# Kurulumdan sonra tarayıcı ikilisi de gerekir: `playwright install chromium`
+web = ["playwright>=1.40,<2"]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<2",
@@ -85,6 +89,8 @@ ignore = [
 "src/fusion_cli/cli/repl/screen_spike.py" = ["ANN401"]
 # cryptography tembel yüklenir ve tip stub'ı yok; `Any` yalnızca bu sınırda kalır.
 "src/fusion_cli/knowledge/signing.py" = ["ANN401"]
+# playwright opsiyonel ekstradır ve tip stub'ı yok; Page/Browser sınırı bu dosyada kalır.
+"src/fusion_cli/engines/agent/browser_verify.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin
@@ -97,9 +103,9 @@ warn_unreachable = true
 
 [[tool.mypy.overrides]]
 # Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
-# langfuse OPSİYONEL bir ekstradır; kurulu olmayabilir ve kod bunu zaten
-# ImportError ile ele alır (izleme sessizce kapanır).
-module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*"]
+# langfuse ve playwright OPSİYONEL ekstralardır; kurulu olmayabilirler ve kod bunu
+# zaten ImportError ile ele alır (izleme ve tarayıcı kapısı sessizce kapanır).
+module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*", "playwright.*"]
 ignore_missing_imports = true
 
 

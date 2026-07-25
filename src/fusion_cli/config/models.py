@@ -60,6 +60,10 @@ class RuntimeConfig:
     #: boş bağlantı, eksik <main>, stilsiz sınıf oranı, metin/kod tutar çelişkisi).
     #: Varsayılan AÇIK: bulgular modele düzeltme talimatı olarak döner.
     web_verification: bool = True
+    #: Agent: üretilen sayfa gerçekten açılıp ölçülür (konsol hatası, yüklenemeyen
+    #: kaynak, yatay taşma). `fusion-cli[web]` ekstrası gerekir; kurulu değilse
+    #: kapı sessizce geçer.
+    browser_verification: bool = True
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

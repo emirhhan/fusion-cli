@@ -111,6 +111,14 @@ runtime:
   # 18 boş bağlantı üretti) ama araç sonucuna tepki verip düzeltiyor. Bu yüzden
   # kural prompt'ta değil kapıda durur; bulgular modele talimat olarak döner.
   web_verification: true
+  # Üretilen sayfa GERÇEKTEN açılıp ölçülür: konsol hataları, yüklenemeyen kaynaklar
+  # ve 375/768/1440 px genişliklerinde yatay taşma. Bunlar metin taramasıyla
+  # görülemez — kullanıcının şartnamesinde "yatay taşma veya konsol hatası
+  # bulunmasın" yazmasına rağmen statik kapı 24 konsol hatasını göremedi.
+  #
+  # Playwright ZORUNLU DEĞİLDİR: `pip install "fusion-cli[web]"` ile gelir ve ardından
+  # `playwright install chromium` gerekir. Kurulu değilse kapı sessizce geçer.
+  browser_verification: true
   # İstek bir playbook'u (deterministik çok-adımlı akış) tetiklerse serbest ReAct
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
