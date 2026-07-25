@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from fusion_cli.tools.capabilities import (
@@ -203,3 +205,41 @@ def test_agent_promptu_frontmattersiz_doner(library):
 
 def test_okunamayan_dosya_hata_metni_dondurur(tmp_path):
     assert "okunamadı" in load_skill_text(tmp_path / "yok.md")
+
+
+# --- Kelime sınırı ----------------------------------------------------------- #
+
+
+def test_kisa_kelime_baska_kelimenin_icinde_eslesmez():
+    """Türkçe görev metnindeki "ve", "in", "er" İngilizce açıklamalarda gürültü yapıyordu.
+
+    Alt-dize eşleşmesi yüzünden "ve" → "de-ve-lopment" eşleşiyor ve tamamen alakasız
+    skill'ler öne çıkıyordu.
+    """
+    item = Capability(
+        name="laravel-plugin-discovery",
+        description="Discover Laravel plugins for development server",
+        path=Path(),
+        source="global",
+    )
+
+    assert search((item,), "ve in er") == ()
+
+
+def test_gercek_kelime_hala_eslesir():
+    item = Capability(
+        name="frontend-design",
+        description="Frontend design direction for production UI",
+        path=Path(),
+        source="global",
+    )
+
+    assert search((item,), "frontend design") == (item,)
+
+
+def test_bilesik_kelime_tam_eslesmeyle_bulunur():
+    item = Capability(
+        name="react-patterns", description="React hooks", path=Path(), source="global"
+    )
+
+    assert search((item,), "react") == (item,)

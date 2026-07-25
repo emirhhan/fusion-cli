@@ -17,6 +17,7 @@ Tarama oturumda bir kez yapılır ve önbelleklenir.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -217,5 +218,11 @@ def _parse_tools(value: str) -> tuple[str, ...]:
 
 
 def _score(item: Capability, terms: list[str]) -> int:
-    haystack = f"{item.name} {item.description}".lower()
+    """Kaç arama terimi ad/açıklamada KELİME olarak geçiyor.
+
+    Alt-dize değil kelime eşleşmesi: Türkçe görev metnindeki kısa kelimeler
+    ("ve", "in", "er") İngilizce açıklamaların İÇİNDE eşleşip ("de-ve-lopment",
+    "serv-er") tamamen alakasız skill'leri öne çıkarıyordu.
+    """
+    haystack = set(re.split(r"[^a-z0-9]+", f"{item.name} {item.description}".lower()))
     return sum(1 for term in terms if term in haystack)

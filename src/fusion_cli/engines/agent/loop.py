@@ -46,9 +46,9 @@ from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
-from . import compaction, learning_steps, reflexion, review
+from . import compaction, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, build_request
-from .classify import classify_task, recall_scope, scope_of
+from .classify import TaskKind, classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
 
@@ -147,11 +147,14 @@ async def run_agent(
     kind = classify_task(task)
     recalled = learning_steps.recall_lessons(task, deps, scope=recall_scope(kind))
     remembered = as_prompt_block(recalled)
+    expertise = _recall_skill(kind, deps, depth=depth)
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
-        extra_system="\n\n".join(part for part in (remembered, extra_system) if part),
+        extra_system="\n\n".join(
+            part for part in (remembered, expertise, extra_system) if part
+        ),
     )
 
     outcome = await _drive(
@@ -376,6 +379,22 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     )
     correction.tool_calls_made += outcome.tool_calls_made
     return correction
+
+
+def _recall_skill(kind: TaskKind, deps: AgentDeps, *, depth: int) -> str:
+    """Görev türüne uyan uzmanlık talimatını promta ekle.
+
+    Modelin `find_skill` çağırmasını beklemek yerine dersler gibi OTOMATİK enjekte
+    edilir; ölçüldü ki prompta duyuru koymak 3 koşunun yalnızca 1'inde işe yarıyor.
+
+    Yalnızca ana turda: alt-ajanlar zaten dar bir göreve odaklıdır ve kendi
+    talimatlarını taşır.
+    """
+    if deps.capabilities is None or depth > 0:
+        return ""
+    return skill_recall.as_prompt_block(
+        skill_recall.select_skill(deps.capabilities.skills(), kind)
+    )
 
 
 async def _verify(

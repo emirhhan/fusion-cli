@@ -128,10 +128,19 @@ def classify_task(request: str) -> TaskKind:
 
     tokens = set(re.split(r"[^0-9a-zçğıöşü]+", request.lower()))
     lowered = request.lower()
+
+    # EŞLEŞME SAYISI kazanır, sıra değil. Eskiden "ilk eşleşen tür kazanır" idi ve
+    # uzun isteklerde tesadüfi tek bir kelime konuyu kaçırtıyordu: bir e-ticaret
+    # sayfası isteği, kampanya metnindeki "evine taşı" yüzünden REFACTOR sanılıyor,
+    # WEBSITE'ın dört isabetli eşleşmesi (sayfa, html, css, arayüz) görmezden
+    # geliniyordu. Beraberlikte kural sırası (özgülden genele) hâlâ belirleyicidir.
+    best_kind = TaskKind.GENERAL
+    best_score = 0
     for kind, keywords in _RULES:
-        if any(_matches(keyword, tokens, lowered) for keyword in keywords):
-            return kind
-    return TaskKind.GENERAL
+        score = sum(1 for keyword in keywords if _matches(keyword, tokens, lowered))
+        if score > best_score:
+            best_kind, best_score = kind, score
+    return best_kind
 
 
 def scope_of(kind: TaskKind) -> str:

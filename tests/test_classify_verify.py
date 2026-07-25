@@ -192,3 +192,29 @@ async def test_silinen_dosya_kapiyi_dusurmez(tmp_path):
     context.touched.add(tmp_path / "yok.html")
 
     assert (await WebVerifier(context).verify()).ok
+
+
+# --- Sınıflandırma gücü ------------------------------------------------------ #
+
+
+def test_tesadufi_tek_kelime_dort_isabetli_kelimeyi_yenmez():
+    """Gerçek hata: bir e-ticaret sayfası isteği REFACTOR sanılıyordu.
+
+    Kampanya metnindeki "Kahve keyfini evine taşı" cümlesi REFACTOR'ın tek anahtar
+    kelimesiyle eşleşiyor, WEBSITE ise dört kelimeyle (sayfa, html, css, arayüz)
+    eşleşiyordu. "İlk eşleşen kazanır" kuralı tesadüfi eşleşmeyi öne alıyordu.
+    """
+    istek = (
+        "Modern bir e-ticaret ana sayfası oluştur: index.html, style.css ve script.js. "
+        "Kampanya bannerı: 'Kahve keyfini evine taşı'. Tüm arayüz Türkçe olsun."
+    )
+
+    assert classify_task(istek) is TaskKind.WEBSITE
+
+
+def test_esit_guclu_eslesmede_oncelik_sirasi_korunur():
+    """Beraberlikte kural sırası (özgülden genele) hâlâ belirleyici."""
+    # Her iki tür de TEK kelimeyle eşleşiyor: bugfix "düzelt", feature "ekle".
+    istek = "bunu düzelt ve şunu ekle"
+
+    assert classify_task(istek) is TaskKind.BUGFIX
