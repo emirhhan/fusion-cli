@@ -118,6 +118,9 @@ class ModelResult:
     error: str | None = None
     #: Modelin bu turda yapmak istediği araç çağrıları.
     tool_calls: tuple[ToolCall, ...] = ()
+    #: Reasoning modellerinin düşünme metni. Nihai cevaba KARIŞTIRILMAZ; ayrı taşınır
+    #: ki teşhis ve gösterim kararı üst katmanlara kalsın.
+    reasoning: str = ""
 
     @property
     def is_rate_limited(self) -> bool:

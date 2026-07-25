@@ -26,12 +26,24 @@ agent:
 
 # Çalışma zamanı davranışı.
 runtime:
-  # Takılan çağrı bu sürede düşer; yedek zinciri zaten paralel çalıştığı için tur durmaz.
-  request_timeout_s: 45
+  # Takılan çağrı bu sürede düşer.
+  #
+  # Ölçülen üretim hızı (2026-07-25, nemotron-3-super): ~104 token/s. Aşağıdaki
+  # max_tokens tamamen kullanılırsa çağrı ~80s sürer; 45s bu turu ORTASINDA keserdi.
+  # 120s tam bir üretime yer bırakır, gerçekten takılan çağrıyı yine de düşürür.
+  request_timeout_s: 120
   # Sağlayıcı içi yeniden deneme. Hedging zaten yatay dayanıklılık sağladığından düşük tutulur.
   max_retries: 1
   temperature: 0.3
-  max_tokens: 2048
+  # Tur başına çıktı bütçesi.
+  #
+  # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.
+  # Ölçüm (2026-07-25, tek dosyalık açılış sayfası üreten görev):
+  #   2048 → finish_reason=length, sayfa yarıda kesildi (</html> hiç gelmedi)
+  #   8192 → finish_reason=stop, sayfa tam, 1946 token kullanıldı
+  # Yani 2048 kodlama işleri için yapısal olarak yetersizdi; 8192 ölçülen ihtiyacın
+  # ~4 katı başlık payı bırakır.
+  max_tokens: 8192
   # Yedek zinciri devreye girmeden önce BİRİNCİL modele tanınan öncelik penceresi.
   #
   # Yedekler bilinçli olarak farklı sağlayıcı ve farklı modeldir, dolayısıyla çoğu

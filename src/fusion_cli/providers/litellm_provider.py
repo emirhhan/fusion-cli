@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from typing import Any
 
 from ..core.clock import SystemClock
@@ -32,6 +33,15 @@ from ..core.types import (
 
 #: NVIDIA NIM anahtarı varken taban adres verilmemişse kullanılacak varsayılan uç.
 NIM_DEFAULT_API_BASE = "https://integrate.api.nvidia.com/v1"
+
+#: Çıktı bütçesi düşünme sırasında dolduğunda kullanıcıya dönen açıklama.
+TRUNCATED_ERROR = (
+    "Model çıktı bütçesi dolduğu için cevabı üretemedi (yalnızca düşünme aşaması "
+    "tamamlandı). `runtime.max_tokens` değerini artır."
+)
+
+#: Sağlayıcılar düşünme metnini farklı alan adlarıyla döndürür.
+_REASONING_FIELDS = ("reasoning_content", "reasoning")
 
 _logger = logging.getLogger(__name__)
 
@@ -131,14 +141,23 @@ class LiteLlmProvider:
         )
 
     def _success(self, response: Any, started: float) -> ModelResult:
+        text = _response_text(response)
+        tool_calls = _response_tool_calls(response)
+        # Reasoning modelinde düşünme token'ları da çıktı bütçesinden yenir. Bütçe
+        # düşünme sırasında dolarsa `content` BOŞ gelir ve tur sessizce boş cevapla
+        # biter — kullanıcı bunu "hiçbir şey yapmadı" diye görür. Bu bir başarı
+        # değildir; açık hataya çevrilir ki yedek zinciri devreye girebilsin.
+        kesildi = _finish_reason(response) == "length" and not text and not tool_calls
         return ModelResult(
             name=self._role,
             model=self._model,
-            text=_response_text(response),
+            text=text,
             latency_ms=self._elapsed_ms(started),
-            ok=True,
+            ok=not kesildi,
+            error=TRUNCATED_ERROR if kesildi else None,
             usage=_response_usage(response, self._model),
-            tool_calls=_response_tool_calls(response),
+            tool_calls=tool_calls,
+            reasoning=_response_reasoning(response),
         )
 
     def _rebuild(
@@ -152,6 +171,7 @@ class LiteLlmProvider:
             )
         except Exception:
             rebuilt = None
+        akis_reasoning = "".join(_chunk_reasoning(chunk) for chunk in chunks)
         if rebuilt is None:
             return ModelResult(
                 name=self._role,
@@ -159,8 +179,14 @@ class LiteLlmProvider:
                 text="".join(_chunk_text(chunk) for chunk in chunks),
                 latency_ms=self._elapsed_ms(started),
                 ok=True,
+                reasoning=akis_reasoning,
             )
-        return self._success(rebuilt, started)
+        sonuc = self._success(rebuilt, started)
+        if sonuc.reasoning or not akis_reasoning:
+            return sonuc
+        # `stream_chunk_builder` düşünme metnini her sağlayıcıda taşımaz; parçalardan
+        # topladığımız metin varsa kaybedilmez.
+        return replace(sonuc, reasoning=akis_reasoning)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,6 +200,32 @@ def _response_text(response: Any) -> str:
     except (AttributeError, IndexError, TypeError):
         return ""
     return str(content or "").strip()
+
+
+def _response_reasoning(response: Any) -> str:
+    """Reasoning modelinin düşünme metni. Alan adı sağlayıcıya göre değişir."""
+    try:
+        message = response.choices[0].message
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return _first_field(message, _REASONING_FIELDS)
+
+
+def _finish_reason(response: Any) -> str:
+    """Yanıtın neden bittiği. Bilinmiyorsa boş dizge."""
+    try:
+        return str(response.choices[0].finish_reason or "")
+    except (AttributeError, IndexError, TypeError):
+        return ""
+
+
+def _first_field(source: Any, fields: tuple[str, ...]) -> str:
+    """Verilen alanlardan ilk dolu olanı dizge olarak döndür."""
+    for field in fields:
+        value = getattr(source, field, None)
+        if value:
+            return str(value)
+    return ""
 
 
 def _response_usage(response: Any, model: str) -> TokenUsage:
@@ -261,6 +313,15 @@ def _chunk_text(chunk: Any) -> str:
     except (AttributeError, IndexError, TypeError):
         return ""
     return str(content or "")
+
+
+def _chunk_reasoning(chunk: Any) -> str:
+    """Akış parçasındaki düşünme metni. Kullanıcıya METİN olarak yayınlanmaz."""
+    try:
+        delta = chunk.choices[0].delta
+    except (AttributeError, IndexError, TypeError):
+        return ""
+    return _first_field(delta, _REASONING_FIELDS)
 
 
 def build_messages(task: str, system: str | None = None) -> tuple[Message, ...]:
