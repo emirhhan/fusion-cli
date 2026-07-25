@@ -552,3 +552,71 @@ def test_uzun_deger_uzunlugunu_bildirir():
     metin = _format_args({"content": "y" * 2_048})
 
     assert "2048" in metin or "2.048" in metin
+
+
+# --- Araç çağrısı gösterimi -------------------------------------------------- #
+#
+# İstenen biçim: araç adı + BİRİNCİL argüman parantez içinde. Ham "anahtar=değer"
+# listesi okunmuyordu; 15 KB'lık içerik satırı doldurup diğer alanları siliyordu.
+
+
+def test_birincil_arguman_parantez_icinde_gosterilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("write_file", {"path": "src/app.py", "content": "x" * 900}) == (
+        "write_file(src/app.py)"
+    )
+
+
+def test_her_aracin_kendi_birincil_alani_var():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("run_shell", {"command": "pytest -q"}) == "run_shell(pytest -q)"
+    assert _format_call("search_code", {"pattern": "def x", "path": "src"}) == (
+        "search_code(def x)"
+    )
+    assert _format_call("web_search", {"query": "python asyncio"}) == (
+        "web_search(python asyncio)"
+    )
+
+
+def test_birincil_alan_yoksa_boyut_ozetlenir():
+    """Eksik path hatasında içerik yine görünmeli — hangi çağrı olduğu anlaşılsın."""
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("write_file", {"content": "x" * 900})
+
+    assert metin.startswith("write_file(")
+    assert "900" in metin
+
+
+def test_argumansiz_cagri_sade_gosterilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    assert _format_call("list_dir", {}) == "list_dir()"
+
+
+def test_uzun_deger_kisaltilir_ama_kapanis_korunur():
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("run_shell", {"command": "echo " + "a" * 300})
+
+    assert len(metin) <= 80
+    assert metin.endswith(")")
+
+
+def test_davranis_degistiren_bayrak_gosterilir():
+    """replace_all sonucu değiştirir; kullanıcı onaylarken görmeli."""
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("edit_file", {"path": "a.py", "old": "x", "new": "y", "replace_all": True})
+
+    assert "a.py" in metin and "replace_all" in metin
+
+
+def test_cok_satirli_deger_tek_satira_indirilir():
+    from fusion_cli.ui.renderer import _format_call
+
+    metin = _format_call("run_shell", {"command": "satir1\nsatir2"})
+
+    assert "\n" not in metin

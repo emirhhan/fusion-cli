@@ -365,13 +365,10 @@ class ConsoleRenderer:
         """Araç çağrısını iki satırlık kompakt kart olarak bas."""
         self._end_block()
         icon, color = self._OUTCOME_STYLES[event.outcome]
-        args = _shorten(_format_args(event.args), 78)
+        cagri = _format_call(event.name, event.args)
         summary = _shorten(event.output.replace("\n", " "), 96)
 
-        self._console.print(
-            f"  [{color}]{icon} {escape(event.name)}[/{color}] "
-            f"[{theme.DIM}]{escape(args)}[/{theme.DIM}]"
-        )
+        self._console.print(f"  [{color}]{icon}[/{color}] {escape(cagri)}")
         if summary:
             self._console.print(f"    [{theme.DIM}]{escape(summary)}[/{theme.DIM}]")
 
@@ -384,6 +381,62 @@ class ConsoleRenderer:
 
 #: Bu uzunluğu aşan argüman değeri ham gösterilmez, yerine boyutu yazılır.
 _ARG_VALUE_LIMIT = 48
+
+
+#: Araç → o araca ait BİRİNCİL argüman. Çağrı satırında yalnızca bu gösterilir;
+#: "hangi dosya / hangi komut" sorusunun cevabı budur.
+_PRIMARY_ARG: dict[str, str] = {
+    "read_file": "path",
+    "view_file": "path",
+    "write_file": "path",
+    "edit_file": "path",
+    "multi_edit": "path",
+    "list_dir": "path",
+    "glob": "pattern",
+    "search_code": "pattern",
+    "grep_search": "pattern",
+    "run_shell": "command",
+    "git": "subcommand",
+    "web_search": "query",
+    "web_fetch": "url",
+    "read_url_content": "url",
+    "scaffold_web": "path",
+    "find_skill": "query",
+    "read_skill": "name",
+    "find_agent": "query",
+    "spawn_agent": "task",
+}
+#: Sonucu DEĞİŞTİREN ikincil alanlar; onay ekranında görünmeleri gerekir.
+_FLAG_ARGS = ("replace_all",)
+#: Çağrı satırının tamamı için üst sınır.
+_CALL_LIMIT = 76
+
+
+def _format_call(name: str, args: Mapping[str, object]) -> str:
+    """Araç çağrısını `ad(birincil argüman)` biçiminde göster.
+
+    Eskiden ham `anahtar=değer` listesi basılıyordu ve 15 KB'lık `content` satırı tek
+    başına doldurup diğer alanları ekrandan siliyordu — hangi dosyaya yazıldığı bile
+    görünmüyordu. Artık "hangi dosya / hangi komut" sorusunun cevabı öne alınır.
+    """
+    anahtar = _PRIMARY_ARG.get(name)
+    deger = args.get(anahtar) if anahtar else None
+    govde = _format_value(deger) if isinstance(deger, str) and deger.strip() else _fallback(args)
+
+    bayraklar = [ad for ad in _FLAG_ARGS if args.get(ad) is True]
+    if bayraklar:
+        govde = f"{govde}, {', '.join(bayraklar)}" if govde else ", ".join(bayraklar)
+
+    tek_satir = " ".join(f"{name}({govde})".split())
+    if len(tek_satir) <= _CALL_LIMIT:
+        return tek_satir
+    # Kısaltırken kapanış parantezi KORUNUR: yarım kalan çağrı okunmuyor.
+    return tek_satir[: _CALL_LIMIT - 2] + "…)"
+
+
+def _fallback(args: Mapping[str, object]) -> str:
+    """Birincil alan yoksa geriye kalanı özetle (eksik `path` hatası buna düşer)."""
+    return ", ".join(f"{ad}={_format_value(deger)}" for ad, deger in args.items())
 
 
 def _format_args(args: Mapping[str, object]) -> str:
