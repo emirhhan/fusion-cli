@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -125,9 +124,6 @@ class ReplInput:
             return await asyncio.to_thread(input, "")
         from prompt_toolkit.formatted_text import HTML
 
-        # Yama her turda denenir: `app` ilk `prompt_async` çağrısına kadar hazır değil.
-        # İkinci kez kurulmaz (bayrakla korunur).
-        install_resize_fix(self._session)
         line = await self._session.prompt_async(
             HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
         )
@@ -165,67 +161,6 @@ def toolbar_enabled() -> bool:
     import os
 
     return os.environ.get("FUSION_NO_TOOLBAR", "") != "1"
-
-
-#: Yeniden boyutlandırma durulana kadar beklenecek süre.
-#:
-#: Fareyle sürüklerken terminal saniyede onlarca SIGWINCH üretir. prompt_toolkit her
-#: sinyalde `erase()` çağırır ve bu silme BAYAT imleç konumuna göre yapılır (bkz.
-#: prompt_toolkit #1933): daralmada satırlar yeniden sardığı için `cursor_up` eksik
-#: kalır ve her sinyalde bir istem kopyası daha ekranda kalır.
-#:
-#: Beklemek kopyaların BİRİKMESİNİ önler: boyut oturduktan sonra tek bir yeniden çizim
-#: yapılır. 120 ms sürüklemeyi tek olaya indirecek kadar uzun, gözle fark edilmeyecek
-#: kadar kısadır.
-RESIZE_DEBOUNCE_S = 0.12
-
-
-class Debouncer:
-    """Sık tetiklenen bir işi, tetikleme durulana kadar erteler."""
-
-    def __init__(self, action: Callable[[], None], delay: float = RESIZE_DEBOUNCE_S) -> None:
-        self._action = action
-        self._delay = delay
-        self._handle: Any = None
-
-    def trigger(self) -> None:
-        """Bekleyen çizimi iptal et ve yeniden zamanla."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            # Olay döngüsü yoksa erteleyemeyiz; davranışı bozmamak için hemen çalıştır.
-            self.trigger_sync()
-            return
-        if self._handle is not None:
-            self._handle.cancel()
-        self._handle = loop.call_later(self._delay, self._run)
-
-    def trigger_sync(self) -> None:
-        """Ertelemeden çalıştır (olay döngüsü dışı çağrılar için)."""
-        self._run()
-
-    def _run(self) -> None:
-        self._handle = None
-        self._action()
-
-
-def install_resize_fix(session: Any) -> None:
-    """Sürükleyerek boyutlandırmada istem kopyalarının birikmesini önle.
-
-    prompt_toolkit #1933 açık ve düzeltilmemiş. `Application._on_resize` örnek üzerinden
-    değiştirilir; sinyal işleyici onu çalışma anında okuduğu için bu kütüphaneye
-    dokunmadan çalışır.
-
-    Yeniden çizim ERTELENİR: sürükleme boyunca gelen onlarca sinyal tek çizime iner.
-    Silme mantığına dokunulmaz — yukarı akıştaki hesap hatası düzeltilmez, yalnızca
-    kaç kez uygulandığı sınırlanır.
-    """
-    app = getattr(session, "app", None)
-    if app is None or getattr(app, "_fusion_resize_patched", False):
-        return
-    orijinal = app._on_resize
-    app._on_resize = Debouncer(orijinal).trigger
-    app._fusion_resize_patched = True
 
 
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
