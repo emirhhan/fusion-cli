@@ -190,9 +190,7 @@ async def test_kisitli_kipte_kok_ici_yazma_calisir(registry, kisitli_context):
     assert (kisitli_context.root / "a.txt").read_text(encoding="utf-8") == "x"
 
 
-async def test_kisitli_kipte_mutlak_kok_disi_yazma_reddedilir(
-    registry, kisitli_context, tmp_path
-):
+async def test_kisitli_kipte_mutlak_kok_disi_yazma_reddedilir(registry, kisitli_context, tmp_path):
     disarida = tmp_path / "disarida.txt"
 
     sonuc = await _calistir(

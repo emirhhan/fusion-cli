@@ -169,8 +169,9 @@ def test_paletteki_renk_bildirilmez():
     css = ":root { --navy: #15345B; }"
     js = 'el.style.background = "#15345B";'
 
-    assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.css": css,
-                                              "a.js": js}), "palet")
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<main>x</main>", "a.css": css, "a.js": js}), "palet"
+    )
 
 
 def test_notr_gri_ve_siyah_beyaz_bildirilmez():
@@ -178,8 +179,9 @@ def test_notr_gri_ve_siyah_beyaz_bildirilmez():
     css = ":root { --navy: #15345B; }"
     js = 'x = "#ffffff"; y = "#000000"; z = "#e5e7eb"; w = "#6b7280";'
 
-    assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.css": css,
-                                              "a.js": js}), "palet")
+    assert not _bulgu_var(
+        inspect_web_output({"a.html": "<main>x</main>", "a.css": css, "a.js": js}), "palet"
+    )
 
 
 def test_palet_tanimli_degilse_kontrol_yapilmaz():

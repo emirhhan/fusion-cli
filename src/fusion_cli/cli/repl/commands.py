@@ -20,7 +20,7 @@ from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...ui import messages
-from . import macros
+from . import macros, model_flows
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
@@ -208,6 +208,39 @@ def _apply_model_command(state: ReplState, parts: list[str]) -> tuple[Config, st
     return config, messages.REPL_MODEL_USAGE
 
 
+def _level(state: ReplState, argument: str) -> str:
+    """`/level` — model kademesi seç (low → premium).
+
+    Argüman verilirse seçim ekranı hiç açılmaz: `/level premium` betiklenebilir yol.
+    """
+    wanted = argument.strip().lower()
+    if not wanted:
+        result = model_flows.choose_level(state.config)
+    else:
+        try:
+            updated = model_select.apply_tier(state.config, wanted)
+        except ConfigError as error:
+            return str(error)
+        result = model_flows.applied_result(updated, wanted)
+    state.config = result.config
+    return result.message
+
+
+def _development(state: ReplState, argument: str) -> str:
+    """`/development` — kaynak seç, sonra model seç."""
+    result = model_flows.choose_development(state.config, ask_text=_ask_line)
+    state.config = result.config
+    return result.message
+
+
+def _ask_line(prompt: str) -> str | None:
+    """Özel model alias'ı için tek satır al. Vazgeçilirse None."""
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+
 def _macro(name: str) -> Handler:
     """Makroyu çalıştırılacak göreve çevir ve durumda beklet.
 
@@ -295,6 +328,10 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
+    SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
+    SlashCommand(
+        "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
+    ),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     *(
         SlashCommand(

@@ -176,7 +176,17 @@ async def _run_command(
     _sync_status_bar(reader, state)
     if result:
         console.print(f"[{theme.DIM}]{result}[/{theme.DIM}]")
-    if command.name in {"agent", "fusion", "auto", "plan", "security", "type"}:
+    # `level`/`development` model değiştirir: durum satırındaki model adı bayatlamasın.
+    if command.name in {
+        "agent",
+        "fusion",
+        "auto",
+        "plan",
+        "security",
+        "type",
+        "level",
+        "development",
+    }:
         _print_status(console, state)
 
 

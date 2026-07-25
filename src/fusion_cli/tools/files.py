@@ -35,9 +35,7 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
     concrete = resolved.resolve()
     if concrete != root and root not in concrete.parents:
-        raise PathAccessError(
-            f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})"
-        )
+        raise PathAccessError(f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})")
     return concrete
 
 
@@ -84,8 +82,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         content = context.pending.take()
         if not content:
             return ToolResult.failure(
-                "'content' alanı eksik ve saklanmış içerik de yok. Dosyanın tam "
-                "içeriğini gönder."
+                "'content' alanı eksik ve saklanmış içerik de yok. Dosyanın tam içeriğini gönder."
             )
 
     existed = path.exists()
@@ -241,8 +238,7 @@ _LINE_NUMBERED = re.compile(r"^\s*\d+\t", re.M)
 
 #: Eşleşme bulunamadığında modele dönen açıklama.
 _NOT_FOUND = (
-    "'old' metni dosyada bulunamadı. Birebir eşleşmeli — önce dosyayı okuyup metni "
-    "oradan kopyala."
+    "'old' metni dosyada bulunamadı. Birebir eşleşmeli — önce dosyayı okuyup metni oradan kopyala."
 )
 
 
@@ -256,7 +252,7 @@ def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
         return f"{prefix}{_neden_eslesmedi(text, old)}"
     return (
         f"{prefix}'old' metni {count} kez geçiyor; benzersiz olmalı. HEPSİNİ aynı "
-        'şekilde değiştirecekseniz replace_all: true ekleyin — tek çağrıda biter. '
+        "şekilde değiştirecekseniz replace_all: true ekleyin — tek çağrıda biter. "
         "Yalnızca birini değiştirecekseniz çevresinden birkaç satır daha ekleyerek "
         "eşleşmeyi daraltın."
     )

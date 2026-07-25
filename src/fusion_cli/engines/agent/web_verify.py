@@ -63,9 +63,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
 
 
 def _birlestir(files: Mapping[str, str], suffixes: tuple[str, ...]) -> str:
-    return "\n".join(
-        icerik for ad, icerik in files.items() if ad.lower().endswith(suffixes)
-    )
+    return "\n".join(icerik for ad, icerik in files.items() if ad.lower().endswith(suffixes))
 
 
 def _tam_belge(html: str) -> bool:

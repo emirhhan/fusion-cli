@@ -60,6 +60,29 @@ def apply_tier(config: Config, name: str) -> Config:
     )
 
 
+#: `/development` ile seçilen tek modelin havuzdaki adı.
+SINGLE_MODEL_NAME = "secilen"
+
+
+def apply_single_model(config: Config, model_id: str) -> Config:
+    """Tek bir modeli agent, hakem ve havuzun TAMAMINA uygula.
+
+    `/development` kullanıcıya "şu modelle çalış" dedirtir; rollerden birinin eski
+    modelde kalması sürpriz olurdu. Havuz tek adaya iner: aynı modeli üç kez
+    paralel sormak fusion'a hiçbir şey katmaz, yalnızca kota yakar.
+    """
+    spec = ModelSpec(name=SINGLE_MODEL_NAME, model=_validated(model_id))
+    return replace(
+        config,
+        agent=spec,
+        judge=spec,
+        candidates=(spec,),
+        # Harita yalnızca tanımlı bir adayı işaret edebilir; havuz tek adaya
+        # indiği için her görev tipi ona bağlanır.
+        task_model_map=dict.fromkeys(config.task_model_map, SINGLE_MODEL_NAME),
+    )
+
+
 def set_agent_model(config: Config, model_id: str) -> Config:
     """Agent rolünün modelini değiştir."""
     return replace(config, agent=replace(config.agent, model=_validated(model_id)))

@@ -87,9 +87,7 @@ def test_iskele_kapinin_yasakladiklarini_icermez(tmp_path):
 
     context = ToolContext(root=tmp_path)
     scaffold_web({"path": "."}, context)
-    dosyalar = {
-        p.name: p.read_text(encoding="utf-8") for p in tmp_path.iterdir() if p.is_file()
-    }
+    dosyalar = {p.name: p.read_text(encoding="utf-8") for p in tmp_path.iterdir() if p.is_file()}
 
     bulgular = inspect_web_output(dosyalar)
     yasak = [b for b in bulgular if any(k in b for k in ("boş bağlantı", "<main>", "placeholder"))]

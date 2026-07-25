@@ -104,3 +104,35 @@ def test_ucretsiz_fiyat_bicimleri_taninir(monkeypatch, fiyat):
     _sahte_yanit(monkeypatch, {"data": [{"id": "a/b", "pricing": {"prompt": fiyat}}]})
 
     assert len(catalog.fetch_openrouter_free()) == 1
+
+
+def test_ucretli_liste_ucretsizlerin_tumleyenidir(monkeypatch):
+    """`/development` ücretli kaynağı, ücretsiz süzgecin tersini göstermeli."""
+    _sahte_yanit(
+        monkeypatch,
+        {
+            "data": [
+                {"id": "a/free", "pricing": {"prompt": "0"}, "context_length": 1000},
+                {"id": "b/paid", "pricing": {"prompt": "0.5"}, "context_length": 2000},
+            ]
+        },
+    )
+
+    ucretli = catalog.fetch_openrouter_paid()
+
+    assert [giris.model_id for giris in ucretli] == ["openrouter/b/paid"]
+
+
+def test_ucretli_listede_baglam_uzunlugu_okunur(monkeypatch):
+    _sahte_yanit(
+        monkeypatch,
+        {"data": [{"id": "b/paid", "pricing": {"prompt": "0.5"}, "context_length": 200000}]},
+    )
+
+    assert catalog.fetch_openrouter_paid()[0].context_length == 200000
+
+
+def test_ucretli_listede_ag_hatasi_bos_doner(monkeypatch):
+    _sahte_yanit(monkeypatch, {}, hata=httpx.ConnectError("yok"))
+
+    assert catalog.fetch_openrouter_paid() == ()

@@ -635,6 +635,4 @@ async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_pat
 
     await run_agent("site yap", deps)
 
-    assert dogrulayici.calls <= 2, (
-        f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
-    )
+    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"

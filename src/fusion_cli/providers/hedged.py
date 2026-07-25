@@ -75,8 +75,7 @@ class HedgedProvider:
                 yarisacaklar = []
 
             yedekler = [
-                asyncio.create_task(provider.complete(request))
-                for provider in self._providers[1:]
+                asyncio.create_task(provider.complete(request)) for provider in self._providers[1:]
             ]
             tasks.extend(yedekler)
             for finished in asyncio.as_completed([*yarisacaklar, *yedekler]):
@@ -121,9 +120,7 @@ class HedgedProvider:
                     if index > 0
                 ]
                 openers.extend(yedekler)
-                winner, failures = await self._yaris(
-                    [*yarisacaklar, *yedekler], failures, winner
-                )
+                winner, failures = await self._yaris([*yarisacaklar, *yedekler], failures, winner)
         finally:
             await _cancel_all(openers)
 

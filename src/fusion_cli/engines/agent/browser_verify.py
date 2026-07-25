@@ -114,8 +114,7 @@ def _icons(page: PageObservation) -> list[str]:
     if not page.oversized_icons:
         return []
     ornek = ", ".join(
-        f"{secici} ({boy}x{en}px)"
-        for secici, boy, en in page.oversized_icons[:MAX_ITEMS_PER_KIND]
+        f"{secici} ({boy}x{en}px)" for secici, boy, en in page.oversized_icons[:MAX_ITEMS_PER_KIND]
     )
     return [
         f"{page.name} içinde {len(page.oversized_icons)} ikon devasa boyutta: {ornek}. "

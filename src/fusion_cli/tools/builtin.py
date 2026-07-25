@@ -118,9 +118,7 @@ _TOOLS: tuple[Tool, ...] = (
         "Hazır tasarım token'ları (tokens.css), test edilmiş biçimlendiriciler "
         "(format.js) ve doğru sıralı sayfa iskeletini (index.html) diske yazar. "
         "Var olan dosyayı EZMEZ. Sonra bu dosyaları doldurursun.",
-        parameters=_schema(
-            {"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []
-        ),
+        parameters=_schema({"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []),
         run=scaffold_tool.scaffold_web,
         mutating=True,
     ),

@@ -71,7 +71,4 @@ def truncate_notice(text: str, limit: int, *, ne: str = "çıktı") -> str:
     """
     if len(text) <= limit:
         return text
-    return (
-        text[:limit]
-        + f"\n\n[… {ne} {limit} karakterde KIRPILDI; gerisi gösterilmedi.]"
-    )
+    return text[:limit] + f"\n\n[… {ne} {limit} karakterde KIRPILDI; gerisi gösterilmedi.]"

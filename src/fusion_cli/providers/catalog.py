@@ -51,6 +51,25 @@ def fetch_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntr
     return tuple(sorted(entries, key=lambda entry: entry.model_id))
 
 
+def fetch_openrouter_paid(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
+    """OpenRouter'ın ÜCRETLİ modelleri — `fetch_openrouter_free`'in tümleyeni.
+
+    Ürünün varsayılan yolu ücretsizdir; bu liste yalnızca kullanıcı `/development`
+    altında açıkça ücretli kaynağı seçtiğinde kullanılır.
+    """
+    data = _get_json(OPENROUTER_MODELS_URL, timeout_s=timeout_s)
+    entries = [
+        CatalogEntry(
+            model_id=f"openrouter/{item['id']}",
+            provider="openrouter",
+            context_length=_as_int(item.get("context_length")),
+        )
+        for item in data
+        if item.get("id") and not _is_free(item)
+    ]
+    return tuple(sorted(entries, key=lambda entry: entry.model_id))
+
+
 def fetch_nim(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
     """NVIDIA NIM kataloğu. Anahtar yoksa boş döner."""
     api_key = os.getenv("NVIDIA_NIM_API_KEY")

@@ -575,9 +575,7 @@ def test_her_aracin_kendi_birincil_alani_var():
     assert _format_call("search_code", {"pattern": "def x", "path": "src"}) == (
         "search_code(def x)"
     )
-    assert _format_call("web_search", {"query": "python asyncio"}) == (
-        "web_search(python asyncio)"
-    )
+    assert _format_call("web_search", {"query": "python asyncio"}) == ("web_search(python asyncio)")
 
 
 def test_birincil_alan_yoksa_boyut_ozetlenir():

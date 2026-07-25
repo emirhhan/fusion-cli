@@ -159,9 +159,7 @@ async def run_agent(
         task,
         history,
         plan_mode=plan_mode,
-        extra_system="\n\n".join(
-            part for part in (remembered, expertise, extra_system) if part
-        ),
+        extra_system="\n\n".join(part for part in (remembered, expertise, extra_system) if part),
     )
 
     outcome = await _drive(
