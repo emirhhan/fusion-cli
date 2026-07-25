@@ -12,6 +12,9 @@ Kullanıcı yukarı/aşağı ile gezer, Enter ile seçer, Esc ile vazgeçer. Se�
 2. **TTY yoksa düz listeye düşülür.** Boru hattında, CI'da ve testte prompt_toolkit
    hiç kurulmaz; numaralı liste basılır ve `input()` ile seçim alınır. Otomasyon
    kırılmaz (bkz. `repl.input` aynı deseni kullanır).
+
+3. **Ekran ayrı bir iş parçacığında çalışır.** Bu modül senkrondur ve senkron
+   kalmalıdır: komut işleyicileri saftır. Ayrıntı için `_pick_interactive`.
 """
 
 from __future__ import annotations
@@ -196,7 +199,13 @@ def _pick_interactive(
     application: Application[str | None] = Application(
         layout=layout, key_bindings=bindings, full_screen=False
     )
-    picked = application.run()
+    # `in_thread=True`: seçim ekranı KENDİ event loop'unda, ayrı bir iş parçacığında
+    # çalışır. REPL'in kendisi zaten bir event loop içinde döner (`repl.loop`); düz
+    # `run()` çağrılsaydı asyncio iç içe loop'a izin vermediği için tur çöker, komut
+    # işleyicilerini async yapmak ise "işleyiciler saf ve senkrondur" kuralını bozardı.
+    # Çağıran iş parçacığı seçim bitene kadar bloklanır — kullanıcı zaten seçim
+    # yaparken başka bir şey beklemiyor.
+    picked = application.run(in_thread=True)
     # `Application.run()` kütüphane tarafında gevşek tiplenmiştir; sınırda daraltılır.
     return None if picked is None else str(picked)
 
