@@ -102,6 +102,15 @@ runtime:
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.
   verification_commands: []
+  # Üretilen HTML/CSS/JS mekanik olarak denetlenir: kapanmış görsel servisi, boş
+  # bağlantı (href="#"), eksik <main>, CSS'te karşılığı olmayan sınıf oranı ve
+  # sayfada vaat edilen tutarın kodda bulunmaması.
+  #
+  # Varsayılan AÇIK. Ölçüm: model prompt'ta AÇIKÇA yasaklanan şeyleri yapıyor
+  # ("bozuk görsel, boş bağlantı bulunmasın" denmesine rağmen 12 kırık görsel ve
+  # 18 boş bağlantı üretti) ama araç sonucuna tepki verip düzeltiyor. Bu yüzden
+  # kural prompt'ta değil kapıda durur; bulgular modele talimat olarak döner.
+  web_verification: true
   # İstek bir playbook'u (deterministik çok-adımlı akış) tetiklerse serbest ReAct
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.

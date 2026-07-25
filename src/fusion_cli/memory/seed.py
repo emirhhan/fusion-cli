@@ -32,6 +32,12 @@ SEED_LESSONS: tuple[Lesson, ...] = tuple(
             "kullan; biri tutmazsa hiçbiri uygulanmaz, yarım kalmış dosya riski olmaz.",
         ),
         (
+            "web sayfası için görsel seçme",
+            _M,
+            "via.placeholder.com, placehold.it ve lorempixel.com KAPANDI; kullanan sayfa "
+            "kırık görselle açılır. Yer tutucu gerekiyorsa inline SVG data URI kullan.",
+        ),
+        (
             "büyük dosya yazma",
             _M,
             "write_file çağrısında 'path' alanını HER ZAMAN içerikten önce yaz. İçerik "

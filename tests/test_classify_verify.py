@@ -17,6 +17,8 @@ from fusion_cli.engines.agent.classify import (
 )
 from fusion_cli.engines.agent.verification import CommandVerifier, resolve_turn_success
 
+from .fakes import make_config
+
 # --------------------------------------------------------------------------- #
 # Sınıflandırıcı — saf
 # --------------------------------------------------------------------------- #
@@ -108,3 +110,67 @@ async def test_verifier_zaman_asimi_basarisizlik(tmp_path):
 async def test_verifier_bos_komut_listesi_ok(tmp_path):
     verifier = CommandVerifier((), cwd=str(tmp_path), timeout_s=10.0)
     assert (await verifier.verify()).ok is True
+
+
+# --- Web doğrulayıcının kurulumu --------------------------------------------- #
+
+
+async def test_web_dogrulayici_varsayilan_olarak_kurulur(tmp_path):
+    """Komut yapılandırılmamış olsa bile web kapısı çalışır."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    context = ToolContext(root=tmp_path)
+
+    assert build_verifier(make_config(), root=tmp_path, tool_context=context) is not None
+
+
+async def test_web_dogrulayici_kapatilabilir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    config = make_config(runtime={"web_verification": False})
+
+    assert build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path)) is None
+
+
+async def test_web_dogrulayici_yalnizca_dokunulan_dosyalara_bakar(tmp_path):
+    """Agent'ın hiç görmediği dosya bulgu üretmemeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import WebVerifier
+
+    (tmp_path / "yabanci.html").write_text('<a href="#">x</a>', encoding="utf-8")
+    yazilan = tmp_path / "benim.html"
+    yazilan.write_text("<main>temiz</main>", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(yazilan)
+
+    sonuc = await WebVerifier(context).verify()
+
+    assert sonuc.ok, sonuc.findings
+
+
+async def test_web_dogrulayici_bulgulari_tasir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import WebVerifier
+
+    yazilan = tmp_path / "a.html"
+    yazilan.write_text('<img src="https://via.placeholder.com/80">', encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    context.touched.add(yazilan)
+
+    sonuc = await WebVerifier(context).verify()
+
+    assert not sonuc.ok
+    assert any("placeholder" in bulgu for bulgu in sonuc.findings)
+
+
+async def test_silinen_dosya_kapiyi_dusurmez(tmp_path):
+    """Agent yazıp sonra sildiyse doğrulama çökmemeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import WebVerifier
+
+    context = ToolContext(root=tmp_path)
+    context.touched.add(tmp_path / "yok.html")
+
+    assert (await WebVerifier(context).verify()).ok

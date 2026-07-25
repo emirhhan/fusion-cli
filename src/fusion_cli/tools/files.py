@@ -67,6 +67,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     existed = path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+    context.touched.add(path)
     action = "güncellendi" if existed else "oluşturuldu"
     return ToolResult(f"{action}: {path} ({len(content)} karakter)")
 
@@ -85,6 +86,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(problem)
 
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} (1 değişiklik)")
 
 
@@ -105,6 +107,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
         working = working.replace(old, new, 1)
 
     path.write_text(working, encoding="utf-8")
+    context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} ({len(edits)} değişiklik uygulandı)")
 
 

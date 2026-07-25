@@ -56,6 +56,10 @@ class RuntimeConfig:
     #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
     #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
     verification_commands: tuple[str, ...] = ()
+    #: Agent: üretilen HTML/CSS/JS mekanik olarak denetlenir (kırık görsel kaynağı,
+    #: boş bağlantı, eksik <main>, stilsiz sınıf oranı, metin/kod tutar çelişkisi).
+    #: Varsayılan AÇIK: bulgular modele düzeltme talimatı olarak döner.
+    web_verification: bool = True
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

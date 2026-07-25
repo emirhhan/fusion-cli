@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.tools import build_registry
+from fusion_cli.tools import build_registry, files
 from fusion_cli.tools.args import ArgumentError
 from fusion_cli.tools.files import parse_edits
 
@@ -220,3 +220,44 @@ async def test_kisitli_kipte_symlink_kok_disini_hedeflerse_reddedilir(
     sonuc = await _calistir(registry, kisitli_context, "read_file", path="link.txt")
 
     assert not sonuc.ok and "kök" in sonuc.output
+
+
+# --- Yazılan dosyaların izi -------------------------------------------------- #
+#
+# Doğrulama kapısı YALNIZCA agent'ın dokunduğu dosyalara bakmalı; kök dizini
+# taramak, agent'ın hiç görmediği dosyalar hakkında bulgu üretirdi.
+
+
+def test_yazilan_dosya_iz_birakir(tmp_path):
+    context = ToolContext(root=tmp_path)
+
+    files.write_file({"path": "a.html", "content": "<h1>x</h1>"}, context)
+
+    assert tmp_path / "a.html" in context.touched
+
+
+def test_duzenlenen_dosya_iz_birakir(tmp_path):
+    (tmp_path / "a.css").write_text("eski", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+
+    files.edit_file({"path": "a.css", "old": "eski", "new": "yeni"}, context)
+
+    assert tmp_path / "a.css" in context.touched
+
+
+def test_okunan_dosya_iz_birakmaz(tmp_path):
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+
+    files.read_file({"path": "a.txt"}, context)
+
+    assert not context.touched
+
+
+def test_basarisiz_duzenleme_iz_birakmaz(tmp_path):
+    (tmp_path / "a.txt").write_text("icerik", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+
+    files.edit_file({"path": "a.txt", "old": "olmayan", "new": "y"}, context)
+
+    assert not context.touched
