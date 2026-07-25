@@ -384,3 +384,123 @@ embedding:
 #
 # vLLM / LM Studio için:  openai/<model>  + OPENAI_API_BASE=http://localhost:8000/v1
 # Not: yerel modeller tool-calling desteklemeyebilir; agent modunda düz sohbete düşer.
+
+# ---------------------------------------------------------------------------
+# Model kademeleri: tek seçimle agent, hakem ve aday havuzunu birlikte değiştirir.
+#
+# Beş kademenin TAMAMI ücretsiz modellerden kurulur; ürünün kimliği budur. Ücretli
+# modeller yalnızca `/development` akışının 3. seçeneğinden, kullanıcının açık
+# tercihiyle girer — bir kademe seçmek asla kredi harcatmaz.
+#
+# Sıra kullanıcı tercihidir ve YAML'daki yazım sırası kademe sırasıdır.
+# `low` bilinçli olarak paketin varsayılanıyla (agent: nemotron-super) aynıdır:
+# hiç kademe seçmemiş bir kullanıcı ile `low` seçen kullanıcı aynı modeli kullanır.
+#
+# Model kimlikleri 2026-07-25'te OpenRouter ücretsiz kataloğundan doğrulanmıştır.
+tiers:
+  - name: low
+    label: Varsayılan — hızlı ve dengeli
+    agent:
+      name: nemotron-super
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      tags: [code, agent, reasoning]
+      fallback:
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/openai/gpt-oss-20b:free
+    judge:
+      name: hakem
+      model: openrouter/openai/gpt-oss-20b:free
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    candidates:
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [reasoning, general]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+      - name: gpt-oss
+        model: openrouter/openai/gpt-oss-20b:free
+        tags: [code, agent]
+
+  - name: medium
+    label: Daha büyük model — 550B, geniş bağlam
+    agent:
+      name: nemotron-ultra
+      model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+      tags: [code, agent, reasoning]
+      fallback: [nvidia_nim/nvidia/nemotron-3-super-120b-a12b]
+    judge:
+      name: hakem
+      model: openrouter/openai/gpt-oss-20b:free
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    candidates:
+      - name: nemotron-ultra
+        model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        tags: [reasoning, general]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+
+  - name: high
+    label: Kodlamaya ayarlı model
+    agent:
+      name: laguna-m
+      model: openrouter/poolside/laguna-m.1:free
+      tags: [code, agent, reasoning]
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    judge:
+      name: hakem
+      model: openrouter/openai/gpt-oss-20b:free
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    candidates:
+      - name: laguna-m
+        model: openrouter/poolside/laguna-m.1:free
+        tags: [code, agent]
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [reasoning, general]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+
+  - name: ultra
+    label: Gemma 4 — 31B, güçlü genel dil
+    agent:
+      name: gemma-4
+      model: openrouter/google/gemma-4-31b-it:free
+      tags: [code, agent, reasoning]
+      fallback: [openrouter/google/gemma-4-26b-a4b-it:free]
+    judge:
+      name: hakem
+      model: openrouter/openai/gpt-oss-20b:free
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    candidates:
+      - name: gemma-4
+        model: openrouter/google/gemma-4-31b-it:free
+        tags: [general, reasoning]
+        fallback: [openrouter/google/gemma-4-26b-a4b-it:free]
+      - name: nemotron-super
+        model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        tags: [code, agent]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+
+  - name: premium
+    label: Ling 3.0 — en geniş aday havuzu
+    agent:
+      name: ling-flash
+      model: openrouter/inclusionai/ling-3.0-flash:free
+      tags: [code, agent, reasoning]
+      fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+    judge:
+      name: hakem
+      model: openrouter/openai/gpt-oss-20b:free
+      fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+    candidates:
+      - name: ling-flash
+        model: openrouter/inclusionai/ling-3.0-flash:free
+        tags: [general, reasoning]
+      - name: nemotron-ultra
+        model: openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        tags: [reasoning]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
+      - name: laguna-m
+        model: openrouter/poolside/laguna-m.1:free
+        tags: [code, agent]

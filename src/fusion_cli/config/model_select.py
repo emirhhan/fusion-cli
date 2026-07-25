@@ -38,17 +38,17 @@ def apply_tier(config: Config, name: str) -> Config:
     `task_model_map` da yeniden kurulur. Harita eski kademenin aday adlarını
     işaret ediyordu; dokunulmasaydı `select_agent_spec` hiçbirini bulamaz ve her
     görev tipi sessizce `agent:` rolüne düşerdi — yani harita yine yalan söylerdi.
-    Eşleme yeni havuzda aynı adı bulursa korunur, bulamazsa havuzun ilk adayına
-    taşınır.
+    Eşleme yeni havuzda aynı adı bulursa korunur, bulamazsa kademenin agent'ına
+    denk gelen ilk adaya taşınır.
     """
     tier = config.tier_by_name(name)
     if tier is None:
         known = ", ".join(item.name for item in config.tiers)
         raise ConfigError(f"'{name}' adlı kademe yok. Tanımlı kademeler: {known}")
-    known_names = {candidate.name for candidate in tier.candidates}
     fallback_name = tier.candidates[0].name
+    known_names = {candidate.name for candidate in tier.candidates}
     task_model_map = {
-        task_type: (current if current in known_names else fallback_name)
+        task_type: (chosen if (chosen := current) in known_names else fallback_name)
         for task_type, current in config.task_model_map.items()
     }
     return replace(

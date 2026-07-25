@@ -123,6 +123,9 @@ class Config:
     memory_dir: Path
     #: Bu yapılandırmanın hangi kullanıcı dosyasından geldiği (yoksa None: yalnız varsayılanlar).
     source: Path | None
+    #: Seçilebilir model kademeleri, `defaults.yaml`'daki yazım SIRASIYLA. Sıra
+    #: anlamlıdır: seçim ekranı bu sırayı gösterir ve renk geçişini buna yayar.
+    tiers: tuple[TierSpec, ...]
     #: Görme yetenekli model (görsel doğrulama kapısı). Tanımlı değilse kapı hiç
     #: kurulmaz; görme opsiyoneldir.
     vision: ModelSpec | None = None
