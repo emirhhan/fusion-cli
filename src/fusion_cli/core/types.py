@@ -121,6 +121,9 @@ class ModelResult:
     #: Reasoning modellerinin düşünme metni. Nihai cevaba KARIŞTIRILMAZ; ayrı taşınır
     #: ki teşhis ve gösterim kararı üst katmanlara kalsın.
     reasoning: str = ""
+    #: Çıktı bütçesi dolduğu için yanıt yarıda mı kesildi? Metin gelmiş olabilir ama
+    #: TAMAMLANMAMIŞTIR: JSON'a, talimata ya da koda güvenilmemelidir.
+    truncated: bool = False
 
     @property
     def is_rate_limited(self) -> bool:

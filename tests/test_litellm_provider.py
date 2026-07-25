@@ -153,3 +153,20 @@ def _sahte_akis(parcalar):
         return _uret()
 
     return _cagir
+
+
+async def test_kesilen_yanit_isaretlenir(monkeypatch):
+    """finish_reason=length → çıktı yarım; üst katman buna güvenmemeli."""
+    _sdk(monkeypatch, _yanit("Yarım cüml", finish_reason="length"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.truncated
+
+
+async def test_tamamlanan_yanit_kesik_isaretlenmez(monkeypatch):
+    _sdk(monkeypatch, _yanit("Tam cevap.", finish_reason="stop"))
+
+    sonuc = await _saglayici().complete(request())
+
+    assert not sonuc.truncated

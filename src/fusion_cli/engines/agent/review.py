@@ -25,6 +25,21 @@ CLEAN_VERDICT = "TAMAM"
 #: Bundan kısa bir cevap anlamlı bir talimat taşıyamaz.
 MIN_INSTRUCTION_CHARS = 8
 
+#: Denetçiye gösterilecek oturum izinin uzunluğu.
+#:
+#: Varsayılan iz bütçesi (3.000 karakter) yalnızca ~10 adım taşır. Uzun bir turda
+#: denetçi üretilen dosyaları hiç görmeden "TAMAM" diyordu — yapısal olarak hiçbir şey
+#: yakalayamazdı. Hakem modelinin bağlamı 131k token; 24.000 karakter (~8k token) ona
+#: rahat sığar ve turun tamamına yakınını kapsar.
+TRACE_CHARS = 24_000
+#: İzde tek bir mesajdan alınacak karakter. 300 bir dosya yazımını temsil edemiyordu.
+TRACE_MESSAGE_CHARS = 600
+#: Agent'ın nihai cevabından denetçiye gösterilecek kısım.
+#:
+#: Asılsız "hepsi yapıldı" iddiaları genelde cevabın SONUNDAKİ madde listesindedir;
+#: 1.500 karakter o listeyi kesiyordu.
+FINAL_TEXT_CHARS = 4_000
+
 
 def parse_feedback(text: str) -> str:
     """Denetçi çıktısını düzeltme talimatına çevir; sorun yoksa boş metin."""
@@ -45,17 +60,21 @@ async def review_turn(
     publisher: EventPublisher | None = None,
 ) -> str:
     """Turu denetle. Düzeltme gerekiyorsa talimatı, gerekmiyorsa boş metin döner."""
-    trace = history.transcript(messages)
+    trace = history.transcript(messages, TRACE_CHARS, message_chars=TRACE_MESSAGE_CHARS)
     if not trace.strip() and not final_text.strip():
         return ""
 
     prompt = (
         _PROMPT.replace("{task}", task)
         .replace("{trace}", trace)
-        .replace("{final}", final_text[:1500])
+        .replace("{final}", final_text[:FINAL_TEXT_CHARS])
     )
     result = await _ask(prompt, config, publisher)
-    return parse_feedback(result.text) if result.ok else ""
+    if not result.ok or result.truncated:
+        # Yarım kalmış talimat, hiç talimattan KÖTÜDÜR: agent eksik bir cümleye göre
+        # düzeltme yapmaya kalkar. Sıkıştırmadaki "yarım özet" kuralıyla aynı duruş.
+        return ""
+    return parse_feedback(result.text)
 
 
 async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) -> ModelResult:

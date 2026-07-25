@@ -67,8 +67,14 @@ runtime:
   # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
   # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
   judge_timeout_s: 20
-  # Reasoning modelleri önce "düşünür", sonra JSON verir; ikisi bu bütçeye sığmalıdır.
-  judge_max_tokens: 1024
+  # Reasoning modelleri önce "düşünür", sonra JSON/talimat verir; ikisi bu bütçeye
+  # sığmalıdır.
+  #
+  # Ölçüm (2026-07-25, nemotron-3-super, 5.4k karakterlik denetim prompt'u, 3 koşu):
+  # çıktı 486–1150 token arasında oynuyor — düşünme uzunluğu değişken. 1024 ile denetim
+  # talimatı kelime ortasında kesiliyordu ("CSS dosyas") ve yarım talimat agent'a
+  # düzeltme emri olarak gidiyordu. 3072, ölçülen en yüksek değerin ~2,7 katı.
+  judge_max_tokens: 3072
   # Bu sayının altında başarılı aday kalırsa tur cevapsız biter.
   min_successful_candidates: 1
   # Yeterli cevap geldikten sonra yavaş adaylara tanınan ek süre.

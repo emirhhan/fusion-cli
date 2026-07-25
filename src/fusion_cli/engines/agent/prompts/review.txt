@@ -5,6 +5,17 @@ EKSİKSİZ yaptı mı? Şunlara bak:
   gözden kaçan gereksinim?
 - Test/derleme gerekliyken atlandı mı?
 
+GÖREVDE AÇIKÇA SAYILAN ŞEYLERİ TEK TEK KONTROL ET. Görev belirli renk kodları,
+sayılar, bölüm adları, dosya adları ya da davranışlar sıralıyorsa bunların izde
+gerçekten geçtiğini ara. Sayılmış ama izde hiç görünmeyen gereksinim EKSİKTİR.
+
+AGENT'IN İDDİALARINA GÜVENME, İZE BAK. Agent "hepsi yapıldı", "hata yok",
+"responsive" gibi şeyler iddia edebilir; bunları yalnızca izdeki araç çağrıları
+destekliyorsa kabul et. Desteklenmeyen iddia başlı başına bir sorundur.
+
+ORANSIZLIĞA DİKKAT ET. Bir dosya defalarca büyütülürken ona bağlı diğer dosya
+(stil, test, yapılandırma) hiç güncellenmediyse iş büyük ihtimalle yarımdır.
+
 Yalnızca GERÇEK ve ÖNEMLİ bir sorun varsa müdahale et. Ufak stil/tercih
 meselelerini boş ver.
 

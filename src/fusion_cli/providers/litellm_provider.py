@@ -147,7 +147,8 @@ class LiteLlmProvider:
         # düşünme sırasında dolarsa `content` BOŞ gelir ve tur sessizce boş cevapla
         # biter — kullanıcı bunu "hiçbir şey yapmadı" diye görür. Bu bir başarı
         # değildir; açık hataya çevrilir ki yedek zinciri devreye girebilsin.
-        kesildi = _finish_reason(response) == "length" and not text and not tool_calls
+        yarim = _finish_reason(response) == "length"
+        kesildi = yarim and not text and not tool_calls
         return ModelResult(
             name=self._role,
             model=self._model,
@@ -158,6 +159,7 @@ class LiteLlmProvider:
             usage=_response_usage(response, self._model),
             tool_calls=tool_calls,
             reasoning=_response_reasoning(response),
+            truncated=yarim,
         )
 
     def _rebuild(

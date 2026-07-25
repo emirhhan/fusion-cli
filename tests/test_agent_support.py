@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fusion_cli.core.types import Message, ToolCall
+from fusion_cli.core.types import Message, ModelResult, ToolCall
 from fusion_cli.engines.agent import compaction, history, reflexion, review
 
 from .fakes import make_config
@@ -207,3 +207,73 @@ def test_dosya_yolu_iceren_kisa_cevap_somut_sayilir():
 
 def test_somut_isaret_tasimayan_kisa_cevap_hala_yarim():
     assert reflexion.looks_unfinished("bakiyorum", tool_calls_last_turn=1, has_pending_todos=False)
+
+
+def test_iz_sinira_dayaninca_en_son_adimlari_korur():
+    """Denetçi işin sonucunu görmeli; başlangıçtaki keşif çağrılarını değil.
+
+    Gerçek bir hatanın izi: 60 adımlık bir turda denetçiye yalnızca ilk 10 adım
+    gidiyordu. Denetçi üretilen tek bir dosyayı bile görmeden "TAMAM" diyordu.
+    """
+    mesajlar = [Message("user", "görev")]
+    for sira in range(60):
+        mesajlar.append(Message("tool", f"ADIM-{sira:02d} " + "dolgu " * 40, name="write_file"))
+
+    iz = history.transcript(mesajlar, limit=3_000)
+
+    assert "ADIM-59" in iz, "son adım denetçiye ulaşmalı"
+    assert "ADIM-00" not in iz, "sınır aşıldığında eski adımlar atılmalı"
+
+
+def test_iz_atlanan_kismi_acikca_bildirir():
+    """Denetçi eksik bilgiyle çalıştığını bilmeli; tam sanmamalı."""
+    mesajlar = [Message("tool", f"ADIM-{s:02d} " + "dolgu " * 40, name="w") for s in range(60)]
+
+    iz = history.transcript(mesajlar, limit=3_000)
+
+    assert "atlandı" in iz.lower()
+
+
+def test_iz_sinira_sigiyorsa_oldugu_gibi_kalir():
+    mesajlar = [Message("user", "kısa görev")]
+
+    iz = history.transcript(mesajlar, limit=3_000)
+
+    assert "atlandı" not in iz.lower()
+    assert "kısa görev" in iz
+
+
+async def test_denetci_uzun_turda_son_isi_gorur(monkeypatch):
+    """Denetçiye giden iz, üretilen dosyaları kapsayacak kadar geniş olmalı."""
+    yakalanan: dict[str, str] = {}
+
+    async def _sor(prompt, config, publisher):
+        yakalanan["prompt"] = prompt
+        return ModelResult(name="h", model="m", text="TAMAM", latency_ms=1, ok=True)
+
+    monkeypatch.setattr(review, "_ask", _sor)
+    mesajlar = [Message("user", "site yap")]
+    for sira in range(60):
+        mesajlar.append(
+            Message("tool", f"ADIM-{sira:02d} " + "dolgu " * 40, name="write_file", ok=True)
+        )
+
+    await review.review_turn("site yap", "bitti", mesajlar, config=make_config())
+
+    assert "ADIM-59" in yakalanan["prompt"], "denetçi turun sonucunu görmeli"
+    assert "ADIM-40" in yakalanan["prompt"], "denetçi yalnızca son bir iki adımı değil"
+
+
+async def test_yarim_kalan_denetim_talimati_uygulanmaz(monkeypatch):
+    """Kelime ortasında kesilmiş bir talimat, hiç talimattan kötüdür."""
+
+    async def _kesik(prompt, config, publisher):
+        return ModelResult(
+            name="h", model="m", text="CSS dosyas", latency_ms=1, ok=True, truncated=True
+        )
+
+    monkeypatch.setattr(review, "_ask", _kesik)
+
+    geri = await review.review_turn("görev", "bitti", [Message("user", "x")], config=make_config())
+
+    assert geri == ""

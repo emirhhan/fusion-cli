@@ -62,20 +62,47 @@ def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGE
     return 0 if start >= len(messages) else start
 
 
-def transcript(messages: Sequence[Message], limit: int = TRACE_TOTAL_CHARS) -> str:
+#: İz sınıra sığmadığında başa konan işaret. Denetçi eksik bilgiyle çalıştığını bilmeli.
+ELISION_NOTE = "[… önceki adımlar atlandı …]"
+
+
+def transcript(
+    messages: Sequence[Message],
+    limit: int = TRACE_TOTAL_CHARS,
+    *,
+    message_chars: int = TRACE_MESSAGE_CHARS,
+) -> str:
     """Denetim ve özet için kısa oturum izi çıkar.
 
     Araç çağrıları ve sonuçları (özellikle hatalar) korunur: denetçi modelin işin
     gerçekten yapılıp yapılmadığını anlaması buna bağlıdır.
+
+    Sınır aşılırsa BAŞTAN değil SONDAN tutulur. Eskiden `[:limit]` ile ilk satırlar
+    saklanıyordu; 60 adımlık bir turda denetçiye yalnızca ilk 10 adım gidiyor, üretilen
+    hiçbir dosyayı görmeden "TAMAM" diyordu. Bir turun sonucu sonunda olur.
     """
     lines: list[str] = []
     for message in messages:
-        lines.extend(_describe(message))
-    return "\n".join(lines)[:limit]
+        lines.extend(_describe(message, message_chars))
+
+    tam = "\n".join(lines)
+    if len(tam) <= limit:
+        return tam
+
+    # Satır bütünlüğünü koru: sondan başlayarak sığdığı kadar satır al.
+    butce = limit - len(ELISION_NOTE) - 1
+    tutulan: list[str] = []
+    for line in reversed(lines):
+        if len(line) + 1 > butce:
+            break
+        tutulan.append(line)
+        butce -= len(line) + 1
+    tutulan.reverse()
+    return "\n".join([ELISION_NOTE, *tutulan])
 
 
-def _describe(message: Message) -> list[str]:
-    excerpt = message.content[:TRACE_MESSAGE_CHARS]
+def _describe(message: Message, message_chars: int = TRACE_MESSAGE_CHARS) -> list[str]:
+    excerpt = message.content[:message_chars]
     if message.role == "user" and message.content:
         return [f"[kullanıcı] {excerpt}"]
     if message.role == "tool":
@@ -83,8 +110,11 @@ def _describe(message: Message) -> list[str]:
         flag = " ⟵ HATA" if message.ok is False else ""
         return [f"[sonuç {message.name or ''}{flag}] {excerpt}"]
     if message.role == "assistant":
+        # Argüman kesme payı mesaj payıyla birlikte büyür: sabit 200 karakter,
+        # denetçiye `write_file`'ın yalnızca yolunu gösterip ne yazdığını gizliyordu.
         described = [
-            f"[araç çağrısı] {call.name}({call.arguments[:200]})" for call in message.tool_calls
+            f"[araç çağrısı] {call.name}({call.arguments[:message_chars]})"
+            for call in message.tool_calls
         ]
         if message.content:
             described.append(f"[asistan] {excerpt}")
