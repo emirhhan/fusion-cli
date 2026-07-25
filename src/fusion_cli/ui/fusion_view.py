@@ -24,9 +24,7 @@ _SOURCE_LABELS: dict[VerdictSource, str] = {
 }
 
 
-def render_fusion_result(
-    console: Console, result: FusionResult, *, show_all_answers: bool
-) -> None:
+def render_fusion_result(console: Console, result: FusionResult, *, show_all_answers: bool) -> None:
     """Fusion turunun sonucunu bas. Cevapsız tur (`NONE`) sessizce atlanır."""
     if result.source is VerdictSource.NONE:
         return  # cevapsız tur: hatayı `ErrorOccurred` zaten bildirdi

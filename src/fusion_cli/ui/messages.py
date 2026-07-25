@@ -229,6 +229,33 @@ REPL_MODEL_USAGE = (
     "Kullanım: /model [agent|judge <id>] | [cand <ad|no> <id>] | "
     "[add <ad> <id> [etiket…]] | [rm <ad>]   ·   liste için: /model"
 )
+# --- Seçim ekranı ---------------------------------------------------------- #
+PICKER_HINT = "↑↓ gez · Enter seç · Esc vazgeç"
+PICKER_PLAIN_PROMPT = "Seçim (numara, boş bırakırsan vazgeçilir): "
+PICKER_CANCELLED = "seçim yapılmadı"
+
+# --- Kademe seçimi (/level) ------------------------------------------------ #
+LEVEL_TITLE = "Model kademesi seç"
+LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
+LEVEL_SAVED = "kaydedildi: {path}"
+LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
+
+# --- Geliştirme modu (/development) ---------------------------------------- #
+DEV_SOURCE_TITLE = "Model kaynağı seç"
+DEV_SOURCE_OPENROUTER_FREE = "OpenRouter modelleri (ücretsiz)"
+DEV_SOURCE_NIM_FREE = "NVIDIA modelleri (ücretsiz)"
+DEV_SOURCE_OPENROUTER_PAID = "OpenRouter modelleri (ücretli)"
+DEV_SOURCE_CUSTOM = "Özel model"
+DEV_SOURCE_CUSTOM_HINT = "istediğin modelin alias'ını gir"
+DEV_MODEL_TITLE = "Model seç — {source}"
+DEV_CUSTOM_PROMPT = "Model alias'ı (biçim: <sağlayıcı>/<model>): "
+DEV_EMPTY_CATALOG = (
+    "katalog boş döndü. Ağ erişimi yoksa ya da bu kaynak anahtar istiyorsa "
+    "(NVIDIA için NVIDIA_NIM_API_KEY) liste alınamaz."
+)
+DEV_PAID_WARNING = "dikkat: ücretli model seçtin, çağrılar faturalandırılır"
+DEV_APPLIED = "model → {model}  ·  agent, hakem ve havuzun tamamı"
+
 REPL_PASTE_FOLDED = "⧉ {count} satır yapıştırıldı [#{index}]"
 REPL_PASTE_FOLDED_CHARS = "⧉ {count} karakter yapıştırıldı [#{index}]"
 

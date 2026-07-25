@@ -75,7 +75,7 @@ def gradient(text: str, start: str = theme.ACCENT, end: str = theme.ACCENT_ALT) 
             rendered.append("\n")
             continue
         ratio = 0.0 if total <= 1 else index / (total - 1)
-        rendered.append(char, style=_blend(start, end, ratio))
+        rendered.append(char, style=theme.blend(start, end, ratio))
         index += 1
     return rendered
 
@@ -254,14 +254,3 @@ def _memory_text(lesson_count: int | None) -> str:
     if lesson_count is None:
         return messages.WELCOME_MEMORY_OFF
     return messages.WELCOME_MEMORY_ON.format(count=lesson_count)
-
-
-def _blend(start: str, end: str, ratio: float) -> str:
-    """İki #RRGGBB rengi arasında doğrusal geçiş."""
-    left, right = start.lstrip("#"), end.lstrip("#")
-    channels = []
-    for offset in (0, 2, 4):
-        start_value = int(left[offset : offset + 2], 16)
-        end_value = int(right[offset : offset + 2], 16)
-        channels.append(round(start_value + (end_value - start_value) * ratio))
-    return "#" + "".join(f"{value:02X}" for value in channels)
