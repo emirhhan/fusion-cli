@@ -24,6 +24,7 @@ from ..core.constants import (
     MAX_WEB_REDIRECTS,
     MAX_WEB_RESULTS,
     WEB_TIMEOUT_S,
+    truncate_notice,
 )
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
@@ -58,7 +59,7 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
     text = strip_html(body) if _looks_like_html(content_type, body) else body
-    return ToolResult(text[:MAX_OUTPUT_CHARS] or "(boş içerik)")
+    return ToolResult(truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)")
 
 
 class _BlockedRedirectError(Exception):

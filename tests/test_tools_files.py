@@ -343,3 +343,63 @@ def test_multi_edit_de_replace_all_destekler(tmp_path):
     assert sonuc.ok, sonuc.output
     assert 'href="#"' not in metin
     assert "yeni" in metin
+
+
+# --- Eşleşmeyen 'old' teşhisi ------------------------------------------------ #
+#
+# Dört koşudaki EN SIK araç hatası buydu (3 kez). Sebebi büyük ihtimalle şu tuzak:
+# read_file "    1\tiçerik" biçiminde satır numarası ekliyor, model bunu ayıklamayı
+# unutunca eşleşme tutmuyor ve "bulunamadı" mesajı NEDENİNİ söylemiyordu.
+
+
+def test_satir_numarasi_iceren_old_teshis_edilir(tmp_path):
+    dosya = tmp_path / "a.py"
+    dosya.write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.py", "old": "    1\tdef f():", "new": "def g():"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert not sonuc.ok
+    assert "satır numarası" in sonuc.output.lower()
+
+
+def test_girinti_farki_teshis_edilir(tmp_path):
+    dosya = tmp_path / "a.py"
+    # Dosyada SEKME, modelin gönderdiğinde BOŞLUK var: alt-dize olarak da eşleşmez.
+    dosya.write_text("def f():\n\treturn 1\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.py", "old": "    return 1", "new": "    return 2"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert not sonuc.ok
+    assert "girinti" in sonuc.output.lower() or "boşluk" in sonuc.output.lower()
+
+
+def test_gercekten_olmayan_metin_icin_sade_mesaj(tmp_path):
+    (tmp_path / "a.py").write_text("def f():\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.py", "old": "class Foo", "new": "class Bar"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "bulunamadı" in sonuc.output
+    assert "satır numarası" not in sonuc.output.lower()
+
+
+def test_buyuk_dosya_kirpildigini_soyler(tmp_path):
+    """Sessiz kırpma modele dosyanın tamamını okudum yanılgısı verir."""
+    from fusion_cli.core.constants import MAX_READ_BYTES
+
+    dosya = tmp_path / "buyuk.txt"
+    dosya.write_text("x" * (MAX_READ_BYTES + 5_000), encoding="utf-8")
+
+    sonuc = files.read_file({"path": "buyuk.txt"}, ToolContext(root=tmp_path))
+
+    # Türkçe büyük/küçük dönüşümü tuzaklıdır ("KIRPILDI".lower() → "kirpildi");
+    # metin olduğu gibi aranır.
+    assert "KIRPILDI" in sonuc.output

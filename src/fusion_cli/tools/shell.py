@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import subprocess
 
-from ..core.constants import GIT_TIMEOUT_S, MAX_OUTPUT_CHARS, SHELL_TIMEOUT_S
+from ..core.constants import (
+    GIT_TIMEOUT_S,
+    MAX_OUTPUT_CHARS,
+    SHELL_TIMEOUT_S,
+    truncate_notice,
+)
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 
@@ -72,4 +77,4 @@ def _combine(stdout: str, stderr: str) -> str:
     text = stdout or ""
     if stderr:
         text += f"\n[stderr]\n{stderr}"
-    return text[:MAX_OUTPUT_CHARS]
+    return truncate_notice(text, MAX_OUTPUT_CHARS, ne="komut çıktısı")

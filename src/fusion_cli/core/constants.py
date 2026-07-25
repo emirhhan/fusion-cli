@@ -61,3 +61,17 @@ SKIP_DIRECTORIES = frozenset(
 
 #: `list_dir` çıktısında gizli olmasına rağmen gösterilen dosyalar.
 VISIBLE_DOTFILES = frozenset({".env.example", ".gitignore", ".github"})
+
+
+def truncate_notice(text: str, limit: int, *, ne: str = "çıktı") -> str:
+    """Metni sınıra indir ve KIRPILDIĞINI söyle.
+
+    Sessiz kırpma araçların en sinsi yalanıdır: model eksik bilgiyi tam sanır.
+    Uzun bir test çıktısında gerçek hatayı hiç görmeden "geçti" sanabilir.
+    """
+    if len(text) <= limit:
+        return text
+    return (
+        text[:limit]
+        + f"\n\n[… {ne} {limit} karakterde KIRPILDI; gerisi gösterilmedi.]"
+    )

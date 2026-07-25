@@ -11,6 +11,7 @@ tek seferde yazılır. Yarım uygulanmış dosya bırakmaz.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ..core.constants import MAX_DIR_ENTRIES, MAX_READ_BYTES, VISIBLE_DOTFILES
@@ -47,7 +48,9 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {path}")
 
-    data = path.read_bytes()[:MAX_READ_BYTES]
+    ham = path.read_bytes()
+    data = ham[:MAX_READ_BYTES]
+    kirpildi = len(ham) > MAX_READ_BYTES
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -57,6 +60,13 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if not lines:
         return ToolResult("(boş dosya)")
     numbered = "\n".join(f"{index:>5}\t{line}" for index, line in enumerate(lines, 1))
+    if kirpildi:
+        # Sessiz kırpma modele "dosyanın tamamını okudum" yanılgısı verir; sonra
+        # göremediği bir yeri düzenlemeye kalkar.
+        numbered += (
+            f"\n\n[… dosya {MAX_READ_BYTES} bayttan büyük olduğu için KIRPILDI; "
+            "gerisi gösterilmedi. Aramak için search_code kullan.]"
+        )
     return ToolResult(numbered)
 
 
@@ -168,6 +178,31 @@ def parse_edits(raw: object) -> tuple[tuple[str, str, bool], ...]:
     return tuple(edits)
 
 
+def _neden_eslesmedi(text: str, old: str) -> str:
+    """Eşleşme neden tutmadı? Sebebi söylemek, "bulunamadı" demekten çok daha yararlı.
+
+    Dört koşuluk kayıtta EN SIK araç hatası buydu. Muhtemel sebep bir araç tuzağı:
+    `read_file` her satıra "    12\t" biçiminde numara ekliyor ve modelin bunu
+    ayıklaması gerektiğini kimse söylemiyordu.
+    """
+    if _LINE_NUMBERED.search(old):
+        return (
+            "'old' metni satır numarası içeriyor. read_file çıktısındaki '   12\t' "
+            "önekini ve sekmeyi ayıkla; yalnızca satırın KENDİSİNİ gönder."
+        )
+    # Boşluk farkı: metin dosyada var ama girinti/boşluk düzeni tutmuyor.
+    sikistir = " ".join(old.split())
+    if sikistir and sikistir in " ".join(text.split()):
+        return (
+            "'old' metni dosyada var ama GİRİNTİ/boşluk düzeni farklı. Satırı "
+            "read_file çıktısından birebir kopyala (baştaki boşluklar dahil)."
+        )
+    return _NOT_FOUND
+
+
+#: read_file'ın eklediği satır numarası öneki: boşluklar + sayı + sekme.
+_LINE_NUMBERED = re.compile(r"^\s*\d+\t", re.M)
+
 #: Eşleşme bulunamadığında modele dönen açıklama.
 _NOT_FOUND = (
     "'old' metni dosyada bulunamadı. Birebir eşleşmeli — önce dosyayı okuyup metni "
@@ -182,7 +217,7 @@ def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
         return None
     prefix = f"{position}. düzenleme: " if position is not None else ""
     if count == 0:
-        return f"{prefix}{_NOT_FOUND}"
+        return f"{prefix}{_neden_eslesmedi(text, old)}"
     return (
         f"{prefix}'old' metni {count} kez geçiyor; benzersiz olmalı. HEPSİNİ aynı "
         'şekilde değiştirecekseniz replace_all: true ekleyin — tek çağrıda biter. '

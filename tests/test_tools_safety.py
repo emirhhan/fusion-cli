@@ -223,3 +223,24 @@ def test_replace_all_onizlemesi_tum_degisiklikleri_gosterir(tmp_path):
 
     assert onizleme is not None
     assert onizleme.count('href="/x"') >= 2
+
+
+# --- Sessiz kırpma yok ------------------------------------------------------- #
+#
+# Bir aracın çıktıyı sessizce kırpması, modele eksik bilgiyi TAM sanma yanılgısı
+# verir: uzun bir pytest çıktısında gerçek hatayı hiç görmeden "geçti" sanabilir.
+
+
+def test_uzun_kabuk_ciktisi_kirpildigini_soyler():
+    from fusion_cli.core.constants import MAX_OUTPUT_CHARS
+    from fusion_cli.tools.shell import _combine
+
+    sonuc = _combine("x" * (MAX_OUTPUT_CHARS + 500), "")
+
+    assert "KIRPILDI" in sonuc
+
+
+def test_kisa_kabuk_ciktisina_not_eklenmez():
+    from fusion_cli.tools.shell import _combine
+
+    assert "KIRPILDI" not in _combine("kısa çıktı", "")
