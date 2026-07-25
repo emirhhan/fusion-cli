@@ -135,25 +135,55 @@ async def test_terminali_devralmadan_once_veriyolu_bosaltilir(tmp_path):
 # Bu anahtar mekanizmayı kod değiştirmeden doğrulamak içindir.
 
 
-def test_toolbar_ortam_degiskeniyle_kapatilabilir(monkeypatch):
+def test_toolbar_varsayilan_olarak_kapalidir(monkeypatch):
+    """Tam genişlikteki çubuk resize'da istem kopyası bırakıyordu."""
     from fusion_cli.cli.repl.input import toolbar_enabled
 
-    monkeypatch.setenv("FUSION_NO_TOOLBAR", "1")
+    monkeypatch.delenv("FUSION_TOOLBAR", raising=False)
 
     assert toolbar_enabled() is False
 
 
-def test_toolbar_varsayilan_olarak_aciktir(monkeypatch):
+def test_toolbar_ortam_degiskeniyle_geri_getirilir(monkeypatch):
     from fusion_cli.cli.repl.input import toolbar_enabled
 
-    monkeypatch.delenv("FUSION_NO_TOOLBAR", raising=False)
+    monkeypatch.setenv("FUSION_TOOLBAR", "1")
 
     assert toolbar_enabled() is True
 
 
-def test_bos_deger_toolbari_kapatmaz(monkeypatch):
-    from fusion_cli.cli.repl.input import toolbar_enabled
+# --- İstem satırı ------------------------------------------------------------ #
+#
+# Alt bilgi çubuğu KALDIRILDI: tam genişlikte bir satır olduğu için terminal
+# daraldığında sarıyor ve prompt_toolkit'in resize silme aritmetiğini bozuyordu
+# (#1933). Mod bilgisi istemin kendisine taşındı; aynı satırda kaldığı için sarmaz.
 
-    monkeypatch.setenv("FUSION_NO_TOOLBAR", "")
 
-    assert toolbar_enabled() is True
+def test_istem_modu_gosterir():
+    from fusion_cli.cli.repl.input import ReplInput, prompt_fragments
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    metin = prompt_fragments(ApprovalMode.AUTO)
+
+    assert "auto" in metin
+    assert ReplInput is not None
+
+
+def test_her_mod_kendi_etiketiyle_gosterilir():
+    from fusion_cli.cli.repl.input import prompt_fragments
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    for mod in ApprovalMode:
+        assert mod.value in prompt_fragments(mod)
+
+
+def test_istem_tek_satir_kalir():
+    """Sarma olursa resize hatası geri döner; istem kısa olmalı."""
+    import re
+
+    from fusion_cli.cli.repl.input import prompt_fragments
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    for mod in ApprovalMode:
+        goruntu = re.sub(r"<[^>]+>", "", prompt_fragments(mod))
+        assert len(goruntu) <= 24, f"istem çok uzun: {goruntu!r}"

@@ -124,9 +124,7 @@ class ReplInput:
             return await asyncio.to_thread(input, "")
         from prompt_toolkit.formatted_text import HTML
 
-        line = await self._session.prompt_async(
-            HTML(f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> ")
-        )
+        line = await self._session.prompt_async(HTML(prompt_fragments(self.mode)))
         return self.expand_pastes(str(line))
 
     def status_bar(self) -> Any:
@@ -155,12 +153,12 @@ def toolbar_enabled() -> bool:
     genişlikteki `bottom_toolbar` daralmada iki satıra sarınca `cursor_up` eksik
     kalıyor ve eski istem silinemiyor.
 
-    `FUSION_NO_TOOLBAR=1` çubuğu kapatır. Amaç teşhis: kopyalanma bitiyorsa
-    mekanizma doğrulanmış olur.
+    Varsayılan KAPALI. `FUSION_TOOLBAR=1` geri getirir; o modda resize'da istem
+    kopyaları yeniden görünür.
     """
     import os
 
-    return os.environ.get("FUSION_NO_TOOLBAR", "") != "1"
+    return os.environ.get("FUSION_TOOLBAR", "") == "1"
 
 
 def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> Any:
@@ -194,6 +192,9 @@ def _build_session(owner: ReplInput, history_path: Path, words: list[str]) -> An
         return PromptSession(
             history=FileHistory(str(history_path)),
             completer=WordCompleter(words, sentence=True),
+            # Alt bilgi çubuğu VARSAYILAN OLARAK KAPALI: tam genişlikte olduğu için
+            # terminal daraldığında sarıyor ve resize'da istem kopyası bırakıyordu.
+            # Mod bilgisi istemin kendisine taşındı. FUSION_TOOLBAR=1 geri getirir.
             bottom_toolbar=owner.status_bar if toolbar_enabled() else None,
             style=_toolbar_style(),
             # Girilen satır prompt_toolkit tarafından SİLİNİR; kullanıcı mesajını
@@ -227,4 +228,19 @@ def _toolbar_style() -> Any:
             "bottom-toolbar": "noreverse bg:default",
             "bottom-toolbar.text": "noreverse bg:default",
         }
+    )
+
+
+def prompt_fragments(mode: Any) -> str:
+    """İstem satırının HTML biçimli hali: mod etiketi + istem sembolü.
+
+    Mod bilgisi eskiden tam genişlikte bir alt bilgi çubuğundaydı. O çubuk terminal
+    daraldığında SARIYOR ve prompt_toolkit'in resize silme aritmetiğini bozuyordu
+    (#1933: `erase()` imleci bayat `cursor_up(y)` ile geri alıyor). Bilgi istemin
+    kendisine alındı: aynı satırda kalır, sarmaz, kopya bırakmaz.
+    """
+    renk = _MODE_COLORS.get(mode.value, theme.DIM)
+    return (
+        f"<style fg='{renk}'>{mode.value}</style> "
+        f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
     )
