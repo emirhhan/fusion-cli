@@ -187,3 +187,45 @@ def test_palet_tanimli_degilse_kontrol_yapilmaz():
     js = 'x = "#2563eb";'
 
     assert not _bulgu_var(inspect_web_output({"a.html": "<main>x</main>", "a.js": js}), "palet")
+
+
+# --- Üretilen dosya bağlanmış mı --------------------------------------------- #
+#
+# Gerçek hata: düzeltici tur index.html'i yeniden yazarken <script src="script.js">
+# etiketini düşürdü. JS hiç yüklenmedi, tüm dinamik bölümler boş kaldı, konsol
+# tertemizdi (çalışan kod yok) ve metin kapısı "temiz" dedi. Sayfa geçerliydi ve boştu.
+
+
+def test_baglanmamis_js_bildirilir():
+    html = "<html><head><link rel=stylesheet href=style.css></head><main>x</main></html>"
+    js = "function init(){}"
+
+    bulgular = inspect_web_output({"index.html": html, "script.js": js})
+
+    assert _bulgu_var(bulgular, "script.js")
+    assert _bulgu_var(bulgular, "bağlanmamış") or _bulgu_var(bulgular, "yüklenmiyor")
+
+
+def test_baglanmamis_css_bildirilir():
+    html = "<html><head></head><main>x</main><script src=script.js></script></html>"
+
+    bulgular = inspect_web_output({"index.html": html, "style.css": "body{}", "script.js": "x"})
+
+    assert _bulgu_var(bulgular, "style.css")
+
+
+def test_baglanan_dosyalar_bildirilmez():
+    html = (
+        "<html><head><link rel=stylesheet href='style.css'></head>"
+        "<main>x</main><script src='script.js'></script></html>"
+    )
+
+    bulgular = inspect_web_output({"index.html": html, "style.css": "body{}", "script.js": "x"})
+
+    assert not _bulgu_var(bulgular, "bağlanmamış")
+
+
+def test_alt_dizindeki_referans_da_sayilir():
+    html = "<html><main>x</main><script src='./js/script.js'></script></html>"
+
+    assert not _bulgu_var(inspect_web_output({"a.html": html, "script.js": "x"}), "bağlanmamış")

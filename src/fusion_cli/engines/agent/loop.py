@@ -58,6 +58,13 @@ PLAN_MODE_PROMPT = (_PROMPTS / "plan_mode.md").read_text(encoding="utf-8")
 
 #: Yarım kalan turda en fazla kaç kez "devam et" enjekte edilir.
 MAX_AUTO_CONTINUE = 1
+#: Doğrulama kapısının bir turda en fazla kaç kez çalışacağı.
+#:
+#: 1 yetmiyordu: düzeltici tur KENDİ hatasını üretebiliyor. Gerçek koşuda kapı beş
+#: sorunu bildirdi, model düzeltirken index.html'i yeniden yazdı ve <script> etiketini
+#: düşürdü — sayfa tamamen boş kaldı, kapı bir daha bakmadığı için öyle teslim edildi.
+#: 2 bu regresyonu yakalar; daha fazlası sonsuz düzeltme döngüsü riskidir.
+MAX_VERIFY_ROUNDS = 2
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
@@ -170,10 +177,11 @@ async def run_agent(
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
-    verification = await _verify(
-        outcome, deps, plan_mode=plan_mode, depth=depth, enabled=verify
-    )
-    if verification is not None and not verification.ok and verification.findings:
+    verification = None
+    for _ in range(MAX_VERIFY_ROUNDS if verify else 0):
+        verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+        if verification is None or verification.ok or not verification.findings:
+            break
         outcome = await _fix_findings(verification, outcome, deps)
 
     await learning_steps.learn(task, outcome, deps, plan_mode=plan_mode, scope=scope_of(kind))
@@ -406,9 +414,9 @@ def _recall_skill(kind: TaskKind, deps: AgentDeps, *, depth: int) -> str:
 
 
 async def _verify(
-    outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int, enabled: bool
+    outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int
 ) -> VerificationResult | None:
-    """Doğrulama kapısını tur başına BİR KEZ çalıştır.
+    """Doğrulama kapısını çalıştır.
 
     Sonuç iki yere birden gider: modele düzeltme talimatı ve ders güvenine sinyal.
     İki kez çalıştırmak hem israf hem de iki farklı cevap alma riskidir.
@@ -416,7 +424,7 @@ async def _verify(
     İş yapılmadıysa (araç çağrısı yok) kapı anlamsızdır; plan modunda ise hiçbir şey
     değişmediği için hiç çalışmaz.
     """
-    if not enabled or deps.verifier is None or plan_mode or depth > 0:
+    if deps.verifier is None or plan_mode or depth > 0:
         return None
     if outcome.tool_calls_made == 0:
         return None

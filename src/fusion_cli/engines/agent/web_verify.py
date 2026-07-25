@@ -57,6 +57,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
     bulgular.extend(_stilsiz_siniflar(html, css))
     bulgular.extend(_tutarsiz_tutarlar(html, js))
     bulgular.extend(_palet_baypasi(css, js, html))
+    bulgular.extend(_baglanmamis_dosyalar(files, html))
     return tuple(bulgular)
 
 
@@ -185,3 +186,30 @@ def _notr_mu(renk: str) -> bool:
     """Gri/siyah/beyaz mı? R, G ve B birbirine çok yakınsa nötr sayılır."""
     r, g, b = (int(renk[i : i + 2], 16) for i in (1, 3, 5))
     return max(r, g, b) - min(r, g, b) <= 24
+
+
+def _baglanmamis_dosyalar(files: Mapping[str, str], html: str) -> list[str]:
+    """Üretilen CSS/JS dosyası HTML'den referans ediliyor mu?
+
+    Gerçek hata: düzeltici tur index.html'i yeniden yazarken <script src="script.js">
+    etiketini düşürdü. JS hiç yüklenmedi, dinamik bölümlerin hepsi boş kaldı ve konsol
+    TERTEMİZDİ — çalışan kod yoktu. Sayfa teknik olarak geçerliydi ve tamamen boştu.
+
+    Yol değil DOSYA ADI aranır: `./js/script.js` de geçerli bir referanstır.
+    """
+    # Yalnızca TAM belgede anlamlı: bir HTML parçasında <script>/<link> aramak yanlış.
+    if not re.search(r"<(?:html|head)[\s>]", html, re.I):
+        return []
+
+    bulgular: list[str] = []
+    for ad in files:
+        if not ad.lower().endswith((".css", ".js")):
+            continue
+        if re.search(rf'(?:src|href)\s*=\s*["\'][^"\']*{re.escape(ad)}', html, re.I):
+            continue
+        etiket = "<script src=…>" if ad.lower().endswith(".js") else "<link rel=stylesheet>"
+        bulgular.append(
+            f"{ad} üretilmiş ama HTML'den hiç bağlanmamış: tarayıcı bu dosyayı hiç "
+            f"yüklemiyor. HTML'e {etiket} etiketini ekle."
+        )
+    return bulgular

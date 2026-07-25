@@ -458,6 +458,9 @@ async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_pat
                 model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
                 model_result(TAM_CEVAP),
                 model_result("duzeltildi"),
+                # Kapı düzeltmeden sonra bir kez daha bakar; ikinci düzeltici tur da
+                # betikte karşılığını bulmalı.
+                model_result("duzeltildi"),
             ]
         ),
     )
@@ -469,7 +472,7 @@ async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_pat
 
     sonuc = await run_agent("site yap", deps)
 
-    assert dogrulayici.calls == 1, "kapı tur başına bir kez çalışmalı"
+    assert dogrulayici.calls >= 1
     assert sonuc.final_text == "duzeltildi"
     gonderilen = provider.seen_messages[-1]
     assert any("boş bağlantı: 18 adet" in mesaj.content for mesaj in gonderilen), (
@@ -530,3 +533,75 @@ async def test_sistem_promptu_beceri_kutuphanesini_duyurur(monkeypatch, tmp_path
     sistem = provider.seen_messages[0][0]
     assert sistem.role == "system"
     assert "find_skill" in sistem.content
+
+
+async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp_path, sink):
+    """Düzeltici turun KENDİ kırdığı şey yakalanmalı.
+
+    Gerçek hata: düzeltici tur index.html'i yeniden yazarken <script> etiketini
+    düşürdü; sayfa boş kaldı ve kapı bir daha bakmadığı için bu hâliyle teslim edildi.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    sonuclar = [
+        VerificationResult(ok=False, summary="ilk", findings=("boş bağlantı",)),
+        VerificationResult(ok=False, summary="ikinci", findings=("script etiketi düştü",)),
+        VerificationResult(ok=True),
+    ]
+
+    class _Kademeli:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return sonuclar[min(self.calls - 1, len(sonuclar) - 1)]
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>")]),
+                model_result(TAM_CEVAP),
+                model_result("ilk duzeltme"),
+                model_result("ikinci duzeltme"),
+            ]
+        ),
+    )
+    dogrulayici = _Kademeli()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("site yap", deps)
+
+    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
+    assert sonuc.final_text == "ikinci duzeltme"
+    assert provider.calls == 4
+
+
+async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
+    """Kapı hep kırık kalsa bile tur sınırlı sayıda düzeltme denemesiyle biter."""
+    from fusion_cli.core.verification import VerificationResult
+
+    class _HepKirik:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return VerificationResult(ok=False, summary="x", findings=("sorun",))
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("write_file", path="a.html", content="x")])]
+            + [model_result(TAM_CEVAP) for _ in range(10)]
+        ),
+    )
+    dogrulayici = _HepKirik()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    await run_agent("site yap", deps)
+
+    assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı — sınır aşıldı"
