@@ -2,8 +2,8 @@
 
 Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
 
-> **Durum: taşıma tamamlandı.** Bu depo, önceki sürümün katmanlı ve test edilebilir bir
-> yapıya yeniden yazılmasıdır. Açık kalan başlıklar ve alınacak kararlar için
+> **Durum: 0.3.0a1 (alpha).** Çekirdek akış çalışır durumda ve test kapsamı geniştir;
+> arayüzde ve model davranışında bilinen kısıtlar vardır. Açık başlıklar için
 > [docs/BACKLOG.md](docs/BACKLOG.md).
 
 ## Kurulum
@@ -20,6 +20,15 @@ Bu kadar. Betik uygun Python sürümünü bulur, `.venv` oluşturur, paketi kura
 var olan `.venv` ve `.env`'e dokunmaz, eksik olanı tamamlar.
 
 Geliştirme araçlarını da (ruff, mypy, pytest) istiyorsan `./setup.sh --dev`.
+
+Web arayüzü üreten görevlerde tarayıcı doğrulaması istiyorsan (konsol hatası, yüklenmeyen
+görsel, yatay taşma ölçümü) opsiyonel ekstrayı kur:
+
+```bash
+.venv/bin/pip install "fusion-cli[web]" && .venv/bin/playwright install chromium
+```
+
+Kurulmazsa o kapı sessizce atlanır; fusion çevrimdışı çalışmaya devam eder.
 
 `.env` içine en az bir sağlayıcı anahtarı gir:
 
@@ -40,7 +49,7 @@ Argümansız çalıştırınca interaktif oturum açılır:
 Ekran temizlenir, karşılama tam genişlikte açılır ve giriş alanı ekranın altına iner:
 
 ```
-╭─ Fusion CLI 0.2.0 ──────────────────────────────────────────────────────────────╮
+╭─ Fusion CLI 0.3.0 ──────────────────────────────────────────────────────────────╮
 │                                                                                 │
 │  ███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗    İpucu                       │
 │  ██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║    Karmaşık bir görevde        │
@@ -55,7 +64,6 @@ Ekran temizlenir, karşılama tam genişlikte açılır ve giriş alanı ekranı
 
 
 ❯ mesajını yaz
- ⏵ auto · agent · general · nemotron-super · shift-tab mod · /help
 ```
 
 Model çalışırken canlı bir satır ne olduğunu ve ne kadar sürdüğünü gösterir; tur
@@ -191,6 +199,27 @@ Bellek istenmezse `--no-memory`; erişilemezse uygulama **boş belleğe düşer 
    diğerini beklemez. Gecikme ikisinin toplamı değil, uzun olanı kadardır.
 4. Hakem yetişemez ya da bozuk çıktı verirse sezgisel kazanan seçilir; sentez cevabı
    yine üretilir. Kullanıcı hiçbir senaryoda beklemede kalmaz.
+
+## Web çıktısı doğrulaması
+
+Agent bir web sayfası ürettiğinde çıktısı mekanik olarak denetlenir ve bulunan somut
+ihlaller modele düzeltme talimatı olarak geri verilir. Ölçüldü: model prompt'taki
+kuralları sıkça atlıyor, araç sonucuna ise tepki veriyor.
+
+Denetlenenler: kapanmış görsel servisleri, boş bağlantı (`href="#"`), eksik `<main>`,
+CSS'te karşılığı olmayan sınıf oranı, sayfada vaat edilen tutarın kodda bulunmaması,
+paletin dışından elle yazılmış renk, üretildiği hâlde HTML'den bağlanmamış CSS/JS,
+ölçek dışı boşluk değeri. `[web]` ekstrası kuruluysa ayrıca sayfa gerçekten açılıp
+ölçülür: konsol hataları, yüklenemeyen kaynaklar, yatay taşma, orantısız ikon, 24×24
+altındaki dokunma hedefleri, başlığı olup içi boş bölümler.
+
+Web görevlerinde agent ilk iş olarak `scaffold_web` ile hazır bir iskele yazar:
+`tokens.css` (ölçekler ve bileşen stilleri), `format.js` (doğru para/tarih
+biçimlendirmesi) ve doğru bölüm sıralı `index.html`. Var olan dosyanın üzerine yazmaz.
+
+Kapılar yalnızca HTML üretilen turlarda çalışır; Python, Node ya da doküman
+işlerinde sessizdir. Kapatmak için `runtime.web_verification` ve
+`runtime.browser_verification` ayarları `false` yapılır.
 
 ## Yapılandırma
 
