@@ -159,22 +159,12 @@ def test_toolbar_ortam_degiskeniyle_geri_getirilir(monkeypatch):
 # (#1933). Mod bilgisi istemin kendisine taşındı; aynı satırda kaldığı için sarmaz.
 
 
-def test_istem_modu_gosterir():
-    from fusion_cli.cli.repl.input import ReplInput, prompt_fragments
+def test_istem_sade_kalir():
+    """İstem ne kadar kısaysa resize'da o kadar az kopya kalıyor (elle ölçüldü)."""
+    from fusion_cli.cli.repl.input import PROMPT_SYMBOL, prompt_fragments
     from fusion_cli.engines.agent.approval import ApprovalMode
 
-    metin = prompt_fragments(ApprovalMode.AUTO)
-
-    assert "auto" in metin
-    assert ReplInput is not None
-
-
-def test_her_mod_kendi_etiketiyle_gosterilir():
-    from fusion_cli.cli.repl.input import prompt_fragments
-    from fusion_cli.engines.agent.approval import ApprovalMode
-
-    for mod in ApprovalMode:
-        assert mod.value in prompt_fragments(mod)
+    assert PROMPT_SYMBOL in prompt_fragments(ApprovalMode.AUTO)
 
 
 def test_istem_tek_satir_kalir():

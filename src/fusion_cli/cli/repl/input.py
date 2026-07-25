@@ -239,8 +239,7 @@ def prompt_fragments(mode: Any) -> str:
     (#1933: `erase()` imleci bayat `cursor_up(y)` ile geri alıyor). Bilgi istemin
     kendisine alındı: aynı satırda kalır, sarmaz, kopya bırakmaz.
     """
-    renk = _MODE_COLORS.get(mode.value, theme.DIM)
-    return (
-        f"<style fg='{renk}'>{mode.value}</style> "
-        f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
-    )
+    # Mod ÖNEKİ YOK: istem ne kadar kısaysa sarma olasılığı o kadar düşük ve resize
+    # kopyaları o kadar az. Kullanıcı denemesinde en kararlı hal bu çıktı.
+    del mode
+    return f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
