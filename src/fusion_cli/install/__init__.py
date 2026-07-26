@@ -18,11 +18,15 @@ from .methods import (
     uninstall_command,
     update_command,
 )
+from .path_setup import FUSION_MARKER, PathSetupResult, ensure_on_path
 from .paths_check import path_hint
 
 __all__ = [
+    "FUSION_MARKER",
     "InstallMethod",
+    "PathSetupResult",
     "detect_method",
+    "ensure_on_path",
     "path_hint",
     "uninstall_command",
     "update_command",

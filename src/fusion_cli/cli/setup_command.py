@@ -93,6 +93,7 @@ def run_setup(console: Console, *, ask: Asker | None = None) -> None:
         _create(console, directory / ".env", ENV_TEMPLATE)
 
     _seed_lessons(console)
+    _offer_path_setup(console, interaktif=sorucu is not None)
 
     console.print()
     console.print(f"[bold]{messages.SETUP_NEXT_STEPS}[/bold]")
@@ -180,6 +181,61 @@ def _gizli_soru(prompt: str) -> str:
     kalır. Anahtar bir sırdır, parolayla aynı muameleyi görür.
     """
     return getpass.getpass(prompt)
+
+
+def _offer_path_setup(console: Console, *, interaktif: bool) -> None:
+    """`fusion` PATH'te değilse ekleme TEKLİF ET; onay alınırsa ekle.
+
+    Onaysız yazılmaz ve etkileşimsiz ortamda (CI, boru hattı) hiç sorulmaz:
+    cevaplanamayacak bir soru kurulumu kilitler. O durumda kullanıcı komutu
+    `fusion doctor` çıktısından alır.
+    """
+    import shutil
+
+    from ..install import ensure_on_path
+
+    if shutil.which("fusion") or not interaktif:
+        return
+
+    bin_dir = Path.home() / ".local" / "bin"
+    config_file = _shell_config()
+    console.print()
+    console.print(f"[{theme.WARN}]{messages.PATH_MISSING.format(bin_dir=bin_dir)}[/{theme.WARN}]")
+    console.print(messages.PATH_ASK.format(file=config_file))
+    try:
+        # Evet/hayır sorusu SIR DEĞİLDİR: `getpass` ile sorulursa kullanıcı
+        # yazdığını göremez ve cevabının alınıp alınmadığını bilemez.
+        cevap = input(messages.PATH_PROMPT).strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        cevap = ""
+    onaylandi = cevap in {"", "e", "evet", "y", "yes"}
+
+    sonuc = ensure_on_path(bin_dir=bin_dir, config_file=config_file, approved=onaylandi)
+    if sonuc.error:
+        basarisiz = messages.PATH_FAILED.format(error=sonuc.error)
+        console.print(f"[{theme.ERROR}]{basarisiz}[/{theme.ERROR}]")
+        console.print(f"[{theme.DIM}]{sonuc.line}[/{theme.DIM}]")
+    elif sonuc.changed:
+        # Yapılan değişiklik AÇIKÇA bildirilir; kullanıcı neyi geri alacağını bilmeli.
+        eklendi = messages.PATH_ADDED.format(file=config_file)
+        console.print(f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {eklendi}")
+        console.print(f"[{theme.DIM}]  {sonuc.line}[/{theme.DIM}]")
+        console.print(f"[{theme.DIM}]{messages.PATH_RELOAD.format(file=config_file)}[/{theme.DIM}]")
+    else:
+        console.print(f"[{theme.DIM}]{messages.PATH_SKIPPED}[/{theme.DIM}]")
+        console.print(f"[{theme.DIM}]  {sonuc.line}[/{theme.DIM}]")
+
+
+def _shell_config() -> Path:
+    """Kullanıcının kabuğuna karşılık gelen yapılandırma dosyası."""
+    import os
+
+    kabuk = Path(os.environ.get("SHELL", "sh")).name
+    return {
+        "zsh": Path.home() / ".zshrc",
+        "bash": Path.home() / ".bashrc",
+        "fish": Path.home() / ".config" / "fish" / "config.fish",
+    }.get(kabuk, Path.home() / ".profile")
 
 
 def _seed_lessons(console: Console) -> None:

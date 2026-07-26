@@ -207,3 +207,91 @@ def test_purge_olmayan_dizinde_patlamaz(tmp_path, monkeypatch):
     monkeypatch.setattr(maintenance, "memory_dir", lambda: tmp_path / "hic")
 
     assert maintenance.purge_user_data(dry_run=False) == ()
+
+
+# --- PATH'i güvenli şekilde kurma -------------------------------------------- #
+
+
+def test_pathe_ekleme_onay_olmadan_yapilmaz(tmp_path):
+    """Kullanıcının shell dosyasına HABERSİZ yazılmaz.
+
+    Onay yoksa dosyaya dokunulmaz; kullanıcı ne olduğunu bilmeden yapılandırması
+    değişmemeli.
+    """
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text("# mevcut\n", encoding="utf-8")
+
+    sonuc = ensure_on_path(bin_dir=tmp_path / "bin", config_file=rc, approved=False)
+
+    assert sonuc.changed is False
+    assert rc.read_text(encoding="utf-8") == "# mevcut\n"
+
+
+def test_onayliysa_satir_eklenir_ve_bildirilir(tmp_path):
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text("# mevcut\n", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+
+    sonuc = ensure_on_path(bin_dir=bin_dir, config_file=rc, approved=True)
+
+    icerik = rc.read_text(encoding="utf-8")
+    assert sonuc.changed is True
+    assert sonuc.config_file == rc
+    assert str(bin_dir) in icerik
+    assert "# mevcut\n" in icerik, "var olan içerik korunmalı"
+
+
+def test_ekleme_idempotenttir(tmp_path):
+    """İkinci çalıştırma aynı satırı TEKRAR eklememeli."""
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".bashrc"
+    rc.write_text("", encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+
+    ensure_on_path(bin_dir=bin_dir, config_file=rc, approved=True)
+    ikinci = ensure_on_path(bin_dir=bin_dir, config_file=rc, approved=True)
+
+    assert ikinci.changed is False
+    assert rc.read_text(encoding="utf-8").count(str(bin_dir)) == 1
+
+
+def test_isaretleyici_yazilir_geri_alma_icin(tmp_path):
+    """Eklenen satır TANINABİLİR olmalı; kullanıcı neyi sileceğini bilmeli."""
+    from fusion_cli.install import FUSION_MARKER, ensure_on_path
+
+    rc = tmp_path / ".zshrc"
+    rc.write_text("", encoding="utf-8")
+
+    ensure_on_path(bin_dir=tmp_path / "bin", config_file=rc, approved=True)
+
+    assert FUSION_MARKER in rc.read_text(encoding="utf-8")
+
+
+def test_olmayan_dosya_olusturulur(tmp_path):
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / ".profile"
+
+    sonuc = ensure_on_path(bin_dir=tmp_path / "bin", config_file=rc, approved=True)
+
+    assert sonuc.changed is True and rc.exists()
+
+
+def test_yazilamayan_dosyada_patlamaz(tmp_path):
+    """Kurulum, shell dosyası yazılamıyor diye çökmemeli."""
+    from fusion_cli.install import ensure_on_path
+
+    rc = tmp_path / "salt-okunur"
+    rc.write_text("", encoding="utf-8")
+    rc.chmod(0o400)
+
+    sonuc = ensure_on_path(bin_dir=tmp_path / "bin", config_file=rc, approved=True)
+
+    assert sonuc.changed is False
+    assert sonuc.error, "başarısızlık sebebi bildirilmeli"
+    rc.chmod(0o600)

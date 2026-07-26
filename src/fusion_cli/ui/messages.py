@@ -417,6 +417,15 @@ MAINT_DATA_KEPT = (
 MAINT_REMOVED = "silindi:"
 MAINT_NOTHING_TO_PURGE = "silinecek kullanıcı verisi yok."
 
+# --- PATH kurulumu --------------------------------------------------------- #
+PATH_MISSING = "`fusion` komutu PATH'te değil ({bin_dir} eksik)."
+PATH_ASK = "Bu satırı {file} dosyana ekleyebilirim."
+PATH_PROMPT = "Ekleyeyim mi? (E/h): "
+PATH_ADDED = "PATH satırı eklendi: {file}"
+PATH_RELOAD = "Yeni bir terminal aç ya da: source {file}"
+PATH_SKIPPED = "Eklenmedi. Şu satırı kendin ekleyebilirsin:"
+PATH_FAILED = "PATH satırı yazılamadı ({error}). Şunu kendin ekle:"
+
 # --- fusion doctor --------------------------------------------------------- #
 DOCTOR_STATE = {
     "ready": "Kurulum hazır. Başlatmak için: fusion",
