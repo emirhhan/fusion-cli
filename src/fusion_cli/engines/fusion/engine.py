@@ -178,6 +178,24 @@ async def _call_candidates(
 # --------------------------------------------------------------------------- #
 
 
+#: Aday metnini güvenilmeyen-veri bloğu içine alırken kullanılan sınır işaretleri.
+#: Aday bunları kendisi üretirse bloktan "çıkıp" talimat alanına geçmiş gibi
+#: görünebilir; bu yüzden metinde geçtikleri yerde etkisizleştirilirler.
+_BLOCK_MARKERS = ("<<<", ">>>")
+
+
+def sanitize_candidate(text: str) -> str:
+    """Aday cevabını güvenilmeyen-veri bloğuna girmeden önce etkisizleştir.
+
+    Yalnızca sınır işaretleri kırılır — cevabın anlamı korunmalıdır, aday metnini
+    kırpmak ya da yeniden yazmak hakemin değerlendireceği şeyi bozardı.
+    """
+    temiz = text
+    for marker in _BLOCK_MARKERS:
+        temiz = temiz.replace(marker, marker[0] + "\u200b" + marker[1:])
+    return temiz
+
+
 async def _judge_and_synthesize(
     task: str,
     usable: list[ModelResult],
@@ -186,7 +204,9 @@ async def _judge_and_synthesize(
     publisher: EventPublisher,
     use_synthesis: bool,
 ) -> tuple[Verdict, str | None]:
-    answers = "\n\n".join(f"### Model: {result.name}\n{result.text}" for result in usable)
+    answers = "\n\n".join(
+        f"### Model: {result.name}\n{sanitize_candidate(result.text)}" for result in usable
+    )
     names = [result.name for result in usable]
 
     publisher.publish(JudgingStarted(with_synthesis=use_synthesis))
