@@ -258,3 +258,35 @@ def test_esit_guclu_eslesmede_oncelik_sirasi_korunur():
     istek = "bunu düzelt ve şunu ekle"
 
     assert classify_task(istek) is TaskKind.BUGFIX
+
+
+async def test_tool_context_zorunludur(tmp_path):
+    """`tool_context` OPSİYONEL olamaz: unutulunca kapılar sessizce kapanıyor.
+
+    Gerçek hata: REPL `build_verifier(config, root=...)` çağırıyordu. Web, tarayıcı
+    ve görsel kapıların üçü de `tool_context is not None` koşuluna bağlı olduğu için
+    doğrulayıcı None dönüyordu — `web_verification: true` varsayılan olmasına rağmen
+    interaktif oturumda hiçbir kapı çalışmıyordu ve bunu hiçbir şey söylemiyordu.
+
+    Argümanı zorunlu yapmak bu hata SINIFINI imkânsız kılar: çağıran ya bağlamı
+    verir ya da None'ı bilerek yazar.
+    """
+    import inspect
+
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    parametre = inspect.signature(build_verifier).parameters["tool_context"]
+
+    assert parametre.default is inspect.Parameter.empty, "tool_context varsayılan almamalı"
+
+
+async def test_web_kapisi_baglamla_kurulur(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    from .fakes import make_config
+
+    config = make_config(runtime={"web_verification": True})
+
+    assert build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path))
+    assert build_verifier(config, root=tmp_path, tool_context=None) is None

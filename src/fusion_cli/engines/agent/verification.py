@@ -48,7 +48,7 @@ def resolve_turn_success(
 
 
 def build_verifier(
-    config: Config, *, root: Path, tool_context: ToolContext | None = None
+    config: Config, *, root: Path, tool_context: ToolContext | None
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -64,6 +64,13 @@ def build_verifier(
       geçer, zorunlu bağımlılık eklenmez.
 
     None döndürmek doğrulamanın tamamen kapalı olması demektir.
+
+    `tool_context` ZORUNLUDUR ve varsayılanı yoktur. Web, tarayıcı ve görsel
+    kapıların üçü de ona bağlıdır; opsiyonel bırakıldığında REPL onu geçirmeyi
+    unutmuş ve interaktif oturumda `web_verification: true` olmasına rağmen
+    HİÇBİR kapı kurulmamıştı — üstelik bunu hiçbir şey söylemiyordu. Argümanı
+    zorunlu yapmak bu hata sınıfını imkânsız kılar: çağıran ya bağlamı verir ya
+    da None'ı bilerek yazar.
     """
     verifiers: list[Verifier] = []
     if config.runtime.verification_commands:

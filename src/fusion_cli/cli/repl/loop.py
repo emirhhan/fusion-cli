@@ -286,7 +286,9 @@ async def _agent_turn(
             capabilities=state.capabilities,
             allowed_commands=state.allowed_commands,
             background=background,
-            verifier=build_verifier(state.config, root=state.root),
+            verifier=build_verifier(
+                state.config, root=state.root, tool_context=tool_context
+            ),
         )
         outcome = await run_agent(
             line,
