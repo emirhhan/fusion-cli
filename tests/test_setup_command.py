@@ -203,3 +203,39 @@ def test_env_yazimi_atomiktir(kurulum_dizini, monkeypatch):
 
     artiklar = [p.name for p in kurulum_dizini.iterdir() if p.name.endswith(".tmp")]
     assert artiklar == [], f"geçici dosya kaldı: {artiklar}"
+
+
+# --- Hangi anahtar zorunlu? -------------------------------------------------- #
+
+
+def test_yalniz_nim_ile_kurulum_tamamlanir(kurulum_dizini):
+    """OpenRouter ZORUNLU değildir; ölçüldü ki NIM tek başına tüm rolleri karşılıyor.
+
+    Sihirbaz OpenRouter'ı zorunlu tutuyordu ama `readiness.evaluate` yalnız NIM
+    ile de READY diyor. İki yerin farklı karar vermesi, kullanıcıyı ihtiyacı
+    olmayan bir anahtarı almaya zorlar.
+    """
+    setup_command.run_setup(Console(quiet=True), ask=_asker("", "nv-anahtar"))
+
+    icerik = (kurulum_dizini / ".env").read_text(encoding="utf-8")
+
+    assert "NVIDIA_NIM_API_KEY=nv-anahtar" in icerik
+    assert "OPENROUTER_API_KEY=\n" in icerik
+
+
+def test_ikisi_de_bos_birakilamaz(kurulum_dizini):
+    """En az bir anahtar gerekir; ikisi de boşsa kurulum çalışamaz."""
+    setup_command.run_setup(Console(quiet=True), ask=_asker("", "", "sk-nihayet", ""))
+
+    icerik = (kurulum_dizini / ".env").read_text(encoding="utf-8")
+
+    assert "OPENROUTER_API_KEY=sk-nihayet" in icerik
+
+
+def test_env_ornegi_openrouter_i_zorunlu_diye_yazmaz():
+    """`.env.example` ile ürün kararı ayrışmamalı."""
+    from pathlib import Path
+
+    ornek = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+
+    assert "en az birini" in ornek.lower()

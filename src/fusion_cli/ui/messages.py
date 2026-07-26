@@ -428,18 +428,18 @@ DOCTOR_STATE = {
 # --- Kurulum sihirbazı ----------------------------------------------------- #
 SETUP_WELCOME = "Fusion kurulumu — iki soru, sonra hazırsın."
 SETUP_ASK_OPENROUTER = (
-    "OpenRouter API anahtarı (ZORUNLU)\n"
+    "OpenRouter API anahtarı (önerilen — Enter ile atla)\n"
     "  Ücretsiz almak için: https://openrouter.ai/keys\n"
     "  Anahtar: "
 )
 SETUP_ASK_NIM = (
-    "NVIDIA NIM API anahtarı (opsiyonel — Enter ile atla)\n"
+    "NVIDIA NIM API anahtarı (Enter ile atla)\n"
     "  Ayrı bir ücretsiz kotadan çalışır: https://build.nvidia.com/\n"
     "  Anahtar: "
 )
 SETUP_CANCELLED = "kurulum iptal edildi; hiçbir dosya değiştirilmedi"
 SETUP_WRITE_FAILED = "anahtarlar yazılamadı: {path}"
-SETUP_KEY_REQUIRED = "En az OpenRouter anahtarı gerekli; onsuz hiçbir model çağrılamaz."
+SETUP_KEY_REQUIRED = "En az BİR anahtar gerekli; ikisi de boşken hiçbir model çağrılamaz."
 SETUP_KEYS_SAVED = "anahtarlar kaydedildi: {path}"
 SETUP_LESSONS_SEEDED = "{count} hazır ders belleğe yüklendi — eğitilmiş başlıyorsun"
 SETUP_LESSONS_SKIPPED = (

@@ -14,6 +14,8 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+import pytest
+
 _KOK = Path(__file__).resolve().parent.parent
 _SRC = _KOK / "src" / "fusion_cli"
 #: Pakete girmesi gerekmeyen dosyalar (derleme çıktısı ve işletim sistemi çöpü).
@@ -134,3 +136,43 @@ def test_readme_anahtar_konumunu_tek_yer_olarak_yazar():
 
     assert ".config/fusion-cli/.env" in metin
     assert "APPDATA" in metin
+
+
+# --- Wheel smoke testi ------------------------------------------------------- #
+
+
+@pytest.mark.slow
+def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
+    """Wheel'den kurulan sürüm ilk komutta çalışmalı.
+
+    Editable kurulumda çalışan kod, wheel'de eksik bir veri dosyası yüzünden
+    çökebiliyor: prompt dosyaları import anında okunuyor. Bu testi geliştirici
+    makinesinde geçmek yetmez, gerçek wheel kurulumunda geçmeli.
+    """
+    import subprocess
+    import sys
+    import venv
+    from pathlib import Path
+
+    kok = Path(__file__).resolve().parents[1]
+    tekerlek_dizini = tmp_path / "wheel"
+    subprocess.run(
+        [sys.executable, "-m", "pip", "wheel", str(kok), "--no-deps", "-w", str(tekerlek_dizini)],
+        check=True,
+        capture_output=True,
+    )
+    tekerlekler = list(tekerlek_dizini.glob("fusion_cli-*.whl"))
+    assert tekerlekler, "wheel üretilemedi"
+
+    ortam = tmp_path / "venv"
+    venv.create(ortam, with_pip=True)
+    pip = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
+    fusion = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "fusion"
+    subprocess.run([str(pip), "install", "-q", str(tekerlekler[0])], check=True)
+
+    for argumanlar in (["version"], ["--help"], ["doctor"]):
+        sonuc = subprocess.run(
+            [str(fusion), *argumanlar], capture_output=True, text=True, timeout=120
+        )
+        # doctor yapılandırma eksikse 1 döner; çökmesi (>1) kabul edilemez.
+        assert sonuc.returncode in (0, 1), f"fusion {argumanlar}: {sonuc.stderr[:400]}"

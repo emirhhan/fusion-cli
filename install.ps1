@@ -101,6 +101,14 @@ if (-not $Dev) {
         }
     }
 
+    # Smoke test: "kuruldu" demek calistigini gostermez.
+    Adim 'Kurulum dogrulaniyor...'
+    & $fusion version | Out-Null
+    if ($LASTEXITCODE -ne 0) { Hata "Kuruldu ama 'fusion version' calismiyor." }
+    & $fusion --help | Out-Null
+    if ($LASTEXITCODE -ne 0) { Hata "Kuruldu ama 'fusion --help' calismiyor." }
+    Bitti 'Dogrulandi.'
+
     Write-Host ''
     & $fusion setup
     Write-Host ''
