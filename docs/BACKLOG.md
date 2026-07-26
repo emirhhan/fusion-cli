@@ -54,6 +54,31 @@ ayıklamaya çalışmak kara listeye geri dönmektir ve aynı sebeple yenilir.
 Headless bağlamlarda (eval koşucusu, `--json`, CI) "sorulurdu" durumu REDDEDİLİR;
 koşucunun üründen gevşek olması ölçümü yanıltıcı yapar.
 
+## Ölçüldü — workflow_mode kaliteyi artırmıyor (2026-07-26)
+
+A/B: 5 zor görev × 3 tekrar = 15 koşu, her iki kolda da `low` kademesi, NVIDIA NIM.
+
+| | kapalı | açık |
+|---|---|---|
+| geçen koşu | 8/15 | 9/15 |
+| ort. model çağrısı | 8.6 | 4.0 |
+| ort. süre | 37 sn | 81 sn |
+
+**Karar: varsayılan KAPALI kalsın.** 15 koşuda 1 koşuluk fark gürültüden ayırt
+edilemez; bu deney ancak ~20 puanlık bir farkı çözebilirdi ve öyle bir fark yok.
+Kalite iddiası desteklenemiyor.
+
+Görev bazında sonuçlar ters yönlere dağılıyor (açık kip yeniden adlandırmada ve
+traceback'te daha iyi, çok dosyalı değişiklikte ve kullanıcı içeriğini korumada
+daha kötü) — yani tutarlı bir üstünlük yok, varyans var.
+
+Tek net fark maliyet ekseninde: workflow modu model çağrısını yarıya indiriyor
+ama süreyi ikiye katlıyor. Kotası dar olan kullanıcı için anlamlı bir takas
+olabilir; kalite için değil.
+
+NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
+dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
+
 ## Karar bekleyen
 
 - **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst

@@ -27,7 +27,8 @@ görünürken arka planda hiçbir iş yapmıyordu.
 - **Eval: tekrarlı koşu** (`--repeat N`) ve geçme oranı. Kararsız görevler adıyla
   raporlanır.
 - **Eval: `setup`** ile göreve başlangıç dosyası verilebilir; bug fix ölçmenin
-  ön koşuluydu. Altı yeni görev, ikisi güvenlik odaklı.
+  ön koşuluydu. On yeni görev — üçü agent’ın YAPMAMASI gerekeni ölçüyor
+  (kök dışına yazma, prompt injection, kullanıcı içeriğini silme).
 - **Ders belleği projeye kapsanır.** A projesinde öğrenilen B'de hatırlanmaz;
   genel yordamsal dersler her projede kalır. Göç gerekmez.
 
@@ -70,5 +71,8 @@ görünürken arka planda hiçbir iş yapmıyordu.
 - **MCP yok.**
 - **`run_shell` kök kısıtlamasına tabi değil.** Onay katmanı savunmadır, kum
   havuzu değil: sınır aşılabilir ama sessizce aşılamaz. Ayrıntı `docs/BACKLOG.md`.
-- **Eval seti dar.** 14 görev; taban ölçümde ikisi kararsız
-  (`hello-calisir` 2/3, `coklu-dosya-degisikligi` 1/3).
+- **Eval seti dar.** 18 görev. Kolay blok tavana vurmuş (12 görev 3/3); ayırt
+  etme gücü beş zor görevde ve orada taban **8/15**.
+- **`workflow_mode` ve `playbooks` varsayılan kapalı.** workflow ölçüldü: kaliteyi
+  artırmıyor (8/15 → 9/15, gürültü sınırında), model çağrısını yarıya indiriyor
+  ama süreyi ikiye katlıyor. `playbooks` hiç ölçülmedi.
