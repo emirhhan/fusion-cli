@@ -334,3 +334,28 @@ SETUP_NEXT_STEPS = "Sırada:"
 SETUP_STEP_KEYS = "anahtarlarını gir → {path}"
 SETUP_STEP_RUN = "herhangi bir proje dizininde `fusion` yaz"
 SETUP_PATHS = "kullanılan yollar:"
+
+# --- Kurulum sihirbazı ----------------------------------------------------- #
+SETUP_WELCOME = "Fusion kurulumu — iki soru, sonra hazırsın."
+SETUP_ASK_OPENROUTER = (
+    "OpenRouter API anahtarı (ZORUNLU)\n"
+    "  Ücretsiz almak için: https://openrouter.ai/keys\n"
+    "  Anahtar: "
+)
+SETUP_ASK_NIM = (
+    "NVIDIA NIM API anahtarı (opsiyonel — Enter ile atla)\n"
+    "  Ayrı bir ücretsiz kotadan çalışır: https://build.nvidia.com/\n"
+    "  Anahtar: "
+)
+SETUP_KEY_REQUIRED = "En az OpenRouter anahtarı gerekli; onsuz hiçbir model çağrılamaz."
+SETUP_KEYS_SAVED = "anahtarlar kaydedildi: {path}"
+SETUP_LESSONS_SEEDED = "{count} hazır ders belleğe yüklendi — eğitilmiş başlıyorsun"
+SETUP_LESSONS_SKIPPED = (
+    "hazır dersler yüklenemedi ({reason}); `fusion memory seed` ile deneyebilirsin"
+)
+SETUP_DONE = "Kurulum tamam. Herhangi bir proje dizininde `fusion` yaz."
+SETUP_NO_KEYS = (
+    "API anahtarı bulunamadı. `fusion setup` çalıştır ya da .env dosyana "
+    "OPENROUTER_API_KEY yaz."
+)
+SETUP_ACTIVE_PROVIDERS = "kurulu sağlayıcılar: {names}"

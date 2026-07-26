@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .. import __version__
+from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
 from ..core.errors import FusionError
@@ -58,6 +59,11 @@ def main_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
     config = load_config()
+    if not detect().any_configured:
+        # Anahtarsız açılışta REPL'i başlatmak, kullanıcıyı her turda "hiçbir model
+        # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
+        console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
+        raise typer.Exit(1)
     root = Path.cwd()
     raise typer.Exit(
         asyncio.run(

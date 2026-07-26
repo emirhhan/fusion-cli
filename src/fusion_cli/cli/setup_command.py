@@ -10,6 +10,9 @@ silmesi kabul edilemez; mevcut dosya varsa yalnızca bildirilir.
 
 from __future__ import annotations
 
+import sys
+from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 
 from rich.console import Console
@@ -59,25 +62,113 @@ CONFIG_TEMPLATE = """# Fusion-CLI kullanıcı yapılandırması.
 """
 
 
-def run_setup(console: Console) -> None:
-    """Yapılandırma ve .env şablonlarını oluştur, sırada ne olduğunu söyle."""
+#: Anahtar sorma imzası. Enjekte edilir: gerçek terminal olmadan test edilebilsin.
+Asker = Callable[[str], str]
+
+
+def run_setup(console: Console, *, ask: Asker | None = None) -> None:
+    """Yapılandırmayı kur: anahtarları al, dosyaları yaz, hazır dersleri yükle.
+
+    `ask` verilmezse ve girdi bir terminal değilse anahtar SORULMAZ; yalnızca
+    şablon bırakılır. Boru hattında ya da CI'da soru sormak kurulumu kilitlerdi.
+    """
     directory = user_config_dir()
     directory.mkdir(parents=True, exist_ok=True)
 
     _create(console, directory / "config.yaml", CONFIG_TEMPLATE)
-    _create(console, directory / ".env", ENV_TEMPLATE)
+    sorucu = ask or (input if sys.stdin.isatty() else None)
+    anahtar_alindi = False
+    if sorucu is not None and not (directory / ".env").exists():
+        _ask_keys(console, directory / ".env", sorucu)
+        anahtar_alindi = True
+    else:
+        _create(console, directory / ".env", ENV_TEMPLATE)
+
+    _seed_lessons(console)
 
     console.print()
     console.print(f"[bold]{messages.SETUP_NEXT_STEPS}[/bold]")
-    console.print(f"  1. {messages.SETUP_STEP_KEYS.format(path=directory / '.env')}")
-    console.print(f"     [{theme.DIM}]NVIDIA NIM  https://build.nvidia.com/[/{theme.DIM}]")
-    console.print(f"     [{theme.DIM}]OpenRouter  https://openrouter.ai/keys[/{theme.DIM}]")
-    console.print(f"  2. {messages.SETUP_STEP_RUN}")
+    if anahtar_alindi:
+        # Anahtarlar az önce alındı; "anahtarlarını gir" demek kullanıcıyı
+        # yaptığı işi tekrar yapmaya yollardı.
+        console.print(f"  1. {messages.SETUP_STEP_RUN}")
+    else:
+        console.print(f"  1. {messages.SETUP_STEP_KEYS.format(path=directory / '.env')}")
+        console.print(f"     [{theme.DIM}]OpenRouter  https://openrouter.ai/keys[/{theme.DIM}]")
+        console.print(f"     [{theme.DIM}]NVIDIA NIM  https://build.nvidia.com/[/{theme.DIM}]")
+        console.print(f"  2. {messages.SETUP_STEP_RUN}")
     console.print()
     console.print(f"[{theme.DIM}]{messages.SETUP_PATHS}[/{theme.DIM}]")
     console.print(f"[{theme.DIM}]  yapılandırma: {directory}[/{theme.DIM}]")
     console.print(f"[{theme.DIM}]  bellek:       {memory_dir()}[/{theme.DIM}]")
     console.print(f"[{theme.DIM}]  varsayılanlar:{bundled_defaults()}[/{theme.DIM}]")
+
+
+def _ask_keys(console: Console, path: Path, ask: Asker) -> None:
+    """Anahtarları sor ve `.env` olarak yaz.
+
+    OpenRouter ZORUNLUDUR ve boş geçilemez: merdivenin her kademesinde en az bir
+    OpenRouter modeli var, onsuz hiçbir rol çalışmaz. NIM opsiyoneldir ve boş
+    bırakılırsa zincirlerden sessizce düşülür (bkz. `config.keys`).
+    """
+    console.print()
+    console.print(f"[bold]{messages.SETUP_WELCOME}[/bold]")
+    console.print()
+
+    openrouter = ""
+    while not openrouter:
+        openrouter = _sor(ask, messages.SETUP_ASK_OPENROUTER)
+        if not openrouter:
+            console.print(f"[{theme.WARN}]{messages.SETUP_KEY_REQUIRED}[/{theme.WARN}]")
+
+    nim = _sor(ask, messages.SETUP_ASK_NIM)
+
+    path.write_text(
+        ENV_TEMPLATE.replace("NVIDIA_NIM_API_KEY=", f"NVIDIA_NIM_API_KEY={nim}").replace(
+            "OPENROUTER_API_KEY=", f"OPENROUTER_API_KEY={openrouter}"
+        ),
+        encoding="utf-8",
+    )
+    # İzinler daraltılır: anahtar dosyasını başka kullanıcılar okuyabilmemeli.
+    with suppress(OSError):
+        path.chmod(0o600)
+    console.print(
+        f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.SETUP_KEYS_SAVED.format(path=path)}"
+    )
+
+
+def _sor(ask: Asker, prompt: str) -> str:
+    """Tek bir anahtarı al. Vazgeçilirse boş döner."""
+    try:
+        return ask(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        return ""
+
+
+def _seed_lessons(console: Console) -> None:
+    """Küratörlü dersleri belleğe yükle: indiren herkes eğitilmiş başlar.
+
+    Bellek açılamazsa kurulum DÜŞMEZ — dersler bir iyileştirmedir, ürünün
+    çalışması onlara bağlı değildir.
+    """
+    try:
+        from ..config.loader import load_config
+        from ..memory.factory import build_memory
+        from ..memory.seed import seed
+
+        memory = build_memory(load_config(), root=Path.cwd())
+        if memory.unavailable_reason is not None:
+            raise RuntimeError(memory.unavailable_reason)
+        count = seed(memory.lessons)
+    except Exception as exc:
+        console.print(
+            f"[{theme.DIM}]{messages.SETUP_LESSONS_SKIPPED.format(reason=exc)}[/{theme.DIM}]"
+        )
+        return
+    console.print(
+        f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] "
+        f"{messages.SETUP_LESSONS_SEEDED.format(count=count)}"
+    )
 
 
 def _create(console: Console, path: Path, content: str) -> None:
