@@ -77,3 +77,16 @@ def looks_unfinished(
 def has_concrete_deliverable(text: str) -> bool:
     """Metin somut bir teslim taşıyor mu? (kod, dosya yolu ya da dosya:satır)"""
     return any(marker.search(text) for marker in _CONCRETE_MARKERS)
+
+
+#: Boş cevap sonrası modele verilen dürtü. Suçlayıcı değil yönlendirici: model
+#: cevabı neden düşürdüğünü bilmiyor, tekrar denemesi isteniyor.
+EMPTY_RESPONSE_NOTE = (
+    "Boş bir cevap döndürdün. Göreve devam et: ya bir araç çağır ya da "
+    "yaptıklarını özetleyen bir cevap yaz."
+)
+
+
+def empty_response_note() -> Message:
+    """Boş cevaptan sonra enjekte edilen kullanıcı notu."""
+    return Message("user", EMPTY_RESPONSE_NOTE)

@@ -679,3 +679,39 @@ async def test_oz_denetim_duzeltmesi_ic_ice_kapi_turu_acmaz(monkeypatch, tmp_pat
     await run_agent("site yap", deps)
 
     assert dogrulayici.calls <= 2, f"kapı {dogrulayici.calls} kez çalıştı; iç içe doğrulama var"
+
+
+async def test_bos_cevapta_bir_kez_daha_denenir(monkeypatch, tmp_path, sink):
+    """Model boş cevap verirse tur HİÇBİR İŞ YAPMADAN bitmemeli.
+
+    Ölçüldü (transkript): model `ok=true` ama metinsiz ve araçsız cevap
+    dönebiliyor. Tek modelli zincirde yedek yoktur (hedged kısa devre yapar), o
+    yüzden çare yeniden denemektir. Sınırlıdır: boş cevap ısrar ederse tur biter,
+    sonsuz döngü yok.
+    """
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(""),  # boş — yeniden denenmeli
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    sonuc = await run_agent("bir sey yap", deps)
+
+    assert provider.calls == 3, "boş cevaptan sonra devam edilmeli"
+    assert (tmp_path / "a.py").exists(), "iş yapılmalı"
+    assert sonuc.final_text == TAM_CEVAP
+
+
+async def test_israrli_bos_cevapta_sonsuz_donguye_girilmez(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("") for _ in range(10)]))
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    await run_agent("bir sey yap", deps)
+
+    assert provider.calls <= 3, f"boş cevap {provider.calls} kez denendi — sınır aşıldı"

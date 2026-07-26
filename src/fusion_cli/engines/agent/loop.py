@@ -65,6 +65,10 @@ MAX_AUTO_CONTINUE = 1
 #: düşürdü — sayfa tamamen boş kaldı, kapı bir daha bakmadığı için öyle teslim edildi.
 #: 2 bu regresyonu yakalar; daha fazlası sonsuz düzeltme döngüsü riskidir.
 MAX_VERIFY_ROUNDS = 2
+
+#: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
+#: hiç denememek turu iş yapmadan bitirir (ölçüldü).
+MAX_EMPTY_RETRIES = 2
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
@@ -217,6 +221,7 @@ async def _drive(
 ) -> AgentOutcome:
     state = _State()
     final_text = ""
+    bos_deneme = 0
     # Hedef kipi gibi ısrarcı görevler daha çok adım ister; varsayılan yapılandırmadan gelir.
     limit = step_limit or deps.config.runtime.agent_max_steps
 
@@ -224,6 +229,17 @@ async def _drive(
         result = await _call_model(messages, deps, registry, allowed_tools)
         if not result.ok:
             return AgentOutcome(result.error or "", messages, state.tool_calls_made, ok=False)
+
+        if not result.is_usable:
+            # Model BOŞ cevap döndü (metin yok, araç çağrısı yok) ama teknik olarak
+            # başarılı. Ölçüldü: agent turu bu yüzden hiçbir iş yapmadan bitiyordu.
+            # Tek modelli zincirde yedek yoktur (hedged kısa devre yapar), o yüzden
+            # çare yeniden denemektir — sınırlı, ısrar ederse tur biter.
+            bos_deneme += 1
+            if bos_deneme <= MAX_EMPTY_RETRIES:
+                messages.append(reflexion.empty_response_note())
+                continue
+            return AgentOutcome(final_text, messages, state.tool_calls_made)
 
         messages.append(Message("assistant", result.text, tool_calls=result.tool_calls))
 
