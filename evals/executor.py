@@ -42,6 +42,8 @@ class AgentRunObservation:
     model_calls: int
     #: Sağlayıcı kotası yüzünden tur ölçülemedi mi?
     rate_limited: bool = False
+    #: Kota hatasının ham metni (günlük kota / geçici sınır ayrımı için).
+    rate_limit_detail: str = ""
 
 
 class AgentRunner(Protocol):
@@ -101,6 +103,7 @@ class AgentTaskExecutor:
             changed_files=frozenset(changed),
             output_text=observation.output_text,
             rate_limited=observation.rate_limited,
+            rate_limit_detail=observation.rate_limit_detail,
             model_calls=observation.model_calls,
             retries=0,
             duration_seconds=duration,

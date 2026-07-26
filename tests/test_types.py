@@ -45,3 +45,22 @@ def test_hiz_siniri_ham_metinden_de_taninir():
 def test_tum_proje_hatalari_tek_kokten_turer():
     assert issubclass(ConfigError, FusionError)
     assert issubclass(ProviderError, FusionError)
+
+
+def test_gunluk_kota_gecici_sinirdan_ayrilir():
+    """Aynı 429 iki farklı şey olabilir ve tepkileri zıttır.
+
+    OpenRouter günlük kotayı AÇIKÇA söyler ("free-models-per-day"): o gün için
+    biter, beklemek işe yaramaz. NVIDIA NIM ise çıplak 429 döner — dakikalık sınır
+    da olabilir, tükenmiş kredi de. Ayırt edilmezse ya boşuna beklenir ya da geçici
+    bir sınır yüzünden koşu gereksiz yere iptal edilir.
+    """
+    from fusion_cli.core.types import is_daily_quota_error, is_rate_limit_error
+
+    openrouter = 'RateLimitError: {"message":"Rate limit exceeded: free-models-per-day..."}'
+    nim = "RateLimitError: Nvidia_nimException - Error code: 429 - {'status': 429}"
+
+    assert is_rate_limit_error(openrouter) and is_daily_quota_error(openrouter)
+    assert is_rate_limit_error(nim) and not is_daily_quota_error(nim)
+    assert not is_daily_quota_error("503 Service Unavailable")
+    assert not is_daily_quota_error(None)

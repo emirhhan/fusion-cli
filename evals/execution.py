@@ -31,5 +31,8 @@ class TaskExecution:
     #: Ayırt edilmediğinde ölçüm sessizce bozulur — nitekim bozuldu ve düşüş bir
     #: kod değişikliğine bağlandı.
     rate_limited: bool = False
+    #: Kota hatasının HAM metni. Günlük kota mı geçici sınır mı ayrımı buradan
+    #: yapılır; sağlayıcılar bunu farklı söyler ve tepkiler zıttır.
+    rate_limit_detail: str = ""
     #: Görevin baştan sona sürdüğü süre (saniye).
     duration_seconds: float = 0.0

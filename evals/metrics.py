@@ -27,6 +27,7 @@ class TaskResult:
     duration_seconds: float
     #: Sağlayıcı kotası yüzünden ölçülemedi mi?
     rate_limited: bool = False
+    rate_limit_detail: str = ""
     #: Görevin kaç kez koşturulduğu (varsayılan 1).
     runs: int = 1
     #: Kaç koşuda geçtiği.
@@ -61,6 +62,7 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         runs=1,
         passes=1 if success else 0,
         rate_limited=execution.rate_limited,
+        rate_limit_detail=execution.rate_limit_detail,
     )
 
 

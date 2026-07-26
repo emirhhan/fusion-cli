@@ -97,4 +97,5 @@ class FusionAgentRunner:
             output_text=outcome.final_text,
             model_calls=outcome.tool_calls_made + 1,
             rate_limited=kota,
+            rate_limit_detail=outcome.final_text if kota else "",
         )

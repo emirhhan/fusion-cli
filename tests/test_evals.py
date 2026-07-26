@@ -635,8 +635,8 @@ def test_kota_hatasi_gorev_basarisizligindan_ayrilir():
     assert sonuc.success is False
 
 
-async def test_kota_tukenince_kosu_durur():
-    """Kota bitmişken devam etmek çöp veri üretir ve kotayı boşuna harcar."""
+async def test_kota_israrla_devam_ederse_kosu_durur():
+    """Sınır yeniden denemelerde de aşılamıyorsa devam etmek çöp veri üretir."""
     from evals.execution import TaskExecution
     from evals.runner import RateLimitedError, run_suite
     from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
@@ -656,7 +656,75 @@ async def test_kota_tukenince_kosu_durur():
             cagri["n"] += 1
             return TaskExecution(task_id=task.id, output_text="", rate_limited=True)
 
-    with pytest.raises(RateLimitedError, match="kota"):
-        await run_suite(gorevler, _KotaBitmis())
+    with pytest.raises(RateLimitedError, match="hız sınırı"):
+        await run_suite(gorevler, _KotaBitmis(), sleep=_bekleme_yok)
 
-    assert cagri["n"] == 1, "ilk kota hatasında durmalı, seti tüketmemeli"
+    # 1 ilk deneme + MAX_RATE_LIMIT_RETRIES; sonraki görevlere GEÇİLMEZ.
+    assert cagri["n"] == 3, f"tek görevde durmalıydı, {cagri['n']} çağrı yapıldı"
+
+
+async def test_gecici_sinirda_bekleyip_tekrar_dener():
+    """Dakikalık sınır için tüm koşuyu iptal etmek kotayı boşa harcar.
+
+    NIM çıplak 429 döner; dakikalık sınır da olabilir. Ayırt edemediğimizde
+    geçici varsayıp sınırlı sayıda yeniden denemek doğrudur.
+    """
+    from evals.execution import TaskExecution
+    from evals.runner import run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="g", request="-", criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="a")
+    )
+    sayac = {"n": 0}
+    beklemeler: list[float] = []
+
+    class _IlkDenemeSinirli:
+        async def run(self, task):
+            sayac["n"] += 1
+            if sayac["n"] == 1:
+                return TaskExecution(task_id=task.id, output_text="", rate_limited=True)
+            return TaskExecution(task_id=task.id, output_text="a")
+
+    async def _kaydet(seconds: float) -> None:
+        beklemeler.append(seconds)
+
+    rapor = await run_suite((gorev,), _IlkDenemeSinirli(), sleep=_kaydet)
+
+    assert sayac["n"] == 2, "geçici sınırda bir kez daha denenmeli"
+    assert beklemeler, "yeniden denemeden önce beklenmeli"
+    assert rapor.results[0].success is True
+
+
+async def test_gunluk_kotada_beklemeden_durur():
+    """Günlük kota o gün için biter; beklemek kullanıcıyı boşuna oyalar."""
+    from evals.execution import TaskExecution
+    from evals.runner import RateLimitedError, run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="g", request="-", criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="a")
+    )
+    beklemeler: list[float] = []
+
+    class _GunlukKota:
+        async def run(self, task):
+            return TaskExecution(
+                task_id=task.id,
+                output_text="",
+                rate_limited=True,
+                rate_limit_detail="Rate limit exceeded: free-models-per-day",
+            )
+
+    async def _kaydet(seconds: float) -> None:
+        beklemeler.append(seconds)
+
+    with pytest.raises(RateLimitedError, match="günlük"):
+        await run_suite((gorev,), _GunlukKota(), sleep=_kaydet)
+
+    assert beklemeler == [], "günlük kotada beklenmemeli"
+
+
+async def _bekleme_yok(seconds: float) -> None:
+    """Testte gerçek zaman harcanmaz."""
+    return None

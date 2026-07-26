@@ -96,6 +96,27 @@ class ModelSpec:
 _RATE_LIMIT_MARKERS = ("429", "ratelimit", "rate limit", "too many requests", "quota")
 
 
+#: GÜNLÜK kotanın bittiğini AÇIKÇA söyleyen işaretler.
+#
+# Aynı 429 iki farklı şey olabilir ve tepkileri zıttır: günlük kota o gün için
+# biter (beklemek işe yaramaz, koşu durmalı), dakikalık sınır ise geçicidir
+# (beklenip tekrar denenmeli). OpenRouter bunu açıkça yazar; NVIDIA NIM çıplak
+# 429 döner ve hangisi olduğunu SÖYLEMEZ — ölçüldü (2026-07-26): 70 saniye arayla
+# üç tek istek de 429 aldı, yani NIM'in 429'u dakikalık sınır olmak zorunda değil.
+# Ayırt edemediğimizde geçici varsayıp sınırlı sayıda yeniden denemek doğrudur.
+_DAILY_QUOTA_MARKERS = ("per-day", "per day", "daily limit", "günlük")
+
+
+def is_daily_quota_error(detail: str | None) -> bool:
+    """Hata GÜNLÜK kotanın bittiğini açıkça söylüyor mu?
+
+    False dönmek "geçici" demek değildir; "sağlayıcı söylemedi" demektir.
+    """
+    if not detail:
+        return False
+    return any(marker in detail.lower() for marker in _DAILY_QUOTA_MARKERS)
+
+
 def is_rate_limit_error(detail: str | None) -> bool:
     """Hata metni ücretsiz kota/hız sınırını mı anlatıyor?
 
