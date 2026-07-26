@@ -8,35 +8,61 @@
 
 ## Kurulum
 
-Python 3.11+ gerekir.
+Python 3.11+ gerekir. Tek komut:
+
+**macOS / Linux**
 
 ```bash
 git clone <depo-adresi> && cd fusion-cli
 ./setup.sh
 ```
 
-Bu kadar. Betik uygun Python sürümünü bulur, `.venv` oluşturur, paketi kurar,
-`.env` dosyanı hazırlar ve kurulumu doğrular. Tekrar çalıştırmak güvenlidir:
-var olan `.venv` ve `.env`'e dokunmaz, eksik olanı tamamlar.
+**Windows (PowerShell)**
 
-Geliştirme araçlarını da (ruff, mypy, pytest) istiyorsan `./setup.sh --dev`.
+```powershell
+git clone <depo-adresi>; cd fusion-cli
+py -3.11 -m venv .venv
+.venv\Scripts\pip install -e .
+.venv\Scripts\fusion setup
+```
 
-Web arayüzü üreten görevlerde tarayıcı doğrulaması istiyorsan (konsol hatası, yüklenmeyen
-görsel, yatay taşma ölçümü) opsiyonel ekstrayı kur:
+Kurulum sırasında API anahtarların **sorulur** — dosya arayıp elle doldurman
+gerekmez. Aynı anda 83 küratörlü ders belleğe yüklenir: ilk turundan itibaren
+eğitilmiş bir asistanla başlarsın.
+
+Tekrar çalıştırmak güvenlidir; var olan `.venv`, `.env` ve anahtarlara dokunulmaz.
+Geliştirme araçlarını da istiyorsan `./setup.sh --dev`.
+
+### API anahtarları
+
+| Sağlayıcı | Durum | Nereden |
+|-----------|-------|---------|
+| **OpenRouter** | **zorunlu** | <https://openrouter.ai/keys> |
+| NVIDIA NIM | opsiyonel | <https://build.nvidia.com/> |
+
+İkisi de ücretsizdir. OpenRouter zorunludur çünkü model merdiveninin her
+kademesinde en az bir OpenRouter modeli vardır.
+
+NVIDIA NIM eklersen **ayrı bir ücretsiz kotadan** çalışırsın ve bazı roller ona
+kayar; eklemezsen model zincirlerinden sessizce düşülür ve hiçbir kademe boşta
+kalmaz. Modeller kurulu anahtarlarına göre kendiliğinden ayarlanır.
+
+> **Ücretsiz katman sınırları.** OpenRouter'ın `:free` modelleri **hesap başına**
+> 20 istek/dakika ve 50 istek/gün ile sınırlıdır (hesaba bir kerelik $10 kredi
+> yüklenirse 1000/gün). Sınır model başına DEĞİLDİR — model değiştirmek kotayı
+> açmaz. Bir fusion turu ~4 istek harcar, yani günde ~12 tur. Yoğun kullanım için
+> ya kredi yükle ya da NVIDIA NIM anahtarı ekle (~1000 kredi, 40 istek/dakika).
+
+### Tarayıcı doğrulaması (opsiyonel)
+
+Web arayüzü üreten görevlerde konsol hatası, yüklenmeyen görsel ve yatay taşma
+ölçümü istiyorsan:
 
 ```bash
 .venv/bin/pip install "fusion-cli[web]" && .venv/bin/playwright install chromium
 ```
 
 Kurulmazsa o kapı sessizce atlanır; fusion çevrimdışı çalışmaya devam eder.
-
-`.env` içine en az bir sağlayıcı anahtarı gir:
-
-- **NVIDIA NIM** (ücretsiz): <https://build.nvidia.com/>
-- **OpenRouter** (ücretsiz katman): <https://openrouter.ai/keys>
-
-İkisi de tanımlıysa yedek zinciri farklı sağlayıcılara yayılır ve tur tek bir
-sağlayıcının hız sınırına takılmaz.
 
 ## Kullanım
 
@@ -85,12 +111,22 @@ Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte
 |------|----------|
 | Motor | `/agent` `/fusion` |
 | Onay | `/auto` `/plan` `/security` |
-| Agent | `/reset` `/compact` |
+| Agent | `/reset` `/compact` `/verify` `/undo` |
 | Fusion | `/type <tip>` `/all` `/synth` |
 | Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
 | Model | `/level [kademe]` `/development` |
 | Bilgi | `/models` `/model` `/cost` `/help` `/clear` `/exit` |
 | Makro | `/goal` `/grill-me` `/bug` `/commit` `/review` `/browser` `/schedule` |
+
+**Güvenlik ve geri alma.** Dosya araçları varsayılan olarak yalnızca proje kökü
+altında çalışır; başka bir dizine erişim `--add-dir` ile açıkça verilir. Kabuk
+komutlarında yalnızca tanınan ve yan etkisiz olanlar onaysız çalışır, kalan her
+şey sorulur. `/undo` son turun dosya değişikliklerini geri alır — yalnızca
+agent'ın dokunduğu dosyaları, seninkilere dokunmadan.
+
+**Doğrulama kapısı.** `/verify` projeni tanır (pytest, ruff, mypy, npm scriptleri,
+cargo, go, make) ve bulduğu komutları gösterir; onaylarsan her turdan sonra
+çalışır. Kapı düşerse hata çıktısı modele geri verilir ve agent düzeltmeyi dener.
 
 Ders çıkarımı **arka planda** çalışır: bir sonraki komutu beklemez, oturum
 kapanırken tamamlanması beklenir. Agent modeli oturum açılırken arka planda ısıtılır;
