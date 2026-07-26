@@ -17,6 +17,8 @@ from pathlib import Path
 
 from rich.console import Console
 
+from ..config.keys import detect
+from ..config.loader import load_environment
 from ..config.paths import bundled_defaults, memory_dir, user_config_dir
 from ..ui import messages, theme
 
@@ -78,7 +80,11 @@ def run_setup(console: Console, *, ask: Asker | None = None) -> None:
     _create(console, directory / "config.yaml", CONFIG_TEMPLATE)
     sorucu = ask or (input if sys.stdin.isatty() else None)
     anahtar_alindi = False
-    if sorucu is not None and not (directory / ".env").exists():
+    # Anahtar başka bir `.env`'de ya da kabukta zaten tanımlıysa sorulmaz: kurulumu
+    # tekrar çalıştıran kullanıcıya aynı soruyu sormak onu şaşırtır.
+    load_environment()
+    zaten_var = detect().any_configured
+    if sorucu is not None and not zaten_var and not (directory / ".env").exists():
         _ask_keys(console, directory / ".env", sorucu)
         anahtar_alindi = True
     else:

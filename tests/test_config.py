@@ -371,3 +371,50 @@ def test_kademe_modelleri_saglayici_onekiyle_yazilir():
     for kademe in config.tiers:
         for spec in (kademe.agent, kademe.judge, *kademe.candidates):
             assert "/" in spec.model, f"{kademe.name}: {spec.model}"
+
+
+# --- .env yükleme sırası ----------------------------------------------------- #
+
+
+def test_bos_env_satiri_gercek_anahtari_golgelemez(tmp_path, monkeypatch):
+    """Boş bir anahtar satırı, sonraki dosyadaki gerçek anahtarı ezmemeli.
+
+    Gerçek hata: `setup.sh` proje köküne boş anahtarlı bir `.env` bırakıyordu.
+    O dosya önce yüklendiği ve `load_dotenv` boş string'i de bir DEĞER saydığı
+    için, kullanıcının `~/.config/fusion-cli/.env` içine girdiği gerçek anahtar
+    hiçbir zaman devreye girmiyordu — kurulum "tamam" diyor, ürün çalışmıyordu.
+    """
+    from fusion_cli.config import loader
+
+    once = tmp_path / "proje" / ".env"
+    sonra = tmp_path / "kullanici" / ".env"
+    once.parent.mkdir()
+    sonra.parent.mkdir()
+    once.write_text("OPENROUTER_API_KEY=\n", encoding="utf-8")
+    sonra.write_text("OPENROUTER_API_KEY=sk-gercek\n", encoding="utf-8")
+
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: (once, sonra))
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    loader.load_environment()
+
+    import os
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-gercek"
+
+
+def test_ortamda_var_olan_anahtar_env_dosyasiyla_ezilmez(tmp_path, monkeypatch):
+    """Kabuğa elle verilen anahtar dosyadan daha önceliklidir."""
+    from fusion_cli.config import loader
+
+    dosya = tmp_path / ".env"
+    dosya.write_text("OPENROUTER_API_KEY=sk-dosyadan\n", encoding="utf-8")
+
+    monkeypatch.setattr(loader, "env_file_candidates", lambda: (dosya,))
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-kabuktan")
+
+    loader.load_environment()
+
+    import os
+
+    assert os.environ.get("OPENROUTER_API_KEY") == "sk-kabuktan"

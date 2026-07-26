@@ -13,9 +13,16 @@ from fusion_cli.cli import setup_command
 
 @pytest.fixture
 def kurulum_dizini(tmp_path, monkeypatch):
-    """Kurulumun yazacağı dizini tmp_path'e al ve ders yüklemeyi sessizleştir."""
+    """Kurulumun yazacağı dizini tmp_path'e al, ortamı ve ders yüklemeyi izole et.
+
+    Anahtarlar temizlenir: geliştiricinin kendi `.env`'i testin gördüğü ortamı
+    değiştirmemeli, yoksa test makineye göre farklı sonuç verir.
+    """
     monkeypatch.setattr(setup_command, "user_config_dir", lambda: tmp_path)
     monkeypatch.setattr(setup_command, "_seed_lessons", lambda console: None)
+    monkeypatch.setattr(setup_command, "load_environment", lambda: None)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_NIM_API_KEY", raising=False)
     return tmp_path
 
 
@@ -109,3 +116,15 @@ def test_anahtar_alinmadiysa_nereye_yazilacagi_soylenir(kurulum_dizini, monkeypa
     setup_command.run_setup(Console(force_terminal=False, width=200))
 
     assert "anahtarlarını gir" in capsys.readouterr().out
+
+
+def test_anahtar_zaten_tanimliysa_tekrar_sorulmaz(kurulum_dizini, monkeypatch):
+    """Kurulumu ikinci kez çalıştıran kullanıcıya aynı soru sorulmaz."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-baska-bir-yerden")
+
+    def _sorulmamali(prompt: str) -> str:  # pragma: no cover - çağrılırsa test düşer
+        raise AssertionError("anahtar zaten varken sorulmamalı")
+
+    setup_command.run_setup(Console(quiet=True), ask=_sorulmamali)
+
+    assert (kurulum_dizini / ".env").exists(), "şablon yine de bırakılmalı"

@@ -15,11 +15,12 @@ dokunulmaz.
 from __future__ import annotations
 
 import dataclasses
+import os
 from pathlib import Path
 from typing import Any, TypeVar, get_args, get_origin, get_type_hints
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
@@ -45,10 +46,20 @@ T = TypeVar("T")
 
 
 def load_environment() -> None:
-    """`.env` dosyalarını sırayla yükle. Önce yüklenen kazanır; mevcut ortam ezilmez."""
+    """`.env` dosyalarını sırayla yükle. Önce yüklenen kazanır; mevcut ortam ezilmez.
+
+    BOŞ değerler atlanır. `load_dotenv` boş string'i de bir değer sayar; proje
+    kökündeki şablon `.env` (`OPENROUTER_API_KEY=`) önce yüklendiği için
+    kullanıcının `~/.config/fusion-cli/.env` içine girdiği gerçek anahtarı kalıcı
+    olarak gölgeliyordu — kurulum "tamam" diyor, hiçbir model çağrılamıyordu.
+    Doldurulmamış bir satır "bu anahtar yok" demektir, "bu anahtar boş" değil.
+    """
     for candidate in env_file_candidates():
-        if candidate.is_file():
-            load_dotenv(candidate)
+        if not candidate.is_file():
+            continue
+        for key, value in dotenv_values(candidate).items():
+            if value and value.strip() and key not in os.environ:
+                os.environ[key] = value
 
 
 def load_config(path: str | Path | None = None) -> Config:

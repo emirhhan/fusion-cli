@@ -77,7 +77,9 @@ else
 fi
 
 # --- 5. Kullanıcı dizini şablonları --------------------------------------------- #
-"$VENV/bin/fusion" setup >/dev/null 2>&1 || uyari "Kullanıcı dizini şablonları bırakılamadı (kritik değil)."
+# Çıktı BASTIRILMAZ: kurulum anahtarları interaktif sorar, bastırılırsa soru
+# görünmez ve betik sessizce kilitlenir.
+"$VENV/bin/fusion" setup || uyari "Kullanıcı dizini şablonları bırakılamadı (kritik değil)."
 
 # --- 6. Doğrulama --------------------------------------------------------------- #
 "$VENV/bin/fusion" version >/dev/null 2>&1 || hata "Kurulum tamamlandı ama 'fusion' çalışmıyor."
