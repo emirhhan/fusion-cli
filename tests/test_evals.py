@@ -573,6 +573,9 @@ def test_transkript_arac_cagrilarini_ve_sonuclarini_kaydeder(tmp_path):
     assert satirlar[0]["name"] == "write_file"
     assert satirlar[1]["event"] == "ModelCallFinished"
     assert satirlar[1]["ok"] is True
+    # Yedek devreye girdiyse cevabı beklenen model vermemiştir; teşhiste ilk
+    # sorulan soru "hangi model cevapladı" olur.
+    assert satirlar[1]["model"] == "m"
 
 
 def test_transkript_token_gurultusunu_yazmaz(tmp_path):

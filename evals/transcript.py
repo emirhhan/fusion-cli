@@ -62,6 +62,10 @@ def _to_row(event: Event) -> dict[str, Any] | None:
         return {
             "event": "ModelCallFinished",
             "role": event.role,
+            # Hangi modelin CEVAPLADIĞI: rol adı zinciri anlatmaz. Yedek devreye
+            # girdiyse beklenen model değil başka biri yanıtlamıştır ve teşhis
+            # sırasında ilk sorulan soru budur.
+            "model": event.result.model,
             "ok": event.result.ok,
             "error": event.result.error,
             "tool_calls": [call.name for call in event.result.tool_calls],
