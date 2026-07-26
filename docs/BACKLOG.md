@@ -79,6 +79,28 @@ olabilir; kalite için değil.
 NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
 dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
 
+## Ölçüldü — zor setin gürültü tabanı çok yüksek (2026-07-26)
+
+Kazara yapılmış bir kontrol deneyi. `command_policy` değişikliği sonrası zor set
+yeniden koşuldu ve toplam 8/15'ten 4/15'e düştü. Sonra fark edildi ki o değişiklik
+eval sonuçlarını ETKİLEYEMEZ: eval `permissive` onay duruşunda koşuyor ve orada
+`python main.py` zaten izinliydi.
+
+Yani iki koşu **aynı yapılandırmaydı** ve aralarındaki 4/15'lik fark tamamen
+run-to-run varyansıdır — 15 örnekte ~27 puan.
+
+Sonuçlar:
+
+- `--repeat 3` bu set için YETERSİZ. 20 puanın altındaki hiçbir fark ölçülemez.
+- Bu, workflow_mode A/B'sinin (8/15 vs 9/15) sonuçsuz olduğunu bağımsız olarak
+  doğrular; o farkın tamamı gürültü bandının içindedir.
+- Görevler bimodal davranıyor: agent ya işi yapıyor ya da hiç dokunmuyor. Ortalama
+  değil, bu ikili davranışın SEBEBİ araştırılmalı.
+
+Bir sonraki adım tekrar sayısını artırmak değil, önce başarısızlık teşhisi olmalı:
+eval şu an ne yapıldığını KAYDETMİYOR (sadece geç/kal ve çağrı sayısı). Transkript
+tutulmadan "agent neden hiçbir şey yapmadı" sorusu cevaplanamaz.
+
 ## Karar bekleyen
 
 - **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst
