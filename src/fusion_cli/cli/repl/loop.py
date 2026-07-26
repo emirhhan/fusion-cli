@@ -289,6 +289,10 @@ async def _agent_turn(
             verifier=build_verifier(
                 state.config, root=state.root, tool_context=tool_context
             ),
+            # `/type` agent turunda da etkili olmalı: görev tipi model seçimini
+            # yönlendirir (`select_agent_spec`). Geçirilmediğinde "general"a düşülüyor
+            # ve `task_model_map` REPL'de sessizce uygulanmıyordu.
+            task_type=state.task_type,
         )
         outcome = await run_agent(
             line,

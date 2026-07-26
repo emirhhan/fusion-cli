@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from rich.console import Console
 
 from fusion_cli.cli.repl.commands import RENDERED_COMMANDS, build_registry, parse
 from fusion_cli.cli.repl.state import TASK_TYPES, Engine, ReplState
@@ -671,3 +672,46 @@ def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
     assert dosya.read_text(encoding="utf-8") == "eski\n"
     assert "a.py" in mesaj
     assert state.last_changes is None, "aynı kayıt iki kez geri alınmamalı"
+
+
+# --- REPL ile tek-atış yolu aynı bağımlılıkları kurmalı ---------------------- #
+
+
+async def test_repl_agent_turu_gorev_tipini_gecirir(state, monkeypatch):
+    """`/type code` agent turunda da etkili olmalı.
+
+    Gerçek hata: REPL `task_type`i fusion turuna geçiriyor ama AgentDeps'e
+    geçirmiyordu. `select_agent_spec` varsayılan "general" ile çağrılıyor,
+    dolayısıyla `task_model_map` agent modunda REPL'de hiç uygulanmıyordu —
+    kullanıcı `/type code` yazıp modelin değiştiğini sanıyordu.
+    """
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.engines.agent.loop import AgentDeps
+
+    yakalanan = {}
+    gercek = AgentDeps
+
+    def _yakala(**kwargs):
+        yakalanan.update(kwargs)
+        return gercek(**kwargs)
+
+    async def _sahte_run_agent(task, deps, **kwargs):
+        from fusion_cli.engines.agent import AgentOutcome
+
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.engines.agent.loop.AgentDeps", _yakala)
+    monkeypatch.setattr("fusion_cli.engines.agent.run_agent", _sahte_run_agent)
+
+    state.task_type = "code"
+    await repl_loop._agent_turn("bir sey yap", state, Console(quiet=True), _SahteArkaPlan())
+
+    assert yakalanan.get("task_type") == "code"
+
+
+class _SahteArkaPlan:
+    def spawn(self, *a, **k):
+        return None
+
+    async def drain(self):
+        return None
