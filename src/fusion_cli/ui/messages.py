@@ -409,6 +409,13 @@ SETUP_STEP_KEYS = "anahtarlarını gir → {path}"
 SETUP_STEP_RUN = "herhangi bir proje dizininde `fusion` yaz"
 SETUP_PATHS = "kullanılan yollar:"
 
+# --- fusion doctor --------------------------------------------------------- #
+DOCTOR_STATE = {
+    "ready": "Kurulum hazır. Başlatmak için: fusion",
+    "partially_ready": "Kurulum kısmen hazır: agent çalışır, fusion motoru eksik.",
+    "not_ready": "Kurulum hazır DEĞİL.",
+}
+
 # --- Kurulum sihirbazı ----------------------------------------------------- #
 SETUP_WELCOME = "Fusion kurulumu — iki soru, sonra hazırsın."
 SETUP_ASK_OPENROUTER = (

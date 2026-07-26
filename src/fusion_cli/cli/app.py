@@ -13,7 +13,7 @@ import asyncio
 import sys
 from dataclasses import fields
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.console import Console
@@ -23,11 +23,15 @@ from .. import __version__
 from ..config.keys import detect
 from ..config.loader import load_config
 from ..config.models import Config
+from ..config.readiness import Readiness
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
 from ..engines.agent.approval import ApprovalMode
 from ..ui import messages, theme
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
+    from .doctor import DoctorReport
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
 from . import knowledge_commands, memory_commands
@@ -122,6 +126,47 @@ def run(
     _print_usage(observers, quiet=quiet or as_json)
     if result.source is VerdictSource.NONE:
         raise typer.Exit(1)
+
+
+@app.command()
+def doctor(
+    live: Annotated[
+        bool,
+        typer.Option("--live", help="Sağlayıcılara küçük gerçek çağrı yap (kota harcar)."),
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Betikler için JSON çıktı.")
+    ] = False,
+) -> None:
+    """Kurulumu denetle: ne eksik, neden önemli, ne yapmalı."""
+    from .doctor import diagnose, to_dict
+
+    rapor = diagnose(live=live)
+    if as_json:
+        console.print_json(data=to_dict(rapor))
+    else:
+        _print_doctor(rapor)
+    # Çıkış kodu betikler içindir: kurulum kullanılamaz durumdaysa sıfır dışı.
+    raise typer.Exit(0 if rapor.readiness.state is not Readiness.NOT_READY else 1)
+
+
+def _print_doctor(report: DoctorReport) -> None:
+    """Tanıyı oku-yazılabilir biçimde bas. Sır içermez."""
+    console.print()
+    for check in report.checks:
+        isaret = "·" if check.ok is None else (theme.ICON_OK if check.ok else theme.ICON_ERROR)
+        renk = theme.DIM if check.ok is None else (theme.OK if check.ok else theme.ERROR)
+        console.print(f"[{renk}]{isaret}[/{renk}] {check.name:<28} {check.value}")
+        if check.remedy:
+            console.print(f"  [{theme.DIM}]→ {check.remedy}[/{theme.DIM}]")
+    console.print()
+    durum = report.readiness.state
+    renk = {Readiness.READY: theme.OK, Readiness.PARTIALLY_READY: theme.WARN}.get(
+        durum, theme.ERROR
+    )
+    console.print(f"[bold {renk}]{messages.DOCTOR_STATE[durum.value]}[/bold {renk}]")
+    for sebep in report.readiness.reasons:
+        console.print(f"  [{theme.DIM}]{sebep}[/{theme.DIM}]")
 
 
 @app.command()
