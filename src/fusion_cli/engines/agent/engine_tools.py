@@ -74,6 +74,26 @@ def _clone(registry: ToolRegistry) -> ToolRegistry:
 # --------------------------------------------------------------------------- #
 
 
+def derive_sub_context(context: ToolContext) -> ToolContext:
+    """Alt-ajan için bağlam türet: görev listesi AYRI, değişiklik kümesi ORTAK.
+
+    Alt-ajan temiz bir görev listesiyle çalışmalı — ana ajanın listesini ezmesi
+    kullanıcının takip ettiği planı bozardı. Ama `touched` PAYLAŞILIR: alt-ajanın
+    yazdığı dosya, `depth>0` olduğu için kendi doğrulama kapısını çalıştırmaz;
+    küme de ayrı olsaydı ana kapı o dosyayı hiç görmez ve değişiklik iki kapının
+    arasından sızardı.
+
+    Erişim sınırı da aynen taşınır: alt-ajan ana ajandan daha geniş bir alana
+    yazamamalı, yoksa kısıtlama alt-ajan çağırarak aşılırdı.
+    """
+    return ToolContext(
+        root=context.root,
+        touched=context.touched,
+        restrict_to_root=context.restrict_to_root,
+        extra_roots=context.extra_roots,
+    )
+
+
 def _spawn_agent_tool(
     deps: AgentDeps, *, depth: int, run_agent: Callable[..., Awaitable[AgentOutcome]]
 ) -> Tool:
@@ -93,7 +113,7 @@ def _spawn_agent_tool(
             config=deps.config,
             publisher=deps.publisher,
             policy=deps.policy,
-            tool_context=ToolContext(root=context.root),
+            tool_context=derive_sub_context(context),
             base_registry=deps.base_registry,
             asker=deps.asker,
             channel=Channel.SUBAGENT,
@@ -304,7 +324,7 @@ def _invoke_agent_tool(
             config=deps.config,
             publisher=deps.publisher,
             policy=deps.policy,
-            tool_context=ToolContext(root=context.root),
+            tool_context=derive_sub_context(context),
             base_registry=deps.base_registry,
             asker=deps.asker,
             code_index=deps.code_index,

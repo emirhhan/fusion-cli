@@ -11,7 +11,9 @@ tek seferde yazılır. Yarım uygulanmış dosya bırakmaz.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from pathlib import Path
 
 from ..core.constants import MAX_DIR_ENTRIES, MAX_READ_BYTES, VISIBLE_DOTFILES
@@ -39,6 +41,25 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     if not any(concrete == izin or izin in concrete.parents for izin in izinli):
         raise PathAccessError(f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})")
     return concrete
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """Geçici dosyaya yaz, sonra yerine taşı.
+
+    `write_text` doğrudan hedefe yazar: süreç yazmanın ortasında ölürse kullanıcının
+    çalışan dosyası yarım kalır. `os.replace` aynı dosya sisteminde atomiktir, bu
+    yüzden geçici dosya HEDEFLE AYNI DİZİNDE açılır — /tmp başka bir bağlama noktası
+    olabilir ve taşıma atomikliğini kaybederdi (`config.writer` aynı deseni kullanır).
+    """
+    handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    gecici = Path(name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as dosya:
+            dosya.write(content)
+        gecici.replace(path)
+    except BaseException:
+        gecici.unlink(missing_ok=True)
+        raise
 
 
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -89,7 +110,10 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     existed = path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    try:
+        atomic_write(path, content)
+    except OSError as exc:
+        return ToolResult.failure(f"Yazılamadı: {path} ({exc})")
     context.touched.add(path)
     action = "güncellendi" if existed else "oluşturuldu"
     return ToolResult(f"{action}: {path} ({len(content)} karakter)")
@@ -134,7 +158,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         count = text.count(old)
         if count == 0:
             return ToolResult.failure(_NOT_FOUND)
-        path.write_text(text.replace(old, new), encoding="utf-8")
+        atomic_write(path, text.replace(old, new))
         context.touched.add(path)
         return ToolResult(f"düzenlendi: {path} ({count} değişiklik)")
 
@@ -142,7 +166,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if problem is not None:
         return ToolResult.failure(problem)
 
-    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    atomic_write(path, text.replace(old, new, 1))
     context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} (1 değişiklik)")
 
@@ -172,7 +196,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
         working = working.replace(old, new, 1)
         toplam += 1
 
-    path.write_text(working, encoding="utf-8")
+    atomic_write(path, working)
     context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} ({toplam} değişiklik uygulandı)")
 

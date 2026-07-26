@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from fusion_cli.core.tools import ToolContext
@@ -522,3 +524,37 @@ async def test_ek_dizin_symlink_ile_asilamaz(registry, tmp_path):
     sonuc = await _calistir(registry, context, "read_file", path=str(paylasilan / "kacis"))
 
     assert not sonuc.ok
+
+
+# --- Atomik yazma ----------------------------------------------------------- #
+
+
+async def test_yazma_yarim_kalirsa_eski_icerik_korunur(registry, tmp_path, monkeypatch):
+    """Yazma ortasında kesilme dosyayı yarım bırakmamalı.
+
+    `write_text` doğrudan hedefe yazar: süreç o anda ölürse dosya yarım kalır ve
+    kullanıcının çalışan kodu yerine bozuk bir dosya durur. Geçici dosyaya yazıp
+    yerine taşımak bu pencereyi tamamen kapatır.
+    """
+    hedef = tmp_path / "onemli.py"
+    hedef.write_text("eski = 'calisiyor'\n", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+
+    def _patlat(self, hedef):
+        raise OSError("disk doldu")
+
+    monkeypatch.setattr(Path, "replace", _patlat)
+
+    sonuc = await _calistir(registry, context, "write_file", path="onemli.py", content="yeni\n")
+
+    assert not sonuc.ok
+    assert hedef.read_text(encoding="utf-8") == "eski = 'calisiyor'\n", "eski içerik korunmalı"
+
+
+async def test_yazma_gecici_dosya_birakmaz(registry, tmp_path):
+    context = ToolContext(root=tmp_path)
+
+    await _calistir(registry, context, "write_file", path="a.txt", content="x")
+
+    artiklar = [p.name for p in tmp_path.iterdir() if p.name != "a.txt"]
+    assert artiklar == [], f"geçici dosya kaldı: {artiklar}"

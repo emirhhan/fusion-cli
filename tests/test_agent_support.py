@@ -277,3 +277,33 @@ async def test_yarim_kalan_denetim_talimati_uygulanmaz(monkeypatch):
     geri = await review.review_turn("görev", "bitti", [Message("user", "x")], config=make_config())
 
     assert geri == ""
+
+
+# --- Alt-ajan değişiklikleri ana kapıya girer -------------------------------- #
+
+
+def test_alt_ajan_baglami_touched_kumesini_paylasir():
+    """Alt-ajanın yazdığı dosya ana doğrulama kapısından KAÇMAMALI.
+
+    Gerçek boşluk: alt-ajan kendi ToolContext'iyle çalışıyordu, `depth>0` olduğu
+    için kendi kapısı hiç kurulmuyordu ve yazdığı dosya ana bağlamın `touched`
+    kümesine girmediği için ana kapı da onu görmüyordu. Dosya iki kapı arasından
+    sızıyordu.
+
+    Görev listesi ayrı kalır (alt-ajan ana listeyi ezmemeli); paylaşılan tek şey
+    değişiklik kümesidir.
+    """
+    from pathlib import Path
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import derive_sub_context
+
+    ana = ToolContext(root=Path("/proje"), extra_roots=(Path("/paylasilan"),))
+    alt = derive_sub_context(ana)
+
+    alt.touched.add(Path("/proje/index.html"))
+
+    assert Path("/proje/index.html") in ana.touched, "değişiklik ana kapıya görünmeli"
+    assert alt.todos is not ana.todos, "görev listesi ayrı kalmalı"
+    assert alt.extra_roots == ana.extra_roots, "izin sınırı alt-ajanda gevşememeli"
+    assert alt.restrict_to_root == ana.restrict_to_root
