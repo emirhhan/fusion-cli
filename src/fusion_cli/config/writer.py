@@ -64,6 +64,25 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
     return target
 
 
+def write_verification_commands(
+    config: Config, commands: tuple[str, ...], path: Path | None = None
+) -> Path:
+    """Doğrulama komutlarını `runtime:` altına yaz; yazılan yolu döndür.
+
+    Yalnızca bu anahtar güncellenir, `runtime`'ın diğer ayarları korunur: kullanıcı
+    orada zaman aşımı ya da adım sınırı değiştirmiş olabilir ve bir kapı planını
+    onaylamak onları sıfırlamamalıdır.
+    """
+    target = path or _target_path(config)
+    existing = _read_existing(target)
+    runtime = existing.get("runtime")
+    updated = dict(runtime) if isinstance(runtime, dict) else {}
+    updated["verification_commands"] = list(commands)
+    existing["runtime"] = updated
+    _atomic_write(target, existing)
+    return target
+
+
 def _target_path(config: Config) -> Path:
     """Yazılacak dosya: yapılandırmanın geldiği dosya, yoksa kullanıcı dizini."""
     if config.source is not None:

@@ -249,6 +249,21 @@ LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
 LEVEL_SAVED = "kaydedildi: {path}"
 LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
 
+# --- Doğrulama kapısı (/verify) -------------------------------------------- #
+VERIFY_TITLE = "Doğrulama planını onayla"
+VERIFY_PLAN_HEADING = "Bu projede şu doğrulama komutları bulundu:"
+VERIFY_ACCEPT = "Onayla ve kaydet"
+VERIFY_ACCEPT_HINT = "her turdan sonra sırayla çalışır"
+VERIFY_REJECT = "Vazgeç"
+VERIFY_REJECT_HINT = "kapı kapalı kalır"
+VERIFY_NOTHING_FOUND = (
+    "Bu projede tanınan bir doğrulama aracı bulunamadı.\n"
+    "Komutları config.yaml içinde runtime.verification_commands altına elle yazabilirsin."
+)
+VERIFY_ACTIVE = "Doğrulama kapısı zaten kurulu:\n{commands}"
+VERIFY_APPLIED = "Doğrulama kapısı açıldı. Her turdan sonra sırayla çalışacak:\n{commands}"
+VERIFY_SAVE_FAILED = "kapı bu oturumda açıldı ama kaydedilemedi: {error}"
+
 # --- Geliştirme modu (/development) ---------------------------------------- #
 DEV_SOURCE_TITLE = "Model kaynağı seç"
 DEV_SOURCE_OPENROUTER_FREE = "OpenRouter modelleri (ücretsiz)"
@@ -293,6 +308,7 @@ CMD_LESSONS = "öğrenilen dersler"
 CMD_MODELS = "yapılandırılmış modeller"
 CMD_COST = "oturumda harcanan token ve tahmini maliyet"
 CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
+CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
 CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"

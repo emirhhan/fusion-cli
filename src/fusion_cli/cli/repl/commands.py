@@ -20,7 +20,7 @@ from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...ui import messages
-from . import macros, model_flows
+from . import macros, model_flows, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
@@ -226,6 +226,13 @@ def _level(state: ReplState, argument: str) -> str:
     return result.message
 
 
+def _verify(state: ReplState, argument: str) -> str:
+    """`/verify` — projeden doğrulama planı çıkar, onaylat, kalıcılaştır."""
+    result = verify_flow.choose_verification(state.config, state.root)
+    state.config = result.config
+    return result.message
+
+
 def _development(state: ReplState, argument: str) -> str:
     """`/development` — kaynak seç, sonra model seç."""
     result = model_flows.choose_development(state.config, ask_text=_ask_line)
@@ -332,6 +339,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),
+    SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     *(
         SlashCommand(
