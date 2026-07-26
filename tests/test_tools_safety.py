@@ -174,9 +174,17 @@ def test_diff_basligi_kok_dizine_gore_kisaltilir(context, tmp_path):
     assert str(tmp_path) not in onizleme
 
 
-def test_kok_disindaki_dosya_mutlak_yolla_gosterilir(context, tmp_path):
-    disarida = tmp_path.parent / "disarida.txt"
+def test_kok_disindaki_dosya_mutlak_yolla_gosterilir(tmp_path):
+    """Kök dışındaki bir yol önizlemede KISALTILMADAN gösterilir.
+
+    Dizin `--add-dir` ile açıkça izinli; onay panelinde kullanıcının nereye
+    yazıldığını tam yolla görmesi bu yüzden daha da önemlidir.
+    """
+    izinli = tmp_path.parent / "izinli"
+    izinli.mkdir(exist_ok=True)
+    disarida = izinli / "disarida.txt"
     disarida.write_text("eski\n", encoding="utf-8")
+    context = ToolContext(root=tmp_path, extra_roots=(izinli,))
 
     onizleme = preview_change("write_file", {"path": str(disarida), "content": "yeni\n"}, context)
 

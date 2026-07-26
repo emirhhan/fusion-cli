@@ -457,3 +457,68 @@ def test_ikisi_de_yoksa_arguman_hatasi(tmp_path):
     """path da content da yoksa aracın kendi doğrulaması devreye girer."""
     with pytest.raises(ArgumentError):
         files.write_file({}, ToolContext(root=tmp_path))
+
+
+# --- Ek izinli dizinler (--add-dir) ----------------------------------------- #
+
+
+async def test_varsayilan_kisitlidir(registry, tmp_path):
+    """Tüm disk varsayılan erişim alanı DEĞİLDİR.
+
+    Kısıtlama opt-in bırakıldığı sürece kimse açmıyordu; agent her kurulumda
+    kullanıcının tüm dosya sistemine yazabiliyordu.
+    """
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    disarida = tmp_path / "disarida.txt"
+
+    sonuc = await _calistir(
+        registry, ToolContext(root=calisma), "write_file", path=str(disarida), content="x"
+    )
+
+    assert not sonuc.ok
+    assert not disarida.exists()
+
+
+async def test_ek_dizin_acikca_izin_verilince_erisilir(registry, tmp_path):
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    paylasilan = tmp_path / "paylasilan"
+    paylasilan.mkdir()
+    context = ToolContext(root=calisma, extra_roots=(paylasilan,))
+
+    sonuc = await _calistir(
+        registry, context, "write_file", path=str(paylasilan / "a.txt"), content="x"
+    )
+
+    assert sonuc.ok
+    assert (paylasilan / "a.txt").read_text(encoding="utf-8") == "x"
+
+
+async def test_ek_dizin_yalnizca_kendi_altini_acar(registry, tmp_path):
+    """`--add-dir` bir kapı değil, dar bir pencere olmalı."""
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    paylasilan = tmp_path / "paylasilan"
+    paylasilan.mkdir()
+    baska = tmp_path / "baska.txt"
+    context = ToolContext(root=calisma, extra_roots=(paylasilan,))
+
+    sonuc = await _calistir(registry, context, "write_file", path=str(baska), content="x")
+
+    assert not sonuc.ok
+    assert not baska.exists()
+
+
+async def test_ek_dizin_symlink_ile_asilamaz(registry, tmp_path):
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    paylasilan = tmp_path / "paylasilan"
+    paylasilan.mkdir()
+    (tmp_path / "gizli.txt").write_text("sir", encoding="utf-8")
+    (paylasilan / "kacis").symlink_to(tmp_path / "gizli.txt")
+    context = ToolContext(root=calisma, extra_roots=(paylasilan,))
+
+    sonuc = await _calistir(registry, context, "read_file", path=str(paylasilan / "kacis"))
+
+    assert not sonuc.ok

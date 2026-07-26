@@ -119,10 +119,19 @@ class ToolContext:
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
     pending: PendingWrite = field(default_factory=lambda: PendingWrite())
-    #: True ise dosya araçları yalnızca `root` altında çalışır; kök dışına çıkan
-    #: yol, `..` ile dışarı taşan yol ve köke sızdıran symlink reddedilir. Varsayılan
-    #: kapalıdır: eski davranış (kök dışına da yazma) korunur, kısıtlama opt-in'dir.
-    restrict_to_root: bool = False
+    #: True ise dosya araçları yalnızca `root` (ve `extra_roots`) altında çalışır;
+    #: dışarı çıkan yol, `..` ile taşan yol ve dışarı sızdıran symlink reddedilir.
+    #:
+    #: Varsayılan AÇIKTIR. Opt-in bırakıldığı sürece kimse açmıyordu ve agent her
+    #: kurulumda kullanıcının tüm dosya sistemine yazabiliyordu; tüm disk hiçbir
+    #: aracın varsayılan erişim alanı olmamalıdır. Kök dışına erişim gerekiyorsa
+    #: kullanıcı bunu `--add-dir` ile AÇIKÇA verir.
+    restrict_to_root: bool = True
+    #: Kökün yanında erişime açılan ek dizinler (`--add-dir`).
+    #:
+    #: Bir kapı değil, dar bir penceredir: yalnızca burada YAZAN dizinlerin altı
+    #: açılır, kardeşleri açılmaz ve symlink ile aşılamaz (yol `resolve` edilir).
+    extra_roots: tuple[Path, ...] = ()
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

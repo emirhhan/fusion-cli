@@ -116,6 +116,7 @@ async def run_agent_task(
     root: Path | None = None,
     interactive: bool | None = None,
     memory: Memory | None = None,
+    extra_roots: tuple[Path, ...] = (),
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -133,7 +134,7 @@ async def run_agent_task(
         prompter = prompter_factory(bus.drain)
         store = memory or null_memory()
         _warn_if_unavailable(store, bus)
-        tool_context = ToolContext(root=root or Path.cwd())
+        tool_context = ToolContext(root=root or Path.cwd(), extra_roots=extra_roots)
         deps = AgentDeps(
             config=config,
             publisher=bus,

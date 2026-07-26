@@ -13,6 +13,7 @@ import asyncio
 import sys
 from dataclasses import fields
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from rich.console import Console
@@ -134,6 +135,13 @@ def agent(
         False, "--json", help="Olayları satır satır JSON olarak yaz (betikler için)."
     ),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="İlerleme satırlarını gizle."),
+    add_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--add-dir",
+            help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
+        ),
+    ] = None,
 ) -> None:
     """Görevi araçlarla çalıştır: dosya oku/yaz, komut çalıştır, web'de ara."""
     if not task.strip():
@@ -151,11 +159,12 @@ def agent(
             config,
             sinks=observers.sinks,
             prompter_factory=lambda flush: ConsolePrompter(
-                console, ToolContext(root=root), flush=flush
+                console, ToolContext(root=root, extra_roots=tuple(add_dir or ())), flush=flush
             ),
             mode=approval,
             root=root,
             memory=open_memory(config, root=root, enabled=not no_memory),
+            extra_roots=tuple(add_dir or ()),
         )
     )
     observers.finish()

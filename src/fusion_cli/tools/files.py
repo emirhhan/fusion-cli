@@ -32,9 +32,11 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     if not context.restrict_to_root:
         return resolved
     root = context.root.resolve()
+    # İzinli alan: kök + kullanıcının `--add-dir` ile AÇIKÇA verdiği dizinler.
+    izinli = (root, *(extra.resolve() for extra in context.extra_roots))
     # Var olmayan hedefte de doğrulama yapılabilmesi için strict=False.
     concrete = resolved.resolve()
-    if concrete != root and root not in concrete.parents:
+    if not any(concrete == izin or izin in concrete.parents for izin in izinli):
         raise PathAccessError(f"Kısıtlı kipte proje kökü dışına erişilemez: {raw} (kök: {root})")
     return concrete
 
