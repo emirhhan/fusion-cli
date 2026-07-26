@@ -84,6 +84,7 @@ def diagnose(*, live: bool = False) -> DoctorReport:
     hazir = evaluate(config, keys)
     checks.extend(_roles(config, hazir))
     checks.append(_memory())
+    checks.append(_path_check())
     checks.extend(_optional())
     if live:
         checks.extend(_live(config))
@@ -184,6 +185,35 @@ def _memory() -> Check:
         str(yol),
         ok=yazilabilir,
         remedy="" if yazilabilir else "Dizin yazılabilir değil; öğrenme ve kod indeksi çalışmaz.",
+    )
+
+
+def _path_check() -> Check:
+    """`fusion` komutu PATH'ten çağrılabiliyor mu?
+
+    Kurulum "tamam" deyip komut bulunamıyorsa kullanıcı ne olduğunu anlayamaz;
+    sebep genellikle tek bir eksik PATH satırıdır.
+    """
+    import os
+    import shutil
+
+    from ..install import path_hint
+
+    bulundu = shutil.which("fusion")
+    if bulundu:
+        return Check("`fusion` komutu", bulundu, ok=True)
+
+    ipucu = path_hint(
+        bin_dir=Path(sys.executable).parent,
+        path_value=os.environ.get("PATH", ""),
+        shell=os.environ.get("SHELL", ""),
+        windows=sys.platform == "win32",
+    )
+    return Check(
+        "`fusion` komutu",
+        "PATH'te bulunamadı",
+        ok=False,
+        remedy=ipucu or "Kurulum dizinindeki bin/Scripts klasörünü PATH'e ekle.",
     )
 
 

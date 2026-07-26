@@ -409,6 +409,15 @@ SETUP_STEP_KEYS = "anahtarlarını gir → {path}"
 SETUP_STEP_RUN = "herhangi bir proje dizininde `fusion` yaz"
 SETUP_PATHS = "kullanılan yollar:"
 
+# --- fusion update / uninstall --------------------------------------------- #
+MAINT_METHOD = "Fusion `{method}` ile kurulmuş."
+MAINT_DATA_KEPT = (
+    "Yapılandırman, API anahtarların ve öğrenilen dersler KORUNDU. "
+    "Onları da silmek için: fusion uninstall --purge"
+)
+MAINT_REMOVED = "silindi:"
+MAINT_NOTHING_TO_PURGE = "silinecek kullanıcı verisi yok."
+
 # --- fusion doctor --------------------------------------------------------- #
 DOCTOR_STATE = {
     "ready": "Kurulum hazır. Başlatmak için: fusion",

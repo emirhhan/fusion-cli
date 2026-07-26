@@ -170,6 +170,44 @@ def _print_doctor(report: DoctorReport) -> None:
 
 
 @app.command()
+def update() -> None:
+    """Fusion'ı nasıl güncelleyeceğini göster."""
+    from .maintenance import current_method, update_instructions
+
+    console.print(messages.MAINT_METHOD.format(method=current_method().value))
+    console.print()
+    console.print(f"  {update_instructions()}")
+    console.print()
+
+
+@app.command()
+def uninstall(
+    purge: Annotated[
+        bool,
+        typer.Option(
+            "--purge",
+            help="Yapılandırma, anahtarlar ve belleği de sil (varsayılan: KORUNUR).",
+        ),
+    ] = False,
+) -> None:
+    """Fusion'ı nasıl kaldıracağını göster; istenirse kullanıcı verisini sil."""
+    from .maintenance import current_method, purge_user_data, uninstall_instructions
+
+    console.print(messages.MAINT_METHOD.format(method=current_method().value))
+    console.print()
+    console.print(f"  {uninstall_instructions()}")
+    console.print()
+    if not purge:
+        console.print(f"[{theme.DIM}]{messages.MAINT_DATA_KEPT}[/{theme.DIM}]")
+        return
+    silinen = purge_user_data(dry_run=False)
+    for yol in silinen:
+        console.print(f"[{theme.OK}]{theme.ICON_OK}[/{theme.OK}] {messages.MAINT_REMOVED} {yol}")
+    if not silinen:
+        console.print(f"[{theme.DIM}]{messages.MAINT_NOTHING_TO_PURGE}[/{theme.DIM}]")
+
+
+@app.command()
 def agent(
     task: str = typer.Argument(..., help="Agent'a verilecek görev."),
     mode: str = typer.Option(
