@@ -67,13 +67,19 @@ else
     bitti "Paket kuruldu."
 fi
 
-# --- 4. .env ------------------------------------------------------------------- #
-# Var olan .env'in üzerine YAZILMAZ: içinde kullanıcının anahtarları var.
-if [ -f .env ]; then
-    bitti ".env zaten var, dokunulmadı."
-else
-    cp .env.example .env
-    bitti ".env oluşturuldu (.env.example'dan kopyalandı)."
+# --- 4. .env (YALNIZCA geliştirici kurulumunda) --------------------------------- #
+# Normal kullanıcının anahtarları KULLANICI DİZİNİNDE tutulur (`fusion setup`).
+# Repo köküne de .env bırakmak iki doğruluk kaynağı yaratıyordu: kullanıcı hangisini
+# düzenleyeceğini bilemiyor, üstelik repo kopyası 0644 (herkes okuyabilir) oluyordu.
+# Proje bazlı override geliştirici senaryosudur ve yalnızca --dev ile kurulur.
+if [ "$DEV" -eq 1 ]; then
+    if [ -f .env ]; then
+        bitti ".env zaten var, dokunulmadı."
+    else
+        cp .env.example .env
+        chmod 600 .env 2>/dev/null || true
+        bitti ".env oluşturuldu (geliştirici kurulumu; anahtarlar buraya da yazılabilir)."
+    fi
 fi
 
 # --- 5. Kullanıcı dizini şablonları --------------------------------------------- #
@@ -86,21 +92,14 @@ fi
 bitti "Doğrulandı: $("$VENV/bin/fusion" version)"
 
 # --- 7. Sırada ne var ----------------------------------------------------------- #
-# Anahtar yoksa CLI açılır ama tur atamaz; bunu şimdi söylemek sonra aramaktan iyi.
-if grep -Eq '^(NVIDIA_NIM_API_KEY|OPENROUTER_API_KEY)=.+' .env; then
+# Anahtar kontrolü BURADA TEKRAR YAZILMAZ. Eskiden repo kökündeki .env `grep`
+# ediliyordu; kullanıcı anahtarını sihirbazda girse bile "anahtar yok" deniyordu
+# çünkü anahtar KULLANICI dizinine yazılıyordu. Tek doğruluk kaynağı `fusion doctor`.
+printf '\n'
+if "$VENV/bin/fusion" doctor; then
     printf '\n%sHazır.%s Başlatmak için:\n\n    ./%s/bin/fusion\n\n' "$OK" "$OFF" "$VENV"
 else
-    cat <<TXT
-
-$(uyari "Henüz API anahtarı yok. .env dosyasına en az birini gir:")
-
-    NVIDIA NIM (ücretsiz)   https://build.nvidia.com/
-    OpenRouter (ücretsiz)   https://openrouter.ai/keys
-
-Sonra başlat:
-
-    ./$VENV/bin/fusion
-
-TXT
+    printf '\n%s Kurulum tamamlandı ama yapılandırma eksik.%s\n' "$WARN" "$OFF"
+    printf 'Yukarıdaki satırlar ne yapılacağını söylüyor.\n\n'
 fi
 printf '%sHer dizinden "fusion" yazabilmek için: source %s/bin/activate%s\n' "$DIM" "$VENV" "$OFF"

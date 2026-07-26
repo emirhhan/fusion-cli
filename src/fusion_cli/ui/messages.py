@@ -428,6 +428,8 @@ SETUP_ASK_NIM = (
     "  Ayrı bir ücretsiz kotadan çalışır: https://build.nvidia.com/\n"
     "  Anahtar: "
 )
+SETUP_CANCELLED = "kurulum iptal edildi; hiçbir dosya değiştirilmedi"
+SETUP_WRITE_FAILED = "anahtarlar yazılamadı: {path}"
 SETUP_KEY_REQUIRED = "En az OpenRouter anahtarı gerekli; onsuz hiçbir model çağrılamaz."
 SETUP_KEYS_SAVED = "anahtarlar kaydedildi: {path}"
 SETUP_LESSONS_SEEDED = "{count} hazır ders belleğe yüklendi — eğitilmiş başlıyorsun"

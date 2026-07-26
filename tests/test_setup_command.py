@@ -128,3 +128,78 @@ def test_anahtar_zaten_tanimliysa_tekrar_sorulmaz(kurulum_dizini, monkeypatch):
     setup_command.run_setup(Console(quiet=True), ask=_sorulmamali)
 
     assert (kurulum_dizini / ".env").exists(), "şablon yine de bırakılmalı"
+
+
+# --- Anahtar girişi güvenliği ------------------------------------------------ #
+
+
+def test_anahtar_ekranda_gorunmez(kurulum_dizini, monkeypatch):
+    """API anahtarı yazılırken terminalde görünmemeli.
+
+    `input()` yazılanı ekrana basar; omuz üstünden okunabilir ve terminal
+    geçmişinde kalır. Anahtar sorusu `getpass` ile alınır.
+    """
+    cagrilan = {}
+
+    def _sahte_getpass(prompt=""):
+        cagrilan["getpass"] = True
+        return "sk-gizli"
+
+    def _input_kullanilmamali(prompt=""):
+        raise AssertionError("anahtar `input()` ile alınıyor; ekranda görünür")
+
+    monkeypatch.setattr(setup_command.getpass, "getpass", _sahte_getpass)
+    monkeypatch.setattr("builtins.input", _input_kullanilmamali)
+    monkeypatch.setattr(setup_command.sys.stdin, "isatty", lambda: True)
+
+    setup_command.run_setup(Console(quiet=True))
+
+    assert cagrilan.get("getpass"), "anahtar getpass ile alınmalı"
+
+
+def test_ctrl_c_sonsuz_donguye_girmez(kurulum_dizini, monkeypatch):
+    """Zorunlu anahtarda Ctrl+C kurulumu iptal etmeli, tekrar sormamalı.
+
+    Gerçek hata: boş cevap 'tekrar sor' döngüsündeydi ve Ctrl+C de boş cevap
+    sayılıyordu; kullanıcı kurulumdan çıkamıyordu.
+    """
+    sayac = {"n": 0}
+
+    def _iptal(prompt: str) -> str:
+        sayac["n"] += 1
+        if sayac["n"] > 3:
+            raise AssertionError("sonsuz döngü: Ctrl+C kurulumu durdurmadı")
+        raise KeyboardInterrupt
+
+    setup_command.run_setup(Console(quiet=True), ask=_iptal)
+
+    assert sayac["n"] == 1, "Ctrl+C ilk seferde çıkmalı"
+
+
+def test_ctrl_c_yarim_env_birakmaz(kurulum_dizini):
+    """İptal edilen kurulum bozuk ya da yarım anahtar dosyası bırakmamalı."""
+
+    def _iptal(prompt: str) -> str:
+        raise KeyboardInterrupt
+
+    setup_command.run_setup(Console(quiet=True), ask=_iptal)
+
+    env = kurulum_dizini / ".env"
+    if env.exists():
+        icerik = env.read_text(encoding="utf-8")
+        assert "OPENROUTER_API_KEY=\n" in icerik, "yarım anahtar yazılmamalı"
+
+
+def test_env_yazimi_atomiktir(kurulum_dizini, monkeypatch):
+    """Yazma ortasında kesilme var olan anahtar dosyasını bozmamalı."""
+    from pathlib import Path
+
+    def _patlat(self, hedef):
+        raise OSError("disk doldu")
+
+    monkeypatch.setattr(Path, "replace", _patlat)
+
+    setup_command.run_setup(Console(quiet=True), ask=_asker("sk-x", ""))
+
+    artiklar = [p.name for p in kurulum_dizini.iterdir() if p.name.endswith(".tmp")]
+    assert artiklar == [], f"geçici dosya kaldı: {artiklar}"
