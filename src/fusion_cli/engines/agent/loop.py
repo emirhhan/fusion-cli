@@ -178,7 +178,11 @@ async def run_agent(
     verification = None
     for _ in range(MAX_VERIFY_ROUNDS if verify else 0):
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
-        if verification is None or verification.ok or not verification.findings:
+        # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
+        # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
+        # dolduran bir kapı (komut doğrulayıcısı) başarısız olduğunda agent
+        # düzeltmeye hiç başlamıyordu.
+        if verification is None or verification.ok:
             break
         outcome = await _fix_findings(verification, outcome, deps)
 
@@ -444,7 +448,10 @@ async def _fix_findings(
     deps.publisher.publish(
         VerificationFailed(summary=verification.summary, findings=verification.findings)
     )
-    bulgular = "\n".join(f"- {finding}" for finding in verification.findings)
+    # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
+    # "doğrulama düştü" bilgisi bile modele hiçbir şey söylememekten iyidir.
+    ayrintilar = verification.findings or ((verification.summary,) if verification.summary else ())
+    bulgular = "\n".join(f"- {finding}" for finding in ayrintilar)
     correction = await run_agent(
         "Doğrulama kapısı üretilen çıktıda şu somut sorunları buldu. Hepsini düzelt; "
         "düzeltemeyeceğin varsa nedenini tek cümleyle yaz.\n\n"

@@ -107,6 +107,46 @@ async def test_verifier_zaman_asimi_basarisizlik(tmp_path):
     assert "zaman aşımı" in result.summary
 
 
+async def test_verifier_basarisiz_komutta_bulgu_uretir(tmp_path):
+    """Özet tek başına yetmez: motor düzeltici turu `findings` doluysa açar.
+
+    Bulgu üretilmezse `pytest` kırmızıyken bile agent düzeltmeye hiç başlamaz;
+    kapı yalnızca ders güvenini etkiler ve sessizce işlevsiz kalır.
+    """
+    verifier = CommandVerifier(("false",), cwd=str(tmp_path), timeout_s=10.0)
+
+    result = await verifier.verify()
+
+    assert result.ok is False
+    assert result.findings, "başarısız komut bulgu üretmeli"
+
+
+async def test_verifier_bulgusu_hata_ciktisini_tasir(tmp_path):
+    """Modele "bir sorun var" değil, sorunun METNİ gitmeli."""
+    komut = "echo 'AssertionError: beklenen 3 alinan 4' >&2; exit 1"
+    verifier = CommandVerifier((komut,), cwd=str(tmp_path), timeout_s=10.0)
+
+    result = await verifier.verify()
+
+    assert result.ok is False
+    birlesik = "\n".join(result.findings)
+    assert "AssertionError: beklenen 3 alinan 4" in birlesik
+
+
+async def test_verifier_uzun_ciktiyi_kirpar(tmp_path):
+    """Binlerce satırlık test çıktısı prompt'a olduğu gibi girmemeli."""
+    komut = "for i in $(seq 1 2000); do echo satir-$i; done; exit 1"
+    verifier = CommandVerifier((komut,), cwd=str(tmp_path), timeout_s=30.0)
+
+    result = await verifier.verify()
+
+    birlesik = "\n".join(result.findings)
+    assert result.ok is False
+    assert "satir-2000" in birlesik, "kuyruk tutulmalı: hata en sonda olur"
+    assert "satir-1" not in birlesik.split("\n")[0], "baş taraf kırpılmalı"
+    assert len(birlesik) < 20_000
+
+
 async def test_verifier_bos_komut_listesi_ok(tmp_path):
     verifier = CommandVerifier((), cwd=str(tmp_path), timeout_s=10.0)
     assert (await verifier.verify()).ok is True

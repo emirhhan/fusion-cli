@@ -579,6 +579,49 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
     assert provider.calls == 4
 
 
+async def test_kapi_bulgusuz_basarisizlikta_da_duzeltir(monkeypatch, tmp_path, sink):
+    """`ok=False` ama `findings` boşsa da düzeltici tur AÇILMALI.
+
+    Gerçek hata: koşul `not verification.findings` görünce döngüyü kırıyordu.
+    Bulgu üretmeyen bir doğrulayıcı (ör. yalnızca özet dolduran bir komut kapısı)
+    başarısız olduğunda agent düzeltmeye hiç başlamıyor, kapı yalnızca ders
+    güvenini etkileyip sessizce işlevsiz kalıyordu.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    sonuclar = [
+        VerificationResult(ok=False, summary="komut başarısız (çıkış 1): pytest"),
+        VerificationResult(ok=True),
+    ]
+
+    class _BulgusuzKapi:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return sonuclar[min(self.calls - 1, len(sonuclar) - 1)]
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result("duzeltme yapildi"),
+            ]
+        ),
+    )
+    dogrulayici = _BulgusuzKapi()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("test yaz", deps)
+
+    assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
+    assert sonuc.final_text == "duzeltme yapildi"
+
+
 async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
     """Kapı hep kırık kalsa bile tur sınırlı sayıda düzeltme denemesiyle biter."""
     from fusion_cli.core.verification import VerificationResult

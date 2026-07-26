@@ -136,8 +136,25 @@ class WebVerifier:
         )
 
 
+#: Başarısız komutun çıktısından modele taşınacak SON satır sayısı.
+#
+# Kuyruk tutulur, baş değil: derleyici ve test koşucuları özeti ve hatayı sona
+# yazar (pytest'in "FAILED ..." satırları, mypy'ın "Found N errors"). Baş taraf
+# tutulsaydı prompt'a ilerleme noktalarından başka bir şey girmezdi.
+_OUTPUT_TAIL_LINES = 200
+
+#: Bulguya girecek en fazla karakter. Uzun tek satırlar (minified çıktı, uzun yol
+# listeleri) satır sayısı sınırını delebilir; prompt bütçesi bunu kaldırmaz.
+_OUTPUT_MAX_CHARS = 8_000
+
+
 class CommandVerifier:
-    """Yapılandırılmış kabuk komutlarını sırayla çalıştıran doğrulayıcı."""
+    """Yapılandırılmış kabuk komutlarını sırayla çalıştıran doğrulayıcı.
+
+    Çıktı YUTULMAZ. Kapının işi "bir sorun var" demek değil, sorunun metnini
+    modele taşımaktır: `findings` boş dönerse motor düzeltici turu hiç açmaz
+    (bkz. `loop.run_agent`), yani kapı sessizce işlevsiz kalır.
+    """
 
     def __init__(self, commands: tuple[str, ...], *, cwd: str, timeout_s: float) -> None:
         self._commands = commands
@@ -156,21 +173,32 @@ class CommandVerifier:
             process = await asyncio.create_subprocess_shell(
                 command,
                 cwd=self._cwd,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
             )
         except OSError as exc:
-            return VerificationResult(ok=False, summary=f"komut başlatılamadı: {command} ({exc})")
+            detay = f"komut başlatılamadı: {command} ({exc})"
+            return VerificationResult(ok=False, summary=detay, findings=(detay,))
 
         try:
-            return_code = await asyncio.wait_for(process.wait(), timeout=self._timeout_s)
+            ham, _ = await asyncio.wait_for(process.communicate(), timeout=self._timeout_s)
         except TimeoutError:
             process.kill()
             await process.wait()
-            return VerificationResult(ok=False, summary=f"komut zaman aşımına uğradı: {command}")
+            detay = f"komut zaman aşımına uğradı ({self._timeout_s}s): {command}"
+            return VerificationResult(ok=False, summary=detay, findings=(detay,))
 
-        if return_code != 0:
-            return VerificationResult(
-                ok=False, summary=f"komut başarısız (çıkış {return_code}): {command}"
-            )
-        return VerificationResult(ok=True)
+        if process.returncode == 0:
+            return VerificationResult(ok=True)
+
+        ozet = f"komut başarısız (çıkış {process.returncode}): {command}"
+        return VerificationResult(ok=False, summary=ozet, findings=(ozet, _tail(ham)))
+
+
+def _tail(raw: bytes) -> str:
+    """Çıktının son kısmını modele verilebilir tek bir metne indir."""
+    text = raw.decode("utf-8", errors="replace").strip()
+    if not text:
+        return "(komut hiç çıktı üretmedi)"
+    tail = "\n".join(text.split("\n")[-_OUTPUT_TAIL_LINES:])
+    return tail if len(tail) <= _OUTPUT_MAX_CHARS else tail[-_OUTPUT_MAX_CHARS:]
