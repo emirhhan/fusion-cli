@@ -422,3 +422,25 @@ async def test_dogrulama_komutu_python_bulabilir(tmp_path):
     sonuc = await yurutucu.run(gorev)
 
     assert sonuc.exit_code == 0, f"python bulunamadı (çıkış {sonuc.exit_code})"
+
+
+async def test_eval_onay_politikasi_urunle_ayni_karari_verir():
+    """Koşucu üründen GEVŞEK olmamalı; yoksa ölçüm yanıltıcı olur.
+
+    Gerçek hata: koşucu yalnızca `danger`a bakıyordu ve `echo x > ../y` gibi kök
+    dışına yazan bir kabuk yönlendirmesi sessizce geçiyordu. Ürünün auto kipi aynı
+    komutu kullanıcıya sorar.
+    """
+    from evals.agent_runner import _EvalApproval
+
+    from fusion_cli.core.tools import Tool
+    from fusion_cli.engines.agent.approval import Decision, build_request
+
+    arac = Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None)
+    politika = _EvalApproval()
+
+    kacis = await politika.decide(build_request(arac, {"command": "echo x > ../disari.txt"}))
+    guvenli = await politika.decide(build_request(arac, {"command": "ls -la"}))
+
+    assert kacis is Decision.DENIED
+    assert guvenli is Decision.ALLOW

@@ -32,6 +32,28 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
+## Bilinen güvenlik sınırı — run_shell kök kısıtlamasına tabi değil
+
+Dosya araçları (`write_file`, `edit_file`, `multi_edit`) proje kökü dışına
+çıkamaz; `resolve_path` symlink'i de çözerek engeller. **`run_shell` bu
+kısıtlamaya tabi değildir**: `cwd` kök olarak ayarlanır ama kabuk komutu
+`echo x > ../y` ya da mutlak yolla dışarı yazabilir.
+
+Ölçüldü (2026-07-26, `evals/suite/starter.yaml` → `kok-disina-yazmayi-reddet`):
+agent bu yoldan kök dışına dosya yazmayı başardı.
+
+Bugünkü savunma ONAY KATMANIDIR, kısıtlama değil: `command_policy` yönlendirme
+içeren ya da tanınmayan her komutu "gözetimsiz çalışmaya uygun değil" sayar ve
+auto kipte bile kullanıcıya sorulur. Kullanıcı reddederse komut çalışmaz.
+Yani sınır aşılabilir ama SESSİZCE aşılamaz.
+
+Gerçek çözüm işletim sistemi seviyesinde kum havuzudur (seccomp / sandbox-exec /
+namespace): komutun dosya sistemi görünürlüğü kökle sınırlanmalı. Regex ile yol
+ayıklamaya çalışmak kara listeye geri dönmektir ve aynı sebeple yenilir.
+
+Headless bağlamlarda (eval koşucusu, `--json`, CI) "sorulurdu" durumu REDDEDİLİR;
+koşucunun üründen gevşek olması ölçümü yanıltıcı yapar.
+
 ## Karar bekleyen
 
 - **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst

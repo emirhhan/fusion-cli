@@ -30,10 +30,21 @@ class _NullPublisher:
 
 
 class _EvalApproval:
-    """Değiştirici işlemlere otomatik izin; yıkıcı komutları reddet (sistem koruması)."""
+    """Ürünün auto kipiyle AYNI kararı verir; soru sorulacak her şeyi reddeder.
+
+    Ölçüm headless'tır: soru sorulamaz. "Sorulurdu" durumunu izin saymak koşucuyu
+    üründen daha gevşek yapar ve ölçüm yanıltıcı olur — nitekim oldu: kök dışına
+    yazan bir kabuk yönlendirmesi (`echo x > ../y`) burada sessizce geçti, oysa
+    gerçek kullanıcıya sorulup reddedilebilirdi.
+
+    Karar `AutoApproval` ile aynı iki koşula bakar (bkz. `engines.agent.approval`):
+    yıkıcı değil VE gözetimsiz çalışmaya uygun. Değilse reddedilir.
+    """
 
     async def decide(self, request: ApprovalRequest) -> Decision:
-        return Decision.DENIED if request.danger is not None else Decision.ALLOW
+        if request.danger is None and request.unattended_safe:
+            return Decision.ALLOW
+        return Decision.DENIED
 
 
 class FusionAgentRunner:
