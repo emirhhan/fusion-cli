@@ -180,6 +180,45 @@ Bir sonraki adım tekrar sayısını artırmak değil, önce başarısızlık te
 eval şu an ne yapıldığını KAYDETMİYOR (sadece geç/kal ve çağrı sayısı). Transkript
 tutulmadan "agent neden hiçbir şey yapmadı" sorusu cevaplanamaz.
 
+## Analiz — ChromaDB opsiyonel extra yapılmalı mı? (2026-07-26)
+
+Soru: kurulum ağır (venv ~800 MB, en büyük parça ONNX runtime 73 MB). ChromaDB'yi
+`[memory]` extra'sına almak kurulumu küçültür mü, karşılığında ne kaybedilir?
+
+**Ölçüm.** ChromaDB'nin kendisi 6.5 MB; ağırlık bağımlılıklarında:
+
+    onnxruntime   73 MB   (gömme modeli — anlamsal arama)
+    tokenizers    8.5 MB
+    chromadb      6.5 MB
+
+Yani asıl yük vektör deposu değil, YEREL GÖMME modelidir.
+
+**Neyi kaybederiz.** Belleğe bağlı ürün özellikleri:
+
+- 83 küratörlü hazır ders — "eğitilmiş başlarsın" vaadi bunlara dayanıyor
+- Öz-öğrenme: her turdan ders çıkarma ve benzer görevde hatırlama
+- Kod indeksi: "X nerede yapılıyor?" sorusunun grep yerine anlamca cevaplanması
+- Ders güveni (decay), workspace kapsaması, geri bildirim döngüsü
+
+Bunlar ürünün kimliğinde: README "öz-öğrenen" diyor ve karşılama ekranı bunu
+vaat ediyor. Extra'ya taşımak, varsayılan kurulumda bu vaadin SESSİZCE karşılıksız
+kalması demektir — kullanıcı "öğreniyor" sanır, öğrenmez.
+
+**Karar: TAŞINMASIN.** Gerekçe kurulum boyutu değil, vaadin bütünlüğü. Bellek
+opsiyonel olsaydı iki farklı Fusion olurdu ve hangisinin çalıştığını kullanıcı
+bilemezdi; `fusion doctor` bunu raporlasa bile varsayılan deneyim bölünürdü.
+
+**Bunun yerine yapılabilecekler** (ölçülmedi, sıradaki adaylar):
+
+1. Gömme sağlayıcısını `nim`'e almak yerel ONNX'i gereksiz kılar — ama ağa bağımlı
+   hale getirir ve çevrimdışı kimliği bozar.
+2. `onnxruntime` yalnızca ilk gömme çağrısında yüklenebilir (tembel import);
+   kurulum boyutu değişmez ama açılış hızlanır.
+3. Kurulum sırasında ilerleme göstermek (yapıldı): kullanıcı boş ekrana bakmıyor.
+
+Not: 800 MB'ın tamamı Fusion'a ait değildir; `litellm` ve geliştirme araçları da
+dahildir. Kullanıcı kurulumunda `[dev]` yoktur.
+
 ## Karar bekleyen
 
 - **Sürüm sabitleme:** `requirements.lock` üretilmeli mi, yoksa `pyproject` alt/üst
