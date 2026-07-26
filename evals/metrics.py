@@ -25,6 +25,24 @@ class TaskResult:
     retries: int
     model_calls: int
     duration_seconds: float
+    #: Görevin kaç kez koşturulduğu (varsayılan 1).
+    runs: int = 1
+    #: Kaç koşuda geçtiği.
+    passes: int = 1
+
+    @property
+    def pass_rate(self) -> float:
+        """Geçme oranı. Tek koşuda 0.0 ya da 1.0'dır; asıl değeri tekrarda ortaya çıkar."""
+        return self.passes / self.runs if self.runs else 0.0
+
+    @property
+    def kararli(self) -> bool:
+        """Görev her koşuda AYNI sonucu verdi mi?
+
+        Kararsız bir görev "geçti"/"kaldı" diye özetlenemez: bir ayarın etkisini
+        ölçerken kararsızlık, ölçülen farkın gürültü olabileceği anlamına gelir.
+        """
+        return self.passes in (0, self.runs)
 
 
 def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
@@ -38,6 +56,29 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         retries=execution.retries,
         model_calls=execution.model_calls,
         duration_seconds=execution.duration_seconds,
+        runs=1,
+        passes=1 if success else 0,
+    )
+
+
+def merge_runs(results: list[TaskResult]) -> TaskResult:
+    """Aynı görevin N koşusunu tek sonuca indir.
+
+    `success` ÇOĞUNLUKLA değil, HEPSİ geçtiyse doğrudur: bir görev bazen kalıyorsa
+    o yetenek güvenilir değildir ve "geçti" demek yanıltıcı olur. Ayrıntı `pass_rate`
+    ve `kararli` alanlarındadır.
+    """
+    ilk = results[0]
+    gecen = sum(1 for item in results if item.success)
+    return TaskResult(
+        task_id=ilk.task_id,
+        success=gecen == len(results),
+        first_attempt_success=all(item.first_attempt_success for item in results),
+        retries=sum(item.retries for item in results),
+        model_calls=round(_mean([float(item.model_calls) for item in results])),
+        duration_seconds=_mean([item.duration_seconds for item in results]),
+        runs=len(results),
+        passes=gecen,
     )
 
 

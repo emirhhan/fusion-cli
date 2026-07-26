@@ -40,6 +40,13 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--workspace", type=Path, default=None, help="Çalışma dizinlerinin kökü (varsayılan: tmp)"
     )
+    run_parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Her görevi N kez koştur ve geçme oranını raporla (varsayılan 1). "
+        "Tek koşu gürültülüdür; bir ayarın etkisini ölçmek için 3-5 önerilir.",
+    )
 
     compare_parser = sub.add_parser("compare", help="İki raporu karşılaştır")
     compare_parser.add_argument("baseline", type=Path, help="Eski (temel) rapor JSON")
@@ -62,8 +69,9 @@ def _run(args: argparse.Namespace) -> int:
         clock=SystemClock(),
         seed_dir=args.seed,
     )
-    print(f"{len(tasks)} görev koşturuluyor (çalışma dizini: {workspace_root})…")
-    report = asyncio.run(run_suite(tasks, executor))
+    tekrar = f" × {args.repeat} tekrar" if args.repeat > 1 else ""
+    print(f"{len(tasks)} görev{tekrar} koşturuluyor (çalışma dizini: {workspace_root})…")
+    report = asyncio.run(run_suite(tasks, executor, repeat=args.repeat))
 
     _print_summary(report)
     if args.out is not None:
@@ -97,6 +105,14 @@ def _print_summary(report: RunReport) -> None:
     print(f"  toplam yeniden deneme  : {report.total_retries}")
     print(f"  ort. model çağrısı     : {report.mean_model_calls:.2f}")
     print(f"  ort. süre (sn)         : {report.mean_duration_seconds:.2f}")
+
+    kararsiz = [item for item in report.results if not item.kararli]
+    if kararsiz:
+        # Kararsız görev bir ayarın etkisini ölçerken gürültü kaynağıdır; sessizce
+        # ortalamaya karışmasın, adıyla yazılsın.
+        print("\n  KARARSIZ görevler (her koşuda aynı sonucu vermiyor):")
+        for item in kararsiz:
+            print(f"    {item.task_id:<32} {item.passes}/{item.runs} geçti")
 
 
 if __name__ == "__main__":

@@ -445,3 +445,86 @@ async def test_eval_onay_politikasi_urunle_ayni_karari_verir():
     assert await siki.decide(build_request(arac, {"command": "ls -la"})) is Decision.ALLOW
     # Gevşek duruş yetenek ölçümü içindir: olağan işe evet diyen kullanıcıyı modeller.
     assert await gevsek.decide(build_request(arac, kacis)) is Decision.ALLOW
+
+
+# --- Tekrarlı koşu: tek örnek karar veremez ---------------------------------- #
+
+
+async def test_gorev_n_kez_kosturulur():
+    """Tek koşu gürültülüdür ve karar desteklemez.
+
+    Ölçüldü (2026-07-26): aynı görev aynı ayarla bir koşuda kaldı, ötekinde geçti.
+    Bir ayarın (workflow_mode, kademe, verified_synthesis) işe yarayıp yaramadığı
+    tek örnekle söylenemez; geçme ORANI gerekir.
+    """
+    from evals.runner import run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="x",
+        request="-",
+        criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="tamam"),
+    )
+    cagri = {"sayi": 0}
+
+    class _Yurutucu:
+        async def run(self, task):
+            from evals.execution import TaskExecution
+
+            cagri["sayi"] += 1
+            return TaskExecution(task_id=task.id, output_text="tamam")
+
+    rapor = await run_suite((gorev,), _Yurutucu(), repeat=5)
+
+    assert cagri["sayi"] == 5
+    assert rapor.results[0].runs == 5
+    assert rapor.results[0].passes == 5
+    assert rapor.results[0].pass_rate == 1.0
+
+
+async def test_kararsiz_gorevin_orani_raporlanir():
+    """Bir geçip bir kalan görev 'geçti' ya da 'kaldı' diye özetlenemez."""
+    from evals.runner import run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="kararsiz",
+        request="-",
+        criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="tamam"),
+    )
+    sayac = {"n": 0}
+
+    class _Kararsiz:
+        async def run(self, task):
+            from evals.execution import TaskExecution
+
+            sayac["n"] += 1
+            metin = "tamam" if sayac["n"] % 2 else "olmadi"
+            return TaskExecution(task_id=task.id, output_text=metin)
+
+    rapor = await run_suite((gorev,), _Kararsiz(), repeat=4)
+
+    assert rapor.results[0].pass_rate == 0.5
+    assert rapor.results[0].kararli is False
+
+
+async def test_tek_tekrar_varsayilan_davranisi_korur():
+    from evals.runner import run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="x",
+        request="-",
+        criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="tamam"),
+    )
+
+    class _Yurutucu:
+        async def run(self, task):
+            from evals.execution import TaskExecution
+
+            return TaskExecution(task_id=task.id, output_text="tamam")
+
+    rapor = await run_suite((gorev,), _Yurutucu())
+
+    assert rapor.results[0].runs == 1
+    assert rapor.results[0].success is True
