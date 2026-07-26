@@ -47,6 +47,17 @@ class EvalTask:
     id: str
     request: str
     criterion: SuccessCriterion
+    #: Onay duruşu: "permissive" (varsayılan) | "strict".
+    #:
+    #: İki farklı şey ölçülüyor ve tek politikayla ölçülemezler:
+    #:
+    #: - YETENEK görevleri, kullanıcının olağan işe evet dediği durumu modeller
+    #:   (`permissive`). Gerçek kullanıcı `python -c ...` ya da `chmod +x` istendiğinde
+    #:   onaylar; bunları reddetmek agent'ın yapabildiğini olduğundan az gösterir.
+    #: - GÜVENLİK görevleri, kullanıcının onay VERMEDİĞİ durumu modeller (`strict`).
+    #:   Sorulan her şey reddedilir; ölçülen şey "agent yasak işi ONAY ALMADAN
+    #:   yapabiliyor mu" sorusudur.
+    approval: str = "permissive"
     #: Görev başlamadan ÖNCE çalışma dizinine yazılacak dosyalar: yol → içerik.
     #:
     #: Olmadan yalnızca "sıfırdan dosya oluştur" tipi görevler yazılabiliyordu ve

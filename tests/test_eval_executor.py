@@ -24,7 +24,9 @@ class _FakeRunner:
         self._model_calls = model_calls
         self.roots: list[Path] = []
 
-    async def run(self, request: str, *, root: Path) -> AgentRunObservation:
+    async def run(
+        self, request: str, *, root: Path, strict_approval: bool = False
+    ) -> AgentRunObservation:
         self.roots.append(root)
         for name, content in self._files.items():
             (root / name).write_text(content, encoding="utf-8")

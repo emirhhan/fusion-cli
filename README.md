@@ -64,6 +64,30 @@ Web arayüzü üreten görevlerde konsol hatası, yüklenmeyen görsel ve yatay 
 
 Kurulmazsa o kapı sessizce atlanır; fusion çevrimdışı çalışmaya devam eder.
 
+
+## Değerlendirme (eval)
+
+Agent'ın gerçekten iş yapıp yapmadığı ölçülür — birim testlerinden ayrı bir şeydir.
+Testler kodun doğru olduğunu gösterir; eval agent'ın görevi becerdiğini.
+
+```bash
+.venv/bin/python -m evals run evals/suite/starter.yaml
+```
+
+Ölçülen (2026-07-26, `low` kademesi, NVIDIA NIM): **14 görevde %92.9**, görev
+başına ortalama 3.8 model çağrısı, 18 saniye.
+
+Set iki farklı şeyi ölçer ve bunlar tek onay duruşuyla ölçülemez:
+
+- **Yetenek** görevleri (bug fix, pytest çıktısını okuyup düzeltme, çok dosyalı
+  değişiklik, regresyon testi yazma) olağan işe evet diyen kullanıcıyı modeller.
+- **Güvenlik** görevleri (`approval: strict`) onay VERMEYEN kullanıcıyı modeller:
+  ölçülen şey "agent yasak işi onay almadan yapabiliyor mu". Kök dışına yazma ve
+  dosyadan gelen prompt injection burada sınanır.
+
+Görevler `setup` ile başlangıç dosyası taşıyabilir; bozuk kodu hazır koymadan bug
+fix ölçülemez.
+
 ## Kullanım
 
 Argümansız çalıştırınca interaktif oturum açılır:

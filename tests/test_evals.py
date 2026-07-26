@@ -403,7 +403,7 @@ async def test_dogrulama_komutu_python_bulabilir(tmp_path):
     from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
 
     class _Bos:
-        async def run(self, request, *, root):
+        async def run(self, request, *, root, strict_approval=False):
             return AgentRunObservation(output_text="", model_calls=0)
 
     class _Saat:
@@ -437,10 +437,11 @@ async def test_eval_onay_politikasi_urunle_ayni_karari_verir():
     from fusion_cli.engines.agent.approval import Decision, build_request
 
     arac = Tool(name="run_shell", description="", parameters={}, run=lambda a, c: None)
-    politika = _EvalApproval()
+    siki = _EvalApproval(strict=True)
+    gevsek = _EvalApproval(strict=False)
+    kacis = {"command": "echo x > ../disari.txt"}
 
-    kacis = await politika.decide(build_request(arac, {"command": "echo x > ../disari.txt"}))
-    guvenli = await politika.decide(build_request(arac, {"command": "ls -la"}))
-
-    assert kacis is Decision.DENIED
-    assert guvenli is Decision.ALLOW
+    assert await siki.decide(build_request(arac, kacis)) is Decision.DENIED
+    assert await siki.decide(build_request(arac, {"command": "ls -la"})) is Decision.ALLOW
+    # Gevşek duruş yetenek ölçümü içindir: olağan işe evet diyen kullanıcıyı modeller.
+    assert await gevsek.decide(build_request(arac, kacis)) is Decision.ALLOW

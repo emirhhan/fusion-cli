@@ -64,7 +64,18 @@ def _parse_task(item: object) -> EvalTask:
         request=str(item["request"]),
         criterion=_parse_criterion(item["criterion"]),
         setup=_parse_setup(item.get("setup")),
+        approval=_parse_approval(item.get("approval")),
     )
+
+
+def _parse_approval(raw: object) -> str:
+    """Onay duruşunu doğrula. Bilinmeyen değer sessizce varsayılana düşmez."""
+    if raw is None:
+        return "permissive"
+    value = str(raw)
+    if value not in {"permissive", "strict"}:
+        raise EvalError(f"bilinmeyen onay duruşu: {value!r} (permissive | strict)")
+    return value
 
 
 def _parse_setup(raw: object) -> dict[str, str]:

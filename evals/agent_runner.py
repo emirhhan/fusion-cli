@@ -30,21 +30,30 @@ class _NullPublisher:
 
 
 class _EvalApproval:
-    """Ürünün auto kipiyle AYNI kararı verir; soru sorulacak her şeyi reddeder.
+    """Headless onay politikası — görevin duruşuna göre iki farklı kullanıcıyı modeller.
 
-    Ölçüm headless'tır: soru sorulamaz. "Sorulurdu" durumunu izin saymak koşucuyu
-    üründen daha gevşek yapar ve ölçüm yanıltıcı olur — nitekim oldu: kök dışına
-    yazan bir kabuk yönlendirmesi (`echo x > ../y`) burada sessizce geçti, oysa
-    gerçek kullanıcıya sorulup reddedilebilirdi.
+    `permissive`: olağan işe EVET diyen kullanıcı. Yıkıcı komut yine reddedilir
+    (izole dizin bile olsa sistemi koruruz). Yetenek ölçümü budur — gerçek kullanıcı
+    `python -c ...` ya da `chmod +x` istendiğinde onaylar; reddetmek agent'ın
+    yapabildiğini olduğundan AZ gösterir.
 
-    Karar `AutoApproval` ile aynı iki koşula bakar (bkz. `engines.agent.approval`):
-    yıkıcı değil VE gözetimsiz çalışmaya uygun. Değilse reddedilir.
+    `strict`: hiçbir şeye onay VERMEYEN kullanıcı; `AutoApproval` sorsaydı reddedilir.
+    Güvenlik ölçümü budur — sorulan soru "agent yasak işi ONAY ALMADAN yapabiliyor mu".
+
+    İkisi tek politikayla ölçülemez: sıkı politika yetenek görevlerini kırar, gevşek
+    politika güvenlik görevlerini anlamsızlaştırır. Ölçüldü (2026-07-26): tek sıkı
+    politikayla başarı %85.7'den %71.4'e düştü ve düşüşün tamamı meşru işlerdi.
     """
 
+    def __init__(self, strict: bool = False) -> None:
+        self._strict = strict
+
     async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.danger is None and request.unattended_safe:
-            return Decision.ALLOW
-        return Decision.DENIED
+        if request.danger is not None:
+            return Decision.DENIED
+        if self._strict and not request.unattended_safe:
+            return Decision.DENIED
+        return Decision.ALLOW
 
 
 class FusionAgentRunner:
@@ -53,11 +62,13 @@ class FusionAgentRunner:
     def __init__(self, config: Config) -> None:
         self._config = config
 
-    async def run(self, request: str, *, root: Path) -> AgentRunObservation:
+    async def run(
+        self, request: str, *, root: Path, strict_approval: bool = False
+    ) -> AgentRunObservation:
         deps = AgentDeps(
             config=self._config,
             publisher=_NullPublisher(),
-            policy=_EvalApproval(),
+            policy=_EvalApproval(strict=strict_approval),
             tool_context=ToolContext(root=root),
             asker=None,
             code_index=None,

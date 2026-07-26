@@ -41,7 +41,9 @@ class AgentRunObservation:
 class AgentRunner(Protocol):
     """Bir isteği belirli bir kök dizinde agent'la çalıştıran taraf."""
 
-    async def run(self, request: str, *, root: Path) -> AgentRunObservation: ...
+    async def run(
+        self, request: str, *, root: Path, strict_approval: bool = False
+    ) -> AgentRunObservation: ...
 
 
 class Clock(Protocol):
@@ -71,7 +73,9 @@ class AgentTaskExecutor:
         before = _snapshot(workspace)
 
         start = self._clock.monotonic()
-        observation = await self._agent_runner.run(task.request, root=workspace)
+        observation = await self._agent_runner.run(
+            task.request, root=workspace, strict_approval=task.approval == "strict"
+        )
         duration = self._clock.monotonic() - start
 
         changed = _changed_files(before, _snapshot(workspace))
