@@ -65,10 +65,28 @@ if [ "$DEV" -eq 0 ]; then
         pipx install --force . || hata "pipx ile kurulum başarısız."
         YONTEM=pipx
     else
-        adim "pip --user ile kuruluyor (uv/pipx bulunamadı)…"
-        uyari "İzole kurulum için önerilen: uv (https://docs.astral.sh/uv/) ya da pipx."
-        "$PYTHON" -m pip install --user . || hata "Kurulum başarısız."
-        YONTEM="pip --user"
+        # `pip install --user` GÜVENİLİR DEĞİL: PEP 668 ile yönetilen Python
+        # kurulumlarında (Homebrew, uv, dağıtım paketleri) "externally-managed-
+        # environment" hatası verir — ölçüldü. `--break-system-packages` ise tam
+        # da bu korumayı deldiği için kullanılmaz.
+        #
+        # Bunun yerine pipx'in yaptığı elle yapılır: kullanıcı veri dizininde
+        # ADANMIŞ bir sanal ortam kurulur ve ikili ~/.local/bin'e bağlanır.
+        # İzole, kullanıcı-local, sistem Python'ını kirletmez.
+        adim "İzole sanal ortam kuruluyor (uv/pipx bulunamadı)…"
+        uyari "Daha temiz kurulum için önerilen: uv (https://docs.astral.sh/uv/) ya da pipx."
+        VERI_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fusion-cli"
+        ARAC_VENV="$VERI_DIR/venv"
+        BIN_DIR="$HOME/.local/bin"
+        "$PYTHON" -m venv "$ARAC_VENV" || hata "Sanal ortam oluşturulamadı."
+        "$ARAC_VENV/bin/python" -m pip install --quiet --upgrade pip
+        if ! "$ARAC_VENV/bin/python" -m pip install --quiet .; then
+            uyari "Sessiz kurulum başarısız; gerçek hata aşağıda:"
+            "$ARAC_VENV/bin/python" -m pip install . || hata "Kurulum başarısız."
+        fi
+        mkdir -p "$BIN_DIR"
+        ln -sf "$ARAC_VENV/bin/fusion" "$BIN_DIR/fusion"
+        YONTEM="izole venv ($ARAC_VENV)"
     fi
     bitti "Kuruldu ($YONTEM)."
 
@@ -76,11 +94,9 @@ if [ "$DEV" -eq 0 ]; then
     if command -v fusion >/dev/null 2>&1; then
         FUSION=fusion
     else
-        FUSION="$("$PYTHON" -c 'import site,sys,os
-base = site.getuserbase()
-alt = os.path.join(base, "Scripts" if sys.platform == "win32" else "bin", "fusion")
-print(alt if os.path.exists(alt) else "")' 2>/dev/null)"
-        [ -n "$FUSION" ] || FUSION="$HOME/.local/bin/fusion"
+        FUSION="$HOME/.local/bin/fusion"
+        [ -x "$FUSION" ] || FUSION="${XDG_DATA_HOME:-$HOME/.local/share}/fusion-cli/venv/bin/fusion"
+        [ -x "$FUSION" ] || hata "Kurulum tamamlandı ama 'fusion' ikilisi bulunamadı."
     fi
 
     printf '\n'

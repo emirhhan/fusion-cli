@@ -66,11 +66,24 @@ if (-not $Dev) {
         $yontem = 'pipx'
     }
     else {
-        Adim 'pip --user ile kuruluyor (uv/pipx bulunamadi)...'
-        Uyari 'Izole kurulum icin onerilen: uv (https://docs.astral.sh/uv/) ya da pipx.'
-        & $pyKomut @pyArg -m pip install --user .
-        if ($LASTEXITCODE -ne 0) { Hata 'Kurulum basarisiz.' }
-        $yontem = 'pip --user'
+        # `pip install --user` guvenilir degil: PEP 668 ile yonetilen Python
+        # kurulumlarinda hata verir. Bunun yerine pipx'in yaptigi elle yapilir:
+        # kullanici veri dizininde adanmis bir sanal ortam.
+        Adim 'Izole sanal ortam kuruluyor (uv/pipx bulunamadi)...'
+        Uyari 'Daha temiz kurulum icin onerilen: uv (https://docs.astral.sh/uv/) ya da pipx.'
+        $veriDir = Join-Path $env:LOCALAPPDATA 'fusion-cli'
+        $aracVenv = Join-Path $veriDir 'venv'
+        & $pyKomut @pyArg -m venv $aracVenv
+        if ($LASTEXITCODE -ne 0) { Hata 'Sanal ortam olusturulamadi.' }
+        & "$aracVenv\Scripts\python.exe" -m pip install --quiet --upgrade pip
+        & "$aracVenv\Scripts\python.exe" -m pip install --quiet .
+        if ($LASTEXITCODE -ne 0) {
+            Uyari 'Sessiz kurulum basarisiz; gercek hata asagida:'
+            & "$aracVenv\Scripts\python.exe" -m pip install .
+            if ($LASTEXITCODE -ne 0) { Hata 'Kurulum basarisiz.' }
+        }
+        $yontem = "izole venv ($aracVenv)"
+        $script:fallbackBin = Join-Path $aracVenv 'Scripts\fusion.exe'
     }
     Bitti "Kuruldu ($yontem)."
 
@@ -78,9 +91,14 @@ if (-not $Dev) {
     # PATH ipucunu `fusion doctor` uretir (mantik Python tarafinda, kopyalanmaz).
     $fusion = 'fusion'
     if (-not (Get-Command fusion -ErrorAction SilentlyContinue)) {
-        $taban = & $pyKomut @pyArg -c 'import site; print(site.getuserbase())'
-        $aday = Join-Path $taban 'Scripts\fusion.exe'
-        if (Test-Path $aday) { $fusion = $aday }
+        if ($script:fallbackBin -and (Test-Path $script:fallbackBin)) {
+            $fusion = $script:fallbackBin
+        }
+        else {
+            $taban = & $pyKomut @pyArg -c 'import site; print(site.getuserbase())'
+            $aday = Join-Path $taban 'Scripts\fusion.exe'
+            if (Test-Path $aday) { $fusion = $aday }
+        }
     }
 
     Write-Host ''
