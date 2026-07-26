@@ -40,13 +40,15 @@ def build_provider(
 
     `hedge_delay_s` zorunludur ve varsayılanı YOKTUR: yedeklerin ne zaman devreye
     gireceği ürün kararıdır, kütüphane varsayılanı değil. Değer `defaults.yaml`'dan
-    (`runtime.hedge_delay_s`) gelir.
+    (`runtime.hedge_delay_s`) gelir ve GENEL varsayılandır; rolün kendi
+    `spec.hedge_delay_s` değeri varsa o kazanır — pencere birincil modelin hızına
+    aittir, motorun geneline değil (bkz. `ModelSpec.hedge_delay_s`).
     """
     configure_litellm()
     inner = HedgedProvider(
         [LiteLlmProvider(model, role=spec.name, clock=clock) for model in spec.models],
         role=spec.name,
-        hedge_delay_s=hedge_delay_s,
+        hedge_delay_s=spec.hedge_delay_s if spec.hedge_delay_s is not None else hedge_delay_s,
     )
     if publisher is None:
         return inner

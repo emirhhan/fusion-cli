@@ -10,6 +10,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .errors import ConfigError
+
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
@@ -77,14 +79,37 @@ class Message:
 class ModelSpec:
     """Bir model rolünün tanımı: birincil model + yedek zinciri.
 
-    `fallback` yedek model kimlikleridir. Hedged çağrıda birincil ile AYNI ANDA
-    denenirler; ilk başarılı yanıt kazanır (bkz. `providers.hedged`).
+    `fallback` yedek model kimlikleridir. Hedged çağrıda birincile bir öncelik
+    penceresi tanınır, pencere dolarsa yedekler yarışa girer ve ilk kullanılabilir
+    yanıt kazanır (bkz. `providers.hedged`).
     """
 
     name: str
     model: str
     tags: tuple[str, ...] = ()
     fallback: tuple[str, ...] = ()
+    #: Bu role özgü öncelik penceresi (saniye). None ise `runtime.hedge_delay_s`
+    #: genel varsayılanı kullanılır.
+    #:
+    #: Neden role özgü: pencere tek bir sabitken (2.5s, nemotron-super ölçülerek
+    #: belirlenmişti) yavaş modeller kendi yarışlarını yedeklerine KAYBEDİYORDU.
+    #: Ölçülen sürelerle (`defaults.yaml` kademe etiketleri) doğrulandı: premium
+    #: seçen kullanıcıya glm-5.2 yerine nemotron-ultra, ultra seçene nemotron-super
+    #: cevap veriyordu. Pencere birincilin hızına ait bir değerdir; motorun geneline
+    #: ait değil.
+    hedge_delay_s: float | None = None
+
+    def __post_init__(self) -> None:
+        """Negatif pencere anlamsızdır ve sessizce 'yedekler hemen başlasın'a dönerdi.
+
+        Doğrulama yükleyicide değil BURADA durur: spec'i yalnızca `config.loader`
+        kurmuyor (kademe uygulama, `/development`, testler de kuruyor) ve değişmezin
+        tek bir yolda tutulması onu ötekilerde geçersiz kılardı.
+        """
+        if self.hedge_delay_s is not None and self.hedge_delay_s < 0:
+            raise ConfigError(
+                f"'{self.name}': hedge_delay_s negatif olamaz, gelen: {self.hedge_delay_s}"
+            )
 
     @property
     def models(self) -> tuple[str, ...]:

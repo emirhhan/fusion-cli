@@ -17,7 +17,8 @@ from __future__ import annotations
 import dataclasses
 import os
 from pathlib import Path
-from typing import Any, TypeVar, get_args, get_origin, get_type_hints
+from types import UnionType
+from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import yaml
 from dotenv import dotenv_values
@@ -324,6 +325,13 @@ def _has_default(field: dataclasses.Field[Any]) -> bool:
 
 def _convert(value: object, target: object, where: str) -> object:
     """Ham YAML değerini hedef tipe çevir; uymuyorsa anlaşılır hata ver."""
+    optional = _optional_inner(target)
+    if optional is not None:
+        # `X | None`: YAML'da yazılmamış ya da açıkça `null` yazılmış alan None kalır,
+        # dolu alan `X` gibi çevrilir. Bu genel kural, tek bir alan için özel dal
+        # açmaya gerek bırakmaz.
+        return None if value is None else _convert(value, optional, where)
+
     if dataclasses.is_dataclass(target) and isinstance(target, type):
         return _build(target, value, where)
 
@@ -345,6 +353,20 @@ def _convert(value: object, target: object, where: str) -> object:
         return _expect(value, str, "metin", where)
 
     raise ConfigError(f"{where}: desteklenmeyen ayar tipi: {target!r}")
+
+
+def _optional_inner(target: object) -> object | None:
+    """Hedef `X | None` ise `X`'i, değilse None döndür.
+
+    İki union sözdizimi de tanınır: `X | None` (`types.UnionType`) ve
+    `Optional[X]` (`typing.Union`). Yalnızca TEK gerçek tip + None desteklenir;
+    çok üyeli union'da hangi üyeye çevrileceği belirsiz olurdu ve sessizce
+    yanlış tipe düşmek yapılandırma katmanında kabul edilemez.
+    """
+    if get_origin(target) not in (UnionType, Union):
+        return None
+    members = [arg for arg in get_args(target) if arg is not type(None)]
+    return members[0] if len(members) == 1 else None
 
 
 def _convert_tuple(value: object, target: object, where: str) -> tuple[object, ...]:

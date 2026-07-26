@@ -285,3 +285,41 @@ async def test_hiz_siniri_yedegi_tetikler_ve_kullaniciya_yansimaz():
 
     assert sonuc.ok and sonuc.model == "calisan"
     assert not sonuc.is_rate_limited, "kullanıcı 429 görmemeli; yedek devraldı"
+
+
+# --------------------------------------------------------------------------- #
+# Pencere rol başınadır — yavaş model kendi yarışını kaybetmemeli
+# --------------------------------------------------------------------------- #
+
+
+async def test_yavas_birincil_kendi_penceresiyle_yarisi_kazanir():
+    """Hatanın tam şekli: yavaş ama SEÇİLMİŞ model, küçük yedeğine kaybediyordu.
+
+    Tek genel pencere (2.5s) hızlı bir modelden ölçülmüştü ve yavaş rollere de
+    uygulanıyordu; pencere dolunca yedek başlıyor ve daha hızlı olduğu için
+    yarışı alıyordu. Kullanıcı bir kademe seçip bir alt kademenin cevabını
+    görüyordu. Rolün kendi penceresi bunu imkânsız kılar.
+    """
+    birincil = FakeProvider("secilen-yavas", chunks=("nitelikli",), delay=0.3)
+    yedek = FakeProvider("yedek-hizli", chunks=("zayif",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=0.9)
+
+    result = await hedged.complete(request())
+
+    assert result.model == "secilen-yavas"
+    assert not yedek.started, "pencere yeterliyse yedek hiç çağrılmamalı"
+
+
+async def test_dar_pencerede_yavas_birincil_kaybeder():
+    """Aynı kurulum, YALNIZCA pencere dar: hata yeniden üretilebilir olmalı.
+
+    Bu test düzeltmenin gerçekten pencereye bağlı olduğunu gösterir; başka bir
+    yan etkinin sonucu tesadüfen düzeltmediğini doğrular.
+    """
+    birincil = FakeProvider("secilen-yavas", chunks=("nitelikli",), delay=0.3)
+    yedek = FakeProvider("yedek-hizli", chunks=("zayif",), delay=0.0)
+    hedged = HedgedProvider([birincil, yedek], role="agent", hedge_delay_s=0.05)
+
+    result = await hedged.complete(request())
+
+    assert result.model == "yedek-hizli"

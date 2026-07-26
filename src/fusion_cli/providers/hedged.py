@@ -20,6 +20,24 @@ yarıştırmada küçük model neredeyse her turda kazanır ve yapılandırmada 
 model pratikte hiç kullanılmaz — dayanıklılık sessizce kalite kaybına dönüşür. Pencere,
 yedekleri yalnızca GERÇEK arıza durumunda (yavaşlık, 429, soğuk uç) devreye sokar.
 
+PENCERENİN BİRİMİ — iki yol farklı şey ölçer ve değer buna göre yazılır:
+
+    complete()  pencere, birincilin ÇAĞRIYI TAMAMLAMASINA tanınır.
+    stream()    pencere, birincilin İLK ÇIKTIYI üretmesine tanınır.
+
+Bu yüzden değer, birincil modelin ÖLÇÜLEN TAM YANIT SÜRESİNE göre yazılır (bkz.
+`defaults.yaml`: kademe etiketlerindeki süreler, üç katı alınarak). Tam süreye göre
+yazılan bir pencere `complete()` için doğrudur ve `stream()` için fazlasıyla
+cömerttir — ikisinde de yedek yalnızca gerçek arızada devreye girer.
+
+Tersi yapılırsa hata sessizdir: pencere ilk-token süresine göre yazılmıştı (2.5s,
+tek bir hızlı modelden) ve `complete()` yolunda hiçbir model o sürede BİTMEDİĞİ için
+yedekler her turda başlıyordu. Yavaş ama yetenekli model kendi yarışını küçük
+yedeğine kaybediyordu; kullanıcı bir kademe seçip bir alt kademenin cevabını alıyordu.
+
+Pencere ROL BAŞINADIR (`ModelSpec.hedge_delay_s`): hız birincil modelin özelliğidir,
+motorun geneline ait bir sabit değildir. Rol yazmazsa `runtime.hedge_delay_s` geçerli.
+
 `hedge_delay_s=0` bugüne kadarki "hepsi aynı anda" davranışıdır; artık varsayılan değil,
 açık bir tercihtir.
 """
