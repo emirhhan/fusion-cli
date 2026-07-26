@@ -47,6 +47,13 @@ NVIDIA NIM eklersen **ayrı bir ücretsiz kotadan** çalışırsın ve bazı rol
 kayar; eklemezsen model zincirlerinden sessizce düşülür ve hiçbir kademe boşta
 kalmaz. Modeller kurulu anahtarlarına göre kendiliğinden ayarlanır.
 
+> **Sağlayıcı seçimi ve kota.** Varsayılan `auto`: zincir iki sağlayıcıya yayılır,
+> biri yavaşsa ya da hata verirse öteki devreye girer. Bedeli şudur — bir sağlayıcı
+> tükenince tüm yük ötekine biner ve onun kotası da hızla biter. Ölçüldü: NIM kredisi
+> bitince OpenRouter'ın günlük 50 isteği birkaç dakikada tükendi. `/provider` ile tek
+> sağlayıcıya kilitlenirsen ötekine **hiç** istek gitmez; kota öngörülebilir olur ama
+> yedek kalmaz.
+
 > **Ücretsiz katman sınırları.** OpenRouter'ın `:free` modelleri **hesap başına**
 > 20 istek/dakika ve 50 istek/gün ile sınırlıdır (hesaba bir kerelik $10 kredi
 > yüklenirse 1000/gün). Sınır model başına DEĞİLDİR — model değiştirmek kotayı
@@ -149,7 +156,7 @@ Dar terminalde büyük imza tek satırlık sürümüne iner; hiçbir genişlikte
 | Agent | `/reset` `/compact` `/verify` `/undo` |
 | Fusion | `/type <tip>` `/all` `/synth` |
 | Bellek | `/good` `/bad` `/revise` `/learn <kural>` `/seed` `/reindex` `/stats` `/lessons` |
-| Model | `/level [kademe]` `/development` |
+| Model | `/level [kademe]` `/development` `/provider` |
 | Bilgi | `/models` `/model` `/cost` `/help` `/clear` `/exit` |
 | Makro | `/goal` `/grill-me` `/bug` `/commit` `/review` `/browser` `/schedule` |
 

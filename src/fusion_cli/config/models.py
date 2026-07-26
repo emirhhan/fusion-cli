@@ -43,6 +43,13 @@ class RuntimeConfig:
     straggler_grace_s: float
     #: İlk cevaptan itibaren adaylar için mutlak üst sınır.
     candidate_hard_cap_s: float
+    #: Hangi sağlayıcıya kilitlenildiği: "auto" | "nvidia" | "openrouter".
+    #:
+    #: `auto` zinciri iki sağlayıcıya yayar (dayanıklılık). Tek sağlayıcı seçilirse
+    #: ötekinin kotasına HİÇ dokunulmaz — bir sağlayıcının tükenmesi ötekini de
+    #: tüketmesin diye (ölçüldü: NIM bitince tüm yük OpenRouter'a düştü ve günlük
+    #: 50 istek birkaç dakikada bitti).
+    provider: str
     #: Sentez, hakemin kararını GÖREREK mi çalışsın?
     #:
     #: False (hızlı kip): hakem ve sentez paralel çalışır, gecikme ikisinin

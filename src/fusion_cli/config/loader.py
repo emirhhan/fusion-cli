@@ -24,7 +24,7 @@ from dotenv import dotenv_values
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
-from .keys import detect, prune_config
+from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import Config, EmbeddingConfig, RuntimeConfig, TierSpec
 from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
 
@@ -62,6 +62,18 @@ def load_environment() -> None:
                 os.environ[key] = value
 
 
+def _preference(config: Config) -> ProviderPreference:
+    """Yapılandırmadaki sağlayıcı tercihini çöz. Tanınmayan değer hata verir:
+    sessizce `auto`ya düşmek, kullanıcının kotasını koruduğunu sanmasına yol açardı."""
+    try:
+        return ProviderPreference(config.runtime.provider.strip().lower())
+    except ValueError as exc:
+        gecerli = ", ".join(item.value for item in ProviderPreference)
+        raise ConfigError(
+            f"Bilinmeyen sağlayıcı tercihi: {config.runtime.provider!r}. Geçerli: {gecerli}"
+        ) from exc
+
+
 def load_config(path: str | Path | None = None) -> Config:
     """Yapılandırmayı yükle ve doğrula.
 
@@ -83,7 +95,12 @@ def load_config(path: str | Path | None = None) -> Config:
     try:
         # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı
         # olmayan kullanıcı her rolde önce başarısız bir çağrı yapıp yedeğe düşerdi.
-        return prune_config(_assemble(merged, source), detect())
+        yapilandirma = _assemble(merged, source)
+        # Sıra önemlidir: önce kullanıcının TERCİHİ uygulanır, sonra anahtarı
+        # olmayan sağlayıcılar budanır. Tersi olsaydı tercih, budamanın bıraktığı
+        # zincire uygulanır ve etkisi kullanıcıya göre değişirdi.
+        yapilandirma = apply_preference(yapilandirma, _preference(yapilandirma))
+        return prune_config(yapilandirma, detect())
     except ConfigError as exc:
         # Hangi dosyanın suçlu olduğu söylenmezse kullanıcı aramak zorunda kalıyor;
         # dosya birden çok yerde olabiliyor (FUSION_CONFIG, ./, kullanıcı dizini).

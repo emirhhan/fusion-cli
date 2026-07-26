@@ -20,7 +20,7 @@ from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...ui import messages
-from . import macros, model_flows, verify_flow
+from . import macros, model_flows, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
@@ -242,6 +242,13 @@ def _undo(state: ReplState, argument: str) -> str:
     return messages.UNDO_DONE.format(count=len(geri_alinan), paths=yollar)
 
 
+def _provider(state: ReplState, argument: str) -> str:
+    """`/provider` — hangi sağlayıcının kullanılacağını seç."""
+    result = provider_flow.choose_provider(state.config)
+    state.config = result.config
+    return result.message
+
+
 def _verify(state: ReplState, argument: str) -> str:
     """`/verify` — projeden doğrulama planı çıkar, onaylat, kalıcılaştır."""
     result = verify_flow.choose_verification(state.config, state.root)
@@ -352,6 +359,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
+    SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
     SlashCommand(
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),

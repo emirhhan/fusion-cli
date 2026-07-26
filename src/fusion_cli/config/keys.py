@@ -15,7 +15,9 @@ tur önce başarısız bir `nvidia_nim/` çağrısı yapılıyor, sonra yedeğe 
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from enum import Enum
 
 from ..core.types import ModelSpec
 from .models import Config
@@ -69,6 +71,74 @@ def detect(environ: dict[str, str] | None = None) -> ProviderKeys:
     )
 
 
+class ProviderPreference(Enum):
+    """Kullanıcının hangi sağlayıcıya kilitlendiği.
+
+    Neden gerekli: bir sağlayıcının tükenmesi ötekini de tüketiyordu. NIM kredisi
+    bitince her çağrı yedeğe düştü, hepsi OpenRouter'a gitti ve günlük 50 istek
+    birkaç dakikada bitti — kullanıcı iki kotayı birden kaybetti ve sebebini
+    göremedi. Tercih belirlenince ötekinin kotasına HİÇ dokunulmaz.
+
+    `AUTO` varsayılandır ve mevcut davranışı korur: zincir iki sağlayıcıya yayılır,
+    biri yavaşsa/hata verirse öteki devreye girer. Dayanıklılık ile kota
+    öngörülebilirliği arasındaki takas kullanıcının kararıdır.
+    """
+
+    AUTO = "auto"
+    NVIDIA = "nvidia"
+    OPENROUTER = "openrouter"
+
+    @property
+    def prefix(self) -> str:
+        """Bu tercihin izin verdiği model öneki. AUTO'da anlamsızdır."""
+        return NIM_PREFIX if self is ProviderPreference.NVIDIA else OPENROUTER_PREFIX
+
+    @property
+    def excluded_prefix(self) -> str:
+        """Bu tercihte zincirden çıkarılacak önek."""
+        return OPENROUTER_PREFIX if self is ProviderPreference.NVIDIA else NIM_PREFIX
+
+
+def apply_preference(config: Config, preference: ProviderPreference) -> Config:
+    """Zincirleri tek bir sağlayıcıya indir. `AUTO` ise yapılandırma değişmez."""
+    if preference is ProviderPreference.AUTO:
+        return config
+    return _map_specs(config, lambda spec: _only(spec, preference.excluded_prefix))
+
+
+def _only(spec: ModelSpec, excluded: str) -> ModelSpec:
+    """Zincirden bir sağlayıcıyı çıkar.
+
+    Zincirin tamamı düşerse spec DEĞİŞMEZ: modelsiz rol turu çökertir ve "hiç model
+    yok" hatası, kullanıcının anlayabileceği bir şey değildir. Tanınmayan önekler
+    (ollama, vLLM) hiç elenmez — yönettiğimiz iki sağlayıcıdan biri değildirler.
+    """
+    kalan = tuple(model for model in spec.models if not model.startswith(excluded))
+    if not kalan or kalan == spec.models:
+        return spec
+    return replace(spec, model=kalan[0], fallback=kalan[1:])
+
+
+def _map_specs(config: Config, donustur: Callable[[ModelSpec], ModelSpec]) -> Config:
+    """Tüm rollerin spec'lerine aynı dönüşümü uygula (kademeler dahil)."""
+    return replace(
+        config,
+        agent=donustur(config.agent),
+        judge=donustur(config.judge),
+        candidates=tuple(donustur(spec) for spec in config.candidates),
+        vision=donustur(config.vision) if config.vision else None,
+        tiers=tuple(
+            replace(
+                tier,
+                agent=donustur(tier.agent),
+                judge=donustur(tier.judge),
+                candidates=tuple(donustur(spec) for spec in tier.candidates),
+            )
+            for tier in config.tiers
+        ),
+    )
+
+
 def prune_spec(spec: ModelSpec, keys: ProviderKeys) -> ModelSpec:
     """Bir rolün model zincirinden anahtarı olmayan sağlayıcıları çıkar.
 
@@ -94,19 +164,4 @@ def prune_config(config: Config, keys: ProviderKeys) -> Config:
         return config
     if keys.openrouter and keys.nim:
         return config
-    return replace(
-        config,
-        agent=prune_spec(config.agent, keys),
-        judge=prune_spec(config.judge, keys),
-        candidates=tuple(prune_spec(spec, keys) for spec in config.candidates),
-        vision=prune_spec(config.vision, keys) if config.vision else None,
-        tiers=tuple(
-            replace(
-                tier,
-                agent=prune_spec(tier.agent, keys),
-                judge=prune_spec(tier.judge, keys),
-                candidates=tuple(prune_spec(spec, keys) for spec in tier.candidates),
-            )
-            for tier in config.tiers
-        ),
-    )
+    return _map_specs(config, lambda spec: prune_spec(spec, keys))

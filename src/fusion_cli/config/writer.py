@@ -83,6 +83,21 @@ def write_verification_commands(
     return target
 
 
+def write_provider(config: Config, provider: str, path: Path | None = None) -> Path:
+    """Sağlayıcı tercihini `runtime:` altına yaz; yazılan yolu döndür.
+
+    Yalnızca bu anahtar güncellenir; `runtime`ın diğer ayarları korunur.
+    """
+    target = path or _target_path(config)
+    existing = _read_existing(target)
+    runtime = existing.get("runtime")
+    updated = dict(runtime) if isinstance(runtime, dict) else {}
+    updated["provider"] = provider
+    existing["runtime"] = updated
+    _atomic_write(target, existing)
+    return target
+
+
 def _target_path(config: Config) -> Path:
     """Yazılacak dosya: yapılandırmanın geldiği dosya, yoksa kullanıcı dizini."""
     if config.source is not None:

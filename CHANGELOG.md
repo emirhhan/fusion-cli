@@ -18,6 +18,9 @@ görünürken arka planda hiçbir iş yapmıyordu.
 - **`/undo`** — son agent turunun dosya değişikliklerini geri alır. Yalnızca
   agent'ın dokunduğu dosyalar; kullanıcının elle yazdıklarına dokunulmaz.
 - **`--add-dir`** — proje kökünün yanında erişime açılacak dizin.
+- **`/provider`** — hangi sağlayıcının kullanılacağını seç (`auto` | `nvidia` |
+  `openrouter`). Tek sağlayıcıya kilitlenince ötekine hiç istek gitmez: bir
+  sağlayıcının tükenmesi ötekini de tüketiyordu.
 - **Kurulum sihirbazı anahtar sorar.** OpenRouter zorunlu, NVIDIA NIM opsiyonel.
   83 küratörlü ders otomatik yüklenir: indiren herkes eğitilmiş başlar.
 - **Model zincirleri kurulu anahtarlara göre budanır.** İki sağlayıcıdan biri

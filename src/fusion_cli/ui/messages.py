@@ -251,6 +251,18 @@ LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
 LEVEL_SAVED = "kaydedildi: {path}"
 LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
 
+# --- Sağlayıcı tercihi (/provider) ----------------------------------------- #
+PROVIDER_TITLE = "Hangi sağlayıcı kullanılsın?"
+PROVIDER_AUTO = "Otomatik (ikisi birden)"
+PROVIDER_AUTO_HINT = "biri yavaşsa öteki devreye girer; iki kota da harcanabilir"
+PROVIDER_NVIDIA = "Yalnızca NVIDIA NIM"
+PROVIDER_NVIDIA_HINT = "OpenRouter'a hiç istek gitmez, günlük 50 isteği korunur"
+PROVIDER_OPENROUTER = "Yalnızca OpenRouter"
+PROVIDER_OPENROUTER_HINT = "NIM kredisi harcanmaz"
+PROVIDER_APPLIED = "sağlayıcı → {name}  ·  agent: {model}"
+PROVIDER_CURRENT = "şu anki sağlayıcı: {name}"
+CMD_PROVIDER = "hangi sağlayıcının kullanılacağını seç (kota kontrolü)"
+
 # --- Doğrulama kapısı (/verify) -------------------------------------------- #
 VERIFY_TITLE = "Doğrulama planını onayla"
 VERIFY_PLAN_HEADING = "Bu projede şu doğrulama komutları bulundu:"

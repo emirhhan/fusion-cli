@@ -76,3 +76,69 @@ def test_iki_anahtar_da_varsa_hicbir_sey_budanmaz(keys):
     config = load_config()
 
     assert prune_config(config, keys) is config
+
+
+# --- Sağlayıcı tercihi ------------------------------------------------------- #
+
+
+def test_nvidia_tercihinde_openrouter_zincirden_cikar():
+    """Bir sağlayıcının tükenmesi ötekini de tüketmemeli.
+
+    Gerçek olay: NIM kredisi bitince her çağrı yedeğe düştü, hepsi OpenRouter'a
+    gitti ve günlük 50 istek birkaç dakikada tükendi. Kullanıcı tek sağlayıcıya
+    kilitlenebilmeli; o zaman ötekinin kotası HİÇ harcanmaz.
+    """
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+
+    config = load_config()
+
+    secilmis = apply_preference(config, ProviderPreference.NVIDIA)
+
+    for kademe in secilmis.tiers:
+        for spec in (kademe.agent, kademe.judge, *kademe.candidates):
+            assert all(not m.startswith("openrouter/") for m in spec.models), spec.models
+
+
+def test_openrouter_tercihinde_nim_zincirden_cikar():
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+
+    secilmis = apply_preference(load_config(), ProviderPreference.OPENROUTER)
+
+    for spec in (secilmis.agent, secilmis.judge, *secilmis.candidates):
+        assert all(not m.startswith("nvidia_nim/") for m in spec.models), spec.models
+
+
+def test_otomatik_tercihte_zincir_degismez():
+    """Varsayılan davranış korunur: iki sağlayıcı da zincirde kalır."""
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+
+    config = load_config()
+
+    assert apply_preference(config, ProviderPreference.AUTO) is config
+
+
+def test_tercih_hicbir_rolu_bosaltmaz():
+    """Modelsiz rol turu çökertir; tercih bir rolü boşaltacaksa uygulanmaz."""
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+
+    for tercih in (ProviderPreference.NVIDIA, ProviderPreference.OPENROUTER):
+        secilmis = apply_preference(load_config(), tercih)
+        for kademe in secilmis.tiers:
+            for spec in (kademe.agent, kademe.judge, *kademe.candidates):
+                assert spec.models, f"{kademe.name} rolü {tercih} ile boş kaldı"
+
+
+def test_taninmayan_saglayici_tercihten_etkilenmez():
+    """Yerel/özel uçlar (ollama, vLLM) yönettiğimiz iki sağlayıcıdan biri değildir."""
+    from dataclasses import replace
+
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+    from fusion_cli.core.types import ModelSpec
+
+    config = load_config()
+    yerel = ModelSpec(name="yerel", model="ollama/qwen2.5-coder:7b")
+    ozel = replace(config, agent=yerel)
+
+    secilmis = apply_preference(ozel, ProviderPreference.NVIDIA)
+
+    assert secilmis.agent.models == ("ollama/qwen2.5-coder:7b",)

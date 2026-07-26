@@ -82,6 +82,17 @@ runtime:
   # İlk cevaptan itibaren adaylar için mutlak üst sınır: soğuk bir uç turu kilitleyemez.
   candidate_hard_cap_s: 25.0
   # Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir (bir çağrı daha ekler).
+  # Hangi sağlayıcı kullanılsın: auto | nvidia | openrouter
+  #
+  # auto (varsayılan) zinciri iki sağlayıcıya yayar: biri yavaşsa ya da hata
+  # verirse öteki devreye girer. Bedeli şudur — bir sağlayıcı tükenince tüm yük
+  # ötekine biner ve onun kotası da hızla biter (ölçüldü: NIM kredisi bitince
+  # OpenRouter'ın günlük 50 isteği birkaç dakikada tükendi).
+  #
+  # Tek sağlayıcı seçilirse ötekine HİÇ istek gitmez; kota öngörülebilir olur ama
+  # yedek kalmaz. `/provider` komutu bunu ekrandan değiştirir.
+  provider: auto
+
   # Sentez hakemin kararını GÖREREK mi çalışsın? Varsayılan AÇIK: paralel kipte
   # sentez tüm cevapları eşit ağırlıkta okuyor ve hakemin zayıf bulduğu adayın
   # hatası nihai cevaba geri sızabiliyordu. Bedeli gecikmedir (hakem + sentez seri

@@ -131,6 +131,7 @@ def make_config(**overrides):
         "candidate_hard_cap_s": 1.0,
         "synthesis": True,
         "verified_synthesis": False,
+        "provider": "auto",
         "agent_max_steps": 8,
         "self_review": False,
         "reflexion": True,

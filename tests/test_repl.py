@@ -715,3 +715,35 @@ class _SahteArkaPlan:
 
     async def drain(self):
         return None
+
+
+# --- /provider -------------------------------------------------------------- #
+
+
+def test_provider_secimi_yapilandirmaya_uygulanir(state, tmp_path, monkeypatch):
+    """Sağlayıcı seçimi oturumda hemen etkili olmalı."""
+    from fusion_cli.cli.repl import provider_flow
+
+    monkeypatch.setattr(
+        "fusion_cli.config.writer._target_path", lambda cfg: tmp_path / "config.yaml"
+    )
+
+    def _sec(choices, *, title, **kwargs):
+        return "nvidia"
+
+    sonuc = provider_flow.choose_provider(state.config, picker=_sec)
+
+    assert sonuc.config.runtime.provider == "nvidia"
+    assert (tmp_path / "config.yaml").exists()
+
+
+def test_provider_vazgecince_degismez(state):
+    from fusion_cli.cli.repl import provider_flow
+    from fusion_cli.ui import messages
+
+    sonuc = provider_flow.choose_provider(
+        state.config, picker=lambda choices, *, title, **kw: None
+    )
+
+    assert sonuc.message == messages.PICKER_CANCELLED
+    assert sonuc.config is state.config
