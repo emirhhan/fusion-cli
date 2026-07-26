@@ -23,6 +23,7 @@ from dotenv import load_dotenv
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
+from .keys import detect, prune_config
 from .models import Config, EmbeddingConfig, RuntimeConfig, TierSpec
 from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
 
@@ -69,7 +70,9 @@ def load_config(path: str | Path | None = None) -> Config:
         merged = defaults
 
     try:
-        return _assemble(merged, source)
+        # Kurulu olmayan sağlayıcıların modelleri zincirden düşürülür: NIM anahtarı
+        # olmayan kullanıcı her rolde önce başarısız bir çağrı yapıp yedeğe düşerdi.
+        return prune_config(_assemble(merged, source), detect())
     except ConfigError as exc:
         # Hangi dosyanın suçlu olduğu söylenmezse kullanıcı aramak zorunda kalıyor;
         # dosya birden çok yerde olabiliyor (FUSION_CONFIG, ./, kullanıcı dizini).
