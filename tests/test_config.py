@@ -456,3 +456,71 @@ def test_ortamda_var_olan_anahtar_env_dosyasiyla_ezilmez(tmp_path, monkeypatch):
     import os
 
     assert os.environ.get("OPENROUTER_API_KEY") == "sk-kabuktan"
+
+
+def test_her_rol_her_saglayici_tercihinde_yedekli_kalir():
+    """Tercih uygulanınca hiçbir rol TEK MODELLİ kalmamalı.
+
+    Ölçüldü (2026-07-26): NVIDIA NIM'in hız sınırı MODEL BAŞINADIR, hesap başına
+    değil — aynı anahtarla aynı saniyede `nemotron-super` 429 verirken dört başka
+    NIM modeli çalışıyordu. Dolayısıyla tek modelli bir rol, o model kısıtlanınca
+    tamamen ölür ve kullanıcı "kotam bitti" sanır.
+
+    Zincirlerde AYNI sağlayıcıdan alternatif bulunmalı ki `/provider` ile tek
+    sağlayıcıya kilitlenen kullanıcı da yedeksiz kalmasın.
+    """
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+
+    config = load_config()
+
+    yedeksiz = []
+    for tercih in (ProviderPreference.NVIDIA, ProviderPreference.OPENROUTER):
+        secilmis = apply_preference(config, tercih)
+        # ÜST DÜZEY roller de denetlenir: kademe seçilmemişken kullanılan onlardır.
+        # Test önce yalnızca kademelere bakıyordu ve gerçek akış kırıkken yeşil
+        # veriyordu — canlı koşuda agent tek modelle 429 alıp turu bitirdi.
+        # Agent ve hakem denetlenir. ADAYLAR bilinçli olarak DIŞARIDA: fusion
+        # motoru `min_successful_candidates` ile aday kaybını tolere eder, bir aday
+        # 429 alsa da tur yaşar. Agent ve hakem ise tekildir; onlar düşerse tur
+        # ölür. Agent'ın `task_model_map` üzerinden gelen zinciri ayrıca
+        # `test_gorev_tipi_yonlendirmesi_yedek_zinciri_dusurmez` ile korunur.
+        gruplar = [("varsayılan", secilmis.agent, secilmis.judge)]
+        gruplar += [(k.name, k.agent, k.judge) for k in secilmis.tiers]
+        for grup_adi, agent, hakem in gruplar:
+            for rol_adi, spec in (("agent", agent), ("hakem", hakem)):
+                if len(spec.models) < 2:
+                    yedeksiz.append(f"{tercih.value}/{grup_adi}/{rol_adi}")
+
+    assert yedeksiz == [], f"tek modelli roller: {yedeksiz}"
+
+
+def test_gorev_tipi_yonlendirmesi_yedek_zinciri_dusurmez():
+    """`task_model_map` agent rolünü bir adaya yönlendirdiğinde YEDEK KAYBOLMAMALI.
+
+    Gerçek hata (canlı koşuda görüldü): `agent:` rolüne yedek zinciri yazılmıştı
+    ama tur `task_model_map` üzerinden ADAY spec'ini kullanıyor ve adayların
+    yedeği yok. Model 429 alınca tur bitiyordu — kullanıcı "kotam bitti" sanıyor,
+    oysa NIM'de sınır model başınadır ve başka bir model çalışıyor.
+
+    Yönlendirme birincil modeli DEĞİŞTİRİR; dayanıklılığı düşürmemeli.
+    """
+    from fusion_cli.config.keys import ProviderPreference, apply_preference
+    from fusion_cli.config.model_select import select_agent_spec
+
+    config = load_config()
+
+    yedeksiz = []
+    # Tercihler de denetlenir: `auto` kipte zincir iki sağlayıcıya yayıldığı için
+    # sorun görünmüyordu, tek sağlayıcıya kilitlenince ortaya çıkıyordu.
+    for tercih in (
+        ProviderPreference.AUTO,
+        ProviderPreference.NVIDIA,
+        ProviderPreference.OPENROUTER,
+    ):
+        secilmis = apply_preference(config, tercih)
+        for task_type in secilmis.task_model_map:
+            secilen = select_agent_spec(secilmis, task_type)
+            if len(secilen.models) < 2:
+                yedeksiz.append(f"{tercih.value}/{task_type}: {secilen.models}")
+
+    assert yedeksiz == [], f"yedeksiz agent zincirleri: {yedeksiz}"

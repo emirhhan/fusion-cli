@@ -240,3 +240,48 @@ def _istek():
     return CompletionRequest(
         messages=(Message("user", "x"),), temperature=0.0, max_tokens=16, timeout_s=5
     )
+
+
+async def test_hiz_siniri_yedegi_tetikler_ve_kullaniciya_yansimaz():
+    """429 alan model turu düşürmemeli; zincirdeki sonraki model devralmalı.
+
+    Ölçüldü (2026-07-26): NIM'in hız sınırı MODEL BAŞINADIR. Aynı anahtarla aynı
+    saniyede `nemotron-super` 429 verirken `deepseek-v4-flash` çalışıyordu. Yani
+    429 "kotam bitti" demek DEĞİL, "bu model şu an meşgul" demek — başka bir
+    modele geçmek doğru tepkidir.
+    """
+    from fusion_cli.core.types import ModelResult
+    from fusion_cli.providers.hedged import HedgedProvider
+
+    class _Sabit:
+        def __init__(self, sonuc):
+            self._sonuc = sonuc
+
+        @property
+        def label(self):
+            return self._sonuc.model
+
+        async def complete(self, request):
+            return self._sonuc
+
+        async def stream(self, request):  # pragma: no cover
+            raise NotImplementedError
+
+    kisitli = _Sabit(
+        ModelResult(
+            name="a",
+            model="kisitli",
+            text="",
+            latency_ms=1,
+            ok=False,
+            error="429 Too Many Requests",
+        )
+    )
+    calisan = _Sabit(ModelResult(name="b", model="calisan", text="cevap", latency_ms=1, ok=True))
+
+    sonuc = await HedgedProvider([kisitli, calisan], role="agent", hedge_delay_s=0.0).complete(
+        _istek()
+    )
+
+    assert sonuc.ok and sonuc.model == "calisan"
+    assert not sonuc.is_rate_limited, "kullanıcı 429 görmemeli; yedek devraldı"

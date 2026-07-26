@@ -29,7 +29,28 @@ def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
     mapped = config.task_model_map.get(task_type)
     if not mapped:
         return config.agent
-    return config.candidate_by_name(str(mapped)) or config.agent
+    secilen = config.candidate_by_name(str(mapped))
+    if secilen is None:
+        return config.agent
+    return _with_agent_fallbacks(secilen, config.agent)
+
+
+def _with_agent_fallbacks(secilen: ModelSpec, agent: ModelSpec) -> ModelSpec:
+    """Aday spec'ini `agent:` rolünün yedek zinciriyle güçlendir.
+
+    Yönlendirme BİRİNCİL modeli değiştirir; dayanıklılığı düşürmemeli. Gerçek hata:
+    `agent:` rolüne yedek zinciri yazılmıştı ama tur `task_model_map` üzerinden
+    ADAY spec'ini kullanıyor ve adayların yedeği yoktu. Model 429 alınca tur
+    bitiyordu — kullanıcı "kotam bitti" sanıyor, oysa NVIDIA NIM'de hız sınırı
+    MODEL BAŞINADIR (ölçüldü) ve zincirdeki başka bir model çalışıyor.
+
+    Sıra korunur ve tekrarlar atılır: adayın kendi yedekleri önce gelir, ardından
+    agent rolününkiler eklenir.
+    """
+    ek = tuple(model for model in agent.models if model not in secilen.models)
+    if not ek:
+        return secilen
+    return replace(secilen, fallback=(*secilen.fallback, *ek))
 
 
 def apply_tier(config: Config, name: str) -> Config:

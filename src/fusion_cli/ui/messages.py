@@ -21,18 +21,24 @@ MODEL_CALL_FAILED = "{role} · {error}"
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"
 ERROR_NO_ANSWER = "Hiçbir model yanıt veremedi. Ağ bağlantısını ve API anahtarını kontrol et."
-# OpenRouter'ın ücretsiz katman sınırı HESAP başınadır, model başına değil
-# (20 istek/dk; günlük 50, hesaba $10 kredi yüklendiyse 1000). Bu yüzden burada
-# "başka bir ücretsiz model dene" DENMEZ: kullanıcı modeli değiştirir, aynı
-# duvara toslar ve ürünü bozuk sanar. Gerçekten işe yarayan üç yol yazılır.
+# İki sağlayıcının sınırı FARKLI ÇALIŞIR ve tavsiye buna göre değişir:
+#
+# - OpenRouter: sınır HESAP başınadır (20 istek/dk; günlük 50, $10 kredi varsa
+#   1000). Model değiştirmek işe yaramaz.
+# - NVIDIA NIM: sınır MODEL BAŞINADIR — ölçüldü (2026-07-26): aynı anahtarla aynı
+#   saniyede nemotron-super 429 verirken deepseek-v4-flash çalışıyordu. Burada
+#   başka bir modele geçmek GERÇEKTEN işe yarar.
+#
+# Bu yüzden mesaj ikisini ayırır; tek bir "kota doldu" cümlesi birinde yanlış
+# tavsiye olurdu.
 ERROR_RATE_LIMITED = (
-    "Ücretsiz kota doldu (sağlayıcı hız sınırı). Bu sınır hesap başınadır; "
-    "model değiştirmek kotayı açmaz.\n"
-    "  · Dakika sınırıysa (20 istek/dk) bir dakika bekle.\n"
-    "  · Günlük sınırıysa (50 istek/gün) OpenRouter hesabına bir kerelik $10 "
-    "kredi yüklemek bunu 1000 isteğe çıkarır.\n"
-    "  · .env dosyasına NVIDIA_NIM_API_KEY eklersen NIM ayrı bir ücretsiz "
-    "kotadan çalışır (~1000 kredi, 40 istek/dk)."
+    "Sağlayıcı hız sınırına takıldı ve zincirdeki tüm modeller denendi.\n"
+    "  · NVIDIA NIM'de sınır MODEL BAŞINADIR: `/level` ile başka bir kademe "
+    "seçmek çoğu zaman anında çözer.\n"
+    "  · OpenRouter'da sınır HESAP başınadır (20 istek/dk, 50 istek/gün); model "
+    "değiştirmek açmaz — bir dakika bekle ya da hesabına $10 kredi yükle "
+    "(günlük 1000 isteğe çıkar).\n"
+    "  · `/provider` ile tek sağlayıcıya kilitlenirsen ötekinin kotası korunur."
 )
 ERROR_CONFIG = "Yapılandırma hatası: {detail}"
 ERROR_INTERRUPTED = "işlem durduruldu"

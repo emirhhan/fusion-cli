@@ -20,7 +20,13 @@ agent:
   name: nemotron-super
   model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
   tags: [code, agent, reasoning]
+  # Zincirde HER sağlayıcıdan İKİ model bulunur. Sebep ölçüldü (2026-07-26):
+  # NVIDIA NIM'in hız sınırı MODEL BAŞINADIR — aynı anahtarla aynı saniyede
+  # nemotron-super 429 verirken deepseek-v4-flash çalışıyordu. Tek modelli bir
+  # rol, o model kısıtlanınca tamamen ölür ve kullanıcı "kotam bitti" sanır.
+  # `/provider` ile tek sağlayıcıya kilitlenen kullanıcı da yedeksiz kalmamalı.
   fallback:
+    - nvidia_nim/openai/gpt-oss-120b
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     - openrouter/openai/gpt-oss-20b:free
 
@@ -179,10 +185,12 @@ candidates:
 # Hakem + sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
 judge:
   name: hakem
-  model: openrouter/openai/gpt-oss-20b:free
+  # Kademelerdeki hakemle aynı desen: her sağlayıcıdan iki model (bkz. `agent:`).
+  model: nvidia_nim/openai/gpt-oss-120b
   fallback:
-    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+    - openrouter/openai/gpt-oss-20b:free
+    - openrouter/nvidia/nemotron-3-super-120b-a12b:free
 
 # Görme yetenekli model — görsel doğrulama kapısı için (visual_verification: true ise).
 # Ölçüm (2026-07-25): dar soru + kırpılmış bölge ile doğru cevap veriyor.
@@ -272,12 +280,18 @@ tiers:
       model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       tags: [code, agent, reasoning]
       fallback:
+        - nvidia_nim/openai/gpt-oss-120b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/openai/gpt-oss-20b:free
     judge:
       name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      fallback: [openrouter/openai/gpt-oss-20b:free]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     candidates:
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
@@ -297,10 +311,16 @@ tiers:
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      fallback: [openrouter/openai/gpt-oss-20b:free]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     candidates:
       - name: gpt-oss-120b
         model: nvidia_nim/openai/gpt-oss-120b
@@ -320,10 +340,16 @@ tiers:
       fallback:
         - nvidia_nim/poolside/laguna-xs-2.1
         - openrouter/poolside/laguna-s-2.1:free
+        - openrouter/poolside/laguna-xs-2.1:free
     judge:
       name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      fallback: [openrouter/openai/gpt-oss-20b:free]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     candidates:
       - name: deepseek-v4-flash
         model: nvidia_nim/deepseek-ai/deepseek-v4-flash
@@ -343,10 +369,16 @@ tiers:
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      fallback: [openrouter/openai/gpt-oss-20b:free]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     candidates:
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
@@ -366,10 +398,16 @@ tiers:
       fallback:
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/inclusionai/ling-3.0-flash:free
     judge:
       name: hakem
+      # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
+      # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      fallback: [openrouter/openai/gpt-oss-20b:free]
+      fallback:
+        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     candidates:
       - name: glm-5.2
         model: nvidia_nim/z-ai/glm-5.2
