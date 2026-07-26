@@ -66,9 +66,12 @@ class HedgedProvider:
         failures: list[ModelResult] = []
         try:
             if await _priority_window(primary, self._hedge_delay_s):
-                # Birincil pencerede bitti: başarılıysa yedekler HİÇ başlatılmaz.
+                # Birincil pencerede bitti: KULLANILABİLİR sonuç verdiyse yedekler
+                # hiç başlatılmaz. Ölçüt `ok` DEĞİL `is_usable`: model bazen boş
+                # cevap döndürüyor (metinsiz, araçsız) ve bu teknik olarak
+                # başarılıdır — yarışı kazanıp turu hiçbir iş yapmadan bitiriyordu.
                 result = primary.result()
-                if result.ok:
+                if result.is_usable:
                     return result
                 # Başarısız: sonucu burada tükettik, yarışa tekrar sokmuyoruz.
                 failures.append(result)
@@ -80,7 +83,7 @@ class HedgedProvider:
             tasks.extend(yedekler)
             for finished in asyncio.as_completed([*yarisacaklar, *yedekler]):
                 result = await finished
-                if result.ok:
+                if result.is_usable:
                     return result
                 failures.append(result)
         finally:

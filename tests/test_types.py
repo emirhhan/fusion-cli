@@ -64,3 +64,43 @@ def test_gunluk_kota_gecici_sinirdan_ayrilir():
     assert is_rate_limit_error(nim) and not is_daily_quota_error(nim)
     assert not is_daily_quota_error("503 Service Unavailable")
     assert not is_daily_quota_error(None)
+
+
+def test_bos_cevap_kullanilabilir_sayilmaz():
+    """`ok=True` ama metin ve araç çağrısı YOKSA sonuç işe yaramaz.
+
+    Ölçüldü: model bazen tamamen boş cevap döndürüyor (`ok=true`, `text=""`,
+    `tool_calls=[]`). Fusion bunu başarılı tur sayıp bitiriyordu; yedek zinciri de
+    devreye girmiyordu çünkü yarışı `ok` belirliyordu. Zor görevlerdeki "agent hiç
+    dokunmadı" davranışının sebebi buydu.
+    """
+    from fusion_cli.core.types import ModelResult
+
+    bos = ModelResult(name="a", model="m", text="", latency_ms=1, ok=True)
+    bosluk = ModelResult(name="a", model="m", text="   \n", latency_ms=1, ok=True)
+
+    assert not bos.is_usable
+    assert not bosluk.is_usable
+
+
+def test_metin_ya_da_arac_cagrisi_varsa_kullanilabilir():
+    from fusion_cli.core.types import ModelResult, ToolCall
+
+    metinli = ModelResult(name="a", model="m", text="cevap", latency_ms=1, ok=True)
+    aracli = ModelResult(
+        name="a",
+        model="m",
+        text="",
+        latency_ms=1,
+        ok=True,
+        tool_calls=(ToolCall(id="1", name="write_file", arguments="{}"),),
+    )
+
+    assert metinli.is_usable
+    assert aracli.is_usable, "araç çağıran cevap metinsiz de olsa iş yapar"
+
+
+def test_basarisiz_sonuc_kullanilabilir_degildir():
+    from fusion_cli.core.types import ModelResult
+
+    assert not ModelResult(name="a", model="m", text="x", latency_ms=1, ok=False).is_usable

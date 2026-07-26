@@ -30,8 +30,10 @@ async def test_complete_ilk_basarili_yaniti_dondurur():
 
 
 async def test_complete_kazanan_disindakileri_iptal_eder():
-    hizli = FakeProvider("hizli", delay=0.0)
-    yavas = FakeProvider("yavas", delay=5.0)
+    # Sahtelere metin verilir: boş cevap artık KULLANILABİLİR sayılmıyor
+    # (bkz. `ModelResult.is_usable`) ve yarışı kazanamaz.
+    hizli = FakeProvider("hizli", chunks=("cevap",), delay=0.0)
+    yavas = FakeProvider("yavas", chunks=("cevap",), delay=5.0)
     hedged = HedgedProvider([yavas, hizli], role="agent")
 
     await hedged.complete(request())
@@ -193,3 +195,48 @@ async def test_tek_saglayicida_yaristirma_yapilmaz():
     items = [item async for item in hedged.stream(request())]
 
     assert [i.text for i in items if isinstance(i, TextChunk)] == ["a", "b"]
+
+
+async def test_bos_cevap_yedegi_tetikler():
+    """Boş ama "başarılı" cevap yarışı KAZANMAMALI.
+
+    Ölçüldü: model bazen `ok=True` ama metinsiz ve araçsız cevap döndürüyor.
+    Yarış `ok`a bakıyordu, o yüzden boş sonuç kazanıyor ve yedek hiç denenmiyordu;
+    agent turu hiçbir şey yapmadan bitiyordu.
+    """
+    from fusion_cli.core.types import ModelResult
+    from fusion_cli.providers.hedged import HedgedProvider
+
+    class _Sabit:
+        def __init__(self, sonuc):
+            self._sonuc = sonuc
+            self.cagrildi = False
+
+        @property
+        def label(self):
+            return self._sonuc.model
+
+        async def complete(self, request):
+            self.cagrildi = True
+            return self._sonuc
+
+        async def stream(self, request):  # pragma: no cover - bu test complete kullanır
+            raise NotImplementedError
+
+    bos = _Sabit(ModelResult(name="birincil", model="bos", text="", latency_ms=1, ok=True))
+    dolu = _Sabit(
+        ModelResult(name="yedek", model="dolu", text="gerçek cevap", latency_ms=1, ok=True)
+    )
+
+    sonuc = await HedgedProvider([bos, dolu], role="test", hedge_delay_s=0.0).complete(_istek())
+
+    assert dolu.cagrildi, "boş cevapta yedek denenmeli"
+    assert sonuc.text == "gerçek cevap"
+
+
+def _istek():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    return CompletionRequest(
+        messages=(Message("user", "x"),), temperature=0.0, max_tokens=16, timeout_s=5
+    )

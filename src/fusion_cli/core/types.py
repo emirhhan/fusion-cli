@@ -173,6 +173,19 @@ class ModelResult:
         """Başarısızlık ücretsiz kota/hız sınırından mı kaynaklandı?"""
         return False if self.ok else is_rate_limit_error(self.error)
 
+    @property
+    def is_usable(self) -> bool:
+        """Sonuç GERÇEKTEN iş görür mü?
+
+        `ok=True` yetmez: model bazen tamamen boş cevap döndürüyor (metin yok,
+        araç çağrısı yok) ve bu teknik olarak başarılı bir yanıttır. Ölçüldü —
+        agent'ın "hiç dokunmadan bitirmesi" davranışının sebebi buydu: boş ama
+        başarılı sonuç yedek zincirindeki yarışı kazanıyor, sonra tur bitiyordu.
+
+        Araç çağıran cevap METİNSİZ de olsa kullanılabilirdir: iş yapar.
+        """
+        return self.ok and bool(self.text.strip() or self.tool_calls)
+
 
 @dataclass(frozen=True, slots=True)
 class TextChunk:
