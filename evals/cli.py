@@ -22,7 +22,7 @@ from evals.executor import AgentTaskExecutor
 from evals.loader import load_tasks
 from evals.metrics import RunReport
 from evals.report import read_report, write_report
-from evals.runner import run_suite
+from evals.runner import RateLimitedError, run_suite
 from fusion_cli.config.loader import load_config
 from fusion_cli.core.clock import SystemClock
 
@@ -71,7 +71,13 @@ def _run(args: argparse.Namespace) -> int:
     )
     tekrar = f" × {args.repeat} tekrar" if args.repeat > 1 else ""
     print(f"{len(tasks)} görev{tekrar} koşturuluyor (çalışma dizini: {workspace_root})…")
-    report = asyncio.run(run_suite(tasks, executor, repeat=args.repeat))
+    try:
+        report = asyncio.run(run_suite(tasks, executor, repeat=args.repeat))
+    except RateLimitedError as hata:
+        # Kota hatasını "başarısız ölçüm" diye raporlamak yanıltıcıdır: agent'ın
+        # yeteneği hiç ölçülmemiştir. Rapor da YAZILMAZ.
+        print(f"\nÖLÇÜM DURDURULDU: {hata}")
+        return 2
 
     _print_summary(report)
     if args.out is not None:

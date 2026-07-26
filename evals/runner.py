@@ -16,6 +16,10 @@ from evals.tasks import EvalTask
 from fusion_cli.core.errors import EvalError
 
 
+class RateLimitedError(EvalError):
+    """Sağlayıcı kotası tükendi; ölçüm anlamını yitirdi."""
+
+
 class TaskExecutor(Protocol):
     """Bir görevi çalıştırıp ölçülebilir gözlem döndüren yürütücü."""
 
@@ -40,6 +44,15 @@ async def run_suite(
 
     results = []
     for task in tasks:
-        kosular = [score_task(task, await executor.run(task)) for _ in range(repeat)]
+        kosular = []
+        for _ in range(repeat):
+            sonuc = score_task(task, await executor.run(task))
+            if sonuc.rate_limited:
+                # Devam etmek çöp veri üretir ve kalan kotayı boşuna harcar.
+                raise RateLimitedError(
+                    f"sağlayıcı kotası tükendi ({task.id}); ölçüm durduruldu. "
+                    "Sonuçlar agent'ın yeteneği hakkında bilgi vermez."
+                )
+            kosular.append(sonuc)
         results.append(kosular[0] if repeat == 1 else merge_runs(kosular))
     return RunReport(results=tuple(results))

@@ -64,9 +64,64 @@ A/B: 5 zor görev × 3 tekrar = 15 koşu, her iki kolda da `low` kademesi, NVIDI
 | ort. model çağrısı | 8.6 | 4.0 |
 | ort. süre | 37 sn | 81 sn |
 
-**Karar: varsayılan KAPALI kalsın.** 15 koşuda 1 koşuluk fark gürültüden ayırt
-edilemez; bu deney ancak ~20 puanlık bir farkı çözebilirdi ve öyle bir fark yok.
-Kalite iddiası desteklenemiyor.
+**Karar: varsayılan KAPALI kalsın.** 15 koşuda 1 koşuluk fark kalite iddiasını
+desteklemez.
+
+UYARI: Bu A/B'nin kendisi de şüphelidir. Koşular kotanın tükenmekte olduğu bir
+dönemde yapıldı (bkz. yukarıdaki kota maddesi) ve kısmi kota hataları o zaman
+tespit edilmiyordu. Karar "kanıt yok" temellidir, "fark yok kanıtlandı" değil;
+kota taze bir günde tekrarlanmalıdır.
+
+Görev bazında sonuçlar ters yönlere dağılıyor (açık kip yeniden adlandırmada ve
+traceback'te daha iyi, çok dosyalı değişiklikte ve kullanıcı içeriğini korumada
+daha kötü) — yani tutarlı bir üstünlük yok, varyans var.
+
+Tek net fark maliyet ekseninde: workflow modu model çağrısını yarıya indiriyor
+ama süreyi ikiye katlıyor. Kotası dar olan kullanıcı için anlamlı bir takas
+olabilir; kalite için değil.
+
+NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
+dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
+
+## Ölçüldü — kota tükenmesi ölçümü sessizce bozuyordu (2026-07-26)
+
+Zor set üç kez koşuldu ve ortalama model çağrısı **8.6 → 5.8 → 1.0** diye düştü;
+başarı da 8/15 → 4/15 → 0/15. Bu düşüş önce "run-to-run varyansı" sanıldı ve
+BACKLOG'a öyle yazıldı. YANLIŞTI.
+
+Transkript kaydı eklenince sebep ilk bakışta görüldü:
+
+    OpenRouter: X-RateLimit-Remaining: 0  (günlük 50 istek)
+    NVIDIA NIM: 429 Too Many Requests
+
+Kota tükenirken model çağrıları başarısız oluyor, agent erken pes ediyor ve set
+"görev başarısız" raporluyordu. O sayılar agent'ın yeteneği hakkında HİÇBİR ŞEY
+söylemiyordu — üstelik aradaki düşüş bir kod değişikliğine atfedilmişti.
+
+Düzeltildi: kota hatası artık görev başarısızlığından ayrılıyor (`rate_limited`),
+ilk kota hatasında koşu duruyor ve **rapor yazılmıyor**. Yarım ölçümü diske
+yazmak, sonra onu geçerli sanmak bu hatanın tekrar etmesi demekti.
+
+Açık kalan: zor setin GERÇEK gürültü tabanı hâlâ bilinmiyor. Ölçmek için kotanın
+dolu olduğu bir günde aynı yapılandırmayı iki kez koşturmak gerekir.
+
+## Ölçüldü — workflow_mode kaliteyi artırmıyor (2026-07-26)
+
+A/B: 5 zor görev × 3 tekrar = 15 koşu, her iki kolda da `low` kademesi, NVIDIA NIM.
+
+| | kapalı | açık |
+|---|---|---|
+| geçen koşu | 8/15 | 9/15 |
+| ort. model çağrısı | 8.6 | 4.0 |
+| ort. süre | 37 sn | 81 sn |
+
+**Karar: varsayılan KAPALI kalsın.** 15 koşuda 1 koşuluk fark kalite iddiasını
+desteklemez.
+
+UYARI: Bu A/B'nin kendisi de şüphelidir. Koşular kotanın tükenmekte olduğu bir
+dönemde yapıldı (bkz. yukarıdaki kota maddesi) ve kısmi kota hataları o zaman
+tespit edilmiyordu. Karar "kanıt yok" temellidir, "fark yok kanıtlandı" değil;
+kota taze bir günde tekrarlanmalıdır.
 
 Görev bazında sonuçlar ters yönlere dağılıyor (açık kip yeniden adlandırmada ve
 traceback'te daha iyi, çok dosyalı değişiklikte ve kullanıcı içeriğini korumada

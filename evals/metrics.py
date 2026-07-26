@@ -25,6 +25,8 @@ class TaskResult:
     retries: int
     model_calls: int
     duration_seconds: float
+    #: Sağlayıcı kotası yüzünden ölçülemedi mi?
+    rate_limited: bool = False
     #: Görevin kaç kez koşturulduğu (varsayılan 1).
     runs: int = 1
     #: Kaç koşuda geçtiği.
@@ -58,6 +60,7 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         duration_seconds=execution.duration_seconds,
         runs=1,
         passes=1 if success else 0,
+        rate_limited=execution.rate_limited,
     )
 
 
@@ -79,6 +82,7 @@ def merge_runs(results: list[TaskResult]) -> TaskResult:
         duration_seconds=_mean([item.duration_seconds for item in results]),
         runs=len(results),
         passes=gecen,
+        rate_limited=any(item.rate_limited for item in results),
     )
 
 

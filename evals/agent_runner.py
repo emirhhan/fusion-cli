@@ -18,6 +18,7 @@ from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
 from fusion_cli.core.events import Event
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.types import is_rate_limit_error
 from fusion_cli.engines.agent import run_agent
 from fusion_cli.engines.agent.approval import ApprovalRequest, Decision
 from fusion_cli.engines.agent.loop import AgentDeps
@@ -87,7 +88,13 @@ class FusionAgentRunner:
         outcome = await run_agent(request, deps)
         if kayit is not None:
             kayit.close()
+        # Kota hatası görev başarısızlığı değildir; ayırt edilmezse ölçüm sessizce
+        # bozulur (ölçüldü: kota tükenirken model çağrısı 8.6→5.8→1.0'a düştü ve
+        # düşüş yanlışlıkla bir kod değişikliğine atfedildi).
+        kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         # Model çağrısı ~ araç turu + son cevap turu (metrik için makul bir tahmin).
         return AgentRunObservation(
-            output_text=outcome.final_text, model_calls=outcome.tool_calls_made + 1
+            output_text=outcome.final_text,
+            model_calls=outcome.tool_calls_made + 1,
+            rate_limited=kota,
         )

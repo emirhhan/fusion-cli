@@ -26,6 +26,12 @@ görünürken arka planda hiçbir iş yapmıyordu.
   senteze taşınır. Paralel kipte sentez kazananı bilmiyordu.
 - **Eval: tekrarlı koşu** (`--repeat N`) ve geçme oranı. Kararsız görevler adıyla
   raporlanır.
+- **Eval: tur transkripti.** Her koşu `_transkript.jsonl` bırakır (araç çağrıları,
+  sonuçları, model hataları). "Agent neden hiçbir şey yapmadı" sorusu artık
+  sonradan cevaplanabiliyor.
+- **Eval: kota tükenmesi görev başarısızlığından ayrılır.** Sağlayıcı 429 verdiğinde
+  koşu durur ve rapor YAZILMAZ; yarım ölçümü geçerli sanmak yanlış sonuçlara yol
+  açıyordu.
 - **Eval: `setup`** ile göreve başlangıç dosyası verilebilir; bug fix ölçmenin
   ön koşuluydu. On yeni görev — üçü agent’ın YAPMAMASI gerekeni ölçüyor
   (kök dışına yazma, prompt injection, kullanıcı içeriğini silme).

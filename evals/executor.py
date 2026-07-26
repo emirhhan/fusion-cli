@@ -40,6 +40,8 @@ class AgentRunObservation:
 
     output_text: str
     model_calls: int
+    #: Sağlayıcı kotası yüzünden tur ölçülemedi mi?
+    rate_limited: bool = False
 
 
 class AgentRunner(Protocol):
@@ -98,6 +100,7 @@ class AgentTaskExecutor:
             exit_code=exit_code,
             changed_files=frozenset(changed),
             output_text=observation.output_text,
+            rate_limited=observation.rate_limited,
             model_calls=observation.model_calls,
             retries=0,
             duration_seconds=duration,

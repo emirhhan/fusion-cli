@@ -607,3 +607,56 @@ def test_transkript_arac_cikti_ozetini_kirpar(tmp_path):
 
     satir = json.loads(yol.read_text(encoding="utf-8"))
     assert len(satir["output"]) < 2_000
+
+
+# --- Kota tükenmesi görev başarısızlığı DEĞİLDİR ----------------------------- #
+
+
+def test_kota_hatasi_gorev_basarisizligindan_ayrilir():
+    """Sağlayıcı 429 verdiğinde agent'ın yeteneği ölçülmemiştir.
+
+    Gerçek olay: kota tükenirken ölçüm sessizce bozuldu. Model çağrısı 8.6'dan
+    5.8'e, sonra 1.0'a düştü ve set "başarısız" raporladı. O sayılar yetenek
+    hakkında hiçbir şey söylemiyordu ama rapor bunu ayırt etmiyordu — üstelik
+    aradaki düşüş bir kod değişikliğine bağlanmıştı.
+    """
+    from evals.execution import TaskExecution
+    from evals.metrics import score_task
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="x", request="-", criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="a")
+    )
+    calisma = TaskExecution(task_id="x", output_text="", rate_limited=True)
+
+    sonuc = score_task(gorev, calisma)
+
+    assert sonuc.rate_limited is True
+    assert sonuc.success is False
+
+
+async def test_kota_tukenince_kosu_durur():
+    """Kota bitmişken devam etmek çöp veri üretir ve kotayı boşuna harcar."""
+    from evals.execution import TaskExecution
+    from evals.runner import RateLimitedError, run_suite
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorevler = tuple(
+        EvalTask(
+            id=f"g{i}",
+            request="-",
+            criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="a"),
+        )
+        for i in range(5)
+    )
+    cagri = {"n": 0}
+
+    class _KotaBitmis:
+        async def run(self, task):
+            cagri["n"] += 1
+            return TaskExecution(task_id=task.id, output_text="", rate_limited=True)
+
+    with pytest.raises(RateLimitedError, match="kota"):
+        await run_suite(gorevler, _KotaBitmis())
+
+    assert cagri["n"] == 1, "ilk kota hatasında durmalı, seti tüketmemeli"

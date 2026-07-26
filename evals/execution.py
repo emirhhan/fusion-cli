@@ -25,5 +25,11 @@ class TaskExecution:
     model_calls: int = 0
     #: İlk denemeden sonra yapılan yeniden deneme sayısı (0 = ilk denemede bitti).
     retries: int = 0
+    #: Sağlayıcı kota/hız sınırı yüzünden mi başarısız oldu?
+    #:
+    #: Kota hatası görev başarısızlığı DEĞİLDİR: agent'ın yeteneği hiç ölçülmemiştir.
+    #: Ayırt edilmediğinde ölçüm sessizce bozulur — nitekim bozuldu ve düşüş bir
+    #: kod değişikliğine bağlandı.
+    rate_limited: bool = False
     #: Görevin baştan sona sürdüğü süre (saniye).
     duration_seconds: float = 0.0
