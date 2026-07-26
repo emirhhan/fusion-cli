@@ -8,57 +8,127 @@
 
 ## Kurulum
 
-Python 3.11+ gerekir. Tek komut:
+Python 3.11+ gerekir.
 
-**macOS / Linux**
+### macOS / Linux
 
 ```bash
 git clone https://github.com/emirhhan/fusion-cli && cd fusion-cli
 ./setup.sh
 ```
 
-**Windows (PowerShell)**
+### Windows (PowerShell)
 
 ```powershell
 git clone https://github.com/emirhhan/fusion-cli; cd fusion-cli
-py -3.11 -m venv .venv
-.venv\Scripts\pip install -e .
-.venv\Scripts\fusion setup
+.\install.ps1
 ```
 
-Kurulum sırasında API anahtarların **sorulur** — dosya arayıp elle doldurman
-gerekmez. Aynı anda 83 küratörlü ders belleğe yüklenir: ilk turundan itibaren
-eğitilmiş bir asistanla başlarsın.
+Kurulum izole ve **global**dır: `uv` varsa onunla, yoksa `pipx`, o da yoksa
+kullanıcı dizininde adanmış bir sanal ortamla kurar. Sistem Python'ın kirlenmez.
 
-Tekrar çalıştırmak güvenlidir; var olan `.venv`, `.env` ve anahtarlara dokunulmaz.
-Geliştirme araçlarını da istiyorsan `./setup.sh --dev`.
+### Kurulum sonrası
+
+Herhangi bir proje dizininde:
+
+```bash
+fusion
+```
+
+Repo klasörüne dönmen, `.venv` yolu yazman ya da `activate` çalıştırman gerekmez.
+Kurulum sırasında API anahtarların **sorulur** (yazarken ekranda görünmez) ve 83
+küratörlü ders belleğe yüklenir — ilk turundan itibaren eğitilmiş başlarsın.
+
+`fusion` komutu bulunamazsa `fusion doctor` PATH'e ne ekleyeceğini kabuğuna göre
+söyler. Kullanıcı dosyalarına habersiz dokunulmaz.
+
+### Geliştirici kurulumu
+
+```bash
+git clone https://github.com/emirhhan/fusion-cli && cd fusion-cli
+./setup.sh --dev      # Windows: .\install.ps1 -Dev
+make check
+```
+
+Kullanıcı kurulumundan farkı: repo içinde `.venv`, **editable** kurulum ve proje
+bazlı `.env`. Koddaki değişikliği anında görürsün.
 
 ### API anahtarları
 
 | Sağlayıcı | Durum | Nereden |
 |-----------|-------|---------|
-| **OpenRouter** | **zorunlu** | <https://openrouter.ai/keys> |
-| NVIDIA NIM | opsiyonel | <https://build.nvidia.com/> |
+| **OpenRouter** | önerilen taban | <https://openrouter.ai/keys> |
+| NVIDIA NIM | opsiyonel, ayrı kota | <https://build.nvidia.com/> |
 
-İkisi de ücretsizdir. OpenRouter zorunludur çünkü model merdiveninin her
-kademesinde en az bir OpenRouter modeli vardır.
+İkisi de ücretsizdir. Kurulum sihirbazı ikisini de sorar; NIM Enter ile atlanır.
 
-NVIDIA NIM eklersen **ayrı bir ücretsiz kotadan** çalışırsın ve bazı roller ona
-kayar; eklemezsen model zincirlerinden sessizce düşülür ve hiçbir kademe boşta
-kalmaz. Modeller kurulu anahtarlarına göre kendiliğinden ayarlanır.
+Anahtarlar **tek yerde** tutulur:
 
-> **Sağlayıcı seçimi ve kota.** Varsayılan `auto`: zincir iki sağlayıcıya yayılır,
-> biri yavaşsa ya da hata verirse öteki devreye girer. Bedeli şudur — bir sağlayıcı
-> tükenince tüm yük ötekine biner ve onun kotası da hızla biter. Ölçüldü: NIM kredisi
-> bitince OpenRouter'ın günlük 50 isteği birkaç dakikada tükendi. `/provider` ile tek
-> sağlayıcıya kilitlenirsen ötekine **hiç** istek gitmez; kota öngörülebilir olur ama
-> yedek kalmaz.
+- macOS/Linux: `~/.config/fusion-cli/.env`
+- Windows: `%APPDATA%\fusion-cli\.env`
 
-> **Ücretsiz katman sınırları.** OpenRouter'ın `:free` modelleri **hesap başına**
-> 20 istek/dakika ve 50 istek/gün ile sınırlıdır (hesaba bir kerelik $10 kredi
-> yüklenirse 1000/gün). Sınır model başına DEĞİLDİR — model değiştirmek kotayı
-> açmaz. Bir fusion turu ~4 istek harcar, yani günde ~12 tur. Yoğun kullanım için
-> ya kredi yükle ya da NVIDIA NIM anahtarı ekle (~1000 kredi, 40 istek/dakika).
+Dosya `0600` ile yazılır. Proje kökündeki `.env` yalnızca geliştirici kurulumunda
+oluşur ve isteğe bağlı bir override'dır.
+
+Anahtarların okunma önceliği:
+
+1. Gerçek ortam değişkenleri (kabukta verilen)
+2. `FUSION_HOME` / proje kökü
+3. Kullanıcı yapılandırma dizini
+
+Boş bırakılmış bir satır "bu anahtar yok" demektir; sonraki dosyadaki gerçek
+anahtarı gölgelemez.
+
+### Kurulumu denetle
+
+```bash
+fusion doctor          # sürüm, dizinler, anahtarlar, roller, PATH — ağa çıkmaz
+fusion doctor --json   # betikler için
+fusion doctor --live   # sağlayıcılara küçük gerçek çağrı (kota harcar)
+```
+
+Her sorun için ne yanlış, neden önemli ve ne yapılacağı yazılır. **API anahtarının
+kendisi hiçbir çıktıda gösterilmez** — en fazla "ayarlı".
+
+### Güncelleme ve kaldırma
+
+```bash
+fusion update      # kurulum yöntemini tespit edip doğru komutu gösterir
+fusion uninstall   # aynı şekilde; yapılandırma ve dersler KORUNUR
+fusion uninstall --purge   # anahtarlar ve bellek dahil her şeyi sil
+```
+
+### Dosya konumları
+
+| Ne | macOS/Linux | Windows |
+|----|-------------|---------|
+| Yapılandırma + anahtar | `~/.config/fusion-cli/` | `%APPDATA%\fusion-cli\` |
+| Bellek (dersler, indeks) | `~/.local/share/fusion-cli/memory` | `%LOCALAPPDATA%\fusion-cli\memory` |
+
+`FUSION_CONFIG`, `FUSION_HOME` ve `FUSION_MEMORY_DIR` ile taşınabilir.
+
+### Yerel model kullanımı
+
+Bulut sağlayıcı zorunlu değildir. `config.yaml` içinde yerel bir uç tanımlarsan
+anahtarsız çalışırsın:
+
+```yaml
+agent:
+  name: yerel
+  model: ollama/qwen2.5-coder:7b
+```
+
+vLLM / LM Studio için `openai/<model>` + `OPENAI_API_BASE=http://localhost:8000/v1`.
+`fusion doctor` bu durumda da "hazır" der: tanınmayan sağlayıcılar engellenmez.
+
+### Sorun giderme
+
+| Belirti | Ne yapmalı |
+|---------|-----------|
+| `fusion: command not found` | `fusion doctor` PATH satırını verir |
+| "Ücretsiz kota doldu" | `/provider` ile tek sağlayıcıya kilitlen ya da `/level low` |
+| "Hiçbir model yanıt veremedi" | `fusion doctor --live` |
+| Kurulum yarıda kaldı | Betik durduğu adımı yazar; düzeltip tekrar çalıştır (idempotent) |
 
 ### Tarayıcı doğrulaması (opsiyonel)
 

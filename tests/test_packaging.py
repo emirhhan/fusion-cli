@@ -85,3 +85,52 @@ def test_surum_tek_kaynaktan_gelir():
     import fusion_cli
 
     assert fusion_cli.__version__ == version("fusion-cli")
+
+
+# --- README kodla ayrışmasın ------------------------------------------------- #
+
+
+def _readme() -> str:
+    from pathlib import Path
+
+    return (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+
+
+def test_readme_kurulum_komutlarinda_yer_tutucu_yoktur():
+    """Kopyalanabilir olmayan komut, komut değildir.
+
+    `<depo-adresi>` gibi bir yer tutucu kullanıcıyı ilk adımda durdurur.
+    """
+    metin = _readme()
+
+    for tutucu in ("<depo-adresi>", "<repo-url>", "TODO", "XXX"):
+        assert tutucu not in metin, f"README'de yer tutucu var: {tutucu}"
+
+
+def test_readme_kademe_tablosu_defaults_ile_uyumlu():
+    """README'deki model tablosu `defaults.yaml`'dan AYRIŞMAMALI.
+
+    İki kaynak elle senkron tutulursa zamanla ayrışır ve README yalan söyler;
+    bu proje o hatayı bir kez yaşadı (mükerrer `tiers` bloğu).
+    """
+    from fusion_cli.config.loader import load_config
+
+    metin = _readme()
+    for kademe in load_config().tiers:
+        assert f"`{kademe.name}`" in metin, f"README'de {kademe.name} kademesi yok"
+
+
+def test_readme_hem_kullanici_hem_gelistirici_kurulumunu_anlatir():
+    metin = _readme()
+
+    assert "./setup.sh" in metin
+    assert "--dev" in metin
+    assert "install.ps1" in metin, "Windows yolu belgelenmemiş"
+
+
+def test_readme_anahtar_konumunu_tek_yer_olarak_yazar():
+    """İki .env karışıklığı belgeyle de çözülmeli."""
+    metin = _readme()
+
+    assert ".config/fusion-cli/.env" in metin
+    assert "APPDATA" in metin
