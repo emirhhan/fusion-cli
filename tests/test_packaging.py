@@ -71,3 +71,17 @@ def test_kodun_okudugu_her_veri_dosyasi_paketleniyor():
 def test_sistem_promptu_gercekten_var():
     """En kritik dosya: yoksa agent motoru import edilemez."""
     assert (_SRC / "engines" / "agent" / "prompts" / "system.md").is_file()
+
+
+def test_surum_tek_kaynaktan_gelir():
+    """`fusion version` ile paket sürümü AYNI olmalı.
+
+    Gerçek hata: pyproject 0.3.0a1 derken `__init__` 0.2.0.dev0'da kalmıştı ve
+    `fusion version` eski sürümü basıyordu. İki yerde elle tutulan sürüm zamanla
+    ayrışır; hata raporlarında yanlış sürüm görünür.
+    """
+    from importlib.metadata import version
+
+    import fusion_cli
+
+    assert fusion_cli.__version__ == version("fusion-cli")
