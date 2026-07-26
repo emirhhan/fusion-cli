@@ -345,17 +345,24 @@ def test_kademe_gorev_haritasini_yeni_havuza_tasir():
     assert set(yeni.task_model_map.values()) <= tanimli
 
 
-def test_haritada_ayni_ad_yeni_havuzda_da_varsa_korunur():
-    from fusion_cli.config.model_select import apply_tier
+def test_kademe_degisince_agent_turu_yeni_bas_modeli_calistirir():
+    """Kademe seçmek agent turunu o kademenin BAŞ modeline bağlar.
+
+    Regresyon: `nemotron-ultra` premium havuzunda da bulunduğu için, `ultra`'dan
+    `premium`'a geçen kullanıcıda harita ona yapışıyordu; agent rolü `glm-5.2`
+    olmasına rağmen agent turu `nemotron-ultra` çalıştırıyordu. Kademenin baş modeli
+    (agent rolü) her görev tipi için koşulsuz seçilmeli.
+    """
+    from fusion_cli.config.model_select import apply_tier, select_agent_spec
 
     config = load_config()
-    # `ultra` havuzunda gemma-31b var; `high` kademesinin haritası onu işaret eder.
-    yuksek = apply_tier(config, "high")
-    assert yuksek.task_model_map
+    ustu = apply_tier(config, "ultra")
 
-    ustu = apply_tier(yuksek, "ultra")
+    premium = apply_tier(ustu, "premium")
 
-    assert ustu.task_model_map["code"] in {spec.name for spec in ustu.candidates}
+    beklenen = premium.agent.name
+    assert all(ad == beklenen for ad in premium.task_model_map.values())
+    assert select_agent_spec(premium, "general").model == premium.agent.model
 
 
 def test_bilinmeyen_kademe_anlasilir_hata_verir():

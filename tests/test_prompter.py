@@ -177,3 +177,22 @@ def test_istem_tek_satir_kalir():
     for mod in ApprovalMode:
         goruntu = re.sub(r"<[^>]+>", "", prompt_fragments(mod))
         assert len(goruntu) <= 24, f"istem çok uzun: {goruntu!r}"
+
+
+def test_auto_disi_mod_istemde_gorunur():
+    """shift-tab GÖRÜNÜR olmalı: auto dışı modun etiketi istemde yazılır.
+
+    Regresyon: mod dönüyor ama toolbar kapalı ve etiket istemden de kaldırılmıştı;
+    ekranda hiçbir şey değişmediği için shift-tab ölü sanılıyordu.
+    """
+    import re
+
+    from fusion_cli.cli.repl.input import prompt_fragments
+    from fusion_cli.engines.agent.approval import ApprovalMode
+
+    auto = re.sub(r"<[^>]+>", "", prompt_fragments(ApprovalMode.AUTO))
+    plan = re.sub(r"<[^>]+>", "", prompt_fragments(ApprovalMode.PLAN))
+
+    assert "auto" not in auto  # varsayılan sade kalır
+    assert "plan" in plan  # auto dışı mod görünür
+    assert plan != auto  # shift-tab ekranda bir değişiklik üretir

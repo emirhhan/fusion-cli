@@ -56,22 +56,25 @@ def _with_agent_fallbacks(secilen: ModelSpec, agent: ModelSpec) -> ModelSpec:
 def apply_tier(config: Config, name: str) -> Config:
     """Bir kademeyi uygula: agent, hakem ve aday havuzunu BİRLİKTE değiştir.
 
-    `task_model_map` da yeniden kurulur. Harita eski kademenin aday adlarını
-    işaret ediyordu; dokunulmasaydı `select_agent_spec` hiçbirini bulamaz ve her
-    görev tipi sessizce `agent:` rolüne düşerdi — yani harita yine yalan söylerdi.
-    Eşleme yeni havuzda aynı adı bulursa korunur, bulamazsa kademenin agent'ına
-    denk gelen ilk adaya taşınır.
+    Kademe seçmek "motorun tamamını o seviyeye al" demektir; bu yüzden agent turunu
+    yönlendiren `task_model_map` de kademenin BAŞ modeline (agent rolü) bağlanır.
+
+    Eskiden harita eski adı yeni havuzda da bulursa KORUYORDU. Bu sessiz bir hataydı:
+    `ultra` seçip sonra `premium`'a geçen kullanıcıda `nemotron-ultra` premium
+    havuzunda da bulunduğu için harita ona yapışıyordu — agent rolü `glm-5.2` (premium'un
+    baş modeli) olmasına rağmen agent turu `nemotron-ultra` çalıştırıyordu. Kullanıcı
+    premium seçip başka modelin cevap verdiğini görüyordu. Kademe artık haritayı
+    koşulsuz baş modele bağlar: seçim ekranda ne yazıyorsa tur onu çalıştırır.
     """
     tier = config.tier_by_name(name)
     if tier is None:
         known = ", ".join(item.name for item in config.tiers)
         raise ConfigError(f"'{name}' adlı kademe yok. Tanımlı kademeler: {known}")
-    fallback_name = tier.candidates[0].name
     known_names = {candidate.name for candidate in tier.candidates}
-    task_model_map = {
-        task_type: (chosen if (chosen := current) in known_names else fallback_name)
-        for task_type, current in config.task_model_map.items()
-    }
+    # Baş model kademenin `agent` rolüdür; havuzda karşılığı yoksa (savunmacı)
+    # ilk adaya düşülür — `select_agent_spec` yalnızca tanımlı bir adayı bulabilir.
+    headline = tier.agent.name if tier.agent.name in known_names else tier.candidates[0].name
+    task_model_map = dict.fromkeys(config.task_model_map, headline)
     return replace(
         config,
         agent=tier.agent,

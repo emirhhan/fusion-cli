@@ -238,8 +238,17 @@ def prompt_fragments(mode: Any) -> str:
     daraldığında SARIYOR ve prompt_toolkit'in resize silme aritmetiğini bozuyordu
     (#1933: `erase()` imleci bayat `cursor_up(y)` ile geri alıyor). Bilgi istemin
     kendisine alındı: aynı satırda kalır, sarmaz, kopya bırakmaz.
+
+    `auto` VARSAYILAN olduğu için etiketi yazılmaz: istem sade kalır (yalnızca sembol)
+    ve resize kopyası riski en düşüktür. `auto` DIŞINDAKİ modlarda kısa, renkli bir
+    etiket öne konur. Bu, shift-tab'ın GÖRÜNÜR geri bildirimidir: toolbar varsayılan
+    kapalı olduğundan ve etiket buradan da kaldırıldığından, mod dönüyor ama ekranda
+    hiçbir şey değişmiyordu — kullanıcı shift-tab'ı ölü sanıyordu. En uzun etiket
+    ("security ❯ ") 11 görünür karakterdir; `test_istem_tek_satir_kalir`'in sınırı içindedir.
     """
-    # Mod ÖNEKİ YOK: istem ne kadar kısaysa sarma olasılığı o kadar düşük ve resize
-    # kopyaları o kadar az. Kullanıcı denemesinde en kararlı hal bu çıktı.
-    del mode
-    return f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
+    symbol = f"<style fg='{theme.ACCENT}'><b>{PROMPT_SYMBOL}</b></style> "
+    value = getattr(mode, "value", "")
+    if value == "auto" or not value:
+        return symbol
+    color = _MODE_COLORS.get(value, theme.DIM)
+    return f"<style fg='{color}'>{value}</style> {symbol}"
