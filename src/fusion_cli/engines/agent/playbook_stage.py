@@ -20,7 +20,7 @@ from ...core.constants import SHELL_TIMEOUT_S
 from ...core.types import Message
 from ...tools.safety import danger_reason
 from ..playbook import Playbook, run_playbook
-from ..playbook.library import PLAYBOOKS, ShellStepRunner
+from ..playbook.library import ShellStepRunner, build_playbooks
 from ..playbook.matching import find_match
 from ..workflow import Budget, Stage, StageOutcome, run_workflow
 
@@ -52,7 +52,9 @@ async def maybe_run_playbook(task: str, deps: AgentDeps) -> AgentOutcome | None:
 
     if not deps.config.runtime.playbooks:
         return None
-    playbook = find_match(PLAYBOOKS, task)
+    # Kütüphane PROJEDEN üretilir: sabit `ruff`/`pytest` bir Node projesinde
+    # yanlış komuttur ve tur boşa gider.
+    playbook = find_match(build_playbooks(deps.tool_context.root), task)
     if playbook is None or not all_commands_safe(playbook):
         return None
 

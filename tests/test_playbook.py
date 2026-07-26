@@ -7,7 +7,7 @@ test edilir. Kütüphanedeki gerçek playbook'ların yapısı da doğrulanır.
 from __future__ import annotations
 
 from fusion_cli.engines.playbook import Playbook, PlaybookStep, run_playbook
-from fusion_cli.engines.playbook.library import PLAYBOOKS
+from fusion_cli.engines.playbook.library import build_playbooks
 from fusion_cli.engines.playbook.matching import find_match, matches
 
 
@@ -120,10 +120,16 @@ async def test_checks_bossa_adimlarin_bitmesi_basari():
 # --------------------------------------------------------------------------- #
 
 
-def test_kutuphane_playbooklari_tutarli():
-    assert len(PLAYBOOKS) >= 2
-    ids = [playbook.id for playbook in PLAYBOOKS]
+def test_kutuphane_playbooklari_tutarli(tmp_path):
+    """Kütüphane artık PROJEDEN üretilir; sabit liste yok."""
+    (tmp_path / "pyproject.toml").write_text(
+        "[dependency-groups]\ndev=['pytest','ruff']\n", encoding="utf-8"
+    )
+    playbooks = build_playbooks(tmp_path)
+
+    assert len(playbooks) >= 2
+    ids = [playbook.id for playbook in playbooks]
     assert len(ids) == len(set(ids))  # kimlikler benzersiz
-    for playbook in PLAYBOOKS:
+    for playbook in playbooks:
         assert playbook.triggers
         assert playbook.steps
