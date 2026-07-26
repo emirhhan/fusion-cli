@@ -242,6 +242,8 @@ REPL_MODEL_USAGE = (
 PICKER_HINT = "↑↓ gez · Enter seç · Esc vazgeç"
 PICKER_PLAIN_PROMPT = "Seçim (numara, boş bırakırsan vazgeçilir): "
 PICKER_CANCELLED = "seçim yapılmadı"
+PICKER_MORE_ABOVE = "   ↑ {count} satır daha"
+PICKER_MORE_BELOW = "   ↓ {count} satır daha"
 
 # --- Kademe seçimi (/level) ------------------------------------------------ #
 LEVEL_TITLE = "Model kademesi seç"

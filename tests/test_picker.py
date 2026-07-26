@@ -188,3 +188,81 @@ def test_tty_yokken_eof_vazgecmektir(monkeypatch):
 
 def test_bos_liste_secim_uretmez():
     assert pick((), title="Kademe seç") is None
+
+
+# --- Uzun listelerde görüş penceresi ----------------------------------------- #
+
+
+def test_kisa_liste_tamamen_gosterilir():
+    from fusion_cli.ui.picker import window_bounds
+
+    assert window_bounds(total=5, selected=0, height=10) == (0, 5)
+
+
+def test_uzun_listede_pencere_yuksekligi_kadar_gosterilir():
+    """327 modelin tamamını basmak ekranı taşırır ve üst satırlar kaybolur."""
+    from fusion_cli.ui.picker import window_bounds
+
+    start, end = window_bounds(total=327, selected=0, height=10)
+
+    assert (start, end) == (0, 10)
+
+
+def test_pencere_secimi_takip_eder():
+    from fusion_cli.ui.picker import window_bounds
+
+    start, end = window_bounds(total=100, selected=50, height=10)
+
+    assert start <= 50 < end
+    assert end - start == 10
+
+
+def test_liste_sonunda_pencere_tasmaz():
+    from fusion_cli.ui.picker import window_bounds
+
+    start, end = window_bounds(total=100, selected=99, height=10)
+
+    assert end == 100
+    assert start == 90
+
+
+def test_pencere_yukselik_birden_kucukse_bile_calisir():
+    from fusion_cli.ui.picker import window_bounds
+
+    assert window_bounds(total=10, selected=3, height=0) == (3, 4)
+
+
+def test_gorunmeyen_satirlar_sayisi_bildirilir():
+    """Kullanıcı listenin devamı olduğunu bilmeli, yoksa hepsi bu sanır."""
+    from fusion_cli.ui.picker import Choice, fragments, row_colors
+
+    secenekler = tuple(Choice(f"m{i}", f"model-{i}") for i in range(50))
+    renkler = row_colors(50, gradient_rows=False)
+
+    metin = "".join(parca for _, parca in fragments(secenekler, 0, renkler, height=10))
+
+    assert "model-0" in metin
+    assert "model-49" not in metin, "pencere dışındaki satır basılmamalı"
+    assert "40" in metin, "kaç satırın gizlendiği yazmalı"
+
+
+def test_ortadayken_iki_yonde_de_gostergesi_olur():
+    from fusion_cli.ui.picker import Choice, fragments, row_colors
+
+    secenekler = tuple(Choice(f"m{i}", f"model-{i}") for i in range(50))
+    renkler = row_colors(50, gradient_rows=False)
+
+    metin = "".join(parca for _, parca in fragments(secenekler, 25, renkler, height=10))
+
+    assert "↑" in metin and "↓" in metin
+
+
+def test_yukseklik_verilmezse_eski_davranis_korunur():
+    from fusion_cli.ui.picker import Choice, fragments, row_colors
+
+    secenekler = tuple(Choice(f"m{i}", f"model-{i}") for i in range(50))
+    renkler = row_colors(50, gradient_rows=False)
+
+    metin = "".join(parca for _, parca in fragments(secenekler, 0, renkler))
+
+    assert "model-49" in metin

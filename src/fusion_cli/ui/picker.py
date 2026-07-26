@@ -19,12 +19,21 @@ Kullanıcı yukarı/aşağı ile gezer, Enter ile seçer, Esc ile vazgeçer. Se�
 
 from __future__ import annotations
 
+import shutil
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
 from . import messages, theme
+
+#: Seçim ekranında liste DIŞINDA kullanılan satırlar: başlık, boşluk, ipucu ve
+#: iki kaydırma göstergesi. Terminal yüksekliğinden bu kadarı düşülür.
+RESERVED_ROWS = 6
+
+#: Terminal ne kadar kısa olursa olsun gösterilecek en az satır sayısı. Tek satırlık
+#: bir liste gezilemez; kullanıcı nerede olduğunu göremez.
+MIN_VIEWPORT_ROWS = 5
 
 
 class TextStream(Protocol):
@@ -179,7 +188,10 @@ def _pick_interactive(
     def _cancel(event: KeyEvent) -> None:
         event.app.exit(result=None)
 
-    body = FormattedTextControl(lambda: fragments(choices, state.index, colors))
+    # Pencere yüksekliği terminalden gelir; başlık, boşluk, ipucu ve iki gösterge
+    # satırı için yer ayrılır. Ayrılmasaydı liste ipucu satırını ekrandan iterdi.
+    viewport = max(MIN_VIEWPORT_ROWS, shutil.get_terminal_size().lines - RESERVED_ROWS)
+    body = FormattedTextControl(lambda: fragments(choices, state.index, colors, height=viewport))
     layout = Layout(
         HSplit(
             [
@@ -188,7 +200,7 @@ def _pick_interactive(
                     height=1,
                 ),
                 Window(height=1),
-                Window(body),
+                Window(body, height=viewport + 2),
                 Window(
                     FormattedTextControl([(theme.DIM, messages.PICKER_HINT)]),
                     height=1,
@@ -221,16 +233,48 @@ class PickerState:
         self.index = (self.index + delta) % self.count
 
 
+def window_bounds(total: int, selected: int, height: int) -> tuple[int, int]:
+    """Görünecek satır aralığı `[start, end)`.
+
+    Seçili satır HER ZAMAN pencerenin içindedir ve pencere imleci ortalar; uçlarda
+    listeye yaslanır. Katalog listeleri 300 satırı geçebiliyor (`/development`
+    ücretli kaynakta 327 model); tamamını basmak ekranı taşırır ve üst satırlar
+    terminalin geçmişine kaçar — kullanıcı listenin başını hiç göremez.
+    """
+    if height <= 0:
+        return selected, selected + 1
+    if total <= height:
+        return 0, total
+    start = selected - height // 2
+    start = max(0, min(start, total - height))
+    return start, start + height
+
+
 def fragments(
-    choices: Sequence[Choice], selected: int, colors: Sequence[str]
+    choices: Sequence[Choice],
+    selected: int,
+    colors: Sequence[str],
+    *,
+    height: int | None = None,
 ) -> list[tuple[str, str]]:
     """Listeyi prompt_toolkit parçalarına çevir.
 
     Saf fonksiyondur: terminal olmadan test edilir. Seçili satır işaretçi alır ve
     kalın yazılır; seçili olmayanlar sönük kalır ve girinti hizası korunur.
+
+    `height` verilirse yalnızca o kadar satır basılır ve gizli kalan satır sayısı
+    yukarı/aşağı göstergeleriyle bildirilir. Gösterge olmadan kullanıcı listenin
+    tamamını gördüğünü sanır ve aradığı modelin olmadığına karar verir.
     """
+    total = len(choices)
+    start, end = window_bounds(total, selected, height) if height is not None else (0, total)
+
     rendered: list[tuple[str, str]] = []
-    for index, choice in enumerate(choices):
+    if start > 0:
+        rendered.append((theme.DIM, messages.PICKER_MORE_ABOVE.format(count=start)))
+        rendered.append(("", "\n"))
+    for index in range(start, end):
+        choice = choices[index]
         is_selected = index == selected
         marker = f" {theme.ICON_PROMPT} " if is_selected else "   "
         color = colors[index] if index < len(colors) else theme.ACCENT
@@ -238,5 +282,8 @@ def fragments(
         rendered.append((f"bold {color}" if is_selected else color, choice.label))
         if choice.description:
             rendered.append((theme.DIM, f"  {choice.description}"))
+        rendered.append(("", "\n"))
+    if end < total:
+        rendered.append((theme.DIM, messages.PICKER_MORE_BELOW.format(count=total - end)))
         rendered.append(("", "\n"))
     return rendered
