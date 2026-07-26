@@ -74,8 +74,19 @@ Testler kodun doğru olduğunu gösterir; eval agent'ın görevi becerdiğini.
 .venv/bin/python -m evals run evals/suite/starter.yaml
 ```
 
-Ölçülen (2026-07-26, `low` kademesi, NVIDIA NIM): **14 görevde %92.9**, görev
-başına ortalama 3.8 model çağrısı, 18 saniye.
+Taban ölçüm (2026-07-26, `low` kademesi, NVIDIA NIM, `--repeat 3` = 42 koşu):
+**12/14 görev her koşuda geçiyor.** İki görev kararsız — `hello-calisir` 2/3,
+`coklu-dosya-degisikligi` 1/3.
+
+```bash
+# Tek koşu karar desteklemez: bir ayarın etkisini ölçerken 3-5 tekrar kullan.
+.venv/bin/python -m evals run evals/suite/starter.yaml --repeat 3
+```
+
+Kararsız görevler özetin sonunda adıyla listelenir. Bu önemli: bir görev bazen
+geçip bazen kalıyorsa o yetenek güvenilir değildir ve "geçti" diye raporlamak
+yanıltıcı olur. Aynı sebeple `--repeat` olmadan yapılan A/B karşılaştırmaları
+(workflow_mode açık/kapalı gibi) gürültüden ayırt edilemez.
 
 Set iki farklı şeyi ölçer ve bunlar tek onay duruşuyla ölçülemez:
 
