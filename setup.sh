@@ -1,8 +1,12 @@
 #!/bin/sh
 # Fusion-CLI tek adımlık kurulum.
 #
-#   ./setup.sh          → çalıştırmak için gerekenler
-#   ./setup.sh --dev    → geliştirme araçları da (ruff, mypy, pytest)
+#   ./setup.sh          → KULLANICI kurulumu: izole, global `fusion` komutu
+#   ./setup.sh --dev    → GELİŞTİRİCİ kurulumu: repo içinde .venv + editable
+#
+# İkisi bilinçli olarak farklıdır. Kullanıcı repo klasörüne girmek, .venv yolu
+# yazmak ya da her terminalde `activate` çalıştırmak zorunda kalmamalı; geliştirici
+# ise kodda yaptığı değişikliği anında görebilmeli (editable).
 #
 # Yeniden çalıştırmak güvenlidir: var olan .venv ve .env'e dokunulmaz, eksik olan
 # tamamlanır. Anahtarların bulunduğu .env HİÇBİR koşulda üzerine yazılmaz.
@@ -45,7 +49,53 @@ done
 [ -n "$PYTHON" ] || hata "Python 3.$MIN_MINOR veya üstü bulunamadı. Kur: https://www.python.org/downloads/"
 bitti "Python: $($PYTHON -V 2>&1) ($(command -v "$PYTHON"))"
 
-# --- 2. Sanal ortam ------------------------------------------------------------ #
+# --- 2a. KULLANICI kurulumu: izole ve global --------------------------------- #
+# Tercih sırası uv → pipx → pip --user. İlk ikisi aracı KENDİ izole ortamına kurar
+# ve bin dizinini PATH'e ekler; kullanıcının sistem Python'ı kirlenmez.
+#
+# Editable DEĞİLDİR: kullanıcı repo klasörünü silse ya da taşısa bile `fusion`
+# çalışmaya devam etmeli.
+if [ "$DEV" -eq 0 ]; then
+    if command -v uv >/dev/null 2>&1; then
+        adim "uv ile kuruluyor (izole, global)…"
+        uv tool install --force . || hata "uv ile kurulum başarısız."
+        YONTEM=uv
+    elif command -v pipx >/dev/null 2>&1; then
+        adim "pipx ile kuruluyor (izole, global)…"
+        pipx install --force . || hata "pipx ile kurulum başarısız."
+        YONTEM=pipx
+    else
+        adim "pip --user ile kuruluyor (uv/pipx bulunamadı)…"
+        uyari "İzole kurulum için önerilen: uv (https://docs.astral.sh/uv/) ya da pipx."
+        "$PYTHON" -m pip install --user . || hata "Kurulum başarısız."
+        YONTEM="pip --user"
+    fi
+    bitti "Kuruldu ($YONTEM)."
+
+    # `fusion` PATH'te mi? Değilse doğrudan çalıştırıp doctor'un PATH ipucunu göster.
+    if command -v fusion >/dev/null 2>&1; then
+        FUSION=fusion
+    else
+        FUSION="$("$PYTHON" -c 'import site,sys,os
+base = site.getuserbase()
+alt = os.path.join(base, "Scripts" if sys.platform == "win32" else "bin", "fusion")
+print(alt if os.path.exists(alt) else "")' 2>/dev/null)"
+        [ -n "$FUSION" ] || FUSION="$HOME/.local/bin/fusion"
+    fi
+
+    printf '\n'
+    "$FUSION" setup || uyari "Kurulum sihirbazı tamamlanamadı."
+    printf '\n'
+    if "$FUSION" doctor; then
+        printf '\n%sHazır.%s Başlatmak için:\n\n    fusion\n\n' "$OK" "$OFF"
+    else
+        printf '\n%s Kurulum tamamlandı ama yapılandırma eksik.%s\n' "$WARN" "$OFF"
+        printf 'Yukarıdaki satırlar ne yapılacağını söylüyor.\n\n'
+    fi
+    exit 0
+fi
+
+# --- 2b. GELİŞTİRİCİ kurulumu: repo içinde .venv ------------------------------ #
 if [ -x "$VENV/bin/python" ]; then
     bitti "Sanal ortam zaten var: $VENV"
 else
@@ -57,29 +107,26 @@ PIP="$VENV/bin/python -m pip"
 
 # --- 3. Bağımlılıklar ----------------------------------------------------------- #
 # chromadb büyük; ilk kurulum birkaç dakika sürebiliyor, kullanıcı boş ekrana bakmasın.
-adim "Bağımlılıklar kuruluyor (ilk kurulum birkaç dakika sürebilir)…"
+# `--quiet` yalnızca BAŞARIDA sessizdir: hata olursa pip'in gerçek çıktısı
+# gösterilir, yoksa kullanıcı "Kurulum başarısız" cümlesiyle baş başa kalır.
+adim "Bağımlılıklar kuruluyor (chromadb büyük; ilk kurulum birkaç dakika sürebilir)…"
 $PIP install --quiet --upgrade pip
-if [ "$DEV" -eq 1 ]; then
-    $PIP install --quiet -e ".[dev]" || hata "Kurulum başarısız."
-    bitti "Paket ve geliştirme araçları kuruldu."
-else
-    $PIP install --quiet -e . || hata "Kurulum başarısız."
-    bitti "Paket kuruldu."
+if ! $PIP install --quiet -e ".[dev]"; then
+    uyari "Sessiz kurulum başarısız; gerçek hata aşağıda:"
+    $PIP install -e ".[dev]" || hata "Kurulum başarısız."
 fi
+bitti "Paket ve geliştirme araçları kuruldu (editable)."
 
-# --- 4. .env (YALNIZCA geliştirici kurulumunda) --------------------------------- #
+# --- 4. .env (yalnızca geliştirici kurulumu) ------------------------------------ #
 # Normal kullanıcının anahtarları KULLANICI DİZİNİNDE tutulur (`fusion setup`).
 # Repo köküne de .env bırakmak iki doğruluk kaynağı yaratıyordu: kullanıcı hangisini
 # düzenleyeceğini bilemiyor, üstelik repo kopyası 0644 (herkes okuyabilir) oluyordu.
-# Proje bazlı override geliştirici senaryosudur ve yalnızca --dev ile kurulur.
-if [ "$DEV" -eq 1 ]; then
-    if [ -f .env ]; then
-        bitti ".env zaten var, dokunulmadı."
-    else
-        cp .env.example .env
-        chmod 600 .env 2>/dev/null || true
-        bitti ".env oluşturuldu (geliştirici kurulumu; anahtarlar buraya da yazılabilir)."
-    fi
+if [ -f .env ]; then
+    bitti ".env zaten var, dokunulmadı."
+else
+    cp .env.example .env
+    chmod 600 .env 2>/dev/null || true
+    bitti ".env oluşturuldu (proje bazlı override; anahtarlar buraya da yazılabilir)."
 fi
 
 # --- 5. Kullanıcı dizini şablonları --------------------------------------------- #
