@@ -83,6 +83,41 @@ olabilir; kalite için değil.
 NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
 dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
 
+## BULUNDU ve DÜZELTİLDİ — boş cevap turu iş yapmadan bitiriyordu (2026-07-26)
+
+Transkript aracının ilk gerçek teşhisi. `traceback-okuyup-duzelt` görevinin
+başarısız koşusunda tek satır vardı:
+
+    {"role": "nemotron-super", "ok": true, "tool_calls": [], "text": ""}
+
+Model BOŞ cevap döndürdü — metin yok, araç çağrısı yok, ama teknik olarak
+başarılı. Agent bunu nihai cevap sayıp turu hiçbir iş yapmadan bitirdi. Bu tek
+göreve özgü değil: zor görevlerdeki "agent dosyaya hiç dokunmadı" davranışının
+sebebi buydu.
+
+İki yerde düzeltildi:
+
+1. `ModelResult.is_usable` — `ok` yetmez, metin ya da araç çağrısı da gerekir.
+   Hedged yarışı artık buna bakıyor, boş sonuç yedek zincirini tetikliyor.
+2. Agent döngüsü boş cevapta yönlendirici not enjekte edip en fazla iki kez daha
+   deniyor. Gerekli çünkü TEK MODELLİ zincirde hedged kısa devre yapar ve yedek
+   yoktur (`provider: nvidia` tam da bu durumu üretiyor).
+
+**Etkisi ÖLÇÜLEMEDİ**: doğrulama koşusu sağlayıcı kotasına takıldı ve durdu.
+Davranış birim testleriyle kilitli ama uçtan uca etkisi bilinmiyor.
+
+## DÜZELTME — gürültü tabanı tahminim fazla iddialıydı (2026-07-26)
+
+Önceki maddede aynı yapılandırmanın iki koşusundan (14/15, 13/15) "gürültü tabanı
+±1-2" sonucunu çıkarmıştım. Üçüncü koşu 8/15 geldi.
+
+O koşudaki tek kod değişikliği (`is_usable`) tek modelli zincirde ETKİSİZDİ —
+hedged kısa devre yapıyor — yani düşüş koddan gelemez. Demek ki gerçek varyans
+iki örnekten çıkardığım banttan çok daha geniş.
+
+Ders: n=2 ile gürültü tabanı belirlenmez. Bu setle anlamlı A/B için çok daha
+fazla koşu (ya da çok daha büyük etki) gerekir.
+
 ## ÖLÇÜLDÜ — gürültü tabanı ve gerçek zor-set performansı (2026-07-26)
 
 Aynı yapılandırma iki kez koşuldu (`provider: nvidia`, NIM kotası taze, OpenRouter'a
