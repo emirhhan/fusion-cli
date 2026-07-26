@@ -110,6 +110,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     existed = path.exists()
     path.parent.mkdir(parents=True, exist_ok=True)
+    context.changes.record(path)
     try:
         atomic_write(path, content)
     except OSError as exc:
@@ -158,6 +159,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         count = text.count(old)
         if count == 0:
             return ToolResult.failure(_NOT_FOUND)
+        context.changes.record(path)
         atomic_write(path, text.replace(old, new))
         context.touched.add(path)
         return ToolResult(f"düzenlendi: {path} ({count} değişiklik)")
@@ -166,6 +168,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if problem is not None:
         return ToolResult.failure(problem)
 
+    context.changes.record(path)
     atomic_write(path, text.replace(old, new, 1))
     context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} (1 değişiklik)")
@@ -196,6 +199,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
         working = working.replace(old, new, 1)
         toplam += 1
 
+    context.changes.record(path)
     atomic_write(path, working)
     context.touched.add(path)
     return ToolResult(f"düzenlendi: {path} ({toplam} değişiklik uygulandı)")

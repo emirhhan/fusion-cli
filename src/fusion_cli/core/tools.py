@@ -21,6 +21,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
+from .changeset import ChangeSet
+
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
 ToolArgs = Mapping[str, object]
@@ -127,6 +129,9 @@ class ToolContext:
     #: aracın varsayılan erişim alanı olmamalıdır. Kök dışına erişim gerekiyorsa
     #: kullanıcı bunu `--add-dir` ile AÇIKÇA verir.
     restrict_to_root: bool = True
+    #: Bu turda değiştirilen dosyaların ilk hâlleri — geri alma (`/undo`) için.
+    #: `touched` ile aynı desende paylaşılır: alt-ajanın değişikliği de buraya girer.
+    changes: ChangeSet = field(default_factory=ChangeSet)
     #: Kökün yanında erişime açılan ek dizinler (`--add-dir`).
     #:
     #: Bir kapı değil, dar bir penceredir: yalnızca burada YAZAN dizinlerin altı

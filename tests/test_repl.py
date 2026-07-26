@@ -637,3 +637,37 @@ def test_dar_terminalde_once_dizin_dusurulur():
 
     assert "motor" in dar
     assert "dizin" not in dar
+
+
+# --- /undo ------------------------------------------------------------------ #
+
+
+def test_undo_degisiklik_yokken_bilgi_verir(state):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    komut = build_registry().get("undo")
+
+    assert komut is not None
+    assert komut.handler(state, "") == messages.UNDO_NOTHING
+
+
+def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.core.changeset import ChangeSet
+
+    dosya = tmp_path / "a.py"
+    dosya.write_text("eski\n", encoding="utf-8")
+    kayit = ChangeSet()
+    kayit.record(dosya)
+    dosya.write_text("agent yazdi\n", encoding="utf-8")
+
+    state.last_changes = kayit
+    komut = build_registry().get("undo")
+    assert komut is not None
+
+    mesaj = komut.handler(state, "")
+
+    assert dosya.read_text(encoding="utf-8") == "eski\n"
+    assert "a.py" in mesaj
+    assert state.last_changes is None, "aynı kayıt iki kez geri alınmamalı"

@@ -89,6 +89,7 @@ def derive_sub_context(context: ToolContext) -> ToolContext:
     return ToolContext(
         root=context.root,
         touched=context.touched,
+        changes=context.changes,
         restrict_to_root=context.restrict_to_root,
         extra_roots=context.extra_roots,
     )

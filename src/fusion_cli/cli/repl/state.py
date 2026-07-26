@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ...config.models import Config
 from ...config.permissions import load_allowed_commands
+from ...core.changeset import ChangeSet
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMode
 from ...memory.factory import Memory
@@ -59,6 +60,10 @@ class ReplState:
     last_fusion: FusionResult | None = None
     #: Oturum boyunca biriken token ve maliyet. Her tur aynı toplayıcıyı besler.
     cost: CostTracker = field(default_factory=CostTracker)
+    #: Son agent turunun dosya değişiklikleri — `/undo` bunu geri alır.
+    #: Yalnızca SON tur tutulur: daha derin bir geçmiş, kullanıcının aradan yaptığı
+    #: elle değişiklikleri sessizce ezme riski taşır.
+    last_changes: ChangeSet | None = None
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
     #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.

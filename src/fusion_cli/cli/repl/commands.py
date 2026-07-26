@@ -226,6 +226,22 @@ def _level(state: ReplState, argument: str) -> str:
     return result.message
 
 
+def _undo(state: ReplState, argument: str) -> str:
+    """`/undo` — son agent turunun dosya değişikliklerini geri al."""
+    kayit = state.last_changes
+    if kayit is None or not kayit:
+        return messages.UNDO_NOTHING
+    beklenen = len(kayit.paths)
+    geri_alinan = kayit.restore()
+    state.last_changes = None
+    if len(geri_alinan) < beklenen:
+        return messages.UNDO_PARTIAL.format(
+            count=len(geri_alinan), failed=beklenen - len(geri_alinan)
+        )
+    yollar = "\n".join(f"  {yol}" for yol in geri_alinan)
+    return messages.UNDO_DONE.format(count=len(geri_alinan), paths=yollar)
+
+
 def _verify(state: ReplState, argument: str) -> str:
     """`/verify` — projeden doğrulama planı çıkar, onaylat, kalıcılaştır."""
     result = verify_flow.choose_verification(state.config, state.root)
@@ -340,6 +356,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
+    SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     *(
         SlashCommand(

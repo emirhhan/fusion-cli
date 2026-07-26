@@ -266,9 +266,10 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
+        tool_context = ToolContext(root=state.root)
         prompter = ConsolePrompter(
             console,
-            ToolContext(root=state.root),
+            tool_context,
             flush=bus.drain,
             # Soru/onay sırasında canlı "hazırlanıyor…" satırını duraklat; yoksa
             # spinner cevap istemini ezip kullanıcıyı yazamaz hâle getirir.
@@ -278,7 +279,7 @@ async def _agent_turn(
             config=state.config,
             publisher=bus,
             policy=build_policy(state.approval, prompter),
-            tool_context=ToolContext(root=state.root),
+            tool_context=tool_context,
             asker=prompter,
             code_index=state.memory.code_index if state.memory.enabled else None,
             lessons=state.memory.lessons,
@@ -295,6 +296,8 @@ async def _agent_turn(
             extra_system=macros.mode_prompt(mode),
             step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
         )
+        # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
+        state.last_changes = tool_context.changes
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
         bus.publish(TurnFinished())

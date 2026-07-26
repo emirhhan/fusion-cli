@@ -308,6 +308,13 @@ CMD_LESSONS = "öğrenilen dersler"
 CMD_MODELS = "yapılandırılmış modeller"
 CMD_COST = "oturumda harcanan token ve tahmini maliyet"
 CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
+UNDO_NOTHING = "Geri alınacak bir değişiklik yok."
+UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"
+UNDO_PARTIAL = (
+    "{count} dosya geri alındı; {failed} dosya geri alınamadı "
+    "(izin ya da silinmiş dizin)."
+)
+CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
