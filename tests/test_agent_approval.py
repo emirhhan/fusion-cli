@@ -79,3 +79,61 @@ def test_tehlike_gerekcesi_isteğe_islenir():
 
 def test_zararsiz_istekte_tehlike_yok():
     assert build_request(_arac("run_shell"), {"command": "ls"}).danger is None
+
+
+# --- Gözetimsiz kabuk: beyaz liste ------------------------------------------ #
+
+
+async def test_auto_kipte_taninmayan_kabuk_komutu_sorar():
+    """Kara listeye takılmayan her komutun sessizce çalışması asıl açıktı.
+
+    `node -e "...rmSync..."` hiçbir tehlike kalıbına uymaz; eskiden auto kipte
+    hiç sorulmadan çalışırdı.
+    """
+    from fusion_cli.engines.agent.approval import AutoApproval, build_request
+    from fusion_cli.tools.shell import run_shell
+
+    arac = Tool(
+        name="run_shell",
+        description="",
+        parameters={},
+        run=run_shell,
+        mutating=True,
+    )
+    args = {"command": 'node -e "require(\'fs\').rmSync(\'/x\')"'}
+    prompter = _SahtePrompter(cevap=False)
+
+    karar = await AutoApproval(prompter).decide(build_request(arac, args))
+
+    assert prompter.soruldu, "tanınmayan komut onaya sunulmalı"
+    assert karar is Decision.DENIED
+
+
+async def test_auto_kipte_salt_okunur_komut_sorulmaz():
+    """Her `ls` için onay istemek kullanıcıyı yorar ve onayı anlamsızlaştırır."""
+    from fusion_cli.engines.agent.approval import AutoApproval, build_request
+    from fusion_cli.tools.shell import run_shell
+
+    arac = Tool(
+        name="run_shell",
+        description="",
+        parameters={},
+        run=run_shell,
+        mutating=True,
+    )
+    prompter = _SahtePrompter(cevap=True)
+
+    karar = await AutoApproval(prompter).decide(build_request(arac, {"command": "git status"}))
+
+    assert not prompter.soruldu
+    assert karar is Decision.ALLOW
+
+
+class _SahtePrompter:
+    def __init__(self, cevap: bool) -> None:
+        self.cevap = cevap
+        self.soruldu = False
+
+    async def confirm(self, request) -> bool:
+        self.soruldu = True
+        return self.cevap

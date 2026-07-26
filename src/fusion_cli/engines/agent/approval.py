@@ -19,6 +19,7 @@ from typing import Protocol
 
 from ...config.permissions import is_allowed
 from ...core.tools import Tool, ToolArgs
+from ...tools.command_policy import is_unattended_safe
 from ...tools.safety import danger_reason
 
 
@@ -52,6 +53,11 @@ class ApprovalRequest:
     danger: str | None
     #: Kullanıcının izin listesinde (.claude/settings.local.json) mi?
     pre_allowed: bool = False
+    #: Kabuk komutu gözetimsiz çalışmaya uygun mu (tanınan, yan etkisiz komut)?
+    #:
+    #: Kabuk DIŞINDAKİ araçlar için True'dur: onların kararı `mutating` ve `danger`
+    #: üzerinden zaten veriliyor, buradaki soru yalnızca `run_shell` içindir.
+    unattended_safe: bool = True
 
 
 class Prompter(Protocol):
@@ -67,13 +73,19 @@ class ApprovalPolicy(Protocol):
 
 
 class AutoApproval:
-    """Değiştirici işlemlere otomatik evet; yıkıcı komutlarda yine de sorar."""
+    """Değiştirici işlemlere otomatik evet; yıkıcı ve TANINMAYAN komutlarda sorar.
+
+    Karar eskiden yalnızca `danger`'a bakıyordu: tehlike kalıbına uymayan her kabuk
+    komutu sessizce çalışıyordu. Kalıp listesi ne kadar uzasa da `node -e`, hazır
+    bir script ya da `>` ile dosya sıfırlama gibi yollar dışarıda kalıyordu.
+    Artık kabuk için soru terstir — tanımadığımız komut sorulur (`command_policy`).
+    """
 
     def __init__(self, prompter: Prompter) -> None:
         self._prompter = prompter
 
     async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.danger is None:
+        if request.danger is None and request.unattended_safe:
             return Decision.ALLOW
         return _from_answer(await self._prompter.confirm(request))
 
@@ -115,16 +127,16 @@ def build_request(
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır."""
     command = args.get("command")
-    pre_allowed = (
-        tool.name == "run_shell"
-        and isinstance(command, str)
-        and is_allowed(command, allowed_commands)
-    )
+    kabuk = tool.name == "run_shell" and isinstance(command, str)
+    pre_allowed = kabuk and is_allowed(str(command), allowed_commands)
     return ApprovalRequest(
         tool=tool,
         args=args,
         danger=danger_reason(tool.name, args),
         pre_allowed=pre_allowed,
+        # Kabuk dışındaki araçlar bu kapıya girmez; kararları `mutating`/`danger`
+        # üzerinden verilir ve burada True kalmaları davranışlarını değiştirmez.
+        unattended_safe=is_unattended_safe(str(command)) if kabuk else True,
     )
 
 
