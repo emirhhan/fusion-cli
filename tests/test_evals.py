@@ -304,3 +304,121 @@ async def test_runner_gorevleri_sirayla_kosturur_ve_puanlar():
     report = await run_suite(tasks, executor)
     assert executor.calls == ["a", "b"]
     assert report.task_success_rate == 0.5
+
+
+# --- Göreve başlangıç dosyası verme ------------------------------------------ #
+
+
+def test_gorev_baslangic_dosyalari_tasiyabilir(tmp_path):
+    """Bug fix ölçmek için bozuk kodun çalışma dizininde HAZIR olması gerekir.
+
+    Başlangıç dosyası olmadan yalnızca "sıfırdan dosya oluştur" tipi görevler
+    yazılabiliyordu; onları en zayıf model de geçer, yani ölçüm ayırt etmez.
+    """
+    from evals.loader import load_tasks
+
+    yol = tmp_path / "set.yaml"
+    yol.write_text(
+        "tasks:\n"
+        "  - id: bug-fix\n"
+        "    request: hatayı düzelt\n"
+        "    setup:\n"
+        "      hesap.py: |\n"
+        "        def topla(a, b):\n"
+        "            return a - b\n"
+        "    criterion:\n"
+        "      kind: exit_code\n"
+        "      expected_exit_code: 0\n"
+        "      command: python -c \"import hesap; assert hesap.topla(1,2)==3\"\n",
+        encoding="utf-8",
+    )
+
+    gorev = load_tasks(yol)[0]
+
+    assert gorev.setup == {"hesap.py": "def topla(a, b):\n    return a - b\n"}
+
+
+def test_setup_verilmezse_bos_kalir(tmp_path):
+    from evals.loader import load_tasks
+
+    yol = tmp_path / "set.yaml"
+    yol.write_text(
+        "tasks:\n"
+        "  - id: x\n"
+        "    request: y\n"
+        "    criterion:\n"
+        "      kind: keyword\n"
+        "      keyword: z\n",
+        encoding="utf-8",
+    )
+
+    assert load_tasks(yol)[0].setup == {}
+
+
+def test_setup_dosyalari_calisma_dizinine_yazilir(tmp_path):
+    from evals.executor import AgentTaskExecutor
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    gorev = EvalTask(
+        id="ornek",
+        request="düzelt",
+        criterion=SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="x"),
+        setup={"alt/kod.py": "print('merhaba')\n"},
+    )
+    yurutucu = AgentTaskExecutor(
+        agent_runner=None,  # type: ignore[arg-type]
+        workspace_root=tmp_path,
+        clock=None,  # type: ignore[arg-type]
+    )
+
+    calisma = yurutucu._prepare_workspace(gorev.id, gorev.setup)
+
+    assert (calisma / "alt" / "kod.py").read_text(encoding="utf-8") == "print('merhaba')\n"
+
+
+def test_setup_yolu_calisma_dizini_disina_cikamaz(tmp_path):
+    """Görev seti bir girdidir; `../` ile depoya yazmasına izin verilemez."""
+    from evals.executor import AgentTaskExecutor
+
+    from fusion_cli.core.errors import EvalError
+
+    yurutucu = AgentTaskExecutor(
+        agent_runner=None,  # type: ignore[arg-type]
+        workspace_root=tmp_path,
+        clock=None,  # type: ignore[arg-type]
+    )
+
+    with pytest.raises(EvalError, match="dışına"):
+        yurutucu._prepare_workspace("kotu", {"../kacis.py": "zararli"})
+
+
+async def test_dogrulama_komutu_python_bulabilir(tmp_path):
+    """`python -c ...` ölçütü her sistemde çalışmalı.
+
+    Gerçek hata: `python` PATH'te olmayan kurulumlarda (venv, python3-only) her
+    exit_code görevi 127 "command not found" dönüyordu. Ölçüt hiç çalışmadan
+    "kaldı" sayılıyor, görev seti sessizce yalan söylüyordu.
+    """
+    from evals.executor import AgentRunObservation, AgentTaskExecutor
+    from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
+
+    class _Bos:
+        async def run(self, request, *, root):
+            return AgentRunObservation(output_text="", model_calls=0)
+
+    class _Saat:
+        def monotonic(self):
+            return 0.0
+
+    gorev = EvalTask(
+        id="python-bulunur",
+        request="-",
+        criterion=SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE, expected_exit_code=0, command="python -c 'pass'"
+        ),
+    )
+    yurutucu = AgentTaskExecutor(agent_runner=_Bos(), workspace_root=tmp_path, clock=_Saat())
+
+    sonuc = await yurutucu.run(gorev)
+
+    assert sonuc.exit_code == 0, f"python bulunamadı (çıkış {sonuc.exit_code})"

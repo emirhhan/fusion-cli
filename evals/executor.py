@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import shutil
+import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -24,6 +27,7 @@ from typing import Protocol
 from evals.execution import TaskExecution
 from evals.tasks import CriterionKind, EvalTask
 from fusion_cli.core.constants import SHELL_TIMEOUT_S
+from fusion_cli.core.errors import EvalError
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +67,7 @@ class AgentTaskExecutor:
         self._seed_dir = seed_dir
 
     async def run(self, task: EvalTask) -> TaskExecution:
-        workspace = self._prepare_workspace(task.id)
+        workspace = self._prepare_workspace(task.id, task.setup)
         before = _snapshot(workspace)
 
         start = self._clock.monotonic()
@@ -85,7 +89,7 @@ class AgentTaskExecutor:
 
     # ----------------------------------------------------------------------- #
 
-    def _prepare_workspace(self, task_id: str) -> Path:
+    def _prepare_workspace(self, task_id: str, setup: Mapping[str, str] | None = None) -> Path:
         workspace = self._workspace_root / task_id
         if workspace.exists():
             shutil.rmtree(workspace)
@@ -93,6 +97,8 @@ class AgentTaskExecutor:
             shutil.copytree(self._seed_dir, workspace)
         else:
             workspace.mkdir(parents=True)
+        for relative, content in (setup or {}).items():
+            _write_seed_file(workspace, relative, content)
         return workspace
 
     async def _exit_code(self, task: EvalTask, workspace: Path) -> int | None:
@@ -102,6 +108,7 @@ class AgentTaskExecutor:
             process = await asyncio.create_subprocess_shell(
                 task.criterion.command,
                 cwd=str(workspace),
+                env=_verification_env(),
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -113,6 +120,35 @@ class AgentTaskExecutor:
             process.kill()
             await process.wait()
             return 1
+
+
+def _verification_env() -> dict[str, str]:
+    """Doğrulama komutunun ortamı: PATH'e ÇALIŞAN yorumlayıcının dizini eklenir.
+
+    Görev ölçütleri `python -c "..."` yazıyor ama `python` her sistemde PATH'te
+    değildir (venv, `python3`-only kurulumlar). Ölçüldü: bu haliyle her exit_code
+    görevi 127 (command not found) dönüyordu — yani ölçüt hiç çalışmadan "kaldı"
+    sayılıyor, görev seti sessizce yalan söylüyordu.
+    """
+    env = dict(os.environ)
+    yorumlayici = str(Path(sys.executable).parent)
+    env["PATH"] = f"{yorumlayici}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
+def _write_seed_file(workspace: Path, relative: str, content: str) -> None:
+    """Başlangıç dosyasını çalışma dizinine yaz.
+
+    Görev seti bir GİRDİDİR (dosyadan gelir, paylaşılabilir); `../` ile depoya ya
+    da ev dizinine yazmasına izin verilemez. Yol çözülür ve çalışma dizini altında
+    kalması zorunlu tutulur.
+    """
+    target = (workspace / relative).resolve()
+    root = workspace.resolve()
+    if root not in target.parents:
+        raise EvalError(f"setup yolu çalışma dizini dışına çıkıyor: {relative}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
 
 
 def _snapshot(root: Path) -> dict[str, str]:

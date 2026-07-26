@@ -63,7 +63,17 @@ def _parse_task(item: object) -> EvalTask:
         id=str(item["id"]),
         request=str(item["request"]),
         criterion=_parse_criterion(item["criterion"]),
+        setup=_parse_setup(item.get("setup")),
     )
+
+
+def _parse_setup(raw: object) -> dict[str, str]:
+    """`setup` bloğunu yol→içerik sözlüğüne çevir. Yoksa boş."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise EvalError("'setup' bir sözlük olmalı: <yol>: <içerik>")
+    return {str(yol): str(icerik) for yol, icerik in raw.items()}
 
 
 def _parse_criterion(raw: object) -> SuccessCriterion:

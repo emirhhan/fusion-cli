@@ -7,7 +7,8 @@ kelimenin bulunması. Model çıktısı ya da secret/PII seti içine girmez.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import Enum
 
 
@@ -46,3 +47,9 @@ class EvalTask:
     id: str
     request: str
     criterion: SuccessCriterion
+    #: Görev başlamadan ÖNCE çalışma dizinine yazılacak dosyalar: yol → içerik.
+    #:
+    #: Olmadan yalnızca "sıfırdan dosya oluştur" tipi görevler yazılabiliyordu ve
+    #: onları en zayıf model bile geçiyordu — ölçüm modelleri ayırt etmiyordu.
+    #: Bozuk kodu hazır koyabilmek bug fix, regresyon ve test-okuma ölçmenin ön koşulu.
+    setup: Mapping[str, str] = field(default_factory=dict)
