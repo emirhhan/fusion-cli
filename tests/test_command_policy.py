@@ -105,3 +105,42 @@ def test_proje_kalite_araclari_onaysiz_calisir(komut):
 def test_kurulum_ve_yayinlama_alt_komutlari_onay_ister(komut):
     """Ağdan paket çekmek ve yayınlamak geri alınamaz; kalite aracı sayılmaz."""
     assert is_unattended_safe(komut) is False
+
+
+# --- Proje içi betik çalıştırma ---------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "python main.py",
+        "python3 scripts/kontrol.py",
+        "python alt/dizin/x.py --bayrak",
+        "node index.js",
+    ],
+)
+def test_proje_ici_betik_onaysiz_calisir(komut):
+    """Agent'ın doğal akışı düzenle → çalıştır → doğrula.
+
+    Ölçüldü: `python main.py` reddedilince agent görevi yarıda bırakıp kullanıcıya
+    soruyor; headless bağlamda bu doğrudan başarısızlık. Proje içindeki bir dosyayı
+    çalıştırmak, `pytest` çalıştırmakla AYNI güven seviyesidir — ikisi de projenin
+    kendi kodudur ve kullanıcı bu projeyi zaten açmıştır.
+    """
+    assert is_unattended_safe(komut) is True
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        # Satır içi kod ENJEKTE etmek proje dosyası çalıştırmaktan farklıdır.
+        "python -c \"import os; os.remove('x')\"",
+        "node -e \"require('fs').rmSync('/x')\"",
+        # Kök dışındaki bir betik projenin kodu değildir.
+        "python /tmp/zararli.py",
+        "python ../disarida.py",
+        "python ~/zararli.py",
+    ],
+)
+def test_proje_disi_ve_satir_ici_kod_onay_ister(komut):
+    assert is_unattended_safe(komut) is False

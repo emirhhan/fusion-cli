@@ -32,9 +32,24 @@ _READ_ONLY = frozenset(
 )  # fmt: skip
 
 #: Yalnızca sürüm/yardım sorgusu için geçilen çalıştırıcılar. Bunlar keyfi kod
-#: çalıştırabildiği için ancak zararsız bayraklarla güvenli sayılır.
+#: çalıştırabildiği için ancak zararsız bayraklarla ya da PROJE İÇİ bir dosyayla
+#: (bkz. `_script_safe`) güvenli sayılır.
 _VERSION_ONLY = frozenset({"python", "python3", "pip", "node", "npm", "go", "cargo"})
 _VERSION_FLAGS = frozenset({"--version", "-V", "--help", "-h", "version"})
+
+#: Proje içi bir betiği çalıştırabilen yorumlayıcılar.
+#
+# Agent'ın doğal akışı düzenle → çalıştır → doğrula. `python main.py` reddedilince
+# agent görevi yarıda bırakıp kullanıcıya soruyor; headless bağlamda bu doğrudan
+# başarısızlık (ölçüldü: çok dosyalı yeniden adlandırma görevi bu yüzden düşüyordu).
+#
+# Sınır şu: projedeki bir DOSYAYI çalıştırmak `pytest` çalıştırmakla aynı güven
+# seviyesidir — ikisi de projenin kendi kodudur. Satır içi kod ENJEKTE etmek
+# (`-c`, `-e`) ya da kök dışındaki bir betiği çalıştırmak farklıdır ve sorulur.
+_SCRIPT_RUNNERS = frozenset({"python", "python3", "node"})
+
+#: Satır içi kod alan bayraklar — proje dosyası çalıştırmakla aynı şey değildir.
+_INLINE_CODE_FLAGS = frozenset({"-c", "-e", "--eval", "-m"})
 
 #: Projenin kendi kalite araçları. Bunlar projede TANIMLI kodu çalıştırır (test
 #: dosyaları, lint eklentileri) — yani teknik olarak keyfi kod yürütürler.
@@ -120,8 +135,26 @@ def _segment_safe(segment: str) -> bool:
     if name in _PROJECT_TOOLING:
         return _tooling_safe(name, arguments)
     if name in _VERSION_ONLY:
-        return bool(arguments) and all(argument in _VERSION_FLAGS for argument in arguments)
+        if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
+            return True
+        return name in _SCRIPT_RUNNERS and _script_safe(arguments)
     return name in _READ_ONLY
+
+
+def _script_safe(arguments: list[str]) -> bool:
+    """Yorumlayıcı çağrısı PROJE İÇİ bir dosyayı mı çalıştırıyor?
+
+    İlk argüman göreli bir yol olmalı ve kökün dışına çıkmamalı. Mutlak yol, `..`
+    ve `~` reddedilir: bunlar projenin kodu değildir. Satır içi kod bayrakları da
+    reddedilir — `python -c "..."` yeni kod enjekte etmektir, var olan bir dosyayı
+    çalıştırmak değil.
+    """
+    if not arguments:
+        return False
+    if any(argument in _INLINE_CODE_FLAGS for argument in arguments):
+        return False
+    hedef = arguments[0]
+    return not (hedef.startswith(("-", "/", "~")) or ".." in hedef.split("/"))
 
 
 def _tooling_safe(name: str, arguments: list[str]) -> bool:
