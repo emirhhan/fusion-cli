@@ -21,9 +21,18 @@ MODEL_CALL_FAILED = "{role} · {error}"
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"
 ERROR_NO_ANSWER = "Hiçbir model yanıt veremedi. Ağ bağlantısını ve API anahtarını kontrol et."
+# OpenRouter'ın ücretsiz katman sınırı HESAP başınadır, model başına değil
+# (20 istek/dk; günlük 50, hesaba $10 kredi yüklendiyse 1000). Bu yüzden burada
+# "başka bir ücretsiz model dene" DENMEZ: kullanıcı modeli değiştirir, aynı
+# duvara toslar ve ürünü bozuk sanar. Gerçekten işe yarayan üç yol yazılır.
 ERROR_RATE_LIMITED = (
-    "Ücretsiz kota doldu (sağlayıcı hız sınırı). Bir süre bekle ya da "
-    "config.yaml içinde farklı bir ücretsiz model tanımla."
+    "Ücretsiz kota doldu (sağlayıcı hız sınırı). Bu sınır hesap başınadır; "
+    "model değiştirmek kotayı açmaz.\n"
+    "  · Dakika sınırıysa (20 istek/dk) bir dakika bekle.\n"
+    "  · Günlük sınırıysa (50 istek/gün) OpenRouter hesabına bir kerelik $10 "
+    "kredi yüklemek bunu 1000 isteğe çıkarır.\n"
+    "  · .env dosyasına NVIDIA_NIM_API_KEY eklersen NIM ayrı bir ücretsiz "
+    "kotadan çalışır (~1000 kredi, 40 istek/dk)."
 )
 ERROR_CONFIG = "Yapılandırma hatası: {detail}"
 ERROR_INTERRUPTED = "işlem durduruldu"

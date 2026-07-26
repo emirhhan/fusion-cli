@@ -19,7 +19,13 @@ from ..config.models import Config
 from ..config.permissions import load_allowed_commands
 from ..core.events import ErrorOccurred, EventSink, FusionCompleted, TurnFinished
 from ..core.tools import ToolContext
-from ..core.types import CompletionRequest, FusionResult, Message, VerdictSource
+from ..core.types import (
+    CompletionRequest,
+    FusionResult,
+    Message,
+    VerdictSource,
+    is_rate_limit_error,
+)
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
@@ -145,6 +151,11 @@ async def run_agent_task(
 
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
+        elif not outcome.ok and is_rate_limit_error(outcome.final_text):
+            # Agent turu kotaya takıldığında elde yalnızca ham sağlayıcı metni olur
+            # ("...429 Too Many Requests..."); kullanıcı ne yapacağını bilemez.
+            # Fusion yolundaki yönlendirmenin aynısı gösterilir.
+            bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
         bus.publish(TurnFinished())
         return outcome
 

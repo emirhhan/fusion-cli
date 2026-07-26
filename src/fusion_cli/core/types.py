@@ -92,6 +92,24 @@ class ModelSpec:
         return tuple(dict.fromkeys([self.model, *self.fallback]))
 
 
+#: Sağlayıcıların kota/hız sınırını bildirirken kullandığı sözcükler.
+_RATE_LIMIT_MARKERS = ("429", "ratelimit", "rate limit", "too many requests", "quota")
+
+
+def is_rate_limit_error(detail: str | None) -> bool:
+    """Hata metni ücretsiz kota/hız sınırını mı anlatıyor?
+
+    Sağlayıcılar bunu farklı sözcüklerle bildirir. Sınıflandırma tek yerdedir:
+    fusion motoru sonucu `ModelResult` üzerinden, agent motoru ise yalnızca hata
+    METNİNİ taşıyarak (`AgentOutcome`) buraya gelir; iki yol ayrı yazılsaydı
+    kullanıcı motoruna göre farklı yönlendirme görürdü.
+    """
+    if not detail:
+        return False
+    lowered = detail.lower()
+    return any(marker in lowered for marker in _RATE_LIMIT_MARKERS)
+
+
 @dataclass(frozen=True, slots=True)
 class CompletionRequest:
     """Sağlayıcıya verilen çağrı isteği. Sağlayıcıdan bağımsızdır."""
@@ -131,18 +149,8 @@ class ModelResult:
 
     @property
     def is_rate_limited(self) -> bool:
-        """Başarısızlık ücretsiz kota/hız sınırından mı kaynaklandı?
-
-        Sağlayıcılar bunu farklı sözcüklerle bildirir; kullanıcıya doğru öneriyi
-        gösterebilmek için tek yerde sınıflandırılır.
-        """
-        if self.ok or not self.error:
-            return False
-        lowered = self.error.lower()
-        return any(
-            marker in lowered
-            for marker in ("429", "ratelimit", "rate limit", "too many requests", "quota")
-        )
+        """Başarısızlık ücretsiz kota/hız sınırından mı kaynaklandı?"""
+        return False if self.ok else is_rate_limit_error(self.error)
 
 
 @dataclass(frozen=True, slots=True)
