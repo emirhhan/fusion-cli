@@ -25,7 +25,12 @@ class _FakeRunner:
         self.roots: list[Path] = []
 
     async def run(
-        self, request: str, *, root: Path, strict_approval: bool = False
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
     ) -> AgentRunObservation:
         self.roots.append(root)
         for name, content in self._files.items():

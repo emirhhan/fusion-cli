@@ -29,6 +29,10 @@ from evals.tasks import CriterionKind, EvalTask
 from fusion_cli.core.constants import SHELL_TIMEOUT_S
 from fusion_cli.core.errors import EvalError
 
+#: Her koşunun çalışma dizinine bırakılan transkript dosyası. Çalışma dizini
+#: koşu başına silinip yeniden kurulduğu için son koşunun transkripti kalır.
+TRANSCRIPT_NAME = "_transkript.jsonl"
+
 
 @dataclass(frozen=True, slots=True)
 class AgentRunObservation:
@@ -42,7 +46,12 @@ class AgentRunner(Protocol):
     """Bir isteği belirli bir kök dizinde agent'la çalıştıran taraf."""
 
     async def run(
-        self, request: str, *, root: Path, strict_approval: bool = False
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
     ) -> AgentRunObservation: ...
 
 
@@ -74,7 +83,10 @@ class AgentTaskExecutor:
 
         start = self._clock.monotonic()
         observation = await self._agent_runner.run(
-            task.request, root=workspace, strict_approval=task.approval == "strict"
+            task.request,
+            root=workspace,
+            strict_approval=task.approval == "strict",
+            transcript=workspace / TRANSCRIPT_NAME,
         )
         duration = self._clock.monotonic() - start
 

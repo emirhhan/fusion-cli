@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from evals.executor import AgentRunObservation
+from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
 from fusion_cli.core.events import Event
 from fusion_cli.core.tools import ToolContext
@@ -63,11 +64,19 @@ class FusionAgentRunner:
         self._config = config
 
     async def run(
-        self, request: str, *, root: Path, strict_approval: bool = False
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
     ) -> AgentRunObservation:
+        # Transkript turda NE OLDUĞUNU kaydeder; başarısızlık sonradan teşhis
+        # edilebilsin diye. Yoksa yayıncı olayları yutar (ölçümde çıktı gerekmez).
+        kayit = TranscriptRecorder(transcript) if transcript is not None else None
         deps = AgentDeps(
             config=self._config,
-            publisher=_NullPublisher(),
+            publisher=kayit if kayit is not None else _NullPublisher(),
             policy=_EvalApproval(strict=strict_approval),
             tool_context=ToolContext(root=root),
             asker=None,
@@ -76,6 +85,8 @@ class FusionAgentRunner:
             capabilities=None,
         )
         outcome = await run_agent(request, deps)
+        if kayit is not None:
+            kayit.close()
         # Model çağrısı ~ araç turu + son cevap turu (metrik için makul bir tahmin).
         return AgentRunObservation(
             output_text=outcome.final_text, model_calls=outcome.tool_calls_made + 1

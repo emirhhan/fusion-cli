@@ -5,6 +5,8 @@ Testler ağa/motora çıkmaz; sahte gözlem (`TaskExecution`) ve sahte yürütü
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from evals.compare import compare_reports
 from evals.criteria import evaluate_criterion
@@ -403,7 +405,7 @@ async def test_dogrulama_komutu_python_bulabilir(tmp_path):
     from evals.tasks import CriterionKind, EvalTask, SuccessCriterion
 
     class _Bos:
-        async def run(self, request, *, root, strict_approval=False):
+        async def run(self, request, *, root, strict_approval=False, transcript=None):
             return AgentRunObservation(output_text="", model_calls=0)
 
     class _Saat:
@@ -528,3 +530,80 @@ async def test_tek_tekrar_varsayilan_davranisi_korur():
 
     assert rapor.results[0].runs == 1
     assert rapor.results[0].success is True
+
+
+# --- Başarısızlık teşhisi: transkript ---------------------------------------- #
+
+
+def test_transkript_arac_cagrilarini_ve_sonuclarini_kaydeder(tmp_path):
+    """Geç/kal ölçümü "agent neden hiçbir şey yapmadı" sorusunu cevaplamıyor.
+
+    Ölçüldü: zor görevlerde agent bimodal davranıyor — ya işi yapıyor ya hiç
+    dokunmuyor. Sebebi ancak turda NE OLDUĞUNA bakarak bulunabilir; eval yalnızca
+    sonucu kaydettiği için her teşhis elle canlı koşum gerektiriyordu.
+    """
+    from evals.transcript import TranscriptRecorder
+
+    from fusion_cli.core.events import ModelCallFinished, ToolExecuted, ToolOutcome
+    from fusion_cli.core.types import ModelResult
+
+    yol = tmp_path / "transkript.jsonl"
+    kayit = TranscriptRecorder(yol)
+
+    kayit.publish(
+        ToolExecuted(
+            name="write_file",
+            args={"path": "a.py"},
+            outcome=ToolOutcome.DENIED,
+            output="onaylanmadı",
+        )
+    )
+    kayit.publish(
+        ModelCallFinished(
+            role="agent",
+            result=ModelResult(name="a", model="m", text="bitti", latency_ms=5, ok=True),
+        )
+    )
+    kayit.close()
+
+    satirlar = [json.loads(s) for s in yol.read_text(encoding="utf-8").splitlines()]
+
+    assert satirlar[0]["event"] == "ToolExecuted"
+    assert satirlar[0]["outcome"] == "denied"
+    assert satirlar[0]["name"] == "write_file"
+    assert satirlar[1]["event"] == "ModelCallFinished"
+    assert satirlar[1]["ok"] is True
+
+
+def test_transkript_token_gurultusunu_yazmaz(tmp_path):
+    """Akış parçaları binlerce satır üretir ve teşhise katkısı yoktur."""
+    from evals.transcript import TranscriptRecorder
+
+    from fusion_cli.core.events import Channel, TokenReceived
+
+    yol = tmp_path / "t.jsonl"
+    kayit = TranscriptRecorder(yol)
+
+    for _ in range(100):
+        kayit.publish(TokenReceived(channel=Channel.MAIN, text="x"))
+    kayit.close()
+
+    assert yol.read_text(encoding="utf-8") == ""
+
+
+def test_transkript_arac_cikti_ozetini_kirpar(tmp_path):
+    """Uzun araç çıktısı transkripti kullanılamaz hale getirir."""
+    from evals.transcript import TranscriptRecorder
+
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    yol = tmp_path / "t.jsonl"
+    kayit = TranscriptRecorder(yol)
+
+    kayit.publish(
+        ToolExecuted(name="read_file", args={}, outcome=ToolOutcome.OK, output="x" * 50_000)
+    )
+    kayit.close()
+
+    satir = json.loads(yol.read_text(encoding="utf-8"))
+    assert len(satir["output"]) < 2_000
