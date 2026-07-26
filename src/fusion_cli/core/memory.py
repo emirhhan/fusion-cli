@@ -66,6 +66,14 @@ class Lesson:
     scope: str = ""
     #: İsteğe bağlı tetikleyici ipucu; boş = serbest.
     trigger: str = ""
+    #: Dersin ait olduğu proje kökü. BOŞ = genel (her projede geçerli).
+    #:
+    #: "auth modülü src/auth altında" gibi bir gözlem yalnızca öğrenildiği projede
+    #: doğrudur; başka projede hatırlanması modeli yanlış yere yönlendirir. Hazır
+    #: yordamsal dersler ("dosyayı değiştirmeden önce oku") boş bırakılır ve her
+    #: projede geçerli kalır. Alan taşınmadan önce yazılmış kayıtlar da boş okunur,
+    #: yani göç gerekmez ve eski dersler genel sayılır.
+    workspace: str = ""
 
 
 class Feedback(Enum):
@@ -151,11 +159,21 @@ class LessonMemory(Protocol):
         """Dersi kaydet. Zaten varsa False döner (tekilleştirme)."""
         ...
 
-    def recall(self, task: str, limit: int = 4, *, scope: str | None = None) -> tuple[Lesson, ...]:
+    def recall(
+        self,
+        task: str,
+        limit: int = 4,
+        *,
+        scope: str | None = None,
+        workspace: str | None = None,
+    ) -> tuple[Lesson, ...]:
         """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir.
 
         `scope` verilirse yalnızca o görev-türü kapsamındaki (ya da kapsamsız/genel)
         dersler döner. Geri çağırma hibrittir: embedding + lexical (BM25) birleşir.
+
+        `workspace` verilirse başka projelerde öğrenilmiş dersler ELENİR; kapsamsız
+        (genel yordamsal) dersler her projede kalır.
         """
         ...
 

@@ -267,3 +267,58 @@ def test_eslesmeler_modele_okunur_metne_cevrilir():
 
 def test_eslesme_yoksa_bilgilendirici_metin():
     assert "eşleşme yok" in format_matches(())
+
+
+# --- Workspace izolasyonu ---------------------------------------------------- #
+
+
+def test_ders_ogrenildigi_projeye_etiketlenir(tmp_path):
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth src/auth altında", kind=LessonKind.SUCCESS, workspace="/proje/a"))
+
+    hepsi = bellek.all()
+
+    assert hepsi[0].workspace == "/proje/a"
+
+
+def test_baska_projenin_dersi_hatirlanmaz(tmp_path):
+    """A projesinde öğrenilen 'auth src/auth altında' B projesinde yanlıştır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth modulu src/auth altinda", kind=LessonKind.SUCCESS, workspace="/a"))
+    bellek.add(Lesson(text="auth modulu lib/auth altinda", kind=LessonKind.SUCCESS, workspace="/b"))
+
+    hatirlanan = bellek.recall("auth modulu nerede", limit=5, workspace="/a")
+
+    metinler = [d.text for d in hatirlanan]
+    assert any("src/auth" in m for m in metinler)
+    assert not any("lib/auth" in m for m in metinler), "başka projenin dersi sızdı"
+
+
+def test_kapsamsiz_ders_her_projede_hatirlanir(tmp_path):
+    """Genel yordamsal dersler (hazır dersler) projeye bağlı değildir."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="dosyayi degistirmeden once oku", kind=LessonKind.SUCCESS))
+
+    hatirlanan = bellek.recall("dosya degistirme", limit=5, workspace="/herhangi/bir/proje")
+
+    assert any("degistirmeden once oku" in d.text for d in hatirlanan)
+
+
+def test_workspace_verilmezse_hepsi_gelir(tmp_path):
+    """Eski çağrı biçimi kırılmamalı; workspace opsiyoneldir."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="a projesi dersi", kind=LessonKind.SUCCESS, workspace="/a"))
+
+    assert bellek.recall("proje dersi", limit=5)

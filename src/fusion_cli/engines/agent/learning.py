@@ -46,7 +46,7 @@ _NEGATION_MARKERS = frozenset(
 )
 
 
-def parse_lessons(text: str, task: str) -> tuple[Lesson, ...]:
+def parse_lessons(text: str, task: str, workspace: str = "") -> tuple[Lesson, ...]:
     """Model çıktısındaki JSON diziyi derslere çevir. Bozuksa boş döner."""
     match = _JSON_ARRAY.search(text or "")
     if match is None:
@@ -60,7 +60,7 @@ def parse_lessons(text: str, task: str) -> tuple[Lesson, ...]:
 
     lessons: list[Lesson] = []
     for item in items:
-        lesson = _to_lesson(item, task)
+        lesson = _to_lesson(item, task, workspace)
         if lesson is not None:
             lessons.append(lesson)
     return tuple(lessons[:MAX_LESSONS_PER_TURN])
@@ -72,6 +72,7 @@ async def extract_lessons(
     *,
     config: Config,
     publisher: EventPublisher | None = None,
+    workspace: str = "",
 ) -> tuple[Lesson, ...]:
     """Oturumdan ders çıkar. Model erişilemezse ya da çıktı bozuksa boş döner."""
     trace = history.transcript(messages)
@@ -93,7 +94,7 @@ async def extract_lessons(
         background=True,
     )
     result = await provider.complete(request)
-    return parse_lessons(result.text, task) if result.ok else ()
+    return parse_lessons(result.text, task, workspace) if result.ok else ()
 
 
 def store_lessons(lessons: tuple[Lesson, ...], memory: LessonMemory) -> int:
@@ -193,7 +194,7 @@ def _is_negative(text: str) -> bool:
     return bool(_tokens(text) & _NEGATION_MARKERS)
 
 
-def _to_lesson(item: object, task: str) -> Lesson | None:
+def _to_lesson(item: object, task: str, workspace: str = "") -> Lesson | None:
     if not isinstance(item, dict):
         return None
     text = str(item.get("lesson", "")).strip()
@@ -203,4 +204,8 @@ def _to_lesson(item: object, task: str) -> Lesson | None:
         kind = LessonKind(str(item.get("kind", "")).strip().lower())
     except ValueError:
         return None
-    return Lesson(text=text, kind=kind, task=task, source=LessonSource.LEARNED)
+    # Ders ÖĞRENİLDİĞİ projeye etiketlenir: "auth src/auth altında" gibi bir gözlem
+    # yalnızca orada doğrudur, başka projede modeli yanlış yere yönlendirir.
+    return Lesson(
+        text=text, kind=kind, task=task, source=LessonSource.LEARNED, workspace=workspace
+    )

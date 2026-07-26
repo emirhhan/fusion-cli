@@ -64,7 +64,14 @@ class ChromaLessonMemory:
             )
             return True
 
-    def recall(self, task: str, limit: int = 4, *, scope: str | None = None) -> tuple[Lesson, ...]:
+    def recall(
+        self,
+        task: str,
+        limit: int = 4,
+        *,
+        scope: str | None = None,
+        workspace: str | None = None,
+    ) -> tuple[Lesson, ...]:
         total = self.count()
         if not total or not task.strip():
             return ()
@@ -92,6 +99,14 @@ class ChromaLessonMemory:
                 documents, metadatas, distances, lexical, fused, strict=False
             )
         )
+        # Workspace süzgeci skorlamadan ÖNCE uygulanır: başka projenin dersi
+        # aday havuzunda kalırsa iyi bir dersi sıralamada geriye itebilir.
+        if workspace is not None:
+            candidates = tuple(
+                item
+                for item in candidates
+                if not item.lesson.workspace or item.lesson.workspace == workspace
+            )
         return select_lessons(candidates, limit=limit, scope=scope)
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
@@ -149,6 +164,7 @@ def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
         "failure_count": int(lesson.failure_count),
         "scope": lesson.scope[:100],
         "trigger": lesson.trigger[:200],
+        "workspace": lesson.workspace[:500],
         "timestamp": timestamp,
     }
 
@@ -166,6 +182,7 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
         failure_count=int(metadata.get("failure_count", 0)),
         scope=str(metadata.get("scope", "")),
         trigger=str(metadata.get("trigger", "")),
+        workspace=str(metadata.get("workspace", "")),
     )
 
 

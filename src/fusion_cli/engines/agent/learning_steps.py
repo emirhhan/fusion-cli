@@ -23,11 +23,20 @@ if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
 
+def _workspace(deps: AgentDeps) -> str:
+    """Turun çalıştığı proje kökü — derslerin etiketlendiği ve süzüldüğü kimlik.
+
+    Çözülmüş mutlak yol kullanılır: aynı projeye farklı göreli yollardan girmek
+    (`.` ve `../fusion-cli`) iki ayrı workspace gibi görünmemeli.
+    """
+    return str(deps.tool_context.root.resolve()) if deps.tool_context is not None else ""
+
+
 def recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Lesson, ...]:
     """Göreve benzer, güveni eşiğin üstünde ve kapsamına uyan dersleri hatırla."""
     if deps.lessons is None or not deps.config.runtime.lessons:
         return ()
-    recalled = deps.lessons.recall(task, scope=scope)
+    recalled = deps.lessons.recall(task, scope=scope, workspace=_workspace(deps))
     if recalled:
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
     return recalled
@@ -88,7 +97,11 @@ async def _extract_and_store(
     if deps.lessons is None:
         return
     lessons = await learning.extract_lessons(
-        task, messages, config=deps.config, publisher=deps.publisher
+        task,
+        messages,
+        config=deps.config,
+        publisher=deps.publisher,
+        workspace=_workspace(deps),
     )
     # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
     # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.
