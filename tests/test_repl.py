@@ -747,3 +747,42 @@ def test_provider_vazgecince_degismez(state):
 
     assert sonuc.message == messages.PICKER_CANCELLED
     assert sonuc.config is state.config
+
+
+# --- /tips ------------------------------------------------------------------ #
+
+
+def test_tips_komutu_kayitli_ve_kendi_ciktisini_basar():
+    """`/tips` tek satırlık sonuç döndürmez, panel basar."""
+    from fusion_cli.cli.repl.commands import RENDERED_COMMANDS, build_registry
+
+    komut = build_registry().get("tips")
+
+    assert komut is not None
+    assert "tips" in RENDERED_COMMANDS
+
+
+def test_tips_ekrani_komutlari_gorev_ekseninde_anlatir(capsys):
+    """`/help` komutları LİSTELER; `/tips` ne zaman kullanılacağını söyler."""
+    from rich.console import Console
+
+    from fusion_cli.cli.repl.help_view import _tips
+
+    _tips(Console(force_terminal=False, width=200))
+    cikti = capsys.readouterr().out
+
+    for komut in ("/agent", "/fusion", "/level", "/provider", "/verify", "/undo"):
+        assert komut in cikti, f"{komut} rehberde yok"
+    assert "kota" in cikti, "kota yönlendirmesi olmalı"
+
+
+def test_tips_bolum_kapanislari_komut_gibi_gorunmez():
+    """Bölüm sonundaki karar kuralı komut sütununa yazılmamalı."""
+    from fusion_cli.ui import messages
+
+    for _baslik, satirlar in messages.TIPS_SECTIONS:
+        for komut, aciklama in satirlar:
+            assert aciklama, "açıklamasız satır olmaz"
+            if not komut:
+                continue
+            assert len(komut) <= 16, f"komut sütununa sığmıyor: {komut}"

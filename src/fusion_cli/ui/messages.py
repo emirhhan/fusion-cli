@@ -206,6 +206,66 @@ WELCOME_START_ITEMS = (
     ("shift-tab", "onay modunu döndür"),
 )
 
+# --- /tips: verimli kullanım rehberi --------------------------------------- #
+#
+# Karşılama ekranındaki tek satırlık ipuçları rastgele döner ve bir bütün
+# oluşturmaz. Burası ise komutları GÖREV EKSENİNDE anlatır: hangi durumda
+# hangisine uzanılır. Yardım ekranı (`/help`) komutları LİSTELER; burası ne zaman
+# kullanılacağını söyler — ikisi farklı sorulardır.
+TIPS_TITLE = "Fusion'ı verimli kullanmak"
+TIPS_INTRO = (
+    "Aşağıdakiler sık karşılaşılan durumlar ve o durumda hangi komuta uzanacağın. "
+    "Tüm komutların listesi için: /help"
+)
+
+#: (başlık, satırlar) — her satır (komut, ne zaman kullanılır).
+TIPS_SECTIONS = (
+    (
+        "Hangi motor?",
+        (
+            ("/agent", "dosya değiştir, komut çalıştır, araç kullan — asıl iş motoru"),
+            ("/fusion", "tek bir SORUYA en iyi cevabı al; üç model yarışır, hakem seçer"),
+            ("", "kod yazdırıyorsan agent, fikir/karar soruyorsan fusion"),
+        ),
+    ),
+    (
+        "Model ve kota",
+        (
+            ("/level", "hız ↔ yetenek takası: low en hızlı, premium en yetenekli ama yavaş"),
+            ("/provider", "tek sağlayıcıya kilitlen; ötekinin kotası hiç harcanmaz"),
+            ("/development", "listeden ya da alias yazarak istediğin modeli seç"),
+            ("", "kota hatası alıyorsan önce /provider, sonra /level low dene"),
+        ),
+    ),
+    (
+        "Güvenlik ve geri alma",
+        (
+            ("shift-tab", "onay modunu döndür: auto → plan → security"),
+            ("plan modu", "önce planı gör, onaylayınca uygulansın — büyük değişikliklerde"),
+            ("/undo", "son turun dosya değişikliklerini geri al"),
+            ("--add-dir", "proje dışına erişim gerekiyorsa açıkça ver"),
+        ),
+    ),
+    (
+        "Kaliteyi yükseltmek",
+        (
+            ("/verify", "projeni tanıyıp test/lint kapısı kurar; her turdan sonra çalışır"),
+            ("/learn <kural>", "kalıcı kural öğret; benzer görevlerde hatırlar"),
+            ("/good · /bad", "fusion cevabına geri bildirim ver, model seçimi öğrensin"),
+        ),
+    ),
+    (
+        "Uzun oturumlar",
+        (
+            ("/compact", "geçmişi özetle, bağlam limitinden tasarruf et"),
+            ("/reset", "sohbet geçmişini tamamen temizle"),
+            ("/cost", "bu oturumda ne kadar token/çağrı harcandı"),
+        ),
+    ),
+)
+
+CMD_TIPS = "Fusion'ı verimli kullanmayı öğren"
+
 WELCOME_ABILITY_TITLE = "Neler yapabilir"
 WELCOME_ABILITY_ITEMS = (
     ("araçlar", "dosya, kabuk, web, görev listesi"),

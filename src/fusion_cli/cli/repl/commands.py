@@ -334,6 +334,7 @@ def _on_off(value: bool) -> str:
 
 _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("help", messages.CMD_HELP, lambda state, argument: "", ("h", "?")),
+    SlashCommand("tips", messages.CMD_TIPS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("exit", messages.CMD_EXIT, _exit, ("quit", "q")),
     SlashCommand("clear", messages.CMD_CLEAR, lambda state, argument: ""),
     SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
@@ -388,7 +389,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
 
 #: Kendi çıktısını basan komutlar (tablo, panel, ekran temizleme). REPL döngüsü
 #: bunları özel olarak ele alır; işleyicileri boş metin döndürür.
-RENDERED_COMMANDS = frozenset({"help", "clear", "stats", "lessons", "models", "compact", "cost"})
+RENDERED_COMMANDS = frozenset(
+    {"help", "tips", "clear", "stats", "lessons", "models", "compact", "cost"}
+)
 
 
 def parse(line: str) -> tuple[str, str]:

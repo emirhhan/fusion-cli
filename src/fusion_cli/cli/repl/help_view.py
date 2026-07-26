@@ -21,6 +21,8 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
     """Kendi çıktısını basan komutu çalıştır."""
     if name == "help":
         _help(registry, console)
+    elif name == "tips":
+        _tips(console)
     elif name == "clear":
         from .loop import session_info
 
@@ -37,6 +39,29 @@ async def render(name: str, state: ReplState, registry: CommandRegistry, console
         from .loop import compact_history
 
         console.print(f"[{theme.DIM}]{await compact_history(state)}[/{theme.DIM}]")
+
+
+def _tips(console: Console) -> None:
+    """`/tips` — komutları GÖREV EKSENİNDE anlat.
+
+    `/help` komutları listeler; bu ekran ne zaman hangisine uzanılacağını söyler.
+    İkisi farklı sorulardır ve tek tabloda birleştirilmeleri ikisini de bozardı:
+    liste referanstır, bu rehberdir.
+    """
+    console.print()
+    console.print(f"[bold {theme.ACCENT}]{messages.TIPS_TITLE}[/bold {theme.ACCENT}]")
+    console.print(f"[{theme.DIM}]{messages.TIPS_INTRO}[/{theme.DIM}]")
+
+    for baslik, satirlar in messages.TIPS_SECTIONS:
+        console.print()
+        console.print(f"[bold]{baslik}[/bold]")
+        for komut, aciklama in satirlar:
+            if not komut:
+                # Bölümün kapanış cümlesi: komut değil, karar kuralı.
+                console.print(f"    [{theme.DIM}]→ {aciklama}[/{theme.DIM}]")
+                continue
+            console.print(f"  [bold {theme.ACCENT}]{komut:<16}[/bold {theme.ACCENT}] {aciklama}")
+    console.print()
 
 
 def _help(registry: CommandRegistry, console: Console) -> None:
