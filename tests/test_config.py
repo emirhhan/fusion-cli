@@ -263,6 +263,44 @@ def test_her_kademe_rolunun_openrouter_yedegi_vardir():
     assert yedeksiz == []
 
 
+def test_hicbir_kademede_ucretli_model_yoktur():
+    """`/level` merdiveni kullanıcıya ASLA fatura çıkarmamalı.
+
+    OpenRouter'da `:free` soneki olmayan her model ücretlidir. NIM modelleri
+    ücretsiz geliştirici kotasından çalışır. Bir kademeye ücretli model sızarsa
+    kullanıcı bunu ancak faturada fark ederdi — bu yüzden kural teste bağlıdır.
+    """
+    config = load_config()
+
+    ucretli = [
+        (kademe.name, model)
+        for kademe in config.tiers
+        for spec in (kademe.agent, kademe.judge, *kademe.candidates)
+        for model in spec.models
+        if model.startswith("openrouter/") and not model.endswith(":free")
+    ]
+
+    assert ucretli == [], f"kademelerde ücretli model var: {ucretli}"
+
+
+def test_kademelerin_omurgasi_nim_modelleridir():
+    """OpenRouter'ın ücretsiz kotası günde 50 istek; NIM'inki çok daha geniş.
+
+    Her kademenin agent rolü NIM'den başlamalı ki günlük kota bir avuç turda
+    tükenmesin. OpenRouter modelleri YEDEK olarak kalır — NIM anahtarı olmayan
+    kullanıcı yine çalışır (bkz. `test_her_kademe_rolunun_openrouter_yedegi_vardir`).
+    """
+    config = load_config()
+
+    nim_olmayan = [
+        (kademe.name, kademe.agent.models[0])
+        for kademe in config.tiers
+        if not kademe.agent.models[0].startswith("nvidia_nim/")
+    ]
+
+    assert nim_olmayan == [], f"agent rolü NIM'den başlamayan kademeler: {nim_olmayan}"
+
+
 def test_kademe_adiyla_bulunur_ve_buyuk_harf_duyarsizdir():
     config = load_config()
 
