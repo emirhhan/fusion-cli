@@ -13,14 +13,14 @@ Python 3.11+ gerekir. Tek komut:
 **macOS / Linux**
 
 ```bash
-git clone <depo-adresi> && cd fusion-cli
+git clone https://github.com/emirhhan/fusion-cli && cd fusion-cli
 ./setup.sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone <depo-adresi>; cd fusion-cli
+git clone https://github.com/emirhhan/fusion-cli; cd fusion-cli
 py -3.11 -m venv .venv
 .venv\Scripts\pip install -e .
 .venv\Scripts\fusion setup
@@ -147,13 +147,21 @@ soğuk bir uç ilk turu bekletmez.
 ok tuşlarıyla gezilir ve merdiven logodaki gibi turuncudan pembeye boyanır. Merdivenin
 tamamı **ücretsiz** havuzdan kurulur; bir kademe seçmek fatura üretmez.
 
-| Kademe | Model | Neden |
-|--------|-------|-------|
-| `low` | nemotron-3-super-120b (NIM) | mevcut varsayılan — hızlı ve dengeli |
-| `medium` | nemotron-3-nano-omni-30b reasoning | reasoning eklenir |
-| `high` | gemma-4-31b-it | farklı aile, 262k bağlam |
-| `ultra` | nemotron-3-super-120b (ücretsiz katman) | ağır işler |
-| `premium` | nemotron-3-ultra-550b | 1M bağlam — havuzun en yetenekli modeli |
+Merdivenin omurgası **NVIDIA NIM**'dir: OpenRouter'ın ücretsiz kotası günde 50
+istekle sınırlıyken NIM'inki çok daha geniş. OpenRouter modelleri yedek olarak
+kalır, böylece yalnızca OpenRouter anahtarı olan kullanıcı da çalışır.
+
+| Kademe | Model | Ölçülen | Neden |
+|--------|-------|---------|-------|
+| `low` | nemotron-3-super-120b-a12b | ~0.5s | varsayılan — en hızlısı |
+| `medium` | gpt-oss-120b | ~1s | farklı aile, akıl yürütme |
+| `high` | deepseek-v4-flash | ~6s | kodlamada güçlü aile |
+| `ultra` | nemotron-3-ultra-550b-a55b | ~6s | 550B/55B, ağır işler |
+| `premium` | glm-5.2 | ~40s | 1M bağlam — en yetenekli, ama yavaş |
+
+Süreler gerçek çağrılarla ölçüldü. Modeller katalogdan değil **yoklanarak**
+seçildi: NIM kataloğundaki birçok model listelenmesine rağmen `NotFound` dönüyor
+ya da zaman aşımına uğruyor.
 
 ```
 /level                              seçim ekranını aç
