@@ -83,6 +83,31 @@ olabilir; kalite için değil.
 NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
 dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
 
+## ÖLÇÜLDÜ — NVIDIA NIM hız sınırı MODEL BAŞINADIR (2026-07-26)
+
+Kullanıcı bildirdi: nemotron-super 429 verirken deepseek-v4-flash sorunsuz
+çalışıyor. Doğrulandı — aynı anahtarla aynı saniyede:
+
+    429  nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+    OK   nvidia_nim/deepseek-ai/deepseek-v4-flash
+    OK   nvidia_nim/openai/gpt-oss-120b
+    OK   nvidia_nim/poolside/laguna-xs-2.1
+    OK   nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+
+Bu bulgu iki eski sonucu ÇÜRÜTÜR:
+
+- "NIM kredisi tükendi" (hesap seviyesi) → hayır, tükenen O MODELDİ.
+- "NIM'in 429'u dakikalık sınır olmak zorunda değil" → doğruydu ama sebebi
+  kredi değil, model başına kısıt.
+
+OpenRouter'la kıyas: OpenRouter'da sınır HESAP başınadır (model değiştirmek
+işe yaramaz), NIM'de MODEL başınadır (model değiştirmek anında çözer). Aynı
+429 kodu iki farklı şey demek ve tavsiyeleri zıt.
+
+**Kalıcı çözüm** iki kusurun kapatılmasıyla verildi (bkz. commit 1970505):
+her rolde her sağlayıcıdan iki model, ve `task_model_map` yönlendirmesinin
+yedek zinciri düşürmemesi. Canlı doğrulandı.
+
 ## BULUNDU ve DÜZELTİLDİ — boş cevap turu iş yapmadan bitiriyordu (2026-07-26)
 
 Transkript aracının ilk gerçek teşhisi. `traceback-okuyup-duzelt` görevinin
