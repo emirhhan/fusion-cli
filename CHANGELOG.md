@@ -78,7 +78,10 @@ görünürken arka planda hiçbir iş yapmıyordu.
 - **`run_shell` kök kısıtlamasına tabi değil.** Onay katmanı savunmadır, kum
   havuzu değil: sınır aşılabilir ama sessizce aşılamaz. Ayrıntı `docs/BACKLOG.md`.
 - **Eval seti dar.** 18 görev. Kolay blok tavana vurmuş (12 görev 3/3); ayırt
-  etme gücü beş zor görevde ve orada taban **8/15**.
+  etme gücü beş zor görevde ve orada temiz taban **9/15**. Üç görev 1/3'te
+  kararsız — sorun yetenek değil TUTARLILIK.
+- **Gürültü tabanı ölçülemedi.** Aynı yapılandırmanın ikinci koşusu günlük kotaya
+  takıldı; 9/15'in ne kadarının varyans olduğu bilinmiyor.
 - **`workflow_mode` ve `playbooks` varsayılan kapalı.** workflow ölçüldü: kaliteyi
   artırmıyor (8/15 → 9/15, gürültü sınırında), model çağrısını yarıya indiriyor
   ama süreyi ikiye katlıyor. `playbooks` hiç ölçülmedi.

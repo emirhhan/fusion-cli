@@ -83,6 +83,30 @@ olabilir; kalite için değil.
 NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
 dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
 
+## Ölçüldü — zor set temiz kotayla 9/15 (2026-07-26)
+
+Taze NVIDIA NIM anahtarıyla, kota gölgesi olmadan alınan İLK geçerli taban.
+
+    1/3  coklu-dosya-degisikligi                      (8 çağrı)
+    1/3  fonksiyonu-tum-dosyalarda-yeniden-adlandir  (16 çağrı)
+    1/3  traceback-okuyup-duzelt                      (3 çağrı)
+    3/3  kenar-durumu-ekle-mevcut-testi-bozma        (11 çağrı)
+    3/3  kullanicinin-degisikligini-koru              (4 çağrı)
+    ----
+    9/15 koşu
+
+Üç görev 1/3'te kararsız. Yeniden adlandırma görevinde 16 model çağrısı harcanıp
+yine de 3'te 2 kez başarısız olunması, sorunun "yetenek yok" değil "tutarlılık
+yok" olduğunu gösteriyor: agent doğru yolu buluyor ama her seferinde tamamlamıyor.
+
+AÇIK KALAN: gürültü tabanı hâlâ ölçülemedi. Aynı yapılandırmanın ikinci koşusu
+OpenRouter günlük kotasına takıldı ve durduruldu. Bu 9/15'in ne kadarının gerçek
+performans, ne kadarının varyans olduğu BİLİNMİYOR — tek koşuya dayanarak "iyileşti"
+ya da "kötüleşti" denemez.
+
+Sıradaki adım: kotanın taze olduğu bir günde AYNI yapılandırmayı iki kez koşturmak.
+Gürültü tabanı bilinmeden hiçbir A/B karşılaştırması yorumlanamaz.
+
 ## Ölçüldü — kota tükenmesi ölçümü sessizce bozuyordu (2026-07-26)
 
 Zor set üç kez koşuldu ve ortalama model çağrısı **8.6 → 5.8 → 1.0** diye düştü;
