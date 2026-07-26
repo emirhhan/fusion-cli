@@ -22,9 +22,7 @@ _SHELLS: dict[str, tuple[str, str]] = {
 }
 
 
-def path_hint(
-    *, bin_dir: PurePath, path_value: str, shell: str, windows: bool
-) -> str | None:
+def path_hint(*, bin_dir: PurePath, path_value: str, shell: str, windows: bool) -> str | None:
     """Bin dizini PATH'te değilse ne yapılacağını anlatan metin; içindeyse None.
 
     Karşılaştırma Windows'ta büyük/küçük harf DUYARSIZDIR: duyarlı karşılaştırma

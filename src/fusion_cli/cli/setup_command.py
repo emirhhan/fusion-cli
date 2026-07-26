@@ -147,7 +147,9 @@ def _ask_keys(console: Console, path: Path, ask: Asker) -> None:
         atomic_write(path, icerik)
     except OSError as hata:
         # Anahtarın kendisi hata mesajına GİRMEZ; yalnızca yol ve sebep yazılır.
-        console.print(f"[{theme.ERROR}]{messages.SETUP_WRITE_FAILED.format(path=path)}[/{theme.ERROR}]")
+        console.print(
+            f"[{theme.ERROR}]{messages.SETUP_WRITE_FAILED.format(path=path)}[/{theme.ERROR}]"
+        )
         console.print(f"[{theme.DIM}]{hata}[/{theme.DIM}]")
         return
     # İzinler daraltılır: anahtar dosyasını başka kullanıcılar okuyabilmemeli.

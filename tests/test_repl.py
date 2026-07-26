@@ -741,9 +741,7 @@ def test_provider_vazgecince_degismez(state):
     from fusion_cli.cli.repl import provider_flow
     from fusion_cli.ui import messages
 
-    sonuc = provider_flow.choose_provider(
-        state.config, picker=lambda choices, *, title, **kw: None
-    )
+    sonuc = provider_flow.choose_provider(state.config, picker=lambda choices, *, title, **kw: None)
 
     assert sonuc.message == messages.PICKER_CANCELLED
     assert sonuc.config is state.config

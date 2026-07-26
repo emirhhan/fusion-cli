@@ -37,7 +37,7 @@ def test_anahtar_degeri_hicbir_ciktida_gorunmez(monkeypatch):
 
 
 def test_anahtar_yokken_ne_yapilacagi_yazilir(monkeypatch):
-    """"Başarısız" demek yetmez: kullanıcı ne çalıştıracağını bilmeli."""
+    """ "Başarısız" demek yetmez: kullanıcı ne çalıştıracağını bilmeli."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     monkeypatch.delenv("NVIDIA_NIM_API_KEY", raising=False)
     monkeypatch.setattr(doctor, "load_environment", lambda: None)

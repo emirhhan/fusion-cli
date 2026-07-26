@@ -134,9 +134,7 @@ def doctor(
         bool,
         typer.Option("--live", help="Sağlayıcılara küçük gerçek çağrı yap (kota harcar)."),
     ] = False,
-    as_json: Annotated[
-        bool, typer.Option("--json", help="Betikler için JSON çıktı.")
-    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Betikler için JSON çıktı.")] = False,
 ) -> None:
     """Kurulumu denetle: ne eksik, neden önemli, ne yapmalı."""
     from .doctor import diagnose, to_dict

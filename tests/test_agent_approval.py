@@ -100,7 +100,7 @@ async def test_auto_kipte_taninmayan_kabuk_komutu_sorar():
         run=run_shell,
         mutating=True,
     )
-    args = {"command": 'node -e "require(\'fs\').rmSync(\'/x\')"'}
+    args = {"command": "node -e \"require('fs').rmSync('/x')\""}
     prompter = _SahtePrompter(cevap=False)
 
     karar = await AutoApproval(prompter).decide(build_request(arac, args))

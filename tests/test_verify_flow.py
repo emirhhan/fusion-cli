@@ -85,9 +85,7 @@ def test_kurulu_kapi_kesif_tahminiyle_ezilmez(config, tmp_path):
     """Kullanıcının kendi yazdığı komutlar korunur."""
     from dataclasses import replace
 
-    mevcut = replace(
-        config, runtime=replace(config.runtime, verification_commands=("make check",))
-    )
+    mevcut = replace(config, runtime=replace(config.runtime, verification_commands=("make check",)))
 
     def _cagrilmamali(root):  # pragma: no cover - çağrılırsa test zaten düşer
         raise AssertionError("kurulu kapıda keşif yapılmamalı")

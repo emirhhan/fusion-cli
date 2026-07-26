@@ -206,6 +206,4 @@ def _to_lesson(item: object, task: str, workspace: str = "") -> Lesson | None:
         return None
     # Ders ÖĞRENİLDİĞİ projeye etiketlenir: "auth src/auth altında" gibi bir gözlem
     # yalnızca orada doğrudur, başka projede modeli yanlış yere yönlendirir.
-    return Lesson(
-        text=text, kind=kind, task=task, source=LessonSource.LEARNED, workspace=workspace
-    )
+    return Lesson(text=text, kind=kind, task=task, source=LessonSource.LEARNED, workspace=workspace)

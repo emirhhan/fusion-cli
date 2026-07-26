@@ -331,7 +331,7 @@ def test_gorev_baslangic_dosyalari_tasiyabilir(tmp_path):
         "    criterion:\n"
         "      kind: exit_code\n"
         "      expected_exit_code: 0\n"
-        "      command: python -c \"import hesap; assert hesap.topla(1,2)==3\"\n",
+        '      command: python -c "import hesap; assert hesap.topla(1,2)==3"\n',
         encoding="utf-8",
     )
 

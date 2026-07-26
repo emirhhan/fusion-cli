@@ -385,8 +385,7 @@ CMD_MODEL = "oturum içinde model değiştir (argümansız: etkin modeller)"
 UNDO_NOTHING = "Geri alınacak bir değişiklik yok."
 UNDO_DONE = "{count} dosya son turdan önceki hâline döndürüldü:\n{paths}"
 UNDO_PARTIAL = (
-    "{count} dosya geri alındı; {failed} dosya geri alınamadı "
-    "(izin ya da silinmiş dizin)."
+    "{count} dosya geri alındı; {failed} dosya geri alınamadı (izin ya da silinmiş dizin)."
 )
 CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
@@ -447,7 +446,6 @@ SETUP_LESSONS_SKIPPED = (
 )
 SETUP_DONE = "Kurulum tamam. Herhangi bir proje dizininde `fusion` yaz."
 SETUP_NO_KEYS = (
-    "API anahtarı bulunamadı. `fusion setup` çalıştır ya da .env dosyana "
-    "OPENROUTER_API_KEY yaz."
+    "API anahtarı bulunamadı. `fusion setup` çalıştır ya da .env dosyana OPENROUTER_API_KEY yaz."
 )
 SETUP_ACTIVE_PROVIDERS = "kurulu sağlayıcılar: {names}"
