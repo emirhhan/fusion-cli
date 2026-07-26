@@ -83,7 +83,35 @@ olabilir; kalite için değil.
 NOT: Daha önce bu oturumda "workflow zarar veriyor" denmişti; o iddia TEK koşuya
 dayanıyordu ve geri alındı. Tekrarlı ölçüm ne fayda ne zarar gösteriyor.
 
-## Ölçüldü — zor set temiz kotayla 9/15 (2026-07-26)
+## ÖLÇÜLDÜ — gürültü tabanı ve gerçek zor-set performansı (2026-07-26)
+
+Aynı yapılandırma iki kez koşuldu (`provider: nvidia`, NIM kotası taze, OpenRouter'a
+hiç dokunulmadı — `/provider` tam bunun için yapılmıştı).
+
+    görev                                        koşu1  koşu2  fark
+    coklu-dosya-degisikligi                       2/3    3/3    +1
+    fonksiyonu-tum-dosyalarda-yeniden-adlandir    3/3    3/3     0
+    traceback-okuyup-duzelt                       3/3    1/3    -2
+    kenar-durumu-ekle-mevcut-testi-bozma          3/3    3/3     0
+    kullanicinin-degisikligini-koru               3/3    3/3     0
+    TOPLAM                                       14/15  13/15   -1
+
+**İki sonuç:**
+
+1. **Gürültü tabanı ~1-2 koşu (15'te).** Görev bazında ±2'ye kadar çıkabiliyor
+   (`traceback-okuyup-duzelt` 3/3 → 1/3). Yani 15 örneklik bir A/B'de 3 koşudan
+   küçük farklar YORUMLANAMAZ. Bu, workflow_mode A/B'sinin (8 vs 9) neden
+   sonuçsuz olduğunu kesinleştirir.
+
+2. **Agent çok dosyalı işlerde SANILDIĞI KADAR kötü değil: 14/15 ve 13/15.**
+   Önceki "9/15" ölçümü OpenRouter kotasının tükendiği bir dönemde alınmıştı ve
+   `provider` ayrımı yokken yedek zinciri devreye giriyordu. Tek sağlayıcıya
+   kilitlenince tablo değişti.
+
+**Kalan tek kararsız görev** `traceback-okuyup-duzelt`. Transkript aracı artık
+var; sıradaki adım o görevin başarısız koşularının transkriptine bakmak.
+
+## Ölçüldü — zor set temiz kotayla 9/15 (2026-07-26, ESKİ — kota gölgeli)
 
 Taze NVIDIA NIM anahtarıyla, kota gölgesi olmadan alınan İLK geçerli taban.
 
