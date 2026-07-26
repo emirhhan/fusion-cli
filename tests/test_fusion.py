@@ -209,3 +209,53 @@ def _sabit_sentez(metin):
         return ModelResult(name="sentez", model="m", text=metin, latency_ms=1, ok=True)
 
     return _synthesize
+
+
+# --- Doğrulanmış sentez kipi ------------------------------------------------- #
+
+
+async def test_dogrulanmis_kipte_hakem_sentezden_once_calisir(monkeypatch, publisher, sink):
+    """Sırayı garanti eden şey budur: sentez, hakemin kararını görebilmeli.
+
+    Paralel kipte sentez hakemi beklemiyor ve kararı göremiyordu; sıra bozulursa
+    `verified_synthesis` yalnızca isimde kalır.
+    """
+    sira: list[str] = []
+
+    async def _izlenen_hakem(task, answers, config, publisher):
+        sira.append("hakem")
+        from fusion_cli.core.types import ModelResult
+
+        return ModelResult(
+            name="hakem",
+            model="m",
+            text='{"winner": "b", "scores": {"a": 0.2, "b": 0.9}, "reason": "daha iyi"}',
+            latency_ms=1,
+            ok=True,
+        )
+
+    gecen_karar = {}
+
+    async def _izlenen_sentez(task, answers, config, publisher, verdict=None):
+        sira.append("sentez")
+        gecen_karar["verdict"] = verdict
+        from fusion_cli.core.types import ModelResult
+
+        return ModelResult(name="sentez", model="m", text="SENTEZ", latency_ms=1, ok=True)
+
+    saglayicilar = {
+        "a": FakeProvider("a", chunks=("A cevabi",)),
+        "b": FakeProvider("b", chunks=("B cevabi",)),
+        "c": FakeProvider("c", chunks=("C cevabi",)),
+    }
+    monkeypatch.setattr(fusion_engine, "_judge", _izlenen_hakem)
+    monkeypatch.setattr(fusion_engine, "_synthesize", _izlenen_sentez)
+    _patch(monkeypatch, saglayicilar)
+
+    config = make_config(runtime={"verified_synthesis": True})
+    result = await run_fusion("gorev", config, publisher=publisher)
+
+    assert sira == ["hakem", "sentez"], f"sıra bozuk: {sira}"
+    assert gecen_karar["verdict"] is not None
+    assert gecen_karar["verdict"].winner == "b"
+    assert result.final_answer == "SENTEZ"

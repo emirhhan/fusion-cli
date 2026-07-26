@@ -43,6 +43,14 @@ class RuntimeConfig:
     straggler_grace_s: float
     #: İlk cevaptan itibaren adaylar için mutlak üst sınır.
     candidate_hard_cap_s: float
+    #: Sentez, hakemin kararını GÖREREK mi çalışsın?
+    #:
+    #: False (hızlı kip): hakem ve sentez paralel çalışır, gecikme ikisinin
+    #: maksimumudur — ama sentez hangi adayın kazandığını bilmez ve tüm cevapları
+    #: eşit ağırlıkta okur; zayıf adayın hatası nihai cevaba sızabilir.
+    #: True (doğrulanmış kip): hakem önce çalışır, kararı senteze taşınır. Gecikme
+    #: artar; fusion zaten "yavaş ama dikkatli" motordur, hız isteyen agent'ı kullanır.
+    verified_synthesis: bool
     #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
     synthesis: bool
     #: Agent modunda ardışık araç turu üst sınırı.

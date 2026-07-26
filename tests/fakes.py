@@ -130,6 +130,7 @@ def make_config(**overrides):
         "straggler_grace_s": 0.05,
         "candidate_hard_cap_s": 1.0,
         "synthesis": True,
+        "verified_synthesis": False,
         "agent_max_steps": 8,
         "self_review": False,
         "reflexion": True,

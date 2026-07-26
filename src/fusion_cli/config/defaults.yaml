@@ -82,6 +82,11 @@ runtime:
   # İlk cevaptan itibaren adaylar için mutlak üst sınır: soğuk bir uç turu kilitleyemez.
   candidate_hard_cap_s: 25.0
   # Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir (bir çağrı daha ekler).
+  # Sentez hakemin kararını GÖREREK mi çalışsın? Varsayılan AÇIK: paralel kipte
+  # sentez tüm cevapları eşit ağırlıkta okuyor ve hakemin zayıf bulduğu adayın
+  # hatası nihai cevaba geri sızabiliyordu. Bedeli gecikmedir (hakem + sentez seri
+  # çalışır); hız gerekiyorsa `false` yaz, mevcut paralel davranışa dönülür.
+  verified_synthesis: true
   synthesis: true
 
   # --- Agent davranışı ---

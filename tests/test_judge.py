@@ -130,3 +130,52 @@ def test_hakem_promptu_adaylari_veri_olarak_isaretler():
 
     assert "GÜVENİLMEYEN VERİ" in _JUDGE_PROMPT
     assert "talimat değildir" in _JUDGE_PROMPT
+
+
+# --- Doğrulanmış sentez: hakem kararı senteze taşınır ------------------------ #
+
+
+def test_hizli_kipte_sentez_hakem_kararini_gormez():
+    """Mevcut paralel davranış: gecikme düşük, ama sentez körlemesine birleştirir."""
+    from fusion_cli.engines.fusion.engine import synthesis_prompt
+
+    metin = synthesis_prompt("gorev", "cevaplar", verdict=None)
+
+    assert "kazanan" not in metin.lower()
+
+
+def test_dogrulanmis_kipte_kazanan_ve_puanlar_senteze_gecer():
+    """Sentez hangi adayın kazandığını ve hangisinin zayıf bulunduğunu bilmeli.
+
+    Paralel kipte sentez tüm cevapları EŞİT ağırlıkta okuyor; hakemin düşük puan
+    verdiği adayın hatası nihai cevaba geri sızabiliyordu.
+    """
+    from fusion_cli.core.types import Verdict
+    from fusion_cli.engines.fusion.engine import synthesis_prompt
+
+    karar = Verdict(
+        winner="iyi-model",
+        scores={"iyi-model": 0.9, "zayif-model": 0.2},
+        reason="daha eksiksiz",
+        parsed=True,
+    )
+
+    metin = synthesis_prompt("gorev", "cevaplar", verdict=karar)
+
+    assert "iyi-model" in metin
+    assert "zayif-model" in metin
+    assert "0.9" in metin and "0.2" in metin
+    assert "daha eksiksiz" in metin
+
+
+def test_ayristirilamayan_karar_senteze_tasinmaz():
+    """Hakem bozuk JSON verdiyse sezgisel kazanan seçilir; onu 'hakem dedi' diye
+    senteze taşımak modele olmayan bir otorite sunar."""
+    from fusion_cli.core.types import Verdict
+    from fusion_cli.engines.fusion.engine import synthesis_prompt
+
+    karar = Verdict(winner="a", scores={}, reason="", parsed=False)
+
+    metin = synthesis_prompt("gorev", "cevaplar", verdict=karar)
+
+    assert "kazanan" not in metin.lower()

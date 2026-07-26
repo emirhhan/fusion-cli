@@ -196,6 +196,32 @@ def sanitize_candidate(text: str) -> str:
     return temiz
 
 
+def synthesis_prompt(task: str, answers: str, *, verdict: Verdict | None) -> str:
+    """Sentez promptunu kur; hakem kararı varsa onu da taşı.
+
+    `verdict` None ise HIZLI kip: hakem ve sentez paralel çalışır, sentez kararı
+    göremez. Doğrulanmış kipte karar buraya girer ve sentez hangi adayın kazandığını,
+    hangisinin zayıf bulunduğunu bilerek birleştirir — paralel kipte tüm cevaplar
+    eşit ağırlıkta okunuyor ve düşük puanlı adayın hatası nihai cevaba sızabiliyordu.
+
+    Ayrıştırılamamış karar (hakem bozuk JSON verdi, sezgisel kazanan seçildi)
+    TAŞINMAZ: onu "hakem böyle dedi" diye sunmak modele olmayan bir otorite verir.
+    """
+    dolu = _fill(_SYNTHESIS_PROMPT, task, answers)
+    if verdict is None or not verdict.parsed:
+        return dolu
+    puanlar = ", ".join(f"{ad}: {puan}" for ad, puan in verdict.scores.items())
+    karar_blogu = (
+        "\n\nHAKEM DEĞERLENDİRMESİ (güvenilir — bu sistemin kendi hakem modelinden gelir):\n"
+        f"- Kazanan: {verdict.winner}\n"
+        f"- Puanlar: {puanlar}\n"
+        f"- Gerekçe: {verdict.reason}\n"
+        "Kazananı temel al; düşük puanlı cevaplardan YALNIZCA doğruluğundan emin "
+        "olduğun eksik bilgileri ekle. Zayıf bulunan bir cevabın hatasını taşıma."
+    )
+    return dolu + karar_blogu
+
+
 async def _judge_and_synthesize(
     task: str,
     usable: list[ModelResult],
@@ -210,6 +236,8 @@ async def _judge_and_synthesize(
     names = [result.name for result in usable]
 
     publisher.publish(JudgingStarted(with_synthesis=use_synthesis))
+    if config.runtime.verified_synthesis and use_synthesis:
+        return await _verified(task, answers, names, config, publisher)
     verdict_result, synthesis_result = await asyncio.gather(
         _judge(task, answers, config, publisher),
         _synthesize(task, answers, config, publisher) if use_synthesis else _none(),
@@ -255,13 +283,17 @@ async def _judge(
 
 
 async def _synthesize(
-    task: str, answers: str, config: Config, publisher: EventPublisher
+    task: str,
+    answers: str,
+    config: Config,
+    publisher: EventPublisher,
+    verdict: Verdict | None = None,
 ) -> ModelResult:
     request = _request(
         task,
         config,
         max_tokens=config.runtime.max_tokens,
-        prompt=_fill(_SYNTHESIS_PROMPT, task, answers),
+        prompt=synthesis_prompt(task, answers, verdict=verdict),
     )
     provider = build_provider(
         config.judge,
@@ -270,6 +302,31 @@ async def _synthesize(
         background=True,
     )
     return await provider.complete(request)
+
+
+async def _verified(
+    task: str,
+    answers: str,
+    names: list[str],
+    config: Config,
+    publisher: EventPublisher,
+) -> tuple[Verdict, str | None]:
+    """Doğrulanmış kip: önce hakem, SONRA sentez.
+
+    Gecikme artar (iki aşama seri çalışır) ve bu bilinçli bir takastır: fusion
+    zaten "yavaş ama dikkatli" motordur, hız isteyen agent kipini kullanır.
+    Hakem yetişemezse sezgisel kazanana düşülür ve sentez yine çalışır — kullanıcı
+    hiçbir senaryoda cevapsız kalmaz.
+    """
+    verdict_result = await _judge(task, answers, config, publisher)
+    if verdict_result is not None and verdict_result.ok:
+        verdict = parse_verdict(verdict_result.text, names)
+    else:
+        verdict = Verdict(winner=names[0], scores={}, reason="", parsed=False)
+
+    synthesis_result = await _synthesize(task, answers, config, publisher, verdict)
+    synthesized = synthesis_result.text if synthesis_result.ok and synthesis_result.text else None
+    return verdict, synthesized
 
 
 async def _none() -> None:
