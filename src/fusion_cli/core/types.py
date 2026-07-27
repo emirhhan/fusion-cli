@@ -10,8 +10,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .errors import ConfigError
-
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
@@ -79,37 +77,15 @@ class Message:
 class ModelSpec:
     """Bir model rolünün tanımı: birincil model + yedek zinciri.
 
-    `fallback` yedek model kimlikleridir. Hedged çağrıda birincile bir öncelik
-    penceresi tanınır, pencere dolarsa yedekler yarışa girer ve ilk kullanılabilir
-    yanıt kazanır (bkz. `providers.hedged`).
+    `fallback` yedek model kimlikleridir ve zincir SIRALIDIR: birincil, yeniden
+    denemeleri de tükenene kadar yedeğe geçilmez (bkz. `providers.chain`). Seçilen
+    model hiçbir koşulda "daha hızlı olduğu için" bir yedeğe kaptırmaz.
     """
 
     name: str
     model: str
     tags: tuple[str, ...] = ()
     fallback: tuple[str, ...] = ()
-    #: Bu role özgü öncelik penceresi (saniye). None ise `runtime.hedge_delay_s`
-    #: genel varsayılanı kullanılır.
-    #:
-    #: Neden role özgü: pencere tek bir sabitken (2.5s, nemotron-super ölçülerek
-    #: belirlenmişti) yavaş modeller kendi yarışlarını yedeklerine KAYBEDİYORDU.
-    #: Ölçülen sürelerle (`defaults.yaml` kademe etiketleri) doğrulandı: premium
-    #: seçen kullanıcıya glm-5.2 yerine nemotron-ultra, ultra seçene nemotron-super
-    #: cevap veriyordu. Pencere birincilin hızına ait bir değerdir; motorun geneline
-    #: ait değil.
-    hedge_delay_s: float | None = None
-
-    def __post_init__(self) -> None:
-        """Negatif pencere anlamsızdır ve sessizce 'yedekler hemen başlasın'a dönerdi.
-
-        Doğrulama yükleyicide değil BURADA durur: spec'i yalnızca `config.loader`
-        kurmuyor (kademe uygulama, `/development`, testler de kuruyor) ve değişmezin
-        tek bir yolda tutulması onu ötekilerde geçersiz kılardı.
-        """
-        if self.hedge_delay_s is not None and self.hedge_delay_s < 0:
-            raise ConfigError(
-                f"'{self.name}': hedge_delay_s negatif olamaz, gelen: {self.hedge_delay_s}"
-            )
 
     @property
     def models(self) -> tuple[str, ...]:
@@ -154,6 +130,42 @@ def is_rate_limit_error(detail: str | None) -> bool:
         return False
     lowered = detail.lower()
     return any(marker in lowered for marker in _RATE_LIMIT_MARKERS)
+
+
+#: Beklemenin HİÇBİR ŞEYİ değiştirmeyeceği hataların işaretleri.
+#
+# Yeniden deneme yalnızca GEÇİCİ arıza için anlamlıdır. Olmayan bir modeli ya da
+# yanlış bir anahtarı 34 ve 68 saniye sonra tekrar sormak, aynı hatayı 102 saniye
+# geç almaktan başka bir şey yapmaz — kullanıcı bu süre boyunca sebepsiz bekler.
+# Bu hatalarda zincir doğrudan bir sonraki modele geçer.
+_PERMANENT_MARKERS = (
+    "notfound",
+    "not found",
+    "404",
+    "authentication",
+    "unauthorized",
+    "invalid api key",
+    "401",
+    "403",
+)
+
+
+def is_permanent_error(detail: str | None) -> bool:
+    """Hata beklemekle geçmeyecek türden mi? (olmayan model, geçersiz anahtar, günlük kota)
+
+    Günlük kota da buraya dahildir: o gün için biter, dakikalık sınırın aksine
+    beklemek işe yaramaz — ayrımın gerekçesi `_DAILY_QUOTA_MARKERS`'ta yazılı.
+
+    False dönmek "kesinlikle geçici" demek değildir; "kalıcı olduğunu söyleyen bir
+    işaret yok" demektir. Ayırt edemediğimizde geçici varsayıp denemek doğrudur:
+    NIM çıplak 429 döner ve hangisi olduğunu söylemez.
+    """
+    if not detail:
+        return False
+    if is_daily_quota_error(detail):
+        return True
+    lowered = detail.lower()
+    return any(marker in lowered for marker in _PERMANENT_MARKERS)
 
 
 @dataclass(frozen=True, slots=True)

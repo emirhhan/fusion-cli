@@ -1,11 +1,13 @@
-"""Varsayılan zaman kaynağı.
+"""Varsayılan zaman kaynağı ve uyutucu.
 
-`Clock` protokolünün stdlib tabanlı uygulaması. Testler kendi sahte saatini
-verebilsin diye süre ölçen kod doğrudan `time` modülünü çağırmaz.
+`Clock` ve `Sleeper` protokollerinin stdlib tabanlı uygulamaları. Testler kendi
+sahtesini verebilsin diye süre ölçen ya da bekleyen kod doğrudan `time`/`asyncio`
+çağırmaz.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 
@@ -17,3 +19,12 @@ class SystemClock:
 
     def now(self) -> float:
         return time.time()
+
+
+class SystemSleeper:
+    """Gerçek bekleme. İptal edilebilir olması önemlidir: kullanıcı turu keserse
+    34 saniyelik bir gecikmenin ortasında takılı kalınmaz — `asyncio.sleep` iptal
+    sinyalini geçirir."""
+
+    async def sleep(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)

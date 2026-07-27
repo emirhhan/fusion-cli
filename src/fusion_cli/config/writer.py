@@ -129,13 +129,12 @@ def _read_existing(path: Path) -> dict[str, object]:
 def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
     """`ModelSpec`'i YAML'a yazılabilir sözlüğe çevir.
 
-    Boş alanlar (etiketsiz model, yedeksiz model, penceresi olmayan model) yazılmaz:
-    dosyada `tags: []` satırları gürültüden başka bir şey değildir.
+    Boş alanlar (etiketsiz model, yedeksiz model) yazılmaz: dosyada `tags: []`
+    satırları gürültüden başka bir şey değildir.
 
-    Ölçüt "boş mu" DEĞİL "tanımsız mı": `hedge_delay_s: 0` geçerli ve anlamlı bir
-    değerdir ("yedekler hemen başlasın"). Yanlışlıkla atılsaydı dosyaya hiç
-    yazılmaz, yükleyici genel varsayılana düşer ve kullanıcının açıkça yazdığı
-    tercih sessizce tersine dönerdi.
+    Ölçüt "boş mu" DEĞİL "tanımsız mı": sayısal bir alanda `0` geçerli ve anlamlı
+    bir değer olabilir. Doğruluk/yanlışlık ölçütü kullanılsaydı sessizce atılır,
+    yükleyici varsayılana düşer ve kullanıcının açıkça yazdığı tercih tersine dönerdi.
     """
     data = asdict(spec)
     return {

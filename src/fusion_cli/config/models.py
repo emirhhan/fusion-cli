@@ -30,9 +30,10 @@ class RuntimeConfig:
     #: Yardımcı arka plan çağrıları (ders çıkarımı, bağlam sıkıştırma, öz-denetim)
     #: için düşük ama sıfır olmayan sıcaklık.
     utility_temperature: float
-    #: Bir modelin yedek zinciri devreye girmeden önce birinciline tanınan süre.
-    #: 0 = yedekler birincille aynı anda başlar (yarıştırma).
-    hedge_delay_s: float
+    #: Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
+    #: Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
+    #: Boş liste = yeniden deneme yok. Zincirdeki her modele ayrı ayrı uygulanır.
+    retry_delays_s: tuple[float, ...]
     #: Hakem için sıkı son tarih. Aşılırsa sezgisel kazanan seçilir, tur durmaz.
     judge_timeout_s: float
     #: Hakem bütçesi. Reasoning modelleri düşünme + JSON'u buraya sığdırmalıdır.

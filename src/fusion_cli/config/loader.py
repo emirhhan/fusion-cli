@@ -232,7 +232,14 @@ RENAMED_KEYS = {
 #: Taşınmayan ayarlar: neden yok olduklarını söyleyebilmek için. Sessizce
 #: yutulmazlar — kullanıcı bir şey ayarladığını sanıp beklentiye girmesin.
 REMOVED_KEYS = {
-    "runtime": {"live_input": "tur sürerken canlı giriş henüz taşınmadı"},
+    "runtime": {
+        "live_input": "tur sürerken canlı giriş henüz taşınmadı",
+        "hedge_delay_s": (
+            "yedek zinciri artık yarıştırılmıyor, SIRALI deneniyor — öncelik "
+            "penceresinin karşılığı kalmadı. Geçici arıza `retry_delays_s` ile "
+            "AYNI modelde karşılanıyor"
+        ),
+    },
 }
 
 

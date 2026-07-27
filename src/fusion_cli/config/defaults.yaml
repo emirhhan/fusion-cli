@@ -7,9 +7,11 @@
 #   OpenRouter  -> openrouter/<id>
 #   NVIDIA NIM  -> nvidia_nim/<id>
 
-# Agent motorunun kullandığı model. `fallback` yedek zinciridir: birincil model ile
-# AYNI ANDA denenir, ilk başarılı yanıt kazanır (hedged istek). Böylece bir sağlayıcı
-# 429/soğuk başlangıç verse bile tur beklemez.
+# Agent motorunun kullandığı model. `fallback` yedek zinciridir ve SIRALI denenir:
+# birincil, yeniden denemeleri de tükenene kadar yedeğe geçilmez. Böylece seçilen
+# model hiçbir koşulda "daha hızlı olduğu için" bir yedeğe kaptırmaz — zincir eskiden
+# yarıştırılıyordu ve yavaş ama yetenekli modeller kendi turlarını kaybediyordu
+# (bkz. `providers/chain.py`).
 #
 # Aşağıdaki üçlü 2026-07-23'te canlı ölçümle DOĞRULANMIŞTIR (yanıt süreleri: 1.1s / 1.1s / 2.5s).
 # Yedek zinciri bilinçli olarak hem farklı SAĞLAYICIYA hem farklı MODELE yayılır:
@@ -20,9 +22,6 @@ agent:
   name: nemotron-super
   model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
   tags: [code, agent, reasoning]
-  # Yedeklere geçmeden önce birincile tanınan süre: ölçüm 0.5s → pencere 1.5s
-  # (3 katı). Neden role özgü: bkz. `runtime.hedge_delay_s`.
-  hedge_delay_s: 1.5
   # Zincirde HER sağlayıcıdan İKİ model bulunur. Sebep ölçüldü (2026-07-26):
   # NVIDIA NIM'in hız sınırı MODEL BAŞINADIR — aynı anahtarla aynı saniyede
   # nemotron-super 429 verirken deepseek-v4-flash çalışıyordu. Tek modelli bir
@@ -41,8 +40,22 @@ runtime:
   # max_tokens tamamen kullanılırsa çağrı ~80s sürer; 45s bu turu ORTASINDA keserdi.
   # 120s tam bir üretime yer bırakır, gerçekten takılan çağrıyı yine de düşürür.
   request_timeout_s: 120
-  # Sağlayıcı içi yeniden deneme. Hedging zaten yatay dayanıklılık sağladığından düşük tutulur.
+  # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
+  # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
+  # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
   max_retries: 1
+  # Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
+  # Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
+  #
+  # Değerler NVIDIA NIM'in ölçülen sınırından gelir: hız sınırı MODEL BAŞINADIR ve
+  # 60 saniyede 40 istektir. Dakikalık pencereye takılan bir çağrı, pencere dönünce
+  # aynı modelde başarılı olur; 34s ilk denemeyi pencerenin ikinci yarısına, 68s
+  # ikinci denemeyi bir sonraki pencereye taşır.
+  #
+  # Kalıcı hatalarda (olmayan model, geçersiz anahtar, GÜNLÜK kota) hiç beklenmez —
+  # bu süreler yalnızca beklemenin işe yaradığı arızalar için harcanır.
+  # Boş liste ([]) yeniden denemeyi tamamen kapatır.
+  retry_delays_s: [34, 68]
   temperature: 0.3
   # Tur başına çıktı bütçesi.
   #
@@ -53,31 +66,6 @@ runtime:
   # Yani 2048 kodlama işleri için yapısal olarak yetersizdi; 8192 ölçülen ihtiyacın
   # ~4 katı başlık payı bırakır.
   max_tokens: 8192
-  # Yedek zinciri devreye girmeden önce BİRİNCİL modele tanınan öncelik penceresi.
-  #
-  # Yedekler bilinçli olarak farklı sağlayıcı ve farklı modeldir, dolayısıyla çoğu
-  # zaman birincilden küçük ve hızlıdır. Pencere olmadan küçük yedek neredeyse her
-  # turda yarışı kazanır ve yukarıda yazan birincil model pratikte hiç kullanılmaz —
-  # dayanıklılık sessizce kalite kaybına dönüşür.
-  #
-  # Değer ÖLÇÜMLE belirlendi (2026-07-25, nvidia_nim/nemotron-3-super, 15 araç şemalı
-  # agent çağrısı, 6 örnek): ilk token süresi ortanca 1.09s, maksimum 1.60s. 2.5s tüm
-  # sıcak turları birincile bırakır; uç gerçekten soğuksa (ölçülen soğuk başlangıç
-  # 6.37s) ya da 429 dönerse yedekler yine devreye girer.
-  #
-  # DİKKAT — bu GENEL varsayılandır, tek doğru değer DEĞİLDİR. Yukarıdaki ölçüm
-  # nemotron-super'a aittir; pencere birincil modelin hızına ait bir değerdir.
-  # Tek sabit her role uygulandığında yavaş modeller kendi yarışlarını yedeklerine
-  # KAYBEDİYORDU (doğrulandı): premium seçen kullanıcıya glm-5.2 yerine
-  # nemotron-ultra, ultra seçene nemotron-super cevap veriyordu — kullanıcı bir
-  # kademe seçiyor, motor bir alt kademeyi çalıştırıyordu.
-  #
-  # Bu yüzden ölçüsü OLAN roller pencerelerini kendi spec'lerinde yazar
-  # (`hedge_delay_s`, aşağıdaki kademelere bak). Burası yalnızca ölçüsü olmayan
-  # roller için geçerlidir.
-  #
-  # 0 yazılırsa eski davranışa (hepsi aynı anda) dönülür.
-  hedge_delay_s: 2.5
   # Hakem/sentez/ısıtma gibi deterministik olması gereken çağrılar için sıcaklık.
   judge_temperature: 0.0
   # Ders çıkarımı, bağlam sıkıştırma, öz-denetim gibi yardımcı çağrılar için sıcaklık.
@@ -184,7 +172,6 @@ candidates:
   - name: nemotron-super
     model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
     tags: [reasoning, general]
-    hedge_delay_s: 1.5
     fallback:
       - openrouter/nvidia/nemotron-3-super-120b-a12b:free
   - name: nemotron-nano
@@ -202,8 +189,6 @@ judge:
   name: hakem
   # Kademelerdeki hakemle aynı desen: her sağlayıcıdan iki model (bkz. `agent:`).
   model: nvidia_nim/openai/gpt-oss-120b
-  # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (3 katı).
-  hedge_delay_s: 3.3
   fallback:
     - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
     - openrouter/openai/gpt-oss-20b:free
@@ -296,8 +281,6 @@ tiers:
       name: nemotron-super
       model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       tags: [code, agent, reasoning]
-      # Ölçüm 0.5s → pencere 1.5s (3 katı).
-      hedge_delay_s: 1.5
       fallback:
         - nvidia_nim/openai/gpt-oss-120b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
@@ -307,8 +290,6 @@ tiers:
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (ölçümün 3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -317,9 +298,7 @@ tiers:
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         tags: [reasoning, general]
-        hedge_delay_s: 1.5
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
-      # laguna-xs'in ölçümü yok; genel varsayılan (runtime.hedge_delay_s) geçerli.
       - name: laguna-xs
         model: nvidia_nim/poolside/laguna-xs-2.1
         tags: [code, agent]
@@ -331,8 +310,6 @@ tiers:
       name: gpt-oss-120b
       model: nvidia_nim/openai/gpt-oss-120b
       tags: [code, agent, reasoning]
-      # Ölçüm 1.1s → pencere 3.3s (3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -342,8 +319,6 @@ tiers:
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (ölçümün 3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -352,12 +327,10 @@ tiers:
       - name: gpt-oss-120b
         model: nvidia_nim/openai/gpt-oss-120b
         tags: [reasoning, general]
-        hedge_delay_s: 3.3
         fallback: [openrouter/openai/gpt-oss-20b:free]
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         tags: [code, agent]
-        hedge_delay_s: 1.5
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: high
@@ -366,9 +339,6 @@ tiers:
       name: deepseek-v4-flash
       model: nvidia_nim/deepseek-ai/deepseek-v4-flash
       tags: [code, agent, reasoning]
-      # Ölçüm 6.5s → pencere 19.5s (3 katı). Eski 2.5s ile bu model kendi turunu
-      # yedeği laguna-xs'e kaptırıyordu.
-      hedge_delay_s: 19.5
       fallback:
         - nvidia_nim/poolside/laguna-xs-2.1
         - openrouter/poolside/laguna-s-2.1:free
@@ -378,8 +348,6 @@ tiers:
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (ölçümün 3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -388,7 +356,6 @@ tiers:
       - name: deepseek-v4-flash
         model: nvidia_nim/deepseek-ai/deepseek-v4-flash
         tags: [code, agent]
-        hedge_delay_s: 19.5
         fallback: [openrouter/poolside/laguna-s-2.1:free]
       - name: laguna-xs
         model: nvidia_nim/poolside/laguna-xs-2.1
@@ -401,9 +368,6 @@ tiers:
       name: nemotron-ultra
       model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
       tags: [code, agent, reasoning]
-      # Ölçüm 5.8s → pencere 17.4s (3 katı). Eski 2.5s ile bu model kendi turunu
-      # yedeği nemotron-super'a kaptırıyordu.
-      hedge_delay_s: 17.4
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
@@ -413,8 +377,6 @@ tiers:
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (ölçümün 3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -423,12 +385,10 @@ tiers:
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
-        hedge_delay_s: 17.4
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
       - name: deepseek-v4-flash
         model: nvidia_nim/deepseek-ai/deepseek-v4-flash
         tags: [code, agent]
-        hedge_delay_s: 19.5
         fallback: [openrouter/poolside/laguna-s-2.1:free]
 
   - name: premium
@@ -437,15 +397,6 @@ tiers:
       name: glm-5.2
       model: nvidia_nim/z-ai/glm-5.2
       tags: [code, agent, reasoning]
-      # Ölçüm 38s → pencere 114s (3 katı). Kademe etiketinde YAZAN takas budur:
-      # premium en yetenekli ama en yavaş modeldir ve kullanıcı bunu bilerek seçer.
-      # Eski 2.5s ile turu her seferinde yedeği nemotron-ultra alıyordu — yani
-      # premium seçmenin hiçbir etkisi yoktu.
-      #
-      # 114s, `runtime.request_timeout_s` (120s) sınırına yakındır ve bu bilinçli:
-      # premium'da YAVAŞLIK artık yedek tetiklemez, yalnızca gerçek arıza (429,
-      # 5xx, boş cevap) tetikler. Kullanıcı seçtiği modeli bekler.
-      hedge_delay_s: 114.0
       fallback:
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
@@ -455,8 +406,6 @@ tiers:
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
       model: nvidia_nim/openai/gpt-oss-120b
-      # gpt-oss-120b ölçümü 1.1s → pencere 3.3s (ölçümün 3 katı).
-      hedge_delay_s: 3.3
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         - openrouter/openai/gpt-oss-20b:free
@@ -465,10 +414,8 @@ tiers:
       - name: glm-5.2
         model: nvidia_nim/z-ai/glm-5.2
         tags: [reasoning, code]
-        hedge_delay_s: 114.0
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
-        hedge_delay_s: 17.4
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]

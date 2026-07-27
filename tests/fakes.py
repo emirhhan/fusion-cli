@@ -120,10 +120,10 @@ def make_config(**overrides):
         "judge_temperature": 0.0,
         "utility_temperature": 0.1,
         "max_tokens": 32,
-        # Testlerde öncelik penceresi kapalıdır: sahte sağlayıcılar milisaniyelerle
-        # çalışır, gerçek pencere (2.5s) her testi bekletirdi. Pencerenin kendi
-        # davranışı `test_hedged.py` içinde açıkça sınanır.
-        "hedge_delay_s": 0.0,
+        # Testlerde yeniden deneme kapalıdır: gerçek gecikmeler 34 ve 68 saniyedir
+        # ve her testi bekletirdi. Yeniden denemenin kendi davranışı
+        # `test_retrying.py` içinde sahte uyutucuyla açıkça sınanır.
+        "retry_delays_s": (),
         "judge_timeout_s": 5.0,
         "judge_max_tokens": 64,
         "min_successful_candidates": 1,
@@ -169,7 +169,14 @@ def patch_providers(monkeypatch, module, by_name):
     from fusion_cli.providers.eventing import EventingProvider
 
     def _build(
-        spec, *, publisher, hedge_delay_s=0.0, channel=Channel.MAIN, clock=None, background=False
+        spec,
+        *,
+        publisher,
+        retry_delays_s=(),
+        channel=Channel.MAIN,
+        clock=None,
+        sleeper=None,
+        background=False,
     ):
         provider = by_name[spec.name]
         if publisher is None:

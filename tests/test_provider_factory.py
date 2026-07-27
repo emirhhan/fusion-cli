@@ -1,50 +1,48 @@
-"""Sağlayıcı kurma — öncelik penceresinin hangi kaynaktan geldiği.
+"""Sağlayıcı kurma — katman sırası.
 
-Pencere rolün hızına aittir, motorun geneline değil. Bu dosya kompozisyonun tek
-yerinde (`build_provider`) bu önceliğin bozulmadığını doğrular: hata bu satırda
-oluştuğunda kullanıcı hiçbir uyarı almadan yanlış modelin cevabını alır.
+Sıra ürünün davranışını belirler: yeniden deneme her modelin KENDİ içinde olmalı,
+zincire geçiş ancak o model tükendiğinde. Katmanlar ters sırada kurulsaydı "her
+modele iki deneme" kuralı, zincirin TAMAMINA iki deneme anlamına gelirdi.
 """
 
 from __future__ import annotations
 
 from fusion_cli.core.types import ModelSpec
+from fusion_cli.providers.chain import FallbackProvider
 from fusion_cli.providers.factory import build_provider
+from fusion_cli.providers.retrying import RetryingProvider
 
-#: Genel varsayılan ile rolün kendi değeri; karışmamaları için bilerek farklı.
-GENEL_PENCERE = 2.5
-ROL_PENCERESI = 17.4
+GECIKMELER = (34.0, 68.0)
 
-
-def _pencere(spec: ModelSpec) -> float:
-    """Kurulan sağlayıcı yığınından hedged katmanın penceresini oku."""
-    provider = build_provider(spec, publisher=None, hedge_delay_s=GENEL_PENCERE)
-    return provider._hedge_delay_s  # type: ignore[attr-defined]
-
-
-def test_rolun_kendi_penceresi_genel_varsayilani_ezer():
-    spec = ModelSpec(
-        name="yavas-ama-secilmis",
-        model="nvidia_nim/z-ai/glm-5.2",
-        fallback=("openrouter/openai/gpt-oss-20b:free",),
-        hedge_delay_s=ROL_PENCERESI,
-    )
-
-    assert _pencere(spec) == ROL_PENCERESI
+SPEC = ModelSpec(
+    name="test",
+    model="nvidia_nim/z-ai/glm-5.2",
+    fallback=("openrouter/openai/gpt-oss-20b:free",),
+)
 
 
-def test_penceresi_olmayan_rol_genel_varsayilana_duser():
-    """Ölçümü olmayan roller için davranış birebir korunur."""
-    spec = ModelSpec(name="olcumsuz", model="nvidia_nim/poolside/laguna-xs-2.1")
+def _halkalar(spec: ModelSpec, delays: tuple[float, ...]) -> tuple[object, ...]:
+    """Kurulan yığındaki zincir halkalarını oku."""
+    provider = build_provider(spec, publisher=None, retry_delays_s=delays)
+    assert isinstance(provider, FallbackProvider)
+    return provider._providers  # type: ignore[attr-defined]
 
-    assert _pencere(spec) == GENEL_PENCERE
+
+def test_yeniden_deneme_zincirin_icinde_her_modele_ayri_uygulanir():
+    halkalar = _halkalar(SPEC, GECIKMELER)
+
+    assert len(halkalar) == 2, "zincirde birincil ve yedek olmalı"
+    assert all(isinstance(halka, RetryingProvider) for halka in halkalar)
 
 
-def test_sifir_pencere_genel_varsayilana_dusmez():
-    """`0` geçerli bir tercihtir ("yedekler hemen başlasın"), eksik değer değildir.
+def test_gecikme_yoksa_yeniden_deneme_katmani_hic_kurulmaz():
+    halkalar = _halkalar(SPEC, ())
 
-    Doğruluk/yanlışlık ölçütü kullanılsaydı 0 sessizce 2.5'e dönerdi ve kullanıcının
-    açıkça yazdığı tercih tersine çevrilirdi.
-    """
-    spec = ModelSpec(name="yarissin", model="nvidia_nim/openai/gpt-oss-120b", hedge_delay_s=0.0)
+    assert not any(isinstance(halka, RetryingProvider) for halka in halkalar)
 
-    assert _pencere(spec) == 0.0
+
+def test_zincir_spec_sirasini_korur():
+    """Birincil daima ilk sıradadır: sıralı zincirde sıra DAVRANIŞTIR."""
+    provider = build_provider(SPEC, publisher=None, retry_delays_s=())
+
+    assert provider.label == "nvidia_nim/z-ai/glm-5.2"

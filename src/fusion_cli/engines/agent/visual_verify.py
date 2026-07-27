@@ -170,7 +170,7 @@ class VisualVerifier:
         provider = build_provider(
             spec,
             publisher=None,
-            hedge_delay_s=self._config.runtime.hedge_delay_s,
+            retry_delays_s=self._config.runtime.retry_delays_s,
             background=True,
         )
         result = await provider.complete(

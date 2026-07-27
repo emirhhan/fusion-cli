@@ -1,7 +1,7 @@
 """Olay yayınlayan sağlayıcı sarmalayıcısı.
 
 Sağlayıcı çağrılarının yaşam döngüsünü olaya çevirir. Sarmaladığı sağlayıcının ne
-olduğunu bilmez; `LiteLlmProvider`, `HedgedProvider` ya da testteki sahte sağlayıcı —
+olduğunu bilmez; `LiteLlmProvider`, `FallbackProvider` ya da testteki sahte sağlayıcı —
 hepsi için aynı şekilde çalışır.
 
 Bu sayede motor katmanı "ilerlemeyi kullanıcıya nasıl göstereceğim" sorusunu hiç

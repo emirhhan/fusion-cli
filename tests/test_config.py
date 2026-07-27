@@ -365,63 +365,39 @@ def test_kademe_degisince_agent_turu_yeni_bas_modeli_calistirir():
     assert select_agent_spec(premium, "general").model == premium.agent.model
 
 
-def test_her_kademenin_bas_modeli_kendi_penceresini_yazar():
-    """Kademenin agent rolü öncelik penceresini KENDİ tanımlamalı.
+def test_yeniden_deneme_gecikmeleri_tanimli():
+    """Gecikme listesi deneme sayısını da tanımlar; boş kalırsa yeniden deneme yok.
 
-    Regresyon: pencere tek bir genel sabitti (2.5s) ve hızlı bir modelden
-    ölçülmüştü. Yavaş kademelerde birincil, penceresi dolduğu için yarışa
-    kendi yedeğini sokuyor ve ona kaybediyordu — premium seçen kullanıcıya
-    glm-5.2 yerine nemotron-ultra, ultra seçene nemotron-super cevap veriyordu.
-    Kademe seçmek ölçülebilir bir vaattir; pencere o vaadin parçasıdır.
+    Değerler NIM'in ölçülen sınırından gelir (60 saniyede 40 istek, MODEL BAŞINA):
+    dakikalık pencereye takılan çağrı, pencere dönünce aynı modelde çalışır.
     """
     config = load_config()
 
-    penceresizler = [tier.name for tier in config.tiers if tier.agent.hedge_delay_s is None]
+    assert config.runtime.retry_delays_s, "yeniden deneme gecikmeleri tanımlı olmalı"
+    assert all(delay > 0 for delay in config.runtime.retry_delays_s)
 
-    assert penceresizler == [], f"baş modeli penceresiz kademeler: {penceresizler}"
 
+def test_gecikmeler_artan_sirada():
+    """Geri çekilme artmalı: ikinci deneme birincilden daha uzun beklemeli.
 
-def test_yavas_kademelerin_penceresi_genel_varsayilandan_genis():
-    """Yavaş kademede pencere, genel varsayılanı AŞMALI — yoksa hata geri gelir.
-
-    Yalnızca "bir değer yazılmış" olması yetmez; değerin birincile gerçekten
-    yetmesi gerekir. `high`, `ultra` ve `premium` etiketlerinde yazan ölçümler
-    (6.5s / 5.8s / 38s) genel varsayılanın (2.5s) kat kat üstündedir.
+    Azalan bir liste, sınır penceresi dönmeden ikinci kez sormak demektir — aynı
+    429'u daha hızlı almaktan başka bir şey yapmaz.
     """
-    config = load_config()
-    genel = config.runtime.hedge_delay_s
+    gecikmeler = load_config().runtime.retry_delays_s
 
-    dar = [
-        tier.name
-        for tier in config.tiers
-        if tier.name in {"high", "ultra", "premium"} and (tier.agent.hedge_delay_s or 0.0) <= genel
-    ]
-
-    assert dar == [], f"penceresi genel varsayılanı aşmayan yavaş kademeler: {dar}"
+    assert list(gecikmeler) == sorted(gecikmeler)
 
 
-def test_pencere_istek_zaman_asimini_asmaz():
-    """Pencere `request_timeout_s`'i aşarsa yedek zinciri ÖLÜ tanım olur.
+def test_eski_pencere_ayari_anlasilir_hata_verir(tmp_path):
+    """`hedge_delay_s` yazan eski config sessizce yok sayılmamalı.
 
-    Çağrı zaten zaman aşımıyla düşer; pencere ondan sonra dolacağı için yedek
-    hiç başlatılamaz. Sessizce dayanıksız kalmak yerine burada yakalanır.
+    Kullanıcı bir ayar yaptığını sanıp beklentiye girmesin: zincir artık
+    yarıştırılmıyor, o ayarın karşılığı kalmadı.
     """
-    config = load_config()
-    sinir = config.runtime.request_timeout_s
+    path = _yaz(tmp_path, {"runtime": {"hedge_delay_s": 2.5}})
 
-    asanlar = [
-        f"{tier.name}={tier.agent.hedge_delay_s}"
-        for tier in config.tiers
-        if (tier.agent.hedge_delay_s or 0.0) > sinir
-    ]
-
-    assert asanlar == [], f"penceresi istek zaman aşımını ({sinir}s) aşan kademeler: {asanlar}"
-
-
-def test_negatif_pencere_reddedilir():
-    """Negatif değer sessizce 'yedekler hemen başlasın'a dönerdi."""
-    with pytest.raises(ConfigError, match="hedge_delay_s"):
-        ModelSpec(name="bozuk", model="nvidia_nim/x/y", hedge_delay_s=-1.0)
+    with pytest.raises(ConfigError, match="artık yok"):
+        load_config(path)
 
 
 def test_bilinmeyen_kademe_anlasilir_hata_verir():

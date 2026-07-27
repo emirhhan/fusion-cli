@@ -42,3 +42,16 @@ class Clock(Protocol):
     def now(self) -> float:
         """Duvar saati zaman damgası (Unix epoch saniyesi)."""
         ...
+
+
+class Sleeper(Protocol):
+    """Beklemeyi yapan şey. `Clock`'tan AYRIDIR: o zamanı okur, bu zaman geçirir.
+
+    Soyut olmak zorunda: yeniden deneme gecikmeleri 34 ve 68 saniyedir ve testin
+    bunları gerçekten beklemesi kabul edilemez — sahte uyutucu beklemeyi kaydeder,
+    geçirmez. Aynı sebeple gecikmeler koda gömülmez, yapılandırmadan gelir.
+    """
+
+    async def sleep(self, seconds: float) -> None:
+        """Verilen süre kadar bekle."""
+        ...

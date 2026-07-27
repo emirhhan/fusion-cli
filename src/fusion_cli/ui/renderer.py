@@ -100,7 +100,7 @@ class ConsoleRenderer:
         elif isinstance(event, ModelCallStarted):
             # Satır BASILMAZ: canlı gösterge başlatılır. Etiket artık yedek
             # zincirinin tamamı değil BİRİNCİL modeldir, dolayısıyla ekranı
-            # kaplamaz (bkz. `HedgedProvider.label`).
+            # kaplamaz (bkz. `FallbackProvider.label`).
             if not event.background:
                 self._begin_work(messages.WORK_THINKING, model=format_model(event.model))
         elif isinstance(event, ModelCallFinished):

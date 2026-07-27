@@ -161,7 +161,7 @@ async def _call_candidates(
 
     def _factory(spec: ModelSpec) -> Callable[[], Awaitable[ModelResult]]:
         # Sağlayıcı closure'a bağlanır; `gather_with_cutoff` çağrıyı kendi başlatır.
-        provider = build_provider(spec, publisher=publisher, hedge_delay_s=runtime.hedge_delay_s)
+        provider = build_provider(spec, publisher=publisher, retry_delays_s=runtime.retry_delays_s)
         return lambda: provider.complete(request)
 
     return await gather_with_cutoff(
@@ -271,7 +271,7 @@ async def _judge(
     provider = build_provider(
         config.judge,
         publisher=publisher,
-        hedge_delay_s=config.runtime.hedge_delay_s,
+        retry_delays_s=config.runtime.retry_delays_s,
         background=True,
     )
     try:
@@ -298,7 +298,7 @@ async def _synthesize(
     provider = build_provider(
         config.judge,
         publisher=publisher,
-        hedge_delay_s=config.runtime.hedge_delay_s,
+        retry_delays_s=config.runtime.retry_delays_s,
         background=True,
     )
     return await provider.complete(request)

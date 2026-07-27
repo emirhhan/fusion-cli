@@ -89,7 +89,7 @@ async def _ask(prompt: str, config: Config, publisher: EventPublisher | None) ->
     provider = build_provider(
         config.judge,
         publisher=publisher,
-        hedge_delay_s=config.runtime.hedge_delay_s,
+        retry_delays_s=config.runtime.retry_delays_s,
         background=True,
     )
     return await provider.complete(request)

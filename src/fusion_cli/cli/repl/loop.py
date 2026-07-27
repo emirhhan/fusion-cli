@@ -116,7 +116,7 @@ async def _warm_up(state: ReplState) -> None:
     await build_provider(
         state.config.agent,
         publisher=None,
-        hedge_delay_s=state.config.runtime.hedge_delay_s,
+        retry_delays_s=state.config.runtime.retry_delays_s,
     ).complete(request)
 
 

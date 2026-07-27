@@ -1,8 +1,8 @@
 """LiteLLM adaptörü — tek bir modele çağrı yapar.
 
 Sorumluluğu dardır ve bilinçlidir: SDK'yı çağırır, yanıtı `ModelResult`/`StreamItem`
-tiplerine normalize eder. Yedekleme, yarıştırma ve olay yayını burada DEĞİL, üstteki
-dekoratörlerdedir (`hedged.py`, `eventing.py`). Böylece yeni bir sağlayıcı eklemek
+tiplerine normalize eder. Yeniden deneme, yedeğe geçme ve olay yayını burada DEĞİL, üstteki
+dekoratörlerdedir (`retrying.py`, `chain.py`, `eventing.py`). Böylece yeni bir sağlayıcı eklemek
 yalnızca bu dosyanın bir eşdeğerini yazmak olur; dayanıklılık davranışı bedava gelir.
 
 LiteLLM 100+ sağlayıcıyı model kimliğinin "<sağlayıcı>/<model>" önekinden tanır;

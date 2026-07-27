@@ -62,7 +62,7 @@ async def _summarize(trace: str, config: Config, publisher: EventPublisher | Non
     provider = build_provider(
         config.judge,
         publisher=publisher,
-        hedge_delay_s=config.runtime.hedge_delay_s,
+        retry_delays_s=config.runtime.retry_delays_s,
         background=True,
     )
     result = await provider.complete(request)

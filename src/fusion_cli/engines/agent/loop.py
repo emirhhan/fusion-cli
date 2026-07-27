@@ -233,7 +233,7 @@ async def _drive(
         if not result.is_usable:
             # Model BOŞ cevap döndü (metin yok, araç çağrısı yok) ama teknik olarak
             # başarılı. Ölçüldü: agent turu bu yüzden hiçbir iş yapmadan bitiyordu.
-            # Tek modelli zincirde yedek yoktur (hedged kısa devre yapar), o yüzden
+            # Tek modelli zincirde yedek yoktur, o yüzden
             # çare yeniden denemektir — sınırlı, ısrar ederse tur biter.
             bos_deneme += 1
             if bos_deneme <= MAX_EMPTY_RETRIES:
@@ -279,7 +279,7 @@ async def _call_model(
     provider = build_provider(
         spec,
         publisher=deps.publisher,
-        hedge_delay_s=runtime.hedge_delay_s,
+        retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
     )
 

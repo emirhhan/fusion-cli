@@ -433,9 +433,11 @@ cli → ui → engines → { providers, memory, observability } → config → c
 ```
 
 - **`core`** — tipler, protokoller, olaylar, hatalar. Üçüncü parti bağımlılığı yoktur.
-- **`providers`** — LLM adaptörleri. `HedgedProvider` birden çok modeli yarıştırır
-  (ilk başarılı kazanır), `EventingProvider` çağrı yaşam döngüsünü olaya çevirir.
-  Yeni bir sağlayıcı eklemek dayanıklılık davranışını bedava getirir.
+- **`providers`** — LLM adaptörleri. `RetryingProvider` geçici arızada **aynı**
+  modeli tekrar dener, `FallbackProvider` o da tükenince **sıradaki** modele geçer,
+  `EventingProvider` çağrı yaşam döngüsünü olaya çevirir. Zincir sıralıdır: seçilen
+  model, yedeği daha hızlı diye turu kaptırmaz. Yeni bir sağlayıcı eklemek
+  dayanıklılık davranışını bedava getirir.
 - **`observability.bus`** — olay veriyolu. Motorlar konsolu **hiç tanımaz**; tiplenmiş
   olay yayınlar, veriyolu bunları **sırayla** dinleyicilere dağıtır. Çıktı çakışması
   yapısal olarak imkânsızdır.

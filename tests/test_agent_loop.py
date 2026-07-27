@@ -65,7 +65,14 @@ def _deps(tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, 
 
 def _kur(monkeypatch, provider):
     def _build(
-        spec, *, publisher=None, hedge_delay_s=0.0, channel=None, clock=None, background=False
+        spec,
+        *,
+        publisher=None,
+        retry_delays_s=(),
+        channel=None,
+        clock=None,
+        sleeper=None,
+        background=False,
     ):
         return provider
 
