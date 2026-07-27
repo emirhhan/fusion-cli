@@ -50,7 +50,7 @@ from ..core.events import (
 from ..core.types import FusionResult
 from . import messages, theme
 from .fusion_view import render_fusion_result
-from .text import format_duration, strip_thinking, summarize_error
+from .text import format_duration, format_model, strip_thinking, summarize_error
 from .work import WorkIndicator
 
 _CHANNEL_LABELS = {
@@ -98,12 +98,17 @@ class ConsoleRenderer:
         elif isinstance(event, StatusChanged):
             self._status(event.message)
         elif isinstance(event, ModelCallStarted):
-            # Satır BASILMAZ: yedek zinciriyle birlikte model kimliği üç satıra
-            # sarıp ekranı kaplıyordu. Bunun yerine canlı gösterge başlatılır.
+            # Satır BASILMAZ: canlı gösterge başlatılır. Etiket artık yedek
+            # zincirinin tamamı değil BİRİNCİL modeldir, dolayısıyla ekranı
+            # kaplamaz (bkz. `HedgedProvider.label`).
             if not event.background:
-                self._begin_work(messages.WORK_THINKING, model=event.role)
+                self._begin_work(messages.WORK_THINKING, model=format_model(event.model))
         elif isinstance(event, ModelCallFinished):
             self._work.update(tokens=event.result.usage.total_tokens)
+            # Cevabı gerçekte hangi model verdiyse gösterge ona güncellenir:
+            # yedek devraldığında kullanıcı seçtiği modeli görmeye devam etmemeli.
+            if not event.background and event.result.model:
+                self._work.update(model=format_model(event.result.model))
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, CandidatesStarted):
@@ -285,11 +290,19 @@ class ConsoleRenderer:
         self._console.print(f"[{theme.DIM}]{theme.ICON_STATUS} {body}[/{theme.DIM}]")
 
     def _model_finished(self, event: ModelCallFinished) -> None:
+        """Çağrı özetini bas. Kimlik olarak ROL değil, cevabı veren MODEL yazılır.
+
+        Rol adı yapılandırmadaki addır; yedeğe düşülse bile değişmez. Ayrıntı satırı
+        rolü yazdığı sürece, seçilenden başka bir modelin çalıştığı hiçbir yerde
+        görünmüyordu — hatalarda da: "agent · 429" hangi modelin kısıtlandığını
+        söylemez, oysa NIM'de hız sınırı model başınadır.
+        """
         result = event.result
+        etiket = format_model(result.model) if result.model else event.role
         if result.ok:
             self._status(
                 messages.MODEL_CALL_OK.format(
-                    role=event.role,
+                    model=etiket,
                     duration=format_duration(result.latency_ms),
                     tokens=result.usage.total_tokens,
                 )
@@ -298,7 +311,7 @@ class ConsoleRenderer:
         # Sağlayıcı hataları çok uzun olabiliyor; ekranı kaplamasın, özü görünsün.
         self._error(
             messages.MODEL_CALL_FAILED.format(
-                role=event.role, error=summarize_error(result.error or "")
+                model=etiket, error=summarize_error(result.error or "")
             )
         )
 

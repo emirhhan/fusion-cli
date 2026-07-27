@@ -618,3 +618,39 @@ def test_cok_satirli_deger_tek_satira_indirilir():
     metin = _format_call("run_shell", {"command": "satir1\nsatir2"})
 
     assert "\n" not in metin
+
+
+def test_cagri_ayrintisinda_rol_degil_cevaplayan_model_yazar():
+    """Regresyon: ayrıntı satırı rolü yazdığı için yedeğe düşüş görünmüyordu."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_call_details=True)
+    result = ModelResult(
+        name="glm-5.2",
+        model="nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b",
+        text="x",
+        latency_ms=100,
+        ok=True,
+    )
+
+    renderer.handle(ModelCallFinished(role="glm-5.2", result=result))
+    renderer.handle(TurnFinished())
+
+    assert "nemotron-3-ultra-550b-a55b" in buffer.getvalue()
+
+
+def test_hata_hangi_modelin_kisitlandigini_soyler():
+    """NIM'de hız sınırı MODEL BAŞINADIR; 'agent · 429' hangi modeli söylemez."""
+    renderer, buffer = _renderer()
+    result = ModelResult(
+        name="agent",
+        model="nvidia_nim/z-ai/glm-5.2",
+        text="",
+        latency_ms=1,
+        ok=False,
+        error="429 rate limit",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "glm-5.2" in buffer.getvalue()

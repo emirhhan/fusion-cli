@@ -72,7 +72,14 @@ class HedgedProvider:
 
     @property
     def label(self) -> str:
-        return " | ".join(provider.label for provider in self._providers)
+        """BİRİNCİL modelin kimliği — yedek zinciri değil.
+
+        Etiket "bu sağlayıcı hangi modeldir" sorusunun cevabıdır; yedek zinciri
+        dayanıklılık ayrıntısıdır ve kimliğin parçası değildir. Zincirin tamamı
+        döndürüldüğünde etiket ekranda üç satıra sarıyor ve hangi modelin gerçekten
+        cevap verdiğini SÖYLEMİYORDU — o bilgi `ModelResult.model` içindedir.
+        """
+        return self._providers[0].label
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         if len(self._providers) == 1:
@@ -180,7 +187,7 @@ class HedgedProvider:
         errors = "; ".join(failure.error or "bilinmeyen hata" for failure in failures)
         return ModelResult(
             name=self._role,
-            model=self._providers[0].label,
+            model=self.label,
             text="",
             latency_ms=max((failure.latency_ms for failure in failures), default=0),
             ok=False,

@@ -67,6 +67,22 @@ def format_duration(milliseconds: int) -> str:
     return f"{minutes}m{remainder:02d}s"
 
 
+def format_model(model_id: str) -> str:
+    """Model kimliğini ekrana sığacak biçime indir: `<sağlayıcı>/<model adı>`.
+
+    LiteLLM kimlikleri üç parçalı olabiliyor (`nvidia_nim/nvidia/nemotron-3-super-…`)
+    ve aradaki satıcı adı ekranda yer kaplamaktan başka bir şey yapmıyor.
+
+    Sağlayıcı öneki KORUNUR ve bu önemlidir: yedek zinciri çoğu zaman AYNI modelin
+    başka bir sağlayıcıdaki kopyasıdır (`openrouter/nvidia/…:free`). Yalnızca son
+    parça gösterilseydi yedeğe düşmüş bir tur, birincille aynı görünürdü.
+    """
+    parcalar = model_id.split("/")
+    if len(parcalar) < 2:
+        return model_id
+    return f"{parcalar[0]}/{parcalar[-1]}"
+
+
 def summarize_error(error: str) -> str:
     """Sağlayıcı hatasını tek satırlık okunur bir özete indir.
 

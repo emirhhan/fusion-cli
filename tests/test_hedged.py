@@ -323,3 +323,17 @@ async def test_dar_pencerede_yavas_birincil_kaybeder():
     result = await hedged.complete(request())
 
     assert result.model == "yedek-hizli"
+
+
+async def test_etiket_birincil_modeldir_zincir_degil():
+    """Etiket "bu sağlayıcı hangi modeldir" sorusunun cevabıdır.
+
+    Zincirin tamamı döndürüldüğünde etiket olaya öyle giriyor ve ekranda üç satıra
+    sarıyordu; üstelik hangi modelin GERÇEKTEN cevap verdiğini de söylemiyordu.
+    """
+    hedged = HedgedProvider(
+        [FakeProvider("nvidia_nim/z-ai/glm-5.2"), FakeProvider("openrouter/yedek:free")],
+        role="agent",
+    )
+
+    assert hedged.label == "nvidia_nim/z-ai/glm-5.2"

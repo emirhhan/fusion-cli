@@ -84,14 +84,24 @@ class WorkIndicator:
         self._state = WorkState(label=label, model=model)
         self._show()
 
-    def update(self, *, label: str | None = None, tokens: int | None = None) -> None:
-        """Devam eden turun bilgisini güncelle."""
+    def update(
+        self, *, label: str | None = None, tokens: int | None = None, model: str | None = None
+    ) -> None:
+        """Devam eden turun bilgisini güncelle.
+
+        `model` güncellenebilir olmalıdır: tur birincil modelin adıyla başlar ama
+        cevabı yedek verebilir. Etiket başlangıçtaki adda donarsa kullanıcı,
+        SEÇTİĞİ modelin çalıştığını sanır — hangi modelin gerçekten cevap verdiği
+        yalnızca sonuçta bilinir. Token'ın aksine model DEĞİŞTİRİLİR, biriktirilmez.
+        """
         if self._state is None:
             return
         if label is not None:
             self._state.label = label
         if tokens is not None:
             self._state.tokens += tokens
+        if model is not None:
+            self._state.model = model
 
     def pause(self) -> None:
         """Canlı satırı gizle. Ekrana bir şey basılmadan ÖNCE çağrılmalıdır."""

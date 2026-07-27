@@ -70,3 +70,78 @@ def test_tur_bitince_satir_temizlenir():
     sink.handle(TurnFinished())
 
     assert temizlendi == [True]
+
+
+# --------------------------------------------------------------------------- #
+# Çalışma satırı ROL adını değil, gerçekten çalışan MODELİ gösterir
+# --------------------------------------------------------------------------- #
+
+
+def test_satirda_rol_adi_degil_model_kimligi_yazar():
+    """Rol adı yapılandırmada yazan addır ve yedeğe düşülse bile değişmez."""
+    from fusion_cli.cli.repl.work_line import WorkLineSink
+
+    satirlar: list[str] = []
+    sink = WorkLineSink(satirlar.append, lambda: None)
+
+    sink.handle(ModelCallStarted(role="agent", model="nvidia_nim/z-ai/glm-5.2", background=False))
+
+    assert "glm-5.2" in satirlar[-1]
+    assert "agent" not in satirlar[-1], "rol adı kimlik olarak kullanılmamalı"
+
+
+def test_yedek_devralirsa_satir_gercek_modele_guncellenir():
+    """Regresyon: yedek cevap verdiğinde ekran SEÇİLEN modeli göstermeye devam ediyordu.
+
+    Kullanıcı bir kademe seçip başka bir modelin cevabını alıyor ve bunu hiçbir
+    yerde göremiyordu; hatayı ancak cevabın niteliğinden sezebiliyordu.
+    """
+    from fusion_cli.cli.repl.work_line import WorkLineSink
+
+    satirlar: list[str] = []
+    sink = WorkLineSink(satirlar.append, lambda: None)
+    yedegin_cevabi = ModelResult(
+        name="glm-5.2",  # rol adı: seçilen model
+        model="nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b",  # gerçekte cevaplayan
+        text="x",
+        latency_ms=1,
+        ok=True,
+        usage=TokenUsage(completion_tokens=5),
+    )
+
+    sink.handle(ModelCallStarted(role="glm-5.2", model="nvidia_nim/z-ai/glm-5.2", background=False))
+    sink.handle(ModelCallFinished(role="glm-5.2", result=yedegin_cevabi, background=False))
+
+    assert "nemotron-3-ultra-550b-a55b" in satirlar[-1]
+    assert "glm-5.2" not in satirlar[-1], "cevabı vermeyen model satırda kalmamalı"
+
+
+def test_ayni_modelin_baska_saglayicidaki_kopyasi_ayirt_edilir():
+    """Yedek çoğu zaman aynı modelin başka sağlayıcıdaki kopyasıdır.
+
+    Yalnızca model adı gösterilseydi yedeğe düşmüş tur birincille aynı görünürdü.
+    """
+    from fusion_cli.cli.repl.work_line import WorkLineSink
+
+    satirlar: list[str] = []
+    sink = WorkLineSink(satirlar.append, lambda: None)
+    openrouter_kopyasi = ModelResult(
+        name="nemotron-super",
+        model="openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+        text="x",
+        latency_ms=1,
+        ok=True,
+    )
+
+    sink.handle(
+        ModelCallStarted(
+            role="nemotron-super",
+            model="nvidia_nim/nvidia/nemotron-3-super-120b-a12b",
+            background=False,
+        )
+    )
+    sink.handle(
+        ModelCallFinished(role="nemotron-super", result=openrouter_kopyasi, background=False)
+    )
+
+    assert "openrouter" in satirlar[-1]

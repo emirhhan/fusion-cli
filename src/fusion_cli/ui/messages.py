@@ -15,8 +15,11 @@ VERSION = "fusion-cli {version}"
 
 # --- Durum ---------------------------------------------------------------- #
 STATUS_THINKING = "düşünüyor…"
-MODEL_CALL_OK = "{role} · {duration} · {tokens} token"
-MODEL_CALL_FAILED = "{role} · {error}"
+# Kimlik olarak rol adı değil, cevabı gerçekten veren MODEL yazılır: yedeğe
+# düşülen turda rol adı değişmediği için ekran seçilen modeli göstermeye devam
+# ediyor ve yanlış model sessizce çalışıyordu.
+MODEL_CALL_OK = "{model} · {duration} · {tokens} token"
+MODEL_CALL_FAILED = "{model} · {error}"
 
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"

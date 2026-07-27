@@ -13,7 +13,7 @@ from collections.abc import Callable
 
 from ...core.events import Event, ModelCallFinished, ModelCallStarted, TurnFinished
 from ...ui import messages
-from ...ui.text import format_duration
+from ...ui.text import format_duration, format_model
 from ...ui.work import format_tokens
 
 
@@ -33,13 +33,21 @@ class WorkLineSink:
             # satırı olarak GÖSTERİLMEZ; yalnızca muhasebeye girer.
             if event.background:
                 return
-            self._model = event.role
+            # Rol adı DEĞİL model kimliği gösterilir. Rol, yapılandırmada yazan
+            # addır ve yedeğe düşülse bile değişmez; ekran o zaman kullanıcının
+            # SEÇTİĞİ modeli göstermeye devam eder, oysa cevabı başka bir model
+            # üretmiştir. Ne çalıştığı görünmezse yanlış model sessizce çalışır.
+            self._model = format_model(event.model)
             self._tokens = 0
             self._started_at = time.monotonic()
             self._publish()
         elif isinstance(event, ModelCallFinished):
             if event.background:
                 return
+            # Başlangıçta birincil yazılmıştı; cevabı gerçekte hangi model verdiyse
+            # satır ona güncellenir. Yedek devraldıysa kullanıcı bunu GÖRÜR.
+            if event.result.model:
+                self._model = format_model(event.result.model)
             self._tokens += event.result.usage.total_tokens
             self._publish()
         elif isinstance(event, TurnFinished):
