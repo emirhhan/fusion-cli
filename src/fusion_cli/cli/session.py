@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
 from ..core.events import ErrorOccurred, EventSink, FusionCompleted, TurnFinished
+from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
 from ..core.types import (
     CompletionRequest,
@@ -70,6 +71,7 @@ async def run_task(
     task_type: str = "general",
     synthesis: bool | None = None,
     memory: Memory | None = None,
+    health: HealthRegistry | None = None,
 ) -> FusionResult:
     """Görevi fusion motoruyla çalıştır ve sonucu döndür.
 
@@ -89,6 +91,7 @@ async def run_task(
             task_type=task_type,
             synthesis=synthesis,
             memory=store.performance,
+            health=health,
         )
         if result.source is VerdictSource.NONE:
             bus.publish(ErrorOccurred(_failure_message(result), fatal=True))

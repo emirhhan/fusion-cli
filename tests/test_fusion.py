@@ -205,7 +205,7 @@ def _patch(monkeypatch, saglayicilar):
 def _sabit_sentez(metin):
     from fusion_cli.core.types import ModelResult
 
-    async def _synthesize(task, answers, config, publisher):
+    async def _synthesize(task, answers, config, publisher, verdict=None, *, health=None):
         return ModelResult(name="sentez", model="m", text=metin, latency_ms=1, ok=True)
 
     return _synthesize
@@ -222,7 +222,7 @@ async def test_dogrulanmis_kipte_hakem_sentezden_once_calisir(monkeypatch, publi
     """
     sira: list[str] = []
 
-    async def _izlenen_hakem(task, answers, config, publisher):
+    async def _izlenen_hakem(task, answers, config, publisher, *, health=None):
         sira.append("hakem")
         from fusion_cli.core.types import ModelResult
 
@@ -236,7 +236,7 @@ async def test_dogrulanmis_kipte_hakem_sentezden_once_calisir(monkeypatch, publi
 
     gecen_karar = {}
 
-    async def _izlenen_sentez(task, answers, config, publisher, verdict=None):
+    async def _izlenen_sentez(task, answers, config, publisher, verdict=None, *, health=None):
         sira.append("sentez")
         gecen_karar["verdict"] = verdict
         from fusion_cli.core.types import ModelResult
@@ -259,3 +259,18 @@ async def test_dogrulanmis_kipte_hakem_sentezden_once_calisir(monkeypatch, publi
     assert gecen_karar["verdict"] is not None
     assert gecen_karar["verdict"].winner == "b"
     assert result.final_answer == "SENTEZ"
+
+
+def test_fusion_istek_reasoning_effort_tasir():
+    """Faz 8: fusion aday isteği reasoning_effort taşıyabilir (per-aday gating)."""
+    from fusion_cli.engines.fusion.engine import _request
+
+    istek = _request("gorev", make_config(), max_tokens=16, reasoning_effort="high")
+    assert istek.reasoning_effort == "high"
+
+
+def test_fusion_istek_effort_yoksa_none():
+    from fusion_cli.engines.fusion.engine import _request
+
+    istek = _request("gorev", make_config(), max_tokens=16)
+    assert istek.reasoning_effort is None

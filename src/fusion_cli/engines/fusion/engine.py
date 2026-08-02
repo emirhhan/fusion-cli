@@ -22,9 +22,11 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
+from ...config.eligibility import effort_for_spec
 from ...config.models import Config
 from ...core.concurrency import gather_with_cutoff
 from ...core.events import CandidatesStarted, EventPublisher, JudgingStarted
+from ...core.health import HealthRegistry
 from ...core.memory import Outcome, PerformanceMemory
 from ...core.types import (
     CompletionRequest,
@@ -54,6 +56,7 @@ async def run_fusion(
     task_type: str = "general",
     synthesis: bool | None = None,
     memory: PerformanceMemory | None = None,
+    health: HealthRegistry | None = None,
 ) -> FusionResult:
     """Görevi tüm adaylara sorup hakem + sentez ile nihai cevabı üret.
 
@@ -65,7 +68,7 @@ async def run_fusion(
     use_synthesis = runtime.synthesis if synthesis is None else synthesis
 
     publisher.publish(CandidatesStarted(names=tuple(spec.name for spec in specs)))
-    candidates = await _call_candidates(task, specs, config, publisher=publisher)
+    candidates = await _call_candidates(task, specs, config, publisher=publisher, health=health)
     usable = [result for result in candidates if result.ok and result.text]
 
     if len(usable) < runtime.min_successful_candidates:
@@ -74,7 +77,7 @@ async def run_fusion(
         return _single_winner(task, task_type, candidates, usable[0])
 
     verdict, synthesized = await _judge_and_synthesize(
-        task, usable, config, publisher=publisher, use_synthesis=use_synthesis
+        task, usable, config, publisher=publisher, use_synthesis=use_synthesis, health=health
     )
     winning = next(result for result in usable if result.name == verdict.winner)
     result = FusionResult(
@@ -155,13 +158,23 @@ async def _call_candidates(
     config: Config,
     *,
     publisher: EventPublisher,
+    health: HealthRegistry | None = None,
 ) -> list[ModelResult]:
     runtime = config.runtime
-    request = _request(task, config, max_tokens=runtime.max_tokens)
 
     def _factory(spec: ModelSpec) -> Callable[[], Awaitable[ModelResult]]:
+        # İstek ADAY BAŞINA kurulur: reasoning effort o adayın yeteneğine göre
+        # gating'lenir (reasoning desteklemeyen adaya parametre gönderilmez).
+        request = _request(
+            task,
+            config,
+            max_tokens=runtime.max_tokens,
+            reasoning_effort=effort_for_spec(spec, runtime.reasoning_effort),
+        )
         # Sağlayıcı closure'a bağlanır; `gather_with_cutoff` çağrıyı kendi başlatır.
-        provider = build_provider(spec, publisher=publisher, retry_delays_s=runtime.retry_delays_s)
+        provider = build_provider(
+            spec, publisher=publisher, retry_delays_s=runtime.retry_delays_s, health=health
+        )
         return lambda: provider.complete(request)
 
     return await gather_with_cutoff(
@@ -229,6 +242,7 @@ async def _judge_and_synthesize(
     *,
     publisher: EventPublisher,
     use_synthesis: bool,
+    health: HealthRegistry | None = None,
 ) -> tuple[Verdict, str | None]:
     answers = "\n\n".join(
         f"### Model: {result.name}\n{sanitize_candidate(result.text)}" for result in usable
@@ -237,10 +251,10 @@ async def _judge_and_synthesize(
 
     publisher.publish(JudgingStarted(with_synthesis=use_synthesis))
     if config.runtime.verified_synthesis and use_synthesis:
-        return await _verified(task, answers, names, config, publisher)
+        return await _verified(task, answers, names, config, publisher, health=health)
     verdict_result, synthesis_result = await asyncio.gather(
-        _judge(task, answers, config, publisher),
-        _synthesize(task, answers, config, publisher) if use_synthesis else _none(),
+        _judge(task, answers, config, publisher, health=health),
+        _synthesize(task, answers, config, publisher, health=health) if use_synthesis else _none(),
     )
 
     if verdict_result is not None and verdict_result.ok:
@@ -256,7 +270,12 @@ async def _judge_and_synthesize(
 
 
 async def _judge(
-    task: str, answers: str, config: Config, publisher: EventPublisher
+    task: str,
+    answers: str,
+    config: Config,
+    publisher: EventPublisher,
+    *,
+    health: HealthRegistry | None = None,
 ) -> ModelResult | None:
     """Hakemi SIKI bir son tarihle çağır. Yetişemezse None döner ve sezgisel kazanan seçilir."""
     request = _request(
@@ -273,6 +292,7 @@ async def _judge(
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
+        health=health,
     )
     try:
         return await asyncio.wait_for(
@@ -288,6 +308,8 @@ async def _synthesize(
     config: Config,
     publisher: EventPublisher,
     verdict: Verdict | None = None,
+    *,
+    health: HealthRegistry | None = None,
 ) -> ModelResult:
     request = _request(
         task,
@@ -300,6 +322,7 @@ async def _synthesize(
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
+        health=health,
     )
     return await provider.complete(request)
 
@@ -310,6 +333,8 @@ async def _verified(
     names: list[str],
     config: Config,
     publisher: EventPublisher,
+    *,
+    health: HealthRegistry | None = None,
 ) -> tuple[Verdict, str | None]:
     """Doğrulanmış kip: önce hakem, SONRA sentez.
 
@@ -318,13 +343,13 @@ async def _verified(
     Hakem yetişemezse sezgisel kazanana düşülür ve sentez yine çalışır — kullanıcı
     hiçbir senaryoda cevapsız kalmaz.
     """
-    verdict_result = await _judge(task, answers, config, publisher)
+    verdict_result = await _judge(task, answers, config, publisher, health=health)
     if verdict_result is not None and verdict_result.ok:
         verdict = parse_verdict(verdict_result.text, names)
     else:
         verdict = Verdict(winner=names[0], scores={}, reason="", parsed=False)
 
-    synthesis_result = await _synthesize(task, answers, config, publisher, verdict)
+    synthesis_result = await _synthesize(task, answers, config, publisher, verdict, health=health)
     synthesized = synthesis_result.text if synthesis_result.ok and synthesis_result.text else None
     return verdict, synthesized
 
@@ -351,6 +376,7 @@ def _request(
     prompt: str | None = None,
     timeout_s: float | None = None,
     temperature: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> CompletionRequest:
     runtime = config.runtime
     return CompletionRequest(
@@ -359,6 +385,7 @@ def _request(
         max_tokens=max_tokens,
         timeout_s=runtime.request_timeout_s if timeout_s is None else timeout_s,
         max_retries=runtime.max_retries,
+        reasoning_effort=reasoning_effort,
     )
 
 

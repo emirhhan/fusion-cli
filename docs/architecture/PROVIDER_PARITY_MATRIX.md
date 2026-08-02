@@ -15,6 +15,9 @@
 |-----------|------|------|--------|-------|--------|-------|--------|---------|------|
 | OpenRouter | aggregator | api_key | ✅ | native* | model'e bağlı | **working** | LiteLLM | ✅ | normal |
 | NVIDIA NIM | api_key | api_key | ✅ | native* | model'e bağlı | **working** | LiteLLM | ✅ | normal |
+| OpenAI (resmî) | api_key | OPENAI_API_KEY | ✅ | native* | model'e bağlı | **working** | LiteLLM | ✅ | normal |
+| Google Gemini (resmî) | api_key | GEMINI_API_KEY | ✅ | native* | model'e bağlı | **working** | LiteLLM | ✅ | normal |
+| Anthropic (resmî) | api_key | ANTHROPIC_API_KEY | ✅ | native* | model'e bağlı | **working** | LiteLLM | ✅ | normal |
 | Ollama (yerel) | local | yok | ✅ | native* | model'e bağlı | **framework** | LiteLLM | kısmi | normal |
 | Generic OpenAI-uyumlu | api_key/local | değişken | ✅ | native* | değişken | **framework** | LiteLLM | — | normal |
 | ChatGPT Web | web_session | web-session | — | none | — | **framework** | — | metadata | disabled_by_default |

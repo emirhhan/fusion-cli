@@ -25,7 +25,16 @@ def test_nim_modeli_nim_saglayicisina_cozulur():
 
 def test_taninmayan_onek_none_dondurur():
     # Kullanıcının yazdığı serbest uç yönetilen sağlayıcı değildir — hata değil.
-    assert provider_for_model("openai/gpt-4") is None
+    assert provider_for_model("bilinmeyen-uc/model") is None
+
+
+def test_resmi_openai_onegi_taninir():
+    assert provider_for_model("openai/gpt-4o").id == "openai"
+
+
+def test_resmi_gemini_ve_anthropic_taninir():
+    assert provider_for_model("gemini/gemini-2.0").id == "gemini"
+    assert provider_for_model("anthropic/claude-sonnet-4").id == "anthropic"
 
 
 def test_openrouter_aggregator_olarak_isaretli():

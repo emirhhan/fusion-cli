@@ -277,6 +277,7 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
             task_type=state.task_type,
             synthesis=state.synthesis,
             memory=state.memory,
+            health=state.health,
         )
     finally:
         tracer.flush()

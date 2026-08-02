@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..core.model_capability import ModelCapability, ToolSupport
+from ..core.reasoning import ReasoningEffort, provider_value
 from ..core.types import ModelSpec
 from .models import ProfileEligibility
 
@@ -55,6 +56,18 @@ def capability_from_spec(spec: ModelSpec, context_window: int = 0) -> ModelCapab
         context_window=context_window,
         reasoning=_REASONING_TAG in spec.tags,
     )
+
+
+def effort_for_spec(spec: ModelSpec, effort: ReasoningEffort) -> str | None:
+    """Seçilen modele gönderilecek `reasoning_effort` değerini belirle.
+
+    Model reasoning DESTEKLEMİYORSA `None`: parametre gönderilmez, hatalı istek
+    kurulmaz (master prompt §7.1). Destekliyorsa effort sağlayıcının kabul ettiği
+    değere eşlenir (`auto`→None, `xhigh`/`max`→`high`). Hem agent hem fusion yolu
+    bu tek fonksiyondan geçer; ikinci bir eşleme kopyası açılmaz."""
+    if not capability_from_spec(spec).reasoning:
+        return None
+    return provider_value(effort)
 
 
 @dataclass(frozen=True, slots=True)

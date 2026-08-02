@@ -5,13 +5,13 @@ Effort mode'dan AYRIDIR; desteklenmeyen modelde parametre gönderilmez.
 
 from __future__ import annotations
 
+from fusion_cli.config.eligibility import effort_for_spec as _effort_for
 from fusion_cli.core.reasoning import (
     ReasoningEffort,
     is_downgraded,
     provider_value,
 )
 from fusion_cli.core.types import ModelSpec
-from fusion_cli.engines.agent.loop import _effort_for
 
 
 def test_auto_parametre_gondermez():

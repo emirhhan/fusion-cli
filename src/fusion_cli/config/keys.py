@@ -26,10 +26,19 @@ from .models import Config
 #: da buradan okur, iki listenin ayrışması mümkün olmasın.
 OPENROUTER_ENV = "OPENROUTER_API_KEY"
 NIM_ENV = "NVIDIA_NIM_API_KEY"
+#: Resmî API sağlayıcılarının anahtar ortam değişkenleri. Bunlar ürünün ücretsiz
+#: taban çizgisine (OpenRouter + NIM) dahil DEĞİLDİR; kullanıcı isterse resmî API'yi
+#: kendi anahtarıyla ekler. LiteLLM bu önekleri doğrudan çalıştırır.
+OPENAI_ENV = "OPENAI_API_KEY"
+GEMINI_ENV = "GEMINI_API_KEY"
+ANTHROPIC_ENV = "ANTHROPIC_API_KEY"
 
 #: Model kimliği önekleri.
 OPENROUTER_PREFIX = "openrouter/"
 NIM_PREFIX = "nvidia_nim/"
+OPENAI_PREFIX = "openai/"
+GEMINI_PREFIX = "gemini/"
+ANTHROPIC_PREFIX = "anthropic/"
 
 
 @dataclass(frozen=True, slots=True)

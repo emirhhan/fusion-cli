@@ -20,7 +20,18 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 
-from ..config.keys import NIM_ENV, NIM_PREFIX, OPENROUTER_ENV, OPENROUTER_PREFIX
+from ..config.keys import (
+    ANTHROPIC_ENV,
+    ANTHROPIC_PREFIX,
+    GEMINI_ENV,
+    GEMINI_PREFIX,
+    NIM_ENV,
+    NIM_PREFIX,
+    OPENAI_ENV,
+    OPENAI_PREFIX,
+    OPENROUTER_ENV,
+    OPENROUTER_PREFIX,
+)
 
 
 class ProviderKind(Enum):
@@ -125,6 +136,35 @@ BUILTIN_PROVIDERS: tuple[ProviderDefinition, ...] = (
         risk_level=RiskLevel.NORMAL,
         model_prefix="ollama/",
         auth_env=None,
+    ),
+    # --- Resmî API sağlayıcıları: kullanıcı kendi anahtarıyla ekler. --------- #
+    # Ürünün ücretsiz taban çizgisine dahil DEĞİL; LiteLLM önekleri doğrudan çalıştırır.
+    ProviderDefinition(
+        id="openai",
+        name="OpenAI (resmî API)",
+        kind=ProviderKind.API_KEY,
+        official_status=OfficialStatus.OFFICIAL_API,
+        risk_level=RiskLevel.NORMAL,
+        model_prefix=OPENAI_PREFIX,
+        auth_env=OPENAI_ENV,
+    ),
+    ProviderDefinition(
+        id="gemini",
+        name="Google Gemini (resmî API)",
+        kind=ProviderKind.API_KEY,
+        official_status=OfficialStatus.OFFICIAL_API,
+        risk_level=RiskLevel.NORMAL,
+        model_prefix=GEMINI_PREFIX,
+        auth_env=GEMINI_ENV,
+    ),
+    ProviderDefinition(
+        id="anthropic",
+        name="Anthropic (resmî API)",
+        kind=ProviderKind.API_KEY,
+        official_status=OfficialStatus.OFFICIAL_API,
+        risk_level=RiskLevel.NORMAL,
+        model_prefix=ANTHROPIC_PREFIX,
+        auth_env=ANTHROPIC_ENV,
     ),
     # --- Web-session sağlayıcıları: FRAMEWORK düzeyinde tanınır, yürütücüsü YOK. --- #
     # Gerçekçilik (§22): çalışan bir web adaptörü kırılgandır, sağlayıcı şartlarının
