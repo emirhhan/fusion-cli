@@ -122,3 +122,30 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
 - 290 sağlayıcının tamamı test edilmeden "tam OmniRoute parity" iddia edilmez.
 - Web adaptörleri yalnızca gerçekten çalışıp test edilmişse `working` işaretlenir;
   aksi hâlde `framework supported, adapter not yet implemented`.
+
+## Ek fazlar (kalan işlerin tamamlanması)
+
+### Faz 8 — Resmî API sağlayıcıları + fusion effort/health ✅
+- registry'ye resmî OpenAI/Gemini/Anthropic API tanımları (kullanıcı kendi anahtarıyla).
+- Fusion/council yoluna effort (per-aday gating) + health entegrasyonu. `effort_for_spec`
+  config/eligibility'ye taşındı (agent+fusion paylaşır).
+
+### Faz 9 — Emulated tool-calling + eval ✅
+- `tools/emulation.py` (+ `core/tool_emulation.py`): tek canonical format, parser,
+  JSON schema doğrulama. `tools/emulation_eval.py`: dört metrik + eşikler. Policy:
+  emulated model ancak `emulated_verified=True` ile mutation yapar.
+
+### Faz 10 — Şifreli credential store + /providers add ✅
+- `config/credentials.py`: FernetSecretStore (anahtar FUSION_SECRET_KEY'den, git'e girmez).
+  `load_environment` saklanan sırları ortama uygular. `/providers add` getpass ile alır,
+  şifreli saklar; anahtar log/mesajda görünmez.
+
+### Faz 11 — Web-session adapter çerçevesi ✅
+- `providers/web_session.py`: WebProviderAdapter (LlmProvider; transport enjekte). NONE=
+  düz sohbet, EMULATED=talimat enjekte + ToolCall ayrıştırma. Uçtan uca test (§21 5-6).
+- Canlı ticari web transport'u güvenlik/ToS sınırı gereği YOK; framework hazır.
+
+### Faz 12 — Canonical protocol ✅
+- Canonical katman ZATEN `core.types` (SDK sızmaz, RULES). Paralel `Canonical*` ailesi
+  kurulmadı (ikinci yol). LiteLLM + web_session adaptörleri translator'dır. Bkz.
+  `CANONICAL_PROTOCOL.md`.
