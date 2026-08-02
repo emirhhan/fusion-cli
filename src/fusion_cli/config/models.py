@@ -9,7 +9,7 @@ yapılandırma hiç yüklenmez ve test kırılır.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.types import ModelSpec
@@ -105,6 +105,23 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ProfileEligibility:
+    """Bir profilin bir modeli ÖNERMESİ için gereken eşikler.
+
+    Eşikler koda gömülmez, `defaults.yaml`'dan gelir (RULES.md "eşikler
+    yapılandırmadan okunur"). Filtre yalnızca BİLİNEN-kötü modeli eler; bilinmeyen
+    yetenek gizlenmez (gerçekçilik: canlı katalog modellerinin çoğu doğrulanmamıştır).
+    """
+
+    #: Gereken en az bağlam penceresi (token). 0 = sınır yok. Model bağlamı
+    #: BİLİNİYOR ve bu değerin altındaysa elenir; bilinmiyorsa (0) elenmez.
+    min_context: int
+    #: `NONE` (araçsız) modele bu profilde izin var mı? Mutation profilleri (medium+)
+    #: `false` verir: araçsız model dosya değiştiren agent olamaz (master prompt §5.3).
+    allow_no_tools: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TierSpec:
     """Tek bir model kademesi (low, medium, high, ultra, premium).
 
@@ -145,6 +162,9 @@ class Config:
     #: Seçilebilir model kademeleri, `defaults.yaml`'daki yazım SIRASIYLA. Sıra
     #: anlamlıdır: seçim ekranı bu sırayı gösterir ve renk geçişini buna yayar.
     tiers: tuple[TierSpec, ...] = ()
+    #: Profil adı → uygunluk eşikleri. Model seçim ekranı aktif profile göre bu
+    #: eşiklerle süzülür. Tanımsızsa filtre uygulanmaz (özellik sessizce kapanır).
+    profile_eligibility: dict[str, ProfileEligibility] = field(default_factory=dict)
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

@@ -419,3 +419,32 @@ tiers:
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+
+# ---------------------------------------------------------------------------
+# Profil uygunluk eşikleri — model seçim ekranı aktif profile göre bunlarla süzülür.
+#
+# Filtre YALNIZCA bilinen-kötü modeli eler; doğrulanmamış (bilinmeyen) yetenek
+# gizlenmez. Gerçekçilik: canlı katalog modellerinin çoğunun araç desteği ve
+# reasoning'i doğrulanmamıştır — hepsini gizlemek listeyi işe yaramaz hale getirir.
+#
+#   min_context   : gereken en az bağlam (token). 0 = sınır yok. Model bağlamı
+#                   BİLİNİYOR ve altındaysa elenir; bilinmiyorsa (0) elenmez.
+#   allow_no_tools: araçsız (NONE) modele bu profilde izin var mı? Mutation
+#                   profilleri (medium+) false verir — araçsız model dosya
+#                   değiştiren agent olamaz (master prompt §5.3).
+#
+# 128000 eşiği: çok dosyalı/mimari işler büyük bağlam ister; OpenRouter model
+# meta verisinde 128K, ciddi kodlama modelleri için yaygın alt sınırdır.
+profile_eligibility:
+  low:
+    min_context: 0
+    allow_no_tools: true
+  medium:
+    min_context: 0
+    allow_no_tools: false
+  high:
+    min_context: 128000
+    allow_no_tools: false
+  max:
+    min_context: 128000
+    allow_no_tools: false
