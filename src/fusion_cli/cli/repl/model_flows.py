@@ -101,6 +101,23 @@ def choose_level(config: Config, *, picker: Picker = pick) -> FlowResult:
     return applied_result(model_select.apply_tier(config, picked), picked)
 
 
+#: `/mode` seçim ekranındaki "auto" seçeneğinin değeri. Kademe adı DEĞİLDİR:
+#: komut işleyicisi bunu görürse profili kademe yerine auto kipine alır.
+AUTO_CHOICE = "auto"
+
+
+def choose_mode(config: Config, *, picker: Picker = pick) -> str | None:
+    """Çalışma profili seçtir: auto + tanımlı kademeler.
+
+    Seçilen değeri HAM döndürür (kademe adı ya da `AUTO_CHOICE`); uygulama kararını
+    komut işleyicisi verir, çünkü `auto` bir yapılandırma değişikliği değil oturum
+    kipidir ve `FlowResult` (config değişimi) kalıbına girmez. Vazgeçilirse `None`.
+    """
+    auto = Choice(AUTO_CHOICE, messages.MODE_AUTO_LABEL, messages.MODE_AUTO_HINT)
+    kademeler = tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers)
+    return picker((auto, *kademeler), title=messages.MODE_TITLE, gradient_rows=True)
+
+
 def applied_result(config: Config, tier_name: str) -> FlowResult:
     """Uygulanmış kademeyi kalıcılaştır ve sonucu anlat.
 

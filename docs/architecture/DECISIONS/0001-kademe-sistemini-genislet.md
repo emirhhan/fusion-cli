@@ -25,7 +25,7 @@ Bunun yerine mevcut kademe (tier) sistemi execution-profile kavramına genişlet
 | low | `low` | Var — capability metadata + eligibility eklenecek |
 | medium (varsayılan) | `medium` | Var — varsayılan zaten dengeli |
 | high | `high` | Var |
-| max | `premium` | `premium` → `max` görünen ada eşlenir; `ultra` ara kademe olarak korunur (silinmez, geçmiş git'te ama canlı kullanımda) |
+| max | `premium` | `max` kabul edilen bir ALIAS'tır (`config/profile.py:PROFILE_ALIASES`); `premium`'a çözülür. Görünen ad DEĞİŞTİRİLMEZ — `premium`'u bilen kullanıcı şaşırmaz. `ultra` ara kademe olarak korunur. |
 | auto | — | YENİ: `classify.py` çıktısı → kademe seçimi |
 | custom | `/model` override | Var — oturum içi model sabitleme |
 

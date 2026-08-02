@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from ...config import model_select
+from ...config import model_select, profile
 from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
@@ -226,6 +226,34 @@ def _level(state: ReplState, argument: str) -> str:
     return result.message
 
 
+def _mode(state: ReplState, argument: str) -> str:
+    """`/mode` — çalışma profili seç: auto · low · medium · high · max.
+
+    Kademe seçmenin PROFİL cephesidir; aynı `apply_tier` çekirdeğini kullanır (ikinci
+    yol değildir). `auto` bir kademe değil oturum kipidir: her tur görevi sınıflandırıp
+    kademeyi kendisi seçer. Argümansız çağrı seçim ekranını açar.
+    """
+    wanted = argument.strip()
+    if not wanted:
+        picked = model_flows.choose_mode(state.config)
+        if picked is None:
+            return messages.PICKER_CANCELLED
+    else:
+        picked = wanted
+    if picked.strip().casefold() == model_flows.AUTO_CHOICE:
+        state.auto_profile = True
+        return messages.MODE_AUTO_ON
+    tier_name = profile.resolve_tier_name(state.config, picked)
+    if tier_name is None:
+        known = ", ".join(item.name for item in state.config.tiers)
+        return messages.MODE_UNKNOWN.format(name=picked, known=known)
+    result = model_flows.applied_result(model_select.apply_tier(state.config, tier_name), tier_name)
+    state.config = result.config
+    # Elle profil seçmek auto kipini kapatır: kullanıcı belirli bir kademe istedi.
+    state.auto_profile = False
+    return result.message
+
+
 def _undo(state: ReplState, argument: str) -> str:
     """`/undo` — son agent turunun dosya değişikliklerini geri al."""
     kayit = state.last_changes
@@ -359,6 +387,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
+    SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
     SlashCommand(

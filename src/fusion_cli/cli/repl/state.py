@@ -50,6 +50,8 @@ class ReplState:
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"
+    #: `/mode auto` açık mı? Açıkken her tur görevi sınıflandırıp kademe seçilir.
+    auto_profile: bool = False
     show_all_answers: bool = False
     #: Açılış dolgusu hâlâ ekranda mı? İlk mesajda ekran dolgusuz yeniden çizilir.
     welcome_padded: bool = True

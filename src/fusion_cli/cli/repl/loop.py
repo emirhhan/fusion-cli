@@ -22,6 +22,7 @@ from pathlib import Path
 
 from rich.console import Console
 
+from ...config import model_select, profile
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...core.events import ErrorOccurred, TurnFinished
@@ -184,6 +185,7 @@ async def _run_command(
         "plan",
         "security",
         "type",
+        "mode",
         "level",
         "development",
     }:
@@ -195,6 +197,27 @@ async def _run_command(
 # --------------------------------------------------------------------------- #
 
 
+def _apply_auto_profile(line: str, state: ReplState, console: Console) -> None:
+    """`/mode auto` açıksa görevi sınıflandırıp kademeyi bu tur için seç.
+
+    Karar açıklanabilir olsun diye gerekçe basılır (master prompt §7.2). Profilin
+    kademe karşılığı yoksa SESSİZCE geçilir: kullanıcının mevcut modeli korunur,
+    tur auto yüzünden engellenmez.
+    """
+    if not state.auto_profile:
+        return
+    # Hafif ve saf; engines/agent __init__ zincirini import anında çekmemek için tembel.
+    from ...engines.agent.auto_profile import auto_profile
+
+    secim = auto_profile(line)
+    tier_name = profile.resolve_tier_name(state.config, secim.profile)
+    if tier_name is None:
+        return
+    state.config = model_select.apply_tier(state.config, tier_name)
+    mesaj = messages.MODE_AUTO_SELECTED.format(profile=tier_name, reason=secim.reason)
+    console.print(f"[{theme.DIM}]{mesaj}[/{theme.DIM}]")
+
+
 async def _run_turn(
     line: str,
     state: ReplState,
@@ -204,6 +227,7 @@ async def _run_turn(
     mode: Mode = Mode.NONE,
 ) -> None:
     """Bir mesajı aktif motora gönder. Ctrl-C turu keser, REPL'den çıkmaz."""
+    _apply_auto_profile(line, state, console)
     task = asyncio.ensure_future(_dispatch(line, state, console, background, mode))
     with _cancel_on_interrupt(task):
         try:

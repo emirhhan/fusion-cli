@@ -17,37 +17,46 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
 - `CURRENT_STATE.md`, `MIGRATION_PLAN.md`, ADR 0001 yazıldı.
 - Üretim davranışı değişmedi.
 
-### Faz 1 — Mode/effort ayrımı + Auto
-- Kademe → execution profile hizalaması; görünen ad eşlemesi (`premium`→`max`).
-- `ReasoningEffort` yeni `core` tipi (auto/low/medium/high/xhigh/max); sağlayıcı
-  desteklemezse sessizce en yakına eşlenir, hatalı parametre gönderilmez.
-- `/mode` ve `/effort` komutları (`/level`'i genişleterek, ikinci yol açmadan).
-- Auto: `classify.py` çıktısını kademe seçimine bağla; karar açıklanabilir olsun.
-- Testler: mode/effort bağımsızlığı, desteklenmeyen effort eşlemesi, auto seçim.
+### Faz 1 — Mode + Auto ✅
+- `config/profile.py`: profil↔kademe çözümleme; `max` = `premium` alias'ı (tek kaynak).
+- `engines/agent/auto_profile.py`: `classify_task` üstünde karmaşıklık sinyalleriyle
+  görev→profil seçimi, Türkçe gerekçe. Master prompt §7.2'nin dört örneği çıpa test.
+- `/mode` komutu (auto + kademeler) + per-tur auto uygulaması (`loop._apply_auto_profile`).
+- 25 yeni test; kapı yeşil (1189 test).
+- **Kapsam kararı**: `ReasoningEffort` bu fazdan ÇIKARILDI. "Desteklenmezse no-op"
+  doğru çalışması için model başına capability metadata gerekir (Faz 2). Yarım/atılacak
+  bir allowlist yazmamak için (RULES.md YAGNI) effort, capability metadata'dan SONRAYA
+  alındı (yeni Faz 3). Böylece mode≠effort ayrımı gerçek metadata üstüne kurulur.
 
 ### Faz 2 — Model/provider registry + capability metadata
 - `core` tipleri: `ModelDefinition`, `ProviderDefinition`, `CapabilitySet`,
-  `ModelEndpoint`; `tool_support: native|emulated|none`, context, reasoning.
+  `ModelEndpoint`; `tool_support: native|emulated|none`, context, reasoning, effort.
 - Eligibility policy'leri (low/medium/high/max) ve `/model` picker'da filtreleme.
 - `Show incompatible` + red gerekçesi. Testler.
 
-### Faz 3 — Router sağlamlaştırma
+### Faz 3 — Reasoning effort (mode ≠ effort)
+- `ReasoningEffort` `core` tipi (auto/low/medium/high/xhigh/max); Faz 2'nin capability
+  metadata'sına göre model destekliyorsa parametre gönderilir, desteklemiyorsa sessizce
+  en yakına eşlenir / kapatılır — hatalı parametre gönderilmez.
+- `/effort` komutu; mode'dan bağımsız. Testler: bağımsızlık, desteklenmeyen eşleme.
+
+### Faz 4 — Router sağlamlaştırma
 - Endpoint / model / profile fallback ayrımı; hata-sınıfı bazlı tetikleme tablosu.
 - Circuit breaker + cooldown; telemetriden recency-weighted reliability skoru.
 - Routing kararı açıklanabilir (route decision kaydı). Testler.
 
-### Faz 4 — Provider türü genişletme (framework)
+### Faz 5 — Provider türü genişletme (framework)
 - `api_key` dışında `oauth` / `local` / `aggregator` birinci sınıf; generic
   OpenAI/Anthropic/Gemini adaptörleri canonical protokol üstünden.
 - Provider onboarding wizard (`/providers add`). Testler.
 
-### Faz 5 — Tool-support policy + web-provider framework
+### Faz 6 — Tool-support policy + web-provider framework
 - `none` model mutation agent olamaz; `emulated` eval eşiğini geçmeden mutation
   görevine giremez. Emulated tool-call tek canonical format + JSON schema validation.
 - `WebProviderAdapter` iskeleti, şifreli credential store (OS keychain/şifreli),
   opt-in + risk etiketi. Credential loglara/prompta/git'e sızmaz. Testler.
 
-### Faz 6 — Prompt mimarisi + dokümanlar + parity + smoke
+### Faz 7 — Prompt mimarisi + dokümanlar + parity + smoke
 - Katmanlı prompt composer + regression testleri.
 - Kullanıcı dokümanları (EXECUTION_PROFILES, MODEL_PICKER, WEB_PROVIDERS, …) ilgili
   fazın koduyla birlikte tamamlanır; `PROVIDER_PARITY_MATRIX.md` gerçeği yansıtır.

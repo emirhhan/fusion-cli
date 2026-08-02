@@ -320,6 +320,14 @@ LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
 LEVEL_SAVED = "kaydedildi: {path}"
 LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
 
+# --- Execution profili (/mode) --------------------------------------------- #
+MODE_TITLE = "Çalışma profili seç"
+MODE_AUTO_LABEL = "auto"
+MODE_AUTO_HINT = "görevi sınıflandırıp uygun profili her turda kendisi seçer"
+MODE_AUTO_ON = "profil → auto: her tur göreve göre kademe seçilecek"
+MODE_AUTO_SELECTED = "auto profil → {profile}  ({reason})"
+MODE_UNKNOWN = "'{name}' adlı profil yok. Geçerli: auto, {known}"
+
 # --- Sağlayıcı tercihi (/provider) ----------------------------------------- #
 PROVIDER_TITLE = "Hangi sağlayıcı kullanılsın?"
 PROVIDER_AUTO = "Otomatik (ikisi birden)"
@@ -398,6 +406,7 @@ UNDO_PARTIAL = (
 )
 CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
+CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
 CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"
