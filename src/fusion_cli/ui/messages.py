@@ -370,6 +370,9 @@ DEV_EMPTY_CATALOG = (
 )
 DEV_PAID_WARNING = "dikkat: ücretli model seçtin, çağrılar faturalandırılır"
 DEV_APPLIED = "model → {model}  ·  agent, hakem ve havuzun tamamı"
+#: Katalog satırında modelin uygun olduğu profiller. Küçük bağlamlı model üst
+#: profillerde görünmez; kullanıcı hangi profillere yaradığını satırda görür.
+DEV_PROFILE_BADGE = "profiller: {profiles}"
 
 REPL_PASTE_FOLDED = "⧉ {count} satır yapıştırıldı [#{index}]"
 REPL_PASTE_FOLDED_CHARS = "⧉ {count} karakter yapıştırıldı [#{index}]"

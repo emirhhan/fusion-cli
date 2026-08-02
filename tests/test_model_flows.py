@@ -321,3 +321,59 @@ def test_level_bilinmeyen_kademeyle_anlasilir_hata_verir(config, tmp_path):
 
     assert "kademe yok" in sonuc
     assert state.config is config
+
+
+# --------------------------------------------------------------------------- #
+# Katalog satırında profil uygunluk rozeti (Faz 2b)
+# --------------------------------------------------------------------------- #
+
+
+def test_buyuk_baglamli_model_tum_profillere_rozetlenir(config):
+    entry = CatalogEntry(model_id="a/b", provider="p", context_length=200000)
+    etiket = model_flows._model_label(entry, config.profile_eligibility)
+    assert "low" in etiket and "medium" in etiket and "high" in etiket and "max" in etiket
+
+
+def test_kucuk_baglamli_model_ust_profillerde_gorunmez(config):
+    entry = CatalogEntry(model_id="a/b", provider="p", context_length=32000)
+    etiket = model_flows._model_label(entry, config.profile_eligibility)
+    assert "low" in etiket and "medium" in etiket
+    assert "high" not in etiket and "max" not in etiket
+
+
+def test_bilinmeyen_baglam_tum_profillerde_gorunur(config):
+    # Bağlam 0 (bilinmiyor) → gerçekçilik kuralı gereği gizlenmez.
+    entry = CatalogEntry(model_id="a/b", provider="p", context_length=0)
+    etiket = model_flows._model_label(entry, config.profile_eligibility)
+    assert "high" in etiket and "max" in etiket
+
+
+def test_katalog_yetenegi_baglami_tasir_araci_bilinmez():
+    from fusion_cli.core.model_capability import ToolSupport
+
+    cap = model_flows.catalog_capability(
+        CatalogEntry(model_id="a/b", provider="p", context_length=64000)
+    )
+    assert cap.context_window == 64000
+    assert cap.tool_support is ToolSupport.UNKNOWN
+
+
+def test_gelistirme_akisinda_secilen_model_rozetle_uygulanir(config, monkeypatch):
+    entries = (
+        CatalogEntry(model_id="openrouter/a/b:free", provider="openrouter", context_length=200000),
+    )
+    monkeypatch.setattr(model_flows.catalog, "fetch_openrouter_free", lambda: entries)
+    gorulen = {}
+
+    def _pick(choices, *, title, gradient_rows=False, stream=None):
+        # İlk çağrı kaynak seçimi (tek elemanlı Choice.key kaynak anahtarı),
+        # ikinci çağrı model seçimi. Model listesini yakala.
+        if choices[0].value == "openrouter-free":
+            return "openrouter-free"
+        gorulen["choices"] = choices
+        return "openrouter/a/b:free"
+
+    sonuc = model_flows.choose_development(config, picker=_pick)
+    assert sonuc.config.agent.model == "openrouter/a/b:free"
+    # Seçim satırında profil rozeti göründü.
+    assert any("profiller" in choice.description for choice in gorulen["choices"])

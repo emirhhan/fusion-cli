@@ -28,11 +28,19 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   bir allowlist yazmamak için (RULES.md YAGNI) effort, capability metadata'dan SONRAYA
   alındı (yeni Faz 3). Böylece mode≠effort ayrımı gerçek metadata üstüne kurulur.
 
-### Faz 2 — Model/provider registry + capability metadata
-- `core` tipleri: `ModelDefinition`, `ProviderDefinition`, `CapabilitySet`,
-  `ModelEndpoint`; `tool_support: native|emulated|none`, context, reasoning, effort.
-- Eligibility policy'leri (low/medium/high/max) ve `/model` picker'da filtreleme.
-- `Show incompatible` + red gerekçesi. Testler.
+### Faz 2 — Capability metadata + eligibility ✅
+- `core/model_capability.py`: `ToolSupport` (native/emulated/none/unknown) + `ModelCapability`.
+- `config/eligibility.py`: yeteneği model etiketlerinden türetir (agent→native,
+  reasoning→reasoning), canlı katalogdan bağlam alır; eşiklerle süzer. Uydurma yok,
+  yalnızca bilinen-kötü elenir (gerçekçilik kuralı).
+- `defaults.yaml profile_eligibility`: low/medium/high/max eşikleri (koda gömülü değil).
+- `/development` katalog listesinde profil rozeti (2b): her model hangi profillere
+  uygun, satırda görünür.
+- 16 yeni test; kapı yeşil (1205 test).
+- **Ertelenen**: hedef-profile göre HARD filtre + "uyumsuzları göster" + red gerekçesi,
+  asıl `/profiles` editörüne (§9.4) ait. O editör henüz yok; filtreyi UI'sız yazmak
+  spekülatif olurdu (YAGNI). Editörle birlikte gelecek. Pure `is_eligible`/`eligible_profiles`
+  altyapısı hazır ve test edilmiş.
 
 ### Faz 3 — Reasoning effort (mode ≠ effort)
 - `ReasoningEffort` `core` tipi (auto/low/medium/high/xhigh/max); Faz 2'nin capability

@@ -14,8 +14,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ...config import model_select, writer
-from ...config.models import Config
+from ...config.eligibility import eligible_profiles
+from ...config.models import Config, ProfileEligibility
 from ...core.errors import ConfigError
+from ...core.model_capability import ModelCapability, ToolSupport
 from ...providers import catalog
 from ...providers.catalog import CatalogEntry
 from ...ui import messages
@@ -145,7 +147,9 @@ def choose_development(
     if source is None:
         return FlowResult(config, messages.PICKER_CANCELLED)
 
-    model_id, reason = _choose_model(source, picker=picker, ask_text=ask_text)
+    model_id, reason = _choose_model(
+        source, picker=picker, ask_text=ask_text, eligibility=config.profile_eligibility
+    )
     if model_id is None:
         return FlowResult(config, reason)
 
@@ -171,7 +175,11 @@ def _choose_source(picker: Picker) -> Source | None:
 
 
 def _choose_model(
-    source: Source, *, picker: Picker, ask_text: TextAsker | None
+    source: Source,
+    *,
+    picker: Picker,
+    ask_text: TextAsker | None,
+    eligibility: dict[str, ProfileEligibility],
 ) -> tuple[str | None, str]:
     """Kaynağa göre modeli belirle: katalogdan seç ya da serbest metin al.
 
@@ -184,7 +192,10 @@ def _choose_model(
     if not entries:
         return None, messages.DEV_EMPTY_CATALOG
     picked = picker(
-        tuple(Choice(entry.model_id, entry.model_id, _context_label(entry)) for entry in entries),
+        tuple(
+            Choice(entry.model_id, entry.model_id, _model_label(entry, eligibility))
+            for entry in entries
+        ),
         title=messages.DEV_MODEL_TITLE.format(source=source.label),
     )
     return picked, messages.PICKER_CANCELLED
@@ -195,6 +206,28 @@ def _ask_custom(ask_text: TextAsker | None) -> str | None:
         return None
     answer = ask_text(messages.DEV_CUSTOM_PROMPT)
     return answer.strip() if answer and answer.strip() else None
+
+
+def catalog_capability(entry: CatalogEntry) -> ModelCapability:
+    """Katalog kaydından yeteneği türet.
+
+    Katalog yalnızca bağlam penceresini VERİR; araç desteği ve reasoning
+    doğrulanmamıştır (`UNKNOWN`). Uydurulmaz: bilinen tek gerçek sinyal bağlamdır.
+    """
+    return ModelCapability(tool_support=ToolSupport.UNKNOWN, context_window=entry.context_length)
+
+
+def _model_label(entry: CatalogEntry, eligibility: dict[str, ProfileEligibility]) -> str:
+    """Seçim satırının açıklaması: bağlam + uygun olduğu profiller.
+
+    Rozet, hangi profillerin bu modeli ÖNERDİĞİNİ gösterir; kullanıcı bir modelin
+    neden bir profile uygun olmadığını (küçük bağlam) satırda görebilir.
+    """
+    parts = [_context_label(entry)]
+    profiles = eligible_profiles(catalog_capability(entry), eligibility)
+    if profiles:
+        parts.append(messages.DEV_PROFILE_BADGE.format(profiles="·".join(profiles)))
+    return "  ·  ".join(part for part in parts if part)
 
 
 def _context_label(entry: CatalogEntry) -> str:
