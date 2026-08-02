@@ -28,13 +28,21 @@ class MutationPolicy:
     reason: str = ""
 
 
-def can_be_mutation_agent(capability: ModelCapability) -> MutationPolicy:
-    """Bu yetenekteki model dosya değiştiren ana agent olabilir mi?"""
+def can_be_mutation_agent(
+    capability: ModelCapability, *, emulated_verified: bool = False
+) -> MutationPolicy:
+    """Bu yetenekteki model dosya değiştiren ana agent olabilir mi?
+
+    `emulated_verified`, taklit araç modelinin eval eşiğini GEÇTİĞİNİ söyler (bkz.
+    `tools.emulation_eval`). Doğrulama config katmanında yapılamaz (jsonschema
+    üçüncü partidir, `core`/`config` onu import etmez); bu yüzden sonuç bir bayrak
+    olarak dışarıdan geçirilir — config saf kalır.
+    """
     if capability.tool_support is ToolSupport.NONE:
         return MutationPolicy(
             False, "araç desteği yok: yalnızca sohbet/council rollerinde kullanılabilir"
         )
-    if capability.tool_support is ToolSupport.EMULATED:
+    if capability.tool_support is ToolSupport.EMULATED and not emulated_verified:
         return MutationPolicy(
             False, "taklit araç desteği henüz eval eşiğinden geçmedi: mutation'a giremez"
         )

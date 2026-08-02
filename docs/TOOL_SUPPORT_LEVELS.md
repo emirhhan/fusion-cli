@@ -18,6 +18,19 @@ Yetenek model **etiketlerinden** türetilir (uydurma tablo yok):
 - `emulated-tools` etiketi → `emulated`.
 - Açık beyan (`no-tools`/`emulated-tools`) örtük çıkarımı (`agent`) ezer.
 
+## Taklit (emulated) araç çağrısı
+
+Native tool-calling'i olmayan modeller için `tools/emulation.py` tek canonical bir
+format sunar: model, araç çağrısını `<tool_call>{"name": …, "arguments": {…}}</tool_call>`
+biçiminde yazar. `parse_tool_calls` bunları `ToolCall`'a çevirir; blok dışındaki metin
+nihai cevaptır. Doğal metin yanlışlıkla çağrı sayılmaz; bozuk JSON reddedilir (sahte
+çağrı üretilmez); argümanlar `validate_arguments` ile JSON şemasına karşı doğrulanır.
+
+**Eval eşiği:** `tools/emulation_eval.py` bir modelin taklit araç doğruluğunu dört
+metrikle puanlar (araç seçimi, şema geçerliliği, argüman korunumu, sahte çağrı) ve
+§5.3 eşikleriyle karşılaştırır. Bir emulated model ancak `emulated_verified=True`
+(eval geçti) ile mutation agent olabilir.
+
 ## Güvenlik kuralı (§5.3)
 
 **Araç desteği olmayan model, dosya değiştiren/shell çalıştıran ana agent OLAMAZ.**

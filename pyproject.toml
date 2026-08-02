@@ -116,7 +116,7 @@ warn_unreachable = true
 # Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
 # langfuse ve playwright OPSİYONEL ekstralardır; kurulu olmayabilirler ve kod bunu
 # zaten ImportError ile ele alır (izleme ve tarayıcı kapısı sessizce kapanır).
-module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*", "playwright.*"]
+module = ["litellm.*", "chromadb.*", "prompt_toolkit.*", "langfuse.*", "playwright.*", "jsonschema.*"]
 ignore_missing_imports = true
 
 
