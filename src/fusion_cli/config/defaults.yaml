@@ -62,6 +62,17 @@ runtime:
   # high | xhigh | max. `auto` parametreyi hiç göndermez (karar modele bırakılır);
   # model reasoning desteklemiyorsa değer sessizce düşürülür (bkz. core/reasoning.py).
   reasoning_effort: auto
+  # Circuit breaker: bir model arka arkaya bu kadar başarısız olursa devre açılır ve
+  # cooldown boyunca ATLANIR (zincir sıradaki modele geçer). Ölü/erişilemez bir modeli
+  # her turda yeniden yoklayıp kullanıcıyı bekletmemek için. 3, geçici bir dalgalanmayı
+  # (tek-iki 5xx) tolere eder ama ısrarlı arızayı hızla dışlar.
+  circuit_failure_threshold: 3
+  # Devre açıldıktan sonra yarı-açık denemeye kadar beklenen süre. 60s, NIM'in
+  # dakikalık penceresiyle uyumludur: geçici sınır bu sürede çoğu kez temizlenir.
+  circuit_cooldown_s: 60
+  # Güvenilirlik skoru EWMA ağırlığı. 0.3: son sonuç %30 ağırlık taşır, geçmiş %70 —
+  # skor tek bir arızada çakılmaz ama ısrarlı bozulmayı birkaç turda yansıtır.
+  reliability_alpha: 0.3
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

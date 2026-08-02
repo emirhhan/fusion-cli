@@ -121,6 +121,9 @@ def make_config(**overrides):
         "judge_temperature": 0.0,
         "utility_temperature": 0.1,
         "reasoning_effort": ReasoningEffort.AUTO,
+        "circuit_failure_threshold": 3,
+        "circuit_cooldown_s": 60.0,
+        "reliability_alpha": 0.3,
         "max_tokens": 32,
         # Testlerde yeniden deneme kapalıdır: gerçek gecikmeler 34 ve 68 saniyedir
         # ve her testi bekletirdi. Yeniden denemenin kendi davranışı

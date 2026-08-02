@@ -34,6 +34,14 @@ class RuntimeConfig:
     #: Varsayılan reasoning yoğunluğu (mode'dan AYRI). `/effort` ile oturum içinde
     #: değiştirilir. Model desteklemiyorsa sessizce en yakına eşlenir / hiç gönderilmez.
     reasoning_effort: ReasoningEffort
+    #: Circuit breaker: bir model arka arkaya kaç kez başarısız olursa devre açılır ve
+    #: o model geçici olarak atlanır. Ölü modeli her turda yeniden yoklamamak için.
+    circuit_failure_threshold: int
+    #: Devre açıldıktan sonra modelin yeniden denenmesi için beklenecek süre (saniye).
+    circuit_cooldown_s: float
+    #: Güvenilirlik skorunun son-ağırlığı (EWMA). 1'e yakın: son sonuç baskın; 0'a
+    #: yakın: geçmiş baskın. Kısa arıza modeli kalıcı kötü saymasın diye orta bir değer.
+    reliability_alpha: float
     #: Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
     #: Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
     #: Boş liste = yeniden deneme yok. Zincirdeki her modele ayrı ayrı uygulanır.
