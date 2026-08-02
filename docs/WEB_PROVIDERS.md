@@ -1,6 +1,20 @@
 # Web-Session Sağlayıcıları
 
-## Durum: framework hazır, canlı adaptör YOK
+## Durum: framework + adapter YAZILDI, canlı ticari transport YOK
+
+`providers/web_session.py` oturum tabanlı bir kaynağı Fusion'ın `LlmProvider`
+sözleşmesine bağlayan tam bir adaptör sunar (`WebProviderAdapter`): `complete`/`stream`,
+hata sınırı (`ok=False`), mevcut yığına (FallbackProvider, circuit breaker) oturur.
+Gerçek I/O yapan `transport` **dışarıdan enjekte edilir** — kullanıcının kendi
+OpenWebUI/LibreChat/kurumsal ucu ya da test için mock. Araç desteği `NONE` (düz sohbet)
+ve `EMULATED` (talimat enjekte + `ToolCall` ayrıştırma) olarak çalışır; uçtan uca test
+edilmiştir (`tests/test_web_session.py`).
+
+**Yazılmayan tek şey:** belirli bir ticari tüketici web arayüzünü (ChatGPT/Gemini web)
+izinsiz otomatikleştiren canlı transport — aşağıdaki güvenlik sınırı gereği. Framework
+hazır; böyle bir transport'u kullanıcı kendi yetkisiyle sağlar.
+
+## Tarihsel not: framework öncesi durum
 
 Fusion'ın sağlayıcı sistemi web-session sağlayıcılarını **birinci sınıf tür** olarak
 tanır (`ProviderKind.WEB_SESSION`), ancak bunların **çalışan bir yürütücüsü henüz
