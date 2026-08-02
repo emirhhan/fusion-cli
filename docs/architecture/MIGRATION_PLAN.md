@@ -75,10 +75,19 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   bir iyileştirmeye bırakıldı. Route-decision açıklaması bugün olaylarla (hangi model cevap
   verdi) + `/health` ile sağlanıyor; ayrı bir kayıt yapısı YAGNI olurdu.
 
-### Faz 5 — Provider türü genişletme (framework)
-- `api_key` dışında `oauth` / `local` / `aggregator` birinci sınıf; generic
-  OpenAI/Anthropic/Gemini adaptörleri canonical protokol üstünden.
-- Provider onboarding wizard (`/providers add`). Testler.
+### Faz 5 — Provider türü framework ✅
+- **Gerçekçilik kararı**: LiteLLM ZATEN universal adaptör (OpenAI/Anthropic/Gemini/
+  ollama/local hepsi `<provider>/<model>` ile). Paralel canonical adaptör katmanı
+  kurmak "ikinci yol" ihlali + devasa atılacak risk olurdu (RULES). LiteLLM yürütücü
+  olarak KALIR; Faz 5 tiplenmiş provider METADATA'sı ekler (§22 "framework supported").
+- `providers/registry.py`: `ProviderKind` (api_key/oauth/cli_oauth/web_session/
+  browser_backed/local/aggregator), `OfficialStatus`, `RiskLevel`, `ProviderDefinition`.
+  Built-in registry (openrouter=aggregator, nvidia_nim=api_key, ollama=local); env/önek
+  `config.keys`'ten (tek kaynak). `provider_for_model` önekten çözer.
+- `/providers` komutu: tür/resmiyet/risk/kurulu-mu. Env erişimi config'te (`environ_snapshot`).
+- 10 yeni test; kapı yeşil (1256 test).
+- **Ertelenen**: `/providers add` onboarding wizard, web-session credential onboarding'iyle
+  birlikte Faz 6'ya. `web_session`/`oauth` türleri tanımlı (enum) ama yürütücüleri Faz 6'da.
 
 ### Faz 6 — Tool-support policy + web-provider framework
 - `none` model mutation agent olamaz; `emulated` eval eşiğini geçmeden mutation

@@ -57,6 +57,12 @@ class ProviderKeys:
         return True
 
 
+def environ_snapshot() -> dict[str, str]:
+    """Ortam değişkenlerinin anlık kopyası. Ortam erişimi config katmanındadır
+    (RULES.md): üst katmanlar `os.environ`'a doğrudan dokunmaz, bunu çağırır."""
+    return dict(os.environ)
+
+
 def detect(environ: dict[str, str] | None = None) -> ProviderKeys:
     """Ortamdan kurulu sağlayıcıları oku.
 

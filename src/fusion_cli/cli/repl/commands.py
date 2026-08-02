@@ -14,12 +14,14 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 
 from ...config import model_select, profile
+from ...config.keys import environ_snapshot
 from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
+from ...providers.registry import BUILTIN_PROVIDERS
 from ...ui import messages
 from . import macros, model_flows, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -284,6 +286,29 @@ def _effort(state: ReplState, argument: str) -> str:
     return messages.EFFORT_APPLIED.format(effort=effort.value)
 
 
+def _providers(state: ReplState, argument: str) -> str:
+    """`/providers` — Fusion'ın tanıdığı sağlayıcıları, türü/risk/durumuyla listele."""
+    environ = environ_snapshot()
+    rows = [messages.PROVIDERS_HEADER]
+    for definition in BUILTIN_PROVIDERS:
+        if definition.auth_env is None:
+            durum = messages.PROVIDERS_LOCAL
+        elif definition.is_configured(environ):
+            durum = messages.PROVIDERS_CONFIGURED
+        else:
+            durum = messages.PROVIDERS_MISSING
+        rows.append(
+            messages.PROVIDERS_ROW.format(
+                name=definition.name,
+                kind=definition.kind.value,
+                status=definition.official_status.value,
+                risk=definition.risk_level.value,
+                state=durum,
+            )
+        )
+    return "\n".join(rows)
+
+
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -441,6 +466,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
+    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi"),
     *(
         SlashCommand(
             name,

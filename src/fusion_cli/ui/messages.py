@@ -328,6 +328,13 @@ MODE_AUTO_ON = "profil → auto: her tur göreve göre kademe seçilecek"
 MODE_AUTO_SELECTED = "auto profil → {profile}  ({reason})"
 MODE_UNKNOWN = "'{name}' adlı profil yok. Geçerli: auto, {known}"
 
+# --- Tanınan sağlayıcılar (/providers) ------------------------------------- #
+PROVIDERS_HEADER = "tanınan sağlayıcılar (tür · resmiyet · risk · durum):"
+PROVIDERS_ROW = "  {name}  ·  {kind}  ·  {status}  ·  {risk}  ·  {state}"
+PROVIDERS_CONFIGURED = "kurulu"
+PROVIDERS_MISSING = "anahtar yok"
+PROVIDERS_LOCAL = "yerel"
+
 # --- Sağlayıcı sağlığı (/health) ------------------------------------------- #
 HEALTH_EMPTY = "henüz sağlık verisi yok — bir tur çalıştırınca dolar."
 HEALTH_HEADER = "sağlayıcı sağlığı (güvenilirlik · devre):"
@@ -426,6 +433,7 @@ CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
 CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
+CMD_PROVIDERS = "tanınan sağlayıcılar: tür, resmiyet, risk ve kurulu mu"
 CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
 CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"
