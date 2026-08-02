@@ -106,11 +106,16 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   kırılgandır, sağlayıcı ToS incelemesi ister, dürüstçe "working" işaretlenemez; CAPTCHA/
   anti-bot aşımı yapılmaz. Framework (türler, risk etiketleri, policy) HAZIR ve test edilmiş.
 
-### Faz 7 — Prompt mimarisi + dokümanlar + parity + smoke
-- Katmanlı prompt composer + regression testleri.
-- Kullanıcı dokümanları (EXECUTION_PROFILES, MODEL_PICKER, WEB_PROVIDERS, …) ilgili
-  fazın koduyla birlikte tamamlanır; `PROVIDER_PARITY_MATRIX.md` gerçeği yansıtır.
-- Clean-install smoke testi.
+### Faz 7 — Prompt mimarisi + dokümanlar + parity + smoke ✅
+- Prompt: mevcut katmanlı birleştirme (`_initial_messages`: system + plan_mode +
+  extra_system) korundu; devasa composer ağacı REDDEDİLDİ (çalışan/ölçülmüş prompt'u
+  ikinci yol olarak yeniden kurmak olurdu, RULES). Yerine **davranış regression testleri**
+  (`test_prompts.py`): oku-önce, doğrula, uydurma, plan-modu mutasyon yasağı vb.
+- Dokümanlar: `EXECUTION_PROFILES.md`, `TOOL_SUPPORT_LEVELS.md`, `WEB_PROVIDERS.md`,
+  `PROMPT_ARCHITECTURE.md`, `architecture/PROVIDER_PARITY_MATRIX.md` (gerçeği yansıtır).
+- **Clean-install smoke**: wheel derlendi → temiz venv'e kuruldu → import + prompt
+  paket-verisi + config + `fusion --help` çalıştı. Başarılı.
+- 10 yeni test; kapı yeşil.
 
 ## Kapsam dışı (gerçekçilik kuralı, master prompt §22)
 
