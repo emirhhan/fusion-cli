@@ -10,15 +10,21 @@ kullanıcının kararıdır ve ekranda açıkça yazar.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 
 from ...config import writer
+from ...config.credentials import FernetSecretStore
 from ...config.keys import ProviderPreference
 from ...config.models import Config
 from ...core.errors import ConfigError
+from ...providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 from ...ui import messages
 from ...ui.picker import Choice, pick
 from .model_flows import FlowResult, Picker
+
+#: Sırrı EKRANA YANSITMADAN alan girdi imzası. Vazgeçilirse None.
+SecretAsker = Callable[[str], str | None]
 
 #: Seçim ekranındaki sıra: önce mevcut davranış (otomatik), sonra kilitlemeler.
 _SECENEKLER = (
@@ -60,3 +66,51 @@ def _persist(config: Config, secim: str) -> str:
         return messages.LEVEL_SAVED.format(path=writer.write_provider(config, secim))
     except ConfigError as error:
         return messages.LEVEL_SAVE_FAILED.format(error=error)
+
+
+# --------------------------------------------------------------------------- #
+# /providers add — sağlayıcı anahtarı ekleme sihirbazı
+# --------------------------------------------------------------------------- #
+
+
+def _addable(providers: tuple[ProviderDefinition, ...]) -> tuple[ProviderDefinition, ...]:
+    """Anahtar EKLENEBİLEN sağlayıcılar: yürütücüsü olan ve anahtar isteyen.
+
+    Yerel (anahtarsız) ve yürütücüsü olmayan (web-session, framework) sağlayıcılar
+    dışarıda kalır — onlara anahtar eklemek anlamsızdır.
+    """
+    return tuple(p for p in providers if p.implemented and p.auth_env is not None)
+
+
+def add_credential(
+    store: FernetSecretStore,
+    *,
+    picker: Picker = pick,
+    ask_secret: SecretAsker,
+    providers: tuple[ProviderDefinition, ...] = BUILTIN_PROVIDERS,
+) -> str:
+    """`/providers add` — bir sağlayıcı seç, anahtarını ŞİFRELİ depoya kaydet.
+
+    Anahtar ekranda gösterilmez, log'a yazılmaz; yalnızca şifreli dosyaya girer ve
+    sonraki oturumda ortama uygulanır. Depo ana anahtarı (FUSION_SECRET_KEY) yoksa
+    işlem yapılmaz ve kullanıcı bilgilendirilir.
+    """
+    if not store.available:
+        return messages.CRED_NO_KEY
+    eklenebilir = _addable(providers)
+    picked = picker(
+        tuple(Choice(p.id, p.name, p.auth_env or "") for p in eklenebilir),
+        title=messages.CRED_TITLE,
+    )
+    definition = next((p for p in eklenebilir if p.id == picked), None)
+    if definition is None or definition.auth_env is None:
+        return messages.PICKER_CANCELLED
+    secret = ask_secret(messages.CRED_PROMPT.format(name=definition.name))
+    if not secret or not secret.strip():
+        return messages.PICKER_CANCELLED
+    try:
+        store.set(definition.auth_env, secret.strip())
+    except ConfigError as error:
+        return str(error)
+    # DİKKAT: mesajda anahtar YOK; yalnızca hangi sağlayıcının kaydedildiği yazılır.
+    return messages.CRED_SAVED.format(name=definition.name, env=definition.auth_env)

@@ -286,8 +286,26 @@ def _effort(state: ReplState, argument: str) -> str:
     return messages.EFFORT_APPLIED.format(effort=effort.value)
 
 
+def _ask_secret(prompt: str) -> str | None:
+    """Gizli girdiyi EKRANA YANSITMADAN al (getpass). TTY yoksa None döner."""
+    import getpass
+
+    try:
+        value = getpass.getpass(prompt)
+    except (EOFError, KeyboardInterrupt):
+        return None
+    return value or None
+
+
 def _providers(state: ReplState, argument: str) -> str:
-    """`/providers` — Fusion'ın tanıdığı sağlayıcıları, türü/risk/durumuyla listele."""
+    """`/providers` — sağlayıcıları listele; `/providers add` anahtar ekleme sihirbazı."""
+    if argument.strip().lower() == "add":
+        from ...config.credentials import FernetSecretStore
+        from ...config.keys import secret_key
+        from ...config.paths import credentials_file
+
+        store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+        return provider_flow.add_credential(store, ask_secret=_ask_secret)
     environ = environ_snapshot()
     rows = [messages.PROVIDERS_HEADER]
     for definition in BUILTIN_PROVIDERS:
@@ -468,7 +486,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
-    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi"),
+    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi", usage="[add]"),
     *(
         SlashCommand(
             name,

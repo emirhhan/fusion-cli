@@ -40,6 +40,11 @@ def user_data_dir() -> Path:
     return Path(base) / APP_NAME
 
 
+def credentials_file() -> Path:
+    """Şifreli sır deposunun dosya yolu (kalıcı veri dizini altında)."""
+    return user_data_dir() / "secrets.enc"
+
+
 def memory_dir() -> Path:
     """Vektör belleğinin tutulduğu dizin. Ortam değişkeniyle taşınabilir."""
     override = os.environ.get(ENV_MEMORY_DIR)

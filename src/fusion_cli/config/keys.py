@@ -66,6 +66,17 @@ class ProviderKeys:
         return True
 
 
+#: Şifreli credential deposunun ana anahtarı (Fernet). Kullanıcı ortama koyar;
+#: koda/dosyaya/git'e ASLA girmez. Yoksa depo devre dışı kalır ve kullanıcı bilgilendirilir.
+FUSION_SECRET_ENV = "FUSION_SECRET_KEY"
+
+
+def secret_key() -> str | None:
+    """Credential deposunun ana anahtarını ortamdan oku. Yoksa/boşsa None."""
+    value = os.environ.get(FUSION_SECRET_ENV, "").strip()
+    return value or None
+
+
 def environ_snapshot() -> dict[str, str]:
     """Ortam değişkenlerinin anlık kopyası. Ortam erişimi config katmanındadır
     (RULES.md): üst katmanlar `os.environ`'a doğrudan dokunmaz, bunu çağırır."""

@@ -36,6 +36,11 @@ Framework şu türleri/etiketleri zaten tanımlar; canlı adaptör bunların üs
 - `ProviderKind.WEB_SESSION` / `BROWSER_BACKED`
 - `RiskLevel` (fragile, terms_review_required, disabled_by_default)
 - `ToolSupport.NONE`/`EMULATED` + mutation policy (araçsız model mutation agent olamaz)
-- Şifreli credential store (OS keychain), opt-in login akışı — **henüz yazılmadı**.
+- **Şifreli credential store — YAZILDI** (`config/credentials.py`): `cryptography.Fernet`
+  ile şifreli dosya; ana anahtar `FUSION_SECRET_KEY` ortam değişkeninden gelir (diske/
+  git'e girmez). `/providers add` sihirbazı bir sağlayıcı anahtarını (getpass ile,
+  ekrana yansımadan) alıp şifreli saklar; başlangıçta ortama uygulanır. Değerler ne
+  log'a ne prompt'a ne tool sonucuna girer.
+- Opt-in login akışı (canlı web adapter için) — henüz yazılmadı (yukarıdaki sınır).
 
 Credential'lar hiçbir zaman prompt'a, log'a, tool sonucuna ya da git'e girmez.

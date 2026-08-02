@@ -28,7 +28,13 @@ from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import Config, EmbeddingConfig, ProfileEligibility, RuntimeConfig, TierSpec
-from .paths import bundled_defaults, env_file_candidates, memory_dir, user_config_candidates
+from .paths import (
+    bundled_defaults,
+    credentials_file,
+    env_file_candidates,
+    memory_dir,
+    user_config_candidates,
+)
 
 #: Yapılandırmanın en üst düzeyinde izin verilen bölümler.
 _SECTIONS = (
@@ -63,6 +69,27 @@ def load_environment() -> None:
         for key, value in dotenv_values(candidate).items():
             if value and value.strip() and key not in os.environ:
                 os.environ[key] = value
+    _apply_stored_secrets()
+
+
+def _apply_stored_secrets() -> None:
+    """Şifreli sır deposundaki değerleri ortama uygula (`.env`'den SONRA).
+
+    `.env` önce yüklenir ve doldurulmuş bir değişkene depo dokunmaz: kullanıcının
+    açıkça verdiği değer kazanır. Depo anahtarı (FUSION_SECRET_KEY) yoksa ya da dosya
+    çözülemezse sessizce geçilir — sır deposu bir kolaylıktır, uygulamayı engellemez.
+    """
+    from .credentials import FernetSecretStore
+    from .keys import secret_key
+
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+    if not store.available:
+        return
+    try:
+        store.apply_to_environ(os.environ)
+    except ConfigError:
+        # Bozuk dosya / yanlış anahtar: sır uygulanamaz ama uygulama açılmaya devam eder.
+        return
 
 
 def _preference(config: Config) -> ProviderPreference:
