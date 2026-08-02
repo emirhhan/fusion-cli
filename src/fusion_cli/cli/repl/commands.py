@@ -291,7 +291,9 @@ def _providers(state: ReplState, argument: str) -> str:
     environ = environ_snapshot()
     rows = [messages.PROVIDERS_HEADER]
     for definition in BUILTIN_PROVIDERS:
-        if definition.auth_env is None:
+        if not definition.implemented:
+            durum = messages.PROVIDERS_FRAMEWORK
+        elif definition.auth_env is None:
             durum = messages.PROVIDERS_LOCAL
         elif definition.is_configured(environ):
             durum = messages.PROVIDERS_CONFIGURED

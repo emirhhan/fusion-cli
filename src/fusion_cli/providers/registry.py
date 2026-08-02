@@ -73,6 +73,10 @@ class ProviderDefinition:
     model_prefix: str
     #: Kimlik doğrulama ortam değişkeni. `None` ise anahtar gerekmez (yerel).
     auth_env: str | None
+    #: Yürütücüsü GERÇEKTEN var mı? `False` ise sağlayıcı yalnızca framework düzeyinde
+    #: tanınır; çağrı yapılamaz (§22 "framework supported, adapter not yet implemented").
+    #: Kullanıcı `/providers` ekranında bunu görür ve çalışıyor sanmaz.
+    implemented: bool = True
 
     def owns(self, model_id: str) -> bool:
         """Bu model kimliği bu sağlayıcıya mı ait? (önek eşleşmesi)"""
@@ -121,6 +125,31 @@ BUILTIN_PROVIDERS: tuple[ProviderDefinition, ...] = (
         risk_level=RiskLevel.NORMAL,
         model_prefix="ollama/",
         auth_env=None,
+    ),
+    # --- Web-session sağlayıcıları: FRAMEWORK düzeyinde tanınır, yürütücüsü YOK. --- #
+    # Gerçekçilik (§22): çalışan bir web adaptörü kırılgandır, sağlayıcı şartlarının
+    # incelenmesini ister ve dürüstçe "working" işaretlenemez. Bu yüzden `implemented=
+    # False` ve `disabled_by_default`: kullanıcı ne olduğunu görür, ama çağrı yapılamaz.
+    # CAPTCHA/anti-bot aşımı, izinsiz cookie okuma gibi şeyler YAPILMAZ.
+    ProviderDefinition(
+        id="chatgpt_web",
+        name="ChatGPT Web (deneysel)",
+        kind=ProviderKind.WEB_SESSION,
+        official_status=OfficialStatus.UNOFFICIAL_WEB,
+        risk_level=RiskLevel.DISABLED_BY_DEFAULT,
+        model_prefix="",
+        auth_env=None,
+        implemented=False,
+    ),
+    ProviderDefinition(
+        id="gemini_web",
+        name="Gemini Web (deneysel)",
+        kind=ProviderKind.WEB_SESSION,
+        official_status=OfficialStatus.UNOFFICIAL_WEB,
+        risk_level=RiskLevel.DISABLED_BY_DEFAULT,
+        model_prefix="",
+        auth_env=None,
+        implemented=False,
     ),
 )
 

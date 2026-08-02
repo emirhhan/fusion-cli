@@ -334,6 +334,7 @@ PROVIDERS_ROW = "  {name}  ·  {kind}  ·  {status}  ·  {risk}  ·  {state}"
 PROVIDERS_CONFIGURED = "kurulu"
 PROVIDERS_MISSING = "anahtar yok"
 PROVIDERS_LOCAL = "yerel"
+PROVIDERS_FRAMEWORK = "framework (adaptör yok)"
 
 # --- Sağlayıcı sağlığı (/health) ------------------------------------------- #
 HEALTH_EMPTY = "henüz sağlık verisi yok — bir tur çalıştırınca dolar."

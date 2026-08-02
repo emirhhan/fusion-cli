@@ -13,7 +13,9 @@ from dataclasses import replace
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
+from .eligibility import capability_from_spec
 from .models import Config
+from .tool_policy import can_be_mutation_agent
 
 
 def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
@@ -31,6 +33,11 @@ def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
         return config.agent
     secilen = config.candidate_by_name(str(mapped))
     if secilen is None:
+        return config.agent
+    # Araç desteği olmayan (ya da yalnızca taklit) bir aday, dosya değiştiren agent
+    # OLAMAZ (master prompt §5.3). Böyle bir adaya yönlendirilmişse varsayılan `agent:`
+    # rolüne düşülür — o rol araç yetenekli olacak biçimde seçilmiştir.
+    if not can_be_mutation_agent(capability_from_spec(secilen)).ok:
         return config.agent
     return _with_agent_fallbacks(secilen, config.agent)
 

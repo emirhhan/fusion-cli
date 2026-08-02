@@ -91,3 +91,28 @@ def test_providers_kurulu_anahtari_gosterir(state, monkeypatch):
 
     mesaj = _run(state, "/providers")
     assert messages.PROVIDERS_CONFIGURED in mesaj
+
+
+# --- web-session sağlayıcı tanımları (framework düzeyi) -------------------- #
+
+
+def test_web_saglayici_web_session_turunde_ve_yurutulmemis():
+    from fusion_cli.providers.registry import ProviderKind, RiskLevel
+
+    web = next(p for p in BUILTIN_PROVIDERS if p.id == "chatgpt_web")
+    assert web.kind is ProviderKind.WEB_SESSION
+    assert web.implemented is False
+    assert web.risk_level is RiskLevel.DISABLED_BY_DEFAULT
+
+
+def test_web_saglayici_model_onegi_yok_cagirilamaz():
+    # Yürütücüsü olmadığı için önek boştur; hiçbir model kimliğine sahiplenmez.
+    web = next(p for p in BUILTIN_PROVIDERS if p.id == "gemini_web")
+    assert web.owns("gemini_web/whatever") is False
+
+
+def test_providers_yurutulmemis_saglayiciyi_framework_isaretler(state):
+    from fusion_cli.ui import messages
+
+    mesaj = _run(state, "/providers")
+    assert messages.PROVIDERS_FRAMEWORK in mesaj

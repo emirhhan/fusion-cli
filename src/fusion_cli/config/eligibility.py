@@ -25,15 +25,33 @@ from .models import ProfileEligibility
 #: `NATIVE` araç desteğini beyan eden etiket. Bu etiketli modeller agent turunda
 #: araçlarla çalıştırılıyor; başka bir etiket araç desteğini DOĞRULAMAZ.
 _NATIVE_TOOL_TAG = "agent"
+#: Araç desteği OLMADIĞINI açıkça beyan eden etiket (opak/web/arena modelleri).
+#: `NONE`, mutation agent olmayı yapısal olarak engeller (bkz. `tool_policy`).
+_NO_TOOL_TAG = "no-tools"
+#: Araç çağrısının taklit (emulated) edildiğini beyan eden etiket. Eval eşiğinden
+#: geçmeden mutation görevine giremez.
+_EMULATED_TOOL_TAG = "emulated-tools"
 #: Reasoning beyan eden etiket.
 _REASONING_TAG = "reasoning"
 
 
+def _tool_support_of(spec: ModelSpec) -> ToolSupport:
+    """Model etiketlerinden araç desteğini türet. Açık beyan örtük çıkarımı ezer:
+    `no-tools`/`emulated-tools` yazılmışsa o kazanır, yoksa `agent` → native, o da
+    yoksa doğrulanmamış (`UNKNOWN`)."""
+    if _NO_TOOL_TAG in spec.tags:
+        return ToolSupport.NONE
+    if _EMULATED_TOOL_TAG in spec.tags:
+        return ToolSupport.EMULATED
+    if _NATIVE_TOOL_TAG in spec.tags:
+        return ToolSupport.NATIVE
+    return ToolSupport.UNKNOWN
+
+
 def capability_from_spec(spec: ModelSpec, context_window: int = 0) -> ModelCapability:
     """Model etiketlerinden ve (varsa) bağlam penceresinden yeteneği türet."""
-    tool_support = ToolSupport.NATIVE if _NATIVE_TOOL_TAG in spec.tags else ToolSupport.UNKNOWN
     return ModelCapability(
-        tool_support=tool_support,
+        tool_support=_tool_support_of(spec),
         context_window=context_window,
         reasoning=_REASONING_TAG in spec.tags,
     )
