@@ -42,11 +42,20 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   spekülatif olurdu (YAGNI). Editörle birlikte gelecek. Pure `is_eligible`/`eligible_profiles`
   altyapısı hazır ve test edilmiş.
 
-### Faz 3 — Reasoning effort (mode ≠ effort)
-- `ReasoningEffort` `core` tipi (auto/low/medium/high/xhigh/max); Faz 2'nin capability
-  metadata'sına göre model destekliyorsa parametre gönderilir, desteklemiyorsa sessizce
-  en yakına eşlenir / kapatılır — hatalı parametre gönderilmez.
-- `/effort` komutu; mode'dan bağımsız. Testler: bağımsızlık, desteklenmeyen eşleme.
+### Faz 3 — Reasoning effort (mode ≠ effort) ✅
+- `core/reasoning.py`: `ReasoningEffort` (auto/low/medium/high/xhigh/max) + `provider_value`
+  (auto→None, xhigh/max→high) + `is_downgraded`.
+- Loader'a **generic Enum desteği** (tiplenmiş enum config); `RuntimeConfig.reasoning_effort`
+  (`defaults.yaml runtime.reasoning_effort: auto`).
+- `CompletionRequest.reasoning_effort` + litellm geçişi (`drop_params` güvenlik ağı).
+- Agent turunda **capability-gating** (`_effort_for`): model reasoning desteklemiyorsa
+  parametre HİÇ gönderilmez (no-op dürüstçe modelin bilindiği yerde).
+- `/effort` komutu (mode'dan bağımsız, oturum-only — onay modu gibi kalıcılaşmaz);
+  xhigh/max seçiminde indirgeme kullanıcıya bildirilir.
+- 17 yeni test; kapı yeşil (1222 test).
+- **Kapsam notu**: effort agent (birincil kodlama) yoluna uygulanır. Utility çağrıları
+  (compaction/learning/review/ısıtma) effort ALMAZ — bilinçli (bütçe). Fusion council
+  yoluna effort, per-aday gating gerektirdiği için sonraki bir iyileştirmeye bırakıldı.
 
 ### Faz 4 — Router sağlamlaştırma
 - Endpoint / model / profile fallback ayrımı; hata-sınıfı bazlı tetikleme tablosu.

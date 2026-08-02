@@ -179,6 +179,10 @@ class CompletionRequest:
     max_retries: int = 0
     #: Modele verilecek araç şemaları. Boşsa araç çağrısı istenmez.
     tools: tuple[Mapping[str, object], ...] = ()
+    #: Sağlayıcıya iletilecek reasoning yoğunluğu ("low"/"medium"/"high"). `None` ise
+    #: parametre hiç gönderilmez. Değer üst katmanda (agent turu) modelin reasoning
+    #: desteğine göre belirlenir; desteklemeyen modelde `None` bırakılır.
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

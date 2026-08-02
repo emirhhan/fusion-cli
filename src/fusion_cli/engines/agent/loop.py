@@ -24,6 +24,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...config.eligibility import capability_from_spec
 from ...config.model_select import select_agent_spec
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
@@ -39,8 +40,9 @@ from ...core.events import (
     VerificationFailed,
 )
 from ...core.memory import CodeIndex, LessonMemory
+from ...core.reasoning import ReasoningEffort, provider_value
 from ...core.tools import ToolContext, ToolResult
-from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
+from ...core.types import CompletionRequest, Message, ModelResult, ModelSpec, StreamDone, ToolCall
 from ...core.verification import VerificationResult, Verifier
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
@@ -259,6 +261,18 @@ async def _drive(
     return AgentOutcome(final_text, messages, state.tool_calls_made, hit_step_limit=True)
 
 
+def _effort_for(spec: ModelSpec, effort: ReasoningEffort) -> str | None:
+    """Seçilen modele gönderilecek reasoning_effort değerini belirle.
+
+    Model reasoning DESTEKLEMİYORSA `None` döner: parametre hiç gönderilmez, hatalı
+    istek kurulmaz (master prompt §7.1). Destekliyorsa effort sağlayıcının kabul
+    ettiği değere eşlenir (`auto` → `None`, `xhigh`/`max` → `high`).
+    """
+    if not capability_from_spec(spec).reasoning:
+        return None
+    return provider_value(effort)
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -267,6 +281,7 @@ async def _call_model(
 ) -> ModelResult:
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
+    spec = select_agent_spec(deps.config, deps.task_type)
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,
@@ -274,8 +289,8 @@ async def _call_model(
         timeout_s=runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=tuple(registry.schemas(_permitted(allowed_tools, registry))),
+        reasoning_effort=_effort_for(spec, runtime.reasoning_effort),
     )
-    spec = select_agent_spec(deps.config, deps.task_type)
     provider = build_provider(
         spec,
         publisher=deps.publisher,

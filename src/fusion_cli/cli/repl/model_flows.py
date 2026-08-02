@@ -18,6 +18,7 @@ from ...config.eligibility import eligible_profiles
 from ...config.models import Config, ProfileEligibility
 from ...core.errors import ConfigError
 from ...core.model_capability import ModelCapability, ToolSupport
+from ...core.reasoning import ReasoningEffort
 from ...providers import catalog
 from ...providers.catalog import CatalogEntry
 from ...ui import messages
@@ -118,6 +119,23 @@ def choose_mode(config: Config, *, picker: Picker = pick) -> str | None:
     auto = Choice(AUTO_CHOICE, messages.MODE_AUTO_LABEL, messages.MODE_AUTO_HINT)
     kademeler = tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers)
     return picker((auto, *kademeler), title=messages.MODE_TITLE, gradient_rows=True)
+
+
+def choose_effort(*, picker: Picker = pick) -> str | None:
+    """Reasoning yoğunluğu seçtir; seçilen değeri (`ReasoningEffort.value`) döndür.
+
+    Seçenekler enum'dan gelir; ikinci bir liste tutulmaz. `auto`'ya ipucu eklenir
+    (parametre gönderilmediğini kullanıcı görsün). Vazgeçilirse `None`.
+    """
+    choices = tuple(
+        Choice(
+            effort.value,
+            effort.value,
+            messages.EFFORT_HINT_AUTO if effort is ReasoningEffort.AUTO else "",
+        )
+        for effort in ReasoningEffort
+    )
+    return picker(choices, title=messages.EFFORT_TITLE)
 
 
 def applied_result(config: Config, tier_name: str) -> FlowResult:

@@ -120,6 +120,10 @@ class LiteLlmProvider:
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             kwargs["tool_choice"] = "auto"
+        if request.reasoning_effort is not None:
+            # Üst katman değeri yalnızca reasoning destekleyen modelde ayarlar; yine de
+            # `litellm.drop_params` desteklemeyen uçta bu parametreyi güvenle düşürür.
+            kwargs["reasoning_effort"] = request.reasoning_effort
         if stream:
             kwargs["stream"] = True
             kwargs["stream_options"] = {"include_usage": True}

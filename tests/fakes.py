@@ -110,6 +110,7 @@ def make_config(**overrides):
     from pathlib import Path as _Path
 
     from fusion_cli.config.models import Config, RuntimeConfig
+    from fusion_cli.core.reasoning import ReasoningEffort
     from fusion_cli.core.types import ModelSpec
 
     runtime_overrides = overrides.pop("runtime", {})
@@ -119,6 +120,7 @@ def make_config(**overrides):
         "temperature": 0.0,
         "judge_temperature": 0.0,
         "utility_temperature": 0.1,
+        "reasoning_effort": ReasoningEffort.AUTO,
         "max_tokens": 32,
         # Testlerde yeniden deneme kapalıdır: gerçek gecikmeler 34 ve 68 saniyedir
         # ve her testi bekletirdi. Yeniden denemenin kendi davranışı

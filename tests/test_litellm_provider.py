@@ -203,3 +203,30 @@ def test_birden_cok_gorsel_sirayla_eklenir():
     wire = _to_wire(Message("user", "karşılaştır", images=("data:a", "data:b")))
 
     assert [p["image_url"]["url"] for p in wire["content"][1:]] == ["data:a", "data:b"]
+
+
+def test_call_kwargs_reasoning_effort_gonderir():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "selam"),),
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=1.0,
+        reasoning_effort="high",
+    )
+    kwargs = _saglayici()._call_kwargs(istek, stream=False)
+    assert kwargs["reasoning_effort"] == "high"
+
+
+def test_call_kwargs_effort_yoksa_parametre_konmaz():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "selam"),),
+        temperature=0.0,
+        max_tokens=16,
+        timeout_s=1.0,
+    )
+    kwargs = _saglayici()._call_kwargs(istek, stream=False)
+    assert "reasoning_effort" not in kwargs

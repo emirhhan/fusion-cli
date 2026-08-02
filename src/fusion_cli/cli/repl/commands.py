@@ -11,12 +11,13 @@ Basma işi çağırana aittir.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ...config import model_select, profile
 from ...config.models import Config
 from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
+from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...ui import messages
@@ -254,6 +255,35 @@ def _mode(state: ReplState, argument: str) -> str:
     return result.message
 
 
+def _effort(state: ReplState, argument: str) -> str:
+    """`/effort` — reasoning yoğunluğu seç (mode'dan AYRI).
+
+    Yalnızca oturum boyunca yaşar (onay modu gibi; kalıcılaştırılmaz). Seçilen model
+    reasoning desteklemiyorsa değer sessizce göz ardı edilir; `xhigh`/`max` desteklenen
+    en yakına (`high`) iner ve bu kullanıcıya bildirilir.
+    """
+    wanted = argument.strip()
+    if not wanted:
+        picked = model_flows.choose_effort()
+        if picked is None:
+            return messages.PICKER_CANCELLED
+    else:
+        picked = wanted
+    try:
+        effort = ReasoningEffort(picked.strip().lower())
+    except ValueError:
+        known = ", ".join(item.value for item in ReasoningEffort)
+        return messages.EFFORT_UNKNOWN.format(name=picked, known=known)
+    state.config = replace(
+        state.config, runtime=replace(state.config.runtime, reasoning_effort=effort)
+    )
+    if is_downgraded(effort):
+        return messages.EFFORT_APPLIED_DOWNGRADED.format(
+            effort=effort.value, mapped=provider_value(effort)
+        )
+    return messages.EFFORT_APPLIED.format(effort=effort.value)
+
+
 def _undo(state: ReplState, argument: str) -> str:
     """`/undo` — son agent turunun dosya değişikliklerini geri al."""
     kayit = state.last_changes
@@ -388,6 +418,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
+    SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
     SlashCommand(

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.reasoning import ReasoningEffort
 from ..core.types import ModelSpec
 
 
@@ -30,6 +31,9 @@ class RuntimeConfig:
     #: Yardımcı arka plan çağrıları (ders çıkarımı, bağlam sıkıştırma, öz-denetim)
     #: için düşük ama sıfır olmayan sıcaklık.
     utility_temperature: float
+    #: Varsayılan reasoning yoğunluğu (mode'dan AYRI). `/effort` ile oturum içinde
+    #: değiştirilir. Model desteklemiyorsa sessizce en yakına eşlenir / hiç gönderilmez.
+    reasoning_effort: ReasoningEffort
     #: Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
     #: Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
     #: Boş liste = yeniden deneme yok. Zincirdeki her modele ayrı ayrı uygulanır.

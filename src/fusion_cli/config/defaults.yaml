@@ -57,6 +57,11 @@ runtime:
   # Boş liste ([]) yeniden denemeyi tamamen kapatır.
   retry_delays_s: [34, 68]
   temperature: 0.3
+  # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
+  # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
+  # high | xhigh | max. `auto` parametreyi hiç göndermez (karar modele bırakılır);
+  # model reasoning desteklemiyorsa değer sessizce düşürülür (bkz. core/reasoning.py).
+  reasoning_effort: auto
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

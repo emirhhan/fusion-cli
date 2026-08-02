@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import dataclasses
 import os
+from enum import Enum
 from pathlib import Path
 from types import UnionType
 from typing import Any, TypeVar, Union, get_args, get_origin, get_type_hints
@@ -376,8 +377,19 @@ def _convert(value: object, target: object, where: str) -> object:
         return float(value)
     if target is str:
         return _expect(value, str, "metin", where)
+    if isinstance(target, type) and issubclass(target, Enum):
+        return _convert_enum(value, target, where)
 
     raise ConfigError(f"{where}: desteklenmeyen ayar tipi: {target!r}")
+
+
+def _convert_enum(value: object, target: type[Enum], where: str) -> Enum:
+    """YAML değerini bir Enum üyesine çevir; geçersizse izin verilenleri say."""
+    try:
+        return target(value)
+    except ValueError:
+        allowed = ", ".join(str(member.value) for member in target)
+        raise ConfigError(f"{where}: geçersiz değer '{value}'. İzin verilen: {allowed}") from None
 
 
 def _optional_inner(target: object) -> object | None:
