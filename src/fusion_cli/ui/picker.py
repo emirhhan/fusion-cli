@@ -23,9 +23,15 @@ import shutil
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from . import messages, theme
+
+if TYPE_CHECKING:
+    # Yalnızca tip denetimi için: prompt_toolkit'in beklediği parça listesi tipi.
+    # `list[tuple[str, str]]` invariant olduğundan doğrudan atanamıyor; bu alias
+    # union'lu üye tipini taşır ve `FormattedTextControl`'e sorunsuz geçer.
+    from prompt_toolkit.formatted_text import StyleAndTextTuples
 
 #: Seçim ekranında liste DIŞINDA kullanılan satırlar: başlık, boşluk, ipucu ve
 #: iki kaydırma göstergesi. Terminal yüksekliğinden bu kadarı düşülür.
@@ -256,7 +262,7 @@ def fragments(
     colors: Sequence[str],
     *,
     height: int | None = None,
-) -> list[tuple[str, str]]:
+) -> StyleAndTextTuples:
     """Listeyi prompt_toolkit parçalarına çevir.
 
     Saf fonksiyondur: terminal olmadan test edilir. Seçili satır işaretçi alır ve
@@ -269,7 +275,7 @@ def fragments(
     total = len(choices)
     start, end = window_bounds(total, selected, height) if height is not None else (0, total)
 
-    rendered: list[tuple[str, str]] = []
+    rendered: StyleAndTextTuples = []
     if start > 0:
         rendered.append((theme.DIM, messages.PICKER_MORE_ABOVE.format(count=start)))
         rendered.append(("", "\n"))
