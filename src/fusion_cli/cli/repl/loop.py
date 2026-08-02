@@ -26,6 +26,7 @@ from ...config import model_select, profile
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...core.events import ErrorOccurred, TurnFinished
+from ...core.health import HealthRegistry
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
 from ...engines.agent.compaction import compress
@@ -48,6 +49,16 @@ HISTORY_FILE = "repl_history"
 GOAL_STEP_LIMIT = 100
 
 
+def _build_health(config: Config) -> HealthRegistry:
+    """Oturum için sağlık kaydını yapılandırma eşiklerinden kur."""
+    runtime = config.runtime
+    return HealthRegistry(
+        failure_threshold=runtime.circuit_failure_threshold,
+        cooldown_s=runtime.circuit_cooldown_s,
+        alpha=runtime.reliability_alpha,
+    )
+
+
 async def run_repl(config: Config, *, memory: Memory, root: Path, console: Console) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
     import os
@@ -55,10 +66,10 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     if os.environ.get("FUSION_FULLSCREEN") == "1":
         from .screen import run_screen_repl
 
-        state = ReplState(config=config, memory=memory, root=root)
+        state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
         return await run_screen_repl(state)
 
-    state = ReplState(config=config, memory=memory, root=root)
+    state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
     registry = build_registry()
     reader = ReplInput(
         config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
@@ -315,6 +326,7 @@ async def _agent_turn(
             # yönlendirir (`select_agent_spec`). Geçirilmediğinde "general"a düşülüyor
             # ve `task_model_map` REPL'de sessizce uygulanmıyordu.
             task_type=state.task_type,
+            health=state.health,
         )
         outcome = await run_agent(
             line,

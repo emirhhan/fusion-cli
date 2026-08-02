@@ -13,6 +13,7 @@ from pathlib import Path
 from ...config.models import Config
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
+from ...core.health import HealthRegistry
 from ...core.types import FusionResult, Message
 from ...engines.agent.approval import ApprovalMode
 from ...memory.factory import Memory
@@ -68,6 +69,9 @@ class ReplState:
     last_changes: ChangeSet | None = None
     #: Skill/agent kütüphanesi. Tarama oturumda bir kez yapılır.
     capabilities: CapabilityRegistry | None = None
+    #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
+    #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
+    health: HealthRegistry | None = None
     #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).

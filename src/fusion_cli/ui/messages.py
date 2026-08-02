@@ -328,6 +328,13 @@ MODE_AUTO_ON = "profil → auto: her tur göreve göre kademe seçilecek"
 MODE_AUTO_SELECTED = "auto profil → {profile}  ({reason})"
 MODE_UNKNOWN = "'{name}' adlı profil yok. Geçerli: auto, {known}"
 
+# --- Sağlayıcı sağlığı (/health) ------------------------------------------- #
+HEALTH_EMPTY = "henüz sağlık verisi yok — bir tur çalıştırınca dolar."
+HEALTH_HEADER = "sağlayıcı sağlığı (güvenilirlik · devre):"
+HEALTH_ROW = "  {model}  ·  {score:.0%}  ·  {phase}"
+#: Circuit breaker durumlarının Türkçe karşılığı.
+HEALTH_PHASE = {"closed": "kapalı", "open": "AÇIK (atlanıyor)", "half_open": "yarı-açık"}
+
 # --- Reasoning effort (/effort) -------------------------------------------- #
 EFFORT_TITLE = "Reasoning yoğunluğu seç"
 EFFORT_HINT_AUTO = "modele bırak — parametre gönderilmez"
@@ -418,6 +425,7 @@ CMD_UNDO = "son agent turunun dosya değişikliklerini geri al"
 CMD_VERIFY = "doğrulama kapısını projeden keşfet ve aç"
 CMD_MODE = "çalışma profili seç: auto · low · medium · high · max"
 CMD_EFFORT = "reasoning yoğunluğu: auto · low · medium · high · xhigh · max"
+CMD_HEALTH = "sağlayıcı sağlığı: güvenilirlik skoru ve circuit breaker durumu"
 CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
 CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"

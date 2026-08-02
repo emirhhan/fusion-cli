@@ -57,10 +57,23 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   (compaction/learning/review/ısıtma) effort ALMAZ — bilinçli (bütçe). Fusion council
   yoluna effort, per-aday gating gerektirdiği için sonraki bir iyileştirmeye bırakıldı.
 
-### Faz 4 — Router sağlamlaştırma
-- Endpoint / model / profile fallback ayrımı; hata-sınıfı bazlı tetikleme tablosu.
-- Circuit breaker + cooldown; telemetriden recency-weighted reliability skoru.
-- Routing kararı açıklanabilir (route decision kaydı). Testler.
+### Faz 4 — Router sağlamlaştırma ✅
+- **Zaten var olan** (dokümante edildi, yeniden kurulmadı): endpoint↔model fallback
+  ayrımı (`retrying.py` = aynı model, `chain.py` = sıradaki model), hata-sınıfı bazlı
+  tetikleme (`is_permanent_error`/`is_rate_limit_error`/`is_daily_quota_error`).
+- **Yeni** (4a): `core/health.py` — `ModelHealth` (circuit breaker: kapalı/açık/yarı-açık +
+  cooldown) + EWMA güvenilirlik skoru; `HealthRegistry` (oturum boyunca tek örnek, enjekte,
+  zaman `Clock`'tan). Eşikler `defaults.yaml`'dan.
+- **Yeni** (4b): `providers/circuit.py` `CircuitBreakingProvider` — devresi açık modeli
+  çağırmadan atlar (`FallbackProvider` sıradakine geçer), sonucu sağlığa kaydeder.
+  `build_provider(health=...)` opsiyonel; agent path'e threading; `/health` komutu skoru
+  ve devre durumunu gösterir.
+- Sağlık YALNIZCA sağlıksızı ATLAR, sıralamayı DEĞİŞTİRMEZ: ölçülmüş sıralı zincir kararı
+  korunur (chain.py gerekçesi).
+- 24 yeni test (11 + 13); kapı yeşil (1246 test).
+- **Kapsam notu**: health agent path'e wired; fusion council path'e (effort gibi) sonraki
+  bir iyileştirmeye bırakıldı. Route-decision açıklaması bugün olaylarla (hangi model cevap
+  verdi) + `/health` ile sağlanıyor; ayrı bir kayıt yapısı YAGNI olurdu.
 
 ### Faz 5 — Provider türü genişletme (framework)
 - `api_key` dışında `oauth` / `local` / `aggregator` birinci sınıf; generic

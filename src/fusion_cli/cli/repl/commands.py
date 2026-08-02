@@ -284,6 +284,19 @@ def _effort(state: ReplState, argument: str) -> str:
     return messages.EFFORT_APPLIED.format(effort=effort.value)
 
 
+def _health(state: ReplState, argument: str) -> str:
+    """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
+    registry = state.health
+    snapshot = registry.snapshot() if registry is not None else ()
+    if not snapshot:
+        return messages.HEALTH_EMPTY
+    rows = [messages.HEALTH_HEADER]
+    for model_id, entry in snapshot:
+        phase = messages.HEALTH_PHASE.get(entry.phase.value, entry.phase.value)
+        rows.append(messages.HEALTH_ROW.format(model=model_id, score=entry.score, phase=phase))
+    return "\n".join(rows)
+
+
 def _undo(state: ReplState, argument: str) -> str:
     """`/undo` — son agent turunun dosya değişikliklerini geri al."""
     kayit = state.last_changes
@@ -427,6 +440,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("verify", messages.CMD_VERIFY, _verify, group="Agent"),
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
+    SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     *(
         SlashCommand(
             name,

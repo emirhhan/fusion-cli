@@ -19,9 +19,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..core.events import Channel, EventPublisher
+from ..core.health import HealthRegistry
 from ..core.protocols import Clock, LlmProvider, Sleeper
 from ..core.types import ModelSpec
 from .chain import FallbackProvider
+from .circuit import CircuitBreakingProvider
 from .eventing import EventingProvider
 from .litellm_provider import LiteLlmProvider, configure_litellm
 from .retrying import wrap as wrap_with_retry
@@ -36,6 +38,7 @@ def build_provider(
     clock: Clock | None = None,
     sleeper: Sleeper | None = None,
     background: bool = False,
+    health: HealthRegistry | None = None,
 ) -> LlmProvider:
     """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
 
@@ -53,10 +56,21 @@ def build_provider(
     """
     configure_litellm()
     models = [LiteLlmProvider(model, role=spec.name, clock=clock) for model in spec.models]
-    inner = FallbackProvider(
-        wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper),
-        role=spec.name,
-    )
+    retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
+    # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
+    # devresi açık model çağrılmadan atlanır ve zincir sıradakine geçer. Verilmezse
+    # (varsayılan) mevcut davranış birebir korunur.
+    resilient: Sequence[LlmProvider]
+    if health is not None:
+        resilient = [
+            CircuitBreakingProvider(
+                provider, health=health.for_model(provider.label), role=spec.name
+            )
+            for provider in retrying
+        ]
+    else:
+        resilient = retrying
+    inner = FallbackProvider(resilient, role=spec.name)
     if publisher is None:
         return inner
     return EventingProvider(

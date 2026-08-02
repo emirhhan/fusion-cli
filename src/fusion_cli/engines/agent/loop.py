@@ -39,6 +39,7 @@ from ...core.events import (
     ToolOutcome,
     VerificationFailed,
 )
+from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.reasoning import ReasoningEffort, provider_value
 from ...core.tools import ToolContext, ToolResult
@@ -129,6 +130,9 @@ class AgentDeps:
     #: Verilirse kod değiştiren tur sonrası doğrulama kapısı çalışır ve sonucu ders
     #: güvenini besler. Verilmezse (varsayılan) mevcut davranış birebir korunur.
     verifier: Verifier | None = None
+    #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
+    #: Verilirse sağlıksız model turlar arası atlanır. Verilmezse breaker kurulmaz.
+    health: HealthRegistry | None = None
 
 
 async def run_agent(
@@ -296,6 +300,7 @@ async def _call_model(
         publisher=deps.publisher,
         retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
+        health=deps.health,
     )
 
     result: ModelResult | None = None

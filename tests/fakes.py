@@ -182,6 +182,7 @@ def patch_providers(monkeypatch, module, by_name):
         clock=None,
         sleeper=None,
         background=False,
+        health=None,
     ):
         provider = by_name[spec.name]
         if publisher is None:

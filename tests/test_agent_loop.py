@@ -73,6 +73,7 @@ def _kur(monkeypatch, provider):
         clock=None,
         sleeper=None,
         background=False,
+        health=None,
     ):
         return provider
 
