@@ -37,9 +37,21 @@
       .grow { flex: 1; min-width: 160px; }
       .name { font-weight: 700; font-size: 16px; }
       .meta { color: var(--faint); font-size: 12px; font-family: var(--mono); }
-      input, select { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
+      input, select, textarea { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
         font-family: var(--mono); font-size: 14px; padding: 9px 12px; border-radius: 9px; }
-      input:focus, select:focus { outline: none; border-color: var(--accent2); }
+      input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); }
+      textarea { resize: vertical; line-height: 1.5; }
+      textarea::placeholder, input::placeholder { color: var(--faint); }
+      /* Sağlayıcı ızgarası: kare kare tile'lar; tıklayınca anahtar girişi açılır. */
+      .provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+      .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; transition: border-color .15s; }
+      .pcard.keyed { cursor: pointer; } .pcard.keyed:hover { border-color: var(--faint); }
+      .pcard.open { border-color: var(--accent2); cursor: default; }
+      .pcard-head { display: flex; align-items: center; gap: 8px; }
+      .pcard .caret { margin-left: auto; color: var(--faint); font-size: 12px; transition: transform .15s; }
+      .pcard.open .caret { transform: rotate(180deg); }
+      .pcard-body { display: none; margin-top: 12px; }
+      .pcard.open .pcard-body { display: block; }
       button { background: var(--grad); color: #0b0b10; font-weight: 700; border: none; cursor: pointer;
         padding: 9px 16px; border-radius: 9px; font-size: 14px; font-family: var(--sans); }
       button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--border); }
@@ -93,6 +105,11 @@
         <div class="stat"><div class="n" id="s-models">–</div><div class="l">model / profil</div></div>
         <div class="stat"><div class="n" id="s-strategy" style="color:var(--accent)">–</div><div class="l">yönlendirme</div></div>
       </div>
+      <div class="card">
+        <div class="row"><b>Aktif model (baş):</b> <span class="meta" id="activeModel" style="color:var(--accent)">—</span>
+          <span class="meta" id="lastServed"></span></div>
+        <div class="hint" style="margin:8px 0 0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir. "Son cevaplayan" gerçekte yanıtı üreten modeldir (yedeğe düşmüş olabilir).</div>
+      </div>
       <div class="card"><div class="hint">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
         yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
         <div class="row"><b>Config:</b> <span class="meta" id="cfgpath">—</span></div>
@@ -103,7 +120,7 @@
     <div class="panel" id="tab-anahtar">
       <h2>Sağlayıcılar &amp; API Anahtarları</h2>
       <div class="hint" id="secretHint"></div>
-      <div id="providers"></div>
+      <div id="providers" class="provider-grid"></div>
     </div>
 
     <!-- YÖNLENDİRME -->
@@ -208,14 +225,27 @@
       }
 
       function providerCard(p) {
-        if (!p.implemented) return `<div class="card"><div class="row"><span class="name">${p.name}</span><span class="badge fw">framework — adaptör yok</span></div></div>`;
-        if (p.local) return `<div class="card"><div class="row"><span class="name">${p.name}</span><span class="badge local">yerel — anahtar gerekmez</span></div></div>`;
+        if (!p.implemented) return `<div class="pcard"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
+        if (p.local) return `<div class="pcard"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
         const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
         const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
-        return `<div class="card"><div class="row"><span class="name grow">${p.name}</span>${status}</div>
-          <div class="meta" style="margin:4px 0 10px">${p.kind} · ${p.status}</div>
-          <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
-          <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div></div>`;
+        // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
+        return `<div class="pcard keyed" id="pcard-${p.id}">
+          <div class="pcard-head" onclick="togglePcard('${p.id}')">
+            <span class="name">${p.name}</span>${status}<span class="caret">▾</span>
+          </div>
+          <div class="pcard-body">
+            <div class="meta" style="margin:0 0 10px">${p.kind} · ${p.status}</div>
+            <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
+            <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div>
+          </div></div>`;
+      }
+      function togglePcard(id) {
+        const el = $("pcard-" + id); if (!el) return;
+        const willOpen = !el.classList.contains("open");
+        // Aynı anda tek kart açık kalsın (OmniRoute benzeri sade görünüm).
+        document.querySelectorAll(".pcard.open").forEach((c) => c.classList.remove("open"));
+        if (willOpen) { el.classList.add("open"); const inp = $("key-" + id); if (inp) inp.focus(); }
       }
 
       function render() {
@@ -226,6 +256,9 @@
         $("s-models").textContent = s.models.length;
         $("s-strategy").textContent = s.routing.current;
         $("cfgpath").textContent = s.config_path || "(yalnız varsayılanlar)";
+        $("activeModel").textContent = (s.fallback && s.fallback[0]) || "—";
+        const recent = (s.analytics && s.analytics.recent) || [];
+        $("lastServed").textContent = recent.length ? "· son cevaplayan: " + recent[0].served : "";
         $("secretHint").textContent = s.secret_ready
           ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
           : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
