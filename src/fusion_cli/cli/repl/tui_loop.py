@@ -277,6 +277,14 @@ async def run_tui_repl(state: ReplState, console: Console) -> int:
     from .loop import session_info
 
     session = _TuiSession(state)
+    # Terminali VE kaydırma geçmişini (scrollback) temizle: kullanıcı fusion içinde
+    # yukarı kaydırınca girişten önceki eski terminal çıktısı görünmesin — bir
+    # uygulamaya girilmiş hissi versin. ESC[3J scrollback'i, ESC[2J ekranı, ESC[H
+    # imleci başa alır. Tam-ekran alternatif ekran kullansa da bazı terminaller
+    # çıkışta ana tampona döndüğünde eski içeriği gösteriyor; girişte silmek kesin çözüm.
+    sys.stdout.write("\x1b[3J\x1b[2J\x1b[H")
+    sys.stdout.flush()
+
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
     banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
     session.tui.sync_conversation()

@@ -489,14 +489,22 @@ def test_karsilama_kutusu_terminali_tasmaz():
         assert all(len(satir) <= width for satir in satirlar), width
 
 
-def test_karsilama_kompakt_imza_gosterir_buyuk_ascii_yok():
-    """Claude dizilimi: büyük ASCII logo yerine kompakt `✻ Fusion CLI` başlığı."""
+def test_karsilama_genis_terminalde_buyuk_ascii_imza_gosterir():
+    """Eski banner geri geldi: geniş terminalde büyük ASCII logo + kutu imzası birlikte."""
     from fusion_cli.ui import theme
 
-    for width in (72, 120):
-        cikti = _welcome_output(width)
-        assert "███████╗" not in cikti
-        assert theme.ICON_SPARKLE in cikti and "Fusion CLI" in cikti
+    cikti = _welcome_output(120)
+    assert "███████╗" in cikti  # büyük ASCII logo
+    assert theme.ICON_SPARKLE in cikti and "Fusion CLI" in cikti  # kutudaki imza
+
+
+def test_karsilama_dar_terminalde_buyuk_ascii_atlanir():
+    """Dar terminalde büyük imza sığmaz; taşmamak için atlanır, kutu imzası yeter."""
+    from fusion_cli.ui import theme
+
+    cikti = _welcome_output(40)
+    assert "███████╗" not in cikti
+    assert theme.ICON_SPARKLE in cikti
 
 
 def test_karsilama_ipucu_ve_tanitim_icerir():

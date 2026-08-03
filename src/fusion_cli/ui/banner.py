@@ -33,6 +33,19 @@ from . import messages, theme
 #: Giriş satırı ve altındaki durum çubuğu için ekranın dibinde bırakılan yer.
 PROMPT_RESERVED_LINES = 3
 
+#: Büyük ASCII imza (eski banner). Geniş terminalde karşılamanın başına gradyanla basılır;
+#: dar terminalde sığmazsa atlanır ve kutudaki `✻ Fusion` imzası yeter.
+_LOGO_LINES = (
+    "███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗",
+    "██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║",
+    "█████╗  ██║   ██║███████╗██║██║   ██║██╔██╗ ██║",
+    "██╔══╝  ██║   ██║╚════██║██║██║   ██║██║╚██╗██║",
+    "██║     ╚██████╔╝███████║██║╚██████╔╝██║ ╚████║",
+    "╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝",
+)
+#: Büyük imzanın çizim genişliği (en uzun satır). Bu genişliğin altında imza basılmaz.
+LOGO_WIDTH = 47
+
 
 @dataclass(frozen=True, slots=True)
 class SessionInfo:
@@ -86,11 +99,22 @@ def print_welcome(
         console.file.write(_CLEAR_SCROLLBACK)
         console.file.flush()
 
-    blocks: list[RenderableType] = [Text(), _welcome_panel(info)]
+    blocks: list[RenderableType] = [Text(), *_logo_blocks(console.width), _welcome_panel(info)]
     for block in blocks:
         console.print(block)
     if pad:
         _pad_to_bottom(console, blocks)
+
+
+def _logo_blocks(width: int) -> list[RenderableType]:
+    """Geniş terminalde büyük gradyanlı imza + altında bir boşluk; dar terminalde boş.
+
+    Eski banner geri getirildi; dar terminalde taşmaması için genişlik kapısı korunur
+    (sığmazsa kutudaki `✻ Fusion` imzası yeterli).
+    """
+    if width < LOGO_WIDTH + 4:
+        return []
+    return [gradient("\n".join(_LOGO_LINES)), Text()]
 
 
 def _pad_to_bottom(console: Console, blocks: list[RenderableType]) -> None:
@@ -168,11 +192,15 @@ def _welcome_body(info: SessionInfo) -> Group:
 
 
 def _header(info: SessionInfo) -> Text:
-    """`✻ Fusion CLI  hoş geldin  v1.0` — yıldız, gradyanlı imza, selamlama, sürüm."""
+    """`✻ Fusion CLI · hoş geldin · v1.0` — yıldız, imza, selamlama, sürüm.
+
+    Büyük ASCII logo üstte olduğundan imza burada küçük ve düz kalır (gradyan tekrar
+    edilmez); dar terminalde logo atlandığında kimlik yine bu satırdan okunur.
+    """
     line = Text(f"{theme.ICON_SPARKLE} ", style=theme.ACCENT)
-    line.append_text(gradient(messages.APP_NAME))
-    line.append(f"  {messages.WELCOME_GREETING}", style=theme.DIM)
-    line.append(f"  {info.version}", style=theme.DIM)
+    line.append(messages.APP_NAME, style=f"bold {theme.ACCENT}")
+    line.append(f" · {messages.WELCOME_GREETING}", style=theme.DIM)
+    line.append(f" · {info.version}", style=theme.DIM)
     return line
 
 
