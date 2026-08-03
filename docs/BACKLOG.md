@@ -32,6 +32,39 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
+## Web-AI sağlayıcı — devreye alma (güvenlik-hassas, ayrı faz)
+
+Çerçeve HAZIR (`providers/web_session.py`: `WebProviderAdapter`, `WebSessionCredential`,
+enjekte edilebilir `WebTransport`; registry'de `WEB_SESSION`). EKSİK olan, factory'ye
+bağlama ve gerçek bir transport. Güvenlik-hassas olduğu için kendi fazında yapılmalı:
+
+- **Kapsam sınırı (etik/ToS):** Yalnızca kullanıcının SAHİP OLDUĞU / oturum erişimine
+  İZİN VEREN uçlar (kendi OpenWebUI/LibreChat/kurumsal uç). Ticari tüketici web arayüzünü
+  (ChatGPT/Gemini web) izinsiz otomatikleştiren transport EKLENMEZ.
+- **Transport:** `providers/web_transport.py` — genel OpenAI-uyumlu httpx POST
+  (`/chat/completions`, bearer token). Timeout config'ten; hata `ok=False` sonuca çevrilir.
+- **Config (RULES: env yalnız config katmanında):** `web_sessions:` alanı (frozen dataclass)
+  model-id → {endpoint, auth_env (token env adı), tool_support}. Endpoint config'te,
+  token yalnız env'den (`auth_env`).
+- **Factory:** `build_provider`'a `web_sessions` geçir (key_pools gibi); `_leaf` eşleşen
+  modeli `WebProviderAdapter` ile kur. 6 çağrı yerine parametre eklenir.
+- **Test:** sahte transport + sahte httpx ile; ağ erişimi yok. Panelde "Sağlayıcılar"
+  sekmesine web-session ekleme kartı.
+
+## OmniRoute panel paritesi — kalan (büyük altyapı)
+
+Görünüm ve çekirdek fonksiyonlar hizalandı (sağlayıcılar/anahtarlar, yönlendirme/fallback,
+analitik, sağlık, test playground). "Basit tek panel" kapsamının dışında kalan, dev
+altyapı gerektiren OmniRoute özellikleri:
+
+- **Tüneller** (Cloudflare Quick Tunnel, Tailscale Funnel, bulut uç): uzak erişim; fusion
+  bilinçli olarak yalnız-yerel. İstenirse opsiyonel bir "paylaş" kartı olarak eklenebilir.
+- **MCP / A2A uç noktaları**: fusion'da MCP zaten `fusion mcp` ile var; panele durum kartı
+  olarak yansıtılabilir.
+- **Combo Studio (canlı yönlendirme kaskadı görselleştirme)**: mevcut fallback zinciri
+  editörünün canlı/görsel bir üst katmanı.
+- Küçük cilalar: "uç noktayı kopyala" düğmesi, sağlayıcı arama kutusu, dil/tema toggle.
+
 ## Davranış (friction) — kalan iş
 
 - **Çok-satırlı yapıştırma katlaması (TUI)**: Eski satır-içi mod uzun/çok-satırlı
