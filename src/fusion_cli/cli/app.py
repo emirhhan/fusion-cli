@@ -310,7 +310,8 @@ def serve(
 
     config = load_config()
     console.print(
-        f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1  "
+        f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1\n"
+        f"[dim]panel: [/dim]http://{host}:{port}/dashboard   "
         f"[dim](model: auto/low/medium/high/max ya da ham kimlik · Ctrl-C ile durdur)[/dim]"
     )
     try:

@@ -149,3 +149,27 @@ def test_tool_call_cevaba_cevrilir():
     assert calls[0]["function"]["name"] == "edit_file"
     assert json.loads(calls[0]["function"]["arguments"]) == {"path": "a"}
     assert body["choices"][0]["finish_reason"] == "tool_calls"
+
+
+# --- yerel panel (dashboard) ----------------------------------------------- #
+
+
+async def test_dashboard_html_doner():
+    async with _client(_app()) as client:
+        resp = await client.get("/dashboard")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Fusion Gateway" in resp.text
+
+
+async def test_api_providers_json():
+    async with _client(_app()) as client:
+        resp = await client.get("/api/providers")
+    ids = {p["id"] for p in resp.json()["providers"]}
+    assert "openrouter" in ids and "ollama" in ids
+
+
+async def test_api_health_bos_baslar():
+    async with _client(_app()) as client:
+        resp = await client.get("/api/health")
+    assert resp.json()["models"] == []

@@ -65,10 +65,35 @@ class GatewayApp:
         if method == "GET" and path == "/v1/models":
             await self._models(send)
             return
+        if method == "GET" and path in ("/dashboard", "/dashboard/"):
+            await _html(send, _dashboard_html())
+            return
+        if method == "GET" and path == "/api/providers":
+            await _json(send, {"providers": _providers_json()})
+            return
+        if method == "GET" and path == "/api/health":
+            await _json(send, {"models": self._health_json()})
+            return
+        if method == "GET" and path == "/api/models":
+            await self._models(send)
+            return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
         await _json(send, {"error": {"message": "bulunamadı", "type": "not_found"}}, status=404)
+
+    def _health_json(self) -> list[dict[str, Any]]:
+        if self._health is None:
+            return []
+        return [
+            {
+                "model": model_id,
+                "score": round(entry.score, 3),
+                "phase": entry.phase.value,
+                "samples": entry.samples,
+            }
+            for model_id, entry in self._health.snapshot()
+        ]
 
     async def _models(self, send: Send) -> None:
         data = [
@@ -117,6 +142,45 @@ class GatewayApp:
 
 def _error_body(message: str) -> dict[str, Any]:
     return {"error": {"message": message, "type": "invalid_request_error"}}
+
+
+def _providers_json() -> list[dict[str, Any]]:
+    """Panel için sağlayıcı listesi: tür, resmiyet, risk, kurulu-mu, çalışır-mı."""
+    from ..config.keys import environ_snapshot
+    from ..providers.registry import BUILTIN_PROVIDERS
+
+    environ = environ_snapshot()
+    return [
+        {
+            "id": p.id,
+            "name": p.name,
+            "kind": p.kind.value,
+            "status": p.official_status.value,
+            "risk": p.risk_level.value,
+            "implemented": p.implemented,
+            "configured": p.is_configured(environ) if p.implemented else False,
+            "local": p.auth_env is None and p.implemented,
+        }
+        for p in BUILTIN_PROVIDERS
+    ]
+
+
+def _dashboard_html() -> str:
+    """Yerel panel HTML'i — paket verisi olarak yüklenir (koda gömülü değil)."""
+    from pathlib import Path
+
+    return (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+
+
+async def _html(send: Send, body: str) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/html; charset=utf-8")],
+        }
+    )
+    await send({"type": "http.response.body", "body": body.encode()})
 
 
 async def _read_json(receive: Receive) -> dict[str, Any]:

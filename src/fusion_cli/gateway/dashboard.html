@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fusion Gateway · Yerel Panel</title>
+    <style>
+      :root {
+        --bg: #0b0b10;
+        --surface: #14141c;
+        --border: #262633;
+        --text: #e9e9f2;
+        --dim: #8b8ba3;
+        --faint: #5a5a72;
+        --accent: #ff8a3d;
+        --accent2: #ff4d8d;
+        --green: #5ee2a0;
+        --yellow: #ffd166;
+        --red: #ff6b6b;
+        --blue: #5aa9ff;
+        --grad: linear-gradient(100deg, #ff8a3d, #ff5c7a 55%, #ff4d8d);
+        --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+        --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(120% 120% at 50% 0%, #16121e 0%, var(--bg) 55%);
+        color: var(--text);
+        font-family: var(--sans);
+        min-height: 100vh;
+        padding: 40px clamp(16px, 4vw, 64px) 80px;
+      }
+      header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+      .logo {
+        width: 60px; height: 60px; border-radius: 16px; background: var(--grad);
+        display: grid; place-items: center; font-family: var(--mono);
+        font-weight: 900; font-size: 30px; color: #0b0b10;
+      }
+      h1 {
+        font-size: clamp(28px, 4vw, 44px); margin: 0; letter-spacing: -0.5px;
+        background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .sub { color: var(--dim); font-size: 16px; margin-top: 2px; }
+      .endpoint {
+        margin-left: auto; font-family: var(--mono); font-size: 15px; color: var(--text);
+        background: var(--surface); border: 1px solid var(--border); padding: 10px 16px; border-radius: 12px;
+      }
+      .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin: 32px 0; }
+      .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 20px 24px; }
+      .stat .n { font-size: 40px; font-weight: 800; font-family: var(--mono); }
+      .stat .l { color: var(--dim); font-size: 14px; margin-top: 4px; }
+      section { margin-top: 40px; }
+      h2 { font-size: 22px; margin: 0 0 16px; display: flex; align-items: center; gap: 10px; }
+      h2::before { content: ""; width: 8px; height: 22px; border-radius: 4px; background: var(--grad); }
+      .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
+      .card .top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+      .card .name { font-weight: 700; font-size: 17px; }
+      .card .meta { color: var(--faint); font-size: 13px; font-family: var(--mono); margin-top: 4px; }
+      .badge { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--faint); color: var(--dim); white-space: nowrap; }
+      .badge.ok { color: var(--green); border-color: var(--green); }
+      .badge.local { color: var(--blue); border-color: var(--blue); }
+      .badge.off { color: var(--faint); border-color: var(--faint); }
+      .badge.fw { color: var(--yellow); border-color: var(--yellow); }
+      table { width: 100%; border-collapse: collapse; }
+      td, th { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 15px; }
+      th { color: var(--dim); font-weight: 600; font-size: 13px; }
+      td.model { font-family: var(--mono); font-size: 14px; }
+      .bar { height: 8px; border-radius: 999px; background: #22222e; overflow: hidden; width: 140px; display: inline-block; vertical-align: middle; }
+      .bar > i { display: block; height: 100%; background: var(--grad); }
+      .phase { font-family: var(--mono); font-size: 13px; }
+      .phase.open { color: var(--red); }
+      .phase.closed { color: var(--green); }
+      .phase.half_open { color: var(--yellow); }
+      .empty { color: var(--faint); font-style: italic; padding: 8px 0; }
+      footer { margin-top: 56px; color: var(--faint); font-size: 13px; }
+      .models-list { display: flex; flex-wrap: wrap; gap: 8px; }
+      .models-list span { font-family: var(--mono); font-size: 13px; background: var(--surface); border: 1px solid var(--border); padding: 5px 12px; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="logo">❯_</div>
+      <div>
+        <h1>Fusion Gateway</h1>
+        <div class="sub">Yerel · yalnızca bu bilgisayar · OpenAI-uyumlu</div>
+      </div>
+      <div class="endpoint" id="endpoint">http://…/v1</div>
+    </header>
+
+    <div class="stats">
+      <div class="stat"><div class="n" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
+      <div class="stat"><div class="n" id="s-ready" style="color: var(--green)">–</div><div class="l">kullanıma hazır</div></div>
+      <div class="stat"><div class="n" id="s-models">–</div><div class="l">seçilebilir model/profil</div></div>
+      <div class="stat"><div class="n" id="s-health" style="color: var(--accent)">–</div><div class="l">izlenen model (sağlık)</div></div>
+    </div>
+
+    <section>
+      <h2>Sağlayıcılar</h2>
+      <div class="grid" id="providers"></div>
+    </section>
+
+    <section>
+      <h2>Sağlayıcı sağlığı</h2>
+      <table>
+        <thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Örnek</th></tr></thead>
+        <tbody id="health"></tbody>
+      </table>
+      <div class="empty" id="health-empty">Henüz veri yok — bir istek gelince dolar.</div>
+    </section>
+
+    <section>
+      <h2>Modeller / profiller</h2>
+      <div class="models-list" id="models"></div>
+    </section>
+
+    <footer>
+      Fusion CLI · yerel gateway · veriler her 5 saniyede yenilenir. Bu panel yalnızca
+      senin bilgisayarından görülür.
+    </footer>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const kindBadge = (p) => {
+        if (!p.implemented) return '<span class="badge fw">framework</span>';
+        if (p.local) return '<span class="badge local">yerel</span>';
+        if (p.configured) return '<span class="badge ok">kurulu</span>';
+        return '<span class="badge off">anahtar yok</span>';
+      };
+
+      async function refresh() {
+        $("endpoint").textContent = location.origin + "/v1";
+        try {
+          const [prov, health, models] = await Promise.all([
+            fetch("/api/providers").then((r) => r.json()),
+            fetch("/api/health").then((r) => r.json()),
+            fetch("/api/models").then((r) => r.json()),
+          ]);
+
+          const providers = prov.providers || [];
+          $("s-total").textContent = providers.length;
+          $("s-ready").textContent = providers.filter((p) => p.configured || p.local).length;
+          $("s-models").textContent = (models.data || []).length;
+          $("s-health").textContent = (health.models || []).length;
+
+          $("providers").innerHTML = providers
+            .map(
+              (p) => `<div class="card"><div class="top"><span class="name">${p.name}</span>${kindBadge(p)}</div>
+                <div class="meta">${p.kind} · ${p.status} · ${p.risk}</div></div>`
+            )
+            .join("");
+
+          const hm = health.models || [];
+          $("health-empty").style.display = hm.length ? "none" : "block";
+          $("health").innerHTML = hm
+            .map(
+              (m) => `<tr><td class="model">${m.model}</td>
+                <td><span class="bar"><i style="width:${Math.round(m.score * 100)}%"></i></span> ${Math.round(m.score * 100)}%</td>
+                <td class="phase ${m.phase}">${m.phase}</td><td>${m.samples}</td></tr>`
+            )
+            .join("");
+
+          $("models").innerHTML = (models.data || [])
+            .map((m) => `<span>${m.id}</span>`)
+            .join("");
+        } catch (e) {
+          /* sunucu kapandıysa sessizce bekle */
+        }
+      }
+
+      refresh();
+      setInterval(refresh, 5000);
+    </script>
+  </body>
+</html>
