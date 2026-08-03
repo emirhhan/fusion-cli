@@ -159,7 +159,7 @@ async def test_dashboard_html_doner():
         resp = await client.get("/dashboard")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Fusion Gateway" in resp.text
+    assert "Fusion Kontrol Paneli" in resp.text
 
 
 async def test_api_providers_json():
@@ -173,3 +173,78 @@ async def test_api_health_bos_baslar():
     async with _client(_app()) as client:
         resp = await client.get("/api/health")
     assert resp.json()["models"] == []
+
+
+# --- interaktif kontrol paneli (yazma uçları) ------------------------------ #
+
+
+def _app_with_store(tmp_path, key="test-key"):
+    from fusion_cli.config.credentials import FernetSecretStore
+    from fusion_cli.gateway.app import GatewayApp
+
+    store = FernetSecretStore(tmp_path / "s.enc", secret_key=key)
+    app = GatewayApp(
+        make_config(),
+        provider_factory=lambda spec: FakeProvider("mock", chunks=("ok",), ok=True),
+        secret_store=store,
+    )
+    return app, store
+
+
+async def test_api_state_her_seyi_dondurur(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        d = (await client.get("/api/state")).json()
+    assert "providers" in d and "fallback" in d and "health" in d
+    assert d["routing"]["current"] == "priority"
+    assert "free_first" in d["routing"]["options"]
+
+
+async def test_api_routing_degistir(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        r = await client.post("/api/routing", json={"strategy": "free_first"})
+        assert r.json()["strategy"] == "free_first"
+        # geçersiz strateji → 400
+        assert (await client.post("/api/routing", json={"strategy": "yok"})).status_code == 400
+
+
+async def test_api_anahtar_kaydet_sifreli_ve_canli(tmp_path, monkeypatch):
+    from fusion_cli.config.keys import OPENAI_ENV
+
+    monkeypatch.delenv(OPENAI_ENV, raising=False)
+    app, store = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        r = await client.post("/api/keys", json={"provider": "openai", "value": "sk-yeni"})
+    assert r.json()["ok"] is True and r.json()["persisted"] is True
+    # Şifreli depoya yazıldı VE canlı ortama uygulandı.
+    assert store.get(OPENAI_ENV) == "sk-yeni"
+    import os
+
+    assert os.environ.get(OPENAI_ENV) == "sk-yeni"
+    monkeypatch.delenv(OPENAI_ENV, raising=False)
+
+
+async def test_api_anahtar_bilinmeyen_saglayici_400(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        r = await client.post("/api/keys", json={"provider": "ollama", "value": "x"})
+    assert r.status_code == 400  # yerel: anahtar almaz
+
+
+async def test_api_fallback_zinciri_duzenle(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        r = await client.post("/api/fallback", json={"models": ["p/x", "p/y", "p/z"]})
+        d = r.json()
+    assert d["ok"] is True
+    assert d["chain"] == ["p/x", "p/y", "p/z"]
+    # Gateway'in aktif agent zinciri güncellendi.
+    assert app._config.agent.model == "p/x"
+    assert list(app._config.agent.fallback) == ["p/y", "p/z"]
+
+
+async def test_api_fallback_bos_400(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        assert (await client.post("/api/fallback", json={"models": []})).status_code == 400

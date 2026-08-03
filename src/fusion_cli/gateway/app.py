@@ -16,10 +16,11 @@ import random
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ..config.credentials import FernetSecretStore
 from ..config.models import Config
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
-from ..core.routing_strategy import order_models
+from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelSpec, StreamDone, TextChunk
 from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
@@ -44,6 +45,7 @@ class GatewayApp:
         *,
         provider_factory: ProviderFactory | None = None,
         health: HealthRegistry | None = None,
+        secret_store: FernetSecretStore | None = None,
     ) -> None:
         self._config = config
         self._health = health
@@ -53,6 +55,9 @@ class GatewayApp:
         #: round-robin/random için tur-ötesi durum (modül-global değil, örneğe bağlı).
         self._rotation = 0
         self._rng = random.Random()
+        #: Panelden girilen anahtarlar buraya ŞİFRELİ yazılır; ayrıca canlı ortama uygulanır.
+        #: Test için enjekte edilebilir (yoksa gerçek kullanıcı deposu kurulur).
+        self._secret_store = secret_store or _default_secret_store()
 
     def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
         """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
@@ -98,10 +103,119 @@ class GatewayApp:
         if method == "GET" and path == "/api/models":
             await self._models(send)
             return
+        if method == "GET" and path == "/api/state":
+            await self._api_state(send)
+            return
+        if method == "POST" and path == "/api/keys":
+            await self._api_set_key(receive, send)
+            return
+        if method == "POST" and path == "/api/keys/delete":
+            await self._api_delete_key(receive, send)
+            return
+        if method == "POST" and path == "/api/routing":
+            await self._api_set_routing(receive, send)
+            return
+        if method == "POST" and path == "/api/fallback":
+            await self._api_set_fallback(receive, send)
+            return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
         await _json(send, {"error": {"message": "bulunamadı", "type": "not_found"}}, status=404)
+
+    # --- Panel yönetim uçları (yerel; durumu DEĞİŞTİRİR) -------------------- #
+
+    async def _api_state(self, send: Send) -> None:
+        """Panelin tek çağrıda ihtiyaç duyduğu her şey: sağlayıcılar, yönlendirme,
+        fallback zinciri, sağlık, modeller."""
+        await _json(
+            send,
+            {
+                "providers": _providers_json(),
+                "routing": {
+                    "current": self._strategy.value,
+                    "options": [strategy.value for strategy in RoutingStrategy],
+                },
+                "fallback": list(self._config.agent.models),
+                "health": self._health_json(),
+                "models": available_models(self._config),
+                "secret_ready": self._secret_store.available,
+                "config_path": str(self._config.source) if self._config.source else None,
+            },
+        )
+
+    async def _api_set_key(self, receive: Receive, send: Send) -> None:
+        """Bir sağlayıcının API anahtarını panelden gir: şifreli sakla + canlı uygula."""
+        import os
+
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        body = await _read_json(receive)
+        provider_id = str(body.get("provider", ""))
+        value = str(body.get("value", "")).strip()
+        definition = next((p for p in BUILTIN_PROVIDERS if p.id == provider_id), None)
+        if definition is None or definition.auth_env is None:
+            await _json(
+                send, _error_body("bu sağlayıcı anahtar almıyor ya da tanınmıyor"), status=400
+            )
+            return
+        if not value:
+            await _json(send, _error_body("anahtar boş olamaz"), status=400)
+            return
+        persisted = False
+        if self._secret_store.available:
+            self._secret_store.set(definition.auth_env, value)
+            persisted = True
+        # Her durumda CANLI uygula: çalışan gateway hemen kullanabilsin.
+        os.environ[definition.auth_env] = value
+        await _json(send, {"ok": True, "persisted": persisted, "provider": provider_id})
+
+    async def _api_delete_key(self, receive: Receive, send: Send) -> None:
+        import os
+
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        body = await _read_json(receive)
+        provider_id = str(body.get("provider", ""))
+        definition = next((p for p in BUILTIN_PROVIDERS if p.id == provider_id), None)
+        if definition is None or definition.auth_env is None:
+            await _json(send, _error_body("tanınmayan sağlayıcı"), status=400)
+            return
+        if self._secret_store.available:
+            self._secret_store.delete(definition.auth_env)
+        os.environ.pop(definition.auth_env, None)
+        await _json(send, {"ok": True, "provider": provider_id})
+
+    async def _api_set_routing(self, receive: Receive, send: Send) -> None:
+        body = await _read_json(receive)
+        wanted = str(body.get("strategy", ""))
+        try:
+            self._strategy = RoutingStrategy(wanted)
+        except ValueError:
+            await _json(send, _error_body(f"geçersiz strateji: {wanted}"), status=400)
+            return
+        await _json(send, {"ok": True, "strategy": self._strategy.value})
+
+    async def _api_set_fallback(self, receive: Receive, send: Send) -> None:
+        """Agent rolünün yedek (fallback) zincirini panelden düzenle + kalıcılaştır."""
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        models = [str(m).strip() for m in body.get("models", []) if str(m).strip()]
+        if not models:
+            await _json(send, _error_body("en az bir model olmalı"), status=400)
+            return
+        new_agent = replace(self._config.agent, model=models[0], fallback=tuple(models[1:]))
+        self._config = replace(self._config, agent=new_agent)
+        saved = True
+        try:
+            writer.write_model_section(self._config)
+        except ConfigError:
+            saved = False  # yazılamadı ama oturumda etkili (dosya izni sorunu turu engellemez)
+        await _json(send, {"ok": True, "saved": saved, "chain": list(new_agent.models)})
 
     def _health_json(self) -> list[dict[str, Any]]:
         if self._health is None:
@@ -164,6 +278,14 @@ class GatewayApp:
 # --------------------------------------------------------------------------- #
 # Küçük ASGI yardımcıları (çerçeve kullanmamak için)
 # --------------------------------------------------------------------------- #
+
+
+def _default_secret_store() -> FernetSecretStore:
+    """Gerçek kullanıcı sır deposunu kur (anahtar FUSION_SECRET_KEY'den)."""
+    from ..config.keys import secret_key
+    from ..config.paths import credentials_file
+
+    return FernetSecretStore(credentials_file(), secret_key=secret_key())
 
 
 def _build_key_pools(config: Config) -> KeyPoolRegistry:

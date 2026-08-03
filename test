@@ -1,0 +1,19 @@
+agent:
+  name: agent
+  model: p/x
+  fallback:
+  - p/y
+  - p/z
+judge:
+  name: hakem
+  model: sahte/hakem
+candidates:
+- name: a
+  model: sahte/a
+- name: b
+  model: sahte/b
+- name: c
+  model: sahte/c
+task_model_map:
+  general: a
+  code: c
