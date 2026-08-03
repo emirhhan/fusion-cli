@@ -119,6 +119,11 @@ class ToolExecuted(Event):
     args: Mapping[str, object]
     outcome: ToolOutcome
     output: str
+    #: Değiştirici dosya araçları için, çalıştırılmadan ÖNCE üretilmiş unified diff
+    #: (veya yeni dosya önizlemesi). Renderer bunu yeşil/kırmızı bir blok olarak basar.
+    #: Diff dosya değişmeden önce üretilebildiği için burada taşınır; None ise araç
+    #: değiştirici değildir ya da önizleme üretilememiştir.
+    diff: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

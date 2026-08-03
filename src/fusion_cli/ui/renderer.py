@@ -21,6 +21,7 @@ from typing import ClassVar
 
 from rich.console import Console
 from rich.markup import escape
+from rich.padding import Padding
 from rich.text import Text
 
 from ..core.events import (
@@ -49,6 +50,7 @@ from ..core.events import (
 )
 from ..core.types import FusionResult
 from . import messages, theme
+from .diff import render_diff
 from .fusion_view import render_fusion_result
 from .text import format_duration, format_model, strip_thinking, summarize_error
 from .work import WorkIndicator
@@ -366,24 +368,43 @@ class ConsoleRenderer:
 
     # -- Agent araç kartı ---------------------------------------------------- #
 
-    #: Araç sonucuna göre simge ve renk. Reddedilme ne ✓ ne ✗ ile gösterilir.
-    _OUTCOME_STYLES: ClassVar[dict[ToolOutcome, tuple[str, str]]] = {
-        ToolOutcome.OK: (theme.ICON_OK, theme.OK),
-        ToolOutcome.FAILED: (theme.ICON_ERROR, theme.ERROR),
-        ToolOutcome.DENIED: (theme.ICON_DENIED, theme.WARN),
-        ToolOutcome.BLOCKED: (theme.ICON_DENIED, theme.DIM),
+    #: Araç sonucuna göre madde işaretinin RENGİ. Claude Code diziliminde glyph her
+    #: durumda aynıdır (`⏺`); durumu renk taşır — reddedilme sarı, engellenme sönük.
+    _OUTCOME_COLORS: ClassVar[dict[ToolOutcome, str]] = {
+        ToolOutcome.OK: theme.OK,
+        ToolOutcome.FAILED: theme.ERROR,
+        ToolOutcome.DENIED: theme.WARN,
+        ToolOutcome.BLOCKED: theme.DIM,
     }
 
     def _tool_executed(self, event: ToolExecuted) -> None:
-        """Araç çağrısını iki satırlık kompakt kart olarak bas."""
+        """Araç çağrısını Claude Code diziliminde bas: `⏺ çağrı` + `⎿ sonuç`/diff."""
         self._end_block()
-        icon, color = self._OUTCOME_STYLES[event.outcome]
+        color = self._OUTCOME_COLORS[event.outcome]
         cagri = _format_call(event.name, event.args)
-        summary = _shorten(event.output.replace("\n", " "), 96)
+        self._console.print(f"[{color}]{theme.ICON_BULLET}[/{color}] {escape(cagri)}")
 
-        self._console.print(f"  [{color}]{icon}[/{color}] {escape(cagri)}")
+        if event.diff is not None:
+            self._tool_diff(event.diff)
+            return
+        summary = _shorten(event.output.replace("\n", " "), 96)
         if summary:
-            self._console.print(f"    [{theme.DIM}]{escape(summary)}[/{theme.DIM}]")
+            self._result_line(escape(summary))
+
+    def _result_line(self, body: str) -> None:
+        """Araç sonucunu çağrıya `⎿` bağlayıcısıyla bağla (sönük tek satır)."""
+        self._console.print(
+            f"  [{theme.DIM}]{theme.ICON_RESULT}[/{theme.DIM}]  [{theme.DIM}]{body}[/{theme.DIM}]"
+        )
+
+    def _tool_diff(self, diff_text: str) -> None:
+        """Diff'i `⎿ N ekleme, M silme` özeti + altında renkli blok olarak bas."""
+        rendered = render_diff(diff_text)
+        self._result_line(
+            escape(messages.DIFF_SUMMARY.format(added=rendered.added, removed=rendered.removed))
+        )
+        # Diff gövdesi çağrının altına, bağlayıcının hizasına girintili oturur.
+        self._console.print(Padding(rendered.body, (0, 0, 0, 5)))
 
     # -- Fusion sonucu ------------------------------------------------------- #
 

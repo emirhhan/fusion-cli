@@ -18,6 +18,10 @@ from ..core.tools import ToolArgs, ToolContext
 from .args import ArgumentError
 from .files import parse_edits, resolve_path
 
+#: Renderlanabilir DOSYA diff'i üreten araçlar. `run_shell` de önizleme üretir ama
+#: onunki komut satırıdır, diff değil; diff bloğu olarak basılmamalıdır.
+FILE_DIFF_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
+
 
 def preview_change(tool_name: str, args: ToolArgs, context: ToolContext) -> str | None:
     """Değiştirici araç için okunabilir önizleme; üretilemezse None."""
@@ -30,6 +34,17 @@ def preview_change(tool_name: str, args: ToolArgs, context: ToolContext) -> str 
         # Önizleme üretilemedi; onay ekranı ham argümanlara düşer. Aracın kendisi
         # zaten çalıştığında aynı sorunu anlaşılır bir hatayla bildirecek.
         return None
+
+
+def file_diff(tool_name: str, args: ToolArgs, context: ToolContext) -> str | None:
+    """Dosya değiştiren araçlar için, ÇALIŞMADAN ÖNCE hesaplanmış diff; değilse None.
+
+    Diff yalnızca dosya değişmeden önce üretilebilir; çağıran taraf bunu aracı
+    çalıştırmadan hemen önce çağırmalıdır.
+    """
+    if tool_name not in FILE_DIFF_TOOLS:
+        return None
+    return preview_change(tool_name, args, context)
 
 
 def display_path(path: Path, context: ToolContext) -> str:

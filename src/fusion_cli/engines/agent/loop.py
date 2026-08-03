@@ -48,6 +48,7 @@ from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
+from ...tools.preview import file_diff
 from . import compaction, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, build_request
 from .classify import TaskKind, classify_task, recall_scope, scope_of
@@ -345,14 +346,21 @@ async def _run_tools(
 
     for call in calls:
         args = parse_arguments(call.arguments)
+        # Diff, dosya değişmeden ÖNCE hesaplanmalı: sonrasında eski içerik kaybolur.
+        pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry)
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
         elif outcome is ToolOutcome.FAILED:
             errored = True
 
+        # Diff yalnızca değişiklik gerçekten uygulandıysa gösterilir; reddedilen ya da
+        # engellenen bir çağrıda yeşil/kırmızı blok "oldu" izlenimi vermemeli.
+        diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(
-            ToolExecuted(name=call.name, args=args, outcome=outcome, output=result.output)
+            ToolExecuted(
+                name=call.name, args=args, outcome=outcome, output=result.output, diff=diff
+            )
         )
         messages.append(
             Message("tool", result.output, tool_call_id=call.id, name=call.name, ok=result.ok)

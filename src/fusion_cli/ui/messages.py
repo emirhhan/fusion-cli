@@ -73,6 +73,10 @@ FUSION_ALL_ANSWERS = "{name} · {duration}"
 # --- Agent ---------------------------------------------------------------- #
 AGENT_TOOL_OK = "{name} {summary}"
 AGENT_TOOL_FAILED = "{name} başarısız · {summary}"
+#: Diff özeti — kaç satır eklendi/silindi (Claude Code "N additions, M removals").
+DIFF_SUMMARY = "{added} ekleme, {removed} silme"
+#: Diff tavana ulaştığında alta basılan kırpma satırı.
+DIFF_TRUNCATED = "… (+{count} satır daha)"
 AGENT_SUBAGENT_STARTED = "alt-ajan devraldı: {task}"
 AGENT_SUBAGENT_FINISHED = "alt-ajan bitti · {count} araç çağrısı"
 AGENT_COUNCIL = "council: çoklu modele danışılıyor…"

@@ -639,6 +639,68 @@ def test_cagri_ayrintisinda_rol_degil_cevaplayan_model_yazar():
     assert "nemotron-3-ultra-550b-a55b" in buffer.getvalue()
 
 
+def test_arac_cagrisi_bullet_ve_baglayici_ile_basilir():
+    """Claude Code dizilimi: `⏺ çağrı` üstte, `⎿ sonuç` altta."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ToolExecuted(
+            name="read_file", args={"path": "a.py"}, outcome=ToolOutcome.OK, output="10 satır"
+        )
+    )
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    assert satirlar[0].startswith(f"{theme.ICON_BULLET} read_file(a.py)")
+    assert theme.ICON_RESULT in satirlar[1] and "10 satır" in satirlar[1]
+
+
+def test_diff_iceren_arac_ekleme_silme_ozeti_ve_blok_basar():
+    """Değiştirici araç çalıştıktan sonra yeşil/kırmızı diff bloğu görünür."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+    diff = "\n".join(("@@ -1,2 +1,2 @@", " ayni", "-eski", "+yeni"))
+
+    renderer.handle(
+        ToolExecuted(
+            name="edit_file",
+            args={"path": "a.py"},
+            outcome=ToolOutcome.OK,
+            output="tamam",
+            diff=diff,
+        )
+    )
+
+    cikti = buffer.getvalue()
+    assert "1 ekleme, 1 silme" in cikti
+    assert "yeni" in cikti and "eski" in cikti
+    # Ham araç çıktısı diff varken değil, özet + blok gösterilir.
+    assert "tamam" not in cikti
+
+
+def test_reddedilen_degistirici_arac_diff_gostermez():
+    """Diff yalnızca OK'te taşınır; reddedilen çağrı 'oldu' izlenimi vermemeli."""
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ToolExecuted(
+            name="edit_file",
+            args={"path": "a.py"},
+            outcome=ToolOutcome.DENIED,
+            output="reddedildi",
+            diff=None,
+        )
+    )
+
+    cikti = buffer.getvalue()
+    assert "ekleme" not in cikti
+    assert any(s.startswith(theme.ICON_BULLET) for s in cikti.splitlines())
+
+
 def test_hata_hangi_modelin_kisitlandigini_soyler():
     """NIM'de hız sınırı MODEL BAŞINADIR; 'agent · 429' hangi modeli söylemez."""
     renderer, buffer = _renderer()

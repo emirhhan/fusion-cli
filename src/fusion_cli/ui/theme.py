@@ -40,4 +40,23 @@ ICON_DENIED = "⊘"
 ICON_DONE = "✦"
 ICON_STATUS = "›"
 ICON_PROMPT = "❯"
-ICON_ANSWER = "●"
+
+#: Claude Code dizilimi: asistan eylemi ve araç çağrısı aynı dolu madde işaretiyle
+#: (`⏺`) başlar; durum bilgisini glyph değil rengi taşır. Cevap akışının önündeki
+#: işaret de budur — böylece "asistan konuşuyor" ile "araç çalıştı" tek görsel dile
+#: oturur.
+ICON_BULLET = "⏺"
+ICON_ANSWER = ICON_BULLET
+#: Araç sonucunu çağrı satırına bağlayan L-bağlayıcı (Claude Code `⎿`). Sonuç ve
+#: diff bu işaretle çağrının altına asılır.
+ICON_RESULT = "⎿"
+
+#: Diff renkleri — eklenen yeşil, silinen kırmızı (Claude Code diff dizilimi). Ön
+#: plan `OK`/`ERROR` ile aynı tondadır; zeminler satırın tamamını hafifçe boyar ki
+#: göz +/- işaretine bakmadan da değişikliği ayırt etsin.
+DIFF_ADD = OK
+DIFF_DEL = ERROR
+DIFF_ADD_BG = "#0E2A18"
+DIFF_DEL_BG = "#2D1417"
+#: Diff satır numarası ve değişmeyen bağlam satırı için sönük ton.
+DIFF_CONTEXT = DIM
