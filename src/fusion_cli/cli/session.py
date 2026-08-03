@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
+from ..core.concurrency import BackgroundTasks
 from ..core.events import ErrorOccurred, EventSink, FusionCompleted, TurnFinished
 from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
@@ -121,11 +122,15 @@ async def run_agent_task(
     memory: Memory | None = None,
     extra_roots: tuple[Path, ...] = (),
     history: list[Message] | None = None,
+    background: BackgroundTasks | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
     soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
+
+    `background` verilirse ders çıkarımı gibi tur SONRASI işler fire-and-forget çalışır
+    ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
     """
     can_ask = sys.stdin.isatty() if interactive is None else interactive
 
@@ -155,6 +160,7 @@ async def run_agent_task(
             allowed_commands=load_allowed_commands(tool_context.root),
             verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),
             task_type=task_type,
+            background=background,
         )
         outcome = await run_agent(task, deps, history=history, plan_mode=mode is ApprovalMode.PLAN)
 

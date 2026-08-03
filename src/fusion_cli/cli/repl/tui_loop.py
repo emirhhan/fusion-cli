@@ -14,6 +14,7 @@ import sys
 
 from rich.console import Console
 
+from ...core.concurrency import BackgroundTasks
 from ...engines.agent.approval import ApprovalRequest
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
@@ -89,6 +90,9 @@ class _TuiSession:
         self._state = state
         self._registry = build_registry()
         self._task: asyncio.Task[None] | None = None
+        # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
+        # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
+        self._background = BackgroundTasks()
         self._tui = FusionTui(
             on_submit=self._submit,
             on_interrupt=self._interrupt,
@@ -102,6 +106,10 @@ class _TuiSession:
     @property
     def tui(self) -> FusionTui:
         return self._tui
+
+    @property
+    def background(self) -> BackgroundTasks:
+        return self._background
 
     def _submit(self, text: str) -> None:
         if self._busy:
@@ -216,6 +224,7 @@ class _TuiSession:
                     interactive=True,
                     memory=self._state.memory,
                     history=self._state.history,
+                    background=self._background,
                 )
                 self._state.history = outcome.messages
         finally:
@@ -233,6 +242,11 @@ async def run_tui_repl(state: ReplState, console: Console) -> int:
     session.tui.sync_conversation()
 
     await session.tui.application.run_async()
+
+    # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
+    await session.background.drain()
+    for failure in session.background.failures:
+        _logger.warning("arka plan işi başarısız: %s", failure)
 
     # Çıkışta konuşmayı gerçek terminale dök: tam-ekran kapanınca scrollback kaybolmasın.
     sys.stdout.write(session.tui.transcript)
