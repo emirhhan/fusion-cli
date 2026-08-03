@@ -32,6 +32,16 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
+## Davranış (friction) — kalan iş
+
+- **Çok-satırlı yapıştırma katlaması (TUI)**: Eski satır-içi mod uzun/çok-satırlı
+  yapıştırmayı tek satırlık yer tutucuya katlıyordu (`ReplInput.fold_paste_into`).
+  TUI girdisi şu an tek satır (`multiline=False`); kod yapıştıran kullanıcı için bu
+  "alışılanı bozan" bir durum. `BracketedPaste` yakalanıp aynı katlama TUI'ye taşınmalı.
+- `/provider`, `/development`, argümansız `/model`, `/profiles edit`, `/providers add`
+  hâlâ argüman ister (nested seçici/istem açacaklarından). Uygulama-içi seçim/istem
+  modaline (mevcut `await_choice`/`await_text`) taşınabilir.
+
 ## Ink-benzeri TUI geçişi — kalan işler
 
 Varsayılan REPL artık Ink-benzeri tek yol TUI'dir (`cli/repl/tui.py` + `tui_loop.py`).

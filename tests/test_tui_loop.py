@@ -138,6 +138,35 @@ async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):
     assert state.auto_profile is True
 
 
+async def test_mesgulken_gonderi_kuyruga_alinir(tmp_path):
+    """Tur çalışırken yazılan mesaj SESSİZCE DÜŞMEZ; kuyruğa alınır ve bildirilir."""
+    session = _TuiSession(_state(tmp_path))
+
+    async def _bekle() -> None:
+        await asyncio.sleep(10)
+
+    session._task = asyncio.ensure_future(_bekle())
+    session._submit("ikinci mesaj")
+
+    assert session._queue == ["ikinci mesaj"]
+    assert "sıraya alındı" in session.tui.transcript
+    session._task.cancel()
+
+
+async def test_kuyruk_tur_bitince_islenir(tmp_path):
+    """Bir tur bitince kuyruktaki sonraki satır kendiliğinden işlenir."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    session._queue = ["/agent"]
+
+    await session._handle("/fusion")  # bu tur biter, finally kuyruğu boşaltır
+    assert state.engine is Engine.FUSION
+
+    assert session._task is not None
+    await session._task  # kuyruktan gelen /agent
+    assert state.engine is Engine.AGENT
+
+
 def test_mesgulken_yeni_satir_gorev_baslatmaz(tmp_path):
     session = _TuiSession(_state(tmp_path))
 

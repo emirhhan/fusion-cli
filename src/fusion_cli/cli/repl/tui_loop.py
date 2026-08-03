@@ -111,6 +111,9 @@ class _TuiSession:
         self._state = state
         self._registry = build_registry()
         self._task: asyncio.Task[None] | None = None
+        # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
+        # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
+        self._queue: list[str] = []
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
         # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
         self._background = BackgroundTasks()
@@ -133,11 +136,15 @@ class _TuiSession:
         return self._background
 
     def _submit(self, text: str) -> None:
-        if self._busy:
-            return
         line = text.strip()
-        if line:
-            self._task = asyncio.ensure_future(self._handle(line))
+        if not line:
+            return
+        if self._busy:
+            # Tur çalışıyor: düşürme, kuyruğa al ve kullanıcıya kısaca bildir.
+            self._queue.append(line)
+            self._echo(f"[{theme.DIM}]{messages.TUI_QUEUED.format(line=line)}[/{theme.DIM}]")
+            return
+        self._task = asyncio.ensure_future(self._handle(line))
 
     def _interrupt(self) -> None:
         if self._busy and self._task is not None:
@@ -181,6 +188,9 @@ class _TuiSession:
             self._sync_status()
             if not self._state.running:
                 self._tui.request_exit()
+            elif self._queue:
+                # Bu tur bitti; kuyruktaki bir sonraki satırı işle (sıralı, tek sahip).
+                self._task = asyncio.ensure_future(self._handle(self._queue.pop(0)))
 
     async def _command(self, line: str) -> None:
         name, argument = parse(line)

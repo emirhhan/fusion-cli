@@ -94,6 +94,8 @@ WORK_TOKENS = "↑ {count} token"
 WORK_INTERRUPT = "durdurmak için Ctrl-C"
 #: TUI'de kesme ipucu — orada esc turu gerçekten keser.
 WORK_INTERRUPT_ESC = "durdurmak için esc"
+#: Tur çalışırken gönderilen satır kuyruğa alınınca gösterilen bildirim.
+TUI_QUEUED = "sıraya alındı: {line}"
 WORK_THINKING = "hazırlanıyor…"
 #: Görünür düşünme bloğunun başlığı (Claude Code "✻ Thinking…"). `/thinking` açıkken basılır.
 THINKING_HEADER = "düşünüyor…"
