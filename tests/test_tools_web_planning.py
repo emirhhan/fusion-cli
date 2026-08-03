@@ -10,6 +10,7 @@ from fusion_cli.tools.planning import parse_todos
 from fusion_cli.tools.web import (
     _DDG_RESULT,
     clean_result_url,
+    parse_bing_rss,
     parse_results,
     strip_html,
     url_block_reason,
@@ -79,6 +80,33 @@ def test_gecersiz_adresler_atlanir():
     html = '<a class="result__a" href="javascript:void(0)">Kotu</a>'
 
     assert parse_results(html, _DDG_RESULT) == []
+
+
+def test_bing_rss_ayristirilir():
+    xml = (
+        "<rss><channel>"
+        "<item><title>Baslik A</title><link>https://a.com</link></item>"
+        "<item><title>Baslik B</title><link>https://b.com</link></item>"
+        "</channel></rss>"
+    )
+
+    assert parse_bing_rss(xml) == ["• Baslik A\n  https://a.com", "• Baslik B\n  https://b.com"]
+
+
+def test_bing_rss_tekrar_ve_http_disi_atlanir():
+    xml = (
+        "<rss><channel>"
+        "<item><title>Bir</title><link>https://a.com</link></item>"
+        "<item><title>Kopya</title><link>https://a.com</link></item>"
+        "<item><title>Kotu</title><link>ftp://x</link></item>"
+        "</channel></rss>"
+    )
+
+    assert parse_bing_rss(xml) == ["• Bir\n  https://a.com"]
+
+
+def test_bing_rss_gecersiz_xml_bos_doner():
+    assert parse_bing_rss("<rss><channel><item>bozuk") == []
 
 
 # --- SSRF doğrulama (saf) --------------------------------------------------- #

@@ -184,6 +184,28 @@ def test_ornek_anahtar_izlemeyi_acmaz(monkeypatch):
     assert not LangfuseTracer(task="gorev").enabled
 
 
+def test_gercek_anahtar_ama_bayrak_yoksa_izleme_kapali(monkeypatch):
+    """Gerçek anahtarlar .env'de dursa bile FUSION_TRACING=1 olmadan izleme açılmaz."""
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-gercek123")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-gercek123")
+    monkeypatch.delenv("FUSION_TRACING", raising=False)
+
+    assert not is_configured()
+    assert (
+        LangfuseTracer(task="gorev").disabled_reason
+        == "izleme kapalı (FUSION_TRACING=1 ile açılır)"
+    )
+
+
+def test_gercek_anahtar_ve_bayrak_aciksa_izleme_yapilandirilmis(monkeypatch):
+    """Gerçek anahtar + FUSION_TRACING=1 → is_configured True (opt-in karşılandı)."""
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "pk-lf-gercek123")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "sk-lf-gercek123")
+    monkeypatch.setenv("FUSION_TRACING", "1")
+
+    assert is_configured()
+
+
 def test_kapali_izleme_olaylari_sessizce_yutar(monkeypatch):
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     tracer = LangfuseTracer(task="gorev")

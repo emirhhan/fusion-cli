@@ -207,19 +207,13 @@ def _post_search(url: str, query: str, pattern: re.Pattern[str]) -> list[str]:
         return parse_results(response.text, pattern)
 
 
-def _search_bing_rss(query: str) -> list[str]:
-    """Bing'in herkese açık RSS sonuç biçimini kazımasız bir yedek olarak ara.
+def parse_bing_rss(xml_text: str) -> list[str]:
+    """Bing RSS XML'inden "• başlık\\n  url" satırları çıkar (saf; ağ yok).
 
-    Uç yapılandırılmış XML döndürür; bu yüzden bir arama-sonucu HTML sınıf adına
-    bağlı kalmaktan daha dayanıklıdır. Hatalar `web_search` tarafından ele alınır ve
-    DuckDuckGo uçları sonrasında yine kullanılabilir kalır.
+    Geçersiz XML boş liste döndürür. Tekrar eden ve http olmayan bağlantılar atılır.
     """
-    url = f"https://www.bing.com/search?format=rss&q={quote_plus(query)}"
-    with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
-        response = client.get(url, headers={"User-Agent": _USER_AGENT})
-        response.raise_for_status()
     try:
-        root = ET.fromstring(response.text)
+        root = ET.fromstring(xml_text)
     except ET.ParseError:
         return []
     results: list[str] = []
@@ -234,6 +228,20 @@ def _search_bing_rss(query: str) -> list[str]:
         if len(results) >= MAX_WEB_RESULTS:
             break
     return results
+
+
+def _search_bing_rss(query: str) -> list[str]:
+    """Bing'in herkese açık RSS sonuç biçimini kazımasız bir yedek olarak ara.
+
+    Uç yapılandırılmış XML döndürür; bu yüzden bir arama-sonucu HTML sınıf adına
+    bağlı kalmaktan daha dayanıklıdır. Hatalar `web_search` tarafından ele alınır ve
+    DuckDuckGo uçları sonrasında yine kullanılabilir kalır.
+    """
+    url = f"https://www.bing.com/search?format=rss&q={quote_plus(query)}"
+    with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
+        response = client.get(url, headers={"User-Agent": _USER_AGENT})
+        response.raise_for_status()
+    return parse_bing_rss(response.text)
 
 
 def _search_html(query: str) -> list[str]:
