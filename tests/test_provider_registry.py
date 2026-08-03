@@ -125,3 +125,36 @@ def test_providers_yurutulmemis_saglayiciyi_framework_isaretler(state):
 
     mesaj = _run(state, "/providers")
     assert messages.PROVIDERS_FRAMEWORK in mesaj
+
+
+# --- genişletilmiş katalog (gerçek LiteLLM sağlayıcıları) ------------------ #
+
+
+def test_katalog_kapsamli_ve_tutarli():
+    ids = [p.id for p in BUILTIN_PROVIDERS]
+    assert len(BUILTIN_PROVIDERS) >= 40
+    assert len(set(ids)) == len(ids)  # kimlikler benzersiz
+    onekler = [p.model_prefix for p in BUILTIN_PROVIDERS if p.model_prefix]
+    assert len(set(onekler)) == len(onekler)  # önekler benzersiz
+
+
+def test_calisan_saglayicilarin_cogu_anahtar_ister():
+    calisan = [p for p in BUILTIN_PROVIDERS if p.implemented]
+    assert len(calisan) >= 40
+    # Anahtar isteyenler için ortam değişkeni adı tanımlı olmalı.
+    for p in calisan:
+        if p.auth_env is not None:
+            assert p.auth_env.strip() != ""
+
+
+def test_bilinen_saglayicilar_katalogda():
+    ids = {p.id for p in BUILTIN_PROVIDERS}
+    for beklenen in ("groq", "mistral", "deepseek", "xai", "together_ai", "bedrock", "ollama"):
+        assert beklenen in ids
+
+
+def test_yerel_saglayicilar_anahtarsiz():
+    for pid in ("ollama", "hosted_vllm", "lm_studio"):
+        p = next(x for x in BUILTIN_PROVIDERS if x.id == pid)
+        assert p.auth_env is None
+        assert p.is_configured({}) is True

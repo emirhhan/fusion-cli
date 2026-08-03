@@ -44,6 +44,9 @@ class ProviderKind(Enum):
     BROWSER_BACKED = "browser_backed"
     LOCAL = "local"
     AGGREGATOR = "aggregator"
+    #: Modalite türleri — sağlayıcı LLM değil, gömme/yeniden-sıralama sunar.
+    EMBEDDING = "embedding"
+    RERANK = "rerank"
 
 
 class OfficialStatus(Enum):
@@ -105,93 +108,118 @@ class ProviderDefinition:
         return bool(environ.get(self.auth_env, "").strip())
 
 
-#: Fusion'ın bugün TANIDIĞI sağlayıcılar. Liste körlemesine şişirilmez (gerçekçilik
-#: kuralı §22): yalnızca gerçekten desteklenen sağlayıcılar dürüst metadata ile.
-#: Web-session sağlayıcıları ayrı bir fazda, kendi yürütücüleriyle eklenecektir.
-BUILTIN_PROVIDERS: tuple[ProviderDefinition, ...] = (
-    ProviderDefinition(
-        id="openrouter",
-        name="OpenRouter",
-        kind=ProviderKind.AGGREGATOR,
-        official_status=OfficialStatus.OFFICIAL_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix=OPENROUTER_PREFIX,
-        auth_env=OPENROUTER_ENV,
+# Sağlayıcı tablosu — hepsi GERÇEK ve LiteLLM üzerinden çalışır (kullanıcı anahtarıyla).
+# Uydurma yok (§22): her satır LiteLLM'in tanıdığı bir önek + o sağlayıcının ortam
+# değişkeni adıdır. Fusion çağrıyı LiteLLM'e verir; anahtar varsa model yanıt verir.
+# Sütunlar: (id, ad, kind, resmiyet, model öneki, ortam değişkeni | None)
+_K = ProviderKind
+_S = OfficialStatus
+_API = _S.OFFICIAL_API
+_COMPAT = _S.COMPATIBLE_API
+
+_TABLE: tuple[tuple[str, str, ProviderKind, OfficialStatus, str, str | None], ...] = (
+    # Ürünün ücretsiz taban çizgisi
+    ("openrouter", "OpenRouter", _K.AGGREGATOR, _API, OPENROUTER_PREFIX, OPENROUTER_ENV),
+    ("nvidia_nim", "NVIDIA NIM", _K.API_KEY, _API, NIM_PREFIX, NIM_ENV),
+    # Büyük resmî API'ler
+    ("openai", "OpenAI", _K.API_KEY, _API, OPENAI_PREFIX, OPENAI_ENV),
+    ("anthropic", "Anthropic", _K.API_KEY, _API, ANTHROPIC_PREFIX, ANTHROPIC_ENV),
+    ("gemini", "Google Gemini", _K.API_KEY, _API, GEMINI_PREFIX, GEMINI_ENV),
+    ("azure", "Azure OpenAI", _K.API_KEY, _API, "azure/", "AZURE_API_KEY"),
+    ("azure_ai", "Azure AI", _K.API_KEY, _API, "azure_ai/", "AZURE_AI_API_KEY"),
+    (
+        "vertex_ai",
+        "Google Vertex AI",
+        _K.OAUTH,
+        _API,
+        "vertex_ai/",
+        "GOOGLE_APPLICATION_CREDENTIALS",
     ),
-    ProviderDefinition(
-        id="nvidia_nim",
-        name="NVIDIA NIM",
-        kind=ProviderKind.API_KEY,
-        official_status=OfficialStatus.OFFICIAL_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix=NIM_PREFIX,
-        auth_env=NIM_ENV,
-    ),
-    ProviderDefinition(
-        id="ollama",
-        name="Ollama (yerel)",
-        kind=ProviderKind.LOCAL,
-        # LiteLLM üzerinden OpenAI-uyumlu; anahtar gerekmez, çevrimdışı çalışır.
-        official_status=OfficialStatus.COMPATIBLE_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix="ollama/",
-        auth_env=None,
-    ),
-    # --- Resmî API sağlayıcıları: kullanıcı kendi anahtarıyla ekler. --------- #
-    # Ürünün ücretsiz taban çizgisine dahil DEĞİL; LiteLLM önekleri doğrudan çalıştırır.
-    ProviderDefinition(
-        id="openai",
-        name="OpenAI (resmî API)",
-        kind=ProviderKind.API_KEY,
-        official_status=OfficialStatus.OFFICIAL_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix=OPENAI_PREFIX,
-        auth_env=OPENAI_ENV,
-    ),
-    ProviderDefinition(
-        id="gemini",
-        name="Google Gemini (resmî API)",
-        kind=ProviderKind.API_KEY,
-        official_status=OfficialStatus.OFFICIAL_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix=GEMINI_PREFIX,
-        auth_env=GEMINI_ENV,
-    ),
-    ProviderDefinition(
-        id="anthropic",
-        name="Anthropic (resmî API)",
-        kind=ProviderKind.API_KEY,
-        official_status=OfficialStatus.OFFICIAL_API,
-        risk_level=RiskLevel.NORMAL,
-        model_prefix=ANTHROPIC_PREFIX,
-        auth_env=ANTHROPIC_ENV,
-    ),
-    # --- Web-session sağlayıcıları: FRAMEWORK düzeyinde tanınır, yürütücüsü YOK. --- #
-    # Gerçekçilik (§22): çalışan bir web adaptörü kırılgandır, sağlayıcı şartlarının
-    # incelenmesini ister ve dürüstçe "working" işaretlenemez. Bu yüzden `implemented=
-    # False` ve `disabled_by_default`: kullanıcı ne olduğunu görür, ama çağrı yapılamaz.
-    # CAPTCHA/anti-bot aşımı, izinsiz cookie okuma gibi şeyler YAPILMAZ.
-    ProviderDefinition(
-        id="chatgpt_web",
-        name="ChatGPT Web (deneysel)",
-        kind=ProviderKind.WEB_SESSION,
-        official_status=OfficialStatus.UNOFFICIAL_WEB,
-        risk_level=RiskLevel.DISABLED_BY_DEFAULT,
-        model_prefix="",
-        auth_env=None,
-        implemented=False,
-    ),
-    ProviderDefinition(
-        id="gemini_web",
-        name="Gemini Web (deneysel)",
-        kind=ProviderKind.WEB_SESSION,
-        official_status=OfficialStatus.UNOFFICIAL_WEB,
-        risk_level=RiskLevel.DISABLED_BY_DEFAULT,
-        model_prefix="",
-        auth_env=None,
-        implemented=False,
-    ),
+    ("bedrock", "AWS Bedrock", _K.API_KEY, _API, "bedrock/", "AWS_ACCESS_KEY_ID"),
+    ("sagemaker", "AWS SageMaker", _K.API_KEY, _API, "sagemaker/", "AWS_ACCESS_KEY_ID"),
+    ("mistral", "Mistral", _K.API_KEY, _API, "mistral/", "MISTRAL_API_KEY"),
+    ("codestral", "Mistral Codestral", _K.API_KEY, _API, "codestral/", "CODESTRAL_API_KEY"),
+    ("cohere", "Cohere", _K.API_KEY, _API, "cohere/", "COHERE_API_KEY"),
+    ("ai21", "AI21", _K.API_KEY, _API, "ai21/", "AI21_API_KEY"),
+    ("xai", "xAI (Grok)", _K.API_KEY, _API, "xai/", "XAI_API_KEY"),
+    ("deepseek", "DeepSeek", _K.API_KEY, _API, "deepseek/", "DEEPSEEK_API_KEY"),
+    ("moonshot", "Moonshot (Kimi)", _K.API_KEY, _API, "moonshot/", "MOONSHOT_API_KEY"),
+    ("dashscope", "Alibaba DashScope (Qwen)", _K.API_KEY, _API, "dashscope/", "DASHSCOPE_API_KEY"),
+    ("volcengine", "Volcengine", _K.API_KEY, _API, "volcengine/", "VOLCENGINE_API_KEY"),
+    # Hızlı çıkarım / GPU bulutları
+    ("groq", "Groq", _K.API_KEY, _API, "groq/", "GROQ_API_KEY"),
+    ("cerebras", "Cerebras", _K.API_KEY, _API, "cerebras/", "CEREBRAS_API_KEY"),
+    ("sambanova", "SambaNova", _K.API_KEY, _API, "sambanova/", "SAMBANOVA_API_KEY"),
+    ("together_ai", "Together AI", _K.AGGREGATOR, _API, "together_ai/", "TOGETHERAI_API_KEY"),
+    ("fireworks_ai", "Fireworks AI", _K.AGGREGATOR, _API, "fireworks_ai/", "FIREWORKS_AI_API_KEY"),
+    ("deepinfra", "DeepInfra", _K.AGGREGATOR, _API, "deepinfra/", "DEEPINFRA_API_KEY"),
+    ("anyscale", "Anyscale", _K.AGGREGATOR, _API, "anyscale/", "ANYSCALE_API_KEY"),
+    ("perplexity", "Perplexity", _K.API_KEY, _API, "perplexity/", "PERPLEXITYAI_API_KEY"),
+    ("replicate", "Replicate", _K.AGGREGATOR, _API, "replicate/", "REPLICATE_API_KEY"),
+    ("novita", "Novita AI", _K.AGGREGATOR, _API, "novita/", "NOVITA_API_KEY"),
+    ("baseten", "Baseten", _K.API_KEY, _API, "baseten/", "BASETEN_API_KEY"),
+    ("cloudflare", "Cloudflare Workers AI", _K.API_KEY, _API, "cloudflare/", "CLOUDFLARE_API_KEY"),
+    ("databricks", "Databricks", _K.API_KEY, _API, "databricks/", "DATABRICKS_API_KEY"),
+    ("watsonx", "IBM watsonx", _K.API_KEY, _API, "watsonx/", "WATSONX_APIKEY"),
+    ("clarifai", "Clarifai", _K.API_KEY, _API, "clarifai/", "CLARIFAI_API_KEY"),
+    ("friendliai", "FriendliAI", _K.API_KEY, _API, "friendliai/", "FRIENDLI_TOKEN"),
+    ("github", "GitHub Models", _K.API_KEY, _API, "github/", "GITHUB_API_KEY"),
+    ("nlp_cloud", "NLP Cloud", _K.API_KEY, _API, "nlp_cloud/", "NLP_CLOUD_API_KEY"),
+    ("huggingface", "Hugging Face", _K.AGGREGATOR, _API, "huggingface/", "HUGGINGFACE_API_KEY"),
+    # Yerel / kendi barındırdığın (anahtar gerekmez)
+    ("ollama", "Ollama (yerel)", _K.LOCAL, _COMPAT, "ollama/", None),
+    ("ollama_chat", "Ollama Chat (yerel)", _K.LOCAL, _COMPAT, "ollama_chat/", None),
+    ("hosted_vllm", "vLLM (yerel/uzak)", _K.LOCAL, _COMPAT, "hosted_vllm/", None),
+    ("lm_studio", "LM Studio (yerel)", _K.LOCAL, _COMPAT, "lm_studio/", None),
+    # Gömme / yeniden-sıralama (Fusion belleği ve arama için)
+    ("voyage", "Voyage AI (embedding)", _K.EMBEDDING, _API, "voyage/", "VOYAGE_API_KEY"),
+    ("jina_ai", "Jina AI (embedding/rerank)", _K.EMBEDDING, _API, "jina_ai/", "JINA_AI_API_KEY"),
 )
+
+#: Web-session sağlayıcıları: FRAMEWORK düzeyinde tanınır, yürütücüsü YOK (§22).
+#: Çalışan bir web adaptörü kırılgandır, sağlayıcı şartlarının incelenmesini ister ve
+#: dürüstçe "working" işaretlenemez; `implemented=False`, `disabled_by_default`.
+#: CAPTCHA/anti-bot aşımı, izinsiz cookie okuma YAPILMAZ.
+_WEB: tuple[tuple[str, str], ...] = (
+    ("chatgpt_web", "ChatGPT Web (deneysel)"),
+    ("gemini_web", "Gemini Web (deneysel)"),
+    ("claude_web", "Claude Web (deneysel)"),
+    ("copilot_web", "Microsoft Copilot Web (deneysel)"),
+)
+
+
+def _build_registry() -> tuple[ProviderDefinition, ...]:
+    api = tuple(
+        ProviderDefinition(
+            id=pid,
+            name=name,
+            kind=kind,
+            official_status=status,
+            risk_level=RiskLevel.NORMAL,
+            model_prefix=prefix,
+            auth_env=env,
+        )
+        for pid, name, kind, status, prefix, env in _TABLE
+    )
+    web = tuple(
+        ProviderDefinition(
+            id=pid,
+            name=name,
+            kind=ProviderKind.WEB_SESSION,
+            official_status=OfficialStatus.UNOFFICIAL_WEB,
+            risk_level=RiskLevel.DISABLED_BY_DEFAULT,
+            model_prefix="",
+            auth_env=None,
+            implemented=False,
+        )
+        for pid, name in _WEB
+    )
+    return api + web
+
+
+#: Fusion'ın TANIDIĞI sağlayıcılar. Hepsi gerçek: API'ler LiteLLM ile çalışır,
+#: web olanlar framework düzeyinde (adaptörü kullanıcı sağlar). Uydurma satır yok.
+BUILTIN_PROVIDERS: tuple[ProviderDefinition, ...] = _build_registry()
 
 
 def provider_for_model(
