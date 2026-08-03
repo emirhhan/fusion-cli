@@ -166,6 +166,67 @@ async def test_onbellek_ikinci_istekte_hit(tmp_path):
     assert r2.headers["x-fusion-cache"] == "HIT"
 
 
+# --- model kataloğu (otomatik listeleme) ---------------------------------- #
+
+
+def test_catalog_aggregate_tekiller_ve_ucretsizi_isaretler():
+    from fusion_cli.gateway.catalog_cache import CatalogModel, aggregate
+    from fusion_cli.providers.catalog import CatalogEntry
+
+    def free():
+        return (CatalogEntry("openrouter/a:free", "openrouter", 128000),)
+
+    def paid():
+        return (
+            CatalogEntry("openrouter/b", "openrouter", 200000),
+            CatalogEntry("openrouter/a:free", "openrouter", 128000),  # çift kayıt
+        )
+
+    out = aggregate(sources=((True, free), (False, paid)))
+    assert [m.id for m in out] == ["openrouter/a:free", "openrouter/b"]  # sıralı + tekil
+    ucretsiz = next(m for m in out if m.id == "openrouter/a:free")
+    assert isinstance(ucretsiz, CatalogModel) and ucretsiz.free is True
+
+
+def test_catalog_cache_ttl_ve_zorla_tazele():
+    from fusion_cli.gateway.catalog_cache import CatalogCache, CatalogModel
+
+    calls = {"n": 0}
+    now = {"t": 1000.0}
+
+    def agg():
+        calls["n"] += 1
+        return (CatalogModel("p/x", "p", True, 0),)
+
+    cache = CatalogCache(aggregator=agg, ttl_s=300.0, clock=lambda: now["t"])
+    cache.get()
+    cache.get()  # TTL içinde: tek çekim
+    assert calls["n"] == 1
+    now["t"] += 301
+    cache.get()  # TTL doldu: yeniden çekilir
+    assert calls["n"] == 2
+    cache.get(refresh=True)  # zorla tazele
+    assert calls["n"] == 3
+
+
+async def test_api_models_catalog_ucu(tmp_path):
+    from fusion_cli.gateway.catalog_cache import CatalogCache, CatalogModel
+
+    cache = CatalogCache(
+        aggregator=lambda: (CatalogModel("openrouter/x:free", "openrouter", True, 128000),)
+    )
+    app = GatewayApp(
+        make_config(),
+        provider_factory=lambda spec: FakeProvider("nvidia_nim/m", chunks=("x",)),
+        secret_store=_store(tmp_path),
+        catalog=cache,
+    )
+    async with _client(app) as client:
+        d = (await client.get("/api/models/catalog")).json()
+    assert d["count"] == 1
+    assert d["models"][0]["id"] == "openrouter/x:free" and d["models"][0]["free"] is True
+
+
 async def test_maskeleme_yanittaki_siri_gizler(tmp_path):
     # Model yanıtında bir API anahtarı deseni sızarsa maskelenir.
     app = _app(tmp_path, reply="anahtarın sk-abcdef0123456789ABCDEF budur")

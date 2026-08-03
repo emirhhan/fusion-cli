@@ -30,6 +30,7 @@ from ..providers.key_pool import KeyPoolRegistry
 from . import translate
 from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
+from .catalog_cache import CatalogCache
 from .routing import available_models, resolve_spec
 
 #: `build_provider` imzasının gateway'in ihtiyaç duyduğu sadeleştirilmiş hâli.
@@ -51,6 +52,7 @@ class GatewayApp:
         provider_factory: ProviderFactory | None = None,
         health: HealthRegistry | None = None,
         secret_store: FernetSecretStore | None = None,
+        catalog: CatalogCache | None = None,
     ) -> None:
         self._config = config
         self._health = health
@@ -67,6 +69,8 @@ class GatewayApp:
         self._analytics = Analytics()
         #: Tam-eşleşme prompt önbelleği (token/süre tasarrufu).
         self._cache = PromptCache()
+        #: Panel için birleşik model kataloğu (otomatik listeleme); TTL önbellekli.
+        self._catalog = catalog or CatalogCache()
 
     def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
         """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
@@ -111,6 +115,9 @@ class GatewayApp:
             return
         if method == "GET" and path == "/api/models":
             await self._models(send)
+            return
+        if method == "GET" and path == "/api/models/catalog":
+            await self._api_catalog(scope, send)
             return
         if method == "GET" and path == "/api/state":
             await self._api_state(send)
@@ -279,6 +286,34 @@ class GatewayApp:
         await _json(
             send,
             {"model": model, "strategy": self._strategy.value, "candidates": list(ordered)},
+        )
+
+    async def _api_catalog(self, scope: Scope, send: Send) -> None:
+        """Sağlayıcılardan gerçekten erişilebilen modeller (panelde açılır liste).
+
+        Katalog çekimi bloklayan (httpx) olduğu için olay döngüsünü bloklamamak
+        adına iş parçacığında çalıştırılır. `?refresh=1` önbelleği zorla tazeler.
+        """
+        import asyncio
+        from urllib.parse import parse_qs
+
+        params = parse_qs(scope.get("query_string", b"").decode())
+        refresh = params.get("refresh", ["0"])[0] in ("1", "true")
+        models = await asyncio.to_thread(self._catalog.get, refresh=refresh)
+        await _json(
+            send,
+            {
+                "count": len(models),
+                "models": [
+                    {
+                        "id": model.id,
+                        "provider": model.provider,
+                        "free": model.free,
+                        "context_length": model.context_length,
+                    }
+                    for model in models
+                ],
+            },
         )
 
     async def _api_export(self, send: Send) -> None:

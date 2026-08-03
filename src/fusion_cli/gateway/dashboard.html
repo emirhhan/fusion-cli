@@ -114,12 +114,25 @@
         <button onclick="saveRouting()">Kaydet</button>
       </div><div class="hint">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div></div>
 
+      <div class="card"><div class="row">
+        <span class="meta grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
+        <label class="meta" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
+        <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
+      </div></div>
+
+      <h2>Baş Model (agent)</h2>
+      <div class="hint">Zincirin ilk sırasındaki model baş modeldir — istekler önce ona gider.</div>
+      <div class="card"><div class="row">
+        <input id="agentHead" class="grow" list="catalogList" placeholder="baş modeli seç ya da yaz…" />
+        <button onclick="setHead()">Baş Yap</button>
+      </div></div>
+
       <h2>Fallback Zinciri (agent)</h2>
       <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
       <div class="card">
         <div id="chain"></div>
         <div class="row" style="margin-top:10px">
-          <input id="newModel" class="grow" placeholder="model kimliği ekle (ör. openrouter/…:free)" />
+          <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
           <button class="ghost" onclick="addChain()">+ ekle</button>
           <button onclick="saveFallback()">Zinciri Kaydet</button>
         </div>
@@ -130,12 +143,14 @@
       <div class="card">
         <div id="judge"></div>
         <div class="row" style="margin-top:10px">
-          <input id="newJudge" class="grow" placeholder="hakem modeli ekle" />
+          <input id="newJudge" class="grow" list="catalogList" placeholder="listeden seç ya da hakem modeli yaz…" />
           <button class="ghost" onclick="addJudge()">+ ekle</button>
           <button onclick="saveJudge()">Hakemi Kaydet</button>
         </div>
       </div>
     </div>
+
+    <datalist id="catalogList"></datalist>
 
     <!-- ANALİTİK -->
     <div class="panel" id="tab-analitik">
@@ -226,6 +241,7 @@
           <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms||0} ms</td><td>${m.samples}</td></tr>`).join("");
 
         $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
+        if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
         renderAnalytics(s.analytics || {});
         document.querySelector(".sub").textContent = "Yerel · yalnızca bu bilgisayar · v" + (s.version || "?");
       }
@@ -262,6 +278,30 @@
       function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
       function rmChain(i) { chain.splice(i, 1); renderChain(); }
       function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); $("newModel").value = ""; renderChain(); } }
+      function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
+
+      // --- model kataloğu (otomatik listeleme) --- //
+      let catalog = [];
+      function ctxLabel(n) { return n ? Math.round(n / 1000) + "k bağlam · " : ""; }
+      function renderCatalog() {
+        const onlyFree = $("catalogFree").checked;
+        const items = catalog.filter((m) => !onlyFree || m.free);
+        $("catalogList").innerHTML = items.map((m) =>
+          `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`).join("");
+        $("catalogCount").textContent = catalog.length + " model" + (onlyFree ? " (" + items.length + " ücretsiz)" : "");
+        // Playground listesini profiller + katalogla birleştir (tekilleştirilmiş).
+        const base = (STATE && STATE.models) || [];
+        const merged = [...new Set([...base, ...items.map((m) => m.id)])];
+        const cur = $("chatModel").value;
+        $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${m}</option>`).join("");
+      }
+      async function loadCatalog(refresh) {
+        try {
+          const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
+          catalog = d.models || []; renderCatalog();
+          if (refresh) toast(catalog.length + " model bulundu");
+        } catch (e) { /* katalog bir iyileştirmedir; sessizce geç */ }
+      }
 
       async function setKey(id) {
         const v = $("key-" + id).value.trim(); if (!v) return toast("anahtar boş", true);
@@ -285,7 +325,7 @@
       }
 
       async function load() { try { STATE = await fetch("/api/state").then((r) => r.json()); render(); } catch (e) { /* sunucu kapalı */ } }
-      load(); setInterval(() => { if (document.querySelector('.tab[data-tab="saglik"]').classList.contains("active") ||
+      load(); loadCatalog(false); setInterval(() => { if (document.querySelector('.tab[data-tab="saglik"]').classList.contains("active") ||
         document.querySelector('.tab[data-tab="analitik"]').classList.contains("active") ||
         document.querySelector('.tab[data-tab="genel"]').classList.contains("active")) load(); }, 5000);
     </script>

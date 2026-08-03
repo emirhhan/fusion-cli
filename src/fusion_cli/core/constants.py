@@ -32,6 +32,9 @@ SHELL_TIMEOUT_S = 120.0
 GIT_TIMEOUT_S = 30.0
 #: Web isteği için zaman aşımı (saniye).
 WEB_TIMEOUT_S = 20.0
+#: Panel model kataloğu önbellek ömrü (saniye). Katalog sık değişmez; her panel
+#: açılışında sağlayıcının /models ucunu dövmemek için 5 dakika tutulur.
+CATALOG_CACHE_TTL_S = 300.0
 #: Web aramasından döndürülecek en fazla sonuç.
 MAX_WEB_RESULTS = 8
 #: `web_fetch` için elle takip edilecek en fazla yönlendirme. Her adım SSRF'e karşı
