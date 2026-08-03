@@ -25,7 +25,10 @@ from ..core.types import ModelSpec
 from .chain import FallbackProvider
 from .circuit import CircuitBreakingProvider
 from .eventing import EventingProvider
+from .key_pool import KeyPoolRegistry
+from .key_rotation import KeyRotatingProvider
 from .litellm_provider import LiteLlmProvider, configure_litellm
+from .registry import provider_for_model
 from .retrying import wrap as wrap_with_retry
 
 
@@ -39,6 +42,7 @@ def build_provider(
     sleeper: Sleeper | None = None,
     background: bool = False,
     health: HealthRegistry | None = None,
+    key_pools: KeyPoolRegistry | None = None,
 ) -> LlmProvider:
     """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
 
@@ -55,7 +59,25 @@ def build_provider(
     (`runtime.retry_delays_s`) gelir. Boş liste "hiç yeniden deneme" demektir.
     """
     configure_litellm()
-    models = [LiteLlmProvider(model, role=spec.name, clock=clock) for model in spec.models]
+
+    def _leaf(model: str) -> LlmProvider:
+        # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
+        # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
+        if key_pools is not None:
+            definition = provider_for_model(model)
+            if definition is not None and definition.auth_env is not None:
+                pool = key_pools.for_env(definition.auth_env)
+                if pool.size > 1:
+                    return KeyRotatingProvider(
+                        lambda key: LiteLlmProvider(
+                            model, role=spec.name, clock=clock, api_key=key
+                        ),
+                        pool,
+                        label=model,
+                    )
+        return LiteLlmProvider(model, role=spec.name, clock=clock)
+
+    models = [_leaf(model) for model in spec.models]
     retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
     # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
     # devresi açık model çağrılmadan atlanır ve zincir sıradakine geçer. Verilmezse

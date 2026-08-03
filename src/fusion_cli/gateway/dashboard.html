@@ -147,7 +147,7 @@
           $("providers").innerHTML = providers
             .map(
               (p) => `<div class="card"><div class="top"><span class="name">${p.name}</span>${kindBadge(p)}</div>
-                <div class="meta">${p.kind} · ${p.status} · ${p.risk}</div></div>`
+                <div class="meta">${p.kind} · ${p.status} · ${p.risk}${p.keys > 1 ? ` · ${p.keys} hesap` : ""}</div></div>`
             )
             .join("");
 

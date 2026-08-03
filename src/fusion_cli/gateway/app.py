@@ -22,6 +22,7 @@ from ..core.protocols import LlmProvider
 from ..core.routing_strategy import order_models
 from ..core.types import CompletionRequest, ModelSpec, StreamDone, TextChunk
 from ..providers.factory import build_provider
+from ..providers.key_pool import KeyPoolRegistry
 from . import translate
 from .routing import available_models, resolve_spec
 
@@ -47,6 +48,7 @@ class GatewayApp:
         self._config = config
         self._health = health
         self._factory = provider_factory or self._default_factory
+        self._key_pools = _build_key_pools(config)
         self._strategy = config.runtime.routing_strategy
         #: round-robin/random için tur-ötesi durum (modül-global değil, örneğe bağlı).
         self._rotation = 0
@@ -70,6 +72,7 @@ class GatewayApp:
             publisher=None,
             retry_delays_s=self._config.runtime.retry_delays_s,
             health=self._health,
+            key_pools=self._key_pools,
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -163,12 +166,20 @@ class GatewayApp:
 # --------------------------------------------------------------------------- #
 
 
+def _build_key_pools(config: Config) -> KeyPoolRegistry:
+    """Ortamdaki çoklu anahtarlardan havuz kaydı kur (cooldown circuit'inkiyle aynı)."""
+    from ..config.keys import environ_snapshot
+
+    return KeyPoolRegistry(environ_snapshot(), cooldown_s=config.runtime.circuit_cooldown_s)
+
+
 def _error_body(message: str) -> dict[str, Any]:
     return {"error": {"message": message, "type": "invalid_request_error"}}
 
 
 def _providers_json() -> list[dict[str, Any]]:
     """Panel için sağlayıcı listesi: tür, resmiyet, risk, kurulu-mu, çalışır-mı."""
+    from ..config.key_pool import collect_keys
     from ..config.keys import environ_snapshot
     from ..providers.registry import BUILTIN_PROVIDERS
 
@@ -183,6 +194,8 @@ def _providers_json() -> list[dict[str, Any]]:
             "implemented": p.implemented,
             "configured": p.is_configured(environ) if p.implemented else False,
             "local": p.auth_env is None and p.implemented,
+            # Kaç hesap (anahtar) bağlı? Çok-hesap havuzunun panelde görünür hâli.
+            "keys": len(collect_keys(p.auth_env, environ)) if p.auth_env else 0,
         }
         for p in BUILTIN_PROVIDERS
     ]

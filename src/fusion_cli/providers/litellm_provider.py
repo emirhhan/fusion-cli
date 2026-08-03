@@ -72,10 +72,15 @@ def configure_litellm() -> None:
 class LiteLlmProvider:
     """Tek bir model kimliğine bağlı sağlayıcı."""
 
-    def __init__(self, model: str, *, role: str, clock: Clock | None = None) -> None:
+    def __init__(
+        self, model: str, *, role: str, clock: Clock | None = None, api_key: str | None = None
+    ) -> None:
         self._model = model
         self._role = role
         self._clock = clock or SystemClock()
+        #: Verilirse bu çağrıda ortam değişkeni yerine bu anahtar kullanılır (çok-hesap
+        #: havuzu). None ise LiteLLM ilgili sağlayıcının ortam değişkenini okur.
+        self._api_key = api_key
 
     @property
     def label(self) -> str:
@@ -120,6 +125,9 @@ class LiteLlmProvider:
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             kwargs["tool_choice"] = "auto"
+        if self._api_key is not None:
+            # Havuzdan gelen anahtar ortam değişkenini geçersiz kılar (çok-hesap).
+            kwargs["api_key"] = self._api_key
         if request.reasoning_effort is not None:
             # Üst katman değeri yalnızca reasoning destekleyen modelde ayarlar; yine de
             # `litellm.drop_params` desteklemeyen uçta bu parametreyi güvenle düşürür.
