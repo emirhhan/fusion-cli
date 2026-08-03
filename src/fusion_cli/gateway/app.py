@@ -15,7 +15,10 @@ import json
 import random
 from collections.abc import Awaitable, Callable
 from dataclasses import replace as _dc_replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
+    from ..providers.registry import ProviderDefinition
 
 from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
@@ -534,11 +537,30 @@ def _providers_json() -> list[dict[str, Any]]:
             "implemented": p.implemented,
             "configured": p.is_configured(environ) if p.implemented else False,
             "local": p.auth_env is None and p.implemented,
+            # Panel sağlayıcıları kategoriye göre gruplar; hepsi tek yığında göz yorar.
+            "category": _provider_category(p),
             # Kaç hesap (anahtar) bağlı? Çok-hesap havuzunun panelde görünür hâli.
             "keys": len(collect_keys(p.auth_env, environ)) if p.auth_env else 0,
         }
         for p in BUILTIN_PROVIDERS
     ]
+
+
+#: Sağlayıcı türü → panel kategorisi (basit, göz yormayan gruplar).
+_CATEGORY_BY_KIND = {
+    "local": "Yerel",
+    "web_session": "Web oturumu",
+    "browser_backed": "Web oturumu",
+    "oauth": "OAuth",
+    "cli_oauth": "OAuth",
+}
+
+
+def _provider_category(provider: ProviderDefinition) -> str:
+    """Panel için sağlayıcı kategorisi: uygulanmamışsa 'Yakında', yoksa türüne göre."""
+    if not provider.implemented:
+        return "Yakında"
+    return _CATEGORY_BY_KIND.get(provider.kind.value, "API anahtarı")
 
 
 def _dashboard_html() -> str:

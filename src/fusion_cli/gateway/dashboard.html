@@ -70,8 +70,21 @@
       input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); }
       textarea { resize: vertical; line-height: 1.5; }
       textarea::placeholder, input::placeholder { color: var(--faint); }
+      /* Kategori çipleri: sağlayıcıları gruba göre süzer (OmniRoute benzeri). */
+      .cat-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+      .cat-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px;
+        border: 1px solid var(--border); background: var(--surface); color: var(--dim); cursor: pointer;
+        font-size: 13px; font-weight: 600; user-select: none; transition: border-color .15s, color .15s; }
+      .cat-chip:hover { border-color: var(--faint); color: var(--text); }
+      .cat-chip.active { border-color: var(--accent2); color: var(--text); background: var(--accent-soft); }
+      .cat-chip .count { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+      .cat-chip.active .count { color: var(--accent); }
+      /* Kategori grubu başlığı (çip filtresi "hepsi" iken). */
+      .cat-group-title { font-size: 13px; font-weight: 700; color: var(--dim); text-transform: uppercase;
+        letter-spacing: .08em; margin: 18px 0 10px; }
+      .cat-group-title:first-child { margin-top: 4px; }
       /* Sağlayıcı ızgarası: kare kare tile'lar; tıklayınca anahtar girişi açılır. */
-      .provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+      .provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
       .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; transition: border-color .15s; }
       .pcard.keyed { cursor: pointer; } .pcard.keyed:hover { border-color: var(--faint); }
       .pcard.open { border-color: var(--accent2); cursor: default; }
@@ -189,10 +202,11 @@
           <!-- ANAHTARLAR -->
           <div class="panel" id="tab-anahtar">
             <div class="hint" id="secretHint"></div>
-            <div class="row" style="margin-bottom:12px">
-              <input id="providerSearch" class="grow" placeholder="🔍 sağlayıcı ara…" oninput="filterProviders()" />
+            <div class="row" style="margin-bottom:14px">
+              <input id="providerSearch" class="grow" placeholder="🔍 sağlayıcı ara…" oninput="renderProviders()" />
             </div>
-            <div id="providers" class="provider-grid"></div>
+            <div id="catChips" class="cat-chips"></div>
+            <div id="providers"></div>
           </div>
 
           <!-- YÖNLENDİRME -->
@@ -301,14 +315,49 @@
         catch (e) { toast("kopyalanamadı: " + url, true); }
       }
 
-      // Sağlayıcı ızgarasını ada göre canlı filtrele (arama kutusu).
-      function filterProviders() {
-        const q = $("providerSearch").value.trim().toLowerCase();
-        document.querySelectorAll("#providers .pcard").forEach((c) => {
-          const name = (c.dataset.name || "").toLowerCase();
-          c.style.display = !q || name.includes(q) ? "" : "none";
-        });
+      // Seçili kategori ("" = hepsi). Çip tıklamasıyla değişir.
+      let activeCategory = "";
+      // OmniRoute benzeri kategori sırası; listede olmayan kategori sona eklenir.
+      const CATEGORY_ORDER = ["API anahtarı", "Web oturumu", "OAuth", "Yerel", "Yakında"];
+
+      function categoryOrder(name) {
+        const i = CATEGORY_ORDER.indexOf(name);
+        return i === -1 ? CATEGORY_ORDER.length : i;
       }
+
+      // Sağlayıcıları kategoriye göre gruplayıp render et; arama + kategori çipiyle süz.
+      function renderProviders() {
+        const s = STATE; if (!s) return;
+        const q = $("providerSearch").value.trim().toLowerCase();
+        const providers = s.providers.filter((p) =>
+          (!q || p.name.toLowerCase().includes(q)) &&
+          (!activeCategory || p.category === activeCategory));
+
+        renderCatChips(s.providers);
+
+        // Kategoriye göre grupla, sıralı bas. "Hepsi" görünümünde grup başlıkları ekle.
+        const groups = {};
+        for (const p of providers) (groups[p.category] ||= []).push(p);
+        const names = Object.keys(groups).sort((a, b) => categoryOrder(a) - categoryOrder(b));
+        const showTitles = !activeCategory && names.length > 1;
+        $("providers").innerHTML = names.map((cat) =>
+          (showTitles ? `<div class="cat-group-title">${cat}</div>` : "") +
+          `<div class="provider-grid">${groups[cat].map(providerCard).join("")}</div>`
+        ).join("") || `<div class="hint">eşleşen sağlayıcı yok</div>`;
+      }
+
+      // Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
+      function renderCatChips(all) {
+        const counts = {};
+        for (const p of all) counts[p.category] = (counts[p.category] || 0) + 1;
+        const cats = Object.keys(counts).sort((a, b) => categoryOrder(a) - categoryOrder(b));
+        const chip = (label, key, n) =>
+          `<div class="cat-chip ${activeCategory === key ? "active" : ""}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></div>`;
+        $("catChips").innerHTML =
+          chip("Hepsi", "", all.length) + cats.map((c) => chip(c, c, counts[c])).join("");
+      }
+
+      function setCategory(cat) { activeCategory = cat; renderProviders(); }
       async function post(url, body) {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || "hata"); return d;
@@ -352,8 +401,7 @@
         $("secretHint").textContent = s.secret_ready
           ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
           : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
-        $("providers").innerHTML = s.providers.map(providerCard).join("");
-        filterProviders();  // yenilemeden sonra arama filtresini koru
+        renderProviders();  // kategori + arama filtresiyle grupla
 
         const sel = $("strategy"); sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
         chain = s.fallback.slice(); renderChain();
