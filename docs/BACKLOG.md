@@ -32,8 +32,23 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
-## Web-AI sağlayıcı — devreye alma (güvenlik-hassas, ayrı faz)
+## Web-AI sağlayıcı — DEVREYE ALINDI (kalan küçük işler)
 
+TAMAM: genel OpenAI-uyumlu transport (`providers/web_transport.py`), config alanı
+(`web_sessions`), `WebSessionRegistry` (token yalnız env'den), factory bağlama ve
+ana yollar (agent loop, fusion candidates/judge/synthesis, gateway). Kullanıcı
+`defaults.yaml`'daki `web_sessions:` örneğiyle kendi yetkili OpenAI-uyumlu ucunu bir
+modelmiş gibi role/zincire koyabilir. Uçtan uca test + smoke doğrulandı.
+
+Kalan küçük işler:
+- **Arka plan yardımcı çağrıları** (`review`, `compaction`, `learning`, `visual_verify`)
+  hâlâ `web_sessions` almıyor; bunlar hakem/yardımcı modeli kullanır. Kullanıcı yardımcı
+  rolü bir web ucuna atarsa bu yollar API'ye düşer. Aynı `web_registry_for(config)` bir
+  satırla eklenebilir.
+- **Panel kartı**: "Sağlayıcılar" sekmesine web-session ekleme/silme kartı (endpoint +
+  auth_env). Şu an config dosyasından tanımlanıyor.
+
+### Eski not (referans) — devreye alma planı
 Çerçeve HAZIR (`providers/web_session.py`: `WebProviderAdapter`, `WebSessionCredential`,
 enjekte edilebilir `WebTransport`; registry'de `WEB_SESSION`). EKSİK olan, factory'ye
 bağlama ve gerçek bir transport. Güvenlik-hassas olduğu için kendi fazında yapılmalı:
