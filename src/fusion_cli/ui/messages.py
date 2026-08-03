@@ -320,6 +320,20 @@ LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
 LEVEL_SAVED = "kaydedildi: {path}"
 LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
 
+# --- Profil editörü (/profiles) -------------------------------------------- #
+PROFILES_HEADER = "profiller (kademe · baş model):"
+PROFILES_ROW = "  {name}  →  {model}"
+PROFILES_EMPTY = "tanımlı profil yok."
+PROFILES_EDIT_TITLE = "'{name}' profilinin baş modelini seç"
+PROFILES_APPLIED = "profil '{name}' güncellendi  ·  baş model: {model}"
+PROFILES_UNKNOWN = "'{name}' adlı profil yok. Geçerli: {known}"
+PROFILES_INCOMPATIBLE = "UYUMSUZ — {reason}"
+PROFILES_NO_ELIGIBLE = (
+    "'{name}' için uygun aday yok. Uyumsuzları görmek için: /profiles edit {name} incompatible"
+)
+PROFILES_EDIT_USAGE = "kullanım: /profiles  ·  /profiles edit <profil> [incompatible]"
+CMD_PROFILES = "profilleri gör / düzenle: /profiles · /profiles edit <profil> [incompatible]"
+
 # --- Execution profili (/mode) --------------------------------------------- #
 MODE_TITLE = "Çalışma profili seç"
 MODE_AUTO_LABEL = "auto"

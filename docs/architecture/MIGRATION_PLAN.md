@@ -149,3 +149,9 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
 - Canonical katman ZATEN `core.types` (SDK sızmaz, RULES). Paralel `Canonical*` ailesi
   kurulmadı (ikinci yol). LiteLLM + web_session adaptörleri translator'dır. Bkz.
   `CANONICAL_PROTOCOL.md`.
+
+### Ek — /profiles editörü + katalog genişletme ✅
+- `providers/registry.py` 48 sağlayıcıya çıktı (44 çalışır, LiteLLM ile). Uydurma yok.
+- `cli/repl/profiles_flow.py` + `/profiles`: profilleri listeler; `/profiles edit <profil>
+  [incompatible]` baş modeli **uygunluk-filtreli** seçim ekranından değiştirir. Bu, Faz 2b'de
+  ertelenen "hedef-profile hard filtre + uyumsuzları göster + red gerekçesi" işini TAMAMLAR.

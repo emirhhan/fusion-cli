@@ -23,7 +23,7 @@ from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS
 from ...ui import messages
-from . import macros, model_flows, provider_flow, verify_flow
+from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
@@ -225,6 +225,22 @@ def _level(state: ReplState, argument: str) -> str:
         except ConfigError as error:
             return str(error)
         result = model_flows.applied_result(updated, wanted)
+    state.config = result.config
+    return result.message
+
+
+def _profiles(state: ReplState, argument: str) -> str:
+    """`/profiles` — profilleri gör; `/profiles edit <profil> [incompatible]` baş modeli düzenle."""
+    parts = argument.split()
+    if not parts:
+        return profiles_flow.list_profiles(state.config)
+    if parts[0].lower() != "edit" or len(parts) < 2:
+        return messages.PROFILES_EDIT_USAGE
+    tier_name = parts[1]
+    show_incompatible = len(parts) > 2 and parts[2].lower() == "incompatible"
+    result = profiles_flow.edit_profile_primary(
+        state.config, tier_name, show_incompatible=show_incompatible
+    )
     state.config = result.config
     return result.message
 
@@ -476,6 +492,9 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
+    SlashCommand(
+        "profiles", messages.CMD_PROFILES, _profiles, group="Model", usage="[edit <profil>]"
+    ),
     SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
