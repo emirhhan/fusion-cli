@@ -338,6 +338,8 @@ async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
             health=state.health,
         )
     finally:
+        # İptal/hata halinde de canlı gösterge durmalı; yoksa "hazırlanıyor…" dönmeye devam eder.
+        renderer.abort()
         tracer.flush()
     state.last_fusion = result
 
@@ -389,21 +391,25 @@ async def _agent_turn(
             task_type=state.task_type,
             health=state.health,
         )
-        outcome = await _drive_agent(
-            run_agent,
-            line,
-            deps,
-            state,
-            console,
-            plan_mode=state.approval.value == "plan",
-            extra_system=macros.mode_prompt(mode),
-            step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
-        )
-        # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
-        state.last_changes = tool_context.changes
-        if not outcome.final_text.strip():
-            bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
-        bus.publish(TurnFinished())
+        try:
+            outcome = await _drive_agent(
+                run_agent,
+                line,
+                deps,
+                state,
+                console,
+                plan_mode=state.approval.value == "plan",
+                extra_system=macros.mode_prompt(mode),
+                step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
+            )
+            # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
+            state.last_changes = tool_context.changes
+            if not outcome.final_text.strip():
+                bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
+            bus.publish(TurnFinished())
+        finally:
+            # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı.
+            renderer.abort()
     tracer.flush()
     state.history = outcome.messages
 

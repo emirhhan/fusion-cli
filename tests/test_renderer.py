@@ -324,6 +324,30 @@ def test_dusunme_blogu_olmadan_metin_aynen_akar():
     assert buffer.getvalue().splitlines()[0] == f"{MARK} duz cevap"
 
 
+# --- İptal (Ctrl-C / esc) temizliği -------------------------------------------- #
+
+
+def test_abort_calisma_gostergesini_durdurur():
+    """Tur kesilince canlı gösterge dönmeye devam etmemeli."""
+    renderer, _ = _renderer()
+    renderer.handle(ModelCallStarted(role="agent", model="m"))
+    assert renderer._work.running
+
+    renderer.abort()
+
+    assert not renderer._work.running
+
+
+def test_abort_yarim_akan_cevabi_korur():
+    """İptal edilse de o ana kadar akan cevap ekranda kalmalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "yarim cevap"))
+    renderer.abort()
+
+    assert "yarim cevap" in buffer.getvalue()
+
+
 # --- Görünür düşünme bloğu (/thinking) ---------------------------------------- #
 
 

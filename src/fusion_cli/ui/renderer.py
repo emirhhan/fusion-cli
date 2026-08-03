@@ -183,6 +183,20 @@ class ConsoleRenderer:
         self._console.print(line)
         self._console.print()
 
+    def abort(self) -> None:
+        """Tur iptal/hata ile bitti: canlı göstergeyi ANINDA durdur, özet BASMA.
+
+        `TurnFinished` yayınlanmadan (Ctrl-C/esc ile) tur kesilirse çalışma göstergesinin
+        Rich `Live`'ı durdurulmadan kalıyor ve "hazırlanıyor…" satırı dönmeye devam
+        ediyordu. Burada gösterge kesin durdurulur, geri tutulan son parça boşaltılır ve
+        yarım satır kapatılır. Normal bitişte `TurnFinished` zaten temizlediği için bu
+        çağrı etkisizdir (idempotent)."""
+        self._flush_streams()
+        self._close_line()
+        # Live'ı durdurur; iptal edilmiş turda süre/token özeti anlamlı değil, yok sayılır.
+        self._work.finish()
+        self._active_channel = None
+
     @contextlib.contextmanager
     def suspended(self) -> Iterator[None]:
         """Canlı çalışma göstergesini bir etkileşim boyunca duraklat.
