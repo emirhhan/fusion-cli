@@ -324,6 +324,53 @@ def test_dusunme_blogu_olmadan_metin_aynen_akar():
     assert buffer.getvalue().splitlines()[0] == f"{MARK} duz cevap"
 
 
+# --- Görünür düşünme bloğu (/thinking) ---------------------------------------- #
+
+
+def _thinking_renderer():
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    return ConsoleRenderer(console, show_thinking=True), buffer
+
+
+def test_thinking_acikken_dusunme_gorunur_ve_cevaptan_ayrisir():
+    renderer, buffer = _thinking_renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>plan kuruyorum</think>Cevap: 42\n"))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "plan kuruyorum" in cikti  # gizlenmedi
+    assert "Cevap: 42" in cikti
+    assert theme.ICON_SPARKLE in cikti  # düşünme başlığı basıldı
+    # Düşünme başlığı cevabın ÖNÜNDE gelir.
+    assert cikti.index("plan kuruyorum") < cikti.index("Cevap: 42")
+
+
+def test_thinking_kapaliyken_dusunme_yine_gizli():
+    """Varsayılan kapalı: kullanıcının alıştığı sade akış korunur."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "<think>gizli</think>Cevap\n"))
+    renderer.handle(TurnFinished())
+
+    assert "gizli" not in buffer.getvalue()
+
+
+def test_thinking_parca_parca_gelse_de_sizmaz_ve_gorunur():
+    renderer, buffer = _thinking_renderer()
+
+    for parca in ("<th", "ink>ara ", "plan</thi", "nk>Son cevap\n"):
+        renderer.handle(TokenReceived(Channel.MAIN, parca))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "ara plan" in cikti
+    assert "Son cevap" in cikti
+    # Etiket parçaları ekrana sızmamalı.
+    assert "<th" not in cikti and "</thi" not in cikti
+
+
 # --- Çalışma göstergesi ile akış çakışması ------------------------------------ #
 
 

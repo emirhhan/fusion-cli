@@ -2,7 +2,34 @@
 
 from __future__ import annotations
 
-from fusion_cli.ui.text import format_model
+from fusion_cli.ui.text import format_model, segment, strip_thinking
+
+
+def test_segment_gorunur_ve_dusunme_parcalarina_ayirir():
+    parts = segment("onsoz <think>gizli</think>sonrasi")
+
+    assert [(p.is_thinking, p.text) for p in parts] == [
+        (False, "onsoz "),
+        (True, "gizli"),
+        (False, "sonrasi"),
+    ]
+
+
+def test_segment_akista_yarim_etiketi_geri_tutar():
+    """`<th` sona gelirse görünür kısımda sızmaz; akış bitince serbest kalır."""
+    tutulan = segment("abc<th", streaming=True)
+    serbest = segment("abc<th", streaming=False)
+
+    assert [(p.is_thinking, p.text) for p in tutulan] == [(False, "abc")]
+    assert [(p.is_thinking, p.text) for p in serbest] == [(False, "abc<th")]
+
+
+def test_strip_thinking_segment_uzerinden_tutarli():
+    """Aynı gramerden beslendiği için ikisi aynı görünür metni verir."""
+    ham = "onsoz <think>ara</think>sonrasi"
+    gorunur = "".join(p.text for p in segment(ham) if not p.is_thinking)
+
+    assert strip_thinking(ham) == gorunur == "onsoz sonrasi"
 
 
 def test_uc_parcali_kimlikte_aradaki_satici_atilir():

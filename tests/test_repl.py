@@ -172,6 +172,16 @@ def test_tum_cevaplar_ac_kapa(registry, state):
     assert not state.show_all_answers
 
 
+def test_thinking_ac_kapa(registry, state):
+    assert not state.show_thinking  # varsayılan gizli
+
+    _calistir(registry, state, "/thinking")
+    assert state.show_thinking
+
+    _calistir(registry, state, "/thinking")
+    assert not state.show_thinking
+
+
 def test_sentez_yapilandirmadan_baslar_ve_terslenir(registry, state):
     assert state.synthesis is None  # yapılandırmadaki değer geçerli
 

@@ -354,7 +354,7 @@ async def _agent_turn(
     from ...engines.agent.loop import AgentDeps
     from ...engines.agent.verification import build_verifier
 
-    renderer = ConsoleRenderer(console)
+    renderer = ConsoleRenderer(console, show_thinking=state.show_thinking)
     tracer = LangfuseTracer(task=line)
     async with EventBus() as bus:
         bus.subscribe(renderer)

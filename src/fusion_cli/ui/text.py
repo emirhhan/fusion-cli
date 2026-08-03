@@ -16,33 +16,68 @@ Akışta ayıklama iki yerde zorlaşır ve ikisi de burada ele alınır:
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 THINK_OPEN = "<think>"
-_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL)
+THINK_CLOSE = "</think>"
+
+
+@dataclass(frozen=True, slots=True)
+class Segment:
+    """Metnin bir parçası ve düşünme (`<think>…`) içeriği olup olmadığı."""
+
+    is_thinking: bool
+    text: str
+
+
+def segment(text: str, *, streaming: bool = False) -> list[Segment]:
+    """Metni SIRAYLA görünür ve düşünme parçalarına ayır (tek gramer kaynağı).
+
+    Hem gizleme (`strip_thinking`) hem gösterme (görünür thinking bloğu) bu tek
+    ayrıştırmadan beslenir; `<think>`/`</think>` grameri iki ayrı yerde tekrar edilmez.
+
+    `streaming=True` iken sondaki, bir etiketin yarısı olabilecek parça geri tutulur:
+    ne `<th` ekrana sızar ne de `</thi`. Akış bitince `streaming=False` ile çağır;
+    geri tutulan varsa serbest bırakılır.
+    """
+    segments: list[Segment] = []
+    index = 0
+    total = len(text)
+    in_thinking = False
+    while index < total:
+        tag = THINK_CLOSE if in_thinking else THINK_OPEN
+        found = text.find(tag, index)
+        if found != -1:
+            _append(segments, in_thinking, text[index:found])
+            index = found + len(tag)
+            in_thinking = not in_thinking
+            continue
+        rest = text[index:]
+        if streaming:
+            # Aradığımız etiketin yarısı sonda kalmış olabilir (`<th`, `</thi`); geri tut.
+            pending = _pending_tag_length(rest, tag)
+            if pending:
+                rest = rest[:-pending]
+        _append(segments, in_thinking, rest)
+        break
+    return segments
 
 
 def strip_thinking(text: str, *, streaming: bool = False) -> str:
-    """Görünür metni düşünme bloklarından arındır.
-
-    `streaming=True` iken, tamamlanmamış bir açılış etiketi olabilecek son parça da
-    geri tutulur. Akış bittiğinde `streaming=False` ile çağır: geri tutulan varsa
-    serbest bırakılır.
-    """
-    visible = _THINK_BLOCK.sub("", text)
-    opening = visible.find(THINK_OPEN)
-    if opening != -1:
-        return visible[:opening]
-    if streaming:
-        pending = _pending_open_length(visible)
-        if pending:
-            return visible[:-pending]
-    return visible
+    """Görünür metni düşünme bloklarından arındır (tek gramer: `segment`)."""
+    return "".join(part.text for part in segment(text, streaming=streaming) if not part.is_thinking)
 
 
-def _pending_open_length(text: str) -> int:
-    """Metnin sonundaki, `<think>` etiketinin başlangıcı olabilecek parçanın uzunluğu."""
-    for length in range(min(len(THINK_OPEN) - 1, len(text)), 0, -1):
-        if text.endswith(THINK_OPEN[:length]):
+def _append(segments: list[Segment], is_thinking: bool, text: str) -> None:
+    """Boş olmayan parçayı listeye ekle."""
+    if text:
+        segments.append(Segment(is_thinking=is_thinking, text=text))
+
+
+def _pending_tag_length(text: str, tag: str) -> int:
+    """Metnin sonundaki, `tag` etiketinin başlangıcı olabilecek parçanın uzunluğu."""
+    for length in range(min(len(tag) - 1, len(text)), 0, -1):
+        if text.endswith(tag[:length]):
             return length
     return 0
 

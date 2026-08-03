@@ -52,7 +52,7 @@ from ..core.types import FusionResult
 from . import messages, theme
 from .diff import render_diff
 from .fusion_view import render_fusion_result
-from .text import format_duration, format_model, strip_thinking, summarize_error
+from .text import format_duration, format_model, segment, strip_thinking, summarize_error
 from .work import WorkIndicator
 
 _CHANNEL_LABELS = {
@@ -71,11 +71,15 @@ class ConsoleRenderer:
         show_progress: bool = True,
         show_all_answers: bool = False,
         show_call_details: bool = False,
+        show_thinking: bool = False,
         live_progress: bool = True,
     ) -> None:
         self._console = console or Console()
         self._show_progress = show_progress
         self._show_all_answers = show_all_answers
+        # Açıkken model düşünmesi (`<think>…`) gizlenmez; Claude Code gibi sönük bir
+        # blok olarak akıtılır. Varsayılan kapalı — kullanıcının alıştığı sade akış korunur.
+        self._show_thinking = show_thinking
         # Fusion'da hangi adayın ne kadar sürdüğü bilgi verir; agent'ta her adım
         # için satır basmak tur özetiyle çakışır ve gürültü olur.
         self._show_call_details = show_call_details
@@ -201,6 +205,9 @@ class ConsoleRenderer:
         # Bekleyen durum satırı cevabın ÖNÜNE basılmalı; sıra bozulmamalı.
         self._flush_status()
         self._raw[channel] = self._raw.get(channel, "") + text
+        if self._show_thinking:
+            self._pump_thinking(channel, streaming=True)
+            return
         visible = strip_thinking(self._raw[channel], streaming=True)
         shown = self._shown.get(channel, 0)
         if len(visible) <= shown:
@@ -224,14 +231,65 @@ class ConsoleRenderer:
         Akış sırasında `<think>` etiketinin başlangıcı olabilecek parça geri
         tutulur; tur bitince bu belirsizlik ortadan kalkar.
         """
-        for channel, raw in self._raw.items():
-            visible = strip_thinking(raw)
-            shown = self._shown.get(channel, 0)
-            if len(visible) > shown:
-                self._console.out(visible[shown:], end="", highlight=False)
-                self._line_open = not visible.endswith("\n")
+        if self._show_thinking:
+            for channel in self._raw:
+                self._pump_thinking(channel, streaming=False)
+        else:
+            for channel, raw in self._raw.items():
+                visible = strip_thinking(raw)
+                shown = self._shown.get(channel, 0)
+                if len(visible) > shown:
+                    self._console.out(visible[shown:], end="", highlight=False)
+                    self._line_open = not visible.endswith("\n")
         self._raw.clear()
         self._shown.clear()
+
+    # -- Görünür düşünme akışı (opsiyonel) ---------------------------------- #
+
+    def _pump_thinking(self, channel: Channel, *, streaming: bool) -> None:
+        """`<think>` bloklarını gizlemek yerine sönük, görünür bir akış olarak bas.
+
+        Ham tampon her seferinde sıralı parçalara ayrılır; yalnızca daha önce
+        basılmamış kuyruk yazılır. Böylece düşünme ve cevap, geliş sırasını koruyarak
+        farklı stillerle akar: düşünme sönük italik, cevap normal madde işaretiyle.
+        """
+        parts = segment(self._raw.get(channel, ""), streaming=streaming)
+        shown = self._shown.get(channel, 0)
+        cursor = 0
+        for part in parts:
+            start = cursor
+            cursor += len(part.text)
+            if cursor <= shown:
+                continue
+            fresh = part.text[max(0, shown - start) :]
+            if not fresh:
+                continue
+            if part.is_thinking:
+                self._emit_thinking(channel, fresh, new_block=start >= shown)
+            else:
+                self._emit_visible(channel, fresh)
+        self._shown[channel] = cursor
+
+    def _emit_thinking(self, channel: Channel, fresh: str, *, new_block: bool) -> None:
+        """Düşünme metnini sönük italik olarak bas; blok başında başlık koy."""
+        if new_block:
+            self._close_line()
+            self._console.print(
+                f"[{theme.DIM}]{theme.ICON_SPARKLE} {messages.THINKING_HEADER}[/{theme.DIM}]"
+            )
+            # Blok bittikten sonra cevap YENİDEN kendi madde işaretiyle başlamalı.
+            self._active_channel = None
+        self._console.out(fresh, end="", highlight=False, style=f"{theme.DIM} italic")
+        self._line_open = not fresh.endswith("\n")
+
+    def _emit_visible(self, channel: Channel, fresh: str) -> None:
+        """Görünür cevabı normal stille bas (madde işareti / kanal başlığıyla)."""
+        if channel is not self._active_channel:
+            self._close_line()
+            self._channel_header(channel)
+            self._active_channel = channel
+        self._console.out(fresh, end="", highlight=False)
+        self._line_open = not fresh.endswith("\n")
 
     def _channel_header(self, channel: Channel) -> None:
         """Akışın başına kimin konuştuğunu gösteren işaret koy."""

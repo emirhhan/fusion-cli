@@ -130,6 +130,11 @@ def _toggle_all(state: ReplState, argument: str) -> str:
     return messages.REPL_SHOW_ALL.format(state=_on_off(state.show_all_answers))
 
 
+def _toggle_thinking(state: ReplState, argument: str) -> str:
+    state.show_thinking = not state.show_thinking
+    return messages.REPL_SHOW_THINKING.format(state=_on_off(state.show_thinking))
+
+
 def _toggle_synthesis(state: ReplState, argument: str) -> str:
     current = state.config.runtime.synthesis if state.synthesis is None else state.synthesis
     state.synthesis = not current
@@ -480,6 +485,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
     SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
     SlashCommand("all", messages.CMD_SHOW_ALL, _toggle_all, group="Fusion"),
+    SlashCommand("thinking", messages.CMD_SHOW_THINKING, _toggle_thinking, group="Agent"),
     SlashCommand("synth", messages.CMD_SYNTHESIS, _toggle_synthesis, group="Fusion"),
     SlashCommand("good", messages.CMD_GOOD, _feedback(Feedback.GOOD), group="Bellek"),
     SlashCommand("bad", messages.CMD_BAD, _feedback(Feedback.BAD), group="Bellek"),
