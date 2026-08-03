@@ -155,7 +155,8 @@
         </nav>
         <div class="sidebar-foot">
           <div class="endpoint-label">Uç nokta</div>
-          <div class="endpoint" id="endpoint">http://…/v1</div>
+          <div class="endpoint" id="endpoint" onclick="copyEndpoint()" title="tıkla: kopyala">http://…/v1</div>
+          <button class="ghost" style="width:100%;margin-top:8px;font-size:12.5px" onclick="copyEndpoint()">📋 Uç noktayı kopyala</button>
         </div>
       </aside>
 
@@ -188,6 +189,9 @@
           <!-- ANAHTARLAR -->
           <div class="panel" id="tab-anahtar">
             <div class="hint" id="secretHint"></div>
+            <div class="row" style="margin-bottom:12px">
+              <input id="providerSearch" class="grow" placeholder="🔍 sağlayıcı ara…" oninput="filterProviders()" />
+            </div>
             <div id="providers" class="provider-grid"></div>
           </div>
 
@@ -289,18 +293,34 @@
       });
 
       function toast(msg, err) { const el = $("toast"); el.textContent = msg; el.className = "toast show" + (err ? " err" : ""); setTimeout(() => el.className = "toast", 2200); }
+
+      // Uç noktayı panoya kopyala (OmniRoute'un öne çıkardığı işlev).
+      async function copyEndpoint() {
+        const url = $("endpoint").textContent;
+        try { await navigator.clipboard.writeText(url); toast("uç nokta kopyalandı"); }
+        catch (e) { toast("kopyalanamadı: " + url, true); }
+      }
+
+      // Sağlayıcı ızgarasını ada göre canlı filtrele (arama kutusu).
+      function filterProviders() {
+        const q = $("providerSearch").value.trim().toLowerCase();
+        document.querySelectorAll("#providers .pcard").forEach((c) => {
+          const name = (c.dataset.name || "").toLowerCase();
+          c.style.display = !q || name.includes(q) ? "" : "none";
+        });
+      }
       async function post(url, body) {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || "hata"); return d;
       }
 
       function providerCard(p) {
-        if (!p.implemented) return `<div class="pcard"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
-        if (p.local) return `<div class="pcard"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
+        if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
+        if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
         const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
         const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
         // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
-        return `<div class="pcard keyed" id="pcard-${p.id}">
+        return `<div class="pcard keyed" id="pcard-${p.id}" data-name="${p.name}">
           <div class="pcard-head" onclick="togglePcard('${p.id}')">
             <span class="name">${p.name}</span>${status}<span class="caret">▾</span>
           </div>
@@ -333,6 +353,7 @@
           ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
           : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
         $("providers").innerHTML = s.providers.map(providerCard).join("");
+        filterProviders();  // yenilemeden sonra arama filtresini koru
 
         const sel = $("strategy"); sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
         chain = s.fallback.slice(); renderChain();
