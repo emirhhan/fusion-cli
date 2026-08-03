@@ -45,6 +45,27 @@ def test_prompt_yikici_komutta_durmayi_dayatir():
     assert "rm -rf" in metin or "geri alınamaz" in metin
 
 
+def test_prompt_paralel_arac_cagrimayi_tesvik_eder():
+    # Bağımsız araçları tek tek beklemek turu yavaşlatır; paralel çağırma güvencesi.
+    assert "paralel" in SYSTEM_PROMPT.lower()
+
+
+def test_prompt_arac_adini_kullaniciya_soylemeyi_yasaklar():
+    # Kullanıcı araçları değil yapılan işi görmeli ("edit_file çalıştıracağım" dememeli).
+    assert "araçların adını" in SYSTEM_PROMPT.lower()
+
+
+def test_prompt_kutuphane_varligini_dogrulatir():
+    # Var olmayan bir kütüphaneyi kullanmak en sık agent hatası; varsaymayı yasaklar.
+    metin = SYSTEM_PROMPT.lower()
+    assert "varsayma" in metin
+
+
+def test_prompt_tahmin_yerine_baglam_toplatir():
+    # Yol/imza/API tahmin etmek yerine araçla doğrulama güvencesi.
+    assert "tahmin etme" in SYSTEM_PROMPT.lower()
+
+
 def test_ilk_mesaj_daima_system():
     messages = _initial_messages("görev", None, plan_mode=False, extra_system="")
     assert messages[0].role == "system"
