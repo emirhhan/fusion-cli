@@ -98,6 +98,31 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
     return target
 
 
+def write_web_sessions(config: Config, path: Path | None = None) -> Path:
+    """Web (oturum tabanlı) sağlayıcı listesini `web_sessions:` altına yaz.
+
+    Yalnızca bu bölüm güncellenir; diğer ayarlar korunur. Sır YAZILMAZ: config'e
+    yalnızca endpoint ve `auth_env` (token'ın env adı) girer, token'ın kendisi değil.
+    """
+    target = path or _target_path(config)
+    existing = _read_existing(target)
+    existing["web_sessions"] = [
+        {
+            key: value
+            for key, value in {
+                "model": session.model,
+                "endpoint": session.endpoint,
+                "auth_env": session.auth_env,
+                "tool_support": session.tool_support,
+            }.items()
+            if value is not None
+        }
+        for session in config.web_sessions
+    ]
+    _atomic_write(target, existing)
+    return target
+
+
 def _target_path(config: Config) -> Path:
     """Yazılacak dosya: yapılandırmanın geldiği dosya, yoksa kullanıcı dizini."""
     if config.source is not None:

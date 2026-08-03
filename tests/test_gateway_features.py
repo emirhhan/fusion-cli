@@ -142,6 +142,60 @@ async def test_health_reset_ucu(tmp_path):
         assert (await client.post("/api/health/reset")).json()["ok"] is True
 
 
+# --- web-session ekleme/silme (panelden kendi ucun) ------------------------ #
+
+
+async def test_web_session_eklenir_ve_durumda_gorunur(tmp_path, monkeypatch):
+    """Panelden eklenen web ucu config'e yazılır ve /api/state'te listelenir."""
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/web_sessions",
+            json={
+                "model": "benim-chat",
+                "endpoint": "http://localhost:3000/v1/chat/completions",
+                "token": "gizli",
+            },
+        )
+        assert resp.json()["ok"] is True
+        state = (await client.get("/api/state")).json()
+
+    models = [s["model"] for s in state["web_sessions"]]
+    assert "benim-chat" in models
+    # Token model adından türetilen env değişkenine CANLI yazılır (API anahtarı gibi).
+    import os
+
+    assert os.environ.get("FUSION_WEB_BENIM_CHAT") == "gizli"
+
+
+async def test_web_session_endpoint_dogrulanir(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post(
+            "/api/web_sessions", json={"model": "x", "endpoint": "ftp://kotu"}
+        )
+    assert resp.status_code == 400
+    assert "http" in resp.json()["error"]["message"]
+
+
+async def test_web_session_model_zorunlu(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post("/api/web_sessions", json={"endpoint": "http://x/v1"})
+    assert resp.status_code == 400
+
+
+async def test_web_session_silinir(tmp_path):
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        await client.post(
+            "/api/web_sessions", json={"model": "sil-beni", "endpoint": "http://x/v1"}
+        )
+        resp = await client.post("/api/web_sessions/delete", json={"model": "sil-beni"})
+        assert resp.json()["ok"] is True
+        state = (await client.get("/api/state")).json()
+
+    assert "sil-beni" not in [s["model"] for s in state["web_sessions"]]
+
+
 async def test_config_export_ucu(tmp_path):
     async with _client(_app(tmp_path)) as client:
         d = (await client.get("/api/config/export")).json()

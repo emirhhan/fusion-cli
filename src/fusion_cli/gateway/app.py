@@ -172,6 +172,12 @@ class GatewayApp:
         if method == "POST" and path == "/api/fallback":
             await self._api_set_fallback(receive, send)
             return
+        if method == "POST" and path == "/api/web_sessions":
+            await self._api_add_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/delete":
+            await self._api_delete_web_session(receive, send)
+            return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
@@ -195,6 +201,10 @@ class GatewayApp:
                 },
                 "fallback": list(self._config.agent.models),
                 "judge": list(self._config.judge.models),
+                "web_sessions": [
+                    {"model": s.model, "endpoint": s.endpoint, "tool_support": s.tool_support}
+                    for s in self._config.web_sessions
+                ],
                 "health": self._health_json(),
                 "models": available_models(self._config),
                 "analytics": self._analytics.snapshot(),
@@ -286,6 +296,76 @@ class GatewayApp:
                 "config_revision": self._config_revision.value,
             },
         )
+
+    async def _api_add_web_session(self, receive: Receive, send: Send) -> None:
+        """Panelden kendi OpenAI-uyumlu web ucunu ekle: config'e yaz + token'ı sakla.
+
+        Kullanıcı yalnızca model adı, endpoint ve (varsa) token verir; `auth_env` adı
+        model adından türetilir ve token oraya ŞİFRELİ kaydedilir + canlı uygulanır.
+        Böylece deneyim API anahtarı girmekle aynıdır.
+        """
+        import os
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..config.models import WebSessionConfig
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        endpoint = str(body.get("endpoint", "")).strip()
+        token = str(body.get("token", "")).strip()
+        tool_support = str(body.get("tool_support", "none")).strip() or "none"
+        if not model or not endpoint:
+            await _json(send, _error_body("model adı ve endpoint zorunlu"), status=400)
+            return
+        if not endpoint.startswith(("http://", "https://")):
+            await _json(
+                send, _error_body("endpoint http:// ya da https:// ile başlamalı"), status=400
+            )
+            return
+        auth_env = _web_auth_env(model) if token else None
+        session = WebSessionConfig(
+            model=model, endpoint=endpoint, auth_env=auth_env, tool_support=tool_support
+        )
+        # Aynı ada sahip önceki tanımı değiştir (üzerine yaz), yoksa ekle.
+        others = tuple(s for s in self._config.web_sessions if s.model != model)
+        updated = replace(self._config, web_sessions=(*others, session))
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        if token and auth_env is not None:
+            if self._secret_store.available:
+                self._secret_store.set(auth_env, token)
+            os.environ[auth_env] = token
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "saved": True, "model": model})
+
+    async def _api_delete_web_session(self, receive: Receive, send: Send) -> None:
+        """Bir web ucunu panelden kaldır: config'ten sil (endpoint kaydını kaldırır)."""
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        others = tuple(s for s in self._config.web_sessions if s.model != model)
+        if len(others) == len(self._config.web_sessions):
+            await _json(send, _error_body("böyle bir web ucu yok"), status=400)
+            return
+        updated = replace(self._config, web_sessions=others)
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "saved": True, "model": model})
 
     async def _api_ready(self, send: Send) -> None:
         """Gateway kullanıma hazır mı? En az bir anahtarlı sağlayıcı kurulu mu?"""
@@ -554,6 +634,12 @@ _CATEGORY_BY_KIND = {
     "oauth": "OAuth",
     "cli_oauth": "OAuth",
 }
+
+
+def _web_auth_env(model: str) -> str:
+    """Model adından güvenli bir ortam değişkeni adı türet (token bunun altında saklanır)."""
+    slug = "".join(char if char.isalnum() else "_" for char in model.upper()).strip("_")
+    return f"FUSION_WEB_{slug or 'SESSION'}"
 
 
 def _provider_category(provider: ProviderDefinition) -> str:

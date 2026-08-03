@@ -85,6 +85,21 @@
       .cat-group-title:first-child { margin-top: 4px; }
       /* Sağlayıcı ızgarası: kare kare tile'lar; tıklayınca anahtar girişi açılır. */
       .provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+      /* Kendi web ucunu ekleme kartı: adım adım rehber + form. */
+      .web-add { margin-top: 22px; border-color: var(--accent2); }
+      .web-add-body { display: none; margin-top: 16px; }
+      .web-add.open .web-add-body { display: block; }
+      .web-add.open .caret { transform: rotate(180deg); }
+      .steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;
+        padding: 14px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; }
+      .step { display: flex; gap: 12px; align-items: flex-start; font-size: 13.5px; color: var(--dim); line-height: 1.5; }
+      .step b { color: var(--text); font-weight: 600; }
+      .step code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); padding: 1px 6px; border-radius: 5px; color: var(--accent); }
+      .step-n { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--grad);
+        color: #0b0b10; font-weight: 800; font-size: 12px; display: grid; place-items: center; }
+      .fld { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--dim); }
+      .fld input:not([type=checkbox]) { width: 100%; }
+      .fhint { color: var(--faint); font-size: 12px; }
       .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; transition: border-color .15s; }
       .pcard.keyed { cursor: pointer; } .pcard.keyed:hover { border-color: var(--faint); }
       .pcard.open { border-color: var(--accent2); cursor: default; }
@@ -207,6 +222,33 @@
             </div>
             <div id="catChips" class="cat-chips"></div>
             <div id="providers"></div>
+
+            <!-- Kendi web (oturum tabanlı) ucun: adım adım rehber + form -->
+            <div class="web-add card" id="webAddCard">
+              <div class="pcard-head" onclick="toggleWebAdd()" style="cursor:pointer">
+                <span class="name">➕ Kendi web AI ucunu ekle</span>
+                <span class="badge local">web oturumu</span>
+                <span class="caret" id="webCaret">▾</span>
+              </div>
+              <div class="web-add-body" id="webAddBody">
+                <div class="steps">
+                  <div class="step"><span class="step-n">1</span><span>Kendi kurduğun ya da erişim yetkin olan <b>OpenAI-uyumlu</b> bir uç kullan (OpenWebUI, LibreChat, LM Studio sunucusu, kurumsal uç…). Ticari web arayüzü (ChatGPT/Gemini web) desteklenmez.</span></div>
+                  <div class="step"><span class="step-n">2</span><span><b>Endpoint</b>: ucun sohbet adresi — çoğunlukla <code>.../v1/chat/completions</code> ile biter. Uygulamanın "API" ya da "Bağlantı" ayarlarında yazar.</span></div>
+                  <div class="step"><span class="step-n">3</span><span><b>Token</b> (varsa): ucun ayarlarındaki API anahtarı / bearer token. Yerel kurulumlar çoğu zaman token istemez — boş bırak.</span></div>
+                  <div class="step"><span class="step-n">4</span><span>Kaydet. Sonra <b>Yönlendirme</b> sekmesinden bu modeli zincire ekle; artık bir model gibi kullanılır.</span></div>
+                </div>
+                <label class="fld">Model adı <span class="fhint">(sen belirle, örn. benim-chat)</span>
+                  <input id="webModel" placeholder="benim-chat" /></label>
+                <label class="fld">Endpoint
+                  <input id="webEndpoint" placeholder="http://localhost:3000/v1/chat/completions" /></label>
+                <label class="fld">Token <span class="fhint">(opsiyonel — yerelde genelde gerekmez)</span>
+                  <input id="webToken" type="password" placeholder="bearer token (varsa)" /></label>
+                <label class="fld" style="flex-direction:row;align-items:center;gap:8px">
+                  <input id="webTools" type="checkbox" style="width:auto" />
+                  <span>Araç kullanımı (emulated) — model dosya/komut araçlarını prompt üzerinden kullansın</span></label>
+                <div class="row" style="margin-top:12px"><button onclick="addWebSession()">Web ucunu kaydet</button></div>
+              </div>
+            </div>
           </div>
 
           <!-- YÖNLENDİRME -->
@@ -340,10 +382,26 @@
         for (const p of providers) (groups[p.category] ||= []).push(p);
         const names = Object.keys(groups).sort((a, b) => categoryOrder(a) - categoryOrder(b));
         const showTitles = !activeCategory && names.length > 1;
-        $("providers").innerHTML = names.map((cat) =>
+        let html = names.map((cat) =>
           (showTitles ? `<div class="cat-group-title">${cat}</div>` : "") +
           `<div class="provider-grid">${groups[cat].map(providerCard).join("")}</div>`
-        ).join("") || `<div class="hint">eşleşen sağlayıcı yok</div>`;
+        ).join("");
+
+        // Kullanıcının kendi eklediği web uçları (varsa), kategori filtresi uygunsa göster.
+        const mine = (s.web_sessions || []).filter((w) => !q || w.model.toLowerCase().includes(q));
+        if (mine.length && (!activeCategory || activeCategory === "Web oturumu")) {
+          html += `<div class="cat-group-title">Kendi uçların</div><div class="provider-grid">` +
+            mine.map(webSessionCard).join("") + `</div>`;
+        }
+        $("providers").innerHTML = html || `<div class="hint">eşleşen sağlayıcı yok</div>`;
+      }
+
+      // Kullanıcının eklediği web ucunu kart olarak göster (endpoint + sil).
+      function webSessionCard(w) {
+        return `<div class="pcard"><div class="pcard-head">
+          <span class="name">${w.model}</span><span class="badge ok">web</span></div>
+          <div class="meta" style="margin:8px 0 10px;word-break:break-all">${w.endpoint}</div>
+          <button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div>`;
       }
 
       // Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
@@ -358,6 +416,29 @@
       }
 
       function setCategory(cat) { activeCategory = cat; renderProviders(); }
+
+      // Kendi web ucu ekleme kartını aç/kapa.
+      function toggleWebAdd() { $("webAddCard").classList.toggle("open"); }
+
+      // Panelden kendi OpenAI-uyumlu web ucunu ekle (adım adım formdan).
+      async function addWebSession() {
+        const model = $("webModel").value.trim();
+        const endpoint = $("webEndpoint").value.trim();
+        const token = $("webToken").value.trim();
+        const tool_support = $("webTools").checked ? "emulated" : "none";
+        if (!model || !endpoint) return toast("model adı ve endpoint gerekli", true);
+        try {
+          await post("/api/web_sessions", { model, endpoint, token, tool_support });
+          toast(model + " web ucu eklendi — Yönlendirme'den zincire ekle");
+          $("webModel").value = ""; $("webEndpoint").value = ""; $("webToken").value = "";
+          $("webTools").checked = false; $("webAddCard").classList.remove("open");
+          await load();
+        } catch (e) { toast(e.message, true); }
+      }
+      async function delWebSession(model) {
+        try { await post("/api/web_sessions/delete", { model }); toast(model + " kaldırıldı"); await load(); }
+        catch (e) { toast(e.message, true); }
+      }
       async function post(url, body) {
         const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || "hata"); return d;
