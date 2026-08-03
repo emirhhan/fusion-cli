@@ -88,17 +88,18 @@ def sources() -> tuple[Source, ...]:
 # --------------------------------------------------------------------------- #
 
 
+def level_choices(config: Config) -> tuple[Choice, ...]:
+    """`/level` seçeneği listesi (tek kaynak; seçici ve TUI modalı bunu paylaşır)."""
+    return tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers)
+
+
 def choose_level(config: Config, *, picker: Picker = pick) -> FlowResult:
     """Kademe seçtir, uygula ve kaydet.
 
     Kaydetme başarısız olsa bile kademe UYGULANMIŞ kalır: kullanıcı seçimini
     oturum boyunca kullanabilmeli, dosya izni sorunu turu engellememeli.
     """
-    picked = picker(
-        tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers),
-        title=messages.LEVEL_TITLE,
-        gradient_rows=True,
-    )
+    picked = picker(level_choices(config), title=messages.LEVEL_TITLE, gradient_rows=True)
     if picked is None:
         return FlowResult(config, messages.PICKER_CANCELLED)
     return applied_result(model_select.apply_tier(config, picked), picked)
@@ -109,6 +110,12 @@ def choose_level(config: Config, *, picker: Picker = pick) -> FlowResult:
 AUTO_CHOICE = "auto"
 
 
+def mode_choices(config: Config) -> tuple[Choice, ...]:
+    """`/mode` seçeneği listesi: auto + tanımlı kademeler (tek kaynak)."""
+    auto = Choice(AUTO_CHOICE, messages.MODE_AUTO_LABEL, messages.MODE_AUTO_HINT)
+    return (auto, *level_choices(config))
+
+
 def choose_mode(config: Config, *, picker: Picker = pick) -> str | None:
     """Çalışma profili seçtir: auto + tanımlı kademeler.
 
@@ -116,9 +123,19 @@ def choose_mode(config: Config, *, picker: Picker = pick) -> str | None:
     komut işleyicisi verir, çünkü `auto` bir yapılandırma değişikliği değil oturum
     kipidir ve `FlowResult` (config değişimi) kalıbına girmez. Vazgeçilirse `None`.
     """
-    auto = Choice(AUTO_CHOICE, messages.MODE_AUTO_LABEL, messages.MODE_AUTO_HINT)
-    kademeler = tuple(Choice(tier.name, tier.name, tier.label) for tier in config.tiers)
-    return picker((auto, *kademeler), title=messages.MODE_TITLE, gradient_rows=True)
+    return picker(mode_choices(config), title=messages.MODE_TITLE, gradient_rows=True)
+
+
+def effort_choices() -> tuple[Choice, ...]:
+    """`/effort` seçeneği listesi: enum'dan (tek kaynak)."""
+    return tuple(
+        Choice(
+            effort.value,
+            effort.value,
+            messages.EFFORT_HINT_AUTO if effort is ReasoningEffort.AUTO else "",
+        )
+        for effort in ReasoningEffort
+    )
 
 
 def choose_effort(*, picker: Picker = pick) -> str | None:
@@ -127,15 +144,7 @@ def choose_effort(*, picker: Picker = pick) -> str | None:
     Seçenekler enum'dan gelir; ikinci bir liste tutulmaz. `auto`'ya ipucu eklenir
     (parametre gönderilmediğini kullanıcı görsün). Vazgeçilirse `None`.
     """
-    choices = tuple(
-        Choice(
-            effort.value,
-            effort.value,
-            messages.EFFORT_HINT_AUTO if effort is ReasoningEffort.AUTO else "",
-        )
-        for effort in ReasoningEffort
-    )
-    return picker(choices, title=messages.EFFORT_TITLE)
+    return picker(effort_choices(), title=messages.EFFORT_TITLE)
 
 
 def applied_result(config: Config, tier_name: str) -> FlowResult:

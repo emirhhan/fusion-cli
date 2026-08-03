@@ -11,15 +11,18 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+from collections.abc import Callable, Sequence
 
 from rich.console import Console
 
+from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...engines.agent.approval import ApprovalRequest
 from ...ui import banner, messages, theme
+from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
-from . import help_view
+from . import help_view, model_flows
 from .commands import RENDERED_COMMANDS, build_registry, parse
 from .state import Engine, ReplState
 from .tui import FusionTui
@@ -27,8 +30,14 @@ from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
 
-#: Argümansız çağrıldığında etkileşimli seçici açan komutlar (A5'te satır-içi çözülecek).
-_PICKER_COMMANDS = frozenset({"model", "provider", "development", "level", "profiles"})
+#: Argümansız çağrıldığında uygulama-İÇİ seçim modalıyla çözülen komutlar (nested picker YOK):
+#: seçenek üreticisi + başlık. Seçilen değer handler'a ARGÜMAN olarak verilir (handler
+#: argümanla seçici açmadan uygular).
+_IN_APP_CHOICE: dict[str, tuple[Callable[[Config], Sequence[Choice]], str]] = {
+    "mode": (model_flows.mode_choices, messages.MODE_TITLE),
+    "level": (model_flows.level_choices, messages.LEVEL_TITLE),
+    "effort": (lambda _config: model_flows.effort_choices(), messages.EFFORT_TITLE),
+}
 
 
 def _preview(request: ApprovalRequest) -> str:
@@ -74,6 +83,18 @@ class TuiPrompter:
         self._tui.console.print(f"[{theme.ACCENT}]{question}[/{theme.ACCENT}]")
         self._tui.sync_conversation()
         return await self._tui.await_text()
+
+
+def _would_open_picker(name: str, argument: str) -> bool:
+    """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)"""
+    arg = argument.strip().lower()
+    if name in ("provider", "development"):
+        return True  # argümandan bağımsız her zaman seçici/metin ister
+    if name == "model" and not arg:
+        return True  # argümansız katalog seçicisi açar
+    if name == "profiles" and arg.startswith("edit"):
+        return True  # baş model seçicisi açar
+    return name == "providers" and arg.startswith("add")  # gizli anahtar istemi açar
 
 
 async def _maybe_drain(drain: object) -> None:
@@ -173,7 +194,16 @@ class _TuiSession:
             await help_view.render(command.name, self._state, self._registry, self._out)
             self._tui.sync_conversation()
             return
-        if command.name in _PICKER_COMMANDS and not argument.strip():
+        # Basit seçiciler (mode/level/effort): uygulama-içi modalla çöz, seçileni argüman yap.
+        if command.name in _IN_APP_CHOICE and not argument.strip():
+            builder, title = _IN_APP_CHOICE[command.name]
+            selected = await self._tui.await_choice(title, list(builder(self._state.config)))
+            if selected is None:
+                self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+                return
+            argument = selected
+        elif _would_open_picker(command.name, argument):
+            # Nested picker açacak komutlar TUI'yi bozuyordu; bu görünümde argümanla kullanılır.
             self._echo(
                 f"[{theme.DIM}]{messages.TUI_PICKER_NEEDS_ARG.format(name=command.name)}[/{theme.DIM}]"
             )

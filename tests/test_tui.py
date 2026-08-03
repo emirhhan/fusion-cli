@@ -138,6 +138,38 @@ async def test_await_confirm_esc_ile_false():
     assert olaylar["interrupt"] == 0
 
 
+async def test_await_choice_ok_ve_enter_ile_secer():
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    secenekler = [Choice("a", "A"), Choice("b", "B"), Choice("c", "C")]
+    task = asyncio.ensure_future(tui.await_choice("başlık", secenekler))
+    await asyncio.sleep(0)
+    assert tui._mode == "choice"
+
+    _press(tui, "down")  # index 0 → 1 ("b")
+
+    class _Buf:
+        text = ""
+
+    tui._accept(_Buf())  # Enter → seçili değeri döndür
+
+    assert await task == "b"
+    assert tui._mode == "idle"
+
+
+async def test_await_choice_esc_ile_iptal_none():
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    task = asyncio.ensure_future(tui.await_choice("t", [Choice("a", "A")]))
+    await asyncio.sleep(0)
+
+    _press(tui, "escape")
+
+    assert await task is None
+
+
 async def test_await_text_enter_ile_metni_doner():
     tui, olaylar = _tui()
     task = asyncio.ensure_future(tui.await_text())

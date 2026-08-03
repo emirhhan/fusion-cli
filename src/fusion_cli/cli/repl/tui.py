@@ -32,6 +32,7 @@ from prompt_toolkit.widgets import Frame, TextArea
 from rich.console import Console
 
 from ...ui import messages, theme
+from ...ui.picker import Choice
 
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
@@ -73,6 +74,10 @@ def _style() -> Style:
             "frame.border": theme.ACCENT_ALT,
             "prompt": f"{theme.ACCENT} bold",
             "work": theme.ACCENT,
+            "choice-title": f"{theme.ACCENT} bold",
+            "choice-selected": f"{theme.ACCENT_ALT} bold",
+            "choice": theme.DIM,
+            "choice-hint": theme.DIM,
         }
     )
 
@@ -96,6 +101,10 @@ class FusionTui:
         self._status_html = ""
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
+        # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
+        self._choices: list[Choice] = []
+        self._choice_index = 0
+        self._choice_title = ""
 
         # Konuşma tamponu: renderer bu Rich console'a RENKLİ yazar; ANSI olarak gösterilir.
         self._sink = io.StringIO()
@@ -124,9 +133,14 @@ class FusionTui:
         )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
+        # Seçim modalı: yalnızca "choice" modunda, girdinin hemen üstünde ok-tuşlu liste.
+        choice_window = ConditionalContainer(
+            Window(FormattedTextControl(self._choice_fragments)),
+            filter=Condition(lambda: self._mode == "choice"),
+        )
         # Konuşma alanı tüm boşluğu kaplar; alt-chrome (çizgi + girdi + durum) en altta pinli.
         root = HSplit(
-            [conversation, work_window, rule, Frame(self._input), status_window],
+            [conversation, work_window, choice_window, rule, Frame(self._input), status_window],
             height=Dimension(),
         )
         self.application: Application[None] = Application(
@@ -179,6 +193,16 @@ class FusionTui:
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
+    async def await_choice(self, title: str, choices: list[Choice]) -> str | None:
+        """Uygulama-içi ok-tuşlu seçim (nested picker YOK). Seçilen değeri, esc'te None."""
+        if not choices:
+            return None
+        self._choices = list(choices)
+        self._choice_index = 0
+        self._choice_title = title
+        result = await self._await_answer("choice")
+        return None if result is None else str(result)
+
     async def _await_answer(self, mode: str) -> object:
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         self._answer = future
@@ -209,12 +233,32 @@ class FusionTui:
     def _rule_fragments(self) -> StyleAndTextTuples:
         return gradient_rule(_term_width())
 
+    def _choice_fragments(self) -> StyleAndTextTuples:
+        """Seçim modalının satırları: başlık + seçenekler, seçili olan işaretli."""
+        fragments: StyleAndTextTuples = [("class:choice-title", f" {self._choice_title}\n")]
+        for index, choice in enumerate(self._choices):
+            selected = index == self._choice_index
+            marker = theme.ICON_STATUS if selected else " "
+            style = "class:choice-selected" if selected else "class:choice"
+            fragments.append((style, f" {marker} {choice.label}"))
+            if choice.description:
+                fragments.append(("class:choice-hint", f"   {choice.description}"))
+            fragments.append(("", "\n"))
+        return fragments
+
+    def _move_choice(self, delta: int) -> None:
+        if self._choices:
+            self._choice_index = (self._choice_index + delta) % len(self._choices)
+            self._invalidate()
+
     # -- Tuş yönlendirmesi -------------------------------------------------- #
 
     def _accept(self, buffer: object) -> bool:
         text = getattr(buffer, "text", "")
         if self._mode == "ask":
             self._resolve(text)
+        elif self._mode == "choice":
+            self._resolve(self._choices[self._choice_index].value)
         else:
             self._on_submit(text)
         return False
@@ -253,14 +297,16 @@ class FusionTui:
         def _no(_event: object) -> None:
             self._resolve(False)
 
-        # Konuşmayı kaydırma yalnızca boştayken (modal açıkken oklar girdiye gider).
-        @kb.add("up", filter=idle, eager=True)
-        def _up(_event: object) -> None:
-            self._scroll_by(_SCROLL_STEP)
+        # Oklar: seçim modunda seçeneği gezer, boştayken konuşmayı kaydırır.
+        nav = Condition(lambda: self._mode in ("idle", "choice"))
 
-        @kb.add("down", filter=idle, eager=True)
+        @kb.add("up", filter=nav, eager=True)
+        def _up(_event: object) -> None:
+            self._move_choice(-1) if self._mode == "choice" else self._scroll_by(_SCROLL_STEP)
+
+        @kb.add("down", filter=nav, eager=True)
         def _down(_event: object) -> None:
-            self._scroll_by(-_SCROLL_STEP)
+            self._move_choice(1) if self._mode == "choice" else self._scroll_by(-_SCROLL_STEP)
 
         @kb.add("pageup", filter=idle, eager=True)
         def _pgup(_event: object) -> None:
@@ -277,6 +323,8 @@ class FusionTui:
             self._resolve(False)
         elif self._mode == "ask":
             self._resolve("")
+        elif self._mode == "choice":
+            self._resolve(None)
         else:
             self._on_interrupt()
 

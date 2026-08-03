@@ -100,6 +100,44 @@ async def test_argumansiz_secici_komut_yonlendirir(tmp_path):
     assert "argüman ister" in session.tui.transcript
 
 
+def test_would_open_picker_nested_secici_komutlarini_yakalar():
+    from fusion_cli.cli.repl.tui_loop import _would_open_picker
+
+    assert _would_open_picker("provider", "")
+    assert _would_open_picker("development", "x")
+    assert _would_open_picker("model", "")  # argümansız katalog
+    assert not _would_open_picker("model", "premium")  # argümanla uygular
+    assert _would_open_picker("profiles", "edit code")
+    assert _would_open_picker("providers", "add")
+    # mode/level/effort uygulama-içi modalla çözülür; guard'lanmaz.
+    assert not _would_open_picker("mode", "")
+    assert not _would_open_picker("level", "")
+
+
+async def test_provider_komutu_gorunumu_bozmaz(tmp_path):
+    """/provider nested seçici açacaktı; TUI'de yönlendirme basar, görünüm bozulmaz."""
+    session = _TuiSession(_state(tmp_path))
+
+    await session._command("/provider")
+
+    assert "argüman ister" in session.tui.transcript
+
+
+async def test_mode_komutu_uygulama_ici_secimle_uygulanir(tmp_path):
+    """/mode uygulama-içi seçim açar; seçilen değer handler'a argüman olarak uygulanır."""
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+
+    task = asyncio.ensure_future(session._command("/mode"))
+    await asyncio.sleep(0)
+    assert session.tui._mode == "choice"  # nested picker DEĞİL, uygulama-içi modal
+
+    session.tui._resolve("auto")  # ilk seçenek: auto kipi
+    await task
+
+    assert state.auto_profile is True
+
+
 def test_mesgulken_yeni_satir_gorev_baslatmaz(tmp_path):
     session = _TuiSession(_state(tmp_path))
 
