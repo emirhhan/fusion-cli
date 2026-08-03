@@ -7,31 +7,59 @@
     <style>
       :root {
         --bg: #0b0b10; --surface: #14141c; --surface2: #1b1b25; --border: #262633;
+        --grid: #17171f;
         --text: #e9e9f2; --dim: #8b8ba3; --faint: #5a5a72;
         --accent: #ff8a3d; --accent2: #ff4d8d; --green: #5ee2a0; --yellow: #ffd166;
         --red: #ff6b6b; --blue: #5aa9ff;
         --grad: linear-gradient(100deg, #ff8a3d, #ff5c7a 55%, #ff4d8d);
+        --accent-soft: rgba(255, 92, 122, 0.12);
         --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
         --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
       }
       * { box-sizing: border-box; }
-      body { margin: 0; background: radial-gradient(120% 120% at 50% 0%, #16121e, var(--bg) 55%);
-        color: var(--text); font-family: var(--sans); min-height: 100vh; padding: 32px clamp(14px,3vw,56px) 80px; }
-      header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
-      .logo { width: 52px; height: 52px; border-radius: 14px; background: var(--grad);
-        display: grid; place-items: center; font-family: var(--mono); font-weight: 900; font-size: 26px; color: #0b0b10; }
-      h1 { font-size: clamp(24px,3.4vw,38px); margin: 0; background: var(--grad);
-        -webkit-background-clip: text; background-clip: text; color: transparent; }
-      .sub { color: var(--dim); font-size: 14px; }
-      .endpoint { margin-left: auto; font-family: var(--mono); font-size: 14px; background: var(--surface);
-        border: 1px solid var(--border); padding: 9px 14px; border-radius: 10px; }
-      .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 22px 0 24px; border-bottom: 1px solid var(--border); }
-      .tab { padding: 11px 18px; cursor: pointer; color: var(--dim); font-weight: 600; font-size: 15px;
-        border-bottom: 2px solid transparent; user-select: none; }
-      .tab.active { color: var(--text); border-bottom-color: var(--accent2); }
+      body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+      /* Uygulama iskeleti: solda sabit kenar çubuğu, sağda içerik (OmniRoute düzeni). */
+      .app { display: flex; min-height: 100vh; }
+
+      /* --- Sol kenar çubuğu --- */
+      .sidebar { width: 264px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column; padding: 18px 14px; position: sticky; top: 0; height: 100vh; }
+      .brand { display: flex; align-items: center; gap: 12px; padding: 4px 6px 18px; }
+      .logo { width: 40px; height: 40px; border-radius: 11px; background: var(--grad);
+        display: grid; place-items: center; font-family: var(--mono); font-weight: 900; font-size: 18px; color: #0b0b10; }
+      .brand-name { font-weight: 800; font-size: 18px; letter-spacing: .2px; }
+      .brand-ver { color: var(--faint); font-size: 12px; }
+      .nav-section { color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .12em;
+        text-transform: uppercase; padding: 12px 8px 6px; }
+      nav { display: flex; flex-direction: column; gap: 2px; }
+      .nav-item { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px;
+        cursor: pointer; color: var(--dim); user-select: none; border-left: 2px solid transparent; }
+      .nav-item:hover { background: var(--surface2); color: var(--text); }
+      .nav-item.active { background: var(--accent-soft); border-left-color: var(--accent2);
+        color: var(--text); }
+      .ni-ico { width: 24px; text-align: center; font-size: 16px; filter: grayscale(.2); }
+      .nav-item.active .ni-ico { filter: none; }
+      .ni-title { display: block; font-weight: 600; font-size: 14px; }
+      .ni-sub { display: block; color: var(--faint); font-size: 11px; }
+      .sidebar-foot { margin-top: auto; padding: 12px 8px 4px; }
+      .endpoint-label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 6px; }
+      .endpoint { font-family: var(--mono); font-size: 12.5px; background: var(--surface2);
+        border: 1px solid var(--border); padding: 8px 10px; border-radius: 9px; word-break: break-all; color: var(--dim); }
+
+      /* --- Ana içerik --- */
+      .main { flex: 1; min-width: 0;
+        background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+        background-size: 42px 42px; }
+      .topbar { display: flex; align-items: center; gap: 16px; padding: 22px clamp(16px,3vw,40px) 0; }
+      .topbar h1 { font-size: clamp(22px,2.6vw,30px); margin: 0; }
+      .topbar .sub { color: var(--dim); font-size: 13.5px; margin-top: 2px; }
+      .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+      .content { padding: 22px clamp(16px,3vw,40px) 80px; max-width: 1180px; }
       .panel { display: none; } .panel.active { display: block; }
-      h2 { font-size: 19px; margin: 0 0 14px; display: flex; align-items: center; gap: 10px; }
-      h2::before { content: ""; width: 7px; height: 19px; border-radius: 4px; background: var(--grad); }
+
+      h2 { font-size: 18px; margin: 26px 0 14px; display: flex; align-items: center; gap: 10px; }
+      h2::before { content: ""; width: 6px; height: 18px; border-radius: 4px; background: var(--grad); }
       .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
       .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
       .grow { flex: 1; min-width: 160px; }
@@ -54,13 +82,19 @@
       .pcard.open .pcard-body { display: block; }
       button { background: var(--grad); color: #0b0b10; font-weight: 700; border: none; cursor: pointer;
         padding: 9px 16px; border-radius: 9px; font-size: 14px; font-family: var(--sans); }
+      button:hover { filter: brightness(1.06); }
       button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--border); }
+      button.ghost:hover { filter: none; border-color: var(--faint); color: var(--text); }
       button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
       button:active { transform: translateY(1px); }
       .badge { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--faint); color: var(--dim); }
       .badge.ok { color: var(--green); border-color: var(--green); }
       .badge.local { color: var(--blue); border-color: var(--blue); }
       .badge.fw { color: var(--yellow); border-color: var(--yellow); }
+      .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600;
+        color: var(--green); background: rgba(94,226,160,.1); border: 1px solid rgba(94,226,160,.35);
+        padding: 5px 12px; border-radius: 999px; }
+      .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
       .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin-bottom: 20px; }
       .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
       .stat .n { font-size: 34px; font-weight: 800; font-family: var(--mono); }
@@ -79,131 +113,165 @@
       .hint { color: var(--faint); font-size: 13px; margin: 6px 0 16px; }
       #chatOut { white-space: pre-wrap; font-family: var(--mono); font-size: 14px; background: var(--surface2);
         border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-height: 90px; color: var(--text); margin-top: 12px; }
+
+      /* Dar ekran: kenar çubuğu üstte yatay şeride iner. */
+      @media (max-width: 720px) {
+        .app { flex-direction: column; }
+        .sidebar { width: auto; height: auto; position: static; flex-direction: column; }
+        nav { flex-direction: row; flex-wrap: wrap; }
+        .ni-sub { display: none; }
+        .main { background-image: none; }
+      }
     </style>
   </head>
   <body>
-    <header>
-      <div class="logo">❯_</div>
-      <div><h1>Fusion Kontrol Paneli</h1><div class="sub">Yerel · yalnızca bu bilgisayar · her şey senin makinende</div></div>
-      <div class="endpoint" id="endpoint">http://…/v1</div>
-    </header>
-
-    <div class="tabs">
-      <div class="tab active" data-tab="genel">Genel</div>
-      <div class="tab" data-tab="anahtar">Sağlayıcılar &amp; Anahtarlar</div>
-      <div class="tab" data-tab="yonlendirme">Yönlendirme &amp; Fallback</div>
-      <div class="tab" data-tab="analitik">Analitik</div>
-      <div class="tab" data-tab="saglik">Sağlık</div>
-      <div class="tab" data-tab="test">Test</div>
-    </div>
-
-    <!-- GENEL -->
-    <div class="panel active" id="tab-genel">
-      <div class="stats">
-        <div class="stat"><div class="n" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
-        <div class="stat"><div class="n" id="s-ready" style="color:var(--green)">–</div><div class="l">kullanıma hazır</div></div>
-        <div class="stat"><div class="n" id="s-models">–</div><div class="l">model / profil</div></div>
-        <div class="stat"><div class="n" id="s-strategy" style="color:var(--accent)">–</div><div class="l">yönlendirme</div></div>
-      </div>
-      <div class="card">
-        <div class="row"><b>Aktif model (baş):</b> <span class="meta" id="activeModel" style="color:var(--accent)">—</span>
-          <span class="meta" id="lastServed"></span></div>
-        <div class="hint" style="margin:8px 0 0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir. "Son cevaplayan" gerçekte yanıtı üreten modeldir (yedeğe düşmüş olabilir).</div>
-      </div>
-      <div class="card"><div class="hint">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
-        yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
-        <div class="row"><b>Config:</b> <span class="meta" id="cfgpath">—</span></div>
-      </div>
-    </div>
-
-    <!-- ANAHTARLAR -->
-    <div class="panel" id="tab-anahtar">
-      <h2>Sağlayıcılar &amp; API Anahtarları</h2>
-      <div class="hint" id="secretHint"></div>
-      <div id="providers" class="provider-grid"></div>
-    </div>
-
-    <!-- YÖNLENDİRME -->
-    <div class="panel" id="tab-yonlendirme">
-      <h2>Yönlendirme Stratejisi</h2>
-      <div class="card"><div class="row">
-        <select id="strategy" class="grow"></select>
-        <button onclick="saveRouting()">Kaydet</button>
-      </div><div class="hint">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div></div>
-
-      <div class="card"><div class="row">
-        <span class="meta grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
-        <label class="meta" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
-        <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
-      </div></div>
-
-      <h2>Baş Model (agent)</h2>
-      <div class="hint">Zincirin ilk sırasındaki model baş modeldir — istekler önce ona gider.</div>
-      <div class="card"><div class="row">
-        <input id="agentHead" class="grow" list="catalogList" placeholder="baş modeli seç ya da yaz…" />
-        <button onclick="setHead()">Baş Yap</button>
-      </div></div>
-
-      <h2>Fallback Zinciri (agent)</h2>
-      <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
-      <div class="card">
-        <div id="chain"></div>
-        <div class="row" style="margin-top:10px">
-          <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
-          <button class="ghost" onclick="addChain()">+ ekle</button>
-          <button onclick="saveFallback()">Zinciri Kaydet</button>
+    <div class="app">
+      <!-- Sol kenar çubuğu: kimlik + gezinme + uç nokta -->
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">❯_</div>
+          <div><div class="brand-name">Fusion</div><div class="brand-ver" id="brandVer">Kontrol Paneli</div></div>
         </div>
-      </div>
-
-      <h2>Hakem Modeli (fusion)</h2>
-      <div class="hint">Fusion motorunun hakem/sentez modeli ve yedek zinciri.</div>
-      <div class="card">
-        <div id="judge"></div>
-        <div class="row" style="margin-top:10px">
-          <input id="newJudge" class="grow" list="catalogList" placeholder="listeden seç ya da hakem modeli yaz…" />
-          <button class="ghost" onclick="addJudge()">+ ekle</button>
-          <button onclick="saveJudge()">Hakemi Kaydet</button>
+        <div class="nav-section">Gateway</div>
+        <nav id="nav">
+          <div class="nav-item active" data-tab="genel" data-title="Genel" data-sub="Panele genel bakış">
+            <span class="ni-ico">🏠</span><span><span class="ni-title">Genel</span><span class="ni-sub">Panele genel bakış</span></span>
+          </div>
+          <div class="nav-item" data-tab="anahtar" data-title="Sağlayıcılar &amp; Anahtarlar" data-sub="API anahtarların ve erişim">
+            <span class="ni-ico">🔑</span><span><span class="ni-title">Sağlayıcılar</span><span class="ni-sub">API anahtarları</span></span>
+          </div>
+          <div class="nav-item" data-tab="yonlendirme" data-title="Yönlendirme &amp; Fallback" data-sub="Zincir ve strateji">
+            <span class="ni-ico">🔀</span><span><span class="ni-title">Yönlendirme</span><span class="ni-sub">Zincir ve fallback</span></span>
+          </div>
+          <div class="nav-item" data-tab="analitik" data-title="Analitik" data-sub="Kullanım ve gecikme">
+            <span class="ni-ico">📊</span><span><span class="ni-title">Analitik</span><span class="ni-sub">Kullanım ve gecikme</span></span>
+          </div>
+          <div class="nav-item" data-tab="saglik" data-title="Sağlık" data-sub="Devre ve güvenilirlik">
+            <span class="ni-ico">💓</span><span><span class="ni-title">Sağlık</span><span class="ni-sub">Devre ve güvenilirlik</span></span>
+          </div>
+          <div class="nav-item" data-tab="test" data-title="Test" data-sub="Model playground">
+            <span class="ni-ico">🧪</span><span><span class="ni-title">Test</span><span class="ni-sub">Model playground</span></span>
+          </div>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="endpoint-label">Uç nokta</div>
+          <div class="endpoint" id="endpoint">http://…/v1</div>
         </div>
-      </div>
-    </div>
+      </aside>
 
-    <datalist id="catalogList"></datalist>
+      <!-- Ana içerik -->
+      <main class="main">
+        <div class="topbar">
+          <div><h1 id="pageTitle">Genel</h1><div class="sub" id="pageSub">Panele genel bakış</div></div>
+          <div class="topbar-right"><span class="status-pill">yerel · çalışıyor</span></div>
+        </div>
+        <div class="content">
+          <!-- GENEL -->
+          <div class="panel active" id="tab-genel">
+            <div class="stats">
+              <div class="stat"><div class="n" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
+              <div class="stat"><div class="n" id="s-ready" style="color:var(--green)">–</div><div class="l">kullanıma hazır</div></div>
+              <div class="stat"><div class="n" id="s-models">–</div><div class="l">model / profil</div></div>
+              <div class="stat"><div class="n" id="s-strategy" style="color:var(--accent)">–</div><div class="l">yönlendirme</div></div>
+            </div>
+            <div class="card">
+              <div class="row"><b>Aktif model (baş):</b> <span class="meta" id="activeModel" style="color:var(--accent)">—</span>
+                <span class="meta" id="lastServed"></span></div>
+              <div class="hint" style="margin:8px 0 0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir. "Son cevaplayan" gerçekte yanıtı üreten modeldir (yedeğe düşmüş olabilir).</div>
+            </div>
+            <div class="card"><div class="hint">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
+              yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
+              <div class="row"><b>Config:</b> <span class="meta" id="cfgpath">—</span></div>
+            </div>
+          </div>
 
-    <!-- ANALİTİK -->
-    <div class="panel" id="tab-analitik">
-      <h2>Kullanım Analitiği</h2>
-      <div class="stats">
-        <div class="stat"><div class="n" id="a-req">–</div><div class="l">istek</div></div>
-        <div class="stat"><div class="n" id="a-tok">–</div><div class="l">toplam token</div></div>
-        <div class="stat"><div class="n" id="a-lat" style="color:var(--blue)">–</div><div class="l">ort. gecikme (ms)</div></div>
-        <div class="stat"><div class="n" id="a-p95" style="color:var(--yellow)">–</div><div class="l">p95 gecikme (ms)</div></div>
-        <div class="stat"><div class="n" id="a-cache" style="color:var(--green)">–</div><div class="l">önbellek isabeti</div></div>
-        <div class="stat"><div class="n" id="a-comp" style="color:var(--accent)">–</div><div class="l">sıkıştırma tasarrufu (karakter)</div></div>
-      </div>
-      <h2>Model Başına</h2>
-      <div class="card"><table><thead><tr><th>Model</th><th>İstek</th><th>Token</th><th>Ort. gecikme</th></tr></thead><tbody id="a-permodel"></tbody></table></div>
-      <h2>Son İstekler</h2>
-      <div class="card"><table><thead><tr><th>İstenen</th><th>Cevaplayan</th><th>Token</th><th>Gecikme</th><th></th></tr></thead><tbody id="a-recent"></tbody></table></div>
-    </div>
+          <!-- ANAHTARLAR -->
+          <div class="panel" id="tab-anahtar">
+            <div class="hint" id="secretHint"></div>
+            <div id="providers" class="provider-grid"></div>
+          </div>
 
-    <!-- SAĞLIK -->
-    <div class="panel" id="tab-saglik">
-      <h2>Sağlayıcı Sağlığı</h2>
-      <div class="row" style="margin-bottom:12px"><button class="ghost" onclick="resetHealth()">Sağlığı Sıfırla</button>
-        <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span></div>
-      <div class="card"><table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
-        <tbody id="health"></tbody></table><div class="hint" id="healthEmpty">Henüz veri yok — bir istek gelince dolar.</div></div>
-    </div>
+          <!-- YÖNLENDİRME -->
+          <div class="panel" id="tab-yonlendirme">
+            <h2>Yönlendirme Stratejisi</h2>
+            <div class="card"><div class="row">
+              <select id="strategy" class="grow"></select>
+              <button onclick="saveRouting()">Kaydet</button>
+            </div><div class="hint">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div></div>
 
-    <!-- TEST -->
-    <div class="panel" id="tab-test">
-      <h2>Model Testi (Playground)</h2>
-      <div class="card">
-        <div class="row"><select id="chatModel" class="grow"></select></div>
-        <textarea id="chatMsg" class="grow" style="width:100%;margin-top:10px;min-height:80px" placeholder="bir şey yaz…"></textarea>
-        <div class="row" style="margin-top:10px"><button onclick="sendChat()">Gönder</button><span class="meta" id="chatMeta"></span></div>
-        <div id="chatOut"></div>
-      </div>
+            <div class="card"><div class="row">
+              <span class="meta grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
+              <label class="meta" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
+              <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
+            </div></div>
+
+            <h2>Baş Model (agent)</h2>
+            <div class="hint">Zincirin ilk sırasındaki model baş modeldir — istekler önce ona gider.</div>
+            <div class="card"><div class="row">
+              <input id="agentHead" class="grow" list="catalogList" placeholder="baş modeli seç ya da yaz…" />
+              <button onclick="setHead()">Baş Yap</button>
+            </div></div>
+
+            <h2>Fallback Zinciri (agent)</h2>
+            <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
+            <div class="card">
+              <div id="chain"></div>
+              <div class="row" style="margin-top:10px">
+                <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
+                <button class="ghost" onclick="addChain()">+ ekle</button>
+                <button onclick="saveFallback()">Zinciri Kaydet</button>
+              </div>
+            </div>
+
+            <h2>Hakem Modeli (fusion)</h2>
+            <div class="hint">Fusion motorunun hakem/sentez modeli ve yedek zinciri.</div>
+            <div class="card">
+              <div id="judge"></div>
+              <div class="row" style="margin-top:10px">
+                <input id="newJudge" class="grow" list="catalogList" placeholder="listeden seç ya da hakem modeli yaz…" />
+                <button class="ghost" onclick="addJudge()">+ ekle</button>
+                <button onclick="saveJudge()">Hakemi Kaydet</button>
+              </div>
+            </div>
+          </div>
+
+          <datalist id="catalogList"></datalist>
+
+          <!-- ANALİTİK -->
+          <div class="panel" id="tab-analitik">
+            <div class="stats">
+              <div class="stat"><div class="n" id="a-req">–</div><div class="l">istek</div></div>
+              <div class="stat"><div class="n" id="a-tok">–</div><div class="l">toplam token</div></div>
+              <div class="stat"><div class="n" id="a-lat" style="color:var(--blue)">–</div><div class="l">ort. gecikme (ms)</div></div>
+              <div class="stat"><div class="n" id="a-p95" style="color:var(--yellow)">–</div><div class="l">p95 gecikme (ms)</div></div>
+              <div class="stat"><div class="n" id="a-cache" style="color:var(--green)">–</div><div class="l">önbellek isabeti</div></div>
+              <div class="stat"><div class="n" id="a-comp" style="color:var(--accent)">–</div><div class="l">sıkıştırma tasarrufu (karakter)</div></div>
+            </div>
+            <h2>Model Başına</h2>
+            <div class="card"><table><thead><tr><th>Model</th><th>İstek</th><th>Token</th><th>Ort. gecikme</th></tr></thead><tbody id="a-permodel"></tbody></table></div>
+            <h2>Son İstekler</h2>
+            <div class="card"><table><thead><tr><th>İstenen</th><th>Cevaplayan</th><th>Token</th><th>Gecikme</th><th></th></tr></thead><tbody id="a-recent"></tbody></table></div>
+          </div>
+
+          <!-- SAĞLIK -->
+          <div class="panel" id="tab-saglik">
+            <div class="row" style="margin-bottom:12px"><button class="ghost" onclick="resetHealth()">Sağlığı Sıfırla</button>
+              <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span></div>
+            <div class="card"><table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
+              <tbody id="health"></tbody></table><div class="hint" id="healthEmpty">Henüz veri yok — bir istek gelince dolar.</div></div>
+          </div>
+
+          <!-- TEST -->
+          <div class="panel" id="tab-test">
+            <div class="card">
+              <div class="row"><select id="chatModel" class="grow"></select></div>
+              <textarea id="chatMsg" class="grow" style="width:100%;margin-top:10px;min-height:80px" placeholder="bir şey yaz…"></textarea>
+              <div class="row" style="margin-top:10px"><button onclick="sendChat()">Gönder</button><span class="meta" id="chatMeta"></span></div>
+              <div id="chatOut"></div>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
 
     <div class="toast" id="toast"></div>
@@ -212,10 +280,12 @@
       const $ = (id) => document.getElementById(id);
       let STATE = null, chain = [], judge = [];
 
-      document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
-        document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+      // Kenar çubuğu gezinmesi: aktif sekmeyi değiştir ve üst bar başlığını güncelle.
+      document.querySelectorAll(".nav-item").forEach((t) => t.onclick = () => {
+        document.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("active"));
         document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
         t.classList.add("active"); $("tab-" + t.dataset.tab).classList.add("active");
+        $("pageTitle").innerHTML = t.dataset.title; $("pageSub").textContent = t.dataset.sub;
       });
 
       function toast(msg, err) { const el = $("toast"); el.textContent = msg; el.className = "toast show" + (err ? " err" : ""); setTimeout(() => el.className = "toast", 2200); }
@@ -276,7 +346,7 @@
         $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
         if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
         renderAnalytics(s.analytics || {});
-        document.querySelector(".sub").textContent = "Yerel · yalnızca bu bilgisayar · v" + (s.version || "?");
+        $("brandVer").textContent = "v" + (s.version || "?");
       }
 
       function renderAnalytics(a) {
@@ -358,9 +428,9 @@
       }
 
       async function load() { try { STATE = await fetch("/api/state").then((r) => r.json()); render(); } catch (e) { /* sunucu kapalı */ } }
-      load(); loadCatalog(false); setInterval(() => { if (document.querySelector('.tab[data-tab="saglik"]').classList.contains("active") ||
-        document.querySelector('.tab[data-tab="analitik"]').classList.contains("active") ||
-        document.querySelector('.tab[data-tab="genel"]').classList.contains("active")) load(); }, 5000);
+      load(); loadCatalog(false); setInterval(() => { if (document.querySelector('.nav-item[data-tab="saglik"]').classList.contains("active") ||
+        document.querySelector('.nav-item[data-tab="analitik"]').classList.contains("active") ||
+        document.querySelector('.nav-item[data-tab="genel"]').classList.contains("active")) load(); }, 5000);
     </script>
   </body>
 </html>

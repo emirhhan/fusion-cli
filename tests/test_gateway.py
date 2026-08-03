@@ -159,7 +159,9 @@ async def test_dashboard_html_doner():
         resp = await client.get("/dashboard")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
-    assert "Fusion Kontrol Paneli" in resp.text
+    # Panelin yüklendiğini başlıktan ve kenar çubuğu markasından doğrula.
+    assert "<title>Fusion — Kontrol Paneli</title>" in resp.text
+    assert 'class="brand-name">Fusion<' in resp.text
 
 
 async def test_api_providers_json():
