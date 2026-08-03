@@ -382,7 +382,11 @@ class ConsoleRenderer:
         self._end_block()
         color = self._OUTCOME_COLORS[event.outcome]
         cagri = _format_call(event.name, event.args)
-        self._console.print(f"[{color}]{theme.ICON_BULLET}[/{color}] {escape(cagri)}")
+        # highlight=False: Rich'in `ad(arg)`'ı Python çağrısı sanıp magentaya boyaması
+        # engellenir; Claude Code araç adını düz/kalın gösterir, repr rengiyle değil.
+        self._console.print(
+            f"[{color}]{theme.ICON_BULLET}[/{color}] {escape(cagri)}", highlight=False
+        )
 
         if event.diff is not None:
             self._tool_diff(event.diff)
@@ -394,7 +398,8 @@ class ConsoleRenderer:
     def _result_line(self, body: str) -> None:
         """Araç sonucunu çağrıya `⎿` bağlayıcısıyla bağla (sönük tek satır)."""
         self._console.print(
-            f"  [{theme.DIM}]{theme.ICON_RESULT}[/{theme.DIM}]  [{theme.DIM}]{body}[/{theme.DIM}]"
+            f"  [{theme.DIM}]{theme.ICON_RESULT}[/{theme.DIM}]  [{theme.DIM}]{body}[/{theme.DIM}]",
+            highlight=False,
         )
 
     def _tool_diff(self, diff_text: str) -> None:
