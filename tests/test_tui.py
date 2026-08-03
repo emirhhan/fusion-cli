@@ -72,11 +72,11 @@ def test_durum_ayarlanir():
     assert "plan" in tui._status_html and "fusion" in tui._status_html
 
 
-def test_application_full_screen_degil():
-    """Normal tampon: alternatif ekran YOK → scrollback korunur."""
+def test_application_tam_ekran():
+    """Tam-ekran: girdi en alta pinli, resize'da kopya olmaz (çıkışta transcript dökülür)."""
     tui, _ = _tui()
 
-    assert tui.application.full_screen is False
+    assert tui.application.full_screen is True
 
 
 def _press(tui, *keys: str) -> None:
@@ -98,16 +98,17 @@ def test_esc_interrupt_callback_ini_tetikler():
     assert olaylar["interrupt"] == 1
 
 
-def test_ctrl_c_interrupt_ctrl_q_exit_shift_tab_cycle():
+def test_ctrl_c_ve_ctrl_q_cikar_esc_keser_shift_tab_dondurur():
+    """Kullanıcı isteği: Ctrl-C fusion'dan ÇIKAR; turu esc keser."""
     tui, olaylar = _tui()
 
     _press(tui, "c-c")
     _press(tui, "c-q")
     _press(tui, "s-tab")
 
-    assert olaylar["interrupt"] == 1
-    assert olaylar["exit"] == 1
+    assert olaylar["exit"] == 2  # hem c-c hem c-q çıkışa gider
     assert olaylar["cycle"] == 1
+    assert olaylar["interrupt"] == 0  # Ctrl-C artık kesme değil
 
 
 # --- Modal (onay/soru) -------------------------------------------------------- #

@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
-
-from rich.console import Console
 
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.cli.repl.tui import FusionTui
@@ -14,11 +11,6 @@ from fusion_cli.engines.agent.approval import ApprovalRequest
 from fusion_cli.memory.factory import null_memory
 
 from .fakes import make_config
-
-
-def _out() -> tuple[Console, io.StringIO]:
-    buffer = io.StringIO()
-    return Console(file=buffer, force_terminal=False, width=200, no_color=True), buffer
 
 
 def _state(tmp_path) -> ReplState:
@@ -56,8 +48,7 @@ def _noop_tui() -> FusionTui:
 
 async def test_prompter_confirm_modali_e_ile_true_doner():
     tui = _noop_tui()
-    out, _ = _out()
-    prompter = TuiPrompter(tui, out, None)
+    prompter = TuiPrompter(tui, None)
 
     task = asyncio.ensure_future(
         prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
@@ -72,8 +63,7 @@ async def test_prompter_confirm_modali_e_ile_true_doner():
 
 async def test_prompter_ask_metni_doner():
     tui = _noop_tui()
-    out, _ = _out()
-    prompter = TuiPrompter(tui, out, None)
+    prompter = TuiPrompter(tui, None)
 
     task = asyncio.ensure_future(prompter.ask("hangi dosya?"))
     await asyncio.sleep(0)
@@ -83,18 +73,16 @@ async def test_prompter_ask_metni_doner():
 
 
 async def test_bilinmeyen_komut_uyarir(tmp_path):
-    out, buffer = _out()
-    session = _TuiSession(_state(tmp_path), out)
+    session = _TuiSession(_state(tmp_path))
 
     await session._command("/olmayan")
 
-    assert "bilinmeyen komut" in buffer.getvalue().lower()
+    assert "bilinmeyen komut" in session.tui.transcript.lower()
 
 
 async def test_agent_fusion_komutu_motoru_degistirir(tmp_path):
-    out, _ = _out()
     state = _state(tmp_path)
-    session = _TuiSession(state, out)
+    session = _TuiSession(state)
 
     await session._command("/fusion")
     assert state.engine is Engine.FUSION
@@ -105,17 +93,15 @@ async def test_agent_fusion_komutu_motoru_degistirir(tmp_path):
 
 async def test_argumansiz_secici_komut_yonlendirir(tmp_path):
     """TUI çalışırken iç içe seçici açılmaz; argümansız /model yönlendirme basar."""
-    out, buffer = _out()
-    session = _TuiSession(_state(tmp_path), out)
+    session = _TuiSession(_state(tmp_path))
 
     await session._command("/model")
 
-    assert "argüman ister" in buffer.getvalue()
+    assert "argüman ister" in session.tui.transcript
 
 
 def test_mesgulken_yeni_satir_gorev_baslatmaz(tmp_path):
-    out, _ = _out()
-    session = _TuiSession(_state(tmp_path), out)
+    session = _TuiSession(_state(tmp_path))
 
     async def _bekleyen() -> None:
         await asyncio.sleep(10)

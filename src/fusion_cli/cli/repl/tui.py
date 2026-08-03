@@ -1,56 +1,53 @@
-"""Ink-benzeri tek yol REPL çrome'u — `prompt_toolkit` `Application(full_screen=False)`.
+"""Ink-benzeri tek yol REPL çrome'u — `prompt_toolkit` tam-ekran `Application`.
 
-Claude Code modeli: normal tampon (alternatif ekran YOK → scrollback korunur), en altta
-pinli çerçeveli girdi kutusu ve hemen altında durum satırı. Motor çıktısı girdinin
-ÜSTÜNE, gerçek terminale akar (`run_in_terminal`); spinner alt-chrome'da pinli kalır.
-Tuşlar tur boyunca canlı okunur: esc/Ctrl-C turu keser, shift-tab mod döndürür, Enter
-gönderir.
+Claude Code modeli: girdi kutusu terminalin EN ALTINA sabit pinlenir, konuşma üstte
+kaydırılabilir renkli bir alanda akar. Tam-ekran repaint sayesinde yeniden boyutlandırmada
+istem kopyalanmaz (non-fullscreen'in resize hatası çözülür). Çıkışta konuşma gerçek
+terminale dökülür; böylece scrollback kaybolmaz.
 
-Bu modül SUNUM ve TUŞ yönlendirmesidir; iş mantığı callback'lerle dışarıdadır (test
-edilebilirlik: TTY olmadan kurulup mantığı sınanabilir).
+Renkler fusion kimliğinden gelir: girdi kutusunun üstünde turuncu→pembe gradyan bir çizgi,
+`>` istemi ve çalışma satırı aksan renginde. Tuşlar tur boyunca canlı okunur: esc turu
+keser, Ctrl-C fusion'dan çıkar, shift-tab mod döndürür, Enter gönderir.
+
+İş mantığı callback'lerle dışarıdadır (test edilebilirlik: TTY olmadan kurulup sınanabilir).
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
+import shutil
 from collections.abc import Callable
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import ANSI, HTML, StyleAndTextTuples
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame, TextArea
+from rich.console import Console
 
 from ...ui import messages, theme
 
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
+#: Ok/PageUp ile bir seferde kaç satır kaydırılacağı.
+_SCROLL_STEP = 3
+_SCROLL_PAGE = 12
+#: Alt-chrome'un (gradyan çizgi + çerçeveli girdi + durum) yaklaşık satır yüksekliği;
+#: konuşma alanının kaç satır göstereceğini hesaplamak için.
+_CHROME_ROWS = 6
 
 #: Onay modunun durum satırındaki rengi — riskli mod göze çarpsın.
 _MODE_COLORS = {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}
 
 
-def _style() -> Style:
-    """TUI renkleri — fusion aksanı (beyaz değil): girdi kutusu kenarı, istem, çalışma satırı."""
-    return Style.from_dict(
-        {
-            "frame.border": theme.ACCENT,
-            "prompt": f"{theme.ACCENT} bold",
-            "work": theme.ACCENT,
-        }
-    )
-
-
 def format_status(mode: str, engine: str) -> str:
-    """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + kısayol ipuçları.
-
-    Auto/plan/security modu artık istem satırının içinde değil, burada — Claude Code'da
-    olduğu gibi girdinin hemen altında.
-    """
+    """Girdinin ALTINDAKİ durum satırının HTML'i: mod + motor + kısayol ipuçları."""
     color = _MODE_COLORS.get(mode, theme.DIM)
     return (
         f"<style fg='{color}'>{theme.ICON_STATUS} {mode}</style>"
@@ -58,8 +55,30 @@ def format_status(mode: str, engine: str) -> str:
     )
 
 
+def gradient_rule(width: int) -> StyleAndTextTuples:
+    """Girdi kutusunun üstündeki turuncu→pembe gradyanlı yatay çizgi (fusion kimliği)."""
+    width = max(1, width)
+    fragments: StyleAndTextTuples = []
+    for index in range(width):
+        ratio = 0.0 if width == 1 else index / (width - 1)
+        color = theme.blend(theme.ACCENT, theme.ACCENT_ALT, ratio)
+        fragments.append((f"fg:{color}", "─"))
+    return fragments
+
+
+def _style() -> Style:
+    """TUI renkleri — fusion aksanı: istem turuncu, girdi kutusu kenarı pembe."""
+    return Style.from_dict(
+        {
+            "frame.border": theme.ACCENT_ALT,
+            "prompt": f"{theme.ACCENT} bold",
+            "work": theme.ACCENT,
+        }
+    )
+
+
 class FusionTui:
-    """Alt-chrome'u çizen ve tuşları callback'lere yönlendiren tek yol REPL görünümü."""
+    """En alta pinli girdi + kaydırılabilir renkli konuşma; tuşları callback'lere yönlendirir."""
 
     def __init__(
         self,
@@ -75,12 +94,18 @@ class FusionTui:
         self._on_cycle_mode = on_cycle_mode
         self._work_text = ""
         self._status_html = ""
-        # Modal durumu: "idle" (normal), "confirm" (e/h), "ask" (serbest metin). Onay/soru
-        # sırasında Enter ve esc farklı davranır; tuşlar buna göre yönlendirilir.
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
 
-        # İstem işareti fusion aksanında (beyaz değil); girdi kutusu kenarı da öyle.
+        # Konuşma tamponu: renderer bu Rich console'a RENKLİ yazar; ANSI olarak gösterilir.
+        self._sink = io.StringIO()
+        self._console = Console(
+            file=self._sink, force_terminal=True, color_system="truecolor", width=_term_width()
+        )
+        self._conversation = ""
+        # Kaydırma ofseti: 0 = en altta (takip). Yukarı kaydırınca artar.
+        self._scroll = 0
+
         self._input = TextArea(
             height=1,
             multiline=False,
@@ -88,26 +113,44 @@ class FusionTui:
             prompt=[("class:prompt", PROMPT)],
             accept_handler=self._accept,
         )
-        # Çalışma satırı yalnızca bir tur çalışırken görünür; boşken yer kaplamaz.
+        conversation = Window(
+            FormattedTextControl(self._conversation_fragments),
+            wrap_lines=True,
+            always_hide_cursor=True,
+        )
         work_window = ConditionalContainer(
             Window(FormattedTextControl(lambda: self._work_text), height=1, style="class:work"),
             filter=Condition(lambda: bool(self._work_text)),
         )
+        rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
-        # Dizilim (üstten alta): çalışma satırı → çerçeveli girdi → durum satırı.
-        root = HSplit([work_window, Frame(self._input), status_window])
+        # Konuşma alanı tüm boşluğu kaplar; alt-chrome (çizgi + girdi + durum) en altta pinli.
+        root = HSplit(
+            [conversation, work_window, rule, Frame(self._input), status_window],
+            height=Dimension(),
+        )
         self.application: Application[None] = Application(
             layout=Layout(root, focused_element=self._input),
             key_bindings=self._bindings(),
             style=_style(),
-            full_screen=False,
+            full_screen=True,
             mouse_support=False,
         )
 
+    @property
+    def console(self) -> Console:
+        """Renderer'ın RENKLİ yazacağı Rich console (konuşma tamponuna bağlı)."""
+        return self._console
+
     # -- Dışarıdan beslenen durum ------------------------------------------- #
 
+    def sync_conversation(self) -> None:
+        """Renderer'ın tampona yazdığı yeni çıktıyı konuşma alanına aktar ve çiz."""
+        self._conversation = self._sink.getvalue()
+        self._scroll = 0  # yeni çıktı geldi: en alta takip et
+        self._invalidate()
+
     def set_work(self, text: str) -> None:
-        """Spinner/çalışma satırını güncelle (pinli alt-chrome'da)."""
         self._work_text = text
         self._invalidate()
 
@@ -116,7 +159,6 @@ class FusionTui:
         self._invalidate()
 
     def set_status(self, mode: str, engine: str) -> None:
-        """Girdinin altındaki durum satırını güncelle."""
         self._status_html = format_status(mode, engine)
         self._invalidate()
 
@@ -124,18 +166,18 @@ class FusionTui:
         if self.application.is_running:
             self.application.exit()
 
+    @property
+    def transcript(self) -> str:
+        """Oturum boyunca birikmiş renkli konuşma metni (çıkışta scrollback'e dökmek için)."""
+        return self._sink.getvalue()
+
     # -- Modal (onay/soru) -------------------------------------------------- #
 
     async def await_confirm(self) -> bool:
-        """Onay bekle: `e`/`y` → True, `h`/`n`/esc → False. Önizleme çağıran tarafça
-        önce `print_above` ile basılır; burada yalnızca yanıt beklenir."""
-        result = await self._await_answer("confirm")
-        return bool(result)
+        return bool(await self._await_answer("confirm"))
 
     async def await_text(self) -> str:
-        """Serbest metin yanıtı bekle: kullanıcı yazar, Enter gönderir; esc iptal (boş)."""
-        result = await self._await_answer("ask")
-        return str(result)
+        return str(await self._await_answer("ask"))
 
     async def _await_answer(self, mode: str) -> object:
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
@@ -150,15 +192,26 @@ class FusionTui:
             self._invalidate()
 
     def _resolve(self, value: object) -> None:
-        """Bekleyen modal yanıtını çöz (tekrarlı tuşlarda güvenli)."""
         future = self._answer
         if future is not None and not future.done():
             future.set_result(value)
 
+    # -- Konuşma render'ı --------------------------------------------------- #
+
+    def _conversation_fragments(self) -> ANSI:
+        """Konuşmanın görünür kısmı: kaydırma ofsetine göre son satırlar, ANSI renkli."""
+        lines = self._conversation.splitlines()
+        body = max(1, _term_rows() - _CHROME_ROWS)
+        end = max(0, len(lines) - self._scroll)
+        start = max(0, end - body)
+        return ANSI("\n".join(lines[start:end]))
+
+    def _rule_fragments(self) -> StyleAndTextTuples:
+        return gradient_rule(_term_width())
+
     # -- Tuş yönlendirmesi -------------------------------------------------- #
 
     def _accept(self, buffer: object) -> bool:
-        """Enter: soru modundaysa yanıtı çöz, değilse satırı gönder. False → tampon silinir."""
         text = getattr(buffer, "text", "")
         if self._mode == "ask":
             self._resolve(text)
@@ -166,25 +219,23 @@ class FusionTui:
             self._on_submit(text)
         return False
 
-    def _cancel_or_interrupt(self) -> None:
-        """esc/Ctrl-C: modaldaysa modalı reddet/iptal et, değilse turu kes."""
-        if self._mode == "confirm":
-            self._resolve(False)
-        elif self._mode == "ask":
-            self._resolve("")
-        else:
-            self._on_interrupt()
+    def _scroll_by(self, delta: int) -> None:
+        lines = len(self._conversation.splitlines())
+        self._scroll = max(0, min(lines, self._scroll + delta))
+        self._invalidate()
 
     def _bindings(self) -> KeyBindings:
         kb = KeyBindings()
         confirm = Condition(lambda: self._mode == "confirm")
+        idle = Condition(lambda: self._mode == "idle")
 
         @kb.add("c-q")
+        @kb.add("c-c")
         def _exit(_event: object) -> None:
+            # Kullanıcı isteği: Ctrl-C fusion'dan ÇIKAR (turu kesmek için esc var).
             self._on_exit()
 
         @kb.add("escape", eager=True)
-        @kb.add("c-c")
         def _interrupt(_event: object) -> None:
             self._cancel_or_interrupt()
 
@@ -192,7 +243,6 @@ class FusionTui:
         def _cycle(_event: object) -> None:
             self._on_cycle_mode()
 
-        # Onay modu tuşları YALNIZCA modal açıkken; boştayken bu harfler girdiye yazılır.
         @kb.add("e", filter=confirm, eager=True)
         @kb.add("y", filter=confirm, eager=True)
         def _yes(_event: object) -> None:
@@ -203,8 +253,41 @@ class FusionTui:
         def _no(_event: object) -> None:
             self._resolve(False)
 
+        # Konuşmayı kaydırma yalnızca boştayken (modal açıkken oklar girdiye gider).
+        @kb.add("up", filter=idle, eager=True)
+        def _up(_event: object) -> None:
+            self._scroll_by(_SCROLL_STEP)
+
+        @kb.add("down", filter=idle, eager=True)
+        def _down(_event: object) -> None:
+            self._scroll_by(-_SCROLL_STEP)
+
+        @kb.add("pageup", filter=idle, eager=True)
+        def _pgup(_event: object) -> None:
+            self._scroll_by(_SCROLL_PAGE)
+
+        @kb.add("pagedown", filter=idle, eager=True)
+        def _pgdn(_event: object) -> None:
+            self._scroll_by(-_SCROLL_PAGE)
+
         return kb
+
+    def _cancel_or_interrupt(self) -> None:
+        if self._mode == "confirm":
+            self._resolve(False)
+        elif self._mode == "ask":
+            self._resolve("")
+        else:
+            self._on_interrupt()
 
     def _invalidate(self) -> None:
         if self.application.is_running:
             self.application.invalidate()
+
+
+def _term_width() -> int:
+    return max(20, shutil.get_terminal_size((100, 40)).columns)
+
+
+def _term_rows() -> int:
+    return max(10, shutil.get_terminal_size((100, 40)).lines)

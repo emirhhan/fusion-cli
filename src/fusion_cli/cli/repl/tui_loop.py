@@ -1,20 +1,17 @@
-"""Ink-benzeri tek yol REPL döngüsü.
+"""Ink-benzeri tek yol REPL döngüsü (tam-ekran).
 
-`FusionTui` alt-chrome'unu kurar, gönderilen satırları ortak komut kayıt defterinden
-ya da etkin motordan geçirir ve çıktıyı `patch_stdout` ile girdinin ÜSTÜNE, gerçek
-terminale akıtır (scrollback korunur). Tur bir asyncio görevinde koşar; esc/Ctrl-C
-görevi iptal eder. Onay/soru, `FusionTui`'nin modal desteğiyle köprülenir.
-
-Motor çağrıları tek-seferlik giriş noktaları (`run_task`/`run_agent_task`) üzerinden
-yapılır; agent geçmişi `history` ile taşınır (çok-turlu sohbet).
+`FusionTui`'yi kurar; gönderilen satırları ortak komut kayıt defterinden ya da etkin
+motordan geçirir. Motor çıktısı `FusionTui.console`'a RENKLİ yazılır ve her olaydan sonra
+kaydırılabilir konuşma alanına aktarılır. Tur bir asyncio görevinde koşar: esc turu keser,
+Ctrl-C fusion'dan çıkar. Onay/soru, `FusionTui`'nin modal desteğiyle köprülenir.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 
-from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from ...engines.agent.approval import ApprovalRequest
@@ -29,9 +26,7 @@ from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
 
-#: Argümansız çağrıldığında etkileşimli seçici açan komutlar. TUI çalışırken iç içe
-#: bir prompt_toolkit seçici açmak görünümü bozar; bunlar argümanlı kullanılır (A5'te
-#: satır-içi seçiciyle çözülecek — bkz. docs/BACKLOG.md).
+#: Argümansız çağrıldığında etkileşimli seçici açan komutlar (A5'te satır-içi çözülecek).
 _PICKER_COMMANDS = frozenset({"model", "provider", "development", "level", "profiles"})
 
 
@@ -45,17 +40,28 @@ def _preview(request: ApprovalRequest) -> str:
     return head
 
 
+class _PumpSink:
+    """Her olaydan sonra konuşma alanını renderer'ın yeni çıktısıyla tazeler."""
+
+    def __init__(self, sync: object) -> None:
+        self._sync = sync
+
+    def handle(self, _event: object) -> None:
+        if callable(self._sync):
+            self._sync()
+
+
 class TuiPrompter:
     """Motor onay/soru çağrılarını `FusionTui` modaline köprüler."""
 
-    def __init__(self, tui: FusionTui, out: Console, drain: object) -> None:
+    def __init__(self, tui: FusionTui, drain: object) -> None:
         self._tui = tui
-        self._out = out
         self._drain = drain
 
     async def confirm(self, request: ApprovalRequest) -> bool:
         await _maybe_drain(self._drain)
-        self._out.print(_preview(request))
+        self._tui.console.print(_preview(request))
+        self._tui.sync_conversation()
         self._tui.set_work(messages.TUI_CONFIRM_HINT)
         try:
             return await self._tui.await_confirm()
@@ -64,12 +70,12 @@ class TuiPrompter:
 
     async def ask(self, question: str) -> str:
         await _maybe_drain(self._drain)
-        self._out.print(f"[{theme.ACCENT}]{question}[/{theme.ACCENT}]")
+        self._tui.console.print(f"[{theme.ACCENT}]{question}[/{theme.ACCENT}]")
+        self._tui.sync_conversation()
         return await self._tui.await_text()
 
 
 async def _maybe_drain(drain: object) -> None:
-    """Veriyolu boşaltıcısı verildiyse çağır (bekleyen olaylar önce basılsın)."""
     if callable(drain):
         result = drain()
         if asyncio.iscoroutine(result):
@@ -77,15 +83,10 @@ async def _maybe_drain(drain: object) -> None:
 
 
 class _TuiSession:
-    """Tek yol REPL'in çalışma durumu ve olay yönlendirmesi.
+    """Tek yol REPL'in çalışma durumu ve olay yönlendirmesi."""
 
-    Callback'ler (submit/interrupt/exit/cycle) bu nesnenin metotlarına bağlanır; tur
-    tek bir sahipli görevde koşar, böylece iptal kararlıdır ve paralel tur oluşmaz.
-    """
-
-    def __init__(self, state: ReplState, out: Console) -> None:
+    def __init__(self, state: ReplState) -> None:
         self._state = state
-        self._out = out
         self._registry = build_registry()
         self._task: asyncio.Task[None] | None = None
         self._tui = FusionTui(
@@ -94,18 +95,17 @@ class _TuiSession:
             on_exit=self._exit,
             on_cycle_mode=self._cycle,
         )
-        self._prompter_factory = lambda drain: TuiPrompter(self._tui, out, drain)
+        self._out = self._tui.console
+        self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
         self._sync_status()
 
     @property
     def tui(self) -> FusionTui:
         return self._tui
 
-    # -- Callback'ler ------------------------------------------------------- #
-
     def _submit(self, text: str) -> None:
         if self._busy:
-            return  # tur çalışırken yeni satır kabul edilmez
+            return
         line = text.strip()
         if line:
             self._task = asyncio.ensure_future(self._handle(line))
@@ -129,22 +129,24 @@ class _TuiSession:
     def _sync_status(self) -> None:
         self._tui.set_status(self._state.approval.value, self._state.engine.value)
 
-    # -- Satır işleme ------------------------------------------------------- #
+    def _echo(self, renderable: object) -> None:
+        """Konuşmaya bir şey yaz ve ekranı tazele."""
+        self._out.print(renderable)
+        self._tui.sync_conversation()
 
     async def _handle(self, line: str) -> None:
         try:
             ConsoleRenderer(self._out).print_user_message(line)
+            self._tui.sync_conversation()
             if line.startswith("/"):
                 await self._command(line)
             else:
                 await self._turn(line)
         except asyncio.CancelledError:
-            self._out.print(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
+            self._echo(f"[{theme.WARN}]{messages.REPL_TURN_CANCELLED}[/{theme.WARN}]")
         except Exception:
-            # CLI sınırı: beklenmeyen hata REPL'i düşürmemeli; log'lanır, kullanıcıya
-            # kısa mesaj gösterilir.
             _logger.exception("TUI turu beklenmeyen hatayla bitti")
-            self._out.print(f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/]")
+            self._echo(f"[{theme.ERROR}]{theme.ICON_ERROR} {messages.ERROR_PREFIX}[/{theme.ERROR}]")
         finally:
             self._tui.clear_work()
             self._sync_status()
@@ -155,21 +157,22 @@ class _TuiSession:
         name, argument = parse(line)
         command = self._registry.get(name)
         if command is None:
-            self._out.print(
+            self._echo(
                 f"[{theme.WARN}]{messages.REPL_UNKNOWN_COMMAND.format(name=name)}[/{theme.WARN}]"
             )
             return
         if command.name in RENDERED_COMMANDS:
             await help_view.render(command.name, self._state, self._registry, self._out)
+            self._tui.sync_conversation()
             return
         if command.name in _PICKER_COMMANDS and not argument.strip():
-            self._out.print(
-                f"[{theme.DIM}]{messages.TUI_PICKER_NEEDS_ARG.format(name=command.name)}[/]"
+            self._echo(
+                f"[{theme.DIM}]{messages.TUI_PICKER_NEEDS_ARG.format(name=command.name)}[/{theme.DIM}]"
             )
             return
         result = command.handler(self._state, argument)
         if result:
-            self._out.print(f"[{theme.DIM}]{result}[/{theme.DIM}]")
+            self._echo(f"[{theme.DIM}]{result}[/{theme.DIM}]")
         self._sync_status()
         if not self._state.running:
             return
@@ -179,9 +182,7 @@ class _TuiSession:
 
     async def _turn(self, line: str) -> None:
         work = WorkLineSink(
-            self._tui.set_work,
-            self._tui.clear_work,
-            interrupt_hint=messages.WORK_INTERRUPT_ESC,
+            self._tui.set_work, self._tui.clear_work, interrupt_hint=messages.WORK_INTERRUPT_ESC
         )
         renderer = ConsoleRenderer(
             self._out,
@@ -190,7 +191,8 @@ class _TuiSession:
             show_call_details=self._state.engine is Engine.FUSION,
             show_all_answers=self._state.show_all_answers,
         )
-        sinks = (renderer, work, self._state.cost)
+        pump = _PumpSink(self._tui.sync_conversation)
+        sinks = (renderer, work, pump, self._state.cost)
         try:
             if self._state.engine is Engine.FUSION:
                 self._state.last_fusion = await run_task(
@@ -218,17 +220,21 @@ class _TuiSession:
                 self._state.history = outcome.messages
         finally:
             renderer.abort()
+            self._tui.sync_conversation()
 
 
 async def run_tui_repl(state: ReplState, console: Console) -> int:
     """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     from .loop import session_info
 
-    out = Console(force_terminal=True)  # sabit file YOK → patch_stdout proxy'sini izler
-    session = _TuiSession(state, out)
+    session = _TuiSession(state)
+    # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
+    banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
+    session.tui.sync_conversation()
 
-    # Açılış kutusu normal tamponda basılır (scrollback'te kalır); girdi altına pinlenir.
-    banner.print_welcome(console, session_info(state), clear=True, pad=False)
-    with patch_stdout(raw=True):
-        await session.tui.application.run_async()
+    await session.tui.application.run_async()
+
+    # Çıkışta konuşmayı gerçek terminale dök: tam-ekran kapanınca scrollback kaybolmasın.
+    sys.stdout.write(session.tui.transcript)
+    sys.stdout.flush()
     return 0
