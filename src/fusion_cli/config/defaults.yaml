@@ -84,6 +84,9 @@ runtime:
   gateway_cache: true          # aynı istek tekrar gelirse önbellekten anında dön (token tasarrufu)
   gateway_compression: false   # giden mesajlarda güvenli sıkıştırma (opt-in; içerik bozulmaz)
   gateway_mask_secrets: true   # yanıtta sızan anahtar/sır desenini maskele
+  # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
+  # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
+  restrict_to_root: false
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

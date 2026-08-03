@@ -360,7 +360,9 @@ async def _agent_turn(
         bus.subscribe(renderer)
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
-        tool_context = ToolContext(root=state.root)
+        tool_context = ToolContext(
+            root=state.root, restrict_to_root=state.config.runtime.restrict_to_root
+        )
         prompter = ConsolePrompter(
             console,
             tool_context,

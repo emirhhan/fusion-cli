@@ -246,7 +246,13 @@ def agent(
             config,
             sinks=observers.sinks,
             prompter_factory=lambda flush: ConsolePrompter(
-                console, ToolContext(root=root, extra_roots=tuple(add_dir or ())), flush=flush
+                console,
+                ToolContext(
+                    root=root,
+                    extra_roots=tuple(add_dir or ()),
+                    restrict_to_root=config.runtime.restrict_to_root,
+                ),
+                flush=flush,
             ),
             mode=approval,
             root=root,

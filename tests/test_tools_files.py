@@ -222,6 +222,27 @@ async def test_kisitli_kipte_symlink_kok_disini_hedeflerse_reddedilir(
     assert not sonuc.ok and "kök" in sonuc.output
 
 
+async def test_kisitsiz_kipte_kok_disina_yazilabilir(registry, tmp_path):
+    """restrict_to_root=False (yeni varsayılan): kök dışındaki projelerde de çalışılabilir."""
+    calisma = tmp_path / "proje"
+    calisma.mkdir()
+    context = ToolContext(root=calisma, restrict_to_root=False)
+    disarida = tmp_path / "disarida.txt"
+
+    sonuc = await _calistir(registry, context, "write_file", path=str(disarida), content="x")
+
+    assert sonuc.ok
+    assert disarida.read_text(encoding="utf-8") == "x"
+
+
+def test_dizin_kisiti_varsayilan_kapali():
+    """Ürün varsayılanı: dosya araçları kök dışına çıkabilir (kullanıcı seçimi)."""
+    from fusion_cli.config.loader import load_config
+
+    config = load_config(None)
+    assert config.runtime.restrict_to_root is False
+
+
 # --- Yazılan dosyaların izi -------------------------------------------------- #
 #
 # Doğrulama kapısı YALNIZCA agent'ın dokunduğu dosyalara bakmalı; kök dizini

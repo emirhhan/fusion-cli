@@ -117,6 +117,10 @@ class RuntimeConfig:
     gateway_compression: bool = False
     #: Gateway: yanıtta sızan sır/anahtar deseni maskelenir (credential guardrail).
     gateway_mask_secrets: bool = True
+    #: Dosya araçları yalnızca proje kökü (+ `--add-dir`) altında mı çalışsın?
+    #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
+    #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
+    restrict_to_root: bool = False
 
 
 @dataclass(frozen=True, slots=True)
