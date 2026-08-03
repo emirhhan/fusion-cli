@@ -181,6 +181,8 @@ REPL_SYNTHESIS = "sentez: {state}"
 REPL_ON = "açık"
 REPL_OFF = "kapalı"
 REPL_ON_OFF_HINT = "shift-tab mod · /help"
+#: TUI'de girdinin altındaki durum satırının kısayol ipuçları (Claude Code stili).
+TUI_STATUS_HINT = "shift-tab: mod · esc: durdur · /help"
 
 # --- Karşılama ekranı ------------------------------------------------------ #
 APP_NAME = "Fusion CLI"
