@@ -317,6 +317,8 @@ REPL_COMPACTED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 REPL_NOTHING_TO_COMPACT = "sıkıştırılacak kadar uzun bir geçmiş yok"
 REPL_BACKGROUND_WAIT = "arka plandaki öğrenme tamamlanıyor…"
 REPL_HELP_TITLE = "Komutlar"
+#: Grubu olmayan komutların `/help`'te toplandığı başlık.
+HELP_GROUP_OTHER = "Genel"
 REPL_STATUS_BAR = "{engine} · {approval} · {task_type} · {model}"
 REPL_TAGLINE = "ücretsiz LLM füzyonu · araçlar · öz-öğrenen bellek"
 REPL_MODEL_SET = "{role} modeli → {model}"

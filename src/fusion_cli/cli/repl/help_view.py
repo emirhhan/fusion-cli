@@ -16,6 +16,9 @@ from ..memory_commands import lessons_table, stats_table
 from .commands import CommandRegistry
 from .state import ReplState
 
+#: `/help` komut sütununun hizalama tavanı; uzun bir takma ad tabloyu şişirmesin.
+HELP_COMMAND_MAX_WIDTH = 18
+
 
 async def render(name: str, state: ReplState, registry: CommandRegistry, console: Console) -> None:
     """Kendi çıktısını basan komutu çalıştır."""
@@ -49,34 +52,67 @@ def _tips(console: Console) -> None:
     liste referanstır, bu rehberdir.
     """
     console.print()
-    console.print(f"[bold {theme.ACCENT}]{messages.TIPS_TITLE}[/bold {theme.ACCENT}]")
-    console.print(f"[{theme.DIM}]{messages.TIPS_INTRO}[/{theme.DIM}]")
+    console.print(
+        f"[bold {theme.ACCENT}]{messages.TIPS_TITLE}[/bold {theme.ACCENT}]", highlight=False
+    )
+    console.print(f"[{theme.DIM}]{messages.TIPS_INTRO}[/{theme.DIM}]", highlight=False)
 
     for baslik, satirlar in messages.TIPS_SECTIONS:
         console.print()
-        console.print(f"[bold]{baslik}[/bold]")
+        console.print(f"[bold]{baslik}[/bold]", highlight=False)
         for komut, aciklama in satirlar:
             if not komut:
                 # Bölümün kapanış cümlesi: komut değil, karar kuralı.
-                console.print(f"    [{theme.DIM}]→ {aciklama}[/{theme.DIM}]")
+                console.print(f"    [{theme.DIM}]→ {aciklama}[/{theme.DIM}]", highlight=False)
                 continue
-            console.print(f"  [bold {theme.ACCENT}]{komut:<16}[/bold {theme.ACCENT}] {aciklama}")
+            pad = " " * max(0, 16 - len(komut))
+            console.print(
+                f"  [bold {theme.ACCENT}]{komut}[/bold {theme.ACCENT}]{pad}  {aciklama}",
+                highlight=False,
+            )
     console.print()
 
 
 def _help(registry: CommandRegistry, console: Console) -> None:
-    table = Table(title=messages.REPL_HELP_TITLE, show_lines=False)
-    table.add_column("", style=theme.DIM, no_wrap=True)
-    table.add_column("Komut", style="bold", no_wrap=True)
-    table.add_column("Açıklama")
+    """`/help` — komutları GRUP GRUP, hizalı ve sade bir dizilimde göster.
 
-    previous_group = ""
+    Eskiden tek geniş tabloydu; grup adı her satırda tekrarlanıyor ya da boş kalıyordu.
+    Artık her grup kendi başlığı altında toplanır (welcome/tips ile aynı estetik):
+    başlık aksan renginde, komutlar hizalı, açıklamalar sönük.
+    """
+    console.print()
+    console.print(f"[bold {theme.ACCENT}]{messages.REPL_HELP_TITLE}[/bold {theme.ACCENT}]")
+
+    grouped: dict[str, list[tuple[str, str]]] = {}
+    order: list[str] = []
     for command in registry.all():
-        group = command.group if command.group != previous_group else ""
-        previous_group = command.group
-        table.add_row(group, command.display, command.summary)
-    console.print(table)
-    console.print(f"[{theme.DIM}]{messages.REPL_ON_OFF_HINT}[/{theme.DIM}]")
+        group = command.group or messages.HELP_GROUP_OTHER
+        if group not in grouped:
+            grouped[group] = []
+            order.append(group)
+        grouped[group].append((command.display, command.summary))
+
+    width = _command_width(grouped)
+    for group in order:
+        console.print()
+        console.print(f"[bold]{group}[/bold]", highlight=False)
+        for display, summary in grouped[group]:
+            # Dolgu markup DIŞINDA: hizalama boşlukları aksan rengine boyanmasın.
+            # highlight=False: açıklamadaki parantezleri Rich repr sanıp boyamasın.
+            pad = " " * max(0, width - len(display))
+            console.print(
+                f"  [bold {theme.ACCENT}]{display}[/bold {theme.ACCENT}]{pad}  "
+                f"[{theme.DIM}]{summary}[/{theme.DIM}]",
+                highlight=False,
+            )
+    console.print()
+    console.print(f"[{theme.DIM}]{messages.REPL_ON_OFF_HINT}[/{theme.DIM}]", highlight=False)
+
+
+def _command_width(grouped: dict[str, list[tuple[str, str]]]) -> int:
+    """En uzun komut adına göre hizalama genişliği (dar ekranı taşırmayacak bir tavanla)."""
+    longest = max((len(display) for rows in grouped.values() for display, _ in rows), default=0)
+    return min(longest, HELP_COMMAND_MAX_WIDTH)
 
 
 def _stats(state: ReplState, console: Console) -> None:
