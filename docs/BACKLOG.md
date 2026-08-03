@@ -32,6 +32,15 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
+## Ertelenen — Claude Code görünüm klonu: girdi kutusu
+
+Claude Code'un girdi istemi yuvarlak bir kutu içindedir (`╭─ > … ─╯`). fusion'ın
+girdisi `cli/repl/input.py`'de prompt_toolkit ile, tek-satır ve yeniden-boyutlandırma
+hatalarına (prompt_toolkit #1933) karşı özenle kurulmuştur. İstemin etrafına çerçeve
+eklemek bu dengeyi bozma riski taşıdığından ertelendi. Açılış kutusu, araç kartları,
+diff, spinner ve kullanıcı mesajı zaten Claude diziliminde. İstenirse tam-ekran
+uygulama moduyla (screen.py yolu) çerçeveli girdi güvenli biçimde kurulabilir.
+
 ## Bilinen güvenlik sınırı — run_shell kök kısıtlamasına tabi değil
 
 Dosya araçları (`write_file`, `edit_file`, `multi_edit`) proje kökü dışına

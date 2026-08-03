@@ -181,6 +181,8 @@ REPL_ON_OFF_HINT = "shift-tab mod · /help"
 
 # --- Karşılama ekranı ------------------------------------------------------ #
 APP_NAME = "Fusion CLI"
+#: Karşılama kutusunun ilk satırındaki selamlama (Claude Code "Welcome to Claude Code!").
+WELCOME_GREETING = "hoş geldin"
 WELCOME_FIELD_ENGINE = "motor"
 WELCOME_FIELD_APPROVAL = "onay"
 WELCOME_FIELD_MODEL = "model"
@@ -208,7 +210,6 @@ WELCOME_TIPS = (
     "Uzun bir oturumda `/compact` ile geçmişi özetleyip bağlam limitinden tasarruf et.",
 )
 
-WELCOME_ABOUT_TITLE = "Fusion nedir?"
 WELCOME_ABOUT_TEXT = (
     "Ücretsiz LLM'lerle çalışan bir kodlama asistanı. Dosya okur/yazar, komut "
     "çalıştırır, web'de arar; aynı soruyu birden çok modele paralel sorup hakemle "

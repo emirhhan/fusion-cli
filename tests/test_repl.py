@@ -14,7 +14,6 @@ from fusion_cli.core.memory import Feedback, LessonKind, LessonSource
 from fusion_cli.core.types import FusionResult, Message, VerdictSource
 from fusion_cli.engines.agent.approval import ApprovalMode
 from fusion_cli.memory.factory import null_memory
-from fusion_cli.ui import banner as banner_module
 
 from .fakes import make_config
 
@@ -480,28 +479,22 @@ def test_karsilama_kutusu_terminali_tasmaz():
         assert all(len(satir) <= width for satir in satirlar), width
 
 
-def test_dar_terminalde_buyuk_imza_yerine_tek_satirlik_kullanilir():
-    """Büyük imza dar terminalde sağ sütuna okunabilir yer bırakmıyor."""
-    dar = _welcome_output(72)
+def test_karsilama_kompakt_imza_gosterir_buyuk_ascii_yok():
+    """Claude dizilimi: büyük ASCII logo yerine kompakt `✻ Fusion CLI` başlığı."""
+    from fusion_cli.ui import theme
 
-    assert "✦ FUSION" in dar
-    assert "███████╗" not in dar
-
-
-def test_genis_terminalde_buyuk_imza_solda_durur():
-    genis = _welcome_output(120)
-
-    assert "███████╗" in genis
-    baslik = next(satir for satir in genis.splitlines() if "İpucu" in satir)
-    # İki sütunlu düzende sağ sütun büyük imzanın sağında başlar.
-    assert baslik.index("İpucu") > banner_module.LOGO_WIDTH
+    for width in (72, 120):
+        cikti = _welcome_output(width)
+        assert "███████╗" not in cikti
+        assert theme.ICON_SPARKLE in cikti and "Fusion CLI" in cikti
 
 
 def test_karsilama_ipucu_ve_tanitim_icerir():
     cikti = _welcome_output(120)
 
     assert "İpucu" in cikti
-    assert "Fusion nedir?" in cikti
+    # Kutuda tanıtım satırı (WELCOME_ABOUT_TEXT'in bir parçası) yer alır.
+    assert "Ücretsiz LLM" in cikti
 
 
 def test_ipucu_secimi_kararli():
@@ -652,12 +645,12 @@ def test_bilgi_satiri_sarmaz():
         assert len(bilgi) <= width, (width, bilgi)
 
 
-def test_dar_terminalde_once_dizin_dusurulur():
-    """Dizin zaten kabuk promptunda görünür; en az kritik alan odur."""
+def test_dar_terminalde_de_dizin_gorunur_kalir():
+    """Kutu içinde bilgi satırı kendiliğinden sarar; alan düşürülmez, dizin görünür kalır."""
     dar = _welcome_output(60)
 
     assert "motor" in dar
-    assert "dizin" not in dar
+    assert "dizin" in dar
 
 
 # --- /undo ------------------------------------------------------------------ #

@@ -26,29 +26,12 @@ from dataclasses import dataclass
 from rich.box import ROUNDED
 from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
-from rich.rule import Rule
-from rich.table import Table
 from rich.text import Text
 
 from . import messages, theme
 
-#: Büyük imzanın çizim genişliği (en uzun satır).
-LOGO_WIDTH = 47
-#: Sağ sütuna okunabilir metin için gereken en az genişlik.
-MIN_TEXT_WIDTH = 34
-#: Bu genişliğin altında büyük imza sığmaz; tek satırlık sürüme inilir.
-MIN_LOGO_WIDTH = LOGO_WIDTH + MIN_TEXT_WIDTH + 10
 #: Giriş satırı ve altındaki durum çubuğu için ekranın dibinde bırakılan yer.
 PROMPT_RESERVED_LINES = 3
-
-_LOGO_LINES = (
-    "███████╗██╗   ██╗███████╗██╗ ██████╗ ███╗   ██╗",
-    "██╔════╝██║   ██║██╔════╝██║██╔═══██╗████╗  ██║",
-    "█████╗  ██║   ██║███████╗██║██║   ██║██╔██╗ ██║",
-    "██╔══╝  ██║   ██║╚════██║██║██║   ██║██║╚██╗██║",
-    "██║     ╚██████╔╝███████║██║╚██████╔╝██║ ╚████║",
-    "╚═╝      ╚═════╝ ╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,11 +86,7 @@ def print_welcome(
         console.file.write(_CLEAR_SCROLLBACK)
         console.file.flush()
 
-    blocks: list[RenderableType] = [
-        Text(),
-        _welcome_panel(info, console.width),
-        _facts_line(info, console.width),
-    ]
+    blocks: list[RenderableType] = [Text(), _welcome_panel(info)]
     for block in blocks:
         console.print(block)
     if pad:
@@ -162,65 +141,53 @@ def pick_tip(seed: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _welcome_panel(info: SessionInfo, width: int) -> Panel:
-    """Tam genişlikte karşılama kutusu. Genişlik verilmez: terminale yayılır."""
+def _welcome_panel(info: SessionInfo) -> Panel:
+    """Kompakt yuvarlak karşılama kutusu (Claude Code dizilimi).
+
+    Genişlik verilmez: kutu terminale yayılır. İçerik tek sütundur — üstte imza ve
+    selamlama, altında kısa tanıtım, ipucu ve oturum bilgileri.
+    """
     return Panel(
-        _layout(info, width),
+        _welcome_body(info),
         box=ROUNDED,
         border_style=theme.DIM,
-        title=Text(f" {messages.APP_NAME} {info.version} ", style=theme.ACCENT),
-        title_align="left",
         padding=(1, 2),
     )
 
 
-def _layout(info: SessionInfo, width: int) -> RenderableType:
-    """Solda imza, sağda ipucu ve tanıtım.
-
-    Dar terminalde büyük imza sağ sütuna okunabilir yer bırakmaz; orada tek
-    satırlık imzaya inilir ve bölümler alt alta dizilir.
-    """
-    if width < MIN_LOGO_WIDTH:
-        return Group(_wordmark(), Text(), _sidebar(info))
-
-    columns = Table.grid(padding=(0, 4))
-    columns.add_column(width=LOGO_WIDTH)
-    columns.add_column(overflow="fold")
-    columns.add_row(_logo(), _sidebar(info))
-    return columns
-
-
-def _logo() -> Text:
-    """Gradyanlı büyük imza."""
-    return gradient("\n".join(_LOGO_LINES))
-
-
-def _wordmark() -> Text:
-    """Dar terminalde kullanılan tek satırlık imza."""
-    mark = Text("✦ ", style=theme.ACCENT)
-    mark.append_text(gradient("FUSION"))
-    return mark
-
-
-def _sidebar(info: SessionInfo) -> Group:
-    """Sağ sütun: üstte ipucu, altta projenin ne olduğu."""
+def _welcome_body(info: SessionInfo) -> Group:
+    """Kutunun tek sütunlu içeriği."""
     return Group(
-        _section(messages.WELCOME_TIP_TITLE, pick_tip(info.working_dir)),
-        Rule(style=theme.DIM),
-        _section(messages.WELCOME_ABOUT_TITLE, messages.WELCOME_ABOUT_TEXT),
+        _header(info),
+        Text(messages.WELCOME_ABOUT_TEXT, style=theme.DIM),
+        Text(),
+        _tip_line(info),
+        Text(),
+        _facts_line(info),
     )
 
 
-def _section(title: str, body: str) -> Group:
-    return Group(Text(title, style=f"bold {theme.ACCENT}"), Text(body, style=theme.DIM))
+def _header(info: SessionInfo) -> Text:
+    """`✻ Fusion CLI  hoş geldin  v1.0` — yıldız, gradyanlı imza, selamlama, sürüm."""
+    line = Text(f"{theme.ICON_SPARKLE} ", style=theme.ACCENT)
+    line.append_text(gradient(messages.APP_NAME))
+    line.append(f"  {messages.WELCOME_GREETING}", style=theme.DIM)
+    line.append(f"  {info.version}", style=theme.DIM)
+    return line
 
 
-def _facts_line(info: SessionInfo, width: int) -> Text:
-    """Oturum bilgileri — kutunun altında TEK satır.
+def _tip_line(info: SessionInfo) -> Text:
+    """`İpucu: …` — çalışma dizinine göre kararlı seçilen tek ipucu."""
+    line = Text(f"{messages.WELCOME_TIP_TITLE}: ", style=f"bold {theme.ACCENT}")
+    line.append(pick_tip(info.working_dir), style=theme.DIM)
+    return line
 
-    Sarmaması gerekir: sarınca alt satırda öksüz bir parça kalıyor ve dağınık
-    görünüyor. Sığmazsa en az kritik alandan başlayarak (dizin, sonra bellek)
-    alan düşürülür — dizin zaten kabuk promptunda görünür.
+
+def _facts_line(info: SessionInfo) -> Text:
+    """Oturum bilgileri — kutunun içinde son satır (motor · onay · model · bellek · dizin).
+
+    Kutu içinde basıldığı için sığmazsa Rich kendiliğinden sarar; alan düşürmeye gerek
+    kalmaz, her bilgi görünür kalır.
     """
     fields = [
         (messages.WELCOME_FIELD_ENGINE, info.engine, theme.ACCENT),
@@ -229,19 +196,7 @@ def _facts_line(info: SessionInfo, width: int) -> Text:
         (messages.WELCOME_FIELD_MEMORY, _memory_text(info.lesson_count), theme.OK),
         (messages.WELCOME_FIELD_DIR, info.working_dir, theme.DIM),
     ]
-    while fields and _facts_width(fields) > width:
-        fields.pop()
-    return _join_facts(fields)
-
-
-def _facts_width(fields: list[tuple[str, str, str]]) -> int:
-    """Satırın kaç sütun tutacağı (girinti ve ayraçlar dâhil)."""
-    content = sum(len(label) + 1 + len(value) for label, value, _ in fields)
-    return 2 + content + 3 * max(0, len(fields) - 1)
-
-
-def _join_facts(fields: list[tuple[str, str, str]]) -> Text:
-    line = Text("  ")
+    line = Text()
     for index, (label, value, color) in enumerate(fields):
         if index:
             line.append(" · ", style=theme.DIM)

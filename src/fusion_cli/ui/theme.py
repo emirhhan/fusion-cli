@@ -38,6 +38,8 @@ ICON_OK = "✓"
 ICON_ERROR = "✗"
 ICON_DENIED = "⊘"
 ICON_DONE = "✦"
+#: Karşılama kutusunun başındaki yıldız (Claude Code `✻`). Ürün imzasının yanında durur.
+ICON_SPARKLE = "✻"
 ICON_STATUS = "›"
 ICON_PROMPT = "❯"
 #: Gönderilen kullanıcı mesajının önündeki işaret (Claude Code `>`). Girdi istemindeki
