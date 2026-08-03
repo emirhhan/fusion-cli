@@ -73,6 +73,10 @@ runtime:
   # Güvenilirlik skoru EWMA ağırlığı. 0.3: son sonuç %30 ağırlık taşır, geçmiş %70 —
   # skor tek bir arızada çakılmaz ama ısrarlı bozulmayı birkaç turda yansıtır.
   reliability_alpha: 0.3
+  # Yedek zincirinin deneme sırası. priority = mevcut ölçülmüş sıra (varsayılan; bozma).
+  # Diğerleri gateway'de açıkça seçilebilir: free_first | headroom | least_used |
+  # round_robin | random.
+  routing_strategy: priority
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

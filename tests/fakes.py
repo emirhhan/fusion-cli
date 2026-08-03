@@ -111,6 +111,7 @@ def make_config(**overrides):
 
     from fusion_cli.config.models import Config, RuntimeConfig
     from fusion_cli.core.reasoning import ReasoningEffort
+    from fusion_cli.core.routing_strategy import RoutingStrategy
     from fusion_cli.core.types import ModelSpec
 
     runtime_overrides = overrides.pop("runtime", {})
@@ -124,6 +125,7 @@ def make_config(**overrides):
         "circuit_failure_threshold": 3,
         "circuit_cooldown_s": 60.0,
         "reliability_alpha": 0.3,
+        "routing_strategy": RoutingStrategy.PRIORITY,
         "max_tokens": 32,
         # Testlerde yeniden deneme kapalıdır: gerçek gecikmeler 34 ve 68 saniyedir
         # ve her testi bekletirdi. Yeniden denemenin kendi davranışı

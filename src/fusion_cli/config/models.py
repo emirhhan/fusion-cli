@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..core.reasoning import ReasoningEffort
+from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
 
 
@@ -42,6 +43,10 @@ class RuntimeConfig:
     #: Güvenilirlik skorunun son-ağırlığı (EWMA). 1'e yakın: son sonuç baskın; 0'a
     #: yakın: geçmiş baskın. Kısa arıza modeli kalıcı kötü saymasın diye orta bir değer.
     reliability_alpha: float
+    #: Yedek zincirinin deneme sırası stratejisi. `priority` mevcut ölçülmüş sırayı
+    #: korur; diğerleri (free_first, headroom, least_used, round_robin, random) yalnızca
+    #: kullanıcı açıkça seçerse devreye girer (gateway'de). Bkz. core/routing_strategy.
+    routing_strategy: RoutingStrategy
     #: Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
     #: Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
     #: Boş liste = yeniden deneme yok. Zincirdeki her modele ayrı ayrı uygulanır.

@@ -12,12 +12,14 @@ sunucu gerekmez — `httpx.ASGITransport` ile doğrudan çağrılır.
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..config.models import Config
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
+from ..core.routing_strategy import order_models
 from ..core.types import CompletionRequest, ModelSpec, StreamDone, TextChunk
 from ..providers.factory import build_provider
 from . import translate
@@ -45,6 +47,22 @@ class GatewayApp:
         self._config = config
         self._health = health
         self._factory = provider_factory or self._default_factory
+        self._strategy = config.runtime.routing_strategy
+        #: round-robin/random için tur-ötesi durum (modül-global değil, örneğe bağlı).
+        self._rotation = 0
+        self._rng = random.Random()
+
+    def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
+        """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
+        ordered = order_models(
+            spec.models,
+            strategy=self._strategy,
+            health=self._health,
+            rotation=self._rotation,
+            rng=self._rng,
+        )
+        self._rotation += 1
+        return ModelSpec(name=spec.name, model=ordered[0], fallback=ordered[1:], tags=spec.tags)
 
     def _default_factory(self, spec: ModelSpec) -> LlmProvider:
         return build_provider(
@@ -110,13 +128,18 @@ class GatewayApp:
             await _json(send, _error_body(str(error)), status=400)
             return
 
-        spec = resolve_spec(self._config, model)
+        spec = self._routed_spec(resolve_spec(self._config, model))
         provider = self._factory(spec)
+        route = f"{self._strategy.value}:{spec.model}"
         if stream:
             await self._stream(send, provider, request, model)
         else:
             result = await provider.complete(request)
-            await _json(send, translate.to_openai_response(result, model))
+            await _json(
+                send,
+                translate.to_openai_response(result, model),
+                extra_headers=[(b"x-fusion-route", route.encode())],
+            )
 
     async def _stream(
         self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
@@ -198,15 +221,16 @@ async def _read_json(receive: Receive) -> dict[str, Any]:
     return parsed
 
 
-async def _json(send: Send, data: dict[str, Any], *, status: int = 200) -> None:
+async def _json(
+    send: Send,
+    data: dict[str, Any],
+    *,
+    status: int = 200,
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
+) -> None:
     body = json.dumps(data).encode()
-    await send(
-        {
-            "type": "http.response.start",
-            "status": status,
-            "headers": [(b"content-type", b"application/json")],
-        }
-    )
+    headers = [(b"content-type", b"application/json"), *(extra_headers or [])]
+    await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": body})
 
 
