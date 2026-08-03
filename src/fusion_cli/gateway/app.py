@@ -14,17 +14,22 @@ from __future__ import annotations
 import json
 import random
 from collections.abc import Awaitable, Callable
+from dataclasses import replace as _dc_replace
 from typing import Any
 
 from ..config.credentials import FernetSecretStore
 from ..config.models import Config
+from ..core.compression import compress_messages, saved_chars
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
+from ..core.redaction import redact
 from ..core.routing_strategy import RoutingStrategy, order_models
-from ..core.types import CompletionRequest, ModelSpec, StreamDone, TextChunk
+from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
 from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
 from . import translate
+from .analytics import Analytics, RequestRecord
+from .cache import PromptCache
 from .routing import available_models, resolve_spec
 
 #: `build_provider` imzasının gateway'in ihtiyaç duyduğu sadeleştirilmiş hâli.
@@ -58,6 +63,10 @@ class GatewayApp:
         #: Panelden girilen anahtarlar buraya ŞİFRELİ yazılır; ayrıca canlı ortama uygulanır.
         #: Test için enjekte edilebilir (yoksa gerçek kullanıcı deposu kurulur).
         self._secret_store = secret_store or _default_secret_store()
+        #: Oturum boyunca canlı kullanım telemetrisi (panelde gösterilir).
+        self._analytics = Analytics()
+        #: Tam-eşleşme prompt önbelleği (token/süre tasarrufu).
+        self._cache = PromptCache()
 
     def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
         """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
@@ -106,6 +115,24 @@ class GatewayApp:
         if method == "GET" and path == "/api/state":
             await self._api_state(send)
             return
+        if method == "GET" and path == "/api/analytics":
+            await _json(send, self._analytics.snapshot())
+            return
+        if method == "GET" and path == "/api/ready":
+            await self._api_ready(send)
+            return
+        if method == "GET" and path == "/v1/route/candidates":
+            await self._api_candidates(scope, send)
+            return
+        if method == "GET" and path == "/api/config/export":
+            await self._api_export(send)
+            return
+        if method == "POST" and path == "/api/health/reset":
+            await self._api_health_reset(send)
+            return
+        if method == "POST" and path == "/api/model":
+            await self._api_set_model(receive, send)
+            return
         if method == "POST" and path == "/api/keys":
             await self._api_set_key(receive, send)
             return
@@ -128,17 +155,22 @@ class GatewayApp:
     async def _api_state(self, send: Send) -> None:
         """Panelin tek çağrıda ihtiyaç duyduğu her şey: sağlayıcılar, yönlendirme,
         fallback zinciri, sağlık, modeller."""
+        from .. import __version__
+
         await _json(
             send,
             {
+                "version": __version__,
                 "providers": _providers_json(),
                 "routing": {
                     "current": self._strategy.value,
                     "options": [strategy.value for strategy in RoutingStrategy],
                 },
                 "fallback": list(self._config.agent.models),
+                "judge": list(self._config.judge.models),
                 "health": self._health_json(),
                 "models": available_models(self._config),
+                "analytics": self._analytics.snapshot(),
                 "secret_ready": self._secret_store.available,
                 "config_path": str(self._config.source) if self._config.source else None,
             },
@@ -217,6 +249,77 @@ class GatewayApp:
             saved = False  # yazılamadı ama oturumda etkili (dosya izni sorunu turu engellemez)
         await _json(send, {"ok": True, "saved": saved, "chain": list(new_agent.models)})
 
+    async def _api_ready(self, send: Send) -> None:
+        """Gateway kullanıma hazır mı? En az bir anahtarlı sağlayıcı kurulu mu?"""
+        from ..config.keys import environ_snapshot
+        from ..providers.registry import BUILTIN_PROVIDERS
+
+        environ = environ_snapshot()
+        configured = [
+            p.id
+            for p in BUILTIN_PROVIDERS
+            if p.implemented and p.auth_env and p.is_configured(environ)
+        ]
+        await _json(send, {"ready": bool(configured), "configured_providers": configured})
+
+    async def _api_candidates(self, scope: Scope, send: Send) -> None:
+        """Bir model/profil için ÇALIŞTIRILACAK aday zinciri (neden bu route)."""
+        from urllib.parse import parse_qs
+
+        params = parse_qs(scope.get("query_string", b"").decode())
+        model = params.get("model", ["auto"])[0]
+        spec = resolve_spec(self._config, model)
+        ordered = order_models(
+            spec.models,
+            strategy=self._strategy,
+            health=self._health,
+            rotation=self._rotation,
+            rng=self._rng,
+        )
+        await _json(
+            send,
+            {"model": model, "strategy": self._strategy.value, "candidates": list(ordered)},
+        )
+
+    async def _api_export(self, send: Send) -> None:
+        """Aktif config.yaml içeriğini döndür (panelden indirilebilsin)."""
+        source = self._config.source
+        text = source.read_text(encoding="utf-8") if source and source.is_file() else ""
+        await _json(send, {"config": text, "path": str(source) if source else None})
+
+    async def _api_health_reset(self, send: Send) -> None:
+        if self._health is not None:
+            self._health.reset()
+        await _json(send, {"ok": True})
+
+    async def _api_set_model(self, receive: Receive, send: Send) -> None:
+        """Bir rolün (agent/judge) modelini + yedek zincirini düzenle + kaydet."""
+        from dataclasses import replace
+
+        from ..config import writer
+        from ..core.errors import ConfigError
+
+        body = await _read_json(receive)
+        role = str(body.get("role", ""))
+        models = [str(m).strip() for m in body.get("models", []) if str(m).strip()]
+        if role not in ("agent", "judge") or not models:
+            await _json(
+                send, _error_body("rol 'agent'|'judge' ve en az bir model olmalı"), status=400
+            )
+            return
+        current = self._config.agent if role == "agent" else self._config.judge
+        spec = replace(current, model=models[0], fallback=tuple(models[1:]))
+        if role == "agent":
+            self._config = replace(self._config, agent=spec)
+        else:
+            self._config = replace(self._config, judge=spec)
+        saved = True
+        try:
+            writer.write_model_section(self._config)
+        except ConfigError:
+            saved = False
+        await _json(send, {"ok": True, "saved": saved, "role": role, "chain": list(spec.models)})
+
     def _health_json(self) -> list[dict[str, Any]]:
         if self._health is None:
             return []
@@ -226,6 +329,7 @@ class GatewayApp:
                 "score": round(entry.score, 3),
                 "phase": entry.phase.value,
                 "samples": entry.samples,
+                "avg_latency_ms": round(entry.avg_latency_ms),
             }
             for model_id, entry in self._health.snapshot()
         ]
@@ -245,18 +349,56 @@ class GatewayApp:
             await _json(send, _error_body(str(error)), status=400)
             return
 
+        runtime = self._config.runtime
+        # Güvenli sıkıştırma (opt-in): giden mesajları kısalt, tasarrufu say.
+        if runtime.gateway_compression:
+            original = request.messages
+            request = _dc_replace(request, messages=compress_messages(request.messages))
+            self._analytics.add_compression_saving(saved_chars(original, request.messages))
+
         spec = self._routed_spec(resolve_spec(self._config, model))
-        provider = self._factory(spec)
         route = f"{self._strategy.value}:{spec.model}"
         if stream:
-            await self._stream(send, provider, request, model)
+            await self._stream(send, self._factory(spec), request, model)
+            return
+
+        # Önbellek: aynı istek daha önce geldiyse modeli hiç çağırma.
+        cached = self._cache.get(model, request) if runtime.gateway_cache else None
+        if cached is not None:
+            result, from_cache = cached, True
         else:
-            result = await provider.complete(request)
-            await _json(
-                send,
-                translate.to_openai_response(result, model),
-                extra_headers=[(b"x-fusion-route", route.encode())],
+            result = await self._factory(spec).complete(request)
+            if runtime.gateway_cache:
+                self._cache.put(model, request, result)
+            from_cache = False
+        # Credential guardrail: yanıtta sızan sır/anahtar desenini maskele.
+        if runtime.gateway_mask_secrets and result.text:
+            result = _dc_replace(result, text=redact(result.text))
+        self._record(model, result, cached=from_cache)
+        usage = result.usage
+        await _json(
+            send,
+            translate.to_openai_response(result, model),
+            extra_headers=[
+                (b"x-fusion-route", route.encode()),
+                (b"x-fusion-usage", f"{usage.prompt_tokens};{usage.completion_tokens}".encode()),
+                (b"x-fusion-cache", b"HIT" if from_cache else b"MISS"),
+            ],
+        )
+
+    def _record(self, requested: str, result: ModelResult, *, cached: bool = False) -> None:
+        """Bir isteği telemetriye işle (metin saklanmaz)."""
+        self._analytics.record(
+            RequestRecord(
+                requested_model=requested,
+                served_model=result.model,
+                prompt_tokens=result.usage.prompt_tokens,
+                completion_tokens=result.usage.completion_tokens,
+                latency_ms=result.latency_ms,
+                ok=result.ok,
+                cached=cached,
             )
+        )
 
     async def _stream(
         self, send: Send, provider: LlmProvider, request: CompletionRequest, model: str
@@ -271,6 +413,7 @@ class GatewayApp:
                 )
             elif isinstance(item, StreamDone):
                 finish = "stop" if item.result.is_usable else "error"
+                self._record(model, item.result)
         await _sse_data(send, translate.final_chunk(model, chunk_id=chunk_id, finish_reason=finish))
         await _sse_done(send)
 

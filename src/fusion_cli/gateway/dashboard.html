@@ -80,6 +80,7 @@
       <div class="tab active" data-tab="genel">Genel</div>
       <div class="tab" data-tab="anahtar">Sağlayıcılar &amp; Anahtarlar</div>
       <div class="tab" data-tab="yonlendirme">Yönlendirme &amp; Fallback</div>
+      <div class="tab" data-tab="analitik">Analitik</div>
       <div class="tab" data-tab="saglik">Sağlık</div>
       <div class="tab" data-tab="test">Test</div>
     </div>
@@ -123,12 +124,42 @@
           <button onclick="saveFallback()">Zinciri Kaydet</button>
         </div>
       </div>
+
+      <h2>Hakem Modeli (fusion)</h2>
+      <div class="hint">Fusion motorunun hakem/sentez modeli ve yedek zinciri.</div>
+      <div class="card">
+        <div id="judge"></div>
+        <div class="row" style="margin-top:10px">
+          <input id="newJudge" class="grow" placeholder="hakem modeli ekle" />
+          <button class="ghost" onclick="addJudge()">+ ekle</button>
+          <button onclick="saveJudge()">Hakemi Kaydet</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ANALİTİK -->
+    <div class="panel" id="tab-analitik">
+      <h2>Kullanım Analitiği</h2>
+      <div class="stats">
+        <div class="stat"><div class="n" id="a-req">–</div><div class="l">istek</div></div>
+        <div class="stat"><div class="n" id="a-tok">–</div><div class="l">toplam token</div></div>
+        <div class="stat"><div class="n" id="a-lat" style="color:var(--blue)">–</div><div class="l">ort. gecikme (ms)</div></div>
+        <div class="stat"><div class="n" id="a-p95" style="color:var(--yellow)">–</div><div class="l">p95 gecikme (ms)</div></div>
+        <div class="stat"><div class="n" id="a-cache" style="color:var(--green)">–</div><div class="l">önbellek isabeti</div></div>
+        <div class="stat"><div class="n" id="a-comp" style="color:var(--accent)">–</div><div class="l">sıkıştırma tasarrufu (karakter)</div></div>
+      </div>
+      <h2>Model Başına</h2>
+      <div class="card"><table><thead><tr><th>Model</th><th>İstek</th><th>Token</th><th>Ort. gecikme</th></tr></thead><tbody id="a-permodel"></tbody></table></div>
+      <h2>Son İstekler</h2>
+      <div class="card"><table><thead><tr><th>İstenen</th><th>Cevaplayan</th><th>Token</th><th>Gecikme</th><th></th></tr></thead><tbody id="a-recent"></tbody></table></div>
     </div>
 
     <!-- SAĞLIK -->
     <div class="panel" id="tab-saglik">
       <h2>Sağlayıcı Sağlığı</h2>
-      <div class="card"><table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Örnek</th></tr></thead>
+      <div class="row" style="margin-bottom:12px"><button class="ghost" onclick="resetHealth()">Sağlığı Sıfırla</button>
+        <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span></div>
+      <div class="card"><table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
         <tbody id="health"></tbody></table><div class="hint" id="healthEmpty">Henüz veri yok — bir istek gelince dolar.</div></div>
     </div>
 
@@ -147,7 +178,7 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      let STATE = null, chain = [];
+      let STATE = null, chain = [], judge = [];
 
       document.querySelectorAll(".tab").forEach((t) => t.onclick = () => {
         document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
@@ -187,14 +218,39 @@
 
         const sel = $("strategy"); sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
         chain = s.fallback.slice(); renderChain();
+        judge = (s.judge || []).slice(); renderJudge();
 
         const hm = s.health; $("healthEmpty").style.display = hm.length ? "none" : "block";
         $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
           <td><span class="bar"><i style="width:${Math.round(m.score*100)}%"></i></span> ${Math.round(m.score*100)}%</td>
-          <td class="phase ${m.phase}">${m.phase}</td><td>${m.samples}</td></tr>`).join("");
+          <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms||0} ms</td><td>${m.samples}</td></tr>`).join("");
 
         $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
+        renderAnalytics(s.analytics || {});
+        document.querySelector(".sub").textContent = "Yerel · yalnızca bu bilgisayar · v" + (s.version || "?");
       }
+
+      function renderAnalytics(a) {
+        $("a-req").textContent = a.requests ?? 0;
+        $("a-tok").textContent = a.total_tokens ?? 0;
+        $("a-lat").textContent = a.avg_latency_ms ?? 0;
+        $("a-p95").textContent = a.p95_latency_ms ?? 0;
+        $("a-cache").textContent = a.cache_hits ?? 0;
+        $("a-comp").textContent = a.compression_saved_chars ?? 0;
+        $("a-permodel").innerHTML = (a.per_model || []).map((m) => `<tr><td class="model">${m.model}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`).join("") || '<tr><td class="hint">veri yok</td></tr>';
+        $("a-recent").innerHTML = (a.recent || []).map((r) => `<tr><td class="model">${r.requested}</td><td class="model">${r.served}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`).join("") || '<tr><td class="hint">henüz istek yok</td></tr>';
+      }
+
+      function renderJudge() {
+        $("judge").innerHTML = judge.map((m, i) => `<div class="chain-item"><span class="idx">${i+1}</span>
+          <span class="grow">${m}</span><button class="ghost" onclick="moveJudge(${i},-1)">↑</button>
+          <button class="ghost" onclick="moveJudge(${i},1)">↓</button><button class="danger" onclick="rmJudge(${i})">✕</button></div>`).join("") || '<div class="hint">boş</div>';
+      }
+      function moveJudge(i,d){const j=i+d;if(j<0||j>=judge.length)return;[judge[i],judge[j]]=[judge[j],judge[i]];renderJudge();}
+      function rmJudge(i){judge.splice(i,1);renderJudge();}
+      function addJudge(){const v=$("newJudge").value.trim();if(v){judge.push(v);$("newJudge").value="";renderJudge();}}
+      async function saveJudge(){try{const d=await post("/api/model",{role:"judge",models:judge});toast(d.saved?"hakem kaydedildi":"uygulandı (yazılamadı)");await load();}catch(e){toast(e.message,true);}}
+      async function resetHealth(){try{await post("/api/health/reset",{});toast("sağlık sıfırlandı");await load();}catch(e){toast(e.message,true);}}
 
       function renderChain() {
         $("chain").innerHTML = chain.map((m, i) => `<div class="chain-item"><span class="idx">${i+1}</span>
@@ -230,6 +286,7 @@
 
       async function load() { try { STATE = await fetch("/api/state").then((r) => r.json()); render(); } catch (e) { /* sunucu kapalı */ } }
       load(); setInterval(() => { if (document.querySelector('.tab[data-tab="saglik"]').classList.contains("active") ||
+        document.querySelector('.tab[data-tab="analitik"]').classList.contains("active") ||
         document.querySelector('.tab[data-tab="genel"]').classList.contains("active")) load(); }, 5000);
     </script>
   </body>

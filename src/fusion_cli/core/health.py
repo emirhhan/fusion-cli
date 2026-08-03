@@ -61,10 +61,17 @@ class ModelHealth:
         #: Yeni model iyimser başlar: tek bir geçici arıza onu dışlamasın.
         self._score = initial_score
         self._samples = 0
+        #: Başarılı çağrıların son-ağırlıklı ortalama gecikmesi (ms). 0 = veri yok.
+        self._avg_latency_ms = 0.0
 
     @property
     def phase(self) -> CircuitPhase:
         return self._phase
+
+    @property
+    def avg_latency_ms(self) -> float:
+        """Son-ağırlıklı ortalama gecikme (ms); veri yoksa 0."""
+        return self._avg_latency_ms
 
     @property
     def score(self) -> float:
@@ -84,11 +91,15 @@ class ModelHealth:
             return True
         return False
 
-    def record(self, ok: bool) -> None:
-        """Bir çağrının sonucunu işle: skoru güncelle, devreyi aç/kapat."""
+    def record(self, ok: bool, *, latency_ms: int = 0) -> None:
+        """Bir çağrının sonucunu işle: skoru + gecikmeyi güncelle, devreyi aç/kapat."""
         self._score = self._alpha * (1.0 if ok else 0.0) + (1.0 - self._alpha) * self._score
         self._samples += 1
         if ok:
+            if latency_ms > 0:
+                # Yalnızca başarılı çağrının gecikmesi ölçülür; ilk ölçüm doğrudan alınır.
+                prev = self._avg_latency_ms or float(latency_ms)
+                self._avg_latency_ms = self._alpha * latency_ms + (1.0 - self._alpha) * prev
             self._consecutive_failures = 0
             self._phase = CircuitPhase.CLOSED
             return
@@ -133,3 +144,7 @@ class HealthRegistry:
     def snapshot(self) -> tuple[tuple[str, ModelHealth], ...]:
         """Görüntüleme için (model_id, health) çiftleri; skora göre artan sırada."""
         return tuple(sorted(self._entries.items(), key=lambda pair: pair[1].score))
+
+    def reset(self) -> None:
+        """Tüm sağlık kayıtlarını temizle (devreleri kapat, skorları sıfırla)."""
+        self._entries.clear()

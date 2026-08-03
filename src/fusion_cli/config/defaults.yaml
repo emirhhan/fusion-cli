@@ -77,6 +77,10 @@ runtime:
   # Diğerleri gateway'de açıkça seçilebilir: free_first | headroom | least_used |
   # round_robin | random.
   routing_strategy: priority
+  # Gateway davranışı (yalnızca 'fusion serve' geçidini etkiler; agent/fusion motorları değil).
+  gateway_cache: true          # aynı istek tekrar gelirse önbellekten anında dön (token tasarrufu)
+  gateway_compression: false   # giden mesajlarda güvenli sıkıştırma (opt-in; içerik bozulmaz)
+  gateway_mask_secrets: true   # yanıtta sızan anahtar/sır desenini maskele
   # Tur başına çıktı bütçesi.
   #
   # DİKKAT: reasoning modellerinde düşünme token'ları da BU bütçeden yenir.

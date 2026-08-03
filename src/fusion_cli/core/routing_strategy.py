@@ -22,6 +22,10 @@ class RoutingStrategy(Enum):
     PRIORITY = "priority"
     #: Ücretsiz (`:free`) modeller önce.
     FREE_FIRST = "free_first"
+    #: Maliyet-öncelikli: ücretsiz (`:free`) modeller önde (proxy: ücretsiz = $0).
+    COST_OPTIMIZED = "cost_optimized"
+    #: En düşük ortalama gecikmeli model önce (sağlık verisi gerekir).
+    LATENCY = "latency"
     #: Güvenilirlik skoru en yüksek olan önce (sağlık verisi gerekir).
     HEADROOM = "headroom"
     #: En az kullanılan (en az örnekli) model önce — yükü dağıtır.
@@ -44,8 +48,9 @@ def order_models(
     items = list(models)
     if len(items) <= 1 or strategy is RoutingStrategy.PRIORITY:
         return tuple(items)
-    if strategy is RoutingStrategy.FREE_FIRST:
+    if strategy in (RoutingStrategy.FREE_FIRST, RoutingStrategy.COST_OPTIMIZED):
         # Kararlı: önce ':free' içerenler, sonra ötekiler; her grup içinde sıra korunur.
+        # Maliyet-öncelikli de aynı proxy'yi kullanır: ücretsiz = en ucuz.
         return tuple(sorted(items, key=lambda m: 0 if ":free" in m else 1))
     if strategy is RoutingStrategy.ROUND_ROBIN:
         shift = rotation % len(items)
@@ -58,4 +63,9 @@ def order_models(
         return tuple(items)
     if strategy is RoutingStrategy.HEADROOM:
         return tuple(sorted(items, key=lambda m: -health.for_model(m).score))
+    if strategy is RoutingStrategy.LATENCY:
+        # En hızlı önce; gecikme verisi olmayan (0) model sona (sonsuz sayılır).
+        return tuple(
+            sorted(items, key=lambda m: health.for_model(m).avg_latency_ms or float("inf"))
+        )
     return tuple(sorted(items, key=lambda m: health.for_model(m).samples))  # LEAST_USED

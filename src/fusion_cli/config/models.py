@@ -109,6 +109,14 @@ class RuntimeConfig:
     workflow_mode: bool = False
     #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
     workflow_max_model_calls: int = 12
+    #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token
+    #: tasarrufu). Yalnızca gateway'i etkiler; agent/fusion motorları etkilenmez.
+    gateway_cache: bool = True
+    #: Gateway: giden mesajlarda güvenli sıkıştırma (fazla boş satır + satır sonu boşluğu).
+    #: İçerik BOZULMAZ; kod girintisi korunur. Varsayılan kapalı (opt-in).
+    gateway_compression: bool = False
+    #: Gateway: yanıtta sızan sır/anahtar deseni maskelenir (credential guardrail).
+    gateway_mask_secrets: bool = True
 
 
 @dataclass(frozen=True, slots=True)

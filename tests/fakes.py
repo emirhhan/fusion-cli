@@ -161,7 +161,9 @@ def make_config(**overrides):
         "runtime": RuntimeConfig(**runtime),
         "embedding": EmbeddingConfig(provider="local", model="test"),
         "memory_dir": _Path(tempfile.mkdtemp(prefix="fusion-test-memory-")),
-        "source": _Path("test"),
+        # `source`, yazma testlerinde writer'ın hedefi olur; repo kökündeki dosyalara
+        # değil izole geçici bir yola işaret etmeli (RULES: testler yalnız izole tmp'ye yazar).
+        "source": _Path(tempfile.mkdtemp(prefix="fusion-test-config-")) / "config.yaml",
     }
     defaults.update(overrides)
     return Config(**defaults)

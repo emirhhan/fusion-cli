@@ -40,7 +40,7 @@ class CircuitBreakingProvider:
         if not self._health.allow():
             return self._skipped()
         result = await self._inner.complete(request)
-        self._health.record(ok=result.is_usable)
+        self._health.record(ok=result.is_usable, latency_ms=result.latency_ms)
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
@@ -53,7 +53,7 @@ class CircuitBreakingProvider:
             if isinstance(item, TextChunk) and item.text:
                 produced = True
             elif isinstance(item, StreamDone):
-                self._health.record(ok=item.result.is_usable)
+                self._health.record(ok=item.result.is_usable, latency_ms=item.result.latency_ms)
                 recorded = True
             yield item
         # Protokol akışın tek `StreamDone` ile bitmesini garanti eder; yine de
