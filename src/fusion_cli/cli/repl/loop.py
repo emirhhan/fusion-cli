@@ -67,18 +67,14 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
     import os
 
-    if os.environ.get("FUSION_TUI") == "1":
-        # Ink-benzeri tek yol REPL (A4'te varsayılan olacak; şu an geçiş kapısı).
+    # Varsayılan: Ink-benzeri tek yol TUI (Claude Code modeli). Eski satır-içi mod yalnızca
+    # acil yedek olarak FUSION_INLINE=1 ile açılır; TUI kararlılığı doğrulanınca kaldırılacak
+    # (bkz. docs/BACKLOG.md).
+    if os.environ.get("FUSION_INLINE") != "1":
         from .tui_loop import run_tui_repl
 
         state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
         return await run_tui_repl(state, console)
-
-    if os.environ.get("FUSION_FULLSCREEN") == "1":
-        from .screen import run_screen_repl
-
-        state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
-        return await run_screen_repl(state)
 
     state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
     registry = build_registry()

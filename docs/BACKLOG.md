@@ -32,6 +32,21 @@ Bilinçli olarak taşınmayan iki şey:
 - **"İş yarım kaldı" sezgiseli** kısa ama tam cevapları (`src/app.py:42`) yarım sayıp
   aynı cevabı iki kez bastırıyordu. Çözüldü: somut teslim işaretleri tanınıyor.
 
+## Ink-benzeri TUI geçişi — kalan işler
+
+Varsayılan REPL artık Ink-benzeri tek yol TUI'dir (`cli/repl/tui.py` + `tui_loop.py`).
+Deneysel tam-ekran mod (`screen*`, `ansi_bridge`) tamamen kaldırıldı.
+
+- **Eski satır-içi mod** hâlâ `FUSION_INLINE=1` ile açılıyor (acil yedek). TUI tüm
+  akışlarda (plan modu, hata, seçiciler) doğrulanınca satır-içi yol ve testleri silinecek
+  ve `run_repl` tek gövdeye inecek.
+- **A5 — seçiciler**: `/model`, `/level`, `/provider`, `/profiles`, `/development`
+  argümansız çağrıldığında TUI içinde satır-içi bir seçici açılmalı. Şu an argümanlı
+  kullanım isteniyor (`/level high`). `run_in_terminal` ile geçici tam-ekran seçici
+  ya da alt-chrome içinde bir liste ile çözülecek.
+- **Canlı spinner animasyonu**: TUI çalışma satırı olay-tetikli güncelleniyor; Claude'daki
+  gibi sürekli dönen kare için periyodik `invalidate` eklenebilir.
+
 ## Ertelenen — Claude Code görünüm klonu: girdi kutusu
 
 Claude Code'un girdi istemi yuvarlak bir kutu içindedir (`╭─ > … ─╯`). fusion'ın
