@@ -120,11 +120,12 @@ async def run_agent_task(
     interactive: bool | None = None,
     memory: Memory | None = None,
     extra_roots: tuple[Path, ...] = (),
+    history: list[Message] | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
-    soru sormak turu boşa harcar.
+    soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
     """
     can_ask = sys.stdin.isatty() if interactive is None else interactive
 
@@ -155,7 +156,7 @@ async def run_agent_task(
             verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),
             task_type=task_type,
         )
-        outcome = await run_agent(task, deps, plan_mode=mode is ApprovalMode.PLAN)
+        outcome = await run_agent(task, deps, history=history, plan_mode=mode is ApprovalMode.PLAN)
 
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))

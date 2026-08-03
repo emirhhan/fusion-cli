@@ -12,9 +12,10 @@ edilebilirlik: TTY olmadan kurulup mantığı sınanabilir).
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
-from prompt_toolkit.application import Application, run_in_terminal
+from prompt_toolkit.application import Application
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.key_binding import KeyBindings
@@ -62,6 +63,10 @@ class FusionTui:
         self._on_cycle_mode = on_cycle_mode
         self._work_text = ""
         self._status_html = ""
+        # Modal durumu: "idle" (normal), "confirm" (e/h), "ask" (serbest metin). Onay/soru
+        # sırasında Enter ve esc farklı davranır; tuşlar buna göre yönlendirilir.
+        self._mode = "idle"
+        self._answer: asyncio.Future[object] | None = None
 
         self._input = TextArea(
             height=1, multiline=False, wrap_lines=False, prompt=PROMPT, accept_handler=self._accept
@@ -96,24 +101,64 @@ class FusionTui:
         self._status_html = format_status(mode, engine)
         self._invalidate()
 
-    async def print_above(self, render: Callable[[], None]) -> None:
-        """Girdinin ÜSTÜNE, gerçek terminale bas; alt-chrome sonra yeniden çizilir."""
-        await run_in_terminal(render)
-
     def request_exit(self) -> None:
         if self.application.is_running:
             self.application.exit()
 
+    # -- Modal (onay/soru) -------------------------------------------------- #
+
+    async def await_confirm(self) -> bool:
+        """Onay bekle: `e`/`y` → True, `h`/`n`/esc → False. Önizleme çağıran tarafça
+        önce `print_above` ile basılır; burada yalnızca yanıt beklenir."""
+        result = await self._await_answer("confirm")
+        return bool(result)
+
+    async def await_text(self) -> str:
+        """Serbest metin yanıtı bekle: kullanıcı yazar, Enter gönderir; esc iptal (boş)."""
+        result = await self._await_answer("ask")
+        return str(result)
+
+    async def _await_answer(self, mode: str) -> object:
+        future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
+        self._answer = future
+        self._mode = mode
+        self._invalidate()
+        try:
+            return await future
+        finally:
+            self._mode = "idle"
+            self._answer = None
+            self._invalidate()
+
+    def _resolve(self, value: object) -> None:
+        """Bekleyen modal yanıtını çöz (tekrarlı tuşlarda güvenli)."""
+        future = self._answer
+        if future is not None and not future.done():
+            future.set_result(value)
+
     # -- Tuş yönlendirmesi -------------------------------------------------- #
 
     def _accept(self, buffer: object) -> bool:
-        """Enter: satırı callback'e ver, tamponu temizle (False → içerik silinir)."""
+        """Enter: soru modundaysa yanıtı çöz, değilse satırı gönder. False → tampon silinir."""
         text = getattr(buffer, "text", "")
-        self._on_submit(text)
+        if self._mode == "ask":
+            self._resolve(text)
+        else:
+            self._on_submit(text)
         return False
+
+    def _cancel_or_interrupt(self) -> None:
+        """esc/Ctrl-C: modaldaysa modalı reddet/iptal et, değilse turu kes."""
+        if self._mode == "confirm":
+            self._resolve(False)
+        elif self._mode == "ask":
+            self._resolve("")
+        else:
+            self._on_interrupt()
 
     def _bindings(self) -> KeyBindings:
         kb = KeyBindings()
+        confirm = Condition(lambda: self._mode == "confirm")
 
         @kb.add("c-q")
         def _exit(_event: object) -> None:
@@ -122,12 +167,22 @@ class FusionTui:
         @kb.add("escape", eager=True)
         @kb.add("c-c")
         def _interrupt(_event: object) -> None:
-            # Tur çalışıyorsa keser; boştaysa callback girdiyi temizlemeyi seçebilir.
-            self._on_interrupt()
+            self._cancel_or_interrupt()
 
         @kb.add("s-tab")
         def _cycle(_event: object) -> None:
             self._on_cycle_mode()
+
+        # Onay modu tuşları YALNIZCA modal açıkken; boştayken bu harfler girdiye yazılır.
+        @kb.add("e", filter=confirm, eager=True)
+        @kb.add("y", filter=confirm, eager=True)
+        def _yes(_event: object) -> None:
+            self._resolve(True)
+
+        @kb.add("h", filter=confirm, eager=True)
+        @kb.add("n", filter=confirm, eager=True)
+        def _no(_event: object) -> None:
+            self._resolve(False)
 
         return kb
 

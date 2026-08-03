@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fusion_cli.cli.repl.tui import FusionTui, format_status
 
 
@@ -106,3 +108,46 @@ def test_ctrl_c_interrupt_ctrl_q_exit_shift_tab_cycle():
     assert olaylar["interrupt"] == 1
     assert olaylar["exit"] == 1
     assert olaylar["cycle"] == 1
+
+
+# --- Modal (onay/soru) -------------------------------------------------------- #
+
+
+async def test_await_confirm_e_ile_true():
+    tui, _ = _tui()
+    task = asyncio.ensure_future(tui.await_confirm())
+    await asyncio.sleep(0)
+    assert tui._mode == "confirm"
+
+    _press(tui, "e")
+
+    assert await task is True
+    assert tui._mode == "idle"
+
+
+async def test_await_confirm_esc_ile_false():
+    tui, olaylar = _tui()
+    task = asyncio.ensure_future(tui.await_confirm())
+    await asyncio.sleep(0)
+
+    _press(tui, "escape")
+
+    assert await task is False
+    # Modal esc'i turu KESMEZ; yalnızca onayı reddeder.
+    assert olaylar["interrupt"] == 0
+
+
+async def test_await_text_enter_ile_metni_doner():
+    tui, olaylar = _tui()
+    task = asyncio.ensure_future(tui.await_text())
+    await asyncio.sleep(0)
+    assert tui._mode == "ask"
+
+    class _Buf:
+        text = "kullanıcı yanıtı"
+
+    tui._accept(_Buf())
+
+    assert await task == "kullanıcı yanıtı"
+    # Soru modunda Enter turu BAŞLATMAZ.
+    assert olaylar["submit"] is None
