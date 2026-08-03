@@ -27,7 +27,14 @@ from dotenv import dotenv_values
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from .keys import ProviderPreference, apply_preference, detect, prune_config
-from .models import Config, EmbeddingConfig, ProfileEligibility, RuntimeConfig, TierSpec
+from .models import (
+    Config,
+    EmbeddingConfig,
+    McpServerConfig,
+    ProfileEligibility,
+    RuntimeConfig,
+    TierSpec,
+)
 from .paths import (
     bundled_defaults,
     credentials_file,
@@ -48,6 +55,7 @@ _SECTIONS = (
     "embedding",
     "tiers",
     "profile_eligibility",
+    "mcp_servers",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -155,6 +163,7 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         source=source,
         tiers=_build_tiers(merged["tiers"]),
         profile_eligibility=_build_eligibility(merged.get("profile_eligibility")),
+        mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
     )
 
 
@@ -172,6 +181,17 @@ def _build_eligibility(raw: object) -> dict[str, ProfileEligibility]:
         str(profile): _build(ProfileEligibility, item, f"profile_eligibility.{profile}")
         for profile, item in raw.items()
     }
+
+
+def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:
+    """Dış MCP sunucu listesini kur. Tanımsız/boşsa MCP istemcisi hiç kurulmaz."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigError(f"mcp_servers: liste bekleniyordu, gelen: {type(raw).__name__}")
+    return tuple(
+        _build(McpServerConfig, item, f"mcp_servers[{index}]") for index, item in enumerate(raw)
+    )
 
 
 def _build_tiers(raw: object) -> tuple[TierSpec, ...]:

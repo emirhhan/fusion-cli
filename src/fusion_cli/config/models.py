@@ -122,6 +122,18 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class McpServerConfig:
+    """Bağlanılacak bir dış MCP sunucusu (stdio ile başlatılır).
+
+    Burada tutulur (mcp SDK'sını import ETMEZ): yapılandırma, MCP kurulu olmadan da
+    yüklenebilmeli. Bağlantıyı kuran `mcp_bridge` katmanı SDK'yı ayrıca ister."""
+
+    name: str
+    command: str
+    args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileEligibility:
     """Bir profilin bir modeli ÖNERMESİ için gereken eşikler.
 
@@ -182,6 +194,8 @@ class Config:
     #: Profil adı → uygunluk eşikleri. Model seçim ekranı aktif profile göre bu
     #: eşiklerle süzülür. Tanımsızsa filtre uygulanmaz (özellik sessizce kapanır).
     profile_eligibility: dict[str, ProfileEligibility] = field(default_factory=dict)
+    #: Ajanın bağlanacağı dış MCP sunucuları. Boşsa MCP istemcisi hiç kurulmaz.
+    mcp_servers: tuple[McpServerConfig, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""

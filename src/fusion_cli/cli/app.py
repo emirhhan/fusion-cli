@@ -322,6 +322,57 @@ def serve(
 
 
 @app.command()
+def mcp(
+    write: bool = typer.Option(
+        False, "--write", help="Değiştirici araçları da aç (dikkat: dışarıya yazma verir)."
+    ),
+) -> None:
+    """Fusion araçlarını bir MCP sunucusu olarak aç (stdio).
+
+    MCP destekleyen araçlar (Claude masaüstü, Cursor, Cline…) buna bağlanıp Fusion'ın
+    araçlarını (kod arama, dosya okuma…) kullanabilir. Varsayılan yalnızca salt-okunur.
+    """
+    import asyncio
+    from pathlib import Path
+
+    # DİKKAT: stdout MCP protokolüne aittir; buraya hiçbir şey BASILMAZ.
+    try:
+        from ..mcp_bridge.server import run_stdio
+    except ImportError:
+        typer.echo(messages.MCP_MISSING_DEP, err=True)
+        raise typer.Exit(code=1) from None
+    asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
+
+
+@app.command(name="mcp-tools")
+def mcp_tools() -> None:
+    """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
+    import asyncio
+
+    config = load_config()
+    if not config.mcp_servers:
+        console.print(messages.MCP_NO_SERVERS)
+        return
+    try:
+        from ..mcp_bridge.client import McpClient
+    except ImportError:
+        console.print(f"[red]{messages.MCP_MISSING_DEP}[/red]")
+        raise typer.Exit(code=1) from None
+
+    async def _run() -> None:
+        async with McpClient(config.mcp_servers) as client:
+            for server in config.mcp_servers:
+                tools = await client.list_tools(server.name)
+                console.print(f"[bold]{server.name}[/bold] — {len(tools)} araç:")
+                for tool in tools:
+                    console.print(
+                        f"  [{theme.ACCENT}]{tool.name}[/{theme.ACCENT}] — {tool.description}"
+                    )
+
+    asyncio.run(_run())
+
+
+@app.command()
 def setup() -> None:
     """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
     run_setup(console)

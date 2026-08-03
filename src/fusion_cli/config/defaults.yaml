@@ -468,3 +468,13 @@ profile_eligibility:
   max:
     min_context: 128000
     allow_no_tools: false
+
+# ---------------------------------------------------------------------------
+# Ajanın bağlanacağı dış MCP sunucuları (opsiyonel). Her giriş stdio ile başlatılır.
+# Örnek:
+#   mcp_servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+# Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
+mcp_servers: []

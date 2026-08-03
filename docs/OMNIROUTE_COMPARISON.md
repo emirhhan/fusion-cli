@@ -32,7 +32,7 @@ subagent, öz-öğrenen bellek/dersler, kod indeksi + **Fusion/Council** (çok-m
 | 290 sağlayıcı / 90+ ücretsiz katman canlı takibi | Kısmi (48); serbest-katman bütçe paneli yok |
 | 12-motor token sıkıştırma (RTK/Caveman/LLMLingua) | Temel compaction var; agresif sıkıştırma kodu bozar diye yapılmadı |
 | Hesap/anahtar havuzu + rotasyon | ✅ Çok-hesap havuzu (numaralı/virgüllü anahtar, 429'da rotasyon+cooldown) |
-| MCP sunucusu (104 tool) / A2A protokolü | Tool/subagent var; sunucu/A2A yok |
+| MCP sunucusu + istemcisi | ✅ fusion mcp (sunucu) + dış MCP sunucularına bağlanma (istemci, ajana bağlı) · A2A yok |
 | 43 dil i18n | TR/EN |
 | TLS stealth / MITM-TPROXY (başka CLI'yı yakalama) | **Yapılmadı — bilerek** (senin "rootlamadan" hedefinle çelişir) |
 | Çalışan tüketici web-session (ChatGPT/Gemini web) | **Yapılmadı — ToS**; framework hazır, transport'u kullanıcı sağlar |

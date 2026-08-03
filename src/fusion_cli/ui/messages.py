@@ -332,6 +332,10 @@ PROFILES_NO_ELIGIBLE = (
     "'{name}' için uygun aday yok. Uyumsuzları görmek için: /profiles edit {name} incompatible"
 )
 PROFILES_EDIT_USAGE = "kullanım: /profiles  ·  /profiles edit <profil> [incompatible]"
+MCP_MISSING_DEP = "MCP için resmî SDK gerekli ama kurulu değil. Kur: pip install 'fusion-cli[mcp]'"
+MCP_TOOLS_LOADED = "{count} dış MCP aracı bağlandı"
+MCP_CONNECT_FAILED = "MCP sunucusuna bağlanılamadı: {error} — dış araçlar olmadan devam ediliyor"
+MCP_NO_SERVERS = "Yapılandırılmış MCP sunucusu yok. config.yaml içine mcp_servers ekle."
 CMD_PROFILES = "profilleri gör / düzenle: /profiles · /profiles edit <profil> [incompatible]"
 
 # --- Execution profili (/mode) --------------------------------------------- #

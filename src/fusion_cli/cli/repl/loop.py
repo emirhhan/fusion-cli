@@ -17,10 +17,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import signal
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from ...engines.agent.loop import AgentDeps, AgentOutcome
 
 from ...config import model_select, profile
 from ...config.models import Config
@@ -261,6 +265,50 @@ async def _dispatch(
         await _agent_turn(line, state, console, background, mode)
 
 
+async def _drive_agent(
+    run_agent: Callable[..., Awaitable[AgentOutcome]],
+    line: str,
+    deps: AgentDeps,
+    state: ReplState,
+    console: Console,
+    *,
+    plan_mode: bool,
+    extra_system: str,
+    step_limit: int | None,
+) -> AgentOutcome:
+    """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
+
+    MCP kurulu değilse ya da bir sunucu başlatılamazsa DIŞ araçlar olmadan devam edilir
+    (uyarı verilir): MCP bir zenginleştirmedir, turu engellememeli.
+    """
+    kwargs = {
+        "history": state.history,
+        "plan_mode": plan_mode,
+        "extra_system": extra_system,
+        "step_limit": step_limit,
+    }
+    if not state.config.mcp_servers:
+        return await run_agent(line, deps, **kwargs)
+    try:
+        from ...mcp_bridge.client import McpClient
+    except ImportError:
+        console.print(f"[{theme.WARN}]{messages.MCP_MISSING_DEP}[/{theme.WARN}]")
+        return await run_agent(line, deps, **kwargs)
+    try:
+        async with McpClient(state.config.mcp_servers) as client:
+            added = await client.register_into(deps.base_registry)
+            if added:
+                console.print(
+                    f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
+                )
+            return await run_agent(line, deps, **kwargs)
+    except Exception as error:
+        console.print(
+            f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
+        )
+        return await run_agent(line, deps, **kwargs)
+
+
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:
     from ..session import run_task
 
@@ -329,10 +377,12 @@ async def _agent_turn(
             task_type=state.task_type,
             health=state.health,
         )
-        outcome = await run_agent(
+        outcome = await _drive_agent(
+            run_agent,
             line,
             deps,
-            history=state.history,
+            state,
+            console,
             plan_mode=state.approval.value == "plan",
             extra_system=macros.mode_prompt(mode),
             step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
