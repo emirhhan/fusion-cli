@@ -20,9 +20,17 @@ from ...ui.work import format_tokens
 class WorkLineSink:
     """Model olaylarını dinleyip çalışma satırı metnini besler."""
 
-    def __init__(self, on_update: Callable[[str], None], on_clear: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        on_update: Callable[[str], None],
+        on_clear: Callable[[], None],
+        *,
+        interrupt_hint: str = messages.WORK_INTERRUPT,
+    ) -> None:
         self._on_update = on_update
         self._on_clear = on_clear
+        # Kesme ipucu enjekte edilir: TUI'de esc turu keser, eski tam-ekranda Ctrl-C.
+        self._interrupt_hint = interrupt_hint
         self._model = ""
         self._tokens = 0
         self._started_at = 0.0
@@ -63,4 +71,4 @@ class WorkLineSink:
             parts.append(self._model)
         detay = " · ".join(parts)
         # Live spinner ile aynı dizilim: ayrıntı ve kesme ipucu parantez içinde.
-        self._on_update(f"  {messages.WORK_THINKING}  ({detay} · {messages.WORK_INTERRUPT})")
+        self._on_update(f"  {messages.WORK_THINKING}  ({detay} · {self._interrupt_hint})")

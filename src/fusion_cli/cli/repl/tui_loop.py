@@ -178,7 +178,11 @@ class _TuiSession:
             await self._turn(pending)
 
     async def _turn(self, line: str) -> None:
-        work = WorkLineSink(self._tui.set_work, self._tui.clear_work)
+        work = WorkLineSink(
+            self._tui.set_work,
+            self._tui.clear_work,
+            interrupt_hint=messages.WORK_INTERRUPT_ESC,
+        )
         renderer = ConsoleRenderer(
             self._out,
             live_progress=False,

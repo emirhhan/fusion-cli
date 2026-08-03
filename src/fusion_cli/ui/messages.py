@@ -92,6 +92,8 @@ WORK_TOKENS = "↑ {count} token"
 #: çalışan turu Ctrl-C keser (bkz. repl/loop `_cancel_on_interrupt`), esc değil — bu yüzden
 #: gerçekten çalışan kısayol gösterilir.
 WORK_INTERRUPT = "durdurmak için Ctrl-C"
+#: TUI'de kesme ipucu — orada esc turu gerçekten keser.
+WORK_INTERRUPT_ESC = "durdurmak için esc"
 WORK_THINKING = "hazırlanıyor…"
 #: Görünür düşünme bloğunun başlığı (Claude Code "✻ Thinking…"). `/thinking` açıkken basılır.
 THINKING_HEADER = "düşünüyor…"
