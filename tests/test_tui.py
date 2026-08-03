@@ -79,6 +79,47 @@ def test_application_tam_ekran():
     assert tui.application.full_screen is True
 
 
+# --- Yapıştırma katlama ------------------------------------------------------- #
+
+
+async def test_kisa_yapistirma_oldugu_gibi_girer():
+    # async: buffer.insert_text çalışan bir event loop bekler (üretimde app loop var).
+    tui, _ = _tui()
+
+    tui._fold_paste("kısa metin")
+
+    assert tui._input.buffer.text == "kısa metin"
+    assert not tui._pastes  # katlama yok
+
+
+async def test_uzun_cok_satirli_yapistirma_katlanir_ve_gonderimde_acilir():
+    tui, olaylar = _tui()
+    uzun = "\n".join(f"satır {i}" for i in range(20))
+
+    tui._fold_paste(uzun)
+
+    # Girdi tek satırlık yer tutucu; tam metin değil.
+    assert tui._input.buffer.text != uzun
+    assert "\n" not in tui._input.buffer.text
+    assert "20 satır" in tui._input.buffer.text
+
+    # Gönderimde yer tutucu tam metne geri açılır.
+    class _Buf:
+        text = tui._input.buffer.text
+
+    tui._accept(_Buf())
+    assert olaylar["submit"] == uzun
+
+
+async def test_cok_uzun_tek_satir_da_katlanir():
+    tui, _ = _tui()
+    uzun = "x" * 700
+
+    tui._fold_paste(uzun)
+
+    assert "700 karakter" in tui._input.buffer.text
+
+
 def _press(tui, *keys: str) -> None:
     """Verilen tuş dizisine bağlı işleyiciyi sahte olayla çağır."""
     kb = tui.application.key_bindings

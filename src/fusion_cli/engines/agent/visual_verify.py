@@ -162,6 +162,7 @@ class VisualVerifier:
 
     async def _ask(self, check: VisualCheck, image: bytes) -> bool:
         from ...providers.factory import build_provider
+        from ...providers.web_registry import web_registry_for
 
         spec = self._config.vision
         if spec is None:
@@ -172,6 +173,7 @@ class VisualVerifier:
             publisher=None,
             retry_delays_s=self._config.runtime.retry_delays_s,
             background=True,
+            web_sessions=web_registry_for(self._config),
         )
         result = await provider.complete(
             CompletionRequest(

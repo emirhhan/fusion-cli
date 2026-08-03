@@ -36,6 +36,11 @@ from ...ui.picker import Choice
 
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
+#: Yapıştırma bu satır/karakter sayısını aşarsa tek satırlık yer tutucuya katlanır.
+#: Uzun yapıştırma tek-satır girdiyi şişirir ve gönderilene kadar okunmaz kalır; katlanınca
+#: girdi tek satır kalır, tam metin gönderimde geri açılır. (Eski satır-içi modun davranışı.)
+FOLD_PASTE_LINES = 10
+FOLD_PASTE_CHARS = 600
 #: Ok/PageUp ile bir seferde kaç satır kaydırılacağı.
 _SCROLL_STEP = 3
 _SCROLL_PAGE = 12
@@ -105,6 +110,9 @@ class FusionTui:
         self._choices: list[Choice] = []
         self._choice_index = 0
         self._choice_title = ""
+        # Katlanmış yapıştırmaların yer tutucu → tam metin eşlemesi; her gönderimde temizlenir.
+        self._pastes: dict[str, str] = {}
+        self._paste_seq = 0
 
         # Konuşma tamponu: renderer bu Rich console'a RENKLİ yazar; ANSI olarak gösterilir.
         self._sink = io.StringIO()
@@ -254,7 +262,8 @@ class FusionTui:
     # -- Tuş yönlendirmesi -------------------------------------------------- #
 
     def _accept(self, buffer: object) -> bool:
-        text = getattr(buffer, "text", "")
+        text = self._expand_pastes(getattr(buffer, "text", ""))
+        self._pastes.clear()  # yer tutucular yalnızca içinde bulunulan satır boyunca geçerli
         if self._mode == "ask":
             self._resolve(text)
         elif self._mode == "choice":
@@ -263,15 +272,45 @@ class FusionTui:
             self._on_submit(text)
         return False
 
+    def _fold_paste(self, text: str) -> None:
+        """Yapıştırmayı girdiye koy; uzunsa tam metni sakla ve tek satırlık yer tutucu bırak."""
+        line_count = text.count("\n") + 1
+        long_enough = line_count > FOLD_PASTE_LINES or len(text) > FOLD_PASTE_CHARS
+        buffer = self._input.buffer
+        if not long_enough:
+            buffer.insert_text(text)
+            return
+        self._paste_seq += 1
+        if line_count > 1:
+            token = messages.REPL_PASTE_FOLDED.format(count=line_count, index=self._paste_seq)
+        else:
+            token = messages.REPL_PASTE_FOLDED_CHARS.format(count=len(text), index=self._paste_seq)
+        self._pastes[token] = text
+        buffer.insert_text(token)
+
+    def _expand_pastes(self, line: str) -> str:
+        """Satırdaki yer tutucuları sakladıkları tam metinle değiştir."""
+        for token, text in self._pastes.items():
+            line = line.replace(token, text)
+        return line
+
     def _scroll_by(self, delta: int) -> None:
         lines = len(self._conversation.splitlines())
         self._scroll = max(0, min(lines, self._scroll + delta))
         self._invalidate()
 
     def _bindings(self) -> KeyBindings:
+        from prompt_toolkit.keys import Keys
+
         kb = KeyBindings()
         confirm = Condition(lambda: self._mode == "confirm")
         idle = Condition(lambda: self._mode == "idle")
+
+        @kb.add(Keys.BracketedPaste)
+        def _paste(event: object) -> None:
+            # Uzun/çok-satırlı yapıştırma girdiye AKMAZ: katlanıp yer tutucuya iner,
+            # tam metin gönderimde geri açılır. Tek-satır girdi kısa kalır.
+            self._fold_paste(getattr(event, "data", ""))
 
         @kb.add("c-q")
         @kb.add("c-c")

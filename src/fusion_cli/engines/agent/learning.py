@@ -25,6 +25,7 @@ from ...core.memory import Lesson, LessonKind, LessonMemory, LessonSource
 from ...core.redaction import contains_sensitive
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
+from ...providers.web_registry import web_registry_for
 from . import history
 
 _PROMPT = (Path(__file__).parent / "prompts" / "lessons.txt").read_text(encoding="utf-8")
@@ -92,6 +93,7 @@ async def extract_lessons(
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
+        web_sessions=web_registry_for(config),
     )
     result = await provider.complete(request)
     return parse_lessons(result.text, task, workspace) if result.ok else ()

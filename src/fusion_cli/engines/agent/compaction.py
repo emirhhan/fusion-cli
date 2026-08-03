@@ -12,6 +12,7 @@ from ...config.models import Config
 from ...core.events import EventPublisher
 from ...core.types import CompletionRequest, Message
 from ...providers.factory import build_provider
+from ...providers.web_registry import web_registry_for
 from . import history
 
 _PROMPT = (Path(__file__).parent / "prompts" / "compress.txt").read_text(encoding="utf-8")
@@ -64,6 +65,7 @@ async def _summarize(trace: str, config: Config, publisher: EventPublisher | Non
         publisher=publisher,
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
+        web_sessions=web_registry_for(config),
     )
     result = await provider.complete(request)
     return result.text.strip() if result.ok else ""
