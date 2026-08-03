@@ -1,0 +1,151 @@
+"""Yerel gateway — OpenAI-uyumlu ASGI uç noktası (gerçek sunucu açmadan test).
+
+Sağlayıcı sahte enjekte edilir; ağ yok. `httpx.ASGITransport` uygulamayı doğrudan sürer.
+"""
+
+from __future__ import annotations
+
+import json
+
+import httpx
+import pytest
+
+from fusion_cli.gateway.app import GatewayApp
+from fusion_cli.gateway.routing import available_models, resolve_spec
+from fusion_cli.gateway.translate import GatewayError, to_openai_response, to_request
+
+from .fakes import FakeProvider, make_config
+
+
+def _client(app):
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local")
+
+
+def _app(reply="Merhaba, ben mock model.", ok=True):
+    config = make_config()
+    return GatewayApp(
+        config, provider_factory=lambda spec: FakeProvider("mock", chunks=(reply,), ok=ok)
+    )
+
+
+# --- temel uçlar ----------------------------------------------------------- #
+
+
+async def test_health_ok():
+    async with _client(_app()) as client:
+        resp = await client.get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+async def test_models_listeler():
+    async with _client(_app()) as client:
+        resp = await client.get("/v1/models")
+    data = resp.json()
+    assert data["object"] == "list"
+    ids = {m["id"] for m in data["data"]}
+    assert "auto" in ids
+
+
+# --- sohbet (non-stream) --------------------------------------------------- #
+
+
+async def test_chat_openai_bicimli_cevap_doner():
+    async with _client(_app("Selam!")) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "merhaba"}]},
+        )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["object"] == "chat.completion"
+    assert body["choices"][0]["message"]["content"] == "Selam!"
+    assert body["choices"][0]["finish_reason"] == "stop"
+
+
+async def test_chat_model_alani_zorunlu():
+    async with _client(_app()) as client:
+        resp = await client.post(
+            "/v1/chat/completions", json={"messages": [{"role": "user", "content": "x"}]}
+        )
+    assert resp.status_code == 400
+    assert "model" in resp.json()["error"]["message"]
+
+
+async def test_chat_bos_messages_hata():
+    async with _client(_app()) as client:
+        resp = await client.post("/v1/chat/completions", json={"model": "auto", "messages": []})
+    assert resp.status_code == 400
+
+
+async def test_bilinmeyen_yol_404():
+    async with _client(_app()) as client:
+        resp = await client.get("/v1/olmayan")
+    assert resp.status_code == 404
+
+
+# --- akış (SSE) ------------------------------------------------------------ #
+
+
+async def test_chat_stream_sse_ve_done():
+    async with _client(_app("akan cevap")) as client:
+        resp = await client.post(
+            "/v1/chat/completions",
+            json={"model": "auto", "messages": [{"role": "user", "content": "x"}], "stream": True},
+        )
+    metin = resp.text
+    assert "text/event-stream" in resp.headers["content-type"]
+    assert "data: " in metin
+    assert "akan cevap" in metin
+    assert "[DONE]" in metin
+
+
+# --- saf çeviri + çözümleme ------------------------------------------------ #
+
+
+def test_to_request_varsayilanlari_kullanir():
+    config = make_config()
+    request, model, stream = to_request(
+        {"model": "high", "messages": [{"role": "user", "content": "selam"}]}, config.runtime
+    )
+    assert model == "high"
+    assert stream is False
+    assert request.max_tokens == config.runtime.max_tokens  # koda gömülü değil, runtime'dan
+
+
+def test_to_request_gecersiz_model_hata():
+    with pytest.raises(GatewayError):
+        to_request({"messages": [{"role": "user", "content": "x"}]}, make_config().runtime)
+
+
+def test_resolve_spec_auto_agenta_cozer():
+    config = make_config()
+    assert resolve_spec(config, "auto").model == config.agent.model
+
+
+def test_resolve_spec_ham_kimlik_dogrudan():
+    config = make_config()
+    spec = resolve_spec(config, "openai/gpt-4o")
+    assert spec.model == "openai/gpt-4o"
+
+
+def test_available_models_auto_icerir():
+    assert "auto" in available_models(make_config())
+
+
+def test_tool_call_cevaba_cevrilir():
+    from fusion_cli.core.types import ModelResult, ToolCall
+
+    result = ModelResult(
+        name="m",
+        model="m",
+        text="",
+        latency_ms=1,
+        ok=True,
+        tool_calls=(ToolCall(id="1", name="edit_file", arguments='{"path":"a"}'),),
+    )
+    body = to_openai_response(result, "auto")
+    calls = body["choices"][0]["message"]["tool_calls"]
+    assert calls[0]["function"]["name"] == "edit_file"
+    assert json.loads(calls[0]["function"]["arguments"]) == {"path": "a"}
+    assert body["choices"][0]["finish_reason"] == "tool_calls"

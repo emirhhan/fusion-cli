@@ -31,6 +31,9 @@ tracing = ["langfuse>=3.0,<4"]
 # kaynak ve yatay taşma ölçer. Kurulmazsa kapı sessizce geçer, çevrimdışı kimlik korunur.
 # Kurulumdan sonra tarayıcı ikilisi de gerekir: `playwright install chromium`
 web = ["playwright>=1.40,<2"]
+# Yerel gateway (`fusion serve`) opsiyoneldir: yalnızca OpenAI-uyumlu /v1 uç noktasını
+# açmak isteyen kullanıcıya gerekir. Kurulmazsa `fusion serve` anlaşılır bir hata verir.
+gateway = ["uvicorn>=0.30,<1"]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<2",

@@ -293,6 +293,34 @@ def feedback(
 
 
 @app.command()
+def serve(
+    host: str = typer.Option(
+        "127.0.0.1", "--host", help="Dinlenecek yerel adres. Varsayılan yalnızca bu bilgisayar."
+    ),
+    port: int = typer.Option(8787, "--port", "-p", help="Dinlenecek port."),
+) -> None:
+    """Yerel gateway'i çalıştır: OpenAI-uyumlu /v1 uç noktası, tüm sağlayıcılar arkada.
+
+    Böylece bu bilgisayardaki her araç (Cursor, Cline, OpenAI-uyumlu her CLI) Fusion'a
+    bağlanır — hiçbir uygulama bozulmadan/rootlanmadan. Uzak sunucu değildir; yalnız
+    yerelde çalışır. Model olarak profil adı (auto/low/medium/high/max) ya da ham model
+    kimliği verilebilir; fallback ve sağlık otomatik devrededir.
+    """
+    from ..gateway.server import serve as run_gateway
+
+    config = load_config()
+    console.print(
+        f"[bold]Fusion gateway[/bold] → http://{host}:{port}/v1  "
+        f"[dim](model: auto/low/medium/high/max ya da ham kimlik · Ctrl-C ile durdur)[/dim]"
+    )
+    try:
+        run_gateway(config, host=host, port=port)
+    except FusionError as error:
+        console.print(f"[red]{error}[/red]")
+        raise typer.Exit(code=1) from error
+
+
+@app.command()
 def setup() -> None:
     """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
     run_setup(console)
