@@ -29,8 +29,9 @@ from rich.text import Text
 from . import messages, theme
 from .text import format_duration
 
-#: Dönen gösterge kareleri (Braille). Saniyede kaç kare değişeceği aşağıda.
-FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+#: Nabız gibi büyüyüp küçülen yıldız kareleri (Claude Code'un `✻` işaretine yakın
+#: twinkle). Hepsi tek hücre genişliğindedir; kare değişince satır kaymaz.
+FRAMES = "·✢✳✶✷✸✹✺✹✸✷✶✳✢"
 FRAMES_PER_SECOND = 10
 #: Canlı satırın yeniden çizim sıklığı.
 REFRESH_PER_SECOND = 10
@@ -57,7 +58,9 @@ class WorkState:
         line = Text("  ")
         line.append(f"{frame} ", style=theme.ACCENT)
         line.append(self.label, style=theme.ACCENT)
-        line.append(f"  {_details(self.elapsed_ms, self.tokens, self.model)}", style=theme.DIM)
+        # Claude Code dizilimi: süre/token/model ve kesme ipucu parantez içinde, sönük.
+        detail = _details(self.elapsed_ms, self.tokens, self.model)
+        line.append(f"  ({detail} · {messages.WORK_INTERRUPT})", style=theme.DIM)
         return line
 
 

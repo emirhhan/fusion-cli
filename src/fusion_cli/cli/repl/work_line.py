@@ -62,4 +62,5 @@ class WorkLineSink:
         if self._model:
             parts.append(self._model)
         detay = " · ".join(parts)
-        self._on_update(f"  {messages.WORK_THINKING}  {detay}")
+        # Live spinner ile aynı dizilim: ayrıntı ve kesme ipucu parantez içinde.
+        self._on_update(f"  {messages.WORK_THINKING}  ({detay} · {messages.WORK_INTERRUPT})")

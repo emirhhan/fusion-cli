@@ -24,6 +24,23 @@ def _bitti(tokens: int) -> ModelCallFinished:
     return ModelCallFinished(role="nemotron", result=sonuc, background=False)
 
 
+def test_spinner_kesme_ipucu_ve_token_okunu_gosterir():
+    """Claude dizilimi: parantez içinde `↑ token` ve kesme ipucu."""
+    import io
+
+    from rich.console import Console
+
+    from fusion_cli.ui.work import WorkState
+
+    state = WorkState(label="hazırlanıyor…", model="nemotron", tokens=1200)
+    buffer = io.StringIO()
+    Console(file=buffer, force_terminal=False, width=200, no_color=True).print(state)
+
+    cikti = buffer.getvalue()
+    assert "durdurmak için Ctrl-C" in cikti
+    assert "↑ 1.2k token" in cikti
+
+
 def test_model_baslayinca_calisma_satiri_guncellenir():
     from fusion_cli.cli.repl.work_line import WorkLineSink
 

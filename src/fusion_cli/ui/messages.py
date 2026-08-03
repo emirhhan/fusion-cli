@@ -87,7 +87,11 @@ AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıld�
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
 
 # --- Çalışma göstergesi ---------------------------------------------------- #
-WORK_TOKENS = "{count} token"
+WORK_TOKENS = "↑ {count} token"
+#: Spinner'ın parantezindeki kesme ipucu. Claude Code "esc to interrupt" yazar; fusion'da
+#: çalışan turu Ctrl-C keser (bkz. repl/loop `_cancel_on_interrupt`), esc değil — bu yüzden
+#: gerçekten çalışan kısayol gösterilir.
+WORK_INTERRUPT = "durdurmak için Ctrl-C"
 WORK_THINKING = "hazırlanıyor…"
 WORK_CANDIDATES = "{count} model düşünüyor…"
 WORK_JUDGING = "hakem değerlendiriyor…"

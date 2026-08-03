@@ -40,6 +40,9 @@ ICON_DENIED = "⊘"
 ICON_DONE = "✦"
 ICON_STATUS = "›"
 ICON_PROMPT = "❯"
+#: Gönderilen kullanıcı mesajının önündeki işaret (Claude Code `>`). Girdi istemindeki
+#: `ICON_PROMPT`'tan ayrıdır: biri yazarken, biri gönderilmiş sözü yankılarken kullanılır.
+ICON_USER = ">"
 
 #: Claude Code dizilimi: asistan eylemi ve araç çağrısı aynı dolu madde işaretiyle
 #: (`⏺`) başlar; durum bilgisini glyph değil rengi taşır. Cevap akışının önündeki

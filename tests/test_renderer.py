@@ -421,21 +421,19 @@ def test_cevap_metni_tur_boyunca_korunur():
     assert "Merhaba, ben Fusion." in buffer.getvalue()
 
 
-# --- Kullanıcı mesajı bandı ---------------------------------------------------- #
+# --- Kullanıcı mesajı ---------------------------------------------------------- #
 
 
-def test_kullanici_mesaji_tam_genislikte_bant_olur():
-    """Konuşmanın kimin sözü olduğu tek bakışta görünmeli."""
+def test_kullanici_mesaji_claude_diziliminde_onekli_gosterilir():
+    """Claude Code dizilimi: gönderilen söz `> metin` biçiminde ve sönük."""
     buffer = io.StringIO()
     console = Console(file=buffer, force_terminal=False, width=60, no_color=True)
     renderer = ConsoleRenderer(console)
 
     renderer.print_user_message("Merhaba")
 
-    bant = next(satir for satir in buffer.getvalue().splitlines() if "Merhaba" in satir)
-    assert bant.startswith(f" {theme.ICON_PROMPT} Merhaba")
-    # Zeminin tüm satırı kaplaması için sağa doldurulur.
-    assert len(bant) == 60
+    satir = next(s for s in buffer.getvalue().splitlines() if "Merhaba" in s)
+    assert satir == f"{theme.ICON_USER} Merhaba"
 
 
 def test_kullanici_mesajinin_etrafinda_nefes_birakilir():

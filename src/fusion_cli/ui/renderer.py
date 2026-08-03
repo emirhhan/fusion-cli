@@ -165,17 +165,18 @@ class ConsoleRenderer:
             self._finish_work()
 
     def print_user_message(self, text: str) -> None:
-        """Kullanıcının mesajını tam genişlikte bir bant olarak bas.
+        """Kullanıcının mesajını Claude Code diziliminde `> metin` olarak bas.
 
-        Konuşmanın kimin sözü olduğu tek bakışta görünmeli. prompt_toolkit'in
-        bıraktığı satır silinir (`erase_when_done`) ve yerine bu bant çizilir.
+        Claude Code'da kullanıcı sözü kasıtlı olarak sönüktür: asistanın çıktısı öne
+        çıksın diye geri plana alınır. prompt_toolkit'in bıraktığı satır silinir
+        (`erase_when_done`) ve yerine bu sönük satır çizilir. Etrafında bir boş satır
+        bırakılır ki konuşma blokları birbirine yapışmasın.
         """
         self._end_block()
-        band = Text(f" {theme.ICON_PROMPT} ", style=f"{theme.ACCENT} on {theme.SURFACE}")
-        band.append(text, style=f"bold on {theme.SURFACE}")
-        band.pad_right(max(0, self._console.width - band.cell_len))
+        line = Text(f"{theme.ICON_USER} ", style=theme.DIM)
+        line.append(text, style=theme.DIM)
         self._console.print()
-        self._console.print(band)
+        self._console.print(line)
         self._console.print()
 
     @contextlib.contextmanager
