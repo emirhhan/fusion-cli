@@ -70,8 +70,11 @@ def user_config_candidates() -> tuple[Path, ...]:
     home = os.environ.get(ENV_HOME)
     if home:
         candidates.append(Path(home) / "config.yaml")
-    candidates.append(Path.cwd() / "config.yaml")
+    # Kullanıcı yapılandırması terminal ve kontrol paneli süreçleri arasında
+    # KANONİKtir: ikisi de aynı dosyayı görsün diye önce o gelir. Depo-yereli
+    # config yalnızca taşınabilir geliştirme için bir yedek olarak kalır.
     candidates.append(user_config_dir() / "config.yaml")
+    candidates.append(Path.cwd() / "config.yaml")
     return tuple(candidates)
 
 

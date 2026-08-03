@@ -80,9 +80,12 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     )
     background = BackgroundTasks()
 
-    # Modeli arka planda ısıt: soğuk bir uç ilk turda 15-30 sn bekletebiliyor.
-    # Kullanıcı banner'ı okuyup ilk komutunu yazarken bu süre geçmiş olur.
-    background.spawn(_warm_up(state))
+    # Isıtma kota harcar ve kullanıcı henüz bir şey göndermeden kafa karıştırıcı
+    # sağlayıcı hataları basabilir. Örtük çağrı yerine açık opt-in tutulur
+    # (FUSION_WARMUP=1). Kapalıyken ilk tur biraz daha yavaş başlar ama beklenmedik
+    # hata gürültüsü olmaz.
+    if os.environ.get("FUSION_WARMUP", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        background.spawn(_warm_up(state))
 
     banner.print_welcome(console, session_info(state))
     _sync_status_bar(reader, state)
@@ -155,6 +158,13 @@ async def _handle(
     console: Console,
     background: BackgroundTasks,
 ) -> None:
+    if state.refresh_config():
+        reader.mode = state.approval
+        _sync_status_bar(reader, state)
+        console.print(
+            f"[{theme.DIM}]Kontrol paneli ayarları yüklendi · "
+            f"{state.config.agent.model} · config {state.config_revision.value}[/{theme.DIM}]"
+        )
     if state.welcome_padded:
         # Açılış dolgusu konuşmanın ortasında dev bir boşluğa dönüşmesin.
         banner.print_welcome(console, session_info(state), pad=False)
@@ -443,7 +453,7 @@ async def _shutdown(background: BackgroundTasks, console: Console) -> None:
 
 def _sync_status_bar(reader: ReplInput, state: ReplState) -> None:
     """Durum çubuğundaki bağlamı güncel tut (motor, görev tipi, model)."""
-    reader.context = f"{state.engine.value} · {state.task_type} · {state.config.agent.name}"
+    reader.context = f"{state.engine.value} · {state.task_type} · {state.config.agent.model}"
 
 
 def session_info(state: ReplState) -> banner.SessionInfo:
@@ -454,7 +464,7 @@ def session_info(state: ReplState) -> banner.SessionInfo:
         version=__version__,
         engine=state.engine.value,
         approval=state.approval.value,
-        model=state.config.agent.name,
+        model=state.config.agent.model,
         working_dir=_short_path(state.root),
         lesson_count=state.memory.lessons.count() if state.memory.enabled else None,
     )

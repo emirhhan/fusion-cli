@@ -14,8 +14,9 @@ import html as html_module
 import ipaddress
 import re
 import socket
+import xml.etree.ElementTree as ET
 from collections.abc import Callable
-from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
 
@@ -93,7 +94,7 @@ def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
     query = require_str(args, "query")
     failures: list[str] = []
 
-    for endpoint in (_search_html, _search_lite):
+    for endpoint in SEARCH_ENDPOINTS:
         try:
             results = endpoint(query)
         except httpx.HTTPError as exc:
@@ -206,6 +207,35 @@ def _post_search(url: str, query: str, pattern: re.Pattern[str]) -> list[str]:
         return parse_results(response.text, pattern)
 
 
+def _search_bing_rss(query: str) -> list[str]:
+    """Bing'in herkese açık RSS sonuç biçimini kazımasız bir yedek olarak ara.
+
+    Uç yapılandırılmış XML döndürür; bu yüzden bir arama-sonucu HTML sınıf adına
+    bağlı kalmaktan daha dayanıklıdır. Hatalar `web_search` tarafından ele alınır ve
+    DuckDuckGo uçları sonrasında yine kullanılabilir kalır.
+    """
+    url = f"https://www.bing.com/search?format=rss&q={quote_plus(query)}"
+    with httpx.Client(follow_redirects=True, timeout=WEB_TIMEOUT_S) as client:
+        response = client.get(url, headers={"User-Agent": _USER_AGENT})
+        response.raise_for_status()
+    try:
+        root = ET.fromstring(response.text)
+    except ET.ParseError:
+        return []
+    results: list[str] = []
+    seen: set[str] = set()
+    for item in root.findall(".//item"):
+        title = (item.findtext("title") or "").strip()
+        link = (item.findtext("link") or "").strip()
+        if not title or not link.startswith("http") or link in seen:
+            continue
+        seen.add(link)
+        results.append(f"• {title}\n  {link}")
+        if len(results) >= MAX_WEB_RESULTS:
+            break
+    return results
+
+
 def _search_html(query: str) -> list[str]:
     return _post_search("https://html.duckduckgo.com/html/", query, _DDG_RESULT)
 
@@ -215,4 +245,8 @@ def _search_lite(query: str) -> list[str]:
 
 
 #: Testlerin uç değiştirmeden kazıma mantığını sınayabilmesi için açık liste.
-SEARCH_ENDPOINTS: tuple[Callable[[str], list[str]], ...] = (_search_html, _search_lite)
+SEARCH_ENDPOINTS: tuple[Callable[[str], list[str]], ...] = (
+    _search_bing_rss,
+    _search_html,
+    _search_lite,
+)

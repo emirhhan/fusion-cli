@@ -302,6 +302,26 @@ def test_mod_dongusu_giriste_de_calisir(tmp_path, monkeypatch):
     assert reader.cycle_mode() is not ApprovalMode.AUTO
 
 
+def test_istem_mesaji_mod_ile_canli_hesaplanir(tmp_path, monkeypatch):
+    """shift-tab modu değiştirince istem mesajı yeniden hesaplanır — Enter beklemeden.
+
+    Mesaj `prompt_async`'e callable olarak verildiği için her yeniden çizimde bu
+    metot çağrılır; içeriği o anki moda göre üretir. Statik verilseydi etiket
+    donardı (kullanıcının 'shift-tab çalışıyor ama Enter gerekiyor' sorunu).
+    """
+    from fusion_cli.cli.repl.input import ReplInput
+
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    reader = ReplInput(Path(tmp_path) / "history", ["/help"], mode=ApprovalMode.AUTO)
+
+    auto_message = reader._prompt_message().value  # auto: yalnız sembol, etiketsiz
+    reader.cycle_mode()  # auto -> sonraki mod
+    switched_message = reader._prompt_message().value
+
+    assert switched_message != auto_message  # mesaj gerçekten değişti
+    assert reader.mode.value in switched_message  # yeni mod etiketi mesajda görünür
+
+
 class _FakeBuffer:
     """insert_text'i biriktiren minik tampon taklidi."""
 

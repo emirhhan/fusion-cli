@@ -30,3 +30,7 @@ htmlcov/
 
 # Agent koşularının ürettiği örnek siteler (depoya ait değil).
 voltiva-shop/
+
+# ChatGPT onarım aracının geçici yedeği/raporu (izlenmez)
+.fusion-repair-backup/
+fusion-repair-report-*.txt

@@ -14,8 +14,11 @@ Kurulum:  pip install "fusion-cli[tracing]"
 
 from __future__ import annotations
 
+import logging
 import os
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 from ..core.events import (
     CandidatesStarted,
@@ -30,14 +33,40 @@ from ..core.events import (
 ENV_PUBLIC_KEY = "LANGFUSE_PUBLIC_KEY"
 ENV_SECRET_KEY = "LANGFUSE_SECRET_KEY"
 ENV_HOST = "LANGFUSE_HOST"
+ENV_ENABLED = "FUSION_TRACING"
 
 #: `.env.example` içindeki örnek değerler izlemeyi AÇMAMALIDIR.
 _PLACEHOLDER_MARKER = "..."
 
 
 def is_configured() -> bool:
-    """Gerçek (örnek olmayan) anahtarlar tanımlı mı?"""
-    return all(_is_real(os.getenv(name)) for name in (ENV_PUBLIC_KEY, ENV_SECRET_KEY))
+    """İzleme açıkça opt-in'dir ve anahtarlar gerçek olmalıdır.
+
+    Langfuse anahtarlarını yalnızca `.env`'de bırakmak asla gürültülü bir exporter
+    başlatmamalı. Toplayıcı bilerek çalışıyorsa `FUSION_TRACING=1` verilir.
+    """
+    enabled = os.getenv(ENV_ENABLED, "").strip().lower() in {"1", "true", "yes", "on"}
+    return enabled and all(_is_real(os.getenv(name)) for name in (ENV_PUBLIC_KEY, ENV_SECRET_KEY))
+
+
+def _host_reachable(host: str | None) -> bool:
+    if not host:
+        return True
+    parsed = urlparse(host if "://" in host else f"http://{host}")
+    hostname = parsed.hostname
+    if not hostname:
+        return False
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((hostname, port), timeout=0.25):
+            return True
+    except OSError:
+        return False
+
+
+def _quiet_sdk_loggers() -> None:
+    for name in ("langfuse", "opentelemetry", "opentelemetry.sdk", "urllib3.connectionpool"):
+        logging.getLogger(name).setLevel(logging.CRITICAL)
 
 
 def _is_real(value: str | None) -> bool:
@@ -80,16 +109,25 @@ class LangfuseTracer:
     # ----------------------------------------------------------------------- #
 
     def _start(self, task: str) -> None:
-        if not is_configured():
+        keys = [os.getenv(name) for name in (ENV_PUBLIC_KEY, ENV_SECRET_KEY)]
+        if not all(_is_real(value) for value in keys):
             self.disabled_reason = "anahtar tanımlı değil"
             return
+        if not is_configured():
+            self.disabled_reason = "izleme kapalı (FUSION_TRACING=1 ile açılır)"
+            return
+        host = os.getenv(ENV_HOST) or None
+        if not _host_reachable(host):
+            self.disabled_reason = f"izleme ucu erişilemiyor: {host}"
+            return
+        _quiet_sdk_loggers()
         try:
             from langfuse import Langfuse
 
             self._client = Langfuse(
                 public_key=os.environ[ENV_PUBLIC_KEY],
                 secret_key=os.environ[ENV_SECRET_KEY],
-                host=os.getenv(ENV_HOST) or None,
+                host=host,
             )
             self._root = self._client.start_observation(
                 name="fusion-turn", as_type="span", input=task

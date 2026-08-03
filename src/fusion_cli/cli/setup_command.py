@@ -93,7 +93,7 @@ def run_setup(console: Console, *, ask: Asker | None = None) -> None:
         _create(console, directory / ".env", ENV_TEMPLATE)
 
     _seed_lessons(console)
-    _offer_path_setup(console, interaktif=sorucu is not None)
+    _offer_path_setup(console, interaktif=ask is None and sys.stdin.isatty() and not anahtar_alindi)
 
     console.print()
     console.print(f"[bold]{messages.SETUP_NEXT_STEPS}[/bold]")

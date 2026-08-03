@@ -39,23 +39,26 @@ runtime:
   # Ölçülen üretim hızı (2026-07-25, nemotron-3-super): ~104 token/s. Aşağıdaki
   # max_tokens tamamen kullanılırsa çağrı ~80s sürer; 45s bu turu ORTASINDA keserdi.
   # 120s tam bir üretime yer bırakır, gerçekten takılan çağrıyı yine de düşürür.
+  # (Not: max_tokens=8192 @ ~104 tok/s ≈ 79s; 120 altındaki değerler uzun kod
+  #  üretimini ORTASINDA keser, o yüzden 120'nin altına inilmez.)
   request_timeout_s: 120
   # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
   # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
   # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
-  max_retries: 1
+  max_retries: 0
   # Geçici arızada AYNI modelin yeniden denenmesinden önce beklenecek süreler.
   # Liste uzunluğu deneme sayısını TANIMLAR: iki gecikme → toplam üç deneme.
   #
-  # Değerler NVIDIA NIM'in ölçülen sınırından gelir: hız sınırı MODEL BAŞINADIR ve
-  # 60 saniyede 40 istektir. Dakikalık pencereye takılan bir çağrı, pencere dönünce
-  # aynı modelde başarılı olur; 34s ilk denemeyi pencerenin ikinci yarısına, 68s
-  # ikinci denemeyi bir sonraki pencereye taşır.
+  # KISA tutulur (1.5s, 4.0s): geçici bir ağ dalgalanmasını ya da tek-tük 5xx'i
+  # hızla toparlar ve kullanıcıyı bekletmez. Dakikalık HIZ SINIRI (NIM 60s/40 istek)
+  # burada uzun beklemeyle DEĞİL, circuit breaker + yedek zincirle çözülür: sınıra
+  # takılan model devreye alınır ve istek SIRADAKİ modele düşer — kullanıcı 60-100s
+  # beklemek yerine başka modelle anında ilerler.
   #
   # Kalıcı hatalarda (olmayan model, geçersiz anahtar, GÜNLÜK kota) hiç beklenmez —
   # bu süreler yalnızca beklemenin işe yaradığı arızalar için harcanır.
   # Boş liste ([]) yeniden denemeyi tamamen kapatır.
-  retry_delays_s: [34, 68]
+  retry_delays_s: [1.5, 4.0]
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
@@ -98,7 +101,7 @@ runtime:
   # --- Fusion zamanlaması ---
   # Hakem için SIKI son tarih: bu sürede JSON gelmezse hakem atlanır, sezgisel kazanan
   # seçilir. Sentez yine üretilir → kullanıcı hiçbir senaryoda beklemede kalmaz.
-  judge_timeout_s: 20
+  judge_timeout_s: 12
   # Reasoning modelleri önce "düşünür", sonra JSON/talimat verir; ikisi bu bütçeye
   # sığmalıdır.
   #

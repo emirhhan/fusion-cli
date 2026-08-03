@@ -18,6 +18,7 @@ from dataclasses import replace as _dc_replace
 from typing import Any
 
 from ..config.credentials import FernetSecretStore
+from ..config.live import reload_if_changed, revision
 from ..config.models import Config
 from ..core.compression import compress_messages, saved_chars
 from ..core.health import HealthRegistry
@@ -55,6 +56,7 @@ class GatewayApp:
         catalog: CatalogCache | None = None,
     ) -> None:
         self._config = config
+        self._config_revision = revision(config)
         self._health = health
         self._factory = provider_factory or self._default_factory
         self._key_pools = _build_key_pools(config)
@@ -71,6 +73,17 @@ class GatewayApp:
         self._cache = PromptCache()
         #: Panel için birleşik model kataloğu (otomatik listeleme); TTL önbellekli.
         self._catalog = catalog or CatalogCache()
+
+    def _refresh_config(self) -> None:
+        """HTTP istek sınırlarında panel/terminal ile paylaşılan yapılandırmayı yeniden yükle."""
+        updated, rev, changed = reload_if_changed(self._config, self._config_revision)
+        if not changed:
+            self._config_revision = rev
+            return
+        self._config = updated
+        self._config_revision = rev
+        self._key_pools = _build_key_pools(updated)
+        self._strategy = updated.runtime.routing_strategy
 
     def _routed_spec(self, spec: ModelSpec) -> ModelSpec:
         """Yedek zincirini seçili stratejiye göre yeniden sırala (hiçbir modeli düşürmez)."""
@@ -96,6 +109,7 @@ class GatewayApp:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return
+        self._refresh_config()
         method = scope["method"]
         path = scope["path"]
         if method == "GET" and path in ("/", "/health"):
@@ -180,6 +194,7 @@ class GatewayApp:
                 "analytics": self._analytics.snapshot(),
                 "secret_ready": self._secret_store.available,
                 "config_path": str(self._config.source) if self._config.source else None,
+                "config_revision": self._config_revision.value,
             },
         )
 
@@ -248,13 +263,23 @@ class GatewayApp:
             await _json(send, _error_body("en az bir model olmalı"), status=400)
             return
         new_agent = replace(self._config.agent, model=models[0], fallback=tuple(models[1:]))
-        self._config = replace(self._config, agent=new_agent)
-        saved = True
+        updated = replace(self._config, agent=new_agent)
         try:
-            writer.write_model_section(self._config)
-        except ConfigError:
-            saved = False  # yazılamadı ama oturumda etkili (dosya izni sorunu turu engellemez)
-        await _json(send, {"ok": True, "saved": saved, "chain": list(new_agent.models)})
+            writer.write_model_section(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "chain": list(new_agent.models),
+                "config_revision": self._config_revision.value,
+            },
+        )
 
     async def _api_ready(self, send: Send) -> None:
         """Gateway kullanıma hazır mı? En az bir anahtarlı sağlayıcı kurulu mu?"""
@@ -344,16 +369,28 @@ class GatewayApp:
             return
         current = self._config.agent if role == "agent" else self._config.judge
         spec = replace(current, model=models[0], fallback=tuple(models[1:]))
-        if role == "agent":
-            self._config = replace(self._config, agent=spec)
-        else:
-            self._config = replace(self._config, judge=spec)
-        saved = True
+        updated = (
+            replace(self._config, agent=spec)
+            if role == "agent"
+            else replace(self._config, judge=spec)
+        )
         try:
-            writer.write_model_section(self._config)
-        except ConfigError:
-            saved = False
-        await _json(send, {"ok": True, "saved": saved, "role": role, "chain": list(spec.models)})
+            writer.write_model_section(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "role": role,
+                "chain": list(spec.models),
+                "config_revision": self._config_revision.value,
+            },
+        )
 
     def _health_json(self) -> list[dict[str, Any]]:
         if self._health is None:

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from ...config.live import ConfigRevision, reload_if_changed, revision
 from ...config.models import Config
 from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
@@ -72,6 +73,9 @@ class ReplState:
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Tur ötesi durum burada yaşar; her agent turu aynı kaydı besler ve okur.
     health: HealthRegistry | None = None
+    #: Etkin yapılandırma dosyasının sürümü; turlar arasında kontrol paneli
+    #: değişikliklerini yakalamak için kullanılır.
+    config_revision: ConfigRevision = field(init=False)
     #: Bir makronun hazırladığı, çalıştırılmayı bekleyen görev.
     pending_task: str = ""
     #: Bekleyen görevin davranış kipi (hedef, mülakat…).
@@ -93,6 +97,18 @@ class ReplState:
             self.capabilities = CapabilityRegistry(Path.home(), self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
+        self.config_revision = revision(self.config)
+
+    def refresh_config(self) -> bool:
+        """Bir sonraki turdan önce kontrol paneli yapılandırma değişikliklerini uygula.
+
+        Etkin turlar başladıkları anlık görüntüyle devam eder; bu metot yalnızca
+        giriş/HTTP istek sınırlarında çağrılır.
+        """
+        updated, rev, changed = reload_if_changed(self.config, self.config_revision)
+        self.config = updated
+        self.config_revision = rev
+        return changed
 
     running: bool = True
 

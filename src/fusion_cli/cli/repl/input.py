@@ -122,10 +122,17 @@ class ReplInput:
             # öğrenme işleri kullanıcı yazarken ilerleyemez.
             # İşaret basılmaz: kullanıcı mesajı zaten bant olarak çiziliyor.
             return await asyncio.to_thread(input, "")
+        # Mesaj CALLABLE verilir: shift-tab modu değiştirip `invalidate()` çağırınca
+        # prompt_toolkit mesajı YENİDEN hesaplar ve mod etiketi ANINDA güncellenir.
+        # Statik `HTML(...)` verilseydi etiket bir sonraki Enter'a kadar donardı.
+        line = await self._session.prompt_async(self._prompt_message)
+        return self.expand_pastes(str(line))
+
+    def _prompt_message(self) -> Any:
+        """İstem satırının o anki HTML biçimi (her yeniden çizimde çağrılır)."""
         from prompt_toolkit.formatted_text import HTML
 
-        line = await self._session.prompt_async(HTML(prompt_fragments(self.mode)))
-        return self.expand_pastes(str(line))
+        return HTML(prompt_fragments(self.mode))
 
     def status_bar(self) -> Any:
         """Ekranın altındaki tek satırlık durum çubuğu.

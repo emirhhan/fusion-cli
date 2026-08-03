@@ -73,10 +73,23 @@ _SCROLL_PAGE = 8
 class FusionScreen:
     """Tam-ekran kabuk: banner + konuşma + çalışma satırı + giriş kutusu."""
 
-    def __init__(self, banner: str, on_submit: Callable[[str], None]) -> None:
+    def __init__(
+        self,
+        banner: str,
+        on_submit: Callable[[str], None],
+        *,
+        on_cancel: Callable[[], None] | None = None,
+        on_cycle_mode: Callable[[], str] | None = None,
+        on_exit: Callable[[], None] | None = None,
+    ) -> None:
         self._on_submit = on_submit
+        self._on_cancel = on_cancel or (lambda: None)
+        self._on_cycle_mode = on_cycle_mode or (lambda: "")
+        self._on_exit = on_exit or (lambda: None)
         self._bridge = AnsiBridge()
         self._work_text = ""
+        self._status_text = ""
+        self._busy = False
         # Kullanıcı en alttaysa yeni içerik takip edilir; yukarı kaydırdıysa yerinde kalır.
         self._follow = True
 
@@ -103,6 +116,7 @@ class FusionScreen:
         root = HSplit(
             [
                 Window(content=FormattedTextControl(banner), height=3),
+                Window(content=FormattedTextControl(lambda: self._status_text), height=1),
                 Frame(self._conversation, title="konuşma"),
                 self._work_window,
                 Frame(self._input, title="mesaj"),
@@ -136,6 +150,40 @@ class FusionScreen:
     @property
     def work_text(self) -> str:
         return self._work_text
+
+    @property
+    def busy(self) -> bool:
+        return self._busy
+
+    @property
+    def status_text(self) -> str:
+        return self._status_text
+
+    def set_status(self, text: str) -> None:
+        self._status_text = text
+        self.application.invalidate()
+
+    def set_busy(self, value: bool) -> None:
+        self._busy = value
+        self.application.invalidate()
+
+    def append_text(self, text: str) -> None:
+        self._append(text)
+        self.application.invalidate()
+
+    def close_modal(self) -> None:
+        fut = self._modal_future
+        if fut is not None and not fut.done():
+            fut.cancel()
+        self._modal_kind = None
+        self._modal_future = None
+        self._focus(self._input)
+        self.application.invalidate()
+
+    def request_exit(self) -> None:
+        self._on_exit()
+        with contextlib.suppress(Exception):
+            self.application.exit()
 
     def set_work(self, text: str) -> None:
         self._work_text = text
@@ -254,17 +302,41 @@ class FusionScreen:
     def _handle_submit(self, _buff: Buffer) -> bool:
         text = self._input.text.strip()
         self._input.text = ""
-        if text:
-            self._on_submit(text)
+        if not text:
+            return False
+        if self._busy:
+            self.append_text("\nAktif istek sürüyor. Ctrl-C ile iptal et.\n")
+            return False
+        self._on_submit(text)
         return False
 
     def _bindings(self) -> KeyBindings:
         kb = KeyBindings()
 
         @kb.add("c-q")
-        @kb.add("c-c")
         def _exit(event: Any) -> None:
+            self._on_exit()
             event.app.exit()
+
+        @kb.add("c-c")
+        def _cancel(_event: Any) -> None:
+            if self._modal_kind == "confirm":
+                self._resolve_confirm(False)
+            elif self._modal_kind == "text":
+                fut = self._modal_future
+                if fut is not None and not fut.done():
+                    fut.cancel()
+            if self._busy or self._modal_kind is not None:
+                self._on_cancel()
+                self.set_work("iptal ediliyor…")
+            else:
+                self._input.text = ""
+
+        @kb.add("s-tab", filter=Condition(lambda: self._modal_kind is None), eager=True)
+        def _cycle(_event: Any) -> None:
+            status = self._on_cycle_mode()
+            if status:
+                self.set_status(status)
 
         # Onay modalı açıkken e/h (ve escape) yanıtı Future'a yazar. eager: odaklı
         # giriş kutusu bu tuşları metin olarak yutmadan önce biz yakalarız.
@@ -330,40 +402,79 @@ _DEMO_BANNER = "  ✦ fusion — tam-ekran (deneysel) · çıkış: Ctrl-Q"
 
 
 async def run_screen_repl(state: ReplState) -> int:
-    """Tam-ekran kabuğu gerçek motorla çalıştır (elle doğrulama / deneysel yol).
-
-    Reçete: uygulama imleç modu (?1h) kurulur → tekerlek ok tuşuna çevrilir; çıkışta
-    normal moda dönülür. Faz 1 regresyonu: zaten çalışan event loop içinde
-    `run_async()` await edilir.
-    """
-    import asyncio
+    """Tam-ekran görünümü, sahibi belli ve iptal edilebilir tek bir tur göreviyle çalıştır."""
     import os
 
-    # SPIKE (Faz 4 Task 2, commit edilmez): renkli konuşma denemesi.
     if os.environ.get("FUSION_SPIKE") == "1":
         from .screen_spike import run_spike
 
         return await run_spike(state)
 
-    from .screen_turn import run_turn
+    from .commands import build_registry
+    from .screen_turn import run_screen_line, screen_status
 
-    screen = FusionScreen(banner=_DEMO_BANNER, on_submit=lambda t: None)
+    current_task: asyncio.Task[None] | None = None
+    registry = build_registry()
+    screen: FusionScreen
 
-    # Çalışan tur görevlerine referans tut: aksi hâlde GC görevi erkenden
-    # toplayıp turu yarıda kesebilir (asyncio zayıf referansla tutar).
-    turn_tasks: set[asyncio.Task[None]] = set()
+    def _cancel() -> None:
+        nonlocal current_task
+        if current_task is not None and not current_task.done():
+            current_task.cancel()
+
+    def _cycle() -> str:
+        state.cycle_approval()
+        return screen_status(state)
+
+    def _exit() -> None:
+        _cancel()
+        state.running = False
+
+    screen = FusionScreen(
+        banner=_DEMO_BANNER,
+        on_submit=lambda _text: None,
+        on_cancel=_cancel,
+        on_cycle_mode=_cycle,
+        on_exit=_exit,
+    )
+    with contextlib.suppress(Exception):
+        screen.set_status(screen_status(state))
+
+    def _finished(task: asyncio.Task[None]) -> None:
+        nonlocal current_task
+        try:
+            task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            screen.append_text(f"\nHata: {type(exc).__name__}: {exc}\n")
+        finally:
+            if current_task is task:
+                current_task = None
+            screen.set_busy(False)
+            screen.clear_work()
+            screen.close_modal()
+            screen.set_status(screen_status(state))
+            screen._focus(screen._input)
 
     def _start(text: str) -> None:
-        # Turu arka plan görevi yap: giriş kutusu bloklanmasın, çıktı akarken çizilsin.
-        task = asyncio.ensure_future(run_turn(text, state, screen))
-        turn_tasks.add(task)
-        task.add_done_callback(turn_tasks.discard)
+        nonlocal current_task
+        if current_task is not None and not current_task.done():
+            screen.append_text("\nAktif istek sürüyor. Ctrl-C ile iptal et.\n")
+            return
+        screen.set_busy(True)
+        current_task = asyncio.create_task(run_screen_line(text, state, screen, registry))
+        current_task.add_done_callback(_finished)
 
     screen._on_submit = _start
     install_app_cursor_mode(screen.application)
     try:
         await screen.application.run_async()
     finally:
+        _cancel()
+        if current_task is not None:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await asyncio.wait_for(current_task, timeout=2.0)
         sys.stdout.write(APP_CURSOR_OFF)
         sys.stdout.flush()
     return 0
