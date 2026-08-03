@@ -74,6 +74,8 @@ def _kur(monkeypatch, provider):
         sleeper=None,
         background=False,
         health=None,
+        key_pools=None,
+        web_sessions=None,
     ):
         return provider
 

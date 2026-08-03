@@ -46,6 +46,7 @@ from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, T
 from ...core.verification import VerificationResult, Verifier
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
+from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.preview import file_diff
@@ -289,6 +290,7 @@ async def _call_model(
         retry_delays_s=runtime.retry_delays_s,
         channel=deps.channel,
         health=deps.health,
+        web_sessions=web_registry_for(deps.config),
     )
 
     result: ModelResult | None = None

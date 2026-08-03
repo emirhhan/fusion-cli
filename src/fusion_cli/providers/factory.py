@@ -30,6 +30,7 @@ from .key_rotation import KeyRotatingProvider
 from .litellm_provider import LiteLlmProvider, configure_litellm
 from .registry import provider_for_model
 from .retrying import wrap as wrap_with_retry
+from .web_registry import WebSessionRegistry
 
 
 def build_provider(
@@ -43,6 +44,7 @@ def build_provider(
     background: bool = False,
     health: HealthRegistry | None = None,
     key_pools: KeyPoolRegistry | None = None,
+    web_sessions: WebSessionRegistry | None = None,
 ) -> LlmProvider:
     """`ModelSpec`'ten kullanıma hazır ve dayanıklı bir sağlayıcı üret.
 
@@ -61,6 +63,13 @@ def build_provider(
     configure_litellm()
 
     def _leaf(model: str) -> LlmProvider:
+        # Model kullanıcının yetkili bir web (oturum tabanlı) ucuyla eşleşiyorsa API
+        # yerine web transport'u kullanılır. Diğer katmanlar (retry/fallback/circuit)
+        # bunu da sarar; web ucu da bir `LlmProvider`'dır.
+        if web_sessions is not None:
+            web = web_sessions.build(model, clock=clock)
+            if web is not None:
+                return web
         # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
         # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
         if key_pools is not None:

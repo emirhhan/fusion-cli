@@ -98,12 +98,15 @@ class GatewayApp:
         return ModelSpec(name=spec.name, model=ordered[0], fallback=ordered[1:], tags=spec.tags)
 
     def _default_factory(self, spec: ModelSpec) -> LlmProvider:
+        from ..providers.web_registry import web_registry_for
+
         return build_provider(
             spec,
             publisher=None,
             retry_delays_s=self._config.runtime.retry_delays_s,
             health=self._health,
             key_pools=self._key_pools,
+            web_sessions=web_registry_for(self._config),
         )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:

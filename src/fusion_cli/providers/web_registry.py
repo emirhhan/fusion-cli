@@ -12,12 +12,16 @@ uyar: token yalnızca `auth_env` ile adı verilen ortam değişkeninden okunur v
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 from ..config.models import WebSessionConfig
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock, LlmProvider
 from .web_session import WebProviderAdapter, WebSessionCredential, WebTransport
 from .web_transport import build_http_transport
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
+    from ..config.models import Config
 
 #: Endpoint → gerçek I/O yapan transport üreten fabrika. Testte sahtesi enjekte edilir.
 TransportFactory = Callable[..., WebTransport]
@@ -64,3 +68,17 @@ class WebSessionRegistry:
         """Token'ı `auth_env` ile adı verilen ortam değişkeninden çöz (tek yer)."""
         token = self._environ.get(session.auth_env, "").strip() if session.auth_env else ""
         return WebSessionCredential(token=token)
+
+
+def web_registry_for(config: Config) -> WebSessionRegistry | None:
+    """Config'ten web kayıt defteri kur; tanımlı web ucu yoksa None (sıfır ek yük).
+
+    Ortam erişimi config-katmanı fonksiyonu `environ_snapshot` üzerinden yapılır
+    (RULES.md: env doğrudan okunmaz). Boş durumda None döner ve `build_provider`
+    web yolunu tamamen atlar; mevcut API davranışı birebir korunur.
+    """
+    if not config.web_sessions:
+        return None
+    from ..config.keys import environ_snapshot
+
+    return WebSessionRegistry(config.web_sessions, environ=environ_snapshot())

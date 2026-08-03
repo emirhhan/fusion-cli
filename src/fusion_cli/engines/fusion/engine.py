@@ -38,6 +38,7 @@ from ...core.types import (
     VerdictSource,
 )
 from ...providers.factory import build_provider
+from ...providers.web_registry import web_registry_for
 from .judge import parse_verdict
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -173,7 +174,11 @@ async def _call_candidates(
         )
         # Sağlayıcı closure'a bağlanır; `gather_with_cutoff` çağrıyı kendi başlatır.
         provider = build_provider(
-            spec, publisher=publisher, retry_delays_s=runtime.retry_delays_s, health=health
+            spec,
+            publisher=publisher,
+            retry_delays_s=runtime.retry_delays_s,
+            health=health,
+            web_sessions=web_registry_for(config),
         )
         return lambda: provider.complete(request)
 
@@ -293,6 +298,7 @@ async def _judge(
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
         health=health,
+        web_sessions=web_registry_for(config),
     )
     try:
         return await asyncio.wait_for(
@@ -323,6 +329,7 @@ async def _synthesize(
         retry_delays_s=config.runtime.retry_delays_s,
         background=True,
         health=health,
+        web_sessions=web_registry_for(config),
     )
     return await provider.complete(request)
 
