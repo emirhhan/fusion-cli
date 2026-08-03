@@ -488,3 +488,18 @@ profile_eligibility:
 #       args: ["-y", "@modelcontextprotocol/server-github"]
 # Boş liste = MCP istemcisi hiç kurulmaz (varsayılan).
 mcp_servers: []
+
+# ---------------------------------------------------------------------------
+# Web (oturum tabanlı) sağlayıcılar (opsiyonel). KULLANICININ YETKİLİ OLDUĞU
+# OpenAI-uyumlu bir uca (kendi OpenWebUI/LibreChat kurulumu, kurumsal uç…) API
+# yerine bir OTURUM üzerinden bağlanır. Ticari web arayüzü (ChatGPT/Gemini web)
+# scraping DESTEKLENMEZ. Token koda/config'e girmez; yalnızca `auth_env` ile adı
+# verilen ortam değişkeninden okunur. Model kimliği bir role/zincire konunca devreye girer.
+# Örnek:
+#   web_sessions:
+#     - model: benim-openwebui
+#       endpoint: http://localhost:3000/api/chat/completions
+#       auth_env: MY_WEBUI_TOKEN
+#       tool_support: none      # ya da: emulated
+# Boş liste = web sağlayıcı yok (varsayılan).
+web_sessions: []

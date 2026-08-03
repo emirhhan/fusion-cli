@@ -34,6 +34,7 @@ from .models import (
     ProfileEligibility,
     RuntimeConfig,
     TierSpec,
+    WebSessionConfig,
 )
 from .paths import (
     bundled_defaults,
@@ -56,6 +57,7 @@ _SECTIONS = (
     "tiers",
     "profile_eligibility",
     "mcp_servers",
+    "web_sessions",
 )
 
 # PEP 695 sözdizimi yerine TypeVar: paket Python 3.11'i de destekler.
@@ -164,6 +166,18 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         tiers=_build_tiers(merged["tiers"]),
         profile_eligibility=_build_eligibility(merged.get("profile_eligibility")),
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
+        web_sessions=_build_web_sessions(merged.get("web_sessions")),
+    )
+
+
+def _build_web_sessions(raw: object) -> tuple[WebSessionConfig, ...]:
+    """Web (oturum tabanlı) uç listesini kur. Tanımsız/boşsa özellik kapalı kalır."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigError(f"web_sessions: liste bekleniyordu, gelen: {type(raw).__name__}")
+    return tuple(
+        _build(WebSessionConfig, item, f"web_sessions[{index}]") for index, item in enumerate(raw)
     )
 
 

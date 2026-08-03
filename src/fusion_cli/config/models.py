@@ -146,6 +146,26 @@ class McpServerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class WebSessionConfig:
+    """Kullanıcının SAHİP OLDUĞU / yetkili olduğu OpenAI-uyumlu bir web ucu.
+
+    Model kimlikleri bu tanımla eşleşince API yerine oturum tabanlı transport kullanılır.
+    Sır burada TUTULMAZ: token yalnızca `auth_env` ile adı verilen ortam değişkeninden
+    okunur (RULES.md "sır yalnız env'den"); endpoint sır değildir, config'te durur.
+    """
+
+    #: Bu web ucuyla karşılanacak model kimliği (zincirde/rolde bu adla anılır).
+    model: str
+    #: OpenAI-uyumlu `/chat/completions` uç noktası (kullanıcının yetkili olduğu uç).
+    endpoint: str
+    #: Bearer token'ı taşıyan ortam değişkeninin ADI; token değeri koda/config'e girmez.
+    #: None ise yalnızca cookie/başlık ile erişilir (kullanıcının kendi kurulumu).
+    auth_env: str | None = None
+    #: Araç desteği: "none" (düz sohbet) ya da "emulated" (araçlar prompt'a gömülür).
+    tool_support: str = "none"
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileEligibility:
     """Bir profilin bir modeli ÖNERMESİ için gereken eşikler.
 
@@ -208,6 +228,9 @@ class Config:
     profile_eligibility: dict[str, ProfileEligibility] = field(default_factory=dict)
     #: Ajanın bağlanacağı dış MCP sunucuları. Boşsa MCP istemcisi hiç kurulmaz.
     mcp_servers: tuple[McpServerConfig, ...] = ()
+    #: Kullanıcının yetkili olduğu web (oturum tabanlı) uçlar. Boşsa özellik kapalı;
+    #: tanımlıysa eşleşen model kimlikleri API yerine web transport'uyla karşılanır.
+    web_sessions: tuple[WebSessionConfig, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""
