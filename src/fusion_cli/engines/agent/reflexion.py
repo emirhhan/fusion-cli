@@ -128,19 +128,25 @@ def unverified_action_message(effect: str | None) -> str:
 
 
 
+
 def tool_contract_repair_note(detail: str) -> Message:
-    """Give a web model exactly one chance to repair a malformed call."""
+    """Give a web model one precise chance to repair a malformed call."""
     return Message(
         "user",
         "[tool-contract-repair] Önceki araç çağrın geçersizdi. "
         f"Hata: {detail}\n"
-        "Yalnızca bir kez düzelt. Geçerli biçim örnekleri:\n"
-        '<tool_call>{"name":"read_file","arguments":{"path":"src/app.py"}}</tool_call>\n'
-        '<tool_call>{"name":"write_file","arguments":{"path":"out.txt",'
-        '"content":"hello"}}</tool_call>\n'
-        '<tool_call>{"name":"run_shell","arguments":{"command":'
-        '"python3 -m pytest -q"}}</tool_call>\n'
-        "name ve arguments zorunludur. Şemadaki required alanları eksiksiz gönder. "
-        "Aynı geçersiz çağrıyı tekrar üretme; kullanamıyorsan işlemin "
-        "tamamlanmadığını açıkça söyle.",
+        "Yalnızca bir kez düzelt.\n"
+        "Kısa çağrı örneği:\n"
+        '<tool_call>{"name":"read_file","arguments":'
+        '{"path":"src/app.py"}}</tool_call>\n'
+        "Çok satırlı kodu JSON stringine koyma. Payload kullan:\n"
+        '<tool_payload id="file-1">\n'
+        "def example():\n"
+        '    print("ok")\n'
+        "</tool_payload>\n"
+        '<tool_call>{"name":"write_file","arguments":'
+        '{"path":"example.py","content":{"$ref":"file-1"}}}</tool_call>\n'
+        "Payload ham metindir; JSON escape veya Markdown fence kullanma. "
+        "Her id benzersiz ve referanslı olmalı. Aynı geçersiz çağrıyı tekrarlama. "
+        "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
     )
