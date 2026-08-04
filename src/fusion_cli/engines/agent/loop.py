@@ -52,6 +52,7 @@ from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
+from ...tools.emulation import render_tool_example, validate_arguments
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, learning_steps, reflexion, review, skill_recall
@@ -78,6 +79,7 @@ MAX_VERIFY_ROUNDS = 2
 #: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
 #: hiç denememek turu iş yapmadan bitirir (ölçüldü).
 MAX_EMPTY_RETRIES = 2
+MAX_TOOL_CONTRACT_REPAIRS = 1
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
@@ -271,6 +273,8 @@ class _State:
     mutation_epoch: int = 0
     repeated_calls: dict[tuple[str, str, int], int] = field(default_factory=dict)
     evidence_reprompts: int = 0
+    tool_contract_repairs: int = 0
+    tool_contract_abort: str = ""
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
@@ -328,6 +332,21 @@ async def _drive(
             )
 
         state.model_calls_made += 1
+        if _is_tool_contract_error(result.error):
+            if state.tool_contract_repairs < MAX_TOOL_CONTRACT_REPAIRS:
+                state.tool_contract_repairs += 1
+                if result.text.strip():
+                    messages.append(Message("assistant", result.text))
+                messages.append(
+                    reflexion.tool_contract_repair_note(result.error or "geçersiz çağrı")
+                )
+                continue
+            return _outcome(
+                _tool_contract_abort_message(result.error or "geçersiz çağrı"),
+                messages,
+                state,
+                ok=False,
+            )
         if not result.ok:
             return _outcome(result.error or "", messages, state, ok=False)
 
@@ -383,6 +402,8 @@ async def _drive(
         errored = await _run_tools(
             result.tool_calls, messages, deps, registry, state, execution=execution
         )
+        if state.tool_contract_abort:
+            return _outcome(state.tool_contract_abort, messages, state, ok=False)
         if errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
 
@@ -581,21 +602,71 @@ async def _run_tools(
     *,
     execution: ExecutionPolicy,
 ) -> bool:
-    """Araçları sırayla çalıştır; yinelenen salt-okuma döngülerini güvenle kes."""
+    """Validate before execution and stop repeated malformed/duplicate calls."""
     state.tool_calls_last_turn = len(calls)
     state.tool_rounds += 1
     errored = False
 
     for call in calls:
-        args = parse_arguments(call.arguments)
-        signature = _tool_signature(call.name, args, state.mutation_epoch)
+        args, parse_error = _parse_arguments_checked(call.arguments)
+        tool = registry.get(call.name)
+        signature_epoch = state.mutation_epoch if tool is None or not tool.mutating else 0
+        signature = _tool_signature(call.name, args, signature_epoch)
         seen = state.repeated_calls.get(signature, 0)
         state.repeated_calls[signature] = seen + 1
-        if execution.is_web and seen >= execution.max_same_tool_without_change:
+
+        contract_errors: list[str] = []
+        if parse_error:
+            contract_errors.append(parse_error)
+        if tool is None:
+            contract_errors.append(
+                "bilinmeyen araç; kullanılabilir araçlar: " + ", ".join(registry.names())
+            )
+        else:
+            function_schema = tool.schema().get("function")
+            if isinstance(function_schema, dict):
+                contract_errors.extend(validate_arguments(function_schema, args))
+
+        if contract_errors:
+            no_more_repairs = (
+                state.tool_contract_repairs >= MAX_TOOL_CONTRACT_REPAIRS or seen >= 1
+            )
+            output = _tool_contract_failure(
+                call.name,
+                contract_errors,
+                tool.schema().get("function") if tool is not None else None,
+            )
+            outcome = ToolOutcome.BLOCKED if no_more_repairs else ToolOutcome.FAILED
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args=args,
+                    outcome=outcome,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(
+                Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
+            )
+            state.failed_tool_calls += 1
+            errored = True
+            if no_more_repairs:
+                state.tool_contract_abort = _tool_contract_abort_message(output)
+            else:
+                state.tool_contract_repairs += 1
+            continue
+
+        duplicate_limit = (
+            1
+            if tool is not None and tool.mutating
+            else execution.max_same_tool_without_change
+        )
+        if execution.is_web and seen >= duplicate_limit:
             output = (
-                "Aynı araç aynı argümanlarla, çalışma alanında bir değişiklik olmadan "
-                "tekrarlandı. Fusion döngüyü önlemek için bu çağrıyı çalıştırmadı; "
-                "mevcut sonucu kullan veya farklı bir yaklaşım seç."
+                "TOOL_CALL_DUPLICATE: Aynı araç aynı argümanlarla, çalışma alanında "
+                "ilgili bir değişiklik olmadan tekrarlandı. Fusion çağrıyı çalıştırmadı "
+                "ve döngüyü güvenli biçimde sonlandırdı."
             )
             deps.publisher.publish(
                 ToolExecuted(
@@ -609,9 +680,11 @@ async def _run_tools(
             messages.append(
                 Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
             )
+            state.failed_tool_calls += 1
+            state.tool_contract_abort = _tool_contract_abort_message(output)
+            errored = True
             continue
 
-        tool = registry.get(call.name)
         pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry)
         if outcome is ToolOutcome.OK:
@@ -628,16 +701,30 @@ async def _run_tools(
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(
             ToolExecuted(
-                name=call.name, args=args, outcome=outcome, output=result.output, diff=diff
+                name=call.name,
+                args=args,
+                outcome=outcome,
+                output=result.output,
+                diff=diff,
             )
         )
         messages.append(
-            Message("tool", result.output, tool_call_id=call.id, name=call.name, ok=result.ok)
+            Message(
+                "tool",
+                result.output,
+                tool_call_id=call.id,
+                name=call.name,
+                ok=result.ok,
+            )
         )
     return errored
 
 
-def _tool_signature(name: str, args: dict[str, object], mutation_epoch: int) -> tuple[str, str, int]:
+def _tool_signature(
+    name: str,
+    args: dict[str, object],
+    mutation_epoch: int,
+) -> tuple[str, str, int]:
     try:
         encoded = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
@@ -661,17 +748,46 @@ async def _execute(
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
 
 
-def parse_arguments(raw: str) -> dict[str, object]:
-    """Modelin ürettiği ham JSON'u sözlüğe çevir; bozuksa boş sözlük.
-
-    Boş sözlük döndürmek bilinçlidir: araç kendi doğrulamasını yapar ve modele hangi
-    alanın eksik olduğunu söyler. Burada patlamak bu bilgiyi kaybettirir.
-    """
+def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
+    """Parse raw arguments without erasing malformed-JSON evidence."""
     try:
-        parsed = json.loads(raw or "{}")
-    except (json.JSONDecodeError, ValueError):
-        return {}
-    return parsed if isinstance(parsed, dict) else {}
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError) as error:
+        return {}, f"arguments geçerli JSON olmalı ({error})"
+    if not isinstance(parsed, dict):
+        return {}, "arguments bir JSON nesnesi olmalı"
+    return parsed, None
+
+
+def parse_arguments(raw: str) -> dict[str, object]:
+    """Backward-compatible parser; runtime uses the checked variant."""
+    parsed, _ = _parse_arguments_checked(raw)
+    return parsed
+
+
+def _is_tool_contract_error(detail: str | None) -> bool:
+    return bool(detail and detail.startswith("TOOL_CALL_"))
+
+
+def _tool_contract_failure(
+    name: str,
+    errors: list[str],
+    function_schema: object,
+) -> str:
+    lines = ["TOOL_CALL_INVALID", f"tool: {name}", "errors:"]
+    lines.extend(f"- {error}" for error in errors)
+    if isinstance(function_schema, dict):
+        lines.append("valid_example:")
+        lines.append(render_tool_example(function_schema))
+    return "\n".join(lines)
+
+
+def _tool_contract_abort_message(detail: str) -> str:
+    return (
+        "TOOL_CALL_ABORTED: Araç sözleşmesi düzeltilemedi veya aynı çağrı tekrarlandı. "
+        "Fusion güvenlik için bu turu sonlandırdı; işlem tamamlanmış kabul edilmemelidir.\n"
+        + detail
+    )
 
 
 # --------------------------------------------------------------------------- #

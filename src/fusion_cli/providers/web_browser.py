@@ -279,8 +279,11 @@ def format_browser_prompt(messages: Sequence[Message]) -> str:
             label = "KULLANICI"
         content = message.content.strip()
         if message.tool_calls:
-            calls = ", ".join(call.name for call in message.tool_calls)
-            content = f"{content}\n[Önceki araç çağrıları: {calls}]".strip()
+            call_lines = ["[Önceki araç çağrıları]"]
+            for call in message.tool_calls:
+                call_lines.append(f"name: {call.name}")
+                call_lines.append(f"arguments: {call.arguments}")
+            content = "\n".join([content, *call_lines]).strip()
         rendered.append(f"### {label}\n{content}")
     rendered.append(
         "### TALİMAT\nYalnızca bu konuşmadaki en son kullanıcı/araç sonucuna cevap ver. "

@@ -25,8 +25,8 @@ from ..session import run_agent_task, run_task
 from . import help_view, model_flows
 from .commands import RENDERED_COMMANDS, build_registry, parse
 from .state import Engine, ReplState
-from .tui import FusionTui
 from .transcript_store import TranscriptStore
+from .tui import FusionTui
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
@@ -92,7 +92,9 @@ def _would_open_picker(name: str, argument: str) -> bool:
     if name == "provider":
         return True  # argümandan bağımsız her zaman gizli anahtar istemi açar
     if name == "development":
-        return True  # çağrı üstte uygulama-içi modal tarafından ele alınır
+        # Argümansız çağrı uygulama-içi modalda çözülür; argümanlı eski yol
+        # nested picker riski taşır ve guard tarafından engellenir.
+        return bool(arg)
     if name == "model" and not arg:
         return True  # argümansız katalog seçicisi açar
     if name == "profiles" and arg.startswith("edit"):
