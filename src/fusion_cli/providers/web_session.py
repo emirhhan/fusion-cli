@@ -5,11 +5,10 @@ erişilir. Bu adaptör böyle bir kaynağı Fusion'ın canonical `LlmProvider` s
 uydurur: `complete`/`stream` döndürür, hata fırlatmaz (`ok=False` sonuç taşır) ve
 mevcut yığına (FallbackProvider, circuit breaker) sorunsuz oturur.
 
-GÜVENLİK VE KAPSAM SINIRI: Bu çerçeve, KULLANICININ SAHİP OLDUĞU ya da oturum
-erişimine İZİN VEREN uçlar (kendi OpenWebUI/LibreChat kurulumu, kurumsal uç) ve test
-için sahte (mock) transport'lar içindir. Belirli bir ticari tüketici web arayüzünü
-(ChatGPT/Gemini web) izinsiz otomatikleştiren bir transport bu depoda YOKTUR; gerçek
-I/O yapan `transport` DIŞARIDAN enjekte edilir ve kullanıcının sorumluluğundadır.
+GÜVENLİK VE KAPSAM SINIRI: Bu çerçeve yalnızca kullanıcının kendi hesabı veya
+yetkili ucu içindir. Native browser transport'u izole Fusion profilinde açık kullanıcı
+girişiyle çalışır; normal tarayıcı profilini okumaz, CAPTCHA çözmez, fingerprint/anti-bot
+korumasını aşmaz. Genel HTTP transport'u da kullanıcının kendi OpenAI-uyumlu ucuna bağlanır.
 
 Araç desteği:
 - `NONE`: araç yoktur; yalnızca düz sohbet/council. `request.tools` yok sayılır.

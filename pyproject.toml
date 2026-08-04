@@ -23,6 +23,8 @@ dependencies = [
     "httpx>=0.27,<1",
     # Ortak bilgi paketinin Ed25519 imza doğrulaması için (stdlib'de Ed25519 yok).
     "cryptography>=42,<46",
+    # API keys and web-session cookies use the OS credential vault when available.
+    "keyring>=25,<27",
 ]
 
 [project.optional-dependencies]
@@ -111,6 +113,8 @@ ignore = [
 "src/fusion_cli/knowledge/signing.py" = ["ANN401"]
 # playwright opsiyonel ekstradır ve tip stub'ı yok; Page/Browser sınırı bu dosyada kalır.
 "src/fusion_cli/engines/agent/browser_verify.py" = ["ANN401"]
+# Native web providers wrap optional Playwright objects; Any stays inside this adapter.
+"src/fusion_cli/providers/web_browser.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin

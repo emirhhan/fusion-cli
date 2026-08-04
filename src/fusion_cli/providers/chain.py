@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 
 from ..core.errors import ProviderError
+from ..core.events import EventPublisher, ModelFallbackActivated
 from ..core.protocols import LlmProvider
 from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
 
@@ -38,11 +39,20 @@ from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
 class FallbackProvider:
     """Sağlayıcıları sırayla deneyen sağlayıcı."""
 
-    def __init__(self, providers: Sequence[LlmProvider], *, role: str) -> None:
+    def __init__(
+        self,
+        providers: Sequence[LlmProvider],
+        *,
+        role: str,
+        publisher: EventPublisher | None = None,
+        background: bool = False,
+    ) -> None:
         if not providers:
             raise ProviderError(f"'{role}' için tanımlı model yok.")
         self._providers = tuple(providers)
         self._role = role
+        self._publisher = publisher
+        self._background = background
 
     @property
     def label(self) -> str:
@@ -56,7 +66,9 @@ class FallbackProvider:
 
     async def complete(self, request: CompletionRequest) -> ModelResult:
         failures: list[ModelResult] = []
-        for provider in self._providers:
+        for index, provider in enumerate(self._providers):
+            if index and failures:
+                self._publish_fallback(provider.label, failures[-1])
             result = await provider.complete(request)
             # Ölçüt `ok` DEĞİL `is_usable`: model bazen boş cevap döndürüyor
             # (metin yok, araç çağrısı yok) ve bu teknik olarak başarılı bir
@@ -68,7 +80,9 @@ class FallbackProvider:
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         failures: list[ModelResult] = []
-        for provider in self._providers:
+        for index, provider in enumerate(self._providers):
+            if index and failures:
+                self._publish_fallback(provider.label, failures[-1])
             stream = provider.stream(request)
             first = await anext(stream, None)
             if first is None:
@@ -85,6 +99,19 @@ class FallbackProvider:
                 yield item
             return
         yield StreamDone(self._all_failed(failures))
+
+    def _publish_fallback(self, fallback_model: str, failure: ModelResult) -> None:
+        if self._publisher is None:
+            return
+        self._publisher.publish(
+            ModelFallbackActivated(
+                role=self._role,
+                requested_model=self.label,
+                fallback_model=fallback_model,
+                reason=failure.error or "kullanılabilir yanıt üretilmedi",
+                background=self._background,
+            )
+        )
 
     def _all_failed(self, failures: Sequence[ModelResult]) -> ModelResult:
         """Hiçbiri başaramadı: hata FIRLATILMAZ, hepsini birleştiren sonuç döner.

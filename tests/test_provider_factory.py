@@ -48,6 +48,20 @@ def test_zincir_spec_sirasini_korur():
     assert provider.label == "nvidia_nim/z-ai/glm-5.2"
 
 
+def test_strict_spec_fallback_tanimli_olsa_da_tek_yaprak_kurar():
+    """Tek-model seçimi config'te kalmış yedek yüzünden sessizce değişmemeli."""
+    strict = ModelSpec(
+        name="secilen",
+        model="gemini_web/main/auto",
+        fallback=("openrouter/openai/gpt-oss-20b:free",),
+        tags=("strict",),
+    )
+
+    halkalar = _halkalar(strict, ())
+
+    assert len(halkalar) == 1
+
+
 def test_web_session_modeli_api_yerine_web_adaptoruyle_kurulur():
     """Model bir web ucuyla eşleşiyorsa yaprak, LiteLLM yerine web adaptörüdür."""
     from fusion_cli.config.models import WebSessionConfig
@@ -87,3 +101,25 @@ def test_web_session_eslesmezse_normal_api_yolu_kullanilir():
         isinstance(p, WebProviderAdapter)
         for p in provider._providers  # type: ignore[attr-defined]
     )
+
+
+def test_kayitsiz_native_web_modeli_litellm_yerine_acik_hata_verir():
+    """Silinmiş/kurulmamış web model id'si yanlışlıkla LiteLLM'e gitmez."""
+    import asyncio
+
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    spec = ModelSpec(name="agent", model="chatgpt_web/main/auto")
+    provider = build_provider(spec, publisher=None, retry_delays_s=())
+    result = asyncio.run(
+        provider.complete(
+            CompletionRequest(
+                messages=(Message("user", "merhaba"),),
+                temperature=0.0,
+                max_tokens=16,
+                timeout_s=1.0,
+            )
+        )
+    )
+    assert result.ok is False
+    assert "etkin web oturumu yok" in (result.error or "")

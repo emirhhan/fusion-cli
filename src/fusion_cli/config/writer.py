@@ -99,11 +99,7 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
 
 
 def write_web_sessions(config: Config, path: Path | None = None) -> Path:
-    """Web (oturum tabanlı) sağlayıcı listesini `web_sessions:` altına yaz.
-
-    Yalnızca bu bölüm güncellenir; diğer ayarlar korunur. Sır YAZILMAZ: config'e
-    yalnızca endpoint ve `auth_env` (token'ın env adı) girer, token'ın kendisi değil.
-    """
+    """Web sağlayıcı tanımlarını yaz; cookie/token değerlerini ASLA yazma."""
     target = path or _target_path(config)
     existing = _read_existing(target)
     existing["web_sessions"] = [
@@ -112,10 +108,17 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
             for key, value in {
                 "model": session.model,
                 "endpoint": session.endpoint,
+                "provider": session.provider,
+                "account": session.account,
+                "transport": session.transport,
                 "auth_env": session.auth_env,
+                "credential_ref": session.credential_ref,
                 "tool_support": session.tool_support,
+                "headless": session.headless,
+                "timeout_s": session.timeout_s,
+                "enabled": session.enabled,
             }.items()
-            if value is not None
+            if value is not None and value != ""
         }
         for session in config.web_sessions
     ]

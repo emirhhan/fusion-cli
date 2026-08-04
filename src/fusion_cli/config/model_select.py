@@ -28,6 +28,12 @@ def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
     Haritada karşılık yoksa ya da yazan ad tanımlı bir aday değilse `agent:` rolüne
     düşülür: yapılandırmadaki bir yazım hatası turu çökertmez.
     """
+    # `/development` veya paneldeki "zorunlu model" seçimi task map'ten üstündür.
+    # Aksi halde başlıkta Gemini görünürken haritadaki eski `secilen` adayı NVIDIA
+    # çalıştırabilir; agent ve öz-denetim farklı modeller kullanır.
+    if config.agent.strict:
+        return config.agent
+
     mapped = config.task_model_map.get(task_type)
     if not mapped:
         return config.agent
@@ -102,7 +108,10 @@ def apply_single_model(config: Config, model_id: str) -> Config:
     modelde kalması sürpriz olurdu. Havuz tek adaya iner: aynı modeli üç kez
     paralel sormak fusion'a hiçbir şey katmaz, yalnızca kota yakar.
     """
-    spec = ModelSpec(name=SINGLE_MODEL_NAME, model=_validated(model_id))
+    # `/development` açıkça TEK model seçtirir. `strict` etiketi savunmacıdır:
+    # config'te önceki/panelden kalmış bir fallback bulunsa bile kullanıcıya başka
+    # modelin sessizce cevap vermesine izin vermez. Panelden strict kapatılabilir.
+    spec = ModelSpec(name=SINGLE_MODEL_NAME, model=_validated(model_id), tags=("strict",))
     return replace(
         config,
         agent=spec,
@@ -166,11 +175,16 @@ def resolve_candidate(config: Config, key: str) -> int:
 
 
 def format_models(config: Config) -> str:
-    """Etkin modelleri tek metinde özetle."""
+    """Etkin roller ve Control Panel'de bağlı native web modelleri."""
     lines = [f"agent : {config.agent.model}", f"hakem : {config.judge.model}", "adaylar:"]
     for index, candidate in enumerate(config.candidates, 1):
         tags = f"  [{', '.join(candidate.tags)}]" if candidate.tags else ""
         lines.append(f"  {index}. {candidate.name}: {candidate.model}{tags}")
+    web = [session for session in config.web_sessions if session.enabled]
+    if web:
+        lines.append("web sağlayıcıları:")
+        for session in web:
+            lines.append(f"  - {session.provider}/{session.account}: {session.model}")
     return "\n".join(lines)
 
 

@@ -63,6 +63,22 @@ class ModelCallFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelFallbackActivated(Event):
+    """Birincil kullanılamadı ve sıradaki modele geçiliyor.
+
+    Bu olay olmazsa dıştaki ``EventingProvider`` yalnızca zincirin baş modelini ve
+    en son başarılı sonucu görür; aradaki hata sessiz kalır. Kullanıcı seçtiği
+    modelin neden değiştiğini görebilmelidir.
+    """
+
+    role: str
+    requested_model: str
+    fallback_model: str
+    reason: str
+    background: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TokenReceived(Event):
     """Akıştan metin parçası geldi."""
 

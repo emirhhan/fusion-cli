@@ -1,47 +1,51 @@
-"""Web (oturum tabanlı) sağlayıcı kayıt defteri.
-
-`config.web_sessions` tanımlarını ve bir ortam anlık görüntüsünü alır; bir model
-kimliği için (varsa) hazır bir `WebProviderAdapter` üretir. Sır yönetimi RULES.md'ye
-uyar: token yalnızca `auth_env` ile adı verilen ortam değişkeninden okunur ve tek yerde
-(burada, kurulum anında) çözülür; frozen `Config`'te taşınmaz, log'a girmez.
-
-`KeyPoolRegistry` ile aynı desendir: oturum boyunca tek örnek kurulur ve
-`build_provider`'a enjekte edilir; factory içindeki `_leaf` model başına buna danışır.
-"""
+"""Web provider registry: custom HTTP sessions and native browser subscriptions."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
+from ..config.credentials import FernetSecretStore
 from ..config.models import WebSessionConfig
+from ..config.paths import credentials_file
 from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock, LlmProvider
+from ..core.types import Message
+from .web_browser import build_browser_transport
 from .web_session import WebProviderAdapter, WebSessionCredential, WebTransport
 from .web_transport import build_http_transport
 
-if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
+if TYPE_CHECKING:  # pragma: no cover
     from ..config.models import Config
 
-#: Endpoint → gerçek I/O yapan transport üreten fabrika. Testte sahtesi enjekte edilir.
 TransportFactory = Callable[..., WebTransport]
-
-#: Config'teki metin araç desteği → enum. Bilinmeyen değer güvenli tarafa (NONE) düşer.
 _TOOL_SUPPORT = {"none": ToolSupport.NONE, "emulated": ToolSupport.EMULATED}
 
 
 class WebSessionRegistry:
-    """Model kimliği → web sağlayıcı. Tanımsız model için None döner (API yolu sürer)."""
+    """Model id -> configured web provider adapter."""
 
     def __init__(
-        self, sessions: tuple[WebSessionConfig, ...], *, environ: Mapping[str, str]
+        self,
+        sessions: tuple[WebSessionConfig, ...],
+        *,
+        environ: Mapping[str, str],
+        secret_store: FernetSecretStore | None = None,
     ) -> None:
-        self._by_model = {session.model: session for session in sessions}
+        self._by_model = {session.model: session for session in sessions if session.enabled}
         self._environ = environ
+        self._secret_store = secret_store
 
     @property
     def is_empty(self) -> bool:
         return not self._by_model
+
+    @property
+    def models(self) -> tuple[str, ...]:
+        return tuple(self._by_model)
+
+    def session_for(self, model: str) -> WebSessionConfig | None:
+        return self._by_model.get(model)
 
     def build(
         self,
@@ -50,12 +54,22 @@ class WebSessionRegistry:
         clock: Clock | None = None,
         transport_factory: TransportFactory = build_http_transport,
     ) -> LlmProvider | None:
-        """Model bir web ucuyla eşleşiyorsa hazır adaptörü kur; değilse None."""
         session = self._by_model.get(model)
         if session is None:
             return None
         credential = self._credential(session)
-        transport = transport_factory(session.endpoint)
+        if session.transport == "browser":
+            transport = build_browser_transport(session)
+        else:
+            if not session.endpoint:
+                return WebProviderAdapter(
+                    model=session.model,
+                    credential=credential,
+                    transport=_missing_endpoint_transport,
+                    tool_support=_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE),
+                    clock=clock,
+                )
+            transport = transport_factory(session.endpoint)
         return WebProviderAdapter(
             model=session.model,
             credential=credential,
@@ -65,20 +79,50 @@ class WebSessionRegistry:
         )
 
     def _credential(self, session: WebSessionConfig) -> WebSessionCredential:
-        """Token'ı `auth_env` ile adı verilen ortam değişkeninden çöz (tek yer)."""
+        if session.transport == "browser":
+            cookie = ""
+            if session.credential_ref and self._secret_store and self._secret_store.available:
+                cookie = self._secret_store.get(session.credential_ref) or ""
+            return WebSessionCredential(token=cookie)
         token = self._environ.get(session.auth_env, "").strip() if session.auth_env else ""
         return WebSessionCredential(token=token)
 
 
-def web_registry_for(config: Config) -> WebSessionRegistry | None:
-    """Config'ten web kayıt defteri kur; tanımlı web ucu yoksa None (sıfır ek yük).
+async def _missing_endpoint_transport(
+    credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+) -> str:
+    del credential, messages, model
+    raise RuntimeError("web HTTP endpoint tanımlı değil")
 
-    Ortam erişimi config-katmanı fonksiyonu `environ_snapshot` üzerinden yapılır
-    (RULES.md: env doğrudan okunmaz). Boş durumda None döner ve `build_provider`
-    web yolunu tamamen atlar; mevcut API davranışı birebir korunur.
-    """
+
+def unconfigured_web_provider(model: str, *, clock: Clock | None = None) -> LlmProvider:
+    """Return a clear failing provider instead of sending a web id to LiteLLM."""
+    return WebProviderAdapter(
+        model=model,
+        credential=WebSessionCredential(),
+        transport=_missing_web_session_transport,
+        tool_support=ToolSupport.NONE,
+        clock=clock,
+    )
+
+
+async def _missing_web_session_transport(
+    credential: WebSessionCredential, messages: tuple[Message, ...], model: str
+) -> str:
+    del credential, messages
+    raise RuntimeError(
+        f"not found: {model} için etkin web oturumu yok; Fusion Control Panel'den bağla"
+    )
+
+
+def web_registry_for(config: Config) -> WebSessionRegistry | None:
     if not config.web_sessions:
         return None
-    from ..config.keys import environ_snapshot
+    from ..config.keys import environ_snapshot, secret_key
 
-    return WebSessionRegistry(config.web_sessions, environ=environ_snapshot())
+    store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+    return WebSessionRegistry(
+        config.web_sessions,
+        environ=environ_snapshot(),
+        secret_store=store,
+    )

@@ -119,6 +119,33 @@
       .badge.ok { color: var(--green); border-color: var(--green); }
       .badge.local { color: var(--blue); border-color: var(--blue); }
       .badge.fw { color: var(--yellow); border-color: var(--yellow); }
+      .badge.web { color: #d58cff; border-color: #d58cff; }
+      .modal-backdrop { position: fixed; inset: 0; background: rgba(4,4,8,.76); backdrop-filter: blur(7px);
+        display: none; align-items: center; justify-content: center; z-index: 1000; padding: 24px; }
+      .modal-backdrop.open { display: flex; }
+      .modal { width: min(720px, 100%); max-height: 90vh; overflow: auto; background: var(--surface);
+        border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 28px 90px rgba(0,0,0,.55); }
+      .modal.small { width: min(520px,100%); }
+      .modal-head { display: flex; align-items: center; gap: 12px; padding: 18px 20px;
+        border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 2; }
+      .modal-head .dots { letter-spacing: 4px; color: var(--accent2); }
+      .modal-title { font-weight: 800; font-size: 18px; }
+      .modal-close { margin-left: auto; background: transparent; border: 0; color: var(--dim); font-size: 22px; padding: 4px 8px; }
+      .modal-body { padding: 20px; }
+      .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 0 20px 20px; }
+      .notice { border: 1px solid rgba(255,209,102,.55); background: rgba(255,209,102,.08);
+        padding: 15px 16px; border-radius: 12px; color: var(--dim); line-height: 1.65; }
+      .notice b { color: var(--text); }
+      .guide { border: 1px solid rgba(213,140,255,.5); background: rgba(213,140,255,.08);
+        padding: 16px; border-radius: 12px; margin-bottom: 16px; line-height: 1.55; color: var(--dim); }
+      .guide h3 { margin: 0 0 8px; color: var(--text); }
+      .guide ol { margin: 8px 0 0; padding-left: 22px; }
+      .guide li { margin: 7px 0; }
+      .secret-area { width: 100%; min-height: 92px; }
+      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .web-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+      .checkline { display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px; }
+      @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
       .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600;
         color: var(--green); background: rgba(94,226,160,.1); border: 1px solid rgba(94,226,160,.35);
         padding: 5px 12px; border-radius: 999px; }
@@ -275,6 +302,11 @@
             <h2>Fallback Zinciri (agent)</h2>
             <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
             <div class="card">
+              <label class="checkline" style="margin-bottom:12px">
+                <input type="checkbox" id="strictModel" />
+                Seçili baş modeli zorunlu kullan; başarısızsa başka modele sessizce geçme
+              </label>
+              <div class="hint" style="margin-bottom:12px">Açıkken fallback zinciri config'te korunur fakat bu agent rolünde çalıştırılmaz. Web AI'ı gerçekten test ederken açık tut.</div>
               <div id="chain"></div>
               <div class="row" style="margin-top:10px">
                 <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
@@ -334,11 +366,79 @@
       </main>
     </div>
 
+    <div class="modal-backdrop" id="webWarningModal">
+      <div class="modal small">
+        <div class="modal-head"><span class="dots">●●●</span><span class="modal-title">Devam etmeden önce</span>
+          <button class="modal-close" onclick="closeModal('webWarningModal')">×</button></div>
+        <div class="modal-body">
+          <div class="notice"><b id="warnProviderName">Web AI</b><br />
+            Bu sağlayıcı, kendi aboneliğine ait izole tarayıcı oturumu veya açıkça verdiğin Cookie başlığıyla çalışır.
+            Web arayüzleri değişebilir; oturum süresi dolabilir ve yeniden giriş gerekebilir. Fusion CAPTCHA/anti-bot
+            korumalarını aşmaz. Cookie bir şifre kadar hassastır ve yalnızca şifreli yerel depoda tutulur.
+          </div>
+          <label class="checkline" style="margin-top:16px"><input type="checkbox" id="webWarnRemember" />
+            Bu sağlayıcı için bunu bir daha gösterme</label>
+        </div>
+        <div class="modal-foot"><button class="ghost" onclick="closeModal('webWarningModal')">İptal</button>
+          <button onclick="acceptWebWarning()">Anladım, devam et</button></div>
+      </div>
+    </div>
+
+    <div class="modal-backdrop" id="webSetupModal">
+      <div class="modal">
+        <div class="modal-head"><span class="dots">●●●</span><span class="modal-title" id="webSetupTitle">Web AI</span>
+          <button class="modal-close" onclick="closeModal('webSetupModal')">×</button></div>
+        <div class="modal-body">
+          <div class="guide" id="webGuide"></div>
+          <div class="two-col">
+            <label class="fld">Oturum adı<input id="nativeWebAccount" value="main" placeholder="main" /></label>
+            <label class="fld">Terminal model kimliği<input id="nativeWebModel" readonly /></label>
+          </div>
+          <label class="fld">Cookie başlığı <span class="fhint">Boş bırakıp aşağıdaki “Tarayıcıyla giriş yap” yöntemini kullanabilirsin.</span>
+            <textarea id="nativeWebCookie" class="secret-area" placeholder="name=value; other=value; …"></textarea></label>
+          <div class="two-col">
+            <label class="fld">Zaman aşımı (saniye)<input id="nativeWebTimeout" type="number" min="30" max="600" value="180" /></label>
+            <label class="fld" style="justify-content:flex-end"><span class="checkline"><input id="nativeWebHeadless" type="checkbox" checked />
+              Normal kullanımda tarayıcıyı arka planda çalıştır</span></label>
+          </div>
+          <details style="margin-top:8px"><summary class="meta" style="cursor:pointer">Gelişmiş / güvenlik notları</summary>
+            <div class="hint">Fusion normal Chrome profilini okumaz. Her sağlayıcı/oturum için ayrı profil kullanır.
+              Cookie, config.yaml veya loglara yazılmaz. Web modeli araç çağrısını metin olarak üretir; dosya, shell,
+              web search ve kod düzenleme işini Fusion'ın kendi izinli tool runtime'ı yürütür.</div></details>
+          <div class="web-actions">
+            <button class="ghost" onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
+            <button class="ghost" onclick="validateNativeWeb()">Bağlantıyı kontrol et</button>
+            <button onclick="saveNativeWeb()">Kaydet ve sağlayıcıyı etkinleştir</button>
+          </div>
+          <div class="hint" id="nativeWebStatus" style="margin-top:12px"></div>
+        </div>
+      </div>
+    </div>
+
     <div class="toast" id="toast"></div>
 
     <script>
       const $ = (id) => document.getElementById(id);
       let STATE = null, chain = [], judge = [];
+      let activeWebProvider = null, activeWebModel = null;
+      const WEB_INFO = {
+        chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", site:"https://chatgpt.com", hint:"chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
+          steps:["Tarayıcıyla giriş yönteminde Fusion'ın açtığı izole Chrome penceresinde hesabına giriş yap ve pencereyi kapat.",
+                 "Manuel yöntemde chatgpt.com → Geliştirici Araçları → Network bölümünde bir isteği seç; Request Headers içindeki Cookie değerinin tamamını kopyala. Cookie: önekini ekleme.",
+                 "Kaydet ve bağlantıyı kontrol et. Oturum süresi dolarsa aynı işlemi yenile."]},
+        claude_web: {name:"Claude Web (Pro/Max)", site:"https://claude.ai", hint:"claude.ai Cookie başlığı (sessionKey dahil)",
+          steps:["Önerilen yöntem: Fusion'ın açtığı izole tarayıcıda claude.ai hesabına giriş yap.",
+                 "Manuel yöntemde claude.ai üzerindeki bir Network isteğinin tam Cookie başlığını kopyala; yalnız sessionKey değil, istekteki tüm Cookie değeri daha dayanıklıdır.",
+                 "Kaydet, ardından gerçek küçük istekle bağlantıyı doğrula."]},
+        gemini_web: {name:"Gemini Web (Google AI Pro/Ultra)", site:"https://gemini.google.com/app", hint:"Google birden çok cookie kullandığı için tarayıcıyla giriş önerilir",
+          steps:["Google oturumu birden çok alan/cookie kullandığından en güvenilir yöntem Tarayıcıyla giriş yap düğmesidir.",
+                 "Açılan izole profilde Gemini'ye giriş yap, gerekli hesap doğrulamasını kendin tamamla ve pencereyi kapat.",
+                 "Manuel Cookie kullanacaksan gemini.google.com isteğinin Cookie başlığının tamamını ekle."]},
+        copilot_web: {name:"Microsoft Copilot Web", site:"https://copilot.microsoft.com", hint:"Microsoft oturumu için tarayıcıyla giriş önerilir",
+          steps:["Tarayıcıyla giriş yap düğmesiyle açılan izole profilde Microsoft hesabına giriş yap.",
+                 "Manuel yöntemde copilot.microsoft.com isteğinin tam Cookie başlığını ekle.",
+                 "Kaydettikten sonra bağlantı testini çalıştır; giriş yönlendirmesi görülürse tarayıcı oturumunu yenile."]}
+      };
 
       // Kenar çubuğu gezinmesi: aktif sekmeyi değiştir ve üst bar başlığını güncelle.
       document.querySelectorAll(".nav-item").forEach((t) => t.onclick = () => {
@@ -366,6 +466,74 @@
         const i = CATEGORY_ORDER.indexOf(name);
         return i === -1 ? CATEGORY_ORDER.length : i;
       }
+
+      function closeModal(id) { $(id).classList.remove("open"); }
+      function openWebProvider(id, model) {
+        activeWebProvider = id; activeWebModel = model || null;
+        const info = WEB_INFO[id]; if (!info) return;
+        const remember = localStorage.getItem("fusion-web-warning-" + id) === "1";
+        if (remember) return showWebSetup(id, model);
+        $("warnProviderName").textContent = info.name;
+        $("webWarnRemember").checked = false;
+        $("webWarningModal").classList.add("open");
+      }
+      function acceptWebWarning() {
+        if ($("webWarnRemember").checked) localStorage.setItem("fusion-web-warning-" + activeWebProvider, "1");
+        closeModal("webWarningModal"); showWebSetup(activeWebProvider, activeWebModel);
+      }
+      function showWebSetup(id, model) {
+        activeWebProvider = id; activeWebModel = model || null;
+        const info = WEB_INFO[id]; if (!info) return;
+        const existing = (STATE.web_sessions || []).find((w) => w.model === model || (w.provider === id && w.account === "main"));
+        const account = existing ? existing.account : "main";
+        $("webSetupTitle").textContent = info.name;
+        $("nativeWebAccount").value = account;
+        $("nativeWebCookie").value = "";
+        $("nativeWebHeadless").checked = existing ? existing.headless : true;
+        $("nativeWebTimeout").value = existing ? existing.timeout_s : 180;
+        $("webGuide").innerHTML = `<h3>🍪 Oturum bilgisi nasıl alınır?</h3><div>${info.hint}</div><ol>${info.steps.map((x)=>`<li>${x}</li>`).join("")}</ol><div style="margin-top:10px;color:var(--yellow)">Cookie'yi bir şifre gibi koru; paylaşma ve ekran görüntüsüne alma.</div>`;
+        updateNativeModel();
+        $("nativeWebStatus").textContent = existing ? (existing.connected ? "Kayıt bulundu · oturum/profil mevcut" : "Kayıt bulundu · yeniden giriş gerekli olabilir") : "Henüz kaydedilmedi";
+        $("webSetupModal").classList.add("open");
+      }
+      function updateNativeModel() {
+        const account = ($("nativeWebAccount").value || "main").trim().replace(/[^a-zA-Z0-9_.-]+/g,"-");
+        $("nativeWebModel").value = `${activeWebProvider}/${account || "main"}/auto`;
+      }
+      async function saveNativeWeb(showToast=true) {
+        const account = ($("nativeWebAccount").value || "main").trim();
+        const model = $("nativeWebModel").value;
+        const cookie = $("nativeWebCookie").value.trim();
+        const timeout_s = Number($("nativeWebTimeout").value || 180);
+        const headless = $("nativeWebHeadless").checked;
+        $("nativeWebStatus").textContent = "Kaydediliyor…";
+        try {
+          await post("/api/web_sessions", {provider:activeWebProvider, account, model, cookie, timeout_s, headless, tool_support:"emulated"});
+          $("nativeWebCookie").value = ""; await load();
+          $("nativeWebStatus").textContent = "Kaydedildi · Yönlendirme sekmesinde model olarak seçilebilir";
+          if (showToast) toast("Web sağlayıcısı kaydedildi");
+          return true;
+        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); return false; }
+      }
+      async function launchWebLogin() {
+        const account = ($("nativeWebAccount").value || "main").trim();
+        try {
+          await post("/api/web_sessions/login", {provider:activeWebProvider, account});
+          $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, doğrulamayı tamamla ve pencereyi kapat.";
+          toast("Giriş tarayıcısı açıldı");
+        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
+      }
+      async function validateNativeWeb() {
+        const ok = await saveNativeWeb(false); if (!ok) return;
+        const model = $("nativeWebModel").value;
+        $("nativeWebStatus").textContent = "Gerçek bağlantı testi çalışıyor…";
+        try {
+          const d = await post("/api/web_sessions/validate", {model});
+          $("nativeWebStatus").textContent = `Bağlantı başarılı · ${d.latency_ms} ms · ${d.preview || "yanıt alındı"}`;
+          toast("Web AI bağlantısı başarılı");
+        } catch(e) { $("nativeWebStatus").textContent = "Bağlantı başarısız: " + e.message; toast(e.message,true); }
+      }
+      $("nativeWebAccount").addEventListener("input", updateNativeModel);
 
       // Sağlayıcıları kategoriye göre gruplayıp render et; arama + kategori çipiyle süz.
       function renderProviders() {
@@ -398,10 +566,13 @@
 
       // Kullanıcının eklediği web ucunu kart olarak göster (endpoint + sil).
       function webSessionCard(w) {
-        return `<div class="pcard"><div class="pcard-head">
-          <span class="name">${w.model}</span><span class="badge ok">web</span></div>
-          <div class="meta" style="margin:8px 0 10px;word-break:break-all">${w.endpoint}</div>
-          <button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div>`;
+        const native = w.transport === "browser";
+        const status = w.connected ? `<span class="badge ok">oturum kayıtlı</span>` : `<span class="badge fw">giriş gerekli</span>`;
+        const edit = native ? `<button class="ghost" onclick="openWebProvider('${w.provider}','${w.model}')">Ayarla</button>` : "";
+        const detail = native ? `${w.provider} · ${w.account} · ${w.headless ? "arka plan" : "görünür tarayıcı"}` : w.endpoint;
+        return `<div class="pcard"><div class="pcard-head"><span class="name">${w.model}</span>${status}</div>
+          <div class="meta" style="margin:8px 0 10px;word-break:break-all">${detail}</div>
+          <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
       }
 
       // Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
@@ -446,6 +617,10 @@
 
       function providerCard(p) {
         if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
+        if (p.kind === "browser_backed" || p.kind === "web_session") {
+          const status = p.configured ? `<span class="badge ok">kurulu</span>` : `<span class="badge web">deneysel</span>`;
+          return `<div class="pcard keyed" data-name="${p.name}" onclick="openWebProvider('${p.id}')"><div class="pcard-head"><span class="name">${p.name}</span>${status}<span class="caret">›</span></div><div class="meta" style="margin-top:8px">kendi aboneliğin · native browser adapter</div></div>`;
+        }
         if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
         const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
         const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
@@ -486,6 +661,7 @@
 
         const sel = $("strategy"); sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
         chain = s.fallback.slice(); renderChain();
+        $("strictModel").checked = Boolean(s.strict_model_selection);
         judge = (s.judge || []).slice(); renderJudge();
 
         const hm = s.health; $("healthEmpty").style.display = hm.length ? "none" : "block";
@@ -562,7 +738,7 @@
       }
       async function delKey(id) { try { await post("/api/keys/delete", { provider: id }); toast(id + " anahtarı silindi"); await load(); } catch (e) { toast(e.message, true); } }
       async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
-      async function saveFallback() { try { const d = await post("/api/fallback", { models: chain }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+      async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
 
       async function sendChat() {
         const model = $("chatModel").value, msg = $("chatMsg").value.trim();

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import httpx
 
 from fusion_cli.core.compression import compress_messages, compress_text, saved_chars
@@ -291,3 +292,75 @@ async def test_maskeleme_yanittaki_siri_gizler(tmp_path):
         )
     content = r.json()["choices"][0]["message"]["content"]
     assert "sk-abcdef0123456789ABCDEF" not in content
+
+# --- native web subscriptions --------------------------------------------- #
+
+
+async def test_native_web_session_cookie_sifreli_kaydedilir_ve_model_listesine_girer(
+    tmp_path, monkeypatch
+):
+    from dataclasses import replace
+
+    monkeypatch.setattr(
+        "fusion_cli.config.writer.user_config_candidates", lambda: (tmp_path / "config.yaml",)
+    )
+    monkeypatch.setattr(
+        "fusion_cli.config.writer.user_config_dir", lambda: tmp_path
+    )
+    monkeypatch.setattr(
+        "fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data"
+    )
+    app = _app(tmp_path)
+    app._config = replace(app._config, source=tmp_path / "config.yaml")
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/web_sessions",
+            json={
+                "provider": "chatgpt_web",
+                "account": "main",
+                "model": "chatgpt_web/main/auto",
+                "cookie": "session=very-secret",
+                "headless": True,
+                "tool_support": "emulated",
+            },
+        )
+        assert response.status_code == 200, response.text
+        state = (await client.get("/api/state")).json()
+        models = (await client.get("/v1/models")).json()
+
+    session = next(item for item in state["web_sessions"] if item["provider"] == "chatgpt_web")
+    assert session["secret_saved"] is True
+    assert session["connected"] is True
+    assert "chatgpt_web/main/auto" in {item["id"] for item in models["data"]}
+    encrypted_path = tmp_path / "s.enc"
+    encrypted = encrypted_path.read_bytes()
+    assert b"very-secret" not in encrypted
+    if os.name == "posix":
+        assert encrypted_path.stat().st_mode & 0o077 == 0
+    config_text = (tmp_path / "config.yaml").read_text()
+    assert "very-secret" not in config_text
+    assert "WEB_SECRET::chatgpt_web::main" in config_text
+
+
+async def test_api_ready_native_web_oturumuyla_true(tmp_path):
+    from dataclasses import replace
+
+    from fusion_cli.config.models import WebSessionConfig
+
+    app = _app(tmp_path)
+    app._config = replace(
+        app._config,
+        web_sessions=(
+            WebSessionConfig(
+                model="claude_web/main/auto",
+                provider="claude_web",
+                transport="browser",
+                account="main",
+                tool_support="emulated",
+            ),
+        ),
+    )
+    async with _client(app) as client:
+        data = (await client.get("/api/ready")).json()
+    assert data["ready"] is True
+    assert "claude_web" in data["configured_providers"]

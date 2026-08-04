@@ -27,6 +27,17 @@ class TaskKind(Enum):
     GENERAL = "general"
 
 
+
+_OPERATION_RE = re.compile(
+    r"\b(?:push(?:la|le)?[a-zçğıöşü]*|commit(?:le)?[a-zçğıöşü]*|deploy(?:\s+et)?|"
+    r"restart|yeniden\s+başlat|yeniden\s+baslat)\b",
+    re.IGNORECASE,
+)
+_EXPLANATION_RE = re.compile(
+    r"\b(?:nedir|ne\s+demek|nasıl\s+yapılır|nasil\s+yapilir|açıkla|acikla)\b",
+    re.IGNORECASE,
+)
+
 #: Tür → anahtar kelimeler. Sıra ÖNCELİKTİR: ilk eşleşen tür kazanır. Daha özgül
 #: türler (bugfix/test) genel olanlardan (feature) önce gelir.
 _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
@@ -104,6 +115,19 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
             "yaz",
             "geliştir",
             "gelistir",
+            "pushla",
+            "push et",
+            "commit et",
+            "commitle",
+            "deploy et",
+            "çalıştır",
+            "calistir",
+            "başlat",
+            "baslat",
+            "yeniden başlat",
+            "yeniden baslat",
+            "güncelle",
+            "guncelle",
         ),
     ),
     (
@@ -118,6 +142,13 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
             "bul",
             "araştır",
             "arastir",
+            "kontrol et",
+            "doğrula",
+            "dogrula",
+            "listele",
+            "oku",
+            "göster",
+            "goster",
         ),
     ),
 )
@@ -128,6 +159,12 @@ def classify_task(request: str) -> TaskKind:
 
     tokens = set(re.split(r"[^0-9a-zçğıöşü]+", request.lower()))
     lowered = request.lower()
+
+    # Git/deploy gibi gerçek operasyon fiillerinin Türkçe ekli biçimleri tam-token
+    # anahtar listesine sığmaz (pushlayabilir, commitleyelim…). Açıklama sorusu
+    # değilse bunları doğrudan FEATURE bütçesine al.
+    if _OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered):
+        return TaskKind.FEATURE
 
     # EŞLEŞME SAYISI kazanır, sıra değil. Eskiden "ilk eşleşen tür kazanır" idi ve
     # uzun isteklerde tesadüfi tek bir kelime konuyu kaçırtıyordu: bir e-ticaret

@@ -21,7 +21,7 @@ from .args import require_str
 
 #: Onaysız çalışmasına izin verilen git alt komutları.
 READONLY_GIT_SUBCOMMANDS = frozenset(
-    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag"}
+    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list"}
 )
 
 

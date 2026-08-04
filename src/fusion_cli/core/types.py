@@ -88,6 +88,19 @@ class ModelSpec:
     fallback: tuple[str, ...] = ()
 
     @property
+    def strict(self) -> bool:
+        """Bu rol yalnızca seçilen birincil modeli mi çalıştırmalı?
+
+        ``/development`` tek-model akışıdır. Kullanıcı bu akıştan bir model seçtiğinde
+        eski/panelden kalmış bir fallback zincirinin sessizce devralması seçim
+        semantiğini bozar. ``strict`` etiketi fallback tanımını silmez; yalnızca bu
+        rolün yürütülürken tek yaprakla kurulmasını ister. Böylece kullanıcı panelden
+        strict'i kapatırsa aynı zinciri yeniden kullanabilir.
+        """
+
+        return any(tag.strip().lower() == "strict" for tag in self.tags)
+
+    @property
     def models(self) -> tuple[str, ...]:
         """Birincil + yedekler, sıra korunarak ve tekrarlar atılarak."""
         return tuple(dict.fromkeys([self.model, *self.fallback]))

@@ -176,15 +176,14 @@ _TABLE: tuple[tuple[str, str, ProviderKind, OfficialStatus, str, str | None], ..
     ("jina_ai", "Jina AI (embedding/rerank)", _K.EMBEDDING, _API, "jina_ai/", "JINA_AI_API_KEY"),
 )
 
-#: Web-session sağlayıcıları: FRAMEWORK düzeyinde tanınır, yürütücüsü YOK (§22).
-#: Çalışan bir web adaptörü kırılgandır, sağlayıcı şartlarının incelenmesini ister ve
-#: dürüstçe "working" işaretlenemez; `implemented=False`, `disabled_by_default`.
-#: CAPTCHA/anti-bot aşımı, izinsiz cookie okuma YAPILMAZ.
+#: Native browser-backed subscription providers.  They are opt-in and fragile because
+#: consumer web UIs can change, but the executor is part of Fusion itself (no sidecar).
+#: CAPTCHA/anti-bot bypass and silent browser-cookie extraction are deliberately absent.
 _WEB: tuple[tuple[str, str], ...] = (
-    ("chatgpt_web", "ChatGPT Web (deneysel)"),
-    ("gemini_web", "Gemini Web (deneysel)"),
-    ("claude_web", "Claude Web (deneysel)"),
-    ("copilot_web", "Microsoft Copilot Web (deneysel)"),
+    ("chatgpt_web", "ChatGPT Web (Plus/Pro)"),
+    ("gemini_web", "Gemini Web (Google AI Pro/Ultra)"),
+    ("claude_web", "Claude Web (Pro/Max)"),
+    ("copilot_web", "Microsoft Copilot Web"),
 )
 
 
@@ -205,12 +204,12 @@ def _build_registry() -> tuple[ProviderDefinition, ...]:
         ProviderDefinition(
             id=pid,
             name=name,
-            kind=ProviderKind.WEB_SESSION,
+            kind=ProviderKind.BROWSER_BACKED,
             official_status=OfficialStatus.UNOFFICIAL_WEB,
-            risk_level=RiskLevel.DISABLED_BY_DEFAULT,
-            model_prefix="",
+            risk_level=RiskLevel.TERMS_REVIEW_REQUIRED,
+            model_prefix=f"{pid}/",
             auth_env=None,
-            implemented=False,
+            implemented=True,
         )
         for pid, name in _WEB
     )
@@ -218,7 +217,7 @@ def _build_registry() -> tuple[ProviderDefinition, ...]:
 
 
 #: Fusion'ın TANIDIĞI sağlayıcılar. Hepsi gerçek: API'ler LiteLLM ile çalışır,
-#: web olanlar framework düzeyinde (adaptörü kullanıcı sağlar). Uydurma satır yok.
+#: web olanlar native browser adaptörüyle çalışır. Uydurma satır yok.
 BUILTIN_PROVIDERS: tuple[ProviderDefinition, ...] = _build_registry()
 
 

@@ -147,22 +147,38 @@ class McpServerConfig:
 
 @dataclass(frozen=True, slots=True)
 class WebSessionConfig:
-    """Kullanıcının SAHİP OLDUĞU / yetkili olduğu OpenAI-uyumlu bir web ucu.
+    """Kullanıcının kendi web aboneliği veya yetkili OpenAI-uyumlu web ucu.
 
-    Model kimlikleri bu tanımla eşleşince API yerine oturum tabanlı transport kullanılır.
-    Sır burada TUTULMAZ: token yalnızca `auth_env` ile adı verilen ortam değişkeninden
-    okunur (RULES.md "sır yalnız env'den"); endpoint sır değildir, config'te durur.
+    `transport="http"` eski/kendi barındırılan OpenAI-uyumlu uçları korur.
+    `transport="browser"` ise Fusion'ın izole Playwright profilini kullanarak ChatGPT,
+    Claude, Gemini veya Copilot web arayüzünü native bir sağlayıcı gibi çalıştırır.
+
+    Sır burada TUTULMAZ. API token'ı `auth_env`, web Cookie başlığı ise
+    `credential_ref` ile şifreli depodan çözülür.
     """
 
-    #: Bu web ucuyla karşılanacak model kimliği (zincirde/rolde bu adla anılır).
+    #: Zincirde/rolde kullanılan kararlı model kimliği.
     model: str
-    #: OpenAI-uyumlu `/chat/completions` uç noktası (kullanıcının yetkili olduğu uç).
-    endpoint: str
-    #: Bearer token'ı taşıyan ortam değişkeninin ADI; token değeri koda/config'e girmez.
-    #: None ise yalnızca cookie/başlık ile erişilir (kullanıcının kendi kurulumu).
+    #: Genel HTTP transport için `/chat/completions` ucu. Browser transport'ta boş.
+    endpoint: str = ""
+    #: `custom`, `chatgpt_web`, `claude_web`, `gemini_web`, `copilot_web`.
+    provider: str = "custom"
+    #: Aynı sağlayıcıda birden çok oturumu ayıran kullanıcı etiketi.
+    account: str = "main"
+    #: `http` ya da `browser`.
+    transport: str = "http"
+    #: Bearer token'ın ortam değişkeni adı (yalnız genel HTTP ucu için).
     auth_env: str | None = None
-    #: Araç desteği: "none" (düz sohbet) ya da "emulated" (araçlar prompt'a gömülür).
+    #: Cookie başlığının şifreli depodaki anahtarı; değerin kendisi config'e girmez.
+    credential_ref: str | None = None
+    #: Araç desteği: "none" ya da "emulated".
     tool_support: str = "none"
+    #: Browser transport görünmeden çalışsın mı? Sorunda panelden kapatılabilir.
+    headless: bool = True
+    #: Web UI çağrısı için üst süre sınırı.
+    timeout_s: float = 180.0
+    #: Kullanıcı bu oturumu geçici olarak kapatabilir.
+    enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)

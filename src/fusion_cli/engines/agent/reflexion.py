@@ -90,3 +90,38 @@ EMPTY_RESPONSE_NOTE = (
 def empty_response_note() -> Message:
     """Boş cevaptan sonra enjekte edilen kullanıcı notu."""
     return Message("user", EMPTY_RESPONSE_NOTE)
+
+
+_EFFECT_LABELS = {
+    "git_push": "Git uzak deposunu güncelleme (başarılı bir `git push`)",
+    "git_commit": "Git commit oluşturma (başarılı bir `git commit`)",
+    "shell_action": "istenen komut/sistem işlemi (başarılı `run_shell`)",
+    "workspace_mutation": "çalışma alanını değiştirme (başarılı değiştirici araç)",
+    "web_lookup": "web araştırması (başarılı `web_search` veya `web_fetch`)",
+    "workspace_read": "çalışma alanını inceleme (başarılı okuma/arama aracı)",
+}
+
+
+def tool_evidence_required_note(effect: str | None) -> Message:
+    """Model eylem sözü verdi ama gerçek araç çalıştırmadıysa bir kez zorla."""
+
+    label = _EFFECT_LABELS.get(effect or "", "kullanıcının istediği gerçek işlem")
+    return Message(
+        "user",
+        "[eylem-kanıtı-zorunlu] Kullanıcı gerçek bir işlem istedi fakat henüz "
+        f"{label} için başarılı bir araç sonucu yok. 'Kontrol ediyorum', 'yapıyorum', "
+        "'güncelliyorum' gibi niyet cümleleriyle bitirme. Şimdi uygun aracı canonical "
+        "<tool_call>{...}</tool_call> biçiminde çağır. İşlem için bilgi/onay eksikse "
+        "ask_user kullan. Aracı kullanamıyorsan işlemin yapılmadığını açıkça söyle; "
+        "yapılmış gibi davranma.",
+    )
+
+
+def unverified_action_message(effect: str | None) -> str:
+    """İki araçsız denemeden sonra kullanıcıya dürüst ve kesin sonuç ver."""
+
+    label = _EFFECT_LABELS.get(effect or "", "istenen işlem")
+    return (
+        f"İşlem tamamlanmadı: {label} için başarılı bir araç çağrısı doğrulanamadı. "
+        "Herhangi bir değişiklik yapılmış veya uzak sistem güncellenmiş kabul edilmemelidir."
+    )

@@ -37,6 +37,7 @@ from ..core.events import (
     LessonsRecalled,
     ModelCallFinished,
     ModelCallStarted,
+    ModelFallbackActivated,
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
@@ -117,6 +118,16 @@ class ConsoleRenderer:
                 self._work.update(model=format_model(event.result.model))
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
+        elif isinstance(event, ModelFallbackActivated):
+            if not event.background:
+                self._work.update(model=format_model(event.fallback_model))
+                self._status(
+                    messages.MODEL_FALLBACK.format(
+                        requested=format_model(event.requested_model),
+                        fallback=format_model(event.fallback_model),
+                        reason=summarize_error(event.reason),
+                    )
+                )
         elif isinstance(event, CandidatesStarted):
             self._status(
                 messages.FUSION_CANDIDATES.format(

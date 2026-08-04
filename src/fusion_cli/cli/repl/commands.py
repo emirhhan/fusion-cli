@@ -21,7 +21,7 @@ from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
-from ...providers.registry import BUILTIN_PROVIDERS
+from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
 from ...ui import messages
 from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -332,7 +332,16 @@ def _providers(state: ReplState, argument: str) -> str:
     for definition in BUILTIN_PROVIDERS:
         if not definition.implemented:
             durum = messages.PROVIDERS_FRAMEWORK
-        elif definition.auth_env is None:
+        elif definition.kind is ProviderKind.BROWSER_BACKED:
+            durum = (
+                messages.PROVIDERS_CONFIGURED
+                if any(
+                    session.enabled and session.provider == definition.id
+                    for session in state.config.web_sessions
+                )
+                else messages.PROVIDERS_MISSING
+            )
+        elif definition.kind is ProviderKind.LOCAL:
             durum = messages.PROVIDERS_LOCAL
         elif definition.is_configured(environ):
             durum = messages.PROVIDERS_CONFIGURED

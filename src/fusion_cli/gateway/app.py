@@ -11,13 +11,18 @@ sunucu gerekmez — `httpx.ASGITransport` ile doğrudan çağrılır.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import random
+import shutil
+import subprocess
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import replace as _dc_replace
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
+    from ..config.models import WebSessionConfig
     from ..providers.registry import ProviderDefinition
 
 from ..config.credentials import FernetSecretStore
@@ -128,7 +133,7 @@ class GatewayApp:
             await _html(send, _dashboard_html())
             return
         if method == "GET" and path == "/api/providers":
-            await _json(send, {"providers": _providers_json()})
+            await _json(send, {"providers": _providers_json(self._config)})
             return
         if method == "GET" and path == "/api/health":
             await _json(send, {"models": self._health_json()})
@@ -178,6 +183,12 @@ class GatewayApp:
         if method == "POST" and path == "/api/web_sessions/delete":
             await self._api_delete_web_session(receive, send)
             return
+        if method == "POST" and path == "/api/web_sessions/validate":
+            await self._api_validate_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/login":
+            await self._api_login_web_session(receive, send)
+            return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
@@ -194,16 +205,16 @@ class GatewayApp:
             send,
             {
                 "version": __version__,
-                "providers": _providers_json(),
+                "providers": _providers_json(self._config),
                 "routing": {
                     "current": self._strategy.value,
                     "options": [strategy.value for strategy in RoutingStrategy],
                 },
                 "fallback": list(self._config.agent.models),
+                "strict_model_selection": self._config.agent.strict,
                 "judge": list(self._config.judge.models),
                 "web_sessions": [
-                    {"model": s.model, "endpoint": s.endpoint, "tool_support": s.tool_support}
-                    for s in self._config.web_sessions
+                    self._web_session_json(session) for session in self._config.web_sessions
                 ],
                 "health": self._health_json(),
                 "models": available_models(self._config),
@@ -278,7 +289,17 @@ class GatewayApp:
         if not models:
             await _json(send, _error_body("en az bir model olmalı"), status=400)
             return
-        new_agent = replace(self._config.agent, model=models[0], fallback=tuple(models[1:]))
+        strict_raw = body.get("strict")
+        strict = self._config.agent.strict if strict_raw is None else bool(strict_raw)
+        tags = tuple(tag for tag in self._config.agent.tags if tag.strip().lower() != "strict")
+        if strict:
+            tags = (*tags, "strict")
+        new_agent = replace(
+            self._config.agent,
+            model=models[0],
+            fallback=tuple(models[1:]),
+            tags=tags,
+        )
         updated = replace(self._config, agent=new_agent)
         try:
             writer.write_model_section(updated)
@@ -293,95 +314,281 @@ class GatewayApp:
                 "ok": True,
                 "saved": True,
                 "chain": list(new_agent.models),
+                "strict": new_agent.strict,
                 "config_revision": self._config_revision.value,
             },
         )
 
     async def _api_add_web_session(self, receive: Receive, send: Send) -> None:
-        """Panelden kendi OpenAI-uyumlu web ucunu ekle: config'e yaz + token'ı sakla.
-
-        Kullanıcı yalnızca model adı, endpoint ve (varsa) token verir; `auth_env` adı
-        model adından türetilir ve token oraya ŞİFRELİ kaydedilir + canlı uygulanır.
-        Böylece deneyim API anahtarı girmekle aynıdır.
-        """
+        """Add either a custom OpenAI-compatible endpoint or a native web subscription."""
         import os
-        from dataclasses import replace
 
         from ..config import writer
         from ..config.models import WebSessionConfig
         from ..core.errors import ConfigError
+        from ..providers.web_browser import (
+            WEB_BROWSER_PROVIDERS,
+            close_browser_session,
+            normalize_account,
+            web_secret_name,
+        )
 
         body = await _read_json(receive)
+        provider = str(body.get("provider", "custom")).strip() or "custom"
+        account = str(body.get("account", "main")).strip() or "main"
         model = str(body.get("model", "")).strip()
         endpoint = str(body.get("endpoint", "")).strip()
         token = str(body.get("token", "")).strip()
-        tool_support = str(body.get("tool_support", "none")).strip() or "none"
-        if not model or not endpoint:
-            await _json(send, _error_body("model adı ve endpoint zorunlu"), status=400)
-            return
-        if not endpoint.startswith(("http://", "https://")):
-            await _json(
-                send, _error_body("endpoint http:// ya da https:// ile başlamalı"), status=400
+        cookie = str(body.get("cookie", "")).strip()
+        tool_support = str(body.get("tool_support", "emulated")).strip() or "emulated"
+        headless = bool(body.get("headless", True))
+        try:
+            timeout_s = float(body.get("timeout_s", 180.0))
+        except (TypeError, ValueError):
+            timeout_s = 180.0
+        timeout_s = max(30.0, min(timeout_s, 600.0))
+
+        if provider in WEB_BROWSER_PROVIDERS:
+            account = normalize_account(account)
+            model = f"{provider}/{account}/auto"
+            credential_ref = web_secret_name(provider, account)
+            if cookie:
+                if not self._secret_store.available:
+                    await _json(
+                        send,
+                        _error_body(
+                            "şifreli sır deposu kullanılamıyor; keyring paketini kur veya "
+                            "FUSION_SECRET_KEY ayarla"
+                        ),
+                        status=503,
+                    )
+                    return
+                try:
+                    self._secret_store.set(credential_ref, cookie)
+                except ConfigError as error:
+                    await _json(send, _error_body(str(error)), status=500)
+                    return
+            session = WebSessionConfig(
+                model=model,
+                provider=provider,
+                account=account,
+                transport="browser",
+                credential_ref=credential_ref,
+                tool_support="emulated" if tool_support != "none" else "none",
+                headless=headless,
+                timeout_s=timeout_s,
+                enabled=True,
             )
-            return
-        auth_env = _web_auth_env(model) if token else None
-        session = WebSessionConfig(
-            model=model, endpoint=endpoint, auth_env=auth_env, tool_support=tool_support
-        )
-        # Aynı ada sahip önceki tanımı değiştir (üzerine yaz), yoksa ekle.
-        others = tuple(s for s in self._config.web_sessions if s.model != model)
-        updated = replace(self._config, web_sessions=(*others, session))
+            # One active entry per provider/account; changing the model replaces it.
+            others = tuple(
+                item
+                for item in self._config.web_sessions
+                if not (item.provider == provider and item.account == account)
+                and item.model != model
+            )
+        else:
+            if not model or not endpoint:
+                await _json(send, _error_body("model adı ve endpoint zorunlu"), status=400)
+                return
+            if not endpoint.startswith(("http://", "https://")):
+                await _json(
+                    send, _error_body("endpoint http:// ya da https:// ile başlamalı"), status=400
+                )
+                return
+            auth_env = _web_auth_env(model) if token else None
+            session = WebSessionConfig(
+                model=model,
+                endpoint=endpoint,
+                provider="custom",
+                account=account,
+                transport="http",
+                auth_env=auth_env,
+                tool_support=tool_support,
+                timeout_s=timeout_s,
+            )
+            others = tuple(item for item in self._config.web_sessions if item.model != model)
+            if token and auth_env is not None:
+                if self._secret_store.available:
+                    self._secret_store.set(auth_env, token)
+                os.environ[auth_env] = token
+
+        updated = _dc_replace(self._config, web_sessions=(*others, session))
         try:
             writer.write_web_sessions(updated)
         except ConfigError as error:
             await _json(send, _error_body(str(error)), status=500)
             return
-        if token and auth_env is not None:
-            if self._secret_store.available:
-                self._secret_store.set(auth_env, token)
-            os.environ[auth_env] = token
+        if provider in WEB_BROWSER_PROVIDERS:
+            await close_browser_session(provider, account)
         self._config = updated
         self._config_revision = revision(updated)
-        await _json(send, {"ok": True, "saved": True, "model": model})
+        await _json(
+            send,
+            {
+                "ok": True,
+                "saved": True,
+                "model": model,
+                "provider": provider,
+                "config_revision": self._config_revision.value,
+            },
+        )
 
     async def _api_delete_web_session(self, receive: Receive, send: Send) -> None:
-        """Bir web ucunu panelden kaldır: config'ten sil (endpoint kaydını kaldırır)."""
-        from dataclasses import replace
-
+        """Remove a web provider definition and its encrypted cookie/profile."""
         from ..config import writer
         from ..core.errors import ConfigError
+        from ..providers.web_browser import browser_profile_dir, close_browser_session
 
         body = await _read_json(receive)
         model = str(body.get("model", "")).strip()
-        others = tuple(s for s in self._config.web_sessions if s.model != model)
-        if len(others) == len(self._config.web_sessions):
+        found = next((item for item in self._config.web_sessions if item.model == model), None)
+        if found is None:
             await _json(send, _error_body("böyle bir web ucu yok"), status=400)
             return
-        updated = replace(self._config, web_sessions=others)
+        others = tuple(item for item in self._config.web_sessions if item.model != model)
+        updated = _dc_replace(self._config, web_sessions=others)
         try:
             writer.write_web_sessions(updated)
         except ConfigError as error:
             await _json(send, _error_body(str(error)), status=500)
             return
+        if found.credential_ref and self._secret_store.available:
+            try:
+                self._secret_store.delete(found.credential_ref)
+            except ConfigError:
+                pass
+        if found.transport == "browser":
+            await close_browser_session(found.provider, found.account)
+            if bool(body.get("purge_profile", True)):
+                shutil.rmtree(
+                    browser_profile_dir(found.provider, found.account), ignore_errors=True
+                )
         self._config = updated
         self._config_revision = revision(updated)
-        await _json(send, {"ok": True, "saved": True, "model": model})
+        await _json(send, {"ok": True, "model": model})
+
+    async def _api_validate_web_session(self, receive: Receive, send: Send) -> None:
+        """Run a real minimal completion to verify login, selectors and response parsing."""
+        from ..core.types import Message
+        from ..providers.web_registry import web_registry_for
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        session = next((item for item in self._config.web_sessions if item.model == model), None)
+        if session is None:
+            await _json(send, _error_body("böyle bir web oturumu yok"), status=400)
+            return
+        registry = web_registry_for(self._config)
+        provider = registry.build(model) if registry else None
+        if provider is None:
+            await _json(send, _error_body("web sağlayıcısı kurulamadı"), status=500)
+            return
+        request = CompletionRequest(
+            messages=(Message("user", "Sadece OK yaz."),),
+            temperature=0.0,
+            max_tokens=16,
+            timeout_s=min(90.0, session.timeout_s),
+        )
+        try:
+            result = await asyncio.wait_for(
+                provider.complete(request), timeout=request.timeout_s + 5
+            )
+        except TimeoutError:
+            await _json(send, _error_body("bağlantı testi zaman aşımına uğradı"), status=504)
+            return
+        status = 200 if result.ok else 502
+        await _json(
+            send,
+            {
+                "ok": result.ok,
+                "model": model,
+                "latency_ms": result.latency_ms,
+                "preview": result.text[:160] if result.ok else "",
+                "error": result.error,
+            },
+            status=status,
+        )
+
+    async def _api_login_web_session(self, receive: Receive, send: Send) -> None:
+        """Launch a dedicated headed browser profile; user performs the login explicitly."""
+        from ..providers.web_browser import (
+            WEB_BROWSER_PROVIDERS,
+            close_browser_session,
+            normalize_account,
+        )
+
+        body = await _read_json(receive)
+        provider = str(body.get("provider", "")).strip()
+        account = normalize_account(str(body.get("account", "main")).strip() or "main")
+        if provider not in WEB_BROWSER_PROVIDERS:
+            await _json(send, _error_body("tanınmayan web sağlayıcısı"), status=400)
+            return
+        await close_browser_session(provider, account)
+        try:
+            process = subprocess.Popen(
+                [sys.executable, "-m", "fusion_cli.providers.web_login", provider, account],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except OSError as error:
+            await _json(send, _error_body(f"giriş tarayıcısı açılamadı: {error}"), status=500)
+            return
+        await _json(
+            send,
+            {"ok": True, "pid": process.pid, "provider": provider, "account": account},
+        )
+
+    def _web_session_json(self, session: WebSessionConfig) -> dict[str, Any]:
+        from ..providers.web_browser import browser_profile_dir
+
+        secret_saved = False
+        if session.credential_ref and self._secret_store.available:
+            try:
+                secret_saved = bool(self._secret_store.get(session.credential_ref))
+            except Exception:
+                secret_saved = False
+        profile_exists = (
+            browser_profile_dir(session.provider, session.account).exists()
+            if session.transport == "browser"
+            else False
+        )
+        return {
+            "model": session.model,
+            "endpoint": session.endpoint,
+            "provider": session.provider,
+            "account": session.account,
+            "transport": session.transport,
+            "tool_support": session.tool_support,
+            "headless": session.headless,
+            "timeout_s": session.timeout_s,
+            "enabled": session.enabled,
+            "secret_saved": secret_saved,
+            "profile_exists": profile_exists,
+            "connected": secret_saved or profile_exists or session.transport == "http",
+        }
 
     async def _api_ready(self, send: Send) -> None:
-        """Gateway kullanıma hazır mı? En az bir anahtarlı sağlayıcı kurulu mu?"""
+        """Gateway kullanıma hazır mı? API veya etkin yerel web oturumu var mı?"""
         from ..config.keys import environ_snapshot
         from ..providers.registry import BUILTIN_PROVIDERS
 
         environ = environ_snapshot()
         configured = [
-            p.id
-            for p in BUILTIN_PROVIDERS
-            if p.implemented and p.auth_env and p.is_configured(environ)
+            provider.id
+            for provider in BUILTIN_PROVIDERS
+            if provider.implemented
+            and provider.auth_env
+            and provider.is_configured(environ)
         ]
+        configured.extend(
+            session.provider for session in self._config.web_sessions if session.enabled
+        )
+        configured = list(dict.fromkeys(configured))
         await _json(send, {"ready": bool(configured), "configured_providers": configured})
 
     async def _api_candidates(self, scope: Scope, send: Send) -> None:
-        """Bir model/profil için ÇALIŞTIRILACAK aday zinciri (neden bu route)."""
+        """Bir model/profil için çalıştırılacak aday zincirini döndür."""
         from urllib.parse import parse_qs
 
         params = parse_qs(scope.get("query_string", b"").decode())
@@ -400,12 +607,7 @@ class GatewayApp:
         )
 
     async def _api_catalog(self, scope: Scope, send: Send) -> None:
-        """Sağlayıcılardan gerçekten erişilebilen modeller (panelde açılır liste).
-
-        Katalog çekimi bloklayan (httpx) olduğu için olay döngüsünü bloklamamak
-        adına iş parçacığında çalıştırılır. `?refresh=1` önbelleği zorla tazeler.
-        """
-        import asyncio
+        """Sağlayıcılardan gerçekten erişilebilen modelleri döndür."""
         from urllib.parse import parse_qs
 
         params = parse_qs(scope.get("query_string", b"").decode())
@@ -428,7 +630,7 @@ class GatewayApp:
         )
 
     async def _api_export(self, send: Send) -> None:
-        """Aktif config.yaml içeriğini döndür (panelden indirilebilsin)."""
+        """Aktif config.yaml içeriğini döndür."""
         source = self._config.source
         text = source.read_text(encoding="utf-8") if source and source.is_file() else ""
         await _json(send, {"config": text, "path": str(source) if source else None})
@@ -600,30 +802,33 @@ def _error_body(message: str) -> dict[str, Any]:
     return {"error": {"message": message, "type": "invalid_request_error"}}
 
 
-def _providers_json() -> list[dict[str, Any]]:
-    """Panel için sağlayıcı listesi: tür, resmiyet, risk, kurulu-mu, çalışır-mı."""
+def _providers_json(config: Config) -> list[dict[str, Any]]:
+    """Panel metadata with truthful configuration state for API and web providers."""
     from ..config.key_pool import collect_keys
     from ..config.keys import environ_snapshot
-    from ..providers.registry import BUILTIN_PROVIDERS
+    from ..providers.registry import BUILTIN_PROVIDERS, ProviderKind
 
     environ = environ_snapshot()
-    return [
-        {
-            "id": p.id,
-            "name": p.name,
-            "kind": p.kind.value,
-            "status": p.official_status.value,
-            "risk": p.risk_level.value,
-            "implemented": p.implemented,
-            "configured": p.is_configured(environ) if p.implemented else False,
-            "local": p.auth_env is None and p.implemented,
-            # Panel sağlayıcıları kategoriye göre gruplar; hepsi tek yığında göz yorar.
-            "category": _provider_category(p),
-            # Kaç hesap (anahtar) bağlı? Çok-hesap havuzunun panelde görünür hâli.
-            "keys": len(collect_keys(p.auth_env, environ)) if p.auth_env else 0,
-        }
-        for p in BUILTIN_PROVIDERS
-    ]
+    configured_web = {session.provider for session in config.web_sessions if session.enabled}
+    result: list[dict[str, Any]] = []
+    for provider in BUILTIN_PROVIDERS:
+        is_web = provider.kind in {ProviderKind.WEB_SESSION, ProviderKind.BROWSER_BACKED}
+        configured = provider.id in configured_web if is_web else provider.is_configured(environ)
+        result.append(
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "kind": provider.kind.value,
+                "status": provider.official_status.value,
+                "risk": provider.risk_level.value,
+                "implemented": provider.implemented,
+                "configured": configured if provider.implemented else False,
+                "local": provider.kind is ProviderKind.LOCAL,
+                "category": _provider_category(provider),
+                "keys": len(collect_keys(provider.auth_env, environ)) if provider.auth_env else 0,
+            }
+        )
+    return result
 
 
 #: Sağlayıcı türü → panel kategorisi (basit, göz yormayan gruplar).

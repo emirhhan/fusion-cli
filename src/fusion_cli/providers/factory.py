@@ -28,9 +28,9 @@ from .eventing import EventingProvider
 from .key_pool import KeyPoolRegistry
 from .key_rotation import KeyRotatingProvider
 from .litellm_provider import LiteLlmProvider, configure_litellm
-from .registry import provider_for_model
+from .registry import ProviderKind, provider_for_model
 from .retrying import wrap as wrap_with_retry
-from .web_registry import WebSessionRegistry
+from .web_registry import WebSessionRegistry, unconfigured_web_provider
 
 
 def build_provider(
@@ -60,8 +60,6 @@ def build_provider(
     beklendiği ürün kararıdır, kütüphane varsayılanı değil. Değer `defaults.yaml`'dan
     (`runtime.retry_delays_s`) gelir. Boş liste "hiç yeniden deneme" demektir.
     """
-    configure_litellm()
-
     def _leaf(model: str) -> LlmProvider:
         # Model kullanıcının yetkili bir web (oturum tabanlı) ucuyla eşleşiyorsa API
         # yerine web transport'u kullanılır. Diğer katmanlar (retry/fallback/circuit)
@@ -70,10 +68,15 @@ def build_provider(
             web = web_sessions.build(model, clock=clock)
             if web is not None:
                 return web
+        definition = provider_for_model(model)
+        if definition is not None and definition.kind is ProviderKind.BROWSER_BACKED:
+            return unconfigured_web_provider(model, clock=clock)
+        # LiteLLM ağır ve web-only kullanımda gereksizdir; yalnızca gerçek API
+        # yaprağı kurulurken yüklenir.
+        configure_litellm()
         # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
         # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
         if key_pools is not None:
-            definition = provider_for_model(model)
             if definition is not None and definition.auth_env is not None:
                 pool = key_pools.for_env(definition.auth_env)
                 if pool.size > 1:
@@ -86,7 +89,10 @@ def build_provider(
                     )
         return LiteLlmProvider(model, role=spec.name, clock=clock)
 
-    models = [_leaf(model) for model in spec.models]
+    # `strict` tek-model seçimini gerçekten katı yapar. Fallback config'te korunur
+    # ama bu çağrı yolunda devreye sokulmaz; panelden strict kapatılınca yeniden aktif olur.
+    model_ids = (spec.model,) if spec.strict else spec.models
+    models = [_leaf(model) for model in model_ids]
     retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
     # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
     # devresi açık model çağrılmadan atlanır ve zincir sıradakine geçer. Verilmezse
@@ -101,7 +107,12 @@ def build_provider(
         ]
     else:
         resilient = retrying
-    inner = FallbackProvider(resilient, role=spec.name)
+    inner = FallbackProvider(
+        resilient,
+        role=spec.name,
+        publisher=publisher,
+        background=background,
+    )
     if publisher is None:
         return inner
     return EventingProvider(

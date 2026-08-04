@@ -14,13 +14,18 @@ tur önce başarısız bir `nvidia_nim/` çağrısı yapılıyor, sonra yedeğe 
 
 from __future__ import annotations
 
+import logging
 import os
+import secrets
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from enum import Enum
 
 from ..core.types import ModelSpec
 from .models import Config
+
+_logger = logging.getLogger(__name__)
 
 #: Ortam değişkeni adları. Tek yerde tutulur; `.env` şablonu ve kurulum sihirbazı
 #: da buradan okur, iki listenin ayrışması mümkün olmasın.
@@ -72,9 +77,49 @@ FUSION_SECRET_ENV = "FUSION_SECRET_KEY"
 
 
 def secret_key() -> str | None:
-    """Credential deposunun ana anahtarını ortamdan oku. Yoksa/boşsa None."""
+    """Credential deposu anahtarını env'den, yoksa sistem anahtarlığından çöz.
+
+    Eski davranış korunur: `FUSION_SECRET_KEY` her zaman önceliklidir.  Yeni native
+    web sağlayıcıları için macOS Keychain/Linux Secret Service üzerinde otomatik bir
+    master key üretilebilir; bu anahtar config/.env/git içine yazılmaz.
+    """
     value = os.environ.get(FUSION_SECRET_ENV, "").strip()
-    return value or None
+    if value:
+        return value
+    return _keyring_master_key()
+
+
+def _keyring_master_key() -> str | None:
+    """Sistem anahtarlığındaki Fusion master key'i al; mümkünse ilk kullanımda üret.
+
+    Anahtarlık erişimi bir SINIR'dır: keyring backend'i platforma göre değişir ve
+    `KeyringError` dışında da hata verebilir — örneğin macOS'ta oturumda varsayılan
+    Keychain yoksa Security framework `RuntimeError`/ham OSStatus fırlatır ve bu ham
+    hata kullanıcıya "anahtar zinciri bulunamıyor" olarak kaçardı. Bu yüzden her
+    başarısızlık burada yakalanır, loglanır ve `None` döner: sır deposu devre dışı
+    kalır ama uygulama (ve native tarayıcı girişi) tam çalışmaya devam eder (RULES:
+    depo erişilemezse özellik kapanır, uygulama çökmez).
+    """
+    if sys.platform not in {"darwin", "linux", "win32"}:
+        return None
+    try:
+        import keyring
+    except ImportError:
+        return None
+    service = "fusion-cli"
+    account = "credential-master-key"
+    try:
+        current = keyring.get_password(service, account)
+        if current:
+            return current
+        generated = secrets.token_urlsafe(48)
+        keyring.set_password(service, account, generated)
+        return generated
+    # Sınır katmanı: keyring backend'i KeyringError dışında da (RuntimeError, ham
+    # OSStatus) hata verebilir; her başarısızlık yutulmadan loglanır ve None döner.
+    except Exception as error:
+        _logger.warning("Sistem anahtarlığına erişilemedi, sır deposu devre dışı: %s", error)
+        return None
 
 
 def environ_snapshot() -> dict[str, str]:

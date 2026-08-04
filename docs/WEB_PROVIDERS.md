@@ -1,60 +1,103 @@
-# Web-Session Sağlayıcıları
+# Native Web AI Sağlayıcıları
 
-## Durum: framework + adapter YAZILDI, canlı ticari transport YOK
+Fusion, ikinci bir router/sidecar uygulamasına ihtiyaç duymadan kullanıcının kendi
+ChatGPT, Claude, Gemini ve Microsoft Copilot web oturumlarını deneysel sağlayıcı
+olarak çalıştırabilir.
 
-`providers/web_session.py` oturum tabanlı bir kaynağı Fusion'ın `LlmProvider`
-sözleşmesine bağlayan tam bir adaptör sunar (`WebProviderAdapter`): `complete`/`stream`,
-hata sınırı (`ok=False`), mevcut yığına (FallbackProvider, circuit breaker) oturur.
-Gerçek I/O yapan `transport` **dışarıdan enjekte edilir** — kullanıcının kendi
-OpenWebUI/LibreChat/kurumsal ucu ya da test için mock. Araç desteği `NONE` (düz sohbet)
-ve `EMULATED` (talimat enjekte + `ToolCall` ayrıştırma) olarak çalışır; uçtan uca test
-edilmiştir (`tests/test_web_session.py`).
+## Desteklenen sağlayıcılar
 
-**Yazılmayan tek şey:** belirli bir ticari tüketici web arayüzünü (ChatGPT/Gemini web)
-izinsiz otomatikleştiren canlı transport — aşağıdaki güvenlik sınırı gereği. Framework
-hazır; böyle bir transport'u kullanıcı kendi yetkisiyle sağlar.
+| Model öneki | Sağlayıcı | Bağlantı |
+|---|---|---|
+| `chatgpt_web/<hesap>/auto` | ChatGPT Web Plus/Pro | İzole Playwright profili veya manuel Cookie |
+| `claude_web/<hesap>/auto` | Claude Web Pro/Max | İzole Playwright profili veya manuel Cookie |
+| `gemini_web/<hesap>/auto` | Gemini Web | İzole Playwright profili önerilir |
+| `copilot_web/<hesap>/auto` | Microsoft Copilot Web | İzole Playwright profili önerilir |
 
-## Tarihsel not: framework öncesi durum
+Bunlar resmî API entegrasyonu değildir. Tüketici web arayüzleri değiştiğinde seçiciler
+güncellenmek zorunda kalabilir. Control Panel'deki **Bağlantıyı kontrol et** düğmesi
+boş alan kontrolü değil, gerçek küçük bir model isteği çalıştırır.
 
-Fusion'ın sağlayıcı sistemi web-session sağlayıcılarını **birinci sınıf tür** olarak
-tanır (`ProviderKind.WEB_SESSION`), ancak bunların **çalışan bir yürütücüsü henüz
-yoktur**. Bu bilinçli bir gerçekçilik kararıdır (master prompt §22):
+## Kurulum
 
-- Bir web adaptörü **kırılgandır**: sağlayıcı arayüzü değişince sessizce bozulur.
-- Sağlayıcı **kullanım şartlarının** kullanıcı tarafından incelenmesini gerektirir.
-- Dürüstçe "working" işaretlenemez.
+```bash
+python -m pip install -e '.[web,gateway]'
+python -m playwright install chromium
+fusion serve
+```
 
-Bu yüzden `/providers` ekranında web sağlayıcıları **"framework (adaptör yok)"**
-olarak, `disabled_by_default` ve `unofficial_web` etiketiyle görünür.
+Paneli aç:
 
-## Tanınan web sağlayıcıları (metadata düzeyi)
+```text
+http://127.0.0.1:8000/dashboard
+```
 
-| id | Tür | Resmiyet | Risk | Durum |
-|----|-----|----------|------|-------|
-| `chatgpt_web` | web_session | unofficial_web | disabled_by_default | framework, adaptör yok |
-| `gemini_web` | web_session | unofficial_web | disabled_by_default | framework, adaptör yok |
+Aynı bilgisayarda panel ve terminal kullanılıyorsa tünel gerekmez.
 
-## Yapılmayacaklar (güvenlik sınırları)
+## Giriş yöntemleri
 
-Canlı adaptör ileride eklense bile şunlar **yapılmaz**:
+### Fusion tarayıcısıyla giriş
 
-- CAPTCHA bypass / anti-bot sistemini aşma
-- Kullanıcı izni olmadan tarayıcı cookie okuma
-- Hesap kısıtlarını aşma, çoklu sahte hesap
-- Sağlayıcı kimliğini yanıltıcı biçimde taklit etme
+Önerilen yöntemdir. Control Panel'de sağlayıcı kartını açıp **Tarayıcıyla giriş yap**
+düğmesine bas. Fusion, normal Chrome profilini okumadan sağlayıcı/hesap için ayrı bir
+kalıcı profil açar. Girişi ve varsa çok faktörlü doğrulamayı kullanıcı kendisi tamamlar.
+Pencere kapatıldıktan sonra oturum profilde kalır.
 
-## Canlı adaptör eklendiğinde gerekecekler
+### Manuel Cookie
 
-Framework şu türleri/etiketleri zaten tanımlar; canlı adaptör bunların üstüne oturacaktır:
+Kullanıcı yalnızca kendi hesabındaki bir isteğin tam `Cookie` başlık değerini panele
+yapıştırabilir. `Cookie:` öneki eklenmez. Bu değer:
 
-- `ProviderKind.WEB_SESSION` / `BROWSER_BACKED`
-- `RiskLevel` (fragile, terms_review_required, disabled_by_default)
-- `ToolSupport.NONE`/`EMULATED` + mutation policy (araçsız model mutation agent olamaz)
-- **Şifreli credential store — YAZILDI** (`config/credentials.py`): `cryptography.Fernet`
-  ile şifreli dosya; ana anahtar `FUSION_SECRET_KEY` ortam değişkeninden gelir (diske/
-  git'e girmez). `/providers add` sihirbazı bir sağlayıcı anahtarını (getpass ile,
-  ekrana yansımadan) alıp şifreli saklar; başlangıçta ortama uygulanır. Değerler ne
-  log'a ne prompt'a ne tool sonucuna girer.
-- Opt-in login akışı (canlı web adapter için) — henüz yazılmadı (yukarıdaki sınır).
+- `config.yaml` içine yazılmaz,
+- terminale veya loglara basılmaz,
+- çocuk süreçlere environment variable olarak verilmez,
+- Fernet ile şifreli Fusion secret store içinde tutulur,
+- ana anahtar mümkünse macOS Keychain / sistem anahtarlığında saklanır.
 
-Credential'lar hiçbir zaman prompt'a, log'a, tool sonucuna ya da git'e girmez.
+`FUSION_SECRET_KEY` tanımlıysa her zaman Keychain anahtarından önce gelir.
+
+## Fusion tool runtime entegrasyonu
+
+Web modeli dosya sistemine veya shell'e doğrudan erişmez. İstek sırasında Fusion,
+izin verilen tool şemasını modele metin protokolü olarak verir. Model şu biçimde bir
+çağrı üretebilir:
+
+```xml
+<tool_call>{"name":"read_file","arguments":{"path":"README.md"}}</tool_call>
+```
+
+Fusion bu çağrıyı mevcut tool policy, approval mode, security sınırı ve rollback
+mekanizmalarıyla çalıştırır. Araç sonucu canonical konuşmaya eklenip aynı web modeline
+yeni tur olarak gönderilir. Böylece web modeli planlama/karar verme katmanıdır;
+dosya okuma, arama, shell ve kod düzenleme Fusion'ın kendi güvenli runtime'ında kalır.
+
+## Streaming ve iptal
+
+Web arayüzleri ortak bir kararlı streaming protokolü sunmadığından Fusion cevabı web
+sayfasından tamamlandıktan sonra canonical stream'e aktarır. Ctrl+C, üstteki Fusion
+turn cancellation zinciri üzerinden bekleyen browser task'ını iptal eder ve geçici
+sayfayı kapatır. Aynı sağlayıcı/hesap üzerinde eşzamanlı iki tur açılmaz.
+
+## Güvenlik sınırı
+
+Fusion şunları yapmaz:
+
+- Normal tarayıcı profilinden sessizce cookie çıkarma,
+- CAPTCHA çözme veya anti-bot mekanizmasını aşma,
+- fingerprint/stealth taklidi,
+- başka hesaba ait oturumu kullanma,
+- platform kotalarını veya erişim kontrollerini aşma.
+
+Kullanıcı ilgili hizmetin kullanım şartlarını kendisi değerlendirmelidir. Oturum süresi
+dolduğunda panelden yeniden giriş yapılır.
+
+## Sorun giderme
+
+- **Mesaj alanı bulunamadı:** Sağlayıcının web arayüzü değişmiş olabilir; görünür
+  tarayıcı modunu açıp giriş durumunu kontrol et.
+- **Oturum açık değil:** Sağlayıcı kartından Tarayıcıyla giriş yap akışını yenile.
+- **Playwright kurulu değil:** `python -m pip install -e '.[web]'` çalıştır.
+- **Browser executable yok:** `python -m playwright install chromium` çalıştır.
+- **Cookie kaydedilemiyor:** `keyring` kurulu olmalı veya `FUSION_SECRET_KEY`
+  tanımlanmalı.
+- **Headless modda çalışmıyor:** Panelden arka plan seçimini kapatıp görünür modda
+  doğrula; bazı giriş akışları kullanıcı etkileşimi isteyebilir.

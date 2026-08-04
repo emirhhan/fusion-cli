@@ -490,16 +490,19 @@ profile_eligibility:
 mcp_servers: []
 
 # ---------------------------------------------------------------------------
-# Web (oturum tabanlı) sağlayıcılar (opsiyonel). KULLANICININ YETKİLİ OLDUĞU
-# OpenAI-uyumlu bir uca (kendi OpenWebUI/LibreChat kurulumu, kurumsal uç…) API
-# yerine bir OTURUM üzerinden bağlanır. Ticari web arayüzü (ChatGPT/Gemini web)
-# scraping DESTEKLENMEZ. Token koda/config'e girmez; yalnızca `auth_env` ile adı
-# verilen ortam değişkeninden okunur. Model kimliği bir role/zincire konunca devreye girer.
-# Örnek:
+# Web sağlayıcıları (opsiyonel). İki transport vardır:
+# - http: kullanıcının kendi OpenAI-uyumlu ucu (OpenWebUI/LibreChat/kurumsal uç).
+# - browser: kullanıcının kendi ChatGPT/Claude/Gemini/Copilot aboneliğini Fusion'ın
+#   izole Playwright profiliyle açar. Normal tarayıcı profili okunmaz; CAPTCHA/anti-bot
+#   bypass yapılmaz. Cookie değeri config'e girmez, yalnız `credential_ref` metadata'sı
+#   bulunur; sır şifreli depoda saklanır. Bu bölüm normalde Control Panel tarafından yazılır.
+# Örnek metadata (cookie DEĞİL):
 #   web_sessions:
-#     - model: benim-openwebui
-#       endpoint: http://localhost:3000/api/chat/completions
-#       auth_env: MY_WEBUI_TOKEN
-#       tool_support: none      # ya da: emulated
+#     - model: chatgpt_web/main/auto
+#       provider: chatgpt_web
+#       account: main
+#       transport: browser
+#       credential_ref: WEB_SECRET::chatgpt_web::main
+#       tool_support: emulated
 # Boş liste = web sağlayıcı yok (varsayılan).
 web_sessions: []

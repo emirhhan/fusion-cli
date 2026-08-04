@@ -348,6 +348,109 @@ def test_bilinmeyen_baglam_tum_profillerde_gorunur(config):
     assert "high" in etiket and "max" in etiket
 
 
+def _config_with_web_session(config):
+    from dataclasses import replace
+
+    from fusion_cli.config.models import WebSessionConfig
+
+    session = WebSessionConfig(
+        model="chatgpt_web/main/auto",
+        provider="chatgpt_web",
+        account="main",
+        transport="browser",
+        credential_ref="WEB_SECRET::chatgpt_web::main",
+        tool_support="emulated",
+        headless=True,
+        timeout_s=180.0,
+        enabled=True,
+    )
+    return replace(config, web_sessions=(session,))
+
+
+def test_web_oturumu_kaynak_olarak_gorunur_ve_bulunur(config):
+    """Panelde bağlanan web oturumu `/development` kaynak listesinde çıkmalı."""
+    web_config = _config_with_web_session(config)
+
+    keys = [choice.value for choice in model_flows.source_choices(web_config)]
+    assert "web-subscriptions" in keys
+    source = model_flows.source_by_key(web_config, "web-subscriptions")
+    assert source is not None
+    assert source.fetcher is not None
+    assert model_flows.source_by_key(web_config, "yok-boyle") is None
+
+
+def test_web_oturumu_secilince_tum_rollere_uygulanir(config):
+    """TUI ve plain REPL'in ortak kullandığı uygulama fonksiyonu web modelini bağlamalı."""
+    web_config = _config_with_web_session(config)
+
+    sonuc = model_flows.apply_development_model(
+        web_config, "chatgpt_web/main/auto", paid=False
+    )
+
+    assert sonuc.config.agent.model == "chatgpt_web/main/auto"
+    assert sonuc.config.judge.model == "chatgpt_web/main/auto"
+    assert load_config(config.source).agent.model == "chatgpt_web/main/auto"
+    assert messages.DEV_PAID_WARNING not in sonuc.message
+
+
+def test_apply_development_model_ucretli_uyari_ekler(config):
+    sonuc = model_flows.apply_development_model(config, "openrouter/x/y", paid=True)
+
+    assert sonuc.config.agent.model == "openrouter/x/y"
+    assert messages.DEV_PAID_WARNING in sonuc.message
+
+
+def test_apply_development_model_strict_tek_model_secimi_yapar(config):
+    sonuc = model_flows.apply_development_model(config, "gemini_web/main/auto", paid=False)
+
+    assert sonuc.config.agent.strict is True
+    assert sonuc.config.agent.models == ("gemini_web/main/auto",)
+
+
+def test_strict_agent_task_model_mapten_ustundur(config):
+    from dataclasses import replace
+
+    from fusion_cli.config.model_select import select_agent_spec
+    from fusion_cli.core.types import ModelSpec
+
+    strict_agent = ModelSpec(
+        name="secilen", model="gemini_web/main/auto", tags=("strict",)
+    )
+    mapped_candidate = ModelSpec(name="eski", model="nvidia_nim/openai/gpt-oss-120b")
+    updated = replace(
+        config,
+        agent=strict_agent,
+        candidates=(mapped_candidate,),
+        task_model_map={"general": "eski"},
+    )
+
+    assert select_agent_spec(updated, "general") == strict_agent
+
+
+def test_apply_development_model_gecersiz_kimlik_config_i_degistirmez(config):
+    sonuc = model_flows.apply_development_model(config, "gecersiz", paid=False)
+
+    assert sonuc.config is config
+    assert "Geçersiz model kimliği" in sonuc.message
+
+
+def test_entries_to_choices_kimlik_ve_rozet_uretir(config):
+    entries = (CatalogEntry("chatgpt_web/main/auto", "chatgpt_web", 0),)
+
+    choices = model_flows.entries_to_choices(entries, config.profile_eligibility)
+
+    assert choices[0].value == "chatgpt_web/main/auto"
+    assert choices[0].label == "chatgpt_web/main/auto"
+
+
+def test_tui_gelistirme_komutunu_argumansiz_engellemez():
+    """TUI artık `/development`'ı 'argüman ister' diye reddetmemeli; modalla açar."""
+    from fusion_cli.cli.repl.tui_loop import _would_open_picker
+
+    assert _would_open_picker("development", "") is False
+    assert _would_open_picker("provider", "") is True
+
+
 def test_katalog_yetenegi_baglami_tasir_araci_bilinmez():
     from fusion_cli.core.model_capability import ToolSupport
 

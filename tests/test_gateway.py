@@ -246,6 +246,20 @@ async def test_api_fallback_zinciri_duzenle(tmp_path):
     assert list(app._config.agent.fallback) == ["p/y", "p/z"]
 
 
+async def test_api_fallback_strict_secimi_kaydeder(tmp_path):
+    app, _ = _app_with_store(tmp_path)
+    async with _client(app) as client:
+        r = await client.post(
+            "/api/fallback",
+            json={"models": ["gemini_web/main/auto", "p/y"], "strict": True},
+        )
+        state = (await client.get("/api/state")).json()
+
+    assert r.json()["strict"] is True
+    assert app._config.agent.strict is True
+    assert state["strict_model_selection"] is True
+
+
 async def test_api_fallback_bos_400(tmp_path):
     app, _ = _app_with_store(tmp_path)
     async with _client(app) as client:

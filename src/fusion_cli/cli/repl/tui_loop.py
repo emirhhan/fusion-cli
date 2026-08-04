@@ -88,8 +88,8 @@ class TuiPrompter:
 def _would_open_picker(name: str, argument: str) -> bool:
     """Bu çağrı nested bir prompt_toolkit seçicisi/metin istemi açar mı? (TUI'de guard'lanır.)"""
     arg = argument.strip().lower()
-    if name in ("provider", "development"):
-        return True  # argümandan bağımsız her zaman seçici/metin ister
+    if name == "provider":
+        return True  # argümandan bağımsız her zaman gizli anahtar istemi açar
     if name == "model" and not arg:
         return True  # argümansız katalog seçicisi açar
     if name == "profiles" and arg.startswith("edit"):
@@ -212,6 +212,11 @@ class _TuiSession:
                 self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
                 return
             argument = selected
+        elif command.name == "development":
+            # İki adımlı (kaynak→model) seçim: nested prompt_toolkit seçicisi TUI'yi
+            # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.
+            await self._run_development()
+            return
         elif _would_open_picker(command.name, argument):
             # Nested picker açacak komutlar TUI'yi bozuyordu; bu görünümde argümanla kullanılır.
             self._echo(
@@ -227,6 +232,45 @@ class _TuiSession:
         pending, _mode = self._state.take_pending()
         if pending:
             await self._turn(pending)
+
+    async def _run_development(self) -> None:
+        """TUI'de `/development`: kaynak→model seçimini uygulama-içi modalla sür.
+
+        Plain REPL'deki iç-içe prompt_toolkit seçicisi tam-ekran TUI'yi bozardı; burada
+        aynı `await_choice` modalı iki kez çağrılır. Uygulama/kaydetme mantığı
+        `model_flows.apply_development_model` üzerinden ORTAK yürür (kopya yol açılmaz).
+        """
+        config = self._state.config
+        source_key = await self._tui.await_choice(
+            messages.DEV_SOURCE_TITLE, list(model_flows.source_choices(config))
+        )
+        source = model_flows.source_by_key(config, source_key)
+        if source is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return
+
+        if source.fetcher is None:
+            self._tui.console.print(f"[{theme.ACCENT}]{messages.DEV_CUSTOM_PROMPT}[/{theme.ACCENT}]")
+            self._tui.sync_conversation()
+            model_id: str | None = (await self._tui.await_text()).strip() or None
+        else:
+            entries = source.fetcher()
+            if not entries:
+                self._echo(f"[{theme.DIM}]{messages.DEV_EMPTY_CATALOG}[/{theme.DIM}]")
+                return
+            model_id = await self._tui.await_choice(
+                messages.DEV_MODEL_TITLE.format(source=source.label),
+                list(model_flows.entries_to_choices(entries, config.profile_eligibility)),
+            )
+
+        if model_id is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return
+
+        result = model_flows.apply_development_model(config, model_id, paid=source.paid)
+        self._state.config = result.config
+        self._echo(f"[{theme.DIM}]{result.message}[/{theme.DIM}]")
+        self._sync_status()
 
     async def _turn(self, line: str) -> None:
         work = WorkLineSink(

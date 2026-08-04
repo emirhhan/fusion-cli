@@ -97,14 +97,13 @@ tipler) **korunur ve genişletilir**; paralel yapı kurulmaz (bkz. ADR 0001).
   (açık beyan örtük çıkarımı ezer). Opak/web modelleri dürüstçe işaretlenebilir.
 - **Enforcement wired**: `select_agent_spec` araçsız adaya yönlendirilirse varsayılan
   (araç yetenekli) `agent` rolüne düşer — no-tools model yapısal olarak mutation olamaz.
-- Web-session sağlayıcıları registry'ye METADATA olarak eklendi (chatgpt_web, gemini_web):
-  `web_session` türü, `unofficial_web`, `disabled_by_default`, `implemented=False`;
-  `/providers` bunları "framework (adaptör yok)" gösterir.
-- 12 yeni test; kapı yeşil (1268 test).
-- **Açık gerekçeyle ERTELENEN** (§22): canlı web-scraper yürütücü + şifreli credential
-  store + `/providers add` wizard + emulated tool-call eval sistemi. Bir web adaptörü
-  kırılgandır, sağlayıcı ToS incelemesi ister, dürüstçe "working" işaretlenemez; CAPTCHA/
-  anti-bot aşımı yapılmaz. Framework (türler, risk etiketleri, policy) HAZIR ve test edilmiş.
+- İlk sürümde web-session sağlayıcıları yalnız metadata/framework olarak eklenmişti.
+  2026-08-04 native web güncellemesiyle ChatGPT, Claude, Gemini ve Copilot için
+  `browser_backed` Playwright adapter'ları, şifreli cookie deposu, Control Panel giriş/
+  doğrulama akışı ve emulated tool-call köprüsü tamamlandı.
+- Entegrasyon hâlâ `unofficial_web` ve `terms_review_required` olarak dürüstçe etiketlenir;
+  tüketici web arayüzleri değiştiğinde selector bakımı gerekebilir. CAPTCHA/anti-bot aşımı,
+  normal tarayıcı profilinden sessiz cookie okuma veya başka hesap oturumu kullanma yoktur.
 
 ### Faz 7 — Prompt mimarisi + dokümanlar + parity + smoke ✅
 - Prompt: mevcut katmanlı birleştirme (`_initial_messages`: system + plan_mode +

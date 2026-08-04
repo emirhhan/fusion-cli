@@ -290,3 +290,11 @@ async def test_web_kapisi_baglamla_kurulur(tmp_path):
 
     assert build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path))
     assert build_verifier(config, root=tmp_path, tool_context=None) is None
+
+
+def test_git_push_operasyon_olarak_siniflanir():
+    assert classify_task("repo değişikliklerini GitHub'a pushla") is TaskKind.FEATURE
+
+
+def test_workspace_kontrol_istegi_kesif_olarak_siniflanir():
+    assert classify_task("proje klasörünü kontrol et") is TaskKind.EXPLORE

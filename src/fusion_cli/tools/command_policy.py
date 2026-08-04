@@ -80,7 +80,7 @@ _TOOLING_SUBCOMMANDS = frozenset(
 #: listedir; git iki ayrı yoldan (git aracı ve run_shell) gelebildiği için karar
 #: iki yerde de aynı olmalıdır.
 _READONLY_GIT = frozenset(
-    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag"}
+    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list"}
 )
 
 #: Komutu parçalara bölen kabuk operatörleri. Zincirin HER parçası güvenli olmalı:

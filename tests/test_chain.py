@@ -5,10 +5,19 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.errors import ProviderError
+from fusion_cli.core.events import ModelFallbackActivated
 from fusion_cli.core.types import CompletionRequest, Message, ModelResult, StreamDone, TextChunk
 from fusion_cli.providers.chain import FallbackProvider
 
 from .fakes import FakeProvider, request
+
+
+class _Publisher:
+    def __init__(self) -> None:
+        self.events = []
+
+    def publish(self, event) -> None:
+        self.events.append(event)
 
 
 class SabitProvider:
@@ -77,6 +86,22 @@ async def test_basarisiz_saglayiciyi_atlar():
     sonuc = await FallbackProvider([bozuk, saglam], role="agent").complete(request())
 
     assert sonuc.ok and sonuc.model == "saglam"
+
+
+async def test_fallback_devreye_girdiginde_nedeni_olay_olarak_yayinlar():
+    publisher = _Publisher()
+    bozuk = FakeProvider("gemini_web/main/auto", ok=False, error="web oturumu timeout")
+    saglam = FakeProvider("nvidia_nim/openai/gpt-oss-120b", chunks=("ok",))
+
+    sonuc = await FallbackProvider(
+        [bozuk, saglam], role="secilen", publisher=publisher
+    ).complete(request())
+
+    assert sonuc.model == "nvidia_nim/openai/gpt-oss-120b"
+    (event,) = [item for item in publisher.events if isinstance(item, ModelFallbackActivated)]
+    assert event.requested_model == "gemini_web/main/auto"
+    assert event.fallback_model == "nvidia_nim/openai/gpt-oss-120b"
+    assert "timeout" in event.reason
 
 
 async def test_bos_cevap_yedegi_tetikler():

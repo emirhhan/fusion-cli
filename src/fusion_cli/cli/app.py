@@ -63,7 +63,7 @@ def main_callback(ctx: typer.Context) -> None:
     if ctx.invoked_subcommand is not None:
         return
     config = load_config()
-    if not detect().any_configured:
+    if not detect().any_configured and not config.web_sessions:
         # Anahtarsız açılışta REPL'i başlatmak, kullanıcıyı her turda "hiçbir model
         # yanıt veremedi" hatasına sürüklerdi. Eksik olan şey söylenir.
         console.print(f"[{theme.WARN}]{messages.SETUP_NO_KEYS}[/{theme.WARN}]")
@@ -451,6 +451,9 @@ def _print_configured_models(config: Config) -> None:
         table.add_row("aday", candidate.name, candidate.model)
     table.add_row("hakem", config.judge.name, config.judge.model)
     table.add_row("agent", config.agent.name, config.agent.model)
+    for session in config.web_sessions:
+        if session.enabled:
+            table.add_row("web", f"{session.provider}/{session.account}", session.model)
     console.print(table)
 
 

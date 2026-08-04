@@ -11,7 +11,13 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 
-from ...core.events import Event, ModelCallFinished, ModelCallStarted, TurnFinished
+from ...core.events import (
+    Event,
+    ModelCallFinished,
+    ModelCallStarted,
+    ModelFallbackActivated,
+    TurnFinished,
+)
 from ...ui import messages
 from ...ui.text import format_duration, format_model
 from ...ui.work import format_tokens
@@ -57,6 +63,11 @@ class WorkLineSink:
             if event.result.model:
                 self._model = format_model(event.result.model)
             self._tokens += event.result.usage.total_tokens
+            self._publish()
+        elif isinstance(event, ModelFallbackActivated):
+            if event.background:
+                return
+            self._model = format_model(event.fallback_model)
             self._publish()
         elif isinstance(event, TurnFinished):
             self._on_clear()

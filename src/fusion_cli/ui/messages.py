@@ -20,6 +20,7 @@ STATUS_THINKING = "düşünüyor…"
 # ediyor ve yanlış model sessizce çalışıyordu.
 MODEL_CALL_OK = "{model} · {duration} · {tokens} token"
 MODEL_CALL_FAILED = "{model} · {error}"
+MODEL_FALLBACK = "yedek devrede: {requested} → {fallback} · {reason}"
 
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"

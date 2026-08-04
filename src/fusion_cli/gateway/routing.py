@@ -31,8 +31,9 @@ def resolve_spec(config: Config, model: str) -> ModelSpec:
 
 
 def available_models(config: Config) -> list[str]:
-    """`/v1/models` için sunulacak kimlikler: profiller + tanımlı aday modelleri."""
+    """Profiles, configured role models and native web-session model ids."""
     profiles = ["auto", *(tier.name for tier in config.tiers)]
     candidates = [spec.model for spec in config.candidates]
-    # Sıra korunur, tekrar atılır.
-    return list(dict.fromkeys([*profiles, *candidates]))
+    web = [session.model for session in config.web_sessions if session.enabled]
+    # Preserve order and remove duplicates.
+    return list(dict.fromkeys([*profiles, *candidates, *web]))

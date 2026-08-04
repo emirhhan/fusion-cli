@@ -4,8 +4,24 @@ from __future__ import annotations
 
 import pytest
 
+from fusion_cli.config import keys as keys_module
 from fusion_cli.config.keys import ProviderKeys, detect, prune_config
 from fusion_cli.config.loader import load_config
+
+
+def test_keyring_beklenmeyen_hatasi_kullaniciya_kacmaz(monkeypatch):
+    """Sistem anahtarlığı erişilemezse (ör. varsayılan Keychain yok) master key None
+    döner; ham macOS/keyring istisnası kullanıcıya kaçmaz — depo devre dışı kalır,
+    uygulama tam çalışır (RULES: sınır katmanında yakala, logla, çökme)."""
+    monkeypatch.delenv("FUSION_SECRET_KEY", raising=False)
+
+    def _patla(*_args: object, **_kwargs: object) -> str:
+        raise RuntimeError("'credential-master-key' öğesinin saklanacağı bir anahtar zinciri yok")
+
+    monkeypatch.setattr("keyring.get_password", _patla)
+    monkeypatch.setattr("keyring.set_password", _patla)
+
+    assert keys_module.secret_key() is None
 
 
 def test_dolu_anahtar_kurulu_sayilir():

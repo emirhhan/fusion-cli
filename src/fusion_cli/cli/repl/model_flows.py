@@ -55,13 +55,9 @@ class Source:
     paid: bool = False
 
 
-def sources() -> tuple[Source, ...]:
-    """`/development` kaynakları — kullanıcının istediği sırayla.
-
-    Sıra anlamlıdır ve ücretsiz olanlar öndedir: ürünün varsayılan yolu ücretsizdir,
-    ücretli seçenek bilinçli bir adım olmalıdır.
-    """
-    return (
+def sources(config: Config | None = None) -> tuple[Source, ...]:
+    """`/development` sources; configured native web sessions appear as a real source."""
+    base = (
         Source(
             "openrouter-free",
             messages.DEV_SOURCE_OPENROUTER_FREE,
@@ -74,6 +70,25 @@ def sources() -> tuple[Source, ...]:
             catalog.fetch_openrouter_paid,
             paid=True,
         ),
+    )
+    web: tuple[Source, ...] = ()
+    if config is not None and any(item.enabled for item in config.web_sessions):
+        entries = tuple(
+            CatalogEntry(item.model, item.provider)
+            for item in config.web_sessions
+            if item.enabled
+        )
+        web = (
+            Source(
+                "web-subscriptions",
+                "Web AI abonelikleri",
+                lambda: entries,
+                description="Control Panel'de bağladığın ChatGPT/Claude/Gemini/Copilot oturumları",
+            ),
+        )
+    return (
+        *base,
+        *web,
         Source(
             "custom",
             messages.DEV_SOURCE_CUSTOM,
@@ -170,7 +185,7 @@ def choose_development(
     Seçilen model agent, hakem ve havuzun TAMAMINA uygulanır: kullanıcı tek bir
     model seçtiğini söylüyor, rollerden birinin eski modelde kalması sürpriz olurdu.
     """
-    source = _choose_source(picker)
+    source = _choose_source(config, picker)
     if source is None:
         return FlowResult(config, messages.PICKER_CANCELLED)
 
@@ -180,25 +195,51 @@ def choose_development(
     if model_id is None:
         return FlowResult(config, reason)
 
+    return apply_development_model(config, model_id, paid=source.paid)
+
+
+def apply_development_model(config: Config, model_id: str, *, paid: bool) -> FlowResult:
+    """Seçilen modeli agent + hakem + havuzun tamamına uygula ve kalıcılaştır.
+
+    Seçim ekranı (plain REPL, prompt_toolkit) ile TUI modalı AYNI uygulama/kaydetme
+    yolundan geçsin diye ayrıldı; iki yol ayrı yazılsaydı biri kaydetmeyi ya da ücret
+    uyarısını unutabilirdi (RULES.md: ortak davranış tek yerde).
+    """
     try:
         updated = model_select.apply_single_model(config, model_id)
     except ConfigError as error:
         return FlowResult(config, str(error))
 
     lines = [messages.DEV_APPLIED.format(model=model_id)]
-    if source.paid:
+    if paid:
         lines.append(messages.DEV_PAID_WARNING)
     lines.append(_persist(updated))
     return FlowResult(updated, "\n".join(lines))
 
 
-def _choose_source(picker: Picker) -> Source | None:
-    available = sources()
-    picked = picker(
-        tuple(Choice(item.key, item.label, item.description) for item in available),
-        title=messages.DEV_SOURCE_TITLE,
+def source_choices(config: Config) -> tuple[Choice, ...]:
+    """Kaynak listesini seçim öğelerine çevir (plain REPL seçicisi ve TUI modalı ortak)."""
+    return tuple(Choice(item.key, item.label, item.description) for item in sources(config))
+
+
+def source_by_key(config: Config, key: str | None) -> Source | None:
+    """Seçilen anahtardan kaynağı bul; yoksa None."""
+    return next((item for item in sources(config) if item.key == key), None)
+
+
+def entries_to_choices(
+    entries: tuple[CatalogEntry, ...], eligibility: dict[str, ProfileEligibility]
+) -> tuple[Choice, ...]:
+    """Katalog kayıtlarını rozetli seçim öğelerine çevir (her iki seçim yolu ortak)."""
+    return tuple(
+        Choice(entry.model_id, entry.model_id, _model_label(entry, eligibility))
+        for entry in entries
     )
-    return next((item for item in available if item.key == picked), None)
+
+
+def _choose_source(config: Config, picker: Picker) -> Source | None:
+    picked = picker(source_choices(config), title=messages.DEV_SOURCE_TITLE)
+    return source_by_key(config, picked)
 
 
 def _choose_model(
@@ -219,10 +260,7 @@ def _choose_model(
     if not entries:
         return None, messages.DEV_EMPTY_CATALOG
     picked = picker(
-        tuple(
-            Choice(entry.model_id, entry.model_id, _model_label(entry, eligibility))
-            for entry in entries
-        ),
+        entries_to_choices(entries, eligibility),
         title=messages.DEV_MODEL_TITLE.format(source=source.label),
     )
     return picked, messages.PICKER_CANCELLED

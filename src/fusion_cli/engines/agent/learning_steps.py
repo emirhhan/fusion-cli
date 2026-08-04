@@ -71,7 +71,13 @@ async def reinforce_recalled(
 
 
 async def learn(
-    task: str, outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, scope: str
+    task: str,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    plan_mode: bool,
+    scope: str,
+    allow_read_only: bool = True,
 ) -> None:
     """Turdan ders çıkar ve belleğe yaz.
 
@@ -81,6 +87,16 @@ async def learn(
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
     if plan_mode or outcome.tool_calls_made == 0:
+        return
+    # Web AI'da salt-okuma/listeme turlarından ayrı bir model çağrısıyla ders
+    # çıkarmak düşük değerli ve pahalıdır. Kod değişikliği, araç hatası veya bütçe
+    # kesilmesi varsa öğrenme korunur; API sağlayıcılarında eski davranış aynıdır.
+    if (
+        not allow_read_only
+        and outcome.mutating_tool_calls_made == 0
+        and outcome.failed_tool_calls == 0
+        and not outcome.hit_step_limit
+    ):
         return
 
     work = _extract_and_store(task, list(outcome.messages), deps, scope=scope)

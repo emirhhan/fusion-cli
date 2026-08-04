@@ -102,29 +102,50 @@ def test_providers_kurulu_anahtari_gosterir(state, monkeypatch):
     assert messages.PROVIDERS_CONFIGURED in mesaj
 
 
-# --- web-session sağlayıcı tanımları (framework düzeyi) -------------------- #
+# --- native browser-backed web providers ----------------------------------- #
 
 
-def test_web_saglayici_web_session_turunde_ve_yurutulmemis():
+def test_web_saglayici_native_browser_adaptoru_ile_yurutulur():
     from fusion_cli.providers.registry import ProviderKind, RiskLevel
 
     web = next(p for p in BUILTIN_PROVIDERS if p.id == "chatgpt_web")
-    assert web.kind is ProviderKind.WEB_SESSION
-    assert web.implemented is False
-    assert web.risk_level is RiskLevel.DISABLED_BY_DEFAULT
+    assert web.kind is ProviderKind.BROWSER_BACKED
+    assert web.implemented is True
+    assert web.risk_level is RiskLevel.TERMS_REVIEW_REQUIRED
 
 
-def test_web_saglayici_model_onegi_yok_cagirilamaz():
-    # Yürütücüsü olmadığı için önek boştur; hiçbir model kimliğine sahiplenmez.
+def test_web_saglayici_model_onegini_sahiplenir():
     web = next(p for p in BUILTIN_PROVIDERS if p.id == "gemini_web")
-    assert web.owns("gemini_web/whatever") is False
+    assert web.owns("gemini_web/main/auto") is True
 
 
-def test_providers_yurutulmemis_saglayiciyi_framework_isaretler(state):
+def test_providers_web_saglayicisini_kurulum_gerekli_gosterir(state):
     from fusion_cli.ui import messages
 
     mesaj = _run(state, "/providers")
-    assert messages.PROVIDERS_FRAMEWORK in mesaj
+    assert "ChatGPT Web" in mesaj
+    assert messages.PROVIDERS_MISSING in mesaj
+
+
+def test_providers_kayitli_web_saglayicisini_kurulu_gosterir(state):
+    from dataclasses import replace
+
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.ui import messages
+
+    state.config = replace(
+        state.config,
+        web_sessions=(
+            WebSessionConfig(
+                model="chatgpt_web/main/auto",
+                provider="chatgpt_web",
+                account="main",
+                transport="browser",
+            ),
+        ),
+    )
+    mesaj = _run(state, "/providers")
+    assert messages.PROVIDERS_CONFIGURED in mesaj
 
 
 # --- genişletilmiş katalog (gerçek LiteLLM sağlayıcıları) ------------------ #

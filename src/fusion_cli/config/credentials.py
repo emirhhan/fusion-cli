@@ -76,6 +76,11 @@ class FernetSecretStore:
         token = self._fernet().encrypt(json.dumps(data).encode())  # type: ignore[attr-defined]
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_bytes(token)
+        try:
+            self._path.chmod(0o600)
+        except OSError:
+            # Windows veya kısıtlı dosya sistemlerinde şifreleme yine koruma sağlar.
+            pass
 
     def set(self, env_name: str, value: str) -> None:
         """Bir ortam değişkeni sırrını şifreleyip sakla (üzerine yazar)."""
@@ -107,6 +112,11 @@ class FernetSecretStore:
             return ()
         applied: list[str] = []
         for name, value in self._load().items():
+            # Browser-session cookies are encrypted generic secrets, not environment
+            # variables.  Exporting them would expose a full web login to every child
+            # process and could exceed platform environment limits.
+            if name.startswith("WEB_SECRET::"):
+                continue
             if not environ.get(name, "").strip():
                 environ[name] = value
                 applied.append(name)
