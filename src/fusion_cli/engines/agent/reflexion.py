@@ -125,3 +125,22 @@ def unverified_action_message(effect: str | None) -> str:
         f"İşlem tamamlanmadı: {label} için başarılı bir araç çağrısı doğrulanamadı. "
         "Herhangi bir değişiklik yapılmış veya uzak sistem güncellenmiş kabul edilmemelidir."
     )
+
+
+
+def tool_contract_repair_note(detail: str) -> Message:
+    """Give a web model exactly one chance to repair a malformed call."""
+    return Message(
+        "user",
+        "[tool-contract-repair] Önceki araç çağrın geçersizdi. "
+        f"Hata: {detail}\n"
+        "Yalnızca bir kez düzelt. Geçerli biçim örnekleri:\n"
+        '<tool_call>{"name":"read_file","arguments":{"path":"src/app.py"}}</tool_call>\n'
+        '<tool_call>{"name":"write_file","arguments":{"path":"out.txt",'
+        '"content":"hello"}}</tool_call>\n'
+        '<tool_call>{"name":"run_shell","arguments":{"command":'
+        '"python3 -m pytest -q"}}</tool_call>\n'
+        "name ve arguments zorunludur. Şemadaki required alanları eksiksiz gönder. "
+        "Aynı geçersiz çağrıyı tekrar üretme; kullanamıyorsan işlemin "
+        "tamamlanmadığını açıkça söyle.",
+    )

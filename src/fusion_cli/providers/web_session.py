@@ -110,6 +110,16 @@ class WebProviderAdapter:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""
         if self._tool_support is ToolSupport.EMULATED:
             parse = parse_tool_calls(raw)
+            if parse.errors:
+                return ModelResult(
+                    name=self._model,
+                    model=self._model,
+                    text=parse.text,
+                    latency_ms=latency_ms,
+                    ok=True,
+                    error="TOOL_CALL_PARSE_ERROR: " + "; ".join(parse.errors),
+                    tool_calls=(),
+                )
             return ModelResult(
                 name=self._model,
                 model=self._model,

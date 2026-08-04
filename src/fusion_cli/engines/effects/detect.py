@@ -6,13 +6,37 @@ import re
 
 from .model import CONTRACTS, EffectContract, EffectKind
 
-
 _EXPLICIT_NO_TOOL_MARKERS = (
     "araç kullanma",
     "arac kullanma",
     "tool kullanma",
     "araç çağırma",
     "arac cagirma",
+)
+
+_NEGATED_ACTION_WORDS = (
+    "kullanma",
+    "çalıştırma",
+    "calistirma",
+    "yapma",
+    "etme",
+    "oluşturma",
+    "olusturma",
+    "değiştirme",
+    "degistirme",
+    "silme",
+    "gönderme",
+    "gonderme",
+    "yükleme",
+    "yukleme",
+    "arama",
+    "araştırma",
+    "arastirma",
+    "istemiyorum",
+)
+_ACTION_CLAUSE_SPLIT = re.compile(
+    r"(?:[.!?;\n]+|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra)\b)",
+    re.IGNORECASE,
 )
 
 _EXPLANATION_MARKERS = (
@@ -126,6 +150,9 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
 
     del kind  # Eski çağrı imzasıyla uyumluluk; karar tamamen metinden çıkarılır.
     lowered = " ".join(task.lower().split())
+    lowered = _positive_action_clauses(lowered)
+    if not lowered:
+        return None
     if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
         return None
     if _matches(lowered, _GIT_PUSH_PATTERNS):
@@ -178,6 +205,23 @@ def extract_branch_reference(task: str) -> str | None:
     if re.search(r"\bmaster(?:\s+dal(?:ına|ine)?|\s+branch(?:'ine|ine)?)\b", lowered):
         return "master"
     return None
+
+
+
+
+def _positive_action_clauses(text: str) -> str:
+    """Keep positive clauses while removing explicit negative instructions.
+
+    This preserves ``repoyu pushla ama araç kullanma`` as a real push request,
+    while ``git kullanma; dosya oluştur`` only keeps the file-mutation clause.
+    """
+    clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
+    positive = [
+        clause
+        for clause in clauses
+        if not any(word in clause for word in _NEGATED_ACTION_WORDS)
+    ]
+    return " ".join(positive)
 
 
 def _matches(text: str, patterns: tuple[str, ...]) -> bool:
