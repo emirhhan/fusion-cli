@@ -187,7 +187,7 @@ REPL_ON = "açık"
 REPL_OFF = "kapalı"
 REPL_ON_OFF_HINT = "shift-tab mod · /help"
 #: TUI'de girdinin altındaki durum satırının kısayol ipuçları (Claude Code stili).
-TUI_STATUS_HINT = "shift-tab: mod · esc: durdur · /help"
+TUI_STATUS_HINT = "shift-tab: mod · esc: durdur · pgup/mouse: geçmiş · /help"
 #: Onay beklerken çalışma satırında gösterilen ipucu.
 TUI_CONFIRM_HINT = "onay: e = evet · h/esc = hayır"
 #: Onay önizlemesinin başındaki etiket.

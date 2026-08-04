@@ -225,3 +225,50 @@ async def test_await_text_enter_ile_metni_doner():
     assert await task == "kullanıcı yanıtı"
     # Soru modunda Enter turu BAŞLATMAZ.
     assert olaylar["submit"] is None
+
+
+def test_onceki_transcript_yuklenir_ve_degisim_kaydedilir():
+    snapshots: list[str] = []
+    tui = FusionTui(
+        on_submit=lambda _text: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+        initial_transcript="önceki kullanıcı\nönceki cevap\n",
+        on_transcript_change=snapshots.append,
+    )
+
+    assert "önceki kullanıcı" in tui.transcript
+    tui.console.print("yeni cevap")
+    tui.sync_conversation()
+    assert snapshots and "yeni cevap" in snapshots[-1]
+
+
+def test_gecmise_bakarken_yeni_cikti_konumu_bozmaz(monkeypatch):
+    monkeypatch.setattr("fusion_cli.cli.repl.tui._term_rows", lambda: 12)
+    tui, _ = _tui()
+    tui.console.print("\n".join(f"satır {i}" for i in range(30)))
+    tui.sync_conversation()
+    tui._scroll_by(6)
+    before = tui._scroll
+
+    tui.console.print("yeni 1\nyeni 2")
+    tui.sync_conversation()
+
+    assert tui._scroll >= before + 2
+    assert tui._unread_lines >= 2
+    tui._scroll_end()
+    assert tui._scroll == 0 and tui._unread_lines == 0
+
+
+def test_mouse_ve_home_end_kaydirma_baglari_var():
+    tui, _ = _tui()
+    names = {
+        tuple(str(getattr(k, "value", k)) for k in binding.keys)
+        for binding in tui.application.key_bindings.bindings
+    }
+    assert ("<scroll-up>",) in names
+    assert ("<scroll-down>",) in names
+    assert ("home",) in names
+    assert ("end",) in names
+    assert bool(tui.application.mouse_support())

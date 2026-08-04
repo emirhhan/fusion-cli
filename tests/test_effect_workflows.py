@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from fusion_cli.core.events import ToolExecuted
+from fusion_cli.core.events import EffectWorkflowFinished, ToolExecuted
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
@@ -85,6 +85,9 @@ def test_git_push_contract_and_parameter_extraction():
     assert contract.deterministic_handler == "git_push"
     assert extract_repository_reference("repo emirhhan/fusion_cli olsun") == "emirhhan/fusion_cli"
     assert extract_branch_reference("main branch'ine pushla") == "main"
+    assert extract_branch_reference("aktif branch ve remote adreslerini kontrol et") is None
+    assert extract_branch_reference("branch ile remote'u kontrol et") is None
+    assert extract_branch_reference("branch ardından pushla") is None
 
 
 async def test_git_push_workflow_commits_pushes_and_verifies(tmp_path):
@@ -109,6 +112,11 @@ async def test_git_push_workflow_commits_pushes_and_verifies(tmp_path):
     assert ".env" not in _git(local, "ls-files").stdout.splitlines()
     assert "debug.log" not in _git(local, "ls-files").stdout.splitlines()
     assert any(isinstance(event, ToolExecuted) for event in sink.events)
+    finished = [event for event in sink.events if isinstance(event, EffectWorkflowFinished)]
+    assert len(finished) == 1
+    assert finished[0].ok
+    assert finished[0].details["branch"] == "main"
+    assert finished[0].details["local_head"] == finished[0].details["remote_head"]
     records = list((tmp_path / "memory" / "effect-workflows").glob("*.json"))
     assert len(records) == 1
     assert '"status": "completed"' in records[0].read_text(encoding="utf-8")
@@ -190,8 +198,17 @@ async def test_temporary_branch_requires_target_confirmation(tmp_path):
     local, remote = _repository(tmp_path)
     _git(local, "checkout", "-b", "repair/test")
     (local / "repair.txt").write_text("repair\n", encoding="utf-8")
-    asker = ScriptedAsker("mevcut")
 
+    class SequenceAsker:
+        def __init__(self):
+            self.answers = iter(("mevcut", "yeni"))
+            self.questions = []
+
+        async def ask(self, question):
+            self.questions.append(question)
+            return next(self.answers)
+
+    asker = SequenceAsker()
     result = await maybe_run_effect_workflow(
         "Repoyu pushla",
         _deps(local, tmp_path / "memory", RecordingSink(), asker=asker),
@@ -201,6 +218,24 @@ async def test_temporary_branch_requires_target_confirmation(tmp_path):
     assert result is not None and result.ok
     assert _remote_head(remote, "repair/test") == _local_head(local)
     assert any("Hedef branch belirsiz" in q for q in asker.questions)
+    assert any("yeni uzak branch" in q.lower() for q in asker.questions)
+
+
+async def test_connector_word_is_never_created_as_remote_branch(tmp_path):
+    local, remote = _repository(tmp_path)
+    _git(local, "checkout", "-b", "repair/current")
+    (local / "fix.py").write_text("ok = True\n", encoding="utf-8")
+    asker = ScriptedAsker("varsayılan")
+
+    result = await maybe_run_effect_workflow(
+        "Önce git status, aktif branch ve remote adreslerini kontrol et ve repoyu pushla",
+        _deps(local, tmp_path / "memory", RecordingSink(), asker=asker),
+        build_registry(),
+    )
+
+    assert result is not None and result.ok
+    assert _remote_head(remote, "main") == _local_head(local)
+    assert _git(remote, "show-ref", "--verify", "refs/heads/ve", check=False).returncode != 0
 
 
 async def test_rerun_is_idempotent_and_does_not_create_empty_commit(tmp_path):

@@ -785,3 +785,36 @@ def test_hata_hangi_modelin_kisitlandigini_soyler():
     renderer.handle(ModelCallFinished(role="agent", result=result))
 
     assert "glm-5.2" in buffer.getvalue()
+
+
+def test_effect_workflow_sonuc_karti_branch_ve_hashleri_gosterir():
+    from fusion_cli.core.events import EffectWorkflowFinished
+
+    renderer, buffer = _renderer()
+    renderer.handle(
+        EffectWorkflowFinished(
+            workflow_id="wf-1",
+            kind="git_push",
+            status="completed",
+            ok=True,
+            title="Git push tamamlandı",
+            details={
+                "repository": "emirhhan/fusion-cli",
+                "branch": "main",
+                "commit": "abc123",
+                "push": "başarılı",
+                "local_head": "abc123",
+                "remote_head": "abc123",
+                "verification": "eşleşiyor",
+                "workflow_id": "wf-1",
+            },
+            message="Push tamamlandı ve uzak HEAD doğrulandı.",
+        )
+    )
+
+    text = buffer.getvalue()
+    assert "Git push tamamlandı" in text
+    assert "emirhhan/fusion-cli" in text
+    assert "main" in text
+    assert text.count("abc123") >= 2
+    assert "eşleşiyor" in text

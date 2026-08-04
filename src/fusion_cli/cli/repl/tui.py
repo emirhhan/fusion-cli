@@ -97,13 +97,18 @@ class FusionTui:
         on_interrupt: Callable[[], None],
         on_exit: Callable[[], None],
         on_cycle_mode: Callable[[], None],
+        initial_transcript: str = "",
+        on_transcript_change: Callable[[str], None] | None = None,
     ) -> None:
         self._on_submit = on_submit
         self._on_interrupt = on_interrupt
         self._on_exit = on_exit
         self._on_cycle_mode = on_cycle_mode
+        self._on_transcript_change = on_transcript_change
         self._work_text = ""
         self._status_html = ""
+        self._status_mode = "auto"
+        self._status_engine = "agent"
         self._mode = "idle"
         self._answer: asyncio.Future[object] | None = None
         # Uygulama-içi seçim modalı durumu (nested picker YOK): /mode, /level, /effort.
@@ -116,12 +121,15 @@ class FusionTui:
 
         # Konuşma tamponu: renderer bu Rich console'a RENKLİ yazar; ANSI olarak gösterilir.
         self._sink = io.StringIO()
+        if initial_transcript:
+            self._sink.write(initial_transcript.rstrip("\n") + "\n")
         self._console = Console(
             file=self._sink, force_terminal=True, color_system="truecolor", width=_term_width()
         )
-        self._conversation = ""
+        self._conversation = self._sink.getvalue()
         # Kaydırma ofseti: 0 = en altta (takip). Yukarı kaydırınca artar.
         self._scroll = 0
+        self._unread_lines = 0
 
         self._input = TextArea(
             height=1,
@@ -156,7 +164,7 @@ class FusionTui:
             key_bindings=self._bindings(),
             style=_style(),
             full_screen=True,
-            mouse_support=False,
+            mouse_support=True,
         )
 
     @property
@@ -167,10 +175,21 @@ class FusionTui:
     # -- Dışarıdan beslenen durum ------------------------------------------- #
 
     def sync_conversation(self) -> None:
-        """Renderer'ın tampona yazdığı yeni çıktıyı konuşma alanına aktar ve çiz."""
-        self._conversation = self._sink.getvalue()
-        self._scroll = 0  # yeni çıktı geldi: en alta takip et
-        self._invalidate()
+        """Yeni çıktıyı aktar; kullanıcı geçmişe bakıyorsa konumunu koru."""
+        previous_lines = len(self._conversation.splitlines())
+        updated = self._sink.getvalue()
+        updated_lines = len(updated.splitlines())
+        added = max(0, updated_lines - previous_lines)
+        self._conversation = updated
+        if self._scroll > 0 and added:
+            # Alttan ofseti büyütmek, kullanıcının baktığı eski satırları sabit tutar.
+            self._scroll += added
+            self._unread_lines += added
+        elif self._scroll == 0:
+            self._unread_lines = 0
+        if self._on_transcript_change is not None:
+            self._on_transcript_change(self._conversation)
+        self._refresh_status()
 
     def set_work(self, text: str) -> None:
         self._work_text = text
@@ -181,7 +200,16 @@ class FusionTui:
         self._invalidate()
 
     def set_status(self, mode: str, engine: str) -> None:
-        self._status_html = format_status(mode, engine)
+        self._status_mode = mode
+        self._status_engine = engine
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        self._status_html = format_status(self._status_mode, self._status_engine)
+        if self._scroll > 0 and self._unread_lines:
+            self._status_html += (
+                f"<style fg='{theme.ACCENT_ALT}'> · ↓ {self._unread_lines} yeni satır</style>"
+            )
         self._invalidate()
 
     def request_exit(self) -> None:
@@ -296,8 +324,23 @@ class FusionTui:
 
     def _scroll_by(self, delta: int) -> None:
         lines = len(self._conversation.splitlines())
-        self._scroll = max(0, min(lines, self._scroll + delta))
-        self._invalidate()
+        body = max(1, _term_rows() - _CHROME_ROWS)
+        maximum = max(0, lines - body)
+        self._scroll = max(0, min(maximum, self._scroll + delta))
+        if self._scroll == 0:
+            self._unread_lines = 0
+        self._refresh_status()
+
+    def _scroll_home(self) -> None:
+        lines = len(self._conversation.splitlines())
+        body = max(1, _term_rows() - _CHROME_ROWS)
+        self._scroll = max(0, lines - body)
+        self._refresh_status()
+
+    def _scroll_end(self) -> None:
+        self._scroll = 0
+        self._unread_lines = 0
+        self._refresh_status()
 
     def _bindings(self) -> KeyBindings:
         from prompt_toolkit.keys import Keys
@@ -354,6 +397,29 @@ class FusionTui:
         @kb.add("pagedown", filter=idle, eager=True)
         def _pgdn(_event: object) -> None:
             self._scroll_by(-_SCROLL_PAGE)
+
+        @kb.add(Keys.ScrollUp, filter=idle, eager=True)
+        def _mouse_up(_event: object) -> None:
+            self._scroll_by(_SCROLL_STEP)
+
+        @kb.add(Keys.ScrollDown, filter=idle, eager=True)
+        def _mouse_down(_event: object) -> None:
+            self._scroll_by(-_SCROLL_STEP)
+
+        @kb.add("home", filter=idle, eager=True)
+        @kb.add("c-home", filter=idle, eager=True)
+        def _home(_event: object) -> None:
+            self._scroll_home()
+
+        @kb.add("end", filter=idle, eager=True)
+        @kb.add("c-end", filter=idle, eager=True)
+        def _end(_event: object) -> None:
+            self._scroll_end()
+
+        @kb.add("c-r", filter=idle, eager=True)
+        def _history(_event: object) -> None:
+            # Ctrl-R: en eski transcript noktasına hızlı geçiş; End ile canlı akışa dönülür.
+            self._scroll_home()
 
         return kb
 

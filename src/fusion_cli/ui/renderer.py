@@ -31,6 +31,9 @@ from ..core.events import (
     CouncilConsulted,
     ErrorOccurred,
     Event,
+    EffectWorkflowFinished,
+    EffectWorkflowProgress,
+    EffectWorkflowStarted,
     FusionCompleted,
     JudgingStarted,
     LessonsLearned,
@@ -141,6 +144,13 @@ class ConsoleRenderer:
             )
         elif isinstance(event, FusionCompleted):
             self._fusion_result(event.result)
+        elif isinstance(event, EffectWorkflowStarted):
+            self._status(f"{theme.ICON_STATUS} {event.title}")
+            self._resume_work(event.title)
+        elif isinstance(event, EffectWorkflowProgress):
+            self._status(event.message)
+        elif isinstance(event, EffectWorkflowFinished):
+            self._effect_workflow_finished(event)
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)
@@ -449,6 +459,45 @@ class ConsoleRenderer:
         summary.append(detail, style=theme.DIM)
         self._console.print()
         self._console.print(summary)
+
+    def _effect_workflow_finished(self, event: EffectWorkflowFinished) -> None:
+        """Deterministik workflow sonucunu kalıcı ve okunur bir kart olarak bas."""
+        self._end_block()
+        color = theme.OK if event.ok else theme.ERROR
+        icon = theme.ICON_DONE if event.ok else theme.ICON_ERROR
+        self._console.print()
+        self._console.print(f"[{color}]{icon} {escape(event.title)}[/{color}]", highlight=False)
+        preferred = (
+            ("Repository", "repository"),
+            ("Branch", "branch"),
+            ("Commit", "commit"),
+            ("Push", "push"),
+            ("Local HEAD", "local_head"),
+            ("Remote HEAD", "remote_head"),
+            ("Doğrulama", "verification"),
+            ("Workflow", "workflow_id"),
+        )
+        shown: set[str] = set()
+        for label, key in preferred:
+            value = event.details.get(key)
+            if value in (None, ""):
+                continue
+            shown.add(key)
+            self._console.print(
+                f"  [{theme.DIM}]{label:<11}[/{theme.DIM}] {escape(str(value))}",
+                highlight=False,
+            )
+        for key, value in event.details.items():
+            if key in shown or value in (None, ""):
+                continue
+            self._console.print(
+                f"  [{theme.DIM}]{escape(str(key)):<11}[/{theme.DIM}] {escape(str(value))}",
+                highlight=False,
+            )
+        if event.message.strip():
+            self._console.print()
+            self._console.print(escape(event.message), highlight=False)
+        self._console.print()
 
     # -- Agent araç kartı ---------------------------------------------------- #
 

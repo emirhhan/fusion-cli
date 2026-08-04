@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Awaitable, Callable
 
+from ...core.events import EffectWorkflowFinished, EffectWorkflowStarted
 from .detect import detect_contract, explicitly_disallows_tools
 from .git_push import GitPushWorkflow
 from .model import EffectContract, EffectKind, EffectRunResult
@@ -65,13 +66,33 @@ class WorkflowRunner:
         self, task: str, contract: EffectContract
     ) -> EffectRunResult | None:
         if contract.kind is EffectKind.GIT_PUSH:
-            return await GitPushWorkflow(
+            workflow = GitPushWorkflow(
                 task,
                 self.deps,
                 self.registry,
                 store=self.store,
                 contract=contract,
-            ).run()
+            )
+            self.deps.publisher.publish(
+                EffectWorkflowStarted(
+                    workflow_id=workflow.workflow_id,
+                    kind=contract.kind.value,
+                    title="Git push workflow başlatıldı",
+                )
+            )
+            result = await workflow.run()
+            self.deps.publisher.publish(
+                EffectWorkflowFinished(
+                    workflow_id=result.workflow_id or workflow.workflow_id,
+                    kind=result.kind or contract.kind.value,
+                    status=result.status or ("completed" if result.ok else "failed"),
+                    ok=result.ok,
+                    title=result.title,
+                    details=result.details,
+                    message=result.final_text,
+                )
+            )
+            return result
         return None
 
 

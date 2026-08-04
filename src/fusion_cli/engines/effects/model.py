@@ -135,6 +135,10 @@ class EffectRunResult:
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     workflow_id: str | None = None
+    kind: str | None = None
+    status: str | None = None
+    title: str = "Workflow sonucu"
+    details: dict[str, object] = field(default_factory=dict)
 
 
 def missing_evidence(record: WorkflowRecord, contract: EffectContract) -> tuple[str, ...]:

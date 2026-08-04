@@ -82,6 +82,33 @@ _REPO_REFERENCE = re.compile(
     r"(?<![\w.-])(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?(?=$|[\s,;:)'\"])",
     re.IGNORECASE,
 )
+
+_BRANCH_STOPWORDS = {
+    "ve", "ile", "sonra", "ardından", "ardindan", "önce", "once",
+    "remote", "adres", "adresini", "adreslerini", "kontrol", "et",
+    "push", "pushla", "pushlamak", "repo", "repository", "depo",
+    "aktif", "mevcut", "uzak", "hedef", "olan", "olarak", "için", "icin",
+}
+_BRANCH_TOKEN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$")
+
+
+def is_valid_branch_reference(branch: str) -> bool:
+    """Metinden çıkan aday gerçekten branch adı olabilir mi?
+
+    Türkçe bağlaçları ve eylem kelimelerini branch sanmak yeni uzak dallar oluşturur;
+    bu kontrol her branch çıkarımının ortak güvenlik kapısıdır.
+    """
+
+    candidate = branch.strip(" .,:;\"'")
+    lowered = candidate.casefold()
+    if not candidate or lowered in _BRANCH_STOPWORDS:
+        return False
+    if candidate.startswith(("-", "/", ".")) or candidate.endswith(("/", ".")):
+        return False
+    if ".." in candidate or "//" in candidate or "@{" in candidate:
+        return False
+    return bool(_BRANCH_TOKEN.fullmatch(candidate))
+
 _BRANCH_PATTERNS = (
     re.compile(r"\b(?P<branch>[A-Za-z0-9._/-]+)\s+branch(?:'ine|ine|e|ı|i)?\b", re.IGNORECASE),
     re.compile(r"\bbranch(?:'ine|ine|e|ı|i)?\s+(?P<branch>[A-Za-z0-9._/-]+)", re.IGNORECASE),
@@ -143,7 +170,7 @@ def extract_branch_reference(task: str) -> str | None:
         match = pattern.search(task)
         if match:
             branch = match.group("branch").strip(" .,:;\"'")
-            if branch.lower() not in {"aktif", "mevcut", "uzak", "hedef"}:
+            if is_valid_branch_reference(branch):
                 return branch
     lowered = task.lower()
     if re.search(r"\bmain(?:\s+dal(?:ına|ine)?|\s+branch(?:'ine|ine)?)\b", lowered):

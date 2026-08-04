@@ -26,6 +26,7 @@ from . import help_view, model_flows
 from .commands import RENDERED_COMMANDS, build_registry, parse
 from .state import Engine, ReplState
 from .tui import FusionTui
+from .transcript_store import TranscriptStore
 from .work_line import WorkLineSink
 
 _logger = logging.getLogger(__name__)
@@ -90,6 +91,8 @@ def _would_open_picker(name: str, argument: str) -> bool:
     arg = argument.strip().lower()
     if name == "provider":
         return True  # argümandan bağımsız her zaman gizli anahtar istemi açar
+    if name == "development":
+        return True  # çağrı üstte uygulama-içi modal tarafından ele alınır
     if name == "model" and not arg:
         return True  # argümansız katalog seçicisi açar
     if name == "profiles" and arg.startswith("edit"):
@@ -117,11 +120,17 @@ class _TuiSession:
         # Ders çıkarımı gibi tur-sonrası işler burada fire-and-forget çalışır; cevabı
         # bekletmezler. Çıkışta drain edilir (RULES: her task'ın sahibi vardır).
         self._background = BackgroundTasks()
+        self._transcript_store = TranscriptStore(state.config.memory_dir, state.root)
+        previous = self._transcript_store.load_snapshot()
+        if previous.strip():
+            previous = previous.rstrip("\n") + "\n\n--- yeni Fusion oturumu ---\n"
         self._tui = FusionTui(
             on_submit=self._submit,
             on_interrupt=self._interrupt,
             on_exit=self._exit,
             on_cycle_mode=self._cycle,
+            initial_transcript=previous,
+            on_transcript_change=self._transcript_store.save_snapshot,
         )
         self._out = self._tui.console
         self._prompter_factory = lambda drain: TuiPrompter(self._tui, drain)
@@ -172,6 +181,7 @@ class _TuiSession:
 
     async def _handle(self, line: str) -> None:
         try:
+            self._transcript_store.record_user(line)
             ConsoleRenderer(self._out).print_user_message(line)
             self._tui.sync_conversation()
             if line.startswith("/"):
@@ -284,7 +294,7 @@ class _TuiSession:
             show_all_answers=self._state.show_all_answers,
         )
         pump = _PumpSink(self._tui.sync_conversation)
-        sinks = (renderer, work, pump, self._state.cost)
+        sinks = (renderer, work, self._transcript_store, pump, self._state.cost)
         try:
             if self._state.engine is Engine.FUSION:
                 self._state.last_fusion = await run_task(

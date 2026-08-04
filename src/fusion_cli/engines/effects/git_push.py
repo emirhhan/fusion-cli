@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .detect import extract_branch_reference, extract_repository_reference
+from ...core.events import EffectWorkflowProgress
+from .detect import (
+    extract_branch_reference,
+    extract_repository_reference,
+    is_valid_branch_reference,
+)
 from .model import (
     Evidence,
     EffectContract,
@@ -91,8 +96,13 @@ class GitPushWorkflow:
         self.record = self._load_or_create_record()
         self.excluded_untracked: list[str] = []
 
+    @property
+    def workflow_id(self) -> str:
+        return self.record.workflow_id
+
     async def run(self) -> EffectRunResult:
         try:
+            self._progress("inspect", "Repository, aktif branch ve remote inceleniyor.")
             snapshot = await self._inspect_repository()
             if snapshot is None:
                 return self._fail(
@@ -111,6 +121,10 @@ class GitPushWorkflow:
                 }
             )
             self._save()
+            self._progress(
+                "repository_inspected",
+                f"Repository incelendi: {snapshot.origin_repo or snapshot.origin_url} · {snapshot.current_branch}",
+            )
 
             target_repo = await self._resolve_repository(snapshot)
             if target_repo is None:
@@ -128,12 +142,18 @@ class GitPushWorkflow:
                 f"{target_repo or snapshot.origin_url}#{target_branch}",
                 "user/task + git remote",
             )
+            self._progress(
+                "target_confirmed",
+                f"Hedef doğrulandı: {target_repo or snapshot.origin_url} · branch {target_branch}",
+            )
 
+            self._progress("staging", "Güvenli değişiklikler stage ediliyor.")
             staged = await self._stage_safe_changes()
             if staged is None:
                 return self._cancelled_or_failed()
 
             if staged:
+                self._progress("committing", "Stage edilen değişiklikler commit ediliyor.")
                 committed = await self._commit_staged_changes()
                 if not committed:
                     return self._cancelled_or_failed()
@@ -156,6 +176,7 @@ class GitPushWorkflow:
             self.record.data["remote_head_before"] = remote_head_before or ""
             self._save()
 
+            self._progress("pushing", f"Yerel HEAD origin/{target_branch} hedefine push ediliyor.")
             normal_push = await self._push(target_branch, force_lease=None)
             if not normal_push:
                 last_output = self.record.data.get("last_push_output", "")
@@ -174,6 +195,7 @@ class GitPushWorkflow:
             self._status(WorkflowStatus.PUSHED)
             self._evidence("push_exit_zero", target_branch, "git push exit code 0")
 
+            self._progress("verifying", "Push sonrası local ve remote HEAD doğrulanıyor.")
             remote_head = await self._remote_head(target_branch)
             if not remote_head:
                 return self._fail(
@@ -302,7 +324,23 @@ class GitPushWorkflow:
     async def _resolve_branch(self, snapshot: RepositorySnapshot) -> str | None:
         explicit = extract_branch_reference(self.task)
         if explicit:
+            if not is_valid_branch_reference(explicit):
+                return self._fail_value(f"Geçersiz branch hedefi: {explicit!r}")
+            if not await self._branch_exists(explicit):
+                self._status(WorkflowStatus.AWAITING_TARGET_CONFIRMATION)
+                answer = await self._ask(
+                    "İstekte belirtilen branch yerelde veya origin üzerinde bulunamadı.\n"
+                    f"Yeni uzak branch : {explicit}\n"
+                    f"Çalıştırılacak hedef: HEAD:refs/heads/{explicit}\n"
+                    "Bu yeni branch'i oluşturmak için YENI, vazgeçmek için IPTAL yaz.",
+                    {"yeni", "iptal"},
+                )
+                if answer == "iptal":
+                    return self._cancel("Yeni branch oluşturma kullanıcı tarafından iptal edildi.")
+                if answer != "yeni":
+                    return self._fail_value("Yeni branch hedefi açıkça onaylanmadı.")
             return explicit
+
         default = snapshot.default_branch
         if default and snapshot.current_branch != default and _looks_temporary_branch(
             snapshot.current_branch
@@ -319,11 +357,28 @@ class GitPushWorkflow:
             if answer == "iptal":
                 return self._cancel("Branch hedefi kullanıcı tarafından iptal edildi.")
             if answer == "mevcut":
+                # Yeni remote branch oluşacaksa adını açıkça bir kez daha göster.
+                if not await self._branch_exists(snapshot.current_branch):
+                    confirm = await self._ask(
+                        f"origin/{snapshot.current_branch} henüz yok. Bu adla yeni uzak branch "
+                        "oluşturmak için YENI, vazgeçmek için IPTAL yaz.",
+                        {"yeni", "iptal"},
+                    )
+                    if confirm != "yeni":
+                        return self._cancel("Yeni uzak branch oluşturulmadı.")
                 return snapshot.current_branch
             if answer in {"varsayilan", "varsayılan"}:
                 return default
             return self._fail_value("Branch hedefi kesinleştirilemedi.")
         return snapshot.current_branch
+
+    async def _branch_exists(self, branch: str) -> bool:
+        """Hedef branch origin üzerinde var mı?
+
+        Yerelde mevcut olması yeni bir uzak branch oluşturulmayacağı anlamına gelmez;
+        push hedefi yoksa kullanıcıya kesin ad gösterilip açık onay alınır.
+        """
+        return bool(await self._remote_head(branch))
 
     async def _stage_safe_changes(self) -> bool | None:
         status = await self._git_output("status --porcelain=v1")
@@ -500,6 +555,36 @@ class GitPushWorkflow:
         if missing:
             raise RuntimeError("EffectContract kanıtları eksik: " + ", ".join(missing))
 
+    def _progress(self, stage: str, message: str) -> None:
+        self.deps.publisher.publish(
+            EffectWorkflowProgress(
+                workflow_id=self.record.workflow_id, stage=stage, message=message
+            )
+        )
+
+    def _result_details(self, *, ok: bool) -> dict[str, object]:
+        local_head = str(self.record.data.get("local_head") or "")
+        remote_head = str(self.record.data.get("remote_head") or "")
+        return {
+            "repository": self.record.data.get("target_repo")
+            or self.record.data.get("origin_repo")
+            or self.record.data.get("origin_url")
+            or "",
+            "branch": self.record.data.get("target_branch") or "",
+            "commit": self._evidence_value("commit_created") or local_head,
+            "push": "başarılı" if self.record.has_evidence("push_exit_zero") else "başarısız",
+            "local_head": local_head,
+            "remote_head": remote_head,
+            "verification": "eşleşiyor" if ok and local_head == remote_head else "doğrulanmadı",
+            "workflow_id": self.record.workflow_id,
+        }
+
+    def _evidence_value(self, key: str) -> str:
+        for item in reversed(self.record.evidence):
+            if item.get("key") == key:
+                return str(item.get("value") or "")
+        return ""
+
     def _status(self, status: WorkflowStatus) -> None:
         self.record.set_status(status)
         self._save()
@@ -546,6 +631,12 @@ class GitPushWorkflow:
         )
 
     def _result(self, text: str, *, ok: bool) -> EffectRunResult:
+        status = self.record.status
+        title = "Git push tamamlandı" if ok else (
+            "Git workflow iptal edildi"
+            if status == WorkflowStatus.CANCELLED.value
+            else "Git push tamamlanmadı"
+        )
         return EffectRunResult(
             final_text=text,
             ok=ok,
@@ -553,6 +644,10 @@ class GitPushWorkflow:
             mutating_tool_calls_made=self.tools.mutating_tool_calls_made,
             failed_tool_calls=self.tools.failed_tool_calls,
             workflow_id=self.record.workflow_id,
+            kind=EffectKind.GIT_PUSH.value,
+            status=status,
+            title=title,
+            details=self._result_details(ok=ok),
         )
 
     @staticmethod

@@ -213,6 +213,37 @@ class StepLimitReached(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class EffectWorkflowStarted(Event):
+    """Deterministik bir gerçek-etki workflow'u başladı."""
+
+    workflow_id: str
+    kind: str
+    title: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectWorkflowProgress(Event):
+    """Workflow ilerleme aşaması; doğal dil iddiası değil, runtime durumudur."""
+
+    workflow_id: str
+    stage: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class EffectWorkflowFinished(Event):
+    """Workflow deterministik post-condition sonucu ile kapandı."""
+
+    workflow_id: str
+    kind: str
+    status: str
+    ok: bool
+    title: str
+    details: Mapping[str, object]
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
 class TurnFinished(Event):
     """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
 
