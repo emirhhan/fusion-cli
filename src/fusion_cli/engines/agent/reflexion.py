@@ -141,12 +141,14 @@ def tool_contract_repair_note(detail: str) -> Message:
         '{"path":"src/app.py"}}</tool_call>\n'
         "Çok satırlı kodu JSON stringine koyma. Payload kullan:\n"
         '<tool_payload id="file-1">\n'
+        "```python\n"
         "def example():\n"
         '    print("ok")\n'
+        "```\n"
         "</tool_payload>\n"
         '<tool_call>{"name":"write_file","arguments":'
         '{"path":"example.py","content":{"$ref":"file-1"}}}</tool_call>\n'
-        "Payload ham metindir; JSON escape veya Markdown fence kullanma. "
+        "Kod payload gövdesini mutlaka Markdown kod bloğu içinde taşı. "
         "Her id benzersiz ve referanslı olmalı. Aynı geçersiz çağrıyı tekrarlama. "
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
     )

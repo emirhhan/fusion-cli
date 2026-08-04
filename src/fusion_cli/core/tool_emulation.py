@@ -96,8 +96,10 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "",
         "ÇOK SATIRLI / KOD İÇEREN write_file İÇİN ZORUNLU PAYLOAD BİÇİMİ:",
         '<tool_payload id="file-1">',
+        "```python",
         "def greet(name: str) -> str:",
         '    return f"Hello, {name}!"',
+        "```",
         "</tool_payload>",
         (
             f"{CALL_OPEN}"
@@ -118,7 +120,8 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "Payload kuralları:",
         "- Kaynak kodu JSON content stringinin içine koyma.",
         "- Çok satırlı, tırnak veya ters eğik çizgi içeren content payload kullanmalı.",
-        "- tool_payload içeriği ham metindir; JSON escape veya Markdown fence kullanma.",
+        "- Kod payload gövdesini mutlaka Markdown kod bloğu (```dil ... ```) içine koy.",
+        "- Kod bloğu girintileri ve __name__ gibi işaretleri web arayüzünde korur.",
         "- Her payload id benzersiz olmalı ve bir $ref ile kullanılmalı.",
         '- Payload referansı yalnızca {"$ref":"payload-id"} biçiminde olmalı.',
         "",
@@ -152,7 +155,7 @@ class EmulatedParse:
 
 
 def _normalize_payload_body(body: str) -> str:
-    """Remove only the framing line break around a canonical payload."""
+    """Remove payload framing and an optional Markdown code fence."""
     if body.startswith("\r\n"):
         body = body[2:]
     elif body.startswith("\n"):
@@ -161,7 +164,20 @@ def _normalize_payload_body(body: str) -> str:
         body = body[:-2]
     elif body.endswith("\n"):
         body = body[:-1]
-    return body
+
+    if not body.startswith("```"):
+        return body
+
+    fenced = re.fullmatch(
+        r"```[^\r\n]*\r?\n(?P<body>.*)\r?\n```[ \t]*",
+        body,
+        flags=re.DOTALL,
+    )
+    if fenced is None:
+        raise _PayloadResolutionError(
+            "payload code fence kapanmadı veya geçersiz"
+        )
+    return fenced.group("body")
 
 
 def _resolve_payload_refs(
@@ -222,7 +238,11 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         if payload_id in payloads:
             errors.append(f"yinelenen payload id: {payload_id}")
             continue
-        payloads[payload_id] = _normalize_payload_body(match.group("body"))
+        try:
+            payloads[payload_id] = _normalize_payload_body(match.group("body"))
+        except _PayloadResolutionError as error:
+            errors.append(f"payload {payload_id}: {error}")
+            continue
 
     without_payloads = _PAYLOAD_BLOCK.sub("", text)
     if PAYLOAD_OPEN in without_payloads or PAYLOAD_CLOSE in without_payloads:
