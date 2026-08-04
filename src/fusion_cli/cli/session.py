@@ -167,10 +167,9 @@ async def run_agent_task(
         if not outcome.final_text.strip():
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
         elif not outcome.ok and is_rate_limit_error(outcome.final_text):
-            # Agent turu kotaya takıldığında elde yalnızca ham sağlayıcı metni olur
-            # ("...429 Too Many Requests..."); kullanıcı ne yapacağını bilemez.
-            # Fusion yolundaki yönlendirmenin aynısı gösterilir.
             bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
+        elif not outcome.ok:
+            bus.publish(ErrorOccurred(outcome.final_text, fatal=False))
         bus.publish(TurnFinished())
         return outcome
 

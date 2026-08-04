@@ -131,9 +131,37 @@ _EXPLICIT_NO_TOOL_MARKERS = (
     "araç çağırma",
     "arac cagirma",
 )
+_SCOPED_NO_TOOL_MARKERS = (
+    "başka",
+    "baska",
+    "diğer",
+    "diger",
+    "dışında",
+    "disinda",
+    "haricinde",
+    "sonra",
+    "ardından",
+    "ardindan",
+)
+_NO_TOOL_CLAUSE_SPLIT = re.compile(
+    r"(?:[.!?;\n]+|\b(?:ama|fakat|ancak|lakin)\b)",
+    re.IGNORECASE,
+)
+
 
 def _explicit_no_tools(lowered: str) -> bool:
-    return any(marker in lowered for marker in _EXPLICIT_NO_TOOL_MARKERS)
+    clauses = [
+        clause.strip()
+        for clause in _NO_TOOL_CLAUSE_SPLIT.split(lowered)
+        if clause.strip()
+    ]
+    for clause in clauses:
+        if not any(marker in clause for marker in _EXPLICIT_NO_TOOL_MARKERS):
+            continue
+        if any(scope in clause for scope in _SCOPED_NO_TOOL_MARKERS):
+            continue
+        return True
+    return False
 
 
 def _is_genuine_simple_chat(
