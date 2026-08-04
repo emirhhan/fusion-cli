@@ -13,6 +13,7 @@ CALL_OPEN = "<tool_call>"
 CALL_CLOSE = "</tool_call>"
 PAYLOAD_OPEN = "<tool_payload"
 PAYLOAD_CLOSE = "</tool_payload>"
+PAYLOAD_SENTINEL = "FUSION_RAW_PAYLOAD_V1"
 
 _BLOCK = re.compile(
     re.escape(CALL_OPEN) + r"(.*?)" + re.escape(CALL_CLOSE),
@@ -97,6 +98,7 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "ÇOK SATIRLI / KOD İÇEREN write_file İÇİN ZORUNLU PAYLOAD BİÇİMİ:",
         '<tool_payload id="file-1">',
         "```python",
+        PAYLOAD_SENTINEL,
         "def greet(name: str) -> str:",
         '    return f"Hello, {name}!"',
         "```",
@@ -121,7 +123,9 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "- Kaynak kodu JSON content stringinin içine koyma.",
         "- Çok satırlı, tırnak veya ters eğik çizgi içeren content payload kullanmalı.",
         "- Kod payload gövdesini mutlaka Markdown kod bloğu (```dil ... ```) içine koy.",
+        f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı.",
         "- Kod bloğu girintileri ve __name__ gibi işaretleri web arayüzünde korur.",
+        "- Web arayüzünün eklediği dil rozeti sentinel öncesinde güvenle ayıklanır.",
         "- Her payload id benzersiz olmalı ve bir $ref ile kullanılmalı.",
         '- Payload referansı yalnızca {"$ref":"payload-id"} biçiminde olmalı.',
         "",
@@ -154,8 +158,36 @@ class EmulatedParse:
     errors: tuple[str, ...]
 
 
+def _strip_payload_transport_prefix(body: str) -> str:
+    """Remove a sentinel and any browser toolbar lines before it."""
+    lines = body.splitlines(keepends=True)
+    for index, line in enumerate(lines[:4]):
+        if line.rstrip("\r\n") == PAYLOAD_SENTINEL:
+            return "".join(lines[index + 1 :])
+
+    # Backward-compatible recovery for the exact Gemini artifact observed
+    # before the sentinel protocol: a Python badge plus obvious source code.
+    first, separator, remainder = body.partition("\n")
+    python_starts = (
+        "import ",
+        "from ",
+        "def ",
+        "class ",
+        "@",
+        "if __name__",
+        "#!",
+    )
+    if (
+        separator
+        and first.strip().casefold() == "python"
+        and remainder.lstrip().startswith(python_starts)
+    ):
+        return remainder
+    return body
+
+
 def _normalize_payload_body(body: str) -> str:
-    """Remove payload framing and an optional Markdown code fence."""
+    """Remove payload framing, code fences and browser-rendered labels."""
     if body.startswith("\r\n"):
         body = body[2:]
     elif body.startswith("\n"):
@@ -165,19 +197,19 @@ def _normalize_payload_body(body: str) -> str:
     elif body.endswith("\n"):
         body = body[:-1]
 
-    if not body.startswith("```"):
-        return body
-
-    fenced = re.fullmatch(
-        r"```[^\r\n]*\r?\n(?P<body>.*)\r?\n```[ \t]*",
-        body,
-        flags=re.DOTALL,
-    )
-    if fenced is None:
-        raise _PayloadResolutionError(
-            "payload code fence kapanmadı veya geçersiz"
+    if body.startswith("```"):
+        fenced = re.fullmatch(
+            r"```[^\r\n]*\r?\n(?P<body>.*)\r?\n```[ \t]*",
+            body,
+            flags=re.DOTALL,
         )
-    return fenced.group("body")
+        if fenced is None:
+            raise _PayloadResolutionError(
+                "payload code fence kapanmadı veya geçersiz"
+            )
+        body = fenced.group("body")
+
+    return _strip_payload_transport_prefix(body)
 
 
 def _resolve_payload_refs(

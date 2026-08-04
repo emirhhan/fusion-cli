@@ -142,13 +142,15 @@ def tool_contract_repair_note(detail: str) -> Message:
         "Çok satırlı kodu JSON stringine koyma. Payload kullan:\n"
         '<tool_payload id="file-1">\n'
         "```python\n"
+        "FUSION_RAW_PAYLOAD_V1\n"
         "def example():\n"
         '    print("ok")\n'
         "```\n"
         "</tool_payload>\n"
         '<tool_call>{"name":"write_file","arguments":'
         '{"path":"example.py","content":{"$ref":"file-1"}}}</tool_call>\n'
-        "Kod payload gövdesini mutlaka Markdown kod bloğu içinde taşı. "
+        "Kod payload gövdesini Markdown kod bloğu içinde taşı ve ilk içerik "
+        "satırını tam olarak FUSION_RAW_PAYLOAD_V1 yap. "
         "Her id benzersiz ve referanslı olmalı. Aynı geçersiz çağrıyı tekrarlama. "
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
     )
