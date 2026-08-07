@@ -41,6 +41,7 @@ from ..core.events import (
     ModelCallFinished,
     ModelCallStarted,
     ModelFallbackActivated,
+    MutationUnavailable,
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
@@ -179,6 +180,8 @@ class ConsoleRenderer:
             self._status(
                 messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
             )
+        elif isinstance(event, MutationUnavailable):
+            self._status(messages.AGENT_MUTATION_UNAVAILABLE.format(reason=event.reason))
         elif isinstance(event, TurnBudgetExhausted):
             self._error(_budget_reason(event))
         elif isinstance(event, ErrorOccurred):

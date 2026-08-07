@@ -206,6 +206,24 @@ class ContextCompressed(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class MutationUnavailable(Event):
+    """Seçili model dosya/sistem değiştiremiyor ve tur bunu gerektiriyor olabilir.
+
+    Yetenek kapısı SESSİZ çalışmamalıdır. Değiştirici araçların şeması modele hiç
+    sunulmuyorsa model "böyle bir aracım yok" der ve bu doğrudur — ama kullanıcı
+    kısıtın nereden geldiğini ve nasıl kaldıracağını göremezse Fusion'ı arızalı
+    sanır. Ölçüldü: kullanıcı Gemini'ye arka plandaki uygulamayı kapattırmak istedi,
+    model aracı olmadığını söyledi, kısıtın sebebi hiçbir yerde görünmedi.
+
+    `blocking` True ise görev bu yetenek olmadan tamamlanamaz ve tur hiç model
+    çağrısı harcamadan bitirilmiştir.
+    """
+
+    reason: str
+    blocking: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class TurnBudgetExhausted(Event):
     """Tur bütçesi doldu ve tur kesildi.
 

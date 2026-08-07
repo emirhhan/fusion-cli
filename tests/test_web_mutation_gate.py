@@ -13,13 +13,29 @@ Karar kullanıcıya sorulmaz — bu bir onay meselesi değil, YETENEK meselesidi
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.config.models import WebSessionConfig
 from fusion_cli.config.tool_policy import mutation_policy_for_model
+from fusion_cli.core.events import MutationUnavailable
+from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
+from fusion_cli.engines.agent import loop as agent_loop
+from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import policy_for
+from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+from fusion_cli.engines.effects.detect import required_effect_for
 
-from .fakes import make_config
+from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, make_config, model_result
+
+
+class _Publisher:
+    def __init__(self, sink):
+        self._sink = sink
+
+    def publish(self, event):
+        self._sink.handle(event)
 
 WEB_MODEL = "chatgpt_web/main/auto"
 
@@ -32,8 +48,13 @@ def _config(**session_overrides):
         "transport": "browser",
         "tool_support": "emulated",
     }
+    config_overrides = {
+        key: session_overrides.pop(key)
+        for key in list(session_overrides)
+        if key == "agent"
+    }
     alanlar.update(session_overrides)
-    return make_config(web_sessions=(WebSessionConfig(**alanlar),))
+    return make_config(web_sessions=(WebSessionConfig(**alanlar),), **config_overrides)
 
 
 def test_dogrulanmamis_taklit_arac_modeli_mutation_yapamaz():
@@ -88,3 +109,79 @@ def test_api_modeli_varsayilan_olarak_mutation_yapabilir():
     execution = policy_for(config, spec, TaskKind.FEATURE, "dosyayı düzelt")
 
     assert execution.allow_mutation is True
+
+
+# --- Kısıt SESSİZ kalmamalı --------------------------------------------------- #
+#
+# Gerçek kullanım: kullanıcı Gemini web oturumuna "arkadaki uygulamayı kapat" dedi.
+# Model "böyle bir aracım yok" dedi ve HAKLIYDI — run_shell şeması ona hiç
+# sunulmamıştı. Ama kısıtın nereden geldiği hiçbir yerde görünmüyordu ve kullanıcı
+# Fusion'ı arızalı sandı.
+
+
+async def test_arka_plan_uygulamasini_kapatma_gercek_eylem_sayilir():
+    """'kapat' hiçbir desende yoktu; istek sohbet sanılıyordu."""
+    assert required_effect_for("arkada çalışan bir uygulamayı kapat") == "shell_action"
+    assert required_effect_for("arkaplandaki uygulamayı kapat") == "shell_action"
+    assert required_effect_for("uygulamayı sonlandır") == "shell_action"
+
+
+async def test_dosya_ya_da_pencere_kapatmak_sistem_eylemi_sayilmaz():
+    """Aşırı yakalama, sohbeti araç turuna çevirirdi."""
+    assert required_effect_for("bu dosyayı kapat") is None
+    assert required_effect_for("pencereyi kapat") is None
+    assert required_effect_for("tarayıcıyı kapatma") is None
+
+
+async def test_yapilamayacak_eylemde_tur_model_cagirmadan_biter(tmp_path):
+    """Model çağrısı harcanmaz ve kullanıcıya ne yapacağı söylenir."""
+    sink = RecordingSink()
+    cagrilar = {"sayi": 0}
+
+    class _Sayan:
+        label = "gemini"
+
+        async def stream(self, request):
+            cagrilar["sayi"] += 1
+            raise AssertionError("model hiç çağrılmamalıydı")
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kw: _Sayan())
+    try:
+        deps = AgentDeps(
+            config=_config(agent=ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))),
+            publisher=_Publisher(sink),
+            policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+            tool_context=ToolContext(root=tmp_path),
+        )
+        sonuc = await run_agent("arkadaki uygulamayı kapat", deps)
+    finally:
+        monkeypatch.undo()
+
+    assert cagrilar["sayi"] == 0
+    assert not sonuc.ok
+    assert "Araç yeteneğini ölç" in sonuc.final_text
+    assert "Hiçbir değişiklik yapılmadı" in sonuc.final_text
+    olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
+    assert olay.blocking is True
+
+
+async def test_salt_okunur_kip_sohbet_turunda_da_bildirilir(tmp_path, monkeypatch):
+    """Görev eylem istemese bile kullanıcı salt-okunur kipte olduğunu görmeli."""
+    sink = RecordingSink()
+    monkeypatch.setattr(
+        agent_loop,
+        "build_provider",
+        lambda spec, **kw: ScriptedProvider([model_result("liste değiştirilebilir.")]),
+    )
+    deps = AgentDeps(
+        config=_config(agent=ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+
+    await run_agent("liste ile demet farkı nedir", deps)
+
+    olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
+    assert olay.blocking is False

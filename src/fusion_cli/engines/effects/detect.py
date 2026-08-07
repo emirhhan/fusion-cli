@@ -76,8 +76,21 @@ _SHELL_ACTION_PATTERNS = (
         r"restart|yeniden başlat|yeniden baslat|deploy|build et)\b"
     ),
     (
+        # Süreç/uygulama SONLANDIRMA. `kapat` ve `sonlandır` eskiden hiçbir desende
+        # yoktu: "arkadaki uygulamayı kapat" gerçek bir sistem eylemi istediği hâlde
+        # sohbet sayılıyordu ve model "kapattım" dese kanıt aranmıyordu.
+        r"\b(?:uygulama|program|servis|sunucu|server|süreç|surec|process|işlem|islem)"
+        r"[a-zçğıöşü]*.{0,40}\b(?:kapat|durdur|sonlandır|sonlandir|öldür|oldur|kill)\b"
+    ),
+    (
         r"\b(?:komut|script|servis|sunucu|server|uygulama)[a-zçğıöşü]*.{0,40}\b"
         r"(?:çalıştır|calistir|başlat|baslat|durdur|yeniden başlat|restart)\b"
+    ),
+    # "arkada/arka planda çalışan X'i kapat" — nesne uygulama adı olabilir, tür adı
+    # geçmeyebilir. Arka plan ifadesi başlı başına sistem eylemi işaretidir.
+    (
+        r"\b(?:arka\s*plan|arkaplan|arkada|background)[a-zçğıöşü]*.{0,60}\b"
+        r"(?:kapat|durdur|sonlandır|sonlandir|öldür|oldur|kill)\b"
     ),
 )
 _FILE_MUTATION_PATTERNS = (

@@ -85,6 +85,13 @@ AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+#: Seçili model dosya/sistem değiştiremiyor. Kısıt SESSİZ kalmamalı: model
+#: "böyle bir aracım yok" der ve haklıdır, ama kullanıcı sebebi göremezse
+#: Fusion'ı arızalı sanır.
+AGENT_MUTATION_UNAVAILABLE = (
+    "salt-okunur kip · bu model dosya/sistem değiştiremez ({reason}) · "
+    "panelden \"Araç yeteneğini ölç\""
+)
 
 # --- Tur bütçesi ----------------------------------------------------------- #
 #

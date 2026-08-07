@@ -37,6 +37,7 @@ from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
+    MutationUnavailable,
     SelfReviewFinished,
     SelfReviewStarted,
     ToolExecuted,
@@ -89,6 +90,16 @@ MAX_TOOL_CONTRACT_REPAIRS = 1
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
 BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
+#: Görev gerçek bir etki istiyor ama model bunu yapamıyor. Kullanıcıya NE YAPACAĞINI
+#: söyler: sebep + çıkış yolu. Hata mesajı eyleme dönüştürülebilir olmalıdır (RULES).
+MUTATION_UNAVAILABLE_ANSWER = (
+    "Bu görev dosya/sistem değişikliği gerektiriyor ama seçili model bunu yapamıyor: "
+    "{reason}.\n\n"
+    "Yapılacak: `fusion serve` ile paneli aç → Sağlayıcılar → ilgili web oturumu → "
+    "\"Araç yeteneğini ölç\". Ölçüm geçerse izin açılır. Alternatif olarak `/model` ile "
+    "araç yetenekli bir API modeline geç.\n\n"
+    "Hiçbir değişiklik yapılmadı."
+)
 #: Model yetenek kapısına takıldı: okuyabilir, planlayabilir ama değiştiremez.
 MUTATION_BLOCKED_MESSAGE = (
     "Bu model dosya/sistem değiştiremez ({reason}). Değişiklik önerini metin olarak "
@@ -267,6 +278,24 @@ async def run_agent(
     budget = deps.require_budget()
     if budget.total_timeout_s is None and execution.total_timeout_s is not None:
         budget.total_timeout_s = execution.total_timeout_s
+
+    # Yetenek kapısı sessiz kalmamalı: değiştirici araçlar sunulmuyorsa kullanıcı
+    # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
+    # model çağrısı harcamadan dururuz — hiçbir tur bu kısıtı aşamaz.
+    if not execution.allow_mutation and not plan_mode:
+        blocking = execution.required_effect is not None
+        deps.publisher.publish(
+            MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
+        )
+        if blocking:
+            return AgentOutcome(
+                final_text=MUTATION_UNAVAILABLE_ANSWER.format(
+                    reason=execution.mutation_block_reason
+                ),
+                messages=[*(history or []), Message("user", task)],
+                ok=False,
+            )
+
     outcome = await _drive(
         messages,
         deps,
