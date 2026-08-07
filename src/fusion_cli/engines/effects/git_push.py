@@ -21,10 +21,10 @@ from .detect import (
     is_valid_branch_reference,
 )
 from .model import (
-    Evidence,
     EffectContract,
     EffectKind,
     EffectRunResult,
+    Evidence,
     WorkflowRecord,
     WorkflowStatus,
     missing_evidence,
@@ -81,8 +81,8 @@ class GitPushWorkflow:
     def __init__(
         self,
         task: str,
-        deps: "AgentDeps",
-        registry: "ToolRegistry",
+        deps: AgentDeps,
+        registry: ToolRegistry,
         *,
         store: WorkflowStore,
         contract: EffectContract,
@@ -121,9 +121,10 @@ class GitPushWorkflow:
                 }
             )
             self._save()
+            hedef = snapshot.origin_repo or snapshot.origin_url
             self._progress(
                 "repository_inspected",
-                f"Repository incelendi: {snapshot.origin_repo or snapshot.origin_url} · {snapshot.current_branch}",
+                f"Repository incelendi: {hedef} · {snapshot.current_branch}",
             )
 
             target_repo = await self._resolve_repository(snapshot)
@@ -258,10 +259,12 @@ class GitPushWorkflow:
             return None
         branch = (await self._git_output("branch --show-current") or "").strip()
         if not branch:
-            return self._fail_snapshot("Detached HEAD durumunda otomatik push yapılmaz.")
+            self._mark_failed("Detached HEAD durumunda otomatik push yapılmaz.")
+            return None
         origin = (await self._git_output("remote get-url origin") or "").strip()
         if not origin:
-            return self._fail_snapshot("'origin' remote tanımlı değil.")
+            self._mark_failed("'origin' remote tanımlı değil.")
+            return None
         head = (await self._git_output("rev-parse HEAD") or "").strip()
         status = await self._git_output("status --porcelain=v1")
         if not head or status is None:
@@ -275,11 +278,6 @@ class GitPushWorkflow:
             local_head=head.splitlines()[0],
             status_porcelain=status,
         )
-
-    def _fail_snapshot(self, message: str) -> None:
-        self.record.error = message
-        self._status(WorkflowStatus.FAILED)
-        return None
 
     async def _resolve_repository(self, snapshot: RepositorySnapshot) -> str | None:
         requested = extract_repository_reference(self.task)
@@ -298,24 +296,28 @@ class GitPushWorkflow:
             {"mevcut", "istek", "iptal"},
         )
         if answer == "iptal":
-            return self._cancel("Repo hedefi kullanıcı tarafından iptal edildi.")
+            self._mark_cancelled("Repo hedefi kullanıcı tarafından iptal edildi.")
+            return None
         if answer == "mevcut":
             return snapshot.origin_repo
         if answer != "istek":
-            return self._fail_value("Repo hedefi kesinleştirilemedi.")
+            self._mark_failed("Repo hedefi kesinleştirilemedi.")
+            return None
 
         new_url = f"https://github.com/{requested}.git"
         changed = await self.tools.execute(
             "run_shell", {"command": f"git remote set-url origin {shlex.quote(new_url)}"}
         )
         if not changed.result.ok:
-            return self._fail_value(
+            self._mark_failed(
                 "Origin URL değiştirilemedi; herhangi bir push yapılmadı. "
                 + self._short(changed.result.output)
             )
+            return None
         verified = (await self._git_output("remote get-url origin") or "").strip()
         if _parse_remote_repository(verified) != requested:
-            return self._fail_value("Origin değişikliği doğrulanamadı.")
+            self._mark_failed("Origin değişikliği doğrulanamadı.")
+            return None
         self.record.data["origin_url"] = verified
         self.record.data["origin_repo"] = requested
         self._evidence("origin_updated", requested, "git remote set-url + get-url")
@@ -325,7 +327,8 @@ class GitPushWorkflow:
         explicit = extract_branch_reference(self.task)
         if explicit:
             if not is_valid_branch_reference(explicit):
-                return self._fail_value(f"Geçersiz branch hedefi: {explicit!r}")
+                self._mark_failed(f"Geçersiz branch hedefi: {explicit!r}")
+                return None
             if not await self._branch_exists(explicit):
                 self._status(WorkflowStatus.AWAITING_TARGET_CONFIRMATION)
                 answer = await self._ask(
@@ -336,9 +339,11 @@ class GitPushWorkflow:
                     {"yeni", "iptal"},
                 )
                 if answer == "iptal":
-                    return self._cancel("Yeni branch oluşturma kullanıcı tarafından iptal edildi.")
+                    self._mark_cancelled("Yeni branch oluşturma kullanıcı tarafından iptal edildi.")
+                    return None
                 if answer != "yeni":
-                    return self._fail_value("Yeni branch hedefi açıkça onaylanmadı.")
+                    self._mark_failed("Yeni branch hedefi açıkça onaylanmadı.")
+                    return None
             return explicit
 
         default = snapshot.default_branch
@@ -355,7 +360,8 @@ class GitPushWorkflow:
                 {"mevcut", "varsayilan", "varsayılan", "iptal"},
             )
             if answer == "iptal":
-                return self._cancel("Branch hedefi kullanıcı tarafından iptal edildi.")
+                self._mark_cancelled("Branch hedefi kullanıcı tarafından iptal edildi.")
+                return None
             if answer == "mevcut":
                 # Yeni remote branch oluşacaksa adını açıkça bir kez daha göster.
                 if not await self._branch_exists(snapshot.current_branch):
@@ -365,11 +371,13 @@ class GitPushWorkflow:
                         {"yeni", "iptal"},
                     )
                     if confirm != "yeni":
-                        return self._cancel("Yeni uzak branch oluşturulmadı.")
+                        self._mark_cancelled("Yeni uzak branch oluşturulmadı.")
+                        return None
                 return snapshot.current_branch
             if answer in {"varsayilan", "varsayılan"}:
                 return default
-            return self._fail_value("Branch hedefi kesinleştirilemedi.")
+            self._mark_failed("Branch hedefi kesinleştirilemedi.")
+            return None
         return snapshot.current_branch
 
     async def _branch_exists(self, branch: str) -> bool:
@@ -383,14 +391,16 @@ class GitPushWorkflow:
     async def _stage_safe_changes(self) -> bool | None:
         status = await self._git_output("status --porcelain=v1")
         if status is None:
-            return self._fail_value("Git status okunamadı.")
+            self._mark_failed("Git status okunamadı.")
+            return None
 
         tracked_sensitive = _sensitive_tracked_paths(status)
         if tracked_sensitive:
-            return self._fail_value(
+            self._mark_failed(
                 "Hassas olabilecek izlenen dosyalar değişmiş; otomatik commit durduruldu:\n- "
                 + "\n- ".join(tracked_sensitive)
             )
+            return None
 
         has_tracked_changes = any(
             line and not line.startswith("??") for line in status.splitlines()
@@ -398,14 +408,16 @@ class GitPushWorkflow:
         if has_tracked_changes:
             tracked = await self.tools.execute("run_shell", {"command": "git add -u"})
             if not tracked.result.ok:
-                return self._fail_value(
+                self._mark_failed(
                     "İzlenen değişiklikler stage edilemedi: "
                     + self._short(tracked.result.output)
                 )
+                return None
 
         untracked_raw = await self._git_output("ls-files --others --exclude-standard")
         if untracked_raw is None:
-            return self._fail_value("İzlenmeyen dosyalar listelenemedi.")
+            self._mark_failed("İzlenmeyen dosyalar listelenemedi.")
+            return None
         untracked = [line for line in untracked_raw.splitlines() if line.strip()]
         safe = [path for path in untracked if not _skip_untracked(path, self.root)]
         self.excluded_untracked = [
@@ -416,13 +428,15 @@ class GitPushWorkflow:
             command = "git add -- " + " ".join(shlex.quote(path) for path in batch)
             added = await self.tools.execute("run_shell", {"command": command})
             if not added.result.ok:
-                return self._fail_value(
+                self._mark_failed(
                     "Yeni dosyalar stage edilemedi: " + self._short(added.result.output)
                 )
+                return None
 
         staged_names = await self._git_output("diff --cached --name-only")
         if staged_names is None:
-            return self._fail_value("Staged değişiklikler doğrulanamadı.")
+            self._mark_failed("Staged değişiklikler doğrulanamadı.")
+            return None
         sensitive_staged = [
             path for path in staged_names.splitlines() if _sensitive_tracked(path.strip())
         ]
@@ -433,10 +447,11 @@ class GitPushWorkflow:
                     shlex.quote(path) for path in batch
                 )
                 await self.tools.execute("run_shell", {"command": command})
-            return self._fail_value(
+            self._mark_failed(
                 "Hassas dosyalar stage alanına girdiği için commit durduruldu:\n- "
                 + "\n- ".join(sensitive_staged)
             )
+            return None
 
         staged = bool(staged_names.strip())
         if staged:
@@ -452,12 +467,12 @@ class GitPushWorkflow:
             "run_shell", {"command": "git commit -m 'chore: sync Fusion CLI state'"}
         )
         if not commit.result.ok:
-            return bool(
-                self._fail_value("Commit oluşturulamadı: " + self._short(commit.result.output))
-            )
+            self._mark_failed("Commit oluşturulamadı: " + self._short(commit.result.output))
+            return False
         head = (await self._git_output("rev-parse HEAD") or "").strip()
         if not head:
-            return bool(self._fail_value("Commit sonrası HEAD doğrulanamadı."))
+            self._mark_failed("Commit sonrası HEAD doğrulanamadı.")
+            return False
         self._status(WorkflowStatus.COMMITTED)
         self._evidence("commit_created", head, "git commit + rev-parse")
         return True
@@ -480,11 +495,8 @@ class GitPushWorkflow:
     ) -> bool:
         expected = remote_head_before or await self._remote_head(branch)
         if not expected:
-            return bool(
-                self._fail_value(
-                    "Uzak HEAD okunamadığı için force-with-lease uygulanmadı."
-                )
-            )
+            self._mark_failed("Uzak HEAD okunamadığı için force-with-lease uygulanmadı.")
+            return False
 
         divergence = await self._divergence(branch)
         self._status(WorkflowStatus.AWAITING_FORCE_CONFIRMATION)
@@ -498,10 +510,12 @@ class GitPushWorkflow:
             "FORCE-WITH-LEASE ONAYLIYORUM yaz; aksi her cevap işlemi iptal eder."
         )
         if self.deps.asker is None:
-            return bool(self._fail_value(question))
+            self._mark_failed(question)
+            return False
         answer = (await self.deps.asker.ask(question)).strip()
         if answer != "FORCE-WITH-LEASE ONAYLIYORUM":
-            return bool(self._cancel("Force-with-lease kullanıcı tarafından onaylanmadı."))
+            self._mark_cancelled("Force-with-lease kullanıcı tarafından onaylanmadı.")
+            return False
         return await self._push(branch, force_lease=expected)
 
     async def _divergence(self, branch: str) -> str:
@@ -606,15 +620,21 @@ class GitPushWorkflow:
             ok=False,
         )
 
-    def _cancel(self, message: str) -> None:
+    def _mark_cancelled(self, message: str) -> None:
+        """Adımı KULLANICI İPTALİ olarak işaretle. Çağıran ayrıca çıkışını döndürür.
+
+        Eskiden bu yardımcılar `return self._cancel(...)` biçiminde kullanılıyordu;
+        `-> None` bir çağrının değerini döndürmek okuyana "bir sonuç taşınıyor"
+        izlenimi veriyordu. Daha kötüsü `bool(self._fail_value(...))` biçimiydi:
+        `bool(None)` ile False üretiliyordu. İşaretleme ve çıkış artık ayrıdır.
+        """
         self.record.error = message
         self._status(WorkflowStatus.CANCELLED)
-        return None
 
-    def _fail_value(self, message: str) -> None:
+    def _mark_failed(self, message: str) -> None:
+        """Adımı BAŞARISIZ işaretle. Çağıran ayrıca çıkışını döndürür."""
         self.record.error = message
         self._status(WorkflowStatus.FAILED)
-        return None
 
     def _cancelled_or_failed(self) -> EffectRunResult:
         status = WorkflowStatus(self.record.status)

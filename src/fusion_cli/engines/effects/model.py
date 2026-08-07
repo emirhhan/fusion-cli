@@ -110,7 +110,7 @@ class WorkflowRecord:
         return asdict(self)
 
     @classmethod
-    def from_json(cls, raw: dict[str, Any]) -> "WorkflowRecord":
+    def from_json(cls, raw: dict[str, Any]) -> WorkflowRecord:
         return cls(
             workflow_id=str(raw["workflow_id"]),
             kind=str(raw["kind"]),

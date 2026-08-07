@@ -1,4 +1,10 @@
-"""Emulated tool helpers and dependency-free schema validation."""
+"""Taklit araç yardımcıları ve üçüncü-parti gerektirmeyen şema doğrulama.
+
+Modelin ürettiği argümanlar araç ÇALIŞMADAN önce şemaya karşı doğrulanır: eksik
+alanı çalıştırıp hata almak yerine modele ne yanlış olduğunu söylemek turu kurtarır.
+`jsonschema` bilinçli olarak kullanılmaz — bu doğrulama `core`/`config` sınırında da
+çağrılabilmelidir ve o katmanlar üçüncü partiye bağımlı olamaz.
+"""
 
 from __future__ import annotations
 

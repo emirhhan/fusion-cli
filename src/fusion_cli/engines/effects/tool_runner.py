@@ -24,7 +24,7 @@ class ExecutedTool:
 class EffectToolRunner:
     """Araçları registry + approval + event zincirinden geçirir."""
 
-    def __init__(self, deps: "AgentDeps", registry: ToolRegistry) -> None:
+    def __init__(self, deps: AgentDeps, registry: ToolRegistry) -> None:
         self.deps = deps
         self.registry = registry
         self.tool_calls_made = 0

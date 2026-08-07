@@ -22,6 +22,7 @@ Ağır import: `cryptography` yalnızca depo gerçekten kullanılınca yüklenir
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import json
 from collections.abc import MutableMapping
@@ -76,11 +77,9 @@ class FernetSecretStore:
         token = self._fernet().encrypt(json.dumps(data).encode())  # type: ignore[attr-defined]
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_bytes(token)
-        try:
+        # Windows veya kısıtlı dosya sistemlerinde şifreleme yine koruma sağlar.
+        with contextlib.suppress(OSError):
             self._path.chmod(0o600)
-        except OSError:
-            # Windows veya kısıtlı dosya sistemlerinde şifreleme yine koruma sağlar.
-            pass
 
     def set(self, env_name: str, value: str) -> None:
         """Bir ortam değişkeni sırrını şifreleyip sakla (üzerine yazar)."""

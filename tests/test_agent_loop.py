@@ -17,7 +17,7 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.loop import AgentDeps, parse_arguments, run_agent
+from fusion_cli.engines.agent.loop import AgentDeps, _parse_arguments_checked, run_agent
 
 from .fakes import (
     AlwaysApprove,
@@ -376,20 +376,26 @@ async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
 # --- Argüman ayrıştırma ----------------------------------------------------- #
 
 
-def test_bozuk_json_bos_sozluge_duser():
-    assert parse_arguments("{bozuk") == {}
+def test_bozuk_json_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("{bozuk")
+    assert arguments == {}
+    assert hata is not None and "JSON" in hata
 
 
-def test_sozluk_olmayan_json_bos_sozluge_duser():
-    assert parse_arguments("[1,2]") == {}
+def test_sozluk_olmayan_json_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("[1,2]")
+    assert arguments == {}
+    assert hata == "arguments bir JSON nesnesi olmalı"
 
 
-def test_bos_arguman_bos_sozluk():
-    assert parse_arguments("") == {}
+def test_bos_arguman_bos_sozluk_ve_hata_dondurur():
+    arguments, hata = _parse_arguments_checked("")
+    assert arguments == {}
+    assert hata is not None
 
 
-def test_gecerli_json_ayristirilir():
-    assert parse_arguments('{"path":"a.txt"}') == {"path": "a.txt"}
+def test_gecerli_json_hatasiz_ayristirilir():
+    assert _parse_arguments_checked('{"path":"a.txt"}') == ({"path": "a.txt"}, None)
 
 
 def _sabit_denetim(sonuc):

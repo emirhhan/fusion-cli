@@ -1,18 +1,20 @@
-"""Native browser-backed providers for consumer web AI subscriptions.
+"""Tarayıcı tabanlı sağlayıcılar — kullanıcının KENDİ web AI aboneliği.
 
-The adapters in this module do not depend on a second router application.  They use an
-isolated Playwright browser profile owned by Fusion, open the provider's normal web UI,
-and translate Fusion's canonical message/tool protocol into a browser conversation.
+Buradaki adaptörler ikinci bir yönlendirici uygulamaya bağlı değildir: Fusion'ın
+sahip olduğu izole bir Playwright profili kullanılır, sağlayıcının normal web
+arayüzü açılır ve Fusion'ın kanonik mesaj/araç protokolü bir tarayıcı sohbetine
+çevrilir.
 
-Security boundary:
-- Fusion never reads a user's normal browser profile.
-- The user explicitly signs in in the dedicated Fusion profile or supplies their own
-  Cookie header in the control panel.
-- No CAPTCHA solving, stealth plugin, fingerprint spoofing, or anti-bot bypass is used.
-- Cookie material stays in the encrypted Fusion secret store and is redacted from errors.
+Güvenlik ve kapsam sınırı:
+- Kullanıcının NORMAL tarayıcı profili hiçbir koşulda okunmaz.
+- Kullanıcı ya Fusion'ın izole profilinde AÇIKÇA oturum açar ya da kendi Cookie
+  başlığını kontrol panelinden verir.
+- CAPTCHA çözme, gizlenme eklentisi, parmak izi taklidi ve anti-bot atlatma YOKTUR.
+- Cookie yalnızca şifreli Fusion sır deposunda durur ve hata metinlerinden ayıklanır.
 
-Browser UIs change frequently.  Each provider therefore has several selectors and all
-failures are reported as actionable session/selector errors instead of hanging forever.
+Web arayüzleri sık değişir. Bu yüzden her sağlayıcı için birden çok seçici tanımlıdır
+ve her arıza, sonsuza kadar beklemek yerine eyleme dönüştürülebilir bir oturum/seçici
+hatası olarak bildirilir.
 """
 
 from __future__ import annotations
@@ -34,15 +36,15 @@ from .web_session import WebSessionCredential, WebTransport
 
 
 class WebBrowserError(RuntimeError):
-    """Base error for browser-backed web providers."""
+    """Tarayıcı tabanlı web sağlayıcılarının kök hatası."""
 
 
 class WebBrowserAuthError(WebBrowserError):
-    """The dedicated browser profile is not logged in or the session expired."""
+    """İzole tarayıcı profilinde oturum açık değil ya da süresi dolmuş."""
 
 
 class WebBrowserSelectorError(WebBrowserError):
-    """Provider UI changed and the configured selectors no longer match."""
+    """Sağlayıcı arayüzü değişti; tanımlı seçiciler artık eşleşmiyor."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,12 +203,16 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
 
 
 def normalize_account(account: str) -> str:
-    """Normalize a user-facing account label for model ids, paths and HTML state."""
+    """Kullanıcının yazdığı hesap etiketini model kimliği/yol/HTML için normalize et."""
     return _slug(account)
 
 
 def browser_profile_dir(provider: str, account: str) -> Path:
-    """Return a stable, isolated profile directory for one provider account."""
+    """Bir sağlayıcı hesabı için kararlı ve İZOLE profil dizinini döndür.
+
+    Kullanıcının normal tarayıcı profili HİÇBİR koşulda okunmaz; Fusion yalnızca
+    kendi dizinini kullanır.
+    """
     safe_provider = _slug(provider)
     safe_account = normalize_account(account)
     return user_data_dir() / "web_profiles" / safe_provider / safe_account
@@ -245,7 +251,7 @@ def provider_definition(provider: str) -> BrowserProviderDefinition:
 
 
 def parse_cookie_header(raw: str) -> dict[str, str]:
-    """Parse a Cookie header without corrupting values that contain '='."""
+    """Cookie başlığını, içinde '=' geçen değerleri bozmadan ayrıştır."""
     cookies: dict[str, str] = {}
     for part in raw.split(";"):
         item = part.strip()
@@ -259,11 +265,11 @@ def parse_cookie_header(raw: str) -> dict[str, str]:
 
 
 def format_browser_prompt(messages: Sequence[Message]) -> str:
-    """Render canonical Fusion messages into one self-contained browser prompt.
+    """Kanonik Fusion mesajlarını tek ve kendi kendine yeten bir prompt'a dök.
 
-    Every provider call starts a fresh web conversation, so the complete canonical
-    history is included.  Tool results remain explicitly labelled and the model can
-    emit Fusion's existing emulated-tool format on the next turn.
+    DİKKAT: her sağlayıcı çağrısı YENİ bir web sohbeti açtığı için geçmişin tamamı
+    her turda yeniden gönderilir. Araç sonuçları açıkça etiketlenir ki model bir
+    sonraki turda taklit araç biçimini üretebilsin.
     """
     rendered: list[str] = []
     for message in messages:
@@ -292,8 +298,43 @@ def format_browser_prompt(messages: Sequence[Message]) -> str:
     return "\n\n".join(rendered)
 
 
+async def _launch_profile_context(
+    chromium: Any,
+    *,
+    profile: Path,
+    headless: bool,
+    accept_downloads: bool,
+) -> Any:
+    """Kalıcı Fusion profiliyle bir tarayıcı bağlamı aç.
+
+    Önce kullanıcının kurulu Chrome'u denenir (`channel="chrome"`), bulunamazsa
+    Playwright'ın kendi Chromium'una düşülür — ikisi de yoksa hata yukarı taşınır.
+
+    Argümanlar `**sözlük` ile değil AÇIKÇA verilir. Sözlükle açmak Playwright'ın
+    tiplenmiş imzasını devre dışı bırakıyor ve yanlış yazılmış bir seçenek ancak
+    çalışma anında ortaya çıkıyordu; iki çağrı yerinde de aynı liste elle
+    kopyalanmıştı (RULES.md "Genel Tasarım": ortak davranış inline tekrar edilmez).
+    """
+    for channel in ("chrome", None):
+        try:
+            return await chromium.launch_persistent_context(
+                str(profile),
+                channel=channel,
+                headless=headless,
+                viewport={"width": 1440, "height": 1000},
+                locale="tr-TR",
+                accept_downloads=accept_downloads,
+            )
+        except Exception:
+            # Kurulu Chrome yoksa paket içi Chromium denenir; o da açılamazsa
+            # başarısızlık çağırana bildirilir.
+            if channel is None:
+                raise
+    raise WebBrowserError("tarayıcı bağlamı açılamadı")
+
+
 class BrowserSessionPool:
-    """Process-local persistent Playwright contexts, one per provider/account."""
+    """Süreç-yerel kalıcı Playwright bağlamları; sağlayıcı/hesap başına bir tane."""
 
     def __init__(self) -> None:
         self._playwright: Any | None = None
@@ -325,28 +366,21 @@ class BrowserSessionPool:
             profile = browser_profile_dir(session.provider, session.account)
             profile.mkdir(parents=True, exist_ok=True)
             clear_profile_singletons(profile)
-            launch_args = {
-                "user_data_dir": str(profile),
-                "headless": session.headless,
-                "viewport": {"width": 1440, "height": 1000},
-                "locale": "tr-TR",
-                "accept_downloads": False,
-            }
-            try:
-                context = await self._playwright.chromium.launch_persistent_context(
-                    channel="chrome", **launch_args
-                )
-            except Exception:
-                context = await self._playwright.chromium.launch_persistent_context(**launch_args)
+            context = await _launch_profile_context(
+                self._playwright.chromium,
+                profile=profile,
+                headless=session.headless,
+                accept_downloads=False,
+            )
             await _inject_cookie_header(context, session.provider, credential.token)
             self._contexts[key] = context
             return context
 
     async def close_session(self, provider: str, account: str) -> None:
-        """Close all headed/headless contexts for one profile.
+        """Bir profile ait tüm (görünür/görünmez) bağlamları kapat.
 
-        Chrome locks persistent profiles.  The Control Panel calls this before opening
-        an interactive login window or changing headless settings.
+        Chrome kalıcı profilleri KİLİTLER. Kontrol paneli, etkileşimli giriş penceresi
+        açmadan ya da headless ayarını değiştirmeden önce bunu çağırır.
         """
         async with self._guard:
             keys = [
@@ -384,11 +418,12 @@ def build_browser_transport(
     pool: BrowserSessionPool | None = None,
     timeout_s: float = WEB_TIMEOUT_S,
 ) -> WebTransport:
-    """Build a native browser transport for one configured provider/account.
+    """Yapılandırılmış bir sağlayıcı/hesap için tarayıcı transport'u kur.
 
-    A selector/readiness failure is retried exactly once in the SAME provider and
-    SAME isolated profile. Authentication, quota and human-verification failures are
-    never hidden behind retries or another provider.
+    Seçici/hazırlık arızası AYNI sağlayıcı ve AYNI izole profil içinde tam olarak bir
+    kez yeniden denenir. Kimlik doğrulama, kota ve insan-doğrulama hataları yeniden
+    denemenin ya da başka bir sağlayıcının ARKASINA GİZLENMEZ: kullanıcı gerçek sebebi
+    görmelidir.
     """
     definition = provider_definition(session.provider)
     manager = pool or _POOL
@@ -439,7 +474,7 @@ def build_browser_transport(
 
 
 async def open_login_browser(provider: str, account: str) -> None:
-    """Open a headed isolated profile and wait until the user closes the browser."""
+    """Görünür izole profili aç ve kullanıcı tarayıcıyı kapatana kadar bekle."""
     definition = provider_definition(provider)
     try:
         from playwright.async_api import async_playwright
@@ -452,23 +487,24 @@ async def open_login_browser(provider: str, account: str) -> None:
     profile.mkdir(parents=True, exist_ok=True)
     clear_profile_singletons(profile)
     async with async_playwright() as playwright:
-        kwargs = {
-            "user_data_dir": str(profile),
-            "headless": False,
-            "viewport": {"width": 1440, "height": 1000},
-            "locale": "tr-TR",
-        }
-        try:
-            context = await playwright.chromium.launch_persistent_context(
-                channel="chrome", **kwargs
-            )
-        except Exception:
-            context = await playwright.chromium.launch_persistent_context(**kwargs)
+        context = await _launch_profile_context(
+            playwright.chromium,
+            profile=profile,
+            headless=False,
+            # Giriş sırasında indirme engellenmez: bazı sağlayıcılar doğrulama
+            # akışında dosya indirtebiliyor.
+            accept_downloads=True,
+        )
         page = context.pages[0] if context.pages else await context.new_page()
         await page.goto(definition.home_url, wait_until="domcontentloaded", timeout=60_000)
-        # Browser window remains open until the user closes it.  Polling avoids relying on
-        # provider-specific login completion selectors.
-        while context.pages:
+        # Pencere, kullanıcı kapatana kadar açık kalır. Yoklama bilinçlidir: giriş
+        # bitişini sağlayıcıya özgü bir seçiciye bağlamak, arayüz her değiştiğinde
+        # kırılırdı.
+        #
+        # Bastırma gerekçesi (ASYNC110): kural, süreç İÇİ bir üreticinin
+        # `asyncio.Event` ile işaret vermesini önerir. Burada koşulun sahibi dış bir
+        # süreçtir (kullanıcının tarayıcı penceresi); Event'i set edecek üretici yoktur.
+        while context.pages:  # noqa: ASYNC110
             await asyncio.sleep(0.5)
         with contextlib.suppress(Exception):
             await context.close()

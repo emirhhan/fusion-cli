@@ -5,8 +5,6 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-import pytest
-
 from fusion_cli.core.events import EffectWorkflowFinished, ToolExecuted
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy

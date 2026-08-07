@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 from fusion_cli.core.events import SelfReviewStarted, ToolExecuted, ToolOutcome
+from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
-from fusion_cli.engines.agent.classify import TaskKind
-from fusion_cli.core.tools import ToolContext
 
-from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, make_config, model_result, tool_call
+from .fakes import (
+    AlwaysApprove,
+    RecordingSink,
+    ScriptedProvider,
+    make_config,
+    model_result,
+    tool_call,
+)
 
 
 class _Publisher:
@@ -126,7 +133,9 @@ async def test_web_mutation_keeps_self_review(monkeypatch, tmp_path):
         return ""
 
     monkeypatch.setattr(agent_loop.review, "review_turn", _clean_review)
-    result = await run_agent("yeni özellik ekle ve dosyaya yaz", _deps(tmp_path, sink, self_review=True))
+    result = await run_agent(
+        "yeni özellik ekle ve dosyaya yaz", _deps(tmp_path, sink, self_review=True)
+    )
 
     assert result.mutating_tool_calls_made == 1
     assert any(isinstance(event, SelfReviewStarted) for event in sink.events)
@@ -333,6 +342,7 @@ def test_action_with_explicit_no_tools_keeps_honest_evidence_guard():
 
 async def test_failed_api_action_is_not_sent_to_self_review(monkeypatch, tmp_path):
     from dataclasses import replace
+
     from fusion_cli.core.events import SelfReviewStarted
 
     sink = RecordingSink()

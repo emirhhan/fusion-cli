@@ -12,6 +12,7 @@ sunucu gerekmez — `httpx.ASGITransport` ile doğrudan çağrılır.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import random
 import shutil
@@ -453,10 +454,10 @@ class GatewayApp:
             await _json(send, _error_body(str(error)), status=500)
             return
         if found.credential_ref and self._secret_store.available:
-            try:
+            # Sır zaten yoksa ya da depo çözülemiyorsa oturum silme işlemi yine
+            # tamamlanmalıdır: kullanıcı bozuk bir depo yüzünden oturuma kilitlenmez.
+            with contextlib.suppress(ConfigError):
                 self._secret_store.delete(found.credential_ref)
-            except ConfigError:
-                pass
         if found.transport == "browser":
             await close_browser_session(found.provider, found.account)
             if bool(body.get("purge_profile", True)):
@@ -525,8 +526,15 @@ class GatewayApp:
             return
         await close_browser_session(provider, account)
         try:
-            process = subprocess.Popen(
-                [sys.executable, "-m", "fusion_cli.providers.web_login", provider, account],
+            # Giriş tarayıcısı ayrı bir oturumda açılır ve BEKLENMEZ: kullanıcı
+            # pencereyi kapatana kadar yaşar. Süreç kurulumu event loop'u bloklamasın
+            # diye asyncio'nun kendi başlatıcısı kullanılır.
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "fusion_cli.providers.web_login",
+                provider,
+                account,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,

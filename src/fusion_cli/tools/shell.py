@@ -18,11 +18,9 @@ from ..core.constants import (
 )
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
+from .command_policy import READONLY_GIT_SUBCOMMANDS
 
-#: Onaysız çalışmasına izin verilen git alt komutları.
-READONLY_GIT_SUBCOMMANDS = frozenset(
-    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list"}
-)
+__all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:

@@ -56,7 +56,7 @@ from ...tools.emulation import render_tool_example, validate_arguments
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, learning_steps, reflexion, review, skill_recall
-from .approval import ApprovalPolicy, Decision, build_request
+from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
 from .classify import TaskKind, classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
@@ -602,7 +602,12 @@ async def _run_tools(
     *,
     execution: ExecutionPolicy,
 ) -> bool:
-    """Validate before execution and stop repeated malformed/duplicate calls."""
+    """Çalıştırmadan ÖNCE doğrula; bozuk ve tekrar eden çağrı zincirini kes.
+
+    Sıra önemlidir: sözleşme ihlali (bozuk JSON, bilinmeyen araç, eksik alan) araç
+    hiç çalışmadan yakalanır ve modele düzeltme şansı verilir. İkinci kez aynı hata
+    gelirse tur sonlandırılır — düzeltemeyen bir model sonsuza kadar denemez.
+    """
     state.tool_calls_last_turn = len(calls)
     state.tool_rounds += 1
     errored = False
@@ -749,7 +754,11 @@ async def _execute(
 
 
 def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
-    """Parse raw arguments without erasing malformed-JSON evidence."""
+    """Ham argümanları ayrıştır; bozuk JSON kanıtını SİLMEDEN.
+
+    Hatayı yutup boş sözlük döndürmek, modele "argümanların boştu" demek olurdu;
+    oysa sorun JSON'un kendisidir ve model bunu bilmeden düzeltemez.
+    """
     try:
         parsed = json.loads(raw)
     except (json.JSONDecodeError, TypeError, ValueError) as error:
@@ -757,12 +766,6 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
     if not isinstance(parsed, dict):
         return {}, "arguments bir JSON nesnesi olmalı"
     return parsed, None
-
-
-def parse_arguments(raw: str) -> dict[str, object]:
-    """Backward-compatible parser; runtime uses the checked variant."""
-    parsed, _ = _parse_arguments_checked(raw)
-    return parsed
 
 
 def _is_tool_contract_error(detail: str | None) -> bool:
@@ -845,9 +848,9 @@ def _web_self_review_needed(
 
     if is_complex_kind(kind):
         return True
-    if type(deps.policy).__name__ == "SecurityApproval" and outcome.tool_calls_made > 0:
-        return True
-    return False
+    # Güvenlik kipinde kullanıcı her değişikliği tek tek onaylamıştır; araç çalışan
+    # bir turu denetimsiz bırakmak o kipin amacına aykırı olurdu.
+    return isinstance(deps.policy, SecurityApproval) and outcome.tool_calls_made > 0
 
 
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:

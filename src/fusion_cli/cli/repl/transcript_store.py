@@ -7,10 +7,10 @@ olaylarını kullanıcı memory dizininde atomik biçimde saklar.
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import hashlib
 import json
-import os
 import time
 import uuid
 from enum import Enum
@@ -31,10 +31,11 @@ class TranscriptStore:
         digest = hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
         self.base_dir = (base_dir.expanduser().resolve() / "transcripts" / digest)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        try:
+        # İzin daraltma bir sıkılaştırmadır, ön koşul değil: chmod desteklemeyen
+        # dosya sisteminde (Windows paylaşımı, bazı konteyner mount'ları) transcript
+        # yine yazılabilmelidir.
+        with contextlib.suppress(OSError):
             self.base_dir.chmod(0o700)
-        except OSError:
-            pass
         self.snapshot_path = self.base_dir / "latest.ansi"
         self.events_path = self.base_dir / "events.jsonl"
         self.session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
@@ -57,18 +58,21 @@ class TranscriptStore:
         try:
             temporary.write_text(safe, encoding="utf-8")
             temporary.chmod(0o600)
-            os.replace(temporary, self.snapshot_path)
+            temporary.replace(self.snapshot_path)
         except OSError:
-            try:
+            # Anlık görüntü yazılamadıysa yarım geçici dosyayı bırakma. Temizliğin
+            # kendisi de başarısız olabilir (disk dolu, izin yok); o durumda yapılacak
+            # bir şey yoktur ve transcript kaydı turu düşürmemelidir.
+            with contextlib.suppress(OSError):
                 temporary.unlink(missing_ok=True)
-            except OSError:
-                pass
 
     def record_user(self, text: str) -> None:
         self._append({"event": "UserMessage", "text": text})
 
     def handle(self, event: Event) -> None:
-        payload = {"event": type(event).__name__}
+        # JSONL sınırı: alan değerleri olay tipine göre değişir ve `_jsonable`
+        # bunları serileştirilebilir bir değere indirger. `Any` bu sınırda kalır.
+        payload: dict[str, Any] = {"event": type(event).__name__}
         for field in dataclasses.fields(event):
             payload[field.name] = _jsonable(getattr(event, field.name))
         self._append(payload)
@@ -97,7 +101,7 @@ class TranscriptStore:
         older = self.events_path.with_suffix(".jsonl.1")
         try:
             older.unlink(missing_ok=True)
-            os.replace(self.events_path, older)
+            self.events_path.replace(older)
         except OSError:
             return
 

@@ -7,7 +7,8 @@ niyetin anlaşılmasında rol oynar; desteklenen bir effect için handler seçim
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from ...core.events import EffectWorkflowFinished, EffectWorkflowStarted
 from .detect import detect_contract, explicitly_disallows_tools
@@ -31,7 +32,7 @@ class WorkflowRunner:
     handler'ın post-condition doğrulamasıyla üretilebilir.
     """
 
-    def __init__(self, deps: "AgentDeps", registry: "ToolRegistry") -> None:
+    def __init__(self, deps: AgentDeps, registry: ToolRegistry) -> None:
         self.deps = deps
         self.registry = registry
         self.store = WorkflowStore(deps.config.memory_dir / "effect-workflows")
@@ -98,8 +99,8 @@ class WorkflowRunner:
 
 async def maybe_run_effect_workflow(
     task: str,
-    deps: "AgentDeps",
-    registry: "ToolRegistry",
+    deps: AgentDeps,
+    registry: ToolRegistry,
     *,
     plan_mode: bool = False,
     depth: int = 0,

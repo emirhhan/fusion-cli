@@ -76,17 +76,14 @@ def build_provider(
         configure_litellm()
         # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
         # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
-        if key_pools is not None:
-            if definition is not None and definition.auth_env is not None:
-                pool = key_pools.for_env(definition.auth_env)
-                if pool.size > 1:
-                    return KeyRotatingProvider(
-                        lambda key: LiteLlmProvider(
-                            model, role=spec.name, clock=clock, api_key=key
-                        ),
-                        pool,
-                        label=model,
-                    )
+        if key_pools is not None and definition is not None and definition.auth_env is not None:
+            pool = key_pools.for_env(definition.auth_env)
+            if pool.size > 1:
+                return KeyRotatingProvider(
+                    lambda key: LiteLlmProvider(model, role=spec.name, clock=clock, api_key=key),
+                    pool,
+                    label=model,
+                )
         return LiteLlmProvider(model, role=spec.name, clock=clock)
 
     # `strict` tek-model seçimini gerçekten katı yapar. Fallback config'te korunur

@@ -10,13 +10,13 @@ from fusion_cli.config.models import WebSessionConfig
 from fusion_cli.core.types import Message
 from fusion_cli.providers.web_browser import (
     WEB_BROWSER_PROVIDERS,
+    WebBrowserAuthError,
+    _raise_known_page_error,
     browser_profile_dir,
     clear_profile_singletons,
     format_browser_prompt,
     parse_cookie_header,
     web_secret_name,
-    _raise_known_page_error,
-    WebBrowserAuthError,
 )
 
 
@@ -104,7 +104,9 @@ class _FakeLocator:
         self._visible = visible
         self.last = self
 
-    async def inner_text(self, timeout=0):
+    # Playwright'ın imzasını taklit eder; sahte olduğu için gerçek bir zaman
+    # aşımı uygulamaz. Ad Playwright tarafından dayatılır, bizim seçimimiz değil.
+    async def inner_text(self, timeout=0):  # noqa: ASYNC109
         return self._text
 
     async def count(self):

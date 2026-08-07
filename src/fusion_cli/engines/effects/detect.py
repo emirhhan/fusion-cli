@@ -210,10 +210,11 @@ def extract_branch_reference(task: str) -> str | None:
 
 
 def _positive_action_clauses(text: str) -> str:
-    """Keep positive clauses while removing explicit negative instructions.
+    """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
-    This preserves ``repoyu pushla ama araç kullanma`` as a real push request,
-    while ``git kullanma; dosya oluştur`` only keeps the file-mutation clause.
+    ``repoyu pushla ama araç kullanma`` gerçek bir push isteği olarak KALIR: kullanıcı
+    aracı yasaklamış olabilir ama istediği etki ortadan kalkmaz. Buna karşılık
+    ``git kullanma; dosya oluştur`` yalnızca dosya cümleciğini bırakır.
     """
     clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
     positive = [

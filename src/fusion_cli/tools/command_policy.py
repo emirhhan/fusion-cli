@@ -76,11 +76,17 @@ _TOOLING_SUBCOMMANDS = frozenset(
     {"test", "check", "lint", "typecheck", "run", "fmt", "format", "build", "vet"}
 )
 
-#: Onaysız geçilen git alt komutları. `shell.READONLY_GIT_SUBCOMMANDS` ile aynı
-#: listedir; git iki ayrı yoldan (git aracı ve run_shell) gelebildiği için karar
-#: iki yerde de aynı olmalıdır.
-_READONLY_GIT = frozenset(
-    {"status", "diff", "log", "show", "branch", "ls-files", "blame", "remote", "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list"}
+#: Onaysız geçilen git alt komutları — TEK KAYNAK.
+#:
+#: Git iki ayrı yoldan gelebilir (`git` aracı ve `run_shell`) ve ikisinde de aynı
+#: kararın verilmesi gerekir. Liste eskiden `shell.py` içinde ikinci kez yazılıydı;
+#: iki kopya zamanla ayrışıp aynı komutun bir yoldan onaysız, öteki yoldan onaylı
+#: geçmesine yol açabilirdi. `shell` bu listeyi buradan alır.
+READONLY_GIT_SUBCOMMANDS = frozenset(
+    {
+        "status", "diff", "log", "show", "branch", "ls-files", "blame", "remote",
+        "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list",
+    }
 )
 
 #: Komutu parçalara bölen kabuk operatörleri. Zincirin HER parçası güvenli olmalı:
@@ -129,7 +135,7 @@ def _segment_safe(segment: str) -> bool:
     arguments = parts[1:]
 
     if name == "git":
-        return bool(arguments) and arguments[0] in _READONLY_GIT
+        return bool(arguments) and arguments[0] in READONLY_GIT_SUBCOMMANDS
     if name == "find":
         return not any(argument in _FIND_UNSAFE for argument in arguments)
     if name in _PROJECT_TOOLING:

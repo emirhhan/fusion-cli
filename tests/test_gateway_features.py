@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+
 import httpx
 
 from fusion_cli.core.compression import compress_messages, compress_text, saved_chars

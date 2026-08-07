@@ -14,10 +14,10 @@ __all__ = [
     "EffectContract",
     "EffectKind",
     "EffectRunResult",
-    "WorkflowStatus",
     "WorkflowRunner",
-    "missing_evidence",
+    "WorkflowStatus",
     "detect_contract",
-    "required_effect_for",
     "maybe_run_effect_workflow",
+    "missing_evidence",
+    "required_effect_for",
 ]

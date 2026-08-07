@@ -1,4 +1,9 @@
-"""Web provider registry: custom HTTP sessions and native browser subscriptions."""
+"""Web sağlayıcı kayıt defteri: kendi HTTP uçların ve tarayıcı tabanlı abonelikler.
+
+Model kimliğinden yapılandırılmış web oturumuna eşleme burada yapılır. Sır asla
+yapılandırmadan gelmez: HTTP ucu token'ı ortam değişkeninden, tarayıcı oturumunun
+Cookie'si şifreli depodan okunur.
+"""
 
 from __future__ import annotations
 
@@ -23,7 +28,7 @@ _TOOL_SUPPORT = {"none": ToolSupport.NONE, "emulated": ToolSupport.EMULATED}
 
 
 class WebSessionRegistry:
-    """Model id -> configured web provider adapter."""
+    """Model kimliği → yapılandırılmış web sağlayıcı adaptörü."""
 
     def __init__(
         self,
@@ -96,7 +101,11 @@ async def _missing_endpoint_transport(
 
 
 def unconfigured_web_provider(model: str, *, clock: Clock | None = None) -> LlmProvider:
-    """Return a clear failing provider instead of sending a web id to LiteLLM."""
+    """Web kimliğini LiteLLM'e göndermek yerine ANLAŞILIR biçimde başarısız ol.
+
+    `chatgpt_web/...` gibi bir kimlik LiteLLM'e giderse kullanıcı "bilinmeyen model"
+    hatası görür ve sorunun eksik oturum olduğunu anlamaz.
+    """
     return WebProviderAdapter(
         model=model,
         credential=WebSessionCredential(),

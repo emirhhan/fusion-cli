@@ -1,4 +1,15 @@
-"""Canonical emulated tool-call and raw payload formatting/parsing."""
+"""Taklit araç çağrısı ve ham payload biçimlendirme/ayrıştırma — kanonik sözleşme.
+
+Native function-calling'i olmayan modeller (web arayüzleri) araç çağrısını METİN
+olarak üretir. Bu modül o metnin tek geçerli biçimini tanımlar ve geri okur.
+
+İki blok vardır ve ayrı olmaları zorunludur:
+
+- `<tool_call>{…}</tool_call>` — çağrının kendisi, tek satırlık JSON.
+- `<tool_payload id="…">…</tool_payload>` — çok satırlı/kod içeren değerler.
+  JSON string'inin içine kaynak kodu koymak kaçış karakterlerinde bozuluyordu;
+  payload ayrı taşınır ve çağrıdan `{"$ref": "id"}` ile gösterilir.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +40,7 @@ _PAYLOAD_BLOCK = re.compile(
 
 
 class _PayloadResolutionError(ValueError):
-    """A payload reference could not be resolved safely."""
+    """Bir payload referansı güvenli biçimde çözülemedi."""
 
 
 def _example_value(name: str, schema: Mapping[str, object]) -> object:
@@ -60,7 +71,7 @@ def _example_value(name: str, schema: Mapping[str, object]) -> object:
 
 
 def render_tool_example(function_schema: Mapping[str, object]) -> str:
-    """Build one valid canonical short-call example from a function schema."""
+    """Şemadan geçerli TEK bir kanonik kısa-çağrı örneği üret."""
     name = str(function_schema.get("name", "tool"))
     parameters = function_schema.get("parameters")
     arguments: dict[str, object] = {}
@@ -83,7 +94,7 @@ def render_tool_example(function_schema: Mapping[str, object]) -> str:
 
 
 def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
-    """Render the canonical short-call and raw-payload tool contract."""
+    """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök."""
     lines = [
         "Araç kullanacaksan yalnızca canonical blokları kullan:",
         (
@@ -159,14 +170,20 @@ class EmulatedParse:
 
 
 def _strip_payload_transport_prefix(body: str) -> str:
-    """Remove a sentinel and any browser toolbar lines before it."""
+    """Sentinel'i ve ondan ÖNCE gelen tarayıcı araç çubuğu satırlarını at.
+
+    Web arayüzü kod bloğunun başına dil rozeti ("python", "Kopyala") ekleyebiliyor;
+    sentinel bu gürültünün nerede bittiğini kesin olarak işaretler.
+    """
     lines = body.splitlines(keepends=True)
     for index, line in enumerate(lines[:4]):
         if line.rstrip("\r\n") == PAYLOAD_SENTINEL:
             return "".join(lines[index + 1 :])
 
-    # Backward-compatible recovery for the exact Gemini artifact observed
-    # before the sentinel protocol: a Python badge plus obvious source code.
+    # Sentinel protokolünden ÖNCE gözlenen tek somut bozulma için geriye uyum:
+    # Gemini kod bloğunun başına "python" rozeti koyuyor ve hemen ardından açıkça
+    # kaynak kodu geliyordu. Yalnızca bu dar kalıp kurtarılır; genel bir tahmin
+    # yapılmaz, çünkü yanlış tahmin kullanıcının dosyasına yanlış içerik yazar.
     first, separator, remainder = body.partition("\n")
     python_starts = (
         "import ",
@@ -187,7 +204,7 @@ def _strip_payload_transport_prefix(body: str) -> str:
 
 
 def _normalize_payload_body(body: str) -> str:
-    """Remove payload framing, code fences and browser-rendered labels."""
+    """Payload çerçevesini, kod bloğu sınırlarını ve tarayıcı etiketlerini temizle."""
     if body.startswith("\r\n"):
         body = body[2:]
     elif body.startswith("\n"):
@@ -259,7 +276,7 @@ def _resolve_payload_refs(
 
 
 def parse_tool_calls(text: str) -> EmulatedParse:
-    """Extract canonical calls and resolve raw payload references."""
+    """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
     calls: list[ToolCall] = []
     errors: list[str] = []
     payloads: dict[str, str] = {}
