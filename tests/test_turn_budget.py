@@ -279,3 +279,36 @@ async def test_butce_disaridan_verilebilir_ve_paylasilir(monkeypatch, tmp_path, 
     assert deps.budget.model_calls == 2
     assert deps.budget.stop is BudgetStop.MODEL_CALLS
     assert not sonuc.ok
+
+
+# --- Yürütme politikası da devredilir ----------------------------------------- #
+#
+# Ölçüldü: öz-denetim/doğrulama turu politikayı DÜZELTME METNİNDEN yeniden
+# türetiyordu. Asıl görev BUGFIX (12 araç turu) olsa bile düzeltme metni basit
+# sohbet sanılıp 5 tura düşüyor ve iş yarıda kesiliyordu.
+
+
+async def test_yurutme_politikasi_ic_ice_turlarda_korunur(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(is_web=True, max_tool_rounds=12, max_model_calls=16)
+
+    await run_agent("herhangi bir görev", deps)
+
+    # Politika turun başında verildiyse `policy_for` ile EZİLMEMELİ.
+    assert deps.execution.max_tool_rounds == 12
+    assert deps.execution.max_model_calls == 16
+
+
+async def test_politika_ilk_turda_bir_kez_belirlenir(monkeypatch, tmp_path, sink):
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+    deps = _deps(tmp_path, sink)
+    assert deps.execution is None
+
+    await run_agent("envanter.py'deki hataları düzelt", deps)
+
+    assert deps.execution is not None
+    # BUGFIX görevi cömert bütçe almalı; basit sohbet bütçesi değil.
+    assert (deps.execution.max_tool_rounds or 99) > 5

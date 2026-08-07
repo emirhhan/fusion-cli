@@ -33,8 +33,8 @@ def test_browser_prompt_tum_kanonik_gecmisi_ve_tool_sonucunu_tasir():
             Message("tool", "içerik", name="read_file", ok=True),
         )
     )
-    assert "### SİSTEM" in prompt
-    assert "### KULLANICI" in prompt
+    assert "### FUSION//SİSTEM" in prompt
+    assert "### FUSION//KULLANICI" in prompt
     assert "ARAÇ SONUCU (read_file · başarılı)" in prompt
     assert "içerik" in prompt
 

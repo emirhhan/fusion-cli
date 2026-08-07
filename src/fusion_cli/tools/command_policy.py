@@ -49,7 +49,19 @@ _VERSION_FLAGS = frozenset({"--version", "-V", "--help", "-h", "version"})
 _SCRIPT_RUNNERS = frozenset({"python", "python3", "node"})
 
 #: Satır içi kod alan bayraklar — proje dosyası çalıştırmakla aynı şey değildir.
-_INLINE_CODE_FLAGS = frozenset({"-c", "-e", "--eval", "-m"})
+#
+# `-m` bu listede DEĞİLDİR ve bu bilinçlidir. `-m` toptan yasaklıyken kendi araç
+# talimatımızın kanonik örneği (`python3 -m pytest -q`) onaysız geçemiyordu: modele
+# çalıştırmasını söylediğimiz komut, etkileşimsiz ortamda reddediliyor ve agent
+# tıkanıyordu. `python -m pytest`, `pytest` ile AYNI güven seviyesidir.
+#
+# Yasak yerine allowlist: yalnızca TANINAN kalite/test modülleri `-m` ile geçer.
+# `python -m pip install` ya da `python -m http.server` geçmez.
+_INLINE_CODE_FLAGS = frozenset({"-c", "-e", "--eval"})
+
+#: `-m` ile onaysız çalıştırılabilen modüller. Hepsi projenin kendi kodunu
+#: denetleyen/çalıştıran araçlardır; `_DIRECT_TOOLING` ile aynı gerekçe.
+_MODULE_RUNNERS = frozenset({"pytest", "unittest", "ruff", "mypy", "tox", "compileall"})
 
 #: Projenin kendi kalite araçları. Bunlar projede TANIMLI kodu çalıştırır (test
 #: dosyaları, lint eklentileri) — yani teknik olarak keyfi kod yürütürler.
@@ -159,6 +171,9 @@ def _script_safe(arguments: list[str]) -> bool:
         return False
     if any(argument in _INLINE_CODE_FLAGS for argument in arguments):
         return False
+    if arguments[0] == "-m":
+        # `python -m <modül>`: yalnızca tanınan kalite/test modülleri onaysız geçer.
+        return len(arguments) > 1 and arguments[1].split(".")[0] in _MODULE_RUNNERS
     hedef = arguments[0]
     return not (hedef.startswith(("-", "/", "~")) or ".." in hedef.split("/"))
 

@@ -192,9 +192,25 @@ def recall_scope(kind: TaskKind) -> str | None:
     return None if kind is TaskKind.GENERAL else kind.value
 
 
+#: Ek almış biçimlerin de sayılması için gereken en az anahtar uzunluğu.
+#
+# Türkçe eklemeli bir dildir ve tam-token eşleşme ekli biçimleri kaçırıyordu:
+# "hataları" ≠ "hata", "testleri" ≠ "test". Ölçüldü — üç hatayı düzeltmek isteyen
+# bir istek ("hataları oku, sonra düzelt, sonra doğrula") EXPLORE sanılıyordu:
+# EXPLORE'un iki eşleşmesine (oku, doğrula) karşı BUGFIX yalnızca bir tane
+# bulabiliyordu. Sonuç, göreve olması gerekenden dar bir bütçe verilmesiydi.
+#
+# Önek eşleşmesi yalnızca UZUN anahtarlarda açılır: kısa anahtarlarda yanlış-pozitif
+# riski yüksektir ("bul" → "bulut", "yaz" → "yazılım" gibi).
+_PREFIX_MATCH_MIN = 4
+
+
 def _matches(keyword: str, tokens: set[str], lowered: str) -> bool:
-    # Tek sözcüklü anahtar tam token eşleşmesiyle (yanlış-pozitif azalır); çok
-    # sözcüklü anahtar alt-dize aramasıyla eşleşir.
+    # Çok sözcüklü anahtar alt-dize aramasıyla eşleşir.
     if " " in keyword:
         return keyword in lowered
-    return keyword in tokens
+    if keyword in tokens:
+        return True
+    if len(keyword) < _PREFIX_MATCH_MIN:
+        return False
+    return any(token.startswith(keyword) for token in tokens)

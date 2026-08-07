@@ -1,5 +1,84 @@
 # BACKLOG
 
+## ÖLÇÜLDÜ — zor görev hem API hem Gemini web ile geçiyor (2026-08-07)
+
+Deneme görevi: üç ayrı hatayı düzelt (çökme, sessiz yanlış sonuç, sınır durumu) +
+eksik bir modülü sıfırdan yaz + testleri geçir, TESTLERE DOKUNMADAN.
+
+    API (nvidia_nim/nemotron-3-super)  →  11/11, test dosyaları değişmemiş
+    Gemini web (taklit araç)           →  11/11, test dosyaları değişmemiş
+
+Son Gemini koşusunun akışı: list_dir → 3 okuma → 2 yazma → pytest ile DOĞRULAMA →
+özet. Tekrar yok, boşa çağrı yok.
+
+Buraya gelene kadar ON kusur bulundu; hepsi canlı ölçümle, hiçbiri tahminle değil.
+
+### Agent döngüsü (sağlayıcıdan bağımsız)
+
+1. **Bütçe sayaçları iç içe turlarda sıfırlanıyordu.** Öz-denetim ve doğrulama
+   kapısı `run_agent`'ı yeniden çağırıyor; sayaçlar yerel olduğu için her düzeltici
+   tur sıfırdan başlıyordu. Bütçeler toplanmıyor, ÇARPILIYORDU. → `core/budget.py`
+2. **Yürütme politikası da iç içe turlarda yeniden türetiliyordu.** Asıl görev BUGFIX
+   (12 araç turu) olsa bile düzeltme metni basit sohbet sanılıp 5 tura düşüyordu.
+3. **Tekrar dedektörü yalnızca web modellerinde açıktı**; API modelleri aynı çağrıyı
+   sınırsız tekrar edebiliyordu.
+4. **Türkçe ekler sınıflandırmayı bozuyordu**: "hataları" ≠ "hata", "testleri" ≠
+   "test". Üç hata düzeltmek isteyen istek EXPLORE sanılıp dar bütçe alıyordu.
+5. **`python3 -m pytest` onaysız geçemiyordu** — `-m` toptan yasaklıydı. Kendi araç
+   talimatımızın kanonik örneği etkileşimsiz ortamda reddediliyordu.
+
+### Web AI taşıması
+
+6. **Her tur BİR CEVAP GERİDEN yanıtlanıyordu.** Gönderilen mesaj bir önceki turun
+   cevabıyla karşılanıyor, agent onu yeni sanıp aynı araçları tekrar çalıştırıyordu.
+   Kullanıcının "döngüye giriyor" dediği davranışın asıl sebebi buydu. Tazelik ölçütü
+   artık önceki yanıtın KENDİSİDİR.
+7. **Modelin kendi mesajı ona geri gönderiliyordu.** Stateless API'de zorunlu olan
+   şey, stateful bir sohbette "bunları yap" demektir.
+8. **Devam turu biçimi tekrara itiyordu.** A/B ölçüldü, tek değişken:
+   talimat sonda + başlıkta ham JSON → tekrarladı; talimat başta + JSON yok →
+   ilerledi ve düzeltmeyi üretti.
+9. **`<tool_call>` sınırlayıcısı HTML render eden kanalda kullanılıyordu.** Sıkı bir
+   temizleyici bilinmeyen elemanı içeriğiyle atıyor, mesaj boşalıyordu. Düz metin
+   sınırlayıcıya geçildi.
+10. **Payload satır sayımı doğru içeriği reddediyordu.** Dört canlı denemede sıfır
+    gerçek bozulma yakalandı, iki kez doğru içerik reddedildi (3/2 ve 33/28). Model
+    gövdeyi doğru üretiyor ama ÇERÇEVEYİ de sayıyor. Sayım kabul ölçütü olmaktan
+    çıkarıldı; yerine modelden hiçbir şey istemeyen yapısal kontroller kondu.
+
+### Ölçüm ve teşhis altyapısı
+
+- **Sonda ham çıktı yerine ayrıştırılmış metin ölçüyordu**: araç desteği kapatılmış
+  oturum KOPYASI üretiliyor ama `build()`'e yalnızca `model` alanı veriliyordu.
+- **Ölçülemeyen metrik %100 raporlanıyordu** (payda sıfırken oran 1.0).
+- **Oturum kaydı ölçüm sonucunu siliyordu**: panelde bir düğmeye basmak
+  `tool_eval_passed`'ı düşürüyor, model sessizce salt-okunur kipe geçiyordu.
+- **Geçici arıza kota sanılıyordu.** "try again later" kota işaretleri arasındaydı;
+  Gemini geçici her arızada bunu gösteriyor. Kullanıcı bunun üzerine YENİ BİR HESAP
+  açtı — sorun kota değildi. Kota ve geçici arıza ayrı sınıflandırılıyor; sınıflandırma
+  artık modelin kendi cevabını da taramıyor.
+- **Sayfa hatası BEKLERKEN fırlatılıyordu**: cevap gelmekte olsa bile bir uyarı bandı
+  turu kesiyordu. Artık yalnızca cevabı İMKÂNSIZ kılan durumlar (oturum, insan
+  doğrulaması) beklerken keser.
+- **Tarayıcı bağlamı sızıyordu.** `BrowserSessionPool.close()` hiçbir yerden
+  çağrılmıyordu; üç koşu sonrası profili tutan 16 headless Chrome süreci birikmiş ve
+  `fusion serve`'ün kapanmasını engellemişti. Temizlik AYNI event loop içinde yapılır
+  — ayrı bir `asyncio.run` ile çağırmak sessizce başarısız oluyordu.
+- **Yardımcı çağrılar ana sohbeti düşürüyordu.** Ders çıkarımı turu sohbeti
+  sıfırlıyor, sonraki tur geçmişin tamamını yeniden göndermek zorunda kalıyordu.
+  Sohbetler artık konuşma köküne göre ayrı tutulur.
+- **Rol başlıkları skill metniyle çakışıyordu** (`### Typed Error Classes`).
+  Başlıklar `FUSION//` önekiyle ayrıldı.
+
+### Açık kalan
+
+- Eşikler (%95/%98/%98/%99) 5 senaryoluk sette tek hataya bile tahammül etmiyor.
+  Başka bir sağlayıcı kıl payı düşerse çözüm eşiği gevşetmek değil SETİ BÜYÜTMEK.
+- İlk prompt hâlâ ~21.000 karakter (araç talimatı + sistem promptu + skill metni).
+  Tarayıcı sohbeti için ağır; sadeleştirme ölçülmedi.
+- `runtime.web_trace` teşhis izi varsayılan kapalı; açıkken prompt içeriği diske yazılır.
+
+
 ## ÖLÇÜLDÜ — web AI araç sözleşmesi canlıda çalışıyor (2026-08-07, Gemini web)
 
 Kullanıcının kendi Gemini aboneliğiyle, panelden "Araç yeteneğini ölç" düğmesiyle,

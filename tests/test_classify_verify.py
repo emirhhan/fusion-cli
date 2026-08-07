@@ -298,3 +298,31 @@ def test_git_push_operasyon_olarak_siniflanir():
 
 def test_workspace_kontrol_istegi_kesif_olarak_siniflanir():
     assert classify_task("proje klasörünü kontrol et") is TaskKind.EXPLORE
+
+
+# --- Türkçe ekler ------------------------------------------------------------- #
+#
+# Tam-token eşleşme ekli biçimleri kaçırıyordu: "hataları" ≠ "hata",
+# "testleri" ≠ "test". Ölçüldü — üç hatayı düzeltmek isteyen bir istek EXPLORE
+# sanılıyor ve göreve olması gerekenden dar bir bütçe veriliyordu.
+
+
+def test_ekli_bicim_de_turu_belirler():
+    gorev = (
+        "Bu projedeki testleri geçir. Testleri değiştirmek yasak — kodu düzelt. "
+        "Önce testleri çalıştırıp hataları oku, sonra düzelt, sonra doğrula."
+    )
+    assert classify_task(gorev) is TaskKind.BUGFIX
+
+
+def test_hatalarini_duzelt_bugfix_sayilir():
+    assert classify_task("envanter.py hatalarını düzelt") is TaskKind.BUGFIX
+
+
+def test_kisa_anahtar_onek_esleşmesi_yapmaz():
+    """Kısa anahtarlarda önek eşleşmesi yanlış-pozitif üretirdi."""
+    # "bul" kısa olduğu için "bulut" onu tetiklememeli; istek keşif olarak kalmalı
+    # ama "bul" anahtarıyla DEĞİL, "incele" ile eşleşmeli.
+    assert classify_task("bulut mimarisini incele") is TaskKind.EXPLORE
+    # Yalnızca "bulut" geçen bir istek EXPLORE'a kaymamalı.
+    assert classify_task("bulut") is TaskKind.GENERAL

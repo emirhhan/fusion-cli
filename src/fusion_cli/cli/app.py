@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from collections.abc import Awaitable
 from dataclasses import fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, TypeVar
 
 import typer
 from rich.console import Console
@@ -52,6 +53,8 @@ app.add_typer(knowledge_commands.app, name="knowledge")
 
 console = Console()
 
+T = TypeVar("T")
+
 
 #: Yapılandırmadaki `task_model_map` ile aynı anahtarlar.
 TASK_TYPES = ("general", "code", "reasoning", "agent")
@@ -71,11 +74,13 @@ def main_callback(ctx: typer.Context) -> None:
     root = Path.cwd()
     raise typer.Exit(
         asyncio.run(
-            run_repl(
-                config,
-                memory=open_memory(config, root=root),
-                root=root,
-                console=console,
+            _with_web_cleanup(
+                run_repl(
+                    config,
+                    memory=open_memory(config, root=root),
+                    root=root,
+                    console=console,
+                )
             )
         )
     )
@@ -113,13 +118,15 @@ def run(
     )
     observers = build_observers(task, renderer=renderer, as_json=as_json)
     result = asyncio.run(
-        run_task(
-            task,
-            config,
-            sinks=observers.sinks,
-            task_type=task_type,
-            synthesis=False if no_synthesis else None,
-            memory=open_memory(config, root=Path.cwd(), enabled=not no_memory),
+        _with_web_cleanup(
+            run_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                task_type=task_type,
+                synthesis=False if no_synthesis else None,
+                memory=open_memory(config, root=Path.cwd(), enabled=not no_memory),
+            )
         )
     )
     observers.finish()
@@ -241,29 +248,50 @@ def agent(
     observers = build_observers(task, renderer=renderer, as_json=as_json)
 
     outcome = asyncio.run(
-        run_agent_task(
-            task,
-            config,
-            sinks=observers.sinks,
-            prompter_factory=lambda flush: ConsolePrompter(
-                console,
-                ToolContext(
-                    root=root,
-                    extra_roots=tuple(add_dir or ()),
-                    restrict_to_root=config.runtime.restrict_to_root,
+        _with_web_cleanup(
+            run_agent_task(
+                task,
+                config,
+                sinks=observers.sinks,
+                prompter_factory=lambda flush: ConsolePrompter(
+                    console,
+                    ToolContext(
+                        root=root,
+                        extra_roots=tuple(add_dir or ()),
+                        restrict_to_root=config.runtime.restrict_to_root,
+                    ),
+                    flush=flush,
                 ),
-                flush=flush,
-            ),
-            mode=approval,
-            root=root,
-            memory=open_memory(config, root=root, enabled=not no_memory),
-            extra_roots=tuple(add_dir or ()),
+                mode=approval,
+                root=root,
+                memory=open_memory(config, root=root, enabled=not no_memory),
+                extra_roots=tuple(add_dir or ()),
+            )
         )
     )
     observers.finish()
     _print_usage(observers, quiet=quiet or as_json)
     if not outcome.final_text.strip():
         raise typer.Exit(1)
+
+
+async def _with_web_cleanup(coro: Awaitable[T]) -> T:
+    """İşi çalıştır, bitince tarayıcı bağlamlarını AYNI döngüde kapat.
+
+    Kapatma neden burada: Playwright nesneleri oluşturuldukları event loop'a
+    bağlıdır. Temizliği ayrı bir `asyncio.run` ile çağırmak sessizce başarısız
+    oluyordu — ölçüldü, koşu bittiği hâlde profili tutan 11 headless Chrome süreci
+    kalıyordu ve bunlar `fusion serve`'ün kapanmasını da engelliyordu.
+
+    Tur İÇİNDE kapatılmaz: REPL turlar arası sohbet sürekliliğini bu bağlamlarda
+    taşır ve tek bir `asyncio.run` içinde çalışır.
+    """
+    from ..providers.web_browser import close_all_browser_sessions
+
+    try:
+        return await coro
+    finally:
+        await close_all_browser_sessions()
 
 
 def _parse_mode(raw: str) -> ApprovalMode:

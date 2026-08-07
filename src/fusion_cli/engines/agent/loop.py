@@ -193,6 +193,13 @@ class AgentDeps:
     #:
     #: Testler kendi bütçesini vererek sınırları daraltabilir.
     budget: TurnBudget | None = None
+    #: Turun yürütme politikası. Bütçe gibi TUR BAŞINDA belirlenir ve iç içe
+    #: çağrılara devredilir.
+    #:
+    #: Ölçüldü: öz-denetim/doğrulama turu politikayı DÜZELTME METNİNDEN yeniden
+    #: türetiyordu. Asıl görev BUGFIX (12 araç turu) olsa bile düzeltme metni basit
+    #: sohbet sanılıp 5 tura düşüyor ve iş yarıda kesiliyordu.
+    execution: ExecutionPolicy | None = None
 
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
@@ -271,8 +278,10 @@ async def run_agent(
         extra_system="\n\n".join(part for part in (remembered, expertise, extra_system) if part),
     )
 
-    selected_spec = select_agent_spec(deps.config, deps.task_type)
-    execution = policy_for(deps.config, selected_spec, kind, task)
+    if deps.execution is None:
+        selected_spec = select_agent_spec(deps.config, deps.task_type)
+        deps.execution = policy_for(deps.config, selected_spec, kind, task)
+    execution = deps.execution
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()

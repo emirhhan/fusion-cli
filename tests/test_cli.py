@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from fusion_cli import __version__
@@ -10,12 +12,24 @@ from fusion_cli.core.types import FusionResult, VerdictSource
 
 runner = CliRunner()
 
+#: ANSI kaçış dizilerini ayıklar.
+#
+# `FORCE_COLOR` kurulu bir kabukta rich sürüm numarasını boyuyor ve düz metin
+# bekleyen doğrulama kırılıyordu. Renk bir sunum ayrıntısıdır; bu testin ölçtüğü
+# şey değildir. Global bir ortam düzeltmesi denendi ve rengi BEKLEYEN başka bir
+# testi bozdu — çözüm o yüzden yerel.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _duz(metin: str) -> str:
+    return _ANSI.sub("", metin)
+
 
 def test_version_surumu_basar():
     result = runner.invoke(app_module.app, ["version"])
 
     assert result.exit_code == 0
-    assert __version__ in result.stdout
+    assert __version__ in _duz(result.stdout)
 
 
 def test_config_show_varsayilanlari_basar():

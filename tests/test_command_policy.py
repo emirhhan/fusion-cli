@@ -144,3 +144,28 @@ def test_proje_ici_betik_onaysiz_calisir(komut):
 )
 def test_proje_disi_ve_satir_ici_kod_onay_ister(komut):
     assert is_unattended_safe(komut) is False
+
+
+# --- `python -m <modül>` ------------------------------------------------------ #
+#
+# `-m` toptan yasaklıyken kendi araç talimatımızın kanonik örneği
+# (`python3 -m pytest -q`) onaysız geçemiyordu: modele çalıştırmasını söylediğimiz
+# komut etkileşimsiz ortamda reddediliyor ve agent tıkanıyordu.
+
+
+def test_tanidik_test_modulu_onaysiz_calisir():
+    assert is_unattended_safe("python3 -m pytest -q")
+    assert is_unattended_safe("python3 -m unittest discover")
+    assert is_unattended_safe("python -m mypy")
+
+
+def test_paket_kuran_ya_da_sunucu_acan_modul_onay_ister():
+    assert not is_unattended_safe("python3 -m pip install requests")
+    assert not is_unattended_safe("python3 -m http.server")
+    assert not is_unattended_safe("python3 -m venv .venv")
+
+
+def test_satir_ici_kod_hala_onay_ister():
+    """`-m` gevşetildi ama kod ENJEKSİYONU gevşetilmedi."""
+    assert not is_unattended_safe('python3 -c "import shutil; shutil.rmtree(\'.\')"')
+    assert not is_unattended_safe("node -e 'process.exit(1)'")

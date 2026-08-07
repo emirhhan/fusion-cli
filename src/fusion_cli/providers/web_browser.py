@@ -37,6 +37,13 @@ from ..core.redaction import redact
 from ..core.types import Message, ToolCall
 from .web_session import WebSessionCredential, WebTransport
 
+#: Rol başlıklarının ÖNEKİ. Çıplak `### SİSTEM` yeterli değildi: sistem promptuna
+#: enjekte edilen skill metinleri de Markdown başlığı taşıyor (`### Typed Error
+#: Classes`, `### Result Pattern`…) ve izde bunlar bizim rol başlıklarımızla aynı
+#: düzeyde görünüyordu. Model hangisinin çerçeve hangisinin içerik olduğunu
+#: ayırt edemiyordu.
+ROLE_PREFIX = "FUSION//"
+
 
 class WebBrowserError(RuntimeError):
     """Tarayıcı tabanlı web sağlayıcılarının kök hatası."""
@@ -322,11 +329,11 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
                 call_lines.append(f"name: {call.name}")
                 call_lines.append(f"arguments: {call.arguments}")
             content = "\n".join([content, *call_lines]).strip()
-        rendered.append(f"### {label}\n{content}")
+        rendered.append(f"### {ROLE_PREFIX}{label}\n{content}")
     # Talimat her iki kipte de tekrarlanır: web arayüzleri uzun sohbetlerde ilk
     # mesajdaki kuralları zayıflatır ve model biçimi bırakmaya başlar.
     rendered.append(
-        "### TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
+        f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
         "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
         "ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver."
     )
@@ -369,7 +376,7 @@ def _call_subject(call: ToolCall | None) -> str:
 #: Devam turunun BAŞINA konan yönerge. Sonda değil başta: 3500 karakterlik dosya
 #: içeriğinin ardına düşen talimatı model kaybediyordu (A/B ile ölçüldü).
 CONTINUATION_LEAD = (
-    "### SIRADAKİ ADIM\n"
+    f"### {ROLE_PREFIX}SIRADAKİ ADIM\n"
     "Aşağıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır — bu çağrıları "
     "ZATEN yaptın, tekrarlama. Sonuçları kullanarak bir sonraki adımı at: gereken "
     "değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver."
@@ -389,7 +396,7 @@ def _format_continuation(messages: Sequence[Message]) -> str:
             baslik = "SİSTEM"
         else:
             baslik = "KULLANICI"
-        parcalar.append(f"### {baslik}\n{message.content.strip()}")
+        parcalar.append(f"### {ROLE_PREFIX}{baslik}\n{message.content.strip()}")
     return "\n\n".join(parcalar)
 
 
@@ -426,6 +433,12 @@ async def _launch_profile_context(
             if channel is None:
                 raise
     raise WebBrowserError("tarayıcı bağlamı açılamadı")
+
+
+
+#: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
+#: çağrılar (ders çıkarımı, öz-denetim, sıkıştırma) için yeterlidir.
+MAX_OPEN_CONVERSATIONS = 4
 
 
 @dataclass(slots=True)
@@ -478,27 +491,62 @@ class BrowserSessionPool:
         self._playwright: Any | None = None
         self._contexts: dict[tuple[str, str, bool], Any] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
-        self._conversations: dict[tuple[str, str], ConversationState] = {}
+        #: Sınır aşımında bırakılan, kapatılmayı bekleyen sayfalar.
+        self._closing: list[Any] = []
+        #: (sağlayıcı, hesap, konuşma kökü) → açık sohbet.
+        #:
+        #: Kök anahtarı ZORUNLU: ders çıkarımı ve öz-denetim gibi yardımcı çağrılar
+        #: BAŞKA bir mesaj listesiyle gelir ve tek anahtarlı bir sözlükte ana sohbeti
+        #: düşürüyorlardı. İzde görüldü: agent turunun ortasında ders çağrısı sohbeti
+        #: sıfırlıyor, sonraki tur geçmişin tamamını yeniden göndermek zorunda kalıyordu.
+        self._conversations: dict[tuple[str, str, str], ConversationState] = {}
         self._guard = asyncio.Lock()
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
 
-    def conversation(self, provider: str, account: str) -> ConversationState | None:
-        return self._conversations.get((provider, account))
+    def conversation(
+        self, provider: str, account: str, root: str
+    ) -> ConversationState | None:
+        return self._conversations.get((provider, account, root))
 
     def remember_conversation(
-        self, provider: str, account: str, state: ConversationState
+        self, provider: str, account: str, root: str, state: ConversationState
     ) -> None:
-        self._conversations[(provider, account)] = state
+        self._conversations[(provider, account, root)] = state
+        self._trim_conversations(provider, account)
 
-    async def drop_conversation(self, provider: str, account: str) -> None:
-        """Sohbeti bırak ve sayfasını kapat. Bir sonraki tur sıfırdan başlar."""
-        state = self._conversations.pop((provider, account), None)
+    def _trim_conversations(self, provider: str, account: str) -> None:
+        """Aynı hesapta çok fazla açık sayfa biriktirme.
+
+        Her farklı konuşma kökü bir sekme demektir; sınırsız büyümesi tarayıcıyı
+        boğar. En eski kökler bırakılır (sözlük ekleme sırasını korur).
+        """
+        ait = [key for key in self._conversations if key[0] == provider and key[1] == account]
+        for key in ait[: max(0, len(ait) - MAX_OPEN_CONVERSATIONS)]:
+            state = self._conversations.pop(key, None)
+            if state is not None:
+                self._closing.append(state.page)
+
+    async def drop_conversation(self, provider: str, account: str, root: str) -> None:
+        """Tek bir sohbeti bırak ve sayfasını kapat."""
+        state = self._conversations.pop((provider, account, root), None)
         if state is None:
             return
         with contextlib.suppress(Exception):
             await state.page.close()
+
+    async def drop_account_conversations(self, provider: str, account: str) -> None:
+        """Bir hesabın TÜM sohbetlerini bırak (profil kapatılırken)."""
+        for key in [k for k in self._conversations if k[0] == provider and k[1] == account]:
+            await self.drop_conversation(provider, account, key[2])
+
+    async def flush_closed(self) -> None:
+        """Sınırı aşınca bırakılan sayfaları kapat."""
+        while self._closing:
+            page = self._closing.pop()
+            with contextlib.suppress(Exception):
+                await page.close()
 
     async def context_for(self, session: WebSessionConfig, credential: WebSessionCredential) -> Any:
         key = (session.provider, session.account, session.headless)
@@ -537,7 +585,7 @@ class BrowserSessionPool:
         Chrome kalıcı profilleri KİLİTLER. Kontrol paneli, etkileşimli giriş penceresi
         açmadan ya da headless ayarını değiştirmeden önce bunu çağırır.
         """
-        await self.drop_conversation(provider, account)
+        await self.drop_account_conversations(provider, account)
         async with self._guard:
             keys = [
                 key
@@ -561,6 +609,16 @@ class BrowserSessionPool:
 
 
 _POOL = BrowserSessionPool()
+
+
+async def close_all_browser_sessions() -> None:
+    """Süreç biterken açık tüm tarayıcı bağlamlarını kapat.
+
+    `BrowserSessionPool.close()` vardı ama HİÇBİR YERDEN çağrılmıyordu: `fusion agent`
+    çıkınca headless Chrome sahipsiz kalıyordu. Ölçüldü — üç koşu sonrası profili
+    tutan sekiz süreç birikmişti ve bu, `fusion serve`'ün kapanmasını da engelledi.
+    """
+    await _POOL.close()
 
 
 async def close_browser_session(provider: str, account: str) -> None:
@@ -646,13 +704,17 @@ def build_browser_transport(
                     last_selector_error = error
                     # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
                     # sıfırdan başlasın. Aynı hesap, aynı profil — gizli yedek yok.
-                    await manager.drop_conversation(session.provider, session.account)
+                    await manager.drop_conversation(
+                        session.provider, session.account, conversation_digest(messages[:1])
+                    )
                     if attempt == 0:
                         await asyncio.sleep(0.75)
                         continue
                     raise
                 except TimeoutError as error:
-                    await manager.drop_conversation(session.provider, session.account)
+                    await manager.drop_conversation(
+                        session.provider, session.account, conversation_digest(messages[:1])
+                    )
                     raise WebBrowserError(
                         f"{definition.name} yanıtı {limit:.0f} saniyede tamamlanmadı"
                     ) from error
@@ -680,7 +742,11 @@ async def _deliver_turn(
     gönderilen önek DEĞİŞMEMİŞ olmalı. İkincisi olmadan, bağlam sıkıştırıldığında ya da
     yeni bir oturum başladığında model bambaşka bir konuşmanın ortasında cevap verirdi.
     """
-    state = manager.conversation(session.provider, session.account)
+    # Konuşma kökü: İLK mesajın özeti. Ana agent turu hep aynı sistem promptuyla
+    # başlar; ders çıkarımı gibi yardımcı çağrılar başka bir kökle gelir ve kendi
+    # sohbetlerini alır. Böylece yardımcı bir çağrı ana sohbeti DÜŞÜRMEZ.
+    root = conversation_digest(messages[:1])
+    state = manager.conversation(session.provider, session.account, root)
     resumable = (
         state is not None
         and 0 < state.sent_count < len(messages)
@@ -693,7 +759,7 @@ async def _deliver_turn(
             state.page, definition, prompt, previous=state.last_answer
         )
     else:
-        await manager.drop_conversation(session.provider, session.account)
+        await manager.drop_conversation(session.provider, session.account, root)
         page = await context.new_page()
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
@@ -703,7 +769,8 @@ async def _deliver_turn(
     state.sent_count = len(messages)
     state.prefix_digest = conversation_digest(messages)
     state.last_answer = answer
-    manager.remember_conversation(session.provider, session.account, state)
+    manager.remember_conversation(session.provider, session.account, root, state)
+    await manager.flush_closed()
     if trace_dir is not None:
         _append_trace(trace_dir, session, prompt=prompt, answer=answer, resumed=resumable)
     return answer
@@ -887,13 +954,38 @@ async def _wait_for_response(
         if saw_new and latest and not generating and time.monotonic() - stable_since >= 1.5:
             return latest
         if checks % 15 == 0:
-            await _raise_known_page_error(page, definition, ignore_clean=True)
+            # BEKLERKEN yalnızca gerçekten ENGELLEYEN durumlar turu keser: oturum
+            # kapalıysa ya da insan doğrulaması isteniyorsa cevap zaten gelmeyecek.
+            #
+            # Kota/hız uyarıları burada KESMEZ — ölçüldü: Gemini model kademesi
+            # değiştirdiğinde bir uyarı bandı gösteriyor ve konuşmaya devam ediyor.
+            # Bandı görüp turu kesmek, çalışan bir oturumu durduruyordu; kullanıcı
+            # bunu kota sanıp yeni hesap açmıştı. Uyarı ancak cevap HİÇ gelmezse
+            # anlamlıdır ve aşağıda, süre dolduğunda sınıflandırılır.
+            await _raise_if_blocked(page, definition)
         await asyncio.sleep(0.35)
     await _raise_known_page_error(page, definition, ignore_clean=True)
     raise WebBrowserSelectorError(
         f"not found: {definition.name} bu tur için yeni bir yanıt üretmedi; "
         "mesaj gönderilmemiş ya da arayüz değişmiş olabilir"
     )
+
+
+async def _raise_if_blocked(page: Any, definition: BrowserProviderDefinition) -> None:
+    """Yalnızca cevabı İMKÂNSIZ kılan durumları fırlat: oturum ve insan doğrulaması."""
+    if await _strong_login_signal(page, definition):
+        raise WebBrowserAuthError(
+            f"authentication: {definition.name} oturumu açık değil veya süresi dolmuş. "
+            "Fusion Control Panel'den 'Tarayıcıyla giriş yap'ı aç."
+        )
+    body = await _page_chrome_text(page, definition)
+    dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
+    if dogrulama is not None:
+        raise WebBrowserAuthError(
+            f"authentication: {definition.name} insan doğrulaması istiyor. "
+            "Arka plan modunu kapatıp Fusion'ın görünür giriş tarayıcısında "
+            f"doğrulamayı kendin tamamla. [sayfa: {dogrulama}]"
+        )
 
 
 async def _raise_known_page_error(
@@ -919,19 +1011,12 @@ async def _raise_known_page_error(
     if not body and not ignore_clean:
         body = ""
 
-    challenge_markers = (
-        "verify you are human",
-        "checking your browser",
-        "unusual traffic",
-        "captcha",
-        "insan olduğunuzu doğrulayın",
-        "robot olmadığınızı",
-    )
-    if any(marker in body for marker in challenge_markers):
+    dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
+    if dogrulama is not None:
         raise WebBrowserAuthError(
             f"authentication: {definition.name} insan doğrulaması istiyor. "
-            "Arka plan modunu kapatıp "
-            "Fusion'ın görünür giriş tarayıcısında doğrulamayı kendin tamamla."
+            "Arka plan modunu kapatıp Fusion'ın görünür giriş tarayıcısında "
+            f"doğrulamayı kendin tamamla. [sayfa: {dogrulama}]"
         )
     # Kota işaretleri DAR tutulur. "try again later" burada DEĞİLDİR ve bu ölçülmüş
     # bir hatanın sonucudur: Gemini geçici her arızada "Something went wrong, try
@@ -952,6 +1037,16 @@ async def _raise_known_page_error(
             f"yenile. [sayfa: {gecici}]"
         )
 
+
+#: İnsan doğrulaması işaretleri — cevabı İMKÂNSIZ kılar, beklerken de fırlatılır.
+_CHALLENGE_MARKERS = (
+    "verify you are human",
+    "checking your browser",
+    "unusual traffic",
+    "captcha",
+    "insan olduğunuzu doğrulayın",
+    "robot olmadığınızı",
+)
 
 #: GERÇEKTEN kota/hız sınırını söyleyen işaretler. Dar tutulur.
 _QUOTA_MARKERS = (

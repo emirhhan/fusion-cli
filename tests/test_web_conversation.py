@@ -159,7 +159,8 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
     transport = build_browser_transport(_session(), pool=pool)
     credential = WebSessionCredential()
     await transport(credential, _messages(2), "m")
-    assert pool.conversation("chatgpt_web", "main") is not None
+    kok = conversation_digest(_messages(2)[:1])
+    assert pool.conversation("chatgpt_web", "main", kok) is not None
 
     cagri = {"sayi": 0}
 
@@ -172,7 +173,7 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
     with pytest.raises(web_browser.WebBrowserSelectorError):
         await transport(credential, _messages(3), "m")
 
-    assert pool.conversation("chatgpt_web", "main") is None
+    assert pool.conversation("chatgpt_web", "main", kok) is None
     assert cagri["sayi"] == 2, "aynı profilde tam olarak bir kez yeniden denenir"
 
 
@@ -249,7 +250,7 @@ def test_devam_turunda_asistan_mesaji_geri_gonderilmez():
 
     prompt = format_browser_prompt(mesajlar, continuation=True)
 
-    assert "### ASİSTAN" not in prompt
+    assert "ASİSTAN" not in prompt
     assert "[Önceki araç çağrıları]" not in prompt
     assert "dosya içeriği" in prompt
 
@@ -265,7 +266,7 @@ def test_yeni_sohbette_asistan_mesaji_korunur():
 
     prompt = format_browser_prompt(mesajlar, continuation=False)
 
-    assert "### ASİSTAN" in prompt
+    assert "### FUSION//ASİSTAN" in prompt
     assert "[Önceki araç çağrıları]" in prompt
 
 
@@ -295,7 +296,7 @@ def test_devam_talimati_en_basta_durur():
         (Message("tool", "x" * 3000, name="read_file", ok=True),), continuation=True
     )
 
-    assert prompt.startswith("### SIRADAKİ ADIM")
+    assert prompt.startswith("### FUSION//SIRADAKİ ADIM")
     assert "ZATEN yaptın" in prompt
 
 
@@ -311,3 +312,38 @@ def test_arac_sonucu_basligi_cagri_bicimine_benzemez():
 
     assert "read_file · envanter.py" in prompt, "dosya adı korunmalı"
     assert '{"path"' not in prompt, "ham JSON çağrı biçimine benziyor"
+
+
+# --- Yardımcı çağrılar ana sohbeti düşürmez ----------------------------------- #
+#
+# İzde görüldü: agent turunun ardından ders çıkarımı çağrısı sohbeti sıfırlıyor
+# (devam=False) ve sonraki tur geçmişin tamamını yeniden göndermek zorunda kalıyordu.
+# Sebep, sohbetin yalnızca (sağlayıcı, hesap) ile anahtarlanmasıydı.
+
+
+async def test_farkli_kok_ayri_sohbet_alir(pool, log):
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+
+    ana = (Message("system", "agent sistem promptu"), Message("user", "görev"))
+    yardimci = (Message("system", "ders çıkar"), Message("user", "özetle"))
+
+    await transport(credential, ana, "m")
+    await transport(credential, yardimci, "m")
+    # Ana sohbet HÂLÂ açık olmalı: yardımcı çağrı onu düşürmemeli.
+    await transport(credential, (*ana, Message("user", "devam")), "m")
+
+    gonderilen = [entry[1] for entry in log if entry[0] == "send"]
+    assert "devam" in gonderilen[2]
+    assert "agent sistem promptu" not in gonderilen[2], "ana sohbet korunmalıydı"
+
+
+async def test_ayni_kok_sohbeti_paylasir(pool, log):
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    ana = (Message("system", "kök"), Message("user", "bir"))
+
+    await transport(credential, ana, "m")
+    await transport(credential, (*ana, Message("user", "iki")), "m")
+
+    assert len([e for e in log if e[0] == "goto"]) == 1
