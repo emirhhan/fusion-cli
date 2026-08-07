@@ -61,10 +61,17 @@ def test_web_policy_is_task_aware():
     complex_ = policy_for(config, spec, TaskKind.BUGFIX, "hatayı düzelt")
     extended = policy_for(config, spec, TaskKind.BUGFIX, "tüm projeyi kapsamlı düzelt")
 
+    # Asıl değişmez SIRALAMADIR: basit < karmaşık < genişletilmiş.
     assert simple.is_web and simple.max_model_calls == 8
-    assert complex_.max_model_calls == 16
-    assert extended.max_model_calls == 24
+    assert simple.max_model_calls < complex_.max_model_calls < extended.max_model_calls
     assert simple.heuristic_auto_continue is False
+
+    # Karmaşık iş için tur sayısı AKIŞA yetmeli. Sözleşme yanıt başına tek araç
+    # çağrısı ve var olan dosyada hedefli düzenleme istiyor; ikisi de tur sayısını
+    # mekanik olarak artırır. Ölçüldü: dört dosyalık bir görev ~6 okuma + ~6
+    # düzenleme + doğrulama harcıyor ve eski 12 turluk sınır işi tam ilerlerken
+    # kesiyordu ("araç turu sınırına ulaşıldı").
+    assert complex_.max_tool_rounds is not None and complex_.max_tool_rounds >= 20
 
 
 async def test_web_short_final_does_not_trigger_wasteful_auto_continue(monkeypatch, tmp_path):

@@ -643,3 +643,31 @@ kod bozuldu. Kozmetik regresyon (ruff 1→3) kalktı.
 AÇIK: Gemini web bu büyüklükte bir görevde ~3'te 1 tam başarılı. Model seçimi hâlâ
 tutarsız; sözleşme artık doğru olanı gösteriyor ama garanti etmiyor. Tek dosyalık
 dar görevlerde davranış istikrarlı.
+
+## Tutarlılık — kök sebep ve sonuç
+
+Tutarsızlığın kaynağı model tercihi değil, YANIT UZUNLUĞUYDU. İz kayıtları: model
+dört dosyalık düzenlemeyi tek yanıtta toplamaya çalıştı, yanıt 5570 karakterde
+kesildi, araç çağrısı bloğu hiç gelmedi. Genel "payload kullanılmadı" hatası bunu
+anlatmadığı için model tam dosya yazmaya düştü ve kodu bozdu.
+
+Zincirin tamamı:
+1. Kesilen yanıt artık teşhis ediliyor ve ne yapılacağı söyleniyor.
+2. Sözleşme yanıt başına TEK araç çağrısı ve en küçük benzersiz `old` istiyor.
+3. Taklit kipte var olan dosya `write_file` ile ezilemiyor.
+4. (1–3) tur sayısını mekanik olarak artırdığı için karmaşık web görevinde
+   bütçe 16/12/600s → 28/22/900s yapıldı. Bu ADIM ATLANDIĞINDA dört koşunun
+   ikisi "araç turu sınırına ulaşıldı" ile tam iş ilerlerken kesildi.
+
+Dört dosyalık görev, aynı komut, ardışık koşular:
+
+| Aşama | write_file | Kod bozuldu | Tam başarı |
+|---|---|---|---|
+| Başlangıç | 3 koşuda 1 | 1 kez (13 ruff hatası) | 1/3 |
+| Yalnızca sözleşme | 3 koşuda 1 | 1 kez (2 syntax hatası) | 0/3 |
+| + toptan yazma yasak | 0 | hiç | 0/4 (tur sınırı) |
+| + bütçe akışa uyduruldu | 0 | hiç | **3/4** |
+
+Kalan başarısızlık (1/4): model geçerli araç çağrısı üretemedi — web tarafı
+kararsızlığı, Fusion tesisatı değil. Hiçbir koşuda test imzaları bozulmadı,
+hiçbir koşuda kod bozulmadı.

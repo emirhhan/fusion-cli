@@ -113,9 +113,14 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     if extended:
         # Kullanıcı açıkça büyük iş istediğinde yeteneği erken kesme; yine de sonsuz
         # web çağrısına karşı emniyet supabı bırak.
-        max_calls, max_rounds, timeout = 24, 18, 900.0
+        max_calls, max_rounds, timeout = 36, 28, 1200.0
     elif complex_task:
-        max_calls, max_rounds, timeout = 16, 12, 600.0
+        # Ölçüldü: sözleşme artık yanıt başına TEK araç çağrısı ve var olan dosyada
+        # toptan yazma yerine hedefli düzenleme istiyor. İkisi de tur sayısını mekanik
+        # olarak artırır — dört dosyalık bir görev ~6 okuma + ~6 düzenleme + doğrulama
+        # ile 14+ tur harcıyor. Eski 12 turluk sınır dört koşunun ikisini tam da iş
+        # ilerlerken kesti ("araç turu sınırına ulaşıldı"). Sınır akışa uydurulur.
+        max_calls, max_rounds, timeout = 28, 22, 900.0
     else:
         max_calls, max_rounds, timeout = 8, 5, 240.0
 
