@@ -214,7 +214,14 @@ async def test_third_successful_read_is_stopped(tmp_path) -> None:
     assert await _run_tools(
         (third,), messages, deps, registry, state, execution=execution
     )
-    assert "TOOL_CALL_DUPLICATE" in state.tool_contract_abort
+    # Üçüncü çağrı ÇALIŞTIRILMAZ: modele dosya içeriği değil, uyarı döner.
+    assert "TOOL_CALL_DUPLICATE" in messages[-1].content
+    assert "hello" not in messages[-1].content
+    # ...ama tur ÖLDÜRÜLMEZ. Tekrarlanan bir okuma zararsız bir verimsizliktir;
+    # turu kesmek o ana kadarki tüm ilerlemeyi çöpe atar (ölçüldü: model dört
+    # dosyayı okuyup birini düzelttikten sonra takıldı ve yapılan iş kayboldu).
+    # Israr ederse kararı "ilerleme yok" kapısı verir.
+    assert not state.tool_contract_abort
 
 
 @pytest.mark.asyncio
@@ -235,4 +242,8 @@ async def test_second_identical_mutation_is_stopped(tmp_path) -> None:
     assert await _run_tools(
         (second,), messages, deps, registry, state, execution=execution
     )
-    assert "TOOL_CALL_DUPLICATE" in state.tool_contract_abort
+    # Mutasyonda tekrar daha ciddidir ama çare aynı: çağrıyı çalıştırma, modele
+    # söyle. İkinci kez ÇALIŞTIRILMADIĞI tek sayaçtan doğrulanır.
+    assert "TOOL_CALL_DUPLICATE" in messages[-1].content
+    assert state.mutating_tool_calls_made == 1
+    assert not state.tool_contract_abort

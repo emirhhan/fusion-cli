@@ -839,9 +839,10 @@ async def _run_tools(
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
         if seen >= duplicate_limit:
             output = (
-                "TOOL_CALL_DUPLICATE: Aynı araç aynı argümanlarla, çalışma alanında "
-                "ilgili bir değişiklik olmadan tekrarlandı. Fusion çağrıyı çalıştırmadı "
-                "ve döngüyü güvenli biçimde sonlandırdı."
+                "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve "
+                "çalışma alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion "
+                "çağrıyı çalıştırmadı — sonucu zaten elinde. Aynı şeyi yeniden istemek "
+                "yerine BİR SONRAKİ adımı at: değişikliği uygula ya da işi bitir."
             )
             deps.publisher.publish(
                 ToolExecuted(
@@ -856,8 +857,15 @@ async def _run_tools(
                 Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
             )
             state.failed_tool_calls += 1
-            state.tool_contract_abort = _tool_contract_abort_message(output)
             errored = True
+            # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
+            # turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar. Ölçüldü: model dört
+            # dosyayı okuyup birini düzelttikten sonra aynı dosyayı üç kez okudu ve
+            # yapılan iş boşa gitti.
+            #
+            # Karar "ilerleme yok" kapısına bırakılır: engellenen çağrı ilerleme
+            # üretmediği için boşta tur sayacı artar ve model kendini toparlayamazsa
+            # tur yine biter — ama üç şans sonra, tek hamlede değil.
             continue
 
         pending_diff = file_diff(call.name, args, deps.tool_context)

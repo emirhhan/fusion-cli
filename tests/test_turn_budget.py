@@ -175,16 +175,21 @@ async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path
         ),
     )
 
-    sonuc = await run_agent("dur durak bilmez", _deps(tmp_path, sink))
+    sonuc = await run_agent(
+        "dur durak bilmez", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
+    )
 
     assert not sonuc.ok
-    assert "TOOL_CALL_ABORTED" in sonuc.final_text
     engellenen = [
         event
         for event in sink.events
         if isinstance(event, ToolExecuted) and event.outcome is ToolOutcome.BLOCKED
     ]
     assert engellenen, "tekrar eden çağrı engellenmiş olmalı"
+    # Tur ilk tekrarda ÖLMEZ; model kendini toparlayamayınca ilerleme-yok kapısı
+    # bitirir. Böylece o ana kadar yapılmış iş korunur.
+    tukendi = [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
+    assert tukendi and tukendi[-1].reason == BudgetStop.NO_PROGRESS.value
 
 
 async def test_ilerlemesiz_turlar_turu_bitirir_ve_sebebi_yayinlanir(
