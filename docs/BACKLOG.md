@@ -714,3 +714,28 @@ sıra, adet taşması, CLI çıkış kodu ve `kelime: sayı` biçimi): **9/9**.
 Ayrıca ölçüm sırasında düzenek hatası yararlı bir gözlem verdi: GOREV.md yanlışlıkla
 silindiğinde agent dosyayı aradı, dizini listeledi, boş gördü ve "görev dosyası yok,
 devam edemiyorum" dedi. Uydurmadı, boş dosya yaratmadı.
+
+## Büyük kod tabanı (prompt'a sığmıyor) — ÖLÇÜLDÜ
+
+Fusion'ın kendi kaynağının kopyası: 309 dosya, 1.151.056 karakter — sıkıştırma
+eşiğinin 6,5 katı, hiçbir prompt'a sığmaz. Görev: yeni bir `count_lines` aracı
+ekle, projenin kendi düzenini KODDAN bul, testini yaz, takımı geçir.
+
+Üç koşu, 0/3 tamamlandı. Ama başarısızlığın şekli önemli:
+
+- **Gezinme ÇALIŞIYOR.** Model dosyaları okumaya çalışmadı; `search_code` ve
+  `glob`/`list_dir` ile 309 dosya içinden doğru iki dosyayı (`tools/files.py`,
+  `tools/builtin.py`) buldu. Kod tabanının sığmaması gezinmeyi bozmuyor.
+- Koşu 1: doğru yerleri buldu, düzenlemeye başladı, boş yanıtlar geldi ve
+  "3 turdur ilerleme yok" ile bitti.
+- Koşu 2: 7 çağrıda düştü.
+- Koşu 3: `files.py`'ye uygulamayı ekledi, `builtin.py` kaydını TAMAMLAYAMADI ve
+  **mypy'da 10 hata bırakarak durdu** (`ToolResult.failure` yerine var olmayan bir
+  attribute). Testler geçmeye devam etti; kırılan tip denetimiydi.
+
+Yani büyük kod tabanında yarım bırakma tehlikesi gerçektir: iş bitmeden duruyor ve
+geride DERLENMEYEN kod kalabiliyor. Küçük projelerde görülmeyen tek yeni risk budur.
+
+Ölçüm düzeneği notu: kopyada `.venv` orijinal repoya sembolik bağ olduğu için
+`build_registry()` ile yapılan doğrulama YANLIŞ repoya bakıyordu; sonuçlar dosya
+içeriğinden teyit edildi. Orijinal repo hiçbir koşuda değişmedi.
