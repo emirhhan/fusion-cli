@@ -62,6 +62,24 @@ class WebSessionRegistry:
         session = self._by_model.get(model)
         if session is None:
             return None
+        return self.build_session(session, clock=clock, transport_factory=transport_factory)
+
+    def build_session(
+        self,
+        session: WebSessionConfig,
+        *,
+        clock: Clock | None = None,
+        transport_factory: TransportFactory = build_http_transport,
+    ) -> LlmProvider:
+        """Verilen oturum yapılandırmasından sağlayıcı kur.
+
+        Model kimliğiyle DEĞİL yapılandırmayla çalışır. Sebep ölçüldü: araç yeteneği
+        sondası ham çıktı almak için araç desteği kapatılmış bir oturum KOPYASI
+        üretiyor, ama yalnızca kopyanın `model` alanını `build()`'e veriyordu. Model
+        kimliği değişmediği için kayıt defteri ORİJİNAL oturumu buluyor, adaptör
+        emulated kipte kuruluyor ve araç bloklarını metinden çıkarıyordu. Sonuç:
+        sonda "boş çıktı" görüyor ve modeli hiç araç üretmemiş sayıyordu.
+        """
         credential = self._credential(session)
         if session.transport == "browser":
             transport = build_browser_transport(session)

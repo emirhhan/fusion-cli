@@ -159,9 +159,10 @@ async def probe_emulation(
     if sessions is None or session is None:
         raise FusionError(f"'{model}' için etkin bir web oturumu yok.")
 
-    provider = sessions.build(_probe_session(session).model)
-    if provider is None:
-        raise FusionError(f"'{model}' için web sağlayıcısı kurulamadı.")
+    # Oturumun KOPYASI verilir, model kimliği değil: kimlik aynı kaldığı için
+    # `build(model)` orijinal (emulated) oturumu bulur ve araç bloklarını metinden
+    # çıkarırdı — sonda ham çıktı yerine boş metin görürdü.
+    provider = sessions.build_session(_probe_session(session))
 
     instructions = render_tool_instructions(build_registry().schemas())
     cases: list[EvalCase] = []

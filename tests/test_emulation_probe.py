@@ -36,11 +36,22 @@ class _ScriptedProvider:
 
 
 class _Registry:
+    """Sonda hangi OTURUM YAPILANDIRMASIYLA sağlayıcı kurduğunu kaydeder.
+
+    Eski sahte yalnızca `build(model)` sunuyordu ve model kimliği hiç değişmediği
+    için sondanın araç desteğini kapatmayı unuttuğunu göremiyordu.
+    """
+
     def __init__(self, provider) -> None:
         self._provider = provider
+        self.built_session = None
+
+    def build_session(self, session, **kwargs):
+        self.built_session = session
+        return self._provider
 
     def build(self, model, **kwargs):
-        return self._provider
+        raise AssertionError("sonda oturum yapılandırmasıyla kurmalı, model kimliğiyle değil")
 
 
 def _config(**overrides):
@@ -168,3 +179,38 @@ async def test_olculemeyen_metrik_sayaci_sifir_kalir():
     assert rapor.score.schema_validity_measured == 0
     assert rapor.score.tool_selection_measured == 4
     assert not rapor.score.passes()
+
+
+async def test_sonda_ham_cikti_icin_arac_destegini_kapatir():
+    """Regresyon: sonda ayrıştırılmış değil HAM çıktı almalı.
+
+    Ölçüldü (Gemini web): sonda emulated adaptörle kuruluyordu, adaptör araç
+    bloklarını metinden çıkarıyor ve geriye boş string kalıyordu. Model geçerli
+    çağrılar ürettiği hâlde ölçüm "hiç araç üretmedi" diyordu.
+    """
+    registry = _Registry(_ScriptedProvider(_kusursuz_ciktilar()))
+
+    await probe_emulation(_config(), MODEL, registry=registry)
+
+    assert registry.built_session is not None
+    assert registry.built_session.tool_support == "none"
+    assert registry.built_session.model == MODEL
+
+
+async def test_kayit_defteri_oturum_yapilandirmasiyla_kurabilir():
+    """`build_session` orijinali değil VERİLEN yapılandırmayı kullanmalı."""
+    from fusion_cli.core.model_capability import ToolSupport
+    from fusion_cli.providers.web_registry import WebSessionRegistry
+
+    oturum = WebSessionConfig(
+        model=MODEL, provider="custom", account="main",
+        transport="http", endpoint="https://uc/v1/chat/completions",
+        tool_support="emulated",
+    )
+    registry = WebSessionRegistry((oturum,), environ={})
+
+    from dataclasses import replace as _replace
+
+    saglayici = registry.build_session(_replace(oturum, tool_support="none"))
+
+    assert saglayici._tool_support is ToolSupport.NONE
