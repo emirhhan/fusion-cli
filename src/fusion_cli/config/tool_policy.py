@@ -16,8 +16,12 @@ denenir (LiteLLM desteklemeyen parametreyi zaten düşürür).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..core.model_capability import ModelCapability, ToolSupport
+
+if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
+    from .models import Config
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,3 +51,29 @@ def can_be_mutation_agent(
             False, "taklit araç desteği henüz eval eşiğinden geçmedi: mutation'a giremez"
         )
     return MutationPolicy(True)
+
+
+def mutation_policy_for_model(config: Config, model: str) -> MutationPolicy:
+    """Bu model kimliği dosya değiştiren agent olabilir mi?
+
+    Yetenek iki kaynaktan gelir ve WEB OTURUMU ÖNCELİKLİDİR: `ModelSpec` etiketleri
+    kullanıcının yazdığı serbest metindir, web oturumunun `tool_support` alanı ise
+    Fusion'ın kendi kaydıdır. Etikete bakmak, panelden bağlanmış bir ChatGPT/Claude
+    oturumunu `UNKNOWN` sayıp doğrulanmamış taklit araçla dosya yazmasına izin
+    veriyordu — belge "hayır" derken kod "evet" yapıyordu.
+    """
+    session = next(
+        (item for item in config.web_sessions if item.model == model and item.enabled),
+        None,
+    )
+    if session is None:
+        return MutationPolicy(True)
+    support = _WEB_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE)
+    return can_be_mutation_agent(
+        ModelCapability(tool_support=support),
+        emulated_verified=session.tool_eval_passed,
+    )
+
+
+#: Web oturumu `tool_support` metninin yetenek karşılığı.
+_WEB_TOOL_SUPPORT = {"none": ToolSupport.NONE, "emulated": ToolSupport.EMULATED}

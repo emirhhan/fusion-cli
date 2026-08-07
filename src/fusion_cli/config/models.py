@@ -177,6 +177,13 @@ class WebSessionConfig:
     credential_ref: str | None = None
     #: Araç desteği: "none" ya da "emulated".
     tool_support: str = "none"
+    #: Taklit araç çağrısı değerlendirmesini GEÇTİ mi? (bkz. `tools.emulation_eval`)
+    #:
+    #: Varsayılan False ve bu bilinçli: doğrulanmamış bir taklit-araç modeli dosya
+    #: değiştiren agent OLAMAZ. Model araç çağrısını metin olarak üretir; biçimi
+    #: tutturamadığında sessizce yanlış dosyaya yanlış içerik yazma riski doğar.
+    #: Panel değerlendirmeyi çalıştırıp bu alanı yazar.
+    tool_eval_passed: bool = False
     #: Browser transport görünmeden çalışsın mı? Sorunda panelden kapatılabilir.
     headless: bool = True
     #: Web UI çağrısı için üst süre sınırı.

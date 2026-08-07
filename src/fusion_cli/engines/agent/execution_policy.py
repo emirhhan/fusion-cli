@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 
 from ...config.models import Config
+from ...config.tool_policy import mutation_policy_for_model
 from ...core.types import ModelSpec
 from ..effects.detect import required_effect_for
 from .classify import TaskKind
@@ -58,6 +59,11 @@ class ExecutionPolicy:
     requires_tool_evidence: bool = False
     required_effect: str | None = None
     max_evidence_reprompts: int = 1
+    # Bu modelin dosya/shell değiştirmesine izin var mı? Doğrulanmamış taklit-araç
+    # modelleri (bkz. config.tool_policy) okur ve planlar ama değiştiremez.
+    allow_mutation: bool = True
+    #: İzin yoksa kullanıcıya ve modele gösterilecek gerekçe.
+    mutation_block_reason: str = ""
 
 
 def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> ExecutionPolicy:
@@ -75,12 +81,17 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     # kalkmaz. Araçlar kapalı tutulur ama iş yapılmış gibi raporlanamaz.
     required_effect = required_effect_for(task, kind)
     requires_evidence = required_effect is not None
+    # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
+    # model seçmek güvenlik kapısını atlamak anlamına gelemez.
+    mutation = mutation_policy_for_model(config, spec.model)
 
     if not is_web_model(config, spec.model):
         # API/local sağlayıcılarda hard-cap yok; fakat açık operasyonlarda kanıtsız
         # başarıya bütün sağlayıcılarda izin verilmez.
         return ExecutionPolicy(
             is_web=False,
+            allow_mutation=mutation.ok,
+            mutation_block_reason=mutation.reason,
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
@@ -102,6 +113,8 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
 
     return ExecutionPolicy(
         is_web=True,
+        allow_mutation=mutation.ok,
+        mutation_block_reason=mutation.reason,
         max_model_calls=max_calls,
         max_tool_rounds=max_rounds,
         max_same_tool_without_change=2,

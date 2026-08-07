@@ -394,8 +394,17 @@
             <label class="fld">Oturum adı<input id="nativeWebAccount" value="main" placeholder="main" /></label>
             <label class="fld">Terminal model kimliği<input id="nativeWebModel" readonly /></label>
           </div>
-          <label class="fld">Cookie başlığı <span class="fhint">Boş bırakıp aşağıdaki “Tarayıcıyla giriş yap” yöntemini kullanabilirsin.</span>
-            <textarea id="nativeWebCookie" class="secret-area" placeholder="name=value; other=value; …"></textarea></label>
+          <div class="notice" style="margin-top:12px">
+            <b>Önerilen yol: cookie girmene gerek yok.</b><br />
+            “Tarayıcıyla giriş yap” Fusion'ın kendi izole profilinde bir pencere açar. Normal
+            kullandığın gibi giriş yaparsın; oturum o profilde kalıcı olur. Pencereyi kapattığında
+            bağlantı kendiliğinden test edilir.
+          </div>
+          <details style="margin-top:8px"><summary class="meta" style="cursor:pointer">Cookie'yi elle gireceğim (gelişmiş)</summary>
+            <label class="fld" style="margin-top:8px">Cookie başlığı
+              <span class="fhint">Yalnızca tarayıcıyla giriş çalışmazsa gerekir.</span>
+              <textarea id="nativeWebCookie" class="secret-area" placeholder="name=value; other=value; …"></textarea></label>
+          </details>
           <div class="two-col">
             <label class="fld">Zaman aşımı (saniye)<input id="nativeWebTimeout" type="number" min="30" max="600" value="180" /></label>
             <label class="fld" style="justify-content:flex-end"><span class="checkline"><input id="nativeWebHeadless" type="checkbox" checked />
@@ -406,9 +415,9 @@
               Cookie, config.yaml veya loglara yazılmaz. Web modeli araç çağrısını metin olarak üretir; dosya, shell,
               web search ve kod düzenleme işini Fusion'ın kendi izinli tool runtime'ı yürütür.</div></details>
           <div class="web-actions">
-            <button class="ghost" onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
+            <button onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
             <button class="ghost" onclick="validateNativeWeb()">Bağlantıyı kontrol et</button>
-            <button onclick="saveNativeWeb()">Kaydet ve sağlayıcıyı etkinleştir</button>
+            <button class="ghost" onclick="saveNativeWeb()">Yalnızca kaydet</button>
           </div>
           <div class="hint" id="nativeWebStatus" style="margin-top:12px"></div>
         </div>
@@ -517,11 +526,32 @@
       }
       async function launchWebLogin() {
         const account = ($("nativeWebAccount").value || "main").trim();
+        // Oturum ÖNCE kaydedilir: pencere kapandığında doğrulamanın çalışabilmesi için
+        // yapılandırmada bir kayıt bulunmalı.
+        if (!(await saveNativeWeb(false))) return;
         try {
-          await post("/api/web_sessions/login", {provider:activeWebProvider, account});
-          $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, doğrulamayı tamamla ve pencereyi kapat.";
+          const res = await post("/api/web_sessions/login", {provider:activeWebProvider, account});
+          $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, sonra pencereyi kapat — gerisi otomatik.";
           toast("Giriş tarayıcısı açıldı");
+          if (res && res.pid) awaitLoginThenValidate(res.pid);
         } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
+      }
+      // Giriş penceresi kapanana kadar yoklar, sonra bağlantıyı KENDİLİĞİNDEN test eder.
+      // Kullanıcının elle cookie kopyalaması ya da "şimdi doğrula" demesi gerekmez.
+      async function awaitLoginThenValidate(pid) {
+        const bitis = Date.now() + 15*60*1000;   // 15 dk sonra yoklamayı bırak
+        while (Date.now() < bitis) {
+          await new Promise((r)=>setTimeout(r, 2000));
+          let durum;
+          try { durum = await post("/api/web_sessions/login_state", {pid}); }
+          catch(e) { return; }                    // gateway kapandı: sessizce bırak
+          if (durum && durum.running === false) {
+            $("nativeWebStatus").textContent = "Giriş penceresi kapandı · bağlantı test ediliyor…";
+            await validateNativeWeb();
+            return;
+          }
+        }
+        $("nativeWebStatus").textContent = "Giriş penceresi hâlâ açık. Kapattıktan sonra “Bağlantıyı kontrol et”e bas.";
       }
       async function validateNativeWeb() {
         const ok = await saveNativeWeb(false); if (!ok) return;

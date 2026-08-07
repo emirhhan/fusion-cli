@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import re
 import time
 from collections.abc import Sequence
@@ -264,12 +265,15 @@ def parse_cookie_header(raw: str) -> dict[str, str]:
     return cookies
 
 
-def format_browser_prompt(messages: Sequence[Message]) -> str:
-    """Kanonik Fusion mesajlarını tek ve kendi kendine yeten bir prompt'a dök.
+def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = False) -> str:
+    """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
-    DİKKAT: her sağlayıcı çağrısı YENİ bir web sohbeti açtığı için geçmişin tamamı
-    her turda yeniden gönderilir. Araç sonuçları açıkça etiketlenir ki model bir
-    sonraki turda taklit araç biçimini üretebilsin.
+    `continuation=True` ise sohbet AÇIKTIR ve yalnızca yeni mesajlar gönderilir;
+    sağlayıcının kendi bağlamı geçmişi zaten taşır. `False` ise sohbet yeni kuruluyordur
+    ve geçmişin tamamı bu metne girer.
+
+    Araç sonuçları her iki durumda da açıkça etiketlenir ki model bir sonraki turda
+    taklit araç biçimini üretebilsin.
     """
     rendered: list[str] = []
     for message in messages:
@@ -291,8 +295,10 @@ def format_browser_prompt(messages: Sequence[Message]) -> str:
                 call_lines.append(f"arguments: {call.arguments}")
             content = "\n".join([content, *call_lines]).strip()
         rendered.append(f"### {label}\n{content}")
+    # Talimat her iki kipte de tekrarlanır: web arayüzleri uzun sohbetlerde ilk
+    # mesajdaki kuralları zayıflatır ve model biçimi bırakmaya başlar.
     rendered.append(
-        "### TALİMAT\nYalnızca bu konuşmadaki en son kullanıcı/araç sonucuna cevap ver. "
+        "### TALİMAT\nYalnızca en son kullanıcı/araç sonucuna cevap ver. "
         "Önceki ASİSTAN metnini tekrar etme."
     )
     return "\n\n".join(rendered)
@@ -333,6 +339,47 @@ async def _launch_profile_context(
     raise WebBrowserError("tarayıcı bağlamı açılamadı")
 
 
+@dataclass(slots=True)
+class ConversationState:
+    """Bir sağlayıcı/hesap için AÇIK KALAN web sohbeti.
+
+    Neden var — ölçülmüş bir israf ve döngü kaynağı:
+
+    Her araç turunda `new_chat_url`'e gidilip YENİ bir sohbet açılıyor ve konuşmanın
+    TAMAMI tek düz metin bloğu olarak yeniden gönderiliyordu. Bunun üç sonucu vardı:
+
+    1. Model gerçek bir araç-sonucu protokolü değil, "[Önceki araç çağrıları]" başlıklı
+       bir metin görüyordu; aynı çağrıyı yeniden üretmesi bunun doğal sonucuydu.
+    2. Her tur, geçmiş büyüdükçe daha uzun bir prompt demekti — gecikme ve kota israfı.
+    3. Sağlayıcı arayüzünün kendi bağlam yönetimi hiç kullanılmıyordu.
+
+    Artık sohbet açık kalır ve yalnızca YENİ mesajlar gönderilir. `sent_count` kaç
+    kanonik mesajın gönderildiğini, `prefix_digest` o mesajların özetini tutar: geçmiş
+    beklenen gibi UZAMADIYSA (sıkıştırma, yeni oturum, farklı araç seti) sohbet
+    güvenli biçimde sıfırlanır ve her şey yeniden gönderilir.
+    """
+
+    page: Any
+    sent_count: int = 0
+    prefix_digest: str = ""
+
+
+def conversation_digest(messages: Sequence[Message]) -> str:
+    """Mesaj önekinin kimliği — sohbetin GERÇEKTEN devam edip etmediğini söyler.
+
+    Rol ve içerik birlikte özetlenir: yalnızca sayıya bakmak, geçmişi baştan yazılmış
+    (sıkıştırılmış) bir konuşmayı devam sanmaya yol açardı ve model bambaşka bir
+    bağlamda cevap verirdi.
+    """
+    digest = hashlib.sha256()
+    for message in messages:
+        digest.update(message.role.encode("utf-8", errors="replace"))
+        digest.update(b"\x00")
+        digest.update(message.content.encode("utf-8", errors="replace"))
+        digest.update(b"\x01")
+    return digest.hexdigest()
+
+
 class BrowserSessionPool:
     """Süreç-yerel kalıcı Playwright bağlamları; sağlayıcı/hesap başına bir tane."""
 
@@ -340,10 +387,27 @@ class BrowserSessionPool:
         self._playwright: Any | None = None
         self._contexts: dict[tuple[str, str, bool], Any] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self._conversations: dict[tuple[str, str], ConversationState] = {}
         self._guard = asyncio.Lock()
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
+
+    def conversation(self, provider: str, account: str) -> ConversationState | None:
+        return self._conversations.get((provider, account))
+
+    def remember_conversation(
+        self, provider: str, account: str, state: ConversationState
+    ) -> None:
+        self._conversations[(provider, account)] = state
+
+    async def drop_conversation(self, provider: str, account: str) -> None:
+        """Sohbeti bırak ve sayfasını kapat. Bir sonraki tur sıfırdan başlar."""
+        state = self._conversations.pop((provider, account), None)
+        if state is None:
+            return
+        with contextlib.suppress(Exception):
+            await state.page.close()
 
     async def context_for(self, session: WebSessionConfig, credential: WebSessionCredential) -> Any:
         key = (session.provider, session.account, session.headless)
@@ -382,6 +446,7 @@ class BrowserSessionPool:
         Chrome kalıcı profilleri KİLİTLER. Kontrol paneli, etkileşimli giriş penceresi
         açmadan ya da headless ayarını değiştirmeden önce bunu çağırır.
         """
+        await self.drop_conversation(provider, account)
         async with self._guard:
             keys = [
                 key
@@ -431,7 +496,7 @@ def build_browser_transport(
     async def _transport(
         credential: WebSessionCredential, messages: tuple[Message, ...], model: str
     ) -> str:
-        del model  # Browser UI currently uses the provider account's selected/default model.
+        del model  # Tarayıcı arayüzü hesabın kendi seçili modelini kullanır.
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
             context = await manager.context_for(session, credential)
@@ -443,26 +508,25 @@ def build_browser_transport(
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
-                page = await context.new_page()
                 try:
                     return await asyncio.wait_for(
-                        _run_page(page, definition, format_browser_prompt(messages)),
+                        _deliver_turn(manager, session, definition, context, messages),
                         timeout=max(1.0, remaining),
                     )
                 except WebBrowserSelectorError as error:
                     last_selector_error = error
+                    # Sohbet bilinmeyen bir duruma düştü: bırak, ikinci deneme
+                    # sıfırdan başlasın. Aynı hesap, aynı profil — gizli yedek yok.
+                    await manager.drop_conversation(session.provider, session.account)
                     if attempt == 0:
-                        # Same account/provider, fresh page only. No hidden fallback.
                         await asyncio.sleep(0.75)
                         continue
                     raise
                 except TimeoutError as error:
+                    await manager.drop_conversation(session.provider, session.account)
                     raise WebBrowserError(
                         f"{definition.name} yanıtı {limit:.0f} saniyede tamamlanmadı"
                     ) from error
-                finally:
-                    with contextlib.suppress(Exception):
-                        await page.close()
 
             if last_selector_error is not None:
                 raise last_selector_error
@@ -471,6 +535,42 @@ def build_browser_transport(
             )
 
     return _transport
+
+
+async def _deliver_turn(
+    manager: BrowserSessionPool,
+    session: WebSessionConfig,
+    definition: BrowserProviderDefinition,
+    context: Any,
+    messages: tuple[Message, ...],
+) -> str:
+    """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
+
+    Devam edilebilirlik iki koşula bağlıdır: mesaj listesi UZAMIŞ olmalı ve daha önce
+    gönderilen önek DEĞİŞMEMİŞ olmalı. İkincisi olmadan, bağlam sıkıştırıldığında ya da
+    yeni bir oturum başladığında model bambaşka bir konuşmanın ortasında cevap verirdi.
+    """
+    state = manager.conversation(session.provider, session.account)
+    resumable = (
+        state is not None
+        and 0 < state.sent_count < len(messages)
+        and conversation_digest(messages[: state.sent_count]) == state.prefix_digest
+    )
+
+    if resumable and state is not None:
+        prompt = format_browser_prompt(messages[state.sent_count :], continuation=True)
+        answer = await _send_turn(state.page, definition, prompt)
+    else:
+        await manager.drop_conversation(session.provider, session.account)
+        page = await context.new_page()
+        state = ConversationState(page=page)
+        await _open_conversation(page, definition)
+        answer = await _send_turn(page, definition, format_browser_prompt(messages))
+
+    state.sent_count = len(messages)
+    state.prefix_digest = conversation_digest(messages)
+    manager.remember_conversation(session.provider, session.account, state)
+    return answer
 
 
 async def open_login_browser(provider: str, account: str) -> None:
@@ -510,9 +610,19 @@ async def open_login_browser(provider: str, account: str) -> None:
             await context.close()
 
 
-async def _run_page(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
+async def _open_conversation(page: Any, definition: BrowserProviderDefinition) -> None:
+    """Yeni bir sohbet aç. Yalnızca sohbet KURULURKEN çağrılır."""
     await page.goto(definition.new_chat_url, wait_until="domcontentloaded", timeout=60_000)
 
+
+async def _run_page(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
+    """Yeni sohbet açıp tek tur çalıştır (sohbet sürekliliği kullanılmayan yol)."""
+    await _open_conversation(page, definition)
+    return await _send_turn(page, definition, prompt)
+
+
+async def _send_turn(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
+    """Açık bir sohbete tek mesaj gönder ve yanıtı bekle."""
     # Web uygulaması kabuğu, mesaj alanından önce çizilebilir. Gövdenin herhangi bir
     # yerindeki “Sign in” yazısını oturum kaybı sayma; önce gerçek composer'ı bekle.
     input_locator = await _first_visible(page, definition.input_selectors, timeout_ms=15_000)

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -189,6 +190,9 @@ class GatewayApp:
             return
         if method == "POST" and path == "/api/web_sessions/login":
             await self._api_login_web_session(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/login_state":
+            await self._api_web_login_state(receive, send)
             return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
@@ -547,6 +551,23 @@ class GatewayApp:
             {"ok": True, "pid": process.pid, "provider": provider, "account": account},
         )
 
+    async def _api_web_login_state(self, receive: Receive, send: Send) -> None:
+        """Giriş penceresi hâlâ açık mı?
+
+        Panel bunu yoklar: kullanıcı pencereyi kapattığı anda bağlantı testi
+        KENDİLİĞİNDEN çalışır. Böylece kullanıcı elle cookie kopyalamak ya da
+        "şimdi doğrula" demek zorunda kalmaz.
+        """
+        body = await _read_json(receive)
+        try:
+            pid = int(body.get("pid", 0))
+        except (TypeError, ValueError):
+            pid = 0
+        if pid <= 0:
+            await _json(send, _error_body("geçersiz süreç kimliği"), status=400)
+            return
+        await _json(send, {"running": _process_alive(pid), "pid": pid})
+
     def _web_session_json(self, session: WebSessionConfig) -> dict[str, Any]:
         from ..providers.web_browser import browser_profile_dir
 
@@ -804,6 +825,25 @@ def _build_key_pools(config: Config) -> KeyPoolRegistry:
     from ..config.keys import environ_snapshot
 
     return KeyPoolRegistry(environ_snapshot(), cooldown_s=config.runtime.circuit_cooldown_s)
+
+
+def _process_alive(pid: int) -> bool:
+    """Bir süreç hâlâ yaşıyor mu? (sinyal göndermeden yoklar)
+
+    `signal 0` süreci etkilemez, yalnızca varlığını sorar. `PermissionError`
+    süreç BAŞKASINA ait demektir — yani yaşıyordur.
+    """
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        # Platform desteklemiyorsa "bilmiyorum" yerine "bitti" demek, panelin
+        # sonsuza kadar beklemesinden iyidir: kullanıcı yine elle doğrulayabilir.
+        return False
+    return True
 
 
 def _error_body(message: str) -> dict[str, Any]:

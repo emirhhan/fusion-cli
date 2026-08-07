@@ -9,6 +9,7 @@ import httpx
 from fusion_cli.core.compression import compress_messages, compress_text, saved_chars
 from fusion_cli.core.routing_strategy import RoutingStrategy, order_models
 from fusion_cli.core.types import Message
+from fusion_cli.gateway import app as gateway_app
 from fusion_cli.gateway.analytics import Analytics, RequestRecord
 from fusion_cli.gateway.app import GatewayApp
 from fusion_cli.gateway.cache import PromptCache
@@ -365,3 +366,35 @@ async def test_api_ready_native_web_oturumuyla_true(tmp_path):
         data = (await client.get("/api/ready")).json()
     assert data["ready"] is True
     assert "claude_web" in data["configured_providers"]
+
+
+# --- Giriş penceresi yoklaması ---------------------------------------------- #
+#
+# Panel bu uç noktayı yoklar: kullanıcı giriş penceresini kapattığı anda bağlantı
+# testi kendiliğinden çalışır. Böylece cookie'yi elle kopyalamak gerekmez.
+
+
+async def test_giris_penceresi_yasayan_sureci_calisiyor_bildirir(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post("/api/web_sessions/login_state", json={"pid": os.getpid()})
+
+    assert resp.status_code == 200
+    assert resp.json()["running"] is True
+
+
+async def test_giris_penceresi_kapandiginda_bitti_bildirir(tmp_path, monkeypatch):
+    def _yok(pid, signal):
+        raise ProcessLookupError
+
+    monkeypatch.setattr(gateway_app.os, "kill", _yok)
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post("/api/web_sessions/login_state", json={"pid": 424242})
+
+    assert resp.json()["running"] is False
+
+
+async def test_gecersiz_surec_kimligi_reddedilir(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post("/api/web_sessions/login_state", json={"pid": 0})
+
+    assert resp.status_code == 400

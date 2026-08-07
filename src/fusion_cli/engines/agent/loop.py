@@ -89,6 +89,11 @@ MAX_TOOL_CONTRACT_REPAIRS = 1
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
 BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
+#: Model yetenek kapısına takıldı: okuyabilir, planlayabilir ama değiştiremez.
+MUTATION_BLOCKED_MESSAGE = (
+    "Bu model dosya/sistem değiştiremez ({reason}). Değişiklik önerini metin olarak "
+    "yaz; uygulamayı kullanıcı ya da araç yetenekli bir model üstlenecek."
+)
 
 _DECISION_MESSAGES = {
     Decision.DENIED: DENIED_MESSAGE,
@@ -375,6 +380,7 @@ async def _drive(
                     deps,
                     registry,
                     allowed_tools,
+                    execution=execution,
                     offer_tools=execution.offer_tools,
                 )
             else:
@@ -384,6 +390,7 @@ async def _drive(
                         deps,
                         registry,
                         allowed_tools,
+                        execution=execution,
                         offer_tools=execution.offer_tools,
                         timeout_s=min(deps.config.runtime.request_timeout_s, remaining),
                     )
@@ -602,6 +609,7 @@ async def _call_model(
     registry: ToolRegistry,
     allowed_tools: set[str] | None = None,
     *,
+    execution: ExecutionPolicy,
     offer_tools: bool = True,
     timeout_s: float | None = None,
 ) -> ModelResult:
@@ -615,7 +623,7 @@ async def _call_model(
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=(
-            tuple(registry.schemas(_permitted(allowed_tools, registry)))
+            tuple(registry.schemas(_permitted(allowed_tools, registry, execution)))
             if offer_tools
             else ()
         ),
@@ -649,10 +657,26 @@ async def _call_model(
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"})
 
 
-def _permitted(allowed_tools: set[str] | None, registry: ToolRegistry) -> set[str] | None:
-    if allowed_tools is None:
-        return None
-    return (allowed_tools | ALWAYS_ALLOWED) & set(registry.names())
+def _permitted(
+    allowed_tools: set[str] | None,
+    registry: ToolRegistry,
+    execution: ExecutionPolicy,
+) -> set[str] | None:
+    """Modele sunulacak araç adlarını belirle.
+
+    Mutation izni yoksa değiştirici araçların ŞEMASI hiç gönderilmez: modele
+    yapamayacağı bir yeteneği göstermek, denemesine ve turu boşa harcamasına yol açar.
+    """
+    names = set(registry.names()) if allowed_tools is None else (
+        (allowed_tools | ALWAYS_ALLOWED) & set(registry.names())
+    )
+    if not execution.allow_mutation:
+        names = {
+            name
+            for name in names
+            if not (registry.get(name) is not None and registry.get(name).mutating)  # type: ignore[union-attr]
+        }
+    return names
 
 
 def _should_auto_continue(
@@ -794,7 +818,7 @@ async def _run_tools(
             continue
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
-        result, outcome = await _execute(call, args, deps, registry)
+        result, outcome = await _execute(call, args, deps, registry, execution=execution)
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
             mutating = bool(tool is not None and tool.mutating)
@@ -842,10 +866,23 @@ def _encode_arguments(args: dict[str, object]) -> str:
 
 
 async def _execute(
-    call: ToolCall, args: dict[str, object], deps: AgentDeps, registry: ToolRegistry
+    call: ToolCall,
+    args: dict[str, object],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    *,
+    execution: ExecutionPolicy,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     tool = registry.get(call.name)
+    if tool is not None and tool.mutating and not execution.allow_mutation:
+        # Yetenek kapısı onaydan ÖNCE gelir: kullanıcıya sormanın anlamı yok, bu
+        # model bu işi güvenilir yapamıyor. Şema hiç sunulmadığı için buraya normalde
+        # gelinmez; ikinci savunma hattıdır.
+        return (
+            ToolResult(MUTATION_BLOCKED_MESSAGE.format(reason=execution.mutation_block_reason)),
+            ToolOutcome.BLOCKED,
+        )
     if tool is not None and tool.mutating:
         decision = await deps.policy.decide(build_request(tool, args, deps.allowed_commands))
         if decision is not Decision.ALLOW:
