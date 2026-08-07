@@ -419,6 +419,7 @@
             Bunu güvenilir yapıp yapmadığı ölçülmeden dosyalarına yazmasına izin verilmez.
             Ölçüm 5 gerçek istek gönderir ve kendi aboneliğinden harcar.
           </div>
+          <div class="guide" id="webEvalSamples"></div>
           <div class="web-actions">
             <button onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
             <button class="ghost" onclick="validateNativeWeb()">Bağlantıyı kontrol et</button>
@@ -550,15 +551,39 @@
         $("nativeWebStatus").textContent = "Araç yeteneği ölçülüyor (5 gerçek istek, birkaç dakika sürebilir)…";
         try {
           const r = await post("/api/web_sessions/eval", {model});
-          const yuzde = (x)=>`${Math.round(x*100)}%`;
-          const ozet = `araç seçimi ${yuzde(r.scores.tool_selection)} · şema ${yuzde(r.scores.schema_validity)} · `
-                     + `argüman ${yuzde(r.scores.argument_preservation)} · sahte çağrı yok ${yuzde(r.scores.no_false_calls)}`;
+          // Ölçülemeyen metrik "%100" DEĞİL "ölçülmedi" yazar: payda sıfırken oran
+          // 1.0 döner ve ölçülmemiş bir şey mükemmel sanılırdı.
+          const metrik = (ad, anahtar)=>{
+            const n = (r.measured||{})[anahtar];
+            if (!n) return `${ad} ölçülmedi`;
+            return `${ad} ${Math.round(r.scores[anahtar]*100)}% (${n})`;
+          };
+          const ozet = [metrik("araç seçimi","tool_selection"), metrik("şema","schema_validity"),
+                        metrik("argüman","argument_preservation"), metrik("sahte çağrı yok","no_false_calls")].join(" · ");
           $("nativeWebStatus").textContent = r.passed
             ? `Geçti · dosya değiştirme izni açıldı — ${ozet}`
             : `Geçemedi · model okuyup planlayabilir ama dosya değiştiremez — ${ozet}`;
+          renderEvalSamples(r.samples || []);
           toast(r.passed ? "Araç yeteneği doğrulandı" : "Ölçüm eşiği geçilemedi", !r.passed);
           await load();
         } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
+      }
+      // Ölçüm düştüğünde SEBEBİ görünür olmalı: her senaryonun ham çıktısı, blok
+      // işaretinin görünüp görünmediği ve ayrıştırma hataları.
+      function renderEvalSamples(samples) {
+        const kutu = $("webEvalSamples");
+        if (!kutu) return;
+        if (!samples.length) { kutu.innerHTML = ""; return; }
+        kutu.innerHTML = "<h3>Ölçüm kayıtları</h3>" + samples.map((s, i)=>{
+          const beklenen = s.expected_tool || "(araç beklenmiyor)";
+          const bulunan = s.parsed_tool || "—";
+          const isaret = s.has_call_markers ? "blok işareti VAR" : "blok işareti YOK";
+          const hatalar = (s.parse_errors||[]).length ? `<div class="hint">ayrıştırma: ${s.parse_errors.join("; ")}</div>` : "";
+          return `<details><summary class="meta" style="cursor:pointer">${i+1}. beklenen ${beklenen} · bulunan ${bulunan} · ${isaret}</summary>`
+               + `${hatalar}<pre class="secret-area" style="white-space:pre-wrap;max-height:240px;overflow:auto">${
+                    (s.raw_preview||"").replace(/[&<>]/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))
+                  }</pre></details>`;
+        }).join("");
       }
       // Giriş penceresi kapanana kadar yoklar, sonra bağlantıyı KENDİLİĞİNDEN test eder.
       // Kullanıcının elle cookie kopyalaması ya da "şimdi doğrula" demesi gerekmez.

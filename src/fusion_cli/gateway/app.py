@@ -573,11 +573,12 @@ class GatewayApp:
             await _json(send, _error_body("böyle bir web oturumu yok"), status=400)
             return
         try:
-            score = await probe_emulation(self._config, model)
+            report = await probe_emulation(self._config, model)
         except FusionError as error:
             await _json(send, _error_body(str(error)), status=502)
             return
 
+        score = report.score
         passed = score.passes()
         updated_sessions = tuple(
             _dc_replace(item, tool_eval_passed=passed) if item.model == model else item
@@ -596,12 +597,32 @@ class GatewayApp:
                 "ok": True,
                 "model": model,
                 "passed": passed,
+                # Her metriğin yanında KAÇ senaryoda ölçülebildiği taşınır: payda
+                # sıfırken oran 1.0 döner ve ölçülmemiş bir metrik "%100" görünürdü.
                 "scores": {
                     "tool_selection": score.tool_selection,
                     "schema_validity": score.schema_validity,
                     "argument_preservation": score.argument_preservation,
                     "no_false_calls": score.no_false_calls,
                 },
+                "measured": {
+                    "tool_selection": score.tool_selection_measured,
+                    "schema_validity": score.schema_validity_measured,
+                    "argument_preservation": score.argument_preservation_measured,
+                    "no_false_calls": score.no_false_calls_measured,
+                },
+                # Ham kayıt teşhis içindir: "araç seçimi %0" hem "model reddetti"
+                # hem "blok arayüzde yutuldu" olabilir; ikisinin çözümü farklıdır.
+                "samples": [
+                    {
+                        "expected_tool": sample.expected_tool,
+                        "parsed_tool": sample.parsed_tool,
+                        "has_call_markers": sample.has_call_markers,
+                        "parse_errors": list(sample.parse_errors),
+                        "raw_preview": redact(sample.raw_output[:600]),
+                    }
+                    for sample in report.samples
+                ],
                 "thresholds": {
                     "tool_selection": DEFAULT_THRESHOLDS.tool_selection,
                     "schema_validity": DEFAULT_THRESHOLDS.schema_validity,

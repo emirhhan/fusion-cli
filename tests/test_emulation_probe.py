@@ -76,7 +76,8 @@ def _kusursuz_ciktilar() -> list[str]:
 async def test_sozlesmeye_uyan_model_esigi_gecer():
     provider = _ScriptedProvider(_kusursuz_ciktilar())
 
-    score = await probe_emulation(_config(), MODEL, registry=_Registry(provider))
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(provider))
+    score = rapor.score
 
     assert score.passes()
     assert len(provider.seen) == len(PROBE_SCENARIOS)
@@ -86,9 +87,10 @@ async def test_yanlis_arac_secen_model_esigi_gecemez():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[0] = '<tool_call>{"name":"list_dir","arguments":{"path":"."}}</tool_call>'
 
-    score = await probe_emulation(
+    rapor = await probe_emulation(
         _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
     )
+    score = rapor.score
 
     assert score.tool_selection < 1.0
     assert not score.passes()
@@ -99,9 +101,10 @@ async def test_gereksiz_arac_cagiran_model_esigi_gecemez():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[-1] = '<tool_call>{"name":"read_file","arguments":{"path":"x.py"}}</tool_call>'
 
-    score = await probe_emulation(
+    rapor = await probe_emulation(
         _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
     )
+    score = rapor.score
 
     assert score.no_false_calls < 1.0
     assert not score.passes()
@@ -112,9 +115,10 @@ async def test_bozuk_payload_semayi_dusurur():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[2] = ciktilar[2].replace('lines="2"', 'lines="9"')
 
-    score = await probe_emulation(
+    rapor = await probe_emulation(
         _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
     )
+    score = rapor.score
 
     assert not score.passes()
 
@@ -135,3 +139,32 @@ async def test_saglayici_hatasi_olcumu_sessizce_gecirmez():
 async def test_etkin_web_oturumu_yoksa_olcum_yapilmaz():
     with pytest.raises(FusionError, match="etkin bir web oturumu yok"):
         await probe_emulation(_config(enabled=False), MODEL, registry=_Registry(None))
+
+
+async def test_ham_cikti_teshis_icin_saklanir():
+    """Puan tek başına yetmez: "araç seçimi %0" hem reddi hem yutulmuş bloğu anlatır."""
+    ciktilar = _kusursuz_ciktilar()
+    ciktilar[0] = "Üzgünüm, dosya sistemine erişimim yok."
+
+    rapor = await probe_emulation(
+        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
+    )
+
+    ilk = rapor.samples[0]
+    assert ilk.parsed_tool is None
+    assert ilk.has_call_markers is False
+    assert "erişimim yok" in ilk.raw_output
+
+
+async def test_olculemeyen_metrik_sayaci_sifir_kalir():
+    """Payda sıfırken oran 1.0 döner; sayaç bunun ölçülmediğini söyler."""
+    ciktilar = ["düz metin"] * 5
+
+    rapor = await probe_emulation(
+        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
+    )
+
+    assert rapor.score.schema_validity == 1.0
+    assert rapor.score.schema_validity_measured == 0
+    assert rapor.score.tool_selection_measured == 4
+    assert not rapor.score.passes()

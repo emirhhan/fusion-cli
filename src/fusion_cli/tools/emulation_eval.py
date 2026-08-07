@@ -43,12 +43,23 @@ class Thresholds:
 
 @dataclass(frozen=True, slots=True)
 class EmulationEvalScore:
-    """Değerlendirme sonucu: dört oran [0, 1]."""
+    """Değerlendirme sonucu: dört oran [0, 1] ve her birinin ÖLÇÜLEBİLDİĞİ senaryo sayısı.
+
+    Sayaçlar rapor için zorunludur: payda sıfırken oran 1.0 döner ("uygulanamadı"
+    cezalandırılmaz) ama bu ekranda "%100" olarak görünür ve ölçülmemiş bir şey
+    mükemmel sanılır. Ölçüldü — Gemini hiçbir senaryoda ayrıştırılabilir çağrı
+    üretmedi; şema ve argüman metrikleri hiç uygulanamadığı hâlde %100 raporlandı.
+    """
 
     tool_selection: float
     schema_validity: float
     argument_preservation: float
     no_false_calls: float
+    #: Her metriğin kaç senaryoda gerçekten ölçülebildiği. 0 = ölçülmedi.
+    tool_selection_measured: int = 0
+    schema_validity_measured: int = 0
+    argument_preservation_measured: int = 0
+    no_false_calls_measured: int = 0
 
     def passes(self, thresholds: Thresholds | None = None) -> bool:
         """Tüm metrikler eşiği geçiyor mu? Eşik verilmezse §5.3 varsayılanları."""
@@ -105,4 +116,8 @@ def score_emulation(cases: Sequence[EvalCase]) -> EmulationEvalScore:
         schema_validity=_ratio(sema_basari, sema_toplam),
         argument_preservation=_ratio(arg_basari, arg_toplam),
         no_false_calls=_ratio(sahte_basari, sahte_toplam),
+        tool_selection_measured=secim_toplam,
+        schema_validity_measured=sema_toplam,
+        argument_preservation_measured=arg_toplam,
+        no_false_calls_measured=sahte_toplam,
     )

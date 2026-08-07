@@ -24,7 +24,7 @@ from dataclasses import dataclass, replace
 
 from ..config.models import Config, WebSessionConfig
 from ..core.errors import FusionError
-from ..core.tool_emulation import render_tool_instructions
+from ..core.tool_emulation import CALL_OPEN, parse_tool_calls, render_tool_instructions
 from ..core.types import CompletionRequest, Message
 from ..providers.web_registry import WebSessionRegistry, web_registry_for
 from ..tools import build_registry
@@ -37,6 +37,40 @@ PROBE_TIMEOUT_S = 120.0
 #: Sonda çağrısının çıktı bütçesi. Senaryolar tek araç çağrısı ister; uzun cevaba
 #: gerek yoktur ve kısa tutmak kullanıcının aboneliğini korur.
 PROBE_MAX_TOKENS = 512
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeSample:
+    """Tek senaryonun HAM kaydı — ölçüm neden düştü sorusunun tek cevabı.
+
+    Yalnızca puan raporlamak teşhis için yetmiyor: "araç seçimi %0" hem "model
+    reddetti" hem "blok arayüzde yutuldu" anlamına gelebilir ve ikisinin çözümü
+    tamamen farklıdır. Ham çıktı olmadan aralarında seçim yapmak tahmindir.
+    """
+
+    prompt: str
+    expected_tool: str | None
+    raw_output: str
+    parsed_tool: str | None
+    parse_errors: tuple[str, ...]
+
+    @property
+    def has_call_markers(self) -> bool:
+        """Çıktıda sınır işareti GÖRÜNÜYOR mu?
+
+        Görünmüyorsa iki ihtimal ayrışır: model bloğu hiç üretmedi ya da tarayıcı
+        arayüzü `<tool_call>` etiketini HTML sanıp yuttu. İkincisinde metinde
+        kaçırılmış (`&lt;`) biçim ya da hiçbir iz kalmaz.
+        """
+        return CALL_OPEN in self.raw_output or "tool_call" in self.raw_output.lower()
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeReport:
+    """Ölçüm sonucu + her senaryonun ham kaydı."""
+
+    score: EmulationEvalScore
+    samples: tuple[ProbeSample, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +138,7 @@ async def probe_emulation(
     *,
     registry: WebSessionRegistry | None = None,
     scenarios: Sequence[ProbeScenario] = PROBE_SCENARIOS,
-) -> EmulationEvalScore:
+) -> ProbeReport:
     """Bir web oturumunun taklit araç yeteneğini ölç.
 
     Senaryolar SIRAYLA çalışır: tarayıcı tabanlı oturumlar tek sayfayı paylaşır ve
@@ -123,6 +157,7 @@ async def probe_emulation(
 
     instructions = render_tool_instructions(build_registry().schemas())
     cases: list[EvalCase] = []
+    samples: list[ProbeSample] = []
     for scenario in scenarios:
         request = CompletionRequest(
             messages=(Message("system", instructions), Message("user", scenario.prompt)),
@@ -148,4 +183,14 @@ async def probe_emulation(
                 schema=_schema_of(scenario.expected_tool) if scenario.expected_tool else None,
             )
         )
-    return score_emulation(cases)
+        parsed = parse_tool_calls(result.text)
+        samples.append(
+            ProbeSample(
+                prompt=scenario.prompt,
+                expected_tool=scenario.expected_tool,
+                raw_output=result.text,
+                parsed_tool=parsed.calls[0].name if parsed.calls else None,
+                parse_errors=parsed.errors,
+            )
+        )
+    return ProbeReport(score=score_emulation(cases), samples=tuple(samples))
