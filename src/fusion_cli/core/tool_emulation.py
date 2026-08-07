@@ -264,6 +264,12 @@ _GENERAL_RULES = (
     "- write_file yalnızca YENİ dosya oluştururken ya da içeriğin tamamı "
     "gerçekten baştan yazılacaksa kullanılır.",
     "- Bir çağrıda birden çok payload olabilir; her alan kendi id'siyle eşleşir.",
+    "- Bir yanıtta EN FAZLA BİR araç çağrısı yap. Birden çok değişiklik gerekiyorsa "
+    "sırayla, her turda bir tane yap; hepsini tek yanıta sığdırmaya çalışırsan yanıt "
+    "kesilir ve çağrı bloğu hiç gelmez.",
+    "- edit_file'da 'old' alanına DEĞİŞEN EN KÜÇÜK benzersiz parçayı koy — "
+    "fonksiyonun ya da sınıfın tamamını değil. Kısa 'old' hem yanıtı kısaltır hem "
+    "eşleşmeyi kesinleştirir.",
     "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
     "- Araç kullanmayacaksan tool_call bloğu yazma; nihai cevabı ver.",
 )
@@ -505,8 +511,24 @@ def parse_tool_calls(text: str) -> EmulatedParse:
             )
         )
 
-    for payload_id in sorted(set(payloads) - used_payloads):
-        errors.append(f"payload kullanılmadı: {payload_id}")
+    artan = sorted(set(payloads) - used_payloads)
+    if artan and not calls:
+        # Payload üretilmiş ama HİÇ çağrı yok: yanıt çağrı bloğuna varmadan kesilmiş.
+        #
+        # Ölçüldü (Gemini web): model dört dosyalık bir düzenlemeyi TEK yanıtta
+        # toplamaya çalıştı, yanıt 5570 karakterde kesildi ve çağrı bloğu hiç
+        # gelmedi. Genel "payload kullanılmadı" hatası bunu anlatmıyordu; model
+        # ne olduğunu anlamayıp dosyanın TAMAMINI write_file ile yeniden yazmaya
+        # düştü ve kodu bozdu. Teşhis burada net söylenir.
+        errors.append(
+            "Yanıtın araç çağrısı bloğuna varmadan kesildi: "
+            f"{len(artan)} payload var ama {CALL_OPEN} bloğu yok. Yanıtı kısalt — "
+            "bu yanıtta TEK bir araç çağrısı yap ve ötekileri sonraki turlara bırak. "
+            "Dosyanın tamamını yeniden yazmaya KALKMA."
+        )
+    else:
+        for payload_id in artan:
+            errors.append(f"payload kullanılmadı: {payload_id}")
 
     outside = _LEGACY_BLOCK.sub("", _BLOCK.sub("", without_payloads))
     if any(marker in outside for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):

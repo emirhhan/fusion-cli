@@ -140,3 +140,56 @@ def test_sunulan_liste_izin_verilenlerle_daraltilinca_da_takma_ad_sizmaz() -> No
     }
 
     assert sunulan == {"read_file"}
+
+
+# --- Kesilen yanıt: payload var, çağrı yok ------------------------------------ #
+#
+# Ölçüldü (Gemini web, üç koşu): tutarsızlığın kaynağı model tercihi değil, yanıt
+# uzunluğuydu. Koşu 2'de model DOĞRU şeyi yaptı — dört dosya için çok payload'lı
+# edit_file üretmeye başladı — ama yanıt 5570 karakterde kesildi ve çağrı bloğu hiç
+# gelmedi. Genel "payload kullanılmadı" hatası ne olduğunu anlatmadığı için model
+# write_file ile tam dosya yazmaya düştü ve kodu bozdu.
+#
+# Başarılı iki koşu (6 ve 11 edit_file) yanıt başına TEK çağrı yapmıştı.
+
+
+def test_cagri_bloguna_varmadan_kesilen_yanit_teshis_edilir() -> None:
+    parsed = parse_tool_calls(_payload("eski-1", "def f():\n    return 1"))
+
+    assert not parsed.calls
+    (hata,) = parsed.errors
+    assert "kesildi" in hata
+    # Hata eyleme dönüştürülebilir olmalı (RULES.md "Hata Yönetimi").
+    assert "TEK bir araç çağrısı" in hata
+    assert "tamamını yeniden yazmaya KALKMA" in hata
+
+
+def test_cagri_varken_artan_payload_kesilme_sayilmaz() -> None:
+    """Çağrı geldiyse yanıt kesilmemiştir; fazla payload ayrı bir hatadır."""
+    ham = "\n".join(
+        [
+            _payload("kullanilan", "x = 1"),
+            _payload("artan", "y = 2"),
+            "FUSION_TOOL_CALL",
+            json.dumps(
+                {
+                    "name": "write_file",
+                    "arguments": {"path": "a.py", "content": {"$ref": "kullanilan"}},
+                }
+            ),
+            "FUSION_TOOL_CALL_END",
+        ]
+    )
+
+    parsed = parse_tool_calls(ham)
+
+    assert parsed.calls
+    assert any("payload kullanılmadı: artan" in hata for hata in parsed.errors)
+    assert not any("kesildi" in hata for hata in parsed.errors)
+
+
+def test_sozlesme_yanit_basina_tek_cagri_ister() -> None:
+    metin = _instructions()
+
+    assert "EN FAZLA BİR araç çağrısı" in metin
+    assert "EN KÜÇÜK benzersiz parçayı" in metin

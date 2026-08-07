@@ -157,7 +157,11 @@ def test_unused_payload_is_rejected() -> None:
     )
 
     assert not parsed.calls
-    assert parsed.errors == ("payload kullanılmadı: unused",)
+    # Payload var ama HİÇ çağrı yok: bu, yanıtın çağrı bloğuna varmadan kesilmesidir.
+    # Mesaj o teşhisi verir — genel "kullanılmadı" uyarısı modele ne yapacağını
+    # söylemiyordu ve model tam dosya yazmaya düşüyordu (bkz. test_emulated_edit_contract).
+    (hata,) = parsed.errors
+    assert "kesildi" in hata and "TEK bir araç çağrısı" in hata
 
 
 def test_payload_ref_object_cannot_have_extra_fields() -> None:

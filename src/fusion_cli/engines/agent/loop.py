@@ -56,6 +56,7 @@ from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import render_tool_example, validate_arguments
+from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, learning_steps, reflexion, review, skill_recall
@@ -785,6 +786,48 @@ def _stopped_without_acting(state: _State, *, execution: ExecutionPolicy) -> boo
 _DELEGATION_TOOLS = frozenset({"spawn_agent", "invoke_subagent"})
 
 
+def _targeted_edit_required(
+    name: str,
+    args: dict[str, object],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+) -> list[str]:
+    """Taklit araç kullanan modelde var olan dosya toptan yeniden yazılamaz.
+
+    Ölçüldü (Gemini web, aynı görev altı koşu): yıkıcı başarısızlıkların HEPSİNDE
+    `write_file` vardı — bozuk sözdizimi, 13 ruff hatası, toplanamayan test dosyası.
+    Yalnızca `edit_file` kullanan koşular eksik kalabildi ama kodu hiç bozmadı.
+
+    Sebep yapısal: yüz satırlık bir dosyayı baştan üretmek modele yüz satırlık hata
+    yüzeyi açar, hedefli düzenleme birkaç satırlık. Ücretsiz bir web modeli o yüzeyi
+    tutarlı biçimde temiz geçemiyor.
+
+    Karar MOTOR katmanında verilir çünkü sağlayıcı politikasıdır; `files.py`
+    sağlayıcıdan habersiz kalır. Yeni dosya yazmak serbesttir — kısıt yalnızca var
+    olan bir dosyanın ÜZERİNE yazmaya karşıdır.
+    """
+    if not execution.is_web or name not in _FULL_WRITE_TOOLS:
+        return []
+    raw = args.get("path")
+    if not isinstance(raw, str) or not raw.strip():
+        return []
+    try:
+        hedef = resolve_path(deps.tool_context, raw)
+    except FusionError:
+        return []
+    if not hedef.exists():
+        return []
+    return [
+        f"'{raw}' zaten var. Var olan bir dosyayı toptan yeniden yazma — edit_file ile "
+        "YALNIZCA değişen parçayı gönder. Birden çok yer değişecekse multi_edit kullan "
+        "ya da her turda bir düzenleme yap."
+    ]
+
+
+#: Dosyanın tamamını değiştiren araçlar.
+_FULL_WRITE_TOOLS = frozenset({"write_file"})
+
+
 # --------------------------------------------------------------------------- #
 # Araç yürütme
 # --------------------------------------------------------------------------- #
@@ -833,6 +876,9 @@ async def _run_tools(
             function_schema = tool.schema().get("function")
             if isinstance(function_schema, dict):
                 contract_errors.extend(validate_arguments(function_schema, args))
+
+        if not contract_errors:
+            contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution))
 
         if contract_errors:
             # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model

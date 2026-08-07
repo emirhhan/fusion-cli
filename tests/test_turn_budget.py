@@ -402,3 +402,87 @@ async def test_basit_gorevde_okuyup_durmak_devam_acmaz(monkeypatch, tmp_path, si
     await run_agent("bu dosyada ne var", deps)
 
     assert provider.calls == 2, f"basit görevde devam açıldı: {provider.calls}"
+
+
+# --- Taklit kipte var olan dosya toptan yazılamaz ------------------------------ #
+#
+# Ölçüldü (Gemini web, aynı görev altı koşu): yıkıcı başarısızlıkların HEPSİNDE
+# write_file vardı — bozuk sözdizimi, 13 ruff hatası, toplanamayan test dosyası.
+# Yalnızca edit_file kullanan koşular eksik kalabildi ama kodu hiç bozmadı.
+
+
+async def test_web_modelinde_var_olan_dosya_write_file_ile_ezilemez(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "a.py"
+    hedef.write_text("değerli = 1\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="yeni\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("a.py'yi düzelt", deps)
+
+    assert hedef.read_text(encoding="utf-8") == "değerli = 1\n", "dosya ezilmemeli"
+    engellenen = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.outcome is not ToolOutcome.OK
+    ]
+    assert engellenen and "edit_file" in engellenen[0].output
+
+
+async def test_web_modelinde_yeni_dosya_yazilabilir(monkeypatch, tmp_path, sink):
+    """Kısıt yalnızca ÜZERİNE yazmaya karşıdır; yeni dosya serbesttir."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="y.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("y.py oluştur", deps)
+
+    assert (tmp_path / "y.py").read_text(encoding="utf-8") == "x = 1\n"
+
+
+async def test_api_modelinde_kisit_yok(monkeypatch, tmp_path, sink):
+    """Ölçüm web modellerinde yapıldı; API modellerine kanıtsız kısıt konmaz.
+
+    "Tam okunmamış dosyayı ezme" muhafızı ayrı bir konudur ve HER sağlayıcıda
+    geçerlidir; bu yüzden model önce dosyayı okur.
+    """
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "a.py"
+    hedef.write_text("eski\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="yeni\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=False)
+
+    await run_agent("a.py'yi yenile", deps)
+
+    assert hedef.read_text(encoding="utf-8") == "yeni\n"
