@@ -25,7 +25,7 @@ import hashlib
 import json
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -34,7 +34,7 @@ from ..config.models import WebSessionConfig
 from ..config.paths import user_data_dir
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.redaction import redact
-from ..core.types import Message
+from ..core.types import Message, ToolCall
 from .web_session import WebSessionCredential, WebTransport
 
 
@@ -274,19 +274,34 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     sağlayıcının kendi bağlamı geçmişi zaten taşır. `False` ise sohbet yeni kuruluyordur
     ve geçmişin tamamı bu metne girer.
 
-    Araç sonuçları her iki durumda da açıkça etiketlenir ki model bir sonraki turda
-    taklit araç biçimini üretebilsin.
+    DEVAM KİPİNDE ASİSTAN MESAJLARI GÖNDERİLMEZ — ölçüldü:
+
+    Sohbet açıkken modelin kendi turu o konuşmanın İÇİNDEDİR. Onu bir kez daha
+    göndermek, modele kendi araç çağrılarını yeni bir istek gibi gösterir ve model
+    aynen tekrar üretir. Gerçek koşuda tam olarak bu oldu: üç dosya okundu, sonuçlar
+    döndü, ardından model aynı üç okumayı yeniden istedi ve tekrar kapısı turu kesti.
+    Stateless bir API'de tüm geçmişi göndermek zorunludur; stateful bir sohbette aynı
+    şey "bunları yap" demektir.
+
+    Araç sonuçları HANGİ ÇAĞRIYA ait olduklarını söyler. Üç sonucun da aynı başlıkla
+    (`ARAÇ SONUCU (read_file, başarılı)`) gelmesi, modelin hangi dosyanın döndüğünü
+    ayırt etmesini imkânsız kılıyordu.
     """
+    calls_by_id = {
+        call.id: call
+        for message in messages
+        for call in message.tool_calls
+    }
     rendered: list[str] = []
     for message in messages:
+        if message.role == "assistant" and continuation:
+            continue
         if message.role == "system":
             label = "SİSTEM"
         elif message.role == "assistant":
             label = "ASİSTAN"
         elif message.role == "tool":
-            tool_name = message.name or "araç"
-            status = "başarılı" if message.ok is not False else "hatalı"
-            label = f"ARAÇ SONUCU ({tool_name}, {status})"
+            label = f"ARAÇ SONUCU ({_tool_result_label(message, calls_by_id)})"
         else:
             label = "KULLANICI"
         content = message.content.strip()
@@ -300,10 +315,21 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     # Talimat her iki kipte de tekrarlanır: web arayüzleri uzun sohbetlerde ilk
     # mesajdaki kuralları zayıflatır ve model biçimi bırakmaya başlar.
     rendered.append(
-        "### TALİMAT\nYalnızca en son kullanıcı/araç sonucuna cevap ver. "
-        "Önceki ASİSTAN metnini tekrar etme."
+        "### TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
+        "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
+        "ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver."
     )
     return "\n\n".join(rendered)
+
+
+def _tool_result_label(message: Message, calls_by_id: Mapping[str, ToolCall]) -> str:
+    """Araç sonucunu HANGİ çağrıya ait olduğunu söyleyecek biçimde etiketle."""
+    tool_name = message.name or "araç"
+    status = "başarılı" if message.ok is not False else "hatalı"
+    call = calls_by_id.get(message.tool_call_id or "")
+    if call is None:
+        return f"{tool_name}, {status}"
+    return f"{tool_name} {call.arguments}, {status}"
 
 
 async def _launch_profile_context(

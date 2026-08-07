@@ -15,7 +15,7 @@ import json
 import pytest
 
 from fusion_cli.config.models import WebSessionConfig
-from fusion_cli.core.types import Message
+from fusion_cli.core.types import Message, ToolCall
 from fusion_cli.providers import web_browser
 from fusion_cli.providers.web_browser import (
     BrowserSessionPool,
@@ -225,3 +225,67 @@ async def test_devam_turu_iz_kaydinda_isaretlenir(pool, log, tmp_path):
     assert [kayit["devam"] for kayit in kayitlar] == [False, True]
     # Devam turunda YALNIZCA yeni mesaj gönderilmiş olmalı.
     assert "mesaj-0" not in kayitlar[1]["gonderilen"]
+
+
+# --- Devam turunda ASİSTAN mesajı gönderilmez --------------------------------- #
+#
+# Gerçek koşu (Gemini web, iz kaydı): üç dosya okundu, sonuçlar döndü, ardından model
+# AYNI üç okumayı yeniden istedi ve tekrar kapısı turu kesti. Sebep, sohbet açıkken
+# modelin KENDİ turunun ona geri gönderilmesiydi: kendi araç çağrılarını yeni bir
+# istek gibi görüp aynen tekrar üretiyordu.
+
+
+def test_devam_turunda_asistan_mesaji_geri_gonderilmez():
+    mesajlar = (
+        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
+                                                      arguments='{"path":"a.py"}'),)),
+        Message("tool", "dosya içeriği", tool_call_id="1", name="read_file", ok=True),
+    )
+
+    prompt = format_browser_prompt(mesajlar, continuation=True)
+
+    assert "### ASİSTAN" not in prompt
+    assert "[Önceki araç çağrıları]" not in prompt
+    assert "dosya içeriği" in prompt
+
+
+def test_yeni_sohbette_asistan_mesaji_korunur():
+    """Sohbet sıfırlandığında geçmişin tamamı gerekir; asistan turu da dahil."""
+    mesajlar = (
+        Message("user", "oku"),
+        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
+                                                      arguments='{"path":"a.py"}'),)),
+        Message("tool", "dosya içeriği", tool_call_id="1", name="read_file", ok=True),
+    )
+
+    prompt = format_browser_prompt(mesajlar, continuation=False)
+
+    assert "### ASİSTAN" in prompt
+    assert "[Önceki araç çağrıları]" in prompt
+
+
+def test_arac_sonucu_hangi_cagriya_ait_oldugunu_soyler():
+    """Üç sonucun da aynı başlıkla gelmesi modelin ayırt etmesini imkânsız kılıyordu."""
+    cagrilar = tuple(
+        ToolCall(id=str(i), name="read_file", arguments=f'{{"path":"dosya{i}.py"}}')
+        for i in range(3)
+    )
+    mesajlar = (
+        Message("assistant", "", tool_calls=cagrilar),
+        *[
+            Message("tool", f"içerik-{i}", tool_call_id=str(i), name="read_file", ok=True)
+            for i in range(3)
+        ],
+    )
+
+    prompt = format_browser_prompt(mesajlar, continuation=True)
+
+    for i in range(3):
+        assert f'dosya{i}.py' in prompt
+
+
+def test_talimat_arac_sonucunu_kendi_cagrisi_olarak_tanitir():
+    prompt = format_browser_prompt((Message("user", "x"),), continuation=True)
+
+    assert "SENİN önceki çağrılarının cevabıdır" in prompt
+    assert "tekrar etme" in prompt
