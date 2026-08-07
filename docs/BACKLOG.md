@@ -1,5 +1,53 @@
 # BACKLOG
 
+## Kontrol paneli yeniden tasarımı — TAMAMLANDI (2026-08-08)
+
+841 satırlık tek dosya (HTML + gömülü CSS + gömülü JS) yedi parçaya bölündü ve
+8pt ızgara + iOS tipografi ölçeği üzerine kurulu bir tasarım sistemine taşındı.
+Turuncu-pembe marka kimliği korundu ama gradyan üç yere ayrıldı: logo, aktif
+gezinme çubuğu, baş sayı kartı. Her karta ve her düğmeye gradyan sürmek panelin
+"AI yapmış" görünmesinin ana sebebiydi.
+
+**Ölçülen kontrast kararları** (hepsi açık zemine göre, `#F2F2F7`):
+
+    #FF8A3D 2.10 · #FF5C7A 2.66 · #FF4D8D 2.81   → üçü de METİN OLAMAZ
+    #B3164E 5.99                                  → marka rengi yazıya girince bu
+    beyaz / #B3164E 6.68                          → düğme metni
+
+**Erişilebilirlik ölçümü** (önce → sonra): odaklanamayan tıklanabilir eleman
+52 → 0. Panel klavyeyle hiç gezilemiyordu; altı gezinme öğesi, beş kategori çipi
+ve 41 sağlayıcı kartı `onclick` taşıyan `<div>`'di. Hepsi gerçek `<button>` oldu.
+
+Inter paketle geliyor (latin + latin-ext, değişken ağırlık, SIL OFL 1.1, 131 KB).
+Ağdan font çekilmiyor; panel yalnız-yerel kimliğini koruyor.
+
+### Bilinçli olarak yapılmayanlar
+
+- **Koyu tema YOK, karar bilinçli.** Cam efekti açık zeminde arkadaki rengi
+  doyurarak çalışır (`saturate(180%)`); koyuda "biraz şeffaf gri"ye döner.
+  Ayrıca yukarıdaki kontrast ölçümlerinin tamamı açık zemine göre alındı; koyu
+  tema hepsinin yeniden ölçülmesini gerektirir. İstenirse ayrı bir faz olur.
+- **768px'te Genel sekmesinde 4 kart 3 sütuna düşüp son satırda tek kart
+  bırakıyor.** `auto-fit`in normal davranışı. Kart sayısına bağlı özel kural
+  yazmak tam da kaçınılan türden tek-kullanımlık çözüm olurdu.
+
+### Yol boyunca bulunan ve düzeltilen kusurlar
+
+1. `class="v brand"` içindeki jenerik `brand` adı kenar çubuğundaki `.brand`
+   bloğuyla çakışıp değer hücresine `display:flex` ve 24px alt boşluk
+   sızdırıyordu (satır 67px vs 43px).
+2. `1.35fr repeat(auto-fit, …)` — `auto-fit` esnek bir track ile aynı bildirimde
+   kullanılamaz; bildirim tamamen geçersiz olup ızgara TEK SÜTUNA düşüyordu.
+3. `grid-auto-rows: 1fr` bir kart açıldığında TÜM satırları o yüksekliğe
+   çekiyordu; satır içi eşitleme zaten varsayılan davranış.
+4. Düğme sıfırlamasındaki `width: 100%` kategori çiplerini tam genişliğe yaydı.
+5. `.meta` hem model kimliği hem düzyazı için kullanılıyordu; düz cümleler mono
+   fontta basılıp paneli "terminal ekran görüntüsü" gibi gösteriyordu. `.subtle`
+   ayrıldı.
+
+İkisi (2 ve 3) birim testinden geçerdi; yalnız gerçek sunucudan alınan ekran
+görüntüsünde görünüyorlardı.
+
 ## ÖLÇÜLDÜ — zor görev hem API hem Gemini web ile geçiyor (2026-08-07)
 
 Deneme görevi: üç ayrı hatayı düzelt (çökme, sessiz yanlış sonuç, sınır durumu) +
