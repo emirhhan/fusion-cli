@@ -95,6 +95,19 @@ def _expected_lines(attributes: str) -> int | None:
     return int(match.group("lines")) if match else None
 
 
+#: Sondaki boş satır için tanınan tolerans.
+#
+# Ölçüldü (Gemini web): model kod bloğunu kapatmadan önce bir boş satır bıraktı ve
+# `lines="3"` yazdı — kendi gördüğü metinde üç satır vardı. Taşıma normalleştirmesi
+# sondaki satır sonunu attığı için biz iki satır okuduk ve DOĞRU taşınmış içeriği
+# reddettik. Bu, bozulma değil sondaki satır sonunun sayılıp sayılmaması belirsizliği.
+#
+# Tolerans TAM OLARAK BİR satırdır ve yalnızca sonda geçerlidir: gerçek bir içerik
+# satırının düşmesi hâlâ yakalanır. Belirsizliğin kaynağı tek bir satır sonudur,
+# bu yüzden ödün de tek satırdır — keyfi bir pay değil.
+_TRAILING_NEWLINE_TOLERANCE = 1
+
+
 def _verify_line_count(body: str, expected: int | None, payload_id: str) -> None:
     """Geri okunan gövde, modelin bildirdiği satır sayısıyla uyuşuyor mu?"""
     if expected is None:
@@ -103,7 +116,7 @@ def _verify_line_count(body: str, expected: int | None, payload_id: str) -> None
             "gövdenin kaç satır olduğunu bildir ki taşıma sırasında bozulma fark edilsin"
         )
     actual = len(body.splitlines())
-    if actual != expected:
+    if not actual <= expected <= actual + _TRAILING_NEWLINE_TOLERANCE:
         raise _PayloadResolutionError(
             f"payload {payload_id}: bildirilen {expected} satır, geri okunan {actual} satır. "
             "Gövde taşıma sırasında bozulmuş olabilir; içerik YAZILMADI. "
@@ -196,8 +209,10 @@ PAYLOAD_RULES = (
     "- Payload gövdesini Markdown kod bloğu (```dil ... ```) içine koy.",
     f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı; "
     "web arayüzünün eklediği dil rozeti bu satırdan önce güvenle ayıklanır.",
-    '- lines="N" ZORUNLUDUR: gövdenin (sentinel hariç) satır sayısını doğru yaz. '
+    '- lines="N" ZORUNLUDUR: sentinel'
+    " ile kapanış arasındaki KOD satırlarını say (sentinel dahil değil). "
     "Uyuşmazsa içerik yazılmaz; bu, taşıma sırasında bozulmayı yakalayan tek kontroldür.",
+    "- Kapanış ``` işaretinden önce boş satır bırakma; bırakırsan da sayma.",
     "- Her payload id benzersiz olmalı ve tam olarak bir $ref ile kullanılmalı.",
     '- Payload referansı yalnızca {"$ref":"payload-id"} biçimindedir, başka alan almaz.',
 )

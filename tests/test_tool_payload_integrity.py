@@ -122,3 +122,78 @@ def test_kirpilmis_payload_yakalanir() -> None:
     assert not saglam.errors
     assert not bozuk.calls
     assert any("geri okunan 2 satır" in error for error in bozuk.errors)
+
+
+# --- Sondaki boş satır belirsizliği ------------------------------------------- #
+#
+# Ölçüldü (Gemini web): model kod bloğunu kapatmadan önce bir boş satır bıraktı ve
+# lines="3" yazdı — kendi gördüğü metinde üç satır vardı. Taşıma normalleştirmesi
+# sondaki satır sonunu attığı için iki satır okuduk ve DOĞRU taşınmış içeriği
+# reddettik. Güvenlik kontrolü doğru içerikte yanlış alarm üretiyordu.
+
+
+def test_sondaki_bos_satir_sayilsa_da_sayilmasa_da_kabul_edilir() -> None:
+    source = 'def greet(name: str) -> str:\n    return f"Hello!"'
+    ham = (
+        'FUSION_PAYLOAD id="source-1" lines="3"\n'
+        "```python\n"
+        f"{PAYLOAD_SENTINEL}\n"
+        f"{source}\n"
+        "\n"
+        "```\n"
+        "FUSION_PAYLOAD_END\n"
+        f"{_call()}"
+    )
+
+    parsed = parse_tool_calls(ham)
+
+    assert not parsed.errors, parsed.errors
+    assert json.loads(parsed.calls[0].arguments)["content"].rstrip("\n") == source
+
+
+def test_iki_satirlik_fark_hala_reddedilir() -> None:
+    """Tolerans TEK satırdır: gerçek içerik kaybı yakalanmaya devam eder."""
+    parsed = parse_tool_calls(_payload("a\nb", declared=4))
+
+    assert not parsed.calls
+    assert any("geri okunan 2 satır" in error for error in parsed.errors)
+
+
+def test_eksik_bildirim_hala_reddedilir() -> None:
+    """Tolerans yalnızca YUKARI yöndedir; eksik bildirim bozulma işaretidir."""
+    parsed = parse_tool_calls(_payload("a\nb\nc", declared=2))
+
+    assert not parsed.calls
+
+
+def test_gemininin_gercek_ciktisi_ayristirilir() -> None:
+    """Canlı ölçümden BİREBİR alınmış çıktı.
+
+    Kod bloğu sınırlayıcısı arayüzde yutulmuş, geriye yalnızca "Python" rozeti
+    kalmış; sentinel onu doğru ayıklıyor. Sondaki boş satır da modelin saydığı
+    ama taşımanın attığı satır.
+    """
+    ham = (
+        'FUSION_PAYLOAD id="file-1" lines="3"\n'
+        "\n"
+        "Python\n"
+        "FUSION_RAW_PAYLOAD_V1\n"
+        "def greet(name: str) -> str:\n"
+        '    return f"Hello, {name}!"\n'
+        "\n"
+        "FUSION_PAYLOAD_END\n"
+        "FUSION_TOOL_CALL\n"
+        '{"name":"write_file","arguments":{"path":"greet.py","content":{"$ref":"file-1"}}}\n'
+        "FUSION_TOOL_CALL_END"
+    )
+
+    parsed = parse_tool_calls(ham)
+
+    assert not parsed.errors, parsed.errors
+    assert len(parsed.calls) == 1
+    arguments = json.loads(parsed.calls[0].arguments)
+    assert arguments["path"] == "greet.py"
+    assert "def greet(name: str) -> str:" in arguments["content"]
+    assert 'return f"Hello, {name}!"' in arguments["content"]
+    assert "Python" not in arguments["content"], "dil rozeti içeriğe sızmamalı"
+    assert PAYLOAD_SENTINEL not in arguments["content"]
