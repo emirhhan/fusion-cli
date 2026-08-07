@@ -833,11 +833,8 @@ async def _raise_known_page_error(
             "Fusion Control Panel'den 'Tarayıcıyla giriş yap'ı aç."
         )
 
-    try:
-        body = (await page.locator("body").inner_text(timeout=3_000)).lower()
-    except Exception:
-        if ignore_clean:
-            return
+    body = await _page_chrome_text(page, definition)
+    if not body and not ignore_clean:
         body = ""
 
     challenge_markers = (
@@ -854,20 +851,59 @@ async def _raise_known_page_error(
             "Arka plan modunu kapatıp "
             "Fusion'ın görünür giriş tarayıcısında doğrulamayı kendin tamamla."
         )
-    rate_markers = (
-        "too many requests",
-        "rate limit",
-        "you've reached your limit",
-        "you have reached your limit",
-        "try again later",
-        "çok fazla istek",
-        "kullanım sınırına",
-    )
-    if any(marker in body for marker in rate_markers):
+    # Kota işaretleri DAR tutulur. "try again later" burada DEĞİLDİR ve bu ölçülmüş
+    # bir hatanın sonucudur: Gemini geçici her arızada "Something went wrong, try
+    # again later" gösteriyor ve Fusion bunu kota sanıp kullanıcıya "kotan doldu,
+    # sonra dene" diyordu. Kullanıcı bunun üzerine yeni bir hesap açtı — oysa sorun
+    # kota değildi. Yanlış teşhis, teşhis yokluğundan zararlıdır.
+    if any(marker in body for marker in _QUOTA_MARKERS):
         raise WebBrowserError(
             f"{definition.name} kullanım/kota sınırı bildirdi; daha sonra yeniden dene "
             "veya Fusion fallback zincirini kullan."
         )
+    if any(marker in body for marker in _TRANSIENT_MARKERS):
+        raise WebBrowserError(
+            f"{definition.name} geçici bir hata bildirdi (kota DEĞİL). Aynı istek "
+            "genellikle yeniden denendiğinde geçer; sorun sürerse tarayıcı oturumunu yenile."
+        )
+
+
+#: GERÇEKTEN kota/hız sınırını söyleyen işaretler. Dar tutulur.
+_QUOTA_MARKERS = (
+    "too many requests",
+    "rate limit",
+    "you've reached your limit",
+    "you have reached your limit",
+    "çok fazla istek",
+    "kullanım sınırına",
+)
+
+#: Geçici arıza işaretleri. Kotadan AYRI raporlanır çünkü kullanıcıya verilecek
+#: tavsiye zıttır: kotada beklemek/hesap değiştirmek gerekir, geçici arızada
+#: yeniden denemek yeter.
+_TRANSIENT_MARKERS = (
+    "something went wrong",
+    "try again later",
+    "bir şeyler ters gitti",
+    "bir hata oluştu",
+)
+
+
+async def _page_chrome_text(page: Any, definition: BrowserProviderDefinition) -> str:
+    """Sayfa metnini, MODELİN KENDİ CEVABI çıkarılmış hâlde döndür.
+
+    Gövde taraması modelin ürettiği metni de kapsıyordu: model "rate limit" ya da
+    "try again later" yazdığı anda Fusion bunu sağlayıcının kota uyarısı sanıyordu.
+    Sınıflandırma yalnızca UYGULAMANIN kendi arayüz metnine bakmalıdır.
+    """
+    try:
+        body = str(await page.locator("body").inner_text(timeout=3_000))
+    except Exception:
+        return ""
+    for answer in await _response_snapshot(page, definition.response_selectors):
+        if answer:
+            body = body.replace(answer, " ")
+    return body.lower()
 
 
 _LOGIN_URL_MARKERS: dict[str, tuple[str, ...]] = {
