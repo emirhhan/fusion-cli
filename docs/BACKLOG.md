@@ -671,3 +671,19 @@ Dört dosyalık görev, aynı komut, ardışık koşular:
 Kalan başarısızlık (1/4): model geçerli araç çağrısı üretemedi — web tarafı
 kararsızlığı, Fusion tesisatı değil. Hiçbir koşuda test imzaları bozulmadı,
 hiçbir koşuda kod bozulmadı.
+
+## Kalan 1/4 — onarım hakkı ve ondan sonrası
+
+Düşen koşuda model bozuk bir araç çağrısı üretti, tek onarım hakkını harcadı ve
+tur öldü. O hak (1) TÜM tur boyunca geçerliydi ve 12 turluk işler için ölçülmüştü;
+turlar 22'ye çıkınca yirmi adımlık bir işin ortasındaki tek yazım hatası yapılmış
+her şeyi çöpe atar hale geldi. Hak 1 → 4. Sınırsız değildir: aynı bozuk çağrının
+tekrarı `seen >= 1` ile, ilerlemeyen turlar "ilerleme yok" kapısıyla zaten durur.
+Düzeltme geri alınarak doğrulandı (1 ile kırılıyor, 4 ile geçiyor).
+
+Sonraki dört koşu: 3/4 tam başarı, write_file 0, kod bozulması 0, imzalar sağlam.
+
+Kalan başarısızlık artık BAŞKA bir sebepten: model daha ilk turda araç sözleşmesi
+yerine Gemini'nin kendi web aramasına sapıyor (2 çağrıda bitiyor). Bu tarayıcı
+arayüzünün kendi davranışıdır; istem tarafından kapatılamadı. Ölçülmedi: aramayı
+bastıran bir ayar/seçici var mı.

@@ -83,8 +83,17 @@ MAX_VERIFY_ROUNDS = 2
 #: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
 #: hiç denememek turu iş yapmadan bitirir (ölçüldü).
 MAX_EMPTY_RETRIES = 2
-#: Bozuk araç çağrısı için tanınan onarım hakkı. Model düzeltmiyorsa tekrarlıyordur.
-MAX_TOOL_CONTRACT_REPAIRS = 1
+#: Bozuk araç çağrısı için TÜM tur boyunca tanınan onarım hakkı.
+#
+# Eskiden 1'di ve 12 turluk işler için ölçülmüştü. Turlar 22 tura çıkınca bu hak
+# orantısız kaldı: yirmi adımlık bir işin herhangi bir yerindeki TEK yazım hatası
+# tüm turu öldürüyor ve o ana kadarki işi çöpe atıyordu (ölçüldü: dört koşunun
+# biri böyle düştü).
+#
+# Sayı tur uzunluğuyla birlikte büyütülür, sınırsız değildir: aynı bozuk çağrıyı
+# tekrarlayan model zaten `seen >= 1` kuralıyla ayrıca durdurulur ve ilerleme
+# üretmeyen turları "ilerleme yok" kapısı bitirir.
+MAX_TOOL_CONTRACT_REPAIRS = 4
 
 
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.

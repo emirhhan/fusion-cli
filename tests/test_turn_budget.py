@@ -486,3 +486,34 @@ async def test_api_modelinde_kisit_yok(monkeypatch, tmp_path, sink):
     await run_agent("a.py'yi yenile", deps)
 
     assert hedef.read_text(encoding="utf-8") == "yeni\n"
+
+
+async def test_bozuk_cagri_turu_tek_hamlede_oldurmez(monkeypatch, tmp_path, sink):
+    """Uzun bir işin ortasındaki tek yazım hatası yapılmış işi çöpe atmamalı.
+
+    Ölçüldü: onarım hakkı (1) 12 turluk işler için belirlenmişti; turlar 22 tura
+    çıkınca yirmi adımlık bir işin herhangi bir yerindeki tek bozuk çağrı tüm turu
+    öldürüyordu. Dört koşunun biri böyle düştü.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path="a")]),
+                # İki AYRI sözleşme ihlali: uzun bir turda birden fazla yazım
+                # hatası olağandır. (Aynı bozuk çağrının tekrarı ayrı bir kuralla,
+                # `seen >= 1` ile, zaten durdurulur — burada ölçülen o değil.)
+                model_result(tool_calls=[tool_call("olmayan_arac", path="x")]),
+                model_result(tool_calls=[tool_call("baska_olmayan", path="y")]),
+                # Model kendini toparlıyor ve işi bitiriyor.
+                model_result(tool_calls=[tool_call("list_dir", path="b")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+
+    sonuc = await run_agent("uzun iş", deps)
+
+    assert sonuc.ok, f"tek bozuk çağrı turu öldürdü: {sonuc.final_text[:120]}"
+    assert sonuc.final_text == TAM_CEVAP
