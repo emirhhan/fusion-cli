@@ -687,3 +687,30 @@ Kalan başarısızlık artık BAŞKA bir sebepten: model daha ilk turda araç s�
 yerine Gemini'nin kendi web aramasına sapıyor (2 çağrıda bitiyor). Bu tarayıcı
 arayüzünün kendi davranışıdır; istem tarafından kapatılamadı. Ölçülmedi: aramayı
 bastıran bir ayar/seçici var mı.
+
+## Ders belleğinin kaliteye etkisi — ÖLÇÜLDÜ
+
+183 dersin 3'ü çöp ("merhaba" ×2, "..."), 1 birebir tekrar, 2 yakın-tekrar kümesi.
+Tur başına 4 ders hatırlanıyor. Aynı görev, aynı komut:
+
+| | Sonuç |
+|---|---|
+| Bellekli | 21/21, 21/21, 20/21 |
+| `--no-memory` | başarısız, başarısız, 21/21 |
+
+Dersler zekayı ENGELLEMİYOR, belirgin biçimde yardım ediyor. Hatırlananlar iş
+tipiyle ilgili çıkıyor (`python` yerine `python3`, `unittest` yerine `pytest`,
+`write_file`'da eksik `path`). Belleği kapatmak için sebep yok.
+
+## Sıfırdan proje — ÖLÇÜLDÜ
+
+Boş dizin + GOREV.md (kelime frekansı modülü + CLI + kendi testleri). Üç koşu:
+3/3 hem `sozluk.py` hem `test_sozluk.py` üretildi, kendi testleri geçti.
+
+Modelin kendi testi zayıf kanıttır; şartnameye karşı BAĞIMSIZ doğrulama yapıldı
+(büyük/küçük harf, noktalama, tırnak, boş metin, azalan sıra, eşitlikte alfabetik
+sıra, adet taşması, CLI çıkış kodu ve `kelime: sayı` biçimi): **9/9**.
+
+Ayrıca ölçüm sırasında düzenek hatası yararlı bir gözlem verdi: GOREV.md yanlışlıkla
+silindiğinde agent dosyayı aradı, dizini listeledi, boş gördü ve "görev dosyası yok,
+devam edemiyorum" dedi. Uydurmadı, boş dosya yaratmadı.
