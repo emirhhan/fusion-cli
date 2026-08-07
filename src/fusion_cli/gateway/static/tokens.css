@@ -172,7 +172,6 @@
   --sidebar-width: 260px;
   --content-max: 1120px;
   --control-height: 36px;
-  --focus-ring: 0 0 0 4px var(--brand-tint-strong);
 }
 
 /* Hareketi azalt: kullanıcı sistemde istediyse tüm geçişler kapanır. */

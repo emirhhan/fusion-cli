@@ -29,6 +29,46 @@ body::before {
     radial-gradient(50rem 36rem at 92% 4%, rgba(255, 77, 141, 0.08), transparent 62%);
 }
 
+/* Kimliğini SINIFINDAN alan düğmeler (gezinme, kategori çipi, kart başlığı,
+ * uç nokta) genel düğme dolgusunu almaz. `<div onclick>` yerine gerçek
+ * `<button>` olmalarının tek sebebi klavye ve ekran okuyucu desteğidir;
+ * görünümlerini kendi sınıfları belirler. Bu sıfırlama erken gelir, sonraki
+ * dosyalardaki sınıf kuralları üzerine yazar. */
+.nav-item,
+.cat-chip,
+.pcard-head,
+.endpoint {
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  height: auto;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Odak halkası tek yerde tanımlanır: fare kullanıcısını rahatsız etmemek için
+ * :focus değil :focus-visible. Klavyeyle gezen herkes her adımda nerede
+ * olduğunu görür. */
+.nav-item:focus-visible,
+.cat-chip:focus-visible,
+.pcard-head:focus-visible,
+.endpoint:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--brand-ink);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
 .app { display: flex; min-height: 100vh; position: relative; }
 
 /* ----------------------------------------------------------------------- */
@@ -114,8 +154,6 @@ nav { display: flex; flex-direction: column; gap: 2px; }
   border-radius: var(--radius-pill);
   background: var(--brand-grad);
 }
-.nav-item:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-
 .ni-ico {
   width: 18px;
   height: 18px;
@@ -161,7 +199,6 @@ nav { display: flex; flex-direction: column; gap: 2px; }
               background var(--duration-fast) var(--ease-out);
 }
 .endpoint:hover { background: var(--bg-elevated); border-color: var(--separator-opaque); }
-.endpoint:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .endpoint .url { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .endpoint .copy { opacity: 0.4; font-size: var(--text-footnote); }
 .endpoint:hover .copy { opacity: 1; }

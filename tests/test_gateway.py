@@ -6,6 +6,7 @@ Sağlayıcı sahte enjekte edilir; ağ yok. `httpx.ASGITransport` uygulamayı do
 from __future__ import annotations
 
 import json
+import re
 
 import httpx
 import pytest
@@ -238,6 +239,79 @@ def test_statik_varlik_bilinen_uzantiyi_okur():
     body, content_type = okundu
     assert content_type == "font/woff2"
     assert body[:4] == b"wOF2"  # woff2 imzası
+
+
+# --- panel erişilebilirliği (klavye + ekran okuyucu) ----------------------- #
+
+
+def _varlik(name: str) -> str:
+    from fusion_cli.gateway.app import read_dashboard_asset
+
+    okundu = read_dashboard_asset(name)
+    assert okundu is not None, name
+    return okundu[0].decode("utf-8")
+
+
+def _dashboard() -> str:
+    from fusion_cli.gateway.app import _dashboard_html
+
+    return _dashboard_html()
+
+
+def test_tiklanabilir_eleman_gercek_dugmedir():
+    """`<div onclick>` klavyeyle odaklanamaz ve ekran okuyucuya düğme demez.
+
+    Ölçüldü: panel bu yüzden yalnız uç nokta düğmesine kadar gezilebiliyordu;
+    altı gezinme öğesi, kategori çipleri ve 41 sağlayıcı kartı erişilemezdi.
+    """
+    assert re.search(r"<div[^>]*onclick", _dashboard()) is None
+    # Betikle üretilen işaretleme de aynı kurala tabidir. Ölçüt "her kart başlığı
+    # düğmedir" değil — tıklanamayan statik kart (adaptör yok / yerel) div kalır.
+    # Ölçüt: TIKLANABİLİR hiçbir şey div olamaz.
+    for dosya in ("panel.js", "web-sessions.js"):
+        assert re.search(r"<div[^>]*onclick", _varlik(dosya)) is None, dosya
+    panel_js = _varlik("panel.js")
+    assert '<button type="button" class="cat-chip' in panel_js
+    assert '<button type="button" class="pcard-head' in panel_js
+
+
+def test_gezinme_ogeleri_aria_current_tasir():
+    govde = _dashboard()
+    assert govde.count('<button type="button" class="nav-item') == 6
+    # Açılışta yalnız bir öğe geçerli sayfa olarak işaretli olmalı.
+    assert govde.count('aria-current="page"') == 1
+    # Sınıf ve aria birlikte güncellenmezse kart klavye kullanıcısına yalan söyler.
+    assert 't.setAttribute("aria-current", "page")' in _varlik("panel.js")
+
+
+def test_modal_rol_ve_kapanma_yollari_tanimli():
+    govde = _dashboard()
+    assert govde.count('role="dialog"') == 2
+    assert govde.count('aria-modal="true"') == 2
+    assert govde.count("aria-labelledby=") == 2
+    web = _varlik("web-sessions.js")
+    assert 'e.key !== "Escape"' in web  # Escape kapatır
+    assert "e.target === backdrop" in web  # arka plana tıklamak kapatır
+    assert "modalOncesiOdak" in web  # odak açan elemana döner
+
+
+def test_bildirim_ekran_okuyucuya_duyurulur():
+    assert 'id="toast" role="status" aria-live="polite"' in _dashboard()
+
+
+def test_acilir_kapanir_kartlar_aria_expanded_tasir():
+    assert 'aria-expanded="false" aria-controls="webAddBody"' in _dashboard()
+    assert 'head.setAttribute("aria-expanded", String(open))' in _varlik("panel.js")
+
+
+def test_odak_ve_devre_disi_stilleri_tanimli():
+    """Odak halkası tek yerde; `:focus` değil `:focus-visible` kullanılır."""
+    kabuk = _varlik("shell.css")
+    assert ":focus-visible" in kabuk
+    assert "outline: 2px solid var(--brand-ink)" in kabuk
+    bilesen = _varlik("components.css")
+    assert "button:disabled" in bilesen
+    assert "input:disabled" in bilesen
 
 
 async def test_api_providers_json():

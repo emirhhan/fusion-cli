@@ -24,30 +24,30 @@
         </div>
         <div class="nav-eyebrow">Gateway</div>
         <nav id="nav">
-          <div class="nav-item active" data-tab="genel" data-title="Genel" data-sub="Panele genel bakış">
+          <button type="button" class="nav-item active" data-tab="genel" data-title="Genel" data-sub="Panele genel bakış" aria-current="page">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="6.5" /><circle cx="9" cy="9" r="2.2" fill="currentColor" stroke="none" /></svg></span>
             <span class="ni-title">Genel</span><span class="ni-sub">Panele genel bakış</span>
-          </div>
-          <div class="nav-item" data-tab="anahtar" data-title="Sağlayıcılar &amp; Anahtarlar" data-sub="API anahtarların ve erişim">
+          </button>
+          <button type="button" class="nav-item" data-tab="anahtar" data-title="Sağlayıcılar &amp; Anahtarlar" data-sub="API anahtarların ve erişim">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="9" r="3" /><path d="M9 9h6M13 9v3" /></svg></span>
             <span class="ni-title">Sağlayıcılar</span><span class="ni-sub">API anahtarları</span>
-          </div>
-          <div class="nav-item" data-tab="yonlendirme" data-title="Yönlendirme &amp; Fallback" data-sub="Zincir ve strateji">
+          </button>
+          <button type="button" class="nav-item" data-tab="yonlendirme" data-title="Yönlendirme &amp; Fallback" data-sub="Zincir ve strateji">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5h10l-3-3M15 11.5H5l3 3" /></svg></span>
             <span class="ni-title">Yönlendirme</span><span class="ni-sub">Zincir ve fallback</span>
-          </div>
-          <div class="nav-item" data-tab="analitik" data-title="Analitik" data-sub="Kullanım ve gecikme">
+          </button>
+          <button type="button" class="nav-item" data-tab="analitik" data-title="Analitik" data-sub="Kullanım ve gecikme">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15V9M7.7 15V4M12.3 15v-4M15 15h0" /></svg></span>
             <span class="ni-title">Analitik</span><span class="ni-sub">Kullanım ve gecikme</span>
-          </div>
-          <div class="nav-item" data-tab="saglik" data-title="Sağlık" data-sub="Devre ve güvenilirlik">
+          </button>
+          <button type="button" class="nav-item" data-tab="saglik" data-title="Sağlık" data-sub="Devre ve güvenilirlik">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9h3l1.5-3.5L9.5 12l1.5-3h4.5" /></svg></span>
             <span class="ni-title">Sağlık</span><span class="ni-sub">Devre ve güvenilirlik</span>
-          </div>
-          <div class="nav-item" data-tab="test" data-title="Test" data-sub="Model playground">
+          </button>
+          <button type="button" class="nav-item" data-tab="test" data-title="Test" data-sub="Model playground">
             <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3v4.2l-3.9 6.2A1.5 1.5 0 0 0 4.9 15.7h8.2a1.5 1.5 0 0 0 1.3-2.3L10.5 7.2V3M6.5 3h5" /></svg></span>
             <span class="ni-title">Test</span><span class="ni-sub">Model playground</span>
-          </div>
+          </button>
         </nav>
         <div class="sidebar-foot">
           <div class="endpoint-label">Uç nokta</div>
@@ -106,11 +106,12 @@
 
             <!-- Kendi web (oturum tabanlı) ucun: adım adım rehber + form -->
             <div class="web-add card" id="webAddCard">
-              <div class="pcard-head" onclick="toggleWebAdd()" style="cursor:pointer">
+              <button type="button" class="pcard-head" onclick="toggleWebAdd()"
+                aria-expanded="false" aria-controls="webAddBody">
                 <span class="name">Kendi web AI ucunu ekle</span>
                 <span class="badge local">web oturumu</span>
-                <span class="caret" id="webCaret">▾</span>
-              </div>
+                <span class="caret" id="webCaret" aria-hidden="true">▾</span>
+              </button>
               <div class="web-add-body" id="webAddBody">
                 <div class="steps">
                   <div class="step"><span class="step-n">1</span><span>Kendi kurduğun ya da erişim yetkin olan <b>OpenAI-uyumlu</b> bir uç kullan (OpenWebUI, LibreChat, LM Studio sunucusu, kurumsal uç…). Ticari web arayüzü (ChatGPT/Gemini web) desteklenmez.</span></div>
@@ -238,9 +239,9 @@
     </div>
 
     <div class="modal-backdrop" id="webWarningModal">
-      <div class="modal small">
-        <div class="modal-head"><span class="dots">●●●</span><span class="modal-title">Devam etmeden önce</span>
-          <button class="modal-close" onclick="closeModal('webWarningModal')">×</button></div>
+      <div class="modal small" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="webWarningTitle">
+        <div class="modal-head"><span class="dots">●●●</span><span class="modal-title" id="webWarningTitle">Devam etmeden önce</span>
+          <button class="modal-close" onclick="closeModal('webWarningModal')" aria-label="kapat">×</button></div>
         <div class="modal-body">
           <div class="notice"><b id="warnProviderName">Web AI</b><br />
             Bu sağlayıcı, kendi aboneliğine ait izole tarayıcı oturumu veya açıkça verdiğin Cookie başlığıyla çalışır.
@@ -256,9 +257,9 @@
     </div>
 
     <div class="modal-backdrop" id="webSetupModal">
-      <div class="modal">
+      <div class="modal" tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="webSetupTitle">
         <div class="modal-head"><span class="dots">●●●</span><span class="modal-title" id="webSetupTitle">Web AI</span>
-          <button class="modal-close" onclick="closeModal('webSetupModal')">×</button></div>
+          <button class="modal-close" onclick="closeModal('webSetupModal')" aria-label="kapat">×</button></div>
         <div class="modal-body">
           <div class="guide" id="webGuide"></div>
           <div class="two-col">
@@ -302,6 +303,6 @@
       </div>
     </div>
 
-    <div class="toast" id="toast"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>

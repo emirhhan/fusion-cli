@@ -10,11 +10,18 @@ const LIVE_TABS = ["genel", "analitik", "saglik"];
 const REFRESH_MS = 5000;
 
 // Kenar çubuğu gezinmesi: aktif sekmeyi değiştir ve üst bar başlığını güncelle.
+// Öğeler gerçek <button>'dır; `active` sınıfı görünümü, `aria-current` ise ekran
+// okuyucuya hangi sayfada olunduğunu anlatır. İkisi birlikte güncellenir.
 function bindNav() {
   document.querySelectorAll(".nav-item").forEach((t) => t.onclick = () => {
-    document.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".nav-item").forEach((x) => {
+      x.classList.remove("active");
+      x.removeAttribute("aria-current");
+    });
     document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
-    t.classList.add("active"); $("tab-" + t.dataset.tab).classList.add("active");
+    t.classList.add("active");
+    t.setAttribute("aria-current", "page");
+    $("tab-" + t.dataset.tab).classList.add("active");
     $("pageTitle").textContent = t.dataset.title; $("pageSub").textContent = t.dataset.sub;
   });
 }
@@ -88,7 +95,8 @@ function renderCatChips(all) {
   for (const p of all) counts[p.category] = (counts[p.category] || 0) + 1;
   const cats = Object.keys(counts).sort((a, b) => categoryOrder(a) - categoryOrder(b));
   const chip = (label, key, n) =>
-    `<div class="cat-chip ${activeCategory === key ? "active" : ""}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></div>`;
+    `<button type="button" class="cat-chip ${activeCategory === key ? "active" : ""}"
+      aria-pressed="${activeCategory === key}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></button>`;
   $("catChips").innerHTML =
     chip("Hepsi", "", all.length) + cats.map((c) => chip(c, c, counts[c])).join("");
 }
@@ -99,17 +107,22 @@ function providerCard(p) {
   if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
   if (p.kind === "browser_backed" || p.kind === "web_session") {
     const status = p.configured ? `<span class="badge ok">kurulu</span>` : `<span class="badge web">deneysel</span>`;
-    return `<div class="pcard keyed" data-name="${p.name}" onclick="openWebProvider('${p.id}')"><div class="pcard-head"><span class="name">${p.name}</span>${status}<span class="caret">›</span></div><div class="meta" style="margin-top:var(--space-2)">kendi aboneliğin · native browser adapter</div></div>`;
+    return `<div class="pcard keyed" data-name="${p.name}">
+      <button type="button" class="pcard-head" onclick="openWebProvider('${p.id}')">
+        <span class="name">${p.name}</span>${status}<span class="caret" aria-hidden="true">›</span>
+      </button>
+      <div class="meta" style="margin-top:var(--space-2)">kendi aboneliğin · native browser adapter</div></div>`;
   }
   if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
   const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
   const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
   // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
   return `<div class="pcard keyed" id="pcard-${p.id}" data-name="${p.name}">
-    <div class="pcard-head" onclick="togglePcard('${p.id}')">
-      <span class="name">${p.name}</span>${status}<span class="caret">▾</span>
-    </div>
-    <div class="pcard-body">
+    <button type="button" class="pcard-head" onclick="togglePcard('${p.id}')"
+      aria-expanded="false" aria-controls="pbody-${p.id}">
+      <span class="name">${p.name}</span>${status}<span class="caret" aria-hidden="true">▾</span>
+    </button>
+    <div class="pcard-body" id="pbody-${p.id}">
       <div class="meta" style="margin-bottom:var(--space-3)">${p.kind} · ${p.status}</div>
       <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
       <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div>
@@ -120,8 +133,17 @@ function togglePcard(id) {
   const el = $("pcard-" + id); if (!el) return;
   const willOpen = !el.classList.contains("open");
   // Aynı anda tek kart açık kalsın.
-  document.querySelectorAll(".pcard.open").forEach((c) => c.classList.remove("open"));
-  if (willOpen) { el.classList.add("open"); const inp = $("key-" + id); if (inp) inp.focus(); }
+  document.querySelectorAll(".pcard.open").forEach((c) => setPcardOpen(c, false));
+  if (willOpen) { setPcardOpen(el, true); const inp = $("key-" + id); if (inp) inp.focus(); }
+}
+
+// Açık/kapalı durumu iki yerde birden tutulur: sınıf görünüm için, aria-expanded
+// ekran okuyucu için. Biri güncellenip diğeri unutulursa kart klavye kullanıcısına
+// yalan söyler.
+function setPcardOpen(card, open) {
+  card.classList.toggle("open", open);
+  const head = card.querySelector(".pcard-head");
+  if (head) head.setAttribute("aria-expanded", String(open));
 }
 
 async function setKey(id) {

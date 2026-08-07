@@ -27,7 +27,43 @@ const WEB_INFO = {
 const LOGIN_POLL_MS = 2000;
 const LOGIN_POLL_LIMIT_MS = 15 * 60 * 1000;
 
-function closeModal(id) { $(id).classList.remove("open"); }
+// Modal açılmadan önce odağın nerede olduğu saklanır; kapanınca oraya döner.
+// Aksi hâlde klavye kullanıcısı modal kapandığında sayfanın en başına düşer.
+let modalOncesiOdak = null;
+
+function openModal(id) {
+  modalOncesiOdak = document.activeElement;
+  const backdrop = $(id);
+  backdrop.classList.add("open");
+  // Odak modal'ın içine alınır: ilk etkileşimli eleman, yoksa kutunun kendisi.
+  const ilk = backdrop.querySelector("button, input, select, textarea, [tabindex]");
+  (ilk || backdrop.querySelector(".modal")).focus();
+}
+
+function closeModal(id) {
+  $(id).classList.remove("open");
+  if (modalOncesiOdak && modalOncesiOdak.isConnected) modalOncesiOdak.focus();
+  modalOncesiOdak = null;
+}
+
+function acikModal() {
+  return document.querySelector(".modal-backdrop.open");
+}
+
+// Escape en üstteki modal'ı kapatır; arka plana tıklamak da kapatır ama modal'ın
+// KENDİ içine tıklamak kapatmaz (hedef doğrudan arka plan olmalı).
+function bindModalDavranisi() {
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const acik = acikModal();
+    if (acik) { e.preventDefault(); closeModal(acik.id); }
+  });
+  document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
+    backdrop.addEventListener("mousedown", (e) => {
+      if (e.target === backdrop) closeModal(backdrop.id);
+    });
+  });
+}
 
 function openWebProvider(id, model) {
   activeWebProvider = id; activeWebModel = model || null;
@@ -36,7 +72,7 @@ function openWebProvider(id, model) {
   if (remember) return showWebSetup(id, model);
   $("warnProviderName").textContent = info.name;
   $("webWarnRemember").checked = false;
-  $("webWarningModal").classList.add("open");
+  openModal("webWarningModal");
 }
 
 function acceptWebWarning() {
@@ -59,7 +95,7 @@ function showWebSetup(id, model) {
   $("nativeWebStatus").textContent = existing
     ? (existing.connected ? "Kayıt bulundu · oturum/profil mevcut" : "Kayıt bulundu · yeniden giriş gerekli olabilir")
     : "Henüz kaydedilmedi";
-  $("webSetupModal").classList.add("open");
+  openModal("webSetupModal");
 }
 
 function updateNativeModel() {
@@ -184,7 +220,14 @@ function webSessionCard(w) {
     <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
 }
 
-function toggleWebAdd() { $("webAddCard").classList.toggle("open"); }
+function setWebAddOpen(acik) {
+  $("webAddCard").classList.toggle("open", acik);
+  $("webAddCard").querySelector(".pcard-head").setAttribute("aria-expanded", String(acik));
+}
+
+function toggleWebAdd() {
+  setWebAddOpen(!$("webAddCard").classList.contains("open"));
+}
 
 // Panelden kendi OpenAI-uyumlu web ucunu ekle (adım adım formdan).
 async function addWebSession() {
@@ -197,7 +240,7 @@ async function addWebSession() {
     await post("/api/web_sessions", { model, endpoint, token, tool_support });
     toast(model + " web ucu eklendi — Yönlendirme'den zincire ekle");
     $("webModel").value = ""; $("webEndpoint").value = ""; $("webToken").value = "";
-    $("webTools").checked = false; $("webAddCard").classList.remove("open");
+    $("webTools").checked = false; setWebAddOpen(false);
     await load();
   } catch (e) { toast(e.message, true); }
 }
@@ -211,4 +254,5 @@ async function delWebSession(model) {
 // burada top-level DOM erişimi yapılmaz.
 function bindWebSessionForm() {
   $("nativeWebAccount").addEventListener("input", updateNativeModel);
+  bindModalDavranisi();
 }

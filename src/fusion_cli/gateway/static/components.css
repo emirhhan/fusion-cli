@@ -122,7 +122,6 @@ button {
 }
 button:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
 button:active { transform: translateY(0) scale(0.985); }
-button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 button.ghost {
   background: var(--bg-elevated);
@@ -138,6 +137,16 @@ button.danger {
   box-shadow: none;
 }
 button.danger:hover { background: var(--err-tint); box-shadow: var(--shadow-1); }
+
+/* Devre dışı düğme: hareket etmez, yükselmez, imleç değişir. "Basılabilir ama
+ * çalışmıyor" hissi vermemesi için hover/active tepkileri tamamen kapanır. */
+button:disabled,
+button:disabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
 
 /* ----------------------------------------------------------------------- */
 /* Form alanları                                                            */
@@ -162,12 +171,29 @@ textarea {
   padding: var(--space-2) var(--space-3);
 }
 select { font-family: var(--font-sans); }
-input:focus, select:focus, textarea:focus {
-  outline: none;
-  border-color: var(--brand-mid);
-  box-shadow: var(--focus-ring);
-}
+/* Odak halkası shell.css'te tek yerde tanımlı; burada yalnız alanın "aktif"
+ * olduğunu anlatan kenar rengi değişir. */
+input:focus, select:focus, textarea:focus { border-color: var(--brand-ink); }
 input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
+
+/* Devre dışı ve salt-okunur alanlar birbirinden AYRI görünür: devre dışı alan
+ * soluklaşır ve girintiye çekilir; salt-okunur alan (ör. türetilen model
+ * kimliği) okunur kalır ama düzenlenemeyeceği kenarsızlığından anlaşılır. */
+input:disabled, select:disabled, textarea:disabled {
+  background: var(--bg-sunken);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+input:read-only:not([type="checkbox"]) {
+  background: var(--bg-sunken);
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+
+/* Onay kutusu da bir kontroldür: tıklanabilir alanı etiketin tamamıdır. */
+.checkline { cursor: pointer; }
+.checkline:hover { color: var(--text-primary); }
+input[type="checkbox"] { cursor: pointer; }
 
 .fld {
   display: flex;
@@ -250,12 +276,15 @@ input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
               background var(--duration-fast) var(--ease-out);
 }
 .cat-chip:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.cat-chip:active { transform: scale(0.97); }
 .cat-chip.active {
   color: var(--brand-ink);
   background: var(--brand-tint);
   border-color: transparent;
   font-weight: var(--weight-semibold);
 }
+/* Basılı çipe tekrar basmak filtreyi değiştirmez; imleç bunu söyler. */
+.cat-chip[aria-pressed="true"] { cursor: default; }
 .cat-chip .count { font-family: var(--font-mono); font-size: var(--text-caption2); opacity: 0.7; }
 
 .cat-group-title {

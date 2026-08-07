@@ -6,12 +6,12 @@
 /* ----------------------------------------------------------------------- */
 /* Sağlayıcı kartları                                                       */
 /* ----------------------------------------------------------------------- */
-/* Tüm tile'lar aynı yükseklikte: satır içinde en uzun ada göre esner, rozetler
- * kartın altında hizalanır. Adın iki satıra taşması düzeni bozmaz. */
+/* Tile'lar satır içinde aynı yükseklikte: ızgara öğeleri kendi satırlarının
+ * yüksekliğine esner, rozetler kartın altında hizalanır. `grid-auto-rows: 1fr`
+ * KULLANILMAZ — bir kart açıldığında TÜM satırları o yüksekliğe çekiyordu. */
 .provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  grid-auto-rows: 1fr;
   gap: var(--space-3);
 }
 .pcard {
@@ -31,6 +31,7 @@
 
 .pcard-head {
   display: flex;
+  width: 100%;
   align-items: center;
   gap: var(--space-2);
   position: relative;
@@ -113,6 +114,9 @@ td, th {
   font-size: var(--text-footnote);
 }
 tr:last-child td { border-bottom: none; }
+/* Uzun tabloda satır takibi: göz satırı kaybetmesin. Başlık satırı hariç. */
+tbody tr { transition: background var(--duration-fast) var(--ease-out); }
+tbody tr:hover { background: var(--bg-sunken); }
 th {
   color: var(--text-tertiary);
   font-size: var(--text-caption2);
@@ -183,6 +187,9 @@ td.model { font-family: var(--font-mono); font-size: var(--text-caption1); }
   box-shadow: var(--shadow-3);
 }
 .modal.small { width: min(520px, 100%); }
+/* Modal içinde odaklanabilir eleman bulunamazsa odak kutunun kendisine alınır;
+ * bunun için programatik olarak odaklanabilmesi gerekir (tabindex="-1"). */
+.modal:focus { outline: none; }
 .modal-head {
   display: flex;
   align-items: center;
