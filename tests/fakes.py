@@ -140,6 +140,11 @@ def make_config(**overrides):
         "verified_synthesis": False,
         "provider": "auto",
         "agent_max_steps": 8,
+        # Testlerde boşta-tur kapısı yüksek tutulur: çoğu test kasıtlı olarak
+        # ilerlemeyen sahte araçlar kullanır ve kapının onları kesmesi ölçülen
+        # davranışı gizlerdi. Kapının KENDİ davranışı `test_turn_budget.py`
+        # içinde dar bir bütçeyle açıkça sınanır.
+        "agent_max_idle_rounds": 99,
         "self_review": False,
         "reflexion": True,
         "lessons": False,

@@ -44,12 +44,12 @@ from ..core.events import (
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
-    StepLimitReached,
     SubAgentFinished,
     SubAgentStarted,
     TokenReceived,
     ToolExecuted,
     ToolOutcome,
+    TurnBudgetExhausted,
     TurnFinished,
 )
 from ..core.types import FusionResult
@@ -179,8 +179,8 @@ class ConsoleRenderer:
             self._status(
                 messages.AGENT_CONTEXT_COMPRESSED.format(before=event.before, after=event.after)
             )
-        elif isinstance(event, StepLimitReached):
-            self._error(messages.AGENT_STEP_LIMIT.format(limit=event.limit))
+        elif isinstance(event, TurnBudgetExhausted):
+            self._error(_budget_reason(event))
         elif isinstance(event, ErrorOccurred):
             self._error(event.message)
         elif isinstance(event, TurnFinished):
@@ -632,3 +632,20 @@ def _shorten(text: str, limit: int) -> str:
     """Uzun metni tek satıra sığdır. Araç kartı ekranı taşırmamalıdır."""
     flat = " ".join(text.split())
     return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _budget_reason(event: TurnBudgetExhausted) -> str:
+    """Bütçe durma sebebini kullanıcı metnine çevir.
+
+    Metin motorda değil BURADA üretilir: motor yalnızca sebep kodunu bilir
+    (RULES.md "UI ve CLI").
+    """
+    template = messages.AGENT_BUDGET_REASONS.get(event.reason)
+    if template is None:
+        return messages.AGENT_BUDGET_UNKNOWN.format(reason=event.reason)
+    return template.format(
+        model_calls=event.model_calls,
+        tool_rounds=event.tool_rounds,
+        idle_rounds=event.idle_rounds,
+        elapsed_s=event.elapsed_s,
+    )

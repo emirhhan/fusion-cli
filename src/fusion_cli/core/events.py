@@ -206,10 +206,21 @@ class ContextCompressed(Event):
 
 
 @dataclass(frozen=True, slots=True)
-class StepLimitReached(Event):
-    """Agent adım sınırına dayandı; tur zorla sonlandırıldı."""
+class TurnBudgetExhausted(Event):
+    """Tur bütçesi doldu ve tur kesildi.
 
-    limit: int
+    Kullanıcı turun NEDEN bittiğini görmelidir. Sessizce durmak, kullanıcının aynı
+    isteği tekrar denemesine ve aynı döngüye yeniden girmesine yol açıyordu.
+
+    `reason` `core.budget.BudgetStop` değeridir; kullanıcı metnine `ui` katmanında
+    çevrilir. Sayaçlar teşhis içindir: hangi bütçenin dolduğu tek bakışta görünür.
+    """
+
+    reason: str
+    model_calls: int
+    tool_rounds: int
+    idle_rounds: int
+    elapsed_s: float
 
 
 @dataclass(frozen=True, slots=True)

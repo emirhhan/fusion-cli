@@ -142,7 +142,21 @@ runtime:
   # Ardışık araç turu üst sınırı. Model bir döngüye takılırsa tur burada kesilir.
   # Yalnızca patolojik döngüye karşı emniyet supabı; normal uzun işleri kesmemesi
   # için yüksek tutulur (25 pratikte çok işi yarıda kesiyordu).
+  #
+  # DİKKAT: bu sınır artık turun TAMAMI için geçerlidir. Öz-denetim ve doğrulama
+  # kapısının açtığı düzeltici turlar aynı bütçeden yer; eskiden her biri sıfırdan
+  # başlıyor ve bütçe çarpılıyordu.
   agent_max_steps: 200
+  # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse tur kesilir.
+  #
+  # İlerleme = en az bir başarılı araç çağrısı ya da çalışma alanında dosya dokunuşu.
+  # Tek bir ilerlemesiz tur normaldir: model yanlış yolu dener, hatayı okur, düzeltir.
+  # Ardışık olması modelin kendini toparlayamadığını gösterir — kullanıcının gördüğü
+  # "aynı şeyi tekrar tekrar deniyor" davranışı budur.
+  #
+  # 3 bir başlangıç değeridir ve ölçümle doğrulanmamıştır: 1 normal toparlanmayı
+  # keserdi, çok yüksek bir değer döngüyü kesmezdi. Faz 4 ölçümünde sınanacak.
+  agent_max_idle_rounds: 3
   # Tur bitince denetçi model sonucu kontrol eder; somut sorun bulursa TEK düzeltici
   # tur çalışır. Bir hakem çağrısı ekler, çıktı daha sağlam olur. Hız istiyorsan kapat.
   self_review: true

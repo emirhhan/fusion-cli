@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.core.budget import TurnBudget
+from fusion_cli.core.clock import SystemClock
 from fusion_cli.core.model_capability import ToolSupport
 from fusion_cli.core.tool_emulation import parse_tool_calls, render_tool_instructions
 from fusion_cli.core.tools import ToolContext
@@ -32,11 +34,24 @@ class _Allow:
 
 
 def _deps(tmp_path):
+    # Bütçe sınırları geniş: bu dosya payload TAŞIMASINI sınar, bütçe tükenmesini
+    # değil. Bütçenin kendi davranışı `test_turn_budget.py` içindedir.
+    budget = TurnBudget(
+        clock=SystemClock(),
+        max_model_calls=50,
+        max_verify_rounds=2,
+        max_empty_retries=2,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=99,
+    )
     return SimpleNamespace(
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),
         allowed_commands=frozenset(),
+        budget=budget,
+        require_budget=lambda: budget,
     )
 
 

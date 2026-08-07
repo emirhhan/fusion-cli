@@ -78,8 +78,12 @@ class RuntimeConfig:
     verified_synthesis: bool
     #: Hakem seçtikten sonra tüm cevapları tek üstün cevapta birleştir.
     synthesis: bool
-    #: Agent modunda ardışık araç turu üst sınırı.
+    #: Agent modunda ardışık araç turu üst sınırı. Turun TAMAMI için geçerlidir:
+    #: öz-denetim ve doğrulama kapısının açtığı düzeltici turlar da aynı bütçeden yer.
     agent_max_steps: int
+    #: Ardışık kaç araç turu hiçbir ilerleme (başarılı araç / dosya dokunuşu)
+    #: üretmezse tur kesilir. Sessiz döngüye karşı son emniyet supabı.
+    agent_max_idle_rounds: int
     #: Agent: tur bitince denetçi model sonucu kontrol eder, gerekirse düzeltir.
     self_review: bool
     #: Agent: araç hatasında modele "farklı yaklaş" notu enjekte edilir.

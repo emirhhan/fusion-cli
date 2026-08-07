@@ -7,11 +7,11 @@ import pytest
 from fusion_cli.core.events import (
     ContextCompressed,
     SelfReviewFinished,
-    StepLimitReached,
     SubAgentFinished,
     SubAgentStarted,
     ToolExecuted,
     ToolOutcome,
+    TurnBudgetExhausted,
 )
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
@@ -226,17 +226,22 @@ async def test_otomatik_devam_en_fazla_bir_kez_calisir(monkeypatch, tmp_path, si
 
 
 async def test_adim_siniri_turu_sonlandirir(monkeypatch, tmp_path, sink):
+    # Her tur FARKLI bir yol okunur: çağrılar tekrar etmediği için tekrar kapısı
+    # devreye girmez ve turu gerçekten adım sınırı bitirir.
     _kur(
         monkeypatch,
         ScriptedProvider(
-            [model_result(tool_calls=[tool_call("list_dir", path=".")]) for _ in range(20)]
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=f"alt-{index}")])
+                for index in range(20)
+            ]
         ),
     )
 
     sonuc = await run_agent("sonsuz", _deps(tmp_path, sink, runtime={"agent_max_steps": 3}))
 
     assert sonuc.hit_step_limit
-    assert any(isinstance(e, StepLimitReached) for e in sink.events)
+    assert any(isinstance(e, TurnBudgetExhausted) for e in sink.events)
 
 
 async def test_model_hatasi_turu_bitirir(monkeypatch, tmp_path, sink):

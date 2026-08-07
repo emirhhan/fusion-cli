@@ -23,23 +23,25 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
 from ...config.model_select import select_agent_spec
 from ...config.models import Config
+from ...core.budget import BudgetStop, TurnBudget
+from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
+from ...core.errors import FusionError
 from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
     SelfReviewFinished,
     SelfReviewStarted,
-    StepLimitReached,
     ToolExecuted,
     ToolOutcome,
+    TurnBudgetExhausted,
     VerificationFailed,
 )
 from ...core.health import HealthRegistry
@@ -79,7 +81,10 @@ MAX_VERIFY_ROUNDS = 2
 #: Boş cevapta kaç kez daha denenir. Sınırsız denemek kotayı ve zamanı tüketir;
 #: hiç denememek turu iş yapmadan bitirir (ölçüldü).
 MAX_EMPTY_RETRIES = 2
+#: Bozuk araç çağrısı için tanınan onarım hakkı. Model düzeltmiyorsa tekrarlıyordur.
 MAX_TOOL_CONTRACT_REPAIRS = 1
+
+
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
@@ -93,6 +98,25 @@ _DECISION_OUTCOMES = {
     Decision.DENIED: ToolOutcome.DENIED,
     Decision.BLOCKED: ToolOutcome.BLOCKED,
 }
+
+
+def _new_budget(config: Config) -> TurnBudget:
+    """Bir kullanıcı turu için bütçe kur.
+
+    Eşiklerin bir kısmı yapılandırmadan, bir kısmı yukarıdaki sabitlerden gelir ve bu
+    bilinçlidir: kullanıcının ayarlaması anlamlı olanlar (adım sayısı, boşta tur)
+    `defaults.yaml`'dadır; "kaç kez devam et denir" gibi davranış detayları koddadır
+    ve gerekçeleri sabitin yanında yazılıdır.
+    """
+    return TurnBudget(
+        clock=SystemClock(),
+        max_model_calls=config.runtime.agent_max_steps,
+        max_verify_rounds=MAX_VERIFY_ROUNDS,
+        max_empty_retries=MAX_EMPTY_RETRIES,
+        max_contract_repairs=MAX_TOOL_CONTRACT_REPAIRS,
+        max_auto_continues=MAX_AUTO_CONTINUE,
+        max_idle_rounds=config.runtime.agent_max_idle_rounds,
+    )
 
 
 @dataclass(slots=True)
@@ -147,6 +171,22 @@ class AgentDeps:
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Verilirse sağlıksız model turlar arası atlanır. Verilmezse breaker kurulmaz.
     health: HealthRegistry | None = None
+    #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
+    #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
+    #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
+    #:
+    #: Testler kendi bütçesini vererek sınırları daraltabilir.
+    budget: TurnBudget | None = None
+
+    def require_budget(self) -> TurnBudget:
+        """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
+
+        `run_agent` her çalıştığında bütçenin kurulu olduğunu garanti eder; bu metot
+        yalnızca döngü içindeki kodun `None` kontrolü yapmasını gereksiz kılar.
+        """
+        if self.budget is None:
+            raise FusionError("Tur bütçesi kurulmadan agent döngüsü çalıştırılamaz.")
+        return self.budget
 
 
 async def run_agent(
@@ -167,6 +207,13 @@ async def run_agent(
     `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
     kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
     """
+    # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
+    # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
+    # için, bütçe orada kurulsaydı her düzeltici tur sıfırdan başlardı — düzeltilen
+    # hata tam olarak buydu.
+    if deps.budget is None:
+        deps.budget = _new_budget(deps.config)
+
     if not plan_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
         if played is not None:
@@ -210,6 +257,11 @@ async def run_agent(
 
     selected_spec = select_agent_spec(deps.config, deps.task_type)
     execution = policy_for(deps.config, selected_spec, kind, task)
+    # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
+    # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
+    budget = deps.require_budget()
+    if budget.total_timeout_s is None and execution.total_timeout_s is not None:
+        budget.total_timeout_s = execution.total_timeout_s
     outcome = await _drive(
         messages,
         deps,
@@ -231,7 +283,9 @@ async def run_agent(
         outcome = await _self_review(task, outcome, deps)
 
     verification = None
-    for _ in range(MAX_VERIFY_ROUNDS if verify else 0):
+    # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
+    # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
+    while verify and budget.take_verify_round():
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
         # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
         # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
@@ -263,17 +317,20 @@ async def run_agent(
 
 @dataclass(slots=True)
 class _State:
+    """TEK bir `_drive` çağrısının muhasebesi.
+
+    Tur geneli sayaçlar burada DEĞİL `deps.budget` içindedir: iç içe düzeltici turlar
+    aynı bütçeyi paylaşmalıdır. Buradakiler yalnızca bu çağrının raporlanan sonucunu
+    üretir ve çağıran tarafından toplanır.
+    """
+
     tool_calls_made: int = 0
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
     tool_rounds: int = 0
-    auto_continues: int = 0
     tool_calls_last_turn: int = 0
-    mutation_epoch: int = 0
-    repeated_calls: dict[tuple[str, str, int], int] = field(default_factory=dict)
     evidence_reprompts: int = 0
-    tool_contract_repairs: int = 0
     tool_contract_abort: str = ""
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
@@ -291,21 +348,25 @@ async def _drive(
     execution: ExecutionPolicy,
 ) -> AgentOutcome:
     state = _State()
+    budget = deps.require_budget()
     final_text = ""
-    bos_deneme = 0
-    started_at = time.monotonic()
-    # API sağlayıcılarında eski adım limiti aynen korunur. Web AI için görev türüne
-    # göre cömert ama sonlu bir model çağrısı bütçesi uygulanır.
-    limit = step_limit or deps.config.runtime.agent_max_steps
+    # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
+    # bütçeden yer. Buradaki `local_limit` yalnızca BU çağrıyı daha da daraltır
+    # (alt-ajanın `step_limit`'i ve Web AI'nın tur başı sınırı).
+    local_limit = step_limit
     if execution.max_model_calls is not None:
-        limit = min(limit, execution.max_model_calls)
+        local_limit = min(local_limit or execution.max_model_calls, execution.max_model_calls)
+    local_calls = 0
 
-    for _ in range(limit):
-        remaining = _remaining_turn_time(execution, started_at)
-        if remaining is not None and remaining <= 0:
-            return _budget_outcome(
-                final_text, messages, state, "Web AI toplam tur zaman bütçesine ulaştı."
-            )
+    while True:
+        if budget.model_calls_exhausted or (
+            local_limit is not None and local_calls >= local_limit
+        ):
+            return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        local_calls += 1
+        remaining = budget.remaining_s()
+        if budget.out_of_time():
+            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
 
         try:
             if remaining is None:
@@ -327,20 +388,20 @@ async def _drive(
                         timeout_s=min(deps.config.runtime.request_timeout_s, remaining),
                     )
         except TimeoutError:
-            return _budget_outcome(
-                final_text, messages, state, "Web AI toplam tur zaman bütçesi doldu."
-            )
+            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
 
         state.model_calls_made += 1
+        budget.record_model_call()
         if _is_tool_contract_error(result.error):
-            if state.tool_contract_repairs < MAX_TOOL_CONTRACT_REPAIRS:
-                state.tool_contract_repairs += 1
+            if budget.take_contract_repair():
                 if result.text.strip():
                     messages.append(Message("assistant", result.text))
                 messages.append(
                     reflexion.tool_contract_repair_note(result.error or "geçersiz çağrı")
                 )
                 continue
+            budget.halt(BudgetStop.CONTRACT_UNREPAIRABLE)
+            _publish_budget_stop(deps, budget, state)
             return _outcome(
                 _tool_contract_abort_message(result.error or "geçersiz çağrı"),
                 messages,
@@ -351,10 +412,11 @@ async def _drive(
             return _outcome(result.error or "", messages, state, ok=False)
 
         if not result.is_usable:
-            bos_deneme += 1
-            if bos_deneme <= MAX_EMPTY_RETRIES:
+            if budget.take_empty_retry():
                 messages.append(reflexion.empty_response_note())
                 continue
+            budget.halt(BudgetStop.EMPTY_RESPONSES)
+            _publish_budget_stop(deps, budget, state)
             return _outcome(final_text, messages, state)
 
         messages.append(Message("assistant", result.text, tool_calls=result.tool_calls))
@@ -386,7 +448,6 @@ async def _drive(
                 execution=execution,
                 truncated=result.truncated,
             ):
-                state.auto_continues += 1
                 messages.append(reflexion.auto_continue_note())
                 continue
             return _outcome(final_text, messages, state)
@@ -395,20 +456,64 @@ async def _drive(
             execution.max_tool_rounds is not None
             and state.tool_rounds >= execution.max_tool_rounds
         ):
-            return _budget_outcome(
-                final_text, messages, state, "Web AI araç turu güvenlik sınırına ulaştı."
-            )
+            return _halt(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
+        before = _progress_marker(deps, state)
         errored = await _run_tools(
             result.tool_calls, messages, deps, registry, state, execution=execution
         )
+        budget.record_round(progressed=_progress_marker(deps, state) != before)
         if state.tool_contract_abort:
+            budget.halt(BudgetStop.REPEATED_CALL)
+            _publish_budget_stop(deps, budget, state)
             return _outcome(state.tool_contract_abort, messages, state, ok=False)
+        if budget.idle:
+            return _halt(final_text, messages, state, budget, BudgetStop.NO_PROGRESS, deps)
         if errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
 
-    deps.publisher.publish(StepLimitReached(limit=limit))
-    return _outcome(final_text, messages, state, hit_step_limit=True)
+
+def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int]:
+    """Turun ilerleyip ilerlemediğini ölçen iki sayı.
+
+    Başarılı araç sayısı VE dokunulan dosya sayısı birlikte bakılır: bir tur yalnızca
+    okuma yapmış olabilir (dosya sayısı artmaz ama iş yapılmıştır) ya da yalnızca
+    yazma (ikisi de artar). İkisi de sabit kaldıysa o turda hiçbir şey olmamıştır.
+    """
+    return state.tool_calls_made, len(deps.tool_context.touched)
+
+
+def _halt(
+    final_text: str,
+    messages: list[Message],
+    state: _State,
+    budget: TurnBudget,
+    reason: BudgetStop,
+    deps: AgentDeps,
+) -> AgentOutcome:
+    """Bütçe sebebiyle turu bitir, sebebini YAYINLA ve sonucu döndür.
+
+    `ok=False`: bütçeyle kesilen bir tur tamamlanmış sayılmaz. Ders çıkarımı ve
+    öz-denetim bu bayrağa bakar; kesilen turu başarı gibi öğrenmek zararlıdır.
+    """
+    budget.halt(reason)
+    _publish_budget_stop(deps, budget, state)
+    text = final_text.strip()
+    return _outcome(text, messages, state, hit_step_limit=True, ok=False)
+
+
+def _publish_budget_stop(deps: AgentDeps, budget: TurnBudget, state: _State) -> None:
+    if budget.stop is None:
+        return
+    deps.publisher.publish(
+        TurnBudgetExhausted(
+            reason=budget.stop.value,
+            model_calls=budget.model_calls,
+            tool_rounds=state.tool_rounds,
+            idle_rounds=budget.idle_rounds,
+            elapsed_s=budget.elapsed_s,
+        )
+    )
 
 
 def _outcome(
@@ -491,19 +596,6 @@ def _shell_contains_git_action(args: dict[str, object], action: str) -> bool:
     return bool(re.search(pattern, command, re.IGNORECASE))
 
 
-def _budget_outcome(
-    final_text: str, messages: list[Message], state: _State, reason: str
-) -> AgentOutcome:
-    text = final_text.strip() or reason
-    return _outcome(text, messages, state, hit_step_limit=True, ok=False)
-
-
-def _remaining_turn_time(execution: ExecutionPolicy, started_at: float) -> float | None:
-    if execution.total_timeout_s is None:
-        return None
-    return execution.total_timeout_s - (time.monotonic() - started_at)
-
-
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -572,20 +664,24 @@ def _should_auto_continue(
     execution: ExecutionPolicy,
     truncated: bool,
 ) -> bool:
-    if plan_mode or state.auto_continues >= MAX_AUTO_CONTINUE:
+    if plan_mode:
         return False
     # Gerçek çıktı bütçesi dolduysa sağlayıcıdan bağımsız olarak bir kez devam et.
     if truncated:
-        return True
-    # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
-    # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
-    if not execution.heuristic_auto_continue:
-        return deps.tool_context.todos.has_pending
-    return reflexion.looks_unfinished(
-        final_text,
-        tool_calls_last_turn=state.tool_calls_last_turn,
-        has_pending_todos=deps.tool_context.todos.has_pending,
-    )
+        wanted = True
+    elif not execution.heuristic_auto_continue:
+        # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
+        # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
+        wanted = deps.tool_context.todos.has_pending
+    else:
+        wanted = reflexion.looks_unfinished(
+            final_text,
+            tool_calls_last_turn=state.tool_calls_last_turn,
+            has_pending_todos=deps.tool_context.todos.has_pending,
+        )
+    # Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
+    # devam etmeyen turlarda da bütçe yakardı.
+    return wanted and deps.require_budget().take_auto_continue()
 
 
 # --------------------------------------------------------------------------- #
@@ -612,13 +708,18 @@ async def _run_tools(
     state.tool_rounds += 1
     errored = False
 
+    budget = deps.require_budget()
     for call in calls:
         args, parse_error = _parse_arguments_checked(call.arguments)
         tool = registry.get(call.name)
-        signature_epoch = state.mutation_epoch if tool is None or not tool.mutating else 0
-        signature = _tool_signature(call.name, args, signature_epoch)
-        seen = state.repeated_calls.get(signature, 0)
-        state.repeated_calls[signature] = seen + 1
+        # İmza TUR BOYUNCA paylaşılır: düzeltici turun ana turdaki çağrıyı birebir
+        # tekrar etmesi, her tura ayrı ayrı bakıldığında görünmeyen bir döngüdür.
+        signature = budget.signature(
+            call.name,
+            _encode_arguments(args),
+            mutating=tool is not None and tool.mutating,
+        )
+        seen = budget.count_call(signature)
 
         contract_errors: list[str] = []
         if parse_error:
@@ -633,9 +734,9 @@ async def _run_tools(
                 contract_errors.extend(validate_arguments(function_schema, args))
 
         if contract_errors:
-            no_more_repairs = (
-                state.tool_contract_repairs >= MAX_TOOL_CONTRACT_REPAIRS or seen >= 1
-            )
+            # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model
+            # düzeltmiyor, tekrarlıyor.
+            no_more_repairs = seen >= 1 or not budget.take_contract_repair()
             output = _tool_contract_failure(
                 call.name,
                 contract_errors,
@@ -658,16 +759,18 @@ async def _run_tools(
             errored = True
             if no_more_repairs:
                 state.tool_contract_abort = _tool_contract_abort_message(output)
-            else:
-                state.tool_contract_repairs += 1
             continue
 
+        # Değiştirici araçta tek tekrar bile döngüdür: aynı yazma iki kez istenmez.
+        # Okuma araçlarında çalışma alanı değişmediği sürece birkaç tekrara izin verilir.
         duplicate_limit = (
             1
             if tool is not None and tool.mutating
             else execution.max_same_tool_without_change
         )
-        if execution.is_web and seen >= duplicate_limit:
+        # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
+        # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
+        if seen >= duplicate_limit:
             output = (
                 "TOOL_CALL_DUPLICATE: Aynı araç aynı argümanlarla, çalışma alanında "
                 "ilgili bir değişiklik olmadan tekrarlandı. Fusion çağrıyı çalıştırmadı "
@@ -698,7 +801,7 @@ async def _run_tools(
             state.successful_tool_evidence.append((call.name, args, mutating))
             if mutating:
                 state.mutating_tool_calls_made += 1
-                state.mutation_epoch += 1
+                budget.record_mutation()
         elif outcome is ToolOutcome.FAILED:
             state.failed_tool_calls += 1
             errored = True
@@ -725,16 +828,17 @@ async def _run_tools(
     return errored
 
 
-def _tool_signature(
-    name: str,
-    args: dict[str, object],
-    mutation_epoch: int,
-) -> tuple[str, str, int]:
+def _encode_arguments(args: dict[str, object]) -> str:
+    """Argümanları tekrar tespiti için KARARLI bir metne çevir.
+
+    Anahtar sırası sabitlenir: aynı çağrının farklı sırayla gelmesi onu yeni bir
+    çağrı yapmaz. Serileştirilemeyen bir değer varsa `repr` yeterlidir — burada
+    amaç eşitlik karşılaştırması, yeniden üretilebilir bir kayıt değil.
+    """
     try:
-        encoded = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+        return json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
-        encoded = repr(args)
-    return name, encoded, mutation_epoch
+        return repr(args)
 
 
 async def _execute(

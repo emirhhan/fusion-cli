@@ -6,6 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from fusion_cli.core.budget import TurnBudget
+from fusion_cli.core.clock import SystemClock
 from fusion_cli.core.model_capability import ToolSupport
 from fusion_cli.core.tool_emulation import parse_tool_calls, render_tool_instructions
 from fusion_cli.core.tools import ToolContext
@@ -33,13 +35,34 @@ class _Allow:
         return Decision.ALLOW
 
 
-def _deps(tmp_path):
+def _deps(tmp_path, *, budget: TurnBudget | None = None):
+    turn_budget = budget or _budget()
     return SimpleNamespace(
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),
         allowed_commands=frozenset(),
+        budget=turn_budget,
+        require_budget=lambda: turn_budget,
     )
+
+
+def _budget(**overrides) -> TurnBudget:
+    """Sözleşme testleri için geniş bir tur bütçesi.
+
+    Sınırlar bilinçli olarak yüksek: bu dosya araç SÖZLEŞMESİNİ sınar, bütçe
+    tükenmesini değil. Bütçenin kendi davranışı `test_turn_budget.py` içindedir.
+    """
+    limits = {
+        "max_model_calls": 50,
+        "max_verify_rounds": 2,
+        "max_empty_retries": 2,
+        "max_contract_repairs": 1,
+        "max_auto_continues": 1,
+        "max_idle_rounds": 99,
+    }
+    limits.update(overrides)
+    return TurnBudget(clock=SystemClock(), **limits)
 
 
 def test_instructions_contain_only_valid_canonical_examples() -> None:
@@ -150,7 +173,8 @@ async def test_second_invalid_call_aborts_even_if_tool_changes(tmp_path) -> None
     assert await _run_tools(
         (first,), messages, deps, registry, state, execution=execution
     )
-    assert state.tool_contract_repairs == 1
+    # Onarım hakkı artık TUR bütçesindedir; tek bir `_drive` çağrısının değil.
+    assert deps.budget.contract_repairs == 1
     assert not state.tool_contract_abort
 
     second = ToolCall(id="2", name="run_shell", arguments="{}")

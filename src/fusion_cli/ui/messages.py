@@ -84,8 +84,27 @@ AGENT_COUNCIL = "council: çoklu modele danışılıyor…"
 AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
-AGENT_STEP_LIMIT = "adım sınırına ulaşıldı ({limit}); tur sonlandırıldı"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+
+# --- Tur bütçesi ----------------------------------------------------------- #
+#
+# Tur bir bütçe sınırına çarparak bittiğinde kullanıcı SEBEBİNİ görür. Sessizce
+# durmak, kullanıcının aynı isteği tekrar denemesine ve aynı döngüye yeniden
+# girmesine yol açıyordu. Anahtarlar `core.budget.BudgetStop` değerleridir.
+AGENT_BUDGET_REASONS = {
+    "model_calls": "model çağrısı sınırına ulaşıldı ({model_calls}); tur sonlandırıldı",
+    "tool_rounds": "araç turu sınırına ulaşıldı ({tool_rounds}); tur sonlandırıldı",
+    "deadline": "tur süre sınırına ulaştı ({elapsed_s:.0f} sn); sonlandırıldı",
+    "no_progress": (
+        "{idle_rounds} turdur ilerleme yok (ne başarılı araç sonucu ne dosya "
+        "değişikliği); tur sonlandırıldı"
+    ),
+    "repeated_call": "aynı araç çağrısı değişiklik olmadan tekrarlandı; döngü sonlandırıldı",
+    "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi; tur sonlandırıldı",
+    "empty_responses": "model arka arkaya boş yanıt döndürdü; tur sonlandırıldı",
+}
+#: Tanınmayan bir sebep gelirse sessiz kalınmaz.
+AGENT_BUDGET_UNKNOWN = "tur bütçesi doldu ({reason}); sonlandırıldı"
 
 # --- Çalışma göstergesi ---------------------------------------------------- #
 WORK_TOKENS = "↑ {count} token"
