@@ -768,17 +768,36 @@ async def _wait_for_response(
     definition: BrowserProviderDefinition,
     before: tuple[str, ...],
 ) -> str:
+    """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
+
+    Ölçüldü (Gemini web, iz kaydı): iki ardışık tur birebir aynı cevabı döndürdü.
+    Model tekrarlamıyordu — bu fonksiyon aynı cevabı ikinci kez okuyordu. Agent onu
+    yeni sanıp aynı araçları tekrar çalıştırdı ve tekrar kapısı turu kesti. Yani
+    kullanıcının "döngüye giriyor" dediği davranışın kaynağı buydu.
+
+    İki gevşeklik düzeltildi:
+
+    1. "Yeni cevap geldi" ölçütü metin karşılaştırmasına DA bakıyordu
+       (`candidate not in before OR sayı arttı`). Metin tabanlı dal, sayfa henüz yeni
+       yanıt öğesini oluşturmadan tetiklenebiliyordu. Artık tek ölçüt YENİ BİR YANIT
+       ÖĞESİNİN VARLIĞIDIR: eşleşen yanıt sayısı artmalıdır.
+
+    2. Süre dolduğunda `latest` (yani ÖNCEKİ turun cevabı) döndürülüyordu. Bu, sessizce
+       yanlış veri teslim etmektir. Artık hata fırlatılır: doğrulanamayan bir yanıt,
+       yanlış bir yanıttan iyidir.
+    """
     deadline = time.monotonic() + 180
     latest = ""
     stable_since = time.monotonic()
-    saw_new = False
     checks = 0
     while time.monotonic() < deadline:
         checks += 1
         current = await _response_snapshot(page, definition.response_selectors)
+        # Yeni yanıt ÖĞESİ oluştu mu? Sayının artması, metnin değişmesinden daha
+        # güvenilir bir işarettir: aynı metin tekrar üretilebilir, ama öğe sayısı
+        # yalnızca gerçekten yeni bir yanıt eklendiğinde artar.
+        saw_new = len(current) > len(before)
         candidate = current[-1] if current else ""
-        if candidate and (candidate not in before or len(current) > len(before)):
-            saw_new = True
         if candidate != latest:
             latest = candidate
             stable_since = time.monotonic()
@@ -789,11 +808,9 @@ async def _wait_for_response(
             await _raise_known_page_error(page, definition, ignore_clean=True)
         await asyncio.sleep(0.35)
     await _raise_known_page_error(page, definition, ignore_clean=True)
-    if latest:
-        return latest
     raise WebBrowserSelectorError(
-        f"not found: {definition.name} cevap alanı bulunamadı; "
-        "oturum veya web seçicileri değişmiş olabilir"
+        f"not found: {definition.name} bu tur için yeni bir yanıt üretmedi; "
+        "mesaj gönderilmemiş ya da arayüz değişmiş olabilir"
     )
 
 
