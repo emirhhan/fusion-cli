@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace as _dc_replace
 
 import httpx
 
@@ -398,3 +399,57 @@ async def test_gecersiz_surec_kimligi_reddedilir(tmp_path):
         resp = await client.post("/api/web_sessions/login_state", json={"pid": 0})
 
     assert resp.status_code == 400
+
+
+# --- Ölçüm sonucu kayıt sırasında korunur ------------------------------------- #
+#
+# Gerçek kullanım: kullanıcı araç yeteneği ölçümünü geçti, sonra panelde başka bir
+# düğmeye bastı ve model sessizce salt-okunur kipe döndü. Sebep: oturum kaydı
+# `tool_eval_passed` alanını taşımıyor, varsayılan False'a düşürüyordu.
+
+
+async def test_oturum_yeniden_kaydedilince_olcum_silinmez(tmp_path):
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        await client.post(
+            "/api/web_sessions",
+            json={"provider": "gemini_web", "account": "test", "tool_support": "emulated"},
+        )
+        # Ölçüm geçmiş gibi işaretle (gerçek ölçüm ağ ister).
+        app._config = _dc_replace(
+            app._config,
+            web_sessions=tuple(
+                _dc_replace(s, tool_eval_passed=True) for s in app._config.web_sessions
+            ),
+        )
+        # Kullanıcı panelde başka bir düğmeye basıyor → oturum yeniden kaydediliyor.
+        await client.post(
+            "/api/web_sessions",
+            json={"provider": "gemini_web", "account": "test", "tool_support": "emulated"},
+        )
+
+    oturum = next(s for s in app._config.web_sessions if s.account == "test")
+    assert oturum.tool_eval_passed is True
+
+
+async def test_arac_destegi_degisirse_olcum_tasinmaz(tmp_path):
+    """Ölçüm o kipe özgüdür; araç desteği değişince yeniden ölçülmelidir."""
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        await client.post(
+            "/api/web_sessions",
+            json={"provider": "gemini_web", "account": "test", "tool_support": "emulated"},
+        )
+        app._config = _dc_replace(
+            app._config,
+            web_sessions=tuple(
+                _dc_replace(s, tool_eval_passed=True) for s in app._config.web_sessions
+            ),
+        )
+        await client.post(
+            "/api/web_sessions",
+            json={"provider": "gemini_web", "account": "test", "tool_support": "none"},
+        )
+
+    oturum = next(s for s in app._config.web_sessions if s.account == "test")
+    assert oturum.tool_eval_passed is False

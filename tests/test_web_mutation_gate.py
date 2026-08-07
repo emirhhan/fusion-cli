@@ -185,3 +185,39 @@ async def test_salt_okunur_kip_sohbet_turunda_da_bildirilir(tmp_path, monkeypatc
 
     olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
     assert olay.blocking is False
+
+
+# --- Ölçüm sonucu ve tür temelli engelleme ------------------------------------ #
+
+
+async def test_kod_duzeltme_gorevi_mutation_kapaliyken_erken_biter(tmp_path, monkeypatch):
+    """Metinden effect çıkarılamasa bile BUGFIX türü değişiklik ister.
+
+    Gerçek koşu: "envanter.py'deki hataları düzelt ve eksik dogrulama modülünü yaz"
+    hiçbir effect desenine uymuyordu; tur salt-okunur kipte beş çağrı harcayıp
+    hiçbir şey yapamadan bitti.
+    """
+    sink = RecordingSink()
+
+    class _Patlayan:
+        label = "web"
+
+        async def stream(self, request):
+            raise AssertionError("model hiç çağrılmamalıydı")
+
+    monkeypatch.setattr(agent_loop, "build_provider", lambda spec, **kw: _Patlayan())
+    deps = AgentDeps(
+        config=_config(agent=ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+
+    sonuc = await run_agent(
+        "envanter.py'deki hataları düzelt ve eksik dogrulama modülünü yaz", deps
+    )
+
+    assert not sonuc.ok
+    assert "Araç yeteneğini ölç" in sonuc.final_text
+    olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
+    assert olay.blocking is True

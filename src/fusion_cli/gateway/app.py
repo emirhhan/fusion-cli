@@ -421,6 +421,14 @@ class GatewayApp:
                     self._secret_store.set(auth_env, token)
                 os.environ[auth_env] = token
 
+        # Ölçüm sonucu KAYIT SIRASINDA korunur. Aksi hâlde panelde "Bağlantıyı
+        # kontrol et"e basmak bile araç yeteneği ölçümünü siliyordu: oturum yeniden
+        # kaydediliyor, `tool_eval_passed` varsayılan False'a düşüyor ve model
+        # sessizce salt-okunur kipe geçiyordu. Ölçüm modelin yeteneğine dairdir;
+        # zaman aşımı ya da headless ayarını değiştirmek onu geçersiz kılmaz.
+        session = _dc_replace(
+            session, tool_eval_passed=self._preserved_eval(session)
+        )
         updated = _dc_replace(self._config, web_sessions=(*others, session))
         try:
             writer.write_web_sessions(updated)
@@ -554,6 +562,20 @@ class GatewayApp:
             send,
             {"ok": True, "pid": process.pid, "provider": provider, "account": account},
         )
+
+    def _preserved_eval(self, session: WebSessionConfig) -> bool:
+        """Aynı sağlayıcı/hesap için daha önce geçilmiş ölçümü taşı.
+
+        Araç desteği DEĞİŞTİYSE taşınmaz: ölçüm o kipe özgüdür.
+        """
+        for item in self._config.web_sessions:
+            if (
+                item.provider == session.provider
+                and item.account == session.account
+                and item.tool_support == session.tool_support
+            ):
+                return item.tool_eval_passed
+        return False
 
     async def _api_eval_web_session(self, receive: Receive, send: Send) -> None:
         """Taklit araç yeteneğini ÖLÇ ve sonucu yapılandırmaya yaz.

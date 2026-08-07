@@ -283,7 +283,12 @@ async def run_agent(
     # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
     # model çağrısı harcamadan dururuz — hiçbir tur bu kısıtı aşamaz.
     if not execution.allow_mutation and not plan_mode:
-        blocking = execution.required_effect is not None
+        # Görev türü de bağlayıcıdır. `required_effect` metinden çıkarılır ve dar
+        # kalabilir: "envanter.py'deki hataları düzelt ve eksik modülü yaz" hiçbir
+        # desene uymuyordu, bu yüzden tur salt-okunur kipte beş çağrı harcayıp
+        # hiçbir şey yapamadan bitti. BUGFIX/FEATURE gibi bir tür zaten doğası
+        # gereği değişiklik ister; ayrıca metinden kanıt aramaya gerek yok.
+        blocking = execution.required_effect is not None or is_complex_kind(kind)
         deps.publisher.publish(
             MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
         )
