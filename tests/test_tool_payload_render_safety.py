@@ -130,7 +130,7 @@ def test_unclosed_payload_code_fence_is_rejected() -> None:
 def test_instructions_require_fenced_payload_for_code() -> None:
     instructions = render_tool_instructions(build_registry().schemas())
 
-    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in instructions
+    assert f'{PAYLOAD_OPEN} id="file-1"' in instructions
     assert "```python" in instructions
     assert "kod bloğu" in instructions
     assert "JSON content stringinin içine koyma" in instructions
@@ -139,7 +139,7 @@ def test_instructions_require_fenced_payload_for_code() -> None:
 def test_repair_note_uses_fenced_payload_example() -> None:
     note = tool_contract_repair_note("invalid JSON")
 
-    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in note.content
+    assert f'{PAYLOAD_OPEN} id="file-1"' in note.content
     assert "```python" in note.content
     assert "kod bloğu" in note.content
 

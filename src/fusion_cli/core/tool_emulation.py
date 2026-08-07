@@ -80,48 +80,50 @@ class _PayloadResolutionError(ValueError):
     """Bir payload referansı güvenli biçimde çözülemedi."""
 
 
-#: Payload gövdesinin kaç satır olduğunu söyleyen ZORUNLU bütünlük sinyali.
+#: Payload bütünlüğü MODELİN ARİTMETİĞİNE değil, BİZİM doğrulayabildiğimiz yapıya
+#: dayanır.
 #
-# Neden satır sayısı: web arayüzü payload'a dokunabiliyor (dil rozeti ekliyor, kod
-# bloğu sınırı koyuyor, satır kırıyor). Bozulmayı ÖNLEYEMEYİZ ama FARK EDEBİLİRİZ —
-# ve fark edilmeyen bozulma kullanıcının dosyasına bozuk içerik yazmak demektir.
+# Önce `lines="N"` zorunluydu: model gövdenin satır sayısını bildirecek, biz geri
+# okuduğumuzla karşılaştıracaktık. Canlı ölçüm bunu çürüttü — dört payload denemesinde
+# sıfır gerçek bozulma yakalandı, buna karşılık İKİ kez doğru taşınmış içerik reddedildi
+# ve ikisinde de görev tamamen durdu:
 #
-# Neden checksum ya da base64 değil: ikisi de modelin kendi ürettiği metni
-# kodlamasını/özetlemesini ister. Modeller bunu güvenilir yapmaz, uydurur; sonuç
-# "doğrulandı" sanılan ama aslında hiç doğrulanmamış bir taşıma olurdu. Satır
-# sayısını model zaten bilir: satırları o yazıyor.
+#   bildirilen 3  / geri okunan 2   → sondaki boş satır sayılmış
+#   bildirilen 33 / geri okunan 28  → dil rozeti, sentinel ve kod bloğu çiti sayılmış
+#
+# Model gövdeyi doğru üretiyor ama ÇERÇEVEYİ de sayıyor; sayım hatası çerçevenin
+# biçimine göre değişiyor ve talimatla düzeltilemiyor. Bu yüzden sayım artık kabul
+# ölçütü değildir.
+#
+# Yerine geçen kontroller, modelden hiçbir şey istemeden bozulmayı yakalar:
+#   - kapanış işareti yoksa blok kırpılmıştır (ayrı hata)
+#   - sentinel varsa içeriğin nerede başladığı KESİNDİR (rozet/çit güvenle atılır)
+#   - içerikte çerçeve işareti kalmışsa temizleme başarısızdır
+#   - gövde boşsa taşınacak bir şey gelmemiştir
+#
+# `lines` hâlâ ayrıştırılır ve bir uyuşmazlık taşıma sorunu SEZDİRİR; ama tek başına
+# içeriği reddetmez. Yanlış alarmın bedeli, yakalamadığı riskten büyüktü.
 def _expected_lines(attributes: str) -> int | None:
     match = _PAYLOAD_LINES_ATTR.search(attributes)
     return int(match.group("lines")) if match else None
 
 
-#: Sondaki boş satır için tanınan tolerans.
-#
-# Ölçüldü (Gemini web): model kod bloğunu kapatmadan önce bir boş satır bıraktı ve
-# `lines="3"` yazdı — kendi gördüğü metinde üç satır vardı. Taşıma normalleştirmesi
-# sondaki satır sonunu attığı için biz iki satır okuduk ve DOĞRU taşınmış içeriği
-# reddettik. Bu, bozulma değil sondaki satır sonunun sayılıp sayılmaması belirsizliği.
-#
-# Tolerans TAM OLARAK BİR satırdır ve yalnızca sonda geçerlidir: gerçek bir içerik
-# satırının düşmesi hâlâ yakalanır. Belirsizliğin kaynağı tek bir satır sonudur,
-# bu yüzden ödün de tek satırdır — keyfi bir pay değil.
-_TRAILING_NEWLINE_TOLERANCE = 1
+#: Temizlenmiş gövdede ASLA kalmaması gereken çerçeve işaretleri.
+_FRAMING_LEAKS = (PAYLOAD_SENTINEL, PAYLOAD_OPEN, PAYLOAD_CLOSE, CALL_OPEN, CALL_CLOSE)
 
 
-def _verify_line_count(body: str, expected: int | None, payload_id: str) -> None:
-    """Geri okunan gövde, modelin bildirdiği satır sayısıyla uyuşuyor mu?"""
-    if expected is None:
+def _verify_payload_body(body: str, payload_id: str) -> None:
+    """Gövde yapısal olarak sağlam mı? Model aritmetiği kullanılmaz."""
+    if not body.strip():
         raise _PayloadResolutionError(
-            f'payload {payload_id}: lines="N" özniteliği zorunlu — '
-            "gövdenin kaç satır olduğunu bildir ki taşıma sırasında bozulma fark edilsin"
+            f"payload {payload_id}: gövde boş — içerik taşınmamış"
         )
-    actual = len(body.splitlines())
-    if not actual <= expected <= actual + _TRAILING_NEWLINE_TOLERANCE:
-        raise _PayloadResolutionError(
-            f"payload {payload_id}: bildirilen {expected} satır, geri okunan {actual} satır. "
-            "Gövde taşıma sırasında bozulmuş olabilir; içerik YAZILMADI. "
-            "Payload'ı olduğu gibi yeniden gönder ve lines değerini doğru say."
-        )
+    for leak in _FRAMING_LEAKS:
+        if leak in body:
+            raise _PayloadResolutionError(
+                f"payload {payload_id}: çerçeve işareti içerikte kaldı ({leak}). "
+                "Payload gövdesini kod bloğu içinde ve sentinel'den SONRA yaz."
+            )
 
 
 def _example_value(name: str, schema: Mapping[str, object]) -> object:
@@ -187,7 +189,7 @@ def render_call(payload: Mapping[str, object]) -> str:
 # farklı sözleşme görürdü. Artık tek kaynak: iki çağıran da bunu kullanır.
 PAYLOAD_EXAMPLE = "\n".join(
     [
-        f'{PAYLOAD_OPEN} id="file-1" lines="2"',
+        f'{PAYLOAD_OPEN} id="file-1"',
         "```python",
         PAYLOAD_SENTINEL,
         "def greet(name: str) -> str:",
@@ -209,10 +211,7 @@ PAYLOAD_RULES = (
     "- Payload gövdesini Markdown kod bloğu (```dil ... ```) içine koy.",
     f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı; "
     "web arayüzünün eklediği dil rozeti bu satırdan önce güvenle ayıklanır.",
-    '- lines="N" ZORUNLUDUR: sentinel'
-    " ile kapanış arasındaki KOD satırlarını say (sentinel dahil değil). "
-    "Uyuşmazsa içerik yazılmaz; bu, taşıma sırasında bozulmayı yakalayan tek kontroldür.",
-    "- Kapanış ``` işaretinden önce boş satır bırakma; bırakırsan da sayma.",
+    f"- Gövdeyi {PAYLOAD_CLOSE} ile kapatmayı UNUTMA; kapanmayan blok reddedilir.",
     "- Her payload id benzersiz olmalı ve tam olarak bir $ref ile kullanılmalı.",
     '- Payload referansı yalnızca {"$ref":"payload-id"} biçimindedir, başka alan almaz.',
 )
@@ -399,9 +398,9 @@ def parse_tool_calls(text: str) -> EmulatedParse:
             continue
         try:
             body = _normalize_payload_body(match.group("body"))
-            # Bütünlük kontrolü çerçeve TEMİZLENDİKTEN sonra yapılır: sayılması
-            # gereken şey modelin yazdığı içerik, taşımanın eklediği gürültü değil.
-            _verify_line_count(body, _expected_lines(match.group("attrs")), payload_id)
+            # Kontrol çerçeve TEMİZLENDİKTEN sonra yapılır: bakılan şey modelin
+            # yazdığı içerik, taşımanın eklediği gürültü değil.
+            _verify_payload_body(body, payload_id)
         except _PayloadResolutionError as error:
             # Bütünlük hataları payload kimliğini zaten taşır; çerçeve hataları taşımaz.
             detail = str(error)

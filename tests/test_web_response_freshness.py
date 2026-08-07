@@ -103,3 +103,28 @@ def _artan_saat(adim: float = 1.0):
         return durum["t"]
 
     return _monotonic
+
+
+async def test_onceki_cevapla_ayni_metin_yeni_sayilmaz(monkeypatch):
+    """Asıl regresyon: her tur BİR CEVAP GERİDEN yanıtlanıyordu.
+
+    Gerçek koşu izinde prompt çiftleri birebir aynıydı: gönderilen mesaj bir önceki
+    turun cevabıyla karşılanıyor, agent onu yeni sanıp aynı araçları tekrar
+    çalıştırıyordu. Öğe sayısı büyümüş görünse bile metin öncekiyle aynıysa bu yeni
+    bir yanıt değildir.
+    """
+    monkeypatch.setattr(web_browser.time, "monotonic", _artan_saat(adim=20.0))
+    # Sayı artıyor ama metin önceki cevabın aynısı.
+    page = _FakePage([["eski"], ["eski", "eski"], ["eski", "eski"]])
+
+    with pytest.raises(WebBrowserSelectorError, match="yeni bir yanıt üretmedi"):
+        await _wait_for_response(page, TANIM, ("eski",), previous="eski")
+
+
+async def test_onceki_cevaptan_farkli_metin_kabul_edilir(monkeypatch):
+    monkeypatch.setattr(web_browser.time, "monotonic", _artan_saat())
+    page = _FakePage([["eski"], ["eski", "taze"], ["eski", "taze"], ["eski", "taze"]])
+
+    sonuc = await _wait_for_response(page, TANIM, ("eski",), previous="eski")
+
+    assert sonuc == "taze"

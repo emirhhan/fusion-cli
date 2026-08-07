@@ -122,9 +122,11 @@ async def test_gereksiz_arac_cagiran_model_esigi_gecemez():
 
 
 async def test_bozuk_payload_semayi_dusurur():
-    """Satır sayısı tutmayan payload çağrıyı hiç oluşturmaz."""
+    """Kapanmayan payload çağrıyı hiç oluşturmaz."""
     ciktilar = _kusursuz_ciktilar()
-    ciktilar[2] = ciktilar[2].replace('lines="2"', 'lines="9"')
+    ciktilar[2] = ciktilar[2].replace("\n</tool_payload>", "").replace(
+        "\nFUSION_PAYLOAD_END", ""
+    )
 
     rapor = await probe_emulation(
         _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))

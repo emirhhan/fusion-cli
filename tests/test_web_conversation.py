@@ -70,9 +70,14 @@ def pool(monkeypatch, log) -> BrowserSessionPool:
     async def _open(page, definition):
         await page.goto(definition.new_chat_url)
 
-    async def _send(page, definition, prompt):
+    sayac = {"n": 0}
+
+    async def _send(page, definition, prompt, *, previous=""):
         log.append(("send", prompt))
-        return "tamam"
+        # Her tur FARKLI yanıt: gerçek transport tazelik ölçütü olarak önceki
+        # yanıtı kullanır; sahtenin de aynı sözleşmeyi karşılaması gerekir.
+        sayac["n"] += 1
+        return f"tamam-{sayac['n']}"
 
     monkeypatch.setattr(web_browser, "_open_conversation", _open)
     monkeypatch.setattr(web_browser, "_send_turn", _send)
@@ -158,7 +163,7 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
 
     cagri = {"sayi": 0}
 
-    async def _patlayan(page, definition, prompt):
+    async def _patlayan(page, definition, prompt, *, previous=""):
         cagri["sayi"] += 1
         raise web_browser.WebBrowserSelectorError("arayüz değişti")
 
@@ -171,12 +176,12 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
     assert cagri["sayi"] == 2, "aynı profilde tam olarak bir kez yeniden denenir"
 
 
-def test_devam_promptu_gecmis_basliklarini_tasimaz():
+def test_devam_promptu_arac_sonucunu_tasir():
     yeni = format_browser_prompt(
         (Message("tool", "çıktı", name="run_shell", ok=True),), continuation=True
     )
-    assert "ARAÇ SONUCU (run_shell, başarılı)" in yeni
-    assert "### TALİMAT" in yeni
+    assert "ARAÇ SONUCU · run_shell · başarılı" in yeni
+    assert "çıktı" in yeni
 
 
 def test_ozet_rol_ve_icerigi_birlikte_kapsar():
@@ -201,7 +206,7 @@ async def test_iz_acikken_gonderilen_ve_gelen_kaydedilir(pool, log, tmp_path):
     (dosya,) = list(tmp_path.glob("*.jsonl"))
     kayit = json.loads(dosya.read_text(encoding="utf-8").strip())
     assert "mesaj-0" in kayit["gonderilen"]
-    assert kayit["gelen"] == "tamam"
+    assert kayit["gelen"].startswith("tamam")
     assert kayit["devam"] is False
 
 
@@ -284,8 +289,25 @@ def test_arac_sonucu_hangi_cagriya_ait_oldugunu_soyler():
         assert f'dosya{i}.py' in prompt
 
 
-def test_talimat_arac_sonucunu_kendi_cagrisi_olarak_tanitir():
-    prompt = format_browser_prompt((Message("user", "x"),), continuation=True)
+def test_devam_talimati_en_basta_durur():
+    """A/B ölçüldü: talimat dosya içeriğinin ardına düşünce model onu kaybediyordu."""
+    prompt = format_browser_prompt(
+        (Message("tool", "x" * 3000, name="read_file", ok=True),), continuation=True
+    )
 
-    assert "SENİN önceki çağrılarının cevabıdır" in prompt
-    assert "tekrar etme" in prompt
+    assert prompt.startswith("### SIRADAKİ ADIM")
+    assert "ZATEN yaptın" in prompt
+
+
+def test_arac_sonucu_basligi_cagri_bicimine_benzemez():
+    """`read_file {"path": "x.py"}` bir araç çağrısı gibi görünüyor ve taklit ediliyordu."""
+    mesajlar = (
+        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
+                                                      arguments='{"path":"envanter.py"}'),)),
+        Message("tool", "içerik", tool_call_id="1", name="read_file", ok=True),
+    )
+
+    prompt = format_browser_prompt(mesajlar, continuation=True)
+
+    assert "read_file · envanter.py" in prompt, "dosya adı korunmalı"
+    assert '{"path"' not in prompt, "ham JSON çağrı biçimine benziyor"

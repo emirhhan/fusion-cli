@@ -286,7 +286,20 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     Araç sonuçları HANGİ ÇAĞRIYA ait olduklarını söyler. Üç sonucun da aynı başlıkla
     (`ARAÇ SONUCU (read_file, başarılı)`) gelmesi, modelin hangi dosyanın döndüğünü
     ayırt etmesini imkânsız kılıyordu.
+
+    DEVAM TALİMATI EN BAŞTADIR — A/B ile ölçüldü (Gemini web, aynı kurulum, tek fark
+    devam turunun biçimi):
+
+        A) talimat sonda + başlıkta ham JSON  → aynı okumaları TEKRARLADI
+        B) talimat başta + JSON yok           → write_file'a geçti, düzeltmeyi üretti
+
+    İki sebep birlikte çalışıyordu. Talimat 3500 karakterlik dosya içeriğinin ARDINA
+    düşüyordu ve model onu kaybediyordu. Ayrıca başlık `read_file {"path": "x.py"}`
+    biçimindeydi — bu bir araç ÇAĞRISINA benziyor ve model onu taklit ediyordu.
+    Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
     """
+    if continuation:
+        return _format_continuation(messages)
     calls_by_id = {
         call.id: call
         for message in messages
@@ -294,8 +307,6 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     }
     rendered: list[str] = []
     for message in messages:
-        if message.role == "assistant" and continuation:
-            continue
         if message.role == "system":
             label = "SİSTEM"
         elif message.role == "assistant":
@@ -326,10 +337,60 @@ def _tool_result_label(message: Message, calls_by_id: Mapping[str, ToolCall]) ->
     """Araç sonucunu HANGİ çağrıya ait olduğunu söyleyecek biçimde etiketle."""
     tool_name = message.name or "araç"
     status = "başarılı" if message.ok is not False else "hatalı"
-    call = calls_by_id.get(message.tool_call_id or "")
+    hedef = _call_subject(calls_by_id.get(message.tool_call_id or ""))
+    if not hedef:
+        return f"{tool_name} · {status}"
+    return f"{tool_name} · {hedef} · {status}"
+
+
+#: Bir çağrıyı tanımlayan alanlar, önem sırasıyla. Ham JSON yerine YALNIZCA bu
+#: değer gösterilir: `read_file {"path": "x.py"}` biçimi bir araç çağrısına
+#: benziyordu ve model onu taklit ediyordu (A/B ile ölçüldü).
+_SUBJECT_FIELDS = ("path", "command", "pattern", "query", "url", "subcommand")
+
+
+def _call_subject(call: ToolCall | None) -> str:
+    """Çağrıyı tanımlayan tek değeri çıkar (dosya yolu, komut…)."""
     if call is None:
-        return f"{tool_name}, {status}"
-    return f"{tool_name} {call.arguments}, {status}"
+        return ""
+    try:
+        arguments = json.loads(call.arguments)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return ""
+    if not isinstance(arguments, dict):
+        return ""
+    for field in _SUBJECT_FIELDS:
+        value = arguments.get(field)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:80]
+    return ""
+
+
+#: Devam turunun BAŞINA konan yönerge. Sonda değil başta: 3500 karakterlik dosya
+#: içeriğinin ardına düşen talimatı model kaybediyordu (A/B ile ölçüldü).
+CONTINUATION_LEAD = (
+    "### SIRADAKİ ADIM\n"
+    "Aşağıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır — bu çağrıları "
+    "ZATEN yaptın, tekrarlama. Sonuçları kullanarak bir sonraki adımı at: gereken "
+    "değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver."
+)
+
+
+def _format_continuation(messages: Sequence[Message]) -> str:
+    """Açık sohbete gönderilecek metin: talimat başta, asistan turu yok."""
+    calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
+    parcalar = [CONTINUATION_LEAD]
+    for message in messages:
+        if message.role == "assistant":
+            continue
+        if message.role == "tool":
+            baslik = f"ARAÇ SONUCU · {_tool_result_label(message, calls_by_id)}"
+        elif message.role == "system":
+            baslik = "SİSTEM"
+        else:
+            baslik = "KULLANICI"
+        parcalar.append(f"### {baslik}\n{message.content.strip()}")
+    return "\n\n".join(parcalar)
 
 
 async def _launch_profile_context(
@@ -390,6 +451,8 @@ class ConversationState:
     page: Any
     sent_count: int = 0
     prefix_digest: str = ""
+    #: Bu sohbette EN SON alınan yanıt. Bir sonraki turda tazelik ölçütüdür.
+    last_answer: str = ""
 
 
 def conversation_digest(messages: Sequence[Message]) -> str:
@@ -626,7 +689,9 @@ async def _deliver_turn(
 
     if resumable and state is not None:
         prompt = format_browser_prompt(messages[state.sent_count :], continuation=True)
-        answer = await _send_turn(state.page, definition, prompt)
+        answer = await _send_turn(
+            state.page, definition, prompt, previous=state.last_answer
+        )
     else:
         await manager.drop_conversation(session.provider, session.account)
         page = await context.new_page()
@@ -637,6 +702,7 @@ async def _deliver_turn(
 
     state.sent_count = len(messages)
     state.prefix_digest = conversation_digest(messages)
+    state.last_answer = answer
     manager.remember_conversation(session.provider, session.account, state)
     if trace_dir is not None:
         _append_trace(trace_dir, session, prompt=prompt, answer=answer, resumed=resumable)
@@ -691,8 +757,17 @@ async def _run_page(page: Any, definition: BrowserProviderDefinition, prompt: st
     return await _send_turn(page, definition, prompt)
 
 
-async def _send_turn(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
-    """Açık bir sohbete tek mesaj gönder ve yanıtı bekle."""
+async def _send_turn(
+    page: Any,
+    definition: BrowserProviderDefinition,
+    prompt: str,
+    *,
+    previous: str = "",
+) -> str:
+    """Açık bir sohbete tek mesaj gönder ve yanıtı bekle.
+
+    `previous` bu sohbetten alınan SON yanıttır ve tazelik ölçütüdür.
+    """
     # Web uygulaması kabuğu, mesaj alanından önce çizilebilir. Gövdenin herhangi bir
     # yerindeki “Sign in” yazısını oturum kaybı sayma; önce gerçek composer'ı bekle.
     input_locator = await _first_visible(page, definition.input_selectors, timeout_ms=15_000)
@@ -720,7 +795,7 @@ async def _send_turn(page: Any, definition: BrowserProviderDefinition, prompt: s
     else:
         await input_locator.press("Enter")
 
-    return await _wait_for_response(page, definition, before)
+    return await _wait_for_response(page, definition, before, previous=previous)
 
 
 async def _fill_editor(locator: Any, text: str) -> None:
@@ -767,6 +842,8 @@ async def _wait_for_response(
     page: Any,
     definition: BrowserProviderDefinition,
     before: tuple[str, ...],
+    *,
+    previous: str = "",
 ) -> str:
     """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
 
@@ -796,8 +873,13 @@ async def _wait_for_response(
         # Yeni yanıt ÖĞESİ oluştu mu? Sayının artması, metnin değişmesinden daha
         # güvenilir bir işarettir: aynı metin tekrar üretilebilir, ama öğe sayısı
         # yalnızca gerçekten yeni bir yanıt eklendiğinde artar.
-        saw_new = len(current) > len(before)
         candidate = current[-1] if current else ""
+        # Tazelik ÜÇ koşulun birleşimidir. Yalnızca öğe sayısına bakmak yetmedi:
+        # gerçek koşuda her tur BİR CEVAP GERİDEN yanıtlandı — gönderilen mesaj,
+        # bir önceki turun cevabıyla karşılandı, agent onu yeni sanıp aynı araçları
+        # tekrar çalıştırdı. Sayı büyümüş görünse bile metin ÖNCEKİYLE AYNIYSA bu
+        # yeni bir yanıt değildir.
+        saw_new = len(current) > len(before) and bool(candidate) and candidate != previous
         if candidate != latest:
             latest = candidate
             stable_since = time.monotonic()
@@ -856,15 +938,18 @@ async def _raise_known_page_error(
     # again later" gösteriyor ve Fusion bunu kota sanıp kullanıcıya "kotan doldu,
     # sonra dene" diyordu. Kullanıcı bunun üzerine yeni bir hesap açtı — oysa sorun
     # kota değildi. Yanlış teşhis, teşhis yokluğundan zararlıdır.
-    if any(marker in body for marker in _QUOTA_MARKERS):
+    kota = _matched_marker(body, _QUOTA_MARKERS)
+    if kota is not None:
         raise WebBrowserError(
             f"{definition.name} kullanım/kota sınırı bildirdi; daha sonra yeniden dene "
-            "veya Fusion fallback zincirini kullan."
+            f"veya Fusion fallback zincirini kullan. [sayfa: {kota}]"
         )
-    if any(marker in body for marker in _TRANSIENT_MARKERS):
+    gecici = _matched_marker(body, _TRANSIENT_MARKERS)
+    if gecici is not None:
         raise WebBrowserError(
             f"{definition.name} geçici bir hata bildirdi (kota DEĞİL). Aynı istek "
-            "genellikle yeniden denendiğinde geçer; sorun sürerse tarayıcı oturumunu yenile."
+            "genellikle yeniden denendiğinde geçer; sorun sürerse tarayıcı oturumunu "
+            f"yenile. [sayfa: {gecici}]"
         )
 
 
@@ -887,6 +972,29 @@ _TRANSIENT_MARKERS = (
     "bir şeyler ters gitti",
     "bir hata oluştu",
 )
+
+
+#: Eşleşen işaretin çevresinden gösterilecek karakter sayısı. Kısa tutulur: amaç
+#: teşhis, sayfa içeriğini hata mesajına dökmek değil.
+_MARKER_CONTEXT_CHARS = 70
+
+
+def _matched_marker(body: str, markers: tuple[str, ...]) -> str | None:
+    """Eşleşen işareti ve ÇEVRESİNİ döndür.
+
+    Yalnızca "kota" demek yetmiyor: hangi ifadenin eşleştiğini görmeden yanlış
+    pozitifi gerçek kotadan ayırt edemiyoruz. Bu, aynı hatayı üçüncü kez tahminle
+    kovalamayı önler.
+    """
+    for marker in markers:
+        index = body.find(marker)
+        if index < 0:
+            continue
+        bas = max(0, index - _MARKER_CONTEXT_CHARS)
+        son = min(len(body), index + len(marker) + _MARKER_CONTEXT_CHARS)
+        parca = " ".join(body[bas:son].split())
+        return f"…{parca}…"
+    return None
 
 
 async def _page_chrome_text(page: Any, definition: BrowserProviderDefinition) -> str:

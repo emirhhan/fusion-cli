@@ -35,7 +35,7 @@ def test_browser_prompt_tum_kanonik_gecmisi_ve_tool_sonucunu_tasir():
     )
     assert "### SİSTEM" in prompt
     assert "### KULLANICI" in prompt
-    assert "ARAÇ SONUCU (read_file, başarılı)" in prompt
+    assert "ARAÇ SONUCU (read_file · başarılı)" in prompt
     assert "içerik" in prompt
 
 

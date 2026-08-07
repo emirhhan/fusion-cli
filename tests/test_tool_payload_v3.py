@@ -190,7 +190,7 @@ def test_legacy_short_inline_call_still_works() -> None:
 def test_instructions_include_raw_payload_protocol() -> None:
     instructions = render_tool_instructions(build_registry().schemas())
 
-    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in instructions
+    assert f'{PAYLOAD_OPEN} id="file-1"' in instructions
     assert '{"$ref":"file-1"}' in instructions
     assert "Kaynak kodu JSON content stringinin içine koyma; payload kullan." in instructions
     blocks = re.findall(
@@ -208,7 +208,7 @@ def test_repair_note_teaches_payload_protocol() -> None:
         "TOOL_CALL_PARSE_ERROR: invalid JSON"
     )
 
-    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in note.content
+    assert f'{PAYLOAD_OPEN} id="file-1"' in note.content
     assert '{"$ref":"file-1"}' in note.content
     assert "JSON stringine koyma" in note.content
 
