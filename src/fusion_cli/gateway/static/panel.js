@@ -33,6 +33,43 @@ function toast(msg, err) {
   setTimeout(() => el.className = "toast" + (err ? " err" : ""), 2200);
 }
 
+/* --------------------------------------------------------------------- */
+/* Yükleniyor / boş durum yardımcıları                                    */
+/* --------------------------------------------------------------------- */
+
+// Boş durum tek yerden üretilir: her ekranda farklı bir "veri yok" cümlesi
+// yazmak yerine aynı bileşen, farklı metinle.
+const EMPTY_MARK = '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4"'
+  + ' stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5h12M3 9h12M3 12.5h7"/></svg>';
+
+function emptyState(title, hint) {
+  return `<div class="empty"><span class="empty-mark">${EMPTY_MARK}</span>
+    <span class="empty-title">${title}</span>
+    ${hint ? `<span class="empty-hint">${hint}</span>` : ""}</div>`;
+}
+
+// Tablo gövdesinde boş durum tek hücreye yayılır; yoksa ilk sütuna sıkışıp
+// tablonun hizasını bozuyordu.
+function emptyRow(cols, title, hint) {
+  return `<tr><td colspan="${cols}">${emptyState(title, hint)}</td></tr>`;
+}
+
+// Ağ isteği süren düğme: bir daha basılamaz ve çalıştığını gösterir. İş
+// bittiğinde eski hâline HER durumda döner — hata da dönse düğme kilitli
+// kalmamalı.
+async function withBusy(el, work) {
+  if (!el) return work();
+  el.classList.add("busy");
+  el.disabled = true;
+  try { return await work(); }
+  finally { el.classList.remove("busy"); el.disabled = false; }
+}
+
+// Olay üzerinden çağrılan işlemler için: `onclick="busyClick(event, saveRouting)"`
+function busyClick(event, work) {
+  return withBusy(event.currentTarget, work);
+}
+
 async function post(url, body) {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   const d = await r.json().catch(() => ({}));
@@ -86,7 +123,8 @@ function renderProviders() {
     html += `<div class="cat-group-title">Kendi uçların</div><div class="provider-grid">` +
       mine.map(webSessionCard).join("") + `</div>`;
   }
-  $("providers").innerHTML = html || `<div class="hint">eşleşen sağlayıcı yok</div>`;
+  $("providers").innerHTML = html || emptyState("Eşleşen sağlayıcı yok",
+    "Arama kutusunu temizle ya da başka bir kategori çipi seç.");
 }
 
 // Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
@@ -165,7 +203,9 @@ function chainRow(m, i, prefix) {
 }
 
 function renderChain() {
-  $("chain").innerHTML = chain.map((m, i) => chainRow(m, i, "Chain")).join("") || '<div class="hint">zincir boş</div>';
+  $("chain").innerHTML = chain.map((m, i) => chainRow(m, i, "Chain")).join("")
+    || emptyState("Yedek zinciri boş",
+         "Aşağıdan bir model ekle; ilk sıradaki baş model olur.");
 }
 function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
 function rmChain(i) { chain.splice(i, 1); renderChain(); }
@@ -173,7 +213,9 @@ function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(
 function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
 
 function renderJudge() {
-  $("judge").innerHTML = judge.map((m, i) => chainRow(m, i, "Judge")).join("") || '<div class="hint">boş</div>';
+  $("judge").innerHTML = judge.map((m, i) => chainRow(m, i, "Judge")).join("")
+    || emptyState("Hakem modeli seçilmedi",
+         "Fusion motoru adayları karşılaştırmak için bir hakem modeli kullanır.");
 }
 function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; renderJudge(); }
 function rmJudge(i) { judge.splice(i, 1); renderJudge(); }
@@ -204,7 +246,8 @@ function renderCatalog() {
   $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${m}</option>`).join("");
 }
 
-async function loadCatalog(refresh) {
+async function loadCatalog(refresh, el) {
+  if (el) return withBusy(el, () => loadCatalog(refresh));
   try {
     const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
     catalog = d.models || []; renderCatalog();
@@ -252,10 +295,11 @@ function render() {
   judge = (s.judge || []).slice(); renderJudge();
 
   const hm = s.health;
-  $("healthEmpty").style.display = hm.length ? "none" : "block";
   $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
     <td><span class="bar"><i style="width:${Math.round(m.score * 100)}%"></i></span>${Math.round(m.score * 100)}%</td>
-    <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms || 0} ms</td><td>${m.samples}</td></tr>`).join("");
+    <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms || 0} ms</td><td>${m.samples}</td></tr>`).join("")
+    || emptyRow(5, "Sağlık verisi yok",
+         "Devre durumu ve güvenilirlik skoru, modellere istek gittikçe birikir.");
 
   $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
   if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
@@ -272,15 +316,27 @@ function renderAnalytics(a) {
   $("a-comp").textContent = a.compression_saved_chars ?? 0;
   $("a-permodel").innerHTML = (a.per_model || []).map((m) =>
     `<tr><td class="model">${m.model}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`
-  ).join("") || '<tr><td class="hint">veri yok</td></tr>';
+  ).join("") || emptyRow(4, "Model başına veri yok", "Gateway üzerinden bir istek geçtiğinde dolar.");
   $("a-recent").innerHTML = (a.recent || []).map((r) =>
     `<tr><td class="model">${r.requested}</td><td class="model">${r.served}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`
-  ).join("") || '<tr><td class="hint">henüz istek yok</td></tr>';
+  ).join("") || emptyRow(5, "Henüz istek yok",
+    "Test sekmesinden bir istek gönder ya da uç noktayı bir araca bağla.");
+}
+
+// İlk veri gelene kadar sayı alanları iskelet olarak durur ve içerik bölgesi
+// ekran okuyucuya "meşgul" der. İkisi de yalnızca İLK yüklemede anlamlıdır;
+// sonraki periyodik tazelemeler ekranı iskelete geri döndürmez.
+function ilkYuklemeBitti() {
+  document.querySelectorAll(".skeleton").forEach((el) => el.classList.remove("skeleton"));
+  document.querySelector(".content").setAttribute("aria-busy", "false");
 }
 
 async function load() {
-  try { STATE = await fetch("/api/state").then((r) => r.json()); render(); }
-  catch (e) { /* sunucu kapalı */ }
+  try {
+    STATE = await fetch("/api/state").then((r) => r.json());
+    render();
+    ilkYuklemeBitti();
+  } catch (e) { /* sunucu kapalı */ }
 }
 
 function isLiveTabActive() {

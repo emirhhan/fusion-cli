@@ -181,6 +181,7 @@ async def test_dashboard_stil_ve_betik_ayri_dosyadan_gelir():
         ("shell.css", "text/css"),
         ("components.css", "text/css"),
         ("surfaces.css", "text/css"),
+        ("states.css", "text/css"),
         ("panel.js", "text/javascript"),
         ("web-sessions.js", "text/javascript"),
         ("fonts/inter-latin.woff2", "font/woff2"),
@@ -312,6 +313,65 @@ def test_odak_ve_devre_disi_stilleri_tanimli():
     bilesen = _varlik("components.css")
     assert "button:disabled" in bilesen
     assert "input:disabled" in bilesen
+
+
+# --- panel durumları ve hareket -------------------------------------------- #
+
+
+def test_ilk_boyamada_iskelet_ve_mesgul_isareti_var():
+    """Veri gelene kadar "–" göstermek "veri yok" ile aynı görünüyordu.
+
+    İskelet gelecek içeriğin şeklini gösterir; `aria-busy` ekran okuyucuya
+    yarı dolu tabloyu okumamasını söyler.
+    """
+    govde = _dashboard()
+    assert '<div class="content" aria-busy="true">' in govde
+    assert govde.count("skeleton") >= 7  # dört sayı + üç yapılandırma alanı
+    panel_js = _varlik("panel.js")
+    # Veri gelince ikisi de kalkar.
+    assert 'el.classList.remove("skeleton")' in panel_js
+    assert 'setAttribute("aria-busy", "false")' in panel_js
+
+
+def test_bos_durumlar_tek_bilesenden_uretilir():
+    """Her ekranda ayrı bir "veri yok" cümlesi yerine tek bileşen, farklı metin."""
+    panel_js = _varlik("panel.js")
+    assert "function emptyState(" in panel_js
+    assert "function emptyRow(" in panel_js
+    # Eski tek satırlık gri metinler kalmamalı.
+    assert '<div class="hint">zincir boş</div>' not in panel_js
+    assert '<tr><td class="hint">veri yok</td></tr>' not in panel_js
+    # Tablo boş durumu tüm sütunlara yayılır; yoksa hizayı bozuyordu.
+    assert 'colspan="${cols}"' in panel_js
+
+
+def test_mesgul_dugme_her_durumda_serbest_birakilir():
+    """Hata dönse bile düğme kilitli kalmamalı — `finally` bunu garanti eder."""
+    panel_js = _varlik("panel.js")
+    assert "async function withBusy(" in panel_js
+    govde_baslangic = panel_js.index("async function withBusy(")
+    govde_bitis = panel_js.index("\n}", govde_baslangic)
+    govde = panel_js[govde_baslangic:govde_bitis]
+    assert "finally {" in govde
+    assert 'classList.remove("busy")' in govde
+    assert "el.disabled = false" in govde
+
+
+def test_hareket_azaltilinca_sonsuz_animasyonlar_kapanir():
+    """Süre token'ları 0'a düşer ama SONSUZ animasyonların süresi token'dan
+    gelmez; 0ms'lik sonsuz döngü iskeleti titretirdi. Ayrıca kapatılır."""
+    durumlar = _varlik("states.css")
+    assert "@media (prefers-reduced-motion: reduce)" in durumlar
+    azalt = durumlar[durumlar.index("@media (prefers-reduced-motion: reduce)") :]
+    assert ".skeleton" in azalt and "animation: none" in azalt
+    assert "button.busy::after" in azalt
+
+
+def test_hareket_sureleri_token_uzerinden_gelir():
+    """Animasyon süresi koda gömülmez; `prefers-reduced-motion` ancak böyle çalışır."""
+    durumlar = _varlik("states.css")
+    assert "var(--duration-normal)" in durumlar
+    assert "var(--duration-fast)" in durumlar
 
 
 async def test_api_providers_json():

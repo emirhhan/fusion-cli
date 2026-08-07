@@ -1,0 +1,162 @@
+/* Panel durumları ve hareket: yükleniyor, boş, meşgul ve giriş geçişleri.
+ *
+ * Kural: hareket bilgi taşır. Dikkat çekmek için değil, neyin değiştiğini
+ * anlatmak için kullanılır. Kullanıcı sistemde hareketi azaltmayı seçtiyse
+ * süre token'ları zaten 0'a düşer; süresi olmayan (sonsuz) animasyonlar
+ * bu dosyanın sonunda ayrıca kapatılır.
+ */
+
+/* ----------------------------------------------------------------------- */
+/* Yükleniyor — iskelet                                                     */
+/* ----------------------------------------------------------------------- */
+/* Veri gelene kadar "–" göstermek "veri yok" ile aynı görünüyordu: kullanıcı
+ * bekleyip beklemeyeceğini bilemiyordu. İskelet, gelecek içeriğin ŞEKLİNİ
+ * gösterir; sayfa dolduğunda düzen zıplamaz. */
+.skeleton {
+  color: transparent !important;   /* içerik gelene kadar metin görünmez */
+  border-radius: var(--radius-xs);
+  background: linear-gradient(
+    100deg,
+    var(--bg-sunken) 30%,
+    var(--bg-elevated) 50%,
+    var(--bg-sunken) 70%
+  );
+  background-size: 220% 100%;
+  animation: kayan-parlaklik 1.4s var(--ease-in-out) infinite;
+  user-select: none;
+}
+/* İskelet gelecek içeriğin boyunu TAKLİT etmeli. Blok elemanlar varsayılan
+ * olarak tüm satırı kaplar; ölçüsüz bir iskelet "yükleniyor" değil "büyük bir
+ * şey eksik" gibi görünüyordu. */
+.stat .n.skeleton { width: 3.5ch; }
+.meta.skeleton { max-width: 28ch; }
+
+/* Gradyan kartın üstünde nötr iskelet beyaz bir yama gibi duruyordu; orada
+ * iskelet kartın kendi renginden türer. */
+.stat.lead .n.skeleton {
+  background: rgba(255, 255, 255, 0.32);
+  animation: none;
+}
+
+@keyframes kayan-parlaklik {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+
+/* Bölge yüklenirken ekran okuyucuya "meşgul" denir; yarı dolu tabloyu
+ * okumaya çalışmaz. */
+[aria-busy="true"] { cursor: progress; }
+
+/* ----------------------------------------------------------------------- */
+/* Meşgul düğme                                                             */
+/* ----------------------------------------------------------------------- */
+/* Ağ isteği süren düğme iki şey yapmalı: bir daha basılmasını engellemeli ve
+ * çalıştığını göstermeli. Metni değişmez — düğmenin genişliği zıplamasın. */
+button.busy {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+button.busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-pill);
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  color: #fff;
+  animation: donen-halka 700ms linear infinite;
+}
+button.ghost.busy::after { color: var(--text-secondary); }
+
+@keyframes donen-halka {
+  to { transform: rotate(1turn); }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Boş durum                                                                */
+/* ----------------------------------------------------------------------- */
+/* Tek satır gri metin "bir şey bozuldu mu?" hissi veriyordu. Boş durum da
+ * tasarlanmış bir ekrandır: ne olduğunu ve ne yapılacağını söyler. */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+  color: var(--text-secondary);
+}
+.empty-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+  color: var(--text-tertiary);
+}
+.empty-mark svg { width: 18px; height: 18px; }
+.empty-title {
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+}
+.empty-hint {
+  font-size: var(--text-footnote);
+  max-width: 42ch;
+  color: var(--text-secondary);
+}
+/* Tablo gövdesindeki boş durum satır düzenini bozmamalı. */
+td .empty { padding: var(--space-5) var(--space-4); }
+
+/* ----------------------------------------------------------------------- */
+/* Giriş hareketi                                                           */
+/* ----------------------------------------------------------------------- */
+/* Sekme değişimi anlık olduğunda kullanıcı "sayfa yenilendi mi?" diye
+ * duraksıyordu. Çok kısa bir yukarı kayma "bu içerik yeni geldi" der. */
+.panel.active {
+  animation: iceri-gir var(--duration-normal) var(--ease-out) both;
+}
+@keyframes iceri-gir {
+  from { opacity: 0; transform: translateY(var(--space-1)); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Modal arkadan değil, ÖNDEN gelir: küçükten büyüyerek açılmak onu sayfanın
+ * üstündeki bir katman olarak konumlandırır. */
+.modal-backdrop.open { animation: solerek-gir var(--duration-fast) var(--ease-out) both; }
+.modal-backdrop.open .modal {
+  animation: yukselerek-gir var(--duration-normal) var(--ease-out) both;
+}
+@keyframes solerek-gir {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes yukselerek-gir {
+  from { opacity: 0; transform: scale(0.97) translateY(var(--space-2)); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Hareketi azalt                                                           */
+/* ----------------------------------------------------------------------- */
+/* Süre token'ları zaten 0'a düşüyor, ama SONSUZ animasyonların süresi
+ * token'dan gelmiyor (0ms sonsuz döngü tarayıcıyı meşgul eder ve iskelet
+ * titrer). Onlar burada tamamen kapatılır; iskelet sabit bir yüzey olarak
+ * kalır, işlevini yine görür. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: var(--bg-sunken);
+  }
+  button.busy::after { animation: none; }
+  .panel.active,
+  .modal-backdrop.open,
+  .modal-backdrop.open .modal {
+    animation: none;
+  }
+}

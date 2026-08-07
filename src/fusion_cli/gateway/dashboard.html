@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/dashboard/static/shell.css" />
     <link rel="stylesheet" href="/dashboard/static/components.css" />
     <link rel="stylesheet" href="/dashboard/static/surfaces.css" />
+    <link rel="stylesheet" href="/dashboard/static/states.css" />
     <script defer src="/dashboard/static/panel.js"></script>
     <script defer src="/dashboard/static/web-sessions.js"></script>
   </head>
@@ -66,24 +67,24 @@
           </div>
           <div class="topbar-right"><span class="status-pill">yerel · çalışıyor</span></div>
         </div>
-        <div class="content">
+        <div class="content" aria-busy="true">
           <!-- GENEL -->
           <div class="panel active" id="tab-genel">
             <div class="stats">
               <div class="stat lead">
                 <div class="eyebrow">Kullanıma hazır</div>
-                <div><div class="n" id="s-ready">–</div><div class="l">anahtarı girilmiş sağlayıcı</div></div>
+                <div><div class="n skeleton" id="s-ready">–</div><div class="l">anahtarı girilmiş sağlayıcı</div></div>
               </div>
-              <div class="stat"><div class="n" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
-              <div class="stat"><div class="n" id="s-models">–</div><div class="l">model / profil</div></div>
-              <div class="stat"><div class="n" id="s-strategy">–</div><div class="l">yönlendirme</div></div>
+              <div class="stat"><div class="n skeleton" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
+              <div class="stat"><div class="n skeleton" id="s-models">–</div><div class="l">model / profil</div></div>
+              <div class="stat"><div class="n skeleton" id="s-strategy">–</div><div class="l">yönlendirme</div></div>
             </div>
 
             <h2>Aktif yapılandırma</h2>
             <div class="card">
-              <div class="row"><b>Baş model:</b> <span class="meta grow" id="activeModel">—</span></div>
-              <div class="row" style="margin-top:var(--space-3)"><b>Son cevaplayan:</b> <span class="meta grow" id="lastServed">—</span></div>
-              <div class="row" style="margin-top:var(--space-3)"><b>Config:</b> <span class="meta grow" id="cfgpath">—</span></div>
+              <div class="row"><b>Baş model:</b> <span class="meta grow skeleton" id="activeModel">—</span></div>
+              <div class="row" style="margin-top:var(--space-3)"><b>Son cevaplayan:</b> <span class="meta grow skeleton" id="lastServed">—</span></div>
+              <div class="row" style="margin-top:var(--space-3)"><b>Config:</b> <span class="meta grow skeleton" id="cfgpath">—</span></div>
               <div class="hint" style="margin-bottom:0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir.
                 “Son cevaplayan” gerçekte yanıtı üreten modeldir — yedeğe düşmüş olabilir.</div>
             </div>
@@ -128,7 +129,7 @@
                 <label class="checkline" style="margin-bottom:var(--space-3)">
                   <input id="webTools" type="checkbox" />
                   <span>Araç kullanımı (emulated) — model dosya/komut araçlarını prompt üzerinden kullansın</span></label>
-                <div class="row"><button onclick="addWebSession()">Web ucunu kaydet</button></div>
+                <div class="row"><button onclick="busyClick(event, addWebSession)">Web ucunu kaydet</button></div>
               </div>
             </div>
           </div>
@@ -139,7 +140,7 @@
             <div class="card">
               <div class="row">
                 <select id="strategy" class="grow"></select>
-                <button onclick="saveRouting()">Kaydet</button>
+                <button onclick="busyClick(event, saveRouting)">Kaydet</button>
               </div>
               <div class="hint" style="margin-bottom:0">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div>
             </div>
@@ -148,7 +149,7 @@
               <div class="row">
                 <span class="subtle grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
                 <label class="checkline"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
-                <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
+                <button class="ghost" onclick="loadCatalog(true, this)">Katalogdan tazele</button>
               </div>
             </div>
 
@@ -171,7 +172,7 @@
               <div class="row" style="margin-top:var(--space-3)">
                 <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
                 <button class="ghost" onclick="addChain()">+ ekle</button>
-                <button onclick="saveFallback()">Zinciri kaydet</button>
+                <button onclick="busyClick(event, saveFallback)">Zinciri kaydet</button>
               </div>
             </div>
 
@@ -182,7 +183,7 @@
               <div class="row" style="margin-top:var(--space-3)">
                 <input id="newJudge" class="grow" list="catalogList" placeholder="listeden seç ya da hakem modeli yaz…" />
                 <button class="ghost" onclick="addJudge()">+ ekle</button>
-                <button onclick="saveJudge()">Hakemi kaydet</button>
+                <button onclick="busyClick(event, saveJudge)">Hakemi kaydet</button>
               </div>
             </div>
           </div>
@@ -194,13 +195,13 @@
             <div class="stats">
               <div class="stat lead">
                 <div class="eyebrow">Toplam istek</div>
-                <div><div class="n" id="a-req">–</div><div class="l">gateway üzerinden geçen</div></div>
+                <div><div class="n skeleton" id="a-req">–</div><div class="l">gateway üzerinden geçen</div></div>
               </div>
-              <div class="stat"><div class="n" id="a-tok">–</div><div class="l">toplam token</div></div>
-              <div class="stat"><div class="n" id="a-lat">–</div><div class="l">ort. gecikme (ms)</div></div>
-              <div class="stat"><div class="n" id="a-p95">–</div><div class="l">p95 gecikme (ms)</div></div>
-              <div class="stat"><div class="n" id="a-cache">–</div><div class="l">önbellek isabeti</div></div>
-              <div class="stat"><div class="n" id="a-comp">–</div><div class="l">sıkıştırma tasarrufu</div></div>
+              <div class="stat"><div class="n skeleton" id="a-tok">–</div><div class="l">toplam token</div></div>
+              <div class="stat"><div class="n skeleton" id="a-lat">–</div><div class="l">ort. gecikme (ms)</div></div>
+              <div class="stat"><div class="n skeleton" id="a-p95">–</div><div class="l">p95 gecikme (ms)</div></div>
+              <div class="stat"><div class="n skeleton" id="a-cache">–</div><div class="l">önbellek isabeti</div></div>
+              <div class="stat"><div class="n skeleton" id="a-comp">–</div><div class="l">sıkıştırma tasarrufu</div></div>
             </div>
             <h2>Model başına</h2>
             <div class="card" style="padding:0">
@@ -215,13 +216,12 @@
           <!-- SAĞLIK -->
           <div class="panel" id="tab-saglik">
             <div class="row" style="margin-bottom:var(--space-4)">
-              <button class="ghost" onclick="resetHealth()">Sağlığı sıfırla</button>
+              <button class="ghost" onclick="busyClick(event, resetHealth)">Sağlığı sıfırla</button>
               <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span>
             </div>
             <div class="card" style="padding:0">
               <table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
                 <tbody id="health"></tbody></table>
-              <div class="hint" id="healthEmpty" style="padding:var(--space-4);margin:0">Henüz veri yok — bir istek gelince dolar.</div>
             </div>
           </div>
 
@@ -230,7 +230,7 @@
             <div class="card">
               <div class="row"><select id="chatModel" class="grow"></select></div>
               <textarea id="chatMsg" class="grow" style="width:100%;margin-top:var(--space-3);min-height:80px" placeholder="bir şey yaz…"></textarea>
-              <div class="row" style="margin-top:var(--space-3)"><button onclick="sendChat()">Gönder</button><span class="meta" id="chatMeta"></span></div>
+              <div class="row" style="margin-top:var(--space-3)"><button onclick="busyClick(event, sendChat)">Gönder</button><span class="meta" id="chatMeta"></span></div>
               <div id="chatOut"></div>
             </div>
           </div>
@@ -293,10 +293,10 @@
           </div>
           <div class="guide" id="webEvalSamples"></div>
           <div class="web-actions">
-            <button onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
-            <button class="ghost" onclick="validateNativeWeb()">Bağlantıyı kontrol et</button>
-            <button class="ghost" onclick="runWebEval()">Araç yeteneğini ölç</button>
-            <button class="ghost" onclick="saveNativeWeb()">Yalnızca kaydet</button>
+            <button onclick="busyClick(event, launchWebLogin)">Tarayıcıyla giriş yap</button>
+            <button class="ghost" onclick="busyClick(event, validateNativeWeb)">Bağlantıyı kontrol et</button>
+            <button class="ghost" onclick="busyClick(event, runWebEval)">Araç yeteneğini ölç</button>
+            <button class="ghost" onclick="busyClick(event, saveNativeWeb)">Yalnızca kaydet</button>
           </div>
           <div class="hint" id="nativeWebStatus" style="margin-top:var(--space-3)"></div>
         </div>
