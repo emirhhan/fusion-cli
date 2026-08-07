@@ -118,6 +118,12 @@ class ToolContext:
     #: Doğrulama kapısı yalnızca buraya bakar: kök dizini taramak, agent'ın hiç
     #: dokunmadığı dosyalar hakkında bulgu üretirdi. Yalnızca başarılı yazma iz bırakır.
     touched: set[Path] = field(default_factory=set)
+    #: İçeriği TAM olarak okunmuş dosyalar (kırpılmadan).
+    #
+    # `write_file` dosyanın tamamını değiştirir. Model dosyayı hiç okumadıysa ya da
+    # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
+    # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
+    fully_read: set[Path] = field(default_factory=set)
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
     pending: PendingWrite = field(default_factory=lambda: PendingWrite())
@@ -159,6 +165,13 @@ class Tool:
     run: ToolExecutor
     #: True ise araç dosya/sistem durumunu değiştirir ve onay akışına girer.
     mutating: bool = False
+    #: False ise araç ÇALIŞIR ama modele sunulan listede görünmez.
+    #
+    # Takma adlar içindir. `view_file` ile `read_file` aynı şeydir ve ikisi de
+    # aynı açıklamayla listelenince model ayırt edilemez iki araç görür; ölçüldü:
+    # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
+    # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
+    advertised: bool = True
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""

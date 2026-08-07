@@ -50,6 +50,7 @@ class ToolRegistry:
                 parameters=tool.parameters,
                 run=tool.run,
                 mutating=tool.mutating,
+                advertised=False,
             )
         )
 
@@ -62,9 +63,13 @@ class ToolRegistry:
     def schemas(self, allowed: Iterable[str] | None = None) -> list[dict[str, object]]:
         """Modele verilecek şemalar. `allowed` verilirse yalnızca o araçlar döner."""
         if allowed is None:
-            return [tool.schema() for tool in self._tools.values()]
+            return [tool.schema() for tool in self._tools.values() if tool.advertised]
         permitted = set(allowed)
-        return [tool.schema() for name, tool in self._tools.items() if name in permitted]
+        return [
+            tool.schema()
+            for name, tool in self._tools.items()
+            if name in permitted and tool.advertised
+        ]
 
     async def execute(self, name: str, args: ToolArgs, context: ToolContext) -> ToolResult:
         """Bir aracı çalıştır ve HER durumda `ToolResult` döndür.

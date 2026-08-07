@@ -1,0 +1,142 @@
+"""Taklit araç sözleşmesi var olan dosyayı KISMEN değiştirmeyi öğretiyor mu?
+
+Ölçüldü (Gemini web, dört dosyalık görev): model dört dosyanın da TAMAMINI
+yeniden yazdı. Testler geçti, içerik kaybı olmadı — ama boş satır düzeni bozuldu
+ve projenin ruff hatası 1'den 3'e çıktı.
+
+Sebep modelde değildi. Sözleşmedeki tek mutasyon örneği `write_file` idi ve
+`edit_file`'ın çok satırlı hâli (tek çağrıda iki payload) hiç gösterilmemişti.
+Mekanizma zaten çalışıyordu; model bilmediği bir biçimi kullanamazdı.
+"""
+
+from __future__ import annotations
+
+import json
+
+from fusion_cli.core.tool_emulation import (
+    PAYLOAD_CLOSE,
+    PAYLOAD_OPEN,
+    PAYLOAD_SENTINEL,
+    parse_tool_calls,
+    render_tool_instructions,
+)
+from fusion_cli.tools import build_registry
+
+
+def _payload(payload_id: str, body: str) -> str:
+    return "\n".join(
+        [
+            f'{PAYLOAD_OPEN} id="{payload_id}"',
+            "```python",
+            PAYLOAD_SENTINEL,
+            body,
+            "```",
+            PAYLOAD_CLOSE,
+        ]
+    )
+
+
+# --- Mekanizma: bir çağrıda iki payload ---------------------------------------- #
+
+
+def test_tek_cagrida_iki_payload_ayri_alanlara_baglanir() -> None:
+    ham = "\n".join(
+        [
+            _payload("eski-1", "def f():\n    return 1"),
+            _payload("yeni-1", "def f():\n    return 2"),
+            "FUSION_TOOL_CALL",
+            json.dumps(
+                {
+                    "name": "edit_file",
+                    "arguments": {
+                        "path": "a.py",
+                        "old": {"$ref": "eski-1"},
+                        "new": {"$ref": "yeni-1"},
+                    },
+                }
+            ),
+            "FUSION_TOOL_CALL_END",
+        ]
+    )
+
+    parsed = parse_tool_calls(ham)
+
+    assert not parsed.errors, parsed.errors
+    arguments = json.loads(parsed.calls[0].arguments)
+    assert arguments["old"] == "def f():\n    return 1"
+    assert arguments["new"] == "def f():\n    return 2"
+
+
+# --- Sözleşme: modele GÖSTERİLİYOR mu? ----------------------------------------- #
+
+
+def _instructions() -> str:
+    return render_tool_instructions(build_registry().schemas())
+
+
+def test_sozlesme_edit_file_ornegi_icerir() -> None:
+    """Kural yazmak yetmez; modelin taklit edebileceği bir örnek gerekir."""
+    metin = _instructions()
+
+    assert '"name":"edit_file"' in metin
+    # Örnek gerçekten İKİ payload'lı olmalı — asıl öğretilecek şey budur.
+    assert metin.count(PAYLOAD_OPEN) >= 3, "edit_file örneği iki payload göstermeli"
+
+
+def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
+    """Örnek ile ayrıştırıcı ayrışırsa modele yanlış biçim öğretmiş oluruz."""
+    from fusion_cli.core.tool_emulation import EDIT_EXAMPLE
+
+    parsed = parse_tool_calls(EDIT_EXAMPLE)
+
+    assert not parsed.errors, parsed.errors
+    assert parsed.calls[0].name == "edit_file"
+    arguments = json.loads(parsed.calls[0].arguments)
+    assert arguments["old"] != arguments["new"]
+    assert "$ref" not in parsed.calls[0].arguments, "referanslar çözülmüş olmalı"
+
+
+def test_sozlesme_var_olan_dosyada_edit_file_tercihini_soyler() -> None:
+    metin = _instructions()
+
+    assert "edit_file kullan, write_file DEĞİL" in metin
+
+
+# --- Takma adlar: çalışır ama listelenmez --------------------------------------- #
+
+
+def test_takma_adlar_modele_ayri_arac_diye_sunulmaz() -> None:
+    """`view_file` ile `read_file` aynı şeydir; ikisini de listelemek seçim değil
+    kararsızlık üretir (ölçüldü: model ikisini dönüşümlü kullanıp takıldı)."""
+    sunulan = {
+        schema["function"]["name"]  # type: ignore[index]
+        for schema in build_registry().schemas()
+    }
+
+    assert "read_file" in sunulan
+    assert "view_file" not in sunulan
+    assert "grep_search" not in sunulan
+    assert "read_url_content" not in sunulan
+
+
+def test_takma_adlar_yine_de_calisir() -> None:
+    """Sunmamak yasaklamak değildir: model yine de çağırırsa hata almamalı."""
+    registry = build_registry()
+
+    for alias, target in (
+        ("view_file", "read_file"),
+        ("grep_search", "search_code"),
+        ("read_url_content", "web_fetch"),
+    ):
+        tool = registry.get(alias)
+        assert tool is not None, f"takma ad kaybolmuş: {alias}"
+        assert tool.run is registry.get(target).run  # type: ignore[union-attr]
+
+
+def test_sunulan_liste_izin_verilenlerle_daraltilinca_da_takma_ad_sizmaz() -> None:
+    sunulan = {
+        schema["function"]["name"]  # type: ignore[index]
+        for schema in build_registry().schemas(["read_file", "view_file"])
+    }
+
+    assert sunulan == {"read_file"}

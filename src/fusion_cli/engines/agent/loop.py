@@ -746,9 +746,43 @@ def _should_auto_continue(
             tool_calls_last_turn=state.tool_calls_last_turn,
             has_pending_todos=deps.tool_context.todos.has_pending,
         )
+    if not wanted:
+        wanted = _stopped_without_acting(state, execution=execution)
     # Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
     # devam etmeyen turlarda da bütçe yakardı.
     return wanted and deps.require_budget().take_auto_continue()
+
+
+def _stopped_without_acting(state: _State, *, execution: ExecutionPolicy) -> bool:
+    """Model kod değiştirmesi gereken bir işte yalnızca OKUYUP durdu mu?
+
+    Ölçüldü (Gemini web, aynı görev üç kez): iki koşuda model dosyaları okudu, sonra
+    araç çağrısı ÜRETMEDEN düzyazı yazdı — birinde kodu markdown bloğu olarak döktü,
+    ötekinde "ilgili dosyaları okuma aracını çağırıyorum" deyip hiç çağırmadı.
+    Fusion ikisini de nihai cevap sayıp turu bitirdi; hiçbir dosya değişmedi.
+
+    Kanıt kapısı bunu yakalayamıyordu çünkü `required_effect` dar metin kalıplarına
+    bakar ve "testleri geçir" ifadesinde boş kalır. Burada karar GÖREV TÜRÜNDEN
+    verilir: iş kod değiştirmeyi gerektiren cinstense ve tur boyunca hiçbir şey
+    değişmediyse, düzyazı bir teslim değildir.
+
+    Duyuru metnini dilsel olarak tanımaya çalışmaz — o yol dile ve kalıba bağımlıdır.
+    Bakılan tek şey yapısaldır: iş başlamış (araç çağrılmış) ama hiçbir mutasyon
+    olmamıştır. Hak `max_auto_continues` ile sınırlıdır; model ısrar ederse tur biter.
+
+    Devretme bu kuralın DIŞINDADIR: işi alt-ajana veren bir turun kendisi dosya
+    değiştirmez ve değiştirmesi de beklenmez. Alt-ajanın kendi bütçesi ve kapıları
+    zaten oradadır; ana turu ikinci kez zorlamak yalnızca çağrı harcar.
+    """
+    if not execution.complex_task or state.tool_calls_made == 0:
+        return False
+    if state.mutating_tool_calls_made > 0:
+        return False
+    return not any(name in _DELEGATION_TOOLS for name, _, _ in state.successful_tool_evidence)
+
+
+#: İşi devreden araçlar — bunları çağıran tur "hiçbir şey yapmadı" sayılmaz.
+_DELEGATION_TOOLS = frozenset({"spawn_agent", "invoke_subagent"})
 
 
 # --------------------------------------------------------------------------- #

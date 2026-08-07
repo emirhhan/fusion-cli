@@ -317,3 +317,88 @@ async def test_politika_ilk_turda_bir_kez_belirlenir(monkeypatch, tmp_path, sink
     assert deps.execution is not None
     # BUGFIX görevi cömert bütçe almalı; basit sohbet bütçesi değil.
     assert (deps.execution.max_tool_rounds or 99) > 5
+
+
+# --- Duyurup hiçbir şey yapmadan durma ---------------------------------------- #
+#
+# Ölçüldü (Gemini web, aynı görev üç kez): iki koşuda model dosyaları okudu, sonra
+# araç çağrısı ÜRETMEDEN düzyazı yazdı ("…aracını çağırıyorum" / kodu markdown
+# bloğu olarak dökme). Fusion ikisini de nihai cevap sayıp turu bitirdi ve hiçbir
+# dosya değişmedi. Kanıt kapısı yakalayamıyordu: `required_effect` dar metin
+# kalıplarına bakar, "testleri geçir" ifadesinde boş kalır.
+
+
+async def test_okuyup_duran_tur_bir_kez_devam_ettirilir(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                # Araç çağrısı YOK — yalnızca niyet beyanı.
+                model_result("İlgili dosyaları düzenlemek için aracı çağırıyorum."),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(
+        is_web=True, complex_task=True, heuristic_auto_continue=False
+    )
+
+    await run_agent("testleri geçir", deps)
+
+    # Tur duyuruda BİTMEMELİ: model bir şans daha almalı.
+    assert provider.calls == 3, f"okuyup duran tur devam ettirilmedi: {provider.calls}"
+
+
+async def test_degisiklik_yapilmis_turda_fazladan_devam_acilmaz(monkeypatch, tmp_path, sink):
+    """Mutasyon olduysa düzyazı gerçek bir teslim olabilir; hak boşa harcanmaz."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="y.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+                model_result("fazladan"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(
+        is_web=True, complex_task=True, heuristic_auto_continue=False
+    )
+
+    await run_agent("testleri geçir", deps)
+
+    assert provider.calls == 2, f"gereksiz devam açıldı: {provider.calls}"
+
+
+async def test_basit_gorevde_okuyup_durmak_devam_acmaz(monkeypatch, tmp_path, sink):
+    """Salt-okuma bir soru için düzyazı ZATEN doğru cevaptır."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result("Dosyada tek bir atama var."),
+                model_result("fazladan"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    # Gerçek web politikasıyla aynı: eski "yarım mı" sezgiseli web'de kapalıdır.
+    deps.execution = ExecutionPolicy(
+        is_web=True, complex_task=False, heuristic_auto_continue=False
+    )
+
+    await run_agent("bu dosyada ne var", deps)
+
+    assert provider.calls == 2, f"basit görevde devam açıldı: {provider.calls}"

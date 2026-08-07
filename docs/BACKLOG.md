@@ -612,3 +612,34 @@ Açık kalan (kozmetik): Gemini `edit_file` yerine `write_file` ile tam dosya
 yazıyor. İçerik kaybı ölçülmedi — silinen üç satırın üçü de değişmesi gereken
 satırlardı, docstring/yorum kaybı yok — ama boş satır düzeni bozuluyor:
 ruff hatası 1 → 3 (hepsi `--fix` ile kapanır).
+
+## write_file yerine edit_file — ölçüm
+
+Taklit araç sözleşmesindeki TEK mutasyon örneği `write_file` idi; `edit_file`'ın
+çok satırlı hâli (tek çağrıda iki payload) hiç gösterilmemişti. Mekanizma zaten
+çalışıyordu — model bilmediği biçimi kullanamazdı.
+
+Yapılanlar: (1) iki payload'lı `edit_file` örneği sözleşmeye eklendi, (2) takma
+adlar (`view_file`, `grep_search`, `read_url_content`) listeden çıkarıldı — çalışmaya
+devam ediyorlar ama modele ayrı araç diye sunulmuyorlar, (3) tam okunmamış var olan
+bir dosyaya `write_file` engellendi, (4) kod değiştirmesi gereken işte yalnızca okuyup
+düzyazıyla duran tur bir kez devam ettiriliyor.
+
+İlk istem 8989 → 8578 karakter (takma adların çıkması, örneğin eklediğinden fazlasını
+kazandırdı). Dar görevde (`tarih_araligi`'nı düzelt) Gemini artık `edit_file` ile
+cerrahi tek satırlık değişiklik yapıyor.
+
+Dört dosyalık görevde üç koşu:
+
+| Koşu | Araç | Test | ruff (temel: 1) |
+|---|---|---|---|
+| 1 | 6× edit_file | 20/21 | — |
+| 2 | 3× write_file | 2 hata (kod bozuldu) | B018 |
+| 3 | 11× edit_file | 21/21 | 1 (temel) |
+
+Ölçülen: `edit_file` kullandığı koşularda sonuç iyi, `write_file` kullandığı koşuda
+kod bozuldu. Kozmetik regresyon (ruff 1→3) kalktı.
+
+AÇIK: Gemini web bu büyüklükte bir görevde ~3'te 1 tam başarılı. Model seçimi hâlâ
+tutarsız; sözleşme artık doğru olanı gösteriyor ama garanti etmiyor. Tek dosyalık
+dar görevlerde davranış istikrarlı.

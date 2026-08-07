@@ -205,6 +205,45 @@ PAYLOAD_EXAMPLE = "\n".join(
     ]
 )
 
+#: Var olan bir dosyayı kısmen değiştirmenin işlenmiş örneği.
+#
+# Bu örneğin varlık sebebi ölçülmüş bir davranıştır: sözleşmedeki TEK mutasyon
+# örneği `write_file` idi ve taklit araç kullanan model çok satırlı bir düzenleme
+# gerektiğinde dosyanın TAMAMINI yeniden yazıyordu. Mekanizma zaten çalışıyordu —
+# tek çağrıda iki payload sorunsuz ayrışıyor — ama modele bunun mümkün olduğu
+# hiç gösterilmemişti. Model elindeki tek örneği taklit ediyordu; kusur bizdeydi.
+#
+# Tam dosya yazmanın bedeli: dokunulmaması gereken satırlar yeniden üretilir,
+# yorum/boş satır düzeni kayar ve model dosyanın okumadığı kısmını uydurabilir.
+EDIT_EXAMPLE = "\n".join(
+    [
+        f'{PAYLOAD_OPEN} id="eski-1"',
+        "```python",
+        PAYLOAD_SENTINEL,
+        "def topla(a, b):",
+        "    return a - b",
+        "```",
+        PAYLOAD_CLOSE,
+        f'{PAYLOAD_OPEN} id="yeni-1"',
+        "```python",
+        PAYLOAD_SENTINEL,
+        "def topla(a, b):",
+        "    return a + b",
+        "```",
+        PAYLOAD_CLOSE,
+        render_call(
+            {
+                "name": "edit_file",
+                "arguments": {
+                    "path": "hesap.py",
+                    "old": {"$ref": "eski-1"},
+                    "new": {"$ref": "yeni-1"},
+                },
+            }
+        ),
+    ]
+)
+
 PAYLOAD_RULES = (
     "- Kaynak kodu JSON content stringinin içine koyma; payload kullan.",
     "- Çok satırlı, tırnak ya da ters eğik çizgi içeren her içerik payload'a girer.",
@@ -220,6 +259,11 @@ _GENERAL_RULES = (
     "- name alanı zorunludur ve boş olamaz.",
     "- arguments alanı zorunludur ve her zaman JSON nesnesidir.",
     "- Şemadaki required alanlarının tamamını doğru tipte gönder.",
+    "- Var olan bir dosyayı DEĞİŞTİRİYORSAN edit_file kullan, write_file DEĞİL: "
+    "yalnızca değişen parçayı gönder, dosyanın tamamını yeniden yazma.",
+    "- write_file yalnızca YENİ dosya oluştururken ya da içeriğin tamamı "
+    "gerçekten baştan yazılacaksa kullanılır.",
+    "- Bir çağrıda birden çok payload olabilir; her alan kendi id'siyle eşleşir.",
     "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
     "- Araç kullanmayacaksan tool_call bloğu yazma; nihai cevabı ver.",
 )
@@ -235,6 +279,9 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "",
         "2) Çok satırlı / kod içeren değerler için payload:",
         PAYLOAD_EXAMPLE,
+        "",
+        "3) VAR OLAN bir dosyada kısmi değişiklik — tek çağrıda İKİ payload:",
+        EDIT_EXAMPLE,
         "",
         "Payload kuralları:",
         *PAYLOAD_RULES,

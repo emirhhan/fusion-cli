@@ -58,6 +58,13 @@ class ExecutionPolicy:
     # doğrulanır; kanıt yoksa model bir kez araç çağrısına zorlanır.
     requires_tool_evidence: bool = False
     required_effect: str | None = None
+    #: Görev türü kod değiştirmeyi gerektiren cinsten mi (BUGFIX, TEST, FEATURE…).
+    #
+    # `required_effect` metinden çıkarılır ve dar kalıplara bakar; "testleri geçir"
+    # gibi bir görevde boş kalıyor. O zaman kanıt kapısı hiç kurulmuyor ve model
+    # yalnızca okuyup düzyazıyla durunca tur bitmiş sayılıyordu (ölçüldü: üç
+    # koşunun ikisi böyle düştü). Bu alan o boşluğu görev TÜRÜNDEN kapatır.
+    complex_task: bool = False
     max_evidence_reprompts: int = 1
     # Bu modelin dosya/shell değiştirmesine izin var mı? Doğrulanmamış taklit-araç
     # modelleri (bkz. config.tool_policy) okur ve planlar ama değiştiremez.
@@ -96,6 +103,7 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
             max_evidence_reprompts=0 if explicit_no_tools else 1,
+            complex_task=kind in _COMPLEX_KINDS,
         )
 
     extended = any(marker in lowered for marker in _EXTENDED_MARKERS)
@@ -122,6 +130,7 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
         # Web yanıtında kısa ama geçerli final metnini "yarım" sanıp fazladan
         # çağrı açma. Gerçek truncation ve bekleyen todo hâlâ devam ettirilir.
         heuristic_auto_continue=False,
+        complex_task=complex_task,
         # Basit sohbet/keşifte denetçi çağrısı yapma; kod ve değişiklik işlerinde koru.
         conditional_self_review=True,
         # Salt-okuma web turlarından ayrı bir model çağrısıyla ders çıkarma.

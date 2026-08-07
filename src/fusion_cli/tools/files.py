@@ -77,6 +77,9 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     except UnicodeDecodeError:
         return ToolResult.failure(f"Metin dosyası değil (UTF-8 çözülemedi): {path}")
 
+    if not kirpildi:
+        context.fully_read.add(path)
+
     lines = text.splitlines()
     if not lines:
         return ToolResult("(boş dosya)")
@@ -109,6 +112,15 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             )
 
     existed = path.exists()
+    if existed and path not in context.fully_read:
+        # `read_file` açıklaması zaten "değiştirmeden ÖNCE mutlaka oku" diyor; burada
+        # o kural UYGULANIR. Tam içeriğini görmediğin bir dosyayı baştan yazmak,
+        # görmediğin kısmı silmek demektir — kırpılmış okumada bu sessiz veri kaybıdır.
+        return ToolResult.failure(
+            f"Bu dosya var ve tam içeriğini okumadın: {path}. Üzerine yazmak "
+            "görmediğin satırları siler. Kısmi değişiklik için edit_file kullan; "
+            "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     context.changes.record(path)
     try:

@@ -37,6 +37,8 @@ async def test_yazma_ve_okuma_dongusu(registry, context, tmp_path):
 
 async def test_var_olan_dosyaya_yazmak_guncelleme_der(registry, context, tmp_path):
     (tmp_path / "a.txt").write_text("eski", encoding="utf-8")
+    # Tam okuma, üzerine yazmanın ÖN KOŞULUDUR: aşağıdaki teste bak.
+    await _calistir(registry, context, "read_file", path="a.txt")
 
     sonuc = await _calistir(registry, context, "write_file", path="a.txt", content="yeni")
 
@@ -579,3 +581,62 @@ async def test_yazma_gecici_dosya_birakmaz(registry, tmp_path):
 
     artiklar = [p.name for p in tmp_path.iterdir() if p.name != "a.txt"]
     assert artiklar == [], f"geçici dosya kaldı: {artiklar}"
+
+
+# --- Okunmamış dosyanın üzerine yazma koruması ------------------------------- #
+#
+# `write_file` dosyanın TAMAMINI değiştirir. Model dosyayı hiç okumadıysa ya da
+# kırpılmış okuduysa gönderdiği "tam içerik" gerçekten tam değildir ve kesme
+# noktasından sonrası sessizce yok olur. `read_file` açıklaması zaten "değiştirmeden
+# ÖNCE mutlaka oku" diyor; burada o kural uygulanır.
+
+
+async def test_okunmamis_var_olan_dosyanin_uzerine_yazilmaz(registry, context, tmp_path):
+    hedef = tmp_path / "a.txt"
+    hedef.write_text("değerli içerik", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "write_file", path="a.txt", content="yeni")
+
+    assert not sonuc.ok
+    assert "edit_file" in sonuc.output
+    # En önemlisi: dosya DEĞİŞMEMİŞ olmalı.
+    assert hedef.read_text(encoding="utf-8") == "değerli içerik"
+
+
+async def test_yeni_dosya_olusturmak_okuma_gerektirmez(registry, context, tmp_path):
+    """Koruma yalnızca VAR OLAN dosyaya karşıdır; yeni dosya serbestçe yazılır."""
+    sonuc = await _calistir(registry, context, "write_file", path="yeni.txt", content="x")
+
+    assert sonuc.ok
+    assert (tmp_path / "yeni.txt").read_text(encoding="utf-8") == "x"
+
+
+async def test_kirpilmis_okuma_tam_okuma_sayilmaz(registry, context, tmp_path, monkeypatch):
+    """Asıl veri kaybı yolu: büyük dosya kırpılarak okunur, sonra üzerine yazılır."""
+    from fusion_cli.tools import files
+
+    monkeypatch.setattr(files, "MAX_READ_BYTES", 10)
+    hedef = tmp_path / "buyuk.txt"
+    tam = "satir\n" * 50
+    hedef.write_text(tam, encoding="utf-8")
+
+    okuma = await _calistir(registry, context, "read_file", path="buyuk.txt")
+    assert "KIRPILDI" in okuma.output
+
+    sonuc = await _calistir(
+        registry, context, "write_file", path="buyuk.txt", content="gördüğüm kadarı"
+    )
+
+    assert not sonuc.ok
+    assert hedef.read_text(encoding="utf-8") == tam, "kırpılan kısım korunmalı"
+
+
+async def test_edit_file_okuma_sarti_aramaz(registry, context, tmp_path):
+    """edit_file yalnızca eşleşen parçayı değiştirir; görmediğini silemez."""
+    hedef = tmp_path / "a.py"
+    hedef.write_text("a = 1\nb = 2\n", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "edit_file", path="a.py", old="b = 2", new="b = 3")
+
+    assert sonuc.ok
+    assert hedef.read_text(encoding="utf-8") == "a = 1\nb = 3\n"
