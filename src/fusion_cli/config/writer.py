@@ -114,6 +114,9 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                 "auth_env": session.auth_env,
                 "credential_ref": session.credential_ref,
                 "tool_support": session.tool_support,
+                # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
+                # yeniden ölçülmeden mutation iznini kaybetmemeli.
+                "tool_eval_passed": session.tool_eval_passed,
                 "headless": session.headless,
                 "timeout_s": session.timeout_s,
                 "enabled": session.enabled,

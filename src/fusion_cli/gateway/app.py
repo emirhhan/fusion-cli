@@ -31,6 +31,7 @@ from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
 from ..config.models import Config
 from ..core.compression import compress_messages, saved_chars
+from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
 from ..core.protocols import LlmProvider
 from ..core.redaction import redact
@@ -193,6 +194,9 @@ class GatewayApp:
             return
         if method == "POST" and path == "/api/web_sessions/login_state":
             await self._api_web_login_state(receive, send)
+            return
+        if method == "POST" and path == "/api/web_sessions/eval":
+            await self._api_eval_web_session(receive, send)
             return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
@@ -549,6 +553,62 @@ class GatewayApp:
         await _json(
             send,
             {"ok": True, "pid": process.pid, "provider": provider, "account": account},
+        )
+
+    async def _api_eval_web_session(self, receive: Receive, send: Send) -> None:
+        """Taklit araç yeteneğini ÖLÇ ve sonucu yapılandırmaya yaz.
+
+        Bu, web modelinin dosya değiştirmesine izin veren tek kapıdır. Ölçüm gerçek
+        çağrılar yapar ve kullanıcının kendi aboneliğinden harcar; bu yüzden yalnızca
+        panelden AÇIKÇA istendiğinde çalışır, arka planda kendiliğinden değil.
+        """
+        from ..config import writer
+        from ..engines.emulation_probe import probe_emulation
+        from ..tools.emulation_eval import DEFAULT_THRESHOLDS
+
+        body = await _read_json(receive)
+        model = str(body.get("model", "")).strip()
+        session = next((item for item in self._config.web_sessions if item.model == model), None)
+        if session is None:
+            await _json(send, _error_body("böyle bir web oturumu yok"), status=400)
+            return
+        try:
+            score = await probe_emulation(self._config, model)
+        except FusionError as error:
+            await _json(send, _error_body(str(error)), status=502)
+            return
+
+        passed = score.passes()
+        updated_sessions = tuple(
+            _dc_replace(item, tool_eval_passed=passed) if item.model == model else item
+            for item in self._config.web_sessions
+        )
+        updated = _dc_replace(self._config, web_sessions=updated_sessions)
+        try:
+            writer.write_web_sessions(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        await _json(
+            send,
+            {
+                "ok": True,
+                "model": model,
+                "passed": passed,
+                "scores": {
+                    "tool_selection": score.tool_selection,
+                    "schema_validity": score.schema_validity,
+                    "argument_preservation": score.argument_preservation,
+                    "no_false_calls": score.no_false_calls,
+                },
+                "thresholds": {
+                    "tool_selection": DEFAULT_THRESHOLDS.tool_selection,
+                    "schema_validity": DEFAULT_THRESHOLDS.schema_validity,
+                    "argument_preservation": DEFAULT_THRESHOLDS.argument_preservation,
+                    "no_false_calls": DEFAULT_THRESHOLDS.no_false_calls,
+                },
+            },
         )
 
     async def _api_web_login_state(self, receive: Receive, send: Send) -> None:

@@ -414,9 +414,15 @@
             <div class="hint">Fusion normal Chrome profilini okumaz. Her sağlayıcı/oturum için ayrı profil kullanır.
               Cookie, config.yaml veya loglara yazılmaz. Web modeli araç çağrısını metin olarak üretir; dosya, shell,
               web search ve kod düzenleme işini Fusion'ın kendi izinli tool runtime'ı yürütür.</div></details>
+          <div class="hint" style="margin-top:12px">
+            <b>Dosya değiştirme izni:</b> web modeli araç çağrısını METİN olarak üretir.
+            Bunu güvenilir yapıp yapmadığı ölçülmeden dosyalarına yazmasına izin verilmez.
+            Ölçüm 5 gerçek istek gönderir ve kendi aboneliğinden harcar.
+          </div>
           <div class="web-actions">
             <button onclick="launchWebLogin()">Tarayıcıyla giriş yap</button>
             <button class="ghost" onclick="validateNativeWeb()">Bağlantıyı kontrol et</button>
+            <button class="ghost" onclick="runWebEval()">Araç yeteneğini ölç</button>
             <button class="ghost" onclick="saveNativeWeb()">Yalnızca kaydet</button>
           </div>
           <div class="hint" id="nativeWebStatus" style="margin-top:12px"></div>
@@ -534,6 +540,24 @@
           $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, sonra pencereyi kapat — gerisi otomatik.";
           toast("Giriş tarayıcısı açıldı");
           if (res && res.pid) awaitLoginThenValidate(res.pid);
+        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
+      }
+      // Araç yeteneği ölçümü: web modelinin dosya değiştirmesine izin veren TEK kapı.
+      // Gerçek istek gönderir, bu yüzden yalnızca kullanıcı açıkça isteyince çalışır.
+      async function runWebEval() {
+        if (!(await saveNativeWeb(false))) return;
+        const model = $("nativeWebModel").value;
+        $("nativeWebStatus").textContent = "Araç yeteneği ölçülüyor (5 gerçek istek, birkaç dakika sürebilir)…";
+        try {
+          const r = await post("/api/web_sessions/eval", {model});
+          const yuzde = (x)=>`${Math.round(x*100)}%`;
+          const ozet = `araç seçimi ${yuzde(r.scores.tool_selection)} · şema ${yuzde(r.scores.schema_validity)} · `
+                     + `argüman ${yuzde(r.scores.argument_preservation)} · sahte çağrı yok ${yuzde(r.scores.no_false_calls)}`;
+          $("nativeWebStatus").textContent = r.passed
+            ? `Geçti · dosya değiştirme izni açıldı — ${ozet}`
+            : `Geçemedi · model okuyup planlayabilir ama dosya değiştiremez — ${ozet}`;
+          toast(r.passed ? "Araç yeteneği doğrulandı" : "Ölçüm eşiği geçilemedi", !r.passed);
+          await load();
         } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
       }
       // Giriş penceresi kapanana kadar yoklar, sonra bağlantıyı KENDİLİĞİNDEN test eder.
