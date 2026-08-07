@@ -1,5 +1,47 @@
 # BACKLOG
 
+## ÖLÇÜLDÜ — web AI araç sözleşmesi canlıda çalışıyor (2026-08-07, Gemini web)
+
+Kullanıcının kendi Gemini aboneliğiyle, panelden "Araç yeteneğini ölç" düğmesiyle,
+5 gerçek istek. Sonuç: **geçti** (`tool_eval_passed: true`).
+
+    araç seçimi 4/4 · şema 4/4 · argüman 3/3 · sahte çağrı yok 1/1
+
+Buraya gelene kadar ÜÇ ayrı kusur bulundu ve üçü de ölçüm olmadan görünmüyordu:
+
+1. **Sonda ham çıktı yerine ayrıştırılmış metin ölçüyordu.** Araç desteği kapatılmış
+   oturum kopyası üretiliyor ama `build()`'e yalnızca `model` alanı veriliyordu;
+   kimlik değişmediği için kayıt defteri orijinal (emulated) oturumu buluyor, adaptör
+   araç bloklarını metinden çıkarıyordu. Model yalnızca araç çağrısı ürettiğinde
+   geriye boş string kalıyor ve ölçüm "hiç araç üretmedi" diyordu. İlk iki koşuda
+   gördüğümüz "dört senaryo boş, beşinci tam" tablosunun sebebi buydu.
+
+2. **Ölçülemeyen metrik %100 raporlanıyordu.** Payda sıfırken oran 1.0 döner; şema ve
+   argüman hiç uygulanamadığı hâlde "mükemmel" görünüyordu. Artık sayaç taşınıyor ve
+   panel "ölçülmedi" yazıyor.
+
+3. **Satır sayısı kontrolü doğru içerikte yanlış alarm veriyordu.** Model kapanıştan
+   önce boş satır bırakıp `lines="3"` yazdı; normalleştirme sondaki satır sonunu
+   attığı için 2 okuduk. Bozulma değil, sondaki satır sonunun sayılıp sayılmaması
+   belirsizliği. Tolerans tam olarak bir satır ve yalnızca yukarı yönde.
+
+Ölçümün DOĞRULADIĞI iki tasarım kararı:
+
+- **Kod bloğu sınırlayıcısı arayüzde gerçekten yutuluyor**; ham kayıtta geriye yalnızca
+  `Python` dil rozeti kalıyor. `FUSION_RAW_PAYLOAD_V1` sentinel'i onu doğru ayıklıyor.
+- **Model bloğu bazen tek satırda üretiyor** (`FUSION_TOOL_CALL{...}FUSION_TOOL_CALL_END`).
+  Sınırlayıcıyı satır başına sabitlememe kararı bu kaydı kurtardı.
+
+AÇIK KALAN: eşikler (%95/%98/%98/%99) 5 senaryoluk bir sette tek hataya bile
+tahammül etmiyor — %80 yapar ve düşer. Gemini beşi birden doğru yaptığı için bu
+koşuda sorun çıkmadı, ama set küçük ve eşikler hâlâ tek bir modelle sınandı.
+Başka bir sağlayıcı marjinal biçimde düşerse önce SET büyütülmeli, eşik gevşetilmemeli.
+
+AÇIK KALAN: `<tool_call>` → düz metin sınırlayıcı değişikliği (commit 3ff7bb3) YANLIŞ
+bir teşhise dayanarak yapıldı (HTML temizleyicisi hipotezi); belirtiyi düzeltmedi.
+Kendi başına daha sağlam olduğu ve testli olduğu için korundu, ama gerekli değildi.
+
+
 Taşıma sırasında ortaya çıkan, o fazın kapsamına girmediği için ertelenen işler.
 CLAUDE.md gereği kod içine `TODO`/`FIXME` yazılmaz; her şey buraya düşer.
 
