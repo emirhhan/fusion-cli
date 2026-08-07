@@ -1,0 +1,282 @@
+/* Panel yüzeyleri: sağlayıcı kartları, tablolar, zincir satırı, modal ve
+ * bildirim. Küçük bileşenler components.css'tedir.
+ * Tek bir elle yazılmış piksel/hex yoktur — her değer tokens.css'ten gelir.
+ */
+
+/* ----------------------------------------------------------------------- */
+/* Sağlayıcı kartları                                                       */
+/* ----------------------------------------------------------------------- */
+/* Tüm tile'lar aynı yükseklikte: satır içinde en uzun ada göre esner, rozetler
+ * kartın altında hizalanır. Adın iki satıra taşması düzeni bozmaz. */
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-auto-rows: 1fr;
+  gap: var(--space-3);
+}
+.pcard {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--duration-normal) var(--ease-out),
+              transform var(--duration-normal) var(--ease-out);
+}
+.pcard.keyed { cursor: pointer; }
+.pcard.keyed:hover { box-shadow: var(--shadow-2); transform: translateY(-1px); }
+.pcard.open { box-shadow: var(--shadow-2); cursor: default; }
+
+.pcard-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  position: relative;
+  padding-right: var(--space-4);
+}
+/* Izgaradaki tile'da ad üstte, durum rozeti altta hizalanır — geniş kartlarda
+ * (kendi web ucun) tek satır düzeni korunur. */
+.provider-grid .pcard-head {
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.provider-grid .pcard-head .badge { margin-top: auto; }
+.pcard .caret {
+  position: absolute;
+  right: 0;
+  top: 0;
+  color: var(--text-tertiary);
+  font-size: var(--text-caption1);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.pcard.open .caret { transform: rotate(180deg); }
+.pcard-body { display: none; margin-top: var(--space-3); }
+.pcard.open .pcard-body { display: block; }
+
+/* Kendi web ucunu ekleme kartı: adım adım rehber + form. */
+.web-add { margin-top: var(--space-5); }
+.web-add-body { display: none; margin-top: var(--space-4); }
+.web-add.open .web-add-body { display: block; }
+.web-add.open .caret { transform: rotate(180deg); }
+.web-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+}
+.step {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+  line-height: var(--leading-relaxed);
+}
+.step b { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.step code {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption1);
+  background: var(--bg-elevated);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-xs);
+  color: var(--brand-ink);
+}
+.step-n {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  background: var(--brand-tint);
+  color: var(--brand-ink);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-caption2);
+  display: grid;
+  place-items: center;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Tablolar                                                                 */
+/* ----------------------------------------------------------------------- */
+table { width: 100%; border-collapse: collapse; }
+td, th {
+  text-align: left;
+  padding: var(--space-3);
+  border-bottom: var(--hairline) solid var(--separator);
+  font-size: var(--text-footnote);
+}
+tr:last-child td { border-bottom: none; }
+th {
+  color: var(--text-tertiary);
+  font-size: var(--text-caption2);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+}
+td { font-variant-numeric: tabular-nums; }
+td.model { font-family: var(--font-mono); font-size: var(--text-caption1); }
+
+.bar {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+  width: 88px;
+  display: inline-block;
+  vertical-align: middle;
+  overflow: hidden;
+  margin-right: var(--space-2);
+}
+.bar > i { display: block; height: 100%; background: var(--brand-grad); }
+
+.phase.open { color: var(--err-ink); }
+.phase.closed { color: var(--ok-ink); }
+.phase.half_open { color: var(--warn-ink); }
+
+/* Zincir satırı: sıralanabilir model listesi. */
+.chain-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+}
+.chain-item .idx {
+  width: 20px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.chain-item button { height: 28px; padding: 0 var(--space-2); }
+
+/* ----------------------------------------------------------------------- */
+/* Modal — cam katmanların en yoğunu, en büyük yarıçap                      */
+/* ----------------------------------------------------------------------- */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(60, 60, 67, 0.28);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-5);
+}
+.modal-backdrop.open { display: flex; }
+.modal {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.modal.small { width: min(520px, 100%); }
+.modal-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--hairline) solid var(--separator);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 2;
+}
+.modal-head .dots { letter-spacing: 4px; color: var(--brand-mid); font-size: var(--text-caption1); }
+.modal-title {
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-title3);
+  letter-spacing: var(--tracking-title);
+}
+.modal-close {
+  margin-left: auto;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-tertiary);
+  font-size: var(--text-title3);
+  padding: 0 var(--space-2);
+}
+.modal-close:hover { background: var(--bg-sunken); color: var(--text-primary); transform: none; box-shadow: none; }
+.modal-body { padding: var(--space-5); }
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: 0 var(--space-5) var(--space-5);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Bilgi kutuları ve bildirim                                               */
+/* ----------------------------------------------------------------------- */
+.notice, .guide {
+  padding: var(--space-4);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-footnote);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+}
+.notice { background: var(--warn-tint); }
+.notice b { color: var(--text-primary); }
+.guide { background: var(--info-tint); margin-bottom: var(--space-4); }
+.guide h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-subhead);
+  font-weight: var(--weight-semibold);
+}
+.guide ol { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+.guide li { margin: var(--space-2) 0; }
+
+.toast {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 1100;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-3);
+  font-size: var(--text-footnote);
+  opacity: 0;
+  transform: translateY(var(--space-2));
+  pointer-events: none;
+  transition: opacity var(--duration-normal) var(--ease-out),
+              transform var(--duration-normal) var(--ease-out);
+}
+.toast::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--ok-ink);
+  margin-right: var(--space-2);
+  vertical-align: middle;
+}
+.toast.err::before { background: var(--err-ink); }
+.toast.show { opacity: 1; transform: translateY(0); }
+
+#chatOut {
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+  background: var(--bg-sunken);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  min-height: 90px;
+  margin-top: var(--space-3);
+  line-height: var(--leading-relaxed);
+}

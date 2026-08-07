@@ -1,0 +1,277 @@
+/* Panel çekirdeği: durum yükleme, gezinme, sağlayıcı/zincir/analitik render'ı.
+ * Web oturumu akışları ayrı dosyadadır (web-sessions.js).
+ */
+
+const $ = (id) => document.getElementById(id);
+let STATE = null, chain = [], judge = [];
+
+// Durumun kendiliğinden tazelendiği sekmeler: yalnız canlı veri gösterenler.
+const LIVE_TABS = ["genel", "analitik", "saglik"];
+const REFRESH_MS = 5000;
+
+// Kenar çubuğu gezinmesi: aktif sekmeyi değiştir ve üst bar başlığını güncelle.
+function bindNav() {
+  document.querySelectorAll(".nav-item").forEach((t) => t.onclick = () => {
+    document.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
+    t.classList.add("active"); $("tab-" + t.dataset.tab).classList.add("active");
+    $("pageTitle").textContent = t.dataset.title; $("pageSub").textContent = t.dataset.sub;
+  });
+}
+
+function toast(msg, err) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (err ? " err" : "");
+  setTimeout(() => el.className = "toast" + (err ? " err" : ""), 2200);
+}
+
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((d.error && d.error.message) || "hata");
+  return d;
+}
+
+// Uç noktayı panoya kopyala.
+async function copyEndpoint() {
+  const url = $("endpointUrl").textContent;
+  try { await navigator.clipboard.writeText(url); toast("uç nokta kopyalandı"); }
+  catch (e) { toast("kopyalanamadı: " + url, true); }
+}
+
+/* --------------------------------------------------------------------- */
+/* Sağlayıcılar                                                           */
+/* --------------------------------------------------------------------- */
+
+// Seçili kategori ("" = hepsi). Çip tıklamasıyla değişir.
+let activeCategory = "";
+const CATEGORY_ORDER = ["API anahtarı", "Web oturumu", "OAuth", "Yerel", "Yakında"];
+
+function categoryOrder(name) {
+  const i = CATEGORY_ORDER.indexOf(name);
+  return i === -1 ? CATEGORY_ORDER.length : i;
+}
+
+// Sağlayıcıları kategoriye göre gruplayıp render et; arama + kategori çipiyle süz.
+function renderProviders() {
+  const s = STATE; if (!s) return;
+  const q = $("providerSearch").value.trim().toLowerCase();
+  const providers = s.providers.filter((p) =>
+    (!q || p.name.toLowerCase().includes(q)) &&
+    (!activeCategory || p.category === activeCategory));
+
+  renderCatChips(s.providers);
+
+  // Kategoriye göre grupla, sıralı bas. "Hepsi" görünümünde grup başlıkları ekle.
+  const groups = {};
+  for (const p of providers) (groups[p.category] ||= []).push(p);
+  const names = Object.keys(groups).sort((a, b) => categoryOrder(a) - categoryOrder(b));
+  const showTitles = !activeCategory && names.length > 1;
+  let html = names.map((cat) =>
+    (showTitles ? `<div class="cat-group-title">${cat}</div>` : "") +
+    `<div class="provider-grid">${groups[cat].map(providerCard).join("")}</div>`
+  ).join("");
+
+  // Kullanıcının kendi eklediği web uçları (varsa), kategori filtresi uygunsa göster.
+  const mine = (s.web_sessions || []).filter((w) => !q || w.model.toLowerCase().includes(q));
+  if (mine.length && (!activeCategory || activeCategory === "Web oturumu")) {
+    html += `<div class="cat-group-title">Kendi uçların</div><div class="provider-grid">` +
+      mine.map(webSessionCard).join("") + `</div>`;
+  }
+  $("providers").innerHTML = html || `<div class="hint">eşleşen sağlayıcı yok</div>`;
+}
+
+// Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
+function renderCatChips(all) {
+  const counts = {};
+  for (const p of all) counts[p.category] = (counts[p.category] || 0) + 1;
+  const cats = Object.keys(counts).sort((a, b) => categoryOrder(a) - categoryOrder(b));
+  const chip = (label, key, n) =>
+    `<div class="cat-chip ${activeCategory === key ? "active" : ""}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></div>`;
+  $("catChips").innerHTML =
+    chip("Hepsi", "", all.length) + cats.map((c) => chip(c, c, counts[c])).join("");
+}
+
+function setCategory(cat) { activeCategory = cat; renderProviders(); }
+
+function providerCard(p) {
+  if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
+  if (p.kind === "browser_backed" || p.kind === "web_session") {
+    const status = p.configured ? `<span class="badge ok">kurulu</span>` : `<span class="badge web">deneysel</span>`;
+    return `<div class="pcard keyed" data-name="${p.name}" onclick="openWebProvider('${p.id}')"><div class="pcard-head"><span class="name">${p.name}</span>${status}<span class="caret">›</span></div><div class="meta" style="margin-top:var(--space-2)">kendi aboneliğin · native browser adapter</div></div>`;
+  }
+  if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
+  const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
+  const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
+  // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
+  return `<div class="pcard keyed" id="pcard-${p.id}" data-name="${p.name}">
+    <div class="pcard-head" onclick="togglePcard('${p.id}')">
+      <span class="name">${p.name}</span>${status}<span class="caret">▾</span>
+    </div>
+    <div class="pcard-body">
+      <div class="meta" style="margin-bottom:var(--space-3)">${p.kind} · ${p.status}</div>
+      <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
+      <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div>
+    </div></div>`;
+}
+
+function togglePcard(id) {
+  const el = $("pcard-" + id); if (!el) return;
+  const willOpen = !el.classList.contains("open");
+  // Aynı anda tek kart açık kalsın.
+  document.querySelectorAll(".pcard.open").forEach((c) => c.classList.remove("open"));
+  if (willOpen) { el.classList.add("open"); const inp = $("key-" + id); if (inp) inp.focus(); }
+}
+
+async function setKey(id) {
+  const v = $("key-" + id).value.trim(); if (!v) return toast("anahtar boş", true);
+  try { await post("/api/keys", { provider: id, value: v }); toast(id + " anahtarı kaydedildi"); await load(); } catch (e) { toast(e.message, true); }
+}
+async function delKey(id) { try { await post("/api/keys/delete", { provider: id }); toast(id + " anahtarı silindi"); await load(); } catch (e) { toast(e.message, true); } }
+
+/* --------------------------------------------------------------------- */
+/* Zincir, hakem, yönlendirme                                             */
+/* --------------------------------------------------------------------- */
+
+function chainRow(m, i, prefix) {
+  return `<div class="chain-item"><span class="idx">${i + 1}</span>
+    <span class="grow">${m}</span>
+    <button class="ghost" onclick="move${prefix}(${i},-1)" aria-label="yukarı">↑</button>
+    <button class="ghost" onclick="move${prefix}(${i},1)" aria-label="aşağı">↓</button>
+    <button class="danger" onclick="rm${prefix}(${i})" aria-label="çıkar">✕</button></div>`;
+}
+
+function renderChain() {
+  $("chain").innerHTML = chain.map((m, i) => chainRow(m, i, "Chain")).join("") || '<div class="hint">zincir boş</div>';
+}
+function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
+function rmChain(i) { chain.splice(i, 1); renderChain(); }
+function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); $("newModel").value = ""; renderChain(); } }
+function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
+
+function renderJudge() {
+  $("judge").innerHTML = judge.map((m, i) => chainRow(m, i, "Judge")).join("") || '<div class="hint">boş</div>';
+}
+function moveJudge(i, d) { const j = i + d; if (j < 0 || j >= judge.length) return; [judge[i], judge[j]] = [judge[j], judge[i]]; renderJudge(); }
+function rmJudge(i) { judge.splice(i, 1); renderJudge(); }
+function addJudge() { const v = $("newJudge").value.trim(); if (v) { judge.push(v); $("newJudge").value = ""; renderJudge(); } }
+
+async function saveJudge() { try { const d = await post("/api/model", { role: "judge", models: judge }); toast(d.saved ? "hakem kaydedildi" : "uygulandı (yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
+async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
+async function resetHealth() { try { await post("/api/health/reset", {}); toast("sağlık sıfırlandı"); await load(); } catch (e) { toast(e.message, true); } }
+
+/* --------------------------------------------------------------------- */
+/* Model kataloğu ve playground                                           */
+/* --------------------------------------------------------------------- */
+
+let catalog = [];
+function ctxLabel(n) { return n ? Math.round(n / 1000) + "k bağlam · " : ""; }
+
+function renderCatalog() {
+  const onlyFree = $("catalogFree").checked;
+  const items = catalog.filter((m) => !onlyFree || m.free);
+  $("catalogList").innerHTML = items.map((m) =>
+    `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`).join("");
+  $("catalogCount").textContent = catalog.length + " model" + (onlyFree ? " (" + items.length + " ücretsiz)" : "");
+  // Playground listesini profiller + katalogla birleştir (tekilleştirilmiş).
+  const base = (STATE && STATE.models) || [];
+  const merged = [...new Set([...base, ...items.map((m) => m.id)])];
+  const cur = $("chatModel").value;
+  $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${m}</option>`).join("");
+}
+
+async function loadCatalog(refresh) {
+  try {
+    const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
+    catalog = d.models || []; renderCatalog();
+    if (refresh) toast(catalog.length + " model bulundu");
+  } catch (e) { /* katalog bir iyileştirmedir; sessizce geç */ }
+}
+
+async function sendChat() {
+  const model = $("chatModel").value, msg = $("chatMsg").value.trim();
+  if (!msg) return; $("chatOut").textContent = "…"; $("chatMeta").textContent = "";
+  try {
+    const r = await fetch("/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model, messages: [{ role: "user", content: msg }] }) });
+    const d = await r.json();
+    const route = r.headers.get("x-fusion-route") || "";
+    $("chatOut").textContent = (d.choices && d.choices[0] && d.choices[0].message.content) || JSON.stringify(d, null, 2);
+    $("chatMeta").textContent = (d.model ? "model: " + d.model : "") + (route ? " · " + route : "");
+  } catch (e) { $("chatOut").textContent = "hata: " + e.message; }
+}
+
+/* --------------------------------------------------------------------- */
+/* Render ve açılış                                                       */
+/* --------------------------------------------------------------------- */
+
+function render() {
+  const s = STATE;
+  $("endpointUrl").textContent = location.origin + "/v1";
+  $("s-total").textContent = s.providers.length;
+  $("s-ready").textContent = s.providers.filter((p) => p.configured || p.local).length;
+  $("s-models").textContent = s.models.length;
+  $("s-strategy").textContent = s.routing.current;
+  $("cfgpath").textContent = s.config_path || "(yalnız varsayılanlar)";
+  $("activeModel").textContent = (s.fallback && s.fallback[0]) || "—";
+  const recent = (s.analytics && s.analytics.recent) || [];
+  $("lastServed").textContent = recent.length ? recent[0].served : "—";
+  $("secretHint").textContent = s.secret_ready
+    ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
+    : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
+  renderProviders();  // kategori + arama filtresiyle grupla
+
+  const sel = $("strategy");
+  sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
+  chain = s.fallback.slice(); renderChain();
+  $("strictModel").checked = Boolean(s.strict_model_selection);
+  judge = (s.judge || []).slice(); renderJudge();
+
+  const hm = s.health;
+  $("healthEmpty").style.display = hm.length ? "none" : "block";
+  $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
+    <td><span class="bar"><i style="width:${Math.round(m.score * 100)}%"></i></span>${Math.round(m.score * 100)}%</td>
+    <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms || 0} ms</td><td>${m.samples}</td></tr>`).join("");
+
+  $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
+  if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
+  renderAnalytics(s.analytics || {});
+  $("brandVer").textContent = "v" + (s.version || "?");
+}
+
+function renderAnalytics(a) {
+  $("a-req").textContent = a.requests ?? 0;
+  $("a-tok").textContent = a.total_tokens ?? 0;
+  $("a-lat").textContent = a.avg_latency_ms ?? 0;
+  $("a-p95").textContent = a.p95_latency_ms ?? 0;
+  $("a-cache").textContent = a.cache_hits ?? 0;
+  $("a-comp").textContent = a.compression_saved_chars ?? 0;
+  $("a-permodel").innerHTML = (a.per_model || []).map((m) =>
+    `<tr><td class="model">${m.model}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`
+  ).join("") || '<tr><td class="hint">veri yok</td></tr>';
+  $("a-recent").innerHTML = (a.recent || []).map((r) =>
+    `<tr><td class="model">${r.requested}</td><td class="model">${r.served}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`
+  ).join("") || '<tr><td class="hint">henüz istek yok</td></tr>';
+}
+
+async function load() {
+  try { STATE = await fetch("/api/state").then((r) => r.json()); render(); }
+  catch (e) { /* sunucu kapalı */ }
+}
+
+function isLiveTabActive() {
+  const active = document.querySelector(".nav-item.active");
+  return Boolean(active) && LIVE_TABS.includes(active.dataset.tab);
+}
+
+// Açılış tek yerden yapılır ve DOM hazır olduğunda çalışır: böylece bu dosya
+// ile web-sessions.js'in yükleme sırası davranışı belirlemez.
+document.addEventListener("DOMContentLoaded", () => {
+  bindNav();
+  bindWebSessionForm();
+  load();
+  loadCatalog(false);
+  setInterval(() => { if (isLiveTabActive()) load(); }, REFRESH_MS);
+});

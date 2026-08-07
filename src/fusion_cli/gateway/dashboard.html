@@ -4,180 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Fusion — Kontrol Paneli</title>
-    <style>
-      :root {
-        --bg: #0b0b10; --surface: #14141c; --surface2: #1b1b25; --border: #262633;
-        --grid: #17171f;
-        --text: #e9e9f2; --dim: #8b8ba3; --faint: #5a5a72;
-        --accent: #ff8a3d; --accent2: #ff4d8d; --green: #5ee2a0; --yellow: #ffd166;
-        --red: #ff6b6b; --blue: #5aa9ff;
-        --grad: linear-gradient(100deg, #ff8a3d, #ff5c7a 55%, #ff4d8d);
-        --accent-soft: rgba(255, 92, 122, 0.12);
-        --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-        --sans: "Inter", -apple-system, "Segoe UI", system-ui, sans-serif;
-      }
-      * { box-sizing: border-box; }
-      body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
-
-      /* Uygulama iskeleti: solda sabit kenar çubuğu, sağda içerik (OmniRoute düzeni). */
-      .app { display: flex; min-height: 100vh; }
-
-      /* --- Sol kenar çubuğu --- */
-      .sidebar { width: 264px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border);
-        display: flex; flex-direction: column; padding: 18px 14px; position: sticky; top: 0; height: 100vh; }
-      .brand { display: flex; align-items: center; gap: 12px; padding: 4px 6px 18px; }
-      .logo { width: 40px; height: 40px; border-radius: 11px; background: var(--grad);
-        display: grid; place-items: center; font-family: var(--mono); font-weight: 900; font-size: 18px; color: #0b0b10; }
-      .brand-name { font-weight: 800; font-size: 18px; letter-spacing: .2px; }
-      .brand-ver { color: var(--faint); font-size: 12px; }
-      .nav-section { color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .12em;
-        text-transform: uppercase; padding: 12px 8px 6px; }
-      nav { display: flex; flex-direction: column; gap: 2px; }
-      .nav-item { display: flex; align-items: center; gap: 12px; padding: 9px 10px; border-radius: 10px;
-        cursor: pointer; color: var(--dim); user-select: none; border-left: 2px solid transparent; }
-      .nav-item:hover { background: var(--surface2); color: var(--text); }
-      .nav-item.active { background: var(--accent-soft); border-left-color: var(--accent2);
-        color: var(--text); }
-      .ni-ico { width: 24px; text-align: center; font-size: 16px; filter: grayscale(.2); }
-      .nav-item.active .ni-ico { filter: none; }
-      .ni-title { display: block; font-weight: 600; font-size: 14px; }
-      .ni-sub { display: block; color: var(--faint); font-size: 11px; }
-      .sidebar-foot { margin-top: auto; padding: 12px 8px 4px; }
-      .endpoint-label { color: var(--faint); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 6px; }
-      .endpoint { font-family: var(--mono); font-size: 12.5px; background: var(--surface2);
-        border: 1px solid var(--border); padding: 8px 10px; border-radius: 9px; word-break: break-all; color: var(--dim); }
-
-      /* --- Ana içerik --- */
-      .main { flex: 1; min-width: 0;
-        background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-        background-size: 42px 42px; }
-      .topbar { display: flex; align-items: center; gap: 16px; padding: 22px clamp(16px,3vw,40px) 0; }
-      .topbar h1 { font-size: clamp(22px,2.6vw,30px); margin: 0; }
-      .topbar .sub { color: var(--dim); font-size: 13.5px; margin-top: 2px; }
-      .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-      .content { padding: 22px clamp(16px,3vw,40px) 80px; max-width: 1180px; }
-      .panel { display: none; } .panel.active { display: block; }
-
-      h2 { font-size: 18px; margin: 26px 0 14px; display: flex; align-items: center; gap: 10px; }
-      h2::before { content: ""; width: 6px; height: 18px; border-radius: 4px; background: var(--grad); }
-      .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 12px; }
-      .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-      .grow { flex: 1; min-width: 160px; }
-      .name { font-weight: 700; font-size: 16px; }
-      .meta { color: var(--faint); font-size: 12px; font-family: var(--mono); }
-      input, select, textarea { background: var(--surface2); border: 1px solid var(--border); color: var(--text);
-        font-family: var(--mono); font-size: 14px; padding: 9px 12px; border-radius: 9px; }
-      input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent2); }
-      textarea { resize: vertical; line-height: 1.5; }
-      textarea::placeholder, input::placeholder { color: var(--faint); }
-      /* Kategori çipleri: sağlayıcıları gruba göre süzer (OmniRoute benzeri). */
-      .cat-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-      .cat-chip { display: inline-flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: 999px;
-        border: 1px solid var(--border); background: var(--surface); color: var(--dim); cursor: pointer;
-        font-size: 13px; font-weight: 600; user-select: none; transition: border-color .15s, color .15s; }
-      .cat-chip:hover { border-color: var(--faint); color: var(--text); }
-      .cat-chip.active { border-color: var(--accent2); color: var(--text); background: var(--accent-soft); }
-      .cat-chip .count { font-family: var(--mono); font-size: 12px; color: var(--faint); }
-      .cat-chip.active .count { color: var(--accent); }
-      /* Kategori grubu başlığı (çip filtresi "hepsi" iken). */
-      .cat-group-title { font-size: 13px; font-weight: 700; color: var(--dim); text-transform: uppercase;
-        letter-spacing: .08em; margin: 18px 0 10px; }
-      .cat-group-title:first-child { margin-top: 4px; }
-      /* Sağlayıcı ızgarası: kare kare tile'lar; tıklayınca anahtar girişi açılır. */
-      .provider-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
-      /* Kendi web ucunu ekleme kartı: adım adım rehber + form. */
-      .web-add { margin-top: 22px; border-color: var(--accent2); }
-      .web-add-body { display: none; margin-top: 16px; }
-      .web-add.open .web-add-body { display: block; }
-      .web-add.open .caret { transform: rotate(180deg); }
-      .steps { display: flex; flex-direction: column; gap: 10px; margin-bottom: 18px;
-        padding: 14px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; }
-      .step { display: flex; gap: 12px; align-items: flex-start; font-size: 13.5px; color: var(--dim); line-height: 1.5; }
-      .step b { color: var(--text); font-weight: 600; }
-      .step code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); padding: 1px 6px; border-radius: 5px; color: var(--accent); }
-      .step-n { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%; background: var(--grad);
-        color: #0b0b10; font-weight: 800; font-size: 12px; display: grid; place-items: center; }
-      .fld { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--dim); }
-      .fld input:not([type=checkbox]) { width: 100%; }
-      .fhint { color: var(--faint); font-size: 12px; }
-      .pcard { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; transition: border-color .15s; }
-      .pcard.keyed { cursor: pointer; } .pcard.keyed:hover { border-color: var(--faint); }
-      .pcard.open { border-color: var(--accent2); cursor: default; }
-      .pcard-head { display: flex; align-items: center; gap: 8px; }
-      .pcard .caret { margin-left: auto; color: var(--faint); font-size: 12px; transition: transform .15s; }
-      .pcard.open .caret { transform: rotate(180deg); }
-      .pcard-body { display: none; margin-top: 12px; }
-      .pcard.open .pcard-body { display: block; }
-      button { background: var(--grad); color: #0b0b10; font-weight: 700; border: none; cursor: pointer;
-        padding: 9px 16px; border-radius: 9px; font-size: 14px; font-family: var(--sans); }
-      button:hover { filter: brightness(1.06); }
-      button.ghost { background: transparent; color: var(--dim); border: 1px solid var(--border); }
-      button.ghost:hover { filter: none; border-color: var(--faint); color: var(--text); }
-      button.danger { background: transparent; color: var(--red); border: 1px solid var(--red); }
-      button:active { transform: translateY(1px); }
-      .badge { font-family: var(--mono); font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--faint); color: var(--dim); }
-      .badge.ok { color: var(--green); border-color: var(--green); }
-      .badge.local { color: var(--blue); border-color: var(--blue); }
-      .badge.fw { color: var(--yellow); border-color: var(--yellow); }
-      .badge.web { color: #d58cff; border-color: #d58cff; }
-      .modal-backdrop { position: fixed; inset: 0; background: rgba(4,4,8,.76); backdrop-filter: blur(7px);
-        display: none; align-items: center; justify-content: center; z-index: 1000; padding: 24px; }
-      .modal-backdrop.open { display: flex; }
-      .modal { width: min(720px, 100%); max-height: 90vh; overflow: auto; background: var(--surface);
-        border: 1px solid var(--border); border-radius: 18px; box-shadow: 0 28px 90px rgba(0,0,0,.55); }
-      .modal.small { width: min(520px,100%); }
-      .modal-head { display: flex; align-items: center; gap: 12px; padding: 18px 20px;
-        border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); z-index: 2; }
-      .modal-head .dots { letter-spacing: 4px; color: var(--accent2); }
-      .modal-title { font-weight: 800; font-size: 18px; }
-      .modal-close { margin-left: auto; background: transparent; border: 0; color: var(--dim); font-size: 22px; padding: 4px 8px; }
-      .modal-body { padding: 20px; }
-      .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 0 20px 20px; }
-      .notice { border: 1px solid rgba(255,209,102,.55); background: rgba(255,209,102,.08);
-        padding: 15px 16px; border-radius: 12px; color: var(--dim); line-height: 1.65; }
-      .notice b { color: var(--text); }
-      .guide { border: 1px solid rgba(213,140,255,.5); background: rgba(213,140,255,.08);
-        padding: 16px; border-radius: 12px; margin-bottom: 16px; line-height: 1.55; color: var(--dim); }
-      .guide h3 { margin: 0 0 8px; color: var(--text); }
-      .guide ol { margin: 8px 0 0; padding-left: 22px; }
-      .guide li { margin: 7px 0; }
-      .secret-area { width: 100%; min-height: 92px; }
-      .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .web-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-      .checkline { display:flex; align-items:center; gap:8px; color:var(--dim); font-size:13px; }
-      @media (max-width: 680px) { .two-col { grid-template-columns: 1fr; } }
-      .status-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600;
-        color: var(--green); background: rgba(94,226,160,.1); border: 1px solid rgba(94,226,160,.35);
-        padding: 5px 12px; border-radius: 999px; }
-      .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
-      .stats { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; margin-bottom: 20px; }
-      .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; }
-      .stat .n { font-size: 34px; font-weight: 800; font-family: var(--mono); }
-      .stat .l { color: var(--dim); font-size: 13px; }
-      table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
-      th { color: var(--dim); font-size: 12px; } td.model { font-family: var(--mono); }
-      .bar { height: 7px; border-radius: 999px; background: #22222e; width: 120px; display: inline-block; vertical-align: middle; overflow: hidden; }
-      .bar>i { display: block; height: 100%; background: var(--grad); }
-      .phase.open { color: var(--red); } .phase.closed { color: var(--green); } .phase.half_open { color: var(--yellow); }
-      .chain-item { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1px solid var(--border);
-        border-radius: 9px; padding: 8px 12px; margin-bottom: 6px; font-family: var(--mono); font-size: 14px; }
-      .chain-item .idx { color: var(--faint); width: 22px; } .chain-item .grow { font-size: 13px; }
-      .toast { position: fixed; right: 22px; bottom: 22px; background: var(--surface2); border: 1px solid var(--green);
-        color: var(--text); padding: 12px 18px; border-radius: 12px; opacity: 0; transition: opacity .25s; font-size: 14px; }
-      .toast.show { opacity: 1; } .toast.err { border-color: var(--red); }
-      .hint { color: var(--faint); font-size: 13px; margin: 6px 0 16px; }
-      #chatOut { white-space: pre-wrap; font-family: var(--mono); font-size: 14px; background: var(--surface2);
-        border: 1px solid var(--border); border-radius: 10px; padding: 14px; min-height: 90px; color: var(--text); margin-top: 12px; }
-
-      /* Dar ekran: kenar çubuğu üstte yatay şeride iner. */
-      @media (max-width: 720px) {
-        .app { flex-direction: column; }
-        .sidebar { width: auto; height: auto; position: static; flex-direction: column; }
-        nav { flex-direction: row; flex-wrap: wrap; }
-        .ni-sub { display: none; }
-        .main { background-image: none; }
-      }
-    </style>
+    <link rel="stylesheet" href="/dashboard/static/tokens.css" />
+    <link rel="stylesheet" href="/dashboard/static/shell.css" />
+    <link rel="stylesheet" href="/dashboard/static/components.css" />
+    <link rel="stylesheet" href="/dashboard/static/surfaces.css" />
+    <script defer src="/dashboard/static/panel.js"></script>
+    <script defer src="/dashboard/static/web-sessions.js"></script>
   </head>
   <body>
     <div class="app">
@@ -185,67 +17,89 @@
       <aside class="sidebar">
         <div class="brand">
           <div class="logo">❯_</div>
-          <div><div class="brand-name">Fusion</div><div class="brand-ver" id="brandVer">Kontrol Paneli</div></div>
+          <div>
+            <div class="brand-name">Fusion</div>
+            <div class="brand-ver" id="brandVer">Kontrol Paneli</div>
+          </div>
         </div>
-        <div class="nav-section">Gateway</div>
+        <div class="nav-eyebrow">Gateway</div>
         <nav id="nav">
           <div class="nav-item active" data-tab="genel" data-title="Genel" data-sub="Panele genel bakış">
-            <span class="ni-ico">🏠</span><span><span class="ni-title">Genel</span><span class="ni-sub">Panele genel bakış</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="9" r="6.5" /><circle cx="9" cy="9" r="2.2" fill="currentColor" stroke="none" /></svg></span>
+            <span class="ni-title">Genel</span><span class="ni-sub">Panele genel bakış</span>
           </div>
           <div class="nav-item" data-tab="anahtar" data-title="Sağlayıcılar &amp; Anahtarlar" data-sub="API anahtarların ve erişim">
-            <span class="ni-ico">🔑</span><span><span class="ni-title">Sağlayıcılar</span><span class="ni-sub">API anahtarları</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="9" r="3" /><path d="M9 9h6M13 9v3" /></svg></span>
+            <span class="ni-title">Sağlayıcılar</span><span class="ni-sub">API anahtarları</span>
           </div>
           <div class="nav-item" data-tab="yonlendirme" data-title="Yönlendirme &amp; Fallback" data-sub="Zincir ve strateji">
-            <span class="ni-ico">🔀</span><span><span class="ni-title">Yönlendirme</span><span class="ni-sub">Zincir ve fallback</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6.5h10l-3-3M15 11.5H5l3 3" /></svg></span>
+            <span class="ni-title">Yönlendirme</span><span class="ni-sub">Zincir ve fallback</span>
           </div>
           <div class="nav-item" data-tab="analitik" data-title="Analitik" data-sub="Kullanım ve gecikme">
-            <span class="ni-ico">📊</span><span><span class="ni-title">Analitik</span><span class="ni-sub">Kullanım ve gecikme</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15V9M7.7 15V4M12.3 15v-4M15 15h0" /></svg></span>
+            <span class="ni-title">Analitik</span><span class="ni-sub">Kullanım ve gecikme</span>
           </div>
           <div class="nav-item" data-tab="saglik" data-title="Sağlık" data-sub="Devre ve güvenilirlik">
-            <span class="ni-ico">💓</span><span><span class="ni-title">Sağlık</span><span class="ni-sub">Devre ve güvenilirlik</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 9h3l1.5-3.5L9.5 12l1.5-3h4.5" /></svg></span>
+            <span class="ni-title">Sağlık</span><span class="ni-sub">Devre ve güvenilirlik</span>
           </div>
           <div class="nav-item" data-tab="test" data-title="Test" data-sub="Model playground">
-            <span class="ni-ico">🧪</span><span><span class="ni-title">Test</span><span class="ni-sub">Model playground</span></span>
+            <span class="ni-ico"><svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 3v4.2l-3.9 6.2A1.5 1.5 0 0 0 4.9 15.7h8.2a1.5 1.5 0 0 0 1.3-2.3L10.5 7.2V3M6.5 3h5" /></svg></span>
+            <span class="ni-title">Test</span><span class="ni-sub">Model playground</span>
           </div>
         </nav>
         <div class="sidebar-foot">
           <div class="endpoint-label">Uç nokta</div>
-          <div class="endpoint" id="endpoint" onclick="copyEndpoint()" title="tıkla: kopyala">http://…/v1</div>
-          <button class="ghost" style="width:100%;margin-top:8px;font-size:12.5px" onclick="copyEndpoint()">📋 Uç noktayı kopyala</button>
+          <button class="endpoint" onclick="copyEndpoint()" title="tıkla: kopyala">
+            <span class="url" id="endpointUrl">http://…/v1</span><span class="copy">⧉</span>
+          </button>
         </div>
       </aside>
 
       <!-- Ana içerik -->
       <main class="main">
         <div class="topbar">
-          <div><h1 id="pageTitle">Genel</h1><div class="sub" id="pageSub">Panele genel bakış</div></div>
+          <div>
+            <h1 id="pageTitle">Genel</h1>
+            <div class="sub" id="pageSub">Panele genel bakış</div>
+          </div>
           <div class="topbar-right"><span class="status-pill">yerel · çalışıyor</span></div>
         </div>
         <div class="content">
           <!-- GENEL -->
           <div class="panel active" id="tab-genel">
             <div class="stats">
+              <div class="stat lead">
+                <div class="eyebrow">Kullanıma hazır</div>
+                <div><div class="n" id="s-ready">–</div><div class="l">anahtarı girilmiş sağlayıcı</div></div>
+              </div>
               <div class="stat"><div class="n" id="s-total">–</div><div class="l">tanınan sağlayıcı</div></div>
-              <div class="stat"><div class="n" id="s-ready" style="color:var(--green)">–</div><div class="l">kullanıma hazır</div></div>
               <div class="stat"><div class="n" id="s-models">–</div><div class="l">model / profil</div></div>
-              <div class="stat"><div class="n" id="s-strategy" style="color:var(--accent)">–</div><div class="l">yönlendirme</div></div>
+              <div class="stat"><div class="n" id="s-strategy">–</div><div class="l">yönlendirme</div></div>
             </div>
+
+            <h2>Aktif yapılandırma</h2>
             <div class="card">
-              <div class="row"><b>Aktif model (baş):</b> <span class="meta" id="activeModel" style="color:var(--accent)">—</span>
-                <span class="meta" id="lastServed"></span></div>
-              <div class="hint" style="margin:8px 0 0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir. "Son cevaplayan" gerçekte yanıtı üreten modeldir (yedeğe düşmüş olabilir).</div>
+              <div class="row"><b>Baş model:</b> <span class="meta grow" id="activeModel">—</span></div>
+              <div class="row" style="margin-top:var(--space-3)"><b>Son cevaplayan:</b> <span class="meta grow" id="lastServed">—</span></div>
+              <div class="row" style="margin-top:var(--space-3)"><b>Config:</b> <span class="meta grow" id="cfgpath">—</span></div>
+              <div class="hint" style="margin-bottom:0">Baş model istekleri ilk karşılayan modeldir; Yönlendirme sekmesinden değiştirilir.
+                “Son cevaplayan” gerçekte yanıtı üreten modeldir — yedeğe düşmüş olabilir.</div>
             </div>
-            <div class="card"><div class="hint">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
-              yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
-              <div class="row"><b>Config:</b> <span class="meta" id="cfgpath">—</span></div>
+
+            <h2>Bu panel ne yapar</h2>
+            <div class="card">
+              <div class="hint" style="margin-bottom:0">Bu panelden API anahtarı girebilir, yedek (fallback) zincirini düzenleyebilir,
+                yönlendirme stratejisini değiştirebilir ve modelleri test edebilirsin. Uzak sunucu yok — her şey burada, sende kalır.</div>
             </div>
           </div>
 
           <!-- ANAHTARLAR -->
           <div class="panel" id="tab-anahtar">
             <div class="hint" id="secretHint"></div>
-            <div class="row" style="margin-bottom:14px">
-              <input id="providerSearch" class="grow" placeholder="🔍 sağlayıcı ara…" oninput="renderProviders()" />
+            <div class="row" style="margin-bottom:var(--space-4)">
+              <input id="providerSearch" class="grow" placeholder="sağlayıcı ara…" oninput="renderProviders()" />
             </div>
             <div id="catChips" class="cat-chips"></div>
             <div id="providers"></div>
@@ -253,7 +107,7 @@
             <!-- Kendi web (oturum tabanlı) ucun: adım adım rehber + form -->
             <div class="web-add card" id="webAddCard">
               <div class="pcard-head" onclick="toggleWebAdd()" style="cursor:pointer">
-                <span class="name">➕ Kendi web AI ucunu ekle</span>
+                <span class="name">Kendi web AI ucunu ekle</span>
                 <span class="badge local">web oturumu</span>
                 <span class="caret" id="webCaret">▾</span>
               </div>
@@ -270,59 +124,64 @@
                   <input id="webEndpoint" placeholder="http://localhost:3000/v1/chat/completions" /></label>
                 <label class="fld">Token <span class="fhint">(opsiyonel — yerelde genelde gerekmez)</span>
                   <input id="webToken" type="password" placeholder="bearer token (varsa)" /></label>
-                <label class="fld" style="flex-direction:row;align-items:center;gap:8px">
-                  <input id="webTools" type="checkbox" style="width:auto" />
+                <label class="checkline" style="margin-bottom:var(--space-3)">
+                  <input id="webTools" type="checkbox" />
                   <span>Araç kullanımı (emulated) — model dosya/komut araçlarını prompt üzerinden kullansın</span></label>
-                <div class="row" style="margin-top:12px"><button onclick="addWebSession()">Web ucunu kaydet</button></div>
+                <div class="row"><button onclick="addWebSession()">Web ucunu kaydet</button></div>
               </div>
             </div>
           </div>
 
           <!-- YÖNLENDİRME -->
           <div class="panel" id="tab-yonlendirme">
-            <h2>Yönlendirme Stratejisi</h2>
-            <div class="card"><div class="row">
-              <select id="strategy" class="grow"></select>
-              <button onclick="saveRouting()">Kaydet</button>
-            </div><div class="hint">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div></div>
-
-            <div class="card"><div class="row">
-              <span class="meta grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
-              <label class="meta" style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
-              <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
-            </div></div>
-
-            <h2>Baş Model (agent)</h2>
-            <div class="hint">Zincirin ilk sırasındaki model baş modeldir — istekler önce ona gider.</div>
-            <div class="card"><div class="row">
-              <input id="agentHead" class="grow" list="catalogList" placeholder="baş modeli seç ya da yaz…" />
-              <button onclick="setHead()">Baş Yap</button>
-            </div></div>
-
-            <h2>Fallback Zinciri (agent)</h2>
-            <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
+            <h2>Yönlendirme stratejisi</h2>
             <div class="card">
-              <label class="checkline" style="margin-bottom:12px">
-                <input type="checkbox" id="strictModel" />
-                Seçili baş modeli zorunlu kullan; başarısızsa başka modele sessizce geçme
-              </label>
-              <div class="hint" style="margin-bottom:12px">Açıkken fallback zinciri config'te korunur fakat bu agent rolünde çalıştırılmaz. Web AI'ı gerçekten test ederken açık tut.</div>
-              <div id="chain"></div>
-              <div class="row" style="margin-top:10px">
-                <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
-                <button class="ghost" onclick="addChain()">+ ekle</button>
-                <button onclick="saveFallback()">Zinciri Kaydet</button>
+              <div class="row">
+                <select id="strategy" class="grow"></select>
+                <button onclick="saveRouting()">Kaydet</button>
+              </div>
+              <div class="hint" style="margin-bottom:0">priority = ölçülmüş sıra (varsayılan). free_first = ücretsizler önce. headroom = en sağlıklı önce. round_robin/random = dağıt.</div>
+            </div>
+
+            <div class="card">
+              <div class="row">
+                <span class="subtle grow">Model kataloğu: <b id="catalogCount">—</b> · listeden seç, elle yazmana gerek yok</span>
+                <label class="checkline"><input type="checkbox" id="catalogFree" onchange="renderCatalog()" /> yalnız ücretsiz</label>
+                <button class="ghost" onclick="loadCatalog(true)">Katalogdan tazele</button>
               </div>
             </div>
 
-            <h2>Hakem Modeli (fusion)</h2>
+            <h2>Baş model (agent)</h2>
+            <div class="hint">Zincirin ilk sırasındaki model baş modeldir — istekler önce ona gider.</div>
+            <div class="card"><div class="row">
+              <input id="agentHead" class="grow" list="catalogList" placeholder="baş modeli seç ya da yaz…" />
+              <button onclick="setHead()">Baş yap</button>
+            </div></div>
+
+            <h2>Fallback zinciri (agent)</h2>
+            <div class="hint">İstek başarısız olursa bu modeller SIRAYLA denenir. Sırayı değiştir, ekle/çıkar, "Zinciri Kaydet"e bas.</div>
+            <div class="card">
+              <label class="checkline" style="margin-bottom:var(--space-3)">
+                <input type="checkbox" id="strictModel" />
+                Seçili baş modeli zorunlu kullan; başarısızsa başka modele sessizce geçme
+              </label>
+              <div class="hint">Açıkken fallback zinciri config'te korunur fakat bu agent rolünde çalıştırılmaz. Web AI'ı gerçekten test ederken açık tut.</div>
+              <div id="chain"></div>
+              <div class="row" style="margin-top:var(--space-3)">
+                <input id="newModel" class="grow" list="catalogList" placeholder="listeden seç ya da model kimliği yaz…" />
+                <button class="ghost" onclick="addChain()">+ ekle</button>
+                <button onclick="saveFallback()">Zinciri kaydet</button>
+              </div>
+            </div>
+
+            <h2>Hakem modeli (fusion)</h2>
             <div class="hint">Fusion motorunun hakem/sentez modeli ve yedek zinciri.</div>
             <div class="card">
               <div id="judge"></div>
-              <div class="row" style="margin-top:10px">
+              <div class="row" style="margin-top:var(--space-3)">
                 <input id="newJudge" class="grow" list="catalogList" placeholder="listeden seç ya da hakem modeli yaz…" />
                 <button class="ghost" onclick="addJudge()">+ ekle</button>
-                <button onclick="saveJudge()">Hakemi Kaydet</button>
+                <button onclick="saveJudge()">Hakemi kaydet</button>
               </div>
             </div>
           </div>
@@ -332,33 +191,45 @@
           <!-- ANALİTİK -->
           <div class="panel" id="tab-analitik">
             <div class="stats">
-              <div class="stat"><div class="n" id="a-req">–</div><div class="l">istek</div></div>
+              <div class="stat lead">
+                <div class="eyebrow">Toplam istek</div>
+                <div><div class="n" id="a-req">–</div><div class="l">gateway üzerinden geçen</div></div>
+              </div>
               <div class="stat"><div class="n" id="a-tok">–</div><div class="l">toplam token</div></div>
-              <div class="stat"><div class="n" id="a-lat" style="color:var(--blue)">–</div><div class="l">ort. gecikme (ms)</div></div>
-              <div class="stat"><div class="n" id="a-p95" style="color:var(--yellow)">–</div><div class="l">p95 gecikme (ms)</div></div>
-              <div class="stat"><div class="n" id="a-cache" style="color:var(--green)">–</div><div class="l">önbellek isabeti</div></div>
-              <div class="stat"><div class="n" id="a-comp" style="color:var(--accent)">–</div><div class="l">sıkıştırma tasarrufu (karakter)</div></div>
+              <div class="stat"><div class="n" id="a-lat">–</div><div class="l">ort. gecikme (ms)</div></div>
+              <div class="stat"><div class="n" id="a-p95">–</div><div class="l">p95 gecikme (ms)</div></div>
+              <div class="stat"><div class="n" id="a-cache">–</div><div class="l">önbellek isabeti</div></div>
+              <div class="stat"><div class="n" id="a-comp">–</div><div class="l">sıkıştırma tasarrufu</div></div>
             </div>
-            <h2>Model Başına</h2>
-            <div class="card"><table><thead><tr><th>Model</th><th>İstek</th><th>Token</th><th>Ort. gecikme</th></tr></thead><tbody id="a-permodel"></tbody></table></div>
-            <h2>Son İstekler</h2>
-            <div class="card"><table><thead><tr><th>İstenen</th><th>Cevaplayan</th><th>Token</th><th>Gecikme</th><th></th></tr></thead><tbody id="a-recent"></tbody></table></div>
+            <h2>Model başına</h2>
+            <div class="card" style="padding:0">
+              <table><thead><tr><th>Model</th><th>İstek</th><th>Token</th><th>Ort. gecikme</th></tr></thead><tbody id="a-permodel"></tbody></table>
+            </div>
+            <h2>Son istekler</h2>
+            <div class="card" style="padding:0">
+              <table><thead><tr><th>İstenen</th><th>Cevaplayan</th><th>Token</th><th>Gecikme</th><th></th></tr></thead><tbody id="a-recent"></tbody></table>
+            </div>
           </div>
 
           <!-- SAĞLIK -->
           <div class="panel" id="tab-saglik">
-            <div class="row" style="margin-bottom:12px"><button class="ghost" onclick="resetHealth()">Sağlığı Sıfırla</button>
-              <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span></div>
-            <div class="card"><table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
-              <tbody id="health"></tbody></table><div class="hint" id="healthEmpty">Henüz veri yok — bir istek gelince dolar.</div></div>
+            <div class="row" style="margin-bottom:var(--space-4)">
+              <button class="ghost" onclick="resetHealth()">Sağlığı sıfırla</button>
+              <span class="hint" style="margin:0">Devreleri kapatır, güvenilirlik skorlarını sıfırlar.</span>
+            </div>
+            <div class="card" style="padding:0">
+              <table><thead><tr><th>Model</th><th>Güvenilirlik</th><th>Devre</th><th>Gecikme</th><th>Örnek</th></tr></thead>
+                <tbody id="health"></tbody></table>
+              <div class="hint" id="healthEmpty" style="padding:var(--space-4);margin:0">Henüz veri yok — bir istek gelince dolar.</div>
+            </div>
           </div>
 
           <!-- TEST -->
           <div class="panel" id="tab-test">
             <div class="card">
               <div class="row"><select id="chatModel" class="grow"></select></div>
-              <textarea id="chatMsg" class="grow" style="width:100%;margin-top:10px;min-height:80px" placeholder="bir şey yaz…"></textarea>
-              <div class="row" style="margin-top:10px"><button onclick="sendChat()">Gönder</button><span class="meta" id="chatMeta"></span></div>
+              <textarea id="chatMsg" class="grow" style="width:100%;margin-top:var(--space-3);min-height:80px" placeholder="bir şey yaz…"></textarea>
+              <div class="row" style="margin-top:var(--space-3)"><button onclick="sendChat()">Gönder</button><span class="meta" id="chatMeta"></span></div>
               <div id="chatOut"></div>
             </div>
           </div>
@@ -376,7 +247,7 @@
             Web arayüzleri değişebilir; oturum süresi dolabilir ve yeniden giriş gerekebilir. Fusion CAPTCHA/anti-bot
             korumalarını aşmaz. Cookie bir şifre kadar hassastır ve yalnızca şifreli yerel depoda tutulur.
           </div>
-          <label class="checkline" style="margin-top:16px"><input type="checkbox" id="webWarnRemember" />
+          <label class="checkline" style="margin-top:var(--space-4)"><input type="checkbox" id="webWarnRemember" />
             Bu sağlayıcı için bunu bir daha gösterme</label>
         </div>
         <div class="modal-foot"><button class="ghost" onclick="closeModal('webWarningModal')">İptal</button>
@@ -394,14 +265,14 @@
             <label class="fld">Oturum adı<input id="nativeWebAccount" value="main" placeholder="main" /></label>
             <label class="fld">Terminal model kimliği<input id="nativeWebModel" readonly /></label>
           </div>
-          <div class="notice" style="margin-top:12px">
+          <div class="notice" style="margin-top:var(--space-3)">
             <b>Önerilen yol: cookie girmene gerek yok.</b><br />
             “Tarayıcıyla giriş yap” Fusion'ın kendi izole profilinde bir pencere açar. Normal
             kullandığın gibi giriş yaparsın; oturum o profilde kalıcı olur. Pencereyi kapattığında
             bağlantı kendiliğinden test edilir.
           </div>
-          <details style="margin-top:8px"><summary class="meta" style="cursor:pointer">Cookie'yi elle gireceğim (gelişmiş)</summary>
-            <label class="fld" style="margin-top:8px">Cookie başlığı
+          <details style="margin-top:var(--space-2)"><summary class="subtle" style="cursor:pointer">Cookie'yi elle gireceğim (gelişmiş)</summary>
+            <label class="fld" style="margin-top:var(--space-2)">Cookie başlığı
               <span class="fhint">Yalnızca tarayıcıyla giriş çalışmazsa gerekir.</span>
               <textarea id="nativeWebCookie" class="secret-area" placeholder="name=value; other=value; …"></textarea></label>
           </details>
@@ -410,11 +281,11 @@
             <label class="fld" style="justify-content:flex-end"><span class="checkline"><input id="nativeWebHeadless" type="checkbox" checked />
               Normal kullanımda tarayıcıyı arka planda çalıştır</span></label>
           </div>
-          <details style="margin-top:8px"><summary class="meta" style="cursor:pointer">Gelişmiş / güvenlik notları</summary>
+          <details style="margin-top:var(--space-2)"><summary class="subtle" style="cursor:pointer">Gelişmiş / güvenlik notları</summary>
             <div class="hint">Fusion normal Chrome profilini okumaz. Her sağlayıcı/oturum için ayrı profil kullanır.
               Cookie, config.yaml veya loglara yazılmaz. Web modeli araç çağrısını metin olarak üretir; dosya, shell,
               web search ve kod düzenleme işini Fusion'ın kendi izinli tool runtime'ı yürütür.</div></details>
-          <div class="hint" style="margin-top:12px">
+          <div class="hint" style="margin-top:var(--space-3)">
             <b>Dosya değiştirme izni:</b> web modeli araç çağrısını METİN olarak üretir.
             Bunu güvenilir yapıp yapmadığı ölçülmeden dosyalarına yazmasına izin verilmez.
             Ölçüm 5 gerçek istek gönderir ve kendi aboneliğinden harcar.
@@ -426,416 +297,11 @@
             <button class="ghost" onclick="runWebEval()">Araç yeteneğini ölç</button>
             <button class="ghost" onclick="saveNativeWeb()">Yalnızca kaydet</button>
           </div>
-          <div class="hint" id="nativeWebStatus" style="margin-top:12px"></div>
+          <div class="hint" id="nativeWebStatus" style="margin-top:var(--space-3)"></div>
         </div>
       </div>
     </div>
 
     <div class="toast" id="toast"></div>
-
-    <script>
-      const $ = (id) => document.getElementById(id);
-      let STATE = null, chain = [], judge = [];
-      let activeWebProvider = null, activeWebModel = null;
-      const WEB_INFO = {
-        chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", site:"https://chatgpt.com", hint:"chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
-          steps:["Tarayıcıyla giriş yönteminde Fusion'ın açtığı izole Chrome penceresinde hesabına giriş yap ve pencereyi kapat.",
-                 "Manuel yöntemde chatgpt.com → Geliştirici Araçları → Network bölümünde bir isteği seç; Request Headers içindeki Cookie değerinin tamamını kopyala. Cookie: önekini ekleme.",
-                 "Kaydet ve bağlantıyı kontrol et. Oturum süresi dolarsa aynı işlemi yenile."]},
-        claude_web: {name:"Claude Web (Pro/Max)", site:"https://claude.ai", hint:"claude.ai Cookie başlığı (sessionKey dahil)",
-          steps:["Önerilen yöntem: Fusion'ın açtığı izole tarayıcıda claude.ai hesabına giriş yap.",
-                 "Manuel yöntemde claude.ai üzerindeki bir Network isteğinin tam Cookie başlığını kopyala; yalnız sessionKey değil, istekteki tüm Cookie değeri daha dayanıklıdır.",
-                 "Kaydet, ardından gerçek küçük istekle bağlantıyı doğrula."]},
-        gemini_web: {name:"Gemini Web (Google AI Pro/Ultra)", site:"https://gemini.google.com/app", hint:"Google birden çok cookie kullandığı için tarayıcıyla giriş önerilir",
-          steps:["Google oturumu birden çok alan/cookie kullandığından en güvenilir yöntem Tarayıcıyla giriş yap düğmesidir.",
-                 "Açılan izole profilde Gemini'ye giriş yap, gerekli hesap doğrulamasını kendin tamamla ve pencereyi kapat.",
-                 "Manuel Cookie kullanacaksan gemini.google.com isteğinin Cookie başlığının tamamını ekle."]},
-        copilot_web: {name:"Microsoft Copilot Web", site:"https://copilot.microsoft.com", hint:"Microsoft oturumu için tarayıcıyla giriş önerilir",
-          steps:["Tarayıcıyla giriş yap düğmesiyle açılan izole profilde Microsoft hesabına giriş yap.",
-                 "Manuel yöntemde copilot.microsoft.com isteğinin tam Cookie başlığını ekle.",
-                 "Kaydettikten sonra bağlantı testini çalıştır; giriş yönlendirmesi görülürse tarayıcı oturumunu yenile."]}
-      };
-
-      // Kenar çubuğu gezinmesi: aktif sekmeyi değiştir ve üst bar başlığını güncelle.
-      document.querySelectorAll(".nav-item").forEach((t) => t.onclick = () => {
-        document.querySelectorAll(".nav-item").forEach((x) => x.classList.remove("active"));
-        document.querySelectorAll(".panel").forEach((x) => x.classList.remove("active"));
-        t.classList.add("active"); $("tab-" + t.dataset.tab).classList.add("active");
-        $("pageTitle").innerHTML = t.dataset.title; $("pageSub").textContent = t.dataset.sub;
-      });
-
-      function toast(msg, err) { const el = $("toast"); el.textContent = msg; el.className = "toast show" + (err ? " err" : ""); setTimeout(() => el.className = "toast", 2200); }
-
-      // Uç noktayı panoya kopyala (OmniRoute'un öne çıkardığı işlev).
-      async function copyEndpoint() {
-        const url = $("endpoint").textContent;
-        try { await navigator.clipboard.writeText(url); toast("uç nokta kopyalandı"); }
-        catch (e) { toast("kopyalanamadı: " + url, true); }
-      }
-
-      // Seçili kategori ("" = hepsi). Çip tıklamasıyla değişir.
-      let activeCategory = "";
-      // OmniRoute benzeri kategori sırası; listede olmayan kategori sona eklenir.
-      const CATEGORY_ORDER = ["API anahtarı", "Web oturumu", "OAuth", "Yerel", "Yakında"];
-
-      function categoryOrder(name) {
-        const i = CATEGORY_ORDER.indexOf(name);
-        return i === -1 ? CATEGORY_ORDER.length : i;
-      }
-
-      function closeModal(id) { $(id).classList.remove("open"); }
-      function openWebProvider(id, model) {
-        activeWebProvider = id; activeWebModel = model || null;
-        const info = WEB_INFO[id]; if (!info) return;
-        const remember = localStorage.getItem("fusion-web-warning-" + id) === "1";
-        if (remember) return showWebSetup(id, model);
-        $("warnProviderName").textContent = info.name;
-        $("webWarnRemember").checked = false;
-        $("webWarningModal").classList.add("open");
-      }
-      function acceptWebWarning() {
-        if ($("webWarnRemember").checked) localStorage.setItem("fusion-web-warning-" + activeWebProvider, "1");
-        closeModal("webWarningModal"); showWebSetup(activeWebProvider, activeWebModel);
-      }
-      function showWebSetup(id, model) {
-        activeWebProvider = id; activeWebModel = model || null;
-        const info = WEB_INFO[id]; if (!info) return;
-        const existing = (STATE.web_sessions || []).find((w) => w.model === model || (w.provider === id && w.account === "main"));
-        const account = existing ? existing.account : "main";
-        $("webSetupTitle").textContent = info.name;
-        $("nativeWebAccount").value = account;
-        $("nativeWebCookie").value = "";
-        $("nativeWebHeadless").checked = existing ? existing.headless : true;
-        $("nativeWebTimeout").value = existing ? existing.timeout_s : 180;
-        $("webGuide").innerHTML = `<h3>🍪 Oturum bilgisi nasıl alınır?</h3><div>${info.hint}</div><ol>${info.steps.map((x)=>`<li>${x}</li>`).join("")}</ol><div style="margin-top:10px;color:var(--yellow)">Cookie'yi bir şifre gibi koru; paylaşma ve ekran görüntüsüne alma.</div>`;
-        updateNativeModel();
-        $("nativeWebStatus").textContent = existing ? (existing.connected ? "Kayıt bulundu · oturum/profil mevcut" : "Kayıt bulundu · yeniden giriş gerekli olabilir") : "Henüz kaydedilmedi";
-        $("webSetupModal").classList.add("open");
-      }
-      function updateNativeModel() {
-        const account = ($("nativeWebAccount").value || "main").trim().replace(/[^a-zA-Z0-9_.-]+/g,"-");
-        $("nativeWebModel").value = `${activeWebProvider}/${account || "main"}/auto`;
-      }
-      async function saveNativeWeb(showToast=true) {
-        const account = ($("nativeWebAccount").value || "main").trim();
-        const model = $("nativeWebModel").value;
-        const cookie = $("nativeWebCookie").value.trim();
-        const timeout_s = Number($("nativeWebTimeout").value || 180);
-        const headless = $("nativeWebHeadless").checked;
-        $("nativeWebStatus").textContent = "Kaydediliyor…";
-        try {
-          await post("/api/web_sessions", {provider:activeWebProvider, account, model, cookie, timeout_s, headless, tool_support:"emulated"});
-          $("nativeWebCookie").value = ""; await load();
-          $("nativeWebStatus").textContent = "Kaydedildi · Yönlendirme sekmesinde model olarak seçilebilir";
-          if (showToast) toast("Web sağlayıcısı kaydedildi");
-          return true;
-        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); return false; }
-      }
-      async function launchWebLogin() {
-        const account = ($("nativeWebAccount").value || "main").trim();
-        // Oturum ÖNCE kaydedilir: pencere kapandığında doğrulamanın çalışabilmesi için
-        // yapılandırmada bir kayıt bulunmalı.
-        if (!(await saveNativeWeb(false))) return;
-        try {
-          const res = await post("/api/web_sessions/login", {provider:activeWebProvider, account});
-          $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, sonra pencereyi kapat — gerisi otomatik.";
-          toast("Giriş tarayıcısı açıldı");
-          if (res && res.pid) awaitLoginThenValidate(res.pid);
-        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
-      }
-      // Araç yeteneği ölçümü: web modelinin dosya değiştirmesine izin veren TEK kapı.
-      // Gerçek istek gönderir, bu yüzden yalnızca kullanıcı açıkça isteyince çalışır.
-      async function runWebEval() {
-        if (!(await saveNativeWeb(false))) return;
-        const model = $("nativeWebModel").value;
-        $("nativeWebStatus").textContent = "Araç yeteneği ölçülüyor (5 gerçek istek, birkaç dakika sürebilir)…";
-        try {
-          const r = await post("/api/web_sessions/eval", {model});
-          // Ölçülemeyen metrik "%100" DEĞİL "ölçülmedi" yazar: payda sıfırken oran
-          // 1.0 döner ve ölçülmemiş bir şey mükemmel sanılırdı.
-          const metrik = (ad, anahtar)=>{
-            const n = (r.measured||{})[anahtar];
-            if (!n) return `${ad} ölçülmedi`;
-            return `${ad} ${Math.round(r.scores[anahtar]*100)}% (${n})`;
-          };
-          const ozet = [metrik("araç seçimi","tool_selection"), metrik("şema","schema_validity"),
-                        metrik("argüman","argument_preservation"), metrik("sahte çağrı yok","no_false_calls")].join(" · ");
-          $("nativeWebStatus").textContent = r.passed
-            ? `Geçti · dosya değiştirme izni açıldı — ${ozet}`
-            : `Geçemedi · model okuyup planlayabilir ama dosya değiştiremez — ${ozet}`;
-          renderEvalSamples(r.samples || []);
-          toast(r.passed ? "Araç yeteneği doğrulandı" : "Ölçüm eşiği geçilemedi", !r.passed);
-          await load();
-        } catch(e) { $("nativeWebStatus").textContent = e.message; toast(e.message,true); }
-      }
-      // Ölçüm düştüğünde SEBEBİ görünür olmalı: her senaryonun ham çıktısı, blok
-      // işaretinin görünüp görünmediği ve ayrıştırma hataları.
-      function renderEvalSamples(samples) {
-        const kutu = $("webEvalSamples");
-        if (!kutu) return;
-        if (!samples.length) { kutu.innerHTML = ""; return; }
-        kutu.innerHTML = "<h3>Ölçüm kayıtları</h3>" + samples.map((s, i)=>{
-          const beklenen = s.expected_tool || "(araç beklenmiyor)";
-          const bulunan = s.parsed_tool || "—";
-          const isaret = s.has_call_markers ? "blok işareti VAR" : "blok işareti YOK";
-          const hatalar = (s.parse_errors||[]).length ? `<div class="hint">ayrıştırma: ${s.parse_errors.join("; ")}</div>` : "";
-          return `<details><summary class="meta" style="cursor:pointer">${i+1}. beklenen ${beklenen} · bulunan ${bulunan} · ${isaret}</summary>`
-               + `${hatalar}<pre class="secret-area" style="white-space:pre-wrap;max-height:240px;overflow:auto">${
-                    (s.raw_preview||"").replace(/[&<>]/g, (c)=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))
-                  }</pre></details>`;
-        }).join("");
-      }
-      // Giriş penceresi kapanana kadar yoklar, sonra bağlantıyı KENDİLİĞİNDEN test eder.
-      // Kullanıcının elle cookie kopyalaması ya da "şimdi doğrula" demesi gerekmez.
-      async function awaitLoginThenValidate(pid) {
-        const bitis = Date.now() + 15*60*1000;   // 15 dk sonra yoklamayı bırak
-        while (Date.now() < bitis) {
-          await new Promise((r)=>setTimeout(r, 2000));
-          let durum;
-          try { durum = await post("/api/web_sessions/login_state", {pid}); }
-          catch(e) { return; }                    // gateway kapandı: sessizce bırak
-          if (durum && durum.running === false) {
-            $("nativeWebStatus").textContent = "Giriş penceresi kapandı · bağlantı test ediliyor…";
-            await validateNativeWeb();
-            return;
-          }
-        }
-        $("nativeWebStatus").textContent = "Giriş penceresi hâlâ açık. Kapattıktan sonra “Bağlantıyı kontrol et”e bas.";
-      }
-      async function validateNativeWeb() {
-        const ok = await saveNativeWeb(false); if (!ok) return;
-        const model = $("nativeWebModel").value;
-        $("nativeWebStatus").textContent = "Gerçek bağlantı testi çalışıyor…";
-        try {
-          const d = await post("/api/web_sessions/validate", {model});
-          $("nativeWebStatus").textContent = `Bağlantı başarılı · ${d.latency_ms} ms · ${d.preview || "yanıt alındı"}`;
-          toast("Web AI bağlantısı başarılı");
-        } catch(e) { $("nativeWebStatus").textContent = "Bağlantı başarısız: " + e.message; toast(e.message,true); }
-      }
-      $("nativeWebAccount").addEventListener("input", updateNativeModel);
-
-      // Sağlayıcıları kategoriye göre gruplayıp render et; arama + kategori çipiyle süz.
-      function renderProviders() {
-        const s = STATE; if (!s) return;
-        const q = $("providerSearch").value.trim().toLowerCase();
-        const providers = s.providers.filter((p) =>
-          (!q || p.name.toLowerCase().includes(q)) &&
-          (!activeCategory || p.category === activeCategory));
-
-        renderCatChips(s.providers);
-
-        // Kategoriye göre grupla, sıralı bas. "Hepsi" görünümünde grup başlıkları ekle.
-        const groups = {};
-        for (const p of providers) (groups[p.category] ||= []).push(p);
-        const names = Object.keys(groups).sort((a, b) => categoryOrder(a) - categoryOrder(b));
-        const showTitles = !activeCategory && names.length > 1;
-        let html = names.map((cat) =>
-          (showTitles ? `<div class="cat-group-title">${cat}</div>` : "") +
-          `<div class="provider-grid">${groups[cat].map(providerCard).join("")}</div>`
-        ).join("");
-
-        // Kullanıcının kendi eklediği web uçları (varsa), kategori filtresi uygunsa göster.
-        const mine = (s.web_sessions || []).filter((w) => !q || w.model.toLowerCase().includes(q));
-        if (mine.length && (!activeCategory || activeCategory === "Web oturumu")) {
-          html += `<div class="cat-group-title">Kendi uçların</div><div class="provider-grid">` +
-            mine.map(webSessionCard).join("") + `</div>`;
-        }
-        $("providers").innerHTML = html || `<div class="hint">eşleşen sağlayıcı yok</div>`;
-      }
-
-      // Kullanıcının eklediği web ucunu kart olarak göster (endpoint + sil).
-      function webSessionCard(w) {
-        const native = w.transport === "browser";
-        const status = w.connected ? `<span class="badge ok">oturum kayıtlı</span>` : `<span class="badge fw">giriş gerekli</span>`;
-        const edit = native ? `<button class="ghost" onclick="openWebProvider('${w.provider}','${w.model}')">Ayarla</button>` : "";
-        const detail = native ? `${w.provider} · ${w.account} · ${w.headless ? "arka plan" : "görünür tarayıcı"}` : w.endpoint;
-        return `<div class="pcard"><div class="pcard-head"><span class="name">${w.model}</span>${status}</div>
-          <div class="meta" style="margin:8px 0 10px;word-break:break-all">${detail}</div>
-          <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
-      }
-
-      // Kategori çiplerini (ad + sayı) bas; aktif olan vurgulu.
-      function renderCatChips(all) {
-        const counts = {};
-        for (const p of all) counts[p.category] = (counts[p.category] || 0) + 1;
-        const cats = Object.keys(counts).sort((a, b) => categoryOrder(a) - categoryOrder(b));
-        const chip = (label, key, n) =>
-          `<div class="cat-chip ${activeCategory === key ? "active" : ""}" onclick="setCategory('${key}')">${label} <span class="count">${n}</span></div>`;
-        $("catChips").innerHTML =
-          chip("Hepsi", "", all.length) + cats.map((c) => chip(c, c, counts[c])).join("");
-      }
-
-      function setCategory(cat) { activeCategory = cat; renderProviders(); }
-
-      // Kendi web ucu ekleme kartını aç/kapa.
-      function toggleWebAdd() { $("webAddCard").classList.toggle("open"); }
-
-      // Panelden kendi OpenAI-uyumlu web ucunu ekle (adım adım formdan).
-      async function addWebSession() {
-        const model = $("webModel").value.trim();
-        const endpoint = $("webEndpoint").value.trim();
-        const token = $("webToken").value.trim();
-        const tool_support = $("webTools").checked ? "emulated" : "none";
-        if (!model || !endpoint) return toast("model adı ve endpoint gerekli", true);
-        try {
-          await post("/api/web_sessions", { model, endpoint, token, tool_support });
-          toast(model + " web ucu eklendi — Yönlendirme'den zincire ekle");
-          $("webModel").value = ""; $("webEndpoint").value = ""; $("webToken").value = "";
-          $("webTools").checked = false; $("webAddCard").classList.remove("open");
-          await load();
-        } catch (e) { toast(e.message, true); }
-      }
-      async function delWebSession(model) {
-        try { await post("/api/web_sessions/delete", { model }); toast(model + " kaldırıldı"); await load(); }
-        catch (e) { toast(e.message, true); }
-      }
-      async function post(url, body) {
-        const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-        const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error((d.error && d.error.message) || "hata"); return d;
-      }
-
-      function providerCard(p) {
-        if (!p.implemented) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge fw">adaptör yok</span></div></div>`;
-        if (p.kind === "browser_backed" || p.kind === "web_session") {
-          const status = p.configured ? `<span class="badge ok">kurulu</span>` : `<span class="badge web">deneysel</span>`;
-          return `<div class="pcard keyed" data-name="${p.name}" onclick="openWebProvider('${p.id}')"><div class="pcard-head"><span class="name">${p.name}</span>${status}<span class="caret">›</span></div><div class="meta" style="margin-top:8px">kendi aboneliğin · native browser adapter</div></div>`;
-        }
-        if (p.local) return `<div class="pcard" data-name="${p.name}"><div class="pcard-head"><span class="name">${p.name}</span><span class="badge local">yerel</span></div></div>`;
-        const status = p.configured ? `<span class="badge ok">kurulu${p.keys > 1 ? " · " + p.keys + " hesap" : ""}</span>` : `<span class="badge">anahtar yok</span>`;
-        const del = p.configured ? `<button class="danger" onclick="delKey('${p.id}')">Sil</button>` : "";
-        // Tıklanabilir tile: baş kısmına basınca gövde (anahtar girişi) açılıp kapanır.
-        return `<div class="pcard keyed" id="pcard-${p.id}" data-name="${p.name}">
-          <div class="pcard-head" onclick="togglePcard('${p.id}')">
-            <span class="name">${p.name}</span>${status}<span class="caret">▾</span>
-          </div>
-          <div class="pcard-body">
-            <div class="meta" style="margin:0 0 10px">${p.kind} · ${p.status}</div>
-            <div class="row"><input class="grow" type="password" id="key-${p.id}" placeholder="API anahtarını yapıştır" />
-            <button onclick="setKey('${p.id}')">Kaydet</button>${del}</div>
-          </div></div>`;
-      }
-      function togglePcard(id) {
-        const el = $("pcard-" + id); if (!el) return;
-        const willOpen = !el.classList.contains("open");
-        // Aynı anda tek kart açık kalsın (OmniRoute benzeri sade görünüm).
-        document.querySelectorAll(".pcard.open").forEach((c) => c.classList.remove("open"));
-        if (willOpen) { el.classList.add("open"); const inp = $("key-" + id); if (inp) inp.focus(); }
-      }
-
-      function render() {
-        const s = STATE;
-        $("endpoint").textContent = location.origin + "/v1";
-        $("s-total").textContent = s.providers.length;
-        $("s-ready").textContent = s.providers.filter((p) => p.configured || p.local).length;
-        $("s-models").textContent = s.models.length;
-        $("s-strategy").textContent = s.routing.current;
-        $("cfgpath").textContent = s.config_path || "(yalnız varsayılanlar)";
-        $("activeModel").textContent = (s.fallback && s.fallback[0]) || "—";
-        const recent = (s.analytics && s.analytics.recent) || [];
-        $("lastServed").textContent = recent.length ? "· son cevaplayan: " + recent[0].served : "";
-        $("secretHint").textContent = s.secret_ready
-          ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
-          : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
-        renderProviders();  // kategori + arama filtresiyle grupla
-
-        const sel = $("strategy"); sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
-        chain = s.fallback.slice(); renderChain();
-        $("strictModel").checked = Boolean(s.strict_model_selection);
-        judge = (s.judge || []).slice(); renderJudge();
-
-        const hm = s.health; $("healthEmpty").style.display = hm.length ? "none" : "block";
-        $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
-          <td><span class="bar"><i style="width:${Math.round(m.score*100)}%"></i></span> ${Math.round(m.score*100)}%</td>
-          <td class="phase ${m.phase}">${m.phase}</td><td>${m.avg_latency_ms||0} ms</td><td>${m.samples}</td></tr>`).join("");
-
-        $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
-        if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
-        renderAnalytics(s.analytics || {});
-        $("brandVer").textContent = "v" + (s.version || "?");
-      }
-
-      function renderAnalytics(a) {
-        $("a-req").textContent = a.requests ?? 0;
-        $("a-tok").textContent = a.total_tokens ?? 0;
-        $("a-lat").textContent = a.avg_latency_ms ?? 0;
-        $("a-p95").textContent = a.p95_latency_ms ?? 0;
-        $("a-cache").textContent = a.cache_hits ?? 0;
-        $("a-comp").textContent = a.compression_saved_chars ?? 0;
-        $("a-permodel").innerHTML = (a.per_model || []).map((m) => `<tr><td class="model">${m.model}</td><td>${m.requests}</td><td>${m.tokens}</td><td>${m.avg_latency_ms} ms</td></tr>`).join("") || '<tr><td class="hint">veri yok</td></tr>';
-        $("a-recent").innerHTML = (a.recent || []).map((r) => `<tr><td class="model">${r.requested}</td><td class="model">${r.served}</td><td>${r.tokens}</td><td>${r.latency_ms} ms</td><td>${r.cached ? '<span class="badge ok">önbellek</span>' : (r.ok ? "✓" : "✕")}</td></tr>`).join("") || '<tr><td class="hint">henüz istek yok</td></tr>';
-      }
-
-      function renderJudge() {
-        $("judge").innerHTML = judge.map((m, i) => `<div class="chain-item"><span class="idx">${i+1}</span>
-          <span class="grow">${m}</span><button class="ghost" onclick="moveJudge(${i},-1)">↑</button>
-          <button class="ghost" onclick="moveJudge(${i},1)">↓</button><button class="danger" onclick="rmJudge(${i})">✕</button></div>`).join("") || '<div class="hint">boş</div>';
-      }
-      function moveJudge(i,d){const j=i+d;if(j<0||j>=judge.length)return;[judge[i],judge[j]]=[judge[j],judge[i]];renderJudge();}
-      function rmJudge(i){judge.splice(i,1);renderJudge();}
-      function addJudge(){const v=$("newJudge").value.trim();if(v){judge.push(v);$("newJudge").value="";renderJudge();}}
-      async function saveJudge(){try{const d=await post("/api/model",{role:"judge",models:judge});toast(d.saved?"hakem kaydedildi":"uygulandı (yazılamadı)");await load();}catch(e){toast(e.message,true);}}
-      async function resetHealth(){try{await post("/api/health/reset",{});toast("sağlık sıfırlandı");await load();}catch(e){toast(e.message,true);}}
-
-      function renderChain() {
-        $("chain").innerHTML = chain.map((m, i) => `<div class="chain-item"><span class="idx">${i+1}</span>
-          <span class="grow">${m}</span>
-          <button class="ghost" onclick="moveChain(${i},-1)">↑</button>
-          <button class="ghost" onclick="moveChain(${i},1)">↓</button>
-          <button class="danger" onclick="rmChain(${i})">✕</button></div>`).join("") || '<div class="hint">zincir boş</div>';
-      }
-      function moveChain(i, d) { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; renderChain(); }
-      function rmChain(i) { chain.splice(i, 1); renderChain(); }
-      function addChain() { const v = $("newModel").value.trim(); if (v) { chain.push(v); $("newModel").value = ""; renderChain(); } }
-      function setHead() { const v = $("agentHead").value.trim(); if (!v) return; chain = [v, ...chain.filter((m) => m !== v)]; $("agentHead").value = ""; renderChain(); toast("baş model ayarlandı — 'Zinciri Kaydet'e bas"); }
-
-      // --- model kataloğu (otomatik listeleme) --- //
-      let catalog = [];
-      function ctxLabel(n) { return n ? Math.round(n / 1000) + "k bağlam · " : ""; }
-      function renderCatalog() {
-        const onlyFree = $("catalogFree").checked;
-        const items = catalog.filter((m) => !onlyFree || m.free);
-        $("catalogList").innerHTML = items.map((m) =>
-          `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`).join("");
-        $("catalogCount").textContent = catalog.length + " model" + (onlyFree ? " (" + items.length + " ücretsiz)" : "");
-        // Playground listesini profiller + katalogla birleştir (tekilleştirilmiş).
-        const base = (STATE && STATE.models) || [];
-        const merged = [...new Set([...base, ...items.map((m) => m.id)])];
-        const cur = $("chatModel").value;
-        $("chatModel").innerHTML = merged.map((m) => `<option ${m === cur ? "selected" : ""}>${m}</option>`).join("");
-      }
-      async function loadCatalog(refresh) {
-        try {
-          const d = await fetch("/api/models/catalog" + (refresh ? "?refresh=1" : "")).then((r) => r.json());
-          catalog = d.models || []; renderCatalog();
-          if (refresh) toast(catalog.length + " model bulundu");
-        } catch (e) { /* katalog bir iyileştirmedir; sessizce geç */ }
-      }
-
-      async function setKey(id) {
-        const v = $("key-" + id).value.trim(); if (!v) return toast("anahtar boş", true);
-        try { await post("/api/keys", { provider: id, value: v }); toast(id + " anahtarı kaydedildi"); await load(); } catch (e) { toast(e.message, true); }
-      }
-      async function delKey(id) { try { await post("/api/keys/delete", { provider: id }); toast(id + " anahtarı silindi"); await load(); } catch (e) { toast(e.message, true); } }
-      async function saveRouting() { try { const d = await post("/api/routing", { strategy: $("strategy").value }); toast("yönlendirme: " + d.strategy); await load(); } catch (e) { toast(e.message, true); } }
-      async function saveFallback() { try { const d = await post("/api/fallback", { models: chain, strict: $("strictModel").checked }); toast(d.saved ? "zincir kaydedildi" : "uygulandı (dosyaya yazılamadı)"); await load(); } catch (e) { toast(e.message, true); } }
-
-      async function sendChat() {
-        const model = $("chatModel").value, msg = $("chatMsg").value.trim();
-        if (!msg) return; $("chatOut").textContent = "…"; $("chatMeta").textContent = "";
-        try {
-          const r = await fetch("/v1/chat/completions", { method: "POST", headers: { "content-type": "application/json" },
-            body: JSON.stringify({ model, messages: [{ role: "user", content: msg }] }) });
-          const d = await r.json();
-          const route = r.headers.get("x-fusion-route") || "";
-          $("chatOut").textContent = (d.choices && d.choices[0] && d.choices[0].message.content) || JSON.stringify(d, null, 2);
-          $("chatMeta").textContent = (d.model ? "model: " + d.model : "") + (route ? " · " + route : "");
-        } catch (e) { $("chatOut").textContent = "hata: " + e.message; }
-      }
-
-      async function load() { try { STATE = await fetch("/api/state").then((r) => r.json()); render(); } catch (e) { /* sunucu kapalı */ } }
-      load(); loadCatalog(false); setInterval(() => { if (document.querySelector('.nav-item[data-tab="saglik"]').classList.contains("active") ||
-        document.querySelector('.nav-item[data-tab="analitik"]').classList.contains("active") ||
-        document.querySelector('.nav-item[data-tab="genel"]').classList.contains("active")) load(); }, 5000);
-    </script>
   </body>
 </html>

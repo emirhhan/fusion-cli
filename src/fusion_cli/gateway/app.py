@@ -135,6 +135,13 @@ class GatewayApp:
         if method == "GET" and path in ("/dashboard", "/dashboard/"):
             await _html(send, _dashboard_html())
             return
+        if method == "GET" and path.startswith(_DASHBOARD_ASSET_PREFIX):
+            asset = read_dashboard_asset(path[len(_DASHBOARD_ASSET_PREFIX) :])
+            if asset is None:
+                await _json(send, {"error": {"message": "bulunamadı"}}, status=404)
+                return
+            await _asset(send, *asset)
+            return
         if method == "GET" and path == "/api/providers":
             await _json(send, {"providers": _providers_json(self._config)})
             return
@@ -982,6 +989,25 @@ def _providers_json(config: Config) -> list[dict[str, Any]]:
     return result
 
 
+#: Panelin statik dosyalarının paket içindeki dizini.
+DASHBOARD_ASSET_DIR = "static"
+
+#: Statik dosyaların servis edildiği URL öneki.
+_DASHBOARD_ASSET_PREFIX = "/dashboard/static/"
+
+#: Servis edilen uzantılar ve content-type'ları. Listede olmayan uzantı
+#: sunulmaz — panelin varlık dizini genel amaçlı dosya sunucusu değildir.
+DASHBOARD_ASSET_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".woff2": "font/woff2",
+    ".txt": "text/plain; charset=utf-8",
+}
+
+#: Panel varlıkları paketle birlikte gelir ve yalnız sürüm yükseltmesinde
+#: değişir; tarayıcının her açılışta yeniden indirmesi gereksiz.
+DASHBOARD_ASSET_CACHE = "public, max-age=3600"
+
 #: Sağlayıcı türü → panel kategorisi (basit, göz yormayan gruplar).
 _CATEGORY_BY_KIND = {
     "local": "Yerel",
@@ -1012,6 +1038,29 @@ def _dashboard_html() -> str:
     return (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
 
 
+def read_dashboard_asset(name: str) -> tuple[bytes, str] | None:
+    """Panelin statik dosyasını (içerik, content-type) olarak oku; yoksa None döner.
+
+    Ad DOĞRULANIR: yalnızca `static/` altındaki, uzantısı bilinen dosyalar
+    servis edilir. Model çıktısı veya kullanıcı girdisi değil, tarayıcı isteği
+    olsa bile yol dışarı çıkamaz — `..` içeren ya da çözümlendiğinde kökün
+    dışına düşen istek reddedilir.
+    """
+    from pathlib import Path
+
+    root = (Path(__file__).parent / DASHBOARD_ASSET_DIR).resolve()
+    try:
+        target = (root / name).resolve()
+    except (OSError, ValueError):
+        return None
+    if not target.is_relative_to(root) or not target.is_file():
+        return None
+    content_type = DASHBOARD_ASSET_TYPES.get(target.suffix)
+    if content_type is None:
+        return None
+    return target.read_bytes(), content_type
+
+
 async def _html(send: Send, body: str) -> None:
     await send(
         {
@@ -1021,6 +1070,20 @@ async def _html(send: Send, body: str) -> None:
         }
     )
     await send({"type": "http.response.body", "body": body.encode()})
+
+
+async def _asset(send: Send, body: bytes, content_type: str) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [
+                (b"content-type", content_type.encode()),
+                (b"cache-control", DASHBOARD_ASSET_CACHE.encode()),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 async def _read_json(receive: Receive) -> dict[str, Any]:

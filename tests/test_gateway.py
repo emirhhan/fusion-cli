@@ -164,6 +164,82 @@ async def test_dashboard_html_doner():
     assert 'class="brand-name">Fusion<' in resp.text
 
 
+async def test_dashboard_stil_ve_betik_ayri_dosyadan_gelir():
+    """Panel tek dosya değildir; stil ve davranış statik varlıklardan yüklenir."""
+    async with _client(_app()) as client:
+        resp = await client.get("/dashboard")
+    assert "<style>" not in resp.text
+    assert "/dashboard/static/tokens.css" in resp.text
+    assert "/dashboard/static/panel.js" in resp.text
+
+
+@pytest.mark.parametrize(
+    ("name", "content_type"),
+    [
+        ("tokens.css", "text/css"),
+        ("shell.css", "text/css"),
+        ("components.css", "text/css"),
+        ("surfaces.css", "text/css"),
+        ("panel.js", "text/javascript"),
+        ("web-sessions.js", "text/javascript"),
+        ("fonts/inter-latin.woff2", "font/woff2"),
+    ],
+)
+async def test_dashboard_statik_varlik_servis_edilir(name, content_type):
+    async with _client(_app()) as client:
+        resp = await client.get(f"/dashboard/static/{name}")
+    assert resp.status_code == 200
+    assert content_type in resp.headers["content-type"]
+    assert resp.content
+
+
+async def test_dashboard_tokenlarinda_marka_ve_font_tanimli():
+    """Marka gradyanı ve paketle gelen Inter token dosyasında olmalı."""
+    async with _client(_app()) as client:
+        resp = await client.get("/dashboard/static/tokens.css")
+    assert "--brand-grad" in resp.text
+    assert "@font-face" in resp.text
+    assert "fonts/inter-latin.woff2" in resp.text
+
+
+async def test_dashboard_statik_olmayan_dosya_404():
+    async with _client(_app()) as client:
+        resp = await client.get("/dashboard/static/yok.css")
+    assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "../dashboard.html",  # bir üst dizine çık
+        "../../config/defaults.yaml",  # paketin başka bir katmanına in
+        "/etc/hosts",  # mutlak yol
+        "fonts/../../app.py",  # alt dizinden geri tırman
+        "app.py",  # kök dışında ama uzantısı bilinmiyor
+        "",  # dizinin kendisi
+    ],
+)
+def test_statik_varlik_kok_disina_cikamaz(name):
+    """Doğrulama HTTP katmanında değil fonksiyonun kendisinde olmalı.
+
+    İstemcinin `..` dizilerini normalleştirmesine güvenilmez; yol çözümlenip
+    kökün altında kaldığı doğrudan sınanır.
+    """
+    from fusion_cli.gateway.app import read_dashboard_asset
+
+    assert read_dashboard_asset(name) is None
+
+
+def test_statik_varlik_bilinen_uzantiyi_okur():
+    from fusion_cli.gateway.app import read_dashboard_asset
+
+    okundu = read_dashboard_asset("fonts/inter-latin-ext.woff2")
+    assert okundu is not None
+    body, content_type = okundu
+    assert content_type == "font/woff2"
+    assert body[:4] == b"wOF2"  # woff2 imzası
+
+
 async def test_api_providers_json():
     async with _client(_app()) as client:
         resp = await client.get("/api/providers")

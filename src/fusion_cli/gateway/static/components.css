@@ -1,0 +1,274 @@
+/* Panel bileşenleri: kart, sayı bloğu, düğme, form alanı, rozet ve çip.
+ * Daha büyük yüzeyler (sağlayıcı kartı, tablo, modal, bildirim) surfaces.css'tedir.
+ * Tek bir elle yazılmış piksel/hex yoktur — her değer tokens.css'ten gelir.
+ */
+
+/* ----------------------------------------------------------------------- */
+/* Kart ve satır düzeni                                                     */
+/* ----------------------------------------------------------------------- */
+.card {
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--separator);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+.card .hint:last-child { margin-bottom: 0; }
+
+.row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.grow { flex: 1; min-width: 160px; }
+.name { font-weight: var(--weight-semibold); font-size: var(--text-subhead); }
+/* `.meta` MAKİNE metni içindir: model kimliği, yol, endpoint. Mono font orada
+ * hizalama ve okunurluk kazandırır. */
+.meta {
+  color: var(--text-secondary);
+  font-size: var(--text-caption1);
+  font-family: var(--font-mono);
+}
+/* `.subtle` İNSAN metni içindir: satır içi açıklama, özet, summary. Düz cümleyi
+ * mono fontta basmak paneli "terminal ekran görüntüsü" gibi gösteriyordu. */
+.subtle {
+  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Sayı bloğu — dört eşit kart DEĞİL: bir baş sayı, kalanlar yardımcı.      */
+/* Eşit ağırlıklı ızgara hiyerarşi kurmaz; şablon hissinin ana kaynağıdır.  */
+/* ----------------------------------------------------------------------- */
+/* NOT: `auto-fit` esnek bir track ile (ör. `1.35fr repeat(auto-fit, …)`) aynı
+ * bildirimde kullanılamaz — bildirim tamamen geçersiz olur ve ızgara tek sütuna
+ * düşer. Baş sayının genişliği bu yüzden kolon SAYISIYLA verilir. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.stat {
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--separator);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-1);
+  transition: box-shadow var(--duration-normal) var(--ease-out),
+              transform var(--duration-normal) var(--ease-out);
+}
+.stat:hover { box-shadow: var(--shadow-2); transform: translateY(-1px); }
+.stat .n {
+  font-size: var(--text-title1);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-large);
+  font-variant-numeric: tabular-nums;   /* sayı değişince genişlik zıplamaz */
+  line-height: var(--leading-tight);
+}
+.stat .l { font-size: var(--text-caption1); color: var(--text-secondary); margin-top: var(--space-1); }
+
+/* Baş sayı: panelde gradyanın büyük alan kapladığı TEK yüzey. İki kolon
+ * kaplayarak yardımcı sayılardan ayrışır — eşit ağırlıklı ızgara kırılır. */
+.stat.lead {
+  background: var(--brand-grad);
+  border-color: transparent;
+  color: var(--text-on-brand);
+  box-shadow: var(--shadow-brand);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+.stat.lead .n { font-size: var(--text-large); }
+.stat.lead .l { color: var(--text-on-brand); opacity: 0.72; }
+.stat.lead .eyebrow {
+  font-size: var(--text-caption2);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  opacity: 0.66;
+  margin-bottom: var(--space-4);
+}
+.stat.lead:hover { box-shadow: var(--shadow-brand), var(--shadow-2); }
+
+/* Baş sayı iki kolon kaplar — ama yalnız kolon sayısının buna yeteceği
+ * genişlikte. Dar ekranda fazladan yuva son satırda yalnız bir kart bırakıyor. */
+@media (min-width: 1024px) {
+  .stat.lead { grid-column: span 2; }
+}
+
+/* ----------------------------------------------------------------------- */
+/* Düğmeler                                                                 */
+/* ----------------------------------------------------------------------- */
+button {
+  height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  /* Gradyan DEĞİL, düz marka mürekkebi. Her kaydet düğmesine gradyan sürmek
+   * kaldırmaya çalıştığımız "şablon" işaretinin ta kendisidir; gradyan logo,
+   * aktif gezinme ve baş sayı kartına ayrılmıştır. Beyaz metin ölçüldü: 6.68. */
+  background: var(--brand-ink);
+  color: #fff;
+  box-shadow: var(--shadow-1);
+  font-family: inherit;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-body);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+button:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); }
+button:active { transform: translateY(0) scale(0.985); }
+button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+button.ghost {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border: var(--hairline) solid var(--separator-opaque);
+  box-shadow: var(--shadow-1);
+}
+button.ghost:hover { background: var(--bg-sunken); box-shadow: var(--shadow-1); }
+
+button.danger {
+  background: var(--err-tint);
+  color: var(--err-ink);
+  box-shadow: none;
+}
+button.danger:hover { background: var(--err-tint); box-shadow: var(--shadow-1); }
+
+/* ----------------------------------------------------------------------- */
+/* Form alanları                                                            */
+/* ----------------------------------------------------------------------- */
+input, select, textarea {
+  height: var(--control-height);
+  background: var(--bg-elevated);
+  border: var(--hairline) solid var(--separator-opaque);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-footnote);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  transition: border-color var(--duration-fast) var(--ease-out),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+input[type="checkbox"] { height: auto; width: auto; accent-color: var(--brand-mid); }
+textarea {
+  height: auto;
+  resize: vertical;
+  line-height: var(--leading-normal);
+  padding: var(--space-2) var(--space-3);
+}
+select { font-family: var(--font-sans); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--brand-mid);
+  box-shadow: var(--focus-ring);
+}
+input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
+
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-footnote);
+  color: var(--text-secondary);
+}
+.fld input:not([type="checkbox"]) { width: 100%; }
+.fhint { color: var(--text-tertiary); font-size: var(--text-caption1); }
+.checkline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-footnote);
+}
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.secret-area { width: 100%; min-height: 92px; }
+
+/* ----------------------------------------------------------------------- */
+/* Rozetler ve durum göstergeleri — doygun dolgu yok, mürekkep + tint.      */
+/* Doygun dolgu yalnız markanın hakkıdır; yoksa durum ile kimlik karışır.   */
+/* ----------------------------------------------------------------------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption2);
+  border-radius: var(--radius-xs);
+  padding: 2px var(--space-2);
+  color: var(--text-secondary);
+  background: rgba(60, 60, 67, 0.08);
+}
+.badge.ok { color: var(--ok-ink); background: var(--ok-tint); }
+.badge.local { color: var(--info-ink); background: var(--info-tint); }
+.badge.fw { color: var(--warn-ink); background: var(--warn-tint); }
+.badge.web { color: var(--brand-ink); background: var(--brand-tint); }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-caption1);
+  font-weight: var(--weight-medium);
+  color: var(--ok-ink);
+  background: var(--ok-tint);
+  border-radius: var(--radius-pill);
+  padding: var(--space-1) var(--space-3);
+}
+.status-pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  box-shadow: 0 0 0 3px var(--ok-tint);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Kategori çipleri                                                         */
+/* ----------------------------------------------------------------------- */
+.cat-chips { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-4); }
+.cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  border: var(--hairline) solid var(--separator-opaque);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-footnote);
+  font-weight: var(--weight-medium);
+  user-select: none;
+  transition: border-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out),
+              background var(--duration-fast) var(--ease-out);
+}
+.cat-chip:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.cat-chip.active {
+  color: var(--brand-ink);
+  background: var(--brand-tint);
+  border-color: transparent;
+  font-weight: var(--weight-semibold);
+}
+.cat-chip .count { font-family: var(--font-mono); font-size: var(--text-caption2); opacity: 0.7; }
+
+.cat-group-title {
+  font-size: var(--text-caption2);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: var(--space-5) 0 var(--space-3);
+}
+.cat-group-title:first-child { margin-top: 0; }
+
+@media (max-width: 680px) {
+  .two-col { grid-template-columns: 1fr; }
+  .stats { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,185 @@
+/* Fusion Kontrol Paneli — tasarım token'ları.
+ *
+ * Tek kural: panelde elle yazılmış piksel, hex veya gölge değeri kalmaz.
+ * Her değer buradan gelir. Bir değeri değiştirmek panelin tamamını değiştirir.
+ *
+ * Temel: iOS'un ölçekleri (8pt ızgara, sistem tipografi ölçeği, etiket
+ * hiyerarşisi) + Fusion'ın turuncu→pembe marka kimliği.
+ */
+
+/* Inter — paketle birlikte gelir, ağdan çekilmez (panel yalnız-yerel çalışır).
+ * Değişken ağırlıklı (100–900) tek dosya; ayrı ayrı kalınlık dosyası yoktur.
+ * İki alt küme: latin ve latin-ext. Türkçe'nin ğ Ğ ı İ ş Ş glifleri
+ * latin-ext içindedir — tarayıcı unicode-range'e bakıp yalnız gerekeni indirir.
+ * Lisans: SIL Open Font License 1.1 — bkz. fonts/LICENSE-Inter.txt
+ */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  /* --------------------------------------------------------------------- */
+  /* Yüzeyler — arkadan öne doğru üç katman                                 */
+  /* --------------------------------------------------------------------- */
+  --bg-base: #f2f2f7;        /* sayfa zemini (iOS gruplandırılmış zemin)     */
+  --bg-sunken: #e8e8ed;      /* girintili alan: input, kod bloğu, iz         */
+  --bg-elevated: #ffffff;    /* kart, tablo, açılır menü                     */
+
+  /* Cam: zeminin rengini alıp doyurur. Bulanıklık tek başına cam değildir;
+   * asıl etki saturate() ile arkadaki rengin cama sızmasıdır.              */
+  --glass-fill: rgba(255, 255, 255, 0.72);
+  --glass-fill-strong: rgba(255, 255, 255, 0.86);
+  --glass-blur: saturate(180%) blur(20px);
+  --glass-edge: rgba(255, 255, 255, 0.9);   /* üst kenar ışığı              */
+
+  /* --------------------------------------------------------------------- */
+  /* Metin — iOS etiket hiyerarşisi (ölçüldü: hepsi ≥4.5 kontrast)          */
+  /* --------------------------------------------------------------------- */
+  --text-primary: #1c1c1e;   /* 15.3 / zemin                                */
+  --text-secondary: #6c6c70; /*  4.7 / zemin — gövde metni olarak güvenli   */
+  --text-tertiary: #8e8e93;  /*  2.9 — YALNIZ dekoratif; gövde metni değil  */
+  --text-on-brand: #1b0d12;  /* marka dolgusu üstünde: 5.4–7.3 kontrast     */
+
+  /* --------------------------------------------------------------------- */
+  /* Ayırıcılar                                                             */
+  /* --------------------------------------------------------------------- */
+  --separator: rgba(60, 60, 67, 0.14);       /* saydam — cam üstünde çalışır */
+  --separator-opaque: #d9d9de;               /* opak yüzeylerde              */
+  --hairline: 0.5px;                          /* Retina'da gerçek saç çizgisi */
+
+  /* --------------------------------------------------------------------- */
+  /* Marka — Fusion kimliği                                                 */
+  /* --------------------------------------------------------------------- */
+  --brand-start: #ff8a3d;    /* turuncu                                     */
+  --brand-mid: #ff5c7a;
+  --brand-end: #ff4d8d;      /* pembe                                       */
+  --brand-grad: linear-gradient(100deg, var(--brand-start), var(--brand-mid) 55%, var(--brand-end));
+
+  /* ÖLÇÜLDÜ: üç marka rengi de açık zeminde 2.1–2.8 kontrast verir; hiçbiri
+   * metin rengi olamaz. Marka rengi yazıya girecekse mürekkep türevi kullanılır. */
+  --brand-ink: #b3164e;      /* 6.0 / zemin — link, vurgulu sayı, aktif etiket */
+  --brand-tint: rgba(255, 92, 122, 0.1);     /* seçili satır, aktif çip zemini */
+  --brand-tint-strong: rgba(255, 92, 122, 0.18);
+
+  /* --------------------------------------------------------------------- */
+  /* Durum renkleri — marka ile yarışmasınlar diye "koyu mürekkep + açık     */
+  /* tint" olarak tanımlı. Doygun dolgu yalnız markanın hakkıdır.           */
+  /* --------------------------------------------------------------------- */
+  --ok-ink: #1a7f37;      --ok-tint: rgba(52, 199, 89, 0.14);
+  --warn-ink: #8a5300;    --warn-tint: rgba(255, 184, 0, 0.16);
+  --err-ink: #c2110c;     --err-tint: rgba(255, 59, 48, 0.12);
+  --info-ink: #0060df;    --info-tint: rgba(10, 132, 255, 0.12);
+
+  /* --------------------------------------------------------------------- */
+  /* Boşluk — 8pt ızgara. Panelde başka boşluk değeri yoktur.               */
+  /* --------------------------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* --------------------------------------------------------------------- */
+  /* Köşe yarıçapı — hepsi aynı DEĞİL. Tekdüze yarıçap "şablon" hissi verir; */
+  /* eleman büyüdükçe yarıçap büyür.                                        */
+  /* --------------------------------------------------------------------- */
+  --radius-xs: 6px;    /* rozet, kod parçası                                */
+  --radius-sm: 10px;   /* düğme, input, gezinme satırı                      */
+  --radius-md: 14px;   /* kart                                              */
+  --radius-lg: 20px;   /* modal, öne çıkan panel                            */
+  --radius-pill: 999px;
+
+  /* --------------------------------------------------------------------- */
+  /* Gölge — nötr ve çok katmanlı. Renkli gölge kullanılmaz.                */
+  /* --------------------------------------------------------------------- */
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --shadow-3: 0 24px 60px rgba(0, 0, 0, 0.14), 0 6px 16px rgba(0, 0, 0, 0.08);
+  /* Marka dolgulu düğme kendi renginden bir iz bırakır — tek renkli gölge
+   * istisnası, çünkü elemanın kendi rengiyle aynı.                         */
+  --shadow-brand: 0 6px 16px rgba(255, 92, 122, 0.28);
+
+  /* --------------------------------------------------------------------- */
+  /* Tipografi                                                              */
+  /* --------------------------------------------------------------------- */
+  /* Inter önce: paketle geldiği için her platformda AYNI tipografi çıkar.
+   * Sistem yığını yalnızca font dosyası bir sebeple yüklenemezse devreye
+   * girer — o durumda panel bozulmaz, yalnız yazı tipi değişir.            */
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Ölçek iOS'un kendi ölçeğidir. Ara değer uydurulmaz.                    */
+  --text-caption2: 11px;
+  --text-caption1: 12px;
+  --text-footnote: 13px;
+  --text-subhead: 15px;
+  --text-body: 17px;
+  --text-title3: 20px;
+  --text-title2: 24px;
+  --text-title1: 28px;
+  --text-large: 34px;
+
+  /* Harf aralığı: büyük boyutta sıkışır, küçük boyutta açılır. Apple
+   * tipografisinin en çok fark edilen ama en az taklit edilen detayı.      */
+  --tracking-large: -0.024em;
+  --tracking-title: -0.018em;
+  --tracking-body: -0.006em;
+  --tracking-caption: 0.004em;
+  --tracking-eyebrow: 0.06em;   /* VERSAL küçük başlıklar                   */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --leading-tight: 1.2;
+  --leading-normal: 1.45;
+  --leading-relaxed: 1.6;
+
+  /* --------------------------------------------------------------------- */
+  /* Hareket — iOS'un standart eğrisi. Süreler koda gömülmez.               */
+  /* --------------------------------------------------------------------- */
+  --duration-fast: 120ms;
+  --duration-normal: 240ms;
+  --duration-slow: 400ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --------------------------------------------------------------------- */
+  /* Ölçüler                                                                */
+  /* --------------------------------------------------------------------- */
+  --sidebar-width: 260px;
+  --content-max: 1120px;
+  --control-height: 36px;
+  --focus-ring: 0 0 0 4px var(--brand-tint-strong);
+}
+
+/* Hareketi azalt: kullanıcı sistemde istediyse tüm geçişler kapanır. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-normal: 0ms;
+    --duration-slow: 0ms;
+  }
+}

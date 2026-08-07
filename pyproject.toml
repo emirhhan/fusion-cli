@@ -68,7 +68,7 @@ where = ["src"]
 "fusion_cli.config" = ["*.yaml"]
 "fusion_cli.tools" = ["scaffold/*"]
 "fusion_cli.engines.agent" = ["prompts/*"]
-"fusion_cli.gateway" = ["*.html"]
+"fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]
 "fusion_cli.engines.fusion" = ["prompts/*"]
 
 # --------------------------------------------------------------------------- #
