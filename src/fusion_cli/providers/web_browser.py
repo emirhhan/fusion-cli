@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import re
 import time
 from collections.abc import Sequence
@@ -32,6 +33,7 @@ from typing import Any
 from ..config.models import WebSessionConfig
 from ..config.paths import user_data_dir
 from ..core.constants import WEB_TIMEOUT_S
+from ..core.redaction import redact
 from ..core.types import Message
 from .web_session import WebSessionCredential, WebTransport
 
@@ -477,11 +479,47 @@ async def close_browser_session(provider: str, account: str) -> None:
     await _POOL.close_session(provider, account)
 
 
+#: İz dosyasında tutulan en fazla tur. Teşhis için son turlar yeter; dosya
+#: sınırsız büyürse kullanıcının diskini sessizce doldurur.
+MAX_TRACE_TURNS = 40
+
+
+def _append_trace(
+    trace_dir: Path, session: WebSessionConfig, *, prompt: str, answer: str, resumed: bool
+) -> None:
+    """Bir turu redakte ederek iz dosyasına ekle. Hata turu DÜŞÜRMEZ.
+
+    Teşhis kaydı bir kolaylıktır: yazılamıyorsa (disk dolu, izin yok) kullanıcının
+    turu bundan etkilenmemelidir.
+    """
+    try:
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        path = trace_dir / f"{_slug(session.provider)}-{_slug(session.account)}.jsonl"
+        satirlar = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        satirlar.append(
+            json.dumps(
+                {
+                    "zaman": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "devam": resumed,
+                    "gonderilen": redact(prompt),
+                    "gelen": redact(answer),
+                },
+                ensure_ascii=False,
+            )
+        )
+        path.write_text("\n".join(satirlar[-MAX_TRACE_TURNS:]) + "\n", encoding="utf-8")
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
+    except OSError:
+        return
+
+
 def build_browser_transport(
     session: WebSessionConfig,
     *,
     pool: BrowserSessionPool | None = None,
     timeout_s: float = WEB_TIMEOUT_S,
+    trace_dir: Path | None = None,
 ) -> WebTransport:
     """Yapılandırılmış bir sağlayıcı/hesap için tarayıcı transport'u kur.
 
@@ -510,7 +548,9 @@ def build_browser_transport(
                     break
                 try:
                     return await asyncio.wait_for(
-                        _deliver_turn(manager, session, definition, context, messages),
+                        _deliver_turn(
+                            manager, session, definition, context, messages, trace_dir
+                        ),
                         timeout=max(1.0, remaining),
                     )
                 except WebBrowserSelectorError as error:
@@ -543,6 +583,7 @@ async def _deliver_turn(
     definition: BrowserProviderDefinition,
     context: Any,
     messages: tuple[Message, ...],
+    trace_dir: Path | None = None,
 ) -> str:
     """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
 
@@ -565,11 +606,14 @@ async def _deliver_turn(
         page = await context.new_page()
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
-        answer = await _send_turn(page, definition, format_browser_prompt(messages))
+        prompt = format_browser_prompt(messages)
+        answer = await _send_turn(page, definition, prompt)
 
     state.sent_count = len(messages)
     state.prefix_digest = conversation_digest(messages)
     manager.remember_conversation(session.provider, session.account, state)
+    if trace_dir is not None:
+        _append_trace(trace_dir, session, prompt=prompt, answer=answer, resumed=resumable)
     return answer
 
 

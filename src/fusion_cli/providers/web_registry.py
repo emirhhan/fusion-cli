@@ -8,6 +8,7 @@ Cookie'si şifreli depodan okunur.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..config.credentials import FernetSecretStore
@@ -36,10 +37,13 @@ class WebSessionRegistry:
         *,
         environ: Mapping[str, str],
         secret_store: FernetSecretStore | None = None,
+        trace_dir: Path | None = None,
     ) -> None:
         self._by_model = {session.model: session for session in sessions if session.enabled}
         self._environ = environ
         self._secret_store = secret_store
+        #: Verilirse tarayıcı alışverişi buraya redakte edilerek yazılır (teşhis).
+        self._trace_dir = trace_dir
 
     @property
     def is_empty(self) -> bool:
@@ -82,7 +86,7 @@ class WebSessionRegistry:
         """
         credential = self._credential(session)
         if session.transport == "browser":
-            transport = build_browser_transport(session)
+            transport = build_browser_transport(session, trace_dir=self._trace_dir)
         else:
             if not session.endpoint:
                 return WebProviderAdapter(
@@ -152,4 +156,5 @@ def web_registry_for(config: Config) -> WebSessionRegistry | None:
         config.web_sessions,
         environ=environ_snapshot(),
         secret_store=store,
+        trace_dir=config.memory_dir / "web-traces" if config.runtime.web_trace else None,
     )

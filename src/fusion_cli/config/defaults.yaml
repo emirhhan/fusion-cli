@@ -84,6 +84,15 @@ runtime:
   gateway_cache: true          # aynı istek tekrar gelirse önbellekten anında dön (token tasarrufu)
   gateway_compression: false   # giden mesajlarda güvenli sıkıştırma (opt-in; içerik bozulmaz)
   gateway_mask_secrets: true   # yanıtta sızan anahtar/sır desenini maskele
+  # Web AI alışverişini diske yaz (teşhis). Varsayılan KAPALI ve bu bilinçli:
+  # gönderilen prompt dosya içeriği taşır ve onu diske yazmak gizlilik genişletmesidir.
+  # Açıldığında her tur `<bellek>/web-traces/<sağlayıcı>-<hesap>.jsonl` dosyasına
+  # redakte edilmiş olarak eklenir; dosya son turlarla sınırlı tutulur.
+  #
+  # Açman gereken tek durum: web modeli araç sonuçlarına tepki vermiyorsa. Ekranda
+  # modelin metni görünmez (taklit araç ayrıştırmasında tüketilir), bu yüzden
+  # "ne gördü, ne cevapladı" sorusu başka türlü cevaplanamaz.
+  web_trace: false
   # Dosya araçları proje kökü dışına çıkabilsin mi? false = kısıt yok (kullanıcı her
   # projede çalışabilir). true yaparsan kök (+ --add-dir) dışına erişim reddedilir.
   restrict_to_root: false

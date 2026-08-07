@@ -121,6 +121,9 @@ class RuntimeConfig:
     gateway_compression: bool = False
     #: Gateway: yanıtta sızan sır/anahtar deseni maskelenir (credential guardrail).
     gateway_mask_secrets: bool = True
+    #: Web AI alışverişini diske yaz (teşhis). Varsayılan kapalı: gönderilen prompt
+    #: dosya içeriği taşır ve onu diske yazmak gizlilik genişletmesidir.
+    web_trace: bool = False
     #: Dosya araçları yalnızca proje kökü (+ `--add-dir`) altında mı çalışsın?
     #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
     #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.

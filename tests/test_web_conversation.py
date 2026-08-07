@@ -10,6 +10,8 @@ Bu dosya sahte bir Playwright yüzeyiyle çalışır: ağ yok, tarayıcı yok.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from fusion_cli.config.models import WebSessionConfig
@@ -182,3 +184,44 @@ def test_ozet_rol_ve_icerigi_birlikte_kapsar():
     b = (Message("assistant", "x"),)
     assert conversation_digest(a) != conversation_digest(b)
     assert conversation_digest(a) == conversation_digest((Message("user", "x"),))
+
+
+# --- Teşhis izi ---------------------------------------------------------------- #
+#
+# Web modeli araç sonuçlarına tepki vermediğinde ekranda yalnızca araç çağrıları
+# görünür; modelin metni taklit araç ayrıştırmasında tüketilir. "Ne gördü, ne
+# cevapladı" sorusu başka türlü cevaplanamaz.
+
+
+async def test_iz_acikken_gonderilen_ve_gelen_kaydedilir(pool, log, tmp_path):
+    transport = build_browser_transport(_session(), pool=pool, trace_dir=tmp_path)
+
+    await transport(WebSessionCredential(), _messages(2), "m")
+
+    (dosya,) = list(tmp_path.glob("*.jsonl"))
+    kayit = json.loads(dosya.read_text(encoding="utf-8").strip())
+    assert "mesaj-0" in kayit["gonderilen"]
+    assert kayit["gelen"] == "tamam"
+    assert kayit["devam"] is False
+
+
+async def test_iz_kapaliyken_hicbir_sey_yazilmaz(pool, log, tmp_path):
+    transport = build_browser_transport(_session(), pool=pool, trace_dir=None)
+
+    await transport(WebSessionCredential(), _messages(2), "m")
+
+    assert list(tmp_path.iterdir()) == []
+
+
+async def test_devam_turu_iz_kaydinda_isaretlenir(pool, log, tmp_path):
+    transport = build_browser_transport(_session(), pool=pool, trace_dir=tmp_path)
+    credential = WebSessionCredential()
+
+    await transport(credential, _messages(2), "m")
+    await transport(credential, _messages(3), "m")
+
+    (dosya,) = list(tmp_path.glob("*.jsonl"))
+    kayitlar = [json.loads(satir) for satir in dosya.read_text(encoding="utf-8").splitlines()]
+    assert [kayit["devam"] for kayit in kayitlar] == [False, True]
+    # Devam turunda YALNIZCA yeni mesaj gönderilmiş olmalı.
+    assert "mesaj-0" not in kayitlar[1]["gonderilen"]
