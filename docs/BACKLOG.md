@@ -589,3 +589,26 @@ cursor mode → tekerlek=ok tuşu) + düz metin `TextArea` + İMLEÇ-tabanlı ka
 Bu yüzden konuşma düz metne alındı; ANSI renkler (markdown/kod/renkli diff) şimdilik
 gitti. Faz 4: ANSI'yi çözen VE tekerlekle kaydırılabilen bir kontrol için ayrı bir
 spike gerekiyor (tekerlek=ok tuşu yolunu koruyarak renkli içeriği göstermek).
+
+## Büyük proje testi — sonuç
+
+Görev: 4 kaynak dosya, 21 test. İki planlı hata (`all` yerine `any` anlamı, yarı
+açık tarih aralığı) + dört katmana yayılan yeni alan (`etiketler`): model →
+kalıcılık (hem yazma hem okuma) → süzgeç → rapor. Test dosyalarına dokunmak yasak,
+sağlaması `.test-imzalari` ile alınıyor.
+
+| | API (nemotron-3-super) | Gemini web (ücretsiz) |
+|---|---|---|
+| Test | 21/21 | 21/21 |
+| Test dosyası imzaları | değişmemiş | değişmemiş |
+| Planlı iki hata | kök nedeninden düzeltildi | kök nedeninden düzeltildi |
+| Çağrı / süre | 23 · 6m34s | 12 · 1m40s |
+| Maliyet | $0.00 | $0.00 |
+
+İlk API koşusu tekrar kapısı yüzünden düşmüştü; kapı çağrıyı engellemenin yanında
+turu de öldürüyordu ve yapılmış doğru düzeltme çöpe gidiyordu. Düzeltildi.
+
+Açık kalan (kozmetik): Gemini `edit_file` yerine `write_file` ile tam dosya
+yazıyor. İçerik kaybı ölçülmedi — silinen üç satırın üçü de değişmesi gereken
+satırlardı, docstring/yorum kaybı yok — ama boş satır düzeni bozuluyor:
+ruff hatası 1 → 3 (hepsi `--fix` ile kapanır).
