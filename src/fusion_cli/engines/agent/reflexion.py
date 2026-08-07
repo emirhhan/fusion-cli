@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 
+from ...core.tool_emulation import CALL_CLOSE, CALL_OPEN, PAYLOAD_EXAMPLE, PAYLOAD_RULES
 from ...core.types import Message
 
 #: Somut teslim işaretleri: kod parçası, dosya:satır referansı ya da dosya yolu.
@@ -130,27 +131,21 @@ def unverified_action_message(effect: str | None) -> str:
 
 
 def tool_contract_repair_note(detail: str) -> Message:
-    """Give a web model one precise chance to repair a malformed call."""
+    """Modele bozuk çağrıyı düzeltmesi için TEK ve kesin bir şans ver.
+
+    Örnek ve kurallar `core.tool_emulation`'dan gelir: sözleşme iki yerde ayrı ayrı
+    yazılıydı ve her düzeltmede ikisinin elle senkronlanması gerekiyordu.
+    """
     return Message(
         "user",
         "[tool-contract-repair] Önceki araç çağrın geçersizdi. "
         f"Hata: {detail}\n"
-        "Yalnızca bir kez düzelt.\n"
+        "Yalnızca bir kez düzelt.\n\n"
         "Kısa çağrı örneği:\n"
-        '<tool_call>{"name":"read_file","arguments":'
-        '{"path":"src/app.py"}}</tool_call>\n'
-        "Çok satırlı kodu JSON stringine koyma. Payload kullan:\n"
-        '<tool_payload id="file-1">\n'
-        "```python\n"
-        "FUSION_RAW_PAYLOAD_V1\n"
-        "def example():\n"
-        '    print("ok")\n'
-        "```\n"
-        "</tool_payload>\n"
-        '<tool_call>{"name":"write_file","arguments":'
-        '{"path":"example.py","content":{"$ref":"file-1"}}}</tool_call>\n'
-        "Kod payload gövdesini Markdown kod bloğu içinde taşı ve ilk içerik "
-        "satırını tam olarak FUSION_RAW_PAYLOAD_V1 yap. "
-        "Her id benzersiz ve referanslı olmalı. Aynı geçersiz çağrıyı tekrarlama. "
+        f'{CALL_OPEN}{{"name":"read_file","arguments":{{"path":"src/app.py"}}}}{CALL_CLOSE}\n\n'
+        "Çok satırlı kodu JSON stringine koyma; payload kullan:\n"
+        f"{PAYLOAD_EXAMPLE}\n\n"
+        + "\n".join(PAYLOAD_RULES)
+        + "\nAynı geçersiz çağrıyı tekrarlama. "
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
     )

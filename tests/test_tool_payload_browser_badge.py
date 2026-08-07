@@ -33,7 +33,7 @@ def test_raw_fenced_sentinel_payload_preserves_exact_python() -> None:
         '    print(normalize("  ok  "))'
     )
     raw = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         "```python\n"
         f"{PAYLOAD_SENTINEL}\n"
         f"{source}\n"
@@ -56,7 +56,7 @@ def test_browser_language_badge_before_sentinel_is_removed() -> None:
         '    return " ".join(text.split())'
     )
     browser_rendered = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         "Python\n"
         f"{PAYLOAD_SENTINEL}\n"
         f"{source}\n"
@@ -74,7 +74,7 @@ def test_browser_language_badge_before_sentinel_is_removed() -> None:
 def test_multiple_toolbar_lines_before_sentinel_are_removed() -> None:
     source = 'print("ok")'
     browser_rendered = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         "Python\n"
         "Copy code\n"
         f"{PAYLOAD_SENTINEL}\n"
@@ -93,7 +93,7 @@ def test_multiple_toolbar_lines_before_sentinel_are_removed() -> None:
 def test_legacy_payload_without_sentinel_remains_unchanged() -> None:
     source = "Python\nBu gerçek dosya içeriğidir."
     raw = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         f"{source}\n"
         "</tool_payload>\n"
         f"{_call('notes.txt')}"
@@ -113,7 +113,7 @@ def test_old_python_badge_output_has_conservative_recovery() -> None:
         "    pass"
     )
     raw = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         "Python\n"
         f"{source}\n"
         "</tool_payload>\n"

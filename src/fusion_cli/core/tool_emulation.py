@@ -32,15 +32,47 @@ _BLOCK = re.compile(
 )
 _PAYLOAD_ID = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}"
 _PAYLOAD_BLOCK = re.compile(
-    rf'<tool_payload\s+id="(?P<id>{_PAYLOAD_ID})">'
+    rf'<tool_payload\s+id="(?P<id>{_PAYLOAD_ID})"(?P<attrs>[^>]*)>'
     r"(?P<body>.*?)"
     + re.escape(PAYLOAD_CLOSE),
     re.DOTALL,
 )
+_PAYLOAD_LINES_ATTR = re.compile(r'\blines\s*=\s*"(?P<lines>\d{1,6})"')
 
 
 class _PayloadResolutionError(ValueError):
     """Bir payload referansı güvenli biçimde çözülemedi."""
+
+
+#: Payload gövdesinin kaç satır olduğunu söyleyen ZORUNLU bütünlük sinyali.
+#
+# Neden satır sayısı: web arayüzü payload'a dokunabiliyor (dil rozeti ekliyor, kod
+# bloğu sınırı koyuyor, satır kırıyor). Bozulmayı ÖNLEYEMEYİZ ama FARK EDEBİLİRİZ —
+# ve fark edilmeyen bozulma kullanıcının dosyasına bozuk içerik yazmak demektir.
+#
+# Neden checksum ya da base64 değil: ikisi de modelin kendi ürettiği metni
+# kodlamasını/özetlemesini ister. Modeller bunu güvenilir yapmaz, uydurur; sonuç
+# "doğrulandı" sanılan ama aslında hiç doğrulanmamış bir taşıma olurdu. Satır
+# sayısını model zaten bilir: satırları o yazıyor.
+def _expected_lines(attributes: str) -> int | None:
+    match = _PAYLOAD_LINES_ATTR.search(attributes)
+    return int(match.group("lines")) if match else None
+
+
+def _verify_line_count(body: str, expected: int | None, payload_id: str) -> None:
+    """Geri okunan gövde, modelin bildirdiği satır sayısıyla uyuşuyor mu?"""
+    if expected is None:
+        raise _PayloadResolutionError(
+            f'payload {payload_id}: lines="N" özniteliği zorunlu — '
+            "gövdenin kaç satır olduğunu bildir ki taşıma sırasında bozulma fark edilsin"
+        )
+    actual = len(body.splitlines())
+    if actual != expected:
+        raise _PayloadResolutionError(
+            f"payload {payload_id}: bildirilen {expected} satır, geri okunan {actual} satır. "
+            "Gövde taşıma sırasında bozulmuş olabilir; içerik YAZILMADI. "
+            "Payload'ı olduğu gibi yeniden gönder ve lines değerini doğru say."
+        )
 
 
 def _example_value(name: str, schema: Mapping[str, object]) -> object:
@@ -93,59 +125,70 @@ def render_tool_example(function_schema: Mapping[str, object]) -> str:
     return f"{CALL_OPEN}{json.dumps(payload, ensure_ascii=False)}{CALL_CLOSE}"
 
 
-def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
-    """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök."""
-    lines = [
-        "Araç kullanacaksan yalnızca canonical blokları kullan:",
-        (
-            f'{CALL_OPEN}{{"name":"read_file","arguments":'
-            f'{{"path":"src/app.py"}}}}{CALL_CLOSE}'
-        ),
-        (
-            f'{CALL_OPEN}{{"name":"run_shell","arguments":'
-            f'{{"command":"python3 -m pytest -q"}}}}{CALL_CLOSE}'
-        ),
-        "",
-        "ÇOK SATIRLI / KOD İÇEREN write_file İÇİN ZORUNLU PAYLOAD BİÇİMİ:",
-        '<tool_payload id="file-1">',
+#: Payload protokolünün TEK örneği ve TEK kural listesi.
+#
+# Bu metin eskiden iki yerde (talimat üretimi ve onarım notu) ayrı ayrı yazılıydı ve
+# geçmişte her düzeltmede ikisi birlikte elle güncellendi — biri unutulsa model iki
+# farklı sözleşme görürdü. Artık tek kaynak: iki çağıran da bunu kullanır.
+PAYLOAD_EXAMPLE = "\n".join(
+    [
+        '<tool_payload id="file-1" lines="2">',
         "```python",
         PAYLOAD_SENTINEL,
         "def greet(name: str) -> str:",
         '    return f"Hello, {name}!"',
         "```",
         "</tool_payload>",
-        (
-            f"{CALL_OPEN}"
-            + json.dumps(
-                {
-                    "name": "write_file",
-                    "arguments": {
-                        "path": "greet.py",
-                        "content": {"$ref": "file-1"},
-                    },
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            )
-            + f"{CALL_CLOSE}"
-        ),
+        CALL_OPEN
+        + json.dumps(
+            {
+                "name": "write_file",
+                "arguments": {"path": "greet.py", "content": {"$ref": "file-1"}},
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        + CALL_CLOSE,
+    ]
+)
+
+PAYLOAD_RULES = (
+    "- Kaynak kodu JSON content stringinin içine koyma; payload kullan.",
+    "- Çok satırlı, tırnak ya da ters eğik çizgi içeren her içerik payload'a girer.",
+    "- Payload gövdesini Markdown kod bloğu (```dil ... ```) içine koy.",
+    f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı; "
+    "web arayüzünün eklediği dil rozeti bu satırdan önce güvenle ayıklanır.",
+    '- lines="N" ZORUNLUDUR: gövdenin (sentinel hariç) satır sayısını doğru yaz. '
+    "Uyuşmazsa içerik yazılmaz; bu, taşıma sırasında bozulmayı yakalayan tek kontroldür.",
+    "- Her payload id benzersiz olmalı ve tam olarak bir $ref ile kullanılmalı.",
+    '- Payload referansı yalnızca {"$ref":"payload-id"} biçimindedir, başka alan almaz.',
+)
+
+_GENERAL_RULES = (
+    "- name alanı zorunludur ve boş olamaz.",
+    "- arguments alanı zorunludur ve her zaman JSON nesnesidir.",
+    "- Şemadaki required alanlarının tamamını doğru tipte gönder.",
+    "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
+    "- Araç kullanmayacaksan tool_call bloğu yazma; nihai cevabı ver.",
+)
+
+
+def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
+    """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök."""
+    lines = [
+        "Araç kullanacaksan YALNIZCA aşağıdaki iki blok biçimini kullan.",
+        "",
+        "1) Tek satırlık değerler için kısa çağrı:",
+        f'{CALL_OPEN}{{"name":"read_file","arguments":{{"path":"src/app.py"}}}}{CALL_CLOSE}',
+        "",
+        "2) Çok satırlı / kod içeren değerler için payload:",
+        PAYLOAD_EXAMPLE,
         "",
         "Payload kuralları:",
-        "- Kaynak kodu JSON content stringinin içine koyma.",
-        "- Çok satırlı, tırnak veya ters eğik çizgi içeren content payload kullanmalı.",
-        "- Kod payload gövdesini mutlaka Markdown kod bloğu (```dil ... ```) içine koy.",
-        f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı.",
-        "- Kod bloğu girintileri ve __name__ gibi işaretleri web arayüzünde korur.",
-        "- Web arayüzünün eklediği dil rozeti sentinel öncesinde güvenle ayıklanır.",
-        "- Her payload id benzersiz olmalı ve bir $ref ile kullanılmalı.",
-        '- Payload referansı yalnızca {"$ref":"payload-id"} biçiminde olmalı.',
+        *PAYLOAD_RULES,
         "",
         "Genel kurallar:",
-        "- name alanı zorunludur ve boş olamaz.",
-        "- arguments alanı zorunludur ve her zaman JSON nesnesidir.",
-        "- Şemadaki required alanlarının tamamını doğru tipte gönder.",
-        "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
-        "- Araç kullanmayacaksan tool_call bloğu yazma; nihai cevabı ver.",
+        *_GENERAL_RULES,
         "",
         "Kullanılabilir araçlar:",
     ]
@@ -288,10 +331,18 @@ def parse_tool_calls(text: str) -> EmulatedParse:
             errors.append(f"yinelenen payload id: {payload_id}")
             continue
         try:
-            payloads[payload_id] = _normalize_payload_body(match.group("body"))
+            body = _normalize_payload_body(match.group("body"))
+            # Bütünlük kontrolü çerçeve TEMİZLENDİKTEN sonra yapılır: sayılması
+            # gereken şey modelin yazdığı içerik, taşımanın eklediği gürültü değil.
+            _verify_line_count(body, _expected_lines(match.group("attrs")), payload_id)
         except _PayloadResolutionError as error:
-            errors.append(f"payload {payload_id}: {error}")
+            # Bütünlük hataları payload kimliğini zaten taşır; çerçeve hataları taşımaz.
+            detail = str(error)
+            if not detail.startswith("payload "):
+                detail = f"payload {payload_id}: {detail}"
+            errors.append(detail)
             continue
+        payloads[payload_id] = body
 
     without_payloads = _PAYLOAD_BLOCK.sub("", text)
     if PAYLOAD_OPEN in without_payloads or PAYLOAD_CLOSE in without_payloads:

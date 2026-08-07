@@ -19,8 +19,10 @@ def _payload_call(content: str, *, close_fence: bool = True) -> str:
         },
     }
     closing = "\n```" if close_fence else ""
+    # Doğru davranan bir model gibi: `lines` geri okunacak GÖVDEDEN hesaplanır.
+    satir_sayisi = len(content.splitlines())
     return (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{satir_sayisi}">\n'
         "```python\n"
         f"{content}"
         f"{closing}\n"
@@ -104,7 +106,7 @@ def test_browser_rendered_payload_without_fence_remains_supported() -> None:
         },
     }
     raw = (
-        '<tool_payload id="source-1">\n'
+        f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         f"{source}\n"
         "</tool_payload>\n"
         f"<tool_call>{json.dumps(call)}</tool_call>"
@@ -128,7 +130,7 @@ def test_unclosed_payload_code_fence_is_rejected() -> None:
 def test_instructions_require_fenced_payload_for_code() -> None:
     instructions = render_tool_instructions(build_registry().schemas())
 
-    assert '<tool_payload id="file-1">' in instructions
+    assert '<tool_payload id="file-1" lines="2">' in instructions
     assert "```python" in instructions
     assert "kod bloğu" in instructions
     assert "JSON content stringinin içine koyma" in instructions
@@ -137,7 +139,7 @@ def test_instructions_require_fenced_payload_for_code() -> None:
 def test_repair_note_uses_fenced_payload_example() -> None:
     note = tool_contract_repair_note("invalid JSON")
 
-    assert '<tool_payload id="file-1">' in note.content
+    assert '<tool_payload id="file-1" lines="2">' in note.content
     assert "```python" in note.content
     assert "kod bloğu" in note.content
 

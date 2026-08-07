@@ -63,8 +63,10 @@ def _payload_call(payload_id: str, path: str, content: str) -> str:
             "content": {"$ref": payload_id},
         },
     }
+    # `lines` doğru davranan bir modelin yaptığı gibi gövdeden hesaplanır.
+    satir_sayisi = len(content.splitlines())
     return (
-        f'<tool_payload id="{payload_id}">\n'
+        f'<tool_payload id="{payload_id}" lines="{satir_sayisi}">\n'
         f"{content}\n"
         "</tool_payload>\n"
         f"<tool_call>{json.dumps(call, ensure_ascii=False)}</tool_call>"
@@ -120,8 +122,8 @@ def test_missing_payload_reference_is_rejected() -> None:
 
 def test_duplicate_payload_id_is_rejected() -> None:
     raw = (
-        '<tool_payload id="same">\none\n</tool_payload>\n'
-        '<tool_payload id="same">\ntwo\n</tool_payload>\n'
+        '<tool_payload id="same" lines="1">\none\n</tool_payload>\n'
+        '<tool_payload id="same" lines="1">\ntwo\n</tool_payload>\n'
         '<tool_call>{"name":"write_file","arguments":'
         '{"path":"x.txt","content":{"$ref":"same"}}}</tool_call>'
     )
@@ -133,7 +135,7 @@ def test_duplicate_payload_id_is_rejected() -> None:
 
 def test_unclosed_payload_is_rejected() -> None:
     raw = (
-        '<tool_payload id="source-1">\nprint("x")\n'
+        '<tool_payload id="source-1" lines="1">\nprint("x")\n'
         '<tool_call>{"name":"write_file","arguments":'
         '{"path":"x.py","content":{"$ref":"source-1"}}}</tool_call>'
     )
@@ -145,7 +147,7 @@ def test_unclosed_payload_is_rejected() -> None:
 
 def test_unused_payload_is_rejected() -> None:
     parsed = parse_tool_calls(
-        '<tool_payload id="unused">\nhello\n</tool_payload>'
+        '<tool_payload id="unused" lines="1">\nhello\n</tool_payload>'
     )
 
     assert not parsed.calls
@@ -154,7 +156,7 @@ def test_unused_payload_is_rejected() -> None:
 
 def test_payload_ref_object_cannot_have_extra_fields() -> None:
     raw = (
-        '<tool_payload id="source-1">\nhello\n</tool_payload>\n'
+        '<tool_payload id="source-1" lines="1">\nhello\n</tool_payload>\n'
         '<tool_call>{"name":"write_file","arguments":'
         '{"path":"x.txt","content":{"$ref":"source-1","extra":true}}}'
         "</tool_call>"
@@ -182,9 +184,9 @@ def test_legacy_short_inline_call_still_works() -> None:
 def test_instructions_include_raw_payload_protocol() -> None:
     instructions = render_tool_instructions(build_registry().schemas())
 
-    assert '<tool_payload id="file-1">' in instructions
+    assert '<tool_payload id="file-1" lines="2">' in instructions
     assert '{"$ref":"file-1"}' in instructions
-    assert "Kaynak kodu JSON content stringinin içine koyma." in instructions
+    assert "Kaynak kodu JSON content stringinin içine koyma; payload kullan." in instructions
     blocks = re.findall(
         r"<tool_call>(.*?)</tool_call>",
         instructions,
@@ -200,7 +202,7 @@ def test_repair_note_teaches_payload_protocol() -> None:
         "TOOL_CALL_PARSE_ERROR: invalid JSON"
     )
 
-    assert '<tool_payload id="file-1">' in note.content
+    assert '<tool_payload id="file-1" lines="2">' in note.content
     assert '{"$ref":"file-1"}' in note.content
     assert "JSON stringine koyma" in note.content
 
