@@ -24,7 +24,12 @@ from dataclasses import dataclass, replace
 
 from ..config.models import Config, WebSessionConfig
 from ..core.errors import FusionError
-from ..core.tool_emulation import CALL_OPEN, parse_tool_calls, render_tool_instructions
+from ..core.tool_emulation import (
+    CALL_OPEN,
+    LEGACY_CALL_OPEN,
+    parse_tool_calls,
+    render_tool_instructions,
+)
 from ..core.types import CompletionRequest, Message
 from ..providers.web_registry import WebSessionRegistry, web_registry_for
 from ..tools import build_registry
@@ -62,7 +67,10 @@ class ProbeSample:
         arayüzü `<tool_call>` etiketini HTML sanıp yuttu. İkincisinde metinde
         kaçırılmış (`&lt;`) biçim ya da hiçbir iz kalmaz.
         """
-        return CALL_OPEN in self.raw_output or "tool_call" in self.raw_output.lower()
+        return any(
+            marker in self.raw_output
+            for marker in (CALL_OPEN, LEGACY_CALL_OPEN, "tool_call")
+        )
 
 
 @dataclass(frozen=True, slots=True)

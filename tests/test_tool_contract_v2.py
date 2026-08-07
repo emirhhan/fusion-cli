@@ -9,7 +9,12 @@ import pytest
 from fusion_cli.core.budget import TurnBudget
 from fusion_cli.core.clock import SystemClock
 from fusion_cli.core.model_capability import ToolSupport
-from fusion_cli.core.tool_emulation import parse_tool_calls, render_tool_instructions
+from fusion_cli.core.tool_emulation import (
+    CALL_CLOSE,
+    CALL_OPEN,
+    parse_tool_calls,
+    render_tool_instructions,
+)
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message, ToolCall
 from fusion_cli.engines.agent.approval import Decision
@@ -68,7 +73,9 @@ def _budget(**overrides) -> TurnBudget:
 def test_instructions_contain_only_valid_canonical_examples() -> None:
     text = render_tool_instructions(build_registry().schemas())
     assert "{…}" not in text
-    blocks = re.findall(r"<tool_call>(.*?)</tool_call>", text, flags=re.DOTALL)
+    blocks = re.findall(
+        rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}", text, flags=re.DOTALL
+    )
     assert blocks
     for block in blocks:
         payload = json.loads(block)

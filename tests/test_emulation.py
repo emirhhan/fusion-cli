@@ -8,6 +8,7 @@ from fusion_cli.tools.emulation import (
     CALL_CLOSE,
     CALL_OPEN,
     parse_tool_calls,
+    render_call,
     render_tool_instructions,
     validate_arguments,
 )
@@ -28,9 +29,8 @@ _SCHEMA = {
 
 
 def _call(name, args):
-    import json
 
-    return f"{CALL_OPEN}{json.dumps({'name': name, 'arguments': args})}{CALL_CLOSE}"
+    return render_call({"name": name, "arguments": args})
 
 
 # --- render + parse -------------------------------------------------------- #
@@ -61,14 +61,14 @@ def test_blok_disi_metin_nihai_cevap_olur():
 
 
 def test_bozuk_json_hata_dondurur_sahte_cagri_uretmez():
-    parse = parse_tool_calls(f"{CALL_OPEN}{{bozuk json{CALL_CLOSE}")
+    parse = parse_tool_calls(f"{CALL_OPEN}\n{{bozuk json\n{CALL_CLOSE}")
     assert parse.calls == ()
     assert len(parse.errors) == 1
     assert "JSON" in parse.errors[0]
 
 
 def test_name_eksik_blok_reddedilir():
-    parse = parse_tool_calls(f'{CALL_OPEN}{{"arguments": {{}}}}{CALL_CLOSE}')
+    parse = parse_tool_calls(f'{CALL_OPEN}\n{{"arguments": {{}}}}\n{CALL_CLOSE}')
     assert parse.calls == ()
     assert "name" in parse.errors[0]
 

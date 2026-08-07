@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 
-from ...core.tool_emulation import CALL_CLOSE, CALL_OPEN, PAYLOAD_EXAMPLE, PAYLOAD_RULES
+from ...core.tool_emulation import PAYLOAD_EXAMPLE, PAYLOAD_RULES, render_call
 from ...core.types import Message
 
 #: Somut teslim işaretleri: kod parçası, dosya:satır referansı ya da dosya yolu.
@@ -111,10 +111,11 @@ def tool_evidence_required_note(effect: str | None) -> Message:
         "user",
         "[eylem-kanıtı-zorunlu] Kullanıcı gerçek bir işlem istedi fakat henüz "
         f"{label} için başarılı bir araç sonucu yok. 'Kontrol ediyorum', 'yapıyorum', "
-        "'güncelliyorum' gibi niyet cümleleriyle bitirme. Şimdi uygun aracı canonical "
-        "<tool_call>{...}</tool_call> biçiminde çağır. İşlem için bilgi/onay eksikse "
-        "ask_user kullan. Aracı kullanamıyorsan işlemin yapılmadığını açıkça söyle; "
-        "yapılmış gibi davranma.",
+        "'güncelliyorum' gibi niyet cümleleriyle bitirme. Şimdi uygun aracı kanonik "
+        "biçimde çağır:\n"
+        f'{render_call({"name": "run_shell", "arguments": {"command": "…"}})}\n'
+        "İşlem için bilgi/onay eksikse ask_user kullan. Aracı kullanamıyorsan işlemin "
+        "yapılmadığını açıkça söyle; yapılmış gibi davranma.",
     )
 
 
@@ -142,7 +143,7 @@ def tool_contract_repair_note(detail: str) -> Message:
         f"Hata: {detail}\n"
         "Yalnızca bir kez düzelt.\n\n"
         "Kısa çağrı örneği:\n"
-        f'{CALL_OPEN}{{"name":"read_file","arguments":{{"path":"src/app.py"}}}}{CALL_CLOSE}\n\n'
+        f'{render_call({"name": "read_file", "arguments": {"path": "src/app.py"}})}\n\n'
         "Çok satırlı kodu JSON stringine koyma; payload kullan:\n"
         f"{PAYLOAD_EXAMPLE}\n\n"
         + "\n".join(PAYLOAD_RULES)

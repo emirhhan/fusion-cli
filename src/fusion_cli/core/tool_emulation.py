@@ -5,10 +5,28 @@ olarak üretir. Bu modül o metnin tek geçerli biçimini tanımlar ve geri okur
 
 İki blok vardır ve ayrı olmaları zorunludur:
 
-- `<tool_call>{…}</tool_call>` — çağrının kendisi, tek satırlık JSON.
-- `<tool_payload id="…">…</tool_payload>` — çok satırlı/kod içeren değerler.
-  JSON string'inin içine kaynak kodu koymak kaçış karakterlerinde bozuluyordu;
-  payload ayrı taşınır ve çağrıdan `{"$ref": "id"}` ile gösterilir.
+- **Çağrı** — tek satırlık JSON, `FUSION_TOOL_CALL` / `FUSION_TOOL_CALL_END` arasında.
+- **Payload** — çok satırlı/kod içeren değerler. JSON string'inin içine kaynak kodu
+  koymak kaçış karakterlerinde bozuluyordu; payload ayrı taşınır ve çağrıdan
+  `{"$ref": "id"}` ile gösterilir.
+
+SINIRLAYICI NEDEN DÜZ METİN — ölçüldü (Gemini web, 5 senaryo):
+
+Sınırlayıcılar eskiden `<tool_call>…</tool_call>` biçimindeydi. Araç isteyen dört
+senaryonun DÖRDÜ de tamamen BOŞ yanıt döndürdü; araç istemeyen beşinci senaryo
+kusursuz cevapladı. Aradaki tek fark, modelin bu bloğu üretmeye çalışmasıydı.
+
+Sebep: HTML'e benzeyen bir sınırlayıcı, HTML render eden bir kanalda kullanılıyordu.
+Sıkı bir temizleyici bilinmeyen elemanı ÇOCUKLARIYLA BİRLİKTE atar — mesaj boşalır.
+Model bloğu üretti, arayüz sildi, Fusion "model boş cevap verdi" sandı ve tur hiçbir
+iş yapmadan bitti.
+
+Yeni sınırlayıcılar kendi satırlarında duran düz büyük harfli işaretlerdir: ne HTML
+ne Markdown anlamı taşırlar, bu yüzden render edilirken hiçbir dönüşüme uğramazlar.
+Aynı desen `PAYLOAD_SENTINEL` ile zaten çalışıyordu.
+
+Eski biçim OKUMADA korunur: sözleşme değişse de yarıda kalmış bir konuşmadaki blok
+ayrıştırılabilmelidir. Üretilen talimat yalnızca yeni biçimi öğretir.
 """
 
 from __future__ import annotations
@@ -20,21 +38,39 @@ from dataclasses import dataclass
 
 from .types import ToolCall
 
-CALL_OPEN = "<tool_call>"
-CALL_CLOSE = "</tool_call>"
-PAYLOAD_OPEN = "<tool_payload"
-PAYLOAD_CLOSE = "</tool_payload>"
+#: Kanonik sınırlayıcılar. Kendi satırlarında dururlar ve düz metindir.
+CALL_OPEN = "FUSION_TOOL_CALL"
+CALL_CLOSE = "FUSION_TOOL_CALL_END"
+PAYLOAD_OPEN = "FUSION_PAYLOAD"
+PAYLOAD_CLOSE = "FUSION_PAYLOAD_END"
 PAYLOAD_SENTINEL = "FUSION_RAW_PAYLOAD_V1"
 
+#: Eski HTML-benzeri sınırlayıcılar — YALNIZCA okumada desteklenir.
+LEGACY_CALL_OPEN = "<tool_call>"
+LEGACY_CALL_CLOSE = "</tool_call>"
+LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
+
+# Sınırlayıcılar satır başına SABİTLENMEZ: model çoğu zaman "Şunu yapıyorum."
+# dedikten sonra bloğu aynı satırda açıyor ve katı bir çapa bunu kaçırırdı.
+# İşaretler benzersiz büyük harfli dizeler olduğu için çapaya gerek de yok.
 _BLOCK = re.compile(
-    re.escape(CALL_OPEN) + r"(.*?)" + re.escape(CALL_CLOSE),
+    rf"{re.escape(CALL_OPEN)}\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
+    re.DOTALL,
+)
+_LEGACY_BLOCK = re.compile(
+    re.escape(LEGACY_CALL_OPEN) + r"(?P<body>.*?)" + re.escape(LEGACY_CALL_CLOSE),
     re.DOTALL,
 )
 _PAYLOAD_ID = r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}"
 _PAYLOAD_BLOCK = re.compile(
+    rf'{re.escape(PAYLOAD_OPEN)}\s+id="(?P<id>{_PAYLOAD_ID})"(?P<attrs>[^\r\n]*)'
+    r"\r?\n(?P<body>.*?)"
+    rf"{re.escape(PAYLOAD_CLOSE)}",
+    re.DOTALL,
+)
+_LEGACY_PAYLOAD_BLOCK = re.compile(
     rf'<tool_payload\s+id="(?P<id>{_PAYLOAD_ID})"(?P<attrs>[^>]*)>'
-    r"(?P<body>.*?)"
-    + re.escape(PAYLOAD_CLOSE),
+    r"(?P<body>.*?)" + re.escape(LEGACY_PAYLOAD_CLOSE),
     re.DOTALL,
 )
 _PAYLOAD_LINES_ATTR = re.compile(r'\blines\s*=\s*"(?P<lines>\d{1,6})"')
@@ -122,7 +158,13 @@ def render_tool_example(function_schema: Mapping[str, object]) -> str:
                 schema = raw_schema if isinstance(raw_schema, Mapping) else {}
                 arguments[field] = _example_value(field, schema)
     payload = {"name": name, "arguments": arguments}
-    return f"{CALL_OPEN}{json.dumps(payload, ensure_ascii=False)}{CALL_CLOSE}"
+    return render_call(payload)
+
+
+def render_call(payload: Mapping[str, object]) -> str:
+    """Bir çağrıyı kanonik bloğa sar. Sınırlayıcılar KENDİ satırlarında durur."""
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return f"{CALL_OPEN}\n{body}\n{CALL_CLOSE}"
 
 
 #: Payload protokolünün TEK örneği ve TEK kural listesi.
@@ -132,23 +174,19 @@ def render_tool_example(function_schema: Mapping[str, object]) -> str:
 # farklı sözleşme görürdü. Artık tek kaynak: iki çağıran da bunu kullanır.
 PAYLOAD_EXAMPLE = "\n".join(
     [
-        '<tool_payload id="file-1" lines="2">',
+        f'{PAYLOAD_OPEN} id="file-1" lines="2"',
         "```python",
         PAYLOAD_SENTINEL,
         "def greet(name: str) -> str:",
         '    return f"Hello, {name}!"',
         "```",
-        "</tool_payload>",
-        CALL_OPEN
-        + json.dumps(
+        PAYLOAD_CLOSE,
+        render_call(
             {
                 "name": "write_file",
                 "arguments": {"path": "greet.py", "content": {"$ref": "file-1"}},
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
-        + CALL_CLOSE,
+            }
+        ),
     ]
 )
 
@@ -318,6 +356,18 @@ def _resolve_payload_refs(
     return value
 
 
+def _payload_matches(text: str) -> list[re.Match[str]]:
+    """Kanonik ve eski biçimdeki payload bloklarını metindeki SIRAYLA döndür."""
+    matches = [*_PAYLOAD_BLOCK.finditer(text), *_LEGACY_PAYLOAD_BLOCK.finditer(text)]
+    return sorted(matches, key=lambda match: match.start())
+
+
+def _call_matches(text: str) -> list[re.Match[str]]:
+    """Kanonik ve eski biçimdeki çağrı bloklarını metindeki SIRAYLA döndür."""
+    matches = [*_BLOCK.finditer(text), *_LEGACY_BLOCK.finditer(text)]
+    return sorted(matches, key=lambda match: match.start())
+
+
 def parse_tool_calls(text: str) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
     calls: list[ToolCall] = []
@@ -325,7 +375,9 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     payloads: dict[str, str] = {}
     used_payloads: set[str] = set()
 
-    for match in _PAYLOAD_BLOCK.finditer(text):
+    # Kanonik ve eski biçim BİRLİKTE okunur: sözleşme değişse de yarıda kalmış bir
+    # konuşmadaki blok ayrıştırılabilmelidir.
+    for match in _payload_matches(text):
         payload_id = match.group("id")
         if payload_id in payloads:
             errors.append(f"yinelenen payload id: {payload_id}")
@@ -344,12 +396,17 @@ def parse_tool_calls(text: str) -> EmulatedParse:
             continue
         payloads[payload_id] = body
 
-    without_payloads = _PAYLOAD_BLOCK.sub("", text)
-    if PAYLOAD_OPEN in without_payloads or PAYLOAD_CLOSE in without_payloads:
-        errors.append("kapanmamış veya geçersiz tool_payload bloğu")
+    without_payloads = _LEGACY_PAYLOAD_BLOCK.sub("", _PAYLOAD_BLOCK.sub("", text))
+    # Kapanmamış blok tespiti HER İKİ biçimi de tanımalı: yalnızca kanonik işarete
+    # bakmak, eski biçimde açılıp kapanmayan bir bloğu sessizce yok sayardı.
+    if any(
+        marker in without_payloads
+        for marker in (PAYLOAD_OPEN, PAYLOAD_CLOSE, "<tool_payload", LEGACY_PAYLOAD_CLOSE)
+    ):
+        errors.append("kapanmamış veya geçersiz payload bloğu")
 
-    for index, match in enumerate(_BLOCK.finditer(without_payloads)):
-        raw = match.group(1).strip()
+    for index, match in enumerate(_call_matches(without_payloads)):
+        raw = match.group("body").strip()
         try:
             obj = json.loads(raw)
         except json.JSONDecodeError as error:
@@ -390,9 +447,9 @@ def parse_tool_calls(text: str) -> EmulatedParse:
     for payload_id in sorted(set(payloads) - used_payloads):
         errors.append(f"payload kullanılmadı: {payload_id}")
 
-    outside = _BLOCK.sub("", without_payloads)
-    if CALL_OPEN in outside or CALL_CLOSE in outside:
-        errors.append("kapanmamış veya eşleşmeyen tool_call sınır işareti")
+    outside = _LEGACY_BLOCK.sub("", _BLOCK.sub("", without_payloads))
+    if any(marker in outside for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
+        errors.append("kapanmamış veya eşleşmeyen araç çağrısı sınır işareti")
 
     return EmulatedParse(
         calls=tuple(calls),

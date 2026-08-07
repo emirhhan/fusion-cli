@@ -9,7 +9,13 @@ import pytest
 from fusion_cli.core.budget import TurnBudget
 from fusion_cli.core.clock import SystemClock
 from fusion_cli.core.model_capability import ToolSupport
-from fusion_cli.core.tool_emulation import parse_tool_calls, render_tool_instructions
+from fusion_cli.core.tool_emulation import (
+    CALL_CLOSE,
+    CALL_OPEN,
+    PAYLOAD_OPEN,
+    parse_tool_calls,
+    render_tool_instructions,
+)
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent import reflexion
@@ -142,7 +148,7 @@ def test_unclosed_payload_is_rejected() -> None:
     parsed = parse_tool_calls(raw)
 
     assert not parsed.calls
-    assert any("tool_payload" in error for error in parsed.errors)
+    assert any("payload" in error for error in parsed.errors)
 
 
 def test_unused_payload_is_rejected() -> None:
@@ -184,11 +190,11 @@ def test_legacy_short_inline_call_still_works() -> None:
 def test_instructions_include_raw_payload_protocol() -> None:
     instructions = render_tool_instructions(build_registry().schemas())
 
-    assert '<tool_payload id="file-1" lines="2">' in instructions
+    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in instructions
     assert '{"$ref":"file-1"}' in instructions
     assert "Kaynak kodu JSON content stringinin içine koyma; payload kullan." in instructions
     blocks = re.findall(
-        r"<tool_call>(.*?)</tool_call>",
+        rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}",
         instructions,
         flags=re.DOTALL,
     )
@@ -202,7 +208,7 @@ def test_repair_note_teaches_payload_protocol() -> None:
         "TOOL_CALL_PARSE_ERROR: invalid JSON"
     )
 
-    assert '<tool_payload id="file-1" lines="2">' in note.content
+    assert f'{PAYLOAD_OPEN} id="file-1" lines="2"' in note.content
     assert '{"$ref":"file-1"}' in note.content
     assert "JSON stringine koyma" in note.content
 

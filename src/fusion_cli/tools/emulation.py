@@ -15,6 +15,7 @@ from ..core.tool_emulation import (
     CALL_OPEN,
     EmulatedParse,
     parse_tool_calls,
+    render_call,
     render_tool_example,
     render_tool_instructions,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "CALL_OPEN",
     "EmulatedParse",
     "parse_tool_calls",
+    "render_call",
     "render_tool_example",
     "render_tool_instructions",
     "validate_arguments",
