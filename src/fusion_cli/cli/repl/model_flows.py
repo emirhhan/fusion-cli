@@ -74,9 +74,7 @@ def sources(config: Config | None = None) -> tuple[Source, ...]:
     web: tuple[Source, ...] = ()
     if config is not None and any(item.enabled for item in config.web_sessions):
         entries = tuple(
-            CatalogEntry(item.model, item.provider)
-            for item in config.web_sessions
-            if item.enabled
+            CatalogEntry(item.model, item.provider) for item in config.web_sessions if item.enabled
         )
         web = (
             Source(

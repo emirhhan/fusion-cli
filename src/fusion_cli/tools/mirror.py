@@ -132,9 +132,7 @@ def mirror_summary(
         f"index.html + {len(assets)} kaynak (atlanan: {skipped})",
     ]
     if truncated:
-        satirlar.append(
-            f"UYARI: kaynak sınırına ({MAX_ASSETS}) ulaşıldı, kalanlar indirilmedi."
-        )
+        satirlar.append(f"UYARI: kaynak sınırına ({MAX_ASSETS}) ulaşıldı, kalanlar indirilmedi.")
     satirlar.append(
         "AYNANIN SINIRLARI — bunu 'eksiksiz kopya' olarak SUNMA:\n"
         "- Yalnızca BU sayfa aynalandı; sitenin diğer sayfaları indirilmedi.\n"

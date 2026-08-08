@@ -93,9 +93,9 @@ async def test_fallback_devreye_girdiginde_nedeni_olay_olarak_yayinlar():
     bozuk = FakeProvider("gemini_web/main/auto", ok=False, error="web oturumu timeout")
     saglam = FakeProvider("nvidia_nim/openai/gpt-oss-120b", chunks=("ok",))
 
-    sonuc = await FallbackProvider(
-        [bozuk, saglam], role="secilen", publisher=publisher
-    ).complete(request())
+    sonuc = await FallbackProvider([bozuk, saglam], role="secilen", publisher=publisher).complete(
+        request()
+    )
 
     assert sonuc.model == "nvidia_nim/openai/gpt-oss-120b"
     (event,) = [item for item in publisher.events if isinstance(item, ModelFallbackActivated)]

@@ -107,7 +107,7 @@ MUTATION_UNAVAILABLE_ANSWER = (
     "Bu görev dosya/sistem değişikliği gerektiriyor ama seçili model bunu yapamıyor: "
     "{reason}.\n\n"
     "Yapılacak: `fusion serve` ile paneli aç → Sağlayıcılar → ilgili web oturumu → "
-    "\"Araç yeteneğini ölç\". Ölçüm geçerse izin açılır. Alternatif olarak `/model` ile "
+    '"Araç yeteneğini ölç". Ölçüm geçerse izin açılır. Alternatif olarak `/model` ile '
     "araç yetenekli bir API modeline geç.\n\n"
     "Hiçbir değişiklik yapılmadı."
 )
@@ -428,9 +428,7 @@ async def _drive(
     local_calls = 0
 
     while True:
-        if budget.model_calls_exhausted or (
-            local_limit is not None and local_calls >= local_limit
-        ):
+        if budget.model_calls_exhausted or (local_limit is not None and local_calls >= local_limit):
             return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         local_calls += 1
         remaining = budget.remaining_s()
@@ -528,10 +526,7 @@ async def _drive(
                 continue
             return _outcome(final_text, messages, state)
 
-        if (
-            execution.max_tool_rounds is not None
-            and state.tool_rounds >= execution.max_tool_rounds
-        ):
+        if execution.max_tool_rounds is not None and state.tool_rounds >= execution.max_tool_rounds:
             return _halt(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
         before = _progress_marker(deps, state)
@@ -641,8 +636,7 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
         return any(mutating for _, _, mutating in evidence)
     if effect == "web_lookup":
         return any(
-            name in {"web_search", "web_fetch", "read_url_content"}
-            for name, _, _ in evidence
+            name in {"web_search", "web_fetch", "read_url_content"} for name, _, _ in evidence
         )
     if effect == "workspace_read":
         return any(
@@ -742,8 +736,10 @@ def _permitted(
     Mutation izni yoksa değiştirici araçların ŞEMASI hiç gönderilmez: modele
     yapamayacağı bir yeteneği göstermek, denemesine ve turu boşa harcamasına yol açar.
     """
-    names = set(registry.names()) if allowed_tools is None else (
-        (allowed_tools | ALWAYS_ALLOWED) & set(registry.names())
+    names = (
+        set(registry.names())
+        if allowed_tools is None
+        else ((allowed_tools | ALWAYS_ALLOWED) & set(registry.names()))
     )
     if not execution.allow_mutation:
         names = {
@@ -812,9 +808,7 @@ def _stopped_without_acting(
         return False
     if state.mutating_tool_calls_made > 0:
         return False
-    return not any(
-        name in _DELEGATION_TOOLS for name, _, _ in budget.successful_tool_evidence
-    )
+    return not any(name in _DELEGATION_TOOLS for name, _, _ in budget.successful_tool_evidence)
 
 
 #: İşi devreden araçlar — bunları çağıran tur "hiçbir şey yapmadı" sayılmaz.
@@ -944,9 +938,7 @@ async def _run_tools(
                     diff=None,
                 )
             )
-            messages.append(
-                Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
-            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
@@ -964,9 +956,7 @@ async def _run_tools(
         # Değiştirici araçta tek tekrar bile döngüdür: aynı yazma iki kez istenmez.
         # Okuma araçlarında çalışma alanı değişmediği sürece birkaç tekrara izin verilir.
         duplicate_limit = (
-            1
-            if tool is not None and tool.mutating
-            else execution.max_same_tool_without_change
+            1 if tool is not None and tool.mutating else execution.max_same_tool_without_change
         )
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
@@ -988,9 +978,7 @@ async def _run_tools(
                     diff=None,
                 )
             )
-            messages.append(
-                Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
-            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
@@ -1168,9 +1156,22 @@ def _web_self_review_needed(
 
     if outcome.tool_calls_made == 0 and len(task.strip()) <= 160:
         risky_markers = (
-            "kod", "python", "javascript", "typescript", "dosya", "proje",
-            "test", "hata", "bug", "düzelt", "duzelt", "sil", "değiştir",
-            "degistir", "uygula", "patch",
+            "kod",
+            "python",
+            "javascript",
+            "typescript",
+            "dosya",
+            "proje",
+            "test",
+            "hata",
+            "bug",
+            "düzelt",
+            "duzelt",
+            "sil",
+            "değiştir",
+            "degistir",
+            "uygula",
+            "patch",
         )
         if not any(marker in lowered for marker in risky_markers):
             return False

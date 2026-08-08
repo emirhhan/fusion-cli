@@ -174,9 +174,7 @@ async def test_web_session_eklenir_ve_durumda_gorunur(tmp_path, monkeypatch):
 
 async def test_web_session_endpoint_dogrulanir(tmp_path):
     async with _client(_app(tmp_path)) as client:
-        resp = await client.post(
-            "/api/web_sessions", json={"model": "x", "endpoint": "ftp://kotu"}
-        )
+        resp = await client.post("/api/web_sessions", json={"model": "x", "endpoint": "ftp://kotu"})
     assert resp.status_code == 400
     assert "http" in resp.json()["error"]["message"]
 
@@ -296,6 +294,7 @@ async def test_maskeleme_yanittaki_siri_gizler(tmp_path):
     content = r.json()["choices"][0]["message"]["content"]
     assert "sk-abcdef0123456789ABCDEF" not in content
 
+
 # --- native web subscriptions --------------------------------------------- #
 
 
@@ -307,12 +306,8 @@ async def test_native_web_session_cookie_sifreli_kaydedilir_ve_model_listesine_g
     monkeypatch.setattr(
         "fusion_cli.config.writer.user_config_candidates", lambda: (tmp_path / "config.yaml",)
     )
-    monkeypatch.setattr(
-        "fusion_cli.config.writer.user_config_dir", lambda: tmp_path
-    )
-    monkeypatch.setattr(
-        "fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data"
-    )
+    monkeypatch.setattr("fusion_cli.config.writer.user_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
     app = _app(tmp_path)
     app._config = replace(app._config, source=tmp_path / "config.yaml")
     async with _client(app) as client:

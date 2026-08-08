@@ -96,8 +96,19 @@ _TOOLING_SUBCOMMANDS = frozenset(
 #: geçmesine yol açabilirdi. `shell` bu listeyi buradan alır.
 READONLY_GIT_SUBCOMMANDS = frozenset(
     {
-        "status", "diff", "log", "show", "branch", "ls-files", "blame", "remote",
-        "tag", "rev-parse", "ls-remote", "symbolic-ref", "rev-list",
+        "status",
+        "diff",
+        "log",
+        "show",
+        "branch",
+        "ls-files",
+        "blame",
+        "remote",
+        "tag",
+        "rev-parse",
+        "ls-remote",
+        "symbolic-ref",
+        "rev-list",
     }
 )
 

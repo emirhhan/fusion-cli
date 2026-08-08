@@ -85,7 +85,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             '[data-testid="prompt-textarea"]',
             'div[contenteditable="true"][data-lexical-editor="true"]',
             'textarea[placeholder*="Message"]',
-            'textarea',
+            "textarea",
         ),
         send_selectors=(
             'button[data-testid="send-button"]',
@@ -116,7 +116,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'div.ProseMirror[contenteditable="true"]',
             '[contenteditable="true"][data-placeholder]',
             'fieldset [contenteditable="true"]',
-            'textarea',
+            "textarea",
         ),
         send_selectors=(
             'button[aria-label*="Send"]',
@@ -125,8 +125,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         response_selectors=(
             '[data-testid="assistant-message"]',
-            '[data-is-streaming] .font-claude-message',
-            '.font-claude-message',
+            "[data-is-streaming] .font-claude-message",
+            ".font-claude-message",
             'div[data-testid^="message-"]',
         ),
         stop_selectors=(
@@ -146,18 +146,18 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         input_selectors=(
             'rich-textarea div[contenteditable="true"]',
             'div[contenteditable="true"][aria-label]',
-            'textarea[aria-label]',
-            'textarea',
+            "textarea[aria-label]",
+            "textarea",
         ),
         send_selectors=(
             'button[aria-label*="Send"]',
             'button[aria-label*="Gönder"]',
-            'button.send-button',
+            "button.send-button",
         ),
         response_selectors=(
-            'model-response .model-response-text',
-            'model-response',
-            '.model-response-text',
+            "model-response .model-response-text",
+            "model-response",
+            ".model-response-text",
             '[data-test-id="response"]',
         ),
         stop_selectors=(
@@ -167,8 +167,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         login_markers=("sign in", "oturum aç", "giriş yap", "choose an account"),
         default_models=("auto",),
         cookie_hint=(
-            "gemini.google.com isteğinin tam Cookie başlığı; "
-            "Google için tarayıcıyla giriş önerilir"
+            "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
         ),
     ),
     "copilot_web": BrowserProviderDefinition(
@@ -182,10 +181,10 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "https://www.bing.com/",
         ),
         input_selectors=(
-            'textarea[placeholder]',
-            'textarea[aria-label]',
+            "textarea[placeholder]",
+            "textarea[aria-label]",
             'div[contenteditable="true"]',
-            'textarea',
+            "textarea",
         ),
         send_selectors=(
             'button[aria-label*="Submit"]',
@@ -195,7 +194,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         response_selectors=(
             '[data-content="ai-message"]',
             '[data-testid="copilot-response"]',
-            '.ac-textBlock',
+            ".ac-textBlock",
             'cib-message-group[source="bot"]',
         ),
         stop_selectors=(
@@ -205,8 +204,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         login_markers=("sign in", "oturum aç", "giriş yap", "microsoft account"),
         default_models=("auto",),
         cookie_hint=(
-            "copilot.microsoft.com oturumundaki tam Cookie başlığı; "
-            "tarayıcıyla giriş önerilir"
+            "copilot.microsoft.com oturumundaki tam Cookie başlığı; tarayıcıyla giriş önerilir"
         ),
     ),
 }
@@ -307,11 +305,7 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     """
     if continuation:
         return _format_continuation(messages)
-    calls_by_id = {
-        call.id: call
-        for message in messages
-        for call in message.tool_calls
-    }
+    calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     rendered: list[str] = []
     for message in messages:
         if message.role == "system":
@@ -435,7 +429,6 @@ async def _launch_profile_context(
     raise WebBrowserError("tarayıcı bağlamı açılamadı")
 
 
-
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
 #: çağrılar (ders çıkarımı, öz-denetim, sıkıştırma) için yeterlidir.
 MAX_OPEN_CONVERSATIONS = 4
@@ -505,9 +498,7 @@ class BrowserSessionPool:
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
 
-    def conversation(
-        self, provider: str, account: str, root: str
-    ) -> ConversationState | None:
+    def conversation(self, provider: str, account: str, root: str) -> ConversationState | None:
         return self._conversations.get((provider, account, root))
 
     def remember_conversation(
@@ -587,11 +578,7 @@ class BrowserSessionPool:
         """
         await self.drop_account_conversations(provider, account)
         async with self._guard:
-            keys = [
-                key
-                for key in self._contexts
-                if key[0] == provider and key[1] == account
-            ]
+            keys = [key for key in self._contexts if key[0] == provider and key[1] == account]
             contexts = [self._contexts.pop(key) for key in keys]
         for context in contexts:
             with contextlib.suppress(Exception):
@@ -712,9 +699,7 @@ def build_browser_transport(
                     break
                 try:
                     return await asyncio.wait_for(
-                        _deliver_turn(
-                            manager, session, definition, context, messages, trace_dir
-                        ),
+                        _deliver_turn(manager, session, definition, context, messages, trace_dir),
                         timeout=max(1.0, remaining),
                     )
                 except WebBrowserSelectorError as error:
@@ -738,9 +723,7 @@ def build_browser_transport(
 
             if last_selector_error is not None:
                 raise last_selector_error
-            raise WebBrowserError(
-                f"{definition.name} yanıtı {limit:.0f} saniyede tamamlanmadı"
-            )
+            raise WebBrowserError(f"{definition.name} yanıtı {limit:.0f} saniyede tamamlanmadı")
 
     return _transport
 
@@ -772,9 +755,7 @@ async def _deliver_turn(
 
     if resumable and state is not None:
         prompt = format_browser_prompt(messages[state.sent_count :], continuation=True)
-        answer = await _send_turn(
-            state.page, definition, prompt, previous=state.last_answer
-        )
+        answer = await _send_turn(state.page, definition, prompt, previous=state.last_answer)
     else:
         await manager.drop_conversation(session.provider, session.account, root)
         page = await context.new_page()
@@ -860,9 +841,7 @@ async def _send_turn(
         with contextlib.suppress(Exception):
             await page.reload(wait_until="domcontentloaded", timeout=60_000)
         await asyncio.sleep(0.75)
-        input_locator = await _first_visible(
-            page, definition.input_selectors, timeout_ms=20_000
-        )
+        input_locator = await _first_visible(page, definition.input_selectors, timeout_ms=20_000)
 
     if input_locator is None:
         await _raise_known_page_error(page, definition)
@@ -1148,7 +1127,7 @@ _LOGIN_SELECTORS: dict[str, tuple[str, ...]] = {
         'input[type="email"]',
         'input[type="password"]',
         'form[action*="signin"]',
-        'div[data-identifier]',
+        "div[data-identifier]",
     ),
     "copilot_web": (
         'input[type="email"]',

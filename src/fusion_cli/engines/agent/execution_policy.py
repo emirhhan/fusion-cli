@@ -150,7 +150,6 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     )
 
 
-
 _EXPLICIT_NO_TOOL_MARKERS = (
     "araç kullanma",
     "arac kullanma",
@@ -177,11 +176,7 @@ _NO_TOOL_CLAUSE_SPLIT = re.compile(
 
 
 def _explicit_no_tools(lowered: str) -> bool:
-    clauses = [
-        clause.strip()
-        for clause in _NO_TOOL_CLAUSE_SPLIT.split(lowered)
-        if clause.strip()
-    ]
+    clauses = [clause.strip() for clause in _NO_TOOL_CLAUSE_SPLIT.split(lowered) if clause.strip()]
     for clause in clauses:
         if not any(marker in clause for marker in _EXPLICIT_NO_TOOL_MARKERS):
             continue
@@ -191,9 +186,7 @@ def _explicit_no_tools(lowered: str) -> bool:
     return False
 
 
-def _is_genuine_simple_chat(
-    task: str, kind: TaskKind, required_effect: str | None
-) -> bool:
+def _is_genuine_simple_chat(task: str, kind: TaskKind, required_effect: str | None) -> bool:
     """Araç şeması taşımaya değmeyen gerçek kısa sohbeti tanı.
 
     Eski `GENERAL + <=240 karakter` kuralı operasyonları da sohbet sanıyordu. Burada
@@ -222,6 +215,7 @@ def _is_genuine_simple_chat(
             re.DOTALL,
         )
     )
+
 
 def is_web_model(config: Config, model: str) -> bool:
     """Model native Web AI kimliği veya config'te web oturumu mu?"""

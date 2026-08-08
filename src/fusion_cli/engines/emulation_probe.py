@@ -68,8 +68,7 @@ class ProbeSample:
         kaçırılmış (`&lt;`) biçim ya da hiçbir iz kalmaz.
         """
         return any(
-            marker in self.raw_output
-            for marker in (CALL_OPEN, LEGACY_CALL_OPEN, "tool_call")
+            marker in self.raw_output for marker in (CALL_OPEN, LEGACY_CALL_OPEN, "tool_call")
         )
 
 

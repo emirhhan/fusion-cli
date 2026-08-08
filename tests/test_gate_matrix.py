@@ -92,9 +92,7 @@ def durum_bos_dizin(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -
     """Hiçbir şey yok. En sade durum."""
 
 
-def durum_dosya_var_okunmamis(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_dosya_var_okunmamis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
     """Kullanıcının dosyası var ama agent onu hiç okumadı — toptan yazma kapalı."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
 
@@ -115,9 +113,7 @@ def durum_agent_bu_turda_olusturdu(
     hedef.write_text("YER TUTUCU\n", encoding="utf-8")
 
 
-def durum_okuma_tekrarlanmis(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_okuma_tekrarlanmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
     """Aynı okuma iki kez yapılmış: tekrar kapısı üçüncüyü engelleyecek."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     imza = budget.signature("read_file", f'{{"path": "{VAR_OLAN}"}}', mutating=False)
@@ -125,18 +121,14 @@ def durum_okuma_tekrarlanmis(
     budget.count_call(imza)
 
 
-def durum_onarim_hakki_bitmis(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_onarim_hakki_bitmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
     """Sözleşme onarım hakkı tükenmiş — bozuk çağrı artık onarılmayacak."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     while budget.take_contract_repair():
         pass
 
 
-def durum_mutasyon_yapilmis(
-    tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget
-) -> None:
+def durum_mutasyon_yapilmis(tmp_path: Path, deps: SimpleNamespace, budget: TurnBudget) -> None:
     """Çalışma alanı değişmiş: tekrar imzaları tazelenmiş olmalı."""
     (tmp_path / VAR_OLAN).write_text(VAR_OLAN_ICERIK, encoding="utf-8")
     imza = budget.signature("read_file", f'{{"path": "{VAR_OLAN}"}}', mutating=False)
@@ -206,9 +198,7 @@ async def _dene(
     state = _State()
     messages: list[Message] = []
     execution = ExecutionPolicy(is_web=True, max_same_tool_without_change=2)
-    await _run_tools(
-        (hamle(),), messages, deps, build_registry(), state, execution=execution
-    )
+    await _run_tools((hamle(),), messages, deps, build_registry(), state, execution=execution)
     return deps.publisher.son_sonuc, deps.publisher.son_cikti
 
 

@@ -81,7 +81,7 @@ def _payload_call(payload_id: str, path: str, content: str) -> str:
 
 def test_multiline_python_payload_resolves_without_json_escaping() -> None:
     source = (
-        'def greet(name: str) -> str:\n'
+        "def greet(name: str) -> str:\n"
         '    return f"Hello, {name}!"\n\n'
         'MESSAGE = "Ey Edip Adana\'da pide ye!"'
     )
@@ -108,10 +108,7 @@ def test_two_payloads_resolve_to_two_write_calls() -> None:
 
     assert not parsed.errors
     assert len(parsed.calls) == 2
-    contents = [
-        json.loads(call.arguments)["content"]
-        for call in parsed.calls
-    ]
+    contents = [json.loads(call.arguments)["content"] for call in parsed.calls]
     assert contents == ['print("first")', 'assert "a" == "a"']
 
 
@@ -152,9 +149,7 @@ def test_unclosed_payload_is_rejected() -> None:
 
 
 def test_unused_payload_is_rejected() -> None:
-    parsed = parse_tool_calls(
-        '<tool_payload id="unused" lines="1">\nhello\n</tool_payload>'
-    )
+    parsed = parse_tool_calls('<tool_payload id="unused" lines="1">\nhello\n</tool_payload>')
 
     assert not parsed.calls
     # Payload var ama HİÇ çağrı yok: bu, yanıtın çağrı bloğuna varmadan kesilmesidir.
@@ -208,9 +203,7 @@ def test_instructions_include_raw_payload_protocol() -> None:
 
 
 def test_repair_note_teaches_payload_protocol() -> None:
-    note = reflexion.tool_contract_repair_note(
-        "TOOL_CALL_PARSE_ERROR: invalid JSON"
-    )
+    note = reflexion.tool_contract_repair_note("TOOL_CALL_PARSE_ERROR: invalid JSON")
 
     assert f'{PAYLOAD_OPEN} id="file-1"' in note.content
     assert '{"$ref":"file-1"}' in note.content
@@ -230,22 +223,20 @@ def test_web_adapter_returns_resolved_payload_call() -> None:
     raw = _payload_call(
         "source-1",
         "app.py",
-        'print("hello")\nprint(\'world\')',
+        "print(\"hello\")\nprint('world')",
     )
     result = adapter._to_result(raw, latency_ms=1)
 
     assert result.ok
     assert result.error is None
     arguments = json.loads(result.tool_calls[0].arguments)
-    assert arguments["content"] == 'print("hello")\nprint(\'world\')'
+    assert arguments["content"] == "print(\"hello\")\nprint('world')"
 
 
 @pytest.mark.asyncio
 async def test_resolved_payload_executes_write_file(tmp_path) -> None:
     source = 'def answer() -> str:\n    return "forty-two"'
-    parsed = parse_tool_calls(
-        _payload_call("source-1", "pkg/module.py", source)
-    )
+    parsed = parse_tool_calls(_payload_call("source-1", "pkg/module.py", source))
     assert not parsed.errors
 
     registry = build_registry()

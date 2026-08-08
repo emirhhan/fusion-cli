@@ -93,11 +93,7 @@ def test_fenced_payload_preserves_python_indentation_and_dunders() -> None:
 
 
 def test_browser_rendered_payload_without_fence_remains_supported() -> None:
-    source = (
-        "class Example:\n"
-        "    def method(self):\n"
-        "        return 1"
-    )
+    source = "class Example:\n    def method(self):\n        return 1"
     call = {
         "name": "write_file",
         "arguments": {
@@ -119,9 +115,7 @@ def test_browser_rendered_payload_without_fence_remains_supported() -> None:
 
 
 def test_unclosed_payload_code_fence_is_rejected() -> None:
-    parsed = parse_tool_calls(
-        _payload_call('print("broken")', close_fence=False)
-    )
+    parsed = parse_tool_calls(_payload_call('print("broken")', close_fence=False))
 
     assert not parsed.calls
     assert any("code fence" in error for error in parsed.errors)
@@ -160,10 +154,7 @@ async def test_valid_emulated_tool_turn_does_not_stream_preface() -> None:
 
 
 async def test_parse_error_does_not_stream_false_success_text() -> None:
-    reply = (
-        "FUSION_CODE_ACCEPTANCE_OK\n"
-        '<tool_call>{"name":"write_file"}</tool_call>'
-    )
+    reply = 'FUSION_CODE_ACCEPTANCE_OK\n<tool_call>{"name":"write_file"}</tool_call>'
     items = [item async for item in _adapter(reply).stream(_request())]
 
     assert not any(isinstance(item, TextChunk) for item in items)
@@ -172,10 +163,7 @@ async def test_parse_error_does_not_stream_false_success_text() -> None:
 
 
 async def test_emulated_final_plain_text_still_streams() -> None:
-    items = [
-        item
-        async for item in _adapter("Gerçek nihai cevap").stream(_request())
-    ]
+    items = [item async for item in _adapter("Gerçek nihai cevap").stream(_request())]
 
     chunks = [item for item in items if isinstance(item, TextChunk)]
     assert len(chunks) == 1

@@ -192,9 +192,7 @@ async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path
     assert tukendi and tukendi[-1].reason == BudgetStop.NO_PROGRESS.value
 
 
-async def test_ilerlemesiz_turlar_turu_bitirir_ve_sebebi_yayinlanir(
-    monkeypatch, tmp_path, sink
-):
+async def test_ilerlemesiz_turlar_turu_bitirir_ve_sebebi_yayinlanir(monkeypatch, tmp_path, sink):
     """Başarısız araç zinciri sonsuza kadar sürmez ve sessizce bitmez."""
     # Her tur FARKLI ve var olmayan bir yol okunur: çağrılar tekrar etmediği için
     # tekrar kapısı devreye girmez, ama hiçbir tur ilerleme üretmez.
@@ -344,9 +342,7 @@ async def test_okuyup_duran_tur_bir_kez_devam_ettirilir(monkeypatch, tmp_path, s
         ),
     )
     deps = _deps(tmp_path, sink)
-    deps.execution = ExecutionPolicy(
-        is_web=True, complex_task=True, heuristic_auto_continue=False
-    )
+    deps.execution = ExecutionPolicy(is_web=True, complex_task=True, heuristic_auto_continue=False)
 
     await run_agent("testleri geçir", deps)
 
@@ -369,9 +365,7 @@ async def test_degisiklik_yapilmis_turda_fazladan_devam_acilmaz(monkeypatch, tmp
         ),
     )
     deps = _deps(tmp_path, sink, runtime={"self_review": False})
-    deps.execution = ExecutionPolicy(
-        is_web=True, complex_task=True, heuristic_auto_continue=False
-    )
+    deps.execution = ExecutionPolicy(is_web=True, complex_task=True, heuristic_auto_continue=False)
 
     await run_agent("testleri geçir", deps)
 
@@ -395,9 +389,7 @@ async def test_basit_gorevde_okuyup_durmak_devam_acmaz(monkeypatch, tmp_path, si
     )
     deps = _deps(tmp_path, sink, runtime={"self_review": False})
     # Gerçek web politikasıyla aynı: eski "yarım mı" sezgiseli web'de kapalıdır.
-    deps.execution = ExecutionPolicy(
-        is_web=True, complex_task=False, heuristic_auto_continue=False
-    )
+    deps.execution = ExecutionPolicy(is_web=True, complex_task=False, heuristic_auto_continue=False)
 
     await run_agent("bu dosyada ne var", deps)
 

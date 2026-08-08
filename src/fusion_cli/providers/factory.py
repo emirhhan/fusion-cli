@@ -60,6 +60,7 @@ def build_provider(
     beklendiği ürün kararıdır, kütüphane varsayılanı değil. Değer `defaults.yaml`'dan
     (`runtime.retry_delays_s`) gelir. Boş liste "hiç yeniden deneme" demektir.
     """
+
     def _leaf(model: str) -> LlmProvider:
         # Model kullanıcının yetkili bir web (oturum tabanlı) ucuyla eşleşiyorsa API
         # yerine web transport'u kullanılır. Diğer katmanlar (retry/fallback/circuit)

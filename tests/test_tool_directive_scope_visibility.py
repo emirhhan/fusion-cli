@@ -25,9 +25,7 @@ read_file çağrısından sonra hiçbir araç kullanma.
 def test_scoped_no_tool_directives_do_not_disable_requested_tools() -> None:
     assert _explicit_no_tools(A2_TASK.lower()) is False
 
-    config = make_config(
-        agent=ModelSpec(name="agent", model="gemini_web/main/auto")
-    )
+    config = make_config(agent=ModelSpec(name="agent", model="gemini_web/main/auto"))
     policy = policy_for(
         config,
         config.agent,
@@ -44,9 +42,7 @@ def test_global_no_tool_directive_still_disables_tools() -> None:
     task = "Repoyu GitHub'a pushla ama araç kullanma."
     assert _explicit_no_tools(task.lower()) is True
 
-    config = make_config(
-        agent=ModelSpec(name="agent", model="gemini_web/main/auto")
-    )
+    config = make_config(agent=ModelSpec(name="agent", model="gemini_web/main/auto"))
     policy = policy_for(
         config,
         config.agent,
@@ -101,11 +97,7 @@ async def test_agent_session_surfaces_non_rate_failure(
         interactive=False,
     )
 
-    errors = [
-        event
-        for event in sink.events
-        if isinstance(event, ErrorOccurred)
-    ]
+    errors = [event for event in sink.events if isinstance(event, ErrorOccurred)]
     assert outcome.ok is False
     assert errors
     assert errors[-1].message == outcome.final_text

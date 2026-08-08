@@ -144,13 +144,7 @@ def test_cerceve_isareti_icerikte_kalirsa_reddedilir() -> None:
 
 
 def test_kapanmamis_payload_reddedilir() -> None:
-    ham = (
-        f'{PAYLOAD_OPEN} id="source-1"\n'
-        "```python\n"
-        f"{PAYLOAD_SENTINEL}\n"
-        "print('x')\n"
-        f"{_call()}"
-    )
+    ham = f"{PAYLOAD_OPEN} id=\"source-1\"\n```python\n{PAYLOAD_SENTINEL}\nprint('x')\n{_call()}"
 
     parsed = parse_tool_calls(ham)
 

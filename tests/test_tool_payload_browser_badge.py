@@ -51,9 +51,7 @@ def test_raw_fenced_sentinel_payload_preserves_exact_python() -> None:
 
 def test_browser_language_badge_before_sentinel_is_removed() -> None:
     source = (
-        "import re\n\n"
-        "def normalize_spaces(text: str) -> str:\n"
-        '    return " ".join(text.split())'
+        'import re\n\ndef normalize_spaces(text: str) -> str:\n    return " ".join(text.split())'
     )
     browser_rendered = (
         f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
@@ -107,11 +105,7 @@ def test_legacy_payload_without_sentinel_remains_unchanged() -> None:
 
 
 def test_old_python_badge_output_has_conservative_recovery() -> None:
-    source = (
-        "import unittest\n\n"
-        "class Example(unittest.TestCase):\n"
-        "    pass"
-    )
+    source = "import unittest\n\nclass Example(unittest.TestCase):\n    pass"
     raw = (
         f'<tool_payload id="source-1" lines="{len(source.splitlines())}">\n'
         "Python\n"

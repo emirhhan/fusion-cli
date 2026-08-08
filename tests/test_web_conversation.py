@@ -243,8 +243,11 @@ async def test_devam_turu_iz_kaydinda_isaretlenir(pool, log, tmp_path):
 
 def test_devam_turunda_asistan_mesaji_geri_gonderilmez():
     mesajlar = (
-        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
-                                                      arguments='{"path":"a.py"}'),)),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(ToolCall(id="1", name="read_file", arguments='{"path":"a.py"}'),),
+        ),
         Message("tool", "dosya içeriği", tool_call_id="1", name="read_file", ok=True),
     )
 
@@ -259,8 +262,11 @@ def test_yeni_sohbette_asistan_mesaji_korunur():
     """Sohbet sıfırlandığında geçmişin tamamı gerekir; asistan turu da dahil."""
     mesajlar = (
         Message("user", "oku"),
-        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
-                                                      arguments='{"path":"a.py"}'),)),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(ToolCall(id="1", name="read_file", arguments='{"path":"a.py"}'),),
+        ),
         Message("tool", "dosya içeriği", tool_call_id="1", name="read_file", ok=True),
     )
 
@@ -287,7 +293,7 @@ def test_arac_sonucu_hangi_cagriya_ait_oldugunu_soyler():
     prompt = format_browser_prompt(mesajlar, continuation=True)
 
     for i in range(3):
-        assert f'dosya{i}.py' in prompt
+        assert f"dosya{i}.py" in prompt
 
 
 def test_devam_talimati_en_basta_durur():
@@ -303,8 +309,11 @@ def test_devam_talimati_en_basta_durur():
 def test_arac_sonucu_basligi_cagri_bicimine_benzemez():
     """`read_file {"path": "x.py"}` bir araç çağrısı gibi görünüyor ve taklit ediliyordu."""
     mesajlar = (
-        Message("assistant", "", tool_calls=(ToolCall(id="1", name="read_file",
-                                                      arguments='{"path":"envanter.py"}'),)),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(ToolCall(id="1", name="read_file", arguments='{"path":"envanter.py"}'),),
+        ),
         Message("tool", "içerik", tool_call_id="1", name="read_file", ok=True),
     )
 

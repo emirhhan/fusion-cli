@@ -30,9 +30,7 @@ class _Publisher:
 
 
 def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, text=True, capture_output=True, check=check
-    )
+    return subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, check=check)
 
 
 def _repository(tmp_path: Path) -> tuple[Path, Path]:
@@ -120,9 +118,7 @@ async def test_git_push_workflow_commits_pushes_and_verifies(tmp_path):
     assert '"status": "completed"' in records[0].read_text(encoding="utf-8")
 
 
-async def test_git_push_bypasses_model_and_cannot_end_with_intent_text(
-    monkeypatch, tmp_path
-):
+async def test_git_push_bypasses_model_and_cannot_end_with_intent_text(monkeypatch, tmp_path):
     local, remote = _repository(tmp_path)
     (local / "README.md").write_text("ikinci\n", encoding="utf-8")
     sink = RecordingSink()
@@ -250,6 +246,7 @@ async def test_rerun_is_idempotent_and_does_not_create_empty_commit(tmp_path):
     assert second is not None and second.ok
     assert count_after_second == count_after_first
     assert _remote_head(remote) == _local_head(local)
+
 
 async def test_push_exit_zero_without_hash_match_is_not_completed(monkeypatch, tmp_path):
     from fusion_cli.engines.effects.git_push import GitPushWorkflow

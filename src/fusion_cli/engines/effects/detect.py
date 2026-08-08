@@ -144,10 +144,33 @@ _REPO_REFERENCE = re.compile(
 )
 
 _BRANCH_STOPWORDS = {
-    "ve", "ile", "sonra", "ardından", "ardindan", "önce", "once",
-    "remote", "adres", "adresini", "adreslerini", "kontrol", "et",
-    "push", "pushla", "pushlamak", "repo", "repository", "depo",
-    "aktif", "mevcut", "uzak", "hedef", "olan", "olarak", "için", "icin",
+    "ve",
+    "ile",
+    "sonra",
+    "ardından",
+    "ardindan",
+    "önce",
+    "once",
+    "remote",
+    "adres",
+    "adresini",
+    "adreslerini",
+    "kontrol",
+    "et",
+    "push",
+    "pushla",
+    "pushlamak",
+    "repo",
+    "repository",
+    "depo",
+    "aktif",
+    "mevcut",
+    "uzak",
+    "hedef",
+    "olan",
+    "olarak",
+    "için",
+    "icin",
 }
 _BRANCH_TOKEN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._/-]{0,126}[A-Za-z0-9])?$")
 
@@ -168,6 +191,7 @@ def is_valid_branch_reference(branch: str) -> bool:
     if ".." in candidate or "//" in candidate or "@{" in candidate:
         return False
     return bool(_BRANCH_TOKEN.fullmatch(candidate))
+
 
 _BRANCH_PATTERNS = (
     re.compile(r"\b(?P<branch>[A-Za-z0-9._/-]+)\s+branch(?:'ine|ine|e|ı|i)?\b", re.IGNORECASE),
@@ -243,8 +267,6 @@ def extract_branch_reference(task: str) -> str | None:
     return None
 
 
-
-
 def _positive_action_clauses(text: str) -> str:
     """Olumlu cümlecikleri koru, açık olumsuz talimatları at.
 
@@ -254,9 +276,7 @@ def _positive_action_clauses(text: str) -> str:
     """
     clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
     positive = [
-        clause
-        for clause in clauses
-        if not any(word in clause for word in _NEGATED_ACTION_WORDS)
+        clause for clause in clauses if not any(word in clause for word in _NEGATED_ACTION_WORDS)
     ]
     return " ".join(positive)
 

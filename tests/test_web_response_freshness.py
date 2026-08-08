@@ -55,6 +55,7 @@ class _FakePage:
 @pytest.fixture(autouse=True)
 def _hizli_bekleme(monkeypatch):
     """Testler gerçek 1.5 sn kararlılık penceresini beklemesin."""
+
     async def _sleep(_seconds):
         return None
 

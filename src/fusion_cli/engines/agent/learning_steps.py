@@ -70,9 +70,7 @@ async def reinforce_recalled(
     deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
 
 
-def should_learn(
-    outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True
-) -> bool:
+def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True) -> bool:
     """Bu turdan ders çıkarılmalı mı. Saftır ve doğrudan test edilir.
 
     Üç kapı:

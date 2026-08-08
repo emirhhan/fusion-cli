@@ -295,9 +295,7 @@ async def test_git_status_alone_does_not_prove_push(monkeypatch, tmp_path):
     sink = RecordingSink()
     provider = ScriptedProvider(
         [
-            model_result(
-                tool_calls=[tool_call("run_shell", command="git status --short")]
-            ),
+            model_result(tool_calls=[tool_call("run_shell", command="git status --short")]),
             model_result("Push tamamlandı."),
             model_result("Yine de tamamlandı."),
         ]
@@ -317,9 +315,7 @@ async def test_git_status_alone_does_not_prove_push(monkeypatch, tmp_path):
 
 async def test_api_provider_also_rejects_unverified_action(monkeypatch, tmp_path):
     sink = RecordingSink()
-    provider = ScriptedProvider(
-        [model_result("Pushluyorum."), model_result("Bitti.")]
-    )
+    provider = ScriptedProvider([model_result("Pushluyorum."), model_result("Bitti.")])
     _patch_provider(monkeypatch, provider)
 
     result = await run_agent(
@@ -355,12 +351,8 @@ async def test_failed_api_action_is_not_sent_to_self_review(monkeypatch, tmp_pat
     sink = RecordingSink()
     provider = ScriptedProvider([model_result("Push tamamlandı.")])
     _patch_provider(monkeypatch, provider)
-    deps = _deps_with_fake_shell(
-        tmp_path, sink, provider_model="nvidia_nim/test-model"
-    )
-    deps.config = replace(
-        deps.config, runtime=replace(deps.config.runtime, self_review=True)
-    )
+    deps = _deps_with_fake_shell(tmp_path, sink, provider_model="nvidia_nim/test-model")
+    deps.config = replace(deps.config, runtime=replace(deps.config.runtime, self_review=True))
 
     result = await run_agent("repoyu GitHub'a pushla", deps)
 

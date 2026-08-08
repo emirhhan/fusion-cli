@@ -170,9 +170,7 @@ async def test_kosu_cok_dosyali_site_tek_turda_bitirilir(monkeypatch, tmp_path, 
                 model_result(
                     tool_calls=(tool_call("write_file", path="index.html", content=DOLU_SAYFA),)
                 ),
-                model_result(
-                    tool_calls=(tool_call("write_file", path="style.css", content=stil),)
-                ),
+                model_result(tool_calls=(tool_call("write_file", path="style.css", content=stil),)),
                 model_result(
                     tool_calls=(tool_call("write_file", path="script.js", content=betik),)
                 ),
@@ -215,9 +213,7 @@ async def test_kosu_ayni_dosyayi_iki_kez_yazma_hala_tekrar_sayilir(monkeypatch, 
 
     await run_agent("siteyi kur", deps, verify=False)
 
-    engellenen = [
-        olay for olay in _arac_olaylari(sink) if olay.outcome is ToolOutcome.BLOCKED
-    ]
+    engellenen = [olay for olay in _arac_olaylari(sink) if olay.outcome is ToolOutcome.BLOCKED]
     assert engellenen, "birebir aynı yazma ikinci kez çalıştırılmamalıydı"
     assert "TOOL_CALL_DUPLICATE" in engellenen[0].output
 
@@ -375,9 +371,7 @@ async def test_kosu_model_hatali_sirayi_izlese_bile_tur_olmez(monkeypatch, tmp_p
             [
                 model_result(tool_calls=(tool_call("scaffold_web", path="."),)),
                 model_result(
-                    tool_calls=(
-                        tool_call("edit_file", path="index.html", old="YOK OLAN", new="x"),
-                    )
+                    tool_calls=(tool_call("edit_file", path="index.html", old="YOK OLAN", new="x"),)
                 ),
                 model_result(tool_calls=(tool_call("read_file", path="index.html"),)),
                 model_result(tool_calls=(tool_call("read_file", path="index.html"),)),

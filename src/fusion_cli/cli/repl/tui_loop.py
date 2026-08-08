@@ -261,7 +261,9 @@ class _TuiSession:
             return
 
         if source.fetcher is None:
-            self._tui.console.print(f"[{theme.ACCENT}]{messages.DEV_CUSTOM_PROMPT}[/{theme.ACCENT}]")
+            self._tui.console.print(
+                f"[{theme.ACCENT}]{messages.DEV_CUSTOM_PROMPT}[/{theme.ACCENT}]"
+            )
             self._tui.sync_conversation()
             model_id: str | None = (await self._tui.await_text()).strip() or None
         else:

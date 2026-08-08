@@ -383,9 +383,7 @@ def test_web_oturumu_secilince_tum_rollere_uygulanir(config):
     """TUI ve plain REPL'in ortak kullandığı uygulama fonksiyonu web modelini bağlamalı."""
     web_config = _config_with_web_session(config)
 
-    sonuc = model_flows.apply_development_model(
-        web_config, "chatgpt_web/main/auto", paid=False
-    )
+    sonuc = model_flows.apply_development_model(web_config, "chatgpt_web/main/auto", paid=False)
 
     assert sonuc.config.agent.model == "chatgpt_web/main/auto"
     assert sonuc.config.judge.model == "chatgpt_web/main/auto"
@@ -413,9 +411,7 @@ def test_strict_agent_task_model_mapten_ustundur(config):
     from fusion_cli.config.model_select import select_agent_spec
     from fusion_cli.core.types import ModelSpec
 
-    strict_agent = ModelSpec(
-        name="secilen", model="gemini_web/main/auto", tags=("strict",)
-    )
+    strict_agent = ModelSpec(name="secilen", model="gemini_web/main/auto", tags=("strict",))
     mapped_candidate = ModelSpec(name="eski", model="nvidia_nim/openai/gpt-oss-120b")
     updated = replace(
         config,

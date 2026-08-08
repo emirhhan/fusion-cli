@@ -67,9 +67,7 @@ def yabanci_sayfalar(hedef: Path) -> tuple[str, ...]:
     )
 
 
-def _ozet(
-    hedef: Path, yazilan: list[str], korunan: list[str], yabanci: tuple[str, ...]
-) -> str:
+def _ozet(hedef: Path, yazilan: list[str], korunan: list[str], yabanci: tuple[str, ...]) -> str:
     satirlar = [f"iskele hazır: {hedef}"]
     if yazilan:
         satirlar.append(f"yazıldı: {', '.join(yazilan)}")

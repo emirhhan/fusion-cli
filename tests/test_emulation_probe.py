@@ -98,9 +98,7 @@ async def test_yanlis_arac_secen_model_esigi_gecemez():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[0] = '<tool_call>{"name":"list_dir","arguments":{"path":"."}}</tool_call>'
 
-    rapor = await probe_emulation(
-        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
-    )
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
     score = rapor.score
 
     assert score.tool_selection < 1.0
@@ -112,9 +110,7 @@ async def test_gereksiz_arac_cagiran_model_esigi_gecemez():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[-1] = '<tool_call>{"name":"read_file","arguments":{"path":"x.py"}}</tool_call>'
 
-    rapor = await probe_emulation(
-        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
-    )
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
     score = rapor.score
 
     assert score.no_false_calls < 1.0
@@ -124,13 +120,9 @@ async def test_gereksiz_arac_cagiran_model_esigi_gecemez():
 async def test_bozuk_payload_semayi_dusurur():
     """Kapanmayan payload çağrıyı hiç oluşturmaz."""
     ciktilar = _kusursuz_ciktilar()
-    ciktilar[2] = ciktilar[2].replace("\n</tool_payload>", "").replace(
-        "\nFUSION_PAYLOAD_END", ""
-    )
+    ciktilar[2] = ciktilar[2].replace("\n</tool_payload>", "").replace("\nFUSION_PAYLOAD_END", "")
 
-    rapor = await probe_emulation(
-        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
-    )
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
     score = rapor.score
 
     assert not score.passes()
@@ -159,9 +151,7 @@ async def test_ham_cikti_teshis_icin_saklanir():
     ciktilar = _kusursuz_ciktilar()
     ciktilar[0] = "Üzgünüm, dosya sistemine erişimim yok."
 
-    rapor = await probe_emulation(
-        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
-    )
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
 
     ilk = rapor.samples[0]
     assert ilk.parsed_tool is None
@@ -173,9 +163,7 @@ async def test_olculemeyen_metrik_sayaci_sifir_kalir():
     """Payda sıfırken oran 1.0 döner; sayaç bunun ölçülmediğini söyler."""
     ciktilar = ["düz metin"] * 5
 
-    rapor = await probe_emulation(
-        _config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar))
-    )
+    rapor = await probe_emulation(_config(), MODEL, registry=_Registry(_ScriptedProvider(ciktilar)))
 
     assert rapor.score.schema_validity == 1.0
     assert rapor.score.schema_validity_measured == 0
@@ -205,8 +193,11 @@ async def test_kayit_defteri_oturum_yapilandirmasiyla_kurabilir():
     from fusion_cli.providers.web_registry import WebSessionRegistry
 
     oturum = WebSessionConfig(
-        model=MODEL, provider="custom", account="main",
-        transport="http", endpoint="https://uc/v1/chat/completions",
+        model=MODEL,
+        provider="custom",
+        account="main",
+        transport="http",
+        endpoint="https://uc/v1/chat/completions",
         tool_support="emulated",
     )
     registry = WebSessionRegistry((oturum,), environ={})

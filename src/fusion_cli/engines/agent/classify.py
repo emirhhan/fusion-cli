@@ -27,7 +27,6 @@ class TaskKind(Enum):
     GENERAL = "general"
 
 
-
 _OPERATION_RE = re.compile(
     r"\b(?:push(?:la|le)?[a-zçğıöşü]*|commit(?:le)?[a-zçğıöşü]*|deploy(?:\s+et)?|"
     r"restart|yeniden\s+başlat|yeniden\s+baslat)\b",

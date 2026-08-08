@@ -22,7 +22,7 @@ from fusion_cli.core.types import ModelResult, ToolCall
 from .fakes import model_result, tool_call
 
 #: Doğru hamlenin diske yazdığı içerik. Testler bu metni dosyada arar.
-HEDEF_ICERIK = "<!DOCTYPE html>\n<html lang=\"tr\"><body><h1>Gerçek İçerik</h1></body></html>\n"
+HEDEF_ICERIK = '<!DOCTYPE html>\n<html lang="tr"><body><h1>Gerçek İçerik</h1></body></html>\n'
 HEDEF_DOSYA = "index.html"
 
 #: Model toparlandıktan sonra verdiği nihai cevap. Somut teslim içerir ki
@@ -65,9 +65,7 @@ def tekrarci() -> list[ModelResult]:
 def kor_yazici() -> list[ModelResult]:
     """Var olan dosyayı okumadan ezmeye çalışır, engellenir, sonra okuyup yazar."""
     return [
-        model_result(
-            tool_calls=(tool_call("write_file", path="mevcut.txt", content="ezildi"),)
-        ),
+        model_result(tool_calls=(tool_call("write_file", path="mevcut.txt", content="ezildi"),)),
         model_result(tool_calls=(tool_call("read_file", path="mevcut.txt"),)),
         dogru_hamle(),
         model_result(BITIS_CEVABI),
@@ -112,9 +110,7 @@ def erken_pes_eden() -> list[ModelResult]:
 
 def sonuc_yoksayan() -> list[ModelResult]:
     """Hata sonucunu yok sayıp aynı hatayı tekrarlar, sonra farklı yol dener."""
-    bozuk = model_result(
-        tool_calls=(tool_call("edit_file", path=HEDEF_DOSYA, old="YOK", new="x"),)
-    )
+    bozuk = model_result(tool_calls=(tool_call("edit_file", path=HEDEF_DOSYA, old="YOK", new="x"),))
     return [bozuk, bozuk, dogru_hamle(), model_result(BITIS_CEVABI)]
 
 

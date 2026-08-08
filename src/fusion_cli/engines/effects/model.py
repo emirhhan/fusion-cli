@@ -144,9 +144,7 @@ class EffectRunResult:
 def missing_evidence(record: WorkflowRecord, contract: EffectContract) -> tuple[str, ...]:
     """Sözleşmenin eksik post-condition kanıtlarını kararlı sırada döndür."""
 
-    return tuple(
-        key for key in contract.required_evidence if not record.has_evidence(key)
-    )
+    return tuple(key for key in contract.required_evidence if not record.has_evidence(key))
 
 
 CONTRACTS: dict[EffectKind, EffectContract] = {

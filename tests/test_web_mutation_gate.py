@@ -37,6 +37,7 @@ class _Publisher:
     def publish(self, event):
         self._sink.handle(event)
 
+
 WEB_MODEL = "chatgpt_web/main/auto"
 
 
@@ -49,9 +50,7 @@ def _config(**session_overrides):
         "tool_support": "emulated",
     }
     config_overrides = {
-        key: session_overrides.pop(key)
-        for key in list(session_overrides)
-        if key == "agent"
+        key: session_overrides.pop(key) for key in list(session_overrides) if key == "agent"
     }
     alanlar.update(session_overrides)
     return make_config(web_sessions=(WebSessionConfig(**alanlar),), **config_overrides)

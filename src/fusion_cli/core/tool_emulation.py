@@ -115,9 +115,7 @@ _FRAMING_LEAKS = (PAYLOAD_SENTINEL, PAYLOAD_OPEN, PAYLOAD_CLOSE, CALL_OPEN, CALL
 def _verify_payload_body(body: str, payload_id: str) -> None:
     """Gövde yapısal olarak sağlam mı? Model aritmetiği kullanılmaz."""
     if not body.strip():
-        raise _PayloadResolutionError(
-            f"payload {payload_id}: gövde boş — içerik taşınmamış"
-        )
+        raise _PayloadResolutionError(f"payload {payload_id}: gövde boş — içerik taşınmamış")
     for leak in _FRAMING_LEAKS:
         if leak in body:
             raise _PayloadResolutionError(
@@ -369,9 +367,7 @@ def _normalize_payload_body(body: str) -> str:
             flags=re.DOTALL,
         )
         if fenced is None:
-            raise _PayloadResolutionError(
-                "payload code fence kapanmadı veya geçersiz"
-            )
+            raise _PayloadResolutionError("payload code fence kapanmadı veya geçersiz")
         body = fenced.group("body")
 
     return _strip_payload_transport_prefix(body)
@@ -387,18 +383,12 @@ def _resolve_payload_refs(
     if isinstance(value, dict):
         if "$ref" in value:
             if set(value) != {"$ref"}:
-                raise _PayloadResolutionError(
-                    f"{path}: $ref nesnesi başka alan içeremez"
-                )
+                raise _PayloadResolutionError(f"{path}: $ref nesnesi başka alan içeremez")
             ref = value["$ref"]
             if not isinstance(ref, str) or not ref:
-                raise _PayloadResolutionError(
-                    f"{path}.$ref: boş olmayan metin olmalı"
-                )
+                raise _PayloadResolutionError(f"{path}.$ref: boş olmayan metin olmalı")
             if ref not in payloads:
-                raise _PayloadResolutionError(
-                    f"{path}.$ref: payload bulunamadı: {ref}"
-                )
+                raise _PayloadResolutionError(f"{path}.$ref: payload bulunamadı: {ref}")
             used.add(ref)
             return payloads[ref]
         return {

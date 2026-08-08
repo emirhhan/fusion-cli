@@ -113,7 +113,7 @@ def tool_evidence_required_note(effect: str | None) -> Message:
         f"{label} için başarılı bir araç sonucu yok. 'Kontrol ediyorum', 'yapıyorum', "
         "'güncelliyorum' gibi niyet cümleleriyle bitirme. Şimdi uygun aracı kanonik "
         "biçimde çağır:\n"
-        f'{render_call({"name": "run_shell", "arguments": {"command": "…"}})}\n'
+        f"{render_call({'name': 'run_shell', 'arguments': {'command': '…'}})}\n"
         "İşlem için bilgi/onay eksikse ask_user kullan. Aracı kullanamıyorsan işlemin "
         "yapılmadığını açıkça söyle; yapılmış gibi davranma.",
     )
@@ -129,8 +129,6 @@ def unverified_action_message(effect: str | None) -> str:
     )
 
 
-
-
 def tool_contract_repair_note(detail: str) -> Message:
     """Modele bozuk çağrıyı düzeltmesi için TEK ve kesin bir şans ver.
 
@@ -143,10 +141,8 @@ def tool_contract_repair_note(detail: str) -> Message:
         f"Hata: {detail}\n"
         "Yalnızca bir kez düzelt.\n\n"
         "Kısa çağrı örneği:\n"
-        f'{render_call({"name": "read_file", "arguments": {"path": "src/app.py"}})}\n\n'
+        f"{render_call({'name': 'read_file', 'arguments': {'path': 'src/app.py'}})}\n\n"
         "Çok satırlı kodu JSON stringine koyma; payload kullan:\n"
-        f"{PAYLOAD_EXAMPLE}\n\n"
-        + "\n".join(PAYLOAD_RULES)
-        + "\nAynı geçersiz çağrıyı tekrarlama. "
+        f"{PAYLOAD_EXAMPLE}\n\n" + "\n".join(PAYLOAD_RULES) + "\nAynı geçersiz çağrıyı tekrarlama. "
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
     )

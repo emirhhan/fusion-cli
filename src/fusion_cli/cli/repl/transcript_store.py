@@ -29,7 +29,7 @@ class TranscriptStore:
 
     def __init__(self, base_dir: Path, root: Path) -> None:
         digest = hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
-        self.base_dir = (base_dir.expanduser().resolve() / "transcripts" / digest)
+        self.base_dir = base_dir.expanduser().resolve() / "transcripts" / digest
         self.base_dir.mkdir(parents=True, exist_ok=True)
         # İzin daraltma bir sıkılaştırmadır, ön koşul değil: chmod desteklemeyen
         # dosya sisteminde (Windows paylaşımı, bazı konteyner mount'ları) transcript
@@ -111,8 +111,7 @@ def _jsonable(value: object) -> object:
         return value.value
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {
-            field.name: _jsonable(getattr(value, field.name))
-            for field in dataclasses.fields(value)
+            field.name: _jsonable(getattr(value, field.name)) for field in dataclasses.fields(value)
         }
     if isinstance(value, dict):
         return {str(key): _jsonable(item) for key, item in value.items()}

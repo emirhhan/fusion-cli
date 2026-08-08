@@ -167,5 +167,5 @@ def test_paket_kuran_ya_da_sunucu_acan_modul_onay_ister():
 
 def test_satir_ici_kod_hala_onay_ister():
     """`-m` gevşetildi ama kod ENJEKSİYONU gevşetilmedi."""
-    assert not is_unattended_safe('python3 -c "import shutil; shutil.rmtree(\'.\')"')
+    assert not is_unattended_safe("python3 -c \"import shutil; shutil.rmtree('.')\"")
     assert not is_unattended_safe("node -e 'process.exit(1)'")

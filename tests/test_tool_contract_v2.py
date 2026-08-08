@@ -73,9 +73,7 @@ def _budget(**overrides) -> TurnBudget:
 def test_instructions_contain_only_valid_canonical_examples() -> None:
     text = render_tool_instructions(build_registry().schemas())
     assert "{…}" not in text
-    blocks = re.findall(
-        rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}", text, flags=re.DOTALL
-    )
+    blocks = re.findall(rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}", text, flags=re.DOTALL)
     assert blocks
     for block in blocks:
         payload = json.loads(block)
@@ -188,17 +186,13 @@ async def test_second_invalid_call_blocks_but_does_not_kill_turn(tmp_path) -> No
     execution = ExecutionPolicy(is_web=True, max_same_tool_without_change=2)
 
     first = ToolCall(id="1", name="write_file", arguments="{}")
-    assert await _run_tools(
-        (first,), messages, deps, registry, state, execution=execution
-    )
+    assert await _run_tools((first,), messages, deps, registry, state, execution=execution)
     # Onarım hakkı artık TUR bütçesindedir; tek bir `_drive` çağrısının değil.
     assert deps.budget.contract_repairs == 1
     assert not state.tool_contract_abort
 
     second = ToolCall(id="2", name="run_shell", arguments="{}")
-    assert await _run_tools(
-        (second,), messages, deps, registry, state, execution=execution
-    )
+    assert await _run_tools((second,), messages, deps, registry, state, execution=execution)
     # Çağrı ÇALIŞTIRILMADI ve modele sözleşme hatası döndü...
     assert state.failed_tool_calls == 2
     assert "TOOL_CALL_INVALID" in messages[-1].content
@@ -220,15 +214,9 @@ async def test_third_successful_read_is_stopped(tmp_path) -> None:
     second = ToolCall(id="2", name="read_file", arguments=raw)
     third = ToolCall(id="3", name="read_file", arguments=raw)
 
-    assert not await _run_tools(
-        (first,), messages, deps, registry, state, execution=execution
-    )
-    assert not await _run_tools(
-        (second,), messages, deps, registry, state, execution=execution
-    )
-    assert await _run_tools(
-        (third,), messages, deps, registry, state, execution=execution
-    )
+    assert not await _run_tools((first,), messages, deps, registry, state, execution=execution)
+    assert not await _run_tools((second,), messages, deps, registry, state, execution=execution)
+    assert await _run_tools((third,), messages, deps, registry, state, execution=execution)
     # Üçüncü çağrı ÇALIŞTIRILMAZ: modele dosya içeriği değil, uyarı döner.
     assert "TOOL_CALL_DUPLICATE" in messages[-1].content
     assert "hello" not in messages[-1].content
@@ -251,12 +239,8 @@ async def test_second_identical_mutation_is_stopped(tmp_path) -> None:
     first = ToolCall(id="1", name="run_shell", arguments=raw)
     second = ToolCall(id="2", name="run_shell", arguments=raw)
 
-    assert not await _run_tools(
-        (first,), messages, deps, registry, state, execution=execution
-    )
-    assert await _run_tools(
-        (second,), messages, deps, registry, state, execution=execution
-    )
+    assert not await _run_tools((first,), messages, deps, registry, state, execution=execution)
+    assert await _run_tools((second,), messages, deps, registry, state, execution=execution)
     # Mutasyonda tekrar daha ciddidir ama çare aynı: çağrıyı çalıştırma, modele
     # söyle. İkinci kez ÇALIŞTIRILMADIĞI tek sayaçtan doğrulanır.
     assert "TOOL_CALL_DUPLICATE" in messages[-1].content

@@ -90,7 +90,7 @@ AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
 #: Fusion'ı arızalı sanır.
 AGENT_MUTATION_UNAVAILABLE = (
     "salt-okunur kip · bu model dosya/sistem değiştiremez ({reason}) · "
-    "panelden \"Araç yeteneğini ölç\""
+    'panelden "Araç yeteneğini ölç"'
 )
 
 # --- Tur bütçesi ----------------------------------------------------------- #

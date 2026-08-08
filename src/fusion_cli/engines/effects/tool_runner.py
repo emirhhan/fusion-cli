@@ -55,9 +55,7 @@ class EffectToolRunner:
                     if decision is Decision.DENIED
                     else "PLAN MODU: değişiklik yapılamaz."
                 )
-                outcome = (
-                    ToolOutcome.DENIED if decision is Decision.DENIED else ToolOutcome.BLOCKED
-                )
+                outcome = ToolOutcome.DENIED if decision is Decision.DENIED else ToolOutcome.BLOCKED
                 result = ToolResult(message, ok=False)
                 self._publish(name, args, result, outcome)
                 return ExecutedTool(name, args, result, outcome)

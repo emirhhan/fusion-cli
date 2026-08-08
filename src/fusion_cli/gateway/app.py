@@ -433,9 +433,7 @@ class GatewayApp:
         # kaydediliyor, `tool_eval_passed` varsayılan False'a düşüyor ve model
         # sessizce salt-okunur kipe geçiyordu. Ölçüm modelin yeteneğine dairdir;
         # zaman aşımı ya da headless ayarını değiştirmek onu geçersiz kılmaz.
-        session = _dc_replace(
-            session, tool_eval_passed=self._preserved_eval(session)
-        )
+        session = _dc_replace(session, tool_eval_passed=self._preserved_eval(session))
         updated = _dc_replace(self._config, web_sessions=(*others, session))
         try:
             writer.write_web_sessions(updated)
@@ -716,9 +714,7 @@ class GatewayApp:
         configured = [
             provider.id
             for provider in BUILTIN_PROVIDERS
-            if provider.implemented
-            and provider.auth_env
-            and provider.is_configured(environ)
+            if provider.implemented and provider.auth_env and provider.is_configured(environ)
         ]
         configured.extend(
             session.provider for session in self._config.web_sessions if session.enabled

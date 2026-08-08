@@ -229,14 +229,12 @@ class GitPushWorkflow:
                 f"Branch : {target_branch}\n"
                 f"Local  : {local_head}\n"
                 f"Remote : {remote_head}\n"
-                f"Workflow: {self.record.workflow_id}"
-                + skipped,
+                f"Workflow: {self.record.workflow_id}" + skipped,
                 ok=True,
             )
         except Exception as exc:  # Son savunma: kanıtsız başarı yerine açık hata.
             return self._fail(
-                "Git push workflow beklenmeyen hata verdi: "
-                f"{type(exc).__name__}: {exc}"
+                f"Git push workflow beklenmeyen hata verdi: {type(exc).__name__}: {exc}"
             )
 
     def _load_or_create_record(self) -> WorkflowRecord:
@@ -347,8 +345,10 @@ class GitPushWorkflow:
             return explicit
 
         default = snapshot.default_branch
-        if default and snapshot.current_branch != default and _looks_temporary_branch(
-            snapshot.current_branch
+        if (
+            default
+            and snapshot.current_branch != default
+            and _looks_temporary_branch(snapshot.current_branch)
         ):
             self._status(WorkflowStatus.AWAITING_TARGET_CONFIRMATION)
             answer = await self._ask(
@@ -409,8 +409,7 @@ class GitPushWorkflow:
             tracked = await self.tools.execute("run_shell", {"command": "git add -u"})
             if not tracked.result.ok:
                 self._mark_failed(
-                    "İzlenen değişiklikler stage edilemedi: "
-                    + self._short(tracked.result.output)
+                    "İzlenen değişiklikler stage edilemedi: " + self._short(tracked.result.output)
                 )
                 return None
 
@@ -420,9 +419,7 @@ class GitPushWorkflow:
             return None
         untracked = [line for line in untracked_raw.splitlines() if line.strip()]
         safe = [path for path in untracked if not _skip_untracked(path, self.root)]
-        self.excluded_untracked = [
-            path for path in untracked if _skip_untracked(path, self.root)
-        ]
+        self.excluded_untracked = [path for path in untracked if _skip_untracked(path, self.root)]
 
         for batch in _batches(safe, 80):
             command = "git add -- " + " ".join(shlex.quote(path) for path in batch)
@@ -443,9 +440,7 @@ class GitPushWorkflow:
         if sensitive_staged:
             # Hassas dosyayı index'ten çıkar; çalışma ağacına dokunma.
             for batch in _batches(sensitive_staged, 50):
-                command = "git restore --staged -- " + " ".join(
-                    shlex.quote(path) for path in batch
-                )
+                command = "git restore --staged -- " + " ".join(shlex.quote(path) for path in batch)
                 await self.tools.execute("run_shell", {"command": command})
             self._mark_failed(
                 "Hassas dosyalar stage alanına girdiği için commit durduruldu:\n- "
@@ -639,9 +634,7 @@ class GitPushWorkflow:
     def _cancelled_or_failed(self) -> EffectRunResult:
         status = WorkflowStatus(self.record.status)
         prefix = (
-            "İşlem iptal edildi."
-            if status is WorkflowStatus.CANCELLED
-            else "İşlem tamamlanmadı."
+            "İşlem iptal edildi." if status is WorkflowStatus.CANCELLED else "İşlem tamamlanmadı."
         )
         return self._result(
             f"{prefix} Push yapılmış kabul edilmemelidir.\n"
@@ -652,10 +645,14 @@ class GitPushWorkflow:
 
     def _result(self, text: str, *, ok: bool) -> EffectRunResult:
         status = self.record.status
-        title = "Git push tamamlandı" if ok else (
-            "Git workflow iptal edildi"
-            if status == WorkflowStatus.CANCELLED.value
-            else "Git push tamamlanmadı"
+        title = (
+            "Git push tamamlandı"
+            if ok
+            else (
+                "Git workflow iptal edildi"
+                if status == WorkflowStatus.CANCELLED.value
+                else "Git push tamamlanmadı"
+            )
         )
         return EffectRunResult(
             final_text=text,

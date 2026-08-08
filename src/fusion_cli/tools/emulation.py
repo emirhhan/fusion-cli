@@ -80,16 +80,10 @@ def _validate(schema: Mapping[str, object], value: object, *, path: str) -> list
         errors.append(f"{path}: boolean olmalı")
     elif kind == "integer" and (not isinstance(value, int) or isinstance(value, bool)):
         errors.append(f"{path}: tam sayı olmalı")
-    elif kind == "number" and (
-        not isinstance(value, (int, float)) or isinstance(value, bool)
-    ):
+    elif kind == "number" and (not isinstance(value, (int, float)) or isinstance(value, bool)):
         errors.append(f"{path}: sayı olmalı")
 
     enum = schema.get("enum")
-    if (
-        isinstance(enum, Sequence)
-        and not isinstance(enum, (str, bytes))
-        and value not in enum
-    ):
+    if isinstance(enum, Sequence) and not isinstance(enum, (str, bytes)) and value not in enum:
         errors.append(f"{path}: izin verilen değerlerden biri olmalı: {list(enum)}")
     return errors

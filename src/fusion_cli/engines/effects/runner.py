@@ -63,9 +63,7 @@ class WorkflowRunner:
 
         return await self._dispatch(task, contract)
 
-    async def _dispatch(
-        self, task: str, contract: EffectContract
-    ) -> EffectRunResult | None:
+    async def _dispatch(self, task: str, contract: EffectContract) -> EffectRunResult | None:
         if contract.kind is EffectKind.GIT_PUSH:
             workflow = GitPushWorkflow(
                 task,
@@ -107,6 +105,4 @@ async def maybe_run_effect_workflow(
 ) -> EffectRunResult | None:
     """Geriye uyumlu işlevsel giriş noktası."""
 
-    return await WorkflowRunner(deps, registry).run(
-        task, plan_mode=plan_mode, depth=depth
-    )
+    return await WorkflowRunner(deps, registry).run(task, plan_mode=plan_mode, depth=depth)

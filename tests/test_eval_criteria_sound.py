@@ -60,9 +60,7 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
         )
     },
     "regresyon-testi-yaz": {
-        "bol.py": (
-            "def bol(a, b):\n    if b == 0:\n        return None\n    return a / b\n"
-        ),
+        "bol.py": ("def bol(a, b):\n    if b == 0:\n        return None\n    return a / b\n"),
         "test_bol.py": (
             "from bol import bol\n\n\n"
             "def test_sifira_bolme_none_doner():\n    assert bol(1, 0) is None\n"
@@ -93,7 +91,7 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
     },
     "iskele-kurup-doldur": {
         "index.html": (
-            "<!DOCTYPE html>\n<html lang=\"tr\"><head>"
+            '<!DOCTYPE html>\n<html lang="tr"><head>'
             '<link rel="stylesheet" href="style.css"></head>'
             "<body><h1>Tanıtım</h1></body></html>\n"
         ),
