@@ -6,7 +6,7 @@ from fusion_cli.core.events import SelfReviewStarted, ToolExecuted, ToolOutcome
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.classify import TaskKind
+from fusion_cli.engines.agent.classify import TaskKind, classify_task
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 
@@ -367,3 +367,30 @@ def test_echo_git_push_is_not_execution_evidence():
     assert not _shell_contains_git_action({"command": "echo git push origin main"}, "push")
     assert _shell_contains_git_action({"command": "cd repo && git push origin main"}, "push")
     assert _shell_contains_git_action({"command": "sudo git -C repo push origin main"}, "push")
+
+
+def test_kesif_kelimeleri_degisiklik_istegini_bastiramaz():
+    """"incele ve eksikleri tamamla" 5 turluk keşif bütçesine düşmemeli.
+
+    Görev türü anahtar kelime SAYIMIYLA bulunur; keşif kelimeleri (incele, bul,
+    kontrol et) değişiklik kelimelerini bastırıp EXPLORE kazanabiliyor. O zaman
+    görev 5 araç turu alıyor — bir projeyi tanımaya bile yetmez — ve yazmaya iten
+    kapıların hiçbiri kurulmuyor. Etki tespiti bu boşluğu kapatır.
+    """
+    config = _config()
+    istek = "bağlı projeleri incele, kontrol et ve dashboard'daki eksik dosyaları oluştur"
+
+    policy = policy_for(config, config.agent, classify_task(istek), istek)
+
+    assert policy.complex_task is True
+    assert policy.max_tool_rounds is not None and policy.max_tool_rounds > 5
+
+
+def test_gercek_kesif_isteği_kucuk_butcede_kalir():
+    """Değişiklik istemeyen keşif hâlâ küçük bütçe alır; genişletmek israftır."""
+    config = _config()
+
+    policy = policy_for(config, config.agent, TaskKind.EXPLORE, "klasörü listele")
+
+    assert policy.complex_task is False
+    assert policy.max_model_calls == 8

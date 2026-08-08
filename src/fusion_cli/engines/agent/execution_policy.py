@@ -22,6 +22,18 @@ _WEB_PROVIDER_IDS = frozenset(
 _COMPLEX_KINDS = frozenset(
     {TaskKind.BUGFIX, TaskKind.REFACTOR, TaskKind.TEST, TaskKind.WEBSITE, TaskKind.FEATURE}
 )
+#: Değişiklik ürettiği kesin olan etki sözleşmeleri.
+#
+# Görev türü anahtar kelime SAYIMIYLA bulunur ve "incele ve eksikleri tamamla"
+# gibi bir istekte keşif kelimeleri (incele) değişiklik kelimelerini bastırıp
+# EXPLORE kazanabiliyor. O zaman görev 5 araç turu alıyor — bir projeyi tanımaya
+# bile yetmez — ve yazmaya iten kapıların hiçbiri kurulmuyor.
+#
+# Etki tespiti bu boşluğu kapatır: metin gerçek bir değişiklik istiyorsa görev
+# türü ne olursa olsun karmaşık bütçeye alınır.
+_MUTATING_EFFECTS = frozenset(
+    {"workspace_mutation", "shell_action", "git_push", "git_commit"}
+)
 _EXTENDED_MARKERS = (
     "kapsamlı",
     "kapsamli",
@@ -103,11 +115,12 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
             max_evidence_reprompts=0 if explicit_no_tools else 1,
-            complex_task=kind in _COMPLEX_KINDS,
+            complex_task=kind in _COMPLEX_KINDS or required_effect in _MUTATING_EFFECTS,
         )
 
     extended = any(marker in lowered for marker in _EXTENDED_MARKERS)
-    complex_task = kind in _COMPLEX_KINDS
+    # Tür ya da ETKİ: ikisinden biri değişiklik istiyorsa iş karmaşıktır.
+    complex_task = kind in _COMPLEX_KINDS or required_effect in _MUTATING_EFFECTS
     simple_chat = _is_genuine_simple_chat(task, kind, required_effect)
 
     if extended:

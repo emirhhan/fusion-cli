@@ -244,6 +244,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
         )
     text = path.read_text(encoding="utf-8")
+    old = _tolerate_line_numbers(text, old)
 
     if replace_all:
         # Tekrar eden aynı metni tek çağrıda düzeltmek için. Benzersizlik şartı
@@ -361,6 +362,24 @@ def _neden_eslesmedi(text: str, old: str) -> str:
 
 #: read_file'ın eklediği satır numarası öneki: boşluklar + sayı + sekme.
 _LINE_NUMBERED = re.compile(r"^\s*\d+\t", re.M)
+
+
+def _tolerate_line_numbers(text: str, old: str) -> str:
+    """`old` read_file çıktısından kopyalanmışsa satır numarası önekini soy.
+
+    read_file satırları `   12\tkod` biçiminde verir, edit_file ham metin bekler.
+    Model gördüğünü kopyalıyor ve düzenleme reddediliyordu. Teşhis vardı ama
+    tolerans yoktu: model doğru yeri hedeflemiş olsa bile tur yanıyordu ve
+    "yazmak başarısız" gradyanı büyüyordu.
+
+    Soyma YALNIZCA sonuç dosyada eşleşiyorsa kabul edilir; eşleşmiyorsa özgün
+    metin korunur ve mevcut teşhis mesajı devreye girer. Yanlış yere yapılan bir
+    düzenleme, yapılmayan bir düzenlemeden pahalıdır.
+    """
+    if old in text or not _LINE_NUMBERED.search(old):
+        return old
+    soyulmus = _LINE_NUMBERED.sub("", old)
+    return soyulmus if soyulmus and soyulmus in text else old
 
 #: Eşleşme bulunamadığında modele dönen açıklama.
 _NOT_FOUND = (

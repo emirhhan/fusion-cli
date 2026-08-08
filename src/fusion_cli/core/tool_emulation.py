@@ -262,9 +262,17 @@ _GENERAL_RULES = (
     "- write_file yalnızca YENİ dosya oluştururken ya da içeriğin tamamı "
     "gerçekten baştan yazılacaksa kullanılır.",
     "- Bir çağrıda birden çok payload olabilir; her alan kendi id'siyle eşleşir.",
-    "- Bir yanıtta EN FAZLA BİR araç çağrısı yap. Birden çok değişiklik gerekiyorsa "
-    "sırayla, her turda bir tane yap; hepsini tek yanıta sığdırmaya çalışırsan yanıt "
-    "kesilir ve çağrı bloğu hiç gelmez.",
+    # Tek-çağrı kuralı YALNIZCA değiştirici araçlar içindir. Kural her araca
+    # uygulanınca keşfin maliyeti dört katına çıkıyordu: dizin listelemek + üç
+    # dosya okumak dört tur yiyor, tur bütçesi yazmaya sıra gelmeden bitiyordu.
+    # Okuma çağrıları kısa tek satırlık JSON'dur; yanıtın kesilme riski yoktur.
+    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap (write_file, edit_file, "
+    "multi_edit, run_shell). Bunları tek yanıta yığarsan yanıt kesilir ve çağrı "
+    "bloğu hiç gelmez.",
+    "- OKUMA çağrılarını (read_file, list_dir, glob, search_code) aynı yanıtta "
+    "BİRDEN ÇOK yapabilirsin ve yapmalısın: birbirine bağlı değillerse hepsini tek "
+    "turda iste, tek tek sıraya dizme. Turların sayılıdır; keşfe harcadığın her tur "
+    "değişiklik yapmaktan çalınır.",
     "- edit_file'da 'old' alanına DEĞİŞEN EN KÜÇÜK benzersiz parçayı koy — "
     "fonksiyonun ya da sınıfın tamamını değil. Kısa 'old' hem yanıtı kısaltır hem "
     "eşleşmeyi kesinleştirir.",

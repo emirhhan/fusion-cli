@@ -358,3 +358,38 @@ def test_tamami_okunan_dosya_kirpilmis_sayilmaz(tmp_path):
 
     assert "KIRPILDI" not in sonuc.output
     assert "satır daha" not in sonuc.output
+
+
+def test_edit_file_satir_numarasi_onekini_tolere_eder(tmp_path):
+    """read_file çıktısından kopyalanan 'old' reddedilmemeli, temizlenip uygulanmalı.
+
+    read_file satırları '   12\\tkod' biçiminde verir, edit_file ham metin bekler.
+    Model doğal olarak gördüğünü kopyalıyor ve düzenleme reddediliyordu — teşhis
+    vardı ama tolerans yoktu, yani tur yine yanıyordu.
+    """
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import edit_file
+
+    hedef = tmp_path / "a.py"
+    hedef.write_text('x = 1\ny = 2\n', encoding="utf-8")
+
+    sonuc = edit_file(
+        {"path": "a.py", "old": "    2\ty = 2", "new": "y = 3"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert sonuc.ok is True, sonuc.output
+    assert hedef.read_text(encoding="utf-8") == "x = 1\ny = 3\n"
+
+
+def test_edit_file_gercekten_olmayan_metni_yine_reddeder(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import edit_file
+
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+
+    sonuc = edit_file(
+        {"path": "a.py", "old": "   9\tz = 9", "new": "z = 0"}, ToolContext(root=tmp_path)
+    )
+
+    assert sonuc.ok is False

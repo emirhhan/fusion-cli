@@ -186,3 +186,31 @@ async def test_emulated_aday_nihai_cevap_akitilmaz() -> None:
     assert not [item for item in items if isinstance(item, TextChunk)]
     assert isinstance(items[-1], StreamDone)
     assert items[-1].result.text == "Gerçek nihai cevap", "metin sonuçta korunmalı"
+
+
+async def test_kismi_ayristirma_hatasi_gecerli_cagriyi_oldurmez() -> None:
+    """Bir yanıtta hem geçerli çağrı hem artık varsa, ÇAĞRI YAŞAR.
+
+    Ölçüldü: model doğru bir edit_file üretip yanında kullanılmayan bir payload
+    bıraktığında, çalışacak düzenleme uygulanmadan atılıyordu. Bir model çağrısı
+    (~40 sn) ve bir onarım hakkı yanıyor, model bağlamda "yazma başarısız"
+    görüyordu. Okuma hep başarılı, yazma hep hatalı — model rasyonel olarak
+    okumaya kaçıyordu.
+    """
+    call = json.dumps({"name": "write_file", "arguments": {"path": "x.txt", "content": "hi"}})
+    reply = (
+        f'{PAYLOAD_OPEN} id="artik" lines="1"\n```text\nkullanılmadı\n```\nFUSION_PAYLOAD_END\n'
+        f"<tool_call>{call}</tool_call>"
+    )
+    items = [item async for item in _adapter(reply).stream(_request())]
+
+    sonuc = items[-1].result
+    assert len(sonuc.tool_calls) == 1, "geçerli çağrı artık yüzünden atıldı"
+    assert not (sonuc.error or "").startswith("TOOL_CALL_"), "çağrı varken onarım tetiklenmemeli"
+
+
+async def test_hic_cagri_ayrisamazsa_onarim_tetiklenir() -> None:
+    """Kurtarılacak bir şey yoksa sözleşme hatası eskisi gibi bildirilir."""
+    items = [item async for item in _adapter("<tool_call>{bozuk</tool_call>").stream(_request())]
+
+    assert (items[-1].result.error or "").startswith("TOOL_CALL_")

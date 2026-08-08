@@ -139,7 +139,14 @@ class WebProviderAdapter:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""
         if self._tool_support is ToolSupport.EMULATED:
             parse = parse_tool_calls(raw)
-            if parse.errors:
+            # KURTARILABİLİR olan kurtarılır. Ölçüldü: model doğru bir edit_file
+            # üretip yanında kullanılmayan bir payload bıraktığında, çalışacak
+            # düzenleme uygulanmadan atılıyordu — bir model çağrısı (~40 sn) ve bir
+            # onarım hakkı yanıyor, model bağlamda "okuma başarılı / yazma hatalı"
+            # görüyor ve rasyonel olarak okumaya kaçıyordu. Ayrıştırılabilen çağrı
+            # varsa artıklar turu öldürmez; sözleşme hatası YALNIZCA hiçbir çağrı
+            # kurtarılamadığında bildirilir.
+            if parse.errors and not parse.calls:
                 return ModelResult(
                     name=self._model,
                     model=self._model,

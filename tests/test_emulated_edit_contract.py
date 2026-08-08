@@ -188,8 +188,16 @@ def test_cagri_varken_artan_payload_kesilme_sayilmaz() -> None:
     assert not any("kesildi" in hata for hata in parsed.errors)
 
 
-def test_sozlesme_yanit_basina_tek_cagri_ister() -> None:
+def test_sozlesme_tek_cagri_kuralini_degistiricilerle_sinirlar() -> None:
+    """Tek-çağrı kuralı YALNIZCA değiştirici araçlar için.
+
+    Kural her araca uygulanınca keşfin maliyeti dört katına çıkıyordu: dizin
+    listelemek + üç dosya okumak dört tur yiyor, tur bütçesi yazmaya sıra
+    gelmeden bitiyordu. Okuma çağrıları kısa tek satırlık JSON'dur; yanıtın
+    kesilme riski yoktur.
+    """
     metin = _instructions()
 
-    assert "EN FAZLA BİR araç çağrısı" in metin
+    assert "EN FAZLA BİR DEĞİŞTİRİCİ çağrı" in metin
+    assert "BİRDEN ÇOK yapabilirsin" in metin
     assert "EN KÜÇÜK benzersiz parçayı" in metin

@@ -375,12 +375,31 @@ def test_multi_edit_de_replace_all_destekler(tmp_path):
 # unutunca eşleşme tutmuyor ve "bulunamadı" mesajı NEDENİNİ söylemiyordu.
 
 
-def test_satir_numarasi_iceren_old_teshis_edilir(tmp_path):
+def test_satir_numarasi_iceren_old_tolere_edilir(tmp_path):
+    """read_file çıktısından kopyalanan 'old' reddedilmez, temizlenip uygulanır.
+
+    Eskiden teşhis ediliyor ama reddediliyordu: model doğru yeri hedeflemiş olsa
+    bile tur yanıyor ve "yazmak başarısız" gradyanı büyüyordu.
+    """
     dosya = tmp_path / "a.py"
     dosya.write_text("def f():\n    return 1\n", encoding="utf-8")
 
     sonuc = files.edit_file(
         {"path": "a.py", "old": "    1\tdef f():", "new": "def g():"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert sonuc.ok, sonuc.output
+    assert dosya.read_text(encoding="utf-8") == "def g():\n    return 1\n"
+
+
+def test_soyulunca_da_eslesmeyen_old_teshis_edilir(tmp_path):
+    """Tolerans yalnızca sonuç GERÇEKTEN eşleşiyorsa; yoksa teşhis sürüyor."""
+    dosya = tmp_path / "a.py"
+    dosya.write_text("def f():\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.py", "old": "   9\tdef yok():", "new": "x"},
         ToolContext(root=tmp_path),
     )
 
