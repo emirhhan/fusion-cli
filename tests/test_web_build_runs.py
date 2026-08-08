@@ -396,3 +396,113 @@ async def test_kosu_model_hatali_sirayi_izlese_bile_tur_olmez(monkeypatch, tmp_p
         "model toparlandığı hâlde iş bitmedi — tur erken öldürülmüş olabilir"
     )
     assert sonuc.ok
+
+
+# --------------------------------------------------------------------------- #
+# Koşu 6 — öz-zehirlenme: öldürülen turdan ders yazılmamalı
+# --------------------------------------------------------------------------- #
+
+
+class _SahteDersBellegi:
+    """Ders belleği protokolünün sayan sahtesi. Hiçbir ders enjekte etmez."""
+
+    def __init__(self) -> None:
+        self.eklenenler: list[object] = []
+
+    def add(self, lesson: object) -> bool:
+        self.eklenenler.append(lesson)
+        return True
+
+    def recall(self, task: str, *, scope=None, workspace: str = "") -> tuple[object, ...]:
+        return ()
+
+    def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
+        return 0
+
+    def all(self) -> tuple[object, ...]:
+        return ()
+
+    def count(self) -> int:
+        return len(self.eklenenler)
+
+
+async def test_kosu_oldurulen_turdan_ders_yazilmaz(monkeypatch, tmp_path, sink):
+    """Ölçülen öz-zehirlenme: '3 turdur ilerleme yok' → '2 yeni ders belleğe kazındı'.
+
+    Model hiç ilerlemeyen bir dizi izler, boşta-tur kapısı turu öldürür. Böyle bir
+    turun izi harness'ın engelleme metinlerinden ibarettir; ders çıkarılmamalıdır.
+    """
+    cagrildi = False
+
+    async def _ders_cikar(*args, **kwargs):
+        nonlocal cagrildi
+        cagrildi = True
+        return ()
+
+    monkeypatch.setattr(agent_loop.learning_steps.learning, "extract_lessons", _ders_cikar)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("scaffold_web", path="."),)),
+                model_result(tool_calls=(tool_call("read_file", path="tokens.css"),)),
+                model_result(tool_calls=(tool_call("read_file", path="tokens.css"),)),
+                model_result(tool_calls=(tool_call("read_file", path="tokens.css"),)),
+                model_result(tool_calls=(tool_call("read_file", path="tokens.css"),)),
+                model_result(tool_calls=(tool_call("read_file", path="tokens.css"),)),
+                model_result("tokens.css zaten hazır durumda."),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+    deps.lessons = _SahteDersBellegi()
+    deps.config = make_config(
+        agent=ModelSpec(name="agent", model=WEB_MODEL),
+        web_sessions=(
+            WebSessionConfig(model=WEB_MODEL, transport="browser", tool_support="emulated"),
+        ),
+        runtime={"agent_max_idle_rounds": 3, "agent_max_steps": 20, "lessons": True},
+    )
+
+    sonuc = await run_agent("spor sitesi sayfasını yaz", deps, verify=False)
+
+    assert not sonuc.ok, "bu dizi ilerleme üretmiyor, tur öldürülmeliydi"
+    assert not cagrildi, "öldürülen turdan ders çıkarıldı — öz-zehirlenme geri geldi"
+
+
+async def test_kosu_temiz_turdan_ders_yazilir(monkeypatch, tmp_path, sink):
+    """Muafiyet dar olmalı: sağlıklı tur öğrenmeye devam etmeli."""
+    cagrildi = False
+
+    async def _ders_cikar(*args, **kwargs):
+        nonlocal cagrildi
+        cagrildi = True
+        return ()
+
+    monkeypatch.setattr(agent_loop.learning_steps.learning, "extract_lessons", _ders_cikar)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("scaffold_web", path="."),)),
+                model_result(
+                    tool_calls=(tool_call("write_file", path="index.html", content=DOLU_SAYFA),)
+                ),
+                model_result("Sayfa `index.html:1` içine yazıldı."),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+    deps.lessons = _SahteDersBellegi()
+    deps.config = make_config(
+        agent=ModelSpec(name="agent", model=WEB_MODEL),
+        web_sessions=(
+            WebSessionConfig(model=WEB_MODEL, transport="browser", tool_support="emulated"),
+        ),
+        runtime={"agent_max_idle_rounds": 3, "agent_max_steps": 20, "lessons": True},
+    )
+
+    sonuc = await run_agent("spor sitesi sayfasını yaz", deps, verify=False)
+
+    assert sonuc.ok
+    assert cagrildi, "sağlıklı turdan ders çıkarımı durdu"
