@@ -364,3 +364,65 @@ def test_her_tarayici_saglayicisinin_sohbet_secicisi_var():
     """Yeni sağlayıcı eklenirse sohbet alanı tanımsız kalmamalı."""
     eksik = [tanim.id for tanim in WEB_BROWSER_PROVIDERS.values() if not tanim.history_selectors]
     assert not eksik, f"sohbet seçicisi tanımsız sağlayıcılar: {eksik}"
+
+
+# --- yanıt seçicileri: birlik değil TERCİH SIRASI ------------------------- #
+#
+# Ölçüldü (Gemini web): cevabın içine "COGNOiSe.com - The IBM Cognos Community"
+# gibi alakasız bir metin karıştı. Kaynak modelin uydurması değil, sayfanın
+# kendisiydi: `model-response` GENİŞ bir kaptır ve kaynak/atıf kartlarını da
+# içerir. Seçiciler birleştirildiği için dar seçicinin temiz metni ile geniş
+# seçicinin çöplü metni aynı listeye giriyor, sonuncusu okunuyordu.
+#
+# Bu dosyanın her yerinde seçiciler tercih sırasıdır (`_first_visible` İLKİNİ
+# döndürür); yalnızca burada birlik gibi davranıyordu.
+
+
+class _SecicilerePageMock:
+    """Seçiciye göre farklı metin döndüren sahte sayfa."""
+
+    def __init__(self, by_selector):
+        self._by_selector = by_selector
+
+    def locator(self, selector):
+        return _MetinLocator(self._by_selector.get(selector, []))
+
+
+class _MetinLocator:
+    def __init__(self, texts):
+        self._texts = texts
+        self.last = self
+
+    async def all_inner_texts(self):
+        return list(self._texts)
+
+
+async def test_yanit_ilk_sonuc_veren_seciciden_okunur():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock(
+        {
+            "dar": ["Dizin listelendi."],
+            "genis": ["Dizin listelendi.\nCOGNOiSe.com - The IBM Cognos Community"],
+        }
+    )
+
+    snapshot = await _response_snapshot(page, ("dar", "genis"))
+
+    assert snapshot == ("Dizin listelendi.",)
+
+
+async def test_ilk_secici_bossa_sonrakine_dusulur():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock({"dar": [], "genis": ["cevap"]})
+
+    assert await _response_snapshot(page, ("dar", "genis")) == ("cevap",)
+
+
+async def test_hicbir_secici_eslesmezse_bos_doner():
+    from fusion_cli.providers.web_browser import _response_snapshot
+
+    page = _SecicilerePageMock({})
+
+    assert await _response_snapshot(page, ("dar", "genis")) == ()

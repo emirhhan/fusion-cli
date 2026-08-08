@@ -119,9 +119,11 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Send"]',
             'button[aria-label*="Gönder"]',
         ),
+        # Sıra dardan genişe: `article[data-testid^="conversation-turn-"]` tüm turu
+        # (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda.
         response_selectors=(
-            '[data-message-author-role="assistant"]',
             '[data-testid^="conversation-turn-"] [data-message-author-role="assistant"]',
+            '[data-message-author-role="assistant"]',
             'article[data-testid^="conversation-turn-"]',
         ),
         stop_selectors=(
@@ -192,11 +194,15 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Gönder"]',
             "button.send-button",
         ),
+        # Sıra DARDAN GENİŞE: ilk sonuç veren kazanır (bkz. `_response_snapshot`).
+        # `model-response` kaynak/atıf kartlarını da içeren geniş kaptır ve en
+        # sona alınmıştır; yalnızca dar seçiciler arayüz değişikliğiyle
+        # eşleşmediğinde devreye girer.
         response_selectors=(
             "model-response .model-response-text",
-            "model-response",
             ".model-response-text",
             '[data-test-id="response"]',
+            "model-response",
         ),
         stop_selectors=(
             'button[aria-label*="Stop"]',
@@ -969,14 +975,32 @@ async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int
 
 
 async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:
-    texts: list[str] = []
+    """Sayfadaki yanıtları oku. Seçiciler BİRLİK değil TERCİH SIRASIDIR.
+
+    Ölçüldü (Gemini web): cevaba "COGNOiSe.com - The IBM Cognos Community" gibi
+    alakasız bir metin karıştı. Kaynak modelin uydurması değil sayfanın kendisiydi
+    — `model-response` geniş bir kaptır ve kaynak/atıf kartlarını da içerir.
+    Seçiciler birleştirildiği için dar seçicinin temiz metni ile geniş seçicinin
+    çöplü metni aynı listeye giriyor, okunan son öğe çöplü olan oluyordu.
+
+    İlk sonuç veren seçici kazanır ve diğerlerine hiç bakılmaz — bu dosyanın
+    geri kalanındaki davranışın aynısı (`_first_visible` de ilkini döndürür).
+    Sıralama tanımda dardan genişe yazılır; geniş olanlar yalnızca arayüz
+    değiştiğinde devreye giren yedeklerdir.
+
+    Yan fayda: yanıt SAYISI da tutarlı olur. Birleştirmede aynı yanıt her eşleşen
+    seçiciden bir kez sayılıyordu ve "yeni yanıt geldi mi" ölçütü seçici sayısına
+    göre kayıyordu.
+    """
     for selector in selectors:
         try:
             values = await page.locator(selector).all_inner_texts()
         except Exception:
             continue
-        texts.extend(_clean_text(value) for value in values if _clean_text(value))
-    return tuple(texts)
+        texts = tuple(_clean_text(value) for value in values if _clean_text(value))
+        if texts:
+            return texts
+    return ()
 
 
 async def _wait_for_response(
