@@ -219,6 +219,22 @@ COK_ADIMLI_GERCEK_IS = Scenario(
 )
 
 
+SALT_OKUMA_BASARILI = Scenario(
+    name="salt-okuma-basarili",
+    task="package.json içindeki betikleri açıkla",
+    watch=(
+        "Meşru salt-okuma turu: kanıt kapısı kurulmaz, tur başarıyla kapanır. "
+        "'değişiklik yok' rozeti BURADA basılmalı — modelin iddiasının yanına."
+    ),
+    files={"package.json": PACKAGE_JSON},
+    replies=(
+        "Dosyayı okuyorum.\n" + call("read_file", path="package.json"),
+        "`scripts.dev` Next.js geliştirme sunucusunu, `scripts.start:all` ise "
+        "`concurrently` ile birden çok servisi birlikte başlatıyor.",
+    ),
+)
+
+
 ALL_SCENARIOS = (
     TUR_ORTASINDA_TESLIM,
     AYNI_CEVAP_IKI_KEZ,
@@ -229,4 +245,5 @@ ALL_SCENARIOS = (
     ARAC_HATASI_TOPARLANMA,
     BOZUK_ARAC_CAGRISI,
     COK_ADIMLI_GERCEK_IS,
+    SALT_OKUMA_BASARILI,
 )
