@@ -9,6 +9,7 @@ from fusion_cli.tools import build_registry, web
 from fusion_cli.tools.planning import parse_todos
 from fusion_cli.tools.web import (
     _DDG_RESULT,
+    access_wall_notice,
     clean_result_url,
     parse_bing_rss,
     parse_results,
@@ -229,3 +230,39 @@ async def test_bos_icerikli_madde_reddedilir(registry, context):
     )
 
     assert not sonuc.ok and "content" in sonuc.output
+
+
+# --------------------------------------------------------------------------- #
+# Erişim duvarı — 200 dönen şifre/oturum sayfası başarı sayılmamalı
+# --------------------------------------------------------------------------- #
+
+
+def test_shopify_sifre_duvari_tespit_edilir():
+    """Ölçülen gerçek koşu: demo mağaza 200 döndü, model kısıtı hiç fark etmedi."""
+    sayfa = (
+        "Kalles shopify theme 2 (password: 4)\n\n"
+        "This store is password protected. Use the password to enter the store.\n"
+        "Enter store password"
+    )
+    uyari = access_wall_notice(sayfa)
+
+    assert "ERİŞİM DUVARI" in uyari
+    assert "UYDURMA" in uyari
+
+
+def test_normal_sayfada_uyari_cikmaz():
+    assert access_wall_notice("<h1>Ürünler</h1> Spor ayakkabı 1.499 TL") == ""
+
+
+def test_bot_dogrulamasi_da_duvar_sayilir():
+    assert access_wall_notice("Checking your browser before accessing the site")
+
+
+def test_giris_sayfasi_da_duvar_sayilir():
+    assert access_wall_notice("Please sign in to continue to your dashboard")
+
+
+def test_duvar_isareti_sayfanin_derinlerinde_aranmaz():
+    """Uzun bir makalede geçen 'sign in to continue' cümlesi duvar değildir."""
+    uzun = "içerik " * 3000 + "sign in to continue"
+    assert access_wall_notice(uzun) == ""

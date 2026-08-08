@@ -60,7 +60,53 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
     text = strip_html(body) if _looks_like_html(content_type, body) else body
-    return ToolResult(truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)")
+    govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
+    duvar = access_wall_notice(text)
+    return ToolResult(f"{duvar}\n\n{govde}" if duvar else govde)
+
+
+#: Erişim duvarı işaretleri. Sayfa 200 döner ve METİN gelir; ama gelen metin istenen
+#: içerik değil, kapının kendisidir.
+_ACCESS_WALL_MARKERS: tuple[str, ...] = (
+    "this store is password protected",
+    "store is password protected",
+    "bu mağaza şifre korumalı",
+    "enter store password",
+    "please enable javascript",
+    "enable javascript to continue",
+    "checking your browser",
+    "verify you are human",
+    "i'm not a robot",
+    "log in to continue",
+    "sign in to continue",
+    "oturum açın",
+)
+
+
+def access_wall_notice(text: str) -> str:
+    """Sayfa bir şifre/oturum/bot duvarıysa AÇIK bir uyarı üret; değilse boş metin.
+
+    Ölçülen gerçek zarar: şifre korumalı bir mağazanın adresi çekildiğinde istek 200
+    dönüyor, araç `ok=True` veriyor ve modele "This store is password protected"
+    metni asıl sayfa içeriğiymiş gibi gidiyordu. Model başarı sinyali aldığı için
+    kısıtı fark etmiyor, istenen siteyi göremediğini SÖYLEMİYOR ve onun yerine
+    uydurma/jenerik bir çıktı üretiyordu.
+
+    Uyarı araç SONUCUNA konur: bu proje boyunca ölçülen davranış, modelin prompt
+    kurallarını atlayıp araç sonucuna tepki verdiğidir.
+    """
+    dusuk = text[:4000].lower()
+    if not any(isaret in dusuk for isaret in _ACCESS_WALL_MARKERS):
+        return ""
+    return (
+        "ERİŞİM DUVARI: bu adres istenen içeriği DEĞİL, bir şifre/oturum/bot "
+        "doğrulama sayfasını döndürdü. Aşağıdaki metin kapının kendisidir, sayfanın "
+        "içeriği değildir. web_fetch form dolduramaz, şifre giremez ve oturum açamaz; "
+        "Fusion'da etkileşimli tarayıcı aracı YOKTUR. Bu içeriği varmış gibi kullanma "
+        "ve yerine benzerini UYDURMA — kullanıcıya siteye erişemediğini ve neye "
+        "ihtiyacın olduğunu (dışa aktarılmış dosyalar, ekran görüntüsü, açık bir URL) "
+        "açıkça söyle."
+    )
 
 
 class _BlockedRedirectError(Exception):
