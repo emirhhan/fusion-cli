@@ -333,9 +333,11 @@ geldi — `mouse_support=False` ile kaybedilen kaydırma böylece telafi edildi.
 `?1h` ok tuşlarının kodlamasını `ESC [ A` → `ESC O A` yapar; prompt_toolkit
 ikisini de çözdüğü için (`ansi_escape_sequences.py`) tuşlar bozulmaz.
 
-AÇIK: Terminal.app'in `?1007`'yi mi yoksa `?1h`'yi mi dikkate aldığı BU MAKİNEDE
-doğrulanmadı — ikisi de gönderiliyor ve desteklenmeyen kipi terminal yok sayar.
-Gerçek Terminal.app'te kullanıcı doğrulaması bekliyor.
+DOĞRULANDI (kullanıcı, gerçek macOS Terminal.app): tekerlek artık fusion'ın
+konuşmasını kaydırıyor, eski terminal çıktısı görünmüyor. Terminal.app'in
+`?1007`'yi mi `?1h`'yi mi dikkate aldığı ayrıştırılmadı — ikisi de gönderiliyor
+ve desteklenmeyen kipi terminal sessizce yok sayıyor. Birini kaldırmak için önce
+hangisinin taşıdığını ölçmek gerekir; ölçmeden sadeleştirme yapılmaz.
 
 ## Ertelenen — Claude Code görünüm klonu: girdi kutusu
 
