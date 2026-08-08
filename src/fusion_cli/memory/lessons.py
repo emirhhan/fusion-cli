@@ -132,6 +132,25 @@ class ChromaLessonMemory:
                 updated += 1
             return updated
 
+    def forget(self, texts: tuple[str, ...]) -> int:
+        """Metni eşleşen dersleri sil. `reinforce` ile AYNI eşleşme kuralını kullanır."""
+        wanted = {text.strip().lower() for text in texts if text.strip()}
+        if not wanted:
+            return 0
+        with _write_lock:
+            rows = self._collection.get()
+            ids = rows.get("ids") or []
+            documents = rows.get("documents") or []
+            silinecek = [
+                row_id
+                for row_id, document in zip(ids, documents, strict=False)
+                if document.strip().lower() in wanted
+            ]
+            if not silinecek:
+                return 0
+            self._collection.delete(ids=silinecek)
+            return len(silinecek)
+
     def all(self) -> tuple[Lesson, ...]:
         rows = self._collection.get()
         documents = rows.get("documents") or []

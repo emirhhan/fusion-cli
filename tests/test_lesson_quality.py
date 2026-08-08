@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from fusion_cli.cli.repl.commands import parse_lesson_selection
 from fusion_cli.core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
 from fusion_cli.core.redaction import contains_sensitive
 from fusion_cli.core.types import Message
@@ -284,3 +285,87 @@ def test_hatali_arac_cagrisi_olan_temiz_tur_yine_de_ogrenilir():
 def test_web_ai_salt_okuma_turu_ogrenilmez():
     salt_okuma = _tur(mutating_tool_calls_made=0, failed_tool_calls=0)
     assert should_learn(salt_okuma, plan_mode=False, allow_read_only=False) is False
+
+
+# --------------------------------------------------------------------------- #
+# Ders denetimi ve silme — /lessons numarası → /forget
+# --------------------------------------------------------------------------- #
+
+
+def test_tek_numara_secilir():
+    assert parse_lesson_selection("3", 10) == ((3,), "")
+
+
+def test_bosluk_ve_virgul_ayracli_liste_secilir():
+    assert parse_lesson_selection("3 7,9", 10) == ((3, 7, 9), "")
+
+
+def test_aralik_genisletilir():
+    assert parse_lesson_selection("2-5", 10) == ((2, 3, 4, 5), "")
+
+
+def test_aralik_ve_tekil_karisik_kullanilir():
+    assert parse_lesson_selection("1 3-5 9", 10) == ((1, 3, 4, 5, 9), "")
+
+
+def test_tekrarli_numara_bir_kez_sayilir():
+    assert parse_lesson_selection("3 3 3", 10) == ((3,), "")
+
+
+def test_bos_argumanda_kullanim_metni_doner():
+    numaralar, hata = parse_lesson_selection("   ", 10)
+    assert numaralar == () and hata
+
+
+def test_sayi_olmayan_deger_hata_verir():
+    numaralar, hata = parse_lesson_selection("üç", 10)
+    assert numaralar == () and "üç" in hata
+
+
+def test_aralik_disi_numara_sessizce_atlanmaz():
+    """Yanlış dersi silmek geri alınamaz; hata vermek atlamaktan iyidir."""
+    numaralar, hata = parse_lesson_selection("11", 10)
+    assert numaralar == () and hata
+
+
+def test_sifir_gecersizdir():
+    numaralar, hata = parse_lesson_selection("0", 10)
+    assert numaralar == () and hata
+
+
+@pytest.mark.slow
+def test_forget_dersi_depodan_gercekten_siler(tmp_path):
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="zehirli ders", kind=LessonKind.MISTAKE))
+    bellek.add(Lesson(text="iyi ders", kind=LessonKind.SUCCESS))
+
+    silinen = bellek.forget(("zehirli ders",))
+
+    assert silinen == 1
+    assert bellek.count() == 1
+    assert [ders.text for ders in bellek.all()] == ["iyi ders"]
+
+
+@pytest.mark.slow
+def test_forget_eslesmeyen_metni_atlar(tmp_path):
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="var olan", kind=LessonKind.SUCCESS))
+
+    assert bellek.forget(("olmayan ders",)) == 0
+    assert bellek.count() == 1
+
+
+@pytest.mark.slow
+def test_forget_coklu_ders_siler(tmp_path):
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    for metin in ("bir", "iki", "uc"):
+        bellek.add(Lesson(text=metin, kind=LessonKind.SUCCESS))
+
+    assert bellek.forget(("bir", "uc")) == 2
+    assert [ders.text for ders in bellek.all()] == ["iki"]

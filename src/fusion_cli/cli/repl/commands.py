@@ -171,6 +171,52 @@ def _learn(state: ReplState, argument: str) -> str:
     return messages.REPL_LEARN_SAVED
 
 
+def parse_lesson_selection(argument: str, total: int) -> tuple[tuple[int, ...], str]:
+    """`/forget` argümanını 1-tabanlı ders numaralarına çevir. Saftır.
+
+    Kabul edilen biçimler: `3`, `3 7 9`, `3,7,9`, `2-5` ve karışımları. Sıra
+    korunur, tekrar elenir. Geçersiz ya da aralık dışı bir numara SESSİZCE
+    atlanmaz: hata metniyle döner — yanlış dersi silmek geri alınamaz.
+
+    Dönüş: (numaralar, hata). Hata doluysa numaralar boştur.
+    """
+    ham = argument.replace(",", " ").split()
+    if not ham:
+        return (), messages.REPL_FORGET_USAGE
+
+    secilen: list[int] = []
+    for parca in ham:
+        alt, ayrac, ust = parca.partition("-")
+        try:
+            araliklar = range(int(alt), int(ust) + 1) if ayrac else range(int(alt), int(alt) + 1)
+        except ValueError:
+            return (), messages.REPL_FORGET_INVALID.format(value=parca)
+        for numara in araliklar:
+            if not 1 <= numara <= total:
+                return (), messages.REPL_FORGET_OUT_OF_RANGE.format(value=numara, total=total)
+            if numara not in secilen:
+                secilen.append(numara)
+    return tuple(secilen), ""
+
+
+def _forget(state: ReplState, argument: str) -> str:
+    """`/forget <no…>` — `/lessons` tablosundaki numaralarla ders sil.
+
+    Numara `/lessons` çıktısındaki sıradır; ikisi de `lessons.all()` sırasını
+    kullanır, dolayısıyla aynı oturumda tutarlıdır.
+    """
+    lessons = state.memory.lessons.all()
+    if not lessons:
+        return messages.MEMORY_EMPTY_LESSONS
+
+    numaralar, hata = parse_lesson_selection(argument, len(lessons))
+    if hata:
+        return hata
+
+    silinen = state.memory.lessons.forget(tuple(lessons[numara - 1].text for numara in numaralar))
+    return messages.REPL_FORGET_DONE.format(count=silinen)
+
+
 def _model(state: ReplState, argument: str) -> str:
     """`/model` — oturum içinde model değiştir.
 
@@ -504,6 +550,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("reindex", messages.CMD_REINDEX, _reindex, group="Bellek"),
     SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
+    SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
     SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
     SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),

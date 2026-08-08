@@ -15,6 +15,7 @@ from rich.table import Table
 from ..config.loader import load_config
 from ..core.memory import Feedback, Lesson, LessonKind, LessonSource, ModelStats
 from ..memory.factory import Memory, build_memory
+from ..memory.lesson_scoring import LESSON_CONFIDENCE_FLOOR
 from ..memory.seed import SEED_LESSONS, seed
 from ..ui import messages, theme
 
@@ -146,17 +147,31 @@ def lessons_table(lessons: tuple[Lesson, ...]) -> Table:
             mistakes=mistakes, successes=len(lessons) - mistakes
         )
     )
+    # Numara ve güven sütunu DENETİM içindir: `/forget` numarayla siler ve düşük
+    # güvenli (bozuk turlardan gelmiş) dersler ancak görülebilirse ayıklanabilir.
+    table.add_column(messages.LESSON_TABLE_INDEX, justify="right", style=theme.DIM)
     table.add_column(messages.LESSON_TABLE_KIND, style="bold")
     table.add_column(messages.LESSON_TABLE_SOURCE, style=theme.DIM)
+    table.add_column(messages.LESSON_TABLE_CONFIDENCE, justify="right")
     table.add_column(messages.LESSON_TABLE_TEXT)
-    for lesson in lessons:
+    for sira, lesson in enumerate(lessons, start=1):
         label, color = _KIND_LABELS[lesson.kind]
+        renk = _confidence_color(lesson.confidence)
         table.add_row(
+            str(sira),
             f"[{color}]{label}[/{color}]",
             _SOURCE_LABELS[lesson.source],
+            f"[{renk}]{lesson.confidence:.2f}[/{renk}]",
             lesson.text,
         )
     return table
+
+
+def _confidence_color(confidence: float) -> str:
+    """Güven rengi: eşiğin altına düşmüş ders kırmızı görünür ve gözle ayıklanır."""
+    if confidence >= LESSON_CONFIDENCE_FLOOR:
+        return theme.OK
+    return theme.WARN if confidence >= LESSON_CONFIDENCE_FLOOR / 2 else theme.ERROR
 
 
 def _score_color(score: float) -> str:

@@ -45,6 +45,9 @@ class NullLessonMemory:
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:
         return 0
 
+    def forget(self, texts: tuple[str, ...]) -> int:
+        return 0
+
     def all(self) -> tuple[Lesson, ...]:
         return ()
 

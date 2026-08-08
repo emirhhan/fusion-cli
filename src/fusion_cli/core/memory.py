@@ -185,6 +185,19 @@ class LessonMemory(Protocol):
         """
         ...
 
+    def forget(self, texts: tuple[str, ...]) -> int:
+        """Verilen metinlere birebir uyan dersleri belleğe SİL; silinen sayısını döndür.
+
+        Metinle eşleşir, kimlikle değil — `add` zaten metni tekilleştiriyor ve
+        `reinforce` de aynı yolu kullanıyor; ikinci bir kimlik kavramı açmak aynı
+        işi yapan ikinci bir yol olurdu.
+
+        Silme gerekli çünkü güven decay'i yetmiyor: bozuk bir turdan çıkmış ders
+        eşiğin altına düşse bile depoda durur, geri çağırma havuzunu şişirir ve
+        sıralamada gerçek dersleri geriye iter.
+        """
+        ...
+
     def all(self) -> tuple[Lesson, ...]: ...
 
     def count(self) -> int: ...
