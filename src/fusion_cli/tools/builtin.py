@@ -293,6 +293,27 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="browser_mirror",
+        description="Açık tarayıcı sayfasını YÜKLEDİĞİ kaynaklarla (CSS/JS/görsel/font) "
+        "birlikte diske indir. Bir siteyi 'kopyalama' isteğinin karşılığı budur; "
+        "şifre kapısını browser_type ile geçtiysen ayna da o oturumu görür. "
+        "url verilmezse ETKİN sayfa aynalanır. Tek sayfa iner ve JavaScript ile "
+        "çekilen veri yerelde çalışmaz — sonucu 'eksiksiz kopya' diye sunma. "
+        "Değiştirici (çok sayıda dosya yazar).",
+        parameters=_schema(
+            {
+                "path": {**_STRING, "description": "Hedef dizin (varsayılan: ayna)"},
+                "url": {
+                    **_STRING,
+                    "description": "Aynalanacak adres. Boş bırakılırsa etkin sayfa.",
+                },
+            },
+            [],
+        ),
+        run=browser.browser_mirror,
+        mutating=True,
+    ),
+    Tool(
         name="browser_close",
         description="Tarayıcıyı kapat. İşin bittiyse çağır; tur sonunda motor da kapatır.",
         parameters=_schema({}, []),

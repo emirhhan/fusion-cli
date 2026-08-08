@@ -14,12 +14,23 @@ Playwright ZORUNLU BAĞIMLILIK DEĞİLDİR (`fusion-cli[web]`). Kurulu değilse 
 
 from __future__ import annotations
 
+import contextlib
+from pathlib import Path
 from typing import Any
 
 from ..core.constants import MAX_OUTPUT_CHARS, truncate_notice
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
 from .files import resolve_path
+from .mirror import (
+    MAX_ASSET_BYTES,
+    MAX_ASSETS,
+    MirroredAsset,
+    asset_local_path,
+    is_mirrorable,
+    mirror_summary,
+    rewrite_links,
+)
 from .web import access_wall_notice, url_block_reason
 
 #: Sayfa yüklenmesi ve öğe bekleme için üst sınır (ms). Tarayıcı etkileşimi ağdan
@@ -28,6 +39,10 @@ PAGE_TIMEOUT_MS = 30_000
 #: Bir öğenin görünür olmasını bekleme sınırı (ms). Sayfa yüklüyse öğe hızlı gelir;
 #: gelmiyorsa seçici yanlıştır ve modeli uzun süre bekletmenin faydası yoktur.
 SELECTOR_TIMEOUT_MS = 10_000
+#: Aynalamada ağın sakinleşmesi için beklenen süre (ms). Tembel yüklenen görseller
+#: ancak burada gelir; sakinleşmeyen siteler (canlı bağlantı tutanlar) bu süre
+#: sonunda elde olanla devam eder.
+NETWORK_IDLE_MS = 15_000
 
 _KURULUM_TALIMATI = (
     "Tarayıcı aracı kullanılamıyor: playwright kurulu değil. Kurulum:\n"
@@ -129,6 +144,96 @@ async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult
         return ToolResult.failure(f"Ekran görüntüsü alınamadı ({type(exc).__name__}: {exc})")
     context.touched.add(hedef)
     return ToolResult(f"ekran görüntüsü yazıldı: {hedef}")
+
+
+async def browser_mirror(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Bir sayfayı yüklediği kaynaklarla birlikte diske aynala.
+
+    Açık oturumu kullanır: şifre kapısı `browser_type` ile geçildiyse ayna da o
+    oturumu görür. `url` verilmezse ETKİN sayfa aynalanır — kapıyı geçtikten sonra
+    "burayı indir" demenin doğal yolu budur.
+    """
+    hedef = resolve_path(context, optional_str(args, "path", "ayna"))
+    page, hata = await _sayfa(context)
+    if page is None:
+        return ToolResult.failure(hata)
+
+    url = optional_str(args, "url", "")
+    yakalanan: dict[str, bytes] = {}
+    kesildi = False
+
+    async def _yanit(response: Any) -> None:
+        nonlocal kesildi
+        adres = response.url
+        if adres in yakalanan or not response.ok:
+            return
+        if not is_mirrorable(adres, response.headers.get("content-type", "")):
+            return
+        if len(yakalanan) >= MAX_ASSETS:
+            kesildi = True
+            return
+        try:
+            govde = await response.body()
+        except Exception:
+            return
+        if len(govde) <= MAX_ASSET_BYTES:
+            yakalanan[adres] = govde
+
+    page.on("response", _yanit)
+    try:
+        if url:
+            if not url.startswith(("http://", "https://")):
+                url = f"https://{url}"
+            reason = url_block_reason(url)
+            if reason is not None:
+                return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+            await page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+        else:
+            # Etkin sayfa zaten açık; kaynakları dinleyebilmek için yeniden yükle.
+            await page.reload(wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+        # Tembel yüklenen görseller ancak ağ sakinleşince gelir. Sakinleşmezse
+        # (canlı bağlantı tutan siteler) elde olanla devam edilir.
+        with contextlib.suppress(Exception):
+            await page.wait_for_load_state("networkidle", timeout=NETWORK_IDLE_MS)
+        html = await page.content()
+    except Exception as exc:
+        return ToolResult.failure(f"Ayna alınamadı ({type(exc).__name__}: {exc})")
+    finally:
+        page.remove_listener("response", _yanit)
+
+    return _aynayi_yaz(context, hedef, html, yakalanan, kesildi)
+
+
+def _aynayi_yaz(
+    context: ToolContext,
+    hedef: Path,
+    html: str,
+    yakalanan: dict[str, bytes],
+    kesildi: bool,
+) -> ToolResult:
+    """Yakalanan kaynakları ve yeniden yazılmış HTML'i diske indir."""
+    (hedef / "assets").mkdir(parents=True, exist_ok=True)
+
+    yazilan: list[MirroredAsset] = []
+    atlanan = 0
+    for adres, govde in yakalanan.items():
+        yerel = asset_local_path(adres)
+        dosya = hedef / yerel
+        try:
+            dosya.parent.mkdir(parents=True, exist_ok=True)
+            context.changes.record(dosya)
+            dosya.write_bytes(govde)
+        except OSError:
+            atlanan += 1
+            continue
+        context.touched.add(dosya)
+        yazilan.append(MirroredAsset(url=adres, local=yerel))
+
+    sayfa = hedef / "index.html"
+    context.changes.record(sayfa)
+    sayfa.write_text(rewrite_links(html, tuple(yazilan)), encoding="utf-8")
+    context.touched.add(sayfa)
+    return ToolResult(mirror_summary(hedef, tuple(yazilan), atlanan, kesildi))
 
 
 async def browser_close(args: ToolArgs, context: ToolContext) -> ToolResult:
