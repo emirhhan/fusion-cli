@@ -261,14 +261,95 @@ def test_gecmise_bakarken_yeni_cikti_konumu_bozmaz(monkeypatch):
     assert tui._scroll == 0 and tui._unread_lines == 0
 
 
-def test_mouse_ve_home_end_kaydirma_baglari_var():
+def test_klavye_kaydirma_baglari_var():
+    """Fare izleme kapandığı için kaydırma tamamen klavyeden yapılır."""
     tui, _ = _tui()
     names = {
         tuple(str(getattr(k, "value", k)) for k in binding.keys)
         for binding in tui.application.key_bindings.bindings
     }
-    assert ("<scroll-up>",) in names
-    assert ("<scroll-down>",) in names
+    assert ("up",) in names
+    assert ("down",) in names
+    assert ("pageup",) in names
+    assert ("pagedown",) in names
     assert ("home",) in names
     assert ("end",) in names
-    assert bool(tui.application.mouse_support())
+    # `\x1b[62~`/`\x1b[63~` gönderen terminaller için; bu diziler fare kipinden
+    # BAĞIMSIZ ayrıştırılır, dolayısıyla bağlar ölü kod değildir.
+    assert ("<scroll-up>",) in names
+    assert ("<scroll-down>",) in names
+
+
+def test_fare_izleme_kapali():
+    """KARAR TERSİNE ÇEVRİLDİ: bu değer önce açıktı ve test onu kilitliyordu.
+
+    Açıkken prompt_toolkit terminale `?1000h/?1003h/?1006h/?1015h` yazıp tüm
+    fare olaylarını kendine alıyor, bu da terminalin KENDİ metin seçimini
+    öldürüyordu — ekrandaki hiçbir şey fareyle kopyalanamıyordu (pty ile
+    ölçüldü). Kopyalayabilmek tekerlekle kaydırmaktan daha temel bir beklenti.
+    """
+    tui, _ = _tui()
+
+    assert bool(tui.application.mouse_support()) is False
+
+
+# --- çalışma satırı: dönen kare -------------------------------------------- #
+
+
+def test_calisma_satiri_donen_kare_ile_baslar():
+    """Satır olaylarla besleniyor; kare olay gelmese bile turun sürdüğünü gösterir."""
+    from fusion_cli.cli.repl.tui import SPINNER_FRAMES
+
+    tui, _ = _tui()
+    tui.set_work("  düşünüyor…")
+
+    parcalar = tui._work_fragments()
+
+    assert len(parcalar) == 1
+    assert parcalar[0][1].startswith(f" {SPINNER_FRAMES[0]}")
+    assert "düşünüyor…" in parcalar[0][1]
+
+
+def test_calisma_satiri_bosken_kare_cizilmez():
+    tui, _ = _tui()
+
+    assert tui._work_fragments() == []
+
+
+def test_spinner_olay_loop_yokken_cokmez():
+    """TTY dışı/test kurulumunda olay döngüsü yoktur; animasyon sessizce atlanır."""
+    tui, _ = _tui()
+
+    tui.set_work("  düşünüyor…")  # asyncio.get_running_loop() burada RuntimeError verir
+
+    assert tui._spinner_task is None
+    assert tui._work_fragments()  # satır yine de çizilir
+
+
+async def test_spinner_kare_ilerletir_ve_durdurulunca_durur():
+    from fusion_cli.cli.repl.tui import SPINNER_FRAMES, SPINNER_INTERVAL_S
+
+    tui, _ = _tui()
+    tui.set_work("  düşünüyor…")
+    assert tui._spinner_task is not None
+
+    await asyncio.sleep(SPINNER_INTERVAL_S * 3.5)
+    ilerledi = tui._spinner_frame
+    assert ilerledi > 0
+    assert tui._work_fragments()[0][1].startswith(
+        f" {SPINNER_FRAMES[ilerledi % len(SPINNER_FRAMES)]}"
+    )
+
+    tui.clear_work()
+    assert tui._spinner_task is None
+    await asyncio.sleep(SPINNER_INTERVAL_S * 2)
+    assert tui._spinner_frame == ilerledi  # durduktan sonra kare ilerlemez
+
+
+async def test_spinner_iki_kez_baslatilmaz():
+    tui, _ = _tui()
+    tui.set_work("  bir")
+    ilk = tui._spinner_task
+    tui.set_work("  iki")
+
+    assert tui._spinner_task is ilk

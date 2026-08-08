@@ -271,8 +271,38 @@ Deneysel tam-ekran mod (`screen*`, `ansi_bridge`) tamamen kaldırıldı.
   argümansız çağrıldığında TUI içinde satır-içi bir seçici açılmalı. Şu an argümanlı
   kullanım isteniyor (`/level high`). `run_in_terminal` ile geçici tam-ekran seçici
   ya da alt-chrome içinde bir liste ile çözülecek.
-- **Canlı spinner animasyonu**: TUI çalışma satırı olay-tetikli güncelleniyor; Claude'daki
-  gibi sürekli dönen kare için periyodik `invalidate` eklenebilir.
+- ~~**Canlı spinner animasyonu**~~ — YAPILDI (2026-08-08). Çalışma satırı yalnız model
+  olaylarıyla güncelleniyordu; iki olay arasında dakikalarca kıpırdamadığı için "dondu"
+  sanılıyordu. Oysa donmuyordu — hiç dönmüyordu (`work_line.py` docstring'i bunu zaten
+  söylüyordu: "Spinner yoktur"). Periyodik `invalidate` eklendi; pty ile ölçüldü: tek
+  olay beslenip 1,6 sn beklendiğinde 10 karenin onu da ekrana yazıldı, 21 tik (~80 ms).
+
+## ÖLÇÜLDÜ — fareyle kopyalayamamanın sebebi (2026-08-08)
+
+Belirti: fusion açıkken terminalde hiçbir şey fareyle seçilip kopyalanamıyor.
+
+Sebep `mouse_support=True` idi. Açıkken prompt_toolkit terminale şunları yazıyor
+(pty'de ölçüldü):
+
+    \e[?1000h  \e[?1003h  \e[?1006h  \e[?1015h
+
+`?1003h` "tüm fare hareketlerini bildir" demektir; uygulama fareyi tamamen kendine
+alır ve terminalin KENDİ metin seçimi ölür. Kapatıldı; dört dizi de kayboldu.
+
+Karşılığında tekerlekle kaydırma gitti — kaydırma klavyeden yapılıyor (`↑/↓`,
+`PageUp/PageDown`, `Home/End`; hepsi zaten bağlıydı). Kopyalayabilmek tekerlekle
+kaydırmaktan daha temel bir beklenti olduğu için takas bilinçli.
+
+`Keys.ScrollUp`/`ScrollDown` bağları KALDI: `\x1b[62~`/`\x1b[63~` dizileri fare
+kipinden bağımsız ayrıştırılıyor, yani tekerleği kendi tuşuyla bildiren
+terminallerde hâlâ çalışıyorlar — ölü kod değiller.
+
+NOT: Bu iki belirtinin daha önceki teşhisi ("fusion hiçbir yerde fare yakalama
+açmıyor", "girdi kutusu Rich'in düz Prompt'u") YANLIŞTI; o tarif TUI geçişinden
+önceki koda aitti. Ölçüm yapılmadan koda bakılarak varılan sonuçtu.
+
+Alternatif ekran (`?1049h`) bilinçli olarak KORUNDU: yukarı kaydırınca fusion
+öncesindeki terminal çıktısının görünmemesini sağlayan şey odur.
 
 ## Ertelenen — Claude Code görünüm klonu: girdi kutusu
 

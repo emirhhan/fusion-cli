@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import logging
 import shutil
 from collections.abc import Callable
 
@@ -34,6 +35,8 @@ from rich.console import Console
 from ...ui import messages, theme
 from ...ui.picker import Choice
 
+_logger = logging.getLogger(__name__)
+
 #: Girdi kutusunun içindeki istem işareti (Claude Code `> `).
 PROMPT = "> "
 #: Yapıştırma bu satır/karakter sayısını aşarsa tek satırlık yer tutucuya katlanır.
@@ -44,6 +47,12 @@ FOLD_PASTE_CHARS = 600
 #: Ok/PageUp ile bir seferde kaç satır kaydırılacağı.
 _SCROLL_STEP = 3
 _SCROLL_PAGE = 12
+#: Çalışma satırının dönen karesi. Braille noktaları tek hücre genişliğindedir;
+#: monospace hizayı bozmaz ve kare değişince satır kaymaz.
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+#: Kare süresi. 80 ms göze akıcı gelen en UZUN aralıktır; daha kısası tam-ekran
+#: repaint maliyetini karşılıksız artırır.
+SPINNER_INTERVAL_S = 0.08
 #: Alt-chrome'un (gradyan çizgi + çerçeveli girdi + durum) yaklaşık satır yüksekliği;
 #: konuşma alanının kaç satır göstereceğini hesaplamak için.
 _CHROME_ROWS = 6
@@ -106,6 +115,8 @@ class FusionTui:
         self._on_cycle_mode = on_cycle_mode
         self._on_transcript_change = on_transcript_change
         self._work_text = ""
+        self._spinner_frame = 0
+        self._spinner_task: asyncio.Task[None] | None = None
         self._status_html = ""
         self._status_mode = "auto"
         self._status_engine = "agent"
@@ -144,7 +155,7 @@ class FusionTui:
             always_hide_cursor=True,
         )
         work_window = ConditionalContainer(
-            Window(FormattedTextControl(lambda: self._work_text), height=1, style="class:work"),
+            Window(FormattedTextControl(self._work_fragments), height=1, style="class:work"),
             filter=Condition(lambda: bool(self._work_text)),
         )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
@@ -164,7 +175,14 @@ class FusionTui:
             key_bindings=self._bindings(),
             style=_style(),
             full_screen=True,
-            mouse_support=True,
+            # Fare izleme KAPALI. Açıkken prompt_toolkit terminale
+            # `?1000h/?1003h/?1006h/?1015h` yazıyor ve tüm fare olaylarını kendine
+            # alıyordu; bu, terminalin KENDİ metin seçimini öldürüyor — kullanıcı
+            # ekrandaki hiçbir şeyi fareyle seçip kopyalayamıyordu (ölçüldü, pty).
+            # Karşılığında tekerlekle kaydırma gider; kaydırma klavyeden yapılır
+            # (yukarı/aşağı, PageUp/PageDown, Home/End). Kopyalayabilmek,
+            # tekerlekle kaydırmaktan daha temel bir beklentidir.
+            mouse_support=False,
         )
 
     @property
@@ -191,13 +209,51 @@ class FusionTui:
             self._on_transcript_change(self._conversation)
         self._refresh_status()
 
+    def _work_fragments(self) -> StyleAndTextTuples:
+        """Çalışma satırı: dönen kare + olaylardan gelen metin."""
+        if not self._work_text:
+            return []
+        frame = SPINNER_FRAMES[self._spinner_frame % len(SPINNER_FRAMES)]
+        return [("class:work", f" {frame}{self._work_text}")]
+
     def set_work(self, text: str) -> None:
         self._work_text = text
+        self._start_spinner()
         self._invalidate()
 
     def clear_work(self) -> None:
         self._work_text = ""
+        self._stop_spinner()
         self._invalidate()
+
+    # -- Spinner ------------------------------------------------------------ #
+    # Çalışma satırı YALNIZCA model olaylarıyla güncelleniyordu; iki olay arasında
+    # dakikalarca kıpırdamıyor ve "dondu" gibi görünüyordu. Dönen kare, olay
+    # gelmese bile turun sürdüğünü gösterir.
+
+    def _start_spinner(self) -> None:
+        if self._spinner_task is not None and not self._spinner_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Olay döngüsü yok (test ya da TTY dışı kurulum): animasyon atlanır,
+            # çalışma satırı yine olaylarla güncellenir.
+            return
+        self._spinner_task = loop.create_task(self._spin())
+        self._spinner_task.add_done_callback(_log_spinner_result)
+
+    def _stop_spinner(self) -> None:
+        task, self._spinner_task = self._spinner_task, None
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _spin(self) -> None:
+        """Çalışma satırı durana kadar kareyi ilerlet ve ekranı tazele."""
+        while self._work_text:
+            await asyncio.sleep(SPINNER_INTERVAL_S)
+            self._spinner_frame += 1
+            self._invalidate()
 
     def set_status(self, mode: str, engine: str) -> None:
         self._status_mode = mode
@@ -213,6 +269,7 @@ class FusionTui:
         self._invalidate()
 
     def request_exit(self) -> None:
+        self._stop_spinner()
         if self.application.is_running:
             self.application.exit()
 
@@ -436,6 +493,15 @@ class FusionTui:
     def _invalidate(self) -> None:
         if self.application.is_running:
             self.application.invalidate()
+
+
+def _log_spinner_result(task: asyncio.Task[None]) -> None:
+    """Spinner arka planda çalışır; iptal beklenendir, başka hata yutulmaz."""
+    if task.cancelled():
+        return
+    error = task.exception()
+    if error is not None:
+        _logger.warning("çalışma satırı spinner'ı beklenmedik biçimde durdu: %s", error)
 
 
 def _term_width() -> int:
