@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from fusion_cli.cli.repl.tui import FusionTui, format_status
 
@@ -466,3 +467,68 @@ def test_cakismayan_kaydirma_kisayollari_bagli():
 
 def test_pageup_hala_bagli():
     assert any("pageup" in a for a in _kayit_anahtarlari(_yeni_tui()))
+
+
+# --- modal kipte tuşlar girdi kutusuna sızmamalı --------------------------- #
+#
+# Gerçek koşu: onay istemi açıkken yazılan metin girdi kutusuna düştü, sıraya
+# alındı ve tur bitince AYRI BİR KULLANICI TURU olarak gönderildi. O turun
+# görevi tek harften ibaret olduğu için bütçesi de ona göre hesaplandı ve iş
+# "araç turu sınırına ulaşıldı (5)" ile yarıda kaldı. Modal açıkken yazılan şey
+# bir görev değil, sorunun cevabıdır.
+
+
+@contextlib.asynccontextmanager
+async def _calisan_tui():
+    """TUI'yi GERÇEKTEN çalıştır: tuşlar tampona ancak uygulama koşarken ulaşır.
+
+    Uygulamayı çalıştırmadan `key_processor`'a tuş beslemek yanıltıcıdır — girdi
+    kutusu odaklı değildir ve hiçbir tuş tampona girmez, yani "sızıntı yok" gibi
+    görünür. Sızıntı ancak gerçek oturumda ölçülebilir.
+    """
+    from prompt_toolkit.application import create_app_session
+    from prompt_toolkit.input import create_pipe_input
+    from prompt_toolkit.output import DummyOutput
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        tui = _yeni_tui()
+        task = asyncio.create_task(tui.application.run_async())
+        await asyncio.sleep(0.2)
+        try:
+            yield tui, pipe
+        finally:
+            with contextlib.suppress(Exception):
+                tui.application.exit()
+            await asyncio.sleep(0.1)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+
+async def test_onay_kipinde_harfler_girdi_kutusuna_gitmez():
+    async with _calisan_tui() as (tui, pipe):
+        confirm = asyncio.create_task(tui.await_confirm())
+        await asyncio.sleep(0.2)
+        pipe.send_text("merhaba")
+        await asyncio.sleep(0.3)
+
+        assert tui._input.text == "", "modal açıkken metin girdi kutusuna sızdı"
+        confirm.cancel()
+
+
+async def test_onay_kipinde_e_onaylar():
+    async with _calisan_tui() as (tui, pipe):
+        confirm = asyncio.create_task(tui.await_confirm())
+        await asyncio.sleep(0.2)
+        pipe.send_text("e")
+        await asyncio.sleep(0.3)
+
+        assert confirm.done() and confirm.result() is True
+
+
+async def test_idle_kipte_yazi_normal_akar():
+    async with _calisan_tui() as (tui, pipe):
+        pipe.send_text("merhaba")
+        await asyncio.sleep(0.3)
+
+        assert tui._input.text == "merhaba"

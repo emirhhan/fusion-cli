@@ -164,7 +164,11 @@ async def run_agent_task(
         )
         outcome = await run_agent(task, deps, history=history, plan_mode=mode is ApprovalMode.PLAN)
 
-        if not outcome.final_text.strip():
+        # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
+        # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
+        # verdi)" satırı basmak, açıklanmış bir durumu ikinci kez ve daha az
+        # bilgiyle söylemekti.
+        if not outcome.final_text.strip() and outcome.ok:
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
         elif not outcome.ok and is_rate_limit_error(outcome.final_text):
             bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))

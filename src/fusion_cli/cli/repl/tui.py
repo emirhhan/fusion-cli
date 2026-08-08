@@ -495,6 +495,21 @@ class FusionTui:
         def _no(_event: object) -> None:
             self._resolve(False)
 
+        # Onay/seçim açıkken BAŞKA hiçbir tuş girdi kutusuna ulaşmaz.
+        #
+        # Ölçüldü: modal açıkken yazılan metin kutuya sızıyordu. Cevap tuşları
+        # (e/h) yeniyor, geri kalan harfler kutuda birikiyor ve tur bitince
+        # sıradaki satır olarak GÖNDERİLİYORDU — kullanıcının cevabı, bir sonraki
+        # turun görevine dönüşüyordu. O turun bütçesi de o tek harften
+        # hesaplandığı için iş "araç turu sınırına ulaşıldı" ile yarıda kalıyordu.
+        #
+        # `ask` kipi DIŞARIDADIR: orada beklenen şey zaten serbest metindir.
+        modal = Condition(lambda: self._mode in ("confirm", "choice"))
+
+        @kb.add(Keys.Any, filter=modal, eager=True)
+        def _yut(_event: object) -> None:
+            """Cevap olmayan tuşu sessizce yut; kutuya yazma."""
+
         # Oklar: seçim modunda seçeneği gezer, boştayken konuşmayı kaydırır.
         nav = Condition(lambda: self._mode in ("idle", "choice"))
 

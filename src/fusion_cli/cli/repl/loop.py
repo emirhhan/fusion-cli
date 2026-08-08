@@ -407,7 +407,8 @@ async def _agent_turn(
             )
             # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
             state.last_changes = tool_context.changes
-            if not outcome.final_text.strip():
+            # Boş cevap yalnızca tur temiz bittiyse hatadır; bkz. `cli/session.py`.
+            if not outcome.final_text.strip() and outcome.ok:
                 bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
             # Rozet yalnızca BAŞARILI turda anlamlıdır; bkz. `cli/session.py`.
             if outcome.ok and outcome.made_no_changes and state.approval.value != "plan":
