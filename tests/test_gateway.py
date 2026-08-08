@@ -166,12 +166,19 @@ async def test_dashboard_html_doner():
 
 
 async def test_dashboard_stil_ve_betik_ayri_dosyadan_gelir():
-    """Panel tek dosya değildir; stil ve davranış statik varlıklardan yüklenir."""
+    """Panel tek dosya değildir; stil ve davranış statik varlıklardan yüklenir.
+
+    Adresler SÜRÜMLE damgalıdır (bkz. `_dashboard_html`): varlıklar bir saat
+    önbelleğe alındığı için sabit adres, panelde yapılan düzeltmenin kullanıcıya
+    hiç ulaşmamasına yol açıyordu.
+    """
+    from fusion_cli import __version__
+
     async with _client(_app()) as client:
         resp = await client.get("/dashboard")
     assert "<style>" not in resp.text
-    assert "/dashboard/static/tokens.css" in resp.text
-    assert "/dashboard/static/panel.js" in resp.text
+    assert f"/dashboard/static/{__version__}/tokens.css" in resp.text
+    assert f"/dashboard/static/{__version__}/panel.js" in resp.text
 
 
 @pytest.mark.parametrize(
@@ -537,3 +544,72 @@ def test_panel_durum_yenilendiginde_secicileri_tazeler():
     js = _panel_js()
     render_bloku = js.split("function render()")[1].split("\nfunction ")[0]
     assert "renderCatalog()" in render_bloku
+
+
+def test_panel_bos_katalogda_da_secicileri_doldurur():
+    """Ölçülen hata: `if (catalog.length)` koruması yüzünden uzak katalog boş
+    gelince (anahtar yok / ağ yok) model seçicileri HİÇ doldurulmuyordu ve
+    kullanıcı kendi web oturumunu bile göremiyordu."""
+    js = _panel_js()
+    render_bloku = js.split("function render()")[1].split("\nfunction ")[0]
+
+    assert "renderCatalog()" in render_bloku
+    assert "if (catalog.length) renderCatalog()" not in render_bloku
+
+
+def test_panel_varliklari_surumle_damgalanir():
+    """Varlıklar bir saat önbelleğe alınıyor; adres sabit kalırsa panelde yapılan
+    düzeltme kullanıcıya ULAŞMAZ ve düzeltme çalışmıyor sanılır."""
+    from fusion_cli import __version__
+    from fusion_cli.gateway.app import _dashboard_html
+
+    html = _dashboard_html()
+
+    assert f"/dashboard/static/{__version__}/panel.js" in html
+    assert "/dashboard/static/panel.js" not in html
+
+
+def test_damgali_varlik_adresi_dosyayi_bulur():
+    from fusion_cli import __version__
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    assert read_dashboard_asset(strip_asset_version(f"{__version__}/panel.js")) is not None
+
+
+def test_damgasiz_varlik_adresi_de_calisir():
+    """Eski bir sekmeden gelen damgasız istek 404 olmamalı."""
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    assert read_dashboard_asset(strip_asset_version("panel.js")) is not None
+
+
+def test_damga_yol_tasmasini_acmaz():
+    """Damga ayıklama bir güvenlik kapısı DEĞİLDİR; yol doğrulaması korunmalı."""
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    assert read_dashboard_asset(strip_asset_version("0.3.0/../../app.py")) is None
+    assert read_dashboard_asset(strip_asset_version("../app.py")) is None
+
+
+def test_damga_alt_dizinli_varligi_bozmaz():
+    """Ölçülen regresyon: ilk parça KOŞULSUZ atılınca 'fonts/x.woff2' → 'x.woff2'
+    oluyor ve font 404 dönüyordu."""
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    assert strip_asset_version("fonts/inter-latin.woff2") == "fonts/inter-latin.woff2"
+    assert read_dashboard_asset(strip_asset_version("fonts/inter-latin.woff2")) is not None
+
+
+def test_damgali_alt_dizinli_varlik_da_bulunur():
+    from fusion_cli import __version__
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    yol = f"{__version__}/fonts/inter-latin.woff2"
+    assert read_dashboard_asset(strip_asset_version(yol)) is not None
+
+
+def test_eski_damga_da_taninir():
+    """Açık kalmış bir panel eski damgayla istek atar; 404 almamalı."""
+    from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
+
+    assert read_dashboard_asset(strip_asset_version("0.1.0/panel.js")) is not None

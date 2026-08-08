@@ -325,11 +325,6 @@ function render() {
   chain = s.fallback.slice(); renderChain();
   $("strictModel").checked = Boolean(s.strict_model_selection);
   judge = (s.judge || []).slice(); renderJudge();
-  // Model seçicileri STATE'e de bağlıdır: yeni bir web oturumu eklendiğinde
-  // listenin bir sonraki durum yenilemesinde görünmesi gerekir. `loadCatalog`
-  // yalnızca açılışta ve elle tazelemede çalışır; ona bırakılırsa oturum
-  // panel yeniden yüklenene kadar seçilemez kalırdı.
-  renderCatalog();
 
   const hm = s.health;
   $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>
@@ -339,7 +334,12 @@ function render() {
          "Devre durumu ve güvenilirlik skoru, modellere istek gittikçe birikir.");
 
   $("chatModel").innerHTML = s.models.map((m) => `<option>${m}</option>`).join("");
-  if (catalog.length) renderCatalog();  // durum yenilenince katalog eklerini koru
+  // KOŞULSUZ çağrılır. Eskiden `if (catalog.length)` ile korunuyordu ve uzak
+  // katalog boş geldiğinde (anahtar yok, ağ yok, sağlayıcı kapalı) model
+  // seçicileri HİÇ doldurulmuyordu: kullanıcı kendi web oturumunu bile
+  // göremiyor, açılır liste tamamen boş kalıyordu. Yerel modeller katalogdan
+  // BAĞIMSIZDIR ve her durumda listelenmelidir.
+  renderCatalog();
   renderAnalytics(s.analytics || {});
   $("brandVer").textContent = "v" + (s.version || "?");
 }

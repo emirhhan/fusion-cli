@@ -16,6 +16,7 @@ import contextlib
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -136,7 +137,7 @@ class GatewayApp:
             await _html(send, _dashboard_html())
             return
         if method == "GET" and path.startswith(_DASHBOARD_ASSET_PREFIX):
-            asset = read_dashboard_asset(path[len(_DASHBOARD_ASSET_PREFIX) :])
+            asset = read_dashboard_asset(strip_asset_version(path[len(_DASHBOARD_ASSET_PREFIX) :]))
             if asset is None:
                 await _json(send, {"error": {"message": "bulunamadı"}}, status=404)
                 return
@@ -1028,10 +1029,48 @@ def _provider_category(provider: ProviderDefinition) -> str:
 
 
 def _dashboard_html() -> str:
-    """Yerel panel HTML'i — paket verisi olarak yüklenir (koda gömülü değil)."""
+    """Yerel panel HTML'i — paket verisi olarak yüklenir (koda gömülü değil).
+
+    Varlık adresleri SÜRÜMLE damgalanır (`panel.js?v=0.3.0a1`). Sebep ölçüldü:
+    varlıklar `max-age=3600` ile önbelleğe alınıyor ve adres sabit olduğu için
+    tarayıcı bir saat boyunca ESKİ dosyayı sunuyordu. Panelde yapılan bir düzeltme
+    kullanıcıya hiç ulaşmıyor, kullanıcı da düzeltmenin çalışmadığını sanıyordu —
+    aynı şey her sürüm yükseltmesinde de oluyordu.
+
+    Damga sürümden gelir: sürüm değişince adres değişir, tarayıcı yeniyi çeker;
+    değişmediği sürece önbellek tam verimle çalışmaya devam eder.
+    """
     from pathlib import Path
 
-    return (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+    from .. import __version__
+
+    html = (Path(__file__).parent / "dashboard.html").read_text(encoding="utf-8")
+    return html.replace(_DASHBOARD_ASSET_PREFIX, f"{_DASHBOARD_ASSET_PREFIX}{__version__}/")
+
+
+def strip_asset_version(name: str) -> str:
+    """`0.3.0a1/panel.js` → `panel.js`. Damgasız ve alt dizinli adresler korunur.
+
+    Damga yalnızca önbelleği kırmak içindir ve dosya adının parçası DEĞİLDİR.
+    Ayıklama KOŞULLUDUR: ilk parça yalnızca gerçekten bir sürüm damgasıysa atılır.
+    Koşulsuz atmak `fonts/inter-latin.woff2` gibi alt dizinli varlıkları bozuyordu —
+    "fonts" damga sanılıp siliniyor ve dosya 404 dönüyordu (teste takıldı).
+
+    Eski bir sekmeden gelen ESKİ damga da tanınır: damga sürüm numarası biçiminde
+    olduğu sürece atılır, böylece açık kalmış bir panel 404 almaz.
+
+    Yol güvenliği `read_dashboard_asset` içinde ayrıca doğrulanır; bu fonksiyon bir
+    güvenlik kapısı değildir ve öyle davranmaz.
+    """
+    damga, ayrac, kalan = name.partition("/")
+    if ayrac and kalan and _ASSET_VERSION_RE.fullmatch(damga):
+        return kalan
+    return name
+
+
+#: Sürüm damgası biçimi: rakamla başlar, sürüm karakterleri içerir (0.3.0a1, 1.2.3).
+#: Varlık dizin adları (`fonts`) bu kalıba UYMAZ ve bu bilinçlidir.
+_ASSET_VERSION_RE = re.compile(r"\d[\w.+-]*")
 
 
 def read_dashboard_asset(name: str) -> tuple[bytes, str] | None:
