@@ -10,7 +10,7 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 from __future__ import annotations
 
 from ..core.tools import Tool
-from . import files, planning, scaffold_tool, search, shell, web
+from . import browser, files, planning, scaffold_tool, search, shell, web
 from .registry import ToolRegistry
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
@@ -215,9 +215,88 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="web_fetch",
         description="Bir URL'nin içeriğini çek ve metnini oku (HTML temizlenir). "
-        "web_search sonucundaki bir sayfayı okumak için kullan.",
+        "web_search sonucundaki bir sayfayı okumak için kullan. Form dolduramaz ve "
+        "oturum açamaz; sayfa şifre/giriş arkasındaysa browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
+    ),
+    Tool(
+        name="browser_open",
+        description="Bir adresi GERÇEK tarayıcıda aç ve sayfanın görünür metnini oku. "
+        "web_fetch'in yetmediği yerde kullan: şifre/giriş arkasındaki sayfa, "
+        "JavaScript ile dolan içerik, tıklama gerektiren akış. Sayfa tur boyunca "
+        "AÇIK kalır; sonraki browser_* çağrıları aynı sayfada çalışır.",
+        parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
+        run=browser.browser_open,
+    ),
+    Tool(
+        name="browser_read",
+        description="Açık tarayıcı sayfasının GÜNCEL adresini, başlığını ve metnini oku. "
+        "Bir tıklama/yazma sonrası sayfanın ne olduğunu görmek ve seçici doğrulamak "
+        "için kullan.",
+        parameters=_schema({}, []),
+        run=browser.browser_read,
+    ),
+    Tool(
+        name="browser_type",
+        description="Açık sayfada bir alana metin yaz (CSS seçici ile). Şifre kutusu, "
+        "arama alanı, form girdisi. submit: true verirsen ardından Enter'a basar. "
+        "Değiştirici — gerçek dünyada etki yaratır, onay gerekir.",
+        parameters=_schema(
+            {
+                "selector": {
+                    **_STRING,
+                    "description": "CSS seçici, ör. 'input[type=password]' veya '#Password'",
+                },
+                "text": {**_STRING, "description": "Alana yazılacak metin"},
+                "submit": {
+                    "type": "boolean",
+                    "description": "true ise yazdıktan sonra Enter'a basar ve sayfayı bekler",
+                },
+            },
+            ["selector", "text"],
+        ),
+        run=browser.browser_type,
+        mutating=True,
+    ),
+    Tool(
+        name="browser_click",
+        description="Açık sayfada bir öğeye tıkla (CSS seçici ile). Değiştirici — "
+        "tıklama geri alınamaz bir işlem başlatabilir, onay gerekir.",
+        parameters=_schema(
+            {
+                "selector": {
+                    **_STRING,
+                    "description": "CSS seçici, ör. 'button[type=submit]' veya 'a.logo'",
+                }
+            },
+            ["selector"],
+        ),
+        run=browser.browser_click,
+        mutating=True,
+    ),
+    Tool(
+        name="browser_screenshot",
+        description="Açık sayfanın ekran görüntüsünü diske yaz. Bir siteyi taklit "
+        "ederken yerleşimi metinden değil GÖRÜNTÜDEN anlarsın. Değiştirici (dosya yazar).",
+        parameters=_schema(
+            {
+                "path": {**_STRING, "description": "Hedef dosya (varsayılan: ekran-goruntusu.png)"},
+                "full_page": {
+                    "type": "boolean",
+                    "description": "false ise yalnızca görünen ekran alınır (varsayılan true)",
+                },
+            },
+            [],
+        ),
+        run=browser.browser_screenshot,
+        mutating=True,
+    ),
+    Tool(
+        name="browser_close",
+        description="Tarayıcıyı kapat. İşin bittiyse çağır; tur sonunda motor da kapatır.",
+        parameters=_schema({}, []),
+        run=browser.browser_close,
     ),
 )
 

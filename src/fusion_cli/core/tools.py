@@ -21,6 +21,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Protocol
 
+from .browser_session import BrowserSession
 from .changeset import ChangeSet
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
@@ -127,6 +128,9 @@ class ToolContext:
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
     pending: PendingWrite = field(default_factory=lambda: PendingWrite())
+    #: Tur boyunca açık kalan tarayıcı. Etkileşimli tarayıcı araçları buraya bağlanır:
+    #: "alana yaz → gönder → açılan sayfayı oku" üç ayrı çağrıdır ve aynı sayfayı görmeli.
+    browser: BrowserSession = field(default_factory=BrowserSession)
     #: True ise dosya araçları yalnızca `root` (ve `extra_roots`) altında çalışır;
     #: dışarı çıkan yol, `..` ile taşan yol ve dışarı sızdıran symlink reddedilir.
     #:

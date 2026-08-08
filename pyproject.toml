@@ -115,6 +115,12 @@ ignore = [
 "src/fusion_cli/engines/agent/browser_verify.py" = ["ANN401"]
 # Native web providers wrap optional Playwright objects; Any stays inside this adapter.
 "src/fusion_cli/providers/web_browser.py" = ["ANN401"]
+# Etkileşimli tarayıcı araçları da playwright Page/Browser sınırında çalışır; `Any`
+# bu dosyanın dışına çıkmaz, sonuçlar `ToolResult` olarak döner.
+"src/fusion_cli/tools/browser.py" = ["ANN401"]
+# Tarayıcı oturumu taşıyıcısı playwright nesnelerini tutar ama onu import ETMEZ
+# (`core` üçüncü parti tanımaz); alan tipleri bu yüzden gevşek kalır.
+"src/fusion_cli/core/browser_session.py" = ["ANN401"]
 
 [tool.mypy]
 # python_version BILINCLI olarak ayarlanmamistir: mypy calistigi yorumlayicinin

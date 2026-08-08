@@ -366,6 +366,12 @@ async def run_agent(
         recalled, outcome, deps, plan_mode=plan_mode, verification=verification
     )
     outcome.messages = await _maybe_compress(outcome.messages, deps)
+    # Tarayıcı oturumunun sahibi EN DIŞTAKİ turdur. İç içe çağrılar (öz-denetim,
+    # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
+    # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
+    # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
+    if depth == 0 and deps.tool_context.browser.is_open:
+        await deps.tool_context.browser.close()
     return outcome
 
 

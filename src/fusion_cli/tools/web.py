@@ -102,11 +102,12 @@ def access_wall_notice(text: str) -> str:
     return (
         f"{CAPABILITY_WALL_PREFIX} bu adres istenen içeriği DEĞİL, bir şifre/oturum/bot "
         "doğrulama sayfasını döndürdü. Aşağıdaki metin kapının kendisidir, sayfanın "
-        "içeriği değildir. web_fetch form dolduramaz, şifre giremez ve oturum açamaz; "
-        "Fusion'da etkileşimli tarayıcı aracı YOKTUR. Bu içeriği varmış gibi kullanma "
-        "ve yerine benzerini UYDURMA — kullanıcıya siteye erişemediğini ve neye "
-        "ihtiyacın olduğunu (dışa aktarılmış dosyalar, ekran görüntüsü, açık bir URL) "
-        "açıkça söyle."
+        "içeriği değildir. web_fetch form dolduramaz ve oturum açamaz. ŞİMDİ NE YAP: "
+        "kapıyı browser_open ile aç, browser_read ile alanın seçicisini gör, "
+        "browser_type ile şifreyi/bilgiyi gir (submit: true) ve açılan sayfayı oku. "
+        "Kapıyı geçemiyorsan (bilgi sende yok, doğrulama insan istiyor) bu içeriği "
+        "varmış gibi kullanma ve yerine benzerini UYDURMA — kullanıcıya erişemediğini "
+        "ve neye ihtiyacın olduğunu açıkça söyle."
     )
 
 
