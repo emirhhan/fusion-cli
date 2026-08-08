@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Protocol
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
 from ..core.concurrency import BackgroundTasks
-from ..core.events import ErrorOccurred, EventSink, FusionCompleted, TurnFinished
+from ..core.events import ErrorOccurred, EventSink, FusionCompleted, NoFileChanges, TurnFinished
 from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
 from ..core.types import (
@@ -170,6 +170,9 @@ async def run_agent_task(
             bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
         elif not outcome.ok:
             bus.publish(ErrorOccurred(outcome.final_text, fatal=False))
+        # Plan modunda değişiklik ZATEN yasaktır; orada rozet bilgi taşımaz.
+        if outcome.made_no_changes and mode is not ApprovalMode.PLAN:
+            bus.publish(NoFileChanges())
         bus.publish(TurnFinished())
         return outcome
 

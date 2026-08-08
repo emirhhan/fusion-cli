@@ -273,6 +273,20 @@ class EffectWorkflowFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class NoFileChanges(Event):
+    """Tur araç çalıştırdı ama hiçbir dosya/sistem değişikliği yapmadı.
+
+    Ölçüldü (gerçek koşu): model iki dosya OKUDU, hiçbir şey yazmadı ve "entegrasyon
+    betiklerini hazırladım, değişen dosyalar: package.json" diyerek turu bitirdi.
+    Dosyaların hiçbiri değişmemişti — model okuduğu dosyada zaten var olan bir betiği
+    kendi işi gibi raporladı.
+
+    Uydurmayı metinden tanımak dile ve ifadeye bağımlıdır; ama turun sıfır mutasyon
+    yaptığı KESİN olarak bilinir. Bu olay o olguyu taşır: yorum değil, sayaç.
+    """
+
+
+@dataclass(frozen=True, slots=True)
 class TurnFinished(Event):
     """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
 

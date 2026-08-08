@@ -164,6 +164,15 @@ class AgentOutcome:
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
 
+    @property
+    def made_no_changes(self) -> bool:
+        """Tur araç çalıştırdı ama hiçbir şey değiştirmedi mi?
+
+        Araç HİÇ çağrılmayan tur dışarıdadır: düz sohbet cevabında "değişiklik
+        yapılmadı" demek gürültüdür, kimse değişiklik beklemiyordu.
+        """
+        return self.tool_calls_made > 0 and self.mutating_tool_calls_made == 0
+
 
 @dataclass(slots=True)
 class AgentDeps:

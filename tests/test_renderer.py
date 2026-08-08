@@ -11,13 +11,14 @@ from fusion_cli.core.events import (
     ErrorOccurred,
     ModelCallFinished,
     ModelCallStarted,
+    NoFileChanges,
     SelfReviewFinished,
     StatusChanged,
     TokenReceived,
     TurnFinished,
 )
 from fusion_cli.core.types import ModelResult, TokenUsage
-from fusion_cli.ui import theme
+from fusion_cli.ui import messages, theme
 from fusion_cli.ui.renderer import ConsoleRenderer
 
 #: Cevabın başındaki işaret; akan metnin önüne konur.
@@ -818,3 +819,34 @@ def test_effect_workflow_sonuc_karti_branch_ve_hashleri_gosterir():
     assert "main" in text
     assert text.count("abc123") >= 2
     assert "eşleşiyor" in text
+
+
+# --- "değişiklik yapılmadı" rozeti ----------------------------------------- #
+#
+# Ölçüldü (Gemini web, gerçek koşu): model iki dosya OKUDU, hiçbir şey yazmadı ve
+# "entegrasyon betiklerini hazırladım, değişen dosyalar: package.json" diyerek turu
+# bitirdi. Dosyaların hiçbiri değişmemişti. Uydurmayı dilsel olarak tanımak mümkün
+# değil, ama Fusion turun sıfır mutasyon yaptığını KESİN olarak biliyor. Rozet o
+# olguyu basar; yorum değil, sayaçtır.
+
+
+def test_degisiklik_yapilmayan_tur_rozet_basar():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "package.json güncellendi."))
+    renderer.handle(NoFileChanges())
+    renderer.handle(TurnFinished())
+
+    assert messages.NO_FILE_CHANGES in buffer.getvalue()
+
+
+def test_rozet_cevabin_ardina_basilir():
+    """Rozet cevabı bölmez: akan metin kapandıktan SONRA gelir."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "cevap metni"))
+    renderer.handle(NoFileChanges())
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert cikti.index("cevap metni") < cikti.index(messages.NO_FILE_CHANGES)

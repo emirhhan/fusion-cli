@@ -85,6 +85,10 @@ AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_ISSUE = "öz-denetim · sorun bulundu, düzeltiliyor"
 AGENT_CONTEXT_COMPRESSED = "bağlam sıkıştırıldı ({before} → {after} mesaj)"
 AGENT_EMPTY_ANSWER = "(model boş yanıt verdi)"
+#: Tur okudu ama hiçbir şey değiştirmedi. Cevabın ARDINA basılır ve modelin
+#: "yaptım" iddiasının yanına Fusion'ın kendi bildiği olguyu koyar; kullanıcı
+#: iddiayı doğrulamak için dosyaları elle kontrol etmek zorunda kalmaz.
+NO_FILE_CHANGES = "bu turda hiçbir dosya değiştirilmedi · yalnızca okuma yapıldı"
 #: Seçili model dosya/sistem değiştiremiyor. Kısıt SESSİZ kalmamalı: model
 #: "böyle bir aracım yok" der ve haklıdır, ama kullanıcı sebebi göremezse
 #: Fusion'ı arızalı sanır.

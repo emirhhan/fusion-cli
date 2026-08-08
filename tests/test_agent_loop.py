@@ -798,3 +798,48 @@ async def test_soru_isareti_olmayan_salt_okuma_cevabi_zorlanmaz(monkeypatch, tmp
     await run_agent("bu dizini açıkla", _deps(tmp_path, sink))
 
     assert provider.calls == 2
+
+
+# --- "değişiklik yapılmadı" yüklemi ---------------------------------------- #
+
+
+async def test_salt_okuma_turu_degisiklik_yapmadi_bildirir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert sonuc.made_no_changes is True
+
+
+async def test_yazan_tur_degisiklik_yapmadi_demez(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("yaz", _deps(tmp_path, sink))
+
+    assert sonuc.mutating_tool_calls_made > 0
+    assert sonuc.made_no_changes is False
+
+
+async def test_araçsiz_sohbet_turu_rozet_kosulunu_tetiklemez(monkeypatch, tmp_path, sink):
+    """Düz sohbette kimse değişiklik beklemiyordu; rozet gürültü olurdu."""
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    sonuc = await run_agent("selam", _deps(tmp_path, sink))
+
+    assert sonuc.made_no_changes is False
