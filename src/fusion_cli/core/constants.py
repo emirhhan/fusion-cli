@@ -35,6 +35,14 @@ GIT_TIMEOUT_S = 30.0
 #: sohbet turu sayfa yükleme + yazma + tam streaming üretim içerir ve buraya sığmaz;
 #: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
+#: Bir aracın "istenen iş bu araçla YAPILAMAZ" dediği çıktının öneki.
+#:
+#: Şifre duvarı, oturum kapısı ya da bot doğrulaması gibi durumlarda araç teknik
+#: olarak başarılıdır (200 döner) ama istenen içeriği getirememiştir. Motor bu öneki
+#: görünce eylem-kanıtı kapısını geri çeker: kanıt yokluğunun sebebi modelin
+#: tembelliği değil, aracın sınırıdır ve modeli zorlamak onu UYDURMAYA iter.
+CAPABILITY_WALL_PREFIX = "ERİŞİM DUVARI:"
+
 #: Tarayıcı turu için kabul edilebilir EN KISA bütçe (saniye). Yapılandırma bunun
 #: altına inerse tur daha başlamadan zaman aşımına uğrar; taban buradadır.
 MIN_BROWSER_TURN_S = 30.0

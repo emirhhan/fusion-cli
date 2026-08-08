@@ -246,3 +246,153 @@ async def test_kosu_var_olan_site_uzerinde_iskele_uyarisi_cikar(monkeypatch, tmp
     iskele = next(olay for olay in _arac_olaylari(sink) if olay.name == "scaffold_web")
     assert "DİKKAT" in iskele.output
     assert "urunler.html" in iskele.output
+
+
+# --------------------------------------------------------------------------- #
+# Koşu 4 — kullanıcının ASIL isteği: şifre duvarlı bir siteyi kopyalama
+# --------------------------------------------------------------------------- #
+
+#: Gerçek yanıtın kısaltılmışı (2026-08-08'de demo-kalles-4-2.myshopify.com'dan
+#: ölçüldü). İstek 200 döner; gelen metin sayfa değil, kapının kendisidir.
+SIFRE_DUVARI_HTML = """<html><body>
+<h1>Kalles shopify theme 2 (password: 4)</h1>
+<p>This store is password protected. Use the password to enter the store.</p>
+<label>Enter store password</label>
+</body></html>"""
+
+
+async def test_kosu_sifre_duvarli_site_uydurulmadan_raporlanir(monkeypatch, tmp_path, sink):
+    """Ağa çıkılmaz: taşıma katmanı sahtelenir, web_fetch'in kendi mantığı çalışır."""
+    from fusion_cli.tools import web as web_tools
+
+    monkeypatch.setattr(web_tools, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(
+        web_tools,
+        "_fetch_following_redirects",
+        lambda url: ("text/html", SIFRE_DUVARI_HTML),
+    )
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=(
+                        tool_call("web_fetch", url="https://demo-kalles-4-2.myshopify.com"),
+                    )
+                ),
+                model_result(
+                    "Siteye erişemedim: adres şifre korumalı bir kapı sayfası döndürüyor "
+                    "ve sayfa içeriğini göremiyorum. Temanın dışa aktarılmış dosyalarını "
+                    "ya da ekran görüntülerini verirsen oradan ilerleyebilirim."
+                ),
+                model_result(
+                    "Siteye erişemedim: adres şifre korumalı bir kapı sayfası döndürüyor "
+                    "ve sayfa içeriğini göremiyorum. Temanın dışa aktarılmış dosyalarını "
+                    "ya da ekran görüntülerini verirsen oradan ilerleyebilirim."
+                ),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+
+    sonuc = await run_agent(
+        "bu linki aç, şifre yerine 4 yaz ve açılan siteyi bu klasöre kopyala", deps, verify=False
+    )
+
+    getirme = next(olay for olay in _arac_olaylari(sink) if olay.name == "web_fetch")
+    assert "ERİŞİM DUVARI" in getirme.output, "model kısıtı göremeden başarı sinyali aldı"
+    assert "UYDURMA" in getirme.output
+    # En önemlisi: uydurma bir site diske YAZILMAMALI.
+    assert list(tmp_path.iterdir()) == [], "erişilemeyen sitenin yerine dosya üretildi"
+    # Kanıt kapısı dürüst cevabı EZMEMELİ: eskiden 'İşlem tamamlanmadı' metni
+    # modelin açıklamasının yerine geçiyor ve kullanıcı sebebi hiç öğrenemiyordu.
+    assert "İşlem tamamlanmadı" not in sonuc.final_text
+    assert "erişemedim" in sonuc.final_text
+    assert sonuc.ok
+
+
+async def test_kosu_duvar_yokken_kanit_kapisi_hala_calisir(monkeypatch, tmp_path, sink):
+    """Muafiyet dar olmalı: duvar yoksa 'yaptım' deyip araç çağırmamak hâlâ yakalanır."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result("Dosyaları klasöre kopyaladım."),
+                model_result("Kopyalama tamamlandı."),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+
+    sonuc = await run_agent("dosyaları bu klasöre kopyala", deps, verify=False)
+
+    assert not sonuc.ok
+    assert "İşlem tamamlanmadı" in sonuc.final_text
+
+
+async def test_kosu_normal_sayfa_uyari_almadan_gecer(monkeypatch, tmp_path, sink):
+    """Yanlış-pozitif kontrolü: erişilebilen sayfa duvar uyarısı almamalı."""
+    from fusion_cli.tools import web as web_tools
+
+    monkeypatch.setattr(web_tools, "url_block_reason", lambda url: None)
+    monkeypatch.setattr(
+        web_tools,
+        "_fetch_following_redirects",
+        lambda url: ("text/html", "<h1>Spor Ayakkabı</h1><p>1.499 TL</p>"),
+    )
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("web_fetch", url="https://ornek.test"),)),
+                model_result("Sayfayı okudum."),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+
+    await run_agent("şu sayfayı oku", deps, verify=False)
+
+    getirme = next(olay for olay in _arac_olaylari(sink) if olay.name == "web_fetch")
+    assert "ERİŞİM DUVARI" not in getirme.output
+    assert "Spor Ayakkabı" in getirme.output
+
+
+# --------------------------------------------------------------------------- #
+# Koşu 5 — patolojik dizi: model eski hatalı sırayı izlerse toparlayabilmeli
+# --------------------------------------------------------------------------- #
+
+
+async def test_kosu_model_hatali_sirayi_izlese_bile_tur_olmez(monkeypatch, tmp_path, sink):
+    """Kullanıcının koşusundaki ölümcül dizi — sonunda iş bitmeli, tur ölmemeli.
+
+    Sıra: iskele → başarısız edit → aynı dosyayı iki kez oku (ikincisi tekrar) →
+    sonunda doğru hamle. Eskiden bu dizi üç boşta turda turu öldürüyordu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("scaffold_web", path="."),)),
+                model_result(
+                    tool_calls=(
+                        tool_call("edit_file", path="index.html", old="YOK OLAN", new="x"),
+                    )
+                ),
+                model_result(tool_calls=(tool_call("read_file", path="index.html"),)),
+                model_result(tool_calls=(tool_call("read_file", path="index.html"),)),
+                model_result(
+                    tool_calls=(tool_call("write_file", path="index.html", content=DOLU_SAYFA),)
+                ),
+                model_result("Sayfa `index.html:1` içine yazıldı."),
+            ]
+        ),
+    )
+    deps = _web_deps(tmp_path, sink)
+
+    sonuc = await run_agent("spor sitesi sayfasını yaz", deps, verify=False)
+
+    assert (tmp_path / "index.html").read_text(encoding="utf-8") == DOLU_SAYFA, (
+        "model toparlandığı hâlde iş bitmedi — tur erken öldürülmüş olabilir"
+    )
+    assert sonuc.ok

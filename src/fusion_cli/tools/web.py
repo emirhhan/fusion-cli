@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 import httpx
 
 from ..core.constants import (
+    CAPABILITY_WALL_PREFIX,
     MAX_OUTPUT_CHARS,
     MAX_WEB_REDIRECTS,
     MAX_WEB_RESULTS,
@@ -99,7 +100,7 @@ def access_wall_notice(text: str) -> str:
     if not any(isaret in dusuk for isaret in _ACCESS_WALL_MARKERS):
         return ""
     return (
-        "ERİŞİM DUVARI: bu adres istenen içeriği DEĞİL, bir şifre/oturum/bot "
+        f"{CAPABILITY_WALL_PREFIX} bu adres istenen içeriği DEĞİL, bir şifre/oturum/bot "
         "doğrulama sayfasını döndürdü. Aşağıdaki metin kapının kendisidir, sayfanın "
         "içeriği değildir. web_fetch form dolduramaz, şifre giremez ve oturum açamaz; "
         "Fusion'da etkileşimli tarayıcı aracı YOKTUR. Bu içeriği varmış gibi kullanma "

@@ -32,6 +32,7 @@ from ...config.models import Config
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
+from ...core.constants import CAPABILITY_WALL_PREFIX
 from ...core.errors import FusionError
 from ...core.events import (
     Channel,
@@ -390,6 +391,13 @@ class _State:
     tool_calls_last_turn: int = 0
     evidence_reprompts: int = 0
     tool_contract_abort: str = ""
+    #: Bir araç "bu iş benimle YAPILAMAZ" dedi mi? (şifre duvarı, oturum kapısı…)
+    #
+    # Eylem-kanıtı kapısı buna bakar. Kapı, kanıt yokluğunu her zaman modelin
+    # tembelliği sayıyordu ve dürüst "erişemedim" cevabını "İşlem tamamlanmadı"
+    # metniyle EZİYORDU. Ölçülen sonuç: harness modeli, yapamadığı işi yapmış gibi
+    # göstermeye — yani uydurmaya — itiyordu.
+    capability_wall: bool = False
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
@@ -483,9 +491,14 @@ async def _drive(
 
         if not result.tool_calls:
             final_text = result.text
+            # `capability_wall`: bir araç işin kendisiyle yapılamayacağını bildirdiyse
+            # kanıt istemek anlamsızdır. Modeli zorlamak onu uydurmaya iter ve dürüst
+            # cevabı "İşlem tamamlanmadı" metniyle ezer — kullanıcı ne olduğunu
+            # öğrenemez. Kanıt yokluğunun sebebi burada BİLİNİYOR.
             if (
                 not plan_mode
                 and execution.requires_tool_evidence
+                and not state.capability_wall
                 and not _tool_evidence_satisfied(execution, state)
             ):
                 if state.evidence_reprompts < execution.max_evidence_reprompts:
@@ -969,6 +982,8 @@ async def _run_tools(
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry, execution=execution)
+        if result.output.startswith(CAPABILITY_WALL_PREFIX):
+            state.capability_wall = True
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
             mutating = bool(tool is not None and tool.mutating)
