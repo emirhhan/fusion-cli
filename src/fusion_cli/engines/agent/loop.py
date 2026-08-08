@@ -777,9 +777,17 @@ def _auto_continue_note(
     if plan_mode:
         return None
     # Gerçek çıktı bütçesi dolduysa sağlayıcıdan bağımsız olarak bir kez devam et.
+    # Bu, sağlayıcıdan gelen sert bir olgudur ve her teşhisin önündedir.
     if truncated:
-        wanted = True
-    elif not execution.heuristic_auto_continue:
+        return _spend(deps, reflexion.auto_continue_note())
+    # ÖZGÜL TEŞHİS GENELDEN ÖNCE GELİR. "İş yapmadan soru sordu" turu çoğu zaman
+    # kısa da olur ve `looks_unfinished` onu önce yakalayıp "işi yarım bıraktın"
+    # notunu gönderiyordu. İki not da modeli çalıştırır ama yanlış olanı yanlış
+    # şeyi düzeltmesini söyler: model yarım kalan işi arar, oysa sorun kullanıcıya
+    # geri sormasıdır.
+    if _asked_instead_of_acting(final_text, state, deps.require_budget()):
+        return _spend(deps, reflexion.asked_instead_of_acting_note())
+    if not execution.heuristic_auto_continue:
         # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
         # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
         wanted = deps.tool_context.todos.has_pending
@@ -791,14 +799,15 @@ def _auto_continue_note(
         )
     if not wanted:
         wanted = _stopped_without_acting(state, deps.require_budget(), execution=execution)
-    if wanted:
-        note = reflexion.auto_continue_note()
-    elif _asked_instead_of_acting(final_text, state, deps.require_budget()):
-        note = reflexion.asked_instead_of_acting_note()
-    else:
-        return None
-    # Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
-    # devam etmeyen turlarda da bütçe yakardı.
+    return _spend(deps, reflexion.auto_continue_note()) if wanted else None
+
+
+def _spend(deps: AgentDeps, note: Message) -> Message | None:
+    """Devam hakkını harca ve notu döndür; hak kalmadıysa `None`.
+
+    Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
+    devam etmeyen turlarda da bütçe yakardı.
+    """
     return note if deps.require_budget().take_auto_continue() else None
 
 
