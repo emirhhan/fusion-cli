@@ -233,12 +233,44 @@ async function resetHealth() { try { await post("/api/health/reset", {}); toast(
 let catalog = [];
 function ctxLabel(n) { return n ? Math.round(n / 1000) + "k bağlam · " : ""; }
 
+// Kullanıcının KENDİ oturumları (gemini_web/…, chatgpt_web/…) ve profiller,
+// uzak katalogda BULUNMAZ. Eskiden model seçicileri yalnızca katalogdan
+// dolduruluyordu; panelden bir web oturumu eklenip giriş yapılsa bile o oturum
+// hiçbir seçicide görünmüyor, yalnızca Playground'a düşüyordu. Kullanıcı onu
+// baş model ya da yedek yapamıyordu — kimliği ezbere yazmak dışında yolu yoktu.
+function localModelOptions() {
+  const models = (STATE && STATE.models) || [];
+  const web = new Set(((STATE && STATE.web_sessions) || []).map((s) => s.model));
+  return models.map((id) => ({
+    id,
+    // Kendi aboneliğin en üstte ve etiketli durur: seçicide aranan ilk şey odur.
+    label: web.has(id) ? "kendi oturumun · web" : "profil / yapılandırılmış",
+    local: true,
+    web: web.has(id),
+  }));
+}
+
 function renderCatalog() {
   const onlyFree = $("catalogFree").checked;
   const items = catalog.filter((m) => !onlyFree || m.free);
-  $("catalogList").innerHTML = items.map((m) =>
-    `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`).join("");
-  $("catalogCount").textContent = catalog.length + " model" + (onlyFree ? " (" + items.length + " ücretsiz)" : "");
+  const yerel = localModelOptions();
+  const gorulen = new Set(yerel.map((m) => m.id));
+
+  // Yerel seçenekler ÖNCE listelenir; datalist sırayı korur.
+  const secenekler = [
+    ...yerel.map((m) => `<option value="${m.id}">${m.label}</option>`),
+    ...items
+      .filter((m) => !gorulen.has(m.id))
+      .map((m) => `<option value="${m.id}">${m.free ? "ücretsiz · " : ""}${ctxLabel(m.context_length)}${m.provider}</option>`),
+  ];
+  $("catalogList").innerHTML = secenekler.join("");
+
+  const webSayisi = yerel.filter((m) => m.web).length;
+  $("catalogCount").textContent =
+    catalog.length + " model" +
+    (onlyFree ? " (" + items.length + " ücretsiz)" : "") +
+    (webSayisi ? " + " + webSayisi + " kendi oturumun" : "");
+
   // Playground listesini profiller + katalogla birleştir (tekilleştirilmiş).
   const base = (STATE && STATE.models) || [];
   const merged = [...new Set([...base, ...items.map((m) => m.id)])];
@@ -293,6 +325,11 @@ function render() {
   chain = s.fallback.slice(); renderChain();
   $("strictModel").checked = Boolean(s.strict_model_selection);
   judge = (s.judge || []).slice(); renderJudge();
+  // Model seçicileri STATE'e de bağlıdır: yeni bir web oturumu eklendiğinde
+  // listenin bir sonraki durum yenilemesinde görünmesi gerekir. `loadCatalog`
+  // yalnızca açılışta ve elle tazelemede çalışır; ona bırakılırsa oturum
+  // panel yeniden yüklenene kadar seçilemez kalırdı.
+  renderCatalog();
 
   const hm = s.health;
   $("health").innerHTML = hm.map((m) => `<tr><td class="model">${m.model}</td>

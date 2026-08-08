@@ -474,3 +474,66 @@ async def test_api_fallback_bos_400(tmp_path):
     app, _ = _app_with_store(tmp_path)
     async with _client(app) as client:
         assert (await client.post("/api/fallback", json={"models": []})).status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Model seçicileri — kullanıcının KENDİ web oturumu seçilebilmeli
+# --------------------------------------------------------------------------- #
+
+
+def test_available_models_web_oturumunu_icerir():
+    """Sunucu tarafı: yapılandırılmış web oturumu model listesinde olmalı."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.gateway.routing import available_models
+
+    from .fakes import make_config
+
+    config = make_config(
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/yeni/auto", transport="browser", enabled=True),
+        )
+    )
+    assert "gemini_web/yeni/auto" in available_models(config)
+
+
+def test_available_models_kapali_oturumu_gizler():
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.gateway.routing import available_models
+
+    from .fakes import make_config
+
+    config = make_config(
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/kapali/auto", transport="browser", enabled=False),
+        )
+    )
+    assert "gemini_web/kapali/auto" not in available_models(config)
+
+
+def _panel_js() -> str:
+    from pathlib import Path
+
+    import fusion_cli.gateway as gateway
+
+    return (Path(gateway.__file__).parent / "static" / "panel.js").read_text(encoding="utf-8")
+
+
+def test_panel_model_seciciler_yerel_modelleri_de_listeler():
+    """Ölçülen hata: seçiciler YALNIZCA uzak katalogdan doldurulunca kullanıcının
+    panelden eklediği web oturumu hiçbir model seçicisinde görünmüyordu; yalnızca
+    Playground'a düşüyor ve baş model / yedek yapılamıyordu."""
+    js = _panel_js()
+
+    assert "function localModelOptions" in js, "yerel model seçenekleri üretilmiyor"
+    assert "STATE.web_sessions" in js, "web oturumları seçiciye girmiyor"
+    # Yerel seçenekler datalist'e YAZILMALI, sadece hesaplanmamalı.
+    katalog_bloku = js.split("function renderCatalog")[1].split("\n}")[0]
+    assert "localModelOptions()" in katalog_bloku
+    assert "catalogList" in katalog_bloku
+
+
+def test_panel_durum_yenilendiginde_secicileri_tazeler():
+    """Yeni eklenen oturum, panel yeniden yüklenmeden seçilebilir olmalı."""
+    js = _panel_js()
+    render_bloku = js.split("function render()")[1].split("\nfunction ")[0]
+    assert "renderCatalog()" in render_bloku
