@@ -44,6 +44,22 @@ from .web_session import WebSessionCredential, WebTransport
 #: ayırt edemiyordu.
 ROLE_PREFIX = "FUSION//"
 
+#: Modelin cevabında taklit ettiği rol başlığı satırı.
+#:
+#: Gözlemlendi (Gemini web): model nihai cevabına `FUSION//SONRAKİ ADIM` başlığıyla
+#: başladı. Başlık modelin uydurması değil, taşıma çerçevesinin taklididir. Zararı
+#: kozmetik değil: çerçeveyi içerik sanan model kendini "sıradaki adımı sor"
+#: rolünde görüyor ve görevi yapmak yerine kullanıcıya ne yapacağını soruyor.
+#:
+#: Ayıklama YALNIZCA önekle eşleşen satırı düşürür; modelin kendi Markdown
+#: başlıkları (`### Yapılanlar`) korunur.
+_ROLE_HEADER_LINE = re.compile(rf"^[ \t]*#{{0,6}}[ \t]*{re.escape(ROLE_PREFIX)}.*$", re.MULTILINE)
+
+
+def strip_role_headers(answer: str) -> str:
+    """Modelin cevabına sızmış taşıma rol başlıklarını temizle."""
+    return _clean_text(_ROLE_HEADER_LINE.sub("", answer))
+
 
 class WebBrowserError(RuntimeError):
     """Tarayıcı tabanlı web sağlayıcılarının kök hatası."""
@@ -363,9 +379,30 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     rendered.append(
         f"### {ROLE_PREFIX}TALİMAT\nYukarıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır; "
         "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
-        "ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver."
+        f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
     )
     return "\n\n".join(rendered)
+
+
+#: Her iki kipte de tekrarlanan nihai cevap sözleşmesi.
+#:
+#: `### FUSION//…` başlıkları ÇERÇEVEDİR, içerik değil; model onları taklit edip
+#: kendini "sıradaki adımı sor" rolünde görüyordu. Kuralın ayıklama (bkz.
+#: `strip_role_headers`) ile birlikte durmasının sebebi, ayıklamanın belirtiyi
+#: temizlemesi ama nedenini ortadan kaldırmamasıdır.
+#:
+#: Nihai cevabın ŞEKLİ de burada söylenir: sistem promptundaki aynı kural, 3500
+#: karakterlik araç çıktılarının ardında kalıp zayıflıyordu.
+_ANSWER_CONTRACT = (
+    f"`{ROLE_PREFIX}` ile başlayan başlıkları KENDİ cevabında tekrarlama; onlar "
+    "çerçevedir, senin rolün değildir.\n"
+    "Kullanıcı görevini zaten verdi: ne yapacağını ona tekrar sorma. Gerçekten "
+    "kullanıcının kararı olan bir seçim varsa ask_user aracını çağır; düzyazıyla "
+    "soru sorup turu bitirme.\n"
+    "İş bittiğinde nihai cevabında şunlar bulunur: ne yaptığın, hangi dosyaların "
+    "değiştiği ve kullanıcının ne kontrol etmesi gerektiği. Bunu birkaç cümlede "
+    "topla; adım adım günlük dökme."
+)
 
 
 def _tool_result_label(message: Message, calls_by_id: Mapping[str, ToolCall]) -> str:
@@ -407,7 +444,7 @@ CONTINUATION_LEAD = (
     f"### {ROLE_PREFIX}SIRADAKİ ADIM\n"
     "Aşağıdaki araç sonuçları SENİN önceki çağrılarının cevabıdır — bu çağrıları "
     "ZATEN yaptın, tekrarlama. Sonuçları kullanarak bir sonraki adımı at: gereken "
-    "değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver."
+    f"değişikliği yapan aracı çağır ya da iş bittiyse nihai cevabı ver.\n{_ANSWER_CONTRACT}"
 )
 
 
@@ -798,6 +835,10 @@ async def _deliver_turn(
         prompt = format_browser_prompt(messages)
         answer = await _send_turn(page, definition, prompt)
 
+    # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
+    # taşıma biçimini tanımak zorunda değildir.
+    answer = strip_role_headers(answer)
+
     state.sent_count = len(messages)
     state.prefix_digest = conversation_digest(messages)
     state.last_answer = answer
@@ -853,7 +894,7 @@ async def _open_conversation(page: Any, definition: BrowserProviderDefinition) -
 async def _run_page(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
     """Yeni sohbet açıp tek tur çalıştır (sohbet sürekliliği kullanılmayan yol)."""
     await _open_conversation(page, definition)
-    return await _send_turn(page, definition, prompt)
+    return strip_role_headers(await _send_turn(page, definition, prompt))
 
 
 async def _send_turn(

@@ -356,3 +356,50 @@ async def test_ayni_kok_sohbeti_paylasir(pool, log):
     await transport(credential, (*ana, Message("user", "iki")), "m")
 
     assert len([e for e in log if e[0] == "goto"]) == 1
+
+
+# --- rol başlığı sızıntısı ------------------------------------------------- #
+#
+# Gözlemlendi (Gemini web): model nihai cevabına `FUSION//SONRAKİ ADIM` başlığıyla
+# başladı. Bu başlık modelin uydurması değil, taşıma çerçevesinin taklididir —
+# `format_browser_prompt` her bloğu `### FUSION//…` ile etiketler. Model çerçeveyi
+# içerik sanıp benimseyince kendini "sıradaki adımı sor" rolünde gördü ve görevi
+# yapmak yerine kullanıcıya ne yapması gerektiğini sordu.
+
+
+def test_rol_basligi_cevaptan_ayiklanir():
+    cevap = "### FUSION//SIRADAKİ ADIM\nDizin yapısı incelendi.\n\nDevam ediyorum."
+
+    assert web_browser.strip_role_headers(cevap) == "Dizin yapısı incelendi.\n\nDevam ediyorum."
+
+
+def test_govdedeki_rol_basligi_da_ayiklanir():
+    cevap = "Önce şunu yaptım.\n\nFUSION//KULLANICI\nSonra bunu."
+
+    assert web_browser.strip_role_headers(cevap) == "Önce şunu yaptım.\n\nSonra bunu."
+
+
+def test_normal_markdown_basligi_korunur():
+    """Ayıklama YALNIZCA rol önekine bakar; modelin kendi başlıkları kalır."""
+    cevap = "### Yapılanlar\nüç dosya güncellendi"
+
+    assert web_browser.strip_role_headers(cevap) == cevap
+
+
+def test_prompt_rol_basligini_tekrarlamamayi_soyler():
+    prompt = format_browser_prompt((Message("user", "görev"),))
+
+    assert "FUSION//" in prompt
+    assert "başlıkları" in prompt
+
+
+async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
+    async def _send(page, definition, prompt, *, previous=""):
+        return "### FUSION//SIRADAKİ ADIM\nİş bitti."
+
+    monkeypatch.setattr(web_browser, "_send_turn", _send)
+    transport = build_browser_transport(_session(), pool=pool)
+
+    cevap = await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
+
+    assert cevap == "İş bitti."
