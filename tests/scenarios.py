@@ -235,6 +235,32 @@ SALT_OKUMA_BASARILI = Scenario(
 )
 
 
+OKUYUP_YAZMAYAN = Scenario(
+    name="okuyup-yazmayan",
+    task="config.json'a host alanı ekle ve README'ye not düş",
+    watch=(
+        "Model okuyup okuyup yazmıyor. Dördüncü keşif turundan sonra 'dur-ve-yap' "
+        "notu gidiyor mu ve model yazmaya geçiyor mu?"
+    ),
+    files={"config.json": '{\n  "port": 3000\n}\n', "README.md": "# Proje\n"},
+    replies=(
+        "Projeyi tanıyorum.\n" + call("list_dir", path="."),
+        "Yapılandırmayı okuyorum.\n" + call("read_file", path="config.json"),
+        "README'yi okuyorum.\n" + call("read_file", path="README.md"),
+        "Tekrar bakıyorum.\n" + call("list_dir", path="."),
+        "Bir kez daha bakıyorum.\n" + call("read_file", path="config.json"),
+        "host alanını ekliyorum.\n"
+        + call(
+            "edit_file",
+            path="config.json",
+            old='"port": 3000',
+            new='"port": 3000,\n  "host": "0.0.0.0"',
+        ),
+        "`config.json` içine `host` eklendi.",
+    ),
+)
+
+
 ALL_SCENARIOS = (
     TUR_ORTASINDA_TESLIM,
     AYNI_CEVAP_IKI_KEZ,
@@ -246,4 +272,5 @@ ALL_SCENARIOS = (
     BOZUK_ARAC_CAGRISI,
     COK_ADIMLI_GERCEK_IS,
     SALT_OKUMA_BASARILI,
+    OKUYUP_YAZMAYAN,
 )

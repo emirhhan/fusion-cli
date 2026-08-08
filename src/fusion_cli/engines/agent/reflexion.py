@@ -52,6 +52,29 @@ ASKED_INSTEAD_OF_ACTING_NOTE = (
 )
 
 
+#: Modelin okumaktan çıkıp değiştirmeye geçmesini isteyen not.
+#
+# Ölçüldü (Gemini web, aynı görev üç koşu): model dizin listeledi, dosya okudu,
+# başka dizin listeledi, başka dosya okudu… ve tur bütçesi keşifle doldu. Tek bir
+# satır bile değişmedi. Model tembel değildi — hiçbir yerde "yeterince gördün,
+# şimdi yap" diyen bir sinyal yoktu ve keşif kendi kendini besliyordu.
+#
+# Kapı tur SONUNDA değil ORTASINDA konuşur: sonda söylemek, bütçe zaten bittiği
+# için işe yaramıyordu.
+ENOUGH_EXPLORING_NOTE = (
+    "[dur-ve-yap] {rounds} turdur yalnızca okuyorsun ve tek bir değişiklik "
+    "yapmadın. Keşif yeterli. ŞİMDİ somut değişikliği yap: değiştireceğin ilk "
+    "dosyayı seç ve edit_file / write_file çağır. Hangi dosyayı değiştireceğini "
+    "bilmiyorsan bunu açıkça söyle ve dur — ama başka bir dosya daha OKUMA. "
+    "Bir sonraki turunda değiştirici bir araç çağrısı olmalı."
+)
+
+
+def enough_exploring_note(rounds: int) -> Message:
+    """Okumaktan yazmaya geçir."""
+    return Message("user", ENOUGH_EXPLORING_NOTE.format(rounds=rounds))
+
+
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
     return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)

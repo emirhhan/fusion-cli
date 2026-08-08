@@ -105,6 +105,16 @@ MAX_EMPTY_RETRIES = 2
 # üretmeyen turları "ilerleme yok" kapısı bitirir.
 MAX_TOOL_CONTRACT_REPAIRS = 4
 
+#: Değişiklik isteyen bir görevde arka arkaya kaç keşif turuna izin verilir.
+#
+# Ölçüldü: model dizin listeledi, dosya okudu, başka dizin listeledi… ve bütçe
+# keşifle doldu; tek satır değişmedi. Dört tur, bir projeyi tanımaya yeter
+# (list_dir + iki okuma + bir arama); beşincide artık yazılacak yer bellidir.
+MAX_READ_ONLY_ROUNDS = 4
+#: Keşif kapısının bir turda en fazla kaç kez konuşacağı. Israr etmek yerine
+#: kanıt kapısına ve tur bütçesine bırakılır; sonsuz dürtme çağrı yakar.
+MAX_EXPLORE_PUSHES = 2
+
 
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
 DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
@@ -453,6 +463,10 @@ class _State:
     capability_wall: bool = False
     #: Bu çağrıda nihai cevap metni GERÇEKTEN aktı mı? `TurnAnswered` buna bakar.
     answer_streamed: bool = False
+    #: Arka arkaya kaç araç turu HİÇBİR değişiklik üretmedi. Keşif kapısı buna bakar.
+    read_only_rounds: int = 0
+    #: Keşif kapısı bu turda kaç kez konuştu.
+    explore_pushes: int = 0
 
 
 async def _drive(
@@ -591,6 +605,10 @@ async def _drive(
             result.tool_calls, messages, deps, registry, state, execution=execution
         )
         budget.record_round(progressed=_progress_marker(deps, state) != before)
+        # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
+        state.read_only_rounds = 0 if state.mutating_tool_calls_made > 0 else (
+            state.read_only_rounds + 1
+        )
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
@@ -599,6 +617,10 @@ async def _drive(
             return _halt(final_text, messages, state, budget, BudgetStop.NO_PROGRESS, deps)
         if errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
+        if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
+            state.explore_pushes += 1
+            state.read_only_rounds = 0
+            messages.append(reflexion.enough_exploring_note(MAX_READ_ONLY_ROUNDS))
 
 
 def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int]:
@@ -895,6 +917,29 @@ def _asked_instead_of_acting(final_text: str, state: _State, budget: TurnBudget)
 
 #: Kullanıcıya soruyu DOĞRU yoldan soran araç. Çağrıldıysa tur zorlanmaz.
 _ASKING_TOOLS = frozenset({"ask_user"})
+
+
+def _needs_push_to_act(
+    state: _State, *, plan_mode: bool, execution: ExecutionPolicy
+) -> bool:
+    """Model okumaktan çıkıp yazmaya itilmeli mi?
+
+    Yalnızca görev GERÇEKTEN değişiklik istiyorsa konuşur (`requires_tool_evidence`
+    ya da karmaşık görev türü); "şu dosyayı açıkla" gibi bir işte okumak zaten
+    doğru davranıştır ve dürtmek turu bozardı.
+
+    Ölçüt yapısaldır: arka arkaya kaç araç turu hiçbir mutasyon üretmedi. Metne
+    bakılmaz, niyet tahmin edilmez.
+    """
+    if plan_mode or not execution.allow_mutation:
+        return False
+    if not (execution.requires_tool_evidence or execution.complex_task):
+        return False
+    if state.mutating_tool_calls_made > 0:
+        return False
+    if state.explore_pushes >= MAX_EXPLORE_PUSHES:
+        return False
+    return state.read_only_rounds >= MAX_READ_ONLY_ROUNDS
 
 
 def _stopped_without_acting(

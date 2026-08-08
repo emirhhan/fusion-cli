@@ -125,3 +125,30 @@ async def test_hata_mesajinda_yol_goreli(root):
 
     assert "Dosya yok: ayarlar.json" in run.transcript
     assert "/private/var" not in run.transcript
+
+
+async def test_okumaya_gomulen_model_yazmaya_itilir(root):
+    """Dördüncü keşif turundan sonra modele 'dur-ve-yap' notu gitmeli."""
+    from fusion_cli.engines.agent import reflexion
+
+    from .scenarios import OKUYUP_YAZMAYAN
+
+    run = await run_scenario(OKUYUP_YAZMAYAN, root)
+
+    notlar = [
+        mesaj.content
+        for mesaj in run.outcome.messages
+        if mesaj.role == "user" and "[dur-ve-yap]" in mesaj.content
+    ]
+    assert notlar, "keşif kapısı hiç konuşmadı"
+    assert "edit_file" in notlar[0]
+    assert reflexion.ENOUGH_EXPLORING_NOTE.split("{")[0] in notlar[0]
+
+
+async def test_salt_okuma_gorevinde_kesif_kapisi_susar(root):
+    """'Açıkla' türü bir işte okumak doğru davranış; dürtmek turu bozar."""
+    from .scenarios import SALT_OKUMA_BASARILI
+
+    run = await run_scenario(SALT_OKUMA_BASARILI, root)
+
+    assert not [m for m in run.outcome.messages if "[dur-ve-yap]" in m.content]
