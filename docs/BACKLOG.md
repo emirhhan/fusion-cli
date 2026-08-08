@@ -277,6 +277,18 @@ Deneysel tam-ekran mod (`screen*`, `ansi_bridge`) tamamen kaldırıldı.
   söylüyordu: "Spinner yoktur"). Periyodik `invalidate` eklendi; pty ile ölçüldü: tek
   olay beslenip 1,6 sn beklendiğinde 10 karenin onu da ekrana yazıldı, 21 tik (~80 ms).
 
+  ARKASINDAN ÇIKAN İKİNCİ KUSUR: kare dönmeye başladı ama METİN hâlâ donuktu. Süre
+  `ModelCallStarted` anında hesaplanıp metne gömülüyordu; satır yalnız olay geldiğinde
+  yeniden üretildiği için "0 ms"de kalıyor, ancak cevap gelince gerçek değere sıçrıyordu.
+  Çalışma satırı itme (`on_update(text)`) yerine ÇEKME modeline geçirildi: TUI her
+  karede `WorkLineSink.render()` çağırıyor, süre o an hesaplanıyor. Zaman `Clock`
+  protokolünden alınıyor (RULES), böylece sahte saatle test edilebiliyor.
+
+  ÖLÇÜM NOTU: ham pty baytında "1.2s" gibi bir dize ARANMAZ — prompt_toolkit fark
+  tabanlı çizer, yalnız değişen karakterleri yazar. İlk ölçüm bu yüzden yanlışlıkla
+  "akmıyor" dedi. Doğru yöntem terminali `pyte` ile canlandırıp ekranı örneklemek:
+  tek olayla 2ms → 653ms → 1.2s → 1.9s → 2.4s ölçüldü.
+
 ## ÖLÇÜLDÜ — fareyle kopyalayamamanın sebebi (2026-08-08)
 
 Belirti: fusion açıkken terminalde hiçbir şey fareyle seçilip kopyalanamıyor.

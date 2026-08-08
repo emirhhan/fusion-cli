@@ -57,11 +57,11 @@ def test_enter_satiri_submit_callback_ine_verir():
 def test_calisma_satiri_ayarlanip_temizlenir():
     tui, _ = _tui()
 
-    tui.set_work("hazırlanıyor…")
-    assert tui._work_text == "hazırlanıyor…"
+    tui.set_work_source(lambda: "hazırlanıyor…")
+    assert tui._work_now() == "hazırlanıyor…"
 
     tui.clear_work()
-    assert tui._work_text == ""
+    assert tui._work_now() == ""
 
 
 def test_durum_ayarlanir():
@@ -301,7 +301,7 @@ def test_calisma_satiri_donen_kare_ile_baslar():
     from fusion_cli.cli.repl.tui import SPINNER_FRAMES
 
     tui, _ = _tui()
-    tui.set_work("  düşünüyor…")
+    tui.set_work_source(lambda: "  düşünüyor…")
 
     parcalar = tui._work_fragments()
 
@@ -320,7 +320,7 @@ def test_spinner_olay_loop_yokken_cokmez():
     """TTY dışı/test kurulumunda olay döngüsü yoktur; animasyon sessizce atlanır."""
     tui, _ = _tui()
 
-    tui.set_work("  düşünüyor…")  # asyncio.get_running_loop() burada RuntimeError verir
+    tui.set_work_source(lambda: "  düşünüyor…")  # get_running_loop() burada RuntimeError verir
 
     assert tui._spinner_task is None
     assert tui._work_fragments()  # satır yine de çizilir
@@ -330,7 +330,7 @@ async def test_spinner_kare_ilerletir_ve_durdurulunca_durur():
     from fusion_cli.cli.repl.tui import SPINNER_FRAMES, SPINNER_INTERVAL_S
 
     tui, _ = _tui()
-    tui.set_work("  düşünüyor…")
+    tui.set_work_source(lambda: "  düşünüyor…")
     assert tui._spinner_task is not None
 
     await asyncio.sleep(SPINNER_INTERVAL_S * 3.5)
@@ -348,9 +348,9 @@ async def test_spinner_kare_ilerletir_ve_durdurulunca_durur():
 
 async def test_spinner_iki_kez_baslatilmaz():
     tui, _ = _tui()
-    tui.set_work("  bir")
+    tui.set_work_source(lambda: "  bir")
     ilk = tui._spinner_task
-    tui.set_work("  iki")
+    tui.set_work_source(lambda: "  iki")
 
     assert tui._spinner_task is ilk
 
@@ -409,3 +409,23 @@ def test_kurulmamis_kip_geri_alinmaz():
     tui.restore_wheel_modes()
 
     assert yazilan == []
+
+
+def test_calisma_satiri_her_karede_kaynaktan_yeniden_okunur():
+    """Metin değil, metni üreten şey tutulur.
+
+    Regresyon: satır olay anında dondurulup saklanıyordu; içindeki süre bir
+    sonraki olaya kadar değişmiyordu. Kaynak her karede yeniden okunmalı.
+    """
+    tui, _ = _tui()
+    sayac = {"n": 0}
+
+    def kaynak() -> str:
+        sayac["n"] += 1
+        return f"  tur {sayac['n']}"
+
+    tui.set_work_source(kaynak)
+    ilk = tui._work_fragments()[0][1]
+    ikinci = tui._work_fragments()[0][1]
+
+    assert ilk != ikinci, "aynı metin iki kez döndüyse kaynak yeniden okunmuyor"

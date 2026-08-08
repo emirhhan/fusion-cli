@@ -128,7 +128,9 @@ class FusionTui:
         self._on_exit = on_exit
         self._on_cycle_mode = on_cycle_mode
         self._on_transcript_change = on_transcript_change
-        self._work_text = ""
+        # Metin DEĞİL, metni üreten şey tutulur: çalışma satırındaki süre her
+        # karede yeniden hesaplanmalı (bkz. work_line.WorkLineSink.render).
+        self._work_source: Callable[[], str] | None = None
         self._spinner_frame = 0
         self._spinner_task: asyncio.Task[None] | None = None
         self._wheel_modes_on = False
@@ -171,7 +173,7 @@ class FusionTui:
         )
         work_window = ConditionalContainer(
             Window(FormattedTextControl(self._work_fragments), height=1, style="class:work"),
-            filter=Condition(lambda: bool(self._work_text)),
+            filter=Condition(lambda: bool(self._work_now())),
         )
         rule = Window(FormattedTextControl(self._rule_fragments), height=1)
         status_window = Window(FormattedTextControl(lambda: HTML(self._status_html)), height=1)
@@ -251,20 +253,29 @@ class FusionTui:
             self._on_transcript_change(self._conversation)
         self._refresh_status()
 
+    def _work_now(self) -> str:
+        """Çalışma satırının O ANKİ metni."""
+        return "" if self._work_source is None else self._work_source()
+
     def _work_fragments(self) -> StyleAndTextTuples:
-        """Çalışma satırı: dönen kare + olaylardan gelen metin."""
-        if not self._work_text:
+        """Çalışma satırı: dönen kare + kaynağın o anda ürettiği metin."""
+        text = self._work_now()
+        if not text:
             return []
         frame = SPINNER_FRAMES[self._spinner_frame % len(SPINNER_FRAMES)]
-        return [("class:work", f" {frame}{self._work_text}")]
+        return [("class:work", f" {frame}{text}")]
 
-    def set_work(self, text: str) -> None:
-        self._work_text = text
+    def set_work_source(self, source: Callable[[], str]) -> None:
+        """Çalışma satırını besleyecek kaynağı bağla.
+
+        Sabit metin için `lambda: "…"` verilir; tek mekanizma, iki kullanım.
+        """
+        self._work_source = source
         self._start_spinner()
         self._invalidate()
 
     def clear_work(self) -> None:
-        self._work_text = ""
+        self._work_source = None
         self._stop_spinner()
         self._invalidate()
 
@@ -292,7 +303,7 @@ class FusionTui:
 
     async def _spin(self) -> None:
         """Çalışma satırı durana kadar kareyi ilerlet ve ekranı tazele."""
-        while self._work_text:
+        while self._work_source is not None:
             await asyncio.sleep(SPINNER_INTERVAL_S)
             self._spinner_frame += 1
             self._invalidate()

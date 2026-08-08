@@ -73,7 +73,7 @@ class TuiPrompter:
         await _maybe_drain(self._drain)
         self._tui.console.print(_preview(request))
         self._tui.sync_conversation()
-        self._tui.set_work(messages.TUI_CONFIRM_HINT)
+        self._tui.set_work_source(lambda: messages.TUI_CONFIRM_HINT)
         try:
             return await self._tui.await_confirm()
         finally:
@@ -284,9 +284,9 @@ class _TuiSession:
         self._sync_status()
 
     async def _turn(self, line: str) -> None:
-        work = WorkLineSink(
-            self._tui.set_work, self._tui.clear_work, interrupt_hint=messages.WORK_INTERRUPT_ESC
-        )
+        work = WorkLineSink(interrupt_hint=messages.WORK_INTERRUPT_ESC)
+        # Satırı TUI çeker (her spinner karesinde), sink itmez: süre böyle akar.
+        self._tui.set_work_source(work.render)
         renderer = ConsoleRenderer(
             self._out,
             live_progress=False,
@@ -324,6 +324,7 @@ class _TuiSession:
                 self._state.history = outcome.messages
         finally:
             renderer.abort()
+            self._tui.clear_work()
             self._tui.sync_conversation()
 
 
