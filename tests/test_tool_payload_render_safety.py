@@ -138,19 +138,30 @@ def test_repair_note_uses_fenced_payload_example() -> None:
     assert "kod bloğu" in note.content
 
 
-async def test_valid_emulated_tool_turn_does_not_stream_preface() -> None:
+async def test_valid_emulated_tool_turn_streams_preface() -> None:
+    """Geçerli bir araç turunda öncü metin AKAR.
+
+    Bu test eskiden tersini bekliyordu: model çağrının yanında "işlem tamamlandı"
+    yazıp henüz çalışmamış bir işi bitmiş gösterebiliyordu. Bastırma o iddiayı
+    engelliyordu ama bedeli, araç kullanan HER turun sessizleşmesiydi — kullanıcı
+    turun neden başladığını hiç görmüyordu.
+
+    Takas bilinçli olarak öncü metin lehine çevrildi: iddia ekranda tek başına
+    kalmaz, hemen ardından aracın gerçek sonucu ve turun nihai cevabı basılır.
+    Ayrıştırma hatası olan turda bastırma DEVAM eder (aşağıdaki test).
+    """
     call = json.dumps(
         {
             "name": "write_file",
             "arguments": {"path": "x.txt", "content": "hello"},
         }
     )
-    reply = f"İşlem başarıyla tamamlandı.\n<tool_call>{call}</tool_call>"
+    reply = f"Dosyayı yazıyorum.\n<tool_call>{call}</tool_call>"
     items = [item async for item in _adapter(reply).stream(_request())]
 
-    assert not any(isinstance(item, TextChunk) for item in items)
-    assert len(items) == 1
-    assert isinstance(items[0], StreamDone)
+    chunks = [item for item in items if isinstance(item, TextChunk)]
+    assert [chunk.text for chunk in chunks] == ["Dosyayı yazıyorum."]
+    assert isinstance(items[-1], StreamDone)
 
 
 async def test_parse_error_does_not_stream_false_success_text() -> None:

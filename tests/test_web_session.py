@@ -100,6 +100,41 @@ async def test_emulated_web_modeli_arac_cagrisi_ayristirir():
     assert "yapıyorum" in sonuc.text
 
 
+async def test_emulated_arac_cagrisinda_oncu_metin_yayinlanir():
+    """Model araç çağırırken yazdığı öncü cümle kullanıcıya ULAŞMALIDIR.
+
+    Bastırma eskiden çağrı VARLIĞINA bakıyordu: model "şu dosyalara bakıyorum"
+    dese bile kullanıcı yalnızca araç satırlarını görüyor, turun neden başladığını
+    hiç öğrenemiyordu.
+    """
+    blok = json.dumps({"name": "read_file", "arguments": {"path": "a"}})
+    reply = f"Önce yapılandırmayı okuyorum. {CALL_OPEN}{blok}{CALL_CLOSE}"
+    tools = ({"type": "function", "function": {"name": "read_file", "parameters": {}}},)
+    adapter = WebProviderAdapter(
+        model="mock-web",
+        credential=_cred(),
+        transport=_echo_transport(reply),
+        tool_support=ToolSupport.EMULATED,
+    )
+    ogeler = [item async for item in adapter.stream(_request(tools=tools))]
+    metinler = [o.text for o in ogeler if isinstance(o, TextChunk)]
+    assert metinler == ["Önce yapılandırmayı okuyorum."]
+
+
+async def test_emulated_ayristirma_hatasinda_metin_bastirilir():
+    """Ayrıştırma hatası varsa metin yarım kalmış olabilir; ekrana sızmaz."""
+    reply = f"Şunu yazıyorum. {CALL_OPEN}{{bozuk json{CALL_CLOSE}"
+    tools = ({"type": "function", "function": {"name": "write_file", "parameters": {}}},)
+    adapter = WebProviderAdapter(
+        model="mock-web",
+        credential=_cred(),
+        transport=_echo_transport(reply),
+        tool_support=ToolSupport.EMULATED,
+    )
+    ogeler = [item async for item in adapter.stream(_request(tools=tools))]
+    assert not [o for o in ogeler if isinstance(o, TextChunk)]
+
+
 async def test_emulated_web_modeli_arac_talimatini_enjekte_eder():
     yakalanan = {}
 

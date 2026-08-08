@@ -95,9 +95,12 @@ class WebProviderAdapter:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça
         # olarak yayınlanır. Protokol yine tek `StreamDone` ile biter.
         result = await self.complete(request)
-        suppress_intermediate = self._tool_support is ToolSupport.EMULATED and bool(
-            result.tool_calls or result.error
-        )
+        # Metin YALNIZCA ayrıştırma başarısızsa bastırılır: o durumda `text`, yarım
+        # kalmış bir çağrı ya da payload bloğunun kalıntısını taşıyabilir ve ekrana
+        # çöp sızar. Ayrıştırma temizse `text` modelin öncü cümlesidir ("şu dosyaya
+        # bakıyorum") ve kullanıcının turu takip edebilmesi buna bağlıdır — çağrı
+        # VARLIĞINA bakıp bastırmak, araç kullanan her turu sessizleştiriyordu.
+        suppress_intermediate = self._tool_support is ToolSupport.EMULATED and bool(result.error)
         if result.text and not suppress_intermediate:
             yield TextChunk(result.text)
         yield StreamDone(result)
