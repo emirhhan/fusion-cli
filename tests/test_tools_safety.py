@@ -287,3 +287,74 @@ def test_kokun_kendisi_nokta_olur(tmp_path):
     from fusion_cli.tools.files import display_path
 
     assert display_path(ToolContext(root=tmp_path), tmp_path) == "."
+
+
+# --- read_file sayfalama --------------------------------------------------- #
+#
+# Gerçek koşu: model 1388 satırlık bir dosyayı okudu, "kaldığım yerden devam
+# ediyorum" deyip AYNI çağrıyı tekrarladı ve birebir aynı içeriği aldı. Devam
+# etmenin bir yolu yoktu — şemada yalnızca `path` vardı. Model ilerleyemedi,
+# turu kullanıcıya soru sorarak bitirdi. Kırpma notu da "devam et" değil
+# "search_code kullan" diyordu; yani modele YANLIŞ çıkış gösteriliyordu.
+
+
+def _oku(tmp_path, **args):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import read_file
+
+    return read_file(args, ToolContext(root=tmp_path))
+
+
+def test_offset_ile_dosyanin_devami_okunur(tmp_path):
+    (tmp_path / "buyuk.py").write_text("\n".join(f"satir-{i}" for i in range(1, 101)))
+
+    sonuc = _oku(tmp_path, path="buyuk.py", offset=50)
+
+    assert "satir-50" in sonuc.output
+    assert "satir-49" not in sonuc.output
+
+
+def test_limit_okunan_satir_sayisini_sinirlar(tmp_path):
+    (tmp_path / "buyuk.py").write_text("\n".join(f"satir-{i}" for i in range(1, 101)))
+
+    sonuc = _oku(tmp_path, path="buyuk.py", offset=1, limit=10)
+
+    assert "satir-10" in sonuc.output
+    assert "satir-11" not in sonuc.output
+
+
+def test_satir_numaralari_offsetle_kayar(tmp_path):
+    """Numaralar DOSYADAKİ gerçek satırı gösterir; yoksa edit_file yanlış yere bakar."""
+    (tmp_path / "buyuk.py").write_text("\n".join(f"satir-{i}" for i in range(1, 101)))
+
+    sonuc = _oku(tmp_path, path="buyuk.py", offset=50, limit=2)
+
+    assert "   50\tsatir-50" in sonuc.output
+
+
+def test_kirpma_notu_devam_cagrisini_birebir_verir(tmp_path):
+    """Model ne yapacağını TAHMİN etmemeli; sıradaki çağrı yazılı olmalı."""
+    (tmp_path / "buyuk.py").write_text("\n".join(f"satir-{i}" for i in range(1, 3001)))
+
+    sonuc = _oku(tmp_path, path="buyuk.py")
+
+    assert "offset" in sonuc.output
+    assert "buyuk.py" in sonuc.output
+
+
+def test_sonu_gecen_offset_anlasilir_hata_verir(tmp_path):
+    (tmp_path / "kucuk.py").write_text("bir\niki\n")
+
+    sonuc = _oku(tmp_path, path="kucuk.py", offset=99)
+
+    assert sonuc.ok is False
+    assert "2 satır" in sonuc.output
+
+
+def test_tamami_okunan_dosya_kirpilmis_sayilmaz(tmp_path):
+    (tmp_path / "kucuk.py").write_text("bir\niki\n")
+
+    sonuc = _oku(tmp_path, path="kucuk.py")
+
+    assert "KIRPILDI" not in sonuc.output
+    assert "satır daha" not in sonuc.output

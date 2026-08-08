@@ -16,10 +16,22 @@ import re
 import tempfile
 from pathlib import Path
 
-from ..core.constants import MAX_DIR_ENTRIES, MAX_READ_BYTES, VISIBLE_DOTFILES
+from ..core.constants import (
+    MAX_DIR_ENTRIES,
+    MAX_READ_BYTES,
+    MAX_READ_LINES,
+    VISIBLE_DOTFILES,
+)
 from ..core.errors import PathAccessError
 from ..core.tools import ToolArgs, ToolContext, ToolResult
-from .args import ArgumentError, optional_str, require_list, require_str, require_text
+from .args import (
+    ArgumentError,
+    optional_str,
+    require_list,
+    require_positive_int,
+    require_str,
+    require_text,
+)
 
 
 def resolve_path(context: ToolContext, raw: str) -> Path:
@@ -107,21 +119,51 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
         )
 
-    if not kirpildi:
-        context.fully_read.add(path)
-
     lines = text.splitlines()
     if not lines:
         return ToolResult("(boş dosya)")
-    numbered = "\n".join(f"{index:>5}\t{line}" for index, line in enumerate(lines, 1))
-    if kirpildi:
+
+    offset = require_positive_int(args, "offset", default=1)
+    limit = require_positive_int(args, "limit", default=MAX_READ_LINES)
+    if offset > len(lines):
+        return ToolResult.failure(
+            f"{display_path(context, path)} yalnızca {len(lines)} satır; offset={offset} "
+            f"dosyanın sonunu geçiyor. offset 1 ile {len(lines)} arasında olmalı."
+        )
+
+    pencere = lines[offset - 1 : offset - 1 + limit]
+    son = offset + len(pencere) - 1
+    numbered = "\n".join(
+        f"{index:>5}\t{line}" for index, line in enumerate(pencere, offset)
+    )
+    kalan = len(lines) - son
+    if kirpildi or kalan > 0:
         # Sessiz kırpma modele "dosyanın tamamını okudum" yanılgısı verir; sonra
         # göremediği bir yeri düzenlemeye kalkar.
-        numbered += (
-            f"\n\n[… dosya {MAX_READ_BYTES} bayttan büyük olduğu için KIRPILDI; "
-            "gerisi gösterilmedi. Aramak için search_code kullan.]"
-        )
+        #
+        # Not SIRADAKİ ÇAĞRIYI BİREBİR YAZAR. Ölçüldü: eski not yalnızca "gerisi
+        # gösterilmedi, search_code kullan" diyordu. Model devam etmek istedi,
+        # devam etmenin bir yolu olmadığı için AYNI çağrıyı tekrarladı, birebir
+        # aynı içeriği aldı ve turu "ne yapmamı istiyorsunuz" diye bitirdi.
+        # Kullanıcının görevi ortadayken. Çıkışı olmayan sınır kilitlenme üretir.
+        numbered += f"\n\n{_devam_notu(display_path(context, path), son, kalan, kirpildi)}"
+    if not kirpildi and offset == 1 and kalan == 0:
+        context.fully_read.add(path)
     return ToolResult(numbered)
+
+
+def _devam_notu(path: str, son: int, kalan: int, kirpildi: bool) -> str:
+    """Kırpmayı ve SIRADAKİ çağrıyı yaz."""
+    if kirpildi and kalan <= 0:
+        return (
+            f"[… dosya {MAX_READ_BYTES} bayttan büyük olduğu için KIRPILDI; gerisi "
+            "gösterilmedi. İlgili yeri bulmak için search_code kullan.]"
+        )
+    return (
+        f"[… {son}. satırda kesildi, {kalan} satır daha var. Devamı için: "
+        f'read_file {{"path": "{path}", "offset": {son + 1}}} '
+        "— aynı çağrıyı offset'siz TEKRARLAMA, aynı satırları geri alırsın.]"
+    )
 
 
 def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:

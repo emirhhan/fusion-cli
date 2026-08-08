@@ -11,6 +11,14 @@ from __future__ import annotations
 
 #: Bir dosyadan okunacak en fazla bayt.
 MAX_READ_BYTES = 100_000
+#: Tek bir read_file çağrısında döndürülecek en fazla satır.
+#
+# Sınır bayt değil SATIR cinsindendir çünkü modelin devam edeceği birim satırdır.
+# 800 satır, bir modülü anlamaya yeter ve web taşımasında tarayıcı kutusuna
+# yapıştırılabilir bir boyutta kalır: 1388 satırlık bir dosyanın tamamı (52 KB)
+# tek seferde gönderildiğinde model onu takip edemiyor, "kaldığım yerden devam
+# ediyorum" deyip aynı çağrıyı tekrarlıyordu (ölçüldü).
+MAX_READ_LINES = 800
 #: Bir araç çıktısının modele verilecek en fazla karakteri.
 MAX_OUTPUT_CHARS = 20_000
 #: Metin/regex aramasında döndürülecek en fazla eşleşme.

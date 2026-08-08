@@ -23,6 +23,7 @@ def _schema(properties: dict[str, SchemaFragment], required: list[str]) -> Schem
 
 
 _STRING: SchemaFragment = {"type": "string"}
+_INTEGER: SchemaFragment = {"type": "integer"}
 
 
 def build_registry() -> ToolRegistry:
@@ -39,8 +40,21 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="read_file",
         description="Bir dosyanın içeriğini satır numaralarıyla oku. Bir dosyayı "
-        "değiştirmeden ÖNCE mutlaka oku; kör düzenleme yapma.",
-        parameters=_schema({"path": {**_STRING, "description": "Dosya yolu"}}, ["path"]),
+        "değiştirmeden ÖNCE mutlaka oku; kör düzenleme yapma. Uzun dosya parça "
+        "parça okunur: sonuç kesildiğini söylerse 'offset' ile DEVAM ET, aynı "
+        "çağrıyı tekrarlama.",
+        parameters=_schema(
+            {
+                "path": {**_STRING, "description": "Dosya yolu"},
+                "offset": {
+                    **_INTEGER,
+                    "description": "Kaçıncı satırdan başlanacağı (1 tabanlı). "
+                    "Kesilen bir okumaya devam etmek için kullanılır.",
+                },
+                "limit": {**_INTEGER, "description": "En fazla kaç satır okunacağı."},
+            },
+            ["path"],
+        ),
         run=files.read_file,
     ),
     Tool(

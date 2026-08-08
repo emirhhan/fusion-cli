@@ -458,6 +458,12 @@ class FusionTui:
         kb = KeyBindings()
         confirm = Condition(lambda: self._mode == "confirm")
         idle = Condition(lambda: self._mode == "idle")
+        # Kaydırma SORU SORULMADIĞI her durumda açıktır — `idle` yetmiyordu.
+        # Kullanıcı en çok, uzun bir tur çalışırken yukarı bakmak istiyor: beş
+        # dakikalık bir turun ortasında geçmişe bakamamak, kaydırmanın hiç
+        # olmamasıyla aynı şey. Yalnızca modal kipler (onay, seçim) dışarıda:
+        # orada oklar seçeneği gezer.
+        scrollable = Condition(lambda: self._mode not in ("confirm", "choice", "ask"))
 
         @kb.add(Keys.BracketedPaste)
         def _paste(event: object) -> None:
@@ -500,31 +506,44 @@ class FusionTui:
         def _down(_event: object) -> None:
             self._move_choice(1) if self._mode == "choice" else self._scroll_by(-_SCROLL_STEP)
 
-        @kb.add("pageup", filter=idle, eager=True)
+        @kb.add("pageup", filter=scrollable, eager=True)
         def _pgup(_event: object) -> None:
             self._scroll_by(_SCROLL_PAGE)
 
-        @kb.add("pagedown", filter=idle, eager=True)
+        @kb.add("pagedown", filter=scrollable, eager=True)
         def _pgdn(_event: object) -> None:
             self._scroll_by(-_SCROLL_PAGE)
 
-        @kb.add(Keys.ScrollUp, filter=idle, eager=True)
+        @kb.add(Keys.ScrollUp, filter=scrollable, eager=True)
         def _mouse_up(_event: object) -> None:
             self._scroll_by(_SCROLL_STEP)
 
-        @kb.add(Keys.ScrollDown, filter=idle, eager=True)
+        @kb.add(Keys.ScrollDown, filter=scrollable, eager=True)
         def _mouse_down(_event: object) -> None:
             self._scroll_by(-_SCROLL_STEP)
 
-        @kb.add("home", filter=idle, eager=True)
-        @kb.add("c-home", filter=idle, eager=True)
+        @kb.add("home", filter=scrollable, eager=True)
+        @kb.add("c-home", filter=scrollable, eager=True)
         def _home(_event: object) -> None:
             self._scroll_home()
 
-        @kb.add("end", filter=idle, eager=True)
-        @kb.add("c-end", filter=idle, eager=True)
+        @kb.add("end", filter=scrollable, eager=True)
+        @kb.add("c-end", filter=scrollable, eager=True)
         def _end(_event: object) -> None:
             self._scroll_end()
+
+        # Ok tuşu tek başına GEÇMİŞ için ayrılmıştır (kullanıcı bunu istedi) ve
+        # tekerlek de ok üretebildiği için (bkz. `_WHEEL_AS_ARROWS_ON`) ikisi
+        # çakışıyordu. Kaydırmanın çakışmayan, her kipte çalışan karşılığı:
+        @kb.add("s-up", filter=scrollable, eager=True)
+        @kb.add("c-u", filter=scrollable, eager=True)
+        def _scroll_up(_event: object) -> None:
+            self._scroll_by(_SCROLL_STEP)
+
+        @kb.add("s-down", filter=scrollable, eager=True)
+        @kb.add("c-d", filter=scrollable, eager=True)
+        def _scroll_down(_event: object) -> None:
+            self._scroll_by(-_SCROLL_STEP)
 
         @kb.add("c-r", filter=idle, eager=True)
         def _history(_event: object) -> None:

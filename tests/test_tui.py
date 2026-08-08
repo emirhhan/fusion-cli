@@ -429,3 +429,40 @@ def test_calisma_satiri_her_karede_kaynaktan_yeniden_okunur():
     ikinci = tui._work_fragments()[0][1]
 
     assert ilk != ikinci, "aynı metin iki kez döndüyse kaynak yeniden okunmuyor"
+
+
+# --- kaydırma her kipte açık olmalı ---------------------------------------- #
+#
+# Kullanıcı beş dakikalık bir turun ORTASINDA yukarı bakmak istedi ve
+# yapamadı: kaydırma bağları `idle` filtresine bağlıydı. Turun ortasında
+# geçmişe bakamamak, kaydırmanın hiç olmamasıyla aynı şey.
+
+
+def _yeni_tui():
+    return FusionTui(
+        on_submit=lambda _text: None,
+        on_interrupt=lambda: None,
+        on_exit=lambda: None,
+        on_cycle_mode=lambda: None,
+    )
+
+
+def _kayit_anahtarlari(tui):
+    """Bağlı tüm tuş dizilerini düz metin olarak çıkar."""
+    return {
+        " ".join(str(getattr(key, "value", key)) for key in binding.keys)
+        for binding in tui.application.key_bindings.bindings
+    }
+
+
+def test_cakismayan_kaydirma_kisayollari_bagli():
+    anahtarlar = _kayit_anahtarlari(_yeni_tui())
+
+    # Ok tuşu geçmiş için ayrıldı; kaydırmanın çakışmayan karşılığı olmalı.
+    assert any("s-up" in a for a in anahtarlar)
+    assert any("s-down" in a for a in anahtarlar)
+    assert any("c-u" in a for a in anahtarlar)
+
+
+def test_pageup_hala_bagli():
+    assert any("pageup" in a for a in _kayit_anahtarlari(_yeni_tui()))

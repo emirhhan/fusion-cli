@@ -55,3 +55,20 @@ def require_list(args: ToolArgs, key: str) -> Sequence[object]:
     if not isinstance(value, list) or not value:
         raise ArgumentError(f"'{key}' alanı boş olmayan bir liste olmalı.")
     return value
+
+
+def require_positive_int(args: ToolArgs, name: str, *, default: int) -> int:
+    """Pozitif tam sayı argümanı oku; yoksa varsayılana düş.
+
+    Taklit araç sözleşmesinde sayılar bazen string gelir ("50"); modelin JSON
+    tipini tutturmasını şart koşmak turu boşa harcatır. Geçersiz değer sessizce
+    varsayılana düşer — okuma penceresi güvenlik sınırı değil kolaylıktır.
+    """
+    raw = args.get(name)
+    if not isinstance(raw, int | float | str):
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else default
