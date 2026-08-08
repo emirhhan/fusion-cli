@@ -70,6 +70,40 @@ async def reinforce_recalled(
     deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
 
 
+def should_learn(
+    outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True
+) -> bool:
+    """Bu turdan ders çıkarılmalı mı. Saftır ve doğrudan test edilir.
+
+    Üç kapı:
+
+    1. **Gerçek iş yapılmış olmalı.** Araç çağrısı olmayan sohbet turundan ders
+       çıkarmak hem boşuna model çağrısıdır hem de belleği değersiz kayıtla doldurur.
+    2. **Tur temiz bitmiş olmalı.** Bütçeyle kesilen, sözleşme hatasıyla düşürülen ya
+       da "ilerleme yok" kapısına takılan bir turun izi öğretici DEĞİLDİR: içeriğinin
+       çoğu harness'ın kendi engelleme metnidir. Ölçülen gerçek zarar — iskele yazıp
+       kilitlenen ve üç boşta turdan sonra öldürülen bir turdan iki ders çıkarıldı ve
+       belleğe yazıldı; o dersler bir sonraki benzer görevde geri enjekte edildi.
+       Bu öz-zehirlenmedir.
+
+       Hatalardan öğrenme KAYBOLMAZ: modelin hata yapıp fark ettiği ve düzelttiği tur
+       TEMİZ biter, `ok=True` döner ve öğrenilmeye devam eder. Elenen şey modelin
+       hatası değil, harness'ın turu öldürmesidir.
+    3. **Web AI'da düşük değerli salt-okuma turu elenir.** Ayrı bir model çağrısıyla
+       ders çıkarmak pahalıdır; kod değişikliği ya da araç hatası varsa öğrenme korunur.
+       API sağlayıcılarında (`allow_read_only`) eski davranış aynıdır.
+    """
+    if plan_mode or outcome.tool_calls_made == 0:
+        return False
+    if not outcome.ok or outcome.hit_step_limit:
+        return False
+    return not (
+        not allow_read_only
+        and outcome.mutating_tool_calls_made == 0
+        and outcome.failed_tool_calls == 0
+    )
+
+
 async def learn(
     task: str,
     outcome: AgentOutcome,
@@ -79,24 +113,10 @@ async def learn(
     scope: str,
     allow_read_only: bool = True,
 ) -> None:
-    """Turdan ders çıkar ve belleğe yaz.
-
-    Yalnızca GERÇEK İŞ yapıldıysa (araç çağrısı varsa) çalışır: sohbet turlarından
-    ders çıkarmak hem boşuna model çağrısıdır hem de belleği değersiz kayıtla doldurur.
-    """
+    """Turdan ders çıkar ve belleğe yaz. Kapı kararı `should_learn`'dedir."""
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
-    if plan_mode or outcome.tool_calls_made == 0:
-        return
-    # Web AI'da salt-okuma/listeme turlarından ayrı bir model çağrısıyla ders
-    # çıkarmak düşük değerli ve pahalıdır. Kod değişikliği, araç hatası veya bütçe
-    # kesilmesi varsa öğrenme korunur; API sağlayıcılarında eski davranış aynıdır.
-    if (
-        not allow_read_only
-        and outcome.mutating_tool_calls_made == 0
-        and outcome.failed_tool_calls == 0
-        and not outcome.hit_step_limit
-    ):
+    if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
     work = _extract_and_store(task, list(outcome.messages), deps, scope=scope)

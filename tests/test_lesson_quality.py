@@ -12,6 +12,8 @@ from fusion_cli.core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind
 from fusion_cli.core.redaction import contains_sensitive
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent import learning
+from fusion_cli.engines.agent.learning_steps import should_learn
+from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.memory.lesson_ranking import Candidate, select_lessons
 from fusion_cli.memory.lesson_scoring import (
     is_injectable,
@@ -225,3 +227,60 @@ def test_reinforce_eslesmeyen_metni_atlar(tmp_path):
     bellek = ChromaLessonMemory(tmp_path)
     bellek.add(Lesson(text="var olan", kind=LessonKind.SUCCESS))
     assert bellek.reinforce(("olmayan ders",), success=True) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Öğrenme kapısı — başarısız tur belleği zehirlemesin
+# --------------------------------------------------------------------------- #
+
+
+def _tur(**alanlar: object) -> AgentOutcome:
+    """Ders kapısı için varsayılan olarak SAĞLIKLI bir tur; alanlar tek tek bozulur."""
+    varsayilan: dict[str, object] = {
+        "final_text": "bitti",
+        "messages": [],
+        "tool_calls_made": 2,
+        "mutating_tool_calls_made": 1,
+        "ok": True,
+        "hit_step_limit": False,
+        "failed_tool_calls": 0,
+    }
+    varsayilan.update(alanlar)
+    return AgentOutcome(**varsayilan)  # type: ignore[arg-type]
+
+
+def test_temiz_tur_ogrenilir():
+    assert should_learn(_tur(), plan_mode=False) is True
+
+
+def test_arac_cagrisi_olmayan_sohbet_turu_ogrenilmez():
+    assert should_learn(_tur(tool_calls_made=0), plan_mode=False) is False
+
+
+def test_plan_kipi_ogrenilmez():
+    assert should_learn(_tur(), plan_mode=True) is False
+
+
+def test_ilerleme_yok_kapisiyla_olen_tur_ogrenilmez():
+    """Ölçülen zarar: iskele yazıp kilitlenen tur öldürüldü, sonra ders yazıldı."""
+    olen = _tur(ok=False, hit_step_limit=True)
+    assert should_learn(olen, plan_mode=False) is False
+
+
+def test_model_hatasiyla_biten_tur_ogrenilmez():
+    assert should_learn(_tur(ok=False), plan_mode=False) is False
+
+
+def test_adim_sinirina_dayanan_tur_ogrenilmez():
+    assert should_learn(_tur(hit_step_limit=True), plan_mode=False) is False
+
+
+def test_hatali_arac_cagrisi_olan_temiz_tur_yine_de_ogrenilir():
+    """Hatadan öğrenme kaybolmamalı: model hata yapıp toparladıysa ders değerlidir."""
+    toparlanan = _tur(failed_tool_calls=2, ok=True, hit_step_limit=False)
+    assert should_learn(toparlanan, plan_mode=False) is True
+
+
+def test_web_ai_salt_okuma_turu_ogrenilmez():
+    salt_okuma = _tur(mutating_tool_calls_made=0, failed_tool_calls=0)
+    assert should_learn(salt_okuma, plan_mode=False, allow_read_only=False) is False
