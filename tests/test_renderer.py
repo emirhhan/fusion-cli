@@ -897,3 +897,24 @@ def test_tek_satirlik_cikti_eskisi_gibi_tek_satir():
     renderer.handle(TurnFinished())
 
     assert "(boş dizin)" in buffer.getvalue()
+
+
+def test_arac_sonucu_satiri_terminal_genisligini_asmaz():
+    """Kırpma sınırı ÖNEK payını da saymalı; yoksa satır sarar ve hizalama bozulur.
+
+    `⎿` bağlayıcısı ve girinti beş görünür karakter yer kaplıyor. Sınır yalnızca
+    içeriğe uygulanınca toplam genişliği bir karakter aşıyordu.
+    """
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=60, no_color=True)
+    renderer = ConsoleRenderer(console)
+
+    renderer.handle(_tool_ok("x" * 200 + "\n" + "y" * 200))
+    renderer.handle(TurnFinished())
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    # Sarma olduğunda `⎿` tek başına kalıyor ve içerik girintisiz alt satıra
+    # düşüyordu; hizalamanın korunması sarmanın HİÇ olmamasına bağlı.
+    assert not any(satir.strip().startswith("x") for satir in satirlar), "satır sarmış"
+    for satir in satirlar[1:]:
+        assert satir.startswith(("  ⎿", "     ")), f"girinti kaybolmuş: {satir!r}"

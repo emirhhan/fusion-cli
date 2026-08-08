@@ -409,8 +409,8 @@ async def _agent_turn(
             state.last_changes = tool_context.changes
             if not outcome.final_text.strip():
                 bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER))
-            # Plan modunda değişiklik ZATEN yasaktır; orada rozet bilgi taşımaz.
-            if outcome.made_no_changes and state.approval.value != "plan":
+            # Rozet yalnızca BAŞARILI turda anlamlıdır; bkz. `cli/session.py`.
+            if outcome.ok and outcome.made_no_changes and state.approval.value != "plan":
                 bus.publish(NoFileChanges())
             bus.publish(TurnFinished())
         finally:

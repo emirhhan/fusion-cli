@@ -49,6 +49,7 @@ from ..core.events import (
     SubAgentFinished,
     SubAgentStarted,
     TokenReceived,
+    ToolCallRepaired,
     ToolExecuted,
     ToolOutcome,
     TurnAnswered,
@@ -162,6 +163,8 @@ class ConsoleRenderer:
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)
+        elif isinstance(event, ToolCallRepaired):
+            self._status(messages.AGENT_TOOL_CALL_REPAIRED)
         elif isinstance(event, SubAgentStarted):
             self._status(messages.AGENT_SUBAGENT_STARTED.format(task=_shorten(event.task, 60)))
             self._resume_work(messages.WORK_SUBAGENT)
@@ -585,13 +588,16 @@ class ConsoleRenderer:
         lines = [line for line in output.splitlines() if line.strip()]
         if not lines:
             return
+        # Sınır terminal genişliğinden TÜRETİLİR. Sabit bir sayı, bağlayıcı ve
+        # girintinin kapladığı beş karakteri saymıyordu: uzun bir satır sarınca
+        # `⎿` tek başına kalıyor ve içerik girintisiz alt satıra düşüyordu.
+        limit = max(16, min(_RESULT_LIMIT, self._console.width - _RESULT_PREFIX))
+        self._result_line(escape(_shorten(lines[0], limit)))
         if len(lines) == 1:
-            self._result_line(escape(_shorten(lines[0], _RESULT_LIMIT)))
             return
-        self._result_line(escape(_shorten(lines[0], _RESULT_LIMIT)))
         for line in lines[1:_RESULT_LINES]:
             self._console.print(
-                f"     [{theme.DIM}]{escape(_shorten(line, _RESULT_LIMIT))}[/{theme.DIM}]",
+                f"     [{theme.DIM}]{escape(_shorten(line, limit))}[/{theme.DIM}]",
                 highlight=False,
             )
         kalan = len(lines) - _RESULT_LINES
@@ -625,8 +631,11 @@ class ConsoleRenderer:
         render_fusion_result(self._console, result, show_all_answers=self._show_all_answers)
 
 
-#: Araç sonucunda bir satırın kaplayabileceği en fazla karakter.
+#: Araç sonucunda bir satırın kaplayabileceği en fazla karakter (üst sınır).
+#: Gerçek sınır terminal genişliğinden türetilir; bkz. `_tool_output`.
 _RESULT_LIMIT = 96
+#: `⎿` bağlayıcısının ve devam satırı girintisinin kapladığı görünür karakter.
+_RESULT_PREFIX = 5
 #: Araç sonucundan gösterilecek en fazla satır.
 #
 # Claude Code okuma sonucunu satır satır gösterir ama ekranı da kaplatmaz.

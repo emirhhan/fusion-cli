@@ -175,7 +175,7 @@ def _publish_turn_end(renderer: ConsoleRenderer, outcome: AgentOutcome) -> None:
         renderer.handle(ErrorOccurred(ui_messages.AGENT_EMPTY_ANSWER, fatal=True))
     elif not outcome.ok:
         renderer.handle(ErrorOccurred(outcome.final_text, fatal=False))
-    if outcome.made_no_changes:
+    if outcome.ok and outcome.made_no_changes:
         renderer.handle(NoFileChanges())
     renderer.handle(TurnFinished())
 

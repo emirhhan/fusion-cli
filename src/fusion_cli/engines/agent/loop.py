@@ -41,6 +41,7 @@ from ...core.events import (
     MutationUnavailable,
     SelfReviewFinished,
     SelfReviewStarted,
+    ToolCallRepaired,
     ToolExecuted,
     ToolOutcome,
     TurnAnswered,
@@ -518,6 +519,11 @@ async def _drive(
                 messages.append(
                     reflexion.tool_contract_repair_note(result.error or "geçersiz çağrı")
                 )
+                # Onarım SESSİZ kalmamalı: her onarım fazladan bir model çağrısı
+                # harcar ve tekrarlarsa turu bitirir. Kullanıcı turun neden
+                # uzadığını göremezse Fusion'ı yavaş sanır — ekranda hiçbir iz
+                # yokken arka planda üç çağrı yanmış olabilir.
+                deps.publisher.publish(ToolCallRepaired())
                 continue
             budget.halt(BudgetStop.CONTRACT_UNREPAIRABLE)
             _publish_budget_stop(deps, budget, state)

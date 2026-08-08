@@ -170,8 +170,11 @@ async def run_agent_task(
             bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
         elif not outcome.ok:
             bus.publish(ErrorOccurred(outcome.final_text, fatal=False))
-        # Plan modunda değişiklik ZATEN yasaktır; orada rozet bilgi taşımaz.
-        if outcome.made_no_changes and mode is not ApprovalMode.PLAN:
+        # Rozet yalnızca BAŞARILI turda anlamlıdır. Başarısız turda hata mesajı
+        # zaten "değişiklik yapılmış kabul edilmemelidir" diyor; rozeti de basmak
+        # aynı olguyu iki kez, iki farklı üslupla söylemekti ve kullanıcı ikincisini
+        # yeni bilgi sanıyordu. Plan modunda değişiklik zaten yasaktır.
+        if outcome.ok and outcome.made_no_changes and mode is not ApprovalMode.PLAN:
             bus.publish(NoFileChanges())
         bus.publish(TurnFinished())
         return outcome

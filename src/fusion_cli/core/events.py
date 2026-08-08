@@ -166,6 +166,16 @@ class ToolExecuted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCallRepaired(Event):
+    """Model geçersiz bir araç çağrısı yazdı; sözleşme hatırlatılıp yeniden soruldu.
+
+    Onarım SESSİZ kalmamalıdır: her onarım fazladan bir model çağrısı harcar ve
+    tekrarlarsa turu bitirir. Ekranda hiçbir iz yokken arka planda üç çağrı yanmış
+    olabilir; kullanıcı turun neden uzadığını göremezse Fusion'ı yavaş sanır.
+    """
+
+
+@dataclass(frozen=True, slots=True)
 class SubAgentStarted(Event):
     """Bir alt-göreve temiz bağlamlı alt-ajan atandı."""
 
