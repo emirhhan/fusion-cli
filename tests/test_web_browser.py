@@ -274,3 +274,93 @@ def test_gercek_captcha_hala_yakalanir():
     temiz = strip_sent_text(govde, SYSTEM_PROMPT)
 
     assert _matched_marker(temiz, _CHALLENGE_MARKERS) is not None
+
+
+# --------------------------------------------------------------------------- #
+# Sürdürülen sohbet — GEÇMİŞTEKİ promptlarımız da kanıt sayılmamalı
+# --------------------------------------------------------------------------- #
+
+
+class _SahteLocator:
+    def __init__(self, metinler: list[str]) -> None:
+        self._metinler = metinler
+
+    async def inner_text(self, **_: object) -> str:
+        return self._metinler[0] if self._metinler else ""
+
+    async def all_inner_texts(self) -> list[str]:
+        return self._metinler
+
+
+class _SahteSayfa:
+    """Gemini'nin SÜRDÜRÜLEN sohbeti: geçmiş turlarımız ekranda duruyor."""
+
+    def __init__(self, govde: str, secici_metin: dict[str, list[str]]) -> None:
+        self._govde = govde
+        self._secici = secici_metin
+
+    def locator(self, selector: str) -> _SahteLocator:
+        if selector == "body":
+            return _SahteLocator([self._govde])
+        return _SahteLocator(self._secici.get(selector, []))
+
+
+def _gemini_sohbeti(ek: str = "") -> tuple[object, list[str]]:
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+
+    gecmis = [
+        f"{SYSTEM_PROMPT}\n\nGörev: projeyi incele",
+        f"{SYSTEM_PROMPT}\n\nGörev: dashboard göm",
+    ]
+    govde = "Gemini  Yeni sohbet  " + "  ".join(gecmis) + "  Gemini'ye sor" + ek
+    return _SahteSayfa(govde, {"user-query": gecmis}), gecmis
+
+
+async def test_surdurulen_sohbetteki_gecmis_promptlar_captcha_sanilmaz():
+    """ÖLÇÜLEN HATA: sohbet sürdüğü için önceki turların promptu ekranda kalıyor.
+
+    Yalnızca BU turun promptunu çıkarmak yetmiyordu; kullanıcı her turda
+    'insan doğrulaması istiyor' hatası alıyordu.
+    """
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        _page_chrome_text,
+    )
+
+    sayfa, _ = _gemini_sohbeti()
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is None
+
+
+async def test_surdurulen_sohbette_gercek_captcha_yine_yakalanir():
+    """Muafiyet dar olmalı: sağlayıcının gerçek uyarısı elenmemeli."""
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        _page_chrome_text,
+    )
+
+    sayfa, _ = _gemini_sohbeti(ek="  Verify you are human to continue")
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is not None
+
+
+async def test_govde_ve_cikarilan_parcalar_ayni_normallestirmeden_gecer():
+    """Kusur buydu: normalleştirilmiş parça ham gövdede bulunmuyor, replace
+    sessizce hiçbir şey yapmıyordu."""
+    from fusion_cli.providers.web_browser import _page_chrome_text
+
+    uzun = "satır bir\n\n\n\nsatır iki captcha burada"
+    sayfa = _SahteSayfa(f"kabuk {uzun} kabuk", {"user-query": [uzun]})
+    temiz = await _page_chrome_text(sayfa, WEB_BROWSER_PROVIDERS["gemini_web"], sent_prompt="")
+
+    assert "captcha" not in temiz
+
+
+def test_her_tarayici_saglayicisinin_sohbet_secicisi_var():
+    """Yeni sağlayıcı eklenirse sohbet alanı tanımsız kalmamalı."""
+    eksik = [tanim.id for tanim in WEB_BROWSER_PROVIDERS.values() if not tanim.history_selectors]
+    assert not eksik, f"sohbet seçicisi tanımsız sağlayıcılar: {eksik}"

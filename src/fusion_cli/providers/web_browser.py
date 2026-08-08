@@ -69,6 +69,17 @@ class BrowserProviderDefinition:
     response_selectors: tuple[str, ...]
     stop_selectors: tuple[str, ...]
     login_markers: tuple[str, ...]
+    #: SOHBET alanının tamamı: kullanıcı turları + model turları + geçmiş.
+    #
+    # Sınıflandırma (oturum/captcha/kota) bu alana ASLA bakmaz. Sebep ölçüldü:
+    # Fusion sistem promptunu sohbete yazıyor ve sohbet SÜRDÜĞÜ için önceki
+    # turların promptu ekranda kalıyor. Prompta "insan doğrulaması (CAPTCHA)"
+    # cümlesi eklendiğinde Fusion kendi geçmişini okuyup her turu "captcha
+    # istiyor" diye düşürdü; kullanıcı gerçekten giriş yapmış olmasına rağmen.
+    #
+    # `response_selectors` yetmiyordu: yalnızca MODEL turlarını kapsıyor,
+    # kullanıcı turlarını (yani bizim promptlarımızı) değil.
+    history_selectors: tuple[str, ...] = ()
     default_models: tuple[str, ...] = ("auto",)
     cookie_hint: str = "Tam Cookie başlığı"
 
@@ -103,6 +114,11 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Durdur"]',
         ),
         login_markers=("log in", "sign up", "giriş yap", "oturum aç"),
+        history_selectors=(
+            "[data-message-author-role]",
+            'article[data-testid^="conversation-turn-"]',
+            "main .group\\/conversation-turn",
+        ),
         default_models=("auto",),
         cookie_hint="chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
     ),
@@ -134,6 +150,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Durdur"]',
         ),
         login_markers=("log in", "continue with google", "giriş yap", "oturum aç"),
+        history_selectors=(
+            '[data-testid="user-message"]',
+            '[data-testid="assistant-message"]',
+            ".font-claude-message",
+            "div[data-test-render-count]",
+        ),
         default_models=("auto",),
         cookie_hint="claude.ai oturumunun tam Cookie başlığı (sessionKey dahil)",
     ),
@@ -165,6 +187,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Durdur"]',
         ),
         login_markers=("sign in", "oturum aç", "giriş yap", "choose an account"),
+        history_selectors=(
+            "user-query",
+            "model-response",
+            ".conversation-container",
+            "infinite-scroller",
+        ),
         default_models=("auto",),
         cookie_hint=(
             "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
@@ -202,6 +230,12 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'button[aria-label*="Durdur"]',
         ),
         login_markers=("sign in", "oturum aç", "giriş yap", "microsoft account"),
+        history_selectors=(
+            '[data-content="ai-message"]',
+            '[data-content="user-message"]',
+            "cib-message-group",
+            '[data-testid="chat-turn"]',
+        ),
         default_models=("auto",),
         cookie_hint=(
             "copilot.microsoft.com oturumundaki tam Cookie başlığı; tarayıcıyla giriş önerilir"
@@ -1159,12 +1193,24 @@ async def _page_chrome_text(
     Kendi yazdığımız hiçbir şey kanıt değildir.
     """
     try:
-        body = str(await page.locator("body").inner_text(timeout=3_000))
+        ham = str(await page.locator("body").inner_text(timeout=3_000))
     except Exception:
         return ""
-    for answer in await _response_snapshot(page, definition.response_selectors):
-        if answer:
-            body = body.replace(answer, " ")
+    # Gövde, çıkarılacak parçalarla AYNI normalleştirmeden geçer. Bu şart:
+    # `_response_snapshot` metinleri `_clean_text` ile normalleştiriyor ve
+    # normalleştirilmiş metin ham gövdede BİREBİR bulunmuyordu — `replace`
+    # sessizce hiçbir şey yapmıyordu. Ölçüldü: sistem promptunda 3+ ardışık
+    # satır sonu var, `_clean_text` onları daraltıyor ve eşleşme kayboluyordu.
+    # Bu kusur "modelin cevabını çıkar" düzeltmesinde de gizliden vardı.
+    body = _clean_text(ham)
+    # SOHBETİN TAMAMI çıkarılır: kullanıcı turları, model turları ve GEÇMİŞ.
+    # Geçmiş kritik: sohbet sürdüğü için önceki turlarda yazdığımız promptlar
+    # ekranda kalır ve yalnızca bu turun promptunu çıkarmak yetmez.
+    for parca in await _response_snapshot(
+        page, (*definition.history_selectors, *definition.response_selectors)
+    ):
+        if parca:
+            body = body.replace(parca, " ")
     return strip_sent_text(body.lower(), sent_prompt)
 
 
