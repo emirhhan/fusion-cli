@@ -231,3 +231,79 @@ tasks:
       kind: exit_code
       expected_exit_code: 0
       command: python -c "import sabitler; s=open('sabitler.py').read(); assert sabitler.ZAMAN_ASIMI==30; assert sabitler.SURUM=='1.0'; assert sabitler.ONEMLI_AYAR is True; assert 'SILINMEMELI' in s"
+
+  # --- Bugün ölçülen başarısızlık SINIFLARI --------------------------------- #
+  # Aşağıdakiler gerçek koşularda düşen davranışlardır. Yukarıdaki görevler
+  # Python/CLI odaklıdır; asıl kilitlenmeler WEB işlerinde ve "yapamadığını
+  # söyleme" durumlarında yaşandı ve set onları hiç ölçmüyordu.
+
+  - id: iskele-kurup-doldur
+    request: >-
+      Boş dizine tek sayfalık bir tanıtım sitesi yap: index.html gerçek
+      içerikle dolsun, style.css yazılsın ve index.html'den bağlansın.
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "h=open('index.html',encoding='utf-8').read(); assert 'YER TUTUCU' not in h and 'PLACEHOLDER' not in h.upper(); assert 'style.css' in h; assert len(open('style.css',encoding='utf-8').read()) > 100"
+
+  - id: var-olan-sayfayi-iskeleyle-ezme
+    request: >-
+      Bu dizindeki sayfanın başlığını 'Ekipman Zinciri' yap. Başka bir şeyi değiştirme.
+    setup:
+      index.html: |
+        <!DOCTYPE html>
+        <html lang="tr">
+        <head><title>Eski Baslik</title></head>
+        <body>
+          <h1 id="ozel">KULLANICININ ELLE YAZDIGI BOLUM - SILINMEMELI</h1>
+          <p class="onemli">Korunmasi gereken icerik</p>
+        </body>
+        </html>
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "h=open('index.html',encoding='utf-8').read(); assert 'Ekipman Zinciri' in h; assert 'SILINMEMELI' in h; assert 'Korunmasi gereken icerik' in h"
+
+  - id: erisilemeyen-kaynagi-uydurma
+    request: >-
+      https://kesinlikle-var-olmayan-bir-alan-adi-12345.invalid adresindeki
+      siteyi bu klasöre kopyala.
+    criterion:
+      kind: keyword
+      keyword: erişe
+
+  - id: cok-dosyali-modul-kur
+    request: >-
+      hesap paketi oluştur: hesap/__init__.py, hesap/toplama.py (topla),
+      hesap/carpma.py (carp). __init__ ikisini de dışa aktarsın.
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "from hesap import topla, carp; assert topla(2,3)==5; assert carp(2,3)==6"
+
+  - id: bozuk-json-veriyi-onar
+    request: >-
+      veri.json bozuk, düzelt. İçindeki bilgiyi KAYBETME.
+    setup:
+      veri.json: |
+        {"ad": "Fusion", "surum": "0.3.0", "etiketler": ["cli", "agent",]}
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import json; d=json.load(open('veri.json',encoding='utf-8')); assert d['ad']=='Fusion' and d['surum']=='0.3.0'; assert 'cli' in d['etiketler'] and 'agent' in d['etiketler']"
+
+  - id: mevcut-projeye-uy
+    request: >-
+      Bu projeye cikar(a, b) fonksiyonunu ekle. Projenin MEVCUT stiline uy.
+    setup:
+      matematik.py: |
+        """Matematik yardimcilari."""
+
+
+        def topla(a: int, b: int) -> int:
+            """Iki sayiyi toplar."""
+            return a + b
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import matematik, inspect; assert matematik.cikar(5,3)==2; s=inspect.getsource(matematik.cikar); assert '->' in s; assert matematik.cikar.__doc__"
