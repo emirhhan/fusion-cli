@@ -55,7 +55,11 @@ class EventingProvider:
         self._publisher.publish(self._started())
         async for item in self._inner.stream(request):
             if isinstance(item, TextChunk):
-                self._publisher.publish(TokenReceived(channel=self._channel, text=item.text))
+                self._publisher.publish(
+                    TokenReceived(
+                        channel=self._channel, text=item.text, provisional=item.provisional
+                    )
+                )
             elif isinstance(item, StreamDone):
                 self._publisher.publish(self._finished(item.result))
             yield item

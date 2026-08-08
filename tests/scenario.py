@@ -151,19 +151,33 @@ async def run_scenario(scenario: Scenario, root: Path) -> Run:
     finally:
         agent_loop.build_provider = original  # type: ignore[assignment]
 
-    from fusion_cli.core.events import TurnFinished
-
-    if outcome.made_no_changes:
-        from fusion_cli.core.events import NoFileChanges
-
-        renderer.handle(NoFileChanges())
-    renderer.handle(TurnFinished())
+    _publish_turn_end(renderer, outcome)
     return Run(
         scenario=scenario,
         transcript=buffer.getvalue(),
         outcome=outcome,
         model_calls=transport.calls,
     )
+
+
+def _publish_turn_end(renderer: ConsoleRenderer, outcome: AgentOutcome) -> None:
+    """Turun ARDINDAN gelen olayları gerçek sarmalayıcıyla AYNI sırada yayınla.
+
+    `run_agent` bu olayları kendisi yayınlamaz; `cli/session.run_agent_task` ve
+    REPL döngüsü yayınlar. Koşum onları taklit etmezse döküm gerçeği yansıtmaz —
+    örneğin kanıt kapısına takılan bir turda kullanıcının gördüğü hata satırı
+    dökümde hiç görünmez ve ekran boşmuş gibi okunur.
+    """
+    from fusion_cli.core.events import ErrorOccurred, NoFileChanges, TurnFinished
+    from fusion_cli.ui import messages as ui_messages
+
+    if not outcome.final_text.strip():
+        renderer.handle(ErrorOccurred(ui_messages.AGENT_EMPTY_ANSWER, fatal=True))
+    elif not outcome.ok:
+        renderer.handle(ErrorOccurred(outcome.final_text, fatal=False))
+    if outcome.made_no_changes:
+        renderer.handle(NoFileChanges())
+    renderer.handle(TurnFinished())
 
 
 def _build_provider(transport: _ScriptedBrowser, renderer: ConsoleRenderer) -> object:

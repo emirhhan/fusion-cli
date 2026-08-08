@@ -173,10 +173,16 @@ async def test_parse_error_does_not_stream_false_success_text() -> None:
     assert isinstance(items[0], StreamDone)
 
 
-async def test_emulated_final_plain_text_still_streams() -> None:
+async def test_emulated_aday_nihai_cevap_akitilmaz() -> None:
+    """Araç çağrısı olmayan yanıt ADAY nihai cevaptır; akıtılmaz.
+
+    Motorun kapıları (kanıt, otomatik devam) bu cevabı reddedip modeli tekrar
+    çağırabilir. Akıtmak, elenmiş bir cevabı kullanıcıya göstermek ya da model
+    kendini tekrarladığında aynı metni iki kez basmak demekti. Kabul edilen cevabı
+    motor `TurnAnswered` ile tek noktadan yayınlar.
+    """
     items = [item async for item in _adapter("Gerçek nihai cevap").stream(_request())]
 
-    chunks = [item for item in items if isinstance(item, TextChunk)]
-    assert len(chunks) == 1
-    assert chunks[0].text == "Gerçek nihai cevap"
+    assert not [item for item in items if isinstance(item, TextChunk)]
     assert isinstance(items[-1], StreamDone)
+    assert items[-1].result.text == "Gerçek nihai cevap", "metin sonuçta korunmalı"

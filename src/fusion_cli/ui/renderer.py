@@ -51,6 +51,7 @@ from ..core.events import (
     TokenReceived,
     ToolExecuted,
     ToolOutcome,
+    TurnAnswered,
     TurnBudgetExhausted,
     TurnFinished,
 )
@@ -106,6 +107,11 @@ class ConsoleRenderer:
 
     def handle(self, event: Event) -> None:
         if isinstance(event, TokenReceived):
+            if event.provisional:
+                self._preamble(event.channel, event.text)
+            else:
+                self._write_stream(event.channel, event.text)
+        elif isinstance(event, TurnAnswered):
             self._write_stream(event.channel, event.text)
         elif isinstance(event, StatusChanged):
             self._status(event.message)
@@ -244,6 +250,33 @@ class ConsoleRenderer:
             self._work.resume()
 
     # -- Akış --------------------------------------------------------------- #
+
+    def _preamble(self, channel: Channel, text: str) -> None:
+        """Araç çağrısına eşlik eden öncü beyanı TEK SATIR olarak bas.
+
+        Burada bir SINIRLAMA vardır, bir sınıflandırma değil. "Bu metin öncü mü
+        yoksa erken bir teslim raporu mu" sorusunu cevaplamaya çalışmak, uzunluk
+        eşiğine ya da metin kalıbına bakmak demekti; ikisi de dilin kendisidir ve
+        iki yönde birden kırılır (uzun ama meşru bir öncü susturulur, kısa ama
+        sahte bir "tamamlandı" geçer).
+
+        Gösterimi sınırlamak bu ikilemi ortadan kaldırır: model araç çağrısının
+        yanına dört başlıklı bir rapor yazsa bile ekrana ilk satırından fazlası
+        çıkamaz, meşru öncü ise hiç zarar görmez. Kötü durumda uzun bir öncü
+        kırpılır — iyi huylu bir başarısızlık.
+        """
+        flat = _shorten(strip_thinking(text, streaming=False), _PREAMBLE_LIMIT)
+        if not flat:
+            return
+        self._flush_status()
+        self._close_line()
+        if channel is not self._active_channel and channel in _CHANNEL_LABELS:
+            self._channel_header(channel)
+        self._console.print(f"[{theme.DIM}]{theme.ICON_ANSWER} {escape(flat)}[/{theme.DIM}]")
+        # Öncü satırı KENDİ işaretini basar; ana kanal başlığı ayrıca çizilirse
+        # satır çift işaretle başlar. Kanal "açık" sayılmaz ki ardından gelen
+        # gerçek cevap kendi başlığını alsın.
+        self._active_channel = None
 
     def _write_stream(self, channel: Channel, text: str) -> None:
         if not text:
@@ -593,6 +626,14 @@ _PRIMARY_ARG: dict[str, str] = {
 _FLAG_ARGS = ("replace_all",)
 #: Çağrı satırının tamamı için üst sınır.
 _CALL_LIMIT = 76
+
+#: Öncü beyanın ekranda kaplayabileceği en fazla karakter.
+#
+# Bu bir sınıflandırma eşiği DEĞİLDİR (bkz. `_preamble`): metin uzun diye "sahte
+# rapor" sayılmaz, yalnızca gösterimi tek satıra sığdırılır. Araç kartı sınırıyla
+# (`_CALL_LIMIT`) aynı ailedendir ve aynı gerekçeyle `ui` katmanında yaşar —
+# "ne kadarı gösterilir" bir sunum kararıdır, sağlayıcı kararı değil.
+_PREAMBLE_LIMIT = 96
 
 
 def _format_call(name: str, args: Mapping[str, object]) -> str:

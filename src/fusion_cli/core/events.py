@@ -80,7 +80,30 @@ class ModelFallbackActivated(Event):
 
 @dataclass(frozen=True, slots=True)
 class TokenReceived(Event):
-    """Akıştan metin parçası geldi."""
+    """Akıştan metin parçası geldi.
+
+    `provisional` için bkz. `core.types.TextChunk`: nihai cevap değil, araç
+    çağrısına eşlik eden öncü beyandır.
+    """
+
+    channel: Channel
+    text: str
+    provisional: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TurnAnswered(Event):
+    """Turun KABUL EDİLMİŞ nihai cevabı.
+
+    Cevabın ekrana ulaşması eskiden `TokenReceived` yan etkisiydi: model metin
+    ürettiği için görünüyordu, motor kabul ettiği için değil. Kapılar bir cevabı
+    reddedip modeli tekrar çağırdığında elenen cevap da basılıyor, model kendini
+    tekrarladığında aynı metin iki kez düşüyordu.
+
+    Bu olay tur başına EN FAZLA BİR KEZ yayınlanır ve yalnızca motor cevabı kabul
+    ettiğinde. Metin zaten akmışsa (gerçekten akıtan API sağlayıcıları)
+    yayınlanmaz; iki yol asla aynı anda çalışmaz.
+    """
 
     channel: Channel
     text: str

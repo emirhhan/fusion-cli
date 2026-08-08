@@ -43,13 +43,21 @@ from ...core.events import (
     SelfReviewStarted,
     ToolExecuted,
     ToolOutcome,
+    TurnAnswered,
     TurnBudgetExhausted,
     VerificationFailed,
 )
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
-from ...core.types import CompletionRequest, Message, ModelResult, StreamDone, ToolCall
+from ...core.types import (
+    CompletionRequest,
+    Message,
+    ModelResult,
+    StreamDone,
+    TextChunk,
+    ToolCall,
+)
 from ...core.verification import VerificationResult, Verifier
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
@@ -163,6 +171,10 @@ class AgentOutcome:
     failed_tool_calls: int = 0
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
+
+    #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
+    #: yayınlanmaz; aynı metin iki kez basılmaz.
+    answer_streamed: bool = False
 
     @property
     def made_no_changes(self) -> bool:
@@ -381,7 +393,32 @@ async def run_agent(
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
     if depth == 0 and deps.tool_context.browser.is_open:
         await deps.tool_context.browser.close()
+    _announce_answer(outcome, deps, depth=depth)
     return outcome
+
+
+def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int) -> None:
+    """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
+
+    Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
+    `_drive` her çağrıldığında bir "nihai cevap" üretir ve öz-denetim ile doğrulama
+    kapısı onu ikinci, üçüncü kez çalıştırır. `_outcome` içinde yayınlamak, çift
+    basma hatasını çözerken aynı hatayı düzeltici turlarda çoğaltırdı.
+
+    Üç kapı vardır ve üçü de gereklidir:
+
+    - `depth == 0` — alt-ajanın cevabı kullanıcının turu değildir; o zaten araç
+      sonucu olarak özetlenip basılır.
+    - `outcome.ok` — başarısızlık metinleri (`ok=False`) `ErrorOccurred`'ın
+      tekelindedir; buradan da yayınlamak onları iki kez bastırırdı.
+    - `not answer_streamed` — gerçekten akıtan sağlayıcılarda cevap ekrana zaten
+      ulaştı. İki yol asla aynı anda çalışmaz.
+    """
+    if depth != 0 or not outcome.ok or outcome.answer_streamed:
+        return
+    if not outcome.final_text.strip():
+        return
+    deps.publisher.publish(TurnAnswered(channel=deps.channel, text=outcome.final_text))
 
 
 # --------------------------------------------------------------------------- #
@@ -413,6 +450,8 @@ class _State:
     # metniyle EZİYORDU. Ölçülen sonuç: harness modeli, yapamadığı işi yapmış gibi
     # göstermeye — yani uydurmaya — itiyordu.
     capability_wall: bool = False
+    #: Bu çağrıda nihai cevap metni GERÇEKTEN aktı mı? `TurnAnswered` buna bakar.
+    answer_streamed: bool = False
 
 
 async def _drive(
@@ -451,6 +490,7 @@ async def _drive(
                     deps,
                     registry,
                     allowed_tools,
+                    state=state,
                     execution=execution,
                     offer_tools=execution.offer_tools,
                 )
@@ -461,6 +501,7 @@ async def _drive(
                         deps,
                         registry,
                         allowed_tools,
+                        state=state,
                         execution=execution,
                         offer_tools=execution.offer_tools,
                         timeout_s=min(deps.config.runtime.request_timeout_s, remaining),
@@ -614,6 +655,7 @@ def _outcome(
         mutating_tool_calls_made=state.mutating_tool_calls_made,
         failed_tool_calls=state.failed_tool_calls,
         model_calls_made=state.model_calls_made,
+        answer_streamed=state.answer_streamed,
     )
 
 
@@ -688,6 +730,7 @@ async def _call_model(
     registry: ToolRegistry,
     allowed_tools: set[str] | None = None,
     *,
+    state: _State,
     execution: ExecutionPolicy,
     offer_tools: bool = True,
     timeout_s: float | None = None,
@@ -719,7 +762,14 @@ async def _call_model(
 
     result: ModelResult | None = None
     async for item in provider.stream(request):
-        if isinstance(item, StreamDone):
+        if isinstance(item, TextChunk):
+            # Beyan değil GÖZLEM: metin gerçekten aktıysa turun cevabı ekrana
+            # ulaşmış demektir ve `TurnAnswered` ikinci kez basmamalıdır. Sarmalayıcı
+            # zinciri ne olursa olsun (yedek, tekrar deneme) bu ölçüm doğrudur —
+            # sağlayıcının "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
+            if not item.provisional:
+                state.answer_streamed = True
+        elif isinstance(item, StreamDone):
             result = item.result
     return result or ModelResult(
         name=spec.name,

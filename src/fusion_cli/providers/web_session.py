@@ -95,15 +95,38 @@ class WebProviderAdapter:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça
         # olarak yayınlanır. Protokol yine tek `StreamDone` ile biter.
         result = await self.complete(request)
-        # Metin YALNIZCA ayrıştırma başarısızsa bastırılır: o durumda `text`, yarım
-        # kalmış bir çağrı ya da payload bloğunun kalıntısını taşıyabilir ve ekrana
-        # çöp sızar. Ayrıştırma temizse `text` modelin öncü cümlesidir ("şu dosyaya
-        # bakıyorum") ve kullanıcının turu takip edebilmesi buna bağlıdır — çağrı
-        # VARLIĞINA bakıp bastırmak, araç kullanan her turu sessizleştiriyordu.
-        suppress_intermediate = self._tool_support is ToolSupport.EMULATED and bool(result.error)
-        if result.text and not suppress_intermediate:
-            yield TextChunk(result.text)
+        if result.text:
+            chunk = self._chunk_for(result)
+            if chunk is not None:
+                yield chunk
         yield StreamDone(result)
+
+    def _chunk_for(self, result: ModelResult) -> TextChunk | None:
+        """Bu turun metni akıtılmalı mı, akıtılacaksa hangi nitelikte?
+
+        Taklit araç sözleşmesinde bir yanıt iki şeyden biridir:
+
+        - **Araç çağrısı VAR** → metin bir ÖNCÜDÜR ("şu dosyaya bakıyorum").
+          Akıtılır ama `provisional` işaretiyle: nihai cevap değildir ve sunum
+          katmanı onu cevap gibi göstermez.
+        - **Araç çağrısı YOK** → metin bir ADAY nihai cevaptır. AKITILMAZ. Motorun
+          kapıları (kanıt, otomatik devam) onu reddedip modeli tekrar çağırabilir;
+          akıtmak, elenmiş bir cevabı kullanıcıya göstermek ya da model kendini
+          tekrarladığında aynı metni iki kez basmak demekti. Kabul edilen cevabı
+          motor `TurnAnswered` ile tek noktadan yayınlar.
+
+        Ayrıştırma hatasında hiçbir şey akıtılmaz: `text` yarım kalmış bir çağrı
+        ya da payload kalıntısı taşıyabilir.
+
+        Taklit sözleşmesi kullanılmayan yol (düz sohbet, council) bu ayrımın
+        DIŞINDADIR: orada araç çağrısı hiç üretilmez ve metni bastırmak ekranı
+        tamamen boş bırakırdı.
+        """
+        if self._tool_support is not ToolSupport.EMULATED:
+            return TextChunk(result.text)
+        if result.error:
+            return None
+        return TextChunk(result.text, provisional=True) if result.tool_calls else None
 
     def _prepared_messages(self, request: CompletionRequest) -> tuple[Message, ...]:
         """Emulated araç desteğinde araç talimatlarını sistem mesajına ekle."""

@@ -243,9 +243,16 @@ class ModelResult:
 
 @dataclass(frozen=True, slots=True)
 class TextChunk:
-    """Akış sırasında gelen metin parçası."""
+    """Akış sırasında gelen metin parçası.
+
+    `provisional` ise bu metin bir NİHAİ CEVAP DEĞİLDİR: araç çağrısının yanında
+    gelen öncü beyandır ("şu dosyaya bakıyorum"). Sunum katmanı onu cevap gibi
+    değil, kırpılmış bir öncü satırı olarak gösterir — model oraya koca bir teslim
+    raporu yazsa bile ekranı kaplayamaz.
+    """
 
     text: str
+    provisional: bool = False
 
 
 @dataclass(frozen=True, slots=True)
