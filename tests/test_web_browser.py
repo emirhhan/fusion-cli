@@ -202,3 +202,75 @@ def test_cozum_adimlari_saglayiciya_gore_degisir():
     from fusion_cli.providers.web_browser import _cozum_adimlari
 
     assert "web_login chatgpt_web" in _cozum_adimlari(WEB_BROWSER_PROVIDERS["chatgpt_web"])
+
+
+# --------------------------------------------------------------------------- #
+# Kendi promptumuz kanıt sayılmamalı — ölçülmüş yanlış-pozitif
+# --------------------------------------------------------------------------- #
+
+
+def test_gonderilen_metin_govdeden_cikarilir():
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    govde = "gemini  sen fusion'sın ve captcha çözemezsin  yeni sohbet"
+    temiz = strip_sent_text(govde, "Sen Fusion'sın ve CAPTCHA çözemezsin")
+
+    assert "captcha" not in temiz
+
+
+def test_kisa_satirlar_govdeden_silinmez():
+    """Kısa satırlar sağlayıcının arayüzünde de bulunur; silmek gerçek uyarıyı gizler."""
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    govde = "verify you are human"
+    assert "verify you are human" in strip_sent_text(govde, "human\nok\n-")
+
+
+def test_bos_prompt_govdeyi_degistirmez():
+    from fusion_cli.providers.web_browser import strip_sent_text
+
+    assert strip_sent_text("captcha", "") == "captcha"
+
+
+def test_gercek_sistem_promptu_yanlis_pozitif_uretmez():
+    """ÖLÇÜLEN HATA: sistem promptuna 'insan doğrulaması (CAPTCHA)' cümlesi eklendi.
+
+    Fusion promptu Gemini'ye yazıyor, sonra sayfayı 'captcha var mı' diye tarıyor
+    ve KENDİ yazdığı kelimeyi bulup turu düşürüyordu. Kullanıcı gerçekten giriş
+    yapmış olmasına rağmen hatayı almaya devam etti.
+
+    Bu test sistem promptunun TAMAMINI gövdeye koyar ve hiçbir tetikleyici
+    işaretin ayakta kalmadığını doğrular. Prompta ileride 'sign in', 'captcha'
+    gibi bir kelime eklenirse burada yakalanır.
+    """
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        strip_sent_text,
+    )
+
+    # Sağlayıcı arayüzü + bizim promptumuz aynı gövdede.
+    govde = f"gemini yeni sohbet {SYSTEM_PROMPT} gönder".lower()
+    assert _matched_marker(govde, _CHALLENGE_MARKERS) is not None, "kurulum geçersiz"
+
+    temiz = strip_sent_text(govde, SYSTEM_PROMPT)
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is None, (
+        "sistem promptundaki bir kelime hâlâ insan doğrulaması sanılıyor"
+    )
+
+
+def test_gercek_captcha_hala_yakalanir():
+    """Muafiyet dar olmalı: sağlayıcının GERÇEK uyarısı elenmemeli."""
+    from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
+    from fusion_cli.providers.web_browser import (
+        _CHALLENGE_MARKERS,
+        _matched_marker,
+        strip_sent_text,
+    )
+
+    govde = f"{SYSTEM_PROMPT}\nplease verify you are human to continue".lower()
+    temiz = strip_sent_text(govde, SYSTEM_PROMPT)
+
+    assert _matched_marker(temiz, _CHALLENGE_MARKERS) is not None

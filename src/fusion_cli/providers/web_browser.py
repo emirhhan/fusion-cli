@@ -858,7 +858,7 @@ async def _send_turn(
     else:
         await input_locator.press("Enter")
 
-    return await _wait_for_response(page, definition, before, previous=previous)
+    return await _wait_for_response(page, definition, before, previous=previous, sent_prompt=prompt)
 
 
 async def _fill_editor(locator: Any, text: str) -> None:
@@ -907,6 +907,7 @@ async def _wait_for_response(
     before: tuple[str, ...],
     *,
     previous: str = "",
+    sent_prompt: str = "",
 ) -> str:
     """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
 
@@ -958,9 +959,9 @@ async def _wait_for_response(
             # Bandı görüp turu kesmek, çalışan bir oturumu durduruyordu; kullanıcı
             # bunu kota sanıp yeni hesap açmıştı. Uyarı ancak cevap HİÇ gelmezse
             # anlamlıdır ve aşağıda, süre dolduğunda sınıflandırılır.
-            await _raise_if_blocked(page, definition)
+            await _raise_if_blocked(page, definition, sent_prompt=sent_prompt)
         await asyncio.sleep(0.35)
-    await _raise_known_page_error(page, definition, ignore_clean=True)
+    await _raise_known_page_error(page, definition, ignore_clean=True, sent_prompt=sent_prompt)
     raise WebBrowserSelectorError(
         f"not found: {definition.name} bu tur için yeni bir yanıt üretmedi; "
         "mesaj gönderilmemiş ya da arayüz değişmiş olabilir"
@@ -1002,11 +1003,17 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
     )
 
 
-async def _raise_if_blocked(page: Any, definition: BrowserProviderDefinition) -> None:
-    """Yalnızca cevabı İMKÂNSIZ kılan durumları fırlat: oturum ve insan doğrulaması."""
+async def _raise_if_blocked(
+    page: Any, definition: BrowserProviderDefinition, *, sent_prompt: str = ""
+) -> None:
+    """Yalnızca cevabı İMKÂNSIZ kılan durumları fırlat: oturum ve insan doğrulaması.
+
+    `sent_prompt` KENDİ gönderdiğimiz metindir ve gövdeden çıkarılır; yoksa
+    promptumuzdaki bir kelime sağlayıcının uyarısı sanılır.
+    """
     if await _strong_login_signal(page, definition):
         raise WebBrowserAuthError(_login_required_message(definition))
-    body = await _page_chrome_text(page, definition)
+    body = await _page_chrome_text(page, definition, sent_prompt=sent_prompt)
     dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
     if dogrulama is not None:
         raise WebBrowserAuthError(_human_verification_message(definition, dogrulama))
@@ -1017,6 +1024,7 @@ async def _raise_known_page_error(
     definition: BrowserProviderDefinition,
     *,
     ignore_clean: bool = False,
+    sent_prompt: str = "",
 ) -> None:
     """Classify real login, human-verification and quota pages.
 
@@ -1028,7 +1036,7 @@ async def _raise_known_page_error(
     if await _strong_login_signal(page, definition):
         raise WebBrowserAuthError(_login_required_message(definition))
 
-    body = await _page_chrome_text(page, definition)
+    body = await _page_chrome_text(page, definition, sent_prompt=sent_prompt)
     if not body and not ignore_clean:
         body = ""
 
@@ -1109,12 +1117,46 @@ def _matched_marker(body: str, markers: tuple[str, ...]) -> str | None:
     return None
 
 
-async def _page_chrome_text(page: Any, definition: BrowserProviderDefinition) -> str:
-    """Sayfa metnini, MODELİN KENDİ CEVABI çıkarılmış hâlde döndür.
+#: Gönderilen metinden gövdeden silinecek en kısa satır uzunluğu.
+#
+# Kısa satırlar ("ok", "- evet", "###") sağlayıcının kendi arayüzünde de doğal
+# olarak bulunur; onları silmek GERÇEK bir uyarıyı gizleyebilirdi. Eşik, silmenin
+# yalnızca bize ait olduğu kesin olan uzun satırlarda çalışmasını sağlar.
+MIN_SENT_LINE_STRIP = 12
 
-    Gövde taraması modelin ürettiği metni de kapsıyordu: model "rate limit" ya da
-    "try again later" yazdığı anda Fusion bunu sağlayıcının kota uyarısı sanıyordu.
-    Sınıflandırma yalnızca UYGULAMANIN kendi arayüz metnine bakmalıdır.
+
+def strip_sent_text(body: str, sent: str) -> str:
+    """Fusion'ın KENDİ gönderdiği metni gövdeden çıkar. Saftır ve doğrudan test edilir.
+
+    Satır satır çalışır: contenteditable alan satır sonlarını ve boşlukları
+    normalize edebildiği için promptun tamamı gövdede birebir bulunmayabilir.
+    """
+    if not sent.strip():
+        return body
+    for line in sent.lower().splitlines():
+        parca = line.strip()
+        if len(parca) >= MIN_SENT_LINE_STRIP:
+            body = body.replace(parca, " ")
+    return body
+
+
+async def _page_chrome_text(
+    page: Any, definition: BrowserProviderDefinition, *, sent_prompt: str = ""
+) -> str:
+    """Sayfa metnini, BİZİM YAZDIĞIMIZ her şey çıkarılmış hâlde döndür.
+
+    İki şey çıkarılır ve ikisi de ölçülmüş hatalardan gelir:
+
+    - **Modelin cevabı** — gövde taraması modelin ürettiği metni de kapsıyordu:
+      model "rate limit" ya da "try again later" yazdığı anda Fusion bunu
+      sağlayıcının kota uyarısı sanıyordu.
+    - **Gönderdiğimiz prompt** — sistem promptu sohbete YAZILIYOR ve gövdenin
+      parçası oluyor. Prompta "insan doğrulaması (CAPTCHA)" cümlesi eklendiğinde
+      Fusion kendi yazdığı kelimeyi okuyup "captcha istiyor" diye turu düşürdü.
+      Kullanıcı gerçekten giriş yapmış olmasına rağmen hatayı almaya devam etti.
+
+    Ortak ilke: sınıflandırma yalnızca UYGULAMANIN KENDİ arayüz metnine bakar.
+    Kendi yazdığımız hiçbir şey kanıt değildir.
     """
     try:
         body = str(await page.locator("body").inner_text(timeout=3_000))
@@ -1123,7 +1165,7 @@ async def _page_chrome_text(page: Any, definition: BrowserProviderDefinition) ->
     for answer in await _response_snapshot(page, definition.response_selectors):
         if answer:
             body = body.replace(answer, " ")
-    return body.lower()
+    return strip_sent_text(body.lower(), sent_prompt)
 
 
 _LOGIN_URL_MARKERS: dict[str, tuple[str, ...]] = {
