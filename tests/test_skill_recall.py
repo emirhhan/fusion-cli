@@ -77,6 +77,18 @@ def test_website_gorevinde_web_referansi_eklenir():
     assert "clamp(" in blok, "akışkan tip ölçeği taşımalı"
 
 
+def test_web_referansi_iskeleyi_kosulsuz_ilk_is_olarak_dayatmaz():
+    """Ölçülen zarar: 'ÖNCE BUNU YAP: scaffold_web' emri, var olan bir siteyi taklit
+    etmesi istenen bir görevde modele önce jenerik iskele yazdırıyordu."""
+    from fusion_cli.engines.agent.skill_recall import reference_block
+
+    blok = reference_block(TaskKind.WEBSITE)
+
+    assert "ÖNCE BUNU YAP" not in blok
+    assert "SIFIRDAN" in blok, "iskelenin ne zaman geçerli olduğu yazmalı"
+    assert "ATLA" in blok, "iskelenin ne zaman atlanacağı yazmalı"
+
+
 def test_website_disinda_referans_eklenmez():
     from fusion_cli.engines.agent.skill_recall import reference_block
 

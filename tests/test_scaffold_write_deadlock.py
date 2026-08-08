@@ -15,7 +15,7 @@ from fusion_cli.core.changeset import ChangeSet
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _targeted_edit_required
-from fusion_cli.tools.scaffold_tool import SCAFFOLD_FILES, scaffold_web
+from fusion_cli.tools.scaffold_tool import SCAFFOLD_FILES, scaffold_web, yabanci_sayfalar
 
 
 class _SahteDeps:
@@ -96,3 +96,32 @@ def test_was_created_this_turn_yeni_dosyayi_olusturulmus_sayar(tmp_path: Path) -
     hedef.write_text("yeni", encoding="utf-8")
 
     assert changes.was_created_this_turn(hedef) is True
+
+
+# --------------------------------------------------------------------------- #
+# İskele koşulludur: dizinde zaten site varsa yanlış hamledir
+# --------------------------------------------------------------------------- #
+
+
+def test_bos_dizinde_yabanci_sayfa_yok(tmp_path: Path) -> None:
+    scaffold_web({"path": "."}, ToolContext(root=tmp_path))
+    assert yabanci_sayfalar(tmp_path) == ()
+
+
+def test_var_olan_sayfa_yabanci_sayilir(tmp_path: Path) -> None:
+    (tmp_path / "urunler.html").write_text("<h1>var olan site</h1>", encoding="utf-8")
+    assert yabanci_sayfalar(tmp_path) == ("urunler.html",)
+
+
+def test_iskele_var_olan_siteyi_gorunce_arac_sonucunda_uyarir(tmp_path: Path) -> None:
+    """Uyarı prompta değil ARAÇ SONUCUNA konur; model prompt kurallarını atlıyor."""
+    (tmp_path / "urunler.html").write_text("<h1>var olan site</h1>", encoding="utf-8")
+    sonuc = scaffold_web({"path": "."}, ToolContext(root=tmp_path))
+
+    assert "DİKKAT" in sonuc.output
+    assert "urunler.html" in sonuc.output
+
+
+def test_bos_dizinde_uyari_cikmaz(tmp_path: Path) -> None:
+    sonuc = scaffold_web({"path": "."}, ToolContext(root=tmp_path))
+    assert "DİKKAT" not in sonuc.output

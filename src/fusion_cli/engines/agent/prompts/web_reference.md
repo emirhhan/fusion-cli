@@ -1,13 +1,23 @@
 # Web arayüzü referansı — somut değerler
 
-## ÖNCE BUNU YAP: scaffold_web
+## Önce göreve bak, sonra iskele
 
-Web arayüzü yapmaya başlarken İLK iş `scaffold_web` aracını çağırmaktır. Aşağıdaki
-ölçeklerin, biçimlendiricilerin ve doğru sıralı sayfa iskeletinin ÇALIŞAN halini diske
-yazar (`tokens.css`, `format.js`, `index.html`). Var olan dosyayı ezmez.
+Bu referans **SIFIRDAN yeni bir arayüz** kurarken geçerlidir. Görev buysa `scaffold_web`
+ile başla: ölçeklerin, biçimlendiricilerin ve doğru sıralı sayfa iskeletinin ÇALIŞAN
+halini diske yazar (`tokens.css`, `format.js`, `index.html`), var olanı ezmez. Sonra
+dosyaları DOLDURURSUN; `tokens.css` ve `format.js` olduğu gibi kullanılır.
 
-Sonrasında kural okumana gerek kalmaz: dosyaları DOLDURURSUN. `tokens.css` ve
-`format.js` yeniden yazılmaz, oldukları gibi kullanılır.
+**İskeleyi ATLA — şu durumlarda `scaffold_web` YANLIŞ hamledir:**
+
+- Dizinde zaten bir site/sayfa var. Önce `list_dir` ve `read_file` ile NE OLDUĞUNU gör;
+  var olan yapıyı jenerik bir iskeleyle karıştırma.
+- Görev var olan bir sayfayı düzeltmek, değiştirmek ya da bir parçasını eklemek.
+- Görev belirli bir kaynağı (URL, tasarım, ekran görüntüsü, başka bir site) TAKLİT
+  ETMEK. Önce kaynağı al ve incele; iskele senin ölçeklerini dayatır, kaynağınkini değil.
+  Kaynağa erişemiyorsan bunu SÖYLE — kaynağın yerine jenerik bir sayfa koyma.
+
+Her turda geçerli kural: iskele bir başlangıç kolaylığıdır, görevin kendisi değildir.
+Görevi iskelenin şekline uydurma.
 
 Aşağıdaki bölümler o dosyalarda ne olduğunu ve neden öyle olduğunu anlatır.
 

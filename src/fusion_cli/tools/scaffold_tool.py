@@ -49,15 +49,41 @@ def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
         context.touched.add(dosya)
         yazilan.append(ad)
 
-    return ToolResult(_ozet(hedef, yazilan, korunan))
+    return ToolResult(_ozet(hedef, yazilan, korunan, yabanci_sayfalar(hedef)))
 
 
-def _ozet(hedef: Path, yazilan: list[str], korunan: list[str]) -> str:
+def yabanci_sayfalar(hedef: Path) -> tuple[str, ...]:
+    """Hedef dizinde iskeleye ait OLMAYAN sayfa dosyaları.
+
+    Varlıkları iskelenin muhtemelen yanlış hamle olduğunu gösterir: dizinde zaten bir
+    site var demektir ve jenerik bir iskele onun üzerine bindirilmemelidir.
+    """
+    try:
+        girisler = sorted(yol.name for yol in hedef.iterdir() if yol.is_file())
+    except OSError:
+        return ()
+    return tuple(
+        ad for ad in girisler if ad.endswith((".html", ".htm")) and ad not in SCAFFOLD_FILES
+    )
+
+
+def _ozet(
+    hedef: Path, yazilan: list[str], korunan: list[str], yabanci: tuple[str, ...]
+) -> str:
     satirlar = [f"iskele hazır: {hedef}"]
     if yazilan:
         satirlar.append(f"yazıldı: {', '.join(yazilan)}")
     if korunan:
         satirlar.append(f"zaten vardı, korundu (atlandı): {', '.join(korunan)}")
+    if yabanci:
+        # Uyarı ARAÇ SONUCUNA konur, prompta değil: bu modülün başındaki ölçüm,
+        # modelin prompt kurallarını atlayıp araç sonucuna tepki verdiğini gösteriyor.
+        satirlar.append(
+            "DİKKAT: bu dizinde zaten sayfa var — " + ", ".join(yabanci) + ". Görev "
+            "sıfırdan yeni bir arayüz kurmak değilse iskeleyi DOLDURMA: önce var olan "
+            "dosyaları oku ve asıl görevi onların üzerinden yürüt. Yazılan iskele "
+            "dosyaları gereksizse bırak, üzerlerine jenerik içerik üretme."
+        )
     satirlar.append(
         "Şimdi bunları DOLDUR: index.html'deki BÜYÜK HARFLİ yer tutucuları gerçek "
         "içerikle değiştir, style.css'i tokens.css değişkenlerini kullanarak yaz, "

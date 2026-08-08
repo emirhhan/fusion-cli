@@ -114,10 +114,12 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="scaffold_web",
-        description="Web sitesi/uygulama arayüzü yapmaya BAŞLARKEN İLK bunu çağır. "
-        "Hazır tasarım token'ları (tokens.css), test edilmiş biçimlendiriciler "
-        "(format.js) ve doğru sıralı sayfa iskeletini (index.html) diske yazar. "
-        "Var olan dosyayı EZMEZ. Sonra bu dosyaları doldurursun.",
+        description="SIFIRDAN yeni bir web arayüzü kurarken kullan: hazır tasarım "
+        "token'ları (tokens.css), test edilmiş biçimlendiriciler (format.js) ve doğru "
+        "sıralı sayfa iskeletini (index.html) diske yazar. Var olan dosyayı EZMEZ; "
+        "sonra bu dosyaları doldurursun. Dizinde zaten bir site varsa, var olan bir "
+        "sayfayı düzeltiyorsan ya da belirli bir kaynağı (URL, tasarım) taklit "
+        "ediyorsan bunu ÇAĞIRMA — önce list_dir/read_file ile ne olduğunu gör.",
         parameters=_schema({"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []),
         run=scaffold_tool.scaffold_web,
         mutating=True,
