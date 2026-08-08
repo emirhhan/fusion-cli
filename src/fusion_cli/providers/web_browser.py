@@ -967,21 +967,49 @@ async def _wait_for_response(
     )
 
 
+def _login_required_message(definition: BrowserProviderDefinition) -> str:
+    """Oturum kapalı. Kullanıcıya ÇALIŞTIRILABİLİR bir çıkış ver."""
+    return (
+        f"authentication: {definition.name} oturumu açık değil veya süresi dolmuş.\n"
+        f"{_cozum_adimlari(definition)}"
+    )
+
+
+def _human_verification_message(definition: BrowserProviderDefinition, marker: str) -> str:
+    """İnsan doğrulaması. Bunu Fusion AŞAMAZ; kullanıcı bizzat tamamlamalıdır."""
+    return (
+        f"authentication: {definition.name} insan doğrulaması (captcha) istiyor. "
+        "Bunu otomatik aşmak mümkün değil — doğrulamayı görünür tarayıcıda KENDİN "
+        f"tamamlaman gerekiyor.\n{_cozum_adimlari(definition)}\n[sayfa işareti: {marker}]"
+    )
+
+
+def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
+    """Somut çözüm adımları.
+
+    Eskiden mesaj yalnızca "görünür giriş tarayıcısında tamamla" diyordu ve bunun
+    NASIL açılacağını hiçbir yerde söylemiyordu. RULES.md: hata mesajı ne olduğunu,
+    nedenini ve kullanıcının NE YAPABİLECEĞİNİ söyler. Komut buraya yazılır.
+    """
+    return (
+        "Çözüm — görünür tarayıcıda doğrulamayı tamamla (aynı izole profil kullanılır, "
+        "bittiğinde arka plan modu yeniden çalışır):\n"
+        f"  python -m fusion_cli.providers.web_login {definition.id} <hesap>\n"
+        "Hesap adı `/model` çıktısındaki model kimliğinin ortasındadır "
+        f"(ör. `{definition.id}/main/auto` → hesap `main`).\n"
+        "Ya da: `fusion serve` → Sağlayıcılar → ilgili oturum → 'Tarayıcıyla giriş yap'.\n"
+        "Tarayıcı açılınca doğrulamayı yap ve pencereyi KAPAT; oturum kaydedilir."
+    )
+
+
 async def _raise_if_blocked(page: Any, definition: BrowserProviderDefinition) -> None:
     """Yalnızca cevabı İMKÂNSIZ kılan durumları fırlat: oturum ve insan doğrulaması."""
     if await _strong_login_signal(page, definition):
-        raise WebBrowserAuthError(
-            f"authentication: {definition.name} oturumu açık değil veya süresi dolmuş. "
-            "Fusion Control Panel'den 'Tarayıcıyla giriş yap'ı aç."
-        )
+        raise WebBrowserAuthError(_login_required_message(definition))
     body = await _page_chrome_text(page, definition)
     dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
     if dogrulama is not None:
-        raise WebBrowserAuthError(
-            f"authentication: {definition.name} insan doğrulaması istiyor. "
-            "Arka plan modunu kapatıp Fusion'ın görünür giriş tarayıcısında "
-            f"doğrulamayı kendin tamamla. [sayfa: {dogrulama}]"
-        )
+        raise WebBrowserAuthError(_human_verification_message(definition, dogrulama))
 
 
 async def _raise_known_page_error(
@@ -998,10 +1026,7 @@ async def _raise_known_page_error(
     login URL or a visible provider-specific login control.
     """
     if await _strong_login_signal(page, definition):
-        raise WebBrowserAuthError(
-            f"authentication: {definition.name} oturumu açık değil veya süresi dolmuş. "
-            "Fusion Control Panel'den 'Tarayıcıyla giriş yap'ı aç."
-        )
+        raise WebBrowserAuthError(_login_required_message(definition))
 
     body = await _page_chrome_text(page, definition)
     if not body and not ignore_clean:
@@ -1009,11 +1034,7 @@ async def _raise_known_page_error(
 
     dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
     if dogrulama is not None:
-        raise WebBrowserAuthError(
-            f"authentication: {definition.name} insan doğrulaması istiyor. "
-            "Arka plan modunu kapatıp Fusion'ın görünür giriş tarayıcısında "
-            f"doğrulamayı kendin tamamla. [sayfa: {dogrulama}]"
-        )
+        raise WebBrowserAuthError(_human_verification_message(definition, dogrulama))
     # Kota işaretleri DAR tutulur. "try again later" burada DEĞİLDİR ve bu ölçülmüş
     # bir hatanın sonucudur: Gemini geçici her arızada "Something went wrong, try
     # again later" gösteriyor ve Fusion bunu kota sanıp kullanıcıya "kotan doldu,

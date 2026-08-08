@@ -175,3 +175,30 @@ def test_kayit_defteri_oturum_butcesini_transporta_gecirir():
         registry.build_session(session)
 
     assert gecilen["timeout_s"] == 180.0
+
+
+def test_insan_dogrulamasi_mesaji_calistirilabilir_komut_icerir():
+    """Ölçülen eksiklik: mesaj 'görünür tarayıcıda tamamla' diyor ama NASIL demiyordu."""
+    from fusion_cli.providers.web_browser import _human_verification_message
+
+    tanim = WEB_BROWSER_PROVIDERS["gemini_web"]
+    mesaj = _human_verification_message(tanim, "verify you are human")
+
+    assert "python -m fusion_cli.providers.web_login gemini_web" in mesaj
+    assert "fusion serve" in mesaj
+    assert "captcha" in mesaj.lower()
+
+
+def test_oturum_kapali_mesaji_da_ayni_cikisi_gosterir():
+    from fusion_cli.providers.web_browser import _login_required_message
+
+    mesaj = _login_required_message(WEB_BROWSER_PROVIDERS["gemini_web"])
+
+    assert "python -m fusion_cli.providers.web_login gemini_web" in mesaj
+
+
+def test_cozum_adimlari_saglayiciya_gore_degisir():
+    """Komut sabit metin değil; oturumun sağlayıcı kimliğini taşır."""
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    assert "web_login chatgpt_web" in _cozum_adimlari(WEB_BROWSER_PROVIDERS["chatgpt_web"])
