@@ -326,3 +326,45 @@ def test_kisa_anahtar_onek_esleşmesi_yapmaz():
     assert classify_task("bulut mimarisini incele") is TaskKind.EXPLORE
     # Yalnızca "bulut" geçen bir istek EXPLORE'a kaymamalı.
     assert classify_task("bulut") is TaskKind.GENERAL
+
+
+# --------------------------------------------------------------------------- #
+# "Çalışır hale getir" ailesi
+# --------------------------------------------------------------------------- #
+#
+# Ölçüldü (gerçek koşu): "dashboard'ı tüm fonksiyonlarıyla çalışır bir hale
+# getirmesini istiyorum" GENERAL'e düştü. GENERAL demek `complex_task=False`
+# demekti; kanıt kapısı da "iş yapmadan durdu" kapısı da hiç kurulmadı ve model
+# hiçbir dosyaya dokunmadan "yaptım" diyebildi. Bu istek açıkça kod değiştirmeyi
+# ister; anahtar kelime listeleri "hale getir" biçimini göremiyordu.
+
+
+@pytest.mark.parametrize(
+    "request_text",
+    [
+        "dashboard'ı tüm fonksiyonlarıyla çalışır bir hale getir",
+        "paneli calisir hale getirmeni istiyorum",
+        "servisi ayağa kaldır",
+        "iki projeyi birbirine entegre et",
+        "bu modülü devreye al",
+        "eksik uçları hayata geçir",
+    ],
+)
+def test_calisir_hale_getirme_istegi_feature_sayilir(request_text):
+    assert classify_task(request_text) is TaskKind.FEATURE
+
+
+def test_calisir_hale_getirme_aciklama_sorusuysa_feature_degil():
+    """"nasıl çalışır hale getirilir" bir soru; iş emri değil."""
+    assert classify_task("bu panel nasıl çalışır hale getirilir açıkla") is not TaskKind.FEATURE
+
+
+def test_gercek_kullanici_istegi_artik_general_degil():
+    request_text = (
+        "bu projenin bağlı olduğu diğer projeleri analiz et bu projenin bağlı olduğu "
+        "projeleri tüm fonksiyonlarıyla eksiksiz kontrol edebilmesini istiyorum ve "
+        "gate-ai projesinde bulunan dashboard ı yani meta panelini de tüm "
+        "fonksiyonlarıyla çalışır bir hale getirmesini istiyorum."
+    )
+
+    assert classify_task(request_text) is TaskKind.FEATURE

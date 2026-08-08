@@ -401,7 +401,10 @@ _ANSWER_CONTRACT = (
     "soru sorup turu bitirme.\n"
     "İş bittiğinde nihai cevabında şunlar bulunur: ne yaptığın, hangi dosyaların "
     "değiştiği ve kullanıcının ne kontrol etmesi gerektiği. Bunu birkaç cümlede "
-    "topla; adım adım günlük dökme."
+    "topla; adım adım günlük dökme.\n"
+    "YALNIZCA bu turda gerçekten çağırdığın araçlarla değiştirdiğin dosyaları say. "
+    "Okuduğun bir dosyada ZATEN var olan bir şeyi kendi işin gibi raporlama. "
+    "Hiçbir şey değiştirmediysen bunu açıkça söyle — yapılmamış işi yapılmış gösterme."
 )
 
 

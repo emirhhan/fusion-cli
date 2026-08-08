@@ -32,6 +32,26 @@ _OPERATION_RE = re.compile(
     r"restart|yeniden\s+başlat|yeniden\s+baslat)\b",
     re.IGNORECASE,
 )
+#: "Çalışır hale getir" ailesi — var olanı işler duruma sokma emri.
+#
+# Ölçüldü (gerçek koşu): "dashboard'ı tüm fonksiyonlarıyla çalışır bir hale
+# getirmesini istiyorum" GENERAL'e düşüyordu. GENERAL demek `complex_task=False`
+# demek; ne kanıt kapısı ne de "iş yapmadan durdu" kapısı kuruluyor ve model
+# hiçbir dosyaya dokunmadan "yaptım" diyebiliyordu.
+#
+# Bu kalıp tam-token listesine sığmaz: araya sıfat girer ("çalışır BİR hale
+# getir") ve fiil ek alır ("getirmesini"). Bu yüzden anahtar kelime değil regex.
+_MAKE_OPERATIONAL_RE = re.compile(
+    r"\b(?:"
+    r"(?:çalışır|calisir|düzgün|duzgun|aktif|işler|isler)\s+(?:\w+\s+)?hale\s+getir|"
+    r"hale\s+getir|"
+    r"ayağa\s+kaldır|ayaga\s+kaldir|"
+    r"devreye\s+al|"
+    r"hayata\s+geçir|hayata\s+gecir|"
+    r"entegre\s+et"
+    r")[a-zçğıöşü]*",
+    re.IGNORECASE,
+)
 _EXPLANATION_RE = re.compile(
     r"\b(?:nedir|ne\s+demek|nasıl\s+yapılır|nasil\s+yapilir|açıkla|acikla)\b",
     re.IGNORECASE,
@@ -163,6 +183,12 @@ def classify_task(request: str) -> TaskKind:
     # anahtar listesine sığmaz (pushlayabilir, commitleyelim…). Açıklama sorusu
     # değilse bunları doğrudan FEATURE bütçesine al.
     if _OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered):
+        return TaskKind.FEATURE
+
+    # "Çalışır hale getir" de aynı bütçeye girer: var olanı işler duruma sokmak
+    # kod değiştirmeyi gerektirir. Açıklama sorusu ("nasıl çalışır hale getirilir")
+    # dışarıda kalır — orada istenen bilgi, değişiklik değil.
+    if _MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered):
         return TaskKind.FEATURE
 
     # EŞLEŞME SAYISI kazanır, sıra değil. Eskiden "ilk eşleşen tür kazanır" idi ve

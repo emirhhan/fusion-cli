@@ -220,3 +220,13 @@ async def test_kod_duzeltme_gorevi_mutation_kapaliyken_erken_biter(tmp_path, mon
     assert "Araç yeteneğini ölç" in sonuc.final_text
     olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
     assert olay.blocking is True
+
+
+def test_calisir_hale_getirme_workspace_mutation_ister():
+    """Kanıt kapısının kurulması buna bağlı: etki yoksa "yaptım" denetlenmez."""
+    assert required_effect_for("dashboard'ı çalışır hale getir") == "workspace_mutation"
+    assert required_effect_for("iki projeyi entegre et") == "workspace_mutation"
+
+
+def test_calisir_hale_getirme_sorusu_etki_istemez():
+    assert required_effect_for("bu panel nasıl çalışır hale getirilir") is None

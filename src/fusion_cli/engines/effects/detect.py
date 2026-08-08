@@ -124,6 +124,16 @@ _FILE_MUTATION_PATTERNS = (
     rf"{_FILENAME}.{{0,40}}\b{_MUTATION_VERBS}\b",
     rf"\b{_MUTATION_VERBS}\b.{{0,40}}{_FILENAME}",
     r"\b(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir)\b",
+    # "Çalışır hale getir" ailesi: var olanı işler duruma sokmak dosya değiştirmeyi
+    # gerektirir. Bu kalıp nesne-fiil desenlerine sığmıyordu (araya sıfat girer,
+    # fiil ek alır) ve etki hiç kurulmadığı için model kanıtsız "yaptım" diyebiliyordu.
+    (
+        r"\b(?:"
+        r"(?:çalışır|calisir|düzgün|duzgun|aktif|işler|isler)\s+(?:\w+\s+)?hale\s+getir|"
+        r"hale\s+getir|ayağa\s+kaldır|ayaga\s+kaldir|devreye\s+al|"
+        r"hayata\s+geçir|hayata\s+gecir|entegre\s+et"
+        r")[a-zçğıöşü]*"
+    ),
 )
 _WEB_LOOKUP_PATTERNS = (
     r"\b(?:web|internet|online)[’'a-z]*.{0,25}\b(?:ara|araştır|arastir|bul|kontrol et)\b",
