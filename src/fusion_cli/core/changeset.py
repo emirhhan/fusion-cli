@@ -61,6 +61,17 @@ class ChangeSet:
         """Bu turda dokunulan yollar, kaydedilme sırasıyla."""
         return tuple(self._snapshots)
 
+    def was_created_this_turn(self, path: Path) -> bool:
+        """Bu dosyayı bu turda agent'ın KENDİSİ mi oluşturdu (öncesinde yoktu)?
+
+        Kullanıcının kodunu toptan yeniden yazmakla, dakikalar önce kendi yazdığı bir
+        iskele dosyasını doldurmak aynı risk değildir: ilkinde kaybedilecek bir şey
+        vardır, ikincisinde yoktur. Toptan-yazma kısıtı bu ayrımı yapabilmek için
+        buraya sorar.
+        """
+        snapshot = self._snapshots.get(path)
+        return snapshot is not None and not snapshot.existed
+
     def __bool__(self) -> bool:
         return bool(self._snapshots)
 

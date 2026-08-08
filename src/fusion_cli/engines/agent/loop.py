@@ -814,6 +814,14 @@ def _targeted_edit_required(
     Karar MOTOR katmanında verilir çünkü sağlayıcı politikasıdır; `files.py`
     sağlayıcıdan habersiz kalır. Yeni dosya yazmak serbesttir — kısıt yalnızca var
     olan bir dosyanın ÜZERİNE yazmaya karşıdır.
+
+    Kısıt agent'ın BU TURDA kendi oluşturduğu dosyayı kapsamaz. Ölçülen ölü kilit:
+    `scaffold_web` iskeleyi diske yazıyor ve "şimdi bunları DOLDUR" diyor; ama iskele
+    dosyasını doldurmak tanımı gereği toptan yazmadır ve kural onu engelliyordu.
+    Model `write_file` deneyip bloklanıyor, `edit_file` deneyip 'old' metnini
+    tutturamıyor, içeriği öğrenmek için yeniden okumaya kalkınca tekrar kapısına
+    takılıyor ve tur "ilerleme yok" ile ölüyordu. Kuralın gerekçesi (kullanıcının
+    kodunu koru) dakikalar önce agent'ın kendi yazdığı yer tutucu dosyada geçersizdir.
     """
     if not execution.is_web or name not in _FULL_WRITE_TOOLS:
         return []
@@ -825,6 +833,8 @@ def _targeted_edit_required(
     except FusionError:
         return []
     if not hedef.exists():
+        return []
+    if deps.tool_context.changes.was_created_this_turn(hedef):
         return []
     return [
         f"'{raw}' zaten var. Var olan bir dosyayı toptan yeniden yazma — edit_file ile "

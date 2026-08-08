@@ -41,6 +41,10 @@ def scaffold_web(args: ToolArgs, context: ToolContext) -> ToolResult:
             # Kullanıcının ya da önceki turun dosyasını EZME.
             korunan.append(ad)
             continue
+        # Yazmadan ÖNCE kaydet: iskele de turun değişiklik kümesine girer. Eskiden
+        # yalnızca `touched`'a ekleniyordu; `/undo` iskeleyi görmüyor ve motor bu
+        # dosyaların agent tarafından oluşturulduğunu bilemiyordu.
+        context.changes.record(dosya)
         dosya.write_text((_TEMPLATES / ad).read_text(encoding="utf-8"), encoding="utf-8")
         context.touched.add(dosya)
         yazilan.append(ad)
