@@ -514,15 +514,16 @@ async def _drive(
                     state,
                     ok=False,
                 )
-            if _should_auto_continue(
+            continue_note = _auto_continue_note(
                 final_text,
                 deps,
                 state,
                 plan_mode=plan_mode,
                 execution=execution,
                 truncated=result.truncated,
-            ):
-                messages.append(reflexion.auto_continue_note())
+            )
+            if continue_note is not None:
+                messages.append(continue_note)
                 continue
             return _outcome(final_text, messages, state)
 
@@ -750,7 +751,7 @@ def _permitted(
     return names
 
 
-def _should_auto_continue(
+def _auto_continue_note(
     final_text: str,
     deps: AgentDeps,
     state: _State,
@@ -758,9 +759,14 @@ def _should_auto_continue(
     plan_mode: bool,
     execution: ExecutionPolicy,
     truncated: bool,
-) -> bool:
+) -> Message | None:
+    """Tur devam ettirilecekse modele enjekte edilecek notu döndür, yoksa `None`.
+
+    Not TÜRÜ ayrılır: "işi yarım bıraktın" ile "iş yapmadan bana soru sordun" farklı
+    davranışlardır ve modele farklı şey söylenmelidir.
+    """
     if plan_mode:
-        return False
+        return None
     # Gerçek çıktı bütçesi dolduysa sağlayıcıdan bağımsız olarak bir kez devam et.
     if truncated:
         wanted = True
@@ -776,9 +782,45 @@ def _should_auto_continue(
         )
     if not wanted:
         wanted = _stopped_without_acting(state, deps.require_budget(), execution=execution)
+    if wanted:
+        note = reflexion.auto_continue_note()
+    elif _asked_instead_of_acting(final_text, state, deps.require_budget()):
+        note = reflexion.asked_instead_of_acting_note()
+    else:
+        return None
     # Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
     # devam etmeyen turlarda da bütçe yakardı.
-    return wanted and deps.require_budget().take_auto_continue()
+    return note if deps.require_budget().take_auto_continue() else None
+
+
+def _asked_instead_of_acting(final_text: str, state: _State, budget: TurnBudget) -> bool:
+    """Model iş yapmadan turu kullanıcıya soru sorarak mı bitirdi?
+
+    Gözlemlendi (Gemini web): model sekiz araç çağırıp dizin yapısını okudu, hiçbir
+    şey değiştirmeden "ne yapmak istediğinizi belirtin" dedi ve tur bitti sayıldı.
+    Kullanıcı görevi zaten vermişti.
+
+    `_stopped_without_acting` bunu yakalayamıyor çünkü yalnızca BUGFIX/FEATURE gibi
+    türlerde çalışır; "analiz et" sınıfına düşen istek kapının dışında kalır. Bu kapı
+    o şartı GENİŞLETMEZ — genişletmek "şu dosyayı açıkla" gibi meşru salt-okuma
+    turlarına da bedava bir devam çağrısı yaptırırdı. Bunun yerine dar ve doğrudan
+    belirtiye bakar: iş yok + kapanışta soru işareti.
+
+    `ask_user` çağıran tur DIŞARIDADIR: model doğru aracı kullanmışsa soru meşrudur
+    ve cevabı zaten geçmişe girmiştir.
+    """
+    if state.tool_calls_made == 0 or state.mutating_tool_calls_made > 0:
+        return False
+    if not reflexion.ends_with_question(final_text):
+        return False
+    return not any(
+        name in _ASKING_TOOLS or name in _DELEGATION_TOOLS
+        for name, _, _ in budget.successful_tool_evidence
+    )
+
+
+#: Kullanıcıya soruyu DOĞRU yoldan soran araç. Çağrıldıysa tur zorlanmaz.
+_ASKING_TOOLS = frozenset({"ask_user"})
 
 
 def _stopped_without_acting(

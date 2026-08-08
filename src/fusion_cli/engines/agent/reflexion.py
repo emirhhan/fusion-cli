@@ -43,6 +43,15 @@ AUTO_CONTINUE_NOTE = (
 )
 
 
+ASKED_INSTEAD_OF_ACTING_NOTE = (
+    "[otomatik-devam] Hiçbir şey değiştirmeden turu bir soruyla bitirdin. Kullanıcı "
+    "görevini zaten verdi; ne yapman gerektiğini ona geri sorma. Elindeki araçlarla "
+    "cevabını bulabiliyorsan bul ve devam et. Soru gerçekten kullanıcının kararıysa "
+    "(yıkıcı işlem, birbirini dışlayan iki gereksinim) ask_user aracını çağır — "
+    "düzyazıyla sorup durma."
+)
+
+
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
     return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)
@@ -50,6 +59,25 @@ def note(*, persistent: bool) -> Message:
 
 def auto_continue_note() -> Message:
     return Message("user", AUTO_CONTINUE_NOTE)
+
+
+def asked_instead_of_acting_note() -> Message:
+    return Message("user", ASKED_INSTEAD_OF_ACTING_NOTE)
+
+
+def ends_with_question(final_text: str) -> bool:
+    """Cevap kullanıcıya sorulan bir soruyla mı bitiyor?
+
+    Ölçüt DİL DEĞİL noktalamadır: soru işareti Türkçede de İngilizcede de aynıdır,
+    oysa "ne yapmamı istersiniz" kalıbını tanımaya çalışmak dile ve ifadeye bağımlı
+    olurdu (bkz. `loop._stopped_without_acting` — duyuru metni bilinçli olarak
+    dilsel yolla tanınmaz).
+
+    Kapanış cümlesindeki soru işaretine bakılır, metnin herhangi bir yerindekine
+    değil: gövdesinde retorik soru geçen dolu dolu bir teslim, soru sorarak
+    bitirilmiş bir tur değildir.
+    """
+    return final_text.rstrip().endswith("?")
 
 
 def looks_unfinished(

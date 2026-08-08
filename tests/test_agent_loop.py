@@ -736,3 +736,65 @@ async def test_israrli_bos_cevapta_sonsuz_donguye_girilmez(monkeypatch, tmp_path
     await run_agent("bir sey yap", deps)
 
     assert provider.calls <= 3, f"boş cevap {provider.calls} kez denendi — sınır aşıldı"
+
+
+# --- iş yapmadan kullanıcıya soru sorma ------------------------------------ #
+#
+# Gözlemlendi (Gemini web): model sekiz araç çağırıp dizin yapısını okudu, sonra
+# hiçbir şey değiştirmeden "ne yapmak istediğinizi belirtin" diyerek turu bitirdi.
+# Kullanıcı görevi zaten vermişti. Eski kapı (`_stopped_without_acting`) bunu
+# yakalayamıyordu: yalnızca BUGFIX/FEATURE gibi türlerde çalışıyor, "analiz et"
+# sınıfına düşen istek kapının tamamen dışında kalıyordu.
+
+
+async def test_is_yapmadan_soru_soran_tur_bir_kez_devam_ettirilir(monkeypatch, tmp_path, sink):
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result("Dizin yapısı `src/app.py` altında incelendi. Ne yapmamı istersiniz?"),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("projeyi analiz et", _deps(tmp_path, sink))
+
+    assert provider.calls == 3
+    assert _icerir(sonuc, reflexion.ASKED_INSTEAD_OF_ACTING_NOTE)
+
+
+async def test_ask_user_cagiran_tur_zorlanmaz(monkeypatch, tmp_path, sink):
+    """Model doğru aracı kullandıysa kapı susar; soru meşrudur."""
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("ask_user", question="hangisi?")]),
+                model_result("Seçime göre `src/app.py:10` güncellenecek. Onaylar mısınız?"),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("yap", _deps(tmp_path, sink, asker=ScriptedAsker("ilki")))
+
+    assert provider.calls == 2
+    assert not _icerir(sonuc, reflexion.ASKED_INSTEAD_OF_ACTING_NOTE)
+
+
+async def test_soru_isareti_olmayan_salt_okuma_cevabi_zorlanmaz(monkeypatch, tmp_path, sink):
+    """Okuyup açıklayan meşru tur ek çağrı harcamamalı."""
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("bu dizini açıkla", _deps(tmp_path, sink))
+
+    assert provider.calls == 2
