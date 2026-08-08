@@ -336,10 +336,16 @@ async def run_tui_repl(state: ReplState, console: Console) -> int:
     banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
     session.tui.sync_conversation()
 
-    # TUI isolation: ana terminal scrollback + ekranı temizle.
+    # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
+    # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl
+    # koruma tekerleği uygulamaya yönlendiren kiplerdir (bkz. tui._apply_wheel_modes).
     sys.stdout.write("\x1b[3J\x1b[2J\x1b[H")
     sys.stdout.flush()
-    await session.tui.application.run_async()
+    try:
+        await session.tui.application.run_async()
+    finally:
+        # Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli.
+        session.tui.restore_wheel_modes()
 
     # Bekleyen arka plan işlerini (ders çıkarımı) bitir; hataları yut ma, log'la.
     await session.background.drain()

@@ -353,3 +353,59 @@ async def test_spinner_iki_kez_baslatilmaz():
     tui.set_work("  iki")
 
     assert tui._spinner_task is ilk
+
+
+# --- tekerlek kipleri ------------------------------------------------------- #
+
+
+def _kip_yakala(tui):
+    """`_write_raw`ı sahteleyip yazılan kip dizilerini topla."""
+    yazilan: list[str] = []
+    tui._write_raw = yazilan.append  # type: ignore[method-assign]
+    return yazilan
+
+
+def test_tekerlek_kipleri_render_sonrasi_bir_kez_yazilir():
+    """prompt_toolkit açılışta `?1l` yazıyor; kip ondan SONRA kurulmalı, yoksa geri alınır.
+
+    Bu yüzden `after_render` kancasına bağlı ve bir kez yazılmalı — her render'da
+    tekrar yazmak terminale gereksiz trafik demektir.
+    """
+    from fusion_cli.cli.repl.tui import _WHEEL_AS_ARROWS_ON
+
+    tui, _ = _tui()
+    yazilan = _kip_yakala(tui)
+
+    tui._apply_wheel_modes()
+    tui._apply_wheel_modes()
+
+    assert yazilan == [_WHEEL_AS_ARROWS_ON]
+
+
+def test_tekerlek_kipleri_after_render_e_bagli():
+    tui, _ = _tui()
+
+    assert tui._apply_wheel_modes in tui.application.after_render._handlers
+
+
+def test_tekerlek_kipleri_cikista_geri_alinir():
+    """Kipler terminal geneline yazılır; fusion çıkınca terminal normale dönmeli."""
+    from fusion_cli.cli.repl.tui import _WHEEL_AS_ARROWS_OFF
+
+    tui, _ = _tui()
+    tui._apply_wheel_modes()
+    yazilan = _kip_yakala(tui)
+
+    tui.restore_wheel_modes()
+
+    assert yazilan == [_WHEEL_AS_ARROWS_OFF]
+
+
+def test_kurulmamis_kip_geri_alinmaz():
+    """Hiç kurulmadıysa çıkışta yazma: dokunmadığımız kipi kapatmak yan etkidir."""
+    tui, _ = _tui()
+    yazilan = _kip_yakala(tui)
+
+    tui.restore_wheel_modes()
+
+    assert yazilan == []

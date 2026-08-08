@@ -301,8 +301,41 @@ NOT: Bu iki belirtinin daha önceki teşhisi ("fusion hiçbir yerde fare yakalam
 açmıyor", "girdi kutusu Rich'in düz Prompt'u") YANLIŞTI; o tarif TUI geçişinden
 önceki koda aitti. Ölçüm yapılmadan koda bakılarak varılan sonuçtu.
 
-Alternatif ekran (`?1049h`) bilinçli olarak KORUNDU: yukarı kaydırınca fusion
-öncesindeki terminal çıktısının görünmemesini sağlayan şey odur.
+Alternatif ekran (`?1049h`) bilinçli olarak KORUNDU.
+
+## ÖLÇÜLDÜ — yukarı kaydırınca eski terminal çıktısının görünmesi (2026-08-08)
+
+Alternatif ekran tek başına YETMİYOR: macOS Terminal.app alternatif ekrandayken
+tekerleği ANA tampona uygular, yani kullanıcı yukarı kaydırınca fusion'ın
+konuşmasını değil fusion'dan ÖNCEKİ terminal çıktısını görür.
+
+`tui_loop` bunu `\e[3J` (kaydedilmiş satırları sil) ile çözmeye çalışıyordu.
+**Terminal.app ED 3'ü desteklemez** ve diziyi sessizce yok sayar; iTerm2 destekler.
+Bu yüzden "izolasyon" macOS Terminal'de hiçbir zaman çalışmamıştı.
+
+Çözüm reponun kendi Faz 2 notlarında zaten kayıtlıydı ("spike4 reçetesi"):
+tekerleği terminale değil UYGULAMAYA yönlendirmek.
+
+    \e[?1007h   xterm alternate scroll: alt ekranda tekerlek → ok tuşu
+    \e[?1h      DECCKM; Terminal.app aynı davranışı bu kiple uyguluyor
+
+Ok tuşları zaten konuşmayı kaydırmaya bağlıydı, dolayısıyla tekerlek de geri
+geldi — `mouse_support=False` ile kaybedilen kaydırma böylece telafi edildi.
+
+İki incelik ölçümle doğrulandı (pty):
+
+1. **Sıra kritik.** prompt_toolkit açılışta `?1l` yazıyor; kip ondan önce
+   kurulursa geri alınıyor. Bu yüzden `after_render` kancasına bağlandı
+   (ölçüldü: `?1l` konum 31, kip kurulumu konum 2125).
+2. **Çıkışta geri alınıyor.** Kipler terminal geneline yazılır; fusion kapanınca
+   terminal normale dönmeli.
+
+`?1h` ok tuşlarının kodlamasını `ESC [ A` → `ESC O A` yapar; prompt_toolkit
+ikisini de çözdüğü için (`ansi_escape_sequences.py`) tuşlar bozulmaz.
+
+AÇIK: Terminal.app'in `?1007`'yi mi yoksa `?1h`'yi mi dikkate aldığı BU MAKİNEDE
+doğrulanmadı — ikisi de gönderiliyor ve desteklenmeyen kipi terminal yok sayar.
+Gerçek Terminal.app'te kullanıcı doğrulaması bekliyor.
 
 ## Ertelenen — Claude Code görünüm klonu: girdi kutusu
 

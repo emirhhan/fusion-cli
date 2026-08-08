@@ -53,6 +53,20 @@ SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 #: Kare süresi. 80 ms göze akıcı gelen en UZUN aralıktır; daha kısası tam-ekran
 #: repaint maliyetini karşılıksız artırır.
 SPINNER_INTERVAL_S = 0.08
+#: Tekerleği terminalin KENDİ scrollback'ini kaydırmaktan alıkoyan kip dizileri.
+#:
+#: Alternatif ekrandayken macOS Terminal.app tekerleği ANA tampona uygular:
+#: kullanıcı yukarı kaydırınca fusion'ın konuşmasını değil, fusion'dan ÖNCEKİ
+#: terminal çıktısını görür. `\e[3J` ile scrollback'i temizleme denemesi bu
+#: terminalde işe yaramaz — Terminal.app ED 3'ü desteklemez (iTerm2 destekler).
+#:
+#: `?1007h` xterm'in "alternate scroll" kipidir: alternatif ekranda tekerlek
+#: kaydırmak yerine ok tuşu üretir. `?1h` (DECCKM) Terminal.app'in aynı davranışı
+#: uyguladığı kiptir; ok tuşlarının kodlaması `ESC [ A` yerine `ESC O A` olur ve
+#: prompt_toolkit ikisini de çözer. Desteklenmeyen kipi terminal sessizce yok sayar.
+_WHEEL_AS_ARROWS_ON = "\x1b[?1007h\x1b[?1h"
+_WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
+
 #: Alt-chrome'un (gradyan çizgi + çerçeveli girdi + durum) yaklaşık satır yüksekliği;
 #: konuşma alanının kaç satır göstereceğini hesaplamak için.
 _CHROME_ROWS = 6
@@ -117,6 +131,7 @@ class FusionTui:
         self._work_text = ""
         self._spinner_frame = 0
         self._spinner_task: asyncio.Task[None] | None = None
+        self._wheel_modes_on = False
         self._status_html = ""
         self._status_mode = "auto"
         self._status_engine = "agent"
@@ -184,6 +199,33 @@ class FusionTui:
             # tekerlekle kaydırmaktan daha temel bir beklentidir.
             mouse_support=False,
         )
+        # Kipler ilk render'dan SONRA kurulmalı (gerekçe `_apply_wheel_modes`'ta).
+        self.application.after_render += self._apply_wheel_modes
+
+    # -- Terminal kipleri --------------------------------------------------- #
+
+    def _apply_wheel_modes(self, _sender: object = None) -> None:
+        """Tekerleği uygulamaya yönlendiren kipleri yaz — ilk render'dan SONRA bir kez.
+
+        prompt_toolkit açılışta `?1l` yazıyor; kip ondan önce kurulursa geri
+        alınır. Bu yüzden `after_render` kancasına bağlıdır.
+        """
+        if self._wheel_modes_on:
+            return
+        self._wheel_modes_on = True
+        self._write_raw(_WHEEL_AS_ARROWS_ON)
+
+    def restore_wheel_modes(self) -> None:
+        """Çıkışta kipleri geri al: terminal fusion'dan sonra normal davranmalı."""
+        if not self._wheel_modes_on:
+            return
+        self._wheel_modes_on = False
+        self._write_raw(_WHEEL_AS_ARROWS_OFF)
+
+    def _write_raw(self, data: str) -> None:
+        output = self.application.output
+        output.write_raw(data)
+        output.flush()
 
     @property
     def console(self) -> Console:
