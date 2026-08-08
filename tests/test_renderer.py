@@ -850,3 +850,50 @@ def test_rozet_cevabin_ardina_basilir():
 
     cikti = buffer.getvalue()
     assert cikti.index("cevap metni") < cikti.index(messages.NO_FILE_CHANGES)
+
+
+# --- çok satırlı araç çıktısı ---------------------------------------------- #
+#
+# Ölçüldü: `read_file` sonucu tek satıra eziliyordu —
+# `⎿  1 { 2 "name": "gate-holding", 3 "private": true, 4 "scripts": { 5 …`
+# Satır numaraları içerikle aynı görsel ağırlıkta akınca "4" bir satır numarası
+# mı yoksa JSON'un parçası mı ayırt edilemiyordu. Claude Code okuma sonucunu
+# satır satır gösterir; yapının korunması bilginin kendisidir.
+
+
+def _tool_ok(output):
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    return ToolExecuted(name="read_file", args={"path": "a.json"}, outcome=ToolOutcome.OK,
+                        output=output)
+
+
+def test_cok_satirli_arac_ciktisi_satir_satir_basilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok("1 {\n2   \"name\": \"x\"\n3 }"))
+    renderer.handle(TurnFinished())
+
+    satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]
+    assert any('"name": "x"' in s for s in satirlar)
+    # Üç kaynak satırı tek satıra ezilmemeli.
+    assert sum(1 for s in satirlar if s.lstrip().startswith(("1", "2", "3", "⎿"))) >= 3
+
+
+def test_cok_satirli_ciktida_kalan_satir_sayisi_bildirilir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok("\n".join(f"{i} satır" for i in range(1, 40))))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "satır daha" in cikti, "kırpılan satır sayısı söylenmeli"
+
+
+def test_tek_satirlik_cikti_eskisi_gibi_tek_satir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(_tool_ok("(boş dizin)"))
+    renderer.handle(TurnFinished())
+
+    assert "(boş dizin)" in buffer.getvalue()

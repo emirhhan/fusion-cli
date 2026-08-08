@@ -62,17 +62,40 @@ def atomic_write(path: Path, content: str) -> None:
         raise
 
 
+def display_path(context: ToolContext, path: Path) -> str:
+    """Yolu KULLANICIYA gösterilecek biçime çevir: kök altındaysa göreli.
+
+    Ölçüldü: hata satırı `Dosya yok: /private/var/folders/m0/4p1xq…/tmpb5c/
+    ayarlar.json. Y…` biçiminde basılıyordu. Sonuç satırının neredeyse tamamını
+    gürültülü mutlak yol yiyor, mesajın asıl açıklaması ("Yolu list_dir ile
+    doğrula…") kesiliyordu — yani kullanıcı hatanın NEDENİNİ göremiyordu.
+
+    Kök dışındaki yol mutlak kalır: orada tam yol gerçekten bilgidir, kullanıcı
+    çalışma alanının dışına çıkıldığını görmelidir.
+    """
+    for root in (context.root, context.root.resolve()):
+        # Kök İKİ biçimiyle de denenir: `resolve_path` sonucu çözümlenmiş yoldur
+        # ve macOS'ta `/var` → `/private/var` olur. Yalnızca ham köke bakmak, kök
+        # altındaki her yolu "dışarıda" sayıp mutlak bırakıyordu.
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            continue
+        return str(relative) if relative.parts else "."
+    return str(path)
+
+
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     if not path.exists():
         # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
         # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
         return ToolResult.failure(
-            f"Dosya yok: {path}. Yolu list_dir ya da glob ile doğrula; "
+            f"Dosya yok: {display_path(context, path)}. Yolu list_dir ya da glob ile doğrula; "
             "dosyanın oluşturulması gerekiyorsa write_file kullan."
         )
     if path.is_dir():
-        return ToolResult.failure(f"Bu bir dizin, dosya değil: {path}")
+        return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
 
     ham = path.read_bytes()
     data = ham[:MAX_READ_BYTES]
@@ -80,7 +103,9 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
-        return ToolResult.failure(f"Metin dosyası değil (UTF-8 çözülemedi): {path}")
+        return ToolResult.failure(
+            f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
+        )
 
     if not kirpildi:
         context.fully_read.add(path)
@@ -127,7 +152,8 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # o kural UYGULANIR. Tam içeriğini görmediğin bir dosyayı baştan yazmak,
         # görmediğin kısmı silmek demektir — kırpılmış okumada bu sessiz veri kaybıdır.
         return ToolResult.failure(
-            f"Bu dosya var ve tam içeriğini okumadın: {path}. Üzerine yazmak "
+            f"Bu dosya var ve tam içeriğini okumadın: {display_path(context, path)}. "
+            "Üzerine yazmak "
             "görmediğin satırları siler. Kısmi değişiklik için edit_file kullan; "
             "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
         )
@@ -136,10 +162,10 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     try:
         atomic_write(path, content)
     except OSError as exc:
-        return ToolResult.failure(f"Yazılamadı: {path} ({exc})")
+        return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
     context.touched.add(path)
     action = "güncellendi" if existed else "oluşturuldu"
-    return ToolResult(f"{action}: {path} ({len(content)} karakter)")
+    return ToolResult(f"{action}: {display_path(context, path)} ({len(content)} karakter)")
 
 
 def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
@@ -172,8 +198,8 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return ToolResult.failure(
-            f"Dosya yok: {path}. Düzenlenecek bir dosya yok — içeriği write_file ile "
-            "oluştur, ya da doğru yolu list_dir / glob ile bul."
+            f"Dosya yok: {display_path(context, path)}. Düzenlenecek bir dosya yok — "
+            "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
         )
     text = path.read_text(encoding="utf-8")
 
@@ -187,7 +213,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         context.changes.record(path)
         atomic_write(path, text.replace(old, new))
         context.touched.add(path)
-        return ToolResult(f"düzenlendi: {path} ({count} değişiklik)")
+        return ToolResult(f"düzenlendi: {display_path(context, path)} ({count} değişiklik)")
 
     problem = _match_problem(text, old, position=None)
     if problem is not None:
@@ -196,7 +222,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.changes.record(path)
     atomic_write(path, text.replace(old, new, 1))
     context.touched.add(path)
-    return ToolResult(f"düzenlendi: {path} (1 değişiklik)")
+    return ToolResult(f"düzenlendi: {display_path(context, path)} (1 değişiklik)")
 
 
 def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -205,8 +231,8 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return ToolResult.failure(
-            f"Dosya yok: {path}. Düzenlenecek bir dosya yok — içeriği write_file ile "
-            "oluştur, ya da doğru yolu list_dir / glob ile bul."
+            f"Dosya yok: {display_path(context, path)}. Düzenlenecek bir dosya yok — "
+            "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
         )
     original = path.read_text(encoding="utf-8")
 
@@ -230,13 +256,13 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.changes.record(path)
     atomic_write(path, working)
     context.touched.add(path)
-    return ToolResult(f"düzenlendi: {path} ({toplam} değişiklik uygulandı)")
+    return ToolResult(f"düzenlendi: {display_path(context, path)} ({toplam} değişiklik uygulandı)")
 
 
 def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, optional_str(args, "path", "."))
     if not path.exists():
-        return ToolResult.failure(f"Yol yok: {path}")
+        return ToolResult.failure(f"Yol yok: {display_path(context, path)}")
     if path.is_file():
         return ToolResult(str(path))
 

@@ -568,9 +568,39 @@ class ConsoleRenderer:
         if event.diff is not None:
             self._tool_diff(event.diff)
             return
-        summary = _shorten(event.output.replace("\n", " "), 96)
-        if summary:
-            self._result_line(escape(summary))
+        self._tool_output(event.output)
+
+    def _tool_output(self, output: str) -> None:
+        """Araç sonucunu bas: tek satırlıksa tek satır, çok satırlıysa YAPISIYLA.
+
+        Çok satırlı çıktı eskiden `\\n` yerine boşluk konarak tek satıra
+        eziliyordu. `read_file` sonucu böyle görünüyordu:
+
+            ⎿  1 { 2 "name": "gate-holding", 3 "private": true, 4 "scripts": { 5 …
+
+        Satır numaraları içerikle aynı görsel ağırlıkta akınca "4"ün numara mı
+        yoksa verinin parçası mı olduğu ayırt edilemiyor. Dosyanın yapısı
+        bilginin kendisidir; onu düzleştirmek bilgiyi yok eder.
+        """
+        lines = [line for line in output.splitlines() if line.strip()]
+        if not lines:
+            return
+        if len(lines) == 1:
+            self._result_line(escape(_shorten(lines[0], _RESULT_LIMIT)))
+            return
+        self._result_line(escape(_shorten(lines[0], _RESULT_LIMIT)))
+        for line in lines[1:_RESULT_LINES]:
+            self._console.print(
+                f"     [{theme.DIM}]{escape(_shorten(line, _RESULT_LIMIT))}[/{theme.DIM}]",
+                highlight=False,
+            )
+        kalan = len(lines) - _RESULT_LINES
+        if kalan > 0:
+            self._console.print(
+                f"     [{theme.DIM}]{escape(messages.RESULT_TRUNCATED.format(count=kalan))}"
+                f"[/{theme.DIM}]",
+                highlight=False,
+            )
 
     def _result_line(self, body: str) -> None:
         """Araç sonucunu çağrıya `⎿` bağlayıcısıyla bağla (sönük tek satır)."""
@@ -594,6 +624,15 @@ class ConsoleRenderer:
         self._end_block()
         render_fusion_result(self._console, result, show_all_answers=self._show_all_answers)
 
+
+#: Araç sonucunda bir satırın kaplayabileceği en fazla karakter.
+_RESULT_LIMIT = 96
+#: Araç sonucundan gösterilecek en fazla satır.
+#
+# Claude Code okuma sonucunu satır satır gösterir ama ekranı da kaplatmaz.
+# Sekiz satır, bir dosyanın ne olduğunu anlamaya yeter; gerisi "N satır daha"
+# ile sayılır — kırpıldığı SÖYLENİR, sessizce yutulmaz.
+_RESULT_LINES = 8
 
 #: Bu uzunluğu aşan argüman değeri ham gösterilmez, yerine boyutu yazılır.
 _ARG_VALUE_LIMIT = 48

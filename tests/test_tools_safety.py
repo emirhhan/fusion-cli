@@ -252,3 +252,38 @@ def test_kisa_kabuk_ciktisina_not_eklenmez():
     from fusion_cli.tools.shell import _combine
 
     assert "KIRPILDI" not in _combine("kısa çıktı", "")
+
+
+# --- yol gösterimi: proje köküne göreli ------------------------------------ #
+#
+# Ölçüldü: hata satırı `Dosya yok: /private/var/folders/m0/4p1xq…/tmpb5c/ayarlar.json.
+# Y…` biçiminde basılıyordu. 96 karakterlik sonuç satırının neredeyse tamamını
+# gürültülü mutlak yol yiyor, mesajın ASIL açıklaması ("Yolu list_dir ile
+# doğrula…") kesiliyordu. Kullanıcı hatanın nedenini değil yarım bir yol görüyordu.
+
+
+def test_kok_altindaki_yol_goreli_gosterilir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import display_path
+
+    context = ToolContext(root=tmp_path)
+
+    assert display_path(context, tmp_path / "src" / "app.py") == "src/app.py"
+
+
+def test_kok_disindaki_yol_mutlak_kalir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import display_path
+
+    context = ToolContext(root=tmp_path / "proje")
+    (tmp_path / "proje").mkdir()
+    disarisi = tmp_path / "baska" / "dosya.txt"
+
+    assert display_path(context, disarisi) == str(disarisi)
+
+
+def test_kokun_kendisi_nokta_olur(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import display_path
+
+    assert display_path(ToolContext(root=tmp_path), tmp_path) == "."
