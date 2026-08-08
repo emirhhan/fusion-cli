@@ -21,5 +21,16 @@ jobs:
       - name: Bağımlılıkları kur
         run: make install
       # Yerelde çalıştırılan kapının birebir aynısı; CI'a özel kural yoktur.
+      # `make check` = lint + type + test + deadlock.
       - name: Kalite kapısı
         run: make check
+
+      # Kilitlenme ağı AYRI bir adım olarak da görünür.
+      #
+      # `make check` onu zaten kapsıyor; buradaki tekrar bilinçlidir. Bu paketler
+      # kapıların ETKİLEŞİMİNİ koruyor ve bugüne kadarki tüm kilitlenmeler oradan
+      # çıktı. Ayrı adım, bir regresyonun CI çıktısında 1900 testin arasında
+      # kaybolmasını engeller: kırılırsa hangi sınıfın bozulduğu adının kendisinden
+      # okunur.
+      - name: Kilitlenme ağı
+        run: make deadlock

@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: setup venv install format lint type test check clean eval
+.PHONY: setup venv install format lint type test deadlock check clean eval
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -32,7 +32,20 @@ type:
 test:
 	$(PYTEST)
 
-check: lint type test
+# Kilitlenme ağı — kapıların ETKİLEŞİMİNİ koruyan paketler.
+#
+# Ayrı bir hedef olarak durur çünkü `test` içinde eriyip gitmemeli: bugüne kadarki
+# kilitlenmelerin hepsi tek tek doğru yazılmış kapıların birbirini engellemesinden
+# doğdu ve birim testler bu sınıfı GÖREMEZ. Bir dosya yanlışlıkla silinir ya da
+# yeniden adlandırılırsa `deadlock` hedefi "no tests ran" ile kırılır; `test`
+# hedefinde bu sessizce kaybolurdu.
+DEADLOCK_SUITES := tests/test_deadlock_property.py tests/test_gate_matrix.py \
+                   tests/test_web_build_runs.py tests/test_eval_criteria_sound.py
+
+deadlock:
+	$(PYTEST) $(DEADLOCK_SUITES)
+
+check: lint type test deadlock
 
 # Değerlendirme seti: başlangıç görevlerini koştur, raporu eval-report.json'a yaz.
 # GERÇEK model çağrısı yapar (ağ + anahtar gerekir). İki raporu karşılaştırmak için:
