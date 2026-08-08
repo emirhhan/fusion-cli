@@ -172,3 +172,48 @@ async def test_semalar_function_calling_bicimindedir(registry):
 
     assert sema["type"] == "function"
     assert sema["function"]["parameters"]["required"] == ["path", "old", "new"]
+
+
+# --- zaman aşımı: kısmi çıktı KAYBEDİLMEZ ---------------------------------- #
+#
+# Gerçek koşuda model `npm run start:all` çalıştırdı — üç servisi birlikte ayağa
+# kaldıran bir dev sunucusu. O komut hiç bitmez; 120 saniye beklendi ve tur iki
+# dakika kaybetti. Daha kötüsü, dönen tek şey "zaman aşımı" idi: sunucunun
+# "listening on :3000" çıktısı ATILDI. Model ne olduğunu anlamadı, komutun
+# başarısız olduğunu sandı ve tekrar denemeye yöneldi.
+
+
+async def test_zaman_asiminda_kismi_cikti_dondurulur(registry, context, monkeypatch):
+    import subprocess
+
+    from fusion_cli.tools import shell as shell_module
+
+    def _patla(*args, **kwargs):
+        raise subprocess.TimeoutExpired(
+            cmd="npm run start:all",
+            timeout=1.0,
+            output="ready - started server on 0.0.0.0:3000",
+            stderr="",
+        )
+
+    monkeypatch.setattr(shell_module.subprocess, "run", _patla)
+    sonuc = await _calistir(registry, context, "run_shell", command="npm run start:all")
+
+    assert sonuc.ok is False
+    assert "0.0.0.0:3000" in sonuc.output, "kısmi çıktı kaybedildi"
+    assert "aynı komutu tekrar çalıştırma" in sonuc.output.lower()
+
+
+async def test_zaman_asiminda_cikti_yoksa_da_yol_gosterilir(registry, context, monkeypatch):
+    import subprocess
+
+    from fusion_cli.tools import shell as shell_module
+
+    def _patla(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="sleep 999", timeout=1.0)
+
+    monkeypatch.setattr(shell_module.subprocess, "run", _patla)
+    sonuc = await _calistir(registry, context, "run_shell", command="sleep 999")
+
+    assert sonuc.ok is False
+    assert "çıktı üretmedi" in sonuc.output

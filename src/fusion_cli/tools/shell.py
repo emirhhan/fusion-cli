@@ -36,14 +36,48 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             timeout=SHELL_TIMEOUT_S,
             cwd=context.root,
         )
-    except subprocess.TimeoutExpired:
-        return ToolResult.failure(f"Komut {SHELL_TIMEOUT_S:.0f}s içinde bitmedi (zaman aşımı).")
+    except subprocess.TimeoutExpired as timeout:
+        return ToolResult.failure(_timeout_message(timeout))
     except OSError as exc:
         return ToolResult.failure(f"Komut çalıştırılamadı: {exc}")
 
     body = _combine(process.stdout, process.stderr)
     text = f"(çıkış kodu {process.returncode})\n{body}".strip()
     return ToolResult(text, ok=process.returncode == 0)
+
+
+def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
+    """Zaman aşımını ELDE OLAN kanıtla anlat.
+
+    Ölçüldü: model `npm run start:all` çalıştırdı — üç servisi birlikte ayağa
+    kaldıran bir dev sunucusu. O komut hiç bitmez. Dönen tek şey "zaman aşımı"
+    idi ve sunucunun "started server on 0.0.0.0:3000" çıktısı ATILIYORDU. Model
+    komutun başarısız olduğunu sandı; oysa komut çalışmıştı, sadece bitmemişti.
+
+    Kısmi çıktı `TimeoutExpired` üzerinde zaten duruyor; kaybedilmesinin bir
+    gerekçesi yoktu. Mesaj ayrıca ne yapılacağını söyler (RULES: hata mesajı
+    eyleme dönüştürülebilir olur) — en önemlisi aynı komutu tekrar denememeyi,
+    çünkü ikinci deneme de aynı süreyi yakar.
+    """
+    partial = _combine(_as_text(timeout.output), _as_text(timeout.stderr)).strip()
+    lead = (
+        f"Komut {SHELL_TIMEOUT_S:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
+        "süreç (dev sunucusu, izleyici) olabilir: böyle bir komut zaten hiç bitmez.\n"
+        "Yapılacak: aynı komutu tekrar çalıştırma. Çıktıya bakıp sürecin başlayıp "
+        "başlamadığını anla; sürekli çalışması gerekiyorsa kullanıcıdan onu kendi "
+        "terminalinde başlatmasını iste, doğrulama için biten bir komut (build, test, "
+        "lint) kullan."
+    )
+    if not partial:
+        return f"{lead}\nKomut durdurulana kadar hiç çıktı üretmedi."
+    return f"{lead}\n\n[durdurulmadan önceki çıktı]\n{partial}"
+
+
+def _as_text(value: str | bytes | None) -> str:
+    """`TimeoutExpired` çıktısı metin ya da bayt olabilir; ikisini de karşıla."""
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else value.decode("utf-8", errors="replace")
 
 
 def git(args: ToolArgs, context: ToolContext) -> ToolResult:

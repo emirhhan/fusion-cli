@@ -121,8 +121,10 @@ SAYFA_COPU_CEVABA_KARISTI = Scenario(
     name="sayfa-copu-cevaba-karisti",
     task=GERCEK_ISTEK,
     watch=(
-        "Tarayıcı sayfasından kazınan alakasız metin ('COGNOiSe.com…') cevaba karışıyor. "
-        "Taşıma bunu ayıklamalı; kullanıcı ekranında görmemeli."
+        "Sayfa çöpü modelin metnine karışırsa ne oluyor? Çöpün KAYNAĞI DOM'dur ve "
+        "orada ayıklanır (bkz. test_web_browser: seçiciler tercih sırasıdır); koşum "
+        "tarayıcıyı taklit etmediği için burada yalnızca ikinci savunma hattı görünür: "
+        "öncü satırı kırpılır, ekranı kaplayamaz."
     ),
     files={"package.json": PACKAGE_JSON},
     replies=(
@@ -157,6 +159,66 @@ GERCEK_IS_YAPAN_TUR = Scenario(
 )
 
 
+ARAC_HATASI_TOPARLANMA = Scenario(
+    name="arac-hatasi-toparlanma",
+    task="config.json dosyasındaki port değerini 8080 yap",
+    watch=(
+        "Araç hata döndürünce refleksiyon notu giriyor. Kullanıcı hatayı ve ardından "
+        "toparlanmayı okunur biçimde görüyor mu, yoksa ekran hata çöplüğüne mi dönüyor?"
+    ),
+    files={"config.json": '{\n  "port": 3000\n}\n'},
+    replies=(
+        "Dosyayı okuyorum.\n" + call("read_file", path="ayarlar.json"),
+        "Ad yanlışmış; doğru dosyayı okuyorum.\n" + call("read_file", path="config.json"),
+        "Portu güncelliyorum.\n"
+        + call("edit_file", path="config.json", old='"port": 3000', new='"port": 8080'),
+        "`config.json` içindeki port 8080 yapıldı.",
+    ),
+)
+
+
+BOZUK_ARAC_CAGRISI = Scenario(
+    name="bozuk-arac-cagrisi",
+    task="config.json dosyasındaki port değerini 8080 yap",
+    watch=(
+        "Model bozuk JSON yazınca onarım notu gidiyor. Kullanıcı ham ayrıştırma "
+        "hatasını mı görüyor, yoksa anlaşılır bir şey mi?"
+    ),
+    files={"config.json": '{\n  "port": 3000\n}\n'},
+    replies=(
+        f"Portu değiştiriyorum.\n{CALL_OPEN}{{bozuk json{CALL_CLOSE}",
+        "Portu güncelliyorum.\n"
+        + call("edit_file", path="config.json", old='"port": 3000', new='"port": 8080'),
+        "`config.json` içindeki port 8080 yapıldı.",
+    ),
+)
+
+
+COK_ADIMLI_GERCEK_IS = Scenario(
+    name="cok-adimli-gercek-is",
+    task="config.json'a host alanı ekle ve README'ye not düş",
+    watch=(
+        "REFERANS. Çok adımlı gerçek iş: iki dosya değişiyor. Döküm okunur mu, "
+        "her adımın öncüsü var mı, kapanış tek mi?"
+    ),
+    files={"config.json": '{\n  "port": 3000\n}\n', "README.md": "# Proje\n"},
+    replies=(
+        "Mevcut yapılandırmayı okuyorum.\n" + call("read_file", path="config.json"),
+        "host alanını ekliyorum.\n"
+        + call(
+            "edit_file",
+            path="config.json",
+            old='"port": 3000',
+            new='"port": 3000,\n  "host": "0.0.0.0"',
+        ),
+        "README'ye notu düşüyorum.\n"
+        + call("edit_file", path="README.md", old="# Proje", new="# Proje\n\nhost: 0.0.0.0"),
+        "`config.json` içine `host` eklendi ve `README.md` güncellendi. "
+        "`cat config.json` ile doğrulayabilirsin.",
+    ),
+)
+
+
 ALL_SCENARIOS = (
     TUR_ORTASINDA_TESLIM,
     AYNI_CEVAP_IKI_KEZ,
@@ -164,4 +226,7 @@ ALL_SCENARIOS = (
     IS_YAPMADAN_SORU,
     SAYFA_COPU_CEVABA_KARISTI,
     GERCEK_IS_YAPAN_TUR,
+    ARAC_HATASI_TOPARLANMA,
+    BOZUK_ARAC_CAGRISI,
+    COK_ADIMLI_GERCEK_IS,
 )
