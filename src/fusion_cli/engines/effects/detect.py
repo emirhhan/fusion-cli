@@ -93,13 +93,36 @@ _SHELL_ACTION_PATTERNS = (
         r"(?:kapat|durdur|sonlandır|sonlandir|öldür|oldur|kill)\b"
     ),
 )
+#: Uzantılı dosya adı. Kullanıcı "dosya" kelimesini YAZMAZ; doğrudan adı yazar
+#: ("index.html oluştur", "app.py düzenle"). Ölçüldü: bu boşluk yüzünden model
+#: hiç araç çağırmadan "dosyayı oluşturdum" diyebiliyor ve kanıt kapısı hiç
+#: kurulmadığı için tur BAŞARILI sayılıyordu.
+#
+# Ayraç nokta VEYA boşluktur: `_positive_action_clauses` noktalama işaretlerini
+# siliyor ve normalize edilmiş metinde "index.html" → "index html" oluyor. Yalnızca
+# noktayı arayan bir desen bu yüzden HİÇ eşleşmez — ölçüldü.
+_FILENAME = (
+    r"\b[\w/-]+[\s.](?:py|js|mjs|ts|tsx|jsx|html?|css|scss|json|ya?ml|md|txt|toml|ini|cfg|"
+    r"sh|sql|go|rs|java|kt|rb|php|swift|c|cc|cpp|h|hpp)\b"
+)
+#: Dosya/proje üreten ya da değiştiren fiiller.
+_MUTATION_VERBS = (
+    r"(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir|"
+    r"değiştir|degistir|düzenle|duzenle|güncelle|guncelle|oluştur|olustur|ekle|yaz|"
+    r"yap|kur|hazırla|hazirla|dönüştür|donustur)"
+)
+#: Kod üretimi istendiği ANLAŞILAN nesneler. "dosya" demeyen ama dosya yazdıran
+#: istekler ("spor sitesi yap", "açılış sayfası hazırla") buradan yakalanır.
+_MUTATION_OBJECTS = (
+    r"(?:dosya|klasör|klasor|dizin|kod|proje|site|websit[a-zçğıöşü]*|sayfa|"
+    r"uygulama|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik)"
+)
+
 _FILE_MUTATION_PATTERNS = (
-    (
-        r"\b(?:dosya|klasör|klasor|dizin|kod|proje)[a-zçğıöşü]*.{0,50}\b"
-        r"(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|"
-        r"yeniden adlandir|değiştir|degistir|düzenle|duzenle|"
-        r"oluştur|olustur|ekle)\b"
-    ),
+    rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}\b",
+    # Dosya adı fiilden ÖNCE ya da SONRA gelebilir: "index.html yaz" / "yaz index.html".
+    rf"{_FILENAME}.{{0,40}}\b{_MUTATION_VERBS}\b",
+    rf"\b{_MUTATION_VERBS}\b.{{0,40}}{_FILENAME}",
     r"\b(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir)\b",
 )
 _WEB_LOOKUP_PATTERNS = (

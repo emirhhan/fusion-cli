@@ -78,6 +78,17 @@ class TurnBudget:
     #: Başarılı her değiştirici araçtan sonra artar; tekrar imzasını tazeler.
     mutation_epoch: int = 0
     seen_calls: dict[CallSignature, int] = field(default_factory=dict)
+    #: Bu turda BAŞARIYLA çalışmış araçlar: (ad, argümanlar, değiştirici mi).
+    #
+    # Eylem-kanıtı kapısı buraya bakar ve kanıt TUR GENELİNDE birikmek zorundadır.
+    # Eskiden bu liste `_drive`'ın yerel durumundaydı; doğrulama düzeltmesi ve
+    # öz-denetim `run_agent`'ı YENİDEN çağırdığı için iç içe tur taze bir durumla
+    # başlıyor ve ana turun zaten kanıtladığı etkiyi baştan kanıtlaması isteniyordu.
+    # Sonuç: model işi yapmış olmasına rağmen düzeltici tur "işlem tamamlanmadı"
+    # diyordu. Aynı hata sınıfı bu modülün kuruluş gerekçesidir.
+    successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
+        default_factory=list
+    )
     #: Tur durduysa sebebi; durmadıysa None.
     stop: BudgetStop | None = None
 

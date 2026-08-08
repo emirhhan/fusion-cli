@@ -404,9 +404,6 @@ class _State:
     # metniyle EZİYORDU. Ölçülen sonuç: harness modeli, yapamadığı işi yapmış gibi
     # göstermeye — yani uydurmaya — itiyordu.
     capability_wall: bool = False
-    successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
-        default_factory=list
-    )
 
 
 async def _drive(
@@ -505,7 +502,7 @@ async def _drive(
                 not plan_mode
                 and execution.requires_tool_evidence
                 and not state.capability_wall
-                and not _tool_evidence_satisfied(execution, state)
+                and not _tool_evidence_satisfied(execution, budget)
             ):
                 if state.evidence_reprompts < execution.max_evidence_reprompts:
                     state.evidence_reprompts += 1
@@ -615,13 +612,19 @@ def _outcome(
     )
 
 
-def _tool_evidence_satisfied(execution: ExecutionPolicy, state: _State) -> bool:
-    """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?"""
+def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> bool:
+    """Gerçek eylem isteği başarılı bir araç sonucu ile kanıtlandı mı?
+
+    Kanıt BÜTÇEDEN okunur, turun yerel durumundan değil: doğrulama düzeltmesi ve
+    öz-denetim `run_agent`'ı yeniden çağırır ve taze bir durumla başlar. Kanıt orada
+    tutulsaydı iç içe tur, ana turun zaten yaptığı işi baştan kanıtlamak zorunda
+    kalırdı — ölçüldü, model işi yapmışken düzeltici tur "işlem tamamlanmadı" dedi.
+    """
 
     effect = execution.required_effect
     if effect is None:
         return True
-    evidence = state.successful_tool_evidence
+    evidence = budget.successful_tool_evidence
     if effect == "git_push":
         return any(
             name == "run_shell" and _shell_contains_git_action(args, "push")
@@ -776,13 +779,15 @@ def _should_auto_continue(
             has_pending_todos=deps.tool_context.todos.has_pending,
         )
     if not wanted:
-        wanted = _stopped_without_acting(state, execution=execution)
+        wanted = _stopped_without_acting(state, deps.require_budget(), execution=execution)
     # Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
     # devam etmeyen turlarda da bütçe yakardı.
     return wanted and deps.require_budget().take_auto_continue()
 
 
-def _stopped_without_acting(state: _State, *, execution: ExecutionPolicy) -> bool:
+def _stopped_without_acting(
+    state: _State, budget: TurnBudget, *, execution: ExecutionPolicy
+) -> bool:
     """Model kod değiştirmesi gereken bir işte yalnızca OKUYUP durdu mu?
 
     Ölçüldü (Gemini web, aynı görev üç kez): iki koşuda model dosyaları okudu, sonra
@@ -807,7 +812,9 @@ def _stopped_without_acting(state: _State, *, execution: ExecutionPolicy) -> boo
         return False
     if state.mutating_tool_calls_made > 0:
         return False
-    return not any(name in _DELEGATION_TOOLS for name, _, _ in state.successful_tool_evidence)
+    return not any(
+        name in _DELEGATION_TOOLS for name, _, _ in budget.successful_tool_evidence
+    )
 
 
 #: İşi devreden araçlar — bunları çağıran tur "hiçbir şey yapmadı" sayılmaz.
@@ -942,8 +949,16 @@ async def _run_tools(
             )
             state.failed_tool_calls += 1
             errored = True
-            if no_more_repairs:
-                state.tool_contract_abort = _tool_contract_abort_message(output)
+            # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
+            #
+            # Eskiden onarım hakkı bitince tur anında sonlandırılıyordu; tekrar kapısı
+            # ise "turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar" diyerek
+            # kesmiyordu. İki kapının aynı durumda farklı davranması bir çelişkiydi.
+            #
+            # Ölçüldü: iki bozuk JSON gönderip ÜÇÜNCÜ turda doğru hamleyi yapan bir
+            # model, doğru hamlesine hiç ulaşamadan öldürülüyordu. Karar tek bir
+            # otoriteye, "ilerleme yok" kapısına bırakılır: model toparlanamazsa tur
+            # yine biter — ama üç şans sonra, tek hamlede değil.
             continue
 
         # Değiştirici araçta tek tekrar bile döngüdür: aynı yazma iki kez istenmez.
@@ -959,8 +974,10 @@ async def _run_tools(
             output = (
                 "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve "
                 "çalışma alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion "
-                "çağrıyı çalıştırmadı — sonucu zaten elinde. Aynı şeyi yeniden istemek "
-                "yerine BİR SONRAKİ adımı at: değişikliği uygula ya da işi bitir."
+                "çağrıyı çalıştırmadı — sonucu zaten elinde. Aynı şeyi yeniden isteme; "
+                "şunlardan BİRİNİ yap: write_file / edit_file ile değişikliği uygula, "
+                "farklı bir dosyayı read_file ile oku, eksik bilgi varsa ask_user ile "
+                "sor, ya da işi bitirip sonucu söyle."
             )
             deps.publisher.publish(
                 ToolExecuted(
@@ -993,7 +1010,7 @@ async def _run_tools(
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
             mutating = bool(tool is not None and tool.mutating)
-            state.successful_tool_evidence.append((call.name, args, mutating))
+            budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating:
                 state.mutating_tool_calls_made += 1
                 budget.record_mutation()

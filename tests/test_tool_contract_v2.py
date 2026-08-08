@@ -169,7 +169,18 @@ def test_positive_push_still_routes_to_git_push() -> None:
 
 
 @pytest.mark.asyncio
-async def test_second_invalid_call_aborts_even_if_tool_changes(tmp_path) -> None:
+async def test_second_invalid_call_blocks_but_does_not_kill_turn(tmp_path) -> None:
+    """Sözleşme hatası çağrıyı engeller ama TURU ÖLDÜRMEZ.
+
+    Eskiden onarım hakkı bitince tur anında sonlandırılıyordu; tekrar kapısı ise
+    "turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar" diyerek kesmiyordu. İki
+    kapının aynı durumda farklı davranması bir çelişkiydi.
+
+    Ölçüldü (bkz. `test_deadlock_property`): iki bozuk JSON gönderip ÜÇÜNCÜ turda
+    doğru hamleyi yapan bir model, doğru hamlesine hiç ulaşamadan öldürülüyordu.
+    Karar tek otoriteye — "ilerleme yok" kapısına — bırakıldı: model toparlanamazsa
+    tur yine biter, ama üç şans sonra.
+    """
     registry = build_registry()
     deps = _deps(tmp_path)
     state = _State()
@@ -188,7 +199,11 @@ async def test_second_invalid_call_aborts_even_if_tool_changes(tmp_path) -> None
     assert await _run_tools(
         (second,), messages, deps, registry, state, execution=execution
     )
-    assert state.tool_contract_abort.startswith("TOOL_CALL_ABORTED")
+    # Çağrı ÇALIŞTIRILMADI ve modele sözleşme hatası döndü...
+    assert state.failed_tool_calls == 2
+    assert "TOOL_CALL_INVALID" in messages[-1].content
+    # ...ama tur öldürülmedi: model bir sonraki turda toparlayabilmeli.
+    assert not state.tool_contract_abort
 
 
 @pytest.mark.asyncio

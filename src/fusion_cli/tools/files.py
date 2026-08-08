@@ -65,7 +65,12 @@ def atomic_write(path: Path, content: str) -> None:
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     if not path.exists():
-        return ToolResult.failure(f"Dosya yok: {path}")
+        # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
+        # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
+        return ToolResult.failure(
+            f"Dosya yok: {path}. Yolu list_dir ya da glob ile doğrula; "
+            "dosyanın oluşturulması gerekiyorsa write_file kullan."
+        )
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {path}")
 
@@ -166,7 +171,10 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     replace_all = args.get("replace_all") is True
 
     if not path.exists():
-        return ToolResult.failure(f"Dosya yok: {path}")
+        return ToolResult.failure(
+            f"Dosya yok: {path}. Düzenlenecek bir dosya yok — içeriği write_file ile "
+            "oluştur, ya da doğru yolu list_dir / glob ile bul."
+        )
     text = path.read_text(encoding="utf-8")
 
     if replace_all:
@@ -196,7 +204,10 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
     edits = parse_edits(require_list(args, "edits"))
 
     if not path.exists():
-        return ToolResult.failure(f"Dosya yok: {path}")
+        return ToolResult.failure(
+            f"Dosya yok: {path}. Düzenlenecek bir dosya yok — içeriği write_file ile "
+            "oluştur, ya da doğru yolu list_dir / glob ile bul."
+        )
     original = path.read_text(encoding="utf-8")
 
     working = original
