@@ -3,21 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from unittest import mock
 
 import pytest
 
 from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.constants import MIN_BROWSER_TURN_S
 from fusion_cli.core.types import Message
+from fusion_cli.providers import web_registry
 from fusion_cli.providers.web_browser import (
     WEB_BROWSER_PROVIDERS,
     WebBrowserAuthError,
     _raise_known_page_error,
     browser_profile_dir,
+    browser_turn_budget,
     clear_profile_singletons,
     format_browser_prompt,
     parse_cookie_header,
     web_secret_name,
 )
+from fusion_cli.providers.web_registry import WebSessionRegistry
 
 
 def test_cookie_header_degerindeki_esittir_isaretini_korur():
@@ -143,3 +148,30 @@ async def test_gemini_accounts_url_gercek_auth_sinyalidir():
     )
     with pytest.raises(WebBrowserAuthError):
         await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
+
+
+def test_tarayici_turu_butcesi_yapilandirmadan_gelir():
+    """Tur bütçesi `session.timeout_s`'tir; 20 sn'lik HTTP sabitine kırpılmaz."""
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=180.0)
+    assert browser_turn_budget(session) == 180.0
+
+
+def test_tarayici_turu_butcesi_tabanin_altina_inmez():
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=1.0)
+    assert browser_turn_budget(session) == MIN_BROWSER_TURN_S
+
+
+def test_kayit_defteri_oturum_butcesini_transporta_gecirir():
+    """Asıl hata buydu: bütçe hiç geçilmiyor, varsayılan sabite düşülüyordu."""
+    gecilen: dict[str, float | None] = {}
+
+    def sahte_transport(session, *, timeout_s=None, trace_dir=None):
+        gecilen["timeout_s"] = timeout_s
+        return None
+
+    session = WebSessionConfig(model="gemini_web/pro", transport="browser", timeout_s=180.0)
+    registry = WebSessionRegistry((session,), environ={})
+    with mock.patch.object(web_registry, "build_browser_transport", sahte_transport):
+        registry.build_session(session)
+
+    assert gecilen["timeout_s"] == 180.0

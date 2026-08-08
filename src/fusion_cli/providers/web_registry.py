@@ -86,7 +86,11 @@ class WebSessionRegistry:
         """
         credential = self._credential(session)
         if session.transport == "browser":
-            transport = build_browser_transport(session, trace_dir=self._trace_dir)
+            # Bütçe oturumun KENDİ yapılandırmasından gelir; burada bir şey
+            # geçilmediği için transport eskiden 20 saniyelik HTTP sabitine düşüyordu.
+            transport = build_browser_transport(
+                session, timeout_s=session.timeout_s, trace_dir=self._trace_dir
+            )
         else:
             if not session.endpoint:
                 return WebProviderAdapter(

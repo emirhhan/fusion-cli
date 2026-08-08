@@ -30,8 +30,14 @@ MAX_PREVIEW_LINES = 40
 SHELL_TIMEOUT_S = 120.0
 #: Salt-okunur git komutu için zaman aşımı (saniye).
 GIT_TIMEOUT_S = 30.0
-#: Web isteği için zaman aşımı (saniye).
+#: Web isteği için zaman aşımı (saniye). Bu bir HTTP İSTEĞİ bütçesidir (arama,
+#: sayfa çekme, katalog); bir LLM turunun bütçesi DEĞİLDİR. Tarayıcı tabanlı bir
+#: sohbet turu sayfa yükleme + yazma + tam streaming üretim içerir ve buraya sığmaz;
+#: onun bütçesi `WebSessionConfig.timeout_s` alanından gelir.
 WEB_TIMEOUT_S = 20.0
+#: Tarayıcı turu için kabul edilebilir EN KISA bütçe (saniye). Yapılandırma bunun
+#: altına inerse tur daha başlamadan zaman aşımına uğrar; taban buradadır.
+MIN_BROWSER_TURN_S = 30.0
 #: Panel model kataloğu önbellek ömrü (saniye). Katalog sık değişmez; her panel
 #: açılışında sağlayıcının /models ucunu dövmemek için 5 dakika tutulur.
 CATALOG_CACHE_TTL_S = 300.0

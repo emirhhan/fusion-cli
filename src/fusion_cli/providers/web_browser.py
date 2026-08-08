@@ -32,7 +32,7 @@ from typing import Any
 
 from ..config.models import WebSessionConfig
 from ..config.paths import user_data_dir
-from ..core.constants import WEB_TIMEOUT_S
+from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
 from .web_session import WebSessionCredential, WebTransport
@@ -661,11 +661,21 @@ def _append_trace(
         return
 
 
+def browser_turn_budget(session: WebSessionConfig, *, override_s: float | None = None) -> float:
+    """Bir tarayıcı turuna verilecek saniye bütçesi.
+
+    Kaynak yapılandırmadır; `override_s` yalnızca çağıranın (test) bütçeyi bilinçli
+    olarak değiştirmesi içindir. Taban `MIN_BROWSER_TURN_S`: yapılandırmaya sıfır ya
+    da saçma bir küçük değer girilse bile tur başlayacak kadar süre bulur.
+    """
+    return max(MIN_BROWSER_TURN_S, override_s if override_s is not None else session.timeout_s)
+
+
 def build_browser_transport(
     session: WebSessionConfig,
     *,
     pool: BrowserSessionPool | None = None,
-    timeout_s: float = WEB_TIMEOUT_S,
+    timeout_s: float | None = None,
     trace_dir: Path | None = None,
 ) -> WebTransport:
     """Yapılandırılmış bir sağlayıcı/hesap için tarayıcı transport'u kur.
@@ -674,6 +684,13 @@ def build_browser_transport(
     kez yeniden denenir. Kimlik doğrulama, kota ve insan-doğrulama hataları yeniden
     denemenin ya da başka bir sağlayıcının ARKASINA GİZLENMEZ: kullanıcı gerçek sebebi
     görmelidir.
+
+    Tur bütçesi YAPILANDIRMADAN gelir (`session.timeout_s`); `timeout_s` yalnızca
+    testin bütçeyi kısaltması içindir. Eskiden bütçe `WEB_TIMEOUT_S` (20 sn) ile
+    `min()`'lenerek hesaplanıyordu ve o sabit bir HTTP isteği bütçesidir: yapılandırma
+    süreyi yalnızca KISALTABİLİYOR, hiçbir zaman uzatamıyordu. Sonuç ölçüldü — sayfa
+    yükleme + yazma + tam streaming üretimin tamamı 20 saniyeye sıkışıyor ve her
+    kodlama turu "yanıt 20 saniyede tamamlanmadı" ile düşüyordu.
     """
     definition = provider_definition(session.provider)
     manager = pool or _POOL
@@ -685,7 +702,7 @@ def build_browser_transport(
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
             context = await manager.context_for(session, credential)
-            limit = max(10.0, min(timeout_s, session.timeout_s))
+            limit = browser_turn_budget(session, override_s=timeout_s)
             deadline = time.monotonic() + limit
             last_selector_error: WebBrowserSelectorError | None = None
 
