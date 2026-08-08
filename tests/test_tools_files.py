@@ -640,3 +640,52 @@ async def test_edit_file_okuma_sarti_aramaz(registry, context, tmp_path):
 
     assert sonuc.ok
     assert hedef.read_text(encoding="utf-8") == "a = 1\nb = 3\n"
+
+
+# --------------------------------------------------------------------------- #
+# "Önce oku" kapısı — koruma ile ölü kilit arasındaki sınır
+# --------------------------------------------------------------------------- #
+
+
+def test_okunmamis_var_olan_dosya_toptan_yazilamaz(context):
+    hedef = context.root / "app.py"
+    hedef.write_text("kullanıcının kodu\nikinci satır\n", encoding="utf-8")
+
+    sonuc = files.write_file({"path": "app.py", "content": "yeni"}, context)
+
+    assert not sonuc.ok
+    assert "tam içeriğini okumadın" in sonuc.output
+    assert hedef.read_text(encoding="utf-8").startswith("kullanıcının kodu")
+
+
+def test_tam_okunmus_dosya_toptan_yazilabilir(context):
+    hedef = context.root / "app.py"
+    hedef.write_text("eski", encoding="utf-8")
+    files.read_file({"path": "app.py"}, context)
+
+    sonuc = files.write_file({"path": "app.py", "content": "yeni"}, context)
+
+    assert sonuc.ok
+    assert hedef.read_text(encoding="utf-8") == "yeni"
+
+
+def test_agentin_bu_turda_yarattigi_dosya_okumadan_doldurulabilir(context):
+    """Ölü kilit: iskele dosyasını doldurmak için önce onu okumak zorunda kalınıyordu."""
+    hedef = context.root / "index.html"
+    files.write_file({"path": "index.html", "content": "<!-- iskele -->"}, context)
+
+    sonuc = files.write_file({"path": "index.html", "content": "<h1>gerçek</h1>"}, context)
+
+    assert sonuc.ok, sonuc.output
+    assert hedef.read_text(encoding="utf-8") == "<h1>gerçek</h1>"
+
+
+def test_onceki_turdan_kalan_dosya_yine_okuma_ister(context):
+    """Muafiyet yalnızca BU tur için: değişiklik kümesi boşsa koruma tam güçtedir."""
+    hedef = context.root / "index.html"
+    hedef.write_text("<h1>önceki tur</h1>", encoding="utf-8")
+
+    sonuc = files.write_file({"path": "index.html", "content": "yeni"}, context)
+
+    assert not sonuc.ok
+    assert hedef.read_text(encoding="utf-8") == "<h1>önceki tur</h1>"

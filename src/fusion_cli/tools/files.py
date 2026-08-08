@@ -112,7 +112,12 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             )
 
     existed = path.exists()
-    if existed and path not in context.fully_read:
+    # Bu turda agent'ın KENDİ oluşturduğu dosya "okunmuş" sayılır: kaybedilecek,
+    # görülmemiş bir satırı yoktur. Aksi halde iskele kurup doldurma akışı kilitlenir
+    # (`scaffold_web` dosyayı yazar, doldurma toptan yazmadır, kapı onu bloklar) ve
+    # tur ilerleme üretmeden ölür — ölçülen gerçek hata buydu.
+    kendi_olusturdu = context.changes.was_created_this_turn(path)
+    if existed and not kendi_olusturdu and path not in context.fully_read:
         # `read_file` açıklaması zaten "değiştirmeden ÖNCE mutlaka oku" diyor; burada
         # o kural UYGULANIR. Tam içeriğini görmediğin bir dosyayı baştan yazmak,
         # görmediğin kısmı silmek demektir — kırpılmış okumada bu sessiz veri kaybıdır.
