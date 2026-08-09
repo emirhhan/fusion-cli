@@ -137,7 +137,12 @@ def test_otomatik_kapi_test_paketini_dislar(tmp_path):
 
 
 def test_otomatik_kapi_node_projesinde_build_onerir(tmp_path):
-    """TypeScript/Next'te sözdizimini ve tipleri asıl `build` denetler."""
+    """TypeScript/Next'te sözdizimini ve tipleri asıl `build` denetler.
+
+    `lint` dışarıdadır ve bu ölçülmüş bir karardır: yapılandırılmamış bir projede
+    `next lint` ETKİLEŞİMLİ soru sorup çıkış 1 veriyor ve kapı bunu gerçek bir
+    kod hatası sanıp turu düşürüyordu — kullanıcının kodunda sorun yokken.
+    """
     import json
 
     from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
@@ -146,7 +151,7 @@ def test_otomatik_kapi_node_projesinde_build_onerir(tmp_path):
         json.dumps({"scripts": {"dev": "next dev", "build": "next build", "lint": "next lint"}})
     )
 
-    assert discover_auto_commands(tmp_path) == ("npm run lint", "npm run build")
+    assert discover_auto_commands(tmp_path) == ("npm run build",)
 
 
 def test_otomatik_kapi_kanitsiz_komut_uydurmaz(tmp_path):
@@ -170,3 +175,14 @@ def test_kapi_yapilandirma_yoksa_kesiften_kurulur(tmp_path):
     verifier = build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path))
 
     assert verifier is not None, "keşfedilen komut kapısı kurulmadı"
+
+
+def test_otomatik_kapi_lint_onermez(tmp_path):
+    """Linter bir stil kapısıdır; "kodu bozdum mu" sorusunu cevaplamaz."""
+    import json
+
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"lint": "next lint"}}))
+
+    assert discover_auto_commands(tmp_path) == ()

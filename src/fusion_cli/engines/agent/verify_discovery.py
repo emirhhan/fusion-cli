@@ -37,7 +37,14 @@ _NODE_SCRIPTS = ("lint", "typecheck", "test")
 # önceden kırık bir test varsa, agent'ın her turu onun yüzünden düşerdi ve agent
 # kendi yapmadığı bir hatayı düzeltmeye çalışırdı. `build` içeridedir çünkü
 # TypeScript/Next projelerinde sözdizimini ve tipleri asıl orası denetler.
-_AUTO_NODE_SCRIPTS = ("lint", "typecheck", "build")
+#
+# `lint` DIŞARIDADIR ve bu ölçülmüş bir karardır: yapılandırılmamış bir projede
+# `next lint` "How would you like to configure ESLint?" diye ETKİLEŞİMLİ soru
+# sorup çıkış 1 veriyor. Kapı bunu gerçek bir kod hatası sanıp turu düşürüyor —
+# kullanıcının kodunda hiçbir sorun yokken. Linter bir stil kapısıdır; otomatik
+# kapının cevaplaması gereken soru "kodu BOZDUM mu" ve onu `typecheck`/`build`
+# kesin olarak cevaplıyor.
+_AUTO_NODE_SCRIPTS = ("typecheck", "build")
 
 #: Makefile'da doğrulama sayılan hedefler.
 _MAKE_TARGETS = ("check", "test")
