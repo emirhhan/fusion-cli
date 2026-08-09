@@ -23,6 +23,7 @@ from ...core.constants import SHELL_TIMEOUT_S
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
+from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output
@@ -87,6 +88,13 @@ def build_verifier(
     commands = config.runtime.verification_commands or discover_auto_commands(root)
     if commands:
         verifiers.append(CommandVerifier(commands, cwd=str(root), timeout_s=SHELL_TIMEOUT_S))
+    # Betik-yol kapısı YALNIZCA `package.json` olan projede kurulur; başka yerde
+    # zaten hiçbir şey söylemez ve "hiç kapı yok" durumunu bozmamalıdır. Komut
+    # çalıştırmaz, dosya sistemine bakar: kardeş projeleri birbirine bağlayan bir
+    # mega-app'te yanlış yol en sık ve en sessiz hata sınıfıdır ve derleme kapısı
+    # onu göremez (o betik derleme sırasında çalışmaz).
+    if (root / "package.json").is_file():
+        verifiers.append(ScriptPathVerifier(root))
     if config.runtime.web_verification and tool_context is not None:
         verifiers.append(WebVerifier(tool_context))
     if config.runtime.browser_verification and tool_context is not None:
