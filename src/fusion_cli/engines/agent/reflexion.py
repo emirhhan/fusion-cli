@@ -116,6 +116,28 @@ def change_log_note(paths: tuple[str, ...]) -> Message:
     return Message("user", CHANGE_LOG_NOTE.format(paths=", ".join(paths)))
 
 
+#: Görevdeki dosyaların hiçbiri çalışma dizininde bulunamadı.
+#
+# Ölçüldü: kullanıcı fusion'ı yanlış klasörde açtı; model dört dosyayı da
+# bulamadı ve öz-denetim turunda GÖREVİ TERK EDİP kendine yeni iş uydurdu (o
+# projenin README'sini okuyup "test paketini çalıştır" diye plan yazdı).
+# Yapılamayan iş, uydurulacak iş değildir.
+WRONG_WORKSPACE_NOTE = (
+    "[yanlış-dizin] Görevde geçen dosyaların hiçbiri bu çalışma dizininde yok: "
+    "{root}\n"
+    "En olası açıklama, fusion'ın YANLIŞ KLASÖRDE açılmış olmasıdır. ŞUNU YAP: "
+    "kullanıcıya bu dizinde aradığı dosyaların bulunmadığını, doğru proje "
+    "dizininde çalıştırması gerektiğini söyle ve DUR.\n"
+    "Başka bir iş ARAMA ve UYDURMA: bu dizinde ne olduğunu keşfedip kendine yeni "
+    "görev çıkarmak, kullanıcının istediği şey değildir."
+)
+
+
+def wrong_workspace_note(root: str) -> Message:
+    """Yanlış çalışma dizini hipotezini modele bildir ve durmasını iste."""
+    return Message("user", WRONG_WORKSPACE_NOTE.format(root=root))
+
+
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
     return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)

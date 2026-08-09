@@ -17,6 +17,7 @@ import tempfile
 from pathlib import Path
 
 from ..core.constants import (
+    FILE_MISSING_PREFIX,
     MAX_DIR_ENTRIES,
     MAX_READ_BYTES,
     MAX_READ_LINES,
@@ -103,8 +104,8 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
         # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
         return ToolResult.failure(
-            f"Dosya yok: {display_path(context, path)}. Yolu list_dir ya da glob ile doğrula; "
-            "dosyanın oluşturulması gerekiyorsa write_file kullan."
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Yolu list_dir ya da "
+            "glob ile doğrula; dosyanın oluşturulması gerekiyorsa write_file kullan."
         )
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
@@ -240,7 +241,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return ToolResult.failure(
-            f"Dosya yok: {display_path(context, path)}. Düzenlenecek bir dosya yok — "
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Düzenlenecek bir dosya yok — "
             "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
         )
     text = path.read_text(encoding="utf-8")
@@ -274,7 +275,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return ToolResult.failure(
-            f"Dosya yok: {display_path(context, path)}. Düzenlenecek bir dosya yok — "
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Düzenlenecek bir dosya yok — "
             "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
         )
     original = path.read_text(encoding="utf-8")

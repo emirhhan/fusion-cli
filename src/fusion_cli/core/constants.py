@@ -10,6 +10,12 @@ satırlık bir dökümü bağlama boca etmek hem pahalı hem de sinyali gürült
 from __future__ import annotations
 
 #: Bir dosyadan okunacak en fazla bayt.
+#: "Dosya yok" hatasının değişmez öneki.
+#
+# Motor katmanı bu işarete bakarak "yanlış çalışma dizini" hipotezini kurar;
+# metin iki yerde ayrı ayrı yazılırsa sessizce ayrışır.
+FILE_MISSING_PREFIX = "Dosya yok:"
+
 MAX_READ_BYTES = 100_000
 #: Tek bir read_file çağrısında döndürülecek en fazla satır.
 #

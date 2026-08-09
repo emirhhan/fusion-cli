@@ -1306,3 +1306,97 @@ async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_
     assert sonuc.ok is False, "doğrulama düşmüşken tur başarı sayıldı"
     assert "DOĞRULAMA GEÇMEDİ" in sonuc.final_text
     assert "derleme kırıldı" in sonuc.final_text
+
+
+# --- yanlış çalışma dizini --------------------------------------------------- #
+#
+# Ölçüldü: kullanıcı fusion'ı yanlış klasörde açtı ve sidebar düzeni hakkında bir
+# görev verdi. Model görevde geçen dört dosyayı da bulamadı; ardından öz-denetim
+# düzeltici turunda GÖREVİ TERK ETTİ ve kendine yeni iş uydurdu — o projenin
+# README'sini okuyup "test paketini çalıştır, hataları düzelt" diye todo listesi
+# yazdı. Kullanıcının sorduğu şeyle hiçbir ilgisi yoktu.
+
+
+async def test_dosyalarin_hicbiri_yoksa_yanlis_dizin_uyarisi_gider(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent import reflexion as r
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="app/globals.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="components/Sidebar.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="app/page.tsx")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzenini düzelt", _deps(tmp_path, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+    assert notlar, "yanlış dizin uyarısı hiç gitmedi"
+    assert "DUR" in notlar[0]
+    assert "UYDURMA" in notlar[0]
+    assert r.WRONG_WORKSPACE_NOTE.split("{")[0] in notlar[0]
+
+
+async def test_tek_dosya_okunabiliyorsa_uyari_gitmez(monkeypatch, tmp_path, sink):
+    """Dizin doğru ama model yanlış ad tahmin etmiş olabilir; bu uyarı değildir."""
+    (tmp_path / "var.txt").write_text("içerik\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok1.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok2.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="var.txt")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok3.tsx")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("bak", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+
+
+async def test_uyari_bir_kez_verilir(monkeypatch, tmp_path, sink):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path=f"yok{i}.tsx")])
+                for i in range(6)
+            ]
+            + [model_result(TAM_CEVAP)]
+        ),
+    )
+
+    sonuc = await run_agent("düzelt", _deps(tmp_path, sink))
+
+    assert len([m for m in sonuc.messages if "[yanlış-dizin]" in m.content]) == 1
+
+
+async def test_yanlis_dizinde_oz_denetim_turu_acilmaz(monkeypatch, tmp_path, sink):
+    """Yanlış dizinde düzeltilecek bir şey yok; düzeltici tur iş uyduruyordu."""
+    from fusion_cli.core.events import SelfReviewStarted
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="b.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="c.tsx")]),
+                model_result("Bu dizinde aradığın dosyalar yok; doğru projede çalıştır."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzelt", _deps(tmp_path, sink, runtime={"self_review": True}))
+
+    assert sonuc.wrong_workspace is True
+    assert not [e for e in sink.events if isinstance(e, SelfReviewStarted)]
+    assert provider.calls == 4, "fazladan düzeltici tur açılmamalı"

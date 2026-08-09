@@ -32,7 +32,7 @@ from ...config.models import Config
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
-from ...core.constants import CAPABILITY_WALL_PREFIX
+from ...core.constants import CAPABILITY_WALL_PREFIX, FILE_MISSING_PREFIX
 from ...core.errors import FusionError
 from ...core.events import (
     Channel,
@@ -195,6 +195,8 @@ class AgentOutcome:
     #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
     #: yayınlanmaz; aynı metin iki kez basılmaz.
     answer_streamed: bool = False
+    #: Görevdeki dosyaların hiçbiri bulunamadı — muhtemelen yanlış çalışma dizini.
+    wrong_workspace: bool = False
 
     @property
     def made_no_changes(self) -> bool:
@@ -384,6 +386,12 @@ async def run_agent(
     # Denetçiye göndermek hatayı maskeleyip ek çağrılar üretir.
     if should_review and not outcome.ok:
         should_review = False
+    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
+    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
+    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
+    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
+    if outcome.wrong_workspace:
+        should_review = False
     if should_review and execution.conditional_self_review:
         should_review = _web_self_review_needed(task, kind, outcome, deps)
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
@@ -533,6 +541,12 @@ class _State:
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
     logged_changes: int = 0
+    #: "Dosya yok" ile düşen okuma sayısı.
+    missing_file_reads: int = 0
+    #: Başarıyla okunan dosya sayısı. Yanlış-dizin hipotezi buna bakar.
+    successful_file_reads: int = 0
+    #: Yanlış dizin uyarısı verildi mi?
+    warned_wrong_workspace: bool = False
 
 
 async def _drive(
@@ -691,6 +705,9 @@ async def _drive(
             # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
         elif errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
+        if _looks_like_wrong_workspace(state):
+            state.warned_wrong_workspace = True
+            messages.append(reflexion.wrong_workspace_note(str(deps.tool_context.root)))
         _record_changes(messages, deps, state)
         if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
             state.explore_pushes += 1
@@ -759,6 +776,7 @@ def _outcome(
         failed_tool_calls=state.failed_tool_calls,
         model_calls_made=state.model_calls_made,
         answer_streamed=state.answer_streamed,
+        wrong_workspace=state.warned_wrong_workspace,
     )
 
 
@@ -929,6 +947,11 @@ def _auto_continue_note(
     """
     if plan_mode:
         return None
+    # Yanlış dizinde "devam et" demek, modeli iş UYDURMAYA iter. Doğru cevap
+    # "bu dizinde o dosyalar yok" demektir ve o cevap zaten verilmiştir; onu
+    # zorlamak turu kullanıcının istemediği bir işe çevirir (ölçüldü).
+    if state.warned_wrong_workspace:
+        return None
     # Gerçek çıktı bütçesi dolduysa sağlayıcıdan bağımsız olarak bir kez devam et.
     # Bu, sağlayıcıdan gelen sert bir olgudur ve her teşhisin önündedir.
     if truncated:
@@ -1016,6 +1039,30 @@ def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
     if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
         return False
     return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
+
+
+#: Okuma araçları. Yanlış-dizin hipotezi yalnızca bunlara bakar.
+_FILE_READ_TOOLS = frozenset({"read_file", "view_file"})
+#: Kaç "dosya yok" hatasından sonra yanlış dizin hipotezi kurulur.
+#
+# İki hata rastlantı olabilir (model yanlış ad tahmin etti). Üçüncüde ve HİÇBİR
+# dosya okunamamışken, en olası açıklama çalışma dizininin yanlış olmasıdır.
+MAX_MISSING_READS = 3
+
+
+def _looks_like_wrong_workspace(state: _State) -> bool:
+    """Görevdeki dosyaların hiçbiri bu dizinde yok gibi mi görünüyor?
+
+    Ölçüldü: kullanıcı fusion'ı yanlış klasörde açtı. Model dört dosyayı da
+    bulamadı, sonra öz-denetim düzeltici turunda GÖREVİ TERK ETTİ ve kendine yeni
+    iş uydurdu — o projenin README'sini okuyup "test paketini çalıştır" diye todo
+    listesi yazdı. Kullanıcının sorduğu şeyle hiç ilgisi yoktu.
+
+    Doğru davranış durmaktır: bu bir "yapılamayan iş"tir, uydurulacak bir iş değil.
+    """
+    if state.warned_wrong_workspace or state.successful_file_reads > 0:
+        return False
+    return state.missing_file_reads >= MAX_MISSING_READS
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
@@ -1314,6 +1361,8 @@ async def _run_tools(
             state.capability_wall = True
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
+            if call.name in _FILE_READ_TOOLS:
+                state.successful_file_reads += 1
             mutating = bool(tool is not None and tool.mutating)
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating:
@@ -1330,6 +1379,8 @@ async def _run_tools(
             errored = True
             # Sayaç YALNIZCA değiştirici çağrılarda büyür: okuma hatası (yanlış
             # dosya adı) düzenleme döngüsü değildir ve o kapıyı tetiklememeli.
+            if call.name in _FILE_READ_TOOLS and result.output.startswith(FILE_MISSING_PREFIX):
+                state.missing_file_reads += 1
             if tool is not None and tool.mutating:
                 state.failed_mutations_in_row += 1
                 # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
