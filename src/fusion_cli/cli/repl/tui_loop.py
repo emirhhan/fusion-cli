@@ -17,6 +17,7 @@ from rich.console import Console
 
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
+from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalRequest
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
@@ -310,6 +311,13 @@ class _TuiSession:
                     health=self._state.health,
                 )
             else:
+                # Bağlam BURADA kurulur ve saklanır: `/undo` turun değişiklik
+                # kümesine erişebilmek zorundadır.
+                tool_context = ToolContext(
+                    root=self._state.root,
+                    extra_roots=self._state.extra_roots,
+                    restrict_to_root=self._state.config.runtime.restrict_to_root,
+                )
                 outcome = await run_agent_task(
                     line,
                     self._state.config,
@@ -322,8 +330,10 @@ class _TuiSession:
                     memory=self._state.memory,
                     history=self._state.history,
                     background=self._background,
+                    tool_context=tool_context,
                 )
                 self._state.history = outcome.messages
+                self._state.last_changes = tool_context.changes
         finally:
             renderer.abort()
             self._tui.clear_work()

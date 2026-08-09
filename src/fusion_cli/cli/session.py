@@ -130,6 +130,7 @@ async def run_agent_task(
     extra_roots: tuple[Path, ...] = (),
     history: list[Message] | None = None,
     background: BackgroundTasks | None = None,
+    tool_context: ToolContext | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -150,7 +151,12 @@ async def run_agent_task(
         prompter = prompter_factory(bus.drain)
         store = memory or null_memory()
         _warn_if_unavailable(store, bus)
-        tool_context = ToolContext(
+        # Çağıran bir bağlam verdiyse O kullanılır. `/undo` turun değişiklik
+        # kümesine erişebilmek zorundadır; bağlam burada gizlice kurulduğunda
+        # çağıranın elinde hiçbir referans kalmıyor ve geri alma sessizce
+        # işlevsiz kalıyordu (ölçüldü: TUI'de `/undo` her zaman "geri alınacak
+        # değişiklik yok" diyordu, oysa dosyalar değişmişti).
+        tool_context = tool_context or ToolContext(
             root=root or Path.cwd(),
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,

@@ -184,3 +184,54 @@ def test_mesgulken_yeni_satir_gorev_baslatmaz(tmp_path):
         session._task.cancel()
 
     asyncio.run(_dene())
+
+
+# --- /undo TUI'de çalışmıyordu --------------------------------------------- #
+#
+# Ölçüldü: kullanıcı bir CSS düzeltmesini geri almak istedi, `/undo` "geri
+# alınacak değişiklik yok" dedi — oysa dosya gerçekten değişmişti. Sebep:
+# değişiklik kümesi YALNIZCA eski satır-içi REPL'de saklanıyordu; varsayılan
+# olan TUI hiç saklamıyordu. Araç bağlamı `run_agent_task` içinde gizlice
+# kuruluyor ve çağıranın elinde hiçbir referans kalmıyordu.
+
+
+async def test_agent_turu_verilen_arac_baglamini_kullanir(tmp_path):
+    """Çağıran bağlam verdiyse o kullanılmalı; yoksa `/undo` bağlanamaz."""
+    from fusion_cli.cli.session import run_agent_task
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    from .fakes import ScriptedProvider, make_config, model_result, tool_call
+
+    context = ToolContext(root=tmp_path)
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.txt", content="yeni")]),
+            model_result("`a.txt` oluşturuldu."),
+        ]
+    )
+    original = agent_loop.build_provider
+    agent_loop.build_provider = lambda *a, **k: provider
+    try:
+        await run_agent_task(
+            "a.txt oluştur",
+            make_config(),
+            sinks=(),
+            prompter_factory=lambda _flush: _Onaylayan(),
+            root=tmp_path,
+            interactive=False,
+            tool_context=context,
+        )
+    finally:
+        agent_loop.build_provider = original
+
+    assert context.changes.paths, "değişiklik kümesi çağıranın bağlamında birikmedi"
+    assert (tmp_path / "a.txt").exists()
+
+
+class _Onaylayan:
+    async def confirm(self, request):
+        return True
+
+    async def ask(self, question):
+        return ""
