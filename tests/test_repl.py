@@ -815,3 +815,54 @@ def test_tips_bolum_kapanislari_komut_gibi_gorunmez():
             if not komut:
                 continue
             assert len(komut) <= 16, f"komut sütununa sığmıyor: {komut}"
+
+
+# --- --add-dir interaktif oturumda da çalışır ------------------------------ #
+#
+# Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
+# desteklemiyordu. İki projeye birden dokunan bir görevde model ikinci projeye
+# erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
+# yakıyordu — gerçek koşuda altı ardışık `ls -la` turu ölçüldü.
+
+
+def test_repl_durumu_ek_dizinleri_tasir(tmp_path):
+    ek = tmp_path / "diger-proje"
+    ek.mkdir()
+
+    state = ReplState(
+        config=make_config(), memory=null_memory(), root=tmp_path, extra_roots=(ek,)
+    )
+
+    assert state.extra_roots == (ek,)
+
+
+def test_ek_dizin_arac_baglamina_gecer(tmp_path):
+    """Kök kısıtı açıkken bile ek dizin okunabilir olmalı."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import resolve_path
+
+    ek = tmp_path / "diger-proje"
+    ek.mkdir()
+    (ek / "a.txt").write_text("x", encoding="utf-8")
+    kok = tmp_path / "proje"
+    kok.mkdir()
+
+    context = ToolContext(root=kok, extra_roots=(ek,), restrict_to_root=True)
+
+    assert resolve_path(context, str(ek / "a.txt")).exists()
+
+
+def test_ek_dizin_verilmezse_kok_disi_reddedilir(tmp_path):
+    from fusion_cli.core.errors import PathAccessError
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools.files import resolve_path
+
+    disari = tmp_path / "disari"
+    disari.mkdir()
+    kok = tmp_path / "proje"
+    kok.mkdir()
+
+    context = ToolContext(root=kok, restrict_to_root=True)
+
+    with pytest.raises(PathAccessError):
+        resolve_path(context, str(disari / "a.txt"))

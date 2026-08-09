@@ -49,6 +49,13 @@ class ReplState:
     config: Config
     memory: Memory
     root: Path
+    #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
+    #
+    # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
+    # desteklemiyordu: iki projeye birden dokunan bir görevde model ikinci projeye
+    # erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
+    # yakıyordu.
+    extra_roots: tuple[Path, ...] = ()
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"

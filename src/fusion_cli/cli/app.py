@@ -61,7 +61,16 @@ TASK_TYPES = ("general", "code", "reasoning", "agent")
 
 
 @app.callback()
-def main_callback(ctx: typer.Context) -> None:
+def main_callback(
+    ctx: typer.Context,
+    add_dir: Annotated[
+        list[Path] | None,
+        typer.Option(
+            "--add-dir",
+            help="Proje kökünün YANINDA erişime açılacak dizin. Birden çok kez verilebilir.",
+        ),
+    ] = None,
+) -> None:
     """Argümansız çağrıldığında interaktif oturumu başlat."""
     if ctx.invoked_subcommand is not None:
         return
@@ -80,6 +89,7 @@ def main_callback(ctx: typer.Context) -> None:
                     memory=open_memory(config, root=root),
                     root=root,
                     console=console,
+                    extra_roots=tuple(add_dir or ()),
                 )
             )
         )

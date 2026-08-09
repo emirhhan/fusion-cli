@@ -63,7 +63,14 @@ def _build_health(config: Config) -> HealthRegistry:
     )
 
 
-async def run_repl(config: Config, *, memory: Memory, root: Path, console: Console) -> int:
+async def run_repl(
+    config: Config,
+    *,
+    memory: Memory,
+    root: Path,
+    console: Console,
+    extra_roots: tuple[Path, ...] = (),
+) -> int:
     """İnteraktif oturumu çalıştır. Çıkış kodunu döndürür."""
     import os
 
@@ -73,10 +80,22 @@ async def run_repl(config: Config, *, memory: Memory, root: Path, console: Conso
     if os.environ.get("FUSION_INLINE") != "1":
         from .tui_loop import run_tui_repl
 
-        state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
+        state = ReplState(
+            config=config,
+            memory=memory,
+            root=root,
+            extra_roots=extra_roots,
+            health=_build_health(config),
+        )
         return await run_tui_repl(state, console)
 
-    state = ReplState(config=config, memory=memory, root=root, health=_build_health(config))
+    state = ReplState(
+        config=config,
+        memory=memory,
+        root=root,
+        extra_roots=extra_roots,
+        health=_build_health(config),
+    )
     registry = build_registry()
     reader = ReplInput(
         config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
@@ -366,7 +385,9 @@ async def _agent_turn(
         bus.subscribe(state.cost)
         bus.subscribe(tracer)
         tool_context = ToolContext(
-            root=state.root, restrict_to_root=state.config.runtime.restrict_to_root
+            root=state.root,
+            extra_roots=state.extra_roots,
+            restrict_to_root=state.config.runtime.restrict_to_root,
         )
         prompter = ConsolePrompter(
             console,
