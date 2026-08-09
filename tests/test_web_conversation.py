@@ -72,7 +72,7 @@ def pool(monkeypatch, log) -> BrowserSessionPool:
 
     sayac = {"n": 0}
 
-    async def _send(page, definition, prompt, *, previous=""):
+    async def _send(page, definition, prompt, *, previous="", limit_s=180.0):
         log.append(("send", prompt))
         # Her tur FARKLI yanıt: gerçek transport tazelik ölçütü olarak önceki
         # yanıtı kullanır; sahtenin de aynı sözleşmeyi karşılaması gerekir.
@@ -164,7 +164,7 @@ async def test_secici_hatasi_sohbeti_birakir(pool, log, monkeypatch):
 
     cagri = {"sayi": 0}
 
-    async def _patlayan(page, definition, prompt, *, previous=""):
+    async def _patlayan(page, definition, prompt, *, previous="", limit_s=180.0):
         cagri["sayi"] += 1
         raise web_browser.WebBrowserSelectorError("arayüz değişti")
 
@@ -394,7 +394,7 @@ def test_prompt_rol_basligini_tekrarlamamayi_soyler():
 
 
 async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
-    async def _send(page, definition, prompt, *, previous=""):
+    async def _send(page, definition, prompt, *, previous="", limit_s=180.0):
         return "### FUSION//SIRADAKİ ADIM\nİş bitti."
 
     monkeypatch.setattr(web_browser, "_send_turn", _send)

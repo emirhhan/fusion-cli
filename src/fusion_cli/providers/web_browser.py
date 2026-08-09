@@ -42,6 +42,15 @@ from .web_session import WebSessionCredential, WebTransport
 #: Classes`, `### Result Pattern`…) ve izde bunlar bizim rol başlıklarımızla aynı
 #: düzeyde görünüyordu. Model hangisinin çerçeve hangisinin içerik olduğunu
 #: ayırt edemiyordu.
+#: Tarayıcıdan yanıt beklerken varsayılan üst sınır.
+#
+# Bu değer eskiden `_wait_for_response` içine gömülüydü ve turun bütçesini HİÇ
+# tanımıyordu: `_transport` doğru sınırı hesaplıyor ama aşağıya geçirmiyordu.
+# Sonuç ölçüldü — her deneme 180 sn bekleyebiliyor, iki deneme 360 sn ediyor ve
+# 36 model çağrılık bir tur saatlerce sürebiliyordu. Sınır artık çağrı başına
+# geçirilir; bu sabit yalnızca doğrudan çağrılar için yedektir.
+DEFAULT_RESPONSE_WAIT_S = 180.0
+
 ROLE_PREFIX = "FUSION//"
 
 #: Modelin cevabında taklit ettiği rol başlığı satırı.
@@ -815,6 +824,7 @@ async def _deliver_turn(
     context: Any,
     messages: tuple[Message, ...],
     trace_dir: Path | None = None,
+    limit_s: float = DEFAULT_RESPONSE_WAIT_S,
 ) -> str:
     """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
 
@@ -835,14 +845,16 @@ async def _deliver_turn(
 
     if resumable and state is not None:
         prompt = format_browser_prompt(messages[state.sent_count :], continuation=True)
-        answer = await _send_turn(state.page, definition, prompt, previous=state.last_answer)
+        answer = await _send_turn(
+            state.page, definition, prompt, previous=state.last_answer, limit_s=limit_s
+        )
     else:
         await manager.drop_conversation(session.provider, session.account, root)
         page = await context.new_page()
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
         prompt = format_browser_prompt(messages)
-        answer = await _send_turn(page, definition, prompt)
+        answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
 
     # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
     # taşıma biçimini tanımak zorunda değildir.
@@ -912,6 +924,7 @@ async def _send_turn(
     prompt: str,
     *,
     previous: str = "",
+    limit_s: float = DEFAULT_RESPONSE_WAIT_S,
 ) -> str:
     """Açık bir sohbete tek mesaj gönder ve yanıtı bekle.
 
@@ -942,7 +955,9 @@ async def _send_turn(
     else:
         await input_locator.press("Enter")
 
-    return await _wait_for_response(page, definition, before, previous=previous, sent_prompt=prompt)
+    return await _wait_for_response(
+        page, definition, before, previous=previous, sent_prompt=prompt, limit_s=limit_s
+    )
 
 
 async def _fill_editor(locator: Any, text: str) -> None:
@@ -1010,6 +1025,7 @@ async def _wait_for_response(
     *,
     previous: str = "",
     sent_prompt: str = "",
+    limit_s: float = DEFAULT_RESPONSE_WAIT_S,
 ) -> str:
     """Bu turun YENİ cevabını bekle. Doğrulanamazsa ESKİ cevabı döndürme.
 
@@ -1029,7 +1045,7 @@ async def _wait_for_response(
        yanlış veri teslim etmektir. Artık hata fırlatılır: doğrulanamayan bir yanıt,
        yanlış bir yanıttan iyidir.
     """
-    deadline = time.monotonic() + 180
+    deadline = time.monotonic() + limit_s
     latest = ""
     stable_since = time.monotonic()
     checks = 0
