@@ -436,3 +436,35 @@ def test_kullanici_mesaji_yoksa_hatirlatma_eklenmez():
     prompt = format_browser_prompt((Message("tool", "x", name="read_file", ok=True),))
 
     assert "GÖREV (yapılacak iş budur)" not in prompt
+
+
+# --- sayfadan sızan atıf satırları ----------------------------------------- #
+#
+# Ölçüldü, iki ayrı canlı koşuda: cevabın sonuna "COGNOiSe.com - The IBM Cognos
+# Community" ve "erlas.com.tr" düştü. İkisi de modelin cümlesi değil, Gemini
+# sayfasındaki kaynak rozetinin metni.
+
+
+def test_ciplak_alan_adi_satiri_ayiklanir():
+    cevap = "Değişiklik tamamlandı.\nerlas.com.tr"
+
+    assert web_browser.strip_role_headers(cevap) == "Değişiklik tamamlandı."
+
+
+def test_aciklamali_kaynak_satiri_da_ayiklanir():
+    cevap = "Panel güncellendi.\nCOGNOiSe.com - The IBM Cognos Community"
+
+    assert web_browser.strip_role_headers(cevap) == "Panel güncellendi."
+
+
+def test_cumle_icindeki_alan_adi_korunur():
+    cevap = "Ayrıntı için example.com adresine bakabilirsin."
+
+    assert web_browser.strip_role_headers(cevap) == cevap
+
+
+def test_dosya_adi_satiri_yanlislikla_ayiklanmaz():
+    """`app/page.tsx` alan adına benzemez; korunmalı."""
+    cevap = "Değişen dosya:\napp/page.tsx"
+
+    assert "app/page.tsx" in web_browser.strip_role_headers(cevap)

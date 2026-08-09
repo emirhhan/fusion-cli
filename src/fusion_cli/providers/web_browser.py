@@ -65,9 +65,30 @@ ROLE_PREFIX = "FUSION//"
 _ROLE_HEADER_LINE = re.compile(rf"^[ \t]*#{{0,6}}[ \t]*{re.escape(ROLE_PREFIX)}.*$", re.MULTILINE)
 
 
+#: Yalnızca çıplak bir alan adından ibaret satır — Gemini'nin atıf/kaynak çipi.
+#
+# Ölçüldü, iki ayrı koşuda: cevabın sonuna "COGNOiSe.com - The IBM Cognos
+# Community" ve "erlas.com.tr" düştü. İkisi de modelin cümlesi değil, sayfadaki
+# kaynak rozetinin metni. DOM seçicileri daraltıldı ama çip yanıt gövdesinin
+# İÇİNDE render edildiğinde seçici onu ayıramıyor.
+#
+# Ölçüt dar: satırın TAMAMI bir alan adı olmalı (boşluk yok, cümle noktalaması
+# yok). "Detaylar için example.com adresine bak" cümlesi korunur.
+_CITATION_LINE = re.compile(
+    r"^[ \t]*(?:https?://)?[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(?:/\S*)?"
+    r"(?:[ \t]*[-–—][ \t]*[^\n]{0,60})?[ \t]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def strip_page_noise(answer: str) -> str:
+    """Sayfadan sızan atıf/kaynak satırlarını cevaptan ayıkla."""
+    return _clean_text(_CITATION_LINE.sub("", answer))
+
+
 def strip_role_headers(answer: str) -> str:
-    """Modelin cevabına sızmış taşıma rol başlıklarını temizle."""
-    return _clean_text(_ROLE_HEADER_LINE.sub("", answer))
+    """Modelin cevabına sızmış taşıma rol başlıklarını ve sayfa çöpünü temizle."""
+    return strip_page_noise(_clean_text(_ROLE_HEADER_LINE.sub("", answer)))
 
 
 class WebBrowserError(RuntimeError):
