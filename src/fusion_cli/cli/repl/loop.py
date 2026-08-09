@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 from ...config import model_select, profile
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
-from ...core.events import ErrorOccurred, NoFileChanges, TurnFinished
+from ...core.events import ErrorOccurred, FilesChanged, NoFileChanges, TurnFinished
 from ...core.health import HealthRegistry
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
@@ -434,12 +434,21 @@ async def _agent_turn(
             # Rozet yalnızca BAŞARILI turda anlamlıdır; bkz. `cli/session.py`.
             if outcome.ok and outcome.made_no_changes and state.approval.value != "plan":
                 bus.publish(NoFileChanges())
+            elif tool_context.changes.paths:
+                bus.publish(FilesChanged(_changed_names(tool_context)))
             bus.publish(TurnFinished())
         finally:
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı.
             renderer.abort()
     tracer.flush()
     state.history = outcome.messages
+
+
+def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
+    """Değişen yolları köke göreli ver; bkz. `cli/session.py`."""
+    from ...tools.files import display_path
+
+    return tuple(display_path(tool_context, path) for path in tool_context.changes.paths)
 
 
 async def compact_history(state: ReplState) -> str:

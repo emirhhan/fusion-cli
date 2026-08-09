@@ -18,7 +18,14 @@ from typing import TYPE_CHECKING, Protocol
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
 from ..core.concurrency import BackgroundTasks
-from ..core.events import ErrorOccurred, EventSink, FusionCompleted, NoFileChanges, TurnFinished
+from ..core.events import (
+    ErrorOccurred,
+    EventSink,
+    FilesChanged,
+    FusionCompleted,
+    NoFileChanges,
+    TurnFinished,
+)
 from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
 from ..core.types import (
@@ -180,8 +187,18 @@ async def run_agent_task(
         # yeni bilgi sanıyordu. Plan modunda değişiklik zaten yasaktır.
         if outcome.ok and outcome.made_no_changes and mode is not ApprovalMode.PLAN:
             bus.publish(NoFileChanges())
+        elif tool_context.changes.paths:
+            # Liste modelin hafızasından değil değişiklik kümesinden gelir.
+            bus.publish(FilesChanged(_changed_names(tool_context)))
         bus.publish(TurnFinished())
         return outcome
+
+
+def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:
+    """Değişen yolları kullanıcıya gösterilecek biçimde (köke göreli) ver."""
+    from ..tools.files import display_path
+
+    return tuple(display_path(tool_context, path) for path in tool_context.changes.paths)
 
 
 def open_memory(config: Config, *, root: Path, enabled: bool = True) -> Memory:

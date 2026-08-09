@@ -306,6 +306,19 @@ class EffectWorkflowFinished(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class FilesChanged(Event):
+    """Turda GERÇEKTEN değişen dosyalar.
+
+    Kapanış özeti bugüne kadar modelin hafızasına dayanıyordu ve iki yönde birden
+    yanılıyordu: bir koşuda dokunmadığı dosyayı "güncelledim" dedi, başka bir
+    koşuda `app/page.tsx`'e doğru düzenlemeyi yaptığı hâlde "hiçbir dosya
+    değiştirilmedi" dedi. Liste değişiklik kümesinden gelir; iddia değil kayıttır.
+    """
+
+    paths: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class NoFileChanges(Event):
     """Tur araç çalıştırdı ama hiçbir dosya/sistem değişikliği yapmadı.
 

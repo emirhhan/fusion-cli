@@ -961,3 +961,24 @@ def test_acilis_butcesi_her_turda_sifirlanir():
     renderer.handle(TurnFinished())
 
     assert buffer.getvalue().count("z") >= 1, "yeni turun açılışı da geniş olmalı"
+
+
+def test_degisen_dosyalar_kanittan_basilir():
+    """Kapanış özeti modelin hafızasına değil değişiklik kümesine dayanmalı.
+
+    Ölçüldü, iki yönde birden yanılıyordu: bir koşuda dokunmadığı dosyayı
+    "güncelledim" dedi; başka bir koşuda `app/page.tsx`'e doğru düzenlemeyi
+    yaptığı hâlde "hiçbir dosya değiştirilmedi" dedi.
+    """
+    from fusion_cli.core.events import FilesChanged
+
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "Hiçbir dosya değiştirilmedi."))
+    renderer.handle(FilesChanged(("app/page.tsx", "lib/gate.ts")))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "app/page.tsx" in cikti
+    assert "lib/gate.ts" in cikti
+    assert "değişen dosyalar" in cikti

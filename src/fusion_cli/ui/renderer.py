@@ -35,6 +35,7 @@ from ..core.events import (
     EffectWorkflowStarted,
     ErrorOccurred,
     Event,
+    FilesChanged,
     FusionCompleted,
     JudgingStarted,
     LessonsLearned,
@@ -199,6 +200,14 @@ class ConsoleRenderer:
             self._error(_budget_reason(event))
         elif isinstance(event, ErrorOccurred):
             self._error(event.message)
+        elif isinstance(event, FilesChanged):
+            self._flush_streams()
+            self._close_line()
+            self._console.print(
+                f"[{theme.DIM}]{theme.ICON_STATUS} "
+                f"{escape(messages.FILES_CHANGED.format(paths=', '.join(event.paths)))}"
+                f"[/{theme.DIM}]"
+            )
         elif isinstance(event, NoFileChanges):
             # Rozet cevabı BÖLMEZ: akan metin önce kapatılır, olgu ardına düşer.
             self._flush_streams()

@@ -94,6 +94,8 @@ AGENT_TOOL_CALL_REPAIRED = "araç çağrısı geçersizdi · sözleşme hatırla
 #: "yaptım" iddiasının yanına Fusion'ın kendi bildiği olguyu koyar; kullanıcı
 #: iddiayı doğrulamak için dosyaları elle kontrol etmek zorunda kalmaz.
 NO_FILE_CHANGES = "bu turda hiçbir dosya değiştirilmedi · yalnızca okuma yapıldı"
+#: Turda gerçekten değişen dosyalar. Modelin iddiası değil, değişiklik kümesi.
+FILES_CHANGED = "değişen dosyalar: {paths}"
 #: Seçili model dosya/sistem değiştiremiyor. Kısıt SESSİZ kalmamalı: model
 #: "böyle bir aracım yok" der ve haklıdır, ama kullanıcı sebebi göremezse
 #: Fusion'ı arızalı sanır.
