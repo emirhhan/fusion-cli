@@ -310,9 +310,10 @@ class ConsoleRenderer:
                 continue
             # Sarma KELİME sınırında yapılır; ortadan kesmek beyanı okunmaz kılıyordu.
             for satir in textwrap.wrap(parca, width=limit) or [parca[:limit]]:
-                satirlar.append(satir)
-                if len(satirlar) >= budce:
+                if len(satirlar) == budce:
+                    satirlar[-1] = _with_mark(satirlar[-1], limit)
                     return satirlar
+                satirlar.append(satir)
         return satirlar
 
     def _write_stream(self, channel: Channel, text: str) -> None:
@@ -651,7 +652,9 @@ class ConsoleRenderer:
 
     def _tool_diff(self, diff_text: str) -> None:
         """Diff'i `⎿ N ekleme, M silme` özeti + altında renkli blok olarak bas."""
-        rendered = render_diff(diff_text)
+        # Diff satırları da genişliğe kırpılır: sarma, sol oluğu (satır numarası ve
+        # +/- işareti) kaybettiriyor ve devam satırı hizasız düşüyordu.
+        rendered = render_diff(diff_text, width=max(20, self._console.width - 6))
         self._result_line(
             escape(messages.DIFF_SUMMARY.format(added=rendered.added, removed=rendered.removed))
         )
@@ -719,7 +722,10 @@ _CALL_LIMIT = 76
 #
 # Kullanıcı isteğini verdikten sonra ilk gördüğü şey budur ve "ne yapacağım"
 # cevabını taşır; tek satıra kırpmak o cevabı cümlenin ortasında kesiyordu.
-_OPENING_LINES = 3
+_OPENING_LINES = 4
+#: Kırpılan öncünün sonuna konan işaret. Kesme SÖYLENİR: cümle ortasında biten
+#: bir plan, kullanıcıya modelin yarım konuştuğunu düşündürüyordu.
+_TRUNCATED_MARK = "…"
 
 
 def _format_call(name: str, args: Mapping[str, object]) -> str:
@@ -764,6 +770,14 @@ def _format_args(args: Mapping[str, object]) -> str:
 def _format_value(value: object) -> str:
     text = str(value)
     return text if len(text) <= _ARG_VALUE_LIMIT else f"<{len(text)} karakter>"
+
+
+def _with_mark(line: str, limit: int) -> str:
+    """Kırpılan son satırın sonuna kesme işareti koy."""
+    if line.endswith(_TRUNCATED_MARK):
+        return line
+    govde = line if len(line) + len(_TRUNCATED_MARK) <= limit else line[: limit - 1]
+    return f"{govde}{_TRUNCATED_MARK}"
 
 
 def _shorten(text: str, limit: int) -> str:

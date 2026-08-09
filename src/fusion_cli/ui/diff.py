@@ -39,8 +39,14 @@ class RenderedDiff:
     body: Text
 
 
-def render_diff(diff_text: str, *, max_lines: int = MAX_PREVIEW_LINES) -> RenderedDiff:
+def render_diff(
+    diff_text: str, *, max_lines: int = MAX_PREVIEW_LINES, width: int | None = None
+) -> RenderedDiff:
     """Unified diff metnini renkli, satır numaralı, tavanlı bir bloğa çevir.
+
+    `width` verilirse satır içeriği o genişliğe kırpılır. Kırpmamak sarmaya yol
+    açıyor ve sarma sol oluğu (satır numarası + işaret) kaybettiriyordu: devam
+    satırı hizasız düşüyor, diff okunmaz hale geliyordu.
 
     `added`/`removed` sayıları DAİMA tam diff'i yansıtır (tavandan bağımsız); yalnızca
     görünen satır sayısı `max_lines` ile sınırlanır — uzun bir diff ekranı sel gibi
@@ -72,7 +78,7 @@ def render_diff(diff_text: str, *, max_lines: int = MAX_PREVIEW_LINES) -> Render
             old_line, new_line = _step(kind, old_line, new_line)
             continue
 
-        _append_row(body, kind, raw, old_line, new_line)
+        _append_row(body, kind, raw, old_line, new_line, width)
         old_line, new_line = _step(kind, old_line, new_line)
         shown += 1
 
@@ -110,9 +116,16 @@ def _content(raw: str, kind: str) -> str:
     return raw
 
 
-def _append_row(body: Text, kind: str, raw: str, old_line: int, new_line: int) -> None:
+def _append_row(
+    body: Text, kind: str, raw: str, old_line: int, new_line: int, width: int | None = None
+) -> None:
     """Tek bir diff satırını numarası, işareti ve zemin rengiyle ekle."""
     content = _content(raw, kind)
+    if width is not None:
+        # Oluk `_LINE_NO_WIDTH + 3` karakter yer kaplar; içerik ondan geriye kalana sığar.
+        alan = max(8, width - _LINE_NO_WIDTH - 3)
+        if len(content) > alan:
+            content = content[: alan - 1] + "…"
     if kind is _Kind.ADD:
         _row(body, new_line, "+", content, theme.DIFF_ADD, theme.DIFF_ADD_BG)
     elif kind is _Kind.REMOVE:
