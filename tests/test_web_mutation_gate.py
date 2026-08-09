@@ -230,3 +230,30 @@ def test_calisir_hale_getirme_workspace_mutation_ister():
 
 def test_calisir_hale_getirme_sorusu_etki_istemez():
     assert required_effect_for("bu panel nasıl çalışır hale getirilir") is None
+
+
+def test_arayuz_ogesi_ekleme_istegi_mutasyon_sayilir():
+    """"rozetin yanına bir span ekle" bir okuma isteği değildir.
+
+    Ölçüldü (canlı koşu): bu istek hiçbir nesne desenine uymuyordu, görev
+    `workspace_read` sanıldı ve BEŞ araç turluk keşif bütçesine düştü; tur
+    "araç turu sınırına ulaşıldı (5)" ile kesildi.
+    """
+    istek = (
+        "Sistem durumu rozetinin yanina 'Son guncelleme: <saat>' gosteren "
+        "kucuk bir span ekle."
+    )
+
+    assert required_effect_for(istek) == "workspace_mutation"
+
+
+def test_degistirici_arac_adi_gecerse_mutasyon_sayilir():
+    """Kullanıcı aracı adıyla söylediyse tartışma biter."""
+    assert required_effect_for("hedefli edit_file kullan") == "workspace_mutation"
+    assert required_effect_for("write_file ile oluştur") == "workspace_mutation"
+
+
+def test_salt_okuma_istegi_mutasyon_sayilmaz():
+    """Genişletme salt-okuma isteklerini mutasyona çevirmemeli."""
+    assert required_effect_for("klasörü listele") == "workspace_read"
+    assert required_effect_for("src/app.py dosyasını oku ve açıkla") is None

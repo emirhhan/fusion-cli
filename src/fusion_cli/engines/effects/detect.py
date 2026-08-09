@@ -34,8 +34,16 @@ _NEGATED_ACTION_WORDS = (
     "arastirma",
     "istemiyorum",
 )
+#: Cümle sınırı. Nokta YALNIZCA boşluk ya da satır sonu geliyorsa sınır sayılır.
+#
+# Ölçüldü: eski desen her noktayı bölüyordu ve `app/page.tsx` → "app/page tsx"
+# oluyordu. Dosya adı bozulunca dosya-değişikliği tespiti eşleşemiyor, görev
+# `workspace_read` sanılıyor ve beş araç turluk keşif bütçesine düşüyordu — oysa
+# istek açıkça "span ekle, edit_file kullan" diyordu. Dosya adı geçen hemen her
+# gerçek görev bu yoldan geçiyor.
 _ACTION_CLAUSE_SPLIT = re.compile(
-    r"(?:[.!?;\n]+|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra)\b)",
+    r"(?:[.!?;](?=\s|$)|[!?;\n]+"
+    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra)\b)",
     re.IGNORECASE,
 )
 
@@ -113,9 +121,15 @@ _MUTATION_VERBS = (
 )
 #: Kod üretimi istendiği ANLAŞILAN nesneler. "dosya" demeyen ama dosya yazdıran
 #: istekler ("spor sitesi yap", "açılış sayfası hazırla") buradan yakalanır.
+# Ölçüldü: "rozetin yanına ... bir span ekle" isteği hiçbir nesneye uymuyordu ve
+# görev `workspace_read` sanılıp beş turluk keşif bütçesine düşüyordu — oysa
+# istek açıkça bir öğe EKLEMEYİ söylüyor. Arayüz öğeleri ve metin parçaları da
+# dosya değiştirir.
 _MUTATION_OBJECTS = (
     r"(?:dosya|klasör|klasor|dizin|kod|proje|site|websit[a-zçğıöşü]*|sayfa|"
-    r"uygulama|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik)"
+    r"uygulama|arayüz|arayuz|bileşen|bilesen|fonksiyon|modül|modul|test|script|betik|"
+    r"metin|satır|satir|alan|buton|span|div|eleman|element|etiket|rozet|başlık|baslik|"
+    r"import|bağımlılık|bagimlilik|ayar|seçenek|secenek|kural|komut)"
 )
 
 _FILE_MUTATION_PATTERNS = (
@@ -124,6 +138,9 @@ _FILE_MUTATION_PATTERNS = (
     rf"{_FILENAME}.{{0,40}}\b{_MUTATION_VERBS}\b",
     rf"\b{_MUTATION_VERBS}\b.{{0,40}}{_FILENAME}",
     r"\b(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir)\b",
+    # Kullanıcı DEĞİŞTİRİCİ ARACI adıyla söylediyse tartışma biter. "hedefli
+    # edit_file kullan" cümlesi bir okuma isteği değildir.
+    r"\b(?:edit_file|write_file|multi_edit)\b",
     # "Çalışır hale getir" ailesi: var olanı işler duruma sokmak dosya değiştirmeyi
     # gerektirir. Bu kalıp nesne-fiil desenlerine sığmıyordu (araya sıfat girer,
     # fiil ek alır) ve etki hiç kurulmadığı için model kanıtsız "yaptım" diyebiliyordu.
