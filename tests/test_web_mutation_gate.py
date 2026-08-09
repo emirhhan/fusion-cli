@@ -257,3 +257,22 @@ def test_salt_okuma_istegi_mutasyon_sayilmaz():
     """Genişletme salt-okuma isteklerini mutasyona çevirmemeli."""
     assert required_effect_for("klasörü listele") == "workspace_read"
     assert required_effect_for("src/app.py dosyasını oku ve açıkla") is None
+
+
+def test_nesnesiz_duzelt_fiili_de_mutasyon_sayilir():
+    """Fiilin yanında nesne olmayabilir; nesne iki cümle önce geçebilir.
+
+    Ölçüldü: "Ustune binmenin sebebini tespit et ve duzelt" cümlesinde fiilin
+    yanında hiçbir nesne yok. Görev `workspace_read` sanıldı, sekiz model
+    çağrılık sohbet bütçesine düştü ve iş tam ilerlerken "model çağrısı sınırına
+    ulaşıldı (8)" ile kesildi.
+    """
+    assert required_effect_for("Ustune binmenin sebebini tespit et ve duzelt") == (
+        "workspace_mutation"
+    )
+    assert required_effect_for("bunu güncelle") == "workspace_mutation"
+
+
+def test_cok_anlamli_fiiller_listede_degil():
+    """"cevap yaz" bir dosya değişikliği değildir; liste dar tutulur."""
+    assert required_effect_for("kısa bir cevap yaz") != "workspace_mutation"

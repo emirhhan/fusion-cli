@@ -198,6 +198,9 @@ class AgentOutcome:
     answer_streamed: bool = False
     #: Görevdeki dosyaların hiçbiri bulunamadı — muhtemelen yanlış çalışma dizini.
     wrong_workspace: bool = False
+    #: Tur bir BÜTÇE sınırına çarparak bitti mi? Sebep ayrıca yayınlanmıştır;
+    #: `final_text` modelin cevabıdır, hata metni değildir.
+    budget_stopped: bool = False
 
     @property
     def made_no_changes(self) -> bool:
@@ -489,12 +492,17 @@ def _announce_answer(
       çağırır ve bunlar `depth=0`'dır. Bayrak olmadan düzeltici tur da cevabını
       yayınlıyor, dış tur aynı metni ikinci kez basıyordu (gerçek koşuda cevap
       ekrana yapışık iki kez düştü).
-    - `outcome.ok` — başarısızlık metinleri (`ok=False`) `ErrorOccurred`'ın
-      tekelindedir; buradan da yayınlamak onları iki kez bastırırdı.
+    - `outcome.ok` ya da BÜTÇE durdurması — başarısızlık metinleri
+      `ErrorOccurred`'ın tekelindedir. Bütçeyle kesilen tur istisnadır: sebep
+      ayrıca yayınlanmıştır ve `final_text` modelin cevabıdır, hata metni değil.
+      İkisini birden hata gibi basmak "✗ hata İş başarıyla tamamlanmıştır" gibi
+      kendiyle çelişen satırlar üretiyordu (ölçüldü).
     - `not answer_streamed` — gerçekten akıtan sağlayıcılarda cevap ekrana zaten
       ulaştı. İki yol asla aynı anda çalışmaz.
     """
-    if internal or depth != 0 or not outcome.ok or outcome.answer_streamed:
+    if internal or depth != 0 or outcome.answer_streamed:
+        return
+    if not (outcome.ok or outcome.budget_stopped):
         return
     if not outcome.final_text.strip():
         return
@@ -651,6 +659,9 @@ async def _drive(
                 not plan_mode
                 and execution.requires_tool_evidence
                 and not state.capability_wall
+                # Yanlış dizinde kanıt aramak anlamsızdır: değiştirilecek dosya
+                # zaten yok. Zorlamak modeli iş uydurmaya iten üçüncü kapıydı.
+                and not state.warned_wrong_workspace
                 and not _tool_evidence_satisfied(execution, budget)
             ):
                 if state.evidence_reprompts < execution.max_evidence_reprompts:
@@ -749,7 +760,12 @@ def _halt(
     budget.halt(reason)
     _publish_budget_stop(deps, budget, state)
     text = final_text.strip()
-    return _outcome(text, messages, state, hit_step_limit=True, ok=False)
+    outcome = _outcome(text, messages, state, hit_step_limit=True, ok=False)
+    # Sebep AZ ÖNCE yayınlandı. `final_text` modelin cevabıdır, hata metni
+    # değildir; ikisini birden hata gibi basmak "✗ hata İş başarıyla
+    # tamamlanmıştır" gibi kendiyle çelişen satırlar üretiyordu (ölçüldü).
+    outcome.budget_stopped = True
+    return outcome
 
 
 def _publish_budget_stop(deps: AgentDeps, budget: TurnBudget, state: _State) -> None:

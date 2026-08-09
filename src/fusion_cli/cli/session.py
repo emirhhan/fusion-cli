@@ -179,7 +179,9 @@ async def run_agent_task(
             bus.publish(ErrorOccurred(messages.AGENT_EMPTY_ANSWER, fatal=True))
         elif not outcome.ok and is_rate_limit_error(outcome.final_text):
             bus.publish(ErrorOccurred(messages.ERROR_RATE_LIMITED, fatal=False))
-        elif not outcome.ok:
+        elif not outcome.ok and not outcome.budget_stopped:
+            # Bütçe durdurmasında sebep zaten yayınlandı; cevabı ikinci kez ve
+            # hata kılığında basmak kendiyle çelişen satır üretir.
             bus.publish(ErrorOccurred(outcome.final_text, fatal=False))
         # Rozet yalnızca BAŞARILI turda anlamlıdır. Başarısız turda hata mesajı
         # zaten "değişiklik yapılmış kabul edilmemelidir" diyor; rozeti de basmak

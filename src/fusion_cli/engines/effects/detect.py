@@ -141,6 +141,20 @@ _FILE_MUTATION_PATTERNS = (
     # Kullanıcı DEĞİŞTİRİCİ ARACI adıyla söylediyse tartışma biter. "hedefli
     # edit_file kullan" cümlesi bir okuma isteği değildir.
     r"\b(?:edit_file|write_file|multi_edit)\b",
+    # NESNESİZ ama tartışmasız değiştirici fiiller.
+    #
+    # Ölçüldü: "Ustune binmenin sebebini tespit et ve duzelt" cümlesinde fiilin
+    # yanında hiçbir nesne yok (nesne iki cümle önce). Görev `workspace_read`
+    # sanıldı, sekiz model çağrılık sohbet bütçesine düştü ve iş tam ilerlerken
+    # "model çağrısı sınırına ulaşıldı (8)" ile kesildi.
+    #
+    # Liste DAR tutulur: "yaz" ve "yap" gibi çok anlamlı fiiller dışarıdadır
+    # ("cevap yaz" bir dosya değişikliği değildir); buradakiler emir kipinde
+    # yalnızca "bir şeyi değiştir" demektir.
+    (
+        r"\b(?:düzelt|duzelt|güncelle|guncelle|değiştir|degistir|"
+        r"sil|kaldır|kaldir|oluştur|olustur|ekle)[a-zçğıöşü]*\b"
+    ),
     # "Çalışır hale getir" ailesi: var olanı işler duruma sokmak dosya değiştirmeyi
     # gerektirir. Bu kalıp nesne-fiil desenlerine sığmıyordu (araya sıfat girer,
     # fiil ek alır) ve etki hiç kurulmadığı için model kanıtsız "yaptım" diyebiliyordu.

@@ -1431,3 +1431,23 @@ async def test_dogru_dizin_bulunursa_komutla_onerilir(monkeypatch, tmp_path, sin
     assert notlar
     assert str(dogru) in notlar[0], "doğru dizin önerilmedi"
     assert "cd " in notlar[0], "çalıştırılabilir komut verilmeli"
+
+
+async def test_butce_durdurmasinda_cevap_hata_gibi_basilmaz(monkeypatch, tmp_path, sink):
+    """Sebep zaten yayınlandı; cevabı ikinci kez hata kılığında basmak çelişkilidir.
+
+    Ölçüldü: ekrana "✗ hata İş başarıyla tamamlanmıştır ve dosya güncellendi"
+    düştü — bütçe sınırı ayrıca bildirilmişken modelin başarı cümlesi hata
+    olarak gösteriliyordu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [model_result(tool_calls=[tool_call("list_dir", path=f"a{i}")]) for i in range(6)]
+        ),
+    )
+
+    sonuc = await run_agent("gez", _deps(tmp_path, sink, runtime={"agent_max_steps": 3}))
+
+    assert sonuc.ok is False
+    assert sonuc.budget_stopped is True
