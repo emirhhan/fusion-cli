@@ -1361,13 +1361,46 @@ def _web_self_review_needed(
 _CORRECTION_TASK = (
     "Kullanıcının görevi şuydu:\n{task}\n\n"
     "Bu göreve devam ediyorsun; sıfırdan başlamıyorsun ve kullanıcıya görevi geri "
-    "sormuyorsun. Bir öz-denetim aşağıdaki sorunu işaret etti. Gerekiyorsa düzelt; "
-    "haklı değilse kısaca neden sorun olmadığını açıkla.\n\n{feedback}"
+    "sormuyorsun.{done}\n"
+    "Bir öz-denetim aşağıdaki sorunu işaret etti. Gerekiyorsa düzelt; haklı değilse "
+    "kısaca neden sorun olmadığını açıkla.\n\n{feedback}"
 )
 
+#: Düzeltici tura verilen "zaten yaptıkların" özeti.
+#
+# Ölçüldü: düzeltici tur dizini baştan listeledi, package.json'ı yeniden okudu,
+# app ve components dizinlerini gezdi ve ancak beşinci turda düzenlemeye geldi.
+# Geçmiş prompta gönderiliyor ama model onu KENDİ hafızası değil bir döküm gibi
+# okuyor. Ne yaptığını açıkça söylemek o beş turu geri kazandırır.
+_ALREADY_DONE = "\n\nBu turda ZATEN yaptıkların (tekrarlama):\n{items}"
+#: Özette gösterilecek en fazla adım. Amaç hatırlatmak, izi baştan sona dökmek değil.
+MAX_DONE_ITEMS = 12
 
-def _correction_task(task: str, feedback: str) -> str:
-    return _CORRECTION_TASK.format(task=task, feedback=feedback)
+
+def _already_done_block(budget: TurnBudget) -> str:
+    """Turda başarıyla çalışan araçları kısa bir liste olarak yaz."""
+    gorulen: list[str] = []
+    for name, args, _ in budget.successful_tool_evidence:
+        hedef = next(
+            (
+                str(args[alan])
+                for alan in ("path", "command", "pattern", "query")
+                if isinstance(args.get(alan), str)
+            ),
+            "",
+        )
+        satir = f"- {name}({hedef})" if hedef else f"- {name}"
+        if satir not in gorulen:
+            gorulen.append(satir)
+    if not gorulen:
+        return ""
+    return _ALREADY_DONE.format(items="\n".join(gorulen[:MAX_DONE_ITEMS]))
+
+
+def _correction_task(task: str, feedback: str, budget: TurnBudget) -> str:
+    return _CORRECTION_TASK.format(
+        task=task, feedback=feedback, done=_already_done_block(budget)
+    )
 
 
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
@@ -1380,7 +1413,7 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
         return outcome
 
     correction = await run_agent(
-        _correction_task(task, feedback),
+        _correction_task(task, feedback, deps.require_budget()),
         deps,
         history=outcome.messages,
         self_review=False,

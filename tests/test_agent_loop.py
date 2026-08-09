@@ -857,13 +857,26 @@ async def test_araçsiz_sohbet_turu_rozet_kosulunu_tetiklemez(monkeypatch, tmp_p
 
 
 def test_duzeltici_tur_talimati_kullanicinin_gorevini_tasir():
+    from fusion_cli.core.budget import TurnBudget
+    from fusion_cli.core.clock import SystemClock
     from fusion_cli.engines.agent.loop import _correction_task
 
-    metin = _correction_task("dashboard'ı çalışır hale getir", "hiçbir dosya değişmedi")
+    butce = TurnBudget(
+        clock=SystemClock(),
+        max_model_calls=10,
+        max_verify_rounds=1,
+        max_empty_retries=1,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=3,
+    )
+    butce.successful_tool_evidence.append(("read_file", {"path": "app/page.tsx"}, True))
+    metin = _correction_task("dashboard'ı çalışır hale getir", "hiçbir dosya değişmedi", butce)
 
     assert "dashboard'ı çalışır hale getir" in metin
     assert "sıfırdan başlamıyorsun" in metin
     assert "hiçbir dosya değişmedi" in metin
+    assert "read_file(app/page.tsx)" in metin, "zaten yapılanlar hatırlatılmalı"
 
 
 async def test_ic_tur_nihai_cevabi_yayinlamaz(monkeypatch, tmp_path, sink):
