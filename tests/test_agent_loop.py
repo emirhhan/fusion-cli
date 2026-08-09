@@ -151,7 +151,7 @@ async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
 
     assert not (tmp_path / "a.txt").exists()
     arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
-    assert "onaylamadı" in arac_mesaji.content
+    assert "onaylanmadı" in arac_mesaji.content
     # Reddetme refleksiyon notu tetiklememeli.
     assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
     olay = next(e for e in sink.events if isinstance(e, ToolExecuted))

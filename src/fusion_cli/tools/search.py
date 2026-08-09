@@ -51,8 +51,25 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
     if not root.exists():
         return ToolResult.failure(f"Yol yok: {root}")
 
+    # MUTLAK desen `Path.glob`'da ham `NotImplementedError` fırlatır ve model
+    # ekranda Python istisnası görür — ne olduğunu ne yapacağını anlamaz.
+    # Ölçüldü: model `glob("/*")` çağırdı, araç çöktü ve tur "ilerleme yok" ile
+    # öldü. Desen köke GÖRELİDİR; mutlak yol için `path` alanı vardır.
+    if pattern.startswith("/") or (len(pattern) > 1 and pattern[1] == ":"):
+        return ToolResult.failure(
+            f"'{pattern}' mutlak bir yol. glob deseni arama köküne GÖRELİ olmalı "
+            "(ör. '**/*.tsx'). Başka bir dizinde arayacaksan 'path' alanını kullan."
+        )
+
     matches: list[str] = []
-    for path in sorted(root.glob(pattern)):
+    try:
+        aday = sorted(root.glob(pattern))
+    except (NotImplementedError, ValueError) as error:
+        return ToolResult.failure(
+            f"Geçersiz glob deseni '{pattern}': {error}. Göreli bir desen dene, "
+            "ör. '**/*.py' ya da 'src/**/*.ts'."
+        )
+    for path in aday:
         if not path.is_file() or _is_skipped(path):
             continue
         matches.append(str(path))

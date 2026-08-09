@@ -117,7 +117,16 @@ MAX_EXPLORE_PUSHES = 2
 
 
 #: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
-DENIED_MESSAGE = "Kullanıcı bu işlemi onaylamadı. Farklı bir yol dene ya da nedenini açıkla."
+#: Onay alınamadı. İKİ durumu birden anlatır ve bu bilinçlidir: kullanıcı
+#: reddetmiş olabilir ya da oturum etkileşimsizdir ve kimseye sorulamamıştır.
+#: Eski metin ("kullanıcı bu işlemi onaylamadı") ikinci durumda yanlıştı —
+#: ölçüldü: boru hattında çalışan bir turda kimse reddetmemişti, model yine de
+#: reddedildiğini sandı ve ne yapacağını bilemeden turu tüketti.
+DENIED_MESSAGE = (
+    "Bu işlem onaylanmadı — kullanıcı reddetmiş ya da oturum etkileşimsiz olduğu "
+    "için onay alınamamış olabilir. Onay GEREKTİRMEYEN bir yol dene (dosya "
+    "araçları onay istemez); mümkün değilse bu adımı neden atladığını açıkça yaz."
+)
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
 BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
 #: Görev gerçek bir etki istiyor ama model bunu yapamıyor. Kullanıcıya NE YAPACAĞINI

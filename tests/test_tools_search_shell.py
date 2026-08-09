@@ -217,3 +217,34 @@ async def test_zaman_asiminda_cikti_yoksa_da_yol_gosterilir(registry, context, m
 
     assert sonuc.ok is False
     assert "çıktı üretmedi" in sonuc.output
+
+
+# --- glob: mutlak desen ham istisna fırlatıyordu --------------------------- #
+#
+# Ölçüldü (canlı koşu): model `glob("/*")` çağırdı, `Path.glob` ham
+# `NotImplementedError: Non-relative patterns are unsupported` fırlattı ve model
+# ekranda Python istisnası gördü. Ne olduğunu ne yapacağını anlayamadı; tur
+# "3 turdur ilerleme yok" ile öldü.
+
+
+async def test_mutlak_glob_deseni_anlasilir_hata_verir(registry, context):
+    sonuc = await _calistir(registry, context, "glob", pattern="/*")
+
+    assert sonuc.ok is False
+    assert "göreli" in sonuc.output.lower()
+    assert "path" in sonuc.output
+
+
+async def test_windows_mutlak_deseni_de_reddedilir(registry, context):
+    sonuc = await _calistir(registry, context, "glob", pattern="C:/**/*.py")
+
+    assert sonuc.ok is False
+
+
+async def test_goreli_desen_calismaya_devam_eder(registry, context, tmp_path):
+    (tmp_path / "a.py").write_text("x", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "glob", pattern="**/*.py")
+
+    assert sonuc.ok is True
+    assert "a.py" in sonuc.output
