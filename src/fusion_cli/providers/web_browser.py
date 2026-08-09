@@ -113,6 +113,9 @@ class BrowserProviderDefinition:
     input_selectors: tuple[str, ...]
     send_selectors: tuple[str, ...]
     response_selectors: tuple[str, ...]
+    #: Üretim SÜRERKEN görünen "yanıtı durdur" düğmesi — turun bittiğini anlamanın
+    #: tek doğrudan işareti. Boş kalırsa yanıt yalnızca metnin durağanlaşmasına
+    #: bakılarak kabul edilir ve yarım cevap tam sanılır (bkz. `_wait_for_response`).
     stop_selectors: tuple[str, ...]
     login_markers: tuple[str, ...]
     #: SOHBET alanının tamamı: kullanıcı turları + model turları + geçmiş.
@@ -146,8 +149,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         send_selectors=(
             'button[data-testid="send-button"]',
-            'button[aria-label*="Send"]',
-            'button[aria-label*="Gönder"]',
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Gönder" i]',
         ),
         # Sıra dardan genişe: `article[data-testid^="conversation-turn-"]` tüm turu
         # (kullanıcı mesajı, eylem düğmeleri) kapsayan geniş kaptır, en sonda.
@@ -158,8 +161,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         stop_selectors=(
             'button[data-testid="stop-button"]',
-            'button[aria-label*="Stop"]',
-            'button[aria-label*="Durdur"]',
+            'button[aria-label*="Stop" i]',
+            'button[aria-label*="Durdur" i]',
         ),
         login_markers=("log in", "sign up", "giriş yap", "oturum aç"),
         history_selectors=(
@@ -183,8 +186,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "textarea",
         ),
         send_selectors=(
-            'button[aria-label*="Send"]',
-            'button[aria-label*="Gönder"]',
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Gönder" i]',
             'button[data-testid*="send"]',
         ),
         response_selectors=(
@@ -194,8 +197,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'div[data-testid^="message-"]',
         ),
         stop_selectors=(
-            'button[aria-label*="Stop"]',
-            'button[aria-label*="Durdur"]',
+            'button[aria-label*="Stop" i]',
+            'button[aria-label*="Durdur" i]',
         ),
         login_markers=("log in", "continue with google", "giriş yap", "oturum aç"),
         history_selectors=(
@@ -220,8 +223,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "textarea",
         ),
         send_selectors=(
-            'button[aria-label*="Send"]',
-            'button[aria-label*="Gönder"]',
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Gönder" i]',
             "button.send-button",
         ),
         # Sıra DARDAN GENİŞE: ilk sonuç veren kazanır (bkz. `_response_snapshot`).
@@ -235,8 +238,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "model-response",
         ),
         stop_selectors=(
-            'button[aria-label*="Stop"]',
-            'button[aria-label*="Durdur"]',
+            'button[aria-label*="Stop" i]',
+            'button[aria-label*="Durdur" i]',
         ),
         login_markers=("sign in", "oturum aç", "giriş yap", "choose an account"),
         history_selectors=(
@@ -267,9 +270,9 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             "textarea",
         ),
         send_selectors=(
-            'button[aria-label*="Submit"]',
-            'button[aria-label*="Send"]',
-            'button[aria-label*="Gönder"]',
+            'button[aria-label*="Submit" i]',
+            'button[aria-label*="Send" i]',
+            'button[aria-label*="Gönder" i]',
         ),
         response_selectors=(
             '[data-content="ai-message"]',
@@ -278,8 +281,8 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             'cib-message-group[source="bot"]',
         ),
         stop_selectors=(
-            'button[aria-label*="Stop"]',
-            'button[aria-label*="Durdur"]',
+            'button[aria-label*="Stop" i]',
+            'button[aria-label*="Durdur" i]',
         ),
         login_markers=("sign in", "oturum aç", "giriş yap", "microsoft account"),
         history_selectors=(
