@@ -81,7 +81,12 @@ class TodoList:
     @property
     def has_pending(self) -> bool:
         """Tamamlanmamış madde var mı? (İşin yarım kalıp kalmadığı sezgiseli için.)"""
-        return any(item.status is not TodoStatus.COMPLETED for item in self._items)
+        return self.pending_count > 0
+
+    @property
+    def pending_count(self) -> int:
+        """Tamamlanmamış madde sayısı. Devam bütçesi buna göre büyür."""
+        return sum(1 for item in self._items if item.status is not TodoStatus.COMPLETED)
 
     def render(self) -> str:
         return "\n".join(f"{item.status.icon} {item.content}" for item in self._items)

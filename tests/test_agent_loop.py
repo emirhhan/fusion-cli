@@ -1140,3 +1140,48 @@ async def test_dusen_duzenleme_ayni_duzenlemeyi_serbest_birakmaz(monkeypatch, tm
     sonuc = await run_agent("düzelt", _deps(tmp_path, sink))
 
     assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+# --- planlı işte devam bütçesi bekleyen maddelerle büyür ------------------- #
+#
+# Sabit tek hak PLANLI işlerde yanlıştı: altı maddelik bir todo listesi yazan
+# model tek dürtü alıp turu bitiriyordu — yani plan yapmak işi bitirmeye
+# yaramıyordu. Geniş görevlerin tek turda bitmemesinin sebeplerinden biri buydu.
+
+
+def test_devam_hakki_bekleyen_madde_basina_buyur():
+    from fusion_cli.core.budget import TurnBudget
+    from fusion_cli.core.clock import SystemClock
+
+    butce = TurnBudget(
+        clock=SystemClock(),
+        max_model_calls=50,
+        max_verify_rounds=1,
+        max_empty_retries=1,
+        max_contract_repairs=1,
+        max_auto_continues=1,
+        max_idle_rounds=5,
+    )
+
+    # Bekleyen madde yokken tek hak.
+    assert butce.take_auto_continue() is True
+    assert butce.take_auto_continue() is False
+    # Üç bekleyen madde üç hak daha açar.
+    assert [butce.take_auto_continue(pending_todos=3) for _ in range(3)] == [True, True, True]
+    assert butce.take_auto_continue(pending_todos=3) is False
+
+
+def test_todo_bekleyen_sayisi_tamamlananlari_saymaz():
+    from fusion_cli.core.tools import TodoItem, TodoList, TodoStatus
+
+    liste = TodoList()
+    liste.replace(
+        (
+            TodoItem("bitti", TodoStatus.COMPLETED),
+            TodoItem("sürüyor", TodoStatus.IN_PROGRESS),
+            TodoItem("bekliyor", TodoStatus.PENDING),
+        )
+    )
+
+    assert liste.pending_count == 2
+    assert liste.has_pending is True

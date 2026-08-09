@@ -136,9 +136,19 @@ class TurnBudget:
         self.contract_repairs += 1
         return True
 
-    def take_auto_continue(self) -> bool:
-        """Yarım kalmış görünen cevap için bir "devam et" hakkı al."""
-        if self.auto_continues >= self.max_auto_continues:
+    def take_auto_continue(self, *, pending_todos: int = 0) -> bool:
+        """Yarım kalmış görünen cevap için bir "devam et" hakkı al.
+
+        Sabit tek hak, PLANLI işlerde yanlıştı: altı maddelik bir todo listesi
+        yazan model tek dürtü alıp turu bitiriyordu — plan yapmak işi bitirmeye
+        yaramıyordu. Bekleyen her madde bir hak daha açar; iş ilerledikçe
+        maddeler kapanır ve hak kendiliğinden erir.
+
+        Sonsuz değildir: tur bütçesi (model çağrısı, araç turu, süre) ve
+        "ilerleme yok" kapısı üstte durmaya devam eder.
+        """
+        limit = self.max_auto_continues + max(0, pending_todos)
+        if self.auto_continues >= limit:
             return False
         self.auto_continues += 1
         return True

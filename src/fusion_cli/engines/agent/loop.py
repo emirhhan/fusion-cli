@@ -925,7 +925,8 @@ def _spend(deps: AgentDeps, note: Message) -> Message | None:
     Hak yalnızca GERÇEKTEN devam edilecekse harcanır; sırayı tersine çevirmek
     devam etmeyen turlarda da bütçe yakardı.
     """
-    return note if deps.require_budget().take_auto_continue() else None
+    bekleyen = deps.tool_context.todos.pending_count
+    return note if deps.require_budget().take_auto_continue(pending_todos=bekleyen) else None
 
 
 def _asked_instead_of_acting(final_text: str, state: _State, budget: TurnBudget) -> bool:

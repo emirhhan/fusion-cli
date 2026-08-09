@@ -430,6 +430,10 @@ def _task_reminder(messages: Sequence[Message]) -> str:
 #: Nihai cevabın ŞEKLİ de burada söylenir: sistem promptundaki aynı kural, 3500
 #: karakterlik araç çıktılarının ardında kalıp zayıflıyordu.
 _ANSWER_CONTRACT = (
+    "Görev geniş ya da çok adımlıysa İLK iş todo_write ile 3-7 maddelik somut bir "
+    "plan yazmaktır; her madde tek bir dosyada tek bir değişiklik olsun. Sonra "
+    "maddeleri sırayla bitir ve her birini biter bitmez işaretle; liste bitmeden "
+    "turu kapatma.\n"
     "İlk yanıtında, ilk araç çağrının yanında 2-3 cümlelik bir AÇILIŞ yaz: isteği "
     "nasıl anladığın, hangi adımları izleyeceğin, ilk adımın ne olduğu. Sonraki "
     "çağrılarda tek satırlık kısa öncü yeter.\n"

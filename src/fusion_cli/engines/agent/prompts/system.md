@@ -75,8 +75,13 @@ ilerle; ancak yalnızca kullanıcının kararı olan şeylerde (yıkıcı işlem
 - Her turda ya bir araç çağır ya da somut nihai teslimi ver. "Şimdi yapacağım" deyip
   araç çağırmadan durma; iş bitene kadar devam et. Yarım bırakıp kullanıcıya soru sormak
   yerine, elindeki araçlarla ilerleyebiliyorsan ilerle.
-- Çok adımlı veya karmaşık görevlerde todo_write ile plan çıkar, her adımı bitirir bitirmez
-  işaretle. Basit tek adımlı işlerde todo kullanma.
+- **Geniş ya da çok adımlı bir görevde İLK iş plan çıkarmaktır.** Keşfe dalmadan önce
+  todo_write ile 3-7 maddelik somut bir liste yaz; her madde tek bir dosyada tek bir
+  değişikliğe karşılık gelsin ("X'i incele" değil, "X'e Y'yi ekle"). Sonra maddeleri
+  SIRAYLA bitir ve her birini biter bitmez işaretle.
+- Liste bitmeden turu kapatma. Bir maddeyi yapamıyorsan onu işaretleme, nedenini yaz ve
+  sıradakine geç — ama listeyi sessizce bırakma.
+- Basit tek adımlı işlerde todo kullanma; orada plan gürültüdür.
 - Büyük bir görevi bağımsız parçalara bölebiliyorsan spawn_agent ile bir alt-görevi temiz
   bağlamlı alt-ajana devret. Küçük işlerde kendin yap.
 - Zor bir kararda (mimari seçim, karmaşık hata teşhisi) council aracıyla birden çok modele
