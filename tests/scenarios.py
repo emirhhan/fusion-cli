@@ -261,6 +261,25 @@ OKUYUP_YAZMAYAN = Scenario(
 )
 
 
+ACILIS_PLANI = Scenario(
+    name="acilis-plani",
+    task=GERCEK_ISTEK,
+    watch=(
+        "İstekten SONRA gelen ilk mesaj gerçek bir plan mı, yoksa 'inceliyorum' "
+        "diye tek satır mı? Üç satıra kadar yer almalı ve cümlenin ortasında "
+        "kesilmemeli."
+    ),
+    files={"package.json": PACKAGE_JSON},
+    replies=(
+        "İsteğini iki parçaya ayırdım: önce bu projenin bağlı olduğu yan projeleri "
+        "haritalayacağım, sonra GATE-AI'daki meta panelin eksik uçlarını "
+        "tamamlayacağım.\nİlk adım olarak kökteki yapılandırmayı okuyorum.\n"
+        + call("read_file", path="package.json"),
+        "`start:all` üç servisi birlikte başlatıyor; bağımlılık haritası bu.",
+    ),
+)
+
+
 ALL_SCENARIOS = (
     TUR_ORTASINDA_TESLIM,
     AYNI_CEVAP_IKI_KEZ,
@@ -273,4 +292,5 @@ ALL_SCENARIOS = (
     COK_ADIMLI_GERCEK_IS,
     SALT_OKUMA_BASARILI,
     OKUYUP_YAZMAYAN,
+    ACILIS_PLANI,
 )

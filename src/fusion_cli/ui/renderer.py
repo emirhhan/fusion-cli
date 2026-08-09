@@ -16,6 +16,7 @@ Veriyolu olayları zaten sırayla verdiği için burada eşzamanlılık kaygıs�
 from __future__ import annotations
 
 import contextlib
+import textwrap
 from collections.abc import Iterator, Mapping
 from typing import ClassVar
 
@@ -278,8 +279,11 @@ class ConsoleRenderer:
         self._close_line()
         if channel is not self._active_channel and channel in _CHANNEL_LABELS:
             self._channel_header(channel)
-        for satir in self._preamble_lines(temiz):
-            self._console.print(f"[{theme.DIM}]{theme.ICON_ANSWER} {escape(satir)}[/{theme.DIM}]")
+        for index, satir in enumerate(self._preamble_lines(temiz)):
+            # İşaret YALNIZCA ilk satırda; devam satırları onun altına hizalanır.
+            # Her satıra işaret koymak, tek bir beyanı üç ayrı beyan gibi gösteriyordu.
+            isaret = theme.ICON_ANSWER if index == 0 else " "
+            self._console.print(f"[{theme.DIM}]{isaret} {escape(satir)}[/{theme.DIM}]")
         self._turn_opened = True
         # Öncü satırı KENDİ işaretini basar; ana kanal başlığı ayrıca çizilirse
         # satır çift işaretle başlar. Kanal "açık" sayılmaz ki ardından gelen
@@ -300,11 +304,13 @@ class ConsoleRenderer:
         """
         limit = max(16, self._console.width - _RESULT_PREFIX)
         budce = _OPENING_LINES if not self._turn_opened else 1
-        parcalar = [parca.strip() for parca in text.split("\n") if parca.strip()]
         satirlar: list[str] = []
-        for parca in parcalar:
-            for i in range(0, len(parca), limit):
-                satirlar.append(parca[i : i + limit])
+        for parca in (p.strip() for p in text.split("\n")):
+            if not parca:
+                continue
+            # Sarma KELİME sınırında yapılır; ortadan kesmek beyanı okunmaz kılıyordu.
+            for satir in textwrap.wrap(parca, width=limit) or [parca[:limit]]:
+                satirlar.append(satir)
                 if len(satirlar) >= budce:
                     return satirlar
         return satirlar
