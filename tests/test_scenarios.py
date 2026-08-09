@@ -152,3 +152,16 @@ async def test_salt_okuma_gorevinde_kesif_kapisi_susar(root):
     run = await run_scenario(SALT_OKUMA_BASARILI, root)
 
     assert not [m for m in run.outcome.messages if "[dur-ve-yap]" in m.content]
+
+
+async def test_planli_genis_iste_kayit_ve_kapanis_uyusur(root):
+    """Geniş iş: plan → yazma → kapanış. Kapanış kanıtla çelişmemeli."""
+    from .scenarios import PLANLI_GENIS_IS
+
+    run = await run_scenario(PLANLI_GENIS_IS, root)
+
+    assert run.outcome.mutating_tool_calls_made == 2
+    assert run.outcome.made_no_changes is False
+    kayitlar = [m.content for m in run.outcome.messages if "[kayıt]" in m.content]
+    assert kayitlar, "değişiklik kaydı modele bildirilmedi"
+    assert "src/status.js" in kayitlar[-1] and "src/format.js" in kayitlar[-1]

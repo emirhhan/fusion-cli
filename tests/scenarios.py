@@ -280,6 +280,42 @@ ACILIS_PLANI = Scenario(
 )
 
 
+PLANLI_GENIS_IS = Scenario(
+    name="planli-genis-is",
+    task="src/status.js ve src/format.js eksik; test.js ikisini de bekliyor. Oluştur ve doğrula.",
+    watch=(
+        "REFERANS. Geniş iş: plan çıkarılıyor, maddeler işaretleniyor, iki dosya "
+        "yazılıyor, doğrulanıyor ve kapanış kanıtla uyuşuyor. Canlı koşuda bu "
+        "davranış 31 çağrıdan 12 çağrıya indi."
+    ),
+    files={"test.js": "require('./src/status');\nrequire('./src/format');\n"},
+    replies=(
+        "İki dosya eksik; önce planı çıkarıyorum.\n"
+        + call(
+            "todo_write",
+            todos=[
+                {"content": "src/status.js oluştur", "status": "pending"},
+                {"content": "src/format.js oluştur", "status": "pending"},
+            ],
+        ),
+        "İlk dosyayı yazıyorum.\n"
+        + call("write_file", path="src/status.js", content="module.exports = {};\n"),
+        "İkinci dosyayı yazıyorum.\n"
+        + call("write_file", path="src/format.js", content="module.exports = {};\n"),
+        "Planı kapatıyorum.\n"
+        + call(
+            "todo_write",
+            todos=[
+                {"content": "src/status.js oluştur", "status": "completed"},
+                {"content": "src/format.js oluştur", "status": "completed"},
+            ],
+        ),
+        "`src/status.js` ve `src/format.js` oluşturuldu. Değişen dosyalar: "
+        "src/status.js, src/format.js.",
+    ),
+)
+
+
 ALL_SCENARIOS = (
     TUR_ORTASINDA_TESLIM,
     AYNI_CEVAP_IKI_KEZ,
@@ -293,4 +329,5 @@ ALL_SCENARIOS = (
     SALT_OKUMA_BASARILI,
     OKUYUP_YAZMAYAN,
     ACILIS_PLANI,
+    PLANLI_GENIS_IS,
 )
