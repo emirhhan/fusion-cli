@@ -26,10 +26,10 @@ from ...core.verification import VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
-
-logger = logging.getLogger(__name__)
 from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output
+
+logger = logging.getLogger(__name__)
 
 #: Web kapısının denetlediği dosya uzantıları.
 WEB_SUFFIXES = frozenset({".html", ".htm", ".css", ".js"})
