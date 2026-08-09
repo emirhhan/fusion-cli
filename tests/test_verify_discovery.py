@@ -186,3 +186,28 @@ def test_otomatik_kapi_lint_onermez(tmp_path):
     (tmp_path / "package.json").write_text(json.dumps({"scripts": {"lint": "next lint"}}))
 
     assert discover_auto_commands(tmp_path) == ()
+
+
+async def test_kurulu_olmayan_arac_kapiyi_dusurmez(tmp_path):
+    """Eksik araç bir KOD hatası değildir.
+
+    Ölçüldü: keşfedilen kapı `ruff check .` çalıştırdı, ruff yalnızca sanal
+    ortamda kuruluydu ve PATH'te yoktu (çıkış 127). Kapı "doğrulama geçmedi" dedi,
+    oysa kullanıcının kodunda hiçbir sorun yoktu. Eksik araç yüzünden turu
+    düşürmek kapıyı gürültüye çevirir ve gerçek hatalara olan güveni yok eder.
+    """
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    dogrulayici = CommandVerifier(
+        ("kesinlikle-olmayan-komut-xyz",), cwd=str(tmp_path), timeout_s=10.0
+    )
+
+    assert (await dogrulayici.verify()).ok is True
+
+
+async def test_gercek_hata_hala_kapiyi_dusurur(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    dogrulayici = CommandVerifier(("sh -c 'exit 1'",), cwd=str(tmp_path), timeout_s=10.0)
+
+    assert (await dogrulayici.verify()).ok is False

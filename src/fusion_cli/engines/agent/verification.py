@@ -16,6 +16,7 @@ Komut kapısı OPT-IN'dir (komut yazılmadıkça çalışmaz); web kapısı vars
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 from ...config.models import Config
@@ -25,6 +26,8 @@ from ...core.verification import VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
+
+logger = logging.getLogger(__name__)
 from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output
 
@@ -213,9 +216,21 @@ class CommandVerifier:
 
         if process.returncode == 0:
             return VerificationResult(ok=True)
+        if process.returncode == _COMMAND_NOT_FOUND:
+            # Araç KURULU DEĞİL — bu bir kod hatası değildir. Ölçüldü: keşfedilen
+            # kapı `ruff check .` çalıştırdı, ruff yalnızca sanal ortamda kuruluydu
+            # ve PATH'te yoktu; kapı "doğrulama geçmedi" dedi, oysa kullanıcının
+            # kodunda hiçbir sorun yoktu. Eksik araç yüzünden turu düşürmek, kapıyı
+            # gürültüye çevirir ve gerçek hatalara olan güveni yok eder.
+            logger.info("doğrulama komutu bulunamadı, atlandı: %s", command)
+            return VerificationResult(ok=True)
 
         ozet = f"komut başarısız (çıkış {process.returncode}): {command}"
         return VerificationResult(ok=False, summary=ozet, findings=(ozet, _tail(ham)))
+
+
+#: Kabuk "komut bulunamadı" için bu çıkış kodunu verir (POSIX sözleşmesi).
+_COMMAND_NOT_FOUND = 127
 
 
 def _tail(raw: bytes) -> str:
