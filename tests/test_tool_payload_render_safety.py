@@ -214,3 +214,40 @@ async def test_hic_cagri_ayrisamazsa_onarim_tetiklenir() -> None:
     items = [item async for item in _adapter("<tool_call>{bozuk</tool_call>").stream(_request())]
 
     assert (items[-1].result.error or "").startswith("TOOL_CALL_")
+
+
+def test_javascript_dil_rozeti_payloaddan_dusurulur() -> None:
+    """Rozet dosyaya sızınca üretilen kod ilk satırda çöküyordu.
+
+    Ölçüldü (Gemini web): model doğru bir `cart.js` üretti ama içeriğin ilk
+    satırı "JavaScript" oldu ve dosya `ReferenceError: JavaScript is not defined`
+    ile bozuldu. Eskiden yalnızca küçük harfli "python" rozeti kurtarılıyordu.
+    """
+    kaynak = 'const x = require("./y");\nmodule.exports = { x };'
+    call = {
+        "name": "write_file",
+        "arguments": {"path": "cart.js", "content": {"$ref": "src-1"}},
+    }
+    raw = (
+        f'{PAYLOAD_OPEN} id="src-1" lines="3"\n'
+        f"JavaScript\n{kaynak}\n"
+        "FUSION_PAYLOAD_END\n"
+        f"<tool_call>{json.dumps(call, ensure_ascii=False)}</tool_call>"
+    )
+
+    parsed = parse_tool_calls(raw)
+
+    assert not parsed.errors, parsed.errors
+    assert json.loads(parsed.calls[0].arguments)["content"] == kaynak
+
+
+def test_dil_adi_olmayan_ilk_satir_korunur() -> None:
+    """Tahmin yapılmaz: yalnızca bilinen dil adları düşürülür."""
+    kaynak = "Toplam\n100 TL"
+    call = {"name": "write_file", "arguments": {"path": "not.txt", "content": {"$ref": "s"}}}
+    raw = (
+        f'{PAYLOAD_OPEN} id="s" lines="2"\n{kaynak}\nFUSION_PAYLOAD_END\n'
+        f"<tool_call>{json.dumps(call, ensure_ascii=False)}</tool_call>"
+    )
+
+    assert json.loads(parse_tool_calls(raw).calls[0].arguments)["content"] == kaynak

@@ -334,27 +334,68 @@ def _strip_payload_transport_prefix(body: str) -> str:
         if line.rstrip("\r\n") == PAYLOAD_SENTINEL:
             return "".join(lines[index + 1 :])
 
-    # Sentinel protokolünden ÖNCE gözlenen tek somut bozulma için geriye uyum:
-    # Gemini kod bloğunun başına "python" rozeti koyuyor ve hemen ardından açıkça
-    # kaynak kodu geliyordu. Yalnızca bu dar kalıp kurtarılır; genel bir tahmin
-    # yapılmaz, çünkü yanlış tahmin kullanıcının dosyasına yanlış içerik yazar.
-    first, separator, remainder = body.partition("\n")
-    python_starts = (
-        "import ",
-        "from ",
-        "def ",
-        "class ",
-        "@",
-        "if __name__",
-        "#!",
-    )
-    if (
-        separator
-        and first.strip().casefold() == "python"
-        and remainder.lstrip().startswith(python_starts)
-    ):
-        return remainder
+    # Sentinel yoksa geriye uyum: web arayüzü kod bloğunun başına DİL ROZETİ
+    # koyuyor ve rozet payload'ın ilk satırı olarak geliyor.
+    #
+    # Ölçüldü (Gemini web): model doğru bir dosya üretti ama içeriğin ilk satırı
+    # "JavaScript" oldu; dosya `ReferenceError: JavaScript is not defined` ile
+    # bozuldu ve tur çöktü. Eskiden yalnızca küçük harfli "python" rozeti ve
+    # yalnızca Python'a benzeyen bir gövde kurtarılıyordu.
+    #
+    # Tahmin YAPILMAZ: yalnızca BİLİNEN dil adları düşürülür. Uydurma bir
+    # sezgisel kullanıcının dosyasına yanlış içerik yazardı.
     return body
+
+
+def strip_fence_label(content: str, path: str) -> str:
+    """Payload'ın ilk satırı, DOSYANIN DİLİNE ait bir kod bloğu rozetiyse düşür.
+
+    Ölçüldü (Gemini web): model doğru bir `cart.js` üretti ama içeriğin ilk satırı
+    "JavaScript" oldu; dosya `ReferenceError: JavaScript is not defined` ile
+    bozuldu ve tur çöktü.
+
+    Ayırt edici sinyal UZANTIDIR, kelimenin kendisi değil: `notes.txt` içeriği
+    gerçekten "Python" kelimesiyle başlayabilir ve o içerik korunmalıdır. Rozet
+    ancak hedef dosyanın diliyle eşleşiyorsa transport gürültüsüdür.
+    """
+    first, separator, remainder = content.partition("\n")
+    if not separator or not remainder.strip():
+        return content
+    uzanti = path.rsplit(".", 1)[-1].casefold() if "." in path else ""
+    return remainder if first.strip().casefold() in _LABELS_BY_EXT.get(uzanti, ()) else content
+
+
+#: Dosya uzantısı → o dosyada rozet SAYILAN ilk satırlar.
+#
+# Eşleşme uzantıya bağlıdır: `notes.txt` içeriği "Python" ile başlayabilir ve
+# korunur; `cart.js` içeriğinin "JavaScript" ile başlaması ise transport
+# gürültüsüdür ve dosyayı bozar.
+_LABELS_BY_EXT: Mapping[str, frozenset[str]] = {
+    "js": frozenset({"javascript", "js"}),
+    "mjs": frozenset({"javascript", "js"}),
+    "cjs": frozenset({"javascript", "js"}),
+    "jsx": frozenset({"javascript", "jsx"}),
+    "ts": frozenset({"typescript", "ts"}),
+    "tsx": frozenset({"typescript", "tsx"}),
+    "py": frozenset({"python", "py"}),
+    "rb": frozenset({"ruby"}),
+    "go": frozenset({"go"}),
+    "rs": frozenset({"rust"}),
+    "java": frozenset({"java"}),
+    "kt": frozenset({"kotlin"}),
+    "swift": frozenset({"swift"}),
+    "php": frozenset({"php"}),
+    "sh": frozenset({"bash", "sh", "shell", "zsh"}),
+    "sql": frozenset({"sql"}),
+    "json": frozenset({"json", "jsonc"}),
+    "yaml": frozenset({"yaml", "yml"}),
+    "yml": frozenset({"yaml", "yml"}),
+    "toml": frozenset({"toml"}),
+    "html": frozenset({"html"}),
+    "css": frozenset({"css"}),
+    "scss": frozenset({"scss", "css"}),
+    "xml": frozenset({"xml"}),
+}
 
 
 def _normalize_payload_body(body: str) -> str:
@@ -381,6 +422,23 @@ def _normalize_payload_body(body: str) -> str:
     return _strip_payload_transport_prefix(body)
 
 
+def _apply_fence_strip(arguments: object) -> object:
+    """Çözümlenmiş argümanlarda dil rozetini hedef dosyaya göre ayıkla.
+
+    Yol ancak BURADA bilinir: payload çözümlenirken hangi alanı dolduracağı belli
+    değildir, argümanlar tamamlandığında `path` elde olur.
+    """
+    if not isinstance(arguments, dict):
+        return arguments
+    hedef = arguments.get("path")
+    if not isinstance(hedef, str):
+        return arguments
+    return {
+        key: strip_fence_label(value, hedef) if isinstance(value, str) and key != "path" else value
+        for key, value in arguments.items()
+    }
+
+
 def _resolve_payload_refs(
     value: object,
     payloads: Mapping[str, str],
@@ -398,7 +456,7 @@ def _resolve_payload_refs(
             if ref not in payloads:
                 raise _PayloadResolutionError(f"{path}.$ref: payload bulunamadı: {ref}")
             used.add(ref)
-            return payloads[ref]
+            return payloads[ref]  # rozet ayıklaması `_apply_fence_strip`'te
         return {
             key: _resolve_payload_refs(
                 item,
@@ -501,6 +559,7 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         except _PayloadResolutionError as error:
             errors.append(str(error))
             continue
+        resolved = _apply_fence_strip(resolved)
         calls.append(
             ToolCall(
                 id=f"emu-{index}",
