@@ -950,6 +950,13 @@ _ASKING_TOOLS = frozenset({"ask_user"})
 # İki deneme normaldir (ilk `old` tutmaz, model düzeltir). Üçüncüde model artık
 # yaklaşımını değiştirmiyor, aynı şeyi daha dar pencereyle tekrarlıyor.
 MAX_FAILED_MUTATIONS_IN_ROW = 3
+#: Toptan yazma çıkışının açıldığı başarısız düzenleme sayısı.
+#
+# Döngü notundan DAHA ERKEN açılır: boşta-tur kapısı üç ilerlemesiz turda turu
+# öldürüyor ve çıkış üçüncüde açılırsa hiç kullanılamıyor (ölçüldü — model
+# write_file'a kaçtı, engellendi, tur öldü). İki başarısız hedefli düzenleme,
+# modelin 'old' metnini tutturamadığını göstermeye yeter.
+MAX_EDITS_BEFORE_REWRITE = 2
 #: Döngü kapısının bir turda en fazla kaç kez konuşacağı.
 MAX_EDIT_LOOP_PUSHES = 2
 
@@ -1085,7 +1092,7 @@ def _rewrite_is_last_resort(hedef: Path, deps: AgentDeps, state: _State) -> bool
       dosyayı baştan üretmek yüz satırlık hata yüzeyi açar" idi; içeriğin tamamı
       görülmüşse yazma artık kör değildir ve o gerekçe düşer.
     """
-    if state.failed_mutations_in_row < MAX_FAILED_MUTATIONS_IN_ROW:
+    if state.failed_mutations_in_row < MAX_EDITS_BEFORE_REWRITE:
         return False
     return hedef in deps.tool_context.fully_read
 

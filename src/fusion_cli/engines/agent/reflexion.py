@@ -64,9 +64,10 @@ ASKED_INSTEAD_OF_ACTING_NOTE = (
 ENOUGH_EXPLORING_NOTE = (
     "[dur-ve-yap] {rounds} turdur yalnızca okuyorsun ve tek bir değişiklik "
     "yapmadın. Keşif yeterli. ŞİMDİ somut değişikliği yap: değiştireceğin ilk "
-    "dosyayı seç ve edit_file / write_file çağır. Hangi dosyayı değiştireceğini "
-    "bilmiyorsan bunu açıkça söyle ve dur — ama başka bir dosya daha OKUMA. "
-    "Bir sonraki turunda değiştirici bir araç çağrısı olmalı."
+    "dosyayı seç ve edit_file / write_file çağır. Yeni dosya KEŞFETME; ama "
+    "değiştireceğin dosyayı okumak keşif değildir — 'old' metnini tutturmak için "
+    "onu okumak serbesttir ve gerekirse yapmalısın. Hangi dosyayı değiştireceğini "
+    "bilmiyorsan bunu açıkça söyle ve dur."
 )
 
 

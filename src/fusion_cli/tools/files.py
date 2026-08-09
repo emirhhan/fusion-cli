@@ -361,7 +361,14 @@ def _neden_eslesmedi(text: str, old: str) -> str:
 
 
 #: read_file'ın eklediği satır numarası öneki: boşluklar + sayı + sekme.
-_LINE_NUMBERED = re.compile(r"^\s*\d+\t", re.M)
+#: read_file çıktısındaki satır numarası öneki.
+#
+# Ayırıcı SEKME ya da BOŞLUK olabilir: model çıktıyı yeniden biçimlendirirken
+# sekmeyi boşluğa çeviriyor. Yalnızca sekmeye bakmak, düzenlemenin ilk denemede
+# tutmamasının en sık sebebiydi (ölçüldü: üç ardışık "'old' bulunamadı" ve tur
+# ölü kilide düştü). Yanlış-pozitif riski yok: soyma YALNIZCA sonuç dosyada
+# gerçekten eşleşiyorsa kabul edilir (bkz. `_tolerate_line_numbers`).
+_LINE_NUMBERED = re.compile(r"^[ \t]*\d+[\t ]", re.M)
 
 
 def _tolerate_line_numbers(text: str, old: str) -> str:

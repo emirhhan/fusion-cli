@@ -266,7 +266,7 @@ def test_duzenleme_tekrar_tekrar_dustuyse_ve_dosya_okunduysa_yazmaya_izin_verili
     deps, _ = _deps_for(tmp_path, okundu=True)
 
     assert not _targeted_edit_required(
-        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(3)
+        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(2)
     )
 
 
@@ -277,5 +277,5 @@ def test_dosya_okunmadiysa_yazma_yine_engellenir(tmp_path):
     deps, _ = _deps_for(tmp_path, okundu=False)
 
     assert _targeted_edit_required(
-        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(5)
+        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(4)
     )

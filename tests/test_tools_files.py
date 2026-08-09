@@ -708,3 +708,35 @@ def test_onceki_turdan_kalan_dosya_yine_okuma_ister(context):
 
     assert not sonuc.ok
     assert hedef.read_text(encoding="utf-8") == "<h1>önceki tur</h1>"
+
+
+def test_bosluk_ayrilmis_satir_numarasi_da_tolere_edilir(tmp_path):
+    """Model sekmeyi boşluğa çevirince tolerans tanımıyordu.
+
+    Ölçüldü: bu tek eksik yüzünden `edit_file` üç kez üst üste düştü, model
+    `write_file`'a kaçtı, o da engelliydi ve tur ölü kilide girdi.
+    """
+    dosya = tmp_path / "cart.js"
+    dosya.write_text("function cartTotal(items) {\n  return 0;\n}\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "cart.js", "old": "  8 function cartTotal(items) {", "new": "function total(i) {"},
+        ToolContext(root=tmp_path),
+    )
+
+    assert sonuc.ok, sonuc.output
+    assert dosya.read_text(encoding="utf-8").startswith("function total(i) {")
+
+
+def test_sayiyla_baslayan_gercek_kod_bozulmaz(tmp_path):
+    """Tolerans yalnızca soyulmuş hâli eşleşiyorsa uygulanır."""
+    dosya = tmp_path / "a.js"
+    dosya.write_text("const x = 1 + 2;\n1 + 2;\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "a.js", "old": "1 + 2;", "new": "3;"}, ToolContext(root=tmp_path)
+    )
+
+    # "1 + 2;" dosyada İKİ kez geçiyor: benzersizlik kuralı devrede kalmalı.
+    assert not sonuc.ok
+    assert "benzersiz" in sonuc.output.lower() or "birden" in sonuc.output.lower()
