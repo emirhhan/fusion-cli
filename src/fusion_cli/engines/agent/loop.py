@@ -393,6 +393,12 @@ async def run_agent(
             break
         outcome = await _fix_findings(task, verification, outcome, deps)
 
+    # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
+    # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
+    # kullanıcı 20 dakika boş ekran gördü. Öğrenme muhasebedir; kullanıcıyı
+    # bekletemez.
+    _announce_answer(outcome, deps, depth=depth, internal=internal)
+
     await learning_steps.learn(
         task,
         outcome,
@@ -411,7 +417,6 @@ async def run_agent(
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
     if depth == 0 and deps.tool_context.browser.is_open:
         await deps.tool_context.browser.close()
-    _announce_answer(outcome, deps, depth=depth, internal=internal)
     return outcome
 
 

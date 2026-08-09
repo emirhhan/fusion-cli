@@ -7,6 +7,9 @@ yeni ders çıkar) çalışır. `loop.py` yalnızca bunları çağırır; ayrın
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Awaitable
 from dataclasses import replace
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
@@ -18,6 +21,8 @@ from ...core.types import Message
 from ...core.verification import VerificationResult
 from . import learning
 from .verification import resolve_turn_success
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -117,11 +122,28 @@ async def learn(
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
-    work = _extract_and_store(task, list(outcome.messages), deps, scope=scope)
+    work = _bounded(_extract_and_store(task, list(outcome.messages), deps, scope=scope))
     if deps.background is None:
         await work
     else:
         deps.background.spawn(work)
+
+
+#: Ders çıkarımına tanınan en fazla süre.
+#
+# Öğrenme bir İYİLEŞTİRMEDİR; turu düşürmesi ya da bekletmesi kabul edilemez.
+# Ölçüldü: web modelinde çıkarım 20 dakikadan fazla asılı kaldı ve tek satır
+# çıktı basılmadı. Sınır aşılırsa ders yazılmaz, tur normal biter.
+LEARN_TIMEOUT_S = 120.0
+
+
+async def _bounded(work: Awaitable[None]) -> None:
+    """Öğrenmeyi süreyle sınırla; aşarsa sessizce vazgeç."""
+    try:
+        async with asyncio.timeout(LEARN_TIMEOUT_S):
+            await work
+    except TimeoutError:
+        logger.warning("ders çıkarımı %.0f saniyede bitmedi, atlandı", LEARN_TIMEOUT_S)
 
 
 async def _extract_and_store(

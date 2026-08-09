@@ -965,3 +965,82 @@ def test_devam_et_ilk_gorevin_butcesini_miras_alir():
 
     assert classify_task(_scoped_task("devam et", gecmis)) is TaskKind.FEATURE
     assert classify_task("devam et") is not TaskKind.FEATURE
+
+
+# --- cevap öğrenmeden ÖNCE duyurulur --------------------------------------- #
+#
+# Ölçüldü (gerçek koşu): iş bir dakikada bitti, cevap hazırdı, ama ders çıkarımı
+# bitene kadar ekrana hiçbir şey basılmadı — kullanıcı 20 dakika boş ekran gördü
+# ve turun donduğunu sandı. Öğrenme muhasebedir; kullanıcıyı bekletemez.
+
+
+async def test_cevap_ders_cikariminden_once_duyurulur(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.events import LessonsLearned, TurnAnswered
+
+    sira: list[str] = []
+
+    async def _yavas_ogrenme(task, outcome, deps, **kwargs):
+        sira.append("ogrenme")
+        deps.publisher.publish(LessonsLearned(count=1))
+
+    monkeypatch.setattr(agent_loop.learning_steps, "learn", _yavas_ogrenme)
+
+    class _Kaydeden:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def handle(self, event):
+            if isinstance(event, TurnAnswered):
+                sira.append("cevap")
+            self._inner.handle(event)
+
+    class _AkitmayanSaglayici:
+        """Web adaptörü gibi: metni akıtmaz, yalnızca sonuç döndürür."""
+
+        def __init__(self, results):
+            self._results = list(results)
+            self.calls = 0
+
+        @property
+        def label(self):
+            return "akitmayan"
+
+        async def complete(self, request):
+            index = min(self.calls, len(self._results) - 1)
+            self.calls += 1
+            return self._results[index]
+
+        async def stream(self, request):
+            from fusion_cli.core.types import StreamDone
+
+            yield StreamDone(await self.complete(request))
+
+    _kur(
+        monkeypatch,
+        _AkitmayanSaglayici(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, _Kaydeden(sink))
+
+    await run_agent("gorev", deps)
+
+    assert sira, "ne cevap ne öğrenme yayınlandı"
+    assert sira[0] == "cevap", f"öğrenme cevaptan önce çalıştı: {sira}"
+
+
+async def test_asili_kalan_ders_cikarimi_turu_bekletmez(monkeypatch, tmp_path, sink):
+    """Öğrenme bir iyileştirmedir; sınırı aşarsa atlanır, tur normal biter."""
+    import asyncio as _asyncio
+
+    from fusion_cli.engines.agent import learning_steps
+
+    monkeypatch.setattr(learning_steps, "LEARN_TIMEOUT_S", 0.05)
+
+    async def _asili() -> None:
+        await _asyncio.sleep(10)
+
+    await learning_steps._bounded(_asili())  # zaman aşımı yutulur, hata fırlatmaz
