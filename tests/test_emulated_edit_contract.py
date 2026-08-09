@@ -279,3 +279,66 @@ def test_dosya_okunmadiysa_yazma_yine_engellenir(tmp_path):
     assert _targeted_edit_required(
         "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(4)
     )
+
+
+async def test_dongu_notu_yazma_cikisini_kapatmaz(tmp_path):
+    """Not "write_file ile yaz" diyorsa o yol AÇIK kalmalı.
+
+    Ölçüldü: not ateşlerken başarısız-düzenleme sayacı sıfırlanıyordu; toptan
+    yazma engelinin kalkması aynı sayaca baktığı için model tavsiyeye uyduğu anda
+    kapı yeniden kapanıyor ve tur ölü kilide düşüyordu.
+    """
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent import loop as agent_loop
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+
+    from .fakes import (
+        AlwaysApprove,
+        RecordingSink,
+        ScriptedProvider,
+        make_config,
+        model_result,
+        tool_call,
+    )
+
+    hedef = tmp_path / "cart.js"
+    hedef.write_text("function total() { return 0; }\n", encoding="utf-8")
+
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("read_file", path="cart.js")]),
+            model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-1", new="b")]),
+            model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-2", new="d")]),
+            model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-3", new="f")]),
+            model_result(
+                tool_calls=[
+                    tool_call("write_file", path="cart.js", content="function total() { return 1; }")
+                ]
+            ),
+            model_result("Dosya yeniden yazıldı: `cart.js`."),
+        ]
+    )
+    monkey_target = agent_loop
+    original = monkey_target.build_provider
+    monkey_target.build_provider = lambda *a, **k: provider
+    try:
+        sink = RecordingSink()
+
+        class _P:
+            def publish(self, event):
+                sink.handle(event)
+
+        deps = AgentDeps(
+            config=make_config(runtime={"agent_max_idle_rounds": 10}),
+            publisher=_P(),
+            policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+            tool_context=ToolContext(root=tmp_path),
+        )
+        deps.execution = None
+        sonuc = await run_agent("cart.js'yi düzelt", deps)
+    finally:
+        monkey_target.build_provider = original
+
+    assert "return 1" in hedef.read_text(encoding="utf-8"), "toptan yazma yine engellendi"
+    assert sonuc.mutating_tool_calls_made == 1

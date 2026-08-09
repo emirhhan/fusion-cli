@@ -640,7 +640,11 @@ async def _drive(
         if _stuck_editing(state, plan_mode=plan_mode):
             state.edit_loop_pushes += 1
             messages.append(reflexion.repeated_edit_note(state.failed_mutations_in_row))
-            state.failed_mutations_in_row = 0
+            # Sayaç SIFIRLANMAZ. Sıfırlamak, notun gösterdiği çıkışı tam da model
+            # onu izlemeye çalıştığı anda kapatıyordu: not "write_file ile yeniden
+            # yaz" diyor, model deniyor, ama toptan-yazma engelinin kalkması aynı
+            # sayaca bakıyor ve sayaç yeni sıfırlanmış oluyordu (ölçüldü — tur ölü
+            # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
         elif errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
         if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
