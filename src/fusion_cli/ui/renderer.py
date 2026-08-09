@@ -103,6 +103,8 @@ class ConsoleRenderer:
         self._work = WorkIndicator(self._console, enabled=live_progress)
         #: Basılmayı bekleyen durum satırı — bkz. `_status`.
         self._pending_status: str | None = None
+        #: Bu turda açılış beyanı basıldı mı? İLK öncü daha geniş yer alır.
+        self._turn_opened = False
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -207,6 +209,7 @@ class ConsoleRenderer:
             self._flush_streams()
             self._close_line()
             self._active_channel = None
+            self._turn_opened = False
             self._finish_work()
 
     def print_user_message(self, text: str) -> None:
@@ -268,18 +271,43 @@ class ConsoleRenderer:
         çıkamaz, meşru öncü ise hiç zarar görmez. Kötü durumda uzun bir öncü
         kırpılır — iyi huylu bir başarısızlık.
         """
-        flat = _shorten(strip_thinking(text, streaming=False), _PREAMBLE_LIMIT)
-        if not flat:
+        temiz = strip_thinking(text, streaming=False).strip()
+        if not temiz:
             return
         self._flush_status()
         self._close_line()
         if channel is not self._active_channel and channel in _CHANNEL_LABELS:
             self._channel_header(channel)
-        self._console.print(f"[{theme.DIM}]{theme.ICON_ANSWER} {escape(flat)}[/{theme.DIM}]")
+        for satir in self._preamble_lines(temiz):
+            self._console.print(f"[{theme.DIM}]{theme.ICON_ANSWER} {escape(satir)}[/{theme.DIM}]")
+        self._turn_opened = True
         # Öncü satırı KENDİ işaretini basar; ana kanal başlığı ayrıca çizilirse
         # satır çift işaretle başlar. Kanal "açık" sayılmaz ki ardından gelen
         # gerçek cevap kendi başlığını alsın.
         self._active_channel = None
+
+    def _preamble_lines(self, text: str) -> list[str]:
+        """Öncü metni kaç satırda göstereceğine karar ver.
+
+        Turun İLK öncüsü açılış beyanıdır ve daha geniş yer alır: kullanıcı isteğini
+        verdikten sonra ilk gördüğü şey odur ve "ne yapacağım" cevabını taşır. Tek
+        satıra kırpmak o cevabı cümlenin ortasında kesiyordu.
+
+        Sonraki öncüler tek satır kalır: onlar adım duyurusudur ("şu dosyaya
+        bakıyorum") ve ekranı kaplamamalıdır. Sınır yine bir SINIRLAMADIR,
+        sınıflandırma değil — model açılışa koca bir rapor yazarsa da üç satırdan
+        fazlası basılmaz.
+        """
+        limit = max(16, self._console.width - _RESULT_PREFIX)
+        budce = _OPENING_LINES if not self._turn_opened else 1
+        parcalar = [parca.strip() for parca in text.split("\n") if parca.strip()]
+        satirlar: list[str] = []
+        for parca in parcalar:
+            for i in range(0, len(parca), limit):
+                satirlar.append(parca[i : i + limit])
+                if len(satirlar) >= budce:
+                    return satirlar
+        return satirlar
 
     def _write_stream(self, channel: Channel, text: str) -> None:
         if not text:
@@ -681,7 +709,11 @@ _CALL_LIMIT = 76
 # rapor" sayılmaz, yalnızca gösterimi tek satıra sığdırılır. Araç kartı sınırıyla
 # (`_CALL_LIMIT`) aynı ailedendir ve aynı gerekçeyle `ui` katmanında yaşar —
 # "ne kadarı gösterilir" bir sunum kararıdır, sağlayıcı kararı değil.
-_PREAMBLE_LIMIT = 96
+#: Turun İLK öncüsünün (açılış beyanı) kaplayabileceği en fazla satır.
+#
+# Kullanıcı isteğini verdikten sonra ilk gördüğü şey budur ve "ne yapacağım"
+# cevabını taşır; tek satıra kırpmak o cevabı cümlenin ortasında kesiyordu.
+_OPENING_LINES = 3
 
 
 def _format_call(name: str, args: Mapping[str, object]) -> str:

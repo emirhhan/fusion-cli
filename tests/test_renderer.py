@@ -918,3 +918,46 @@ def test_arac_sonucu_satiri_terminal_genisligini_asmaz():
     assert not any(satir.strip().startswith("x") for satir in satirlar), "satır sarmış"
     for satir in satirlar[1:]:
         assert satir.startswith(("  ⎿", "     ")), f"girinti kaybolmuş: {satir!r}"
+
+
+def test_acilis_beyani_uc_satira_kadar_basilir():
+    """Turun İLK öncüsü açılış beyanıdır; tek satıra kırpılmamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        TokenReceived(
+            Channel.MAIN,
+            "İsteğini iki parçaya ayırdım.\nÖnce bağlı projeleri haritalayacağım.\n"
+            "Sonra dashboard'daki eksik uçları tamamlayacağım.",
+            provisional=True,
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "İsteğini iki parçaya ayırdım." in cikti
+    assert "Sonra dashboard'daki eksik uçları tamamlayacağım." in cikti
+
+
+def test_sonraki_oncu_tek_satir_kalir():
+    """Adım duyurusu ekranı kaplamamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "açılış", provisional=True))
+    renderer.handle(TokenReceived(Channel.MAIN, "bir\niki\nüç", provisional=True))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "bir" in cikti
+    assert "üç" not in cikti
+
+
+def test_acilis_butcesi_her_turda_sifirlanir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TokenReceived(Channel.MAIN, "a\nb\nc", provisional=True))
+    renderer.handle(TurnFinished())
+    renderer.handle(TokenReceived(Channel.MAIN, "x\ny\nz", provisional=True))
+    renderer.handle(TurnFinished())
+
+    assert buffer.getvalue().count("z") >= 1, "yeni turun açılışı da geniş olmalı"

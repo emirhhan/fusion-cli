@@ -409,6 +409,9 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
 #: Nihai cevabın ŞEKLİ de burada söylenir: sistem promptundaki aynı kural, 3500
 #: karakterlik araç çıktılarının ardında kalıp zayıflıyordu.
 _ANSWER_CONTRACT = (
+    "İlk yanıtında, ilk araç çağrının yanında 2-3 cümlelik bir AÇILIŞ yaz: isteği "
+    "nasıl anladığın, hangi adımları izleyeceğin, ilk adımın ne olduğu. Sonraki "
+    "çağrılarda tek satırlık kısa öncü yeter.\n"
     f"`{ROLE_PREFIX}` ile başlayan başlıkları KENDİ cevabında tekrarlama; onlar "
     "çerçevedir, senin rolün değildir.\n"
     "Kullanıcı görevini zaten verdi: ne yapacağını ona tekrar sorma. Gerçekten "
