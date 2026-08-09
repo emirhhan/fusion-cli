@@ -396,7 +396,28 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
         "aynı çağrıları tekrar etme. Sonuçları kullanarak bir SONRAKİ adımı at: "
         f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
     )
-    return "\n\n".join(rendered)
+    rendered.append(_task_reminder(messages))
+    return "\n\n".join(part for part in rendered if part)
+
+
+def _task_reminder(messages: Sequence[Message]) -> str:
+    """Kullanıcının görevini promptun EN SONUNA bir kez daha koy.
+
+    Ölçüldü: sistem promptu + araç sözleşmesi + skill bloğu ~23.500 karakter,
+    kullanıcının görevi ~150 karakter — çerçevenin %0,6'sı. Üstelik görevin
+    ARDINDAN jenerik talimat bloğu geliyordu, yani modelin okuduğu SON şey görev
+    değil kalıp metindi. Gerçek koşuda model, görev metninde dosya adı açıkça
+    yazdığı hâlde "herhangi bir kullanıcı görevi belirtilmedi" diyerek turu
+    bitirdi.
+
+    Hatırlatma yeni bilgi taşımaz; yalnızca görevi en çok bakılan yere koyar.
+    """
+    gorev = next(
+        (mesaj.content.strip() for mesaj in reversed(messages) if mesaj.role == "user"), ""
+    )
+    if not gorev:
+        return ""
+    return f"### {ROLE_PREFIX}GÖREV (yapılacak iş budur)\n{gorev}"
 
 
 #: Her iki kipte de tekrarlanan nihai cevap sözleşmesi.
@@ -483,6 +504,9 @@ def _format_continuation(messages: Sequence[Message]) -> str:
         else:
             baslik = "KULLANICI"
         parcalar.append(f"### {ROLE_PREFIX}{baslik}\n{message.content.strip()}")
+    hatirlatma = _task_reminder(messages)
+    if hatirlatma:
+        parcalar.append(hatirlatma)
     return "\n\n".join(parcalar)
 
 

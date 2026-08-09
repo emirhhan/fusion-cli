@@ -403,3 +403,36 @@ async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
     cevap = await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
 
     assert cevap == "İş bitti."
+
+
+# --- görev promptun sonunda tekrarlanır ------------------------------------ #
+#
+# Ölçüldü: sistem promptu + araç sözleşmesi + skill bloğu ~23.500 karakter,
+# kullanıcının görevi ~150 karakter. Üstelik görevin ARDINDAN jenerik talimat
+# bloğu geliyordu; modelin okuduğu SON şey görev değil kalıp metindi. Gerçek
+# koşuda model, görev metninde dosya adı açıkça yazdığı hâlde "herhangi bir
+# kullanıcı görevi belirtilmedi" diyerek turu bitirdi.
+
+
+def test_gorev_promptun_sonunda_tekrarlanir():
+    prompt = format_browser_prompt(
+        (Message("system", "uzun sistem promptu"), Message("user", "app/page.tsx'i düzenle"))
+    )
+
+    assert prompt.rstrip().endswith("app/page.tsx'i düzenle")
+    assert "GÖREV (yapılacak iş budur)" in prompt
+
+
+def test_devam_turunda_da_gorev_sonda_durur():
+    prompt = format_browser_prompt(
+        (Message("user", "devam et"), Message("tool", "çıktı", name="run_shell", ok=True)),
+        continuation=True,
+    )
+
+    assert prompt.rstrip().endswith("devam et")
+
+
+def test_kullanici_mesaji_yoksa_hatirlatma_eklenmez():
+    prompt = format_browser_prompt((Message("tool", "x", name="read_file", ok=True),))
+
+    assert "GÖREV (yapılacak iş budur)" not in prompt
