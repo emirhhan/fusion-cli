@@ -19,7 +19,7 @@ from ..core.constants import (
 )
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import optional_str, require_str
-from .files import resolve_path
+from .files import display_path, resolve_path
 
 
 def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -72,7 +72,7 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
     for path in aday:
         if not path.is_file() or _is_skipped(path):
             continue
-        matches.append(str(path))
+        matches.append(display_path(context, path))
         if len(matches) >= MAX_GLOB_MATCHES:
             matches.append(f"… ({MAX_GLOB_MATCHES}+ dosya, deseni daraltın)")
             break

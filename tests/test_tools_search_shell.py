@@ -248,3 +248,14 @@ async def test_goreli_desen_calismaya_devam_eder(registry, context, tmp_path):
 
     assert sonuc.ok is True
     assert "a.py" in sonuc.output
+
+
+async def test_glob_sonuclari_proje_kokune_goreli(registry, context, tmp_path):
+    """Mutlak yollar hem gürültü hem yanıltıcı; hata mesajlarıyla da tutarsızdı."""
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "page.tsx").write_text("x", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "glob", pattern="**/*.tsx")
+
+    assert "app/page.tsx" in sonuc.output
+    assert str(tmp_path) not in sonuc.output

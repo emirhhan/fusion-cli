@@ -143,7 +143,10 @@ async def _bounded(work: Awaitable[None]) -> None:
         async with asyncio.timeout(LEARN_TIMEOUT_S):
             await work
     except TimeoutError:
-        logger.warning("ders çıkarımı %.0f saniyede bitmedi, atlandı", LEARN_TIMEOUT_S)
+        # DEBUG seviyesi bilinçli: bu bir teşhis notudur, kullanıcı eylemi
+        # gerektirmez. `warning` olarak stderr'e basılınca nihai cevabın sonuna
+        # yapışıyor ve kullanıcı onu cevabın parçası sanıyordu (ölçüldü).
+        logger.debug("ders çıkarımı %.0f saniyede bitmedi, atlandı", LEARN_TIMEOUT_S)
 
 
 async def _extract_and_store(
