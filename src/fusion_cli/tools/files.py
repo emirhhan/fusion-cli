@@ -63,16 +63,41 @@ def atomic_write(path: Path, content: str) -> None:
     çalışan dosyası yarım kalır. `os.replace` aynı dosya sisteminde atomiktir, bu
     yüzden geçici dosya HEDEFLE AYNI DİZİNDE açılır — /tmp başka bir bağlama noktası
     olabilir ve taşıma atomikliğini kaybederdi (`config.writer` aynı deseni kullanır).
+
+    İzinler AYRICA ayarlanır. `mkstemp` dosyayı bilinçli olarak 0600 açar ve taşıma
+    bu izni hedefe taşır: ölçüldü, Fusion'ın dokunduğu proje dosyaları `-rw-------`
+    olurken komşuları `-rw-r--r--` kalıyordu. Kullanıcının deposunda bu görünmez bir
+    yan etkidir — git izin değişikliğini kayda geçirir ve dosya başka bir kullanıcıyla
+    çalışan bir derleme/servis tarafından okunamaz hale gelebilir.
+
+    Var olan dosyanın izni KORUNUR; yeni dosya, sürecin umask'ıyla süzülmüş normal
+    dosya iznini alır (kabuktan `touch` ile aynı sonuç).
     """
     handle, name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
     gecici = Path(name)
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as dosya:
             dosya.write(content)
+        gecici.chmod(_target_mode(path))
         gecici.replace(path)
     except BaseException:
         gecici.unlink(missing_ok=True)
         raise
+
+
+#: Yeni dosyalar için taban izin; umask ile süzülür (0666 & ~umask → tipik 0644).
+DEFAULT_FILE_MODE = 0o666
+
+
+def _target_mode(path: Path) -> int:
+    """Yazılacak dosyanın taşıması gereken izin biti."""
+    try:
+        return path.stat().st_mode & 0o777
+    except OSError:
+        # Yeni dosya: umask okunur ve hemen geri yazılır — okumanın başka yolu yok.
+        umask = os.umask(0)
+        os.umask(umask)
+        return DEFAULT_FILE_MODE & ~umask
 
 
 def display_path(context: ToolContext, path: Path) -> str:
