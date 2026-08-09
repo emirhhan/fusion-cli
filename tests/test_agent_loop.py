@@ -1044,3 +1044,54 @@ async def test_asili_kalan_ders_cikarimi_turu_bekletmez(monkeypatch, tmp_path, s
         await _asyncio.sleep(10)
 
     await learning_steps._bounded(_asili())  # zaman aşımı yutulur, hata fırlatmaz
+
+
+async def test_dogrulama_komutu_degisiklikten_sonra_tekrar_calisabilir(monkeypatch, tmp_path, sink):
+    """Düzeltmeden sonra testi tekrar çalıştırmak meşrudur; engellenmemeli.
+
+    Ölçüldü: model kodu düzeltti, `npm test` çalıştırmak istedi ve
+    TOOL_CALL_DUPLICATE ile engellendi — düzeltmenin işe yarayıp yaramadığını
+    doğrulayamadı.
+    """
+    (tmp_path / "a.txt").write_text("eski\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command="echo kontrol")]),
+                model_result(
+                    tool_calls=[tool_call("edit_file", path="a.txt", old="eski", new="yeni")]
+                ),
+                model_result(tool_calls=[tool_call("run_shell", command="echo kontrol")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt'yi düzelt ve doğrula", _deps(tmp_path, sink))
+
+    engellenen = [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+    assert not engellenen, "değişiklikten sonraki doğrulama engellendi"
+
+
+async def test_degisiklik_olmadan_ayni_komut_yine_tekrar_sayilir(monkeypatch, tmp_path, sink):
+    """Çalışma alanı değişmeden ısrarla aynı komut yine tekrardır.
+
+    Sınır okuma araçlarınınkiyle aynıdır (`max_same_tool_without_change`): birkaç
+    tekrara izin verilir, ısrar engellenir.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="echo x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("çalıştır", _deps(tmp_path, sink))
+
+    assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]

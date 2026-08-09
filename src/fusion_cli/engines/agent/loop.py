@@ -1104,6 +1104,18 @@ def _rewrite_is_last_resort(hedef: Path, deps: AgentDeps, state: _State) -> bool
 #: Dosyanın tamamını değiştiren araçlar.
 _FULL_WRITE_TOOLS = frozenset({"write_file"})
 
+#: Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araçlar.
+#
+# Tekrar imzasında değiştirici araçların çağı sıfırlanır ("aynı yazma iki kez
+# istenmez"). `run_shell` bu kuralın altında yanlış kalıyordu: doğrulama komutu
+# tam olarak tekrarlanmak İÇİN vardır. Ölçüldü — model kodu düzeltti, `npm test`
+# çalıştırmak istedi ve TOOL_CALL_DUPLICATE ile engellendi; düzeltmenin işe
+# yarayıp yaramadığını doğrulayamadı.
+#
+# Çağa bağlanmak doğru davranışı verir: değişiklik olmadan aynı komutu tekrar
+# etmek yine tekrardır, değişiklikten SONRA tekrar etmek yeni bilgidir.
+_RERUNNABLE_TOOLS = frozenset({"run_shell"})
+
 
 # --------------------------------------------------------------------------- #
 # Araç yürütme
@@ -1138,7 +1150,7 @@ async def _run_tools(
         signature = budget.signature(
             call.name,
             _encode_arguments(args),
-            mutating=tool is not None and tool.mutating,
+            mutating=tool is not None and tool.mutating and call.name not in _RERUNNABLE_TOOLS,
         )
         seen = budget.count_call(signature)
 
@@ -1241,8 +1253,13 @@ async def _run_tools(
             budget.successful_tool_evidence.append((call.name, args, mutating))
             if mutating:
                 state.mutating_tool_calls_made += 1
-                budget.record_mutation()
                 state.failed_mutations_in_row = 0
+                # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
+                # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
+                # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
+                # bırakıyordu (bkz. `_RERUNNABLE_TOOLS`).
+                if call.name not in _RERUNNABLE_TOOLS:
+                    budget.record_mutation()
         elif outcome is ToolOutcome.FAILED:
             state.failed_tool_calls += 1
             errored = True
