@@ -29,9 +29,15 @@ def _web_politikasi() -> ExecutionPolicy:
     return ExecutionPolicy(is_web=True)
 
 
-def _blok(context: ToolContext, yol: str) -> list[str]:
+def _blok(context: ToolContext, yol: str, *, basarisiz_duzenleme: int = 0) -> list[str]:
+    from fusion_cli.engines.agent.loop import _State
+
     return _targeted_edit_required(
-        "write_file", {"path": yol, "content": "x"}, _SahteDeps(context), _web_politikasi()
+        "write_file",
+        {"path": yol, "content": "x"},
+        _SahteDeps(context),
+        _web_politikasi(),
+        _State(failed_mutations_in_row=basarisiz_duzenleme),
     )
 
 
