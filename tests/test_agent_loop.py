@@ -1338,6 +1338,7 @@ async def test_dosyalarin_hicbiri_yoksa_yanlis_dizin_uyarisi_gider(monkeypatch, 
     assert notlar, "yanlış dizin uyarısı hiç gitmedi"
     assert "DUR" in notlar[0]
     assert "UYDURMA" in notlar[0]
+    assert str(tmp_path) in notlar[0], "hangi dizinde olduğu yazılmalı"
     assert r.WRONG_WORKSPACE_NOTE.split("{")[0] in notlar[0]
 
 
@@ -1400,3 +1401,33 @@ async def test_yanlis_dizinde_oz_denetim_turu_acilmaz(monkeypatch, tmp_path, sin
     assert sonuc.wrong_workspace is True
     assert not [e for e in sink.events if isinstance(e, SelfReviewStarted)]
     assert provider.calls == 4, "fazladan düzeltici tur açılmamalı"
+
+
+async def test_dogru_dizin_bulunursa_komutla_onerilir(monkeypatch, tmp_path, sink):
+    """Dizin DEĞİŞTİRİLMEZ, önerilir: kararı kullanıcı verir."""
+    yanlis = tmp_path / "yanlis"
+    yanlis.mkdir()
+    dogru = tmp_path / "dogru-proje"
+    for yol in ("app/page.tsx", "components/Sidebar.tsx", "app/globals.css"):
+        hedef = dogru / yol
+        hedef.parent.mkdir(parents=True, exist_ok=True)
+        hedef.write_text("x", encoding="utf-8")
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="app/globals.css")]),
+                model_result(tool_calls=[tool_call("read_file", path="components/Sidebar.tsx")]),
+                model_result(tool_calls=[tool_call("read_file", path="app/page.tsx")]),
+                model_result("Bu dizinde o dosyalar yok."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("sidebar düzelt", _deps(yanlis, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[yanlış-dizin]" in m.content]
+    assert notlar
+    assert str(dogru) in notlar[0], "doğru dizin önerilmedi"
+    assert "cd " in notlar[0], "çalıştırılabilir komut verilmeli"

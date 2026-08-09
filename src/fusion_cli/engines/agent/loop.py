@@ -75,6 +75,7 @@ from .classify import TaskKind, classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
+from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
 SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
@@ -541,8 +542,8 @@ class _State:
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
     logged_changes: int = 0
-    #: "Dosya yok" ile düşen okuma sayısı.
-    missing_file_reads: int = 0
+    #: "Dosya yok" ile düşen okumaların İSTENEN yolları (öneri araması için).
+    missing_paths: list[str] = field(default_factory=list)
     #: Başarıyla okunan dosya sayısı. Yanlış-dizin hipotezi buna bakar.
     successful_file_reads: int = 0
     #: Yanlış dizin uyarısı verildi mi?
@@ -707,7 +708,14 @@ async def _drive(
             messages.append(reflexion.note(persistent=False))
         if _looks_like_wrong_workspace(state):
             state.warned_wrong_workspace = True
-            messages.append(reflexion.wrong_workspace_note(str(deps.tool_context.root)))
+            oneri = find_workspace_for(
+                tuple(state.missing_paths), deps.tool_context.root
+            )
+            messages.append(
+                reflexion.wrong_workspace_note(
+                    str(deps.tool_context.root), str(oneri) if oneri else ""
+                )
+            )
         _record_changes(messages, deps, state)
         if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
             state.explore_pushes += 1
@@ -1062,7 +1070,7 @@ def _looks_like_wrong_workspace(state: _State) -> bool:
     """
     if state.warned_wrong_workspace or state.successful_file_reads > 0:
         return False
-    return state.missing_file_reads >= MAX_MISSING_READS
+    return len(state.missing_paths) >= MAX_MISSING_READS
 
 
 def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
@@ -1380,7 +1388,9 @@ async def _run_tools(
             # Sayaç YALNIZCA değiştirici çağrılarda büyür: okuma hatası (yanlış
             # dosya adı) düzenleme döngüsü değildir ve o kapıyı tetiklememeli.
             if call.name in _FILE_READ_TOOLS and result.output.startswith(FILE_MISSING_PREFIX):
-                state.missing_file_reads += 1
+                istenen = args.get("path")
+                if isinstance(istenen, str):
+                    state.missing_paths.append(istenen)
             if tool is not None and tool.mutating:
                 state.failed_mutations_in_row += 1
                 # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:

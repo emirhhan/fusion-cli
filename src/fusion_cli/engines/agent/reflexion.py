@@ -127,15 +127,27 @@ WRONG_WORKSPACE_NOTE = (
     "{root}\n"
     "En olası açıklama, fusion'ın YANLIŞ KLASÖRDE açılmış olmasıdır. ŞUNU YAP: "
     "kullanıcıya bu dizinde aradığı dosyaların bulunmadığını, doğru proje "
-    "dizininde çalıştırması gerektiğini söyle ve DUR.\n"
+    "dizininde çalıştırması gerektiğini söyle ve DUR.{oneri}\n"
     "Başka bir iş ARAMA ve UYDURMA: bu dizinde ne olduğunu keşfedip kendine yeni "
     "görev çıkarmak, kullanıcının istediği şey değildir."
 )
 
+#: Doğru dizin bulunduğunda nota eklenen somut çıkış yolu.
+#
+# Dizin DEĞİŞTİRİLMEZ, önerilir: kök kısıtı kullanıcının açtığı dizinin dışına
+# çıkılmasın diye vardır ve "sanırım şunu kastettin" deyip başka bir projede
+# dosya düzenlemeye başlamak kabul edilemez bir risktir. Karar kullanıcınındır.
+_WORKSPACE_SUGGESTION = (
+    "\nAradığın dosyalar şu dizinde duruyor: {path}\n"
+    "Kullanıcıya bu komutu ver ve orada tekrar denemesini söyle:\n"
+    '  cd "{path}" && fusion'
+)
 
-def wrong_workspace_note(root: str) -> Message:
+
+def wrong_workspace_note(root: str, suggestion: str = "") -> Message:
     """Yanlış çalışma dizini hipotezini modele bildir ve durmasını iste."""
-    return Message("user", WRONG_WORKSPACE_NOTE.format(root=root))
+    oneri = _WORKSPACE_SUGGESTION.format(path=suggestion) if suggestion else ""
+    return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri))
 
 
 def note(*, persistent: bool) -> Message:
