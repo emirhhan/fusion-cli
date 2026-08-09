@@ -39,16 +39,21 @@ def find_workspace_for(paths: tuple[str, ...], root: Path) -> Path | None:
 
 
 def _candidates(root: Path) -> list[Path]:
-    """Kardeş dizinler ve onların bir alt katmanı."""
+    """Kardeş dizinler VE onların çocukları.
+
+    Çocuk katmanı şart: gerçek yerleşim ölçüldü — kullanıcı `~/Desktop/fusion-cli`
+    içinde açtı, aradığı proje `~/Desktop/projeler/GATE HOLDING` idi. Yani hedef,
+    kardeşin (`projeler`) çocuğuydu. Yalnızca kardeşlere bakan bir tarama onu
+    bulamıyordu.
+    """
     adaylar: list[Path] = []
-    for taban in (root.parent, root.parent.parent):
-        for child in _dirs(taban):
-            if child == root:
-                continue
-            adaylar.append(child)
-            if len(adaylar) >= MAX_CANDIDATES:
-                return adaylar
-    return adaylar
+    for kardes in _dirs(root.parent):
+        if kardes != root:
+            adaylar.append(kardes)
+        adaylar.extend(torun for torun in _dirs(kardes) if torun != root)
+        if len(adaylar) >= MAX_CANDIDATES:
+            break
+    return adaylar[:MAX_CANDIDATES]
 
 
 def _dirs(taban: Path) -> list[Path]:

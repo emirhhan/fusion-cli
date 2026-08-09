@@ -77,3 +77,32 @@ def test_mutlak_yollar_yok_sayilir(tmp_path):
     _proje(tmp_path, "proje-a", ("app/page.tsx", "app/layout.tsx"))
 
     assert find_workspace_for(("/etc/passwd", "/tmp/x"), yanlis) is None
+
+
+def test_kardesin_cocugu_da_bulunur(tmp_path):
+    """Gerçek yerleşim: ~/Desktop/fusion-cli → ~/Desktop/projeler/GATE HOLDING.
+
+    Hedef, kardeşin (`projeler`) çocuğuydu; yalnızca kardeşlere bakan bir tarama
+    onu bulamıyordu.
+    """
+    yanlis = tmp_path / "fusion-cli"
+    yanlis.mkdir()
+    dogru = _proje(
+        tmp_path / "projeler", "GATE HOLDING", ("app/page.tsx", "components/Sidebar.tsx")
+    )
+
+    bulunan = find_workspace_for(("app/page.tsx", "components/Sidebar.tsx"), yanlis)
+
+    assert bulunan == dogru
+
+
+def test_tarama_sinirli_kalir(tmp_path):
+    """Derin arama büyük ağaçlarda turu bekletirdi; sınır aşılmamalı."""
+    from fusion_cli.engines.agent.workspace_hint import MAX_CANDIDATES, _candidates
+
+    yanlis = tmp_path / "burasi"
+    yanlis.mkdir()
+    for i in range(80):
+        (tmp_path / f"k{i}" / f"c{i}").mkdir(parents=True)
+
+    assert len(_candidates(yanlis)) <= MAX_CANDIDATES
