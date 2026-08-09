@@ -30,21 +30,59 @@ _NODE_LOCKS = (
 #: `package.json` içinde doğrulama sayılan script adları — ucuzdan pahalıya.
 _NODE_SCRIPTS = ("lint", "typecheck", "test")
 
+#: OTOMATİK kapının kullandığı script adları.
+#
+# Test paketi dışarıdadır ve bu bilinçlidir: otomatik kapının cevaplaması gereken
+# soru "kodu BOZDUM mu", "tüm testler geçiyor mu" değil. Kullanıcının projesinde
+# önceden kırık bir test varsa, agent'ın her turu onun yüzünden düşerdi ve agent
+# kendi yapmadığı bir hatayı düzeltmeye çalışırdı. `build` içeridedir çünkü
+# TypeScript/Next projelerinde sözdizimini ve tipleri asıl orası denetler.
+_AUTO_NODE_SCRIPTS = ("lint", "typecheck", "build")
+
 #: Makefile'da doğrulama sayılan hedefler.
 _MAKE_TARGETS = ("check", "test")
 
 
-def discover_commands(root: Path) -> tuple[str, ...]:
+def discover_auto_commands(root: Path) -> tuple[str, ...]:
+    """OTOMATİK kapı için doğrulama planı: hızlı ve yalnızca "bozdum mu" sorusu.
+
+    Ölçüldü: kapı opt-in olduğu için pratikte hiç kurulmuyordu ve bunun bedeli
+    ölçüldü — agent bir TSX dosyasının ortasına beş kapanış etiketi ekledi, dosya
+    12 sözdizimi hatasıyla bozuldu ve tur "tamamladım" diyerek kapandı. Bozuk kod
+    teslim edip başarı iddia etmek, hiç yazmamaktan kötüdür.
+
+    Yalnızca projede KANITI olan komutlar önerilir (var olan script, tanımlı
+    hedef); uydurulmuş bir komut kapıyı her turda düşürürdü.
+    """
+    return discover_commands(root, node_scripts=_AUTO_NODE_SCRIPTS, include_tests=False)
+
+
+def discover_commands(
+    root: Path,
+    *,
+    node_scripts: tuple[str, ...] = _NODE_SCRIPTS,
+    include_tests: bool = True,
+) -> tuple[str, ...]:
     """Proje kökünden doğrulama planı çıkar. Bulunamazsa boş demet.
 
     Sıra MALİYETE göredir: lint → tip denetimi → test. Kapı ilk başarısız komutta
     durur; pahalı olan öne alınsaydı her kırık turda boşuna beklenirdi.
     """
     for kesif in (_python, _node, _rust, _go, _make):
-        plan = kesif(root)
+        plan = kesif(root) if kesif is not _node else _node(root, node_scripts)
         if plan:
-            return plan
+            return plan if include_tests else tuple(
+                komut for komut in plan if not _is_test_command(komut)
+            )
     return ()
+
+
+#: Test çalıştıran komutlar — otomatik kapıda atlanır.
+_TEST_MARKERS = ("pytest", "cargo test", "go test", "run test")
+
+
+def _is_test_command(command: str) -> bool:
+    return any(marker in command for marker in _TEST_MARKERS)
 
 
 def _python(root: Path) -> tuple[str, ...]:
@@ -61,7 +99,7 @@ def _python(root: Path) -> tuple[str, ...]:
     return tuple(plan)
 
 
-def _node(root: Path) -> tuple[str, ...]:
+def _node(root: Path, scripts: tuple[str, ...] = _NODE_SCRIPTS) -> tuple[str, ...]:
     metin = _read(root / "package.json")
     if metin is None:
         return ()
@@ -71,11 +109,11 @@ def _node(root: Path) -> tuple[str, ...]:
         # Bozuk `package.json` keşfi durdurur ama turu düşürmez: keşif bir
         # iyileştirmedir, zorunlu bir adım değil.
         return ()
-    scripts = veri.get("scripts") if isinstance(veri, dict) else None
-    if not isinstance(scripts, dict):
+    mevcut = veri.get("scripts") if isinstance(veri, dict) else None
+    if not isinstance(mevcut, dict):
         return ()
     yonetici = next((ad for dosya, ad in _NODE_LOCKS if (root / dosya).exists()), "npm")
-    return tuple(f"{yonetici} run {ad}" for ad in _NODE_SCRIPTS if ad in scripts)
+    return tuple(f"{yonetici} run {ad}" for ad in scripts if ad in mevcut)
 
 
 def _rust(root: Path) -> tuple[str, ...]:

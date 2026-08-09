@@ -114,3 +114,59 @@ def test_makefile_hedefsizse_bos_doner(tmp_path):
     (tmp_path / "Makefile").write_text("build:\n\techo x\n", encoding="utf-8")
 
     assert discover_commands(tmp_path) == ()
+
+
+# --- otomatik kapı: hızlı ve yalnızca "bozdum mu" -------------------------- #
+#
+# Ölçüldü: kapı opt-in olduğu için pratikte hiç kurulmuyordu. Agent bir TSX
+# dosyasının ortasına beş kapanış etiketi ekledi, dosya 12 sözdizimi hatasıyla
+# bozuldu ve tur "tamamladım" diyerek kapandı. Bozuk kod teslim edip başarı
+# iddia etmek, hiç yazmamaktan kötüdür.
+
+
+def test_otomatik_kapi_test_paketini_dislar(tmp_path):
+    """Önceden kırık bir test agent'ın HER turunu düşürürdü."""
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "pyproject.toml").write_text("[tool.ruff]\n[tool.mypy]\n[tool.pytest]\n")
+
+    plan = discover_auto_commands(tmp_path)
+
+    assert "ruff check ." in plan
+    assert not any("pytest" in komut for komut in plan)
+
+
+def test_otomatik_kapi_node_projesinde_build_onerir(tmp_path):
+    """TypeScript/Next'te sözdizimini ve tipleri asıl `build` denetler."""
+    import json
+
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    (tmp_path / "package.json").write_text(
+        json.dumps({"scripts": {"dev": "next dev", "build": "next build", "lint": "next lint"}})
+    )
+
+    assert discover_auto_commands(tmp_path) == ("npm run lint", "npm run build")
+
+
+def test_otomatik_kapi_kanitsiz_komut_uydurmaz(tmp_path):
+    from fusion_cli.engines.agent.verify_discovery import discover_auto_commands
+
+    assert discover_auto_commands(tmp_path) == ()
+
+
+def test_kapi_yapilandirma_yoksa_kesiften_kurulur(tmp_path):
+    """`verification_commands` boşken bile komut kapısı devrede olmalı."""
+    import json
+
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.verification import build_verifier
+
+    from .fakes import make_config
+
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {"build": "next build"}}))
+    config = make_config(runtime={"web_verification": False, "browser_verification": False})
+
+    verifier = build_verifier(config, root=tmp_path, tool_context=ToolContext(root=tmp_path))
+
+    assert verifier is not None, "keşfedilen komut kapısı kurulmadı"

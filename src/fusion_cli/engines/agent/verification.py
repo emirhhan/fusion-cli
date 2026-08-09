@@ -23,6 +23,7 @@ from ...core.constants import SHELL_TIMEOUT_S
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
+from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output
 
@@ -73,12 +74,19 @@ def build_verifier(
     da None'ı bilerek yazar.
     """
     verifiers: list[Verifier] = []
-    if config.runtime.verification_commands:
-        verifiers.append(
-            CommandVerifier(
-                config.runtime.verification_commands, cwd=str(root), timeout_s=SHELL_TIMEOUT_S
-            )
-        )
+    # Yapılandırılmış komut varsa o kazanır; yoksa PROJEDEN KEŞFEDİLİR.
+    #
+    # Kapı eskiden tamamen opt-in'di ve pratikte hiç kurulmuyordu. Bedeli ölçüldü:
+    # agent bir TSX dosyasının ortasına beş kapanış etiketi ekledi, dosya 12
+    # sözdizimi hatasıyla bozuldu ve tur "tamamladım" diyerek kapandı. Bozuk kod
+    # teslim edip başarı iddia etmek, hiç yazmamaktan kötüdür.
+    #
+    # Keşif komut UYDURMAZ: yalnızca projede kanıtı olanı önerir (var olan script,
+    # tanımlı hedef) ve test paketini dışarıda bırakır — sorulan soru "kodu bozdum
+    # mu", "tüm testler geçiyor mu" değil.
+    commands = config.runtime.verification_commands or discover_auto_commands(root)
+    if commands:
+        verifiers.append(CommandVerifier(commands, cwd=str(root), timeout_s=SHELL_TIMEOUT_S))
     if config.runtime.web_verification and tool_context is not None:
         verifiers.append(WebVerifier(tool_context))
     if config.runtime.browser_verification and tool_context is not None:
