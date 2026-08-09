@@ -494,7 +494,11 @@ async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_pat
     sonuc = await run_agent("site yap", deps)
 
     assert dogrulayici.calls >= 1
-    assert sonuc.final_text == "duzeltildi"
+    # Doğrulayıcı HER SEFERİNDE düşüyor: kapı hakkı bitince tur başarı sayılmaz
+    # ve cevap uyarıyla açılır (bkz. `_mark_unverified`). Düzeltici turun metni
+    # uyarının ardında korunur.
+    assert sonuc.final_text.endswith("duzeltildi")
+    assert "DOĞRULAMA GEÇMEDİ" in sonuc.final_text
     gonderilen = provider.seen_messages[-1]
     assert any("boş bağlantı: 18 adet" in mesaj.content for mesaj in gonderilen), (
         "somut bulgu modele ulaşmalı"
@@ -596,7 +600,10 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
     sonuc = await run_agent("site yap", deps)
 
     assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
-    assert sonuc.final_text == "ikinci duzeltme"
+    # İkinci bakış da düştüğü için tur başarı sayılmaz; düzeltici turun metni
+    # uyarının ardında korunur (bkz. `_mark_unverified`).
+    assert sonuc.final_text.endswith("ikinci duzeltme")
+    assert sonuc.ok is False
     assert provider.calls == 4
 
 
@@ -1226,3 +1233,76 @@ async def test_degisiklik_yoksa_kayit_eklenmez(monkeypatch, tmp_path, sink):
     sonuc = await run_agent("oku", _deps(tmp_path, sink))
 
     assert not [m for m in sonuc.messages if "[kayıt]" in m.content]
+
+
+# --- doğrulama kapısı gerçekten çağrılıyor mu ------------------------------ #
+#
+# Canlı koşuda model `app/page.tsx`'e yinelenen fonksiyon tanımları ekledi, proje
+# `tsc` ile 8 hata verdi ve tur BAŞARI özetiyle kapandı. Doğrulayıcı elle
+# çağrıldığında hatayı yakalıyordu; yani sorun kapının kendisinde değil,
+# motorun onu çağırıp çağırmadığındaydı.
+
+
+class _DusenDogrulayici:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def verify(self):
+        from fusion_cli.core.verification import VerificationResult
+
+        self.calls += 1
+        return VerificationResult(ok=False, summary="derleme kırıldı", findings=("hata",))
+
+
+async def test_degisiklik_yapan_tur_dogrulamadan_gecer(monkeypatch, tmp_path, sink):
+    from fusion_cli.core.events import VerificationFailed
+
+    dogrulayici = _DusenDogrulayici()
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = dogrulayici
+
+    await run_agent("a.txt oluştur", deps)
+
+    assert dogrulayici.calls > 0, "doğrulayıcı hiç çağrılmadı"
+    assert [e for e in sink.events if isinstance(e, VerificationFailed)]
+
+
+async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_path, sink):
+    """Bildiğimiz bir bozukluğu başarı diye teslim etmek kabul edilemez.
+
+    Ölçüldü: kapı bozulmayı yakaladı, düzeltici tur açıldı, düzeltme tutmadı,
+    hak bitti — ve tur "tamamladım" diyerek kapandı. Kullanıcının projesi 8
+    derleme hatasıyla bozuk kaldı.
+    """
+    dogrulayici = _DusenDogrulayici()
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("a.txt oluştur", deps)
+
+    assert sonuc.ok is False, "doğrulama düşmüşken tur başarı sayıldı"
+    assert "DOĞRULAMA GEÇMEDİ" in sonuc.final_text
+    assert "derleme kırıldı" in sonuc.final_text

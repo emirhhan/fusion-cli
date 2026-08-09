@@ -402,6 +402,8 @@ async def run_agent(
             break
         outcome = await _fix_findings(task, verification, outcome, deps)
 
+    _mark_unverified(outcome, verification)
+
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
     # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
     # kullanıcı 20 dakika boş ekran gördü. Öğrenme muhasebedir; kullanıcıyı
@@ -427,6 +429,37 @@ async def run_agent(
     if depth == 0 and deps.tool_context.browser.is_open:
         await deps.tool_context.browser.close()
     return outcome
+
+
+#: Doğrulama düzeltilemediğinde cevabın başına eklenen uyarı.
+#
+# Ölçüldü: model `app/page.tsx`'e yinelenen fonksiyon tanımları ekledi, doğrulama
+# kapısı bunu YAKALADI, düzeltici tur açıldı, düzeltme de tutmadı ve kapı hakkı
+# bitti. Tur yine de BAŞARI özetiyle kapandı ("bileşenleri ekleyip eksik
+# tanımları tamamladım") ve kullanıcının projesi 8 derleme hatasıyla bozuk kaldı.
+#
+# Bildiğimiz bir bozukluğu başarı diye teslim etmek, hiç yazmamaktan kötüdür.
+UNVERIFIED_WARNING = (
+    "⚠ DOĞRULAMA GEÇMEDİ — yapılan değişiklikler projeyi kırıyor olabilir.\n"
+    "{summary}\n{findings}\n"
+    "Değişiklikleri gözden geçir; gerekirse `/undo` ile geri al.\n\n"
+)
+
+
+def _mark_unverified(outcome: AgentOutcome, verification: VerificationResult | None) -> None:
+    """Doğrulama düzeltilemediyse turu BAŞARI olarak kapatma.
+
+    Kapı hakkı bittiğinde sonuç sessizce yutuluyordu: elimizde "bu değişiklik
+    projeyi kırıyor" bilgisi varken kullanıcıya başarı özeti gidiyordu.
+    """
+    if verification is None or verification.ok:
+        return
+    bulgular = "\n".join(f"- {finding}" for finding in verification.findings[:5])
+    outcome.final_text = (
+        UNVERIFIED_WARNING.format(summary=verification.summary, findings=bulgular)
+        + outcome.final_text
+    )
+    outcome.ok = False
 
 
 def _announce_answer(
