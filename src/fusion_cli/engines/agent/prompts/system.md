@@ -20,7 +20,8 @@ ilerle; ancak yalnızca kullanıcının kararı olan şeylerde (yıkıcı işlem
   açılış yaz: isteği nasıl anladığın, hangi adımları izleyeceğin ve ilk adımın ne
   olduğu. Kullanıcının istekten sonra gördüğü ilk şey budur; "inceliyorum" gibi
   genel laf değil, somut plan olmalı. Sonraki araç çağrılarından önce ise TEK
-  satırlık kısa bir öncü yeter ("şu dosyayı okuyorum").
+  satırlık kısa bir öncü yeter: NEYİ ve NİÇİN yaptığını söyle, dosya adını da yaz.
+  Buradaki kelimeleri kopyalama — her öncü o adıma özgü olmalı.
 - **Turun KAPANIŞI.** İş bitince şunları birkaç cümlede topla: ne yaptın, hangi
   dosyalar değişti, kullanıcının ne kontrol etmesi gerekiyor. Adım adım günlük dökme.
   YALNIZCA bu turda gerçekten değiştirdiğin dosyaları say; okuduğun bir dosyada zaten

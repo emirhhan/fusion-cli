@@ -905,3 +905,63 @@ async def test_cevap_tam_olarak_bir_yoldan_ulasir(monkeypatch, tmp_path, sink):
 
     duyurular = [olay for olay in sink.events if isinstance(olay, TurnAnswered)]
     assert sonuc.answer_streamed != bool(duyurular), "iki yol birden ya çalıştı ya sustu"
+
+
+# --- düzenleme döngüsünden çıkış ------------------------------------------- #
+#
+# Ölçüldü: `edit_file` beş kez üst üste "'old' metni dosyada bulunamadı" verdi.
+# Model her seferinde DAHA DAR bir pencere okuyup aynı yaklaşımı tekrarladı ve
+# turun tamamı bu döngüde yandı. Genel refleksiyon notu yetmiyor: model onu
+# "biraz daha oku" diye yorumluyor. Çıkış yolu adıyla gösterilmeli.
+
+
+async def test_tekrarlayan_basarisiz_duzenleme_cikis_yolu_gosterir(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.py").write_text("x = 1\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok1", new="z")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok2", new="z")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.py", old="yok3", new="z")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py'yi düzelt", _deps(tmp_path, sink))
+
+    notlar = [m.content for m in sonuc.messages if "[düzenleme-döngüsü]" in m.content]
+    assert notlar, "döngü kapısı hiç konuşmadı"
+    assert "multi_edit" in notlar[0] and "write_file" in notlar[0]
+
+
+async def test_okuma_hatasi_duzenleme_dongusu_sayilmaz(monkeypatch, tmp_path, sink):
+    """Yanlış dosya adı bir döngü değildir; o kapıyı tetiklememeli."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="yok1.py")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok2.py")]),
+                model_result(tool_calls=[tool_call("read_file", path="yok3.py")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[düzenleme-döngüsü]" in m.content]
+
+
+def test_devam_et_ilk_gorevin_butcesini_miras_alir():
+    """Kısa devam mesajı, sürdürdüğü büyük görevin bütçesini almalı."""
+    from fusion_cli.core.types import Message as Msg
+    from fusion_cli.engines.agent.classify import TaskKind, classify_task
+    from fusion_cli.engines.agent.loop import _scoped_task
+
+    gecmis = [Msg("user", "dashboard'ı çalışır hale getir ve eksik dosyaları oluştur")]
+
+    assert classify_task(_scoped_task("devam et", gecmis)) is TaskKind.FEATURE
+    assert classify_task("devam et") is not TaskKind.FEATURE

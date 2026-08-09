@@ -287,7 +287,13 @@ async def run_agent(
             return played
 
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    kind = classify_task(task)
+    # Sınıflandırma ve bütçe, TURUN metnine değil GÖREVİN tamamına bakar.
+    #
+    # Ölçüldü: kullanıcı turu durdurup "devam et" yazdı. O iki kelime GENERAL'e
+    # düştü, bütçe beş araç turuna indi ve iş "araç turu sınırına ulaşıldı (5)"
+    # ile yarıda kesildi — oysa sürdürülen görev aynı büyük görevdi. Aynı hata
+    # onay istemine yazılan tek harfle de yaşandı.
+    kind = classify_task(_scoped_task(task, history))
 
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
     # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
@@ -324,7 +330,7 @@ async def run_agent(
 
     if deps.execution is None:
         selected_spec = select_agent_spec(deps.config, deps.task_type)
-        deps.execution = policy_for(deps.config, selected_spec, kind, task)
+        deps.execution = policy_for(deps.config, selected_spec, kind, _scoped_task(task, history))
     execution = deps.execution
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
@@ -474,6 +480,10 @@ class _State:
     read_only_rounds: int = 0
     #: Keşif kapısı bu turda kaç kez konuştu.
     explore_pushes: int = 0
+    #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
+    failed_mutations_in_row: int = 0
+    #: Döngü kapısı bu turda kaç kez konuştu.
+    edit_loop_pushes: int = 0
 
 
 async def _drive(
@@ -622,7 +632,11 @@ async def _drive(
             return _outcome(state.tool_contract_abort, messages, state, ok=False)
         if budget.idle:
             return _halt(final_text, messages, state, budget, BudgetStop.NO_PROGRESS, deps)
-        if errored and deps.config.runtime.reflexion and not plan_mode:
+        if _stuck_editing(state, plan_mode=plan_mode):
+            state.edit_loop_pushes += 1
+            messages.append(reflexion.repeated_edit_note(state.failed_mutations_in_row))
+            state.failed_mutations_in_row = 0
+        elif errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
         if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
             state.explore_pushes += 1
@@ -926,6 +940,22 @@ def _asked_instead_of_acting(final_text: str, state: _State, budget: TurnBudget)
 _ASKING_TOOLS = frozenset({"ask_user"})
 
 
+#: Aynı turda kaç başarısız değiştirici çağrıdan sonra çıkış yolu gösterilir.
+#
+# İki deneme normaldir (ilk `old` tutmaz, model düzeltir). Üçüncüde model artık
+# yaklaşımını değiştirmiyor, aynı şeyi daha dar pencereyle tekrarlıyor.
+MAX_FAILED_MUTATIONS_IN_ROW = 3
+#: Döngü kapısının bir turda en fazla kaç kez konuşacağı.
+MAX_EDIT_LOOP_PUSHES = 2
+
+
+def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
+    """Model aynı düzenlemeyi tekrar tekrar deneyip düşüyor mu?"""
+    if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
+        return False
+    return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
+
+
 def _needs_push_to_act(
     state: _State, *, plan_mode: bool, execution: ExecutionPolicy
 ) -> bool:
@@ -1170,9 +1200,14 @@ async def _run_tools(
             if mutating:
                 state.mutating_tool_calls_made += 1
                 budget.record_mutation()
+                state.failed_mutations_in_row = 0
         elif outcome is ToolOutcome.FAILED:
             state.failed_tool_calls += 1
             errored = True
+            # Sayaç YALNIZCA değiştirici çağrılarda büyür: okuma hatası (yanlış
+            # dosya adı) düzenleme döngüsü değildir ve o kapıyı tetiklememeli.
+            if tool is not None and tool.mutating:
+                state.failed_mutations_in_row += 1
 
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(
@@ -1514,6 +1549,17 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     if len(compressed) < before:
         deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
     return compressed
+
+
+def _scoped_task(task: str, history: list[Message] | None) -> str:
+    """Sınıflandırma ve bütçe için görevin TAMAMINI temsil eden metin.
+
+    Geçmişteki İLK kullanıcı mesajı asıl hedefi taşır; bu turun metni ("devam et")
+    yalnızca onun devamıdır. İkisi birleştirilir — prompta değil, YALNIZCA tür ve
+    bütçe kararına girer.
+    """
+    ilk = next((mesaj.content for mesaj in history or () if mesaj.role == "user"), "")
+    return f"{ilk}\n{task}".strip() if ilk else task
 
 
 def _initial_messages(

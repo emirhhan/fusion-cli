@@ -75,6 +75,32 @@ def enough_exploring_note(rounds: int) -> Message:
     return Message("user", ENOUGH_EXPLORING_NOTE.format(rounds=rounds))
 
 
+#: Aynı düzenleme aynı hatayla üst üste düşünce gönderilen not.
+#
+# Ölçüldü: `edit_file` beş kez üst üste "'old' metni dosyada bulunamadı" verdi.
+# Model her seferinde DAHA DAR bir pencere okuyup aynı yaklaşımı tekrarladı ve
+# turun tamamı bu döngüde yandı. Genel refleksiyon notu ("farklı bir yaklaşım
+# dene") yetmiyor: model onu zaten "biraz daha oku" diye yorumluyor. Çıkış yolu
+# ADIYLA gösterilmeli.
+REPEATED_EDIT_NOTE = (
+    "[düzenleme-döngüsü] Aynı dosyada {count} kez düzenleme denedin ve hepsi "
+    "eşleşmeme hatasıyla düştü. Aynı yolu bir daha deneme; daha dar bir pencere "
+    "okumak da işe yaramayacak.\n"
+    "Şunlardan BİRİNİ yap:\n"
+    "1) Dosyanın değiştireceğin bölümünü offset/limit ile TAM olarak oku ve "
+    "'old' metnini o çıktıdan BİREBİR kopyala (satır numarası önekini bırakabilirsin).\n"
+    "2) Değişecek yer birden çok parçaysa multi_edit kullan.\n"
+    "3) Eşleşecek benzersiz bir metin bulamıyorsan dosyanın tamamını okuyup "
+    "write_file ile yeniden yaz.\n"
+    "4) Hiçbiri mümkün değilse ne yapamadığını açıkça söyle ve dur."
+)
+
+
+def repeated_edit_note(count: int) -> Message:
+    """Düzenleme döngüsünden çıkışı ADIYLA göster."""
+    return Message("user", REPEATED_EDIT_NOTE.format(count=count))
+
+
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
     return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)
