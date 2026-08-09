@@ -201,3 +201,81 @@ def test_sozlesme_tek_cagri_kuralini_degistiricilerle_sinirlar() -> None:
     assert "EN FAZLA BİR DEĞİŞTİRİCİ çağrı" in metin
     assert "BİRDEN ÇOK yapabilirsin" in metin
     assert "EN KÜÇÜK benzersiz parçayı" in metin
+
+
+# --- ölü kilit: edit tutmuyor, write engelli ------------------------------- #
+#
+# Ölçüldü (gerçek koşu): `edit_file` üç kez "'old' bulunamadı" verdi, model
+# `write_file`'a kaçtı ve KOŞULSUZ engellendi, tekrar `edit_file` denedi, yine
+# tutmadı ve tur "3 turdur ilerleme yok" ile öldü. Model doğru dosyayı doğru
+# niyetle hedeflemişti; çıkışı olmayan bir kapıya çarptı.
+
+
+def _durum(basarisiz: int):
+    from fusion_cli.engines.agent.loop import _State
+
+    return _State(failed_mutations_in_row=basarisiz)
+
+
+def _deps_for(tmp_path, okundu: bool):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
+    from fusion_cli.engines.agent.loop import AgentDeps
+
+    from .fakes import AlwaysApprove, RecordingSink, make_config
+
+    hedef = tmp_path / "cart.js"
+    hedef.write_text("x = 1\n", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    if okundu:
+        context.fully_read.add(hedef.resolve())
+
+    class _P:
+        def publish(self, event):
+            pass
+
+    return AgentDeps(
+        config=make_config(),
+        publisher=_P(),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=context,
+    ), RecordingSink()
+
+
+def _web_execution():
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    return ExecutionPolicy(is_web=True)
+
+
+def test_var_olan_dosyaya_toptan_yazma_normalde_engellenir(tmp_path):
+    from fusion_cli.engines.agent.loop import _targeted_edit_required
+
+    deps, _ = _deps_for(tmp_path, okundu=True)
+
+    hatalar = _targeted_edit_required(
+        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(0)
+    )
+
+    assert hatalar and "edit_file" in hatalar[0]
+
+
+def test_duzenleme_tekrar_tekrar_dustuyse_ve_dosya_okunduysa_yazmaya_izin_verilir(tmp_path):
+    from fusion_cli.engines.agent.loop import _targeted_edit_required
+
+    deps, _ = _deps_for(tmp_path, okundu=True)
+
+    assert not _targeted_edit_required(
+        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(3)
+    )
+
+
+def test_dosya_okunmadiysa_yazma_yine_engellenir(tmp_path):
+    """Kuralın gerekçesi kör yazmayı önlemek; içerik görülmediyse gerekçe durur."""
+    from fusion_cli.engines.agent.loop import _targeted_edit_required
+
+    deps, _ = _deps_for(tmp_path, okundu=False)
+
+    assert _targeted_edit_required(
+        "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(5)
+    )

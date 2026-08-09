@@ -1023,6 +1023,7 @@ def _targeted_edit_required(
     args: dict[str, object],
     deps: AgentDeps,
     execution: ExecutionPolicy,
+    state: _State,
 ) -> list[str]:
     """Taklit araç kullanan modelde var olan dosya toptan yeniden yazılamaz.
 
@@ -1059,11 +1060,34 @@ def _targeted_edit_required(
         return []
     if deps.tool_context.changes.was_created_this_turn(hedef):
         return []
+    if _rewrite_is_last_resort(hedef, deps, state):
+        return []
     return [
         f"'{raw}' zaten var. Var olan bir dosyayı toptan yeniden yazma — edit_file ile "
         "YALNIZCA değişen parçayı gönder. Birden çok yer değişecekse multi_edit kullan "
         "ya da her turda bir düzenleme yap."
     ]
+
+
+def _rewrite_is_last_resort(hedef: Path, deps: AgentDeps, state: _State) -> bool:
+    """Toptan yazma artık TEK çıkış mı?
+
+    Kural olmadan ölçülen ölü kilit: `edit_file` üç kez "'old' bulunamadı" verdi,
+    model `write_file`'a kaçtı ve KOŞULSUZ engellendi, tekrar `edit_file` denedi,
+    yine tutmadı ve tur "ilerleme yok" ile öldü. Model doğru dosyayı, doğru
+    niyetle hedeflemişti; çıkışı olmayan bir kapıya çarptı.
+
+    İki koşul BİRLİKTE aranır:
+
+    - Hedefli düzenleme bu turda arka arkaya birkaç kez düşmüş olmalı. Bir-iki
+      başarısızlık normaldir ve model kendi kendine toparlar.
+    - Model dosyanın TAMAMINI okumuş olmalı. Kuralın gerekçesi "yüz satırlık
+      dosyayı baştan üretmek yüz satırlık hata yüzeyi açar" idi; içeriğin tamamı
+      görülmüşse yazma artık kör değildir ve o gerekçe düşer.
+    """
+    if state.failed_mutations_in_row < MAX_FAILED_MUTATIONS_IN_ROW:
+        return False
+    return hedef in deps.tool_context.fully_read
 
 
 #: Dosyanın tamamını değiştiren araçlar.
@@ -1120,7 +1144,9 @@ async def _run_tools(
                 contract_errors.extend(validate_arguments(function_schema, args))
 
         if not contract_errors:
-            contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution))
+            contract_errors.extend(
+                _targeted_edit_required(call.name, args, deps, execution, state)
+            )
 
         if contract_errors:
             # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model

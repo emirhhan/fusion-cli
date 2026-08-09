@@ -90,8 +90,8 @@ REPEATED_EDIT_NOTE = (
     "1) Dosyanın değiştireceğin bölümünü offset/limit ile TAM olarak oku ve "
     "'old' metnini o çıktıdan BİREBİR kopyala (satır numarası önekini bırakabilirsin).\n"
     "2) Değişecek yer birden çok parçaysa multi_edit kullan.\n"
-    "3) Eşleşecek benzersiz bir metin bulamıyorsan dosyanın tamamını okuyup "
-    "write_file ile yeniden yaz.\n"
+    "3) Eşleşecek benzersiz bir metin bulamıyorsan dosyanın TAMAMINI okuyup "
+    "write_file ile yeniden yaz — tamamını okuduysan bu yol açıktır.\n"
     "4) Hiçbiri mümkün değilse ne yapamadığını açıkça söyle ve dur."
 )
 
