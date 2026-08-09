@@ -23,6 +23,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import time
 from collections.abc import Mapping, Sequence
@@ -36,6 +37,8 @@ from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
 from .web_session import WebSessionCredential, WebTransport
+
+_logger = logging.getLogger(__name__)
 
 #: Rol başlıklarının ÖNEKİ. Çıplak `### SİSTEM` yeterli değildi: sistem promptuna
 #: enjekte edilen skill metinleri de Markdown başlığı taşıyor (`### Typed Error
@@ -129,6 +132,19 @@ class BrowserProviderDefinition:
     # `response_selectors` yetmiyordu: yalnızca MODEL turlarını kapsıyor,
     # kullanıcı turlarını (yani bizim promptlarımızı) değil.
     history_selectors: tuple[str, ...] = ()
+    #: Sayfanın o an HANGİ MODEL KADEMESİNİ kullandığını gösteren öğe.
+    #
+    # Tarayıcı taşımasında model kimliği Fusion'dan GEÇMEZ: hangi kademenin
+    # cevapladığına hesabın kendi arayüz seçimi karar verir (bkz. `_transport`
+    # içindeki `del model`). Bunun iki sessiz sonucu ölçüldü: oturum düşerse
+    # Gemini anonim kullanıcıya "Flash-Lite" veriyor ve çalışmaya DEVAM ediyor;
+    # oturum açıkken de kullanıcı arayüzden düşük bir kademe seçmiş olabilir.
+    # Her iki durumda da Fusion `gemini_web/auto` diyordu ve gerçekte hangi
+    # modelin yazdığı hiçbir yerde görünmüyordu.
+    #
+    # Yalnızca ÖLÇÜLMÜŞ sağlayıcı için doldurulur; boşsa kademe okunmaz ve
+    # davranış değişmez — tahmini bir seçici, yanlış kademe bilgisi üretirdi.
+    tier_selectors: tuple[str, ...] = ()
     default_models: tuple[str, ...] = ("auto",)
     cookie_hint: str = "Tam Cookie başlığı"
 
@@ -248,6 +264,10 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
             ".conversation-container",
             "infinite-scroller",
         ),
+        # Ölçüldü: kip düğmesinin metni seçili kademedir ("Flash-Lite", "2.5 Pro"…),
+        # aria-label'ı ise "Mod seçiciyi aç, şu anda Flash-Lite modunda" biçiminde.
+        # Metin kısa ve yerelleştirmeden bağımsız olduğu için o okunur.
+        tier_selectors=('button[data-test-id="bard-mode-menu-button"]',),
         default_models=("auto",),
         cookie_hint=(
             "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
@@ -603,6 +623,8 @@ class ConversationState:
     prefix_digest: str = ""
     #: Bu sohbette EN SON alınan yanıt. Bir sonraki turda tazelik ölçütüdür.
     last_answer: str = ""
+    #: Bu sohbette EN SON gözlenen model kademesi; yalnızca değiştiğinde bildirilir.
+    tier: str = ""
 
 
 def conversation_digest(messages: Sequence[Message]) -> str:
@@ -763,7 +785,13 @@ MAX_TRACE_TURNS = 40
 
 
 def _append_trace(
-    trace_dir: Path, session: WebSessionConfig, *, prompt: str, answer: str, resumed: bool
+    trace_dir: Path,
+    session: WebSessionConfig,
+    *,
+    prompt: str,
+    answer: str,
+    resumed: bool,
+    tier: str = "",
 ) -> None:
     """Bir turu redakte ederek iz dosyasına ekle. Hata turu DÜŞÜRMEZ.
 
@@ -779,6 +807,7 @@ def _append_trace(
                 {
                     "zaman": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "devam": resumed,
+                    "kademe": tier,
                     "gonderilen": redact(prompt),
                     "gelen": redact(answer),
                 },
@@ -915,13 +944,29 @@ async def _deliver_turn(
     # taşıma biçimini tanımak zorunda değildir.
     answer = strip_role_headers(answer)
 
+    kademe = await observed_tier(state.page, definition)
+    if kademe and kademe != state.tier:
+        # Kademe DEĞİŞTİĞİNDE yazılır: her tur aynı satırı basmak günlüğü doldurur,
+        # oysa bilgi olan şey değişimin kendisidir (oturum düştü, kullanıcı kip
+        # değiştirdi). İlk tur da bir değişimdir ve kaydedilir.
+        _logger.info(
+            "web kademesi: saglayici=%s hesap=%s kademe=%s (onceki=%s)",
+            session.provider,
+            session.account,
+            kademe,
+            state.tier or "-",
+        )
+        state.tier = kademe
+
     state.sent_count = len(messages)
     state.prefix_digest = conversation_digest(messages)
     state.last_answer = answer
     manager.remember_conversation(session.provider, session.account, root, state)
     await manager.flush_closed()
     if trace_dir is not None:
-        _append_trace(trace_dir, session, prompt=prompt, answer=answer, resumed=resumable)
+        _append_trace(
+            trace_dir, session, prompt=prompt, answer=answer, resumed=resumable, tier=kademe
+        )
     return answer
 
 
@@ -1071,6 +1116,26 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
         if texts:
             return texts
     return ()
+
+
+async def observed_tier(page: Any, definition: BrowserProviderDefinition) -> str:
+    """Sayfanın o an gösterdiği model kademesini oku; okunamazsa boş dön.
+
+    Teşhis amaçlıdır ve turu ASLA kesmez: kademe okunamamak, cevabın geçersiz
+    olduğu anlamına gelmez. Bu yüzden hem seçici hatası hem de boş metin sessizce
+    "bilinmiyor" sayılır.
+    """
+    for selector in definition.tier_selectors:
+        try:
+            locator = page.locator(selector).first
+            if not await locator.count():
+                continue
+            metin = _clean_text(await locator.inner_text())
+        except Exception:
+            continue
+        if metin:
+            return metin
+    return ""
 
 
 async def _wait_for_response(
