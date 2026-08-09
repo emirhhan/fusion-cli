@@ -843,3 +843,52 @@ async def test_araçsiz_sohbet_turu_rozet_kosulunu_tetiklemez(monkeypatch, tmp_p
     sonuc = await run_agent("selam", _deps(tmp_path, sink))
 
     assert sonuc.made_no_changes is False
+
+
+# --- düzeltici tur görevi taşır ve cevabı iki kez basmaz -------------------- #
+#
+# Gerçek koşu: öz-denetim "sorun bulundu" dedi, düzeltici tur açıldı ve model
+# dizini baştan listeleyip "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek
+# turu bitirdi — birinci turda yapılmış işi de götürerek. Talimat yalnızca
+# "bir öz-denetim şu sorunu işaret etti" diyordu; hedef hiçbir yerde yoktu.
+#
+# Aynı koşuda cevap ekrana YAPIŞIK İKİ KEZ düştü: düzeltici tur `depth=0`
+# olduğu için o da nihai cevabını yayınlıyordu.
+
+
+def test_duzeltici_tur_talimati_kullanicinin_gorevini_tasir():
+    from fusion_cli.engines.agent.loop import _correction_task
+
+    metin = _correction_task("dashboard'ı çalışır hale getir", "hiçbir dosya değişmedi")
+
+    assert "dashboard'ı çalışır hale getir" in metin
+    assert "sıfırdan başlamıyorsun" in metin
+    assert "hiçbir dosya değişmedi" in metin
+
+
+async def test_ic_tur_nihai_cevabi_yayinlamaz(monkeypatch, tmp_path, sink):
+    """`internal=True` turlar `TurnAnswered` yayınlamaz; dış tur tek kez basar."""
+    from fusion_cli.core.events import TurnAnswered
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink), internal=True)
+
+    assert not [olay for olay in sink.events if isinstance(olay, TurnAnswered)]
+
+
+async def test_cevap_tam_olarak_bir_yoldan_ulasir(monkeypatch, tmp_path, sink):
+    """Değişmez: akış ve duyuru ASLA aynı anda çalışmaz.
+
+    Gerçekten akıtan sağlayıcıda cevap zaten ekrana ulaşmıştır ve `TurnAnswered`
+    susar; akıtmayan web adaptöründe tersi olur. İkisinin birden çalıştığı gün
+    cevap iki kez basılır.
+    """
+    from fusion_cli.core.events import TurnAnswered
+
+    _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    sonuc = await run_agent("gorev", _deps(tmp_path, sink))
+
+    duyurular = [olay for olay in sink.events if isinstance(olay, TurnAnswered)]
+    assert sonuc.answer_streamed != bool(duyurular), "iki yol birden ya çalıştı ya sustu"

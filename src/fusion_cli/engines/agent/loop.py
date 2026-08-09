@@ -267,6 +267,7 @@ async def run_agent(
     allowed_tools: set[str] | None = None,
     step_limit: int | None = None,
     verify: bool = True,
+    internal: bool = False,
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -384,7 +385,7 @@ async def run_agent(
         # düzeltmeye hiç başlamıyordu.
         if verification is None or verification.ok:
             break
-        outcome = await _fix_findings(verification, outcome, deps)
+        outcome = await _fix_findings(task, verification, outcome, deps)
 
     await learning_steps.learn(
         task,
@@ -404,11 +405,13 @@ async def run_agent(
     # bir chromium süreci bırakır — RULES.md "oluşturulan her task'ın sahibi vardır".
     if depth == 0 and deps.tool_context.browser.is_open:
         await deps.tool_context.browser.close()
-    _announce_answer(outcome, deps, depth=depth)
+    _announce_answer(outcome, deps, depth=depth, internal=internal)
     return outcome
 
 
-def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int) -> None:
+def _announce_answer(
+    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
+) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
     Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
@@ -420,12 +423,16 @@ def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int) -> N
 
     - `depth == 0` — alt-ajanın cevabı kullanıcının turu değildir; o zaten araç
       sonucu olarak özetlenip basılır.
+    - `not internal` — öz-denetim ve doğrulama düzeltmesi `run_agent`'ı YENİDEN
+      çağırır ve bunlar `depth=0`'dır. Bayrak olmadan düzeltici tur da cevabını
+      yayınlıyor, dış tur aynı metni ikinci kez basıyordu (gerçek koşuda cevap
+      ekrana yapışık iki kez düştü).
     - `outcome.ok` — başarısızlık metinleri (`ok=False`) `ErrorOccurred`'ın
       tekelindedir; buradan da yayınlamak onları iki kez bastırırdı.
     - `not answer_streamed` — gerçekten akıtan sağlayıcılarda cevap ekrana zaten
       ulaştı. İki yol asla aynı anda çalışmaz.
     """
-    if depth != 0 or not outcome.ok or outcome.answer_streamed:
+    if internal or depth != 0 or not outcome.ok or outcome.answer_streamed:
         return
     if not outcome.final_text.strip():
         return
@@ -1344,6 +1351,25 @@ def _web_self_review_needed(
     return isinstance(deps.policy, SecurityApproval) and outcome.tool_calls_made > 0
 
 
+#: Düzeltici tura verilen talimat. Kullanıcının ASIL GÖREVİ tekrar edilir.
+#
+# Ölçüldü: talimat yalnızca "bir öz-denetim şu sorunu işaret etti" diyordu ve
+# düzeltici tur görevi kaybediyordu. Model dizini baştan listeledi, dosyaları
+# yeniden okudu ve "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek turu
+# bitirdi — birinci turda yapılmış işi de götürerek. Düzeltici tur bir ARA
+# adımdır; hedefi kendi başına taşımalıdır.
+_CORRECTION_TASK = (
+    "Kullanıcının görevi şuydu:\n{task}\n\n"
+    "Bu göreve devam ediyorsun; sıfırdan başlamıyorsun ve kullanıcıya görevi geri "
+    "sormuyorsun. Bir öz-denetim aşağıdaki sorunu işaret etti. Gerekiyorsa düzelt; "
+    "haklı değilse kısaca neden sorun olmadığını açıkla.\n\n{feedback}"
+)
+
+
+def _correction_task(task: str, feedback: str) -> str:
+    return _CORRECTION_TASK.format(task=task, feedback=feedback)
+
+
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
     deps.publisher.publish(SelfReviewStarted())
     feedback = await review.review_turn(
@@ -1354,11 +1380,11 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
         return outcome
 
     correction = await run_agent(
-        "Bir öz-denetim aşağıdaki sorunu işaret etti. Gerekiyorsa düzelt; haklı değilse "
-        f"kısaca neden sorun olmadığını açıkla.\n\n{feedback}",
+        _correction_task(task, feedback),
         deps,
         history=outcome.messages,
         self_review=False,
+        internal=True,
         # Kapı bu turda çalışmaz: dış döngü zaten doğrulayacak. Aksi halde iç içe
         # doğrulama olur ve MAX_VERIFY_ROUNDS sessizce ikiye katlanır.
         verify=False,
@@ -1413,7 +1439,7 @@ async def _verify(
 
 
 async def _fix_findings(
-    verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
+    task: str, verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
 ) -> AgentOutcome:
     """Somut bulguları modele düzeltme talimatı olarak ver ve TEK düzeltici tur aç.
 
@@ -1429,12 +1455,16 @@ async def _fix_findings(
     ayrintilar = verification.findings or ((verification.summary,) if verification.summary else ())
     bulgular = "\n".join(f"- {finding}" for finding in ayrintilar)
     correction = await run_agent(
-        "Doğrulama kapısı üretilen çıktıda şu somut sorunları buldu. Hepsini düzelt; "
-        "düzeltemeyeceğin varsa nedenini tek cümleyle yaz.\n\n"
-        f"{bulgular}",
+        # Görev tekrar edilir: düzeltici tur bir ARA adımdır, hedefi kendi başına
+        # taşımalıdır (bkz. `_CORRECTION_TASK`).
+        f"Kullanıcının görevi şuydu:\n{task}\n\n"
+        "Bu göreve devam ediyorsun. Doğrulama kapısı üretilen çıktıda şu somut "
+        "sorunları buldu. Hepsini düzelt; düzeltemeyeceğin varsa nedenini tek "
+        f"cümleyle yaz.\n\n{bulgular}",
         deps,
         history=outcome.messages,
         self_review=False,
+        internal=True,
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )
