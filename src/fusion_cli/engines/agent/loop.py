@@ -498,6 +498,8 @@ class _State:
     failed_mutations_in_row: int = 0
     #: Döngü kapısı bu turda kaç kez konuştu.
     edit_loop_pushes: int = 0
+    #: Modele en son kaç değişiklik kaydı bildirildi.
+    logged_changes: int = 0
 
 
 async def _drive(
@@ -656,6 +658,7 @@ async def _drive(
             # kilide düştü). Kapının kaç kez konuştuğu ayrı sayaçta tutulur.
         elif errored and deps.config.runtime.reflexion and not plan_mode:
             messages.append(reflexion.note(persistent=False))
+        _record_changes(messages, deps, state)
         if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
             state.explore_pushes += 1
             state.read_only_rounds = 0
@@ -980,6 +983,25 @@ def _stuck_editing(state: _State, *, plan_mode: bool) -> bool:
     if plan_mode or state.edit_loop_pushes >= MAX_EDIT_LOOP_PUSHES:
         return False
     return state.failed_mutations_in_row >= MAX_FAILED_MUTATIONS_IN_ROW
+
+
+def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> None:
+    """Değişen dosyaları modele OLGU olarak hatırlat.
+
+    Model kendi işini takip edemiyor: bir koşuda üç dosya oluşturup kapanışta
+    "herhangi bir değişiklik yapılmamıştır" dedi, başka bir koşuda dokunmadığı
+    dosyayı "güncelledim" dedi. Kayıt yalnızca liste BÜYÜDÜĞÜNDE eklenir; her
+    turda tekrarlamak promptu şişirir.
+    """
+    yollar = deps.tool_context.changes.paths
+    if len(yollar) == state.logged_changes:
+        return
+    state.logged_changes = len(yollar)
+    from ...tools.files import display_path
+
+    messages.append(
+        reflexion.change_log_note(tuple(display_path(deps.tool_context, y) for y in yollar))
+    )
 
 
 def _needs_push_to_act(

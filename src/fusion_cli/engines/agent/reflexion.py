@@ -102,6 +102,20 @@ def repeated_edit_note(count: int) -> Message:
     return Message("user", REPEATED_EDIT_NOTE.format(count=count))
 
 
+#: Turda şu ana kadar değiştirilen dosyaların KAYDI.
+#
+# Ölçüldü: model üç dosya oluşturdu ve kapanışta "herhangi bir değişiklik
+# yapılmamıştır" dedi; başka bir koşuda dokunmadığı dosyayı "güncelledim" dedi.
+# Model kendi işini takip edemiyor. Kayıt her mutasyon turundan sonra geçmişe
+# eklenir — iddia değil olgu, ve nihai cevabı yazarken elinin altında olur.
+CHANGE_LOG_NOTE = "[kayıt] Bu turda şu ana kadar DEĞİŞTİRDİĞİN dosyalar: {paths}"
+
+
+def change_log_note(paths: tuple[str, ...]) -> Message:
+    """Değişen dosyaları modele olgu olarak hatırlat."""
+    return Message("user", CHANGE_LOG_NOTE.format(paths=", ".join(paths)))
+
+
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
     return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)

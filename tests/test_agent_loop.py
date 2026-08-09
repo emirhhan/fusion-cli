@@ -1185,3 +1185,44 @@ def test_todo_bekleyen_sayisi_tamamlananlari_saymaz():
 
     assert liste.pending_count == 2
     assert liste.has_pending is True
+
+
+async def test_degisen_dosyalar_modele_olgu_olarak_bildirilir(monkeypatch, tmp_path, sink):
+    """Model kendi işini takip edemiyor; kayıt geçmişe olgu olarak girmeli.
+
+    Ölçüldü: model üç dosya oluşturdu ve kapanışta "herhangi bir değişiklik
+    yapılmamıştır" dedi.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(tool_calls=[tool_call("write_file", path="b.txt", content="y")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("iki dosya oluştur", _deps(tmp_path, sink))
+
+    kayitlar = [m.content for m in sonuc.messages if "[kayıt]" in m.content]
+    assert kayitlar, "değişiklik kaydı modele hiç bildirilmedi"
+    assert "a.txt" in kayitlar[-1] and "b.txt" in kayitlar[-1]
+
+
+async def test_degisiklik_yoksa_kayit_eklenmez(monkeypatch, tmp_path, sink):
+    """Salt-okuma turunda kayıt promptu şişirmemeli."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("list_dir", path=".")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("oku", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "[kayıt]" in m.content]
