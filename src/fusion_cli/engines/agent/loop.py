@@ -1276,6 +1276,9 @@ async def _run_tools(
             # dosya adı) düzenleme döngüsü değildir ve o kapıyı tetiklememeli.
             if tool is not None and tool.mutating:
                 state.failed_mutations_in_row += 1
+                # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
+                # toparlanmanın tek yolu odur ve tekrar kapısı onu engelliyordu.
+                budget.record_failed_mutation()
 
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(

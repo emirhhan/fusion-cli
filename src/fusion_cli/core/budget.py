@@ -171,6 +171,20 @@ class TurnBudget:
         """Başarılı bir değiştirici araç çalıştı: çalışma alanı ilerledi."""
         self.mutation_epoch += 1
 
+    def record_failed_mutation(self) -> None:
+        """Değiştirici bir çağrı DÜŞTÜ: modelin yeniden okumaya ihtiyacı var.
+
+        Çalışma alanı değişmedi ama modelin BİLGİ durumu değişmek zorunda:
+        `edit_file` "'old' bulunamadı" dediyse toparlanmanın tek yolu dosyayı
+        yeniden okumaktır. Çağ ilerlemezse o okuma `TOOL_CALL_DUPLICATE` ile
+        engelleniyor ve model çıkışsız kalıyordu — ölçüldü: edit düştü, model
+        dosyayı yeniden okumak istedi, engellendi, tur "ilerleme yok" ile öldü.
+
+        Değiştirici çağrıların imzası çağdan BAĞIMSIZDIR (daima 0), bu yüzden
+        burada çağı ilerletmek aynı yazmanın tekrarını serbest bırakmaz.
+        """
+        self.mutation_epoch += 1
+
     def record_round(self, *, progressed: bool) -> None:
         """Bir araç turunu sonuçlandır: ilerleme oldu mu?
 

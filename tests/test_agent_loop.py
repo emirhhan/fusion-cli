@@ -1095,3 +1095,48 @@ async def test_degisiklik_olmadan_ayni_komut_yine_tekrar_sayilir(monkeypatch, tm
     sonuc = await run_agent("çalıştır", _deps(tmp_path, sink))
 
     assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+async def test_dusen_duzenlemeden_sonra_yeniden_okuma_engellenmez(monkeypatch, tmp_path, sink):
+    """Toparlanmanın tek yolu yeniden okumaktır; tekrar kapısı onu kesmemeli.
+
+    Ölçüldü (canlı koşu): `edit_file` "'old' bulunamadı" dedi, model dosyayı
+    yeniden okumak istedi, TOOL_CALL_DUPLICATE ile engellendi ve tur "3 turdur
+    ilerleme yok" ile öldü. Çalışma alanı değişmemişti ama modelin BİLGİ durumu
+    değişmek zorundaydı.
+    """
+    (tmp_path / "a.txt").write_text("gerçek içerik\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt'yi düzelt", _deps(tmp_path, sink))
+
+    assert not [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
+
+
+async def test_dusen_duzenleme_ayni_duzenlemeyi_serbest_birakmaz(monkeypatch, tmp_path, sink):
+    """Değiştirici imza çağdan bağımsızdır: aynı yazma yine tekrardır."""
+    (tmp_path / "a.txt").write_text("gerçek\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(tool_calls=[tool_call("edit_file", path="a.txt", old="YOK", new="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("düzelt", _deps(tmp_path, sink))
+
+    assert [m for m in sonuc.messages if "TOOL_CALL_DUPLICATE" in m.content]
