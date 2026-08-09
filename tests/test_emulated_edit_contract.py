@@ -304,6 +304,7 @@ async def test_dongu_notu_yazma_cikisini_kapatmaz(tmp_path):
 
     hedef = tmp_path / "cart.js"
     hedef.write_text("function total() { return 0; }\n", encoding="utf-8")
+    yeni_icerik = "function total() { return 1; }"
 
     provider = ScriptedProvider(
         [
@@ -313,7 +314,7 @@ async def test_dongu_notu_yazma_cikisini_kapatmaz(tmp_path):
             model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-3", new="f")]),
             model_result(
                 tool_calls=[
-                    tool_call("write_file", path="cart.js", content="function total() { return 1; }")
+                    tool_call("write_file", path="cart.js", content=yeni_icerik)
                 ]
             ),
             model_result("Dosya yeniden yazıldı: `cart.js`."),
