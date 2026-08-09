@@ -22,7 +22,7 @@ from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _run_tools, _State
 from fusion_cli.engines.effects.detect import required_effect_for
 from fusion_cli.providers.web_browser import format_browser_prompt
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.tools import build_registry
 from fusion_cli.tools.emulation import validate_arguments
 
@@ -107,7 +107,7 @@ def test_schema_validation_catches_required_and_type_errors() -> None:
 
 def test_web_adapter_surfaces_parse_error_without_provider_fallback() -> None:
     async def transport(*_args):
-        return ""
+        return WebTurn("")
 
     adapter = WebProviderAdapter(
         model="gemini_web/main/auto",

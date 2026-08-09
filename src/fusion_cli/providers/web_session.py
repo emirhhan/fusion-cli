@@ -44,9 +44,25 @@ class WebSessionCredential:
     headers: Mapping[str, str] = field(default_factory=dict)
 
 
-#: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → yanıt metni.
+@dataclass(frozen=True, slots=True)
+class WebTurn:
+    """Bir web turunun sonucu: metin ve GÖZLENEN kademe.
+
+    Düz `str` yetmiyordu. Tarayıcı taşımasında hangi modelin cevapladığına
+    hesabın kendi arayüz seçimi karar veriyor; taşıma bunu görüyor ama üst
+    katmanlara söyleyecek bir kanal yoktu. Sonuç: oturum düşüp Gemini anonim
+    "Flash-Lite" kademesine indiğinde bile her yer `gemini_web/auto` diyordu.
+
+    `tier` boşsa kademe BİLİNMİYOR demektir; "istenen kademe geldi" demek değildir.
+    """
+
+    text: str
+    tier: str = ""
+
+
+#: Gerçek I/O'yu yapan enjekte edilebilir transport: kimlik + mesajlar + model → tur.
 #: Sahte (mock) ya da kullanıcının yetkili uca yazdığı gerçek transport olabilir.
-WebTransport = Callable[[WebSessionCredential, tuple[Message, ...], str], Awaitable[str]]
+WebTransport = Callable[[WebSessionCredential, tuple[Message, ...], str], Awaitable[WebTurn]]
 
 
 class WebProviderAdapter:
@@ -89,7 +105,7 @@ class WebProviderAdapter:
                 error=f"web oturumu hatası: {error}",
             )
         latency = int((self._clock.monotonic() - start) * 1000)
-        return self._to_result(raw, latency)
+        return self._to_result(raw.text, latency, served_by=raw.tier)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         # Oturum tabanlı uçlar çoğu zaman akıtılamaz: tek seferde alınır, sonra parça
@@ -135,7 +151,7 @@ class WebProviderAdapter:
         instructions = render_tool_instructions(request.tools)
         return (Message("system", instructions), *request.messages)
 
-    def _to_result(self, raw: str, latency_ms: int) -> ModelResult:
+    def _to_result(self, raw: str, latency_ms: int, *, served_by: str = "") -> ModelResult:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""
         if self._tool_support is ToolSupport.EMULATED:
             parse = parse_tool_calls(raw)
@@ -155,6 +171,7 @@ class WebProviderAdapter:
                     ok=True,
                     error="TOOL_CALL_PARSE_ERROR: " + "; ".join(parse.errors),
                     tool_calls=(),
+                    served_by=served_by,
                 )
             return ModelResult(
                 name=self._model,
@@ -163,6 +180,7 @@ class WebProviderAdapter:
                 latency_ms=latency_ms,
                 ok=True,
                 tool_calls=parse.calls,
+                served_by=served_by,
             )
         return ModelResult(
             name=self._model,
@@ -170,4 +188,5 @@ class WebProviderAdapter:
             text=raw,
             latency_ms=latency_ms,
             ok=True,
+            served_by=served_by,
         )

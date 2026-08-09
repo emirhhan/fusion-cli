@@ -37,7 +37,7 @@ from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome, run_agent
 from fusion_cli.providers.eventing import EventingProvider
 from fusion_cli.providers.web_browser import strip_role_headers
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.ui.renderer import ConsoleRenderer
 
 from .fakes import AlwaysApprove, make_config
@@ -98,10 +98,10 @@ class _ScriptedBrowser:
         self._replies = list(replies)
         self.calls = 0
 
-    async def __call__(self, credential: object, messages: object, model: str) -> str:
+    async def __call__(self, credential: object, messages: object, model: str) -> WebTurn:
         index = min(self.calls, len(self._replies) - 1)
         self.calls += 1
-        return strip_role_headers(self._replies[index])
+        return WebTurn(strip_role_headers(self._replies[index]))
 
 
 class _Publisher:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from fusion_cli.config.models import WebSessionConfig
 from fusion_cli.core.model_capability import ToolSupport
 from fusion_cli.providers.web_registry import WebSessionRegistry
+from fusion_cli.providers.web_session import WebTurn
 
 
 async def _fake_transport(credential, messages, model):
@@ -41,7 +42,7 @@ async def test_token_env_degiskeninden_okunur():
     def _capturing_factory(endpoint, **_):
         async def _t(credential, messages, model):
             captured["token"] = credential.token
-            return "ok"
+            return WebTurn("ok")
 
         return _t
 

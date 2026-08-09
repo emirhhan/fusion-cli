@@ -22,7 +22,7 @@ from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.approval import Decision
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _run_tools, _State
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.tools import build_registry
 
 
@@ -212,7 +212,7 @@ def test_repair_note_teaches_payload_protocol() -> None:
 
 def test_web_adapter_returns_resolved_payload_call() -> None:
     async def transport(*_args):
-        return ""
+        return WebTurn("")
 
     adapter = WebProviderAdapter(
         model="gemini_web/main/auto",

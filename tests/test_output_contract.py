@@ -28,7 +28,7 @@ from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import run_agent
 from fusion_cli.engines.effects.detect import required_effect_for
 from fusion_cli.providers.web_browser import format_browser_prompt, strip_role_headers
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 
 from .agent_harness import WEB_MODEL, install_provider, web_deps
 from .fakes import RecordingSink, make_config, model_result, tool_call
@@ -185,7 +185,7 @@ async def test_arac_turundaki_oncu_cumle_kullaniciya_akar():
     reply = f"Bağlı projeleri bulmak için dizini tarıyorum. {CALL_OPEN}{blok}{CALL_CLOSE}"
 
     async def _transport(credential, messages, model):
-        return reply
+        return WebTurn(reply)
 
     adapter = WebProviderAdapter(
         model=WEB_MODEL,

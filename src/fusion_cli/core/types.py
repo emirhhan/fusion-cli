@@ -221,6 +221,13 @@ class ModelResult:
     #: Çıktı bütçesi dolduğu için yanıt yarıda mı kesildi? Metin gelmiş olabilir ama
     #: TAMAMLANMAMIŞTIR: JSON'a, talimata ya da koda güvenilmemelidir.
     truncated: bool = False
+    #: Cevabı GERÇEKTEN üreten kademe, sağlayıcı bunu bildirebiliyorsa.
+    #
+    # `model` istenen kimliktir; bu alan gözlenen olandır. Tarayıcı taşımasında
+    # ikisi ayrışabilir: istek `gemini_web/auto` der ama cevabı hesabın arayüzde
+    # seçili kademesi yazar ve oturum düşerse bu anonim ücretsiz kademe olur.
+    # Bilinmiyorsa boş kalır; boş olması "istenen kademe geldi" demek DEĞİLDİR.
+    served_by: str = ""
 
     @property
     def is_rate_limited(self) -> bool:

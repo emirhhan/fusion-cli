@@ -402,7 +402,7 @@ async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
 
     cevap = await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
 
-    assert cevap == "İş bitti."
+    assert cevap.text == "İş bitti."
 
 
 # --- görev promptun sonunda tekrarlanır ------------------------------------ #

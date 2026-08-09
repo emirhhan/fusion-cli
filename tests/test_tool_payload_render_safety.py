@@ -6,7 +6,7 @@ from fusion_cli.core.model_capability import ToolSupport
 from fusion_cli.core.tool_emulation import PAYLOAD_OPEN, parse_tool_calls, render_tool_instructions
 from fusion_cli.core.types import CompletionRequest, Message, StreamDone, TextChunk
 from fusion_cli.engines.agent.reflexion import tool_contract_repair_note
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 from fusion_cli.tools import build_registry
 
 
@@ -58,7 +58,7 @@ def _request() -> CompletionRequest:
 
 def _transport(reply: str):
     async def transport(*_args):
-        return reply
+        return WebTurn(reply)
 
     return transport
 

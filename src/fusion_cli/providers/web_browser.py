@@ -36,7 +36,7 @@ from ..config.paths import user_data_dir
 from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
-from .web_session import WebSessionCredential, WebTransport
+from .web_session import WebSessionCredential, WebTransport, WebTurn
 
 _logger = logging.getLogger(__name__)
 
@@ -857,7 +857,7 @@ def build_browser_transport(
 
     async def _transport(
         credential: WebSessionCredential, messages: tuple[Message, ...], model: str
-    ) -> str:
+    ) -> WebTurn:
         del model  # Tarayıcı arayüzü hesabın kendi seçili modelini kullanır.
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
@@ -909,7 +909,7 @@ async def _deliver_turn(
     messages: tuple[Message, ...],
     trace_dir: Path | None = None,
     limit_s: float = DEFAULT_RESPONSE_WAIT_S,
-) -> str:
+) -> WebTurn:
     """Turu AÇIK sohbete ilet; sohbet yoksa ya da kopmuşsa yeniden kur.
 
     Devam edilebilirlik iki koşula bağlıdır: mesaj listesi UZAMIŞ olmalı ve daha önce
@@ -967,7 +967,7 @@ async def _deliver_turn(
         _append_trace(
             trace_dir, session, prompt=prompt, answer=answer, resumed=resumable, tier=kademe
         )
-    return answer
+    return WebTurn(answer, kademe)
 
 
 async def open_login_browser(provider: str, account: str) -> None:

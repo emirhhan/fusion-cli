@@ -35,7 +35,7 @@ async def test_transport_yaniti_metin_olarak_doner():
 
     metin = await transport(cred, (Message("user", "selam"),), "benim-modelim")
 
-    assert metin == "merhaba dünya"
+    assert metin.text == "merhaba dünya"
 
 
 async def test_bearer_token_ve_model_gonderilir():

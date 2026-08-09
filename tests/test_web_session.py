@@ -12,7 +12,7 @@ from fusion_cli.config.tool_policy import can_be_mutation_agent
 from fusion_cli.core.model_capability import ModelCapability, ToolSupport
 from fusion_cli.core.tool_emulation import CALL_CLOSE, CALL_OPEN
 from fusion_cli.core.types import CompletionRequest, Message, StreamDone, TextChunk
-from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential
+from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
 
 
 def _request(tools=()):
@@ -27,7 +27,7 @@ def _request(tools=()):
 
 def _echo_transport(reply):
     async def _t(credential, messages, model):
-        return reply
+        return WebTurn(reply)
 
     return _t
 
@@ -140,7 +140,7 @@ async def test_emulated_web_modeli_arac_talimatini_enjekte_eder():
 
     async def _capture(credential, messages, model):
         yakalanan["messages"] = messages
-        return "tamam"
+        return WebTurn("tamam")
 
     tools = ({"type": "function", "function": {"name": "edit_file", "parameters": {}}},)
     adapter = WebProviderAdapter(

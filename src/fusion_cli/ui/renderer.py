@@ -62,7 +62,14 @@ from ..core.types import FusionResult
 from . import messages, theme
 from .diff import render_diff
 from .fusion_view import render_fusion_result
-from .text import format_duration, format_model, segment, strip_thinking, summarize_error
+from .text import (
+    format_duration,
+    format_model,
+    format_served_model,
+    segment,
+    strip_thinking,
+    summarize_error,
+)
 from .work import WorkIndicator
 
 _CHANNEL_LABELS = {
@@ -131,7 +138,9 @@ class ConsoleRenderer:
             # Cevabı gerçekte hangi model verdiyse gösterge ona güncellenir:
             # yedek devraldığında kullanıcı seçtiği modeli görmeye devam etmemeli.
             if not event.background and event.result.model:
-                self._work.update(model=format_model(event.result.model))
+                self._work.update(
+                    model=format_served_model(event.result.model, event.result.served_by)
+                )
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, ModelFallbackActivated):
@@ -485,7 +494,9 @@ class ConsoleRenderer:
         söylemez, oysa NIM'de hız sınırı model başınadır.
         """
         result = event.result
-        etiket = format_model(result.model) if result.model else event.role
+        etiket = (
+            format_served_model(result.model, result.served_by) if result.model else event.role
+        )
         if result.ok:
             self._status(
                 messages.MODEL_CALL_OK.format(

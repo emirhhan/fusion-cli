@@ -18,7 +18,7 @@ import httpx
 
 from ..core.constants import WEB_TIMEOUT_S
 from ..core.types import Message
-from .web_session import WebSessionCredential, WebTransport
+from .web_session import WebSessionCredential, WebTransport, WebTurn
 
 
 def build_http_transport(
@@ -31,13 +31,17 @@ def build_http_transport(
 
     `http_transport` yalnızca testte verilir (sahte httpx); üretimde None → gerçek ağ.
     Dönen fonksiyon `WebProviderAdapter`'a enjekte edilir ve onun sözleşmesine uyar:
-    kimlik + mesajlar + model → yanıt metni; hata durumunda istisna fırlatır (adaptör
-    onu `ok=False` sonuca çevirir).
+    kimlik + mesajlar + model → tur; hata durumunda istisna fırlatır (adaptör onu
+    `ok=False` sonuca çevirir).
+
+    Kademe boş bırakılır: HTTP ucunda istenen model kimliği isteğe yazılır ve
+    gözlenecek ayrı bir kademe göstergesi yoktur — tarayıcı taşımasındaki
+    ayrışma burada söz konusu değildir.
     """
 
     async def _transport(
         credential: WebSessionCredential, messages: tuple[Message, ...], model: str
-    ) -> str:
+    ) -> WebTurn:
         headers = _headers(credential)
         payload = {
             "model": model,
@@ -48,7 +52,7 @@ def build_http_transport(
         ) as client:
             response = await client.post(endpoint, json=payload, headers=headers)
         _raise_for_status(response)
-        return _extract_text(response)
+        return WebTurn(_extract_text(response))
 
     return _transport
 

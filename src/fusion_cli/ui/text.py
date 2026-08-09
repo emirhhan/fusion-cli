@@ -118,6 +118,29 @@ def format_model(model_id: str) -> str:
     return f"{parcalar[0]}/{parcalar[-1]}"
 
 
+#: İstenen kimlik ile gözlenen kademe arasındaki ayırıcı.
+SERVED_BY_SEPARATOR = " · "
+
+
+def format_served_model(model_id: str, served_by: str = "") -> str:
+    """Ekrana istenen kimliği, biliniyorsa GÖZLENEN kademeyle birlikte yaz.
+
+    Tarayıcı taşımasında bu ikisi ayrışabilir: istek `gemini_web/auto` der ama
+    cevabı hesabın arayüzde seçili kademesi yazar. Ölçüldü: oturumu düşmüş bir
+    profille yapılan koşuda cevabı anonim "Flash-Lite" kademesi yazdı, ekranda
+    ise yalnızca `gemini_web/auto` görünüyordu — kullanıcının kendi hesabının
+    gücüyle çalıştığını sanması için hiçbir engel yoktu.
+
+    Kademe bilinmiyorsa satır DEĞİŞMEZ: uydurulmuş bir kademe, kademe
+    yokluğundan kötüdür.
+    """
+    etiket = format_model(model_id)
+    kademe = served_by.strip()
+    if not kademe or kademe in etiket:
+        return etiket
+    return f"{etiket}{SERVED_BY_SEPARATOR}{kademe}"
+
+
 def summarize_error(error: str) -> str:
     """Sağlayıcı hatasını tek satırlık okunur bir özete indir.
 

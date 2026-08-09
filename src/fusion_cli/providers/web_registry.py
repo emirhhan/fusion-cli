@@ -18,7 +18,7 @@ from ..core.model_capability import ToolSupport
 from ..core.protocols import Clock, LlmProvider
 from ..core.types import Message
 from .web_browser import build_browser_transport
-from .web_session import WebProviderAdapter, WebSessionCredential, WebTransport
+from .web_session import WebProviderAdapter, WebSessionCredential, WebTransport, WebTurn
 from .web_transport import build_http_transport
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -121,7 +121,7 @@ class WebSessionRegistry:
 
 async def _missing_endpoint_transport(
     credential: WebSessionCredential, messages: tuple[Message, ...], model: str
-) -> str:
+) -> WebTurn:
     del credential, messages, model
     raise RuntimeError("web HTTP endpoint tanımlı değil")
 
@@ -143,7 +143,7 @@ def unconfigured_web_provider(model: str, *, clock: Clock | None = None) -> LlmP
 
 async def _missing_web_session_transport(
     credential: WebSessionCredential, messages: tuple[Message, ...], model: str
-) -> str:
+) -> WebTurn:
     del credential, messages
     raise RuntimeError(
         f"not found: {model} için etkin web oturumu yok; Fusion Control Panel'den bağla"

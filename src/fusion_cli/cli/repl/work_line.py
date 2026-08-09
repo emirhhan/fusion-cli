@@ -23,7 +23,7 @@ from ...core.events import (
 )
 from ...core.protocols import Clock
 from ...ui import messages
-from ...ui.text import format_duration, format_model
+from ...ui.text import format_duration, format_model, format_served_model
 from ...ui.work import format_tokens
 
 
@@ -63,7 +63,7 @@ class WorkLineSink:
             # Başlangıçta birincil yazılmıştı; cevabı gerçekte hangi model verdiyse
             # satır ona güncellenir. Yedek devraldıysa kullanıcı bunu GÖRÜR.
             if event.result.model:
-                self._model = format_model(event.result.model)
+                self._model = format_served_model(event.result.model, event.result.served_by)
             self._tokens += event.result.usage.total_tokens
         elif isinstance(event, ModelFallbackActivated):
             if event.background:
