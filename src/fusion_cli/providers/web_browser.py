@@ -381,6 +381,50 @@ def parse_cookie_header(raw: str) -> dict[str, str]:
     return cookies
 
 
+#: Tarayıcı mesaj kutusuna tek seferde yazılabilecek EN FAZLA karakter.
+#:
+#: Ölçüldü (deney, model çağrısı olmadan): Gemini composer'ına artan boylarda metin
+#: yazılıp DOM'dan geri okundu. 32.000 karakter tam yerleşiyor; 33.000, 40.000 ve
+#: 50.864 isteklerinin üçü de birebir aynı tavana düşüyor — 32.316 karakter. 12
+#: saniye beklendiğinde de değişmiyor, yani işleme yarışı değil SERT BİR TAVAN.
+#:
+#: Bütçe tavanın kendisi değil altıdır: sağlayıcı arayüzü kendi görünmez ekini
+#: (alıntı, ek dosya adı) koyabilir ve tavana dayanmak her seferinde kumar olur.
+MAX_WEB_PROMPT_CHARS = 30_000
+
+#: Kırpma yapıldığında promptun SONUNDAN korunacak karakter sayısı. Görev metni ve
+#: devam talimatı buradadır; ölçülen hatanın tamamı bu kuyruğun kaybolmasıydı.
+PROMPT_TAIL_KEEP = 6_000
+
+_TRIM_MARK = (
+    "\n\n… [BURADA {atilan} KARAKTER KIRPILDI — mesaj kutusunun sınırı aşıldı. "
+    "Eksik bilgi gerekiyorsa aracı yeniden çağırıp iste.] …\n\n"
+)
+
+
+def trim_to_prompt_budget(prompt: str) -> str:
+    """Promptu mesaj kutusunun alabileceği boya indir; ORTADAN kırp.
+
+    Baş ve son korunur çünkü ikisi de kritiktir: başta araç sözleşmesi, sonda
+    kullanıcının görevi vardır. Ölçülen hata tam olarak kuyruğun kaybolmasıydı —
+    model görevini hiç görmeden üç tur döndü.
+
+    Ortadan kırpmak ayrıca "lost in the middle" bulgusuyla uyumludur: uzun bağlamda
+    modelin en az baktığı bölge ortadır, yani feda edilecek yer orasıdır.
+
+    Kırpma GÖRÜNÜRDÜR. Sessiz kırpma bu projede zaten bir kez ölçüldü ve teşhisi
+    imkânsız kıldı; model neyi kaybettiğini bilmeli ki gerekirse yeniden istesin.
+    """
+    if len(prompt) <= MAX_WEB_PROMPT_CHARS:
+        return prompt
+    # İşaretin kendisi de bütçeye dahildir; yoksa kırpılmış metin yine taşar.
+    isaret = _TRIM_MARK.format(atilan=len(prompt) - MAX_WEB_PROMPT_CHARS)
+    pay = MAX_WEB_PROMPT_CHARS - len(isaret)
+    kuyruk = min(PROMPT_TAIL_KEEP, pay)
+    bas = pay - kuyruk
+    return prompt[:bas] + isaret + prompt[len(prompt) - kuyruk :]
+
+
 def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = False) -> str:
     """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
@@ -413,7 +457,7 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
     """
     if continuation:
-        return _format_continuation(messages)
+        return trim_to_prompt_budget(_format_continuation(messages))
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     rendered: list[str] = []
     for message in messages:
@@ -441,7 +485,7 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
         f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
     )
     rendered.append(_task_reminder(messages))
-    return "\n\n".join(part for part in rendered if part)
+    return trim_to_prompt_budget("\n\n".join(part for part in rendered if part))
 
 
 def _task_reminder(messages: Sequence[Message]) -> str:
