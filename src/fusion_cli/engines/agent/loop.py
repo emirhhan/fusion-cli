@@ -341,6 +341,9 @@ async def run_agent(
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(part for part in (remembered, expertise, extra_system) if part),
+        # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
+        # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
+        inherit_system=internal,
     )
 
     if deps.execution is None:
@@ -1767,7 +1770,12 @@ def _scoped_task(task: str, history: list[Message] | None) -> str:
 
 
 def _initial_messages(
-    task: str, history: list[Message] | None, *, plan_mode: bool, extra_system: str
+    task: str,
+    history: list[Message] | None,
+    *,
+    plan_mode: bool,
+    extra_system: str,
+    inherit_system: bool = False,
 ) -> list[Message]:
     """Turun mesaj listesini kur: TEK sistem mesajı + geçmiş + yeni görev.
 
@@ -1785,16 +1793,28 @@ def _initial_messages(
     ta kendisi. Canlı izde tam olarak bu görüldü: düzeltici tur dizini baştan
     listeledi, 1388 satırlık dosyayı yeniden okudu ve görevi kaybetti.
 
-    Sistem metni GERÇEKTEN değiştiyse (plan kipi açıldı, başka bir ders/skill
-    hatırlandı) önek zaten kasıtlı olarak tutmaz ve sohbetin sıfırlanması doğrudur:
-    model artık başka talimatlarla çalışıyordur.
+    Sistem metni GERÇEKTEN değiştiyse (plan kipi açıldı) önek zaten kasıtlı olarak
+    tutmaz ve sohbetin sıfırlanması doğrudur: model artık başka talimatlarla
+    çalışıyordur.
+
+    `inherit_system` İÇ turlar içindir (öz-denetim düzeltmesi, doğrulama kapısı
+    düzeltmesi) ve sistem metnini geçmişten olduğu gibi alır. Ölçüldü: çiftlenme
+    giderildikten sonra bile sohbet düşmeye devam etti, çünkü `run_agent` dersleri
+    ve uzmanlık talimatını HER çağrıda o turun metnine göre hatırlıyor; düzeltici
+    turun metni asıl görevden farklı olduğu için hatırlanan blok da farklı çıkıyor
+    ve önek yine kayıyordu. Düzeltici tur aynı konuşmanın devamıdır — model zaten
+    o talimatlarla çalışıyor, talimatı ortasından değiştirmek için bir sebep yok.
     """
-    system = SYSTEM_PROMPT
-    if plan_mode:
-        system += f"\n\n{PLAN_MODE_PROMPT}"
-    if extra_system:
-        system += f"\n\n{extra_system}"
     gecmis = list(history or [])
+    devralinabilir = inherit_system and bool(gecmis) and gecmis[0].role == "system"
+    if devralinabilir:
+        system = gecmis[0].content
+    else:
+        system = SYSTEM_PROMPT
+        if plan_mode:
+            system += f"\n\n{PLAN_MODE_PROMPT}"
+        if extra_system:
+            system += f"\n\n{extra_system}"
     # Yalnızca BAŞTAKİ sistem mesajı düşürülür. Tur içinde araya giren sistem
     # notları (değişiklik kaydı, kapı uyarısı) konuşmanın parçasıdır ve kalır;
     # onları atmak öneki yine kaydırırdı.

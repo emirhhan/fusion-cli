@@ -69,6 +69,56 @@ def test_tur_ici_sistem_notlari_korunur() -> None:
     assert conversation_digest(mesajlar[: len(onceki)]) == conversation_digest(onceki)
 
 
+def test_ic_tur_sistem_metnini_gecmisten_miras_alir() -> None:
+    """İç düzeltici tur, sistem metnini YENİDEN HESAPLAMAZ.
+
+    Ölçüldü (canlı iz, `devam=False`): sistem mesajının çiftlenmesi çözüldükten
+    SONRA da sohbet düşmeye devam etti. Sebep şu: `run_agent` her çağrıda
+    dersleri ve uzmanlık talimatını O TURUN metnine göre hatırlıyor. Düzeltici
+    turun metni ("şunları düzelt: …") asıl görevden farklıdır, dolayısıyla
+    hatırlanan blok da farklı çıkıyor ve sistem metni değişiyor. Değişen sistem
+    metni öneki kaydırır, `_deliver_turn` sohbeti sürdüremez.
+
+    Düzeltici tur AYNI konuşmanın devamıdır: model zaten o talimatlarla
+    çalışıyor, talimatı ortasından değiştirmenin bir gerekçesi yok.
+    """
+    onceki = _biten_tur("asıl turda hatırlanan dersler")
+
+    mesajlar = _initial_messages(
+        "şunları düzelt: …",
+        onceki,
+        plan_mode=False,
+        extra_system="düzeltici turda hatırlanan BAŞKA dersler",
+        inherit_system=True,
+    )
+
+    assert mesajlar[0].content == onceki[0].content
+    assert conversation_digest(mesajlar[: len(onceki)]) == conversation_digest(onceki)
+
+
+def test_ic_tur_sistemsiz_gecmiste_metni_hesaplar() -> None:
+    """Miras alınacak bir sistem mesajı yoksa tur promtsuz kalmaz."""
+    onceki = [Message("user", "merhaba"), Message("assistant", "selam")]
+
+    mesajlar = _initial_messages(
+        "düzelt", onceki, plan_mode=False, extra_system="dersler", inherit_system=True
+    )
+
+    assert mesajlar[0].role == "system"
+    assert "dersler" in mesajlar[0].content
+
+
+def test_dis_tur_sistem_metnini_miras_almaz() -> None:
+    """Kullanıcının yeni mesajı yeni bir görevdir; dersleri yeniden hatırlanır."""
+    onceki = _biten_tur("asıl turda hatırlanan dersler")
+
+    mesajlar = _initial_messages(
+        "yeni görev", onceki, plan_mode=False, extra_system="yeni dersler"
+    )
+
+    assert "yeni dersler" in mesajlar[0].content
+
+
 def test_gecmis_yoksa_sistem_mesaji_yine_eklenir() -> None:
     mesajlar = _initial_messages("görev", None, plan_mode=False, extra_system="")
 
