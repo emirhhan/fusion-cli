@@ -1060,19 +1060,63 @@ async def _send_turn(
     )
 
 
+async def _editor_icerigi(locator: Any) -> str | None:
+    """Mesaj kutusunda O AN yazan metin; okunamıyorsa None.
+
+    Okuyamamak ile boş okumak aynı şey DEĞİLDİR: okuyamadığımızda doğrulama
+    yapamayız ve turu bloke etmek yerine geçmesine izin veririz (arayüz değişmiş
+    olabilir). Boş okumak ise gerçek bir teslimat hatasıdır.
+    """
+    try:
+        deger = await locator.evaluate("el => el.innerText ?? el.value ?? ''")
+    except Exception:
+        return None
+    return deger if isinstance(deger, str) else None
+
+
 async def _fill_editor(locator: Any, text: str) -> None:
+    """Metni mesaj kutusuna yaz ve GERÇEKTEN yerleştiğini doğrula.
+
+    Ölçüldü: Gemini composer'ı ~32.000 karakterden sonrasını sessizce kırpıyor
+    (tavan 32.316 karakter; 33.000, 40.000 ve 50.864 isteklerinin üçü de aynı
+    tavana düştü). Kırpılan kısım promptun SONUDUR, görev metni de oradadır — yani
+    kırpılmış bir prompt modele görevini söylemeden iş ister. Canlı koşuda tam
+    olarak bu oldu: model "mesajınızın sonu kesilmiş görünüyor" dedi ve üç tur
+    boyunca "somut bir görev almadım" diye döndü.
+
+    Yazdığını geri okumadan göndermek bu hatayı GÖRÜNMEZ kılıyordu; iz dosyası da
+    yakalayamıyor çünkü oraya gönderilmek İSTENEN metin yazılıyor.
+    """
+    yazildi = False
     try:
         await locator.fill(text)
-        return
+        yazildi = True
     except Exception:
         pass
-    await locator.click()
-    with contextlib.suppress(Exception):
-        await locator.press("Control+A")
-    with contextlib.suppress(Exception):
-        await locator.press("Meta+A")
-    await locator.press("Backspace")
-    await locator.insert_text(text)
+
+    if not yazildi:
+        await locator.click()
+        with contextlib.suppress(Exception):
+            await locator.press("Control+A")
+        with contextlib.suppress(Exception):
+            await locator.press("Meta+A")
+        await locator.press("Backspace")
+        await locator.insert_text(text)
+
+    varan = await _editor_icerigi(locator)
+    if varan is None:
+        # Okuyamadık: doğrulama yapılamıyor, turu bloke etmek yerine geçir.
+        return
+    # Zengin metin editörü satır sonlarını ve boşlukları normalize eder, bu yüzden
+    # birebir eşitlik aranmaz (bkz. `strip_sent_text`); aranan şey metnin SONUNUN
+    # kaybolmamış olmasıdır.
+    if len(varan) >= len(text) * EDITOR_DELIVERY_RATIO:
+        return
+    raise WebBrowserError(
+        "mesaj kutusu metni kırptı: "
+        f"{len(text)} karakter yazıldı, {len(varan)} karakter yerleşti. "
+        "Promptun sonu (görev metni) modele ULAŞMADI; tur bu haliyle sürdürülemez."
+    )
 
 
 async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int) -> Any | None:
@@ -1361,6 +1405,14 @@ def _matched_marker(body: str, markers: tuple[str, ...]) -> str | None:
 # olarak bulunur; onları silmek GERÇEK bir uyarıyı gizleyebilirdi. Eşik, silmenin
 # yalnızca bize ait olduğu kesin olan uzun satırlarda çalışmasını sağlar.
 MIN_SENT_LINE_STRIP = 12
+
+#: Editöre yerleşen metnin, yazılan metne oranı bu değerin ALTINA düşerse teslimat
+#: başarısız sayılır. Birebir eşitlik aranamaz: zengin metin editörü satır sonlarını
+#: ve boşlukları normalize eder (bkz. `strip_sent_text`). Ölçüldü — normalizasyon
+#: farkı %1 civarında (31.000 karakter yazıldı, 31.306 okundu), kırpılma ise
+#: %36 (50.864 yazıldı, 32.316 okundu). Eşik ikisinin ortasına değil, gürültünün
+#: hemen altına konur.
+EDITOR_DELIVERY_RATIO = 0.95
 
 
 def strip_sent_text(body: str, sent: str) -> str:
