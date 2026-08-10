@@ -16,7 +16,14 @@ turu düşürmesi kabul edilemez.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import logging
+import socket
+import time
+import urllib.error
+import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +39,75 @@ VIEWPORTS = (375, 768, 1440)
 PAGE_TIMEOUT_MS = 15_000
 #: Bir sayfa için bildirilecek en fazla farklı kaynak/hata (talimat okunabilir kalsın).
 MAX_ITEMS_PER_KIND = 5
+
+#: Sayfanın DÜZENİNİ değiştirebilen dosya uzantıları.
+#
+# Ölçüldü: model `app/globals.css` değiştirip "lütfen sen kontrol et" diyerek turu
+# kapattı ve kapı hiç konuşmadı, çünkü ortada açılacak `.html` dosyası yoktu.
+# Next.js/Vite gibi projelerde sayfa çalışma anında üretilir; kapının kör kaldığı
+# yer tam da en çok düzen hatası üreten proje türüydü.
+LAYOUT_SUFFIXES = frozenset({".css", ".scss", ".sass", ".less", ".tsx", ".jsx", ".vue", ".svelte"})
+
+#: Dev sunucusunun ayağa kalkması için tanınan süre.
+#
+# Ölçüldü: bu projede `next dev` soğuk başlangıçta ~2 saniyede hazır oluyor, ilk
+# derleme birkaç saniye daha alıyor. Sınır cömert tutulur ama sonsuz değildir:
+# kapı turu bekletmemelidir.
+DEV_SERVER_READY_S = 45.0
+
+#: Dev sunucusu için denenecek port aralığının başı. Kullanıcının kendi sunucusuyla
+#: çakışmamak için yaygın portlardan (3000, 5173, 8080) uzak seçilir.
+DEV_SERVER_PORT_BASE = 47_300
+
+
+def touches_layout(paths: Sequence[Path]) -> bool:
+    """Değişen dosyalar sayfanın düzenini etkileyebilir mi?
+
+    Dev sunucusu başlatmak pahalıdır (saniyeler); yalnızca düzen değiştiyse yapılır.
+    """
+    return any(path.suffix.lower() in LAYOUT_SUFFIXES for path in paths)
+
+
+def dev_server_command(package_json: object) -> list[str] | None:
+    """`package.json` içeriğinden dev sunucusu komutunu çıkar; yoksa None.
+
+    Komut UYDURULMAZ: projede kanıtı (tanımlı `dev` betiği) yoksa kapı hiç kurulmaz.
+    Bu, `discover_auto_commands` ile aynı disiplin.
+    """
+    if not isinstance(package_json, dict):
+        return None
+    scripts = package_json.get("scripts")
+    if not isinstance(scripts, dict):
+        return None
+    if not isinstance(scripts.get("dev"), str):
+        return None
+    return ["npm", "run", "dev"]
+
+
+def _free_port() -> int:
+    """Boş bir port bul. Sabit port kullanıcının kendi sunucusuyla çakışırdı."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+async def _wait_until_serving(adres: str) -> bool:
+    """Sunucu cevap verene kadar bekle; süre dolarsa False.
+
+    Sağlık ölçütü HTTP cevabının GELMESİDİR, durum kodu değil: dev sunucuları
+    derleme hatasında da sayfa döndürür ve o sayfayı ölçmek anlamlıdır — ölçtüğümüz
+    şey zaten "kullanıcı bunu açtığında ne görüyor".
+    """
+    bitis = time.monotonic() + DEV_SERVER_READY_S
+    while time.monotonic() < bitis:
+        try:
+            await asyncio.to_thread(urllib.request.urlopen, adres, None, 3)
+            return True
+        except urllib.error.HTTPError:
+            return True
+        except (OSError, ValueError):
+            await asyncio.sleep(0.5)
+    return False
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,9 +291,12 @@ class BrowserVerifier:
             for path in sorted(self._context.touched)
             if path.suffix.lower() in (".html", ".htm") and path.is_file()
         ]
-        # HTML yoksa tarayıcıyı hiç yoklamayız: ölçülecek bir şey yok.
+        # HTML dosyası YOKSA proje sayfayı çalışma anında üretiyor olabilir
+        # (Next.js, Vite, Nuxt…). Ölçüldü: kapı tam da bu proje türünde kördü —
+        # model `globals.css` değiştirip "sen kontrol et" dedi ve hiçbir şey
+        # ölçülmedi. Sunucu yalnızca DÜZEN değiştiyse ayağa kaldırılır.
         if not pages:
-            return VerificationResult(ok=True)
+            return await self._verify_dev_server()
         if not _playwright_available():
             return VerificationResult(ok=True)
 
@@ -236,6 +315,81 @@ class BrowserVerifier:
             ok=False, summary=f"tarayıcıda {len(findings)} sorun", findings=findings
         )
 
+    async def _verify_dev_server(self) -> VerificationResult:
+        """Dev sunucusunu ayağa kaldırıp kök sayfayı ölç; koşullar tutmazsa sessizce geç.
+
+        Kapı üç koşul birden sağlanmazsa hiç kurulmaz: değişen dosyalar düzeni
+        etkilemeli, projede `package.json` bulunmalı ve orada tanımlı bir `dev`
+        betiği olmalı. Komut uydurulmaz.
+
+        Sunucu HER durumda kapatılır ve her hata yutulur: doğrulama bir
+        iyileştirmedir, turu düşürmesi kabul edilemez.
+        """
+        touched = sorted(self._context.touched)
+        if not touched or not touches_layout(touched):
+            return VerificationResult(ok=True)
+        root = self._context.root
+        paket = root / "package.json"
+        if not paket.is_file():
+            return VerificationResult(ok=True)
+        try:
+            komut = dev_server_command(json.loads(paket.read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            return VerificationResult(ok=True)
+        if komut is None:
+            return VerificationResult(ok=True)
+        # Tarayıcı en SONDA yoklanır: ölçülecek bir şey olmadığı anlaşıldığında
+        # Playwright'ı hiç içeri almamak bu kapının kuralı.
+        if not _playwright_available():
+            return VerificationResult(ok=True)
+
+        try:
+            observations = await self._observe_dev_server(root, komut)
+        except Exception as exc:
+            _logger.debug("dev sunucusu doğrulaması atlandı: %s", exc)
+            return VerificationResult(ok=True)
+        if observations is None:
+            return VerificationResult(ok=True)
+
+        findings = page_findings(observations)
+        if not findings:
+            return VerificationResult(ok=True)
+        return VerificationResult(
+            ok=False, summary=f"çalışan sayfada {len(findings)} sorun", findings=findings
+        )
+
+    async def _observe_dev_server(
+        self, root: Path, komut: list[str]
+    ) -> list[PageObservation] | None:
+        from playwright.async_api import async_playwright
+
+        port = _free_port()
+        surec = await asyncio.create_subprocess_exec(
+            *komut,
+            "--",
+            "--port",
+            str(port),
+            cwd=str(root),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        adres = f"http://127.0.0.1:{port}/"
+        try:
+            if not await _wait_until_serving(adres):
+                return None
+            async with async_playwright() as driver:
+                browser = await driver.chromium.launch()
+                try:
+                    return [await self._observe_page(browser, adres, "çalışan sayfa")]
+                finally:
+                    await browser.close()
+        finally:
+            # Sunucu HER YOLDA kapatılır: doğrulama kapısı arkasında süreç bırakamaz.
+            with contextlib.suppress(ProcessLookupError):
+                surec.terminate()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(surec.wait(), timeout=10)
+
     async def _observe(self, pages: list[Path]) -> list[PageObservation]:
         from playwright.async_api import async_playwright
 
@@ -244,12 +398,14 @@ class BrowserVerifier:
             browser = await driver.chromium.launch()
             try:
                 for path in pages:
-                    observations.append(await self._observe_page(browser, path))
+                    observations.append(
+                        await self._observe_page(browser, path.as_uri(), path.name)
+                    )
             finally:
                 await browser.close()
         return observations
 
-    async def _observe_page(self, browser: object, path: Path) -> PageObservation:
+    async def _observe_page(self, browser: object, hedef: str, ad: str) -> PageObservation:
         console_errors: list[str] = []
         failed: list[str] = []
         overflowing: list[tuple[int, int]] = []
@@ -275,7 +431,7 @@ class BrowserVerifier:
         try:
             for width in VIEWPORTS:
                 await page.set_viewport_size({"width": width, "height": 900})
-                await page.goto(path.as_uri(), timeout=PAGE_TIMEOUT_MS, wait_until="load")
+                await page.goto(hedef, timeout=PAGE_TIMEOUT_MS, wait_until="load")
                 actual = await page.evaluate("document.documentElement.scrollWidth")
                 # 1px tolerans: yuvarlama farkı taşma sayılmamalı.
                 if isinstance(actual, int | float) and actual > width + 1:
@@ -292,7 +448,7 @@ class BrowserVerifier:
             await page.close()
 
         return PageObservation(
-            name=path.name,
+            name=ad,
             console_errors=tuple(console_errors),
             failed_requests=tuple(failed),
             overflowing=tuple(overflowing),
