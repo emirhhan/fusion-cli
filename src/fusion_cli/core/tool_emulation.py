@@ -491,6 +491,73 @@ def _call_matches(text: str) -> list[re.Match[str]]:
     return sorted(matches, key=lambda match: match.start())
 
 
+#: `name` alanının diğer sağlayıcı şemalarındaki karşılıkları.
+#
+# Model başka bir arayüzün biçimini hatırlayıp `{"tool": …}` yazdığında niyeti
+# BELLİDİR; bunu hata sayıp bir onarım turu yakmak (tarayıcıda ~40 saniye) israftır.
+_NAME_ALIASES = ("tool", "function", "tool_name")
+
+#: `arguments` alanının karşılıkları.
+_ARGS_ALIASES = ("parameters", "args", "input")
+
+#: JSON'da nesne/dizi kapanışından hemen önce gelen fazla virgül.
+_TRAILING_COMMA = re.compile(r",(\s*[}\]])")
+
+
+def _loads_tolerant(raw: str) -> object | None:
+    """JSON'u çöz; olmazsa ANLAMI DEĞİŞTİRMEYEN onarımları sırayla dene.
+
+    Zayıf modellerin en sık dört sapmasından üçü burada sıfır maliyetle kapanır:
+    sınırlayıcı çevresine markdown kalınlaştırması, sondaki fazla virgül ve
+    gövdeyi saran kod çiti. Dördüncüsü (alan adlandırması) `_normalize_call_keys`
+    içinde.
+
+    Onarımlar yalnızca SÖZDİZİMİNE dokunur. Anlamı belirsiz bir gövdede hiçbir şey
+    uydurulmaz; None döner ve çağıran taraf hatayı olduğu gibi bildirir.
+    """
+    for aday in (
+        raw,
+        raw.strip("*` \n"),
+        _TRAILING_COMMA.sub(r"\1", raw),
+        _TRAILING_COMMA.sub(r"\1", raw.strip("*` \n")),
+    ):
+        try:
+            cozulmus: object = json.loads(aday)
+        except json.JSONDecodeError:
+            continue
+        return cozulmus
+    return None
+
+
+def _normalize_call_keys(obj: dict[str, object]) -> dict[str, object]:
+    """Alan adlandırma sapmalarını kanonik biçime çevir.
+
+    İki sapma karşılanır: (1) `tool`/`parameters` gibi başka şemaların adları,
+    (2) `arguments` alanının nesne yerine JSON STRING olarak gömülmesi — model
+    kaçış karakterleriyle uğraşırken sık düşülen hata.
+
+    Kanonik alan zaten VARSA takma ada bakılmaz: model ikisini birden yazmışsa
+    açık olan kazanır, tahmin yürütülmez.
+    """
+    duzeltilmis = dict(obj)
+    if "name" not in duzeltilmis:
+        for takma in _NAME_ALIASES:
+            if isinstance(duzeltilmis.get(takma), str):
+                duzeltilmis["name"] = duzeltilmis.pop(takma)
+                break
+    if "arguments" not in duzeltilmis:
+        for takma in _ARGS_ALIASES:
+            if takma in duzeltilmis:
+                duzeltilmis["arguments"] = duzeltilmis.pop(takma)
+                break
+    ham = duzeltilmis.get("arguments")
+    if isinstance(ham, str):
+        cozulmus = _loads_tolerant(ham)
+        if isinstance(cozulmus, dict):
+            duzeltilmis["arguments"] = cozulmus
+    return duzeltilmis
+
+
 def parse_tool_calls(text: str) -> EmulatedParse:
     """Kanonik çağrıları çıkar ve ham payload referanslarını çöz."""
     calls: list[ToolCall] = []
@@ -530,14 +597,14 @@ def parse_tool_calls(text: str) -> EmulatedParse:
 
     for index, match in enumerate(_call_matches(without_payloads)):
         raw = match.group("body").strip()
-        try:
-            obj = json.loads(raw)
-        except json.JSONDecodeError as error:
-            errors.append(f"blok {index}: geçersiz JSON ({error.msg})")
+        obj = _loads_tolerant(raw)
+        if obj is None:
+            errors.append(f"blok {index}: geçersiz JSON")
             continue
         if not isinstance(obj, dict):
             errors.append(f"blok {index}: çağrı bir JSON nesnesi olmalı")
             continue
+        obj = _normalize_call_keys(obj)
         name = obj.get("name")
         if not isinstance(name, str) or not name.strip():
             errors.append(f"blok {index}: 'name' alanı zorunlu ve boş olamaz")
