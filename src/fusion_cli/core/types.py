@@ -71,6 +71,15 @@ class Message:
     #: çok parçalı biçime çevrilir; boşsa mesaj düz metin kalır ve mevcut davranış
     #: birebir korunur.
     images: tuple[str, ...] = ()
+    #: Bu `user` mesajı kullanıcıdan değil HARNESS'tan geliyorsa True (refleksiyon
+    #: notu, kanıt uyarısı, sözleşme onarımı). Rolü `user`'dır çünkü modele öyle
+    #: sunulur, ama kullanıcının GÖREVİ değildir.
+    #:
+    #: Ölçüldü: promptun "GÖREV (yapılacak iş budur)" bloğu "son user mesajı" diye
+    #: bu notları alıyordu ve modele yapılacak iş olarak harness'ın azar metni
+    #: gösteriliyordu. Ayrım metinden TAHMİN EDİLMEZ — `ok` alanındaki ilkenin
+    #: aynısı: üreten taraf doldurur.
+    harness_note: bool = False
 
 
 @dataclass(frozen=True, slots=True)

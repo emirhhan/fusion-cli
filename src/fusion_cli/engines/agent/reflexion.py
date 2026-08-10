@@ -73,7 +73,7 @@ ENOUGH_EXPLORING_NOTE = (
 
 def enough_exploring_note(rounds: int) -> Message:
     """Okumaktan yazmaya geçir."""
-    return Message("user", ENOUGH_EXPLORING_NOTE.format(rounds=rounds))
+    return Message("user", ENOUGH_EXPLORING_NOTE.format(rounds=rounds), harness_note=True)
 
 
 #: Aynı düzenleme aynı hatayla üst üste düşünce gönderilen not.
@@ -99,7 +99,7 @@ REPEATED_EDIT_NOTE = (
 
 def repeated_edit_note(count: int) -> Message:
     """Düzenleme döngüsünden çıkışı ADIYLA göster."""
-    return Message("user", REPEATED_EDIT_NOTE.format(count=count))
+    return Message("user", REPEATED_EDIT_NOTE.format(count=count), harness_note=True)
 
 
 #: Turda şu ana kadar değiştirilen dosyaların KAYDI.
@@ -113,7 +113,7 @@ CHANGE_LOG_NOTE = "[kayıt] Bu turda şu ana kadar DEĞİŞTİRDİĞİN dosyalar
 
 def change_log_note(paths: tuple[str, ...]) -> Message:
     """Değişen dosyaları modele olgu olarak hatırlat."""
-    return Message("user", CHANGE_LOG_NOTE.format(paths=", ".join(paths)))
+    return Message("user", CHANGE_LOG_NOTE.format(paths=", ".join(paths)), harness_note=True)
 
 
 #: Görevdeki dosyaların hiçbiri çalışma dizininde bulunamadı.
@@ -147,20 +147,20 @@ _WORKSPACE_SUGGESTION = (
 def wrong_workspace_note(root: str, suggestion: str = "") -> Message:
     """Yanlış çalışma dizini hipotezini modele bildir ve durmasını iste."""
     oneri = _WORKSPACE_SUGGESTION.format(path=suggestion) if suggestion else ""
-    return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri))
+    return Message("user", WRONG_WORKSPACE_NOTE.format(root=root, oneri=oneri), harness_note=True)
 
 
 def note(*, persistent: bool) -> Message:
     """Araç hatasından sonra enjekte edilecek refleksiyon mesajı."""
-    return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE)
+    return Message("user", PERSISTENT_NOTE if persistent else STANDARD_NOTE, harness_note=True)
 
 
 def auto_continue_note() -> Message:
-    return Message("user", AUTO_CONTINUE_NOTE)
+    return Message("user", AUTO_CONTINUE_NOTE, harness_note=True)
 
 
 def asked_instead_of_acting_note() -> Message:
-    return Message("user", ASKED_INSTEAD_OF_ACTING_NOTE)
+    return Message("user", ASKED_INSTEAD_OF_ACTING_NOTE, harness_note=True)
 
 
 def ends_with_question(final_text: str) -> bool:
@@ -216,7 +216,7 @@ EMPTY_RESPONSE_NOTE = (
 
 def empty_response_note() -> Message:
     """Boş cevaptan sonra enjekte edilen kullanıcı notu."""
-    return Message("user", EMPTY_RESPONSE_NOTE)
+    return Message("user", EMPTY_RESPONSE_NOTE, harness_note=True)
 
 
 _EFFECT_LABELS = {
@@ -242,6 +242,7 @@ def tool_evidence_required_note(effect: str | None) -> Message:
         f"{render_call({'name': 'run_shell', 'arguments': {'command': '…'}})}\n"
         "İşlem için bilgi/onay eksikse ask_user kullan. Aracı kullanamıyorsan işlemin "
         "yapılmadığını açıkça söyle; yapılmış gibi davranma.",
+        harness_note=True,
     )
 
 
@@ -271,4 +272,5 @@ def tool_contract_repair_note(detail: str) -> Message:
         "Çok satırlı kodu JSON stringine koyma; payload kullan:\n"
         f"{PAYLOAD_EXAMPLE}\n\n" + "\n".join(PAYLOAD_RULES) + "\nAynı geçersiz çağrıyı tekrarlama. "
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
+        harness_note=True,
     )

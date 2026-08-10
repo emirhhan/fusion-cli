@@ -425,7 +425,12 @@ def trim_to_prompt_budget(prompt: str) -> str:
     return prompt[:bas] + isaret + prompt[len(prompt) - kuyruk :]
 
 
-def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = False) -> str:
+def format_browser_prompt(
+    messages: Sequence[Message],
+    *,
+    continuation: bool = False,
+    full_history: Sequence[Message] | None = None,
+) -> str:
     """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
     `continuation=True` ise sohbet AÇIKTIR ve yalnızca yeni mesajlar gönderilir;
@@ -456,8 +461,12 @@ def format_browser_prompt(messages: Sequence[Message], *, continuation: bool = F
     biçimindeydi — bu bir araç ÇAĞRISINA benziyor ve model onu taklit ediyordu.
     Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
     """
+    # Görev hatırlatması TAM geçmişten okunur. Devam kipinde `messages` yalnızca
+    # gönderilmemiş yeni mesajlardır ve kullanıcının görevi o dilimde YOKTUR;
+    # ölçüldü — hatırlatma bloğu boş kalıyor ya da harness notunu gösteriyordu.
+    gecmis = full_history if full_history is not None else messages
     if continuation:
-        return trim_to_prompt_budget(_format_continuation(messages))
+        return trim_to_prompt_budget(_format_continuation(messages, gecmis))
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     rendered: list[str] = []
     for message in messages:
@@ -499,9 +508,19 @@ def _task_reminder(messages: Sequence[Message]) -> str:
     bitirdi.
 
     Hatırlatma yeni bilgi taşımaz; yalnızca görevi en çok bakılan yere koyar.
+
+    Harness'ın kendi notları (refleksiyon, kanıt uyarısı, sözleşme onarımı) rolü
+    `user` olsa da görev DEĞİLDİR ve atlanır. Ölçüldü: devam turlarında bu blok
+    kullanıcının görevini değil `[eylem-kanıtı-zorunlu]` notunu gösteriyordu, yani
+    modele "yapılacak iş budur" başlığıyla harness'ın azar metni veriliyordu.
     """
     gorev = next(
-        (mesaj.content.strip() for mesaj in reversed(messages) if mesaj.role == "user"), ""
+        (
+            mesaj.content.strip()
+            for mesaj in reversed(messages)
+            if mesaj.role == "user" and not mesaj.harness_note
+        ),
+        "",
     )
     if not gorev:
         return ""
@@ -582,7 +601,9 @@ CONTINUATION_LEAD = (
 )
 
 
-def _format_continuation(messages: Sequence[Message]) -> str:
+def _format_continuation(
+    messages: Sequence[Message], full_history: Sequence[Message] | None = None
+) -> str:
     """Açık sohbete gönderilecek metin: talimat başta, asistan turu yok."""
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     parcalar = [CONTINUATION_LEAD]
@@ -596,7 +617,7 @@ def _format_continuation(messages: Sequence[Message]) -> str:
         else:
             baslik = "KULLANICI"
         parcalar.append(f"### {ROLE_PREFIX}{baslik}\n{message.content.strip()}")
-    hatirlatma = _task_reminder(messages)
+    hatirlatma = _task_reminder(full_history if full_history is not None else messages)
     if hatirlatma:
         parcalar.append(hatirlatma)
     return "\n\n".join(parcalar)
@@ -972,7 +993,9 @@ async def _deliver_turn(
     )
 
     if resumable and state is not None:
-        prompt = format_browser_prompt(messages[state.sent_count :], continuation=True)
+        prompt = format_browser_prompt(
+            messages[state.sent_count :], continuation=True, full_history=messages
+        )
         answer = await _send_turn(
             state.page, definition, prompt, previous=state.last_answer, limit_s=limit_s
         )
