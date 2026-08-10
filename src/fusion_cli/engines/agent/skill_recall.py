@@ -16,6 +16,7 @@ koymak, hiç koymamaktan kötüdür.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ...tools.capabilities import Capability, load_skill_text, search
@@ -48,6 +49,15 @@ SKILL_QUERIES: dict[TaskKind, str] = {
 #: gölgeler. Yönü verecek kadarı yeter, tamamı değil.
 INJECT_BUDGET = 2_500
 
+#: Fusion'ın kendi referans metnine tanınan bütçe.
+#:
+#: Ölçüldü: `web_reference.md` 20.877 karakter ve kırpılmadan enjekte ediliyordu,
+#: oysa kullanıcının skill'i 2.500 ile sınırlıydı — 8,3 kat asimetri. Tarayıcı
+#: mesaj kutusunun tavanı 32.316 karakter (deneyle ölçüldü), promptun geri kalanı
+#: ise ~23.000 karakter (system.md 8.134 + araç talimatları 13.304 + çerçeve).
+#: Geriye kalan pay budur; tavana dayanmamak için üstü değil altı seçilir.
+REFERENCE_BUDGET = 6_000
+
 
 def skill_query(kind: TaskKind) -> str:
     """Görev türüne karşılık gelen arama terimleri; belirsiz türde boş."""
@@ -77,13 +87,34 @@ def as_prompt_block(skill: Capability | None) -> str:
     return f"# Uzmanlık talimatı: {skill.name}\n{text}"
 
 
-def reference_block(kind: TaskKind) -> str:
-    """Görev türüne ait fusion referansı; yoksa boş metin."""
+def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:
+    """Görev türüne ait fusion referansı, bütçeye indirilmiş hâlde; yoksa boş metin.
+
+    Bütçe düz karakter kesmesiyle uygulanamaz: dosya ölçek tabloları ve kod
+    örnekleri taşır, tablonun ortasından kesmek modele yarım satır bırakır ve
+    "bu sayıyı kullan" diyen bir referansta bu, uydurmaya davettir. Bu yüzden
+    BÜTÜN bölümler alınır; sığmayan bölüm hiç girmez.
+
+    Bölümler dosya sırasıyla alınır çünkü dosya temelden ayrıntıya yazılmıştır:
+    ölçekler ve renk disiplini başta, uzun örnek galerileri sonda.
+    """
     dosya = _REFERENCES.get(kind)
     if dosya is None:
         return ""
     try:
-        return (_PROMPTS / dosya).read_text(encoding="utf-8").strip()
+        metin = (_PROMPTS / dosya).read_text(encoding="utf-8").strip()
     except OSError:
         # Referans okunamıyorsa tur devam eder; bu bir iyileştirmedir.
         return ""
+    if len(metin) <= budget:
+        return metin
+    secilen: list[str] = []
+    uzunluk = 0
+    for bolum in re.split(r"(?m)^(?=## )", metin):
+        if not bolum.strip():
+            continue
+        if uzunluk + len(bolum) > budget:
+            break
+        secilen.append(bolum)
+        uzunluk += len(bolum)
+    return "".join(secilen).strip()
