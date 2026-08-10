@@ -43,6 +43,22 @@ AUTO_CONTINUE_NOTE = (
 )
 
 
+#: Model hiç araç çağırmadan turu kapatmaya çalıştığında gönderilen not.
+#
+# Ölçüldü: model "somut bir görev almadım, dizin içeriğini listeliyorum" deyip
+# hiçbir araç çağırmadan üç tur döndü ve tur başarılı sayıldı. Not, görevi
+# yeniden okumasını ve TEK bir somut adım atmasını ister — genel bir "devam et"
+# dürtüsü burada işe yaramıyor, çünkü model işi yarım bırakmış değil hiç
+# başlamamıştır.
+NEVER_ACTED_NOTE = (
+    "[hic-arac-yok] Bu turda hiçbir araç çağırmadın ve hiçbir şey değişmedi. "
+    "Görev promptun sonundaki 'GÖREV (yapılacak iş budur)' bloğunda yazılı — onu "
+    "yeniden oku. Şimdi TEK bir somut adım at: ilgili dosyayı read_file ile aç ya "
+    "da değişikliği edit_file ile yap. Görevi gerçekten anlamadıysan ask_user "
+    "çağır; düzyazıyla 'görev belirtilmedi' deyip durma."
+)
+
+
 ASKED_INSTEAD_OF_ACTING_NOTE = (
     "[otomatik-devam] Hiçbir şey değiştirmeden turu bir soruyla bitirdin. Kullanıcı "
     "görevini zaten verdi; ne yapman gerektiğini ona geri sorma. Elindeki araçlarla "
@@ -157,6 +173,11 @@ def note(*, persistent: bool) -> Message:
 
 def auto_continue_note() -> Message:
     return Message("user", AUTO_CONTINUE_NOTE, harness_note=True)
+
+
+def never_acted_note() -> Message:
+    """Hiç araç çağırmadan turu kapatan modele TEK bir somut adım attır."""
+    return Message("user", NEVER_ACTED_NOTE, harness_note=True)
 
 
 def asked_instead_of_acting_note() -> Message:

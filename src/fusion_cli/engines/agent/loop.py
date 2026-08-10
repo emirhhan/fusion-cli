@@ -386,6 +386,7 @@ async def run_agent(
         allowed_tools=allowed_tools,
         step_limit=step_limit,
         execution=execution,
+        internal=internal,
     )
 
     should_review = deps.config.runtime.self_review if self_review is None else self_review
@@ -533,6 +534,12 @@ class _State:
     tool_rounds: int = 0
     tool_calls_last_turn: int = 0
     evidence_reprompts: int = 0
+    #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
+    never_acted_prompts: int = 0
+    #: Bu tur bir İÇ düzeltici tur mu (öz-denetim, doğrulama kapısı)? İç turlar
+    #: araçsız bitebilir ve bu meşrudur: asıl işi dış tur zaten yapmıştır, iç tur
+    #: yalnızca düzeltir ya da açıklar.
+    internal: bool = False
     tool_contract_abort: str = ""
     #: Bir araç "bu iş benimle YAPILAMAZ" dedi mi? (şifre duvarı, oturum kapısı…)
     #
@@ -570,8 +577,9 @@ async def _drive(
     allowed_tools: set[str] | None = None,
     step_limit: int | None = None,
     execution: ExecutionPolicy,
+    internal: bool = False,
 ) -> AgentOutcome:
-    state = _State()
+    state = _State(internal=internal)
     budget = deps.require_budget()
     final_text = ""
     # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
@@ -990,6 +998,11 @@ def _auto_continue_note(
     # geri sormasıdır.
     if _asked_instead_of_acting(final_text, state, deps.require_budget()):
         return _spend(deps, reflexion.asked_instead_of_acting_note())
+    # "Hiç araç çağırmadı" en özgül teşhistir ve genel sezgisellerden ÖNCE gelir:
+    # model işi yarım bırakmış değil, hiç başlamamıştır.
+    if _never_acted(state, execution):
+        state.never_acted_prompts += 1
+        return _spend(deps, reflexion.never_acted_note())
     if not execution.heuristic_auto_continue:
         # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
         # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
@@ -1166,6 +1179,34 @@ def _stopped_without_acting(
 
 #: İşi devreden araçlar — bunları çağıran tur "hiçbir şey yapmadı" sayılmaz.
 _DELEGATION_TOOLS = frozenset({"spawn_agent", "invoke_subagent"})
+
+
+def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
+    """Karmaşık bir görevde model HİÇ araç çağırmadan turu kapatıyor mu?
+
+    Ölçüldü (canlı koşu): model üç tur boyunca "somut bir görev almadım, dizin
+    içeriğini listeliyorum" tarzı düz yazı üretti, tek satır değişmedi ve tur
+    `ok=True` ile kapandı. Hiçbir kapı konuşmadı çünkü var olan iki kapı da
+    (`_stopped_without_acting`, `_asked_instead_of_acting`) sıfır çağrıyı
+    dışarıda bırakıyor — ikisi de "araç çağırdı ama değiştirmedi" için yazılmış.
+    En kötü durum ise "hiç çağırmadı"dır ve tam olarak o kapsam dışıydı.
+
+    Kanıt kapısı bu boşluğu doldurmuyor: yalnızca görevden somut bir etki
+    çıkarılabildiğinde (`required_effect`) açılıyor, yani her görevde değil.
+
+    BİR KEZ konuşur. Model ikinci kez de araçsız gelirse zorlamak çağrı harcamaktır;
+    o noktada cevabı olduğu gibi teslim etmek dürüst olandır.
+    """
+    if not execution.complex_task or state.internal:
+        return False
+    if state.tool_calls_made > 0:
+        return False
+    # Kullanıcı "araç kullanma" dediyse ya da araçlar hiç sunulmadıysa araçsız tur
+    # BEKLENEN davranıştır. `max_evidence_reprompts` bu durumda zaten sıfırlanıyor;
+    # aynı sinyal burada da geçerlidir, ikinci bir bayrak icat edilmez.
+    if not execution.offer_tools or execution.max_evidence_reprompts <= 0:
+        return False
+    return state.never_acted_prompts < 1
 
 
 def _targeted_edit_required(
