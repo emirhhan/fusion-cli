@@ -18,6 +18,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ..core.constants import WEB_PROVIDER_SUFFIX
+
 THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
 
@@ -111,10 +113,20 @@ def format_model(model_id: str) -> str:
     Sağlayıcı öneki KORUNUR ve bu önemlidir: yedek zinciri çoğu zaman AYNI modelin
     başka bir sağlayıcıdaki kopyasıdır (`openrouter/nvidia/…:free`). Yalnızca son
     parça gösterilseydi yedeğe düşmüş bir tur, birincille aynı görünürdü.
+
+    Tarayıcı tabanlı sağlayıcılarda ORTA parça atılmaz: orası satıcı adı değil
+    HESAP adıdır (`gemini_web/isimdijital/auto`). Ölçüldü — kullanıcı satırdaki
+    `gemini_web/auto` ifadesini ayrı bir sağlayıcı sandı ve kendi hesabının
+    kullanılmadığını düşündü. Hangi hesapla çalışıldığı, birden çok hesabı olan
+    kullanıcı için tam da görülmesi gereken bilgidir.
     """
     parcalar = model_id.split("/")
     if len(parcalar) < 2:
         return model_id
+    if parcalar[0].endswith(WEB_PROVIDER_SUFFIX):
+        # `gemini_web/isimdijital/auto` → `gemini_web/isimdijital`: son parça web
+        # oturumlarında her zaman "auto"dur ve hiçbir şey söylemez.
+        return "/".join(parcalar[:2])
     return f"{parcalar[0]}/{parcalar[-1]}"
 
 

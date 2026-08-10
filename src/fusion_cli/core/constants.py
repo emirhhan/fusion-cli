@@ -60,6 +60,14 @@ CAPABILITY_WALL_PREFIX = "ERİŞİM DUVARI:"
 #: Tarayıcı turu için kabul edilebilir EN KISA bütçe (saniye). Yapılandırma bunun
 #: altına inerse tur daha başlamadan zaman aşımına uğrar; taban buradadır.
 MIN_BROWSER_TURN_S = 30.0
+
+#: Oturum tabanlı (tarayıcı) sağlayıcı kimliklerinin ortak son eki.
+#
+# Model kimliğinin ORTA parçasının ne anlama geldiğini bu ek belirler:
+# `nvidia_nim/nvidia/nemotron` içinde satıcı adıdır ve gürültüdür,
+# `gemini_web/isimdijital/auto` içinde ise HESAP adıdır ve kullanıcının görmesi
+# gereken bilgidir (bkz. `ui.text.format_model`).
+WEB_PROVIDER_SUFFIX = "_web"
 #: Panel model kataloğu önbellek ömrü (saniye). Katalog sık değişmez; her panel
 #: açılışında sağlayıcının /models ucunu dövmemek için 5 dakika tutulur.
 CATALOG_CACHE_TTL_S = 300.0

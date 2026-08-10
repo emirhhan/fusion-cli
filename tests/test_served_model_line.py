@@ -22,7 +22,25 @@ def _sonuc(model: str, served_by: str) -> ModelResult:
 def test_gozlenen_kademe_satira_eklenir() -> None:
     satir = format_served_model("gemini_web/isimdijital/auto", "Flash-Lite")
 
-    assert satir == "gemini_web/auto · Flash-Lite"
+    assert satir == "gemini_web/isimdijital · Flash-Lite"
+
+
+def test_web_oturumunda_hesap_adi_gizlenmez() -> None:
+    """Ölçüldü: kullanıcı `gemini_web/auto` satırını AYRI BİR SAĞLAYICI sandı.
+
+    Orta parça LiteLLM kimliklerinde satıcı adıdır ve gürültüdür; web
+    oturumlarında ise hesap adıdır ve hangi hesapla çalışıldığını söyleyen tek
+    bilgidir. Son parça web oturumlarında her zaman "auto"dur, hiçbir şey söylemez.
+    """
+    assert format_model("gemini_web/isimdijital/auto") == "gemini_web/isimdijital"
+    assert format_model("chatgpt_web/main/auto") == "chatgpt_web/main"
+
+
+def test_litellm_kimliginde_satici_adi_hala_atilir() -> None:
+    """Web olmayan kimliklerde davranış DEĞİŞMEZ."""
+    assert format_model("nvidia_nim/nvidia/nemotron-3-ultra") == "nvidia_nim/nemotron-3-ultra"
+    assert format_model("openrouter/nvidia/nemotron:free") == "openrouter/nemotron:free"
+    assert format_model("gpt-4o") == "gpt-4o"
 
 
 def test_kademe_bilinmiyorsa_satir_degismez() -> None:
@@ -30,7 +48,7 @@ def test_kademe_bilinmiyorsa_satir_degismez() -> None:
     assert format_served_model("gemini_web/isimdijital/auto", "") == format_model(
         "gemini_web/isimdijital/auto"
     )
-    assert format_served_model("gemini_web/isimdijital/auto", "   ") == "gemini_web/auto"
+    assert format_served_model("gemini_web/isimdijital/auto", "   ") == "gemini_web/isimdijital"
 
 
 def test_kademe_kimlikte_zaten_varsa_tekrarlanmaz() -> None:
