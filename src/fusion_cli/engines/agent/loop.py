@@ -1769,9 +1769,35 @@ def _scoped_task(task: str, history: list[Message] | None) -> str:
 def _initial_messages(
     task: str, history: list[Message] | None, *, plan_mode: bool, extra_system: str
 ) -> list[Message]:
+    """Turun mesaj listesini kur: TEK sistem mesajı + geçmiş + yeni görev.
+
+    Sistem mesajı BAŞA EKLENMEZ, geçmişinkinin YERİNE geçer. Ölçüldü: geçmiş
+    her zaman bir önceki turun `outcome.messages` listesidir ve o liste zaten bir
+    sistem mesajıyla başlar; başa bir tane daha eklemek listeyi
+    `[system, system, user, …]` yapıyordu.
+
+    Bunun görünmeyen bedeli tarayıcı sohbetiydi. `_deliver_turn` sohbeti ancak
+    gönderilmiş önek DEĞİŞMEMİŞSE sürdürür; fazladan sistem mesajı öneki
+    kaydırdığı için önek hiçbir zaman tutmuyordu. Sonuç: hem öz-denetim düzeltici
+    turu hem de TUI'deki HER takip mesajı yeni bir tarayıcı sohbeti açıyor ve
+    geçmişin tamamını tek düz metin olarak yeniden gönderiyordu — `ConversationState`
+    docstring'inin "model aynı araç çağrılarını yeniden üretir" diye ölçtüğü durumun
+    ta kendisi. Canlı izde tam olarak bu görüldü: düzeltici tur dizini baştan
+    listeledi, 1388 satırlık dosyayı yeniden okudu ve görevi kaybetti.
+
+    Sistem metni GERÇEKTEN değiştiyse (plan kipi açıldı, başka bir ders/skill
+    hatırlandı) önek zaten kasıtlı olarak tutmaz ve sohbetin sıfırlanması doğrudur:
+    model artık başka talimatlarla çalışıyordur.
+    """
     system = SYSTEM_PROMPT
     if plan_mode:
         system += f"\n\n{PLAN_MODE_PROMPT}"
     if extra_system:
         system += f"\n\n{extra_system}"
-    return [Message("system", system), *(history or []), Message("user", task)]
+    gecmis = list(history or [])
+    # Yalnızca BAŞTAKİ sistem mesajı düşürülür. Tur içinde araya giren sistem
+    # notları (değişiklik kaydı, kapı uyarısı) konuşmanın parçasıdır ve kalır;
+    # onları atmak öneki yine kaydırırdı.
+    if gecmis and gecmis[0].role == "system":
+        gecmis = gecmis[1:]
+    return [Message("system", system), *gecmis, Message("user", task)]
