@@ -301,8 +301,15 @@ def _search_lite(query: str) -> list[str]:
 
 
 #: Testlerin uç değiştirmeden kazıma mantığını sınayabilmesi için açık liste.
+#:
+#: DuckDuckGo HTML önce dener: canlı denemede (2026-08-24) Bing'in `format=rss` ucu
+#: `q=` parametresini artık yok sayıyor ve sorguyla hiç ilgisi olmayan, konuma göre
+#: genel bir akış (ör. "Astana'da nereye gidilir") döndürüyordu. `web_search` boş
+#: OLMAYAN ilk sonucu kabul ettiği için bu alakasız sonuçlar DDG'ye hiç düşmeden
+#: kullanıcıya gidiyordu. Bing yapılandırılmış XML döndürdüğü için DDG çöktüğünde
+#: son çare olarak tutulur, ama artık öncelik değildir.
 SEARCH_ENDPOINTS: tuple[Callable[[str], list[str]], ...] = (
-    _search_bing_rss,
     _search_html,
     _search_lite,
+    _search_bing_rss,
 )
