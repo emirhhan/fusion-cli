@@ -405,6 +405,69 @@ def _providers(state: ReplState, argument: str) -> str:
     return "\n".join(rows)
 
 
+def _mcp(state: ReplState, argument: str) -> str:
+    """`/mcp` — dış MCP sunucularını listele/ekle/kaldır (`fusion mcp-add` eşdeğeri).
+
+    Kullanıcı sohbette "şu MCP'yi kur" dediğinde model bunu shell aracıyla
+    `fusion mcp-add` çalıştırarak da yapabilir; bu komut aynı yazım fonksiyonunu
+    (`config.writer.write_mcp_servers`) REPL içinden kullanıcıya açar — tek
+    doğruluk kaynağı korunur, iki giriş noktası vardır (RULES.md "UI ve CLI").
+    """
+    import shlex
+
+    from ...config import writer
+    from ...config.models import McpServerConfig
+
+    parcalar = argument.strip().split(maxsplit=1)
+    alt_komut = parcalar[0].lower() if parcalar else ""
+    kalan = parcalar[1] if len(parcalar) > 1 else ""
+
+    if alt_komut in ("", "list"):
+        if not state.config.mcp_servers:
+            return messages.MCP_NO_SERVERS
+        return "\n".join(
+            f"· {sunucu.name} — {sunucu.command} {' '.join(sunucu.args)}".rstrip()
+            for sunucu in state.config.mcp_servers
+        )
+
+    if alt_komut in ("remove", "del", "delete"):
+        ad = kalan.strip()
+        if not ad:
+            return messages.MCP_REMOVE_USAGE
+        if not any(sunucu.name == ad for sunucu in state.config.mcp_servers):
+            return messages.MCP_NOT_FOUND.format(name=ad)
+        kalanlar = tuple(sunucu for sunucu in state.config.mcp_servers if sunucu.name != ad)
+        guncellenmis = replace(state.config, mcp_servers=kalanlar)
+        try:
+            writer.write_mcp_servers(guncellenmis)
+        except ConfigError as error:
+            return messages.MCP_SAVE_FAILED.format(error=error)
+        state.config = guncellenmis
+        return messages.MCP_REMOVED.format(name=ad)
+
+    if alt_komut == "add":
+        try:
+            argumanlar_ham = shlex.split(kalan)
+        except ValueError:
+            return messages.MCP_ADD_USAGE
+        if len(argumanlar_ham) < 2:
+            return messages.MCP_ADD_USAGE
+        ad, komut, *argumanlar = argumanlar_ham
+        eskiler = tuple(sunucu for sunucu in state.config.mcp_servers if sunucu.name != ad)
+        yeniden_yazildi = len(eskiler) != len(state.config.mcp_servers)
+        yeni = McpServerConfig(name=ad, command=komut, args=tuple(argumanlar))
+        guncellenmis = replace(state.config, mcp_servers=(*eskiler, yeni))
+        try:
+            writer.write_mcp_servers(guncellenmis)
+        except ConfigError as error:
+            return messages.MCP_SAVE_FAILED.format(error=error)
+        state.config = guncellenmis
+        sablon = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
+        return sablon.format(name=ad)
+
+    return messages.MCP_USAGE
+
+
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -568,6 +631,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi", usage="[add]"),
+    SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     *(
         SlashCommand(
             name,

@@ -129,6 +129,31 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
     return target
 
 
+def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
+    """Dış MCP sunucu listesini yaz; kullanıcı `mcp_servers`'ı elle düzenlemek zorunda kalmaz.
+
+    Agent'ın bu fonksiyonu kendi tool policy'sinin DIŞINDA (yalnızca CLI komutundan)
+    çağırdığından emin ol: proje kökü dışındaki `config.yaml`'a yazma yetkisi agent'ın
+    genel dosya araçlarına asla verilmez (§ güvenlik sınırı, docs/WEB_PROVIDERS.md).
+    """
+    target = path or _target_path(config)
+    existing = _read_existing(target)
+    existing["mcp_servers"] = [
+        {
+            key: value
+            for key, value in {
+                "name": server.name,
+                "command": server.command,
+                "args": list(server.args),
+            }.items()
+            if value is not None and value != ()
+        }
+        for server in config.mcp_servers
+    ]
+    _atomic_write(target, existing)
+    return target
+
+
 def _target_path(config: Config) -> Path:
     """Yazılacak dosya: yapılandırmanın geldiği dosya, yoksa kullanıcı dizini."""
     if config.source is not None:

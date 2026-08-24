@@ -132,6 +132,26 @@
                 <div class="row"><button onclick="busyClick(event, addWebSession)">Web ucunu kaydet</button></div>
               </div>
             </div>
+
+            <!-- MCP sunucuları: dış araç sunucularını panelden bağla (fusion mcp-add eşdeğeri) -->
+            <div class="web-add card" id="mcpAddCard">
+              <button type="button" class="pcard-head" onclick="toggleMcpAdd()"
+                aria-expanded="false" aria-controls="mcpAddBody">
+                <span class="name">MCP sunucusu bağla</span>
+                <span class="badge local">MCP</span>
+                <span class="caret" id="mcpCaret" aria-hidden="true">▾</span>
+              </button>
+              <div class="web-add-body" id="mcpAddBody">
+                <div id="mcpServers"></div>
+                <label class="fld">Sunucu adı <span class="fhint">(ör. github)</span>
+                  <input id="mcpName" placeholder="github" /></label>
+                <label class="fld">Komut <span class="fhint">(ör. npx)</span>
+                  <input id="mcpCommand" placeholder="npx" /></label>
+                <label class="fld">Argümanlar <span class="fhint">(boşlukla ayrılmış)</span>
+                  <input id="mcpArgs" placeholder="-y @modelcontextprotocol/server-github" /></label>
+                <div class="row"><button onclick="busyClick(event, addMcpServer)">MCP sunucusunu kaydet</button></div>
+              </div>
+            </div>
           </div>
 
           <!-- YÖNLENDİRME -->

@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
 
 from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
-from ..config.models import Config
+from ..config.models import Config, McpServerConfig
 from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
@@ -206,6 +206,12 @@ class GatewayApp:
         if method == "POST" and path == "/api/web_sessions/eval":
             await self._api_eval_web_session(receive, send)
             return
+        if method == "POST" and path == "/api/mcp_servers":
+            await self._api_add_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/delete":
+            await self._api_delete_mcp_server(receive, send)
+            return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
             return
@@ -232,6 +238,9 @@ class GatewayApp:
                 "judge": list(self._config.judge.models),
                 "web_sessions": [
                     self._web_session_json(session) for session in self._config.web_sessions
+                ],
+                "mcp_servers": [
+                    self._mcp_server_json(server) for server in self._config.mcp_servers
                 ],
                 "health": self._health_json(),
                 "models": available_models(self._config),
@@ -705,6 +714,52 @@ class GatewayApp:
             "profile_exists": profile_exists,
             "connected": secret_saved or profile_exists or session.transport == "http",
         }
+
+    def _mcp_server_json(self, server: McpServerConfig) -> dict[str, Any]:
+        return {"name": server.name, "command": server.command, "args": list(server.args)}
+
+    async def _api_add_mcp_server(self, receive: Receive, send: Send) -> None:
+        """Panelden dış bir MCP sunucusu ekle/güncelle — `fusion mcp-add`'in panel eşdeğeri."""
+        from ..config import writer
+
+        body = await _read_json(receive)
+        name = str(body.get("name", "")).strip()
+        command = str(body.get("command", "")).strip()
+        args = tuple(str(item) for item in body.get("args", []) if str(item).strip())
+        if not name or not command:
+            await _json(send, _error_body("ad ve komut zorunlu"), status=400)
+            return
+        others = tuple(item for item in self._config.mcp_servers if item.name != name)
+        yeni = McpServerConfig(name=name, command=command, args=args)
+        updated = _dc_replace(self._config, mcp_servers=(*others, yeni))
+        try:
+            writer.write_mcp_servers(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "name": name})
+
+    async def _api_delete_mcp_server(self, receive: Receive, send: Send) -> None:
+        from ..config import writer
+
+        body = await _read_json(receive)
+        name = str(body.get("name", "")).strip()
+        found = next((item for item in self._config.mcp_servers if item.name == name), None)
+        if found is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        others = tuple(item for item in self._config.mcp_servers if item.name != name)
+        updated = _dc_replace(self._config, mcp_servers=others)
+        try:
+            writer.write_mcp_servers(updated)
+        except ConfigError as error:
+            await _json(send, _error_body(str(error)), status=500)
+            return
+        self._config = updated
+        self._config_revision = revision(updated)
+        await _json(send, {"ok": True, "name": name})
 
     async def _api_ready(self, send: Send) -> None:
         """Gateway kullanıma hazır mı? API veya etkin yerel web oturumu var mı?"""

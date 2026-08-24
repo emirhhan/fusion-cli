@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Awaitable
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, TypeVar
 
@@ -414,6 +414,39 @@ def mcp_tools() -> None:
                     )
 
     asyncio.run(_run())
+
+
+@app.command(name="mcp-add")
+def mcp_add(
+    name: Annotated[str, typer.Argument(help="Sunucuya vereceğin kısa ad (ör. github).")],
+    command: Annotated[str, typer.Argument(help="Çalıştırılacak komut (ör. npx).")],
+    args: Annotated[
+        list[str] | None,
+        typer.Argument(help="Komuta verilecek argümanlar. `-` ile başlıyorsa önce -- koy."),
+    ] = None,
+) -> None:
+    """Dış bir MCP sunucusunu `config.yaml`'a ekle; kullanıcı config'i elle düzenlemez.
+
+    Agent bu komutu KENDİ dosya araçlarıyla DEĞİL, yalnızca bu CLI komutunu shell'de
+    çalıştırarak tetikler — `config.yaml` agent'ın genel yazma sınırının dışındadır
+    (güvenlik sınırı, docs/WEB_PROVIDERS.md ile aynı ilke).
+
+    Örnek: `fusion mcp-add github npx -- -y @modelcontextprotocol/server-github`
+    (argümanlar `-` ile başlıyorsa Typer'ın seçenek sanmaması için `--` şart).
+    """
+    from ..config.models import McpServerConfig
+    from ..config.writer import write_mcp_servers
+
+    config = load_config()
+    kalanlar = tuple(server for server in config.mcp_servers if server.name != name)
+    yeniden_yazildi = len(kalanlar) != len(config.mcp_servers)
+    yeni = McpServerConfig(name=name, command=command, args=tuple(args or ()))
+    guncellenmis = replace(config, mcp_servers=(*kalanlar, yeni))
+
+    path = write_mcp_servers(guncellenmis)
+    template = messages.MCP_REPLACED if yeniden_yazildi else messages.MCP_ADDED
+    console.print(template.format(name=name))
+    console.print(f"[{theme.DIM}]{path}[/{theme.DIM}]")
 
 
 @app.command()

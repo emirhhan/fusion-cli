@@ -256,3 +256,55 @@ function bindWebSessionForm() {
   $("nativeWebAccount").addEventListener("input", updateNativeModel);
   bindModalDavranisi();
 }
+
+/* --------------------------------------------------------------------- */
+/* MCP sunucuları — `fusion mcp-add`'in panel eşdeğeri                    */
+/* --------------------------------------------------------------------- */
+
+function mcpServerCard(server) {
+  const args = (server.args || []).join(" ");
+  return `<div class="pcard"><div class="pcard-head"><span class="name">${server.name}</span></div>
+    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${server.command}${args ? " " + args : ""}</div>
+    <div class="row"><button class="danger" onclick="delMcpServer('${server.name}')">Sil</button></div></div>`;
+}
+
+// STATE her yüklendiğinde çağrılır (render() → renderMcpServers()); STATE henüz
+// yoksa (ilk yükleme tamamlanmadan) sessizce çıkar.
+function renderMcpServers() {
+  const kutu = $("mcpServers");
+  if (!kutu || !STATE) return;
+  const servers = STATE.mcp_servers || [];
+  kutu.innerHTML = servers.length
+    ? servers.map(mcpServerCard).join("")
+    : `<div class="hint">Henüz bağlı MCP sunucusu yok.</div>`;
+}
+
+function setMcpAddOpen(acik) {
+  $("mcpAddCard").classList.toggle("open", acik);
+  $("mcpAddCard").querySelector(".pcard-head").setAttribute("aria-expanded", String(acik));
+}
+
+function toggleMcpAdd() {
+  setMcpAddOpen(!$("mcpAddCard").classList.contains("open"));
+}
+
+// Argümanlar kullanıcıdan boşlukla ayrılmış tek satır alınır (`fusion mcp-add`
+// komutundaki `--` kuralına eşdeğer bir kabuk ayrıştırması gerekmez: form alanı
+// zaten tek bir metin kutusu, `-y` gibi bayraklar burada seçenek sanılmaz).
+async function addMcpServer() {
+  const name = $("mcpName").value.trim();
+  const command = $("mcpCommand").value.trim();
+  const args = $("mcpArgs").value.trim().split(/\s+/).filter(Boolean);
+  if (!name || !command) return toast("ad ve komut gerekli", true);
+  try {
+    await post("/api/mcp_servers", { name, command, args });
+    toast(name + " MCP sunucusu bağlandı — etkinleşmesi için Fusion'ı yeniden başlat");
+    $("mcpName").value = ""; $("mcpCommand").value = ""; $("mcpArgs").value = "";
+    await load();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function delMcpServer(name) {
+  try { await post("/api/mcp_servers/delete", { name }); toast(name + " kaldırıldı"); await load(); }
+  catch (e) { toast(e.message, true); }
+}

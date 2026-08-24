@@ -705,6 +705,86 @@ def test_undo_son_turun_dosyalarini_geri_alir(state, tmp_path):
     assert state.last_changes is None, "aynı kayıt iki kez geri alınmamalı"
 
 
+# --- /mcp -------------------------------------------------------------------- #
+
+
+def test_mcp_bos_argumanla_sunucu_yoksa_kurulum_ipucu_verir(state):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    komut = build_registry().get("mcp")
+
+    assert komut is not None
+    assert komut.handler(state, "") == messages.MCP_NO_SERVERS
+
+
+def test_mcp_add_sunucu_ekler_ve_listede_gorunur(state, tmp_path, monkeypatch):
+    from fusion_cli.cli.repl.commands import build_registry
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    sonuc = komut.handler(state, "add github npx -y server-github")
+
+    assert "github" in sonuc
+    assert any(s.name == "github" for s in state.config.mcp_servers)
+    liste = komut.handler(state, "")
+    assert "github" in liste and "npx" in liste
+
+
+def test_mcp_ayni_ada_eklenince_uzerine_yazar(state, tmp_path, monkeypatch):
+    from fusion_cli.cli.repl.commands import build_registry
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    komut.handler(state, "add github npx eski-paket")
+    komut.handler(state, "add github npx yeni-paket")
+
+    eslesenler = [s for s in state.config.mcp_servers if s.name == "github"]
+    assert len(eslesenler) == 1
+    assert eslesenler[0].args == ("yeni-paket",)
+
+
+def test_mcp_remove_sunucuyu_kaldirir(state, tmp_path, monkeypatch):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    komut.handler(state, "add github npx")
+    sonuc = komut.handler(state, "remove github")
+
+    assert sonuc == messages.MCP_REMOVED.format(name="github")
+    assert not state.config.mcp_servers
+
+
+def test_mcp_olmayan_sunucuyu_kaldirmaya_calisinca_bilgi_verir(state):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    sonuc = komut.handler(state, "remove yok-boyle-bir-sey")
+
+    assert sonuc == messages.MCP_NOT_FOUND.format(name="yok-boyle-bir-sey")
+
+
+def test_mcp_add_eksik_argumanla_kullanim_gosterir(state):
+    from fusion_cli.cli.repl.commands import build_registry
+    from fusion_cli.ui import messages
+
+    komut = build_registry().get("mcp")
+    assert komut is not None
+
+    assert komut.handler(state, "add sadece-ad") == messages.MCP_ADD_USAGE
+
+
 # --- REPL ile tek-atış yolu aynı bağımlılıkları kurmalı ---------------------- #
 
 

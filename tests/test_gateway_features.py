@@ -198,6 +198,40 @@ async def test_web_session_silinir(tmp_path):
     assert "sil-beni" not in [s["model"] for s in state["web_sessions"]]
 
 
+async def test_mcp_sunucusu_eklenir_ve_durumda_gorunur(tmp_path):
+    """Panelden eklenen MCP sunucusu config'e yazılır ve /api/state'te listelenir."""
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        resp = await client.post(
+            "/api/mcp_servers",
+            json={"name": "github", "command": "npx", "args": ["-y", "server-github"]},
+        )
+        assert resp.json()["ok"] is True
+        state = (await client.get("/api/state")).json()
+
+    isimler = [s["name"] for s in state["mcp_servers"]]
+    assert "github" in isimler
+    kayit = next(s for s in state["mcp_servers"] if s["name"] == "github")
+    assert kayit["args"] == ["-y", "server-github"]
+
+
+async def test_mcp_sunucusu_ad_ve_komut_zorunlu(tmp_path):
+    async with _client(_app(tmp_path)) as client:
+        resp = await client.post("/api/mcp_servers", json={"name": "", "command": "npx"})
+    assert resp.status_code == 400
+
+
+async def test_mcp_sunucusu_silinir(tmp_path):
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        await client.post("/api/mcp_servers", json={"name": "sil-beni", "command": "npx"})
+        resp = await client.post("/api/mcp_servers/delete", json={"name": "sil-beni"})
+        assert resp.json()["ok"] is True
+        state = (await client.get("/api/state")).json()
+
+    assert "sil-beni" not in [s["name"] for s in state["mcp_servers"]]
+
+
 async def test_config_export_ucu(tmp_path):
     async with _client(_app(tmp_path)) as client:
         d = (await client.get("/api/config/export")).json()

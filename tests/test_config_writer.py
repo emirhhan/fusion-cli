@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 import yaml
 
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.model_select import apply_tier
-from fusion_cli.config.writer import write_model_section
+from fusion_cli.config.models import McpServerConfig
+from fusion_cli.config.writer import write_mcp_servers, write_model_section
 from fusion_cli.core.errors import ConfigError
 
 
@@ -111,3 +114,42 @@ def test_yazim_atomiktir_gecici_dosya_birakilmaz(tmp_path):
     write_model_section(load_config(), hedef)
 
     assert [item.name for item in tmp_path.iterdir()] == ["config.yaml"]
+
+
+# --- MCP sunucu listesi ------------------------------------------------------ #
+
+
+def test_mcp_sunucusu_yazilip_geri_okunabilir(tmp_path):
+    """Round-trip: `fusion mcp-add` ile eklenen sunucu yükleyiciden aynen döner."""
+    hedef = tmp_path / "config.yaml"
+    sunucu = McpServerConfig(name="github", command="npx", args=("-y", "server-github"))
+    config = replace(load_config(), mcp_servers=(sunucu,))
+
+    write_mcp_servers(config, hedef)
+    geri = load_config(hedef)
+
+    assert geri.mcp_servers == (sunucu,)
+
+
+def test_mcp_sunucusu_ayni_ada_yazilinca_uzerine_yazilir(tmp_path):
+    """`mcp-add` aynı adla tekrar çağrılırsa eski komut değil yenisi kalmalı."""
+    hedef = tmp_path / "config.yaml"
+    eski = McpServerConfig(name="github", command="npx", args=("-y", "eski-paket"))
+    write_mcp_servers(replace(load_config(), mcp_servers=(eski,)), hedef)
+
+    yeni = McpServerConfig(name="github", command="npx", args=("-y", "yeni-paket"))
+    write_mcp_servers(replace(load_config(), mcp_servers=(yeni,)), hedef)
+
+    assert load_config(hedef).mcp_servers == (yeni,)
+
+
+def test_mcp_sunucusu_diger_bolumlere_dokunmaz(tmp_path):
+    """Kullanıcının elle ayarladığı `runtime` gibi bölümler MCP yazımında kaybolmamalı."""
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text(yaml.safe_dump({"runtime": {"max_tokens": 99}}), encoding="utf-8")
+    sunucu = McpServerConfig(name="github", command="npx")
+
+    write_mcp_servers(replace(load_config(), mcp_servers=(sunucu,)), hedef)
+
+    yazilan = yaml.safe_load(hedef.read_text(encoding="utf-8"))
+    assert yazilan["runtime"] == {"max_tokens": 99}

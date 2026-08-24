@@ -47,6 +47,26 @@ def test_run_bos_gorevi_reddeder():
     assert result.exit_code != 0
 
 
+def test_mcp_add_config_yaml_a_yazar(tmp_path, monkeypatch):
+    """`fusion mcp-add` kullanıcının config.yaml içine dış MCP sunucusu ekler.
+
+    Agent'ın kendi dosya araçlarıyla değil bu komut üzerinden ekleyebildiğini —
+    ve eklenenin gerçekten diskte kalıcı olduğunu — doğrular.
+    """
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+
+    result = runner.invoke(
+        app_module.app,
+        ["mcp-add", "github", "npx", "--", "-y", "server-github"],
+    )
+
+    assert result.exit_code == 0
+    yazilan = (tmp_path / "fusion-cli" / "config.yaml").read_text(encoding="utf-8")
+    assert "name: github" in yazilan
+    assert "command: npx" in yazilan
+    assert "server-github" in yazilan
+
+
 def _sonuc(source):
     return FusionResult(
         task="t",

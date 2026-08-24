@@ -319,6 +319,7 @@ function render() {
     ? "Anahtarlar ŞİFRELİ saklanır ve hemen etkinleşir."
     : "Not: FUSION_SECRET_KEY ayarlı değil — anahtar yalnızca bu oturumda geçerli olur (şifreli kaydedilmez).";
   renderProviders();  // kategori + arama filtresiyle grupla
+  renderMcpServers();
 
   const sel = $("strategy");
   sel.innerHTML = s.routing.options.map((o) => `<option ${o === s.routing.current ? "selected" : ""}>${o}</option>`).join("");
