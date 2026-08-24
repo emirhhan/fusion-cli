@@ -152,6 +152,9 @@ async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
     assert not (tmp_path / "a.txt").exists()
     arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
     assert "onaylanmadı" in arac_mesaji.content
+    # Reddedilen adımın verisini uydurma uyarısı: canlı izde model reddi kabul
+    # edip yine de teslim dosyasına ezberden "gerçek" görünen değer yazmıştı.
+    assert "UYDUR" in arac_mesaji.content
     # Reddetme refleksiyon notu tetiklememeli.
     assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
     olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
@@ -277,6 +280,29 @@ async def test_plan_modu_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     assert "PLAN MODUNDASIN" in sistem.content
 
 
+async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(
+    monkeypatch, tmp_path, sink
+):
+    """OpenCode'un 'Custom Instructions' katmanı: proje kökündeki CLAUDE.md garantili okunur."""
+    (tmp_path / "CLAUDE.md").write_text("Bu projede daima Türkçe yorum yaz.", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+
+    sistem = provider.seen_messages[0][0]
+    assert "Bu projede daima Türkçe yorum yaz." in sistem.content
+    assert "CLAUDE.md" in sistem.content
+
+
+async def test_talimat_dosyasi_yoksa_sistem_promptu_etkilenmez(monkeypatch, tmp_path, sink):
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink))
+
+    sistem = provider.seen_messages[0][0]
+    assert "proje_talimati" not in sistem.content
+
+
 async def test_alt_ajan_temiz_baglamla_calisir(monkeypatch, tmp_path, sink):
     _kur(
         monkeypatch,
@@ -368,7 +394,7 @@ async def test_oz_denetim_sorun_bulursa_duzeltici_tur_calisir(monkeypatch, tmp_p
 async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
     _kur(monkeypatch, ScriptedProvider([model_result("cevap")]))
 
-    async def _sikistir(messages, *, config, publisher=None):
+    async def _sikistir(messages, *, config, publisher=None, threshold_chars=None):
         return messages[:1]
 
     monkeypatch.setattr(agent_loop.compaction, "compress", _sikistir)

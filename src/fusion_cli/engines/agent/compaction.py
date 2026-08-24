@@ -30,10 +30,14 @@ TRACE_CHARS = 60_000
 
 
 async def compress(
-    messages: list[Message], *, config: Config, publisher: EventPublisher | None = None
+    messages: list[Message],
+    *,
+    config: Config,
+    publisher: EventPublisher | None = None,
+    threshold_chars: int | None = None,
 ) -> list[Message]:
     """Geçmiş eşiği aştıysa eski kısmı özetle. Aksi halde aynen döndür."""
-    if not history.needs_compression(messages):
+    if not history.needs_compression(messages, threshold_chars=threshold_chars):
         return messages
 
     cut = history.safe_cut(messages)

@@ -422,6 +422,13 @@ def trim_to_prompt_budget(prompt: str) -> str:
     pay = MAX_WEB_PROMPT_CHARS - len(isaret)
     kuyruk = min(PROMPT_TAIL_KEEP, pay)
     bas = pay - kuyruk
+
+    # Satır ortasında kesmeyi önle: baş kısmını en yakın satır sonuna hizala
+    sub_bas = prompt[:bas]
+    last_nl = sub_bas.rfind("\n")
+    if last_nl > 100:
+        bas = last_nl + 1
+
     return prompt[:bas] + isaret + prompt[len(prompt) - kuyruk :]
 
 

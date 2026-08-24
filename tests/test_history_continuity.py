@@ -132,3 +132,19 @@ def test_sistemsiz_gecmis_de_desteklenir() -> None:
     mesajlar = _initial_messages("görev", onceki, plan_mode=False, extra_system="")
 
     assert [m.role for m in mesajlar] == ["system", "user", "assistant", "user"]
+
+
+def test_web_compression_threshold() -> None:
+    from fusion_cli.engines.agent.history import (
+        WEB_COMPRESS_THRESHOLD_CHARS,
+        needs_compression,
+    )
+
+    kisa_mesajlar = [Message("user", "x" * 15_000), Message("assistant", "y" * 5_000)]
+    uzun_web_mesajlar = [Message("user", "x" * 15_000), Message("assistant", "y" * 10_000)]
+
+    assert not needs_compression(kisa_mesajlar, threshold_chars=WEB_COMPRESS_THRESHOLD_CHARS)
+    assert needs_compression(uzun_web_mesajlar, threshold_chars=WEB_COMPRESS_THRESHOLD_CHARS)
+    # 25.000 karakter standart 177.000 karakterlik API eşiğini aşmaz
+    assert not needs_compression(uzun_web_mesajlar)
+

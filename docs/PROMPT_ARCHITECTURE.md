@@ -8,8 +8,24 @@ Agent'ın sistem promptu tek devasa metin değildir; `_initial_messages`
 ```
 SYSTEM_PROMPT (system.md)          # kimlik + ton + çalışma yöntemi + doğrulama + güvenlik
   + PLAN_MODE_PROMPT (plan_mode.md)  # yalnızca plan modunda: mutasyon yasağı
-  + extra_system                     # ders belleği + uzmanlık (skill) + makro kipi
+  + extra_system                     # proje talimatı + ders belleği + uzmanlık (skill) + makro kipi
 ```
+
+`extra_system` kendi içinde katmanlıdır (`run_agent`, `engines/agent/loop.py`):
+
+```
+proje_talimati   # HEDEF projenin kendi CLAUDE.md/AGENTS.md'si (varsa) — project_instructions.py
+  + remembered     # önceki turlardan hatırlanan ders
+  + expertise       # göreve uygun skill (varsa)
+  + extra_system    # çağıranın (alt-ajan, düzeltici tur) verdiği ek metin
+```
+
+`proje_talimati` OpenCode'un "Custom Instructions" katmanının karşılığıdır: Fusion kendi
+RULES.md/CLAUDE.md'sini nasıl okuyorsa, üzerinde çalıştığı HEDEF proje de kendi kuralını
+tanımlamış olabilir. Bu katman olmadan model bunu ancak KENDİ kararıyla `read_file` ile
+bulabiliyordu — garantisiz. `read_project_instructions` yalnızca proje köküne (sığ) bakar
+ve `MAX_CHARS` (8.000) ile kırpar; RULES.md gibi uzun bir dosya tek başına bağlam bütçesini
+tüketmesin diye.
 
 Prompt metinleri koda gömülü değildir; `engines/agent/prompts/*.md` altında paket
 verisi olarak tutulur (RULES: uzun prompt metinleri ayrı dosyada) ve import anında

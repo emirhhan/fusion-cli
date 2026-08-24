@@ -41,13 +41,19 @@ TRACE_MESSAGE_CHARS = 300
 TRACE_TOTAL_CHARS = 3_000
 
 
+#: Web oturumları için sıkıştırma eşiği (30.000 karakterlik web prompt bütçesinin altında).
+WEB_COMPRESS_THRESHOLD_CHARS = 24_000
+
 def total_chars(messages: Sequence[Message]) -> int:
     """Geçmişin kabaca büyüklüğü."""
     return sum(len(message.content) for message in messages)
 
 
-def needs_compression(messages: Sequence[Message]) -> bool:
-    return total_chars(messages) >= COMPRESS_THRESHOLD_CHARS
+def needs_compression(
+    messages: Sequence[Message], threshold_chars: int | None = None
+) -> bool:
+    limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
+    return total_chars(messages) >= limit
 
 
 def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGES) -> int:

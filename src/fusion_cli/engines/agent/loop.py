@@ -69,12 +69,13 @@ from ...tools.emulation import render_tool_example, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, learning_steps, reflexion, review, skill_recall
+from . import compaction, history, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
 from .classify import TaskKind, classify_task, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
+from .project_instructions import read_project_instructions
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -123,10 +124,20 @@ MAX_EXPLORE_PUSHES = 2
 #: Eski metin ("kullanıcı bu işlemi onaylamadı") ikinci durumda yanlıştı —
 #: ölçüldü: boru hattında çalışan bir turda kimse reddetmemişti, model yine de
 #: reddedildiğini sandı ve ne yapacağını bilemeden turu tüketti.
+#:
+#: Son cümle (UYDURMA UYARISI) sonradan eklendi. Ölçüldü: reddedilen adım gerçek
+#: veri getirecekti (ör. `git clone` sonrası dosya okuma); model reddi metinde
+#: kabul etti ama ÇIKTI DOSYASINA yine de ezberden "gerçek" görünen değerler
+#: yazdı — kullanıcı çıktıyı kaynağa dayalı sandı. "Adımı neden atladığını yaz"
+#: talimatı SOHBETİ kapsıyordu, TESLİM EDİLEN dosyayı değil; bu satır o boşluğu
+#: doğrudan, reddin olduğu anda (en yüksek dikkat anında) kapatır.
 DENIED_MESSAGE = (
     "Bu işlem onaylanmadı — kullanıcı reddetmiş ya da oturum etkileşimsiz olduğu "
     "için onay alınamamış olabilir. Onay GEREKTİRMEYEN bir yol dene (dosya "
-    "araçları onay istemez); mümkün değilse bu adımı neden atladığını açıkça yaz."
+    "araçları onay istemez); mümkün değilse bu adımı neden atladığını açıkça yaz. "
+    "Bu adımın getireceği veriyi (dosya içeriği, sayı, açıklama…) ASLA ezberden ya "
+    "da tahminle üretip teslim ettiğin dosyaya/cevaba yazma — reddedilen adımı "
+    "atladığını söylemek yeterli değildir, UYDURULMUŞ değeri de yazmamalısın."
 )
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
 BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
@@ -336,11 +347,14 @@ async def run_agent(
     recalled = learning_steps.recall_lessons(task, deps, scope=recall_scope(kind))
     remembered = as_prompt_block(recalled)
     expertise = _recall_skill(kind, deps, depth=depth)
+    proje_talimati = read_project_instructions(deps.tool_context.root)
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
-        extra_system="\n\n".join(part for part in (remembered, expertise, extra_system) if part),
+        extra_system="\n\n".join(
+            part for part in (proje_talimati, remembered, expertise, extra_system) if part
+        ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
@@ -1793,7 +1807,15 @@ async def _fix_findings(
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
-    compressed = await compaction.compress(messages, config=deps.config, publisher=deps.publisher)
+    threshold = (
+        history.WEB_COMPRESS_THRESHOLD_CHARS
+        if (deps.execution and deps.execution.is_web)
+        or (deps.config.web_sessions and any(s.enabled for s in deps.config.web_sessions))
+        else history.COMPRESS_THRESHOLD_CHARS
+    )
+    compressed = await compaction.compress(
+        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
+    )
     if len(compressed) < before:
         deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
     return compressed
