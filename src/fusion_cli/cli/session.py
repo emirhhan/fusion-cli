@@ -175,7 +175,7 @@ async def run_agent_task(
             task_type=task_type,
             background=background,
         )
-        outcome = await run_agent(task, deps, history=history, plan_mode=mode is ApprovalMode.PLAN)
+        outcome = await _run_agent_with_mcp(task, deps, config, bus, history=history, mode=mode)
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
@@ -200,6 +200,41 @@ async def run_agent_task(
             bus.publish(FilesChanged(_changed_names(tool_context)))
         bus.publish(TurnFinished())
         return outcome
+
+
+async def _run_agent_with_mcp(
+    task: str,
+    deps: AgentDeps,
+    config: Config,
+    bus: EventBus,
+    *,
+    history: list[Message] | None,
+    mode: ApprovalMode,
+) -> AgentOutcome:
+    """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
+
+    `fusion agent`/tek-atış CLI yolu MCP'siz çalışıyordu — yalnızca REPL
+    (`cli/repl/loop.py`) dış araçları bağlıyordu. Kullanıcı "şu MCP'yi kur"
+    dedikten sonra `fusion agent` ile de bir görev verirse (ör. otomasyon
+    betiği) bağlı MCP'nin araçları modele hiç sunulmuyordu. MCP bir
+    zenginleştirmedir; kurulu değilse ya da bağlanamazsa tur YİNE DE
+    MCP'siz devam eder (REPL ile aynı davranış).
+    """
+    plan_mode = mode is ApprovalMode.PLAN
+    if not config.mcp_servers:
+        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+    try:
+        from ..mcp_bridge.client import McpClient
+    except ImportError:
+        bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
+        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+    try:
+        async with McpClient(config.mcp_servers) as client:
+            await client.register_into(deps.base_registry)
+            return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+    except Exception as error:
+        bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
+        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

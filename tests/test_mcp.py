@@ -10,8 +10,12 @@ from __future__ import annotations
 import sys
 
 from fusion_cli.config.models import McpServerConfig
+from fusion_cli.core.types import Message
+from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.mcp_bridge.client import McpClient
 from fusion_cli.mcp_bridge.server import build_server
+
+from .fakes import make_config
 
 
 def _server_config(root):
@@ -62,3 +66,50 @@ async def test_register_into_araclari_kayit_defterine_ekler(tmp_path):
     tool = registry.get("fusion__list_dir")
     assert tool is not None
     assert tool.mutating is True
+
+
+# --- fusion agent (tek-atış CLI) MCP'ye bağlanır ---------------------------- #
+
+
+async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
+    monkeypatch, tmp_path
+):
+    """`fusion agent` (tek-atış) yolu, REPL gibi, dış MCP araçlarını modele sunmalı.
+
+    Önceden yalnızca REPL (`cli/repl/loop.py`) MCP'ye bağlanıyordu; kullanıcı
+    "şu MCP'yi kur" dedikten sonra `fusion agent` ile (ör. otomasyon betiğinde)
+    görev verirse bağlı MCP'nin araçları modele HİÇ sunulmuyordu. Bu test gerçek
+    bir MCP sunucusuna (Fusion'ın kendisi, stdio alt-süreç) bağlanıp aracın
+    `run_agent`'a geçmeden ÖNCE kayıt defterinde göründüğünü doğrular.
+    """
+    from fusion_cli.cli import session
+
+    gorulen_registry: list[object] = []
+
+    async def fake_run_agent(_task, deps, *, history=None, plan_mode=False):
+        del history, plan_mode
+        gorulen_registry.append(deps.base_registry)
+        return AgentOutcome(final_text="tamam", messages=[Message("user", "görev")], ok=True)
+
+    monkeypatch.setattr(session, "run_agent", fake_run_agent)
+
+    class _Prompter:
+        async def confirm(self, _request):
+            return True
+
+        async def ask(self, _question):
+            return ""
+
+    config = make_config(mcp_servers=(_server_config(tmp_path),), runtime={"lessons": False})
+
+    await session.run_agent_task(
+        "görev",
+        config,
+        sinks=(),
+        prompter_factory=lambda _drain: _Prompter(),
+        root=tmp_path,
+        interactive=False,
+    )
+
+    assert len(gorulen_registry) == 1
+    assert gorulen_registry[0].get("fusion__list_dir") is not None
