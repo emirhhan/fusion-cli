@@ -422,7 +422,7 @@ async def run_agent(
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
-    while verify and budget.take_verify_round():
+    while (verify and budget.stop is None and budget.take_verify_round()):
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
         # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
         # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
