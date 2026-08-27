@@ -127,11 +127,15 @@ PIP="$VENV/bin/python -m pip"
 # gösterilir, yoksa kullanıcı "Kurulum başarısız" cümlesiyle baş başa kalır.
 adim "Bağımlılıklar kuruluyor (chromadb büyük; ilk kurulum birkaç dakika sürebilir)…"
 $PIP install --quiet --upgrade pip
-if ! $PIP install --quiet -e ".[dev]"; then
+if ! $PIP install --quiet -e ".[dev,mcp,web]"; then
     uyari "Sessiz kurulum başarısız; gerçek hata aşağıda:"
-    $PIP install -e ".[dev]" || hata "Kurulum başarısız."
+    $PIP install -e ".[dev,mcp,web]" || hata "Kurulum başarısız."
 fi
-bitti "Paket ve geliştirme araçları kuruldu (editable)."
+bitti "Paket, MCP, web ve geliştirme araçları kuruldu (editable)."
+
+adim "Playwright Chromium kuruluyor…"
+"$VENV/bin/python" -m playwright install chromium || hata "Playwright Chromium kurulamadı."
+bitti "Playwright Chromium hazır."
 
 # --- 4. .env (yalnızca geliştirici kurulumu) ------------------------------------ #
 # Normal kullanıcının anahtarları KULLANICI DİZİNİNDE tutulur (`fusion setup`).

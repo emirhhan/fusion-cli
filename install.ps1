@@ -136,15 +136,20 @@ Bitti "Sanal ortam hazir: $venv"
 $venvPy = "$venv\Scripts\python.exe"
 Adim 'Bagimliliklar kuruluyor (chromadb buyuk; ilk kurulum birkac dakika surebilir)...'
 & $venvPy -m pip install --quiet --upgrade pip
-& $venvPy -m pip install --quiet -e ".[dev]"
+& $venvPy -m pip install --quiet -e ".[dev,mcp,web]"
 if ($LASTEXITCODE -ne 0) {
     # Sessiz kurulum basarisizsa gercek pip hatasini goster: "basarisiz" cumlesi
     # tek basina kullaniciyi ileri goturmez.
     Uyari 'Sessiz kurulum basarisiz; gercek hata asagida:'
-    & $venvPy -m pip install -e ".[dev]"
+    & $venvPy -m pip install -e ".[dev,mcp,web]"
     if ($LASTEXITCODE -ne 0) { Hata 'Kurulum basarisiz.' }
 }
-Bitti 'Paket ve gelistirme araclari kuruldu (editable).'
+Bitti 'Paket, MCP, web ve gelistirme araclari kuruldu (editable).'
+
+Adim 'Playwright Chromium kuruluyor...'
+& $venvPy -m playwright install chromium
+if ($LASTEXITCODE -ne 0) { Hata 'Playwright Chromium kurulamadi.' }
+Bitti 'Playwright Chromium hazir.'
 
 if (-not (Test-Path '.env')) {
     Copy-Item '.env.example' '.env'
