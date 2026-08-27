@@ -56,7 +56,10 @@ class WorkLineSink:
             # üretmiştir. Ne çalıştığı görünmezse yanlış model sessizce çalışır.
             self._model = format_model(event.model)
             self._tokens = 0
-            self._started_at = self._clock.monotonic()
+            # Ana sayaç MODEL çağrısını değil kullanıcı TURUNU ölçer. Araçtan
+            # sonra başlayan ikinci/üçüncü model çağrısında sıfırlanmaz.
+            if self._started_at is None:
+                self._started_at = self._clock.monotonic()
         elif isinstance(event, ModelCallFinished):
             if event.background:
                 return

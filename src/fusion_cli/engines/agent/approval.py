@@ -43,6 +43,14 @@ class Decision(Enum):
     BLOCKED = "blocked"
 
 
+class ApprovalAnswer(Enum):
+    """Etkileşimli onay ekranının daha zengin kullanıcı kararı."""
+
+    ONCE = "once"
+    SESSION = "session"
+    DENY = "deny"
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovalRequest:
     """Onaya sunulan araç çağrısı."""
@@ -63,7 +71,7 @@ class ApprovalRequest:
 class Prompter(Protocol):
     """Kullanıcıya evet/hayır sorabilen taraf. Motor terminali böyle görmez."""
 
-    async def confirm(self, request: ApprovalRequest) -> bool: ...
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer: ...
 
 
 class ApprovalPolicy(Protocol):
@@ -83,11 +91,14 @@ class AutoApproval:
 
     def __init__(self, prompter: Prompter) -> None:
         self._prompter = prompter
+        self._session_allowed: set[str] = set()
 
     async def decide(self, request: ApprovalRequest) -> Decision:
         if request.danger is None and request.unattended_safe:
             return Decision.ALLOW
-        return _from_answer(await self._prompter.confirm(request))
+        if request.danger is None and _scope(request) in self._session_allowed:
+            return Decision.ALLOW
+        return await _ask_and_remember(self._prompter, request, self._session_allowed)
 
 
 class SecurityApproval:
@@ -99,11 +110,14 @@ class SecurityApproval:
 
     def __init__(self, prompter: Prompter) -> None:
         self._prompter = prompter
+        self._session_allowed: set[str] = set()
 
     async def decide(self, request: ApprovalRequest) -> Decision:
         if request.pre_allowed and request.danger is None:
             return Decision.ALLOW
-        return _from_answer(await self._prompter.confirm(request))
+        if request.danger is None and _scope(request) in self._session_allowed:
+            return Decision.ALLOW
+        return await _ask_and_remember(self._prompter, request, self._session_allowed)
 
 
 class PlanApproval:
@@ -140,5 +154,25 @@ def build_request(
     )
 
 
-def _from_answer(approved: bool) -> Decision:
-    return Decision.ALLOW if approved else Decision.DENIED
+async def _ask_and_remember(
+    prompter: Prompter,
+    request: ApprovalRequest,
+    session_allowed: set[str],
+) -> Decision:
+    answer = await prompter.confirm(request)
+    if answer is ApprovalAnswer.SESSION:
+        # Yıkıcı işlemler hiçbir zaman oturum iznine dönüşmez. UI bu seçeneği
+        # zaten göstermez; ikinci savunma hattı özel prompter'ları da kapsar.
+        if request.danger is None:
+            session_allowed.add(_scope(request))
+        return Decision.ALLOW
+    if answer is ApprovalAnswer.ONCE or answer is True:
+        return Decision.ALLOW
+    return Decision.DENIED
+
+
+def _scope(request: ApprovalRequest) -> str:
+    """Oturum izninin dar kapsamı: araç ya da aynı shell komutu."""
+    if request.tool.name == "run_shell":
+        return f"run_shell:{str(request.args.get('command', '')).strip()}"
+    return request.tool.name

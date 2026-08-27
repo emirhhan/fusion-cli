@@ -333,6 +333,19 @@ class NoFileChanges(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TurnOutcome(Event):
+    """Runtime'ın kesin tur sonucu; modelin doğal dil iddiasından bağımsızdır.
+
+    `completed`, `partial` ve `failed` değerleri UI tarafından açık bir kapanış
+    satırına çevrilir. `TurnFinished` yalnız lifecycle sinyalidir; başarı anlamına
+    gelmez ve bu yüzden ayrı tutulur.
+    """
+
+    status: str
+    elapsed_s: float
+
+
+@dataclass(frozen=True, slots=True)
 class TurnFinished(Event):
     """Tur bitti; dinleyiciler tamponlarını boşaltabilir."""
 

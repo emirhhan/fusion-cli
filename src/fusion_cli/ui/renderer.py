@@ -57,6 +57,7 @@ from ..core.events import (
     TurnAnswered,
     TurnBudgetExhausted,
     TurnFinished,
+    TurnOutcome,
 )
 from ..core.types import FusionResult
 from . import messages, theme
@@ -230,6 +231,8 @@ class ConsoleRenderer:
             self._active_channel = None
             self._turn_opened = False
             self._finish_work()
+        elif isinstance(event, TurnOutcome):
+            self._turn_outcome(event)
 
     def print_user_message(self, text: str) -> None:
         """Kullanıcının mesajını Claude Code diziliminde `> metin` olarak bas.
@@ -245,6 +248,15 @@ class ConsoleRenderer:
         self._console.print()
         self._console.print(line)
         self._console.print()
+
+    def _turn_outcome(self, event: TurnOutcome) -> None:
+        duration = format_duration(int(event.elapsed_s * 1000))
+        if event.status == "completed":
+            self._status(f"{theme.ICON_OK} {messages.TURN_COMPLETED.format(duration=duration)}")
+        elif event.status == "partial":
+            self._status(f"⚠ {messages.TURN_PARTIAL.format(duration=duration)}")
+        else:
+            self._error(messages.TURN_FAILED.format(duration=duration))
 
     def abort(self) -> None:
         """Tur iptal/hata ile bitti: canlı göstergeyi ANINDA durdur, özet BASMA.
@@ -494,9 +506,7 @@ class ConsoleRenderer:
         söylemez, oysa NIM'de hız sınırı model başınadır.
         """
         result = event.result
-        etiket = (
-            format_served_model(result.model, result.served_by) if result.model else event.role
-        )
+        etiket = format_served_model(result.model, result.served_by) if result.model else event.role
         if result.ok:
             self._status(
                 messages.MODEL_CALL_OK.format(

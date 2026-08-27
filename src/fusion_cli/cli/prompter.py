@@ -21,6 +21,7 @@ from rich.text import Text
 
 from ..core.tools import ToolContext
 from ..engines.agent.approval import ApprovalRequest
+from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
 
@@ -66,7 +67,12 @@ class ConsolePrompter:
             return False
         return _is_affirmative(answer)
 
-    async def ask(self, question: str) -> str:
+    async def ask(
+        self,
+        question: str,
+        options: tuple[QuestionOption, ...] = (),
+        recommended: str | None = None,
+    ) -> str:
         with self._suspended():
             await self._drain()
             self._console.print(
@@ -74,6 +80,23 @@ class ConsolePrompter:
                     question, title=f"[bold]{messages.AGENT_ASKS}[/bold]", border_style=theme.INFO
                 )
             )
+            if options and self._interactive:
+                from ..ui.picker import Choice, pick
+
+                choices = [
+                    Choice(
+                        option.label,
+                        option.label,
+                        _option_description(option, recommended),
+                    )
+                    for option in options
+                ]
+                choices.append(Choice("__other__", messages.ASK_OTHER, messages.ASK_OTHER_DESC))
+                selected = pick(choices, title=question)
+                if selected is None:
+                    return messages.NO_ANSWER_AVAILABLE
+                if selected != "__other__":
+                    return selected
             answer = self._ask(messages.ANSWER_PROMPT)
         # Etkileşimsiz ortamda "hayır" demek yanlış olur: bu bir evet/hayır sorusu
         # değil, serbest metinli bir sorudur. Model cevap alamadığını bilmelidir.
@@ -115,6 +138,13 @@ class ConsolePrompter:
 def _summarize(request: ApprovalRequest) -> str:
     pairs = ", ".join(f"{key}={value!r}" for key, value in request.args.items())
     return f"{request.tool.name}({pairs})"
+
+
+def _option_description(option: QuestionOption, recommended: str | None) -> str:
+    parts = [option.description] if option.description else []
+    if option.label == recommended:
+        parts.append(messages.ASK_RECOMMENDED)
+    return " · ".join(parts)
 
 
 def _colorize_diff(diff: str) -> Text:

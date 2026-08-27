@@ -274,6 +274,11 @@ class FusionTui:
         self._start_spinner()
         self._invalidate()
 
+    @property
+    def work_source(self) -> Callable[[], str] | None:
+        """Modal geçici bir metin gösterirken geri yüklenecek çalışma kaynağı."""
+        return self._work_source
+
     def clear_work(self) -> None:
         self._work_source = None
         self._stop_spinner()

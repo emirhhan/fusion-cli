@@ -10,6 +10,7 @@ karar verir; buradan yalnızca olay yayınlanır.
 from __future__ import annotations
 
 import sys
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ from ..core.events import (
     FusionCompleted,
     NoFileChanges,
     TurnFinished,
+    TurnOutcome,
 )
 from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
@@ -86,6 +88,7 @@ async def run_task(
     Hata fırlatmaz: hiçbir aday yanıt veremezse `VerdictSource.NONE` ile döner ve
     kullanıcıya gösterilecek açıklama olay olarak yayınlanır.
     """
+    started_at = time.monotonic()
     async with EventBus() as bus:
         for sink in sinks:
             bus.subscribe(sink)
@@ -105,6 +108,12 @@ async def run_task(
             bus.publish(ErrorOccurred(_failure_message(result), fatal=True))
         else:
             bus.publish(FusionCompleted(result))
+        bus.publish(
+            TurnOutcome(
+                status="failed" if result.source is VerdictSource.NONE else "completed",
+                elapsed_s=time.monotonic() - started_at,
+            )
+        )
         bus.publish(TurnFinished())
         return result
 
@@ -141,6 +150,7 @@ async def run_agent_task(
     ve cevabı bekletmez; verilmezse bu işler turu bloklar (gözlemlenen "ekstra gecikme").
     """
     can_ask = sys.stdin.isatty() if interactive is None else interactive
+    started_at = time.monotonic()
 
     async with EventBus() as bus:
         for sink in sinks:
@@ -198,6 +208,11 @@ async def run_agent_task(
         elif tool_context.changes.paths:
             # Liste modelin hafızasından değil değişiklik kümesinden gelir.
             bus.publish(FilesChanged(_changed_names(tool_context)))
+        if outcome.ok:
+            status = "completed"
+        else:
+            status = "partial" if tool_context.changes.paths else "failed"
+        bus.publish(TurnOutcome(status=status, elapsed_s=time.monotonic() - started_at))
         bus.publish(TurnFinished())
         return outcome
 

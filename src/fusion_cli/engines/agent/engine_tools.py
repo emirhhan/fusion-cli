@@ -11,6 +11,7 @@ kayıt defterine bir kayıt eklemektir; ister dosya okusun, ister başka bir aja
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
@@ -35,10 +36,23 @@ MAX_AGENT_DEPTH = 1
 _STRING = {"type": "string"}
 
 
+@dataclass(frozen=True, slots=True)
+class QuestionOption:
+    """`ask_user` için kullanıcıya gösterilecek kısa cevap adayı."""
+
+    label: str
+    description: str = ""
+
+
 class UserAsker(Protocol):
     """Kullanıcıya serbest metinli soru sorabilen taraf."""
 
-    async def ask(self, question: str) -> str: ...
+    async def ask(
+        self,
+        question: str,
+        options: tuple[QuestionOption, ...] = (),
+        recommended: str | None = None,
+    ) -> str: ...
 
 
 def build_agent_registry(
@@ -204,7 +218,13 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
-        return ToolResult(await asker.ask(question))
+        options = _question_options(args.get("options"))
+        recommended = args.get("recommended")
+        if not isinstance(recommended, str) or recommended not in {item.label for item in options}:
+            recommended = None
+        if not options:
+            return ToolResult(await asker.ask(question))
+        return ToolResult(await asker.ask(question, options, recommended))
 
     return Tool(
         name="ask_user",
@@ -212,11 +232,51 @@ def _ask_user_tool(asker: UserAsker, deps: AgentDeps) -> Tool:
         "Görev belirsizse ya da birden çok yorumu varsa körlemesine ilerleme, bunu kullan.",
         parameters={
             "type": "object",
-            "properties": {"question": _STRING},
+            "properties": {
+                "question": _STRING,
+                "options": {
+                    "type": "array",
+                    "description": "Kullanıcıya sunulacak 2-5 kısa cevap seçeneği.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": _STRING,
+                            "description": _STRING,
+                        },
+                        "required": ["label"],
+                    },
+                    "maxItems": 5,
+                },
+                "recommended": {
+                    **_STRING,
+                    "description": "Önerilen seçeneğin label değeri.",
+                },
+            },
             "required": ["question"],
         },
         run=_run,
     )
+
+
+def _question_options(raw: object) -> tuple[QuestionOption, ...]:
+    """Model payload'ını daralt; bozuk seçenek soru aracının tamamını düşürmesin."""
+    if not isinstance(raw, list):
+        return ()
+    options: list[QuestionOption] = []
+    for item in raw[:5]:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("label")
+        description = item.get("description", "")
+        if not isinstance(label, str) or not label.strip():
+            continue
+        if not isinstance(description, str):
+            description = ""
+        normalized = label.strip()
+        if normalized in {option.label for option in options}:
+            continue
+        options.append(QuestionOption(normalized, description.strip()))
+    return tuple(options)
 
 
 # --------------------------------------------------------------------------- #

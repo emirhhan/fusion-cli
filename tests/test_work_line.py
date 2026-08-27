@@ -199,6 +199,21 @@ def test_gecen_sure_olaysiz_akar():
     assert bir_saniye != on_iki_saniye
 
 
+def test_gecen_sure_yeni_model_cagrisinda_sifirlanmaz():
+    """Ana sayaç kullanıcı turunu ölçer; her model/tool adımını değil."""
+    from fusion_cli.cli.repl.work_line import WorkLineSink
+
+    saat = _SahteSaat()
+    sink = WorkLineSink(clock=saat)
+    sink.handle(ModelCallStarted(role="agent", model="birinci", background=False))
+    saat.t += 7.0
+    sink.handle(_bitti(10))
+    sink.handle(ModelCallStarted(role="agent", model="ikinci", background=False))
+
+    assert "7.0s" in sink.render()
+    assert "ikinci" in sink.render()
+
+
 def test_calisan_cagri_yokken_satir_bostur():
     """Hiç olay gelmediyse satır çizilmemeli — boş bir kutu gösterilmez."""
     from fusion_cli.cli.repl.work_line import WorkLineSink

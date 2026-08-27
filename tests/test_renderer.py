@@ -16,6 +16,7 @@ from fusion_cli.core.events import (
     StatusChanged,
     TokenReceived,
     TurnFinished,
+    TurnOutcome,
 )
 from fusion_cli.core.types import ModelResult, TokenUsage
 from fusion_cli.ui import messages, theme
@@ -88,6 +89,17 @@ def test_hata_mesajindaki_markup_yorumlanmaz():
     renderer.handle(ErrorOccurred("beklenmedik [token] geldi"))
 
     assert "[token]" in buffer.getvalue()
+
+
+def test_tur_sonucu_acik_durum_ve_sure_gosterir():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TurnOutcome(status="partial", elapsed_s=65.0))
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue().lower()
+    assert "görev kısmi" in cikti
+    assert "1m05s" in cikti
 
 
 def test_basarili_model_cagrisi_sure_ve_token_gosterir():
@@ -864,14 +876,15 @@ def test_rozet_cevabin_ardina_basilir():
 def _tool_ok(output):
     from fusion_cli.core.events import ToolExecuted, ToolOutcome
 
-    return ToolExecuted(name="read_file", args={"path": "a.json"}, outcome=ToolOutcome.OK,
-                        output=output)
+    return ToolExecuted(
+        name="read_file", args={"path": "a.json"}, outcome=ToolOutcome.OK, output=output
+    )
 
 
 def test_cok_satirli_arac_ciktisi_satir_satir_basilir():
     renderer, buffer = _renderer()
 
-    renderer.handle(_tool_ok("1 {\n2   \"name\": \"x\"\n3 }"))
+    renderer.handle(_tool_ok('1 {\n2   "name": "x"\n3 }'))
     renderer.handle(TurnFinished())
 
     satirlar = [s for s in buffer.getvalue().splitlines() if s.strip()]

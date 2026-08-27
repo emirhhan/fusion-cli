@@ -281,9 +281,7 @@ async def test_plan_modu_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     assert "PLAN MODUNDASIN" in sistem.content
 
 
-async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(
-    monkeypatch, tmp_path, sink
-):
+async def test_hedef_projenin_talimat_dosyasi_sistem_promptuna_eklenir(monkeypatch, tmp_path, sink):
     """OpenCode'un 'Custom Instructions' katmanı: proje kökündeki CLAUDE.md garantili okunur."""
     (tmp_path / "CLAUDE.md").write_text("Bu projede daima Türkçe yorum yaz.", encoding="utf-8")
     provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
@@ -367,6 +365,36 @@ async def test_ask_user_cevabi_modele_dondurulur(monkeypatch, tmp_path, sink):
 
     assert asker.questions == ["hangi renk?"]
     assert any("mavi olsun" in m.content for m in sonuc.messages if m.role == "tool")
+
+
+async def test_ask_user_onerilen_secenekleri_askere_gecirir(monkeypatch, tmp_path, sink):
+    asker = ScriptedAsker("mavi")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "ask_user",
+                            question="hangi renk?",
+                            options=[
+                                {"label": "mavi", "description": "Sakin görünür."},
+                                {"label": "kırmızı", "description": "Daha canlıdır."},
+                            ],
+                            recommended="mavi",
+                        )
+                    ]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("renk sec", _deps(tmp_path, sink, asker=asker))
+
+    assert [option.label for option in asker.options[0]] == ["mavi", "kırmızı"]
+    assert asker.recommended == ["mavi"]
 
 
 async def test_oz_denetim_sorun_yoksa_ikinci_tur_acmaz(monkeypatch, tmp_path, sink):
@@ -486,7 +514,9 @@ async def test_asker_varsa_ask_user_araci_sunulur(monkeypatch, tmp_path, sink):
     await run_agent("gorev", _deps(tmp_path, sink, asker=ScriptedAsker()))
 
     semalar = provider.seen_requests[0]
-    assert "ask_user" in {s["function"]["name"] for s in semalar}
+    ask_schema = next(s for s in semalar if s["function"]["name"] == "ask_user")
+    properties = ask_schema["function"]["parameters"]["properties"]
+    assert {"question", "options", "recommended"} <= properties.keys()
 
 
 async def test_plan_modunda_engelleme_reddetmeden_ayirt_edilir(monkeypatch, tmp_path, sink):
@@ -1430,9 +1460,7 @@ async def test_degisiklik_yapan_tur_dogrulamadan_gecer(monkeypatch, tmp_path, si
     assert [e for e in sink.events if isinstance(e, VerificationFailed)]
 
 
-async def test_deterministik_dogrulama_oz_denetimden_once_calisir(
-    monkeypatch, tmp_path, sink
-):
+async def test_deterministik_dogrulama_oz_denetimden_once_calisir(monkeypatch, tmp_path, sink):
     """Somut kapı bulgusu, model hakemi bütçeyi harcamadan önce ele alınmalı."""
     from fusion_cli.core.events import VerificationFailed
 
@@ -1515,9 +1543,7 @@ async def test_verification_correction_agentin_ilk_fallback_modelini_kullanir(
     assert "provider/corrector" in seen_models
 
 
-async def test_correction_yerel_arac_siniri_son_dogrulamayi_engellemez(
-    monkeypatch, tmp_path, sink
-):
+async def test_correction_yerel_arac_siniri_son_dogrulamayi_engellemez(monkeypatch, tmp_path, sink):
     """İç turun yerel sınırı, düzeltilmiş artefaktın post-condition kapısını kapatmamalı."""
     from fusion_cli.core.verification import VerificationResult
     from fusion_cli.engines.agent.execution_policy import ExecutionPolicy

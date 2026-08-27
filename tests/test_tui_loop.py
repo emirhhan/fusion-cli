@@ -7,7 +7,8 @@ import asyncio
 from fusion_cli.cli.repl.state import Engine, ReplState
 from fusion_cli.cli.repl.tui import FusionTui
 from fusion_cli.cli.repl.tui_loop import TuiPrompter, _preview, _TuiSession
-from fusion_cli.engines.agent.approval import ApprovalRequest
+from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from fusion_cli.engines.agent.engine_tools import QuestionOption
 from fusion_cli.memory.factory import null_memory
 
 from .fakes import make_config
@@ -55,10 +56,53 @@ async def test_prompter_confirm_modali_e_ile_true_doner():
     )
     await asyncio.sleep(0)
 
-    # Onay modu tuşu doğrudan çözer.
-    tui._resolve(True)
+    tui._resolve("once")
 
-    assert await task is True
+    assert await task is ApprovalAnswer.ONCE
+
+
+async def test_prompter_confirm_sonrasi_onceki_calisma_satirini_geri_getirir():
+    tui = _noop_tui()
+    tui.set_work_source(lambda: "hazırlanıyor…")
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
+    )
+    await asyncio.sleep(0)
+    tui._resolve("once")
+    await task
+
+    assert "hazırlanıyor…" in tui._work_now()
+
+
+async def test_prompter_tehlikesiz_istekte_oturum_secimi_sunar():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger=None))
+    )
+    await asyncio.sleep(0)
+
+    assert tui._mode == "choice"
+    assert [choice.value for choice in tui._choices] == ["once", "session", "deny"]
+    tui._resolve("session")
+    assert await task is ApprovalAnswer.SESSION
+
+
+async def test_prompter_yikici_istekte_oturum_secimi_sunmaz():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.confirm(ApprovalRequest(tool=_Tool(), args={}, danger="riskli"))
+    )
+    await asyncio.sleep(0)
+
+    assert [choice.value for choice in tui._choices] == ["once", "deny"]
+    tui._resolve("deny")
+    assert await task is ApprovalAnswer.DENY
 
 
 async def test_prompter_ask_metni_doner():
@@ -70,6 +114,45 @@ async def test_prompter_ask_metni_doner():
     tui._resolve("src/app.py")
 
     assert await task == "src/app.py"
+
+
+async def test_prompter_ask_onerilen_secenek_ve_diger_sunar():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask(
+            "hangi renk?",
+            (
+                QuestionOption("mavi", "Sakin görünür."),
+                QuestionOption("kırmızı", "Daha canlıdır."),
+            ),
+            "mavi",
+        )
+    )
+    await asyncio.sleep(0)
+
+    assert tui._mode == "choice"
+    assert [choice.value for choice in tui._choices] == ["mavi", "kırmızı", "__other__"]
+    assert "önerilen" in tui._choices[0].description.lower()
+    tui._resolve("mavi")
+    assert await task == "mavi"
+
+
+async def test_prompter_ask_diger_secilince_serbest_metin_alir():
+    tui = _noop_tui()
+    prompter = TuiPrompter(tui, None)
+
+    task = asyncio.ensure_future(
+        prompter.ask("hangisi?", (QuestionOption("A", "İlk seçenek."),), "A")
+    )
+    await asyncio.sleep(0)
+    tui._resolve("__other__")
+    await asyncio.sleep(0)
+
+    assert tui._mode == "ask"
+    tui._resolve("kendi cevabım")
+    assert await task == "kendi cevabım"
 
 
 async def test_bilinmeyen_komut_uyarir(tmp_path):

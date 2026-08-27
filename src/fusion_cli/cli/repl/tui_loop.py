@@ -18,7 +18,8 @@ from rich.console import Console
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...core.tools import ToolContext
-from ...engines.agent.approval import ApprovalRequest
+from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
+from ...engines.agent.engine_tools import QuestionOption
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
@@ -70,21 +71,69 @@ class TuiPrompter:
         self._tui = tui
         self._drain = drain
 
-    async def confirm(self, request: ApprovalRequest) -> bool:
+    async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         await _maybe_drain(self._drain)
         self._tui.console.print(_preview(request))
         self._tui.sync_conversation()
+        previous_work = self._tui.work_source
         self._tui.set_work_source(lambda: messages.TUI_CONFIRM_HINT)
         try:
-            return await self._tui.await_confirm()
+            choices = [Choice("once", messages.TUI_APPROVAL_ONCE, messages.TUI_APPROVAL_ONCE_DESC)]
+            if request.danger is None:
+                choices.append(
+                    Choice(
+                        "session",
+                        messages.TUI_APPROVAL_SESSION,
+                        messages.TUI_APPROVAL_SESSION_DESC,
+                    )
+                )
+            choices.append(
+                Choice("deny", messages.TUI_APPROVAL_DENY, messages.TUI_APPROVAL_DENY_DESC)
+            )
+            answer = await self._tui.await_choice(messages.TUI_APPROVAL_TITLE, choices)
+            if answer == "once":
+                return ApprovalAnswer.ONCE
+            if answer == "session":
+                return ApprovalAnswer.SESSION
+            return ApprovalAnswer.DENY
         finally:
-            self._tui.clear_work()
+            if previous_work is None:
+                self._tui.clear_work()
+            else:
+                self._tui.set_work_source(previous_work)
 
-    async def ask(self, question: str) -> str:
+    async def ask(
+        self,
+        question: str,
+        options: tuple[QuestionOption, ...] = (),
+        recommended: str | None = None,
+    ) -> str:
         await _maybe_drain(self._drain)
         self._tui.console.print(f"[{theme.ACCENT}]{question}[/{theme.ACCENT}]")
         self._tui.sync_conversation()
+        if options:
+            choices = [
+                Choice(
+                    option.label,
+                    option.label,
+                    _option_description(option, recommended),
+                )
+                for option in options
+            ]
+            choices.append(Choice("__other__", messages.ASK_OTHER, messages.ASK_OTHER_DESC))
+            selected = await self._tui.await_choice(question, choices)
+            if selected is None:
+                return messages.NO_ANSWER_AVAILABLE
+            if selected != "__other__":
+                return selected
         return await self._tui.await_text()
+
+
+def _option_description(option: QuestionOption, recommended: str | None) -> str:
+    parts = [option.description] if option.description else []
+    if option.label == recommended:
+        parts.append(messages.ASK_RECOMMENDED)
+    return " · ".join(parts)
 
 
 def _would_open_picker(name: str, argument: str) -> bool:

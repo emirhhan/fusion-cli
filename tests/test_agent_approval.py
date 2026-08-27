@@ -6,6 +6,7 @@ import pytest
 
 from fusion_cli.core.tools import Tool
 from fusion_cli.engines.agent.approval import (
+    ApprovalAnswer,
     ApprovalMode,
     Decision,
     build_policy,
@@ -59,6 +60,42 @@ async def test_security_modda_onay_verilirse_gecer():
     politika = build_policy(ApprovalMode.SECURITY, AlwaysApprove())
 
     assert await politika.decide(build_request(_arac(), {})) is Decision.ALLOW
+
+
+async def test_oturum_izni_ayni_araci_tekrar_sormaz():
+    class _OturumOnayi:
+        def __init__(self):
+            self.calls = 0
+
+        async def confirm(self, request):
+            self.calls += 1
+            return ApprovalAnswer.SESSION
+
+    prompter = _OturumOnayi()
+    politika = build_policy(ApprovalMode.SECURITY, prompter)
+    request = build_request(_arac(), {"path": "a.txt"})
+
+    assert await politika.decide(request) is Decision.ALLOW
+    assert await politika.decide(request) is Decision.ALLOW
+    assert prompter.calls == 1
+
+
+async def test_yikici_istekte_oturum_izni_bir_defalik_sayilir():
+    class _OturumOnayi:
+        def __init__(self):
+            self.calls = 0
+
+        async def confirm(self, request):
+            self.calls += 1
+            return ApprovalAnswer.SESSION
+
+    prompter = _OturumOnayi()
+    politika = build_policy(ApprovalMode.AUTO, prompter)
+    request = build_request(_arac("run_shell"), {"command": "rm -rf build"})
+
+    assert await politika.decide(request) is Decision.ALLOW
+    assert await politika.decide(request) is Decision.ALLOW
+    assert prompter.calls == 2
 
 
 async def test_plan_modu_kullaniciya_hic_sormaz():

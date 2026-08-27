@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from fusion_cli.cli import session
-from fusion_cli.core.events import ErrorOccurred, FusionCompleted, TurnFinished
+from fusion_cli.core.events import ErrorOccurred, FusionCompleted, TurnFinished, TurnOutcome
 from fusion_cli.core.types import VerdictSource
 from fusion_cli.engines.fusion import engine as fusion_engine
 
@@ -39,6 +39,9 @@ async def test_basarili_tur_fusion_sonucu_olayi_yayinlar(monkeypatch):
     assert len(tamamlanan) == 1
     assert tamamlanan[0].result.winner == "a"
     assert isinstance(sink.events[-1], TurnFinished)
+    assert any(
+        isinstance(event, TurnOutcome) and event.status == "completed" for event in sink.events
+    )
 
 
 async def test_cevapsiz_tur_hata_olayi_yayinlar(monkeypatch):
@@ -77,6 +80,7 @@ async def test_hiz_siniri_ozel_mesaj_uretir(monkeypatch):
 
     hata = next(event for event in sink.events if isinstance(event, ErrorOccurred))
     assert "kota" in hata.message.lower()
+    assert any(isinstance(event, TurnOutcome) and event.status == "failed" for event in sink.events)
 
 
 async def test_gorev_tipi_motora_gecirilir(monkeypatch):

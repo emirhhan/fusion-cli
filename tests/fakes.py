@@ -284,7 +284,11 @@ class ScriptedAsker:
     def __init__(self, answer="sahte cevap"):
         self.answer = answer
         self.questions = []
+        self.options = []
+        self.recommended = []
 
-    async def ask(self, question):
+    async def ask(self, question, options=(), recommended=None):
         self.questions.append(question)
+        self.options.append(options)
+        self.recommended.append(recommended)
         return self.answer

@@ -201,10 +201,18 @@ CONFIRM_QUESTION = "  onaylıyor musun? (e/h, Enter = evet)"
 DANGER_WARNING = "⚠ geri alınamaz işlem: {reason}"
 AGENT_ASKS = "agent soruyor"
 ANSWER_PROMPT = "  cevabın"
+ASK_RECOMMENDED = "önerilen"
+ASK_OTHER = "Diğer…"
+ASK_OTHER_DESC = "Kendi cevabını yaz."
 NO_ANSWER_AVAILABLE = (
     "(kullanıcı cevap veremedi — etkileşimsiz ortam. Soru sormayı bırak, "
     "elindeki bilgiyle en makul kararı ver ve devam et.)"
 )
+
+# Runtime sonucu modelin "bitti" iddiasından bağımsız, kesin bir kapanış satırıdır.
+TURN_COMPLETED = "Görev tamamlandı · {duration}"
+TURN_PARTIAL = "Görev kısmi kaldı · {duration}"
+TURN_FAILED = "Görev başarısız · {duration}"
 
 # --- run ------------------------------------------------------------------ #
 RUN_EMPTY_TASK = "Görev metni boş olamaz."
@@ -229,9 +237,16 @@ REPL_ON_OFF_HINT = "shift-tab mod · /help"
 #: TUI'de girdinin altındaki durum satırının kısayol ipuçları (Claude Code stili).
 TUI_STATUS_HINT = "shift-tab: mod · esc: durdur · pgup/shift-ok: kaydır · /help"
 #: Onay beklerken çalışma satırında gösterilen ipucu.
-TUI_CONFIRM_HINT = "onay: e = evet · h/esc = hayır"
+TUI_CONFIRM_HINT = "onay: ↑/↓ seç · Enter uygula · esc reddet"
 #: Onay önizlemesinin başındaki etiket.
 TUI_CONFIRM_PREVIEW = "onay ister:"
+TUI_APPROVAL_TITLE = "Bu işleme izin verilsin mi?"
+TUI_APPROVAL_ONCE = "Bir kez izin ver"
+TUI_APPROVAL_ONCE_DESC = "Yalnız bu araç çağrısını çalıştırır."
+TUI_APPROVAL_SESSION = "Oturum boyunca izin ver"
+TUI_APPROVAL_SESSION_DESC = "Aynı araç veya komut bu oturumda tekrar sorulmaz."
+TUI_APPROVAL_DENY = "Reddet"
+TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
 #: Tam-ekran/TUI'de argümansız seçici komutu çağrılınca gösterilen yönlendirme.
 TUI_PICKER_NEEDS_ARG = "/{name} bu görünümde argüman ister. Örnek: /level high. Ayrıntı: /help."
 
