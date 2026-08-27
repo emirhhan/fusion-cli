@@ -271,60 +271,55 @@ EDIT_EXAMPLE = "\n".join(
 )
 
 PAYLOAD_RULES = (
-    "- Kaynak kodu JSON content stringinin içine koyma; payload kullan.",
-    "- Çok satırlı, tırnak ya da ters eğik çizgi içeren her içerik payload'a girer.",
-    "- Payload gövdesini Markdown kod bloğu (```dil ... ```) içine koy.",
-    f"- Kod bloğunun ilk içerik satırı tam olarak {PAYLOAD_SENTINEL} olmalı; "
-    "web arayüzünün eklediği dil rozeti bu satırdan önce güvenle ayıklanır.",
-    f"- Gövdeyi {PAYLOAD_CLOSE} ile kapatmayı UNUTMA; kapanmayan blok reddedilir.",
-    "- Her payload id benzersiz olmalı ve tam olarak bir $ref ile kullanılmalı.",
-    '- Payload referansı yalnızca {"$ref":"payload-id"} biçimindedir, başka alan almaz.',
+    "- Kod veya çok satırlı içerikleri JSON stringine gömme; payload kullan.",
+    f"- Payload gövdesi Markdown kod bloğunda olmalı ve ilk içerik satırı "
+    f"{PAYLOAD_SENTINEL} olmalı.",
+    f"- Her payload {PAYLOAD_CLOSE} ile kapanır; benzersiz id yalnız "
+    '{"$ref":"id"} biçiminde kullanılır.',
 )
 
 _GENERAL_RULES = (
-    "- name alanı zorunludur ve boş olamaz.",
-    "- arguments alanı zorunludur ve her zaman JSON nesnesidir.",
-    "- Şemadaki required alanlarının tamamını doğru tipte gönder.",
-    "- Var olan bir dosyanın BİR BÖLÜMÜNÜ değiştiriyorsan önce read_file ile "
-    "satırları gör, sonra replace_range kullan; write_file DEĞİL.",
-    "- replace_range'de ESKİ içeriği payload olarak tekrar üretme: yalnız start_line, "
-    "end_line ve YENİ içerik gerekir. Dosya arada değiştiyse araç güvenli biçimde reddeder.",
-    "- edit_file geriye uyumluluk fallback'idir; yalnız çok kısa ve birebir bildiğin "
-    "old→new değişiminde kullan. Büyük old payload üretme.",
-    "- write_file yalnızca YENİ dosya oluştururken ya da içeriğin tamamı "
-    "gerçekten baştan yazılacaksa kullanılır.",
-    "- Bir çağrıda birden çok payload olabilir; her alan kendi id'siyle eşleşir.",
-    # Tek-çağrı kuralı YALNIZCA değiştirici araçlar içindir. Kural her araca
-    # uygulanınca keşfin maliyeti dört katına çıkıyordu: dizin listelemek + üç
-    # dosya okumak dört tur yiyor, tur bütçesi yazmaya sıra gelmeden bitiyordu.
-    # Okuma çağrıları kısa tek satırlık JSON'dur; yanıtın kesilme riski yoktur.
-    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap (write_file, replace_range, "
-    "edit_file, multi_edit, run_shell). Bunları tek yanıta yığarsan yanıt kesilir ve çağrı "
-    "bloğu hiç gelmez.",
-    "- OKUMA çağrılarını (read_file, list_dir, glob, search_code) aynı yanıtta "
-    "BİRDEN ÇOK yapabilirsin ve yapmalısın: birbirine bağlı değillerse hepsini tek "
-    "turda iste, tek tek sıraya dizme. Turların sayılıdır; keşfe harcadığın her tur "
-    "değişiklik yapmaktan çalınır.",
-    "- edit_file'da 'old' alanına DEĞİŞEN EN KÜÇÜK benzersiz parçayı koy — "
-    "fonksiyonun ya da sınıfın tamamını değil. Kısa 'old' hem yanıtı kısaltır hem "
-    "eşleşmeyi kesinleştirir.",
+    "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
+    "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
+    "replace_range kullan; write_file DEĞİL.",
+    "- replace_range ile yalnız YENİ içeriği gönder; Eski içeriği tekrar üretme.",
+    "- write_file yeni/tam dosya yazımı içindir; edit_file yalnız kısa exact-text "
+    "fallback aracıdır.",
+    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap "
+    "(write_file, replace_range, edit_file, multi_edit, run_shell).",
+    "- Bağımsız OKUMA çağrılarını aynı yanıtta BİRDEN ÇOK yapabilirsin.",
     "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
-    "- Araç kullanmayacaksan tool_call bloğu yazma; nihai cevabı ver.",
+    "- Araç gerekmiyorsa tool-call bloğu üretme; nihai cevabı ver.",
 )
+
+
+def _instruction_schema(value: object) -> object:
+    """Emulated prompt için schema description tekrarlarını kaldır."""
+    if isinstance(value, Mapping):
+        return {
+            key: _instruction_schema(item)
+            for key, item in value.items()
+            if key != "description"
+        }
+    if isinstance(value, list):
+        return [_instruction_schema(item) for item in value]
+    if isinstance(value, tuple):
+        return [_instruction_schema(item) for item in value]
+    return value
 
 
 def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
     """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök."""
     lines = [
-        "Araç kullanacaksan YALNIZCA aşağıdaki iki blok biçimini kullan.",
+        "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.",
         "",
-        "1) Tek satırlık değerler için kısa çağrı:",
+        "Kısa değer çağrısı:",
         f'{CALL_OPEN}{{"name":"read_file","arguments":{{"path":"src/app.py"}}}}{CALL_CLOSE}',
         "",
-        "2) Çok satırlı / kod içeren değerler için payload:",
+        "Kod / çok satırlı içerik payload örneği:",
         PAYLOAD_EXAMPLE,
         "",
-        "3) VAR OLAN bir dosyada kısmi değişiklik — V2, TEK yeni-içerik payload'ı:",
+        "Mevcut dosyada kısmi düzenleme örneği:",
         RANGE_EDIT_EXAMPLE,
         "",
         "Payload kuralları:",
@@ -335,18 +330,27 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "",
         "Kullanılabilir araçlar:",
     ]
+
     for schema in schemas:
         function = schema.get("function")
         if not isinstance(function, Mapping):
             continue
+
         name = function.get("name", "")
         description = function.get("description", "")
-        parameters = function.get("parameters", {})
-        lines.append(f"- {name}: {description}")
-        lines.append(f"  parametreler: {json.dumps(parameters, ensure_ascii=False)}")
-        lines.append(f"  kısa değer örneği: {render_tool_example(function)}")
-    return "\n".join(lines)
+        parameters = _instruction_schema(function.get("parameters", {}))
 
+        lines.append(f"- {name}: {description}")
+        lines.append(
+            "  args: "
+            + json.dumps(
+                parameters,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        )
+
+    return "\n".join(lines)
 
 @dataclass(frozen=True, slots=True)
 class EmulatedParse:
