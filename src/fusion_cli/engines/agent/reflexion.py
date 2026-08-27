@@ -295,3 +295,18 @@ def tool_contract_repair_note(detail: str) -> Message:
         "Düzeltemiyorsan işlemin tamamlanmadığını açıkça söyle.",
         harness_note=True,
     )
+
+def verification_action_required_note() -> Message:
+    """Blocking verification correction'ın araçsız kapanmasını engelle."""
+
+    return Message(
+        "user",
+        "Henüz gerçek bir kod düzeltmesi yapmadın. Blocking doğrulama sorunları "
+        "çözülmedi. Doğrulama/test komutunu tekrar ÇALIŞTIRMA; sonucu zaten biliyoruz "
+        "ve kapı kod değişikliğinden sonra otomatik tekrar çalışacak. İlgili dosyayı "
+        "gerekirse read_file/search_code ile incele. Mevcut dosyada hedefli düzeltme "
+        "için replace_range(path, start_line, end_line, new) kullan; yalnız uygun "
+        "durumda write_file kullan. Mutlaka bir DEĞİŞTİRİCİ aracı gerçekten çağır. "
+        "run_shell ile yalnız doğrulamayı tekrar etmek çözüm değildir. Araç çağrısını "
+        "düz metin JSON veya kod bloğu olarak yazma; gerçekten çalıştır.",
+    )

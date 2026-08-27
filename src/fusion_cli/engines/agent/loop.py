@@ -294,6 +294,7 @@ async def run_agent(
     step_limit: int | None = None,
     verify: bool = True,
     internal: bool = False,
+    require_local_mutation: bool = False,
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -410,6 +411,7 @@ async def run_agent(
         step_limit=step_limit,
         execution=execution,
         internal=internal,
+        require_local_mutation=require_local_mutation,
     )
 
     should_review = deps.config.runtime.self_review if self_review is None else self_review
@@ -594,6 +596,8 @@ class _State:
     #: araçsız bitebilir ve bu meşrudur: asıl işi dış tur zaten yapmıştır, iç tur
     #: yalnızca düzeltir ya da açıklar.
     internal: bool = False
+    #: Blocking verification correction araçsız kapanamaz.
+    require_local_mutation: bool = False
     tool_contract_abort: str = ""
     #: Bir araç "bu iş benimle YAPILAMAZ" dedi mi? (şifre duvarı, oturum kapısı…)
     #
@@ -632,8 +636,12 @@ async def _drive(
     step_limit: int | None = None,
     execution: ExecutionPolicy,
     internal: bool = False,
+    require_local_mutation: bool = False,
 ) -> AgentOutcome:
-    state = _State(internal=internal)
+    state = _State(
+        internal=internal,
+        require_local_mutation=require_local_mutation,
+    )
     budget = deps.require_budget()
     final_text = ""
     # Tur geneli model çağrısı sınırı BÜTÇEDEDİR: iç içe düzeltici turlar aynı
@@ -772,6 +780,18 @@ async def _drive(
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
             return _outcome(state.tool_contract_abort, messages, state, ok=False)
+
+        # Blocking verification correction gerçek bir mutation üretmeden
+        # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
+        # başarısız bir araç deneyebilir; bu durumda sınırlı bir mutation reprompt'u
+        # daha verilir. Hak bittiğinde normal idle kapısı tekrar otoritedir.
+        if state.require_local_mutation and _never_acted(state, execution):
+            state.never_acted_prompts += 1
+            note = _spend(deps, reflexion.verification_action_required_note())
+            if note is not None:
+                messages.append(note)
+                continue
+
         if budget.idle:
             return _halt(final_text, messages, state, budget, BudgetStop.NO_PROGRESS, deps)
         if _stuck_editing(state, plan_mode=plan_mode):
@@ -1058,7 +1078,12 @@ def _auto_continue_note(
     # model işi yarım bırakmış değil, hiç başlamamıştır.
     if _never_acted(state, execution):
         state.never_acted_prompts += 1
-        return _spend(deps, reflexion.never_acted_note())
+        note = (
+            reflexion.verification_action_required_note()
+            if state.require_local_mutation
+            else reflexion.never_acted_note()
+        )
+        return _spend(deps, note)
     if not execution.heuristic_auto_continue:
         # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
         # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
@@ -1253,6 +1278,15 @@ def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
     BİR KEZ konuşur. Model ikinci kez de araçsız gelirse zorlamak çağrı harcamaktır;
     o noktada cevabı olduğu gibi teslim etmek dürüst olandır.
     """
+    if state.require_local_mutation:
+        # Blocking verification correction dış turun eski evidence'ı ile
+        # kapanamaz; BU alt tur gerçek bir mutation üretmelidir.
+        if state.mutating_tool_calls_made > 0:
+            return False
+        if not execution.offer_tools:
+            return False
+        return state.never_acted_prompts < 2
+
     if not execution.complex_task or state.internal:
         return False
     if state.tool_calls_made > 0:
@@ -1833,12 +1867,18 @@ async def _fix_findings(
         # taşımalıdır (bkz. `_CORRECTION_TASK`).
         f"Kullanıcının görevi şuydu:\n{task}\n\n"
         "Bu göreve devam ediyorsun. Doğrulama kapısı üretilen çıktıda şu somut "
-        "sorunları buldu. Hepsini düzelt; düzeltemeyeceğin varsa nedenini tek "
-        f"cümleyle yaz.\n\n{bulgular}",
+        "sorunları buldu. Bunları gerçek kod değişiklikleriyle düzelt. "
+        "Doğrulama/test komutunu şimdi TEKRAR ÇALIŞTIRMA; kapı sen değişiklik "
+        "yaptıktan sonra otomatik olarak yeniden çalışacak. Gerekirse ilgili dosyayı "
+        "oku, fakat ardından en az bir gerçek değiştirici araç çağır "
+        "(replace_range/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
+        "düzeltme değildir. Düzeltemeyeceğin varsa nedenini tek cümleyle yaz. "
+        f"\n\n{bulgular}",
         deps,
         history=outcome.messages,
         self_review=False,
         internal=True,
+        require_local_mutation=True,
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )

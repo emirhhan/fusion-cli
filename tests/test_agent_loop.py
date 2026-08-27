@@ -504,9 +504,31 @@ async def test_kapi_kirilirsa_bulgular_duzeltici_tura_gider(monkeypatch, tmp_pat
             [
                 model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>x")]),
                 model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ilk",
+                        )
+                    ]
+                ),
                 model_result("duzeltildi"),
                 # Kapı düzeltmeden sonra bir kez daha bakar; ikinci düzeltici tur da
-                # betikte karşılığını bulmalı.
+                # gerçek bir mutation üretmelidir.
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ikinci",
+                        )
+                    ]
+                ),
                 model_result("duzeltildi"),
             ]
         ),
@@ -653,7 +675,29 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
             [
                 model_result(tool_calls=[tool_call("write_file", path="a.html", content="<h1>")]),
                 model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ilk",
+                        )
+                    ]
+                ),
                 model_result("ilk duzeltme"),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.html",
+                            start_line=1,
+                            end_line=1,
+                            new="<h1>ikinci",
+                        )
+                    ]
+                ),
                 model_result("ikinci duzeltme"),
             ]
         ),
@@ -669,7 +713,7 @@ async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp
     # uyarının ardında korunur (bkz. `_mark_unverified`).
     assert sonuc.final_text.endswith("ikinci duzeltme")
     assert sonuc.ok is False
-    assert provider.calls == 4
+    assert provider.calls == 6
 
 
 async def test_kapi_bulgusuz_basarisizlikta_da_duzeltir(monkeypatch, tmp_path, sink):
@@ -701,6 +745,17 @@ async def test_kapi_bulgusuz_basarisizlikta_da_duzeltir(monkeypatch, tmp_path, s
             [
                 model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
                 model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[
+                        tool_call(
+                            "replace_range",
+                            path="a.py",
+                            start_line=1,
+                            end_line=1,
+                            new="duzeltildi = True",
+                        )
+                    ]
+                ),
                 model_result("duzeltme yapildi"),
             ]
         ),
