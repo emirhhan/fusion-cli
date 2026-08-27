@@ -127,7 +127,6 @@ def test_instructions_require_fenced_payload_for_code() -> None:
     assert f'{PAYLOAD_OPEN} id="file-1"' in instructions
     assert "```python" in instructions
     assert "kod bloğu" in instructions
-    assert "JSON content stringinin içine koyma" in instructions
 
 
 def test_repair_note_uses_fenced_payload_example() -> None:

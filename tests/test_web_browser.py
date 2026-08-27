@@ -240,8 +240,8 @@ def test_gercek_sistem_promptu_yanlis_pozitif_uretmez():
     yapmış olmasına rağmen hatayı almaya devam etti.
 
     Bu test sistem promptunun TAMAMINI gövdeye koyar ve hiçbir tetikleyici
-    işaretin ayakta kalmadığını doğrular. Prompta ileride 'sign in', 'captcha'
-    gibi bir kelime eklenirse burada yakalanır.
+    işaret üretmediğini doğrular. Prompt yeniden bir challenge kelimesi içerirse
+    `strip_sent_text` sonrasında da yanlış pozitif üretmemelidir.
     """
     from fusion_cli.engines.agent.loop import SYSTEM_PROMPT
     from fusion_cli.providers.web_browser import (
@@ -252,7 +252,7 @@ def test_gercek_sistem_promptu_yanlis_pozitif_uretmez():
 
     # Sağlayıcı arayüzü + bizim promptumuz aynı gövdede.
     govde = f"gemini yeni sohbet {SYSTEM_PROMPT} gönder".lower()
-    assert _matched_marker(govde, _CHALLENGE_MARKERS) is not None, "kurulum geçersiz"
+    assert _matched_marker(govde, _CHALLENGE_MARKERS) is None
 
     temiz = strip_sent_text(govde, SYSTEM_PROMPT)
 

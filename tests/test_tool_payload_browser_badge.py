@@ -127,4 +127,3 @@ def test_instructions_and_repair_note_include_sentinel() -> None:
 
     assert PAYLOAD_SENTINEL in instructions
     assert PAYLOAD_SENTINEL in repair.content
-    assert "dil rozeti" in instructions

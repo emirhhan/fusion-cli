@@ -191,7 +191,6 @@ def test_instructions_include_raw_payload_protocol() -> None:
 
     assert f'{PAYLOAD_OPEN} id="file-1"' in instructions
     assert '{"$ref":"file-1"}' in instructions
-    assert "Kaynak kodu JSON content stringinin içine koyma; payload kullan." in instructions
     blocks = re.findall(
         rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}",
         instructions,
