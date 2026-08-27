@@ -785,6 +785,38 @@ def test_mcp_add_eksik_argumanla_kullanim_gosterir(state):
     assert komut.handler(state, "add sadece-ad") == messages.MCP_ADD_USAGE
 
 
+# --- /skills ve /agents ------------------------------------------------------ #
+
+
+def test_skills_komutu_kutuphaneyi_listeler_ve_arama_yapar(state, tmp_path):
+    skill = tmp_path / ".fusion" / "skills" / "browser-test" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        "---\nname: browser-test\ndescription: Tarayıcı davranış testi\n---\n",
+        encoding="utf-8",
+    )
+    komut = build_registry().get("skills")
+
+    assert komut is not None
+    assert "browser-test" in komut.handler(state, "browser")
+    assert "browser-test" not in komut.handler(state, "database")
+
+
+def test_agents_komutu_uzmanlari_kaynaklariyla_listeler(state, tmp_path):
+    agent = tmp_path / ".claude" / "agents" / "reviewer.md"
+    agent.parent.mkdir(parents=True)
+    agent.write_text(
+        "---\nname: reviewer\ndescription: Kod inceleme uzmanı\n---\n",
+        encoding="utf-8",
+    )
+    komut = build_registry().get("agents")
+
+    assert komut is not None
+    output = komut.handler(state, "reviewer")
+    assert "reviewer" in output
+    assert "proje" in output
+
+
 # --- REPL ile tek-atış yolu aynı bağımlılıkları kurmalı ---------------------- #
 
 

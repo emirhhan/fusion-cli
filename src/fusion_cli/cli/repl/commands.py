@@ -22,6 +22,8 @@ from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
 from ...engines.agent.approval import ApprovalMode
 from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
+from ...tools.capabilities import Capability
+from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
 from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
@@ -468,6 +470,28 @@ def _mcp(state: ReplState, argument: str) -> str:
     return messages.MCP_USAGE
 
 
+def _format_capabilities(items: tuple[Capability, ...], *, empty: str) -> str:
+    if not items:
+        return empty
+    return "\n".join(
+        f"· {item.name} [{item.source}]"
+        + (f" — {item.description}" if item.description else "")
+        for item in items
+    )
+
+
+def _skills(state: ReplState, argument: str) -> str:
+    assert state.capabilities is not None
+    items = search_capabilities(state.capabilities.skills(), argument.strip(), limit=50)
+    return _format_capabilities(items, empty=messages.SKILLS_EMPTY)
+
+
+def _agents(state: ReplState, argument: str) -> str:
+    assert state.capabilities is not None
+    items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
+    return _format_capabilities(items, empty=messages.AGENTS_EMPTY)
+
+
 def _health(state: ReplState, argument: str) -> str:
     """`/health` — sağlayıcı güvenilirlik skorlarını ve circuit breaker durumunu göster."""
     registry = state.health
@@ -632,6 +656,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
     SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi", usage="[add]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
+    SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
+    SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),
     *(
         SlashCommand(
             name,
