@@ -63,6 +63,7 @@ def inspect_web_output_by_severity(
     blocking.extend(_stilsiz_siniflar(html, css))
     blocking.extend(_tutarsiz_tutarlar(html, js))
     blocking.extend(_baglanmamis_dosyalar(files, html, js))
+    blocking.extend(_kapanmayan_ham_metin_etiketleri(html))
     blocking.extend(_erisilemez_hp_dali(f"{html}\n{js}"))
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
@@ -186,31 +187,63 @@ def _tutarsiz_tutarlar(html: str, js: str) -> list[str]:
     return bulgular
 
 
-_HP_ZERO_GUARD = re.compile(r"\b[\w$]+(?:\.[\w$]+)*\.hp\s*<=\s*0\b", re.I)
-_HP_DECREASE = re.compile(
-    r"(?:\b[\w$]+(?:\.[\w$]+)*\.hp\s*(?:-=|--)|"
-    r"--\s*\b[\w$]+(?:\.[\w$]+)*\.hp\b|"
-    r"\b[\w$]+(?:\.[\w$]+)*\.hp\s*=\s*[^;\n]*\.hp\s*-)",
-    re.I,
+_HP_ZERO_GUARD = re.compile(
+    r"\b(?P<receiver>[\w$]+(?:\.[\w$]+)*)\.hp\s*<=\s*0\b", re.I
 )
 
 
-def _erisilemez_hp_dali(code: str) -> list[str]:
-    """HP sıfır dalı var ama dosyada HP'yi azaltan hiçbir işlem yok mu?
+def _hp_azaltiliyor_mu(code: str, receiver: str) -> bool:
+    """Aynı state alıcısının HP'sinde gerçek bir azaltma var mı?"""
+    target = rf"\b{re.escape(receiver)}\.hp\b"
+    return bool(
+        re.search(rf"{target}\s*(?:-=|--)", code, re.I)
+        or re.search(rf"--\s*{target}", code, re.I)
+        or re.search(rf"{target}\s*=\s*[^;\n]*{target}\s*-", code, re.I)
+    )
 
-    Bu yalnızca güçlü küresel sinyalde çalışır. Tek bir gerçek azaltma bile varsa
-    susar; böylece farklı hasar yardımcıları veya birden çok entity kullanılan
-    uygulamalarda tahmin yürütmez. Ölçülen hata, modelin ölüm kontrollerini yazıp
-    hem mermi hem oyuncu çarpışmasındaki azaltma satırlarını tamamen unutmasıydı.
+
+def _erisilemez_hp_dali(code: str) -> list[str]:
+    """Her HP sıfır dalını aynı state alıcısının azaltmasıyla eşleştir.
+
+    Küresel bir ``.hp -=`` kanıtı yeterli değildir: oyuncu hasarı çalışırken
+    düşman hasarı tamamen eksik olabilir. Alıcıyı (``player``, ``enemy`` veya
+    ``gameState.player``) korumak, bir entity'nin mutasyonunun ötekini gizlemesini
+    engeller ve farklı adlarla yazılmış bağımsız state'leri karıştırmaz.
     """
-    guards = _HP_ZERO_GUARD.findall(code)
-    if not guards or _HP_DECREASE.search(code):
+    receivers = tuple(
+        dict.fromkeys(match.group("receiver") for match in _HP_ZERO_GUARD.finditer(code))
+    )
+    missing = [receiver for receiver in receivers if not _hp_azaltiliyor_mu(code, receiver)]
+    if not missing:
         return []
+    targets = ", ".join(f"{receiver}.hp" for receiver in missing[:5])
     return [
-        f"Kodda {len(guards)} HP<=0 ölüm/bitiş kontrolü var ama HP'yi azaltan hiçbir "
-        "state mutasyonu yok; bu dallar erişilemez. Hasar olayında normal oyun "
-        "state'indeki ilgili .hp değerini gerçekten azalt."
+        f"Kodda HP<=0 ölüm/bitiş kontrolü var ama {targets} değerini azaltan aynı-state "
+        "mutasyonu yok; bu dal erişilemez. İlgili hasar olayında normal oyun "
+        "state'indeki bu HP değerini gerçekten azalt."
     ]
+
+
+def _kapanmayan_ham_metin_etiketleri(html: str) -> list[str]:
+    """Kapanmayan ``style``/``script`` belgenin geri kalanını sessizce yutar."""
+    bulgular: list[str] = []
+    baslangic = re.compile(r"<(style|script)\b[^>]*>", re.I)
+    konum = 0
+    while acilis := baslangic.search(html, konum):
+        tag = acilis.group(1).lower()
+        kapanis = re.search(rf"</{tag}\s*>", html[acilis.end() :], re.I)
+        if kapanis is not None:
+            # Ham metin içindeki '<script>' benzeri JavaScript/CSS stringlerini
+            # yeni HTML etiketi sanma; gerçek kapanışın sonrasından devam et.
+            konum = acilis.end() + kapanis.end()
+            continue
+        bulgular.append(
+            f"<{tag}> etiketi kapanmıyor; tarayıcı belgenin kalanını ham metin "
+            "sayabilir ve uygulama hiç başlamaz. "
+            f"Eksik </{tag}> etiketini ekle."
+        )
+        break
+    return bulgular
 
 
 def _palet_baypasi(css: str, js: str, html: str) -> list[str]:

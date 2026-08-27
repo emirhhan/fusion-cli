@@ -666,8 +666,10 @@ async def _drive(
     local_calls = 0
 
     while True:
-        if budget.model_calls_exhausted or (local_limit is not None and local_calls >= local_limit):
+        if budget.model_calls_exhausted:
             return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
+        if local_limit is not None and local_calls >= local_limit:
+            return _halt_local(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         local_calls += 1
         time_stop = budget.time_stop_reason()
         if time_stop is not None:
@@ -778,7 +780,7 @@ async def _drive(
             return _outcome(final_text, messages, state)
 
         if execution.max_tool_rounds is not None and state.tool_rounds >= execution.max_tool_rounds:
-            return _halt(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
+            return _halt_local(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
         before = _progress_marker(deps, state)
         errored = await _run_tools(
@@ -864,6 +866,37 @@ def _halt(
     # Sebep AZ ÖNCE yayınlandı. `final_text` modelin cevabıdır, hata metni
     # değildir; ikisini birden hata gibi basmak "✗ hata İş başarıyla
     # tamamlanmıştır" gibi kendiyle çelişen satırlar üretiyordu (ölçüldü).
+    outcome.budget_stopped = True
+    return outcome
+
+
+def _halt_local(
+    final_text: str,
+    messages: list[Message],
+    state: _State,
+    budget: TurnBudget,
+    reason: BudgetStop,
+    deps: AgentDeps,
+) -> AgentOutcome:
+    """Yalnız bu ``_drive`` çağrısının sınırında dur; dış kapıları açık bırak.
+
+    Web yürütme politikasındaki model/araç sınırları çağrı-yereldir. Doğrulama ve
+    öz-denetim alt turları aynı ``TurnBudget`` nesnesini paylaşsa da bu yerel sınıra
+    çarpılması, çalışma alanının son post-condition doğrulamasını engellememelidir.
+    Gerçek tur-geneli sayaç ve süre sınırları `_halt` üzerinden otorite olmaya devam
+    eder.
+    """
+    deps.publisher.publish(
+        TurnBudgetExhausted(
+            reason=reason.value,
+            model_calls=budget.model_calls,
+            tool_rounds=state.tool_rounds,
+            idle_rounds=budget.idle_rounds,
+            elapsed_s=budget.elapsed_s,
+        )
+    )
+    text = final_text.strip()
+    outcome = _outcome(text, messages, state, hit_step_limit=True, ok=False)
     outcome.budget_stopped = True
     return outcome
 

@@ -157,6 +157,53 @@ def test_hp_gercekten_azaltiliyorsa_olum_dali_bulgu_uretmez():
     assert not _bulgu_var(inspect_web_output({"index.html": html}), "erişilemez")
 
 
+def test_bir_entity_hp_azaltmasi_digerinin_eksigini_gizlemez():
+    """Oyuncu hasarı, düşmanın erişilemez ölüm dalını geçerli kılamaz."""
+    html = """<main><script>
+    player.hp -= enemy.damage;
+    if (player.hp <= 0) gameOver = true;
+    if (enemy.hp <= 0) enemies.delete(enemy);
+    </script></main>"""
+
+    bulgular = inspect_web_output({"index.html": html})
+
+    assert _bulgu_var(bulgular, "enemy.hp")
+
+
+def test_her_entity_kendi_hp_degerini_azaltiyorsa_bulgu_uretilmez():
+    html = """<main><script>
+    player.hp -= enemy.damage;
+    enemy.hp -= bullet.damage;
+    if (player.hp <= 0) gameOver = true;
+    if (enemy.hp <= 0) enemies.delete(enemy);
+    </script></main>"""
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "erişilemez")
+
+
+# --- Ham metin etiketi bütünlüğü ------------------------------------------- #
+
+
+def test_kapanmayan_style_etiketi_belgenin_kalanini_yutarsa_bulgu_uretilir():
+    """Tarayıcı body/script'i CSS metni sayar; sayfa sessizce hiç başlamaz."""
+    html = """<html><head><style>body { margin: 0 }
+    </head><body><main>oyun</main><script>window.started = true;</script></body></html>"""
+
+    bulgular = inspect_web_output({"index.html": html})
+
+    assert _bulgu_var(bulgular, "style")
+    assert _bulgu_var(bulgular, "kapan")
+
+
+def test_script_icindeki_etiket_metni_yeni_acilis_sayilmaz():
+    html = """<main>oyun</main><script>
+    const example = '<script src="demo.js">';
+    window.started = true;
+    </script>"""
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "kapanmıyor")
+
+
 # --- Genel davranış ---------------------------------------------------------- #
 
 

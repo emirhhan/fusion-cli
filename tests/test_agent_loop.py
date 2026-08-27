@@ -1515,6 +1515,57 @@ async def test_verification_correction_agentin_ilk_fallback_modelini_kullanir(
     assert "provider/corrector" in seen_models
 
 
+async def test_correction_yerel_arac_siniri_son_dogrulamayi_engellemez(
+    monkeypatch, tmp_path, sink
+):
+    """İç turun yerel sınırı, düzeltilmiş artefaktın post-condition kapısını kapatmamalı."""
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    class _DosyayiDogrulayan:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            fixed = (tmp_path / "a.js").read_text(encoding="utf-8") == "fixed"
+            return (
+                VerificationResult(ok=True)
+                if fixed
+                else VerificationResult(ok=False, summary="bozuk", findings=("a.js bozuk",))
+            )
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+                model_result(TAM_CEVAP),
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+                # Correction'ın yerel araç hakkını aşar; çağrı çalıştırılmamalı.
+                model_result(tool_calls=[tool_call("write_file", path="b.js", content="x")]),
+            ]
+        ),
+    )
+    dogrulayici = _DosyayiDogrulayan()
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(
+        is_web=True,
+        max_model_calls=50,
+        max_tool_rounds=1,
+        complex_task=True,
+    )
+    deps.verifier = dogrulayici
+
+    sonuc = await run_agent("a.js düzelt", deps)
+
+    assert dogrulayici.calls == 2
+    assert (tmp_path / "a.js").read_text(encoding="utf-8") == "fixed"
+    assert not (tmp_path / "b.js").exists()
+    assert deps.budget.stop is None
+    assert "DOĞRULAMA GEÇMEDİ" not in sonuc.final_text
+
+
 async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_path, sink):
     """Bildiğimiz bir bozukluğu başarı diye teslim etmek kabul edilemez.
 
