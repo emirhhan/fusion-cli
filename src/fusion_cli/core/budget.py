@@ -39,6 +39,7 @@ class BudgetStop(Enum):
     MODEL_CALLS = "model_calls"
     TOOL_ROUNDS = "tool_rounds"
     DEADLINE = "deadline"
+    INACTIVITY = "inactivity"
     NO_PROGRESS = "no_progress"
     REPEATED_CALL = "repeated_call"
     CONTRACT_UNREPAIRABLE = "contract_unrepairable"
