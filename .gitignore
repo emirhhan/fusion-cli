@@ -34,3 +34,4 @@ voltiva-shop/
 # ChatGPT onarım aracının geçici yedeği/raporu (izlenmez)
 .fusion-repair-backup/
 fusion-repair-report-*.txt
+.eval-artifacts/
