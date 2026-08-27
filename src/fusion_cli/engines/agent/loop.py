@@ -1268,9 +1268,9 @@ def _targeted_edit_required(
     if _rewrite_is_last_resort(hedef, deps, state):
         return []
     return [
-        f"'{raw}' zaten var. Var olan bir dosyayı toptan yeniden yazma — edit_file ile "
-        "YALNIZCA değişen parçayı gönder. Birden çok yer değişecekse multi_edit kullan "
-        "ya da her turda bir düzenleme yap."
+        f"'{raw}' zaten var. Var olan dosyayı toptan yeniden yazma — önce read_file "
+        "ile ilgili satırları gör, sonra replace_range ile YALNIZCA yeni parçayı gönder. "
+        "Kısa exact-text değişimi dışında edit_file'a düşme."
     ]
 
 
@@ -1411,7 +1411,8 @@ async def _run_tools(
                 "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve "
                 "çalışma alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion "
                 "çağrıyı çalıştırmadı — sonucu zaten elinde. Aynı şeyi yeniden isteme; "
-                "şunlardan BİRİNİ yap: write_file / edit_file ile değişikliği uygula, "
+                "şunlardan BİRİNİ yap: yeni dosyada write_file, mevcut dosyada "
+                "replace_range ile değişikliği uygula, "
                 "farklı bir dosyayı read_file ile oku, eksik bilgi varsa ask_user ile "
                 "sor, ya da işi bitirip sonucu söyle."
             )

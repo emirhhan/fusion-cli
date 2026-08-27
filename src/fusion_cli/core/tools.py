@@ -130,6 +130,13 @@ class ToolContext:
     # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
     # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
     fully_read: set[Path] = field(default_factory=set)
+    #: `read_file` ile görülen dosyaların içerik revision'ı.
+    #:
+    #: `replace_range` modelden eski içeriği tekrar üretmesini istemez. Bunun güvenli
+    #: olabilmesi için satır numaralarının HÂLÂ modelin gördüğü dosyaya ait olduğunu
+    #: doğrularız. Revision modele taşınmaz; araç katmanı kendi bildiği okuma durumunu
+    #: burada tutar. Böylece tool çağrısı kısa kalır.
+    read_revisions: dict[Path, str] = field(default_factory=dict)
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).
     pending: PendingWrite = field(default_factory=lambda: PendingWrite())

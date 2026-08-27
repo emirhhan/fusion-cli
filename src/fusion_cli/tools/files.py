@@ -11,6 +11,7 @@ tek seferde yazılır. Yarım uygulanmış dosya bırakmaz.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -123,6 +124,16 @@ def display_path(context: ToolContext, path: Path) -> str:
     return str(path)
 
 
+def _revision(data: bytes) -> str:
+    """Dosya içeriğinin revision kimliği.
+
+    Tam SHA-256 saklanır; modele gönderilmez. Amaç kriptografik güvenlik değil,
+    modelin okuduğu dosya ile düzenlediği dosyanın aynı revision olduğunu kesin
+    biçimde ayırt etmektir.
+    """
+    return hashlib.sha256(data).hexdigest()
+
+
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     if not path.exists():
@@ -136,6 +147,9 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
 
     ham = path.read_bytes()
+    # Kısmi okuma bile hangi DOSYA revision'ının görüldüğünü kesin olarak bilir.
+    # replace_range daha sonra satır numaralarını bu revision'a karşı doğrular.
+    context.read_revisions[path] = _revision(ham)
     data = ham[:MAX_READ_BYTES]
     kirpildi = len(ham) > MAX_READ_BYTES
     try:
@@ -222,7 +236,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"Bu dosya var ve tam içeriğini okumadın: {display_path(context, path)}. "
             "Üzerine yazmak "
-            "görmediğin satırları siler. Kısmi değişiklik için edit_file kullan; "
+            "görmediğin satırları siler. Kısmi değişiklik için replace_range kullan; "
             "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
         )
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -255,6 +269,142 @@ def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
         f"'path' alanı eksik. İçeriğini SAKLADIM ({len(icerik)} karakter); tekrar "
         "gönderme. Aynı aracı YALNIZCA path vererek çağır: "
         '{"path": "dizin/dosya.uzanti"}'
+    )
+
+
+def _replace_range_text(
+    text: str,
+    start_line: int,
+    end_line: int,
+    new: str,
+) -> str:
+    """1-tabanlı inclusive satır aralığını yeni içerikle değiştir.
+
+    Modelin replacement sonuna newline eklemesine güvenilmez. Araç, çıkarılan
+    aralığın satır-sonu stilini koruyarak yeni içerik ile kalan dosya arasındaki
+    sınırı güvenli biçimde oluşturur.
+    """
+    lines = text.splitlines(keepends=True)
+    line_count = len(lines)
+
+    if line_count == 0:
+        raise ArgumentError(
+            "Dosya boş; satır aralığı değiştirilemez. write_file kullan."
+        )
+    if start_line > end_line:
+        raise ArgumentError("'start_line', 'end_line'dan büyük olamaz.")
+    if start_line > line_count or end_line > line_count:
+        raise ArgumentError(
+            f"Satır aralığı dosyanın dışında: {start_line}-{end_line}; "
+            f"dosya {line_count} satır."
+        )
+
+    prefix = "".join(lines[: start_line - 1])
+    removed = "".join(lines[start_line - 1 : end_line])
+    suffix = "".join(lines[end_line:])
+
+    # Kaynak dosyanın/çıkarılan aralığın EOL stilini koru.
+    if "\r\n" in removed:
+        eol = "\r\n"
+    elif "\n" in removed:
+        eol = "\n"
+    elif "\r" in removed:
+        eol = "\r"
+    elif "\r\n" in text:
+        eol = "\r\n"
+    elif "\n" in text:
+        eol = "\n"
+    elif "\r" in text:
+        eol = "\r"
+    else:
+        eol = "\n"
+
+    replacement = new
+
+    if replacement and not replacement.endswith(("\n", "\r")):
+        # Ardından başka satırlar geliyorsa mutlaka satır sınırı gerekir.
+        # Değiştirilen son satır newline ile bitiyorsa dosyanın final newline'ını
+        # da koruruz.
+        removed_ended_with_eol = removed.endswith(("\n", "\r"))
+        if suffix or removed_ended_with_eol:
+            replacement += eol
+
+    return prefix + replacement + suffix
+
+def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Okunmuş bir dosyada satır aralığını yalnız YENİ içerikle değiştir.
+
+    Exact-old eşleşmesine ihtiyaç duymaz. Güvenlik, dosyanın son `read_file`
+    çağrısından beri değişmediğini revision üzerinden doğrulayarak sağlanır.
+    """
+    path = resolve_path(context, require_str(args, "path"))
+    start_line = require_positive_int(args, "start_line", default=0)
+    end_line = require_positive_int(args, "end_line", default=0)
+    new = require_text(args, "new")
+
+    if start_line <= 0 or end_line <= 0:
+        return ToolResult.failure(
+            "'start_line' ve 'end_line' 1 veya daha büyük pozitif tamsayı olmalı."
+        )
+
+    if not path.exists():
+        return ToolResult.failure(
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. "
+            "Düzenlenecek dosya yok; yolu doğrula veya write_file kullan."
+        )
+    if path.is_dir():
+        return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
+
+    expected_revision = context.read_revisions.get(path)
+    if expected_revision is None:
+        return ToolResult.failure(
+            f"'{display_path(context, path)}' bu turda okunmadı. "
+            "Önce read_file ile değiştireceğin satırları oku; sonra replace_range kullan."
+        )
+
+    try:
+        raw = path.read_bytes()
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return ToolResult.failure(
+            f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
+        )
+
+    if _revision(raw) != expected_revision:
+        # Satır numaraları artık eski revision'a aittir. Yanlış satırı değiştirmek,
+        # bir tur yeniden okumaktan daha pahalıdır.
+        context.read_revisions.pop(path, None)
+        context.fully_read.discard(path)
+        return ToolResult.failure(
+            f"'{display_path(context, path)}' okunduktan sonra değişmiş. "
+            "Satır numaraları artık güvenilir değil; read_file ile ilgili bölümü "
+            "TEKRAR oku ve yeni satır numaralarıyla replace_range çağır."
+        )
+
+    try:
+        updated = _replace_range_text(text, start_line, end_line, new)
+    except ArgumentError as exc:
+        return ToolResult.failure(str(exc))
+
+    if updated == text:
+        return ToolResult.failure("Değişiklik yok; verilen yeni içerik mevcut aralıkla aynı.")
+
+    context.changes.record(path)
+    try:
+        atomic_write(path, updated)
+    except OSError as exc:
+        return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
+
+    context.touched.add(path)
+
+    # Bir başarılı range editinden sonra önceki satır numaraları artık eski revision'a
+    # aittir. İkinci range edit için model ilgili bölümü yeniden görmelidir.
+    context.read_revisions.pop(path, None)
+    context.fully_read.discard(path)
+
+    return ToolResult(
+        f"düzenlendi: {display_path(context, path)} "
+        f"(satır {start_line}-{end_line} değiştirildi)"
     )
 
 

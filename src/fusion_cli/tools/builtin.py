@@ -60,7 +60,7 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="write_file",
         description="Bir dosyayı verilen içerikle oluştur ya da TAMAMEN üzerine yaz. "
-        "Var olan bir dosyanın bir kısmını değiştireceksen bunu değil edit_file kullan.",
+        "Var olan dosyanın bir kısmını değiştireceksen bunu değil replace_range kullan.",
         parameters=_schema(
             {
                 # Açıklamada sıra vurgulanır: içerik büyükse model küçük alanı sona
@@ -77,8 +77,36 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
+        name="replace_range",
+        description="TERCİH EDİLEN kısmi düzenleme aracı. Önce read_file ile ilgili "
+        "satırları oku; sonra 1-tabanlı start_line..end_line aralığını yalnızca YENİ "
+        "içerikle değiştir. Eski kodu tekrar göndermezsin; whitespace eşleşmesi gerekmez. "
+        "Dosya okunduktan sonra değişmişse güvenli biçimde reddedilir ve yeniden okuman istenir.",
+        parameters=_schema(
+            {
+                "path": {**_STRING, "description": "Daha önce read_file ile okunmuş dosya"},
+                "start_line": {
+                    **_INTEGER,
+                    "description": "Değiştirilecek ilk satır, 1 tabanlı ve inclusive.",
+                },
+                "end_line": {
+                    **_INTEGER,
+                    "description": "Değiştirilecek son satır, 1 tabanlı ve inclusive.",
+                },
+                "new": {
+                    **_STRING,
+                    "description": "Aralığın yerine gelecek YENİ içerik. Eski içeriği gönderme.",
+                },
+            },
+            ["path", "start_line", "end_line", "new"],
+        ),
+        run=files.replace_range,
+        mutating=True,
+    ),
+    Tool(
         name="edit_file",
-        description="Bir dosyada birebir eşleşen 'old' metnini 'new' ile değiştir. "
+        description="GERİYE UYUMLU fallback. Çok KISA ve birebir bildiğin bir 'old' "
+        "metnini 'new' ile değiştir. Normal çok satırlı düzenlemede replace_range kullan. "
         "'old' varsayılan olarak BENZERSİZ olmalı; tekrar eden bir metnin HEPSİNİ "
         "değiştirecekseniz replace_all: true kullanın (tek çağrıda biter).",
         parameters=_schema(

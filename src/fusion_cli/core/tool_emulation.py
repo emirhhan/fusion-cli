@@ -203,6 +203,34 @@ PAYLOAD_EXAMPLE = "\n".join(
     ]
 )
 
+#: Kısmi düzenlemenin V2 örneği: eski kodu model tekrar üretmez.
+# `read_file` çıktısındaki 1-tabanlı satır numaraları kullanılır; güvenlik, araç
+# katmanının sakladığı dosya revision'ıyla sağlanır. Böylece iki büyük payload yerine
+# yalnızca YENİ içerik taşınır ve çağrı bloğuna varmadan kesilme riski düşer.
+RANGE_EDIT_EXAMPLE = "\n".join(
+    [
+        f'{PAYLOAD_OPEN} id="yeni-aralik-1"',
+        "```python",
+        PAYLOAD_SENTINEL,
+        "def topla(a, b):",
+        "    return a + b",
+        "```",
+        PAYLOAD_CLOSE,
+        render_call(
+            {
+                "name": "replace_range",
+                "arguments": {
+                    "path": "hesap.py",
+                    "start_line": 10,
+                    "end_line": 11,
+                    "new": {"$ref": "yeni-aralik-1"},
+                },
+            }
+        ),
+    ]
+)
+
+
 #: Var olan bir dosyayı kısmen değiştirmenin işlenmiş örneği.
 #
 # Bu örneğin varlık sebebi ölçülmüş bir davranıştır: sözleşmedeki TEK mutasyon
@@ -257,8 +285,12 @@ _GENERAL_RULES = (
     "- name alanı zorunludur ve boş olamaz.",
     "- arguments alanı zorunludur ve her zaman JSON nesnesidir.",
     "- Şemadaki required alanlarının tamamını doğru tipte gönder.",
-    "- Var olan bir dosyayı DEĞİŞTİRİYORSAN edit_file kullan, write_file DEĞİL: "
-    "yalnızca değişen parçayı gönder, dosyanın tamamını yeniden yazma.",
+    "- Var olan bir dosyanın BİR BÖLÜMÜNÜ değiştiriyorsan önce read_file ile "
+    "satırları gör, sonra replace_range kullan; write_file DEĞİL.",
+    "- replace_range'de ESKİ içeriği payload olarak tekrar üretme: yalnız start_line, "
+    "end_line ve YENİ içerik gerekir. Dosya arada değiştiyse araç güvenli biçimde reddeder.",
+    "- edit_file geriye uyumluluk fallback'idir; yalnız çok kısa ve birebir bildiğin "
+    "old→new değişiminde kullan. Büyük old payload üretme.",
     "- write_file yalnızca YENİ dosya oluştururken ya da içeriğin tamamı "
     "gerçekten baştan yazılacaksa kullanılır.",
     "- Bir çağrıda birden çok payload olabilir; her alan kendi id'siyle eşleşir.",
@@ -266,8 +298,8 @@ _GENERAL_RULES = (
     # uygulanınca keşfin maliyeti dört katına çıkıyordu: dizin listelemek + üç
     # dosya okumak dört tur yiyor, tur bütçesi yazmaya sıra gelmeden bitiyordu.
     # Okuma çağrıları kısa tek satırlık JSON'dur; yanıtın kesilme riski yoktur.
-    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap (write_file, edit_file, "
-    "multi_edit, run_shell). Bunları tek yanıta yığarsan yanıt kesilir ve çağrı "
+    "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap (write_file, replace_range, "
+    "edit_file, multi_edit, run_shell). Bunları tek yanıta yığarsan yanıt kesilir ve çağrı "
     "bloğu hiç gelmez.",
     "- OKUMA çağrılarını (read_file, list_dir, glob, search_code) aynı yanıtta "
     "BİRDEN ÇOK yapabilirsin ve yapmalısın: birbirine bağlı değillerse hepsini tek "
@@ -292,8 +324,8 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         "2) Çok satırlı / kod içeren değerler için payload:",
         PAYLOAD_EXAMPLE,
         "",
-        "3) VAR OLAN bir dosyada kısmi değişiklik — tek çağrıda İKİ payload:",
-        EDIT_EXAMPLE,
+        "3) VAR OLAN bir dosyada kısmi değişiklik — V2, TEK yeni-içerik payload'ı:",
+        RANGE_EDIT_EXAMPLE,
         "",
         "Payload kuralları:",
         *PAYLOAD_RULES,

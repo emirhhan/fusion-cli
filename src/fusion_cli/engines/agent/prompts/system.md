@@ -57,8 +57,10 @@ ilerle; ancak yalnızca kullanıcının kararı olan şeylerde (yıkıcı işlem
   projenin zaten kullandığı yolu tercih et.
 - Mevcut kodun stiline, isimlendirmesine ve desenlerine uy. Yeni bir bileşen/modül
   yazmadan önce benzerlerine bak, taklit et. Çevredeki kod nasılsa öyle yaz.
-- Değişiklikleri küçük ve kesin tut. `edit_file` için 'old' metni birebir ve BENZERSİZ
-  olmalı; aynı dosyada çok yer değişecekse multi_edit kullan (atomiktir).
+- Değişiklikleri küçük ve kesin tut. Kısmi değişiklikte önce ilgili satırları oku,
+  sonra `replace_range` ile yalnız YENİ içeriği gönder. Eski kodu tekrar üretme.
+  `edit_file` yalnız kısa exact-text fallback'idir; aynı dosyada çok yer değişecekse
+  gerekirse multi_edit kullan.
 - Gereksiz yorum ekleme; yalnızca gerçekten gerekli olduğunda, NEDEN'i anlatan yorum yaz.
 - Var olan dosyayı düzenlemeyi yeni dosya oluşturmaya tercih et. İstenmedikçe dokümantasyon
   (README, *.md) üretme.

@@ -16,11 +16,11 @@ from pathlib import Path
 from ..core.constants import MAX_PREVIEW_LINES
 from ..core.tools import ToolArgs, ToolContext
 from .args import ArgumentError
-from .files import parse_edits, resolve_path
+from .files import _replace_range_text, parse_edits, resolve_path
 
 #: Renderlanabilir DOSYA diff'i üreten araçlar. `run_shell` de önizleme üretir ama
 #: onunki komut satırıdır, diff değil; diff bloğu olarak basılmamalıdır.
-FILE_DIFF_TOOLS = frozenset({"write_file", "edit_file", "multi_edit"})
+FILE_DIFF_TOOLS = frozenset({"write_file", "replace_range", "edit_file", "multi_edit"})
 
 
 def preview_change(tool_name: str, args: ToolArgs, context: ToolContext) -> str | None:
@@ -85,6 +85,34 @@ def _preview_write(args: ToolArgs, context: ToolContext) -> str:
     return unified_diff(old_text, new_text, display_path(path, context)) or "(değişiklik yok)"
 
 
+def _preview_replace_range(args: ToolArgs, context: ToolContext) -> str:
+    path = resolve_path(context, _path_of(args))
+    if not path.exists():
+        return f"(dosya yok: {path})"
+
+    old_text = path.read_text(encoding="utf-8")
+    start = args.get("start_line")
+    end = args.get("end_line")
+    replacement = args.get("new")
+
+    if (
+        not isinstance(start, int)
+        or isinstance(start, bool)
+        or start <= 0
+        or not isinstance(end, int)
+        or isinstance(end, bool)
+        or end <= 0
+        or not isinstance(replacement, str)
+    ):
+        raise ArgumentError("start_line/end_line pozitif tamsayı, new metin olmalı.")
+
+    new_text = _replace_range_text(old_text, start, end, replacement)
+    return (
+        unified_diff(old_text, new_text, display_path(path, context))
+        or "(değişiklik yok)"
+    )
+
+
 def _preview_edit(args: ToolArgs, context: ToolContext) -> str:
     path = resolve_path(context, _path_of(args))
     if not path.exists():
@@ -139,6 +167,7 @@ def _path_of(args: ToolArgs) -> str:
 
 _BUILDERS = {
     "write_file": _preview_write,
+    "replace_range": _preview_replace_range,
     "edit_file": _preview_edit,
     "multi_edit": _preview_multi_edit,
     "run_shell": _preview_shell,

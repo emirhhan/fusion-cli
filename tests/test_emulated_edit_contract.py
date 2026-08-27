@@ -74,14 +74,13 @@ def _instructions() -> str:
     return render_tool_instructions(build_registry().schemas())
 
 
-def test_sozlesme_edit_file_ornegi_icerir() -> None:
-    """Kural yazmak yetmez; modelin taklit edebileceği bir örnek gerekir."""
+def test_sozlesme_replace_range_ornegi_icerir() -> None:
+    """Ana kısmi-edit örneği replace_range V2 olmalı."""
     metin = _instructions()
 
-    assert '"name":"edit_file"' in metin
-    # Örnek gerçekten İKİ payload'lı olmalı — asıl öğretilecek şey budur.
-    assert metin.count(PAYLOAD_OPEN) >= 3, "edit_file örneği iki payload göstermeli"
-
+    assert '"name":"replace_range"' in metin
+    assert "replace_range" in metin
+    assert "Eski içeriği" in metin or "ESKİ içeriği" in metin
 
 def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
     """Örnek ile ayrıştırıcı ayrışırsa modele yanlış biçim öğretmiş oluruz."""
@@ -96,11 +95,11 @@ def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
     assert "$ref" not in parsed.calls[0].arguments, "referanslar çözülmüş olmalı"
 
 
-def test_sozlesme_var_olan_dosyada_edit_file_tercihini_soyler() -> None:
+def test_sozlesme_var_olan_dosyada_replace_range_tercihini_soyler() -> None:
     metin = _instructions()
 
-    assert "edit_file kullan, write_file DEĞİL" in metin
-
+    assert "replace_range kullan" in metin
+    assert "write_file DEĞİL" in metin
 
 # --- Takma adlar: çalışır ama listelenmez --------------------------------------- #
 
@@ -200,7 +199,7 @@ def test_sozlesme_tek_cagri_kuralini_degistiricilerle_sinirlar() -> None:
 
     assert "EN FAZLA BİR DEĞİŞTİRİCİ çağrı" in metin
     assert "BİRDEN ÇOK yapabilirsin" in metin
-    assert "EN KÜÇÜK benzersiz parçayı" in metin
+    assert "replace_range" in metin
 
 
 # --- ölü kilit: edit tutmuyor, write engelli ------------------------------- #
@@ -257,7 +256,7 @@ def test_var_olan_dosyaya_toptan_yazma_normalde_engellenir(tmp_path):
         "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(0)
     )
 
-    assert hatalar and "edit_file" in hatalar[0]
+    assert hatalar and "replace_range" in hatalar[0]
 
 
 def test_duzenleme_tekrar_tekrar_dustuyse_ve_dosya_okunduysa_yazmaya_izin_verilir(tmp_path):
