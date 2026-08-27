@@ -155,6 +155,18 @@ def _verification_env() -> dict[str, str]:
     env = dict(os.environ)
     yorumlayici = str(Path(sys.executable).parent)
     env["PATH"] = f"{yorumlayici}{os.pathsep}{env.get('PATH', '')}"
+
+    # Post-run acceptance komutları scratch workspace'ten çalışır. `evals` paketi
+    # wheel'in parçası değildir; repo kökünü yalnız DOĞRULAMA subprocess'ine ekle.
+    # Agent'ın ToolContext kökü değişmez, dolayısıyla evaluator kaynaklarını göremez
+    # veya değiştiremez.
+    repo_root = str(Path(__file__).resolve().parents[1])
+    mevcut_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = (
+        f"{repo_root}{os.pathsep}{mevcut_pythonpath}"
+        if mevcut_pythonpath
+        else repo_root
+    )
     return env
 
 

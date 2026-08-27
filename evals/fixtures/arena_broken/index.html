@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Arena Broken</title>
+</head>
+<body>
+<canvas width="800" height="600"></canvas>
+<script>
+let nextEnemyId = 0;
+
+let player = {
+  x: 400,
+  y: 300,
+  hp: 100,
+  maxHp: 100,
+  level: 1,
+  xp: 0
+};
+
+let enemies = [];
+let xpGems = [];
+let gameOver = false;
+
+function restart() {
+  player = {
+    x: 400,
+    y: 300,
+    hp: 100,
+    maxHp: 100,
+    level: 1,
+    xp: 0
+  };
+  enemies = [];
+  xpGems = [];
+  gameOver = false;
+}
+
+function spawnEnemy(options = {}) {
+  const enemy = {
+    id: ++nextEnemyId,
+    x: Number(options.x ?? 100),
+    y: Number(options.y ?? 100),
+    hp: Number(options.hp ?? 100),
+    maxHp: Number(options.hp ?? 100),
+    speed: Number(options.speed ?? 0)
+  };
+  enemies.push(enemy);
+  return enemy.id;
+}
+
+function spawnXp(options = {}) {
+  xpGems.push({
+    x: Number(options.x ?? player.x),
+    y: Number(options.y ?? player.y),
+    value: Number(options.value ?? 10)
+  });
+}
+
+function snapshot() {
+  return JSON.parse(JSON.stringify({
+    player,
+    enemies,
+    xpGems,
+    gameOver
+  }));
+}
+
+window.__FUSION_GAME_DEBUG__ = {
+  snapshot,
+  spawnEnemy,
+  spawnXp,
+  restart
+};
+</script>
+</body>
+</html>
