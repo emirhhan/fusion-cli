@@ -16,12 +16,13 @@ from pathlib import Path
 from evals.executor import AgentRunObservation
 from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
-from fusion_cli.core.events import Event
+from fusion_cli.core.events import Event, ModelCallFinished
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import is_rate_limit_error
 from fusion_cli.engines.agent import run_agent
 from fusion_cli.engines.agent.approval import ApprovalRequest, Decision
 from fusion_cli.engines.agent.loop import AgentDeps
+from fusion_cli.engines.agent.verification import build_verifier
 
 
 class _NullPublisher:
@@ -29,6 +30,19 @@ class _NullPublisher:
 
     def publish(self, event: Event) -> None:
         return None
+
+
+class _CountingPublisher:
+    """Gerçek model çağrılarını event akışından say ve downstream'e ilet."""
+
+    def __init__(self, downstream: _NullPublisher | TranscriptRecorder) -> None:
+        self._downstream = downstream
+        self.model_calls = 0
+
+    def publish(self, event: Event) -> None:
+        if isinstance(event, ModelCallFinished):
+            self.model_calls += 1
+        self._downstream.publish(event)
 
 
 class _EvalApproval:
@@ -75,27 +89,39 @@ class FusionAgentRunner:
         # Transkript turda NE OLDUĞUNU kaydeder; başarısızlık sonradan teşhis
         # edilebilsin diye. Yoksa yayıncı olayları yutar (ölçümde çıktı gerekmez).
         kayit = TranscriptRecorder(transcript) if transcript is not None else None
+        downstream = kayit if kayit is not None else _NullPublisher()
+        publisher = _CountingPublisher(downstream)
+        tool_context = ToolContext(root=root)
+
         deps = AgentDeps(
             config=self._config,
-            publisher=kayit if kayit is not None else _NullPublisher(),
+            publisher=publisher,
             policy=_EvalApproval(strict=strict_approval),
-            tool_context=ToolContext(root=root),
+            tool_context=tool_context,
+            verifier=build_verifier(
+                self._config,
+                root=root,
+                tool_context=tool_context,
+            ),
             asker=None,
             code_index=None,
             lessons=None,
             capabilities=None,
         )
-        outcome = await run_agent(request, deps)
-        if kayit is not None:
-            kayit.close()
+        try:
+            outcome = await run_agent(request, deps)
+        finally:
+            if kayit is not None:
+                kayit.close()
         # Kota hatası görev başarısızlığı değildir; ayırt edilmezse ölçüm sessizce
         # bozulur (ölçüldü: kota tükenirken model çağrısı 8.6→5.8→1.0'a düştü ve
         # düşüş yanlışlıkla bir kod değişikliğine atfedildi).
         kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
-        # Model çağrısı ~ araç turu + son cevap turu (metrik için makul bir tahmin).
+        # AgentOutcome gerçek model çağrılarını zaten sayar. Tool çağrısından
+        # türetmek review/verification/reflexion çağrılarını eksik sayıyordu.
         return AgentRunObservation(
             output_text=outcome.final_text,
-            model_calls=outcome.tool_calls_made + 1,
+            model_calls=publisher.model_calls,
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
         )
