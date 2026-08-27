@@ -131,20 +131,54 @@ class PageObservation:
     oversized_blocks: tuple[tuple[str, int, int], ...] = ()
 
 
-def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
-    """Gözlemleri modele verilecek somut talimatlara çevir. Saf fonksiyon."""
-    bulgular: list[str] = []
-    for page in observations:
-        bulgular.extend(_console(page))
-        bulgular.extend(_requests(page))
-        bulgular.extend(_overflow(page))
-        bulgular.extend(_icons(page))
-        bulgular.extend(_clipped(page))
-        bulgular.extend(_targets(page))
-        bulgular.extend(_empty(page))
-        bulgular.extend(_oversized(page))
-    return tuple(bulgular)
+def page_findings_by_severity(
+    observations: Sequence[PageObservation],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Tarayıcı ölçümlerini blocking / warning / advisory olarak ayır."""
+    blocking: list[str] = []
+    warnings: list[str] = []
 
+    for page in observations:
+        blocking.extend(_console(page))
+        blocking.extend(_requests(page))
+        blocking.extend(_overflow(page))
+        blocking.extend(_icons(page))
+        blocking.extend(_clipped(page))
+        blocking.extend(_empty(page))
+        blocking.extend(_oversized(page))
+
+        # WCAG ölçümü nesnel ve değerlidir; fakat küçük bir touch target bütün
+        # uygulamayı "kırık" sayıp correction turu açtırmamalıdır.
+        warnings.extend(_targets(page))
+
+    return tuple(blocking), tuple(warnings), ()
+
+
+def page_findings(observations: Sequence[PageObservation]) -> tuple[str, ...]:
+    """Geriye uyumlu flat bulgu listesi."""
+    blocking, warnings, advisories = page_findings_by_severity(observations)
+    return (*blocking, *warnings, *advisories)
+
+
+def _browser_verification_result(
+    observations: Sequence[PageObservation],
+    *,
+    source: str,
+) -> VerificationResult:
+    blocking, warnings, advisories = page_findings_by_severity(observations)
+
+    if not blocking and not warnings and not advisories:
+        return VerificationResult(ok=True)
+
+    summary = f"{source} {len(blocking)} engelleyici sorun" if blocking else ""
+
+    return VerificationResult(
+        ok=not blocking,
+        summary=summary,
+        findings=blocking,
+        warnings=warnings,
+        advisories=advisories,
+    )
 
 def _console(page: PageObservation) -> list[str]:
     benzersiz = _tekille(page.console_errors)
@@ -308,12 +342,7 @@ class BrowserVerifier:
             _logger.debug("tarayıcı doğrulaması atlandı: %s", exc)
             return VerificationResult(ok=True)
 
-        findings = page_findings(observations)
-        if not findings:
-            return VerificationResult(ok=True)
-        return VerificationResult(
-            ok=False, summary=f"tarayıcıda {len(findings)} sorun", findings=findings
-        )
+        return _browser_verification_result(observations, source="tarayıcıda")
 
     async def _verify_dev_server(self) -> VerificationResult:
         """Dev sunucusunu ayağa kaldırıp kök sayfayı ölç; koşullar tutmazsa sessizce geç.
@@ -351,11 +380,9 @@ class BrowserVerifier:
         if observations is None:
             return VerificationResult(ok=True)
 
-        findings = page_findings(observations)
-        if not findings:
-            return VerificationResult(ok=True)
-        return VerificationResult(
-            ok=False, summary=f"çalışan sayfada {len(findings)} sorun", findings=findings
+        return _browser_verification_result(
+            observations,
+            source="çalışan sayfada",
         )
 
     async def _observe_dev_server(

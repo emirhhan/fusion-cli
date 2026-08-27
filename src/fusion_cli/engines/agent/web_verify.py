@@ -37,30 +37,51 @@ MIN_CLASSES_FOR_RATIO = 5
 _HTML_SUFFIXES = (".html", ".htm")
 
 
-def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
-    """Üretilen web dosyalarını denetle ve somut ihlalleri döndür.
+def inspect_web_output_by_severity(
+    files: Mapping[str, str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Web bulgularını blocking / warning / advisory olarak ayır.
 
-    Saf fonksiyon: dosya adı → içerik girer, bulgu satırları çıkar. Ağ yok, disk yok.
-    Her bulgu tek satırdır ve NE YAPILACAĞINI söyler; modele talimat olarak gider.
+    Genel verifier kullanıcı prompt'unun tasarım niyetini bilmez. Bu yüzden yalnız
+    tartışmasız çalışan-ürün hataları blocking'dir. Semantic ve tasarım tercihleri
+    aynı düzeltici agent bütçesini tüketmez.
     """
     html = _birlestir(files, _HTML_SUFFIXES)
     if not html:
-        return ()
+        return (), (), ()
 
     css = _birlestir(files, (".css",))
     js = _birlestir(files, (".js",))
 
-    bulgular: list[str] = []
-    bulgular.extend(_olu_gorseller(html))
-    bulgular.extend(_bos_baglantilar(html))
-    bulgular.extend(_eksik_main(html))
-    bulgular.extend(_stilsiz_siniflar(html, css))
-    bulgular.extend(_tutarsiz_tutarlar(html, js))
-    bulgular.extend(_palet_baypasi(css, js, html))
-    bulgular.extend(_baglanmamis_dosyalar(files, html, js))
-    bulgular.extend(_olcek_disi_bosluklar(css))
-    return tuple(bulgular)
+    blocking: list[str] = []
+    warnings: list[str] = []
+    advisories: list[str] = []
 
+    # Kullanıcıya gerçekten bozuk/yanlış davranış teslim edenler.
+    blocking.extend(_olu_gorseller(html))
+    blocking.extend(_bos_baglantilar(html))
+    blocking.extend(_stilsiz_siniflar(html, css))
+    blocking.extend(_tutarsiz_tutarlar(html, js))
+    blocking.extend(_baglanmamis_dosyalar(files, html, js))
+
+    # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
+    warnings.extend(_eksik_main(html))
+
+    # Görsel/tasarım sistemi önerileri genel kapıda blocking olamaz.
+    advisories.extend(_palet_baypasi(css, js, html))
+    advisories.extend(_olcek_disi_bosluklar(css))
+
+    return tuple(blocking), tuple(warnings), tuple(advisories)
+
+
+def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
+    """Geriye uyumlu flat bulgu listesi.
+
+    Eski testler ve dış çağıranlar bütün bulguları görmeye devam eder. Runtime karar
+    vermek için `inspect_web_output_by_severity` kullanır.
+    """
+    blocking, warnings, advisories = inspect_web_output_by_severity(files)
+    return (*blocking, *warnings, *advisories)
 
 def _birlestir(files: Mapping[str, str], suffixes: tuple[str, ...]) -> str:
     return "\n".join(icerik for ad, icerik in files.items() if ad.lower().endswith(suffixes))

@@ -27,7 +27,7 @@ from .browser_verify import BrowserVerifier
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
-from .web_verify import inspect_web_output
+from .web_verify import inspect_web_output_by_severity
 
 logger = logging.getLogger(__name__)
 
@@ -112,55 +112,81 @@ def build_verifier(
 
 
 class CompositeVerifier:
-    """Birden çok doğrulayıcıyı sırayla çalıştırır ve bulgularını birleştirir."""
+    """Birden çok doğrulayıcıyı önem derecesini kaybetmeden birleştirir."""
 
     def __init__(self, verifiers: tuple[Verifier, ...]) -> None:
         self._verifiers = verifiers
 
     async def verify(self) -> VerificationResult:
         ozetler: list[str] = []
-        bulgular: list[str] = []
+        blocking: list[str] = []
+        warnings: list[str] = []
+        advisories: list[str] = []
+        failed = False
+
         for verifier in self._verifiers:
             result = await verifier.verify()
+
+            warnings.extend(result.warnings)
+            advisories.extend(result.advisories)
+
             if result.ok:
                 continue
+
+            failed = True
             if result.summary:
                 ozetler.append(result.summary)
-            bulgular.extend(result.findings)
-        if not ozetler and not bulgular:
-            return VerificationResult(ok=True)
-        return VerificationResult(ok=False, summary="; ".join(ozetler), findings=tuple(bulgular))
+            blocking.extend(result.findings)
 
+        if not failed and not warnings and not advisories:
+            return VerificationResult(ok=True)
+
+        return VerificationResult(
+            ok=not failed,
+            summary="; ".join(ozetler),
+            findings=tuple(blocking),
+            warnings=tuple(warnings),
+            advisories=tuple(advisories),
+        )
 
 class WebVerifier:
-    """Agent'ın yazdığı web dosyalarını mekanik olarak denetler.
-
-    Yalnızca `tool_context.touched` içindeki dosyalara bakar: kök dizini taramak,
-    agent'ın hiç dokunmadığı dosyalar hakkında bulgu üretirdi.
-    """
+    """Agent'ın yazdığı web dosyalarını önem derecesiyle mekanik olarak denetler."""
 
     def __init__(self, tool_context: ToolContext) -> None:
         self._context = tool_context
 
     async def verify(self) -> VerificationResult:
         files: dict[str, str] = {}
+
         for path in self._context.touched:
             if path.suffix.lower() not in WEB_SUFFIXES:
                 continue
             try:
                 files[path.name] = path.read_text(encoding="utf-8")
             except OSError:
-                # Agent yazıp sonra silmiş ya da dosya okunamıyor: kapı bunun
-                # yüzünden düşmemeli, denetleyecek bir şey yok demektir.
                 continue
 
-        findings = inspect_web_output(files) if files else ()
-        if not findings:
+        if not files:
             return VerificationResult(ok=True)
-        return VerificationResult(
-            ok=False, summary=f"web çıktısında {len(findings)} sorun", findings=findings
+
+        blocking, warnings, advisories = inspect_web_output_by_severity(files)
+
+        if not blocking and not warnings and not advisories:
+            return VerificationResult(ok=True)
+
+        summary = (
+            f"web çıktısında {len(blocking)} engelleyici sorun"
+            if blocking
+            else ""
         )
 
+        return VerificationResult(
+            ok=not blocking,
+            summary=summary,
+            findings=blocking,
+            warnings=warnings,
+            advisories=advisories,
+        )
 
 #: Başarısız komutun çıktısından modele taşınacak SON satır sayısı.
 #

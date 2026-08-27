@@ -13,18 +13,28 @@ from typing import Protocol
 
 @dataclass(frozen=True, slots=True)
 class VerificationResult:
-    """Doğrulama kapısının sonucu."""
+    """Doğrulama sonucunu önem derecesiyle taşır.
+
+    `findings` geriye uyumluluk için BLOCKING bulguların adıdır. Yalnızca bunlar
+    `ok=False` yapar, correction agent açar ve öğrenme sinyalini başarısız sayar.
+
+    `warnings` nesnel ama işi kırmayan kalite/erişilebilirlik eksikleridir.
+    `advisories` ise stil, semantic tercih ve tasarım tutarlılığı önerileridir.
+    """
 
     ok: bool
-    #: İlk başarısız komut / kısa özet (log ve teşhis için). Başarıda boş olabilir.
+    #: İlk başarısız komut / kısa özet. Non-blocking notlarda boş olabilir.
     summary: str = ""
-    #: Modele geri verilecek SOMUT ihlaller, her biri tek satır.
-    #:
-    #: Özet insan içindir; bulgular modele düzeltme talimatı olarak gider. Ölçüldü:
-    #: model araç sonucuna tepki veriyor, prompt metnine vermiyor — bu yüzden kapının
-    #: çıktısı "bir sorun var" değil, "şu satırda şu yanlış" olmalıdır.
+    #: BLOCKING ihlaller. Mevcut API adı korunur.
     findings: tuple[str, ...] = ()
+    #: İşi kırmayan fakat düzeltilmesi değerli kalite/erişilebilirlik bulguları.
+    warnings: tuple[str, ...] = ()
+    #: Tercih/kalite seviyesindeki öneriler; correction agent açmaz.
+    advisories: tuple[str, ...] = ()
 
+    @property
+    def has_notes(self) -> bool:
+        return bool(self.warnings or self.advisories)
 
 class Verifier(Protocol):
     """Bir turdan sonra projenin doğrulama kapısını çalıştıran taraf."""

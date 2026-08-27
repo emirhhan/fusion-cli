@@ -434,6 +434,7 @@ async def run_agent(
             break
         outcome = await _fix_findings(task, verification, outcome, deps)
 
+    _mark_verification_notes(outcome, verification)
     _mark_unverified(outcome, verification)
 
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
@@ -492,6 +493,36 @@ def _mark_unverified(outcome: AgentOutcome, verification: VerificationResult | N
         + outcome.final_text
     )
     outcome.ok = False
+
+
+
+VERIFICATION_NOTES = (
+    "⚠ Doğrulama notları — işi engellemiyor:\n"
+    "{notes}\n\n"
+)
+
+
+def _mark_verification_notes(
+    outcome: AgentOutcome,
+    verification: VerificationResult | None,
+) -> None:
+    """Non-blocking doğrulama notlarını final cevaba ekle.
+
+    Bunlar correction agent açmaz, `outcome.ok` değerini değiştirmez ve öğrenme
+    sisteminde başarısız tur sayılmaz.
+    """
+    if verification is None or not verification.has_notes:
+        return
+
+    lines = [
+        *(f"- [uyarı] {finding}" for finding in verification.warnings[:5]),
+        *(f"- [öneri] {finding}" for finding in verification.advisories[:5]),
+    ]
+
+    outcome.final_text = (
+        VERIFICATION_NOTES.format(notes="\n".join(lines))
+        + outcome.final_text
+    )
 
 
 def _announce_answer(
