@@ -141,3 +141,24 @@ async def test_tohum_dizini_kopyalanir_ve_degisiklik_sayilmaz(tmp_path):
     )
     # Tohum dosyası "değişti" sayılmaz; yalnızca agent'ın eklediği sayılır.
     assert execution.changed_files == frozenset({"yeni.txt"})
+
+
+async def test_exit_code_command_agenttan_bagimsiz_puanlanir(tmp_path):
+    runner = _FakeRunner()
+    executor = AgentTaskExecutor(
+        runner,
+        workspace_root=tmp_path,
+        clock=_FakeClock(0.0, 1.0),
+    )
+    task = _task(
+        "t",
+        SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE,
+            expected_exit_code=0,
+            command="python -c 'raise SystemExit(7)'",
+        ),
+    )
+
+    execution = await executor.run(task)
+
+    assert execution.exit_code == 7
