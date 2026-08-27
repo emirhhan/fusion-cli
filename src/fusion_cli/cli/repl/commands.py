@@ -474,8 +474,7 @@ def _format_capabilities(items: tuple[Capability, ...], *, empty: str) -> str:
     if not items:
         return empty
     return "\n".join(
-        f"· {item.name} [{item.source}]"
-        + (f" — {item.description}" if item.description else "")
+        f"· {item.name} [{item.source}]" + (f" — {item.description}" if item.description else "")
         for item in items
     )
 
@@ -638,8 +637,8 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("stats", messages.CMD_STATS, lambda state, argument: "", group="Bellek"),
     SlashCommand("lessons", messages.CMD_LESSONS, lambda state, argument: "", group="Bellek"),
     SlashCommand("forget", messages.CMD_FORGET, _forget, group="Bellek", usage="<no…>"),
-    SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Bilgi"),
-    SlashCommand("model", messages.CMD_MODEL, _model, group="Bilgi", usage="[alt-komut]"),
+    SlashCommand("models", messages.CMD_MODELS, lambda state, argument: "", group="Model"),
+    SlashCommand("model", messages.CMD_MODEL, _model, group="Model", usage="[alt-komut]"),
     SlashCommand("mode", messages.CMD_MODE, _mode, group="Model", usage="[profil]"),
     SlashCommand(
         "profiles", messages.CMD_PROFILES, _profiles, group="Model", usage="[edit <profil>]"
@@ -647,6 +646,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("effort", messages.CMD_EFFORT, _effort, group="Model", usage="[seviye]"),
     SlashCommand("level", messages.CMD_LEVEL, _level, group="Model", usage="[kademe]"),
     SlashCommand("provider", messages.CMD_PROVIDER, _provider, group="Model"),
+    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Model", usage="[add]"),
     SlashCommand(
         "development", messages.CMD_DEVELOPMENT, _development, group="Model", aliases=("dev",)
     ),
@@ -654,7 +654,6 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("undo", messages.CMD_UNDO, _undo, group="Agent"),
     SlashCommand("cost", messages.CMD_COST, lambda state, argument: "", group="Bilgi"),
     SlashCommand("health", messages.CMD_HEALTH, _health, group="Bilgi"),
-    SlashCommand("providers", messages.CMD_PROVIDERS, _providers, group="Bilgi", usage="[add]"),
     SlashCommand("mcp", messages.CMD_MCP, _mcp, group="Bilgi", usage="[add|remove] …"),
     SlashCommand("skills", messages.CMD_SKILLS, _skills, group="Bilgi", usage="[arama]"),
     SlashCommand("agents", messages.CMD_AGENTS, _agents, group="Bilgi", usage="[arama]"),

@@ -112,6 +112,20 @@ def test_kendi_ciktisini_basan_komutlar_kayitli(registry):
         assert registry.get(name) is not None, name
 
 
+def test_model_ailesi_yardimda_tek_grupta_toplanir(registry):
+    """Karışması en kolay komutlar yardım ekranında dağılmamalı.
+
+    `/model` neyi değiştirir, `/mode` neyi, `/effort` neyi — bu ayrım ancak
+    hepsi yan yana basıldığında okunur. `/provider` ile `/providers` ise
+    seçme/listeleme çifti olduğu için ayrı başlıklara düşerse çift, çift
+    olduğunu kaybeder.
+    """
+    aile = {"model", "models", "mode", "effort", "level", "profiles", "provider", "providers"}
+    gruplar = {command.name: command.group for command in registry.all() if command.name in aile}
+    assert set(gruplar) == aile, f"eksik komut: {aile - set(gruplar)}"
+    assert len(set(gruplar.values())) == 1, gruplar
+
+
 # --- Durum değişiklikleri ---------------------------------------------------- #
 
 
@@ -941,9 +955,7 @@ def test_repl_durumu_ek_dizinleri_tasir(tmp_path):
     ek = tmp_path / "diger-proje"
     ek.mkdir()
 
-    state = ReplState(
-        config=make_config(), memory=null_memory(), root=tmp_path, extra_roots=(ek,)
-    )
+    state = ReplState(config=make_config(), memory=null_memory(), root=tmp_path, extra_roots=(ek,))
 
     assert state.extra_roots == (ek,)
 
