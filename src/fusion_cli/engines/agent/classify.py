@@ -11,6 +11,7 @@ filtresi uygulanmaz (yanlış daraltmaktansa filtrelememek yeğdir).
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -134,6 +135,10 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
             "yaz",
             "geliştir",
             "gelistir",
+            "yap",
+            "kur",
+            "inşa et",
+            "insa et",
             "pushla",
             "push et",
             "commit et",
@@ -173,36 +178,216 @@ _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
 )
 
 
-def classify_task(request: str) -> TaskKind:
-    """İstek metnini kaba bir görev türüne eşle. Belirsizse `GENERAL`."""
+@dataclass(frozen=True, slots=True)
+class TaskClassification:
+    """Görevin ana niyeti ve yardımcı niyetleri.
 
-    tokens = set(re.split(r"[^0-9a-zçğıöşü]+", request.lower()))
+    `primary` execution policy / ana scope için kullanılır.
+    `secondary` kullanıcı isteğinde gerçekten bulunan ama ana hedef olmayan
+    davranışları taşır. Böylece "özellik yap, sonra test et" TEST'e dönüşmez.
+
+    `confidence` [0, 1] aralığında yalnız deterministik sınıflandırma güvenidir;
+    model güveni değildir.
+    """
+
+    primary: TaskKind
+    secondary: tuple[TaskKind, ...] = ()
+    confidence: float = 0.0
+    scores: tuple[tuple[TaskKind, int], ...] = ()
+
+    def score_for(self, kind: TaskKind) -> int:
+        return next((score for item, score in self.scores if item is kind), 0)
+
+
+#: İlk bölüm kullanıcının ASIL emrini taşıma eğilimindedir. Uzun acceptance/test
+#: listelerinin sonradan ana görevi ele geçirmesini engellemek için burada görülen
+#: sinyaller daha ağırdır. 320 karakter, gerçek benchmark promptunda ilk ana emri ve
+#: kısa açıklamasını kapsarken uzun test/checklist bölümünü dışarıda bırakır.
+_PRIMARY_HEAD_CHARS = 320
+_HEAD_MATCH_BONUS = 2
+
+#: Ana niyet sinyalleri yalnız promptun baş bölümünde bonus alır.
+#:
+#: Bunlar _RULES'un yerine geçmez; yalnız "asıl emir" ile sonraki doğrulama
+#: talimatlarını ayırır. Spesifik türler FEATURE'dan daha yüksek bonus alır:
+#: "pytest testi yaz" TEST, "README belgesi ekle" DOCS kalmalıdır.
+_HEAD_INTENT_RULES: dict[TaskKind, tuple[re.Pattern[str], int]] = {
+    TaskKind.BUGFIX: (
+        re.compile(
+            r"\b(?:düzelt|duzelt|fix|çöz|coz|onar)[a-zçğıöşü]*\b",
+            re.IGNORECASE,
+        ),
+        4,
+    ),
+    TaskKind.TEST: (
+        re.compile(
+            r"\b(?:pytest|unittest|test(?:i|leri)?\s+"
+            r"(?:yaz|ekle|oluştur|olustur|çalıştır|calistir))[a-zçğıöşü]*\b",
+            re.IGNORECASE,
+        ),
+        3,
+    ),
+    TaskKind.REFACTOR: (
+        re.compile(
+            r"\b(?:refactor|yeniden\s+düzenle|yeniden\s+duzenle|"
+            r"sadeleştir|sadelestir)[a-zçğıöşü]*\b",
+            re.IGNORECASE,
+        ),
+        4,
+    ),
+    TaskKind.WEBSITE: (
+        re.compile(
+            r"\b(?:web\s+sitesi|website|landing|html|css|frontend|"
+            r"arayüz|arayuz)\b",
+            re.IGNORECASE,
+        ),
+        3,
+    ),
+    TaskKind.DOCS: (
+        re.compile(
+            r"\b(?:readme|docs|doküman|dokuman|belge)\b",
+            re.IGNORECASE,
+        ),
+        3,
+    ),
+    TaskKind.FEATURE: (
+        re.compile(
+            r"\b(?:yap|oluştur|olustur|ekle|implement|geliştir|gelistir|"
+            r"kur|inşa\s+et|insa\s+et)[a-zçğıöşü]*\b",
+            re.IGNORECASE,
+        ),
+        2,
+    ),
+    TaskKind.EXPLORE: (
+        re.compile(
+            r"\b(?:incele|araştır|arastir|listele|oku|göster|goster|"
+            r"kontrol\s+et)\b",
+            re.IGNORECASE,
+        ),
+        2,
+    ),
+}
+
+
+def _classification_scores(request: str) -> tuple[tuple[TaskKind, int], ...]:
+    """Bütün prompt + ağırlaştırılmış ilk bölüm için deterministik skorlar."""
+
+    lowered = request.lower()
+    tokens = set(re.split(r"[^0-9a-zçğıöşü]+", lowered))
+
+    head = request[:_PRIMARY_HEAD_CHARS].lower()
+    head_tokens = set(re.split(r"[^0-9a-zçğıöşü]+", head))
+
+    scores: list[tuple[TaskKind, int]] = []
+
+    for kind, keywords in _RULES:
+        full_hits = sum(
+            1
+            for keyword in keywords
+            if _matches(keyword, tokens, lowered)
+        )
+        head_hits = sum(
+            1
+            for keyword in keywords
+            if _matches(keyword, head_tokens, head)
+        )
+
+        score = full_hits + (_HEAD_MATCH_BONUS * head_hits)
+
+        intent = _HEAD_INTENT_RULES.get(kind)
+        if intent is not None:
+            pattern, bonus = intent
+            if pattern.search(head):
+                score += bonus
+
+        scores.append((kind, score))
+
+    return tuple(scores)
+
+
+def classify_task_details(request: str) -> TaskClassification:
+    """Primary ve secondary görev niyetlerini çıkar.
+
+    Özel operasyon regex'leri önceki davranışı korur. Normal görevlerde uzun promptun
+    ilk bölümü daha ağırdır; sonraki test/doğrulama checklist'i yine secondary olarak
+    görünür ama primary'yi kolayca ele geçiremez.
+    """
+
     lowered = request.lower()
 
-    # Git/deploy gibi gerçek operasyon fiillerinin Türkçe ekli biçimleri tam-token
-    # anahtar listesine sığmaz (pushlayabilir, commitleyelim…). Açıklama sorusu
-    # değilse bunları doğrudan FEATURE bütçesine al.
-    if _OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered):
-        return TaskKind.FEATURE
+    # "yap" tek başına mutation niyetini kanıtlamaz. Kullanıcının ne yapılacağını
+    # belirtmediği bu tip kısa emirlerde FEATURE seçmek ask_user akışını gereksiz
+    # workspace-mutation zorlamasına sokar.
+    normalized = re.sub(r"[^0-9a-zçğıöşü]+", " ", lowered).strip()
+    if normalized == "yap":
+        return TaskClassification(
+            primary=TaskKind.GENERAL,
+            confidence=0.0,
+        )
 
-    # "Çalışır hale getir" de aynı bütçeye girer: var olanı işler duruma sokmak
-    # kod değiştirmeyi gerektirir. Açıklama sorusu ("nasıl çalışır hale getirilir")
-    # dışarıda kalır — orada istenen bilgi, değişiklik değil.
-    if _MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered):
-        return TaskKind.FEATURE
+    # Git/deploy ve "çalışır hale getir" sözleşmeleri gerçek mutation emirleridir.
+    forced_feature = (
+        (
+            _OPERATION_RE.search(lowered)
+            and not _EXPLANATION_RE.search(lowered)
+        )
+        or (
+            _MAKE_OPERATIONAL_RE.search(lowered)
+            and not _EXPLANATION_RE.search(lowered)
+        )
+    )
 
-    # EŞLEŞME SAYISI kazanır, sıra değil. Eskiden "ilk eşleşen tür kazanır" idi ve
-    # uzun isteklerde tesadüfi tek bir kelime konuyu kaçırtıyordu: bir e-ticaret
-    # sayfası isteği, kampanya metnindeki "evine taşı" yüzünden REFACTOR sanılıyor,
-    # WEBSITE'ın dört isabetli eşleşmesi (sayfa, html, css, arayüz) görmezden
-    # geliniyordu. Beraberlikte kural sırası (özgülden genele) hâlâ belirleyicidir.
-    best_kind = TaskKind.GENERAL
-    best_score = 0
-    for kind, keywords in _RULES:
-        score = sum(1 for keyword in keywords if _matches(keyword, tokens, lowered))
-        if score > best_score:
-            best_kind, best_score = kind, score
-    return best_kind
+    scores = _classification_scores(request)
+
+    if forced_feature:
+        primary = TaskKind.FEATURE
+    else:
+        # _RULES sırası tie-breaker olarak korunur: sorted stable'dır.
+        ranked = sorted(scores, key=lambda item: item[1], reverse=True)
+        primary = (
+            ranked[0][0]
+            if ranked and ranked[0][1] > 0
+            else TaskKind.GENERAL
+        )
+
+    positive = sorted(
+        (
+            (kind, score)
+            for kind, score in scores
+            if score > 0 and kind is not primary
+        ),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    secondary = tuple(kind for kind, _score in positive)
+
+    primary_score = next(
+        (score for kind, score in scores if kind is primary),
+        0,
+    )
+    second_score = positive[0][1] if positive else 0
+
+    if forced_feature:
+        confidence = 1.0
+    elif primary_score <= 0:
+        confidence = 0.0
+    else:
+        confidence = max(
+            0.0,
+            min(1.0, (primary_score - second_score) / primary_score),
+        )
+
+    return TaskClassification(
+        primary=primary,
+        secondary=secondary,
+        confidence=confidence,
+        scores=scores,
+    )
+
+
+def classify_task(request: str) -> TaskKind:
+    """Geriye uyumlu API: yalnız primary görev türünü döndür."""
+    return classify_task_details(request).primary
 
 
 def scope_of(kind: TaskKind) -> str:

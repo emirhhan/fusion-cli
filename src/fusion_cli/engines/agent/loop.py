@@ -71,7 +71,7 @@ from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, history, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
-from .classify import TaskKind, classify_task, recall_scope, scope_of
+from .classify import TaskKind, classify_task_details, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
@@ -319,7 +319,8 @@ async def run_agent(
     # düştü, bütçe beş araç turuna indi ve iş "araç turu sınırına ulaşıldı (5)"
     # ile yarıda kesildi — oysa sürdürülen görev aynı büyük görevdi. Aynı hata
     # onay istemine yazılan tek harfle de yaşandı.
-    kind = classify_task(_scoped_task(task, history))
+    classification = classify_task_details(_scoped_task(task, history))
+    kind = classification.primary
 
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
     # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
