@@ -931,6 +931,24 @@ def test_tips_ekrani_komutlari_gorev_ekseninde_anlatir(capsys):
     assert "kota" in cikti, "kota yönlendirmesi olmalı"
 
 
+def test_yardim_ekrani_kosem_parantezli_kullanimi_yutmaz(capsys):
+    """İsteğe bağlı argüman ipuçları Rich markup'ı sanılıp kaybolmamalı.
+
+    `[alt-komut]` ya da `[arama]` bir stil etiketi değil, kullanıcıya
+    gösterilecek metindir. Yutulduğunda komut argümansızmış gibi görünür ve
+    ayrım yine kaybolur.
+    """
+    from rich.console import Console
+
+    from fusion_cli.cli.repl.help_view import _help
+
+    _help(build_registry(), Console(force_terminal=False, width=200))
+    cikti = capsys.readouterr().out
+
+    for parca in ("[alt-komut]", "[arama]", "[seviye]", "[add]", "[incompatible]"):
+        assert parca in cikti, f"kullanım ipucu yutulmuş: {parca}"
+
+
 def test_tips_bolum_kapanislari_komut_gibi_gorunmez():
     """Bölüm sonundaki karar kuralı komut sütununa yazılmamalı."""
     from fusion_cli.ui import messages

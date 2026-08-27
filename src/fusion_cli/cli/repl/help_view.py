@@ -7,6 +7,7 @@ işleyicilerinden ayrı tutulur — işleyiciler saf kalır, basma işi buradad�
 from __future__ import annotations
 
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
 
 from ...core.types import ModelSpec
@@ -99,10 +100,13 @@ def _help(registry: CommandRegistry, console: Console) -> None:
         for display, summary in grouped[group]:
             # Dolgu markup DIŞINDA: hizalama boşlukları aksan rengine boyanmasın.
             # highlight=False: açıklamadaki parantezleri Rich repr sanıp boyamasın.
+            # escape: `[alt-komut]`, `[arama]`, `[incompatible]` kullanıcıya
+            # gösterilecek METİNDİR; kaçırılmazsa Rich onları stil etiketi sanıp
+            # sessizce yutar ve komut argümansızmış gibi görünür.
             pad = " " * max(0, width - len(display))
             console.print(
-                f"  [bold {theme.ACCENT}]{display}[/bold {theme.ACCENT}]{pad}  "
-                f"[{theme.DIM}]{summary}[/{theme.DIM}]",
+                f"  [bold {theme.ACCENT}]{escape(display)}[/bold {theme.ACCENT}]{pad}  "
+                f"[{theme.DIM}]{escape(summary)}[/{theme.DIM}]",
                 highlight=False,
             )
     console.print()
