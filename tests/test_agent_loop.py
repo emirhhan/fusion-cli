@@ -7,6 +7,7 @@ import pytest
 from fusion_cli.core.events import (
     ContextCompressed,
     SelfReviewFinished,
+    SelfReviewStarted,
     SubAgentFinished,
     SubAgentStarted,
     ToolExecuted,
@@ -389,6 +390,37 @@ async def test_oz_denetim_sorun_bulursa_duzeltici_tur_calisir(monkeypatch, tmp_p
 
     assert provider.calls == 2
     assert sonuc.final_text == "duzeltilmis"
+
+
+async def test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz(
+    monkeypatch, tmp_path, sink
+):
+    """Yazılmış artefakt, geç bir parse hatası yüzünden denetimsiz kalmamalı."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("write_file", path="app.js", content="let hp = 1;")]
+                ),
+                model_result(error="TOOL_CALL_PARSE_ERROR: bozuk JSON", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: yine bozuk JSON", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 3", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 4", text="doğruluyorum"),
+                model_result(error="TOOL_CALL_PARSE_ERROR: 5", text="doğruluyorum"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
+
+    sonuc = await run_agent(
+        "oyun özelliği ekle",
+        _deps(tmp_path, sink, runtime={"self_review": True}),
+    )
+
+    assert sonuc.mutating_tool_calls_made == 1
+    assert sonuc.ok is False
+    assert any(isinstance(event, SelfReviewStarted) for event in sink.events)
 
 
 async def test_baglam_sikistirma_olayi_yayinlanir(monkeypatch, tmp_path, sink):
@@ -1396,6 +1428,35 @@ async def test_degisiklik_yapan_tur_dogrulamadan_gecer(monkeypatch, tmp_path, si
 
     assert dogrulayici.calls > 0, "doğrulayıcı hiç çağrılmadı"
     assert [e for e in sink.events if isinstance(e, VerificationFailed)]
+
+
+async def test_deterministik_dogrulama_oz_denetimden_once_calisir(
+    monkeypatch, tmp_path, sink
+):
+    """Somut kapı bulgusu, model hakemi bütçeyi harcamadan önce ele alınmalı."""
+    from fusion_cli.core.events import VerificationFailed
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(
+                    tool_calls=[tool_call("write_file", path="a.txt", content="duzeltildi")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps.verifier = _DusenDogrulayici()
+
+    await run_agent("a.txt oluştur", deps)
+
+    kinds = [type(event) for event in sink.events]
+    assert kinds.index(VerificationFailed) < kinds.index(SelfReviewStarted)
 
 
 async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_path, sink):

@@ -131,6 +131,32 @@ def test_js_yoksa_tutar_kontrolu_yapilmaz():
     assert not _bulgu_var(inspect_web_output({"a.html": html}), "2.000")
 
 
+# --- Erişilemez durum geçişi ------------------------------------------------ #
+
+
+def test_hp_sifir_kontrolu_var_ama_azaltma_yoksa_bulgu_uretilir():
+    """Ölüm dalı varmış gibi görünür; HP hiç azalmıyorsa dal erişilemezdir."""
+    html = """<main><script>
+    const player = {hp: 100};
+    if (player.hp <= 0) gameOver = true;
+    </script></main>"""
+
+    bulgular = inspect_web_output({"index.html": html})
+
+    assert _bulgu_var(bulgular, "hp")
+    assert _bulgu_var(bulgular, "azalt") or _bulgu_var(bulgular, "erişilemez")
+
+
+def test_hp_gercekten_azaltiliyorsa_olum_dali_bulgu_uretmez():
+    html = """<main><script>
+    const player = {hp: 100};
+    player.hp -= enemy.damage;
+    if (player.hp <= 0) gameOver = true;
+    </script></main>"""
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "erişilemez")
+
+
 # --- Genel davranış ---------------------------------------------------------- #
 
 

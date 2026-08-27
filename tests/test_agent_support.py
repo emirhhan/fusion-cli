@@ -143,6 +143,16 @@ def test_somut_talimat_dondurulur():
     assert review.parse_feedback(talimat) == talimat
 
 
+def test_review_prompt_davranisi_isimden_degil_state_mutasyonundan_dogrular():
+    """Eksik state değişimi, fonksiyon adının varlığıyla gözden kaçmamalı."""
+    prompt = review._PROMPT.lower()
+
+    assert "tetikleyici" in prompt
+    assert "state mutasyonu" in prompt
+    assert "gözlenebilir sonuç" in prompt
+    assert "yalnızca var olması kanıt değildir" in prompt
+
+
 # --- Sıkıştırma -------------------------------------------------------------- #
 
 
@@ -262,6 +272,37 @@ async def test_denetci_uzun_turda_son_isi_gorur(monkeypatch):
 
     assert "ADIM-59" in yakalanan["prompt"], "denetçi turun sonucunu görmeli"
     assert "ADIM-40" in yakalanan["prompt"], "denetçi yalnızca son bir iki adımı değil"
+
+
+async def test_denetci_uzun_dosya_yaziminin_state_mutasyonunu_gorur(monkeypatch):
+    """Hakem dosyanın başını değil davranışı kuran sonraki kodu da görmeli."""
+    yakalanan: dict[str, str] = {}
+
+    async def _sor(prompt, config, publisher):
+        yakalanan["prompt"] = prompt
+        return ModelResult(name="h", model="m", text="TAMAM", latency_ms=1, ok=True)
+
+    monkeypatch.setattr(review, "_ask", _sor)
+    javascript = "const dekor = 1;\n" * 500 + "enemy.hp -= bullet.damage;"
+    mesajlar = [
+        Message("user", "mermi düşman HP'sini azaltsın"),
+        Message(
+            "assistant",
+            "",
+            tool_calls=(
+                ToolCall(
+                    "1",
+                    "write_file",
+                    '{"path":"index.html","content":' + repr(javascript) + "}",
+                ),
+            ),
+        ),
+        Message("tool", "dosya yazıldı", tool_call_id="1", name="write_file", ok=True),
+    ]
+
+    await review.review_turn("oyun yap", "bitti", mesajlar, config=make_config())
+
+    assert "enemy.hp -= bullet.damage" in yakalanan["prompt"]
 
 
 async def test_yarim_kalan_denetim_talimati_uygulanmaz(monkeypatch):

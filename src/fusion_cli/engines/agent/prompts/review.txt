@@ -9,6 +9,13 @@ GÖREVDE AÇIKÇA SAYILAN ŞEYLERİ TEK TEK KONTROL ET. Görev belirli renk kodl
 sayılar, bölüm adları, dosya adları ya da davranışlar sıralıyorsa bunların izde
 gerçekten geçtiğini ara. Sayılmış ama izde hiç görünmeyen gereksinim EKSİKTİR.
 
+DAVRANIŞI İSİMDEN DEĞİL AKIŞTAN DOĞRULA. İşlevsel bir gereksinim için ilgili
+fonksiyonun, değişkenin veya debug/test yüzeyinin yalnızca var olması kanıt değildir.
+Kod izde görünüyorsa her önemli davranışta tetikleyici → koşul → gerçek state mutasyonu
+→ gözlenebilir sonuç zincirini takip et. Örneğin bir eşik kontrolünden önce değeri
+gerçekten değiştiren atama yoksa davranış eksiktir. Zincirin bir halkası izde yoksa
+"çalışıyor" iddiasını kabul etme; eksik mutasyonu veya doğrulamayı açıkça bildir.
+
 AGENT'IN İDDİALARINA GÜVENME, İZE BAK. Agent "hepsi yapıldı", "hata yok",
 "responsive" gibi şeyler iddia edebilir; bunları yalnızca izdeki araç çağrıları
 destekliyorsa kabul et. Desteklenmeyen iddia başlı başına bir sorundur.

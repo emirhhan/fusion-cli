@@ -416,22 +416,6 @@ async def run_agent(
         require_local_mutation=require_local_mutation,
     )
 
-    should_review = deps.config.runtime.self_review if self_review is None else self_review
-    # Başarısız provider/transport veya kanıtsız eylem sonucu cevap kalitesi değildir.
-    # Denetçiye göndermek hatayı maskeleyip ek çağrılar üretir.
-    if should_review and not outcome.ok:
-        should_review = False
-    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
-    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
-    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
-    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
-    if outcome.wrong_workspace:
-        should_review = False
-    if should_review and execution.conditional_self_review:
-        should_review = _web_self_review_needed(task, kind, outcome, deps)
-    if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
-        outcome = await _self_review(task, outcome, deps)
-
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
@@ -443,7 +427,33 @@ async def run_agent(
         # düzeltmeye hiç başlamıyordu.
         if verification is None or verification.ok:
             break
+        # Somut bir verifier bulgusu correction için yeni ve eyleme geçirilebilir
+        # bilgidir. Idle saatini tazele; mutlak tur deadline'ı değişmez. Aksi halde
+        # uzun bir web turunun sonunda bulunan hata, düzeltici model daha araç
+        # çağırmadan eski hareketsizlik süresine takılıyordu.
+        budget.record_progress()
         outcome = await _fix_findings(task, verification, outcome, deps)
+
+    # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
+    # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
+    # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
+    should_review = deps.config.runtime.self_review if self_review is None else self_review
+    # Hiç artefakt üretmeyen provider/transport veya kanıtsız eylem sonucu cevap
+    # kalitesi değildir. Ancak başarılı bir mutasyondan SONRA gelen geç sözleşme/
+    # transport hatası diskteki artefaktı ortadan kaldırmaz; onu denetimsiz bırakmak
+    # gerçek kod kusurlarını gizler.
+    if should_review and not outcome.ok and outcome.mutating_tool_calls_made == 0:
+        should_review = False
+    # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
+    # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
+    # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
+    # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
+    if outcome.wrong_workspace:
+        should_review = False
+    if should_review and execution.conditional_self_review:
+        should_review = _web_self_review_needed(task, kind, outcome, deps)
+    if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
+        outcome = await _self_review(task, outcome, deps)
 
     _mark_verification_notes(outcome, verification)
     _mark_unverified(outcome, verification)
@@ -1669,7 +1679,7 @@ def _web_self_review_needed(
     two extra browser calls. Tool failures remain reviewable after the model produces a
     usable final answer.
     """
-    if not outcome.ok:
+    if not outcome.ok and outcome.mutating_tool_calls_made == 0:
         return False
     if outcome.hit_step_limit or outcome.failed_tool_calls > 0:
         return True

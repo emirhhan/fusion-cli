@@ -284,6 +284,37 @@ async def test_butce_disaridan_verilebilir_ve_paylasilir(monkeypatch, tmp_path, 
     assert not sonuc.ok
 
 
+async def test_verifier_bulgusu_correction_idle_saatini_tazeler(monkeypatch, tmp_path, sink):
+    """Somut bulgu geldiğinde correction eski hareketsizlik süresine kurban gitmemeli."""
+    from fusion_cli.core.verification import VerificationResult
+
+    clock = _FakeClock()
+
+    class _SlowFindingVerifier:
+        async def verify(self):
+            clock.value = 11.0
+            return VerificationResult(ok=False, summary="bozuk", findings=("hp azalmıyor",))
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="x")]),
+                model_result(TAM_CEVAP),
+                model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.verifier = _SlowFindingVerifier()
+    deps.budget = _budget(clock=clock, total_timeout_s=100.0, idle_timeout_s=10.0)
+
+    await run_agent("a.js düzelt", deps)
+
+    assert (tmp_path / "a.js").read_text() == "fixed"
+
+
 # --- Yürütme politikası da devredilir ----------------------------------------- #
 #
 # Ölçüldü: öz-denetim/doğrulama turu politikayı DÜZELTME METNİNDEN yeniden

@@ -63,6 +63,7 @@ def inspect_web_output_by_severity(
     blocking.extend(_stilsiz_siniflar(html, css))
     blocking.extend(_tutarsiz_tutarlar(html, js))
     blocking.extend(_baglanmamis_dosyalar(files, html, js))
+    blocking.extend(_erisilemez_hp_dali(f"{html}\n{js}"))
 
     # Semantic kalite: değerlidir ama proje bunun yüzünden "kırık" değildir.
     warnings.extend(_eksik_main(html))
@@ -183,6 +184,33 @@ def _tutarsiz_tutarlar(html: str, js: str) -> list[str]:
             "kullanıcıya verilen söz ile kodun davranışı çelişiyor olabilir."
         )
     return bulgular
+
+
+_HP_ZERO_GUARD = re.compile(r"\b[\w$]+(?:\.[\w$]+)*\.hp\s*<=\s*0\b", re.I)
+_HP_DECREASE = re.compile(
+    r"(?:\b[\w$]+(?:\.[\w$]+)*\.hp\s*(?:-=|--)|"
+    r"--\s*\b[\w$]+(?:\.[\w$]+)*\.hp\b|"
+    r"\b[\w$]+(?:\.[\w$]+)*\.hp\s*=\s*[^;\n]*\.hp\s*-)",
+    re.I,
+)
+
+
+def _erisilemez_hp_dali(code: str) -> list[str]:
+    """HP sıfır dalı var ama dosyada HP'yi azaltan hiçbir işlem yok mu?
+
+    Bu yalnızca güçlü küresel sinyalde çalışır. Tek bir gerçek azaltma bile varsa
+    susar; böylece farklı hasar yardımcıları veya birden çok entity kullanılan
+    uygulamalarda tahmin yürütmez. Ölçülen hata, modelin ölüm kontrollerini yazıp
+    hem mermi hem oyuncu çarpışmasındaki azaltma satırlarını tamamen unutmasıydı.
+    """
+    guards = _HP_ZERO_GUARD.findall(code)
+    if not guards or _HP_DECREASE.search(code):
+        return []
+    return [
+        f"Kodda {len(guards)} HP<=0 ölüm/bitiş kontrolü var ama HP'yi azaltan hiçbir "
+        "state mutasyonu yok; bu dallar erişilemez. Hasar olayında normal oyun "
+        "state'indeki ilgili .hp değerini gerçekten azalt."
+    ]
 
 
 def _palet_baypasi(css: str, js: str, html: str) -> list[str]:

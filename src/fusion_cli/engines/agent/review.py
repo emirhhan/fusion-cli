@@ -30,11 +30,12 @@ MIN_INSTRUCTION_CHARS = 8
 #:
 #: Varsayılan iz bütçesi (3.000 karakter) yalnızca ~10 adım taşır. Uzun bir turda
 #: denetçi üretilen dosyaları hiç görmeden "TAMAM" diyordu — yapısal olarak hiçbir şey
-#: yakalayamazdı. Hakem modelinin bağlamı 131k token; 24.000 karakter (~8k token) ona
-#: rahat sığar ve turun tamamına yakınını kapsar.
-TRACE_CHARS = 24_000
-#: İzde tek bir mesajdan alınacak karakter. 300 bir dosya yazımını temsil edemiyordu.
-TRACE_MESSAGE_CHARS = 600
+#: yakalayamazdı. Hakem modelinin bağlamı en az 131k token. 60.000 karakter (~20k
+#: token), birkaç araç turunu ve tek dosyalık uygulamaların gerçek kodunu taşır.
+TRACE_CHARS = 60_000
+#: İzde tek bir mesajdan alınacak karakter. 600 karakter yalnız dosyanın başını
+#: gösteriyor; davranışı kuran state mutasyonları çoğu kez sonraki bölümde kalıyordu.
+TRACE_MESSAGE_CHARS = 16_000
 #: Agent'ın nihai cevabından denetçiye gösterilecek kısım.
 #:
 #: Asılsız "hepsi yapıldı" iddiaları genelde cevabın SONUNDAKİ madde listesindedir;
