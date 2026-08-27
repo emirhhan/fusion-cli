@@ -1459,6 +1459,62 @@ async def test_deterministik_dogrulama_oz_denetimden_once_calisir(
     assert kinds.index(VerificationFailed) < kinds.index(SelfReviewStarted)
 
 
+async def test_verification_correction_agentin_ilk_fallback_modelini_kullanir(
+    monkeypatch, tmp_path, sink
+):
+    """Semantik olarak başarısız ana model aynı düzeltmeyi tekrar üstlenmemeli."""
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.core.verification import VerificationResult
+
+    class _BirKezDusenDogrulayici:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return (
+                VerificationResult(ok=False, summary="bozuk", findings=("hp azalmıyor",))
+                if self.calls == 1
+                else VerificationResult(ok=True)
+            )
+
+    main = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    corrector = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    seen_models: list[str] = []
+
+    def _build(spec, **kwargs):
+        seen_models.append(spec.model)
+        return corrector if spec.model == "provider/corrector" else main
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=ModelSpec(
+            name="main",
+            model="provider/main",
+            fallback=("provider/corrector", "provider/last-resort"),
+        ),
+        task_model_map={},
+    )
+    deps.verifier = _BirKezDusenDogrulayici()
+
+    await run_agent("a.js düzelt", deps)
+
+    assert (tmp_path / "a.js").read_text() == "fixed"
+    assert "provider/corrector" in seen_models
+
+
 async def test_duzeltilemeyen_dogrulama_basari_olarak_kapanmaz(monkeypatch, tmp_path, sink):
     """Bildiğimiz bir bozukluğu başarı diye teslim etmek kabul edilemez.
 

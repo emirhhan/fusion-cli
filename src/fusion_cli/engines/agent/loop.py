@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
@@ -55,6 +55,7 @@ from ...core.types import (
     CompletionRequest,
     Message,
     ModelResult,
+    ModelSpec,
     StreamDone,
     TextChunk,
     ToolCall,
@@ -1886,7 +1887,7 @@ async def _fix_findings(
         "(replace_range/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
         "düzeltme değildir. Düzeltemeyeceğin varsa nedenini tek cümleyle yaz. "
         f"\n\n{bulgular}",
-        deps,
+        _verification_correction_deps(deps),
         history=outcome.messages,
         self_review=False,
         internal=True,
@@ -1899,6 +1900,33 @@ async def _fix_findings(
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
     return correction
+
+
+def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
+    """Semantik olarak başarısız modeli varsa ilk fallback ile değiştir.
+
+    Provider zinciri transport/kota hatasında fallback'e geçer; doğrulama bulgusu
+    ise başarılı HTTP cevabının içindeki semantik başarısızlıktır ve zinciri doğal
+    olarak ilerletmez. Aynı modele aynı artefaktı yeniden yazdırmak ölçülen koşulda
+    aynı kusuru tekrarladı. Burada yalnız correction alt turu farklılaştırılır;
+    bütçe, çalışma alanı, onay ve kalan fallback sırası paylaşılmaya devam eder.
+    """
+    selected = select_agent_spec(deps.config, deps.task_type)
+    if not selected.fallback:
+        return deps
+
+    correction_spec = ModelSpec(
+        name=f"{selected.name}-verification-corrector",
+        model=selected.fallback[0],
+        tags=selected.tags,
+        fallback=selected.fallback[1:],
+    )
+    correction_config = replace(
+        deps.config,
+        agent=correction_spec,
+        task_model_map={},
+    )
+    return replace(deps, config=correction_config)
 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
