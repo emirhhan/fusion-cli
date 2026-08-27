@@ -61,6 +61,7 @@ class ExecutionPolicy:
     max_tool_rounds: int | None = None
     max_same_tool_without_change: int = 2
     total_timeout_s: float | None = None
+    idle_timeout_s: float | None = None
     heuristic_auto_continue: bool = True
     conditional_self_review: bool = False
     learn_read_only_turns: bool = True
@@ -126,16 +127,16 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     if extended:
         # Kullanıcı açıkça büyük iş istediğinde yeteneği erken kesme; yine de sonsuz
         # web çağrısına karşı emniyet supabı bırak.
-        max_calls, max_rounds, timeout = 36, 28, 1200.0
+        max_calls, max_rounds, timeout, idle_timeout = 36, 28, 2400.0, 300.0
     elif complex_task:
         # Ölçüldü: sözleşme artık yanıt başına TEK araç çağrısı ve var olan dosyada
         # toptan yazma yerine hedefli düzenleme istiyor. İkisi de tur sayısını mekanik
         # olarak artırır — dört dosyalık bir görev ~6 okuma + ~6 düzenleme + doğrulama
         # ile 14+ tur harcıyor. Eski 12 turluk sınır dört koşunun ikisini tam da iş
         # ilerlerken kesti ("araç turu sınırına ulaşıldı"). Sınır akışa uydurulur.
-        max_calls, max_rounds, timeout = 28, 22, 900.0
+        max_calls, max_rounds, timeout, idle_timeout = 28, 22, 1800.0, 240.0
     else:
-        max_calls, max_rounds, timeout = 8, 5, 240.0
+        max_calls, max_rounds, timeout, idle_timeout = 8, 5, 240.0, 120.0
 
     return ExecutionPolicy(
         is_web=True,
@@ -145,6 +146,7 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
         max_tool_rounds=max_rounds,
         max_same_tool_without_change=2,
         total_timeout_s=timeout,
+        idle_timeout_s=idle_timeout,
         # Web yanıtında kısa ama geçerli final metnini "yarım" sanıp fazladan
         # çağrı açma. Gerçek truncation ve bekleyen todo hâlâ devam ettirilir.
         heuristic_auto_continue=False,

@@ -112,7 +112,8 @@ AGENT_MUTATION_UNAVAILABLE = (
 AGENT_BUDGET_REASONS = {
     "model_calls": "model çağrısı sınırına ulaşıldı ({model_calls}); tur sonlandırıldı",
     "tool_rounds": "araç turu sınırına ulaşıldı ({tool_rounds}); tur sonlandırıldı",
-    "deadline": "tur süre sınırına ulaştı ({elapsed_s:.0f} sn); sonlandırıldı",
+    "deadline": "tur mutlak süre sınırına ulaştı ({elapsed_s:.0f} sn); sonlandırıldı",
+    "inactivity": "uzun süredir gerçek ilerleme yok; tur sonlandırıldı",
     "no_progress": (
         "{idle_rounds} turdur ilerleme yok (ne başarılı araç sonucu ne dosya "
         "değişikliği); tur sonlandırıldı"

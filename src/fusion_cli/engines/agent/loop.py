@@ -369,6 +369,8 @@ async def run_agent(
     budget = deps.require_budget()
     if budget.total_timeout_s is None and execution.total_timeout_s is not None:
         budget.total_timeout_s = execution.total_timeout_s
+    if budget.idle_timeout_s is None and execution.idle_timeout_s is not None:
+        budget.idle_timeout_s = execution.idle_timeout_s
 
     # Yetenek kapısı sessiz kalmamalı: değiştirici araçlar sunulmuyorsa kullanıcı
     # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
@@ -608,9 +610,10 @@ async def _drive(
         if budget.model_calls_exhausted or (local_limit is not None and local_calls >= local_limit):
             return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         local_calls += 1
-        remaining = budget.remaining_s()
-        if budget.out_of_time():
-            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+        time_stop = budget.time_stop_reason()
+        if time_stop is not None:
+            return _halt(final_text, messages, state, budget, time_stop, deps)
+        remaining = budget.next_timeout_s()
 
         try:
             if remaining is None:
@@ -636,7 +639,8 @@ async def _drive(
                         timeout_s=min(deps.config.runtime.request_timeout_s, remaining),
                     )
         except TimeoutError:
-            return _halt(final_text, messages, state, budget, BudgetStop.DEADLINE, deps)
+            reason = budget.time_stop_reason() or BudgetStop.DEADLINE
+            return _halt(final_text, messages, state, budget, reason, deps)
 
         state.model_calls_made += 1
         budget.record_model_call()

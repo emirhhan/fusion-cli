@@ -68,6 +68,7 @@ class TurnBudget:
     max_idle_rounds: int
     #: Turun tamamı için üst süre sınırı. `None` ise süre sınırı uygulanmaz.
     total_timeout_s: float | None = None
+    idle_timeout_s: float | None = None
 
     model_calls: int = 0
     verify_rounds: int = 0
@@ -94,25 +95,64 @@ class TurnBudget:
     stop: BudgetStop | None = None
 
     _started_at: float = field(default=0.0, init=False)
+    _last_progress_at: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
-        self._started_at = self.clock.monotonic()
+        now = self.clock.monotonic()
+        self._started_at = now
+        self._last_progress_at = now
 
     # --- süre ------------------------------------------------------------- #
 
     @property
     def elapsed_s(self) -> float:
+        """Turun başlangıcından beri geçen mutlak süre."""
         return self.clock.monotonic() - self._started_at
 
+    @property
+    def idle_elapsed_s(self) -> float:
+        """Son gerçek ilerlemeden beri geçen süre."""
+        return self.clock.monotonic() - self._last_progress_at
+
     def remaining_s(self) -> float | None:
-        """Kalan süre; sınır yoksa None. Negatif değer süre dolduğunu söyler."""
+        """Mutlak hard-cap için kalan süre."""
         if self.total_timeout_s is None:
             return None
         return self.total_timeout_s - self.elapsed_s
 
-    def out_of_time(self) -> bool:
+    def idle_remaining_s(self) -> float | None:
+        """İlerleme-yok sınırı için kalan süre."""
+        if self.idle_timeout_s is None:
+            return None
+        return self.idle_timeout_s - self.idle_elapsed_s
+
+    def next_timeout_s(self) -> float | None:
+        """Hard ve idle deadline arasından önce dolacak olanı döndür."""
+        limits = [
+            value
+            for value in (self.remaining_s(), self.idle_remaining_s())
+            if value is not None
+        ]
+        return min(limits) if limits else None
+
+    def time_stop_reason(self) -> BudgetStop | None:
+        """Süre sınırı aşıldıysa gerçek sebebi döndür."""
         remaining = self.remaining_s()
-        return remaining is not None and remaining <= 0
+        if remaining is not None and remaining <= 0:
+            return BudgetStop.DEADLINE
+
+        idle_remaining = self.idle_remaining_s()
+        if idle_remaining is not None and idle_remaining <= 0:
+            return BudgetStop.INACTIVITY
+
+        return None
+
+    def out_of_time(self) -> bool:
+        return self.time_stop_reason() is not None
+
+    def record_progress(self) -> None:
+        """Idle saatini tazele; turun mutlak başlangıcını değiştirme."""
+        self._last_progress_at = self.clock.monotonic()
 
     # --- sayaçlar --------------------------------------------------------- #
 
@@ -197,13 +237,12 @@ class TurnBudget:
         self.mutation_epoch += 1
 
     def record_round(self, *, progressed: bool) -> None:
-        """Bir araç turunu sonuçlandır: ilerleme oldu mu?
-
-        İlerleme, ardışık boşta tur sayacını SIFIRLAR. Tek bir başarısız tur normaldir
-        (model yanlış yolu dener, sonra düzeltir); ilerlemeyen turların ARDIŞIK olması
-        modelin kendini toparlayamadığını gösterir.
-        """
-        self.idle_rounds = 0 if progressed else self.idle_rounds + 1
+        """Bir araç turunu sonuçlandır ve gerçek ilerlemeyi kaydet."""
+        if progressed:
+            self.idle_rounds = 0
+            self.record_progress()
+        else:
+            self.idle_rounds += 1
 
     @property
     def idle(self) -> bool:
