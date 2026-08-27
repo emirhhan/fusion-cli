@@ -32,6 +32,8 @@ from fusion_cli.core.errors import EvalError
 #: Her koşunun çalışma dizinine bırakılan transkript dosyası. Çalışma dizini
 #: koşu başına silinip yeniden kurulduğu için son koşunun transkripti kalır.
 TRANSCRIPT_NAME = "_transkript.jsonl"
+ACCEPTANCE_STDOUT_NAME = "_acceptance.stdout.txt"
+ACCEPTANCE_STDERR_NAME = "_acceptance.stderr.txt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,17 +146,31 @@ class AgentTaskExecutor:
                 task.criterion.command,
                 cwd=str(workspace),
                 env=_verification_env(),
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
         except OSError:
             return 1
         try:
-            return await asyncio.wait_for(process.wait(), timeout=SHELL_TIMEOUT_S)
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=SHELL_TIMEOUT_S
+            )
         except TimeoutError:
             process.kill()
-            await process.wait()
+            stdout, stderr = await process.communicate()
+            _write_acceptance_evidence(workspace, stdout, stderr)
             return 1
+        _write_acceptance_evidence(workspace, stdout, stderr)
+        return process.returncode
+
+
+def _write_acceptance_evidence(workspace: Path, stdout: bytes, stderr: bytes) -> None:
+    (workspace / ACCEPTANCE_STDOUT_NAME).write_text(
+        stdout.decode("utf-8", errors="replace"), encoding="utf-8"
+    )
+    (workspace / ACCEPTANCE_STDERR_NAME).write_text(
+        stderr.decode("utf-8", errors="replace"), encoding="utf-8"
+    )
 
 
 def _verification_env() -> dict[str, str]:

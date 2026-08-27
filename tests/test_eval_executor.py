@@ -102,6 +102,24 @@ async def test_exit_code_komutu_calistirir_basarisiz(tmp_path):
     assert evaluate_criterion(task.criterion, execution) is False
 
 
+async def test_exit_code_stdout_ve_stderr_kanit_dosyalarinda_kalir(tmp_path):
+    runner = _FakeRunner()
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    task = _task(
+        "t",
+        SuccessCriterion(
+            kind=CriterionKind.EXIT_CODE,
+            expected_exit_code=0,
+            command="python -c \"import sys; print('out'); print('err', file=sys.stderr)\"",
+        ),
+    )
+
+    await executor.run(task)
+
+    assert (tmp_path / "t" / "_acceptance.stdout.txt").read_text() == "out\n"
+    assert (tmp_path / "t" / "_acceptance.stderr.txt").read_text() == "err\n"
+
+
 async def test_komutu_calisma_dizininde_kosturur(tmp_path):
     # Komut, agent'ın yazdığı dosyayı çalışma dizininde görmeli.
     runner = _FakeRunner(files={"hazir.txt": "var"})
