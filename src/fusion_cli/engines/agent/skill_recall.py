@@ -54,7 +54,7 @@ INJECT_BUDGET = 2_500
 #: Ölçüldü: `web_reference.md` 20.877 karakter ve kırpılmadan enjekte ediliyordu,
 #: oysa kullanıcının skill'i 2.500 ile sınırlıydı — 8,3 kat asimetri. Tarayıcı
 #: mesaj kutusunun tavanı 32.316 karakter (deneyle ölçüldü), promptun geri kalanı
-#: ise ~23.000 karakter (system.md 8.134 + araç talimatları 13.304 + çerçeve).
+#: toplam prompt bağlamını da büyütür; bu yüzden otomatik yol daha dar bütçe kullanır.
 #: Geriye kalan pay budur; tavana dayanmamak için üstü değil altı seçilir.
 REFERENCE_BUDGET = 6_000
 

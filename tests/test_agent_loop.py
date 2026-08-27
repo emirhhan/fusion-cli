@@ -571,19 +571,58 @@ async def test_plan_modunda_kapi_calismaz(monkeypatch, tmp_path, sink):
     assert deps.verifier.calls == 0
 
 
-async def test_sistem_promptu_beceri_kutuphanesini_duyurur(monkeypatch, tmp_path, sink):
-    """Model 126 skill'lik kütüphanenin varlığından haberdar olmalı.
+async def test_sistem_promptu_ilgili_uzmanligi_dogrudan_enjekte_eder(
+    monkeypatch,
+    tmp_path,
+    sink,
+):
+    """İlgili skill modele tool-discovery prosedürü olmadan doğrudan verilir."""
 
-    Gerçek koşuda find_skill hiç çağrılmadı; araç kayıtlıydı ama sistem promptunda
-    "skill" kelimesi hiç geçmiyordu. Kullanılmayan yetenek, olmayan yetenektir.
-    """
-    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+    from fusion_cli.tools.capabilities import CapabilityRegistry
 
-    await run_agent("arayüz yap", _deps(tmp_path, sink, runtime={"self_review": False}))
+    skill_dir = tmp_path / ".fusion" / "skills" / "frontend-design"
+    skill_dir.mkdir(parents=True)
+
+    (skill_dir / "SKILL.md").write_text(
+        """---
+name: frontend-design
+description: frontend design css responsive ui web page
+---
+
+TEST_UI_SKILL_MARKER
+
+Responsive arayüzlerde görsel hiyerarşiyi ve bileşen tutarlılığını koru.
+""",
+        encoding="utf-8",
+    )
+
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider([model_result(TAM_CEVAP)]),
+    )
+
+    deps = _deps(
+        tmp_path,
+        sink,
+        runtime={"self_review": False},
+    )
+    deps.capabilities = CapabilityRegistry(
+        home=tmp_path / "empty-home",
+        root=tmp_path,
+    )
+
+    await run_agent("arayüz yap", deps)
 
     sistem = provider.seen_messages[0][0]
+
     assert sistem.role == "system"
-    assert "find_skill" in sistem.content
+
+    # Diet V1: modele skill keşif prosedürü öğretmiyoruz.
+    assert "find_skill" not in sistem.content
+
+    # Recall V2: uygun uzmanlığı doğrudan context'e koyuyoruz.
+    assert "# Uzmanlık talimatı: frontend-design" in sistem.content
+    assert "TEST_UI_SKILL_MARKER" in sistem.content
 
 
 async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp_path, sink):
