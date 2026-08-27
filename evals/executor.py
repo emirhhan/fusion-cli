@@ -82,7 +82,12 @@ class AgentTaskExecutor:
         self._seed_dir = seed_dir
 
     async def run(self, task: EvalTask) -> TaskExecution:
-        workspace = self._prepare_workspace(task.id, task.setup)
+        return await self.run_sample(task, sample_index=None)
+
+    async def run_sample(
+        self, task: EvalTask, *, sample_index: int | None
+    ) -> TaskExecution:
+        workspace = self._prepare_workspace(task.id, task.setup, sample_index=sample_index)
         before = _snapshot(workspace)
 
         start = self._clock.monotonic()
@@ -111,8 +116,16 @@ class AgentTaskExecutor:
 
     # ----------------------------------------------------------------------- #
 
-    def _prepare_workspace(self, task_id: str, setup: Mapping[str, str] | None = None) -> Path:
+    def _prepare_workspace(
+        self,
+        task_id: str,
+        setup: Mapping[str, str] | None = None,
+        *,
+        sample_index: int | None = None,
+    ) -> Path:
         workspace = self._workspace_root / task_id
+        if sample_index is not None:
+            workspace = workspace / f"run-{sample_index:02d}"
         if workspace.exists():
             shutil.rmtree(workspace)
         if self._seed_dir is not None:

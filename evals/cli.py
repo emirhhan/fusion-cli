@@ -13,14 +13,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 
-from evals.agent_runner import FusionAgentRunner
 from evals.compare import compare_reports
 from evals.executor import AgentTaskExecutor
 from evals.loader import load_tasks
 from evals.metrics import RunReport
+from evals.profiles import EvalProfile, RunMetadata, build_runner, exclusions_for
 from evals.report import read_report, write_report
 from evals.runner import RateLimitedError, run_suite
 from fusion_cli.config.loader import load_config
@@ -37,6 +39,19 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--seed", type=Path, default=None, help="Her görev dizinine kopyalanacak tohum dizini"
     )
+    run_parser.add_argument(
+        "--profile",
+        type=EvalProfile,
+        choices=list(EvalProfile),
+        default=EvalProfile.FUSION_FULL,
+    )
+
+    matrix_parser = sub.add_parser("matrix", help="Full, minimal ve direct profilleri koştur")
+    matrix_parser.add_argument("suite", type=Path)
+    matrix_parser.add_argument("--out-dir", type=Path, required=True)
+    matrix_parser.add_argument("--seed", type=Path, default=None)
+    matrix_parser.add_argument("--workspace", type=Path, default=None)
+    matrix_parser.add_argument("--repeat", type=int, default=3)
     run_parser.add_argument(
         "--workspace", type=Path, default=None, help="Çalışma dizinlerinin kökü (varsayılan: tmp)"
     )
@@ -55,6 +70,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "run":
         return _run(args)
+    if args.command == "matrix":
+        return _matrix(args)
     return _compare(args)
 
 
@@ -63,8 +80,9 @@ def _run(args: argparse.Namespace) -> int:
     workspace_root = args.workspace or Path(tempfile.mkdtemp(prefix="fusion-eval-"))
     workspace_root.mkdir(parents=True, exist_ok=True)
 
+    config = load_config()
     executor = AgentTaskExecutor(
-        FusionAgentRunner(load_config()),
+        build_runner(args.profile, config),
         workspace_root=workspace_root,
         clock=SystemClock(),
         seed_dir=args.seed,
@@ -79,10 +97,71 @@ def _run(args: argparse.Namespace) -> int:
         print(f"\nÖLÇÜM DURDURULDU: {hata}")
         return 2
 
+    report = replace(
+        report,
+        metadata=RunMetadata(
+            suite=str(args.suite),
+            profile=args.profile.value,
+            model=config.agent.model,
+            repeat=args.repeat,
+            seed=None if args.seed is None else str(args.seed),
+            exclusions=exclusions_for(args.profile),
+        ),
+    )
     _print_summary(report)
     if args.out is not None:
         write_report(report, args.out)
         print(f"\nRapor yazıldı: {args.out}")
+    return 0
+
+
+def _matrix(args: argparse.Namespace) -> int:
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    workspace = args.workspace or Path(tempfile.mkdtemp(prefix="fusion-eval-matrix-"))
+    reports: list[RunReport] = []
+    for profile in EvalProfile:
+        run_args = argparse.Namespace(
+            suite=args.suite,
+            out=args.out_dir / f"{profile.value}.json",
+            seed=args.seed,
+            workspace=workspace / profile.value,
+            repeat=args.repeat,
+            profile=profile,
+        )
+        code = _run(run_args)
+        if code:
+            return code
+        reports.append(read_report(run_args.out))
+    print("\nProfil matrisi:")
+    direct = reports[-1]
+    for report in reports:
+        metadata = report.metadata
+        assert metadata is not None
+        print(
+            f"  {metadata.profile:<16} başarı={report.task_success_rate:.3f} "
+            f"çağrı={report.mean_model_calls:.2f} süre={report.mean_duration_seconds:.2f}s "
+            f"Δçağrı={report.mean_model_calls - direct.mean_model_calls:+.2f} "
+            f"Δsüre={report.mean_duration_seconds - direct.mean_duration_seconds:+.2f}s"
+        )
+    summary = {
+        "baseline": EvalProfile.DIRECT.value,
+        "profiles": [
+            {
+                "profile": report.metadata.profile if report.metadata else "",
+                "success_rate": report.task_success_rate,
+                "mean_model_calls": report.mean_model_calls,
+                "mean_duration_seconds": report.mean_duration_seconds,
+                "delta_model_calls_vs_direct": report.mean_model_calls
+                - direct.mean_model_calls,
+                "delta_duration_seconds_vs_direct": report.mean_duration_seconds
+                - direct.mean_duration_seconds,
+            }
+            for report in reports
+        ],
+    }
+    (args.out_dir / "summary.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return 0
 
 

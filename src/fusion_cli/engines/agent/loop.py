@@ -295,6 +295,7 @@ async def run_agent(
     verify: bool = True,
     internal: bool = False,
     require_local_mutation: bool = False,
+    system_prompt: str | None = None,
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -366,6 +367,7 @@ async def run_agent(
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
         inherit_system=internal,
+        system_prompt=system_prompt,
     )
 
     if deps.execution is None:
@@ -1923,6 +1925,7 @@ def _initial_messages(
     plan_mode: bool,
     extra_system: str,
     inherit_system: bool = False,
+    system_prompt: str | None = None,
 ) -> list[Message]:
     """Turun mesaj listesini kur: TEK sistem mesajı + geçmiş + yeni görev.
 
@@ -1957,7 +1960,7 @@ def _initial_messages(
     if devralinabilir:
         system = gecmis[0].content
     else:
-        system = SYSTEM_PROMPT
+        system = SYSTEM_PROMPT if system_prompt is None else system_prompt
         if plan_mode:
             system += f"\n\n{PLAN_MODE_PROMPT}"
         if extra_system:

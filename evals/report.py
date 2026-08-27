@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from evals.metrics import RunReport, TaskResult
+from evals.profiles import RunMetadata
 
 
 def _result_to_dict(result: TaskResult) -> dict[str, object]:
@@ -41,10 +42,21 @@ def _summary(report: RunReport) -> dict[str, object]:
 def report_to_dict(report: RunReport) -> dict[str, object]:
     """Raporu JSON'a yazılabilir bir sözlüğe çevirir."""
 
-    return {
+    payload: dict[str, object] = {
         "results": [_result_to_dict(result) for result in report.results],
         "summary": _summary(report),
     }
+    if report.metadata is not None:
+        payload["metadata"] = {
+            "schema_version": report.metadata.schema_version,
+            "suite": report.metadata.suite,
+            "profile": report.metadata.profile,
+            "model": report.metadata.model,
+            "repeat": report.metadata.repeat,
+            "seed": report.metadata.seed,
+            "exclusions": list(report.metadata.exclusions),
+        }
+    return payload
 
 
 def report_from_dict(payload: dict[str, object]) -> RunReport:
@@ -54,7 +66,20 @@ def report_from_dict(payload: dict[str, object]) -> RunReport:
     if not isinstance(raw_results, list):
         raise ValueError("rapor 'results' bir liste olmalı")
     results = tuple(_result_from_dict(item) for item in raw_results)
-    return RunReport(results=results)
+    raw_metadata = payload.get("metadata")
+    metadata = None
+    if isinstance(raw_metadata, dict):
+        raw_exclusions = raw_metadata.get("exclusions", [])
+        metadata = RunMetadata(
+            schema_version=int(raw_metadata.get("schema_version", 2)),
+            suite=str(raw_metadata.get("suite", "")),
+            profile=str(raw_metadata.get("profile", "fusion-full")),
+            model=str(raw_metadata.get("model", "")),
+            repeat=int(raw_metadata.get("repeat", 1)),
+            seed=None if raw_metadata.get("seed") is None else str(raw_metadata["seed"]),
+            exclusions=tuple(str(item) for item in raw_exclusions),
+        )
+    return RunReport(results=results, metadata=metadata)
 
 
 def _result_from_dict(item: object) -> TaskResult:

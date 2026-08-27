@@ -11,6 +11,7 @@ kirletmesin ve öğrenme yan etkisi olmasın), olaylar no-op yayıncıya gider.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from evals.executor import AgentRunObservation
@@ -119,6 +120,76 @@ class FusionAgentRunner:
         kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         # AgentOutcome gerçek model çağrılarını zaten sayar. Tool çağrısından
         # türetmek review/verification/reflexion çağrılarını eksik sayıyordu.
+        return AgentRunObservation(
+            output_text=outcome.final_text,
+            model_calls=publisher.model_calls,
+            rate_limited=kota,
+            rate_limit_detail=outcome.final_text if kota else "",
+        )
+
+
+MINIMAL_SYSTEM_PROMPT = """You are a file-editing agent. Use the supplied local file tools to
+complete the user's task in the workspace. Inspect before editing, use replace_range for
+targeted edits, and finish only after the requested files exist. Never claim an edit that a
+tool did not perform."""
+
+_MINIMAL_TOOLS = {"list_dir", "read_file", "write_file", "replace_range"}
+
+
+class MinimalAgentRunner(FusionAgentRunner):
+    """Tool-using agent loop without Fusion review, recall, or verification layers."""
+
+    def __init__(self, config: Config) -> None:
+        runtime = replace(
+            config.runtime,
+            self_review=False,
+            reflexion=False,
+            lessons=False,
+            verification_commands=(),
+            web_verification=False,
+            browser_verification=False,
+            visual_verification=False,
+            playbooks=False,
+            workflow_mode=False,
+        )
+        super().__init__(replace(config, runtime=runtime))
+
+    async def run(
+        self,
+        request: str,
+        *,
+        root: Path,
+        strict_approval: bool = False,
+        transcript: Path | None = None,
+    ) -> AgentRunObservation:
+        kayit = TranscriptRecorder(transcript) if transcript is not None else None
+        downstream = kayit if kayit is not None else _NullPublisher()
+        publisher = _CountingPublisher(downstream)
+        tool_context = ToolContext(root=root)
+        deps = AgentDeps(
+            config=self._config,
+            publisher=publisher,
+            policy=_EvalApproval(strict=strict_approval),
+            tool_context=tool_context,
+            verifier=None,
+            asker=None,
+            code_index=None,
+            lessons=None,
+            capabilities=None,
+        )
+        try:
+            outcome = await run_agent(
+                request,
+                deps,
+                allowed_tools=_MINIMAL_TOOLS,
+                self_review=False,
+                verify=False,
+                system_prompt=MINIMAL_SYSTEM_PROMPT,
+            )
+        finally:
+            if kayit is not None:
+                kayit.close()
+        kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         return AgentRunObservation(
             output_text=outcome.final_text,
             model_calls=publisher.model_calls,

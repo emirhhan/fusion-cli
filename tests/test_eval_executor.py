@@ -126,6 +126,18 @@ async def test_gorevler_izole_dizinlerde_calisir(tmp_path):
     assert runner.roots[0].name == "gorev1"
 
 
+async def test_tekrarlar_ayri_kanit_dizinlerinde_saklanir(tmp_path):
+    runner = _FakeRunner(files={"index.html": "<html></html>"})
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0, 1, 2, 3))
+    task = _task("arena", SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="x"))
+
+    await executor.run_sample(task, sample_index=1)
+    await executor.run_sample(task, sample_index=2)
+
+    assert runner.roots == [tmp_path / "arena" / "run-01", tmp_path / "arena" / "run-02"]
+    assert all((root / "index.html").exists() for root in runner.roots)
+
+
 async def test_tohum_dizini_kopyalanir_ve_degisiklik_sayilmaz(tmp_path):
     seed = tmp_path / "seed"
     seed.mkdir()

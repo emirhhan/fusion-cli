@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from evals.criteria import evaluate_criterion
 from evals.execution import TaskExecution
+from evals.profiles import RunMetadata
 from evals.tasks import EvalTask
 
 
@@ -99,6 +100,7 @@ class RunReport:
     """Bir değerlendirme çalıştırmasının tüm görev sonuçları ve özet metrikleri."""
 
     results: tuple[TaskResult, ...]
+    metadata: RunMetadata | None = None
 
     @property
     def task_count(self) -> int:

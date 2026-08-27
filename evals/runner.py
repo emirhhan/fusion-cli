@@ -44,7 +44,9 @@ async def _default_sleep(seconds: float) -> None:
     await asyncio.sleep(seconds)
 
 
-async def _kosturs(task: EvalTask, executor: TaskExecutor, sleep: Sleeper) -> TaskResult:
+async def _kosturs(
+    task: EvalTask, executor: TaskExecutor, sleep: Sleeper, *, sample_index: int | None = None
+) -> TaskResult:
     """Görevi çalıştır; geçici sınırda bekleyip tekrar dene.
 
     Günlük kota AYRIDIR: o gün için biter, beklemek kullanıcıyı boşuna oyalar ve
@@ -53,7 +55,11 @@ async def _kosturs(task: EvalTask, executor: TaskExecutor, sleep: Sleeper) -> Ta
     boşuna bir bekleme, iptal edilmiş bir ölçümden ucuzdur.
     """
     for deneme in range(MAX_RATE_LIMIT_RETRIES + 1):
-        sonuc = score_task(task, await executor.run(task))
+        if sample_index is not None and hasattr(executor, "run_sample"):
+            execution = await executor.run_sample(task, sample_index=sample_index)
+        else:
+            execution = await executor.run(task)
+        sonuc = score_task(task, execution)
         if not sonuc.rate_limited:
             return sonuc
         if is_daily_quota_error(sonuc.rate_limit_detail):
@@ -98,7 +104,14 @@ async def run_suite(
     results = []
     for task in tasks:
         kosular = []
-        for _ in range(repeat):
-            kosular.append(await _kosturs(task, executor, sleep))
+        for index in range(1, repeat + 1):
+            kosular.append(
+                await _kosturs(
+                    task,
+                    executor,
+                    sleep,
+                    sample_index=index if repeat > 1 else None,
+                )
+            )
         results.append(kosular[0] if repeat == 1 else merge_runs(kosular))
     return RunReport(results=tuple(results))
