@@ -24,6 +24,12 @@ from .verification import resolve_turn_success
 
 logger = logging.getLogger(__name__)
 
+#: Otomatik sistem-prompt recall bütçesi.
+#:
+#: Bellek katmanı alaka/güven filtresi uygulasa da dört ayrı ders bir turda dikkat
+#: bütçesini gereksiz büyütebilir. Agent loop en fazla iki geçmiş gözlem taşır.
+AUTO_RECALL_LIMIT = 2
+
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
@@ -37,11 +43,29 @@ def _workspace(deps: AgentDeps) -> str:
     return str(deps.tool_context.root.resolve()) if deps.tool_context is not None else ""
 
 
-def recall_lessons(task: str, deps: AgentDeps, *, scope: str | None) -> tuple[Lesson, ...]:
-    """Göreve benzer, güveni eşiğin üstünde ve kapsamına uyan dersleri hatırla."""
+def recall_lessons(
+    task: str,
+    deps: AgentDeps,
+    *,
+    scope: str | None,
+    enabled: bool = True,
+    limit: int = AUTO_RECALL_LIMIT,
+) -> tuple[Lesson, ...]:
+    """Göreve benzer ve kapsamına uyan az sayıdaki dersi hatırla.
+
+    `enabled=False`, classifier'ın yeterince güvenmediği turda bellek sorgusunu bile
+    çalıştırmaz. Böylece yanlış scope'tan context prompt'a sızmaz.
+    """
+    if not enabled:
+        return ()
     if deps.lessons is None or not deps.config.runtime.lessons:
         return ()
-    recalled = deps.lessons.recall(task, scope=scope, workspace=_workspace(deps))
+    recalled = deps.lessons.recall(
+        task,
+        limit=limit,
+        scope=scope,
+        workspace=_workspace(deps),
+    )
     if recalled:
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
     return recalled

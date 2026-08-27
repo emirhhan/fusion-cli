@@ -71,7 +71,7 @@ from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, history, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
-from .classify import TaskKind, classify_task_details, recall_scope, scope_of
+from .classify import TaskClassification, TaskKind, classify_task_details, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
@@ -345,9 +345,15 @@ async def run_agent(
     if not plan_mode and depth == 0 and deps.config.runtime.workflow_mode:
         return await run_workflow_stages(task, deps, run_agent)
 
-    recalled = learning_steps.recall_lessons(task, deps, scope=recall_scope(kind))
+    auto_context = skill_recall.should_auto_context(classification)
+    recalled = learning_steps.recall_lessons(
+        task,
+        deps,
+        scope=recall_scope(kind),
+        enabled=auto_context,
+    )
     remembered = as_prompt_block(recalled)
-    expertise = _recall_skill(kind, deps, depth=depth)
+    expertise = _recall_skill(classification, deps, depth=depth)
     proje_talimati = read_project_instructions(deps.tool_context.root)
     messages = _initial_messages(
         task,
@@ -1763,29 +1769,30 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     return correction
 
 
-def _recall_skill(kind: TaskKind, deps: AgentDeps, *, depth: int) -> str:
-    """Görev türüne uyan uzmanlık talimatını promta ekle.
+def _recall_skill(
+    classification: TaskClassification,
+    deps: AgentDeps,
+    *,
+    depth: int,
+) -> str:
+    """Confidence-gated uzmanlık context'ini yalnız ana tura ekle.
 
-    Modelin `find_skill` çağırmasını beklemek yerine dersler gibi OTOMATİK enjekte
-    edilir; ölçüldü ki prompta duyuru koymak 3 koşunun yalnızca 1'inde işe yarıyor.
-
-    Yalnızca ana turda: alt-ajanlar zaten dar bir göreve odaklıdır ve kendi
-    talimatlarını taşır.
+    Alt-ajan kendi dar göreviyle çalışır. Ana turda da yanlış/kararsız expertise
+    enjeksiyonu yerine hiç enjeksiyon tercih edilir.
     """
     if depth > 0:
         return ""
-    # İkisi farklı işe yarar ve birlikte verilir: fusion referansı NASIL inşa
-    # edileceğini somut ölçeklerle söyler, kullanıcının skill'i hangi YÖNÜN
-    # seçileceğini anlatır.
-    parcalar = [skill_recall.reference_block(kind)]
-    if deps.capabilities is not None:
-        parcalar.append(
-            skill_recall.as_prompt_block(
-                skill_recall.select_skill(deps.capabilities.skills(), kind)
-            )
-        )
-    return "\n\n".join(parca for parca in parcalar if parca)
 
+    skills = (
+        deps.capabilities.skills()
+        if deps.capabilities is not None
+        else ()
+    )
+
+    return skill_recall.auto_expertise_block(
+        classification,
+        skills,
+    )
 
 async def _verify(
     outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int
