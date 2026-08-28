@@ -652,3 +652,9 @@ SETUP_NO_KEYS = (
     "API anahtarı bulunamadı. `fusion setup` çalıştır ya da .env dosyana OPENROUTER_API_KEY yaz."
 )
 SETUP_ACTIVE_PROVIDERS = "kurulu sağlayıcılar: {names}"
+
+#: Gateway, tarayıcıdan gelen yabancı kaynaklı durum değiştiren isteği reddettiğinde.
+GATEWAY_FOREIGN_ORIGIN = (
+    "Yabancı kaynaklı istek reddedildi. Bu gateway sağlayıcı anahtarlarını taşır; "
+    "yalnız yerel sayfalar ve Origin göndermeyen istemciler durum değiştirebilir."
+)

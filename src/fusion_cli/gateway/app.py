@@ -40,6 +40,7 @@ from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
 from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
+from ..ui import messages
 from . import translate
 from .analytics import Analytics, RequestRecord
 from .cache import PromptCache
@@ -127,6 +128,9 @@ class GatewayApp:
         self._refresh_config()
         method = scope["method"]
         path = scope["path"]
+        if method not in ("GET", "HEAD") and _foreign_origin(scope):
+            await _json(send, {"error": {"message": messages.GATEWAY_FOREIGN_ORIGIN}}, status=403)
+            return
         if method == "GET" and path in ("/", "/health"):
             await _json(send, {"status": "ok", "service": "fusion-gateway"})
             return
@@ -1221,3 +1225,36 @@ async def _sse_data(send: Send, data: dict[str, Any]) -> None:
 
 async def _sse_done(send: Send) -> None:
     await send({"type": "http.response.body", "body": b"data: [DONE]\n\n", "more_body": False})
+
+
+#: Yerel sayılan ana makine adları. Panel hangisiyle açıldıysa `Origin` onu taşır.
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})
+
+
+def _foreign_origin(scope: Scope) -> bool:
+    """İstek tarayıcıdan ve YABANCI bir sayfadan mı geliyor?
+
+    Gateway kullanıcının sağlayıcı anahtarlarını taşıyan yerel bir proxy'dir ve
+    kimlik doğrulaması yoktur. `127.0.0.1`'e bağlanmak tek başına koruma DEĞİLDİR:
+    kötü niyetli bir sayfa `text/plain` gibi "basit" bir içerik tipiyle POST atarak
+    preflight'ı atlar; yanıtı okuyamaz ama YAN ETKİ gerçekleşir — kota harcanır,
+    anahtar silinir, komut çalıştıran bir MCP sunucusu eklenebilir.
+
+    `Origin` YOKSA istek serbesttir: curl, betikler ve IDE eklentileri bu başlığı
+    göndermez ve onları kırmak gateway'i kullanılamaz hale getirirdi. Başlık VARSA
+    yerel olmalıdır.
+    """
+    for key, value in scope.get("headers") or ():
+        if key.lower() != b"origin":
+            continue
+        origin = value.decode("latin-1").strip()
+        if not origin or origin.lower() == "null":
+            return True
+        from urllib.parse import urlsplit
+
+        try:
+            host = urlsplit(origin).hostname
+        except ValueError:
+            return True
+        return (host or "").lower() not in _LOCAL_HOSTS
+    return False
