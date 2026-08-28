@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 
+import pytest
+
 from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter, ProtocolSink
 from fusion_cli.core.events import TurnOutcome
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
@@ -107,3 +109,20 @@ async def test_onay_yukunde_gizli_arguman_degeri_yoktur() -> None:
 
     pending.resolve(yuk["id"], {"secim": "deny"})
     await gorev
+
+
+async def test_iptal_edilen_onay_bekleyen_soruyu_temizler() -> None:
+    satirlar: list[str] = []
+    pending = PendingQuestions()
+    prompter = ProtocolPrompter(satirlar.append, pending)
+
+    gorev = asyncio.ensure_future(prompter.confirm(_request()))
+    await asyncio.sleep(0)
+    soru_kimligi = json.loads(satirlar[0])["id"]
+
+    gorev.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gorev
+
+    assert soru_kimligi not in pending._pending
+    assert pending.resolve(soru_kimligi, {"secim": "once"}) is False

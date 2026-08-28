@@ -55,6 +55,11 @@ class PendingQuestions:
         future.set_result(data)
         return True
 
+    def discard(self, question_id: str, future: asyncio.Future[dict[str, object]]) -> None:
+        """Yalnız bu gelecek hâlâ kimliğe bağlıysa bekleyen kaydı kaldır."""
+        if self._pending.get(question_id) is future:
+            self._pending.pop(question_id)
+
     def cancel_all(self) -> None:
         """Bekleyen soruları boş cevapla kapat; uygulama kapanmış olabilir."""
         for future in self._pending.values():
@@ -112,7 +117,10 @@ class ProtocolPrompter:
         """Soruyu ilet, eş kimlikli cevabı bekle; kapanışta boş cevap döndür."""
         identifier, future = self._pending.new_question()
         self._writer(encode_question(identifier, payload))
-        return await future
+        try:
+            return await future
+        finally:
+            self._pending.discard(identifier, future)
 
 
 def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
