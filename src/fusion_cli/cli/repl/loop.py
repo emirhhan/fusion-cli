@@ -40,7 +40,7 @@ from ...observability.tracing import LangfuseTracer
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
-from . import help_view, macros
+from . import help_view, history_view, macros
 from .commands import RENDERED_COMMANDS, CommandRegistry, build_registry, parse
 from .input import ReplInput
 from .macros import Mode
@@ -112,6 +112,10 @@ async def run_repl(
         background.spawn(_warm_up(state))
 
     banner.print_welcome(console, session_info(state))
+    recent = history_view.render_recent(state.home, state.root)
+    if recent:
+        console.print(recent, highlight=False)
+        console.print()
     _sync_status_bar(reader, state)
 
     try:
