@@ -25,7 +25,7 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
-from . import help_view, model_flows
+from . import help_view, history_view, model_flows
 from .commands import RENDERED_COMMANDS, build_registry, parse, resume_choices
 from .state import Engine, ReplState
 from .transcript_store import TranscriptStore
@@ -420,14 +420,26 @@ class _TuiSession:
             self._tui.sync_conversation()
 
 
-async def run_tui_repl(state: ReplState, console: Console) -> int:
-    """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
+def _print_startup(session: _TuiSession, state: ReplState) -> None:
+    """Açılış kutusunu ve varsa son oturum listesini konuşma alanına yaz.
+
+    Liste boşsa (kayıtlı oturum yoksa) hiçbir şey basılmaz — düz konsol
+    yüzeyindeki `history_view.render_recent` davranışıyla birebir aynı kural.
+    """
     from .loop import session_info
 
+    banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
+    recent = history_view.render_recent(state.home, state.root)
+    if recent:
+        session.tui.console.print(recent, highlight=False)
+    session.tui.sync_conversation()
+
+
+async def run_tui_repl(state: ReplState, console: Console) -> int:
+    """Ink-benzeri tek yol REPL'i çalıştır. Çıkış kodunu döndürür."""
     session = _TuiSession(state)
     # Açılış kutusu konuşma alanına yazılır (tam-ekranda üstte durur).
-    banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
-    session.tui.sync_conversation()
+    _print_startup(session, state)
 
     # TUI isolation: ana terminal scrollback + ekranı temizle. macOS Terminal.app
     # ED 3'ü (`\x1b[3J`) desteklemez ve bunu sessizce yok sayar; oradaki asıl
