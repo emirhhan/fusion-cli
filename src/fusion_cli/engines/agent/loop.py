@@ -376,7 +376,19 @@ async def run_agent(
 
     if deps.execution is None:
         selected_spec = select_agent_spec(deps.config, deps.task_type)
-        deps.execution = policy_for(deps.config, selected_spec, kind, _scoped_task(task, history))
+        # Politikaya BU TURUN metni verilir, geçmişle birleştirilmiş hali değil.
+        #
+        # `kind` yukarıda geçmişle birlikte hesaplandı ve öyle kalır: bütçe ve
+        # karmaşıklık kararlarının süreklilik görmesi doğrudur ("devam et" turu
+        # büyük görevin bütçesini miras almalı).
+        #
+        # Ama `policy_for` bir de `required_effect` çıkarır ve o, turu BAŞARISIZ
+        # ilan eden tek kapıdır. Ölçüldü: oturumun ilk mesajı "oyun yap, index.html
+        # oluştur" olduğunda, sonraki "merhaba" turu birleştirilmiş metinden
+        # `workspace_mutation` etiketi alıyor ve kapı, kullanıcının o turda hiç
+        # istemediği bir dosya değişikliğinin kanıtını arayıp turu düşürüyordu.
+        # Bir kapı turu reddediyorsa dayandığı iddia O TURDA söylenmiş olmalı.
+        deps.execution = policy_for(deps.config, selected_spec, kind, task)
     execution = deps.execution
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.

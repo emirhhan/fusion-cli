@@ -370,7 +370,7 @@ def test_echo_git_push_is_not_execution_evidence():
 
 
 def test_kesif_kelimeleri_degisiklik_istegini_bastiramaz():
-    """"incele ve eksikleri tamamla" 5 turluk keşif bütçesine düşmemeli.
+    """ "incele ve eksikleri tamamla" 5 turluk keşif bütçesine düşmemeli.
 
     Görev türü anahtar kelime SAYIMIYLA bulunur; keşif kelimeleri (incele, bul,
     kontrol et) değişiklik kelimelerini bastırıp EXPLORE kazanabiliyor. O zaman
@@ -394,3 +394,52 @@ def test_gercek_kesif_isteği_kucuk_butcede_kalir():
 
     assert policy.complex_task is False
     assert policy.max_model_calls == 8
+
+
+async def test_selamlama_onceki_turun_mutasyon_hedefini_miras_almaz(monkeypatch, tmp_path):
+    """Sohbetin ilk mesajı "yap" isteğiyse sonraki selamlama BAŞARISIZ olmamalı.
+
+    Ölçüldü: oyun yaptırıldıktan sonra aynı oturumda "merhaba" yazmak
+    "İşlem tamamlanmadı: çalışma alanını değiştirme …" hatası veriyordu. Sebep,
+    sınıflandırmaya geçmişteki ilk kullanıcı mesajının yapıştırılmasıydı: kapı,
+    kullanıcının O TURDA istemediği bir mutasyonun kanıtını arıyordu.
+
+    Turu BAŞARISIZ ilan eden kapı yalnız o anki turun metnine dayanmalı.
+    """
+    from fusion_cli.core.types import Message
+
+    sink = RecordingSink()
+    provider = ScriptedProvider([model_result("Merhaba! Nasıl yardımcı olabilirim?")])
+    _patch_provider(monkeypatch, provider)
+
+    result = await run_agent(
+        "merhaba",
+        _deps_with_fake_shell(tmp_path, sink, provider_model="nvidia_nim/test-model"),
+        history=[Message("user", "bana canvas ile bir oyun yap, index.html oluştur")],
+    )
+
+    assert result.ok is True
+    assert "İşlem tamamlanmadı" not in result.final_text
+
+
+async def test_soru_turu_onceki_turun_mutasyon_hedefini_miras_almaz(monkeypatch, tmp_path):
+    """Selamlama olmayan, kendi başına duran bir SORU da miras almamalı.
+
+    `merhaba` "gerçek kısa sohbet" sayılır ama "bu projede neden hiç asset yok?"
+    sayılmaz; ikisi de aynı hatayı veriyordu. Bu yüzden düzeltme sohbet tespitine
+    değil, kapının kaynağına bağlanır.
+    """
+    from fusion_cli.core.types import Message
+
+    sink = RecordingSink()
+    provider = ScriptedProvider([model_result("Çünkü tek dosyalık bir HTML üretildi.")])
+    _patch_provider(monkeypatch, provider)
+
+    result = await run_agent(
+        "bu projede neden hiç asset yok, sadece html yazdığın için mi?",
+        _deps_with_fake_shell(tmp_path, sink, provider_model="nvidia_nim/test-model"),
+        history=[Message("user", "bana canvas ile bir oyun yap, index.html oluştur")],
+    )
+
+    assert result.ok is True
+    assert "İşlem tamamlanmadı" not in result.final_text
