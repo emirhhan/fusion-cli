@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 from collections.abc import Generator
 from pathlib import Path
-from typing import cast
 
 from .models import SessionRef, Turn
 
@@ -33,8 +32,14 @@ def slug_for(root: Path) -> str:
     return str(root).replace("/", "-")
 
 
-def _text_of(message: dict[str, object]) -> str:
-    """`content` alanını düz metne çevir. Parça listesi de düz metin de olabilir."""
+def _text_of(message: object) -> str:
+    """`content` alanını düz metne çevir. Parça listesi de düz metin de olabilir.
+
+    `message` sözlük değilse (ör. `None`, düz metin, liste) boş dizge döner;
+    çağıran taraf bunu `cast` ile sözlük varsayıp riske atmamalıdır.
+    """
+    if not isinstance(message, dict):
+        return ""
     content = message.get("content")
     if isinstance(content, str):
         return content.strip()
@@ -66,24 +71,26 @@ class ClaudeSource:
     def is_installed(self) -> bool:
         return self._projects_root().is_dir()
 
-    def _session_paths(self, root: Path | None) -> list[Path]:
+    def _session_paths(self) -> list[Path]:
         base = self._projects_root()
         if not base.is_dir():
             return []
-        if root is not None:
-            wanted = base / slug_for(root)
-            if wanted.is_dir():
-                return sorted(wanted.glob("*.jsonl"))
         return sorted(base.glob("*/*.jsonl"))
 
     def list(self, root: Path | None = None) -> tuple[SessionRef, ...]:
-        refs: list[SessionRef] = []
-        for path in self._session_paths(root):
+        wanted_slug = slug_for(root) if root is not None else None
+        entries: list[tuple[bool, float, SessionRef]] = []
+        for path in self._session_paths():
             ref = self._read_ref(path)
-            if ref is not None:
-                refs.append(ref)
-        refs.sort(key=lambda r: r.updated_at, reverse=True)
-        return tuple(refs)
+            if ref is None:
+                continue
+            is_other_project = wanted_slug is not None and path.parent.name != wanted_slug
+            entries.append((is_other_project, ref.updated_at, ref))
+        # `root` verilmişse o projeye ait oturumlar önce gelir; diğer projeler
+        # kaybolmaz, yalnızca geriye itilir. Öncelik grubu içinde ise en yeni
+        # oturum baştadır (mevcut updated_at sıralaması korunur).
+        entries.sort(key=lambda e: (e[0], -e[1]))
+        return tuple(ref for _, _, ref in entries)
 
     def _read_ref(self, path: Path) -> SessionRef | None:
         title = ""
@@ -96,7 +103,7 @@ class ClaudeSource:
             elif kind in ("user", "assistant"):
                 turn_count += 1
                 if kind == "user" and not first_user:
-                    text = _text_of(cast(dict[str, object], record.get("message", {})))
+                    text = _text_of(record.get("message"))
                     if text and not _is_noise(text):
                         first_user = text.splitlines()[0][:TITLE_BUDGET]
         try:
@@ -146,7 +153,7 @@ class ClaudeSource:
                 continue
             if record.get("isMeta") or record.get("isSidechain"):
                 continue
-            text = _text_of(cast(dict[str, object], record.get("message", {})))
+            text = _text_of(record.get("message"))
             if not text:
                 continue
             if seen < cursor:

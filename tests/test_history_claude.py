@@ -119,3 +119,62 @@ def test_meta_ve_sidechain_kayitlari_atlanir(tmp_path):
     turlar = ClaudeSource(tmp_path).read("s6")
 
     assert [t.text for t in turlar] == ["gerçek"]
+
+
+def test_message_null_olan_kayit_oturumu_dusurmez(tmp_path):
+    _oturum_yaz(
+        tmp_path,
+        "-p",
+        "s7",
+        [
+            {"type": "user", "message": None},
+            {"type": "user", "message": {"role": "user", "content": "hâlâ okunur"}},
+        ],
+    )
+
+    (ref,) = ClaudeSource(tmp_path).list()
+
+    assert ref.session_id == "s7"
+    assert ref.title == "hâlâ okunur"
+
+    turlar = ClaudeSource(tmp_path).read("s7")
+    assert [t.text for t in turlar] == ["hâlâ okunur"]
+
+
+def test_message_duz_metin_olan_kayit_atlanir(tmp_path):
+    _oturum_yaz(
+        tmp_path,
+        "-p",
+        "s8",
+        [
+            {"type": "user", "message": "sadece bir dizge"},
+            {"type": "user", "message": {"role": "user", "content": "asıl mesaj"}},
+        ],
+    )
+
+    (ref,) = ClaudeSource(tmp_path).list()
+
+    assert ref.session_id == "s8"
+    assert ref.title == "asıl mesaj"
+
+    turlar = ClaudeSource(tmp_path).read("s8")
+    assert [t.text for t in turlar] == ["asıl mesaj"]
+
+
+def test_root_verildiginde_diger_proje_kaybolmaz_ama_geriye_atilir(tmp_path):
+    _oturum_yaz(
+        tmp_path,
+        "-baska-proje",
+        "diger",
+        [{"type": "user", "message": {"role": "user", "content": "diğer proje mesajı"}}],
+    )
+    _oturum_yaz(
+        tmp_path,
+        "-p",
+        "bu-proje",
+        [{"type": "user", "message": {"role": "user", "content": "bu proje mesajı"}}],
+    )
+
+    refs = ClaudeSource(tmp_path).list(root=Path("/p"))
+
+    assert [r.session_id for r in refs] == ["bu-proje", "diger"]
