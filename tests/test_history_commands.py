@@ -152,3 +152,22 @@ async def test_tui_resume_komutunda_vazgecilirse_devralma_olmaz(tmp_path):
     await task
 
     assert state.pending_digest is None
+
+
+def test_duz_repl_yuzeyi_de_ev_dizinini_gecirir():
+    """Her kullanıcı yüzeyi kayıt defterini ev dizini ile kurmalı.
+
+    Regresyon: düz konsol REPL (`FUSION_INLINE=1`) `build_registry()`'yi
+    argümansız çağırıyordu; kurulu araç olsa bile o yüzeyde `/resume<kaynak>`
+    komutları hiç kaydolmuyordu. Hata tek bir çağrı yerindeydi ve testler
+    `build_registry`'yi doğrudan çağırdığı için görünmüyordu.
+    """
+    import inspect
+
+    from fusion_cli.cli.repl import loop
+
+    kaynak = inspect.getsource(loop)
+
+    # Değişmez: bu modülde ARGÜMANSIZ çağrı kalmamalı. Hangi ifadeyle geçirildiği
+    # serbesttir; asıl kural ev dizininin geçiriliyor olmasıdır.
+    assert "build_registry()" not in kaynak, "kayıt defteri ev dizinsiz kuruluyor"

@@ -96,7 +96,9 @@ async def run_repl(
         extra_roots=extra_roots,
         health=_build_health(config),
     )
-    registry = build_registry()
+    # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
+    # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.
+    registry = build_registry(state.home)
     reader = ReplInput(
         config.memory_dir / HISTORY_FILE, registry.completion_words(), mode=state.approval
     )
