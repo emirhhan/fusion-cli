@@ -57,3 +57,56 @@ def test_son_oturumlar_yeniden_eskiye_sirali(tmp_path):
     refs = recent_sessions(tmp_path, tmp_path / "proje")
 
     assert refs[0].session_id == "yeni"
+
+
+def test_recent_sessions_limiti_adaptore_gecirir(tmp_path, monkeypatch):
+    """`recent_sessions`, `limit`'i her kaynağın `list()` çağrısına GEÇİRMELİ —
+    yalnızca harmanlanmış sonucu kırpmamalı. Bu, adapter'ların gereksiz
+    ayrıştırmadan kaçınabilmesi için gereken sözleşmedir."""
+    for i in range(7):
+        _claude_kur(tmp_path, session_id=f"s{i}", metin=f"m{i}", mtime=1000 + i)
+
+    from fusion_cli.history.claude_source import ClaudeSource
+
+    seen_limits: list[int | None] = []
+    original_list = ClaudeSource.list
+
+    def _kaydeden_list(self, root=None, limit=None):
+        seen_limits.append(limit)
+        return original_list(self, root, limit)
+
+    monkeypatch.setattr(ClaudeSource, "list", _kaydeden_list)
+
+    recent_sessions(tmp_path, tmp_path / "proje", limit=3)
+
+    assert seen_limits == [3]
+
+
+def test_recent_sessions_birden_fazla_kaynak_harmanlaninca_dogru_sirali(tmp_path):
+    """Birden fazla kaynak varken her kaynaktan `limit` kadar istenmeli; aksi
+    halde bir kaynağın gerçekte en yeni oturumlarından biri harmanlanmış
+    sonuçtan haksız yere dışlanabilir."""
+    import sqlite3
+
+    _claude_kur(tmp_path, session_id="claude-eski", metin="c-eski", mtime=100)
+
+    # Hermes kaynağını kur: en yeni oturum onda.
+    kok = tmp_path / ".hermes"
+    kok.mkdir(parents=True, exist_ok=True)
+    baglanti = sqlite3.connect(kok / "state.db")
+    baglanti.executescript(
+        "CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, title TEXT, cwd TEXT, "
+        "started_at REAL NOT NULL, message_count INTEGER DEFAULT 0);"
+        "CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, role TEXT, "
+        "content TEXT, timestamp REAL);"
+    )
+    baglanti.execute(
+        "INSERT INTO sessions VALUES (?,?,?,?,?,?)",
+        ("hermes-yeni", "cli", "h-yeni", "/x", 999.0, 0),
+    )
+    baglanti.commit()
+    baglanti.close()
+
+    refs = recent_sessions(tmp_path, tmp_path / "proje", limit=1)
+
+    assert [r.session_id for r in refs] == ["hermes-yeni"]

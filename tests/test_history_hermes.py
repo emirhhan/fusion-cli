@@ -121,3 +121,48 @@ def test_imlec_bos_mesajlar_arasinda_gecerli_turlar_uzerinden_sayilir(tmp_path):
     turlar = HermesSource(tmp_path).read("s1", cursor=1, limit=2)
 
     assert [t.text for t in turlar] == ["m2", "m3"]
+
+
+def test_list_limit_root_yokken_sql_seviyesinde_uygulanir(tmp_path):
+    """`root` verilmediğinde öncelik sıralaması gerekmediği için `limit` SQL
+    sorgusuna doğrudan uygulanabilir; sonuç yine de en yeniden eskiye sıralı
+    olmalı."""
+    _kur(
+        tmp_path,
+        [(f"s{i}", "cli", f"t{i}", "/x", 100.0 + i, 0) for i in range(5)],
+        [],
+    )
+
+    refs = HermesSource(tmp_path).list(limit=2)
+
+    assert [r.session_id for r in refs] == ["s4", "s3"]
+
+
+def test_list_limit_root_ile_proje_onceligini_bozmaz(tmp_path):
+    """`root` verildiğinde proje aidiyeti önceliği SQL `LIMIT`'in önüne
+    geçmeli: kendi projenin eski oturumu, diğer projenin daha yeni
+    oturumundan önce gelmeli — `limit` yalnızca sıralama sonrası kırpar."""
+    _kur(
+        tmp_path,
+        [
+            ("diger", "cli", "başka proje", "/baska", 200.0, 0),
+            ("hedef", "cli", "hedef proje", "/hedef", 50.0, 0),
+        ],
+        [],
+    )
+
+    refs = HermesSource(tmp_path).list(Path("/hedef"), limit=1)
+
+    assert [r.session_id for r in refs] == ["hedef"]
+
+
+def test_list_limit_verilmezse_hepsi_doner(tmp_path):
+    _kur(
+        tmp_path,
+        [(f"s{i}", "cli", f"t{i}", "/x", 100.0 + i, 0) for i in range(3)],
+        [],
+    )
+
+    refs = HermesSource(tmp_path).list()
+
+    assert [r.session_id for r in refs] == ["s2", "s1", "s0"]

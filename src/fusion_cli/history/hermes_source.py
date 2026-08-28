@@ -41,23 +41,37 @@ class HermesSource:
         except sqlite3.Error:
             return None
 
-    def list(self, root: Path | None = None) -> tuple[SessionRef, ...]:
+    def list(self, root: Path | None = None, limit: int | None = None) -> tuple[SessionRef, ...]:
+        """Oturumları veri tabanından listele.
+
+        `root` VERİLMEDİĞİNDE proje önceliklendirmesi gerekmez; bu durumda
+        `limit` doğrudan SQL sorgusuna uygulanır, veri tabanı gereksiz satırı
+        hiç döndürmez. `root` VERİLDİĞİNDE ise öncelik sıralaması Python
+        tarafında yapıldığından (aidiyet, SQL `ORDER BY`'ın bilmediği bir
+        kıstastır) SQL seviyesinde sınır uygulanamaz; tüm satırlar çekilip
+        öncelik sırasına göre dizildikten SONRA kırpılır.
+        """
         connection = self._connect()
         if connection is None:
             return ()
+        wanted = str(root) if root is not None else None
+        query = (
+            "SELECT s.id, s.title, s.cwd, s.started_at, s.message_count, "
+            "(SELECT content FROM messages m WHERE m.session_id = s.id "
+            " AND m.role = 'user' ORDER BY m.timestamp LIMIT 1) "
+            "FROM sessions s ORDER BY s.started_at DESC"
+        )
+        params: tuple[object, ...] = ()
+        if wanted is None and limit is not None:
+            query += " LIMIT ?"
+            params = (limit,)
         try:
-            rows = connection.execute(
-                "SELECT s.id, s.title, s.cwd, s.started_at, s.message_count, "
-                "(SELECT content FROM messages m WHERE m.session_id = s.id "
-                " AND m.role = 'user' ORDER BY m.timestamp LIMIT 1) "
-                "FROM sessions s ORDER BY s.started_at DESC"
-            ).fetchall()
+            rows = connection.execute(query, params).fetchall()
         except sqlite3.Error:
             return ()
         finally:
             connection.close()
 
-        wanted = str(root) if root is not None else None
         entries: list[tuple[bool, float, SessionRef]] = []
         for row in rows:
             ref = SessionRef(
@@ -73,7 +87,10 @@ class HermesSource:
         # kaybolmaz, yalnızca geriye itilir. Öncelik grubu içinde ise en yeni
         # oturum baştadır (mevcut started_at sıralaması korunur).
         entries.sort(key=lambda e: (e[0], -e[1]))
-        return tuple(ref for _, _, ref in entries)
+        refs = tuple(ref for _, _, ref in entries)
+        if wanted is not None and limit is not None:
+            refs = refs[:limit]
+        return refs
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:
         """`cursor`'dan başlayarak en fazla `limit` GEÇERLİ tur döndür.

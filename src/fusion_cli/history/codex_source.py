@@ -48,12 +48,16 @@ class CodexSource:
         except sqlite3.Error:
             return None
 
-    def list(self, root: Path | None = None) -> tuple[SessionRef, ...]:
+    def list(self, root: Path | None = None, limit: int | None = None) -> tuple[SessionRef, ...]:
         """Oturumları indeks dosyasından listele.
 
         `root` yok sayılır: Codex proje kökünü güvenilir biçimde saklamıyor
         (`project_roots` tablosu boş ölçüldü). Yanlış filtrelemektense hepsini
         göstermek dürüsttür.
+
+        Listeleme zaten ucuz indeks dosyasından geldiği için (bkz. modül
+        docstring'i) gereksiz ayrıştırmayı önlemeye gerek yok; `limit` burada
+        yalnızca sonucu kırpar.
         """
         index = self._home / ".codex" / "session_index.jsonl"
         refs: list[SessionRef] = []
@@ -81,6 +85,8 @@ class CodexSource:
                 )
             )
         refs.sort(key=lambda r: r.updated_at, reverse=True)
+        if limit is not None:
+            refs = refs[:limit]
         return tuple(refs)
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:

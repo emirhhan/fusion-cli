@@ -53,9 +53,15 @@ class HistorySource(Protocol):
         """Bu aracın izi makinede var mı? Yalnızca varlık kontrolü, dosya açılmaz."""
         ...
 
-    def list(self, root: Path | None = None) -> tuple[SessionRef, ...]:
+    def list(self, root: Path | None = None, limit: int | None = None) -> tuple[SessionRef, ...]:
         """Oturumları yeniden eskiye sıralı döndür. `root` verilirse o projeye ait
-        olanlar önce gelir; kaynak proje bilgisi tutmuyorsa `root` yok sayılır."""
+        olanlar önce gelir; kaynak proje bilgisi tutmuyorsa `root` yok sayılır.
+
+        `limit` verilirse en fazla o kadar oturum döner. Uygulamalar bunu yalnızca
+        SONUCU kırpmak için değil, gereksiz dosya ayrıştırmasını BAŞTAN ÖNLEMEK
+        için kullanmalıdır — künye (dosya adı, `stat().st_mtime`) içerik hiç
+        okunmadan bilinebildiğinden, ayrıştırma yalnızca döndürülecek adaylara
+        uygulanmalıdır."""
         ...
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:

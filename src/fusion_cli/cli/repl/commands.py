@@ -31,6 +31,10 @@ from ...ui.picker import Choice, pick
 from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
+#: `/resume<kaynak>` listesinde gösterilecek en fazla oturum. `source.list`'e
+#: bu değer `limit` olarak geçirilir; böylece gereksiz oturum ayrıştırılmaz.
+RESUME_LIST_LIMIT = 50
+
 #: Bir komutun döndürdüğü kullanıcıya gösterilecek metin (boşsa bir şey basılmaz).
 CommandResult = str
 
@@ -516,7 +520,9 @@ def resume_choices(refs: Sequence[SessionRef]) -> list[Choice]:
     kendi uygulama-içi modalinde gösterir (bkz. `tui_loop._TuiSession`) — tek
     liste kaynağı, iki sunum yüzeyi.
     """
-    return [Choice(ref.session_id, ref.title, _when(ref.updated_at)) for ref in refs[:50]]
+    return [
+        Choice(ref.session_id, ref.title, _when(ref.updated_at)) for ref in refs[:RESUME_LIST_LIMIT]
+    ]
 
 
 def _resume(source_name: str) -> Handler:
@@ -534,7 +540,7 @@ def _resume(source_name: str) -> Handler:
         source = source_by_name(state.home, source_name)
         if source is None:
             return messages.HISTORY_EMPTY
-        refs = source.list(state.root)
+        refs = source.list(state.root, limit=RESUME_LIST_LIMIT)
         if not refs:
             return messages.HISTORY_EMPTY
 

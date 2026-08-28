@@ -77,20 +77,39 @@ class ClaudeSource:
             return []
         return sorted(base.glob("*/*.jsonl"))
 
-    def list(self, root: Path | None = None) -> tuple[SessionRef, ...]:
-        wanted_slug = slug_for(root) if root is not None else None
-        entries: list[tuple[bool, float, SessionRef]] = []
+    def _sorted_candidates(self, wanted_slug: str | None) -> list[Path]:
+        """Aday dosyaları içerik OKUNMADAN sırala.
+
+        Sıralama anahtarı yalnızca `stat().st_mtime` ve proje aidiyetidir; ikisi
+        de dosya açılmadan bilinir. Bu, `list` çağıranın `limit` verdiği durumda
+        gereksiz JSONL ayrıştırmasını baştan önlemeyi mümkün kılar. `stat()`
+        başarısız olan dosya sessizce atlanır.
+        """
+        candidates: list[tuple[bool, float, Path]] = []
         for path in self._session_paths():
-            ref = self._read_ref(path)
-            if ref is None:
+            try:
+                mtime = path.stat().st_mtime
+            except OSError:
                 continue
             is_other_project = wanted_slug is not None and path.parent.name != wanted_slug
-            entries.append((is_other_project, ref.updated_at, ref))
+            candidates.append((is_other_project, mtime, path))
         # `root` verilmişse o projeye ait oturumlar önce gelir; diğer projeler
         # kaybolmaz, yalnızca geriye itilir. Öncelik grubu içinde ise en yeni
-        # oturum baştadır (mevcut updated_at sıralaması korunur).
-        entries.sort(key=lambda e: (e[0], -e[1]))
-        return tuple(ref for _, _, ref in entries)
+        # oturum baştadır.
+        candidates.sort(key=lambda c: (c[0], -c[1]))
+        return [path for _, _, path in candidates]
+
+    def list(self, root: Path | None = None, limit: int | None = None) -> tuple[SessionRef, ...]:
+        wanted_slug = slug_for(root) if root is not None else None
+        ordered_paths = self._sorted_candidates(wanted_slug)
+        if limit is not None:
+            ordered_paths = ordered_paths[:limit]
+        refs: list[SessionRef] = []
+        for path in ordered_paths:
+            ref = self._read_ref(path)
+            if ref is not None:
+                refs.append(ref)
+        return tuple(refs)
 
     def _read_ref(self, path: Path) -> SessionRef | None:
         title = ""

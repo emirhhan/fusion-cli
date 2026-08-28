@@ -26,7 +26,7 @@ from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
 from . import help_view, history_view, model_flows
-from .commands import RENDERED_COMMANDS, build_registry, parse, resume_choices
+from .commands import RENDERED_COMMANDS, RESUME_LIST_LIMIT, build_registry, parse, resume_choices
 from .state import Engine, ReplState
 from .transcript_store import TranscriptStore
 from .tui import FusionTui
@@ -315,7 +315,7 @@ class _TuiSession:
         """
         source_name = command_name.removeprefix("resume")
         source = source_by_name(self._state.home, source_name)
-        refs = source.list(self._state.root) if source is not None else ()
+        refs = source.list(self._state.root, limit=RESUME_LIST_LIMIT) if source is not None else ()
         if not refs:
             self._echo(f"[{theme.DIM}]{messages.HISTORY_EMPTY}[/{theme.DIM}]")
             return None

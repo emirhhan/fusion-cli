@@ -35,9 +35,17 @@ def source_by_name(home: Path, name: str) -> HistorySource | None:
 
 
 def recent_sessions(home: Path, root: Path, limit: int = RECENT_LIMIT) -> tuple[SessionRef, ...]:
-    """Tüm kurulu kaynaklardan en son oturumlar, karışık ve zamana göre sıralı."""
+    """Tüm kurulu kaynaklardan en son oturumlar, karışık ve zamana göre sıralı.
+
+    Her kaynaktan `limit` kadar istenir — kaynak sayısı kadar DEĞİL, çünkü
+    harmanlama sonrası yine `limit`'e kırpılacaktır. Bir kaynaktan daha AZ
+    istemek yanlış sonuç verir: o kaynağın en yeni oturumlarından biri,
+    harmanlanmış listede yer almayı hak edebilecekken dışarıda kalabilir.
+    Her kaynağın kendi `list` uygulaması, bu `limit`'i gereksiz ayrıştırmayı
+    önlemek için kullanır (bkz. `HistorySource.list` sözleşmesi).
+    """
     collected: list[SessionRef] = []
     for source in available_sources(home):
-        collected.extend(source.list(root))
+        collected.extend(source.list(root, limit=limit))
     collected.sort(key=lambda ref: ref.updated_at, reverse=True)
     return tuple(collected[:limit])

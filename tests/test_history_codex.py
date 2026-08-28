@@ -166,3 +166,34 @@ def test_beklenmedik_zaman_damgasi_istisna_firlatmaz(tmp_path):
 
     assert [t.text for t in turlar] == ["soru"]
     assert turlar[0].timestamp == 0.0
+
+
+def test_list_limit_uygulanir(tmp_path):
+    """`limit` verildiğinde indeksten en fazla o kadar oturum döner."""
+    (tmp_path / ".codex").mkdir(parents=True, exist_ok=True)
+    _indeks(
+        tmp_path,
+        [
+            {"id": f"s{i}", "thread_name": f"t{i}", "updated_at": f"2024-01-0{i + 1}T00:00:00"}
+            for i in range(5)
+        ],
+    )
+
+    refs = CodexSource(tmp_path).list(limit=2)
+
+    assert [r.session_id for r in refs] == ["s4", "s3"]
+
+
+def test_list_limit_verilmezse_hepsi_doner(tmp_path):
+    (tmp_path / ".codex").mkdir(parents=True, exist_ok=True)
+    _indeks(
+        tmp_path,
+        [
+            {"id": f"s{i}", "thread_name": f"t{i}", "updated_at": f"2024-01-0{i + 1}T00:00:00"}
+            for i in range(3)
+        ],
+    )
+
+    refs = CodexSource(tmp_path).list()
+
+    assert [r.session_id for r in refs] == ["s2", "s1", "s0"]
