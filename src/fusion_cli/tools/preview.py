@@ -14,6 +14,7 @@ import difflib
 from pathlib import Path
 
 from ..core.constants import MAX_PREVIEW_LINES
+from ..core.errors import PathAccessError
 from ..core.tools import ToolArgs, ToolContext
 from .args import ArgumentError
 from .files import _replace_range_text, parse_edits, resolve_path
@@ -30,9 +31,15 @@ def preview_change(tool_name: str, args: ToolArgs, context: ToolContext) -> str 
         return None
     try:
         return builder(args, context)
-    except (ArgumentError, OSError, UnicodeDecodeError):
+    except (ArgumentError, OSError, UnicodeDecodeError, PathAccessError):
         # Önizleme üretilemedi; onay ekranı ham argümanlara düşer. Aracın kendisi
         # zaten çalıştığında aynı sorunu anlaşılır bir hatayla bildirecek.
+        #
+        # `PathAccessError` bu listeye sonradan eklendi ve sebebi ölçüldü: model
+        # kök dışına yazmayı önerdiğinde `resolve_path` bu istisnayı fırlatıyor,
+        # istisna önizleme yolundan yukarı sızıp TÜM TURU düşürüyordu. Oysa kök
+        # dışına yazmayı reddetmek doğru davranıştır ve reddi aracın kendisi
+        # bildirmelidir — önizleme yalnızca bir gösterim işidir, karar mercii değil.
         return None
 
 
@@ -107,10 +114,7 @@ def _preview_replace_range(args: ToolArgs, context: ToolContext) -> str:
         raise ArgumentError("start_line/end_line pozitif tamsayı, new metin olmalı.")
 
     new_text = _replace_range_text(old_text, start, end, replacement)
-    return (
-        unified_diff(old_text, new_text, display_path(path, context))
-        or "(değişiklik yok)"
-    )
+    return unified_diff(old_text, new_text, display_path(path, context)) or "(değişiklik yok)"
 
 
 def _preview_edit(args: ToolArgs, context: ToolContext) -> str:

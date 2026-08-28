@@ -371,7 +371,7 @@ def test_edit_file_satir_numarasi_onekini_tolere_eder(tmp_path):
     from fusion_cli.tools.files import edit_file
 
     hedef = tmp_path / "a.py"
-    hedef.write_text('x = 1\ny = 2\n', encoding="utf-8")
+    hedef.write_text("x = 1\ny = 2\n", encoding="utf-8")
 
     sonuc = edit_file(
         {"path": "a.py", "old": "    2\ty = 2", "new": "y = 3"},
@@ -393,3 +393,34 @@ def test_edit_file_gercekten_olmayan_metni_yine_reddeder(tmp_path):
     )
 
     assert sonuc.ok is False
+
+
+def test_kok_disina_yazma_onizlemesi_istisna_firlatmaz(tmp_path):
+    """Önizleme bir GÖSTERİM işidir; üretilemiyorsa turu çökertemez.
+
+    Ölçüldü: model kök dışına yazmayı önerince `resolve_path` `PathAccessError`
+    fırlatıyor, bu istisna önizleme yolundan yukarı sızıp tüm koşuyu düşürüyordu.
+    Doğru davranış, önizlemenin sessizce None dönmesi; reddetme kararını aracın
+    KENDİSİ verir ve modele düzeltme şansı veren bir hata döndürür.
+    """
+    context = ToolContext(root=tmp_path)
+
+    assert preview_change("write_file", {"path": "../sizinti.txt", "content": "x"}, context) is None
+
+
+def test_kok_disina_yazma_file_diff_ile_de_cokmez(tmp_path):
+    """Motorun çağırdığı sarmalayıcı da aynı güvenceyi vermeli."""
+    from fusion_cli.tools.preview import file_diff
+
+    context = ToolContext(root=tmp_path)
+
+    assert file_diff("write_file", {"path": "../sizinti.txt", "content": "x"}, context) is None
+
+
+def test_okunamayan_dosya_onizlemesi_istisna_firlatmaz(tmp_path):
+    """Binary ya da bozuk kodlamalı dosyada da önizleme çökmemeli."""
+    hedef = tmp_path / "ikili.bin"
+    hedef.write_bytes(b"\xff\xfe\x00\x01")
+    context = ToolContext(root=tmp_path)
+
+    preview_change("write_file", {"path": "ikili.bin", "content": "yeni"}, context)
