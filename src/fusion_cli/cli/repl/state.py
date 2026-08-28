@@ -56,6 +56,8 @@ class ReplState:
     # erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
     # yakıyordu.
     extra_roots: tuple[Path, ...] = ()
+    #: Geçmiş kaynaklarının aranacağı ev dizini. Test enjekte edebilsin diye alandır.
+    home: Path = field(default_factory=Path.home)
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"
@@ -101,10 +103,12 @@ class ReplState:
     allowed_commands: frozenset[str] = frozenset()
     #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
     reminders: list[Reminder] = field(default_factory=list)
+    #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
+    pending_digest: str | None = None
 
     def __post_init__(self) -> None:
         if self.capabilities is None:
-            self.capabilities = CapabilityRegistry(Path.home(), self.root)
+            self.capabilities = CapabilityRegistry(self.home, self.root)
         if not self.allowed_commands:
             self.allowed_commands = load_allowed_commands(self.root)
         self.config_revision = revision(self.config)

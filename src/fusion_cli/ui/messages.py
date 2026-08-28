@@ -573,6 +573,14 @@ CMD_COMMIT = "değişiklikleri incele ve conventional commit ile kaydet"
 CMD_REVIEW = "mevcut değişiklikleri güvenlik ve mimari açısından incele"
 CMD_BROWSER = "web'de araştır ve kaynaklarıyla özetle"
 CMD_SCHEDULE = "N saniye sonra hatırlatma kur"
+CMD_RESUME = "{source} oturum geçmişinden devral"
+HISTORY_EMPTY = "Bu kaynakta devralınacak oturum bulunamadı."
+HISTORY_PICK_TITLE = "Hangi oturumdan devam edilsin?"
+HISTORY_RESUMED = "Devralındı: {title}"
+HISTORY_SECRETS_FOUND = (
+    "⚠ Bu oturumda {count} anahtar/token göründü. Bunları değiştirmeni öneririm."
+)
+HISTORY_RECENT_TITLE = "son oturumlar"
 
 
 # --- setup ----------------------------------------------------------------- #

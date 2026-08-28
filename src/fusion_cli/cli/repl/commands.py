@@ -10,8 +10,9 @@ Basma işi çağırana aittir.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 from ...config import model_select, profile
 from ...config.keys import environ_snapshot
@@ -20,11 +21,13 @@ from ...core.errors import ConfigError
 from ...core.memory import Feedback, Lesson, LessonKind, LessonSource
 from ...core.reasoning import ReasoningEffort, is_downgraded, provider_value
 from ...engines.agent.approval import ApprovalMode
+from ...history import SessionRef, available_sources, build_digest, source_by_name
 from ...memory.seed import SEED_LESSONS, seed
 from ...providers.registry import BUILTIN_PROVIDERS, ProviderKind
 from ...tools.capabilities import Capability
 from ...tools.capabilities import search as search_capabilities
 from ...ui import messages
+from ...ui.picker import Choice, pick
 from . import macros, model_flows, profiles_flow, provider_flow, verify_flow
 from .state import TASK_TYPES, Engine, Reminder, ReplState
 
@@ -76,11 +79,26 @@ class CommandRegistry:
         return sorted(f"/{key}" for key in self._commands)
 
 
-def build_registry() -> CommandRegistry:
-    """Yerleşik komutların tamamını içeren defter."""
+def build_registry(home: Path | None = None) -> CommandRegistry:
+    """Yerleşik komutların tamamını içeren defter.
+
+    `home` verilirse makinede izi bulunan her geçmiş kaynağı için bir
+    `/resume<kaynak>` komutu EKLENİR. Kurulu olmayan aracın komutu hiç var olmaz:
+    tamamlamada da yardımda da görünmez.
+    """
     registry = CommandRegistry()
     for command in _COMMANDS:
         registry.register(command)
+    if home is not None:
+        for source in available_sources(home):
+            registry.register(
+                SlashCommand(
+                    f"resume{source.name}",
+                    messages.CMD_RESUME.format(source=source.name),
+                    _resume(source.name),
+                    group="Geçmiş",
+                )
+            )
     return registry
 
 
@@ -489,6 +507,65 @@ def _agents(state: ReplState, argument: str) -> str:
     assert state.capabilities is not None
     items = search_capabilities(state.capabilities.agents(), argument.strip(), limit=50)
     return _format_capabilities(items, empty=messages.AGENTS_EMPTY)
+
+
+def resume_choices(refs: Sequence[SessionRef]) -> list[Choice]:
+    """Oturum listesini seçim satırlarına çevir.
+
+    Düz REPL bunu `_resume` içinde doğrudan `pick()`'e verir; TUI aynı listeyi
+    kendi uygulama-içi modalinde gösterir (bkz. `tui_loop._TuiSession`) — tek
+    liste kaynağı, iki sunum yüzeyi.
+    """
+    return [Choice(ref.session_id, ref.title, _when(ref.updated_at)) for ref in refs[:50]]
+
+
+def _resume(source_name: str) -> Handler:
+    """`/resume<kaynak>` işleyicisi üret. Kaynak adı kapatmada sabitlenir.
+
+    Argüman DOLUYSA (TUI'nin uygulama-içi modalından ya da betikten gelen
+    session_id) o oturum doğrudan devralınır — seçici HİÇ AÇILMAZ. Argüman
+    BOŞSA (düz konsol REPL yolu) `pick()` ile oturum seçtirilir. TUI bu ikinci
+    dalı hiç kullanmaz: nested prompt_toolkit seçicisi tam-ekranı bozar, bu
+    yüzden TUI kendi modalını açıp seçilen session_id'yi argüman olarak
+    ilk dala geçirir.
+    """
+
+    def _handler(state: ReplState, argument: str) -> str:
+        source = source_by_name(state.home, source_name)
+        if source is None:
+            return messages.HISTORY_EMPTY
+        refs = source.list(state.root)
+        if not refs:
+            return messages.HISTORY_EMPTY
+
+        session_id = argument.strip()
+        if not session_id:
+            chosen = pick(resume_choices(refs), title=messages.HISTORY_PICK_TITLE)
+            if chosen is None:
+                return ""
+            session_id = chosen
+
+        ref = next((candidate for candidate in refs if candidate.session_id == session_id), None)
+        if ref is None:
+            return messages.HISTORY_EMPTY
+
+        digest = build_digest(source, ref)
+        state.pending_digest = digest.text
+        line = messages.HISTORY_RESUMED.format(title=ref.title)
+        if digest.secret_count:
+            line += "\n" + messages.HISTORY_SECRETS_FOUND.format(count=digest.secret_count)
+        return line
+
+    return _handler
+
+
+def _when(epoch: float) -> str:
+    """Zaman damgasını listede gösterilecek kısa biçime çevir."""
+    from datetime import datetime
+
+    if not epoch:
+        return ""
+    return datetime.fromtimestamp(epoch).strftime("%d/%m %H:%M")
 
 
 def _health(state: ReplState, argument: str) -> str:

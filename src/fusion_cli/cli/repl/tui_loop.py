@@ -20,12 +20,13 @@ from ...core.concurrency import BackgroundTasks
 from ...core.tools import ToolContext
 from ...engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ...engines.agent.engine_tools import QuestionOption
+from ...history import source_by_name
 from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
 from . import help_view, model_flows
-from .commands import RENDERED_COMMANDS, build_registry, parse
+from .commands import RENDERED_COMMANDS, build_registry, parse, resume_choices
 from .state import Engine, ReplState
 from .transcript_store import TranscriptStore
 from .tui import FusionTui
@@ -164,7 +165,7 @@ class _TuiSession:
 
     def __init__(self, state: ReplState) -> None:
         self._state = state
-        self._registry = build_registry()
+        self._registry = build_registry(state.home)
         self._task: asyncio.Task[None] | None = None
         # Tur çalışırken gönderilen satırlar SESSİZCE DÜŞMEZ; kuyruğa alınır ve tur
         # bitince sırayla işlenir (kullanıcının alıştığı davranış — Claude da kuyruklar).
@@ -278,6 +279,17 @@ class _TuiSession:
             # bozardı; uygulama-içi modalla sürülür. Argüman verilse bile modal açılır.
             await self._run_development()
             return
+        elif command.name.startswith("resume") and not argument.strip():
+            # `/resume<kaynak>` argümansız çağrıldığında düz REPL `pick()` açardı —
+            # nested prompt_toolkit seçicisi burada da TUI'yi bozardı. Bunun yerine
+            # aynı `mode`/`level`/`effort` deseni: uygulama-içi modal seçtirir,
+            # seçilen session_id ARGÜMAN yapılır ve aşağıdaki ortak çağrı üzerinden
+            # aynı işleyici (`commands._resume`) çalışır — o da dolu argümanla
+            # seçici hiç açmaz.
+            resolved = await self._resolve_resume_argument(command.name)
+            if resolved is None:
+                return
+            argument = resolved
         elif _would_open_picker(command.name, argument):
             # Nested picker açacak komutlar TUI'yi bozuyordu; bu görünümde argümanla kullanılır.
             self._echo(
@@ -293,6 +305,25 @@ class _TuiSession:
         pending, _mode = self._state.take_pending()
         if pending:
             await self._turn(pending)
+
+    async def _resolve_resume_argument(self, command_name: str) -> str | None:
+        """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
+
+        Kaynak adı komut adının `resume` önekinden sonrasıdır (`resumeclaude` →
+        `claude`). Seçilen `session_id` döner; vazgeçilirse ya da devralınacak
+        oturum yoksa `None` döner ve çağıran turu burada keser.
+        """
+        source_name = command_name.removeprefix("resume")
+        source = source_by_name(self._state.home, source_name)
+        refs = source.list(self._state.root) if source is not None else ()
+        if not refs:
+            self._echo(f"[{theme.DIM}]{messages.HISTORY_EMPTY}[/{theme.DIM}]")
+            return None
+        selected = await self._tui.await_choice(messages.HISTORY_PICK_TITLE, resume_choices(refs))
+        if selected is None:
+            self._echo(f"[{theme.DIM}]{messages.PICKER_CANCELLED}[/{theme.DIM}]")
+            return None
+        return selected
 
     async def _run_development(self) -> None:
         """TUI'de `/development`: kaynak→model seçimini uygulama-içi modalla sür.
