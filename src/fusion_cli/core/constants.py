@@ -42,6 +42,12 @@ MAX_PREVIEW_LINES = 40
 
 #: Kabuk komutu için zaman aşımı (saniye).
 SHELL_TIMEOUT_S = 120.0
+#: JavaScript sözdizimi denetimi için zaman aşımı (saniye).
+#:
+#: Arena çıktısındaki 300 satırlık betikte `node --check` beş ölçümde 0,03-0,04
+#: saniye sürdü. 5 saniye soğuk disk/yoğun makine için geniş pay bırakır; takılan
+#: opsiyonel bir doğrulayıcının agent turunu dakikalarca bekletmesini engeller.
+JAVASCRIPT_SYNTAX_TIMEOUT_S = 5.0
 #: Salt-okunur git komutu için zaman aşımı (saniye).
 GIT_TIMEOUT_S = 30.0
 #: Web isteği için zaman aşımı (saniye). Bu bir HTTP İSTEĞİ bütçesidir (arama,

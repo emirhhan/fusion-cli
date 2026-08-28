@@ -36,6 +36,21 @@ class VerificationResult:
     def has_notes(self) -> bool:
         return bool(self.warnings or self.advisories)
 
+
+@dataclass(frozen=True, slots=True)
+class SyntaxCheckResult:
+    """Bir kaynak metnin ayrıştırılabilir olup olmadığını taşır."""
+
+    ok: bool
+    detail: str = ""
+
+
+class JavaScriptSyntaxChecker(Protocol):
+    """JavaScript kaynağını çalıştırmadan ayrıştıran dış araç sözleşmesi."""
+
+    async def check(self, source: str, *, is_module: bool) -> SyntaxCheckResult: ...
+
+
 class Verifier(Protocol):
     """Bir turdan sonra projenin doğrulama kapısını çalıştıran taraf."""
 

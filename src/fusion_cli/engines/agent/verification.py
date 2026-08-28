@@ -22,8 +22,13 @@ from pathlib import Path
 from ...config.models import Config
 from ...core.constants import SHELL_TIMEOUT_S
 from ...core.tools import ToolContext
-from ...core.verification import VerificationResult, Verifier
+from ...core.verification import JavaScriptSyntaxChecker, VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
+from .javascript_verify import (
+    JavaScriptSyntaxVerifier,
+    NodeJavaScriptSyntaxChecker,
+    find_node_executable,
+)
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
@@ -32,7 +37,7 @@ from .web_verify import inspect_web_output_by_severity
 logger = logging.getLogger(__name__)
 
 #: Web kapısının denetlediği dosya uzantıları.
-WEB_SUFFIXES = frozenset({".html", ".htm", ".css", ".js"})
+WEB_SUFFIXES = frozenset({".html", ".htm", ".css", ".js", ".mjs", ".cjs"})
 
 
 def resolve_turn_success(
@@ -99,7 +104,11 @@ def build_verifier(
     if (root / "package.json").is_file():
         verifiers.append(ScriptPathVerifier(root))
     if config.runtime.web_verification and tool_context is not None:
-        verifiers.append(WebVerifier(tool_context))
+        node_path = find_node_executable()
+        javascript_checker = (
+            NodeJavaScriptSyntaxChecker(node_path) if node_path is not None else None
+        )
+        verifiers.append(WebVerifier(tool_context, javascript_checker=javascript_checker))
     if config.runtime.browser_verification and tool_context is not None:
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
         verifiers.append(BrowserVerifier(tool_context))
@@ -149,11 +158,18 @@ class CompositeVerifier:
             advisories=tuple(advisories),
         )
 
+
 class WebVerifier:
     """Agent'ın yazdığı web dosyalarını önem derecesiyle mekanik olarak denetler."""
 
-    def __init__(self, tool_context: ToolContext) -> None:
+    def __init__(
+        self,
+        tool_context: ToolContext,
+        *,
+        javascript_checker: JavaScriptSyntaxChecker | None = None,
+    ) -> None:
         self._context = tool_context
+        self._javascript_checker = javascript_checker
 
     async def verify(self) -> VerificationResult:
         files: dict[str, str] = {}
@@ -170,15 +186,17 @@ class WebVerifier:
             return VerificationResult(ok=True)
 
         blocking, warnings, advisories = inspect_web_output_by_severity(files)
+        if self._javascript_checker is not None:
+            syntax_result = await JavaScriptSyntaxVerifier(
+                self._context,
+                self._javascript_checker,
+            ).verify()
+            blocking = (*blocking, *syntax_result.findings)
 
         if not blocking and not warnings and not advisories:
             return VerificationResult(ok=True)
 
-        summary = (
-            f"web çıktısında {len(blocking)} engelleyici sorun"
-            if blocking
-            else ""
-        )
+        summary = f"web çıktısında {len(blocking)} engelleyici sorun" if blocking else ""
 
         return VerificationResult(
             ok=not blocking,
@@ -187,6 +205,7 @@ class WebVerifier:
             warnings=warnings,
             advisories=advisories,
         )
+
 
 #: Başarısız komutun çıktısından modele taşınacak SON satır sayısı.
 #
