@@ -16,6 +16,12 @@ Kod izde görünüyorsa her önemli davranışta tetikleyici → koşul → ger�
 gerçekten değiştiren atama yoksa davranış eksiktir. Zincirin bir halkası izde yoksa
 "çalışıyor" iddiasını kabul etme; eksik mutasyonu veya doğrulamayı açıkça bildir.
 
+FONKSİYON/API GİRDİ SÖZLEŞMESİNİ DE AKIŞTAN İZLE. Görev bir fonksiyonun, test/debug
+yüzeyinin ya da API'nin belirli girdileri kabul edeceğini söylüyorsa her girdinin
+gerçek state'e nasıl taşındığını kontrol et. Parametreyi alıp sonra sessizce değiştirmek,
+yok saymak veya başka state'e yazmak sözleşme ihlalidir; yalnız alan adının kodda
+geçmesi yeterli değildir.
+
 AGENT'IN İDDİALARINA GÜVENME, İZE BAK. Agent "hepsi yapıldı", "hata yok",
 "responsive" gibi şeyler iddia edebilir; bunları yalnızca izdeki araç çağrıları
 destekliyorsa kabul et. Desteklenmeyen iddia başlı başına bir sorundur.
