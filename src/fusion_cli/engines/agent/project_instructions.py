@@ -51,3 +51,15 @@ def read_project_instructions(root: Path) -> str:
         ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
         return f'<proje_talimati kaynak="{filename}">\n{content}{ek}\n</proje_talimati>'
     return ""
+
+
+def read_all_instructions(root: Path, home: Path) -> str:
+    """Proje talimatı ve dış araç belleklerini birlikte döndür.
+
+    Sıra bilinçlidir: proje talimatı önce gelir, çünkü çakışma halinde projenin
+    kendi kuralı kullanıcının genel belleğini yener.
+    """
+    from ...history.memory_files import read_external_memory
+
+    parts = [read_project_instructions(root), read_external_memory(home, root)]
+    return "\n".join(part for part in parts if part)
