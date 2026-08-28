@@ -72,6 +72,19 @@ def test_fusion_completed_ozet_sunar() -> None:
     }
 
 
+def test_model_call_finished_sonucu_yapisal_olarak_serilesir() -> None:
+    sonuc = event_to_dict(
+        E.ModelCallFinished(
+            role="aday",
+            result=ModelResult(name="model", model="m", text="yanıt", latency_ms=12, ok=True),
+        )
+    )
+
+    assert isinstance(sonuc["result"], dict)
+    assert sonuc["result"]["name"] == "model"
+    assert sonuc["result"]["text"] == "yanıt"
+
+
 def _ornek_uret(cls: type[E.Event]) -> E.Event:
     """Alanları tiplerine uygun örnek değerlerle doldurup olay üret."""
     hints = get_type_hints(cls)

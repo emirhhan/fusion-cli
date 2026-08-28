@@ -40,13 +40,19 @@ def _result_to_dict(event: FusionCompleted) -> dict[str, object]:
 
 
 def _plain(value: object) -> object:
-    """Değeri JSON'a uygun hale getir; bilinmeyen tip metne düşer."""
+    """Değeri JSON'a uygun hale getir; desteklenmeyen tipte açıkça dur."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
+    if isinstance(value, type):
+        raise TypeError(f"Olay alanı sınıf nesnesi taşıyor: {value!r}")
+    if dataclasses.is_dataclass(value):
+        return {
+            field.name: _plain(getattr(value, field.name)) for field in dataclasses.fields(value)
+        }
     if isinstance(value, (list, tuple)):
         return [_plain(item) for item in value]
     if isinstance(value, Mapping):
         return {str(key): _plain(item) for key, item in value.items()}
     if hasattr(value, "value"):  # Enum
         return _plain(value.value)
-    return str(value)
+    raise TypeError(f"Olay alanı JSON'a çevrilemiyor: {type(value).__name__}")
