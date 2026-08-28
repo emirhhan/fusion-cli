@@ -41,7 +41,9 @@ def test_claude_ayni_adli_skili_yener(tmp_path):
 
     bulunan = {s.name: s for s in CapabilityRegistry(tmp_path, tmp_path).skills()}
 
-    assert bulunan["ortak"].source == "global"
+    # İçerik Claude'dan gelir; etiket her iki kaynağı da gösterir.
+    assert bulunan["ortak"].source == "claude+proje+hermes"
+    assert bulunan["ortak"].description == "claude sürümü"
 
 
 def test_kaynak_yoksa_kesif_dusmez(tmp_path):
@@ -101,7 +103,7 @@ def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
 
     bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
 
-    assert bulunan["architect"].source == "global"
+    assert bulunan["architect"].source == "claude+proje+codex"
 
 
 def test_codex_toml_agent_promptu_developer_talimati_doner(tmp_path):
@@ -132,7 +134,7 @@ def test_project_claude_skill_beats_codex_and_hermes(tmp_path) -> None:
     capability = CapabilityRegistry(tmp_path, root).get_skill("ortak")
 
     assert capability is not None
-    assert capability.source == "proje"
+    assert capability.source == "proje+codex+hermes"
     assert capability.description == "proje sürümü"
 
 
@@ -148,5 +150,43 @@ def test_project_claude_agent_beats_codex(tmp_path) -> None:
     capability = CapabilityRegistry(tmp_path, root).get_agent("architect")
 
     assert capability is not None
-    assert capability.source == "proje"
+    assert capability.source == "proje+codex"
     assert capability.description == "proje sürümü"
+
+
+def test_ayni_ad_birden_fazla_kaynaktaysa_hepsi_etikette_gorunur(tmp_path):
+    """Çakışan yetenek listeyi ikiye katlamaz; kaynaklar TEK etikette birleşir.
+
+    Ölçüldü: Codex'in 97 agent'ının 97'si de Claude'unkilerle aynı adı taşıyor ve
+    içerikleri bayt bayt aynı. İki ayrı satır göstermek listeyi ikiye katlar ve
+    hiçbir yeni yetenek kazandırmaz. Kullanıcının sorusu "bu nereden geliyor?"
+    olduğuna göre doğru cevap tek satırda tüm kaynakları göstermektir.
+    """
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    _skill_yaz(home / ".claude" / "skills", "ortak", desc="claude sürümü")
+    _skill_yaz(home / ".codex" / "skills", "ortak", desc="codex sürümü")
+
+    bulunan = {s.name: s for s in CapabilityRegistry(home, root).skills()}
+
+    assert bulunan["ortak"].source == "claude+codex"
+    # İçerik ÖNCELİKLİ kaynaktan gelir; yalnız etiket birleşir.
+    assert bulunan["ortak"].description == "claude sürümü"
+
+
+def test_tek_kaynakli_yetenegin_etiketi_sade_kalir(tmp_path):
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    _skill_yaz(home / ".hermes" / "skills", "yalniz-hermes")
+
+    bulunan = {s.name: s for s in CapabilityRegistry(home, root).skills()}
+
+    assert bulunan["yalniz-hermes"].source == "hermes"
+
+
+def test_claude_kutuphanesi_arac_adiyla_etiketlenir(tmp_path):
+    """Etiket "nereden geldiğini" söylemeli; birden çok araç varken "global" belirsizdir."""
+    home, root = tmp_path / "ev", tmp_path / "proje"
+    _skill_yaz(home / ".claude" / "skills", "claude-skili")
+
+    bulunan = {s.name: s for s in CapabilityRegistry(home, root).skills()}
+
+    assert bulunan["claude-skili"].source == "claude"

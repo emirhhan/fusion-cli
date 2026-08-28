@@ -143,7 +143,7 @@ def test_skill_kesfedilir(library):
     skills = library.skills()
 
     assert [item.name for item in skills] == ["pdf-doldur"]
-    assert skills[0].source == "global"
+    assert skills[0].source == "claude"
 
 
 def test_agent_kesfedilir_ve_araclari_okunur(library):
@@ -178,7 +178,8 @@ def test_ayni_ad_iki_kaynakta_varsa_ilki_kazanir(tmp_path):
     skills = CapabilityRegistry(home, root).skills()
 
     assert len(skills) == 1
-    assert skills[0].source == "global"
+    # Tek kayıt kalır; etiket kaynakları birleştirir, içerik ilkinden gelir.
+    assert skills[0].source.split("+")[0] == "claude"
 
 
 def test_olmayan_dizin_kesfi_dusurmez(tmp_path):

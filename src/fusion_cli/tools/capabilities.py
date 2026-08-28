@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 #: Claude araç adları → Fusion araç adları. Bir agent kısıtlı araç seti bildirdiğinde
@@ -50,7 +50,8 @@ class Capability:
     name: str
     description: str
     path: Path
-    #: Nereden geldiği: global | plugin | proje | codex | hermes
+    #: Nereden geldiği: claude | claude-plugin | proje | codex | hermes.
+    #: Aynı ad birden çok kaynakta varsa etiketler birleşir: "claude+codex".
     source: str
     #: Agent'lar için bildirilen Claude araç adları. Boş ya da ("*",) → tam yetki.
     tools: tuple[str, ...] = ()
@@ -169,8 +170,8 @@ class CapabilityRegistry:
         # Claude önce gelir çünkü kullanıcının birincil kütüphanesi odur; Codex ve
         # Hermes aynı SKILL.md biçimini kullandığı için ayrıştırıcı değişmez.
         return (
-            (self._home / ".claude" / "skills", "global"),
-            (self._home / ".claude" / "plugins", "plugin"),
+            (self._home / ".claude" / "skills", "claude"),
+            (self._home / ".claude" / "plugins", "claude-plugin"),
             (self._root / ".claude" / "skills", "proje"),
             (self._root / ".fusion" / "skills", "proje"),
             (self._home / ".codex" / "skills", "codex"),
@@ -179,7 +180,7 @@ class CapabilityRegistry:
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
         return (
-            (self._home / ".claude" / "agents", "global"),
+            (self._home / ".claude" / "agents", "claude"),
             (self._root / ".claude" / "agents", "proje"),
             (self._home / ".codex" / "agents", "codex"),
         )
@@ -191,8 +192,9 @@ class CapabilityRegistry:
                 continue
             for path in sorted(root.rglob("SKILL.md")):
                 capability = _to_capability(path, source, fallback=path.parent.name)
-                # İlk bulunan kazanır: tüm Claude/proje kökleri dış kaynaklardan önce.
-                found.setdefault(capability.name, capability)
+                # İlk bulunan İÇERİĞİ verir: tüm Claude/proje kökleri dış kaynaklardan
+                # önce gelir. Sonrakiler yalnız kaynak etiketine eklenir.
+                _merge(found, capability)
         return tuple(found.values())
 
     def _discover_agents(self) -> tuple[Capability, ...]:
@@ -202,13 +204,35 @@ class CapabilityRegistry:
                 continue
             for path in sorted(root.glob("*.md")):
                 capability = _to_capability(path, source, fallback=path.stem)
-                found.setdefault(capability.name, capability)
+                _merge(found, capability)
             # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
             for path in sorted(root.glob("*.toml")):
                 toml_capability = _toml_capability(path, source)
                 if toml_capability is not None:
-                    found.setdefault(toml_capability.name, toml_capability)
+                    _merge(found, toml_capability)
         return tuple(found.values())
+
+
+def _merge(found: dict[str, Capability], capability: Capability) -> None:
+    """Yeteneği deftere ekle; ad zaten varsa yalnız KAYNAK etiketini birleştir.
+
+    Çakışan yetenek iki satır olarak listelenmez. Ölçüldü: Codex'in 97 agent'ının
+    97'si de Claude'unkilerle aynı adı taşıyor ve içerikleri bayt bayt aynı; iki
+    satır göstermek 97 satırlık listeyi ikiye katlar ve hiçbir yeni yetenek
+    kazandırmaz. Kullanıcının sorusu "bu nereden geliyor?" olduğuna göre doğru
+    cevap tek satırda tüm kaynakları göstermektir: `skill-creator [claude+codex]`.
+
+    İÇERİK önceliklidir ve ilk bulunandan gelir; sonraki kaynaklar yalnız etikete
+    yazılır. Tekrar eden kaynak adı iki kez eklenmez.
+    """
+    mevcut = found.get(capability.name)
+    if mevcut is None:
+        found[capability.name] = capability
+        return
+    kaynaklar = mevcut.source.split("+")
+    if capability.source in kaynaklar:
+        return
+    found[capability.name] = replace(mevcut, source="+".join([*kaynaklar, capability.source]))
 
 
 def _toml_capability(path: Path, source: str) -> Capability | None:
