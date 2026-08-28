@@ -84,6 +84,8 @@ Değiştirilecekler: `cli/repl/commands.py` (dinamik komut), `ui/messages.py`
 
 from __future__ import annotations
 
+import pytest
+
 from fusion_cli.history.models import SessionRef, Turn
 
 
@@ -105,11 +107,8 @@ def test_oturum_kunyesi_degistirilemez():
         source="claude", session_id="abc", title="B", updated_at=0.0, turn_count=1
     )
 
-    try:
+    with pytest.raises(AttributeError):
         ref.title = "yeni"  # type: ignore[misc]
-    except AttributeError:
-        return
-    raise AssertionError("SessionRef donmuş olmalı")
 
 
 def test_tur_bos_metni_kabul_eder():
