@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 
 from fusion_cli.history.claude_source import ClaudeSource, slug_for
 
 
-def _oturum_yaz(home: Path, slug: str, session_id: str, kayitlar: list[dict]) -> Path:
+def _oturum_yaz(
+    home: Path, slug: str, session_id: str, kayitlar: list[dict], mtime: float | None = None
+) -> Path:
     hedef = home / ".claude" / "projects" / slug
     hedef.mkdir(parents=True, exist_ok=True)
     yol = hedef / f"{session_id}.jsonl"
     yol.write_text("\n".join(json.dumps(k) for k in kayitlar), encoding="utf-8")
+    if mtime is not None:
+        os.utime(yol, (mtime, mtime))
     return yol
 
 
@@ -162,19 +168,35 @@ def test_message_duz_metin_olan_kayit_atlanir(tmp_path):
 
 
 def test_root_verildiginde_diger_proje_kaybolmaz_ama_geriye_atilir(tmp_path):
+    """Root dizini belirtilirse, kendi proje oturumları diğer projelerin
+    oturumlarından önce gelir — aidiyet öncelik kuralını doğrula.
+
+    Test, bu davranışın saf kronolojik sıralamadan farklı olduğunu kanıtlar:
+    diğer projenin oturumu kendi projenin oturumundan DAHA YENİ olmasına
+    rağmen, kendi proje YINE önce gelmeli (aidiyet üstün).
+    """
+    now = time.time()
+    eski_mtime = now - 1000  # Kendi proje daha eski
+    yeni_mtime = now  # Diğer proje daha yeni
+
+    # Diğer projeyi, YENİ mtime ile yaz
     _oturum_yaz(
         tmp_path,
         "-baska-proje",
         "diger",
         [{"type": "user", "message": {"role": "user", "content": "diğer proje mesajı"}}],
+        mtime=yeni_mtime,
     )
+    # Kendi projeyi, ESKİ mtime ile yaz
     _oturum_yaz(
         tmp_path,
         "-p",
         "bu-proje",
         [{"type": "user", "message": {"role": "user", "content": "bu proje mesajı"}}],
+        mtime=eski_mtime,
     )
 
     refs = ClaudeSource(tmp_path).list(root=Path("/p"))
 
+    # Beklenti: "bu-proje" ESKİ OLMASINA RAĞMEN ÖNCE GELIR (aidiyet sayesinde)
     assert [r.session_id for r in refs] == ["bu-proje", "diger"]
