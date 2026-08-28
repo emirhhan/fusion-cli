@@ -155,9 +155,14 @@ class CapabilityRegistry:
     # ----------------------------------------------------------------------- #
 
     def _skill_roots(self) -> tuple[tuple[Path, str], ...]:
+        # Sıra ÖNCELİKTİR: aynı adlı skill'de ilk bulunan kazanır (bkz. _discover_skills).
+        # Claude önce gelir çünkü kullanıcının birincil kütüphanesi odur; Codex ve
+        # Hermes aynı SKILL.md biçimini kullandığı için ayrıştırıcı değişmez.
         return (
             (self._home / ".claude" / "skills", "global"),
             (self._home / ".claude" / "plugins", "plugin"),
+            (self._home / ".codex" / "skills", "codex"),
+            (self._home / ".hermes" / "skills", "hermes"),
             (self._root / ".claude" / "skills", "proje"),
             (self._root / ".fusion" / "skills", "proje"),
         )
