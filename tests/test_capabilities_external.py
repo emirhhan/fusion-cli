@@ -46,3 +46,59 @@ def test_claude_ayni_adli_skili_yener(tmp_path):
 
 def test_kaynak_yoksa_kesif_dusmez(tmp_path):
     assert CapabilityRegistry(tmp_path, tmp_path).skills() == ()
+
+
+TOML_AGENT = '''
+name = "architect"
+description = "Sistem tasarımı uzmanı"
+developer_instructions = """
+Sen bir mimarsın.
+"""
+'''
+
+
+def _toml_agent_yaz(home, ad, govde=TOML_AGENT):
+    hedef = home / ".codex" / "agents"
+    hedef.mkdir(parents=True, exist_ok=True)
+    icerik = govde.replace('name = "architect"', f'name = "{ad}"')
+    (hedef / f"{ad}.toml").write_text(icerik, encoding="utf-8")
+
+
+def test_codex_toml_agenti_bulunur(tmp_path):
+    _toml_agent_yaz(tmp_path, "architect")
+
+    bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert bulunan["architect"].description == "Sistem tasarımı uzmanı"
+    assert bulunan["architect"].source == "codex"
+
+
+def test_bozuk_toml_kesfi_dusurmez(tmp_path):
+    _toml_agent_yaz(tmp_path, "saglam")
+    _toml_agent_yaz(tmp_path, "bozuk", govde='name = "bozuk"\ndescription = ')
+
+    isimler = {a.name for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert "saglam" in isimler
+    assert "bozuk" not in isimler
+
+
+def test_adsiz_toml_dosya_adina_duser(tmp_path):
+    _toml_agent_yaz(tmp_path, "adsiz", govde='description = "yalnız açıklama"')
+
+    isimler = {a.name for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert "adsiz" in isimler
+
+
+def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
+    hedef = tmp_path / ".claude" / "agents"
+    hedef.mkdir(parents=True)
+    (hedef / "architect.md").write_text(
+        "---\nname: architect\ndescription: claude sürümü\n---\n", encoding="utf-8"
+    )
+    _toml_agent_yaz(tmp_path, "architect")
+
+    bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert bulunan["architect"].source == "global"

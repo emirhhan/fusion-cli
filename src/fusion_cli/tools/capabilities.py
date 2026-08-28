@@ -18,6 +18,7 @@ Tarama oturumda bir kez yapılır ve önbelleklenir.
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -49,7 +50,7 @@ class Capability:
     name: str
     description: str
     path: Path
-    #: Nereden geldiği: global | plugin | proje
+    #: Nereden geldiği: global | plugin | proje | codex | hermes
     source: str
     #: Agent'lar için bildirilen Claude araç adları. Boş ya da ("*",) → tam yetki.
     tools: tuple[str, ...] = ()
@@ -170,6 +171,7 @@ class CapabilityRegistry:
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
         return (
             (self._home / ".claude" / "agents", "global"),
+            (self._home / ".codex" / "agents", "codex"),
             (self._root / ".claude" / "agents", "proje"),
         )
 
@@ -192,7 +194,34 @@ class CapabilityRegistry:
             for path in sorted(root.glob("*.md")):
                 capability = _to_capability(path, source, fallback=path.stem)
                 found.setdefault(capability.name, capability)
+            # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
+            for path in sorted(root.glob("*.toml")):
+                toml_capability = _toml_capability(path, source)
+                if toml_capability is not None:
+                    found.setdefault(toml_capability.name, toml_capability)
         return tuple(found.values())
+
+
+def _toml_capability(path: Path, source: str) -> Capability | None:
+    """Codex biçimi TOML agent'ını `Capability`'ye çevir. Bozuksa `None`.
+
+    Codex agent'ları markdown değil TOML tutar: `name`, `description` ve
+    `developer_instructions` alanları vardır. Ayrıştırma başarısız olursa o dosya
+    atlanır — tek bir bozuk agent tüm keşfi düşürmemelidir.
+    """
+    try:
+        data: object = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return Capability(
+        name=str(data.get("name") or path.stem),
+        description=str(data.get("description") or ""),
+        path=path,
+        source=source,
+        tools=(),
+    )
 
 
 def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
