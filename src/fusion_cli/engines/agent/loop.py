@@ -59,6 +59,7 @@ from ...core.types import (
     StreamDone,
     TextChunk,
     ToolCall,
+    is_permanent_error,
 )
 from ...core.verification import VerificationResult, Verifier
 from ...memory.lessons import as_prompt_block
@@ -1904,13 +1905,45 @@ async def _fix_findings(
     deps.publisher.publish(
         VerificationFailed(summary=verification.summary, findings=verification.findings)
     )
+    correction_task = _verification_correction_task(task, verification)
+    correction_deps = _verification_correction_deps(deps)
+    correction = await _run_verification_correction_attempt(
+        correction_task,
+        correction_deps,
+        history=outcome.messages,
+    )
+    if (
+        correction_deps is not deps
+        and not correction.ok
+        and deps.budget is not None
+        and deps.budget.stop is None
+        and not is_permanent_error(correction.final_text)
+    ):
+        retry = await _run_verification_correction_attempt(
+            correction_task,
+            deps,
+            history=outcome.messages,
+        )
+        retry.tool_calls_made += correction.tool_calls_made
+        retry.mutating_tool_calls_made += correction.mutating_tool_calls_made
+        retry.failed_tool_calls += correction.failed_tool_calls
+        retry.model_calls_made += correction.model_calls_made
+        correction = retry
+
+    correction.tool_calls_made += outcome.tool_calls_made
+    correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
+    correction.failed_tool_calls += outcome.failed_tool_calls
+    correction.model_calls_made += outcome.model_calls_made
+    return correction
+
+
+def _verification_correction_task(task: str, verification: VerificationResult) -> str:
     # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
     # "doğrulama düştü" bilgisi bile modele hiçbir şey söylememekten iyidir.
-    ayrintilar = verification.findings or ((verification.summary,) if verification.summary else ())
-    bulgular = "\n".join(f"- {finding}" for finding in ayrintilar)
-    correction = await run_agent(
-        # Görev tekrar edilir: düzeltici tur bir ARA adımdır, hedefi kendi başına
-        # taşımalıdır (bkz. `_CORRECTION_TASK`).
+    details = verification.findings or ((verification.summary,) if verification.summary else ())
+    findings = "\n".join(f"- {finding}" for finding in details)
+    # Görev tekrar edilir: düzeltici tur bir ARA adımdır, hedefi kendi başına taşır.
+    return (
         f"Kullanıcının görevi şuydu:\n{task}\n\n"
         "Bu göreve devam ediyorsun. Doğrulama kapısı üretilen çıktıda şu somut "
         "sorunları buldu. Bunları gerçek kod değişiklikleriyle düzelt. "
@@ -1919,20 +1952,26 @@ async def _fix_findings(
         "oku, fakat ardından en az bir gerçek değiştirici araç çağır "
         "(replace_range/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
         "düzeltme değildir. Düzeltemeyeceğin varsa nedenini tek cümleyle yaz. "
-        f"\n\n{bulgular}",
-        _verification_correction_deps(deps),
-        history=outcome.messages,
+        f"\n\n{findings}"
+    )
+
+
+async def _run_verification_correction_attempt(
+    task: str,
+    deps: AgentDeps,
+    *,
+    history: list[Message],
+) -> AgentOutcome:
+    return await run_agent(
+        task,
+        deps,
+        history=history,
         self_review=False,
         internal=True,
         require_local_mutation=True,
         # Kapı düzeltici turda TEKRAR çalışmaz: sonsuz düzeltme döngüsü yok.
         verify=False,
     )
-    correction.tool_calls_made += outcome.tool_calls_made
-    correction.mutating_tool_calls_made += outcome.mutating_tool_calls_made
-    correction.failed_tool_calls += outcome.failed_tool_calls
-    correction.model_calls_made += outcome.model_calls_made
-    return correction
 
 
 def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:

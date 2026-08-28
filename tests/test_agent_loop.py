@@ -1543,6 +1543,70 @@ async def test_verification_correction_agentin_ilk_fallback_modelini_kullanir(
     assert "provider/corrector" in seen_models
 
 
+@pytest.mark.parametrize(
+    ("error", "expected_content", "expected_main_calls"),
+    [
+        ("Service temporarily overloaded", "fixed", 4),
+        ("401 Unauthorized: invalid API key", "broken", 2),
+    ],
+    ids=("geçici-hata", "kalıcı-hata"),
+)
+async def test_correction_saglayici_hatasinda_yalniz_gecici_arizayi_birincille_kurtarir(
+    monkeypatch,
+    tmp_path,
+    sink,
+    error,
+    expected_content,
+    expected_main_calls,
+):
+    """Overload bulguyu sahipsiz bırakmaz; kalıcı hatada boşuna çağrı yapılmaz."""
+    from fusion_cli.core.types import ModelSpec
+    from fusion_cli.core.verification import VerificationResult
+
+    class _BirKezDusenDogrulayici:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            return (
+                VerificationResult(ok=False, summary="bozuk", findings=("e.hp azalmıyor",))
+                if self.calls == 1
+                else VerificationResult(ok=True)
+            )
+
+    main = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="broken")]),
+            model_result(TAM_CEVAP),
+            model_result(tool_calls=[tool_call("write_file", path="a.js", content="fixed")]),
+            model_result(TAM_CEVAP),
+        ]
+    )
+    corrector = ScriptedProvider([model_result(ok=False, error=error)])
+
+    def _build(spec, **kwargs):
+        return corrector if spec.model == "provider/corrector" else main
+
+    monkeypatch.setattr(agent_loop, "build_provider", _build)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=ModelSpec(
+            name="main",
+            model="provider/main",
+            fallback=("provider/corrector",),
+        ),
+        task_model_map={},
+    )
+    deps.verifier = _BirKezDusenDogrulayici()
+
+    await run_agent("a.js düzelt", deps)
+
+    assert main.calls == expected_main_calls
+    assert (tmp_path / "a.js").read_text(encoding="utf-8") == expected_content
+
+
 async def test_correction_yerel_arac_siniri_son_dogrulamayi_engellemez(monkeypatch, tmp_path, sink):
     """İç turun yerel sınırı, düzeltilmiş artefaktın post-condition kapısını kapatmamalı."""
     from fusion_cli.core.verification import VerificationResult
