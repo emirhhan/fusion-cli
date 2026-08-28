@@ -532,3 +532,65 @@ async def test_idle_kipte_yazi_normal_akar():
         await asyncio.sleep(0.3)
 
         assert tui._input.text == "merhaba"
+
+
+def _press_modal(tui, key: str) -> None:
+    """Modal açıkken tuşa basmayı taklit et.
+
+    prompt_toolkit `Keys.Any` bağını yalnızca daha SPESİFİK bir bağ yokken
+    kullanır; bu yardımcı aynı önceliği uygular. Testin `_resolve`'u doğrudan
+    çağırmaması önemlidir: hata tam olarak tuşun işleyiciye hiç ULAŞMAMASIYDI.
+    """
+    genel = None
+    for binding in tui.application.key_bindings.bindings:
+        adlar = tuple(str(getattr(k, "value", k)) for k in binding.keys)
+        if len(adlar) != 1 or not binding.filter():
+            continue
+        if adlar[0] == key:
+            binding.handler(None)
+            return
+        if adlar[0] == "<any>":
+            genel = binding
+    if genel is None:
+        raise AssertionError(f"bağ bulunamadı: {key}")
+    genel.handler(None)
+
+
+async def test_secim_kipinde_enter_secili_secenegi_onaylar():
+    """Onay ekranında Enter seçimi uygulamalı.
+
+    Regresyon: `Keys.Any` yutucusu modal kipte Enter'ı da yutuyordu. Enter
+    girdi tamponuna hiç ulaşmadığı için tamponun accept işleyicisi çalışmıyor,
+    kullanıcı onaylayamıyordu — ok tuşları çalışırken Enter ölüydü.
+    """
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    gorev = asyncio.ensure_future(
+        tui.await_choice("izin verilsin mi?", [Choice("once", "Bir kez"), Choice("deny", "Reddet")])
+    )
+    await asyncio.sleep(0)
+
+    _press_modal(tui, "c-m")
+    await asyncio.sleep(0)
+
+    assert gorev.done(), "Enter seçimi çözmedi"
+    assert gorev.result() == "once"
+
+
+async def test_secim_kipinde_enter_gezinme_sonrasi_dogru_secenegi_verir():
+    """Ok tuşuyla gezinip Enter'a basınca SEÇİLİ olan uygulanmalı."""
+    from fusion_cli.ui.picker import Choice
+
+    tui, _ = _tui()
+    gorev = asyncio.ensure_future(
+        tui.await_choice("izin verilsin mi?", [Choice("once", "Bir kez"), Choice("deny", "Reddet")])
+    )
+    await asyncio.sleep(0)
+
+    _press_modal(tui, "down")
+    _press_modal(tui, "c-m")
+    await asyncio.sleep(0)
+
+    assert gorev.done(), "Enter seçimi çözmedi"
+    assert gorev.result() == "deny"

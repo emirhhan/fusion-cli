@@ -410,10 +410,20 @@ class FusionTui:
         if self._mode == "ask":
             self._resolve(text)
         elif self._mode == "choice":
-            self._resolve(self._choices[self._choice_index].value)
+            self._pick_current()
         else:
             self._on_submit(text)
         return False
+
+    def _pick_current(self) -> None:
+        """Seçim kipinde imlecin üzerindeki seçeneği uygula.
+
+        Ayrı bir metot: Enter'ı hem girdi tamponunun accept işleyicisi hem de
+        `choice` kipine bağlı açık tuş bağlaması çağırır. İkisinin AYNI kararı
+        vermesi gerekir; kopyalanmış iki gövde kaçınılmaz olarak ayrışırdı.
+        """
+        if self._choices:
+            self._resolve(self._choices[self._choice_index].value)
 
     def _fold_paste(self, text: str) -> None:
         """Yapıştırmayı girdiye koy; uzunsa tam metni sakla ve tek satırlık yer tutucu bırak."""
@@ -499,6 +509,19 @@ class FusionTui:
         @kb.add("n", filter=confirm, eager=True)
         def _no(_event: object) -> None:
             self._resolve(False)
+
+        # Seçim kipinde Enter'ın AÇIK bağlaması olmak zorunda.
+        #
+        # Ölçüldü: aşağıdaki `Keys.Any` yutucusu modal kipte her tuşu yiyor ve
+        # Enter girdi tamponuna hiç ulaşmıyor; tamponun accept işleyicisi bu
+        # yüzden çalışmıyordu. Sonuç: onay ekranında oklar geziyor ama Enter
+        # ölü — kullanıcı hiçbir şeyi onaylayamıyordu. Somut bir tuş, `Keys.Any`
+        # bağından daha spesifiktir ve önce eşleşir.
+        choice = Condition(lambda: self._mode == "choice")
+
+        @kb.add("enter", filter=choice, eager=True)
+        def _pick(_event: object) -> None:
+            self._pick_current()
 
         # Onay/seçim açıkken BAŞKA hiçbir tuş girdi kutusuna ulaşmaz.
         #
