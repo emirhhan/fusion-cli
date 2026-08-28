@@ -338,9 +338,6 @@ class FusionTui:
 
     # -- Modal (onay/soru) -------------------------------------------------- #
 
-    async def await_confirm(self) -> bool:
-        return bool(await self._await_answer("confirm"))
-
     async def await_text(self) -> str:
         return str(await self._await_answer("ask"))
 
@@ -471,14 +468,13 @@ class FusionTui:
         from prompt_toolkit.keys import Keys
 
         kb = KeyBindings()
-        confirm = Condition(lambda: self._mode == "confirm")
         idle = Condition(lambda: self._mode == "idle")
         # Kaydırma SORU SORULMADIĞI her durumda açıktır — `idle` yetmiyordu.
         # Kullanıcı en çok, uzun bir tur çalışırken yukarı bakmak istiyor: beş
         # dakikalık bir turun ortasında geçmişe bakamamak, kaydırmanın hiç
         # olmamasıyla aynı şey. Yalnızca modal kipler (onay, seçim) dışarıda:
         # orada oklar seçeneği gezer.
-        scrollable = Condition(lambda: self._mode not in ("confirm", "choice", "ask"))
+        scrollable = Condition(lambda: self._mode not in ("choice", "ask"))
 
         @kb.add(Keys.BracketedPaste)
         def _paste(event: object) -> None:
@@ -499,16 +495,6 @@ class FusionTui:
         @kb.add("s-tab")
         def _cycle(_event: object) -> None:
             self._on_cycle_mode()
-
-        @kb.add("e", filter=confirm, eager=True)
-        @kb.add("y", filter=confirm, eager=True)
-        def _yes(_event: object) -> None:
-            self._resolve(True)
-
-        @kb.add("h", filter=confirm, eager=True)
-        @kb.add("n", filter=confirm, eager=True)
-        def _no(_event: object) -> None:
-            self._resolve(False)
 
         # Seçim kipinde Enter'ın AÇIK bağlaması olmak zorunda.
         #
@@ -532,7 +518,7 @@ class FusionTui:
         # hesaplandığı için iş "araç turu sınırına ulaşıldı" ile yarıda kalıyordu.
         #
         # `ask` kipi DIŞARIDADIR: orada beklenen şey zaten serbest metindir.
-        modal = Condition(lambda: self._mode in ("confirm", "choice"))
+        modal = Condition(lambda: self._mode == "choice")
 
         @kb.add(Keys.Any, filter=modal, eager=True)
         def _yut(_event: object) -> None:
@@ -596,9 +582,7 @@ class FusionTui:
         return kb
 
     def _cancel_or_interrupt(self) -> None:
-        if self._mode == "confirm":
-            self._resolve(False)
-        elif self._mode == "ask":
+        if self._mode == "ask":
             self._resolve("")
         elif self._mode == "choice":
             self._resolve(None)

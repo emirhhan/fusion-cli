@@ -156,30 +156,6 @@ def test_ctrl_c_ve_ctrl_q_cikar_esc_keser_shift_tab_dondurur():
 # --- Modal (onay/soru) -------------------------------------------------------- #
 
 
-async def test_await_confirm_e_ile_true():
-    tui, _ = _tui()
-    task = asyncio.ensure_future(tui.await_confirm())
-    await asyncio.sleep(0)
-    assert tui._mode == "confirm"
-
-    _press(tui, "e")
-
-    assert await task is True
-    assert tui._mode == "idle"
-
-
-async def test_await_confirm_esc_ile_false():
-    tui, olaylar = _tui()
-    task = asyncio.ensure_future(tui.await_confirm())
-    await asyncio.sleep(0)
-
-    _press(tui, "escape")
-
-    assert await task is False
-    # Modal esc'i turu KESMEZ; yalnızca onayı reddeder.
-    assert olaylar["interrupt"] == 0
-
-
 async def test_await_choice_ok_ve_enter_ile_secer():
     from fusion_cli.ui.picker import Choice
 
@@ -505,25 +481,28 @@ async def _calisan_tui():
                 await task
 
 
-async def test_onay_kipinde_harfler_girdi_kutusuna_gitmez():
+async def test_secim_kipinde_harfler_girdi_kutusuna_gitmez():
+    """Modal açıkken yazılan metin girdi kutusuna SIZMAMALI.
+
+    Ölçüldü: sızan harfler kutuda birikiyor ve tur bitince sıradaki satır olarak
+    GÖNDERİLİYORDU — kullanıcının cevabı bir sonraki turun görevine dönüşüyordu.
+
+    Test onay ekranının GERÇEK kipini (`choice`) kullanır. Eskiden `confirm`
+    kipini kullanıyordu; o kip üretimde hiç kurulmuyordu, yani bu regresyon
+    gerçek kullanıcı yolunda hiç sınanmamış oluyordu.
+    """
+    from fusion_cli.ui.picker import Choice
+
     async with _calisan_tui() as (tui, pipe):
-        confirm = asyncio.create_task(tui.await_confirm())
+        secim = asyncio.create_task(
+            tui.await_choice("izin verilsin mi?", [Choice("once", "Bir kez")])
+        )
         await asyncio.sleep(0.2)
         pipe.send_text("merhaba")
         await asyncio.sleep(0.3)
 
         assert tui._input.text == "", "modal açıkken metin girdi kutusuna sızdı"
-        confirm.cancel()
-
-
-async def test_onay_kipinde_e_onaylar():
-    async with _calisan_tui() as (tui, pipe):
-        confirm = asyncio.create_task(tui.await_confirm())
-        await asyncio.sleep(0.2)
-        pipe.send_text("e")
-        await asyncio.sleep(0.3)
-
-        assert confirm.done() and confirm.result() is True
+        secim.cancel()
 
 
 async def test_idle_kipte_yazi_normal_akar():
