@@ -104,3 +104,65 @@ def test_bozuk_item_json_atlanir(tmp_path):
     turlar = CodexSource(tmp_path).read("th1")
 
     assert [t.text for t in turlar] == ["iyi"]
+
+
+def test_bos_metin_none_dizgesi_uretmez(tmp_path):
+    """SORUN 1: `{"text": null}` `str(None)` ile "None" dizgesine dönüşmemeli."""
+    _kur(
+        tmp_path,
+        [
+            ("th1", 1, "userMessage", {"type": "userMessage", "content": [{"text": None}]}),
+            ("th1", 2, "userMessage", {"type": "userMessage", "content": [{"text": "gercek"}]}),
+        ],
+    )
+
+    turlar = CodexSource(tmp_path).read("th1")
+
+    assert "None" not in [t.text for t in turlar]
+    assert [t.text for t in turlar] == ["gercek"]
+
+
+def test_imlec_ve_limit_gecerli_turlar_uzerinden_sayilir(tmp_path):
+    """SORUN 2: cursor/limit, SQL satır sırası değil GEÇERLİ (boş olmayan metinli)
+    turlar üzerinden sayılmalı. Aralarda boş metinli (atlanan) satırlar vardır.
+
+    Bu test, düzeltme geri alınıp SQL'e LIMIT/OFFSET konursa KIRMIZIYA döner:
+    SQL seviyesinde LIMIT/OFFSET uygulanırsa, boş satırlar da pencereye dahil
+    edilip atılacağından dönen tur sayısı ve içeriği burada beklenenden az/farklı
+    olur.
+    """
+    satirlar = [
+        ("th1", 0, "userMessage", {"type": "userMessage", "content": [{"text": "m0"}]}),
+        ("th1", 1, "userMessage", {"type": "userMessage", "content": [{"text": ""}]}),
+        ("th1", 2, "userMessage", {"type": "userMessage", "content": [{"text": "m1"}]}),
+        ("th1", 3, "userMessage", {"type": "userMessage", "content": []}),
+        ("th1", 4, "userMessage", {"type": "userMessage", "content": [{"text": "m2"}]}),
+        ("th1", 5, "userMessage", {"type": "userMessage", "content": [{"text": ""}]}),
+        ("th1", 6, "userMessage", {"type": "userMessage", "content": [{"text": "m3"}]}),
+    ]
+    _kur(tmp_path, satirlar)
+
+    turlar = CodexSource(tmp_path).read("th1", cursor=1, limit=2)
+
+    assert [t.text for t in turlar] == ["m1", "m2"]
+
+
+def test_beklenmedik_zaman_damgasi_istisna_firlatmaz(tmp_path):
+    """SORUN 3: `created_at_ms` metin gibi beklenmedik bir tip olsa bile
+    `read()` istisna fırlatmadan `timestamp=0.0` ile devam etmeli."""
+    kok = tmp_path / ".codex"
+    kok.mkdir(parents=True, exist_ok=True)
+    baglanti = sqlite3.connect(kok / "thread_history_1.sqlite")
+    baglanti.executescript(SEMA)
+    payload = json.dumps({"type": "userMessage", "content": [{"text": "soru"}]})
+    baglanti.execute(
+        "INSERT INTO thread_items VALUES (?,?,?,?,?,?,?)",
+        ("th1", "t", "i1", 1, "gecersiz-zaman", payload, "userMessage"),
+    )
+    baglanti.commit()
+    baglanti.close()
+
+    turlar = CodexSource(tmp_path).read("th1")
+
+    assert [t.text for t in turlar] == ["soru"]
+    assert turlar[0].timestamp == 0.0

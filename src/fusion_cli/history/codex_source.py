@@ -84,32 +84,48 @@ class CodexSource:
         return tuple(refs)
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:
+        """`cursor`'dan başlayarak en fazla `limit` GEÇERLİ tur döndür.
+
+        `cursor`, satır sırasını değil, metni boş olmayan turların sırasını sayar
+        (kardeş adapter `claude_source.py` ile aynı sözleşme). Bu yüzden SQL
+        seviyesinde `LIMIT`/`OFFSET` uygulanmaz: sıralama veritabanında yapılır,
+        ama sayım Python tarafında imleç ilerledikçe yürütülür. sqlite3 imleci
+        tembel olduğundan sonuç `fetchall` ile belleğe alınmaz, satır satır
+        dolaşılır.
+        """
         connection = self._connect()
         if connection is None:
             return ()
         turns: list[Turn] = []
         try:
-            rows = connection.execute(
+            cursor_obj = connection.execute(
                 "SELECT item_type, item_json, created_at_ms FROM thread_items "
                 "WHERE thread_id = ? AND item_type IN ('userMessage','agentMessage') "
-                "ORDER BY rollout_ordinal LIMIT ? OFFSET ?",
-                (session_id, limit, cursor),
-            ).fetchall()
+                "ORDER BY rollout_ordinal",
+                (session_id,),
+            )
+            seen = 0
+            for item_type, payload, created_ms in cursor_obj:
+                text = _text_of(payload, str(item_type))
+                if not text:
+                    continue
+                if seen < cursor:
+                    seen += 1
+                    continue
+                turns.append(
+                    Turn(
+                        role=_ROLES.get(str(item_type), "assistant"),
+                        text=text,
+                        timestamp=_millis_to_seconds(created_ms),
+                    )
+                )
+                seen += 1
+                if len(turns) >= limit:
+                    break
         except sqlite3.Error:
             return ()
         finally:
             connection.close()
-        for item_type, payload, created_ms in rows:
-            text = _text_of(payload, str(item_type))
-            if not text:
-                continue
-            turns.append(
-                Turn(
-                    role=_ROLES.get(str(item_type), "assistant"),
-                    text=text,
-                    timestamp=float(created_ms or 0) / 1000.0,
-                )
-            )
         return tuple(turns)
 
 
@@ -127,9 +143,23 @@ def _text_of(payload: object, item_type: str) -> str:
         return str(data.get("text") or "").strip()
     content = data.get("content")
     if isinstance(content, list):
-        parts = [str(p.get("text", "")) for p in content if isinstance(p, dict)]
+        parts = [
+            str(p.get("text"))
+            for p in content
+            if isinstance(p, dict) and isinstance(p.get("text"), str)
+        ]
         return "\n".join(p for p in parts if p).strip()
     return ""
+
+
+def _millis_to_seconds(value: object) -> float:
+    """Milisaniye zaman damgasını unix saniyeye çevir. Çözülemezse 0.0 döner."""
+    if not isinstance(value, (int, float, str)):
+        return 0.0
+    try:
+        return float(value or 0) / 1000.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _epoch(value: object) -> float:
