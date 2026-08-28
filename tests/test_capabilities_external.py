@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fusion_cli.tools.capabilities import CapabilityRegistry
+from fusion_cli.tools.capabilities import CapabilityRegistry, load_agent_prompt
 
 SKILL = """---
 name: {name}
@@ -102,3 +102,22 @@ def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
     bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
 
     assert bulunan["architect"].source == "global"
+
+
+def test_codex_toml_agent_promptu_developer_talimati_doner(tmp_path):
+    _toml_agent_yaz(tmp_path, "architect")
+    agent = CapabilityRegistry(tmp_path, tmp_path).get_agent("architect")
+
+    assert agent is not None
+    prompt = load_agent_prompt(agent.path)
+
+    assert prompt.strip() == "Sen bir mimarsın."
+    assert "developer_instructions" not in prompt
+
+
+def test_bozuk_ve_eksik_codex_promptu_bos_doner(tmp_path):
+    _toml_agent_yaz(tmp_path, "bozuk", govde='name = "bozuk"\ndescription = ')
+    _toml_agent_yaz(tmp_path, "eksik", govde='name = "eksik"')
+
+    assert load_agent_prompt(tmp_path / ".codex" / "agents" / "bozuk.toml") == ""
+    assert load_agent_prompt(tmp_path / ".codex" / "agents" / "eksik.toml") == ""

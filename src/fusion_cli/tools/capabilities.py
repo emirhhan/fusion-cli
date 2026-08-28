@@ -121,6 +121,15 @@ def load_agent_prompt(path: Path) -> str:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
         return f"HATA: agent okunamadı: {exc}"
+    if path.suffix.lower() == ".toml":
+        try:
+            data: object = tomllib.loads(text)
+        except tomllib.TOMLDecodeError:
+            return ""
+        if not isinstance(data, dict):
+            return ""
+        instructions = data.get("developer_instructions")
+        return instructions if isinstance(instructions, str) else ""
     stripped = text.lstrip()
     if not stripped.startswith("---"):
         return text

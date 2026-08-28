@@ -393,6 +393,45 @@ async def test_alt_ajan_temiz_baglamla_calisir(monkeypatch, tmp_path, sink):
     assert any(isinstance(e, SubAgentFinished) for e in sink.events)
 
 
+async def test_codex_toml_agent_talimati_alt_ajan_promptuna_gider(monkeypatch, tmp_path, sink):
+    import json
+
+    from fusion_cli.core.types import ToolCall
+    from fusion_cli.tools.capabilities import CapabilityRegistry
+
+    agents = tmp_path / ".codex" / "agents"
+    agents.mkdir(parents=True)
+    (agents / "architect.toml").write_text(
+        'name = "architect"\ndescription = "mimar"\n'
+        'developer_instructions = """\nTOML_AGENT_MARKER\n"""\n',
+        encoding="utf-8",
+    )
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        ToolCall(
+                            id="call_invoke_agent",
+                            name="invoke_agent",
+                            arguments=json.dumps({"name": "architect", "task": "tasarla"}),
+                        )
+                    ]
+                ),
+                model_result("uzman cevabı"),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+    deps.capabilities = CapabilityRegistry(tmp_path, tmp_path)
+
+    await run_agent("bol", deps)
+
+    assert any("TOML_AGENT_MARKER" in message.content for message in provider.seen_messages[1])
+
+
 async def test_alt_ajan_derinlik_siniri_asilmaz(monkeypatch, tmp_path, sink):
     _kur(
         monkeypatch,
