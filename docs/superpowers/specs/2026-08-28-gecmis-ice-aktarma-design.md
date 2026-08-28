@@ -58,7 +58,7 @@ read(session_id, cursor, limit) -> tuple[Turn, ...]
 `SessionRef` alanları: kimlik, başlık, son değişiklik zamanı, tur sayısı, kaynak
 etiketi. `read` imleçlidir; çağıran ne kadar isterse o kadar çeker.
 
-Adapter'lar ev dizinini parametre olarak alır (`CapabilityLibrary(home, root)`
+Adapter'lar ev dizinini parametre olarak alır (`CapabilityRegistry(home, root)`
 deseninin aynısı). Testler gerçek `~` dizinine bağımlı olmaz, fixture ile çalışır.
 
 Yeni bir araç desteği eklemek tek dosya eklemektir; kayıt defteri, komutlar ve
