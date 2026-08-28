@@ -6,7 +6,12 @@
 > sözdizimi kullanır.
 
 **Hedef:** Fusion, Claude Code / Codex / Hermes oturum geçmişini listeleyip bir
-oturumu devralabilsin ve diğer araçların bellek dosyalarını sistem promptuna alsın.
+oturumu devralabilsin, bu araçların bellek dosyalarını sistem promptuna alsın ve
+skill/agent kütüphanelerinin tamamını görebilsin.
+
+**Ölçülen boşluk (skill/agent):** Fusion bugün 332 yetenek görüyor, 178'ini
+kaçırıyor — Codex'in 6 skill'i, Codex'in 97 TOML agent'ı ve Hermes'in 75 skill'i
+hiç taranmıyor. Görev 11 ve 12 bunu kapatır.
 
 **Mimari:** Yeni `src/fusion_cli/history/` paketi arayüzden bağımsız çekirdeği
 tutar: kaynak adapter'ları, kurulu araç tespiti ve künye üretimi. CLI yüzeyleri
@@ -2252,6 +2257,9 @@ git commit -m "feat(agent): diğer araçların bellek dosyalarını sistem promp
 
 ## Öz Denetim
 
+> Bu bölüm aşağıdaki 11. ve 12. görevleri de kapsar; onlar spec yazıldıktan sonra,
+> ölçülen bir boşluk üzerine eklendi (Codex/Hermes skill ve agent kütüphaneleri).
+
 **Spec kapsamı.** Spec'in her bölümünü bir göreve bağladım:
 
 | Spec bölümü | Görev |
@@ -2265,8 +2273,12 @@ git commit -m "feat(agent): diğer araçların bellek dosyalarını sistem promp
 | Bellek dosyaları | 10 |
 | Açılışta liste | 9 |
 | Hata durumları | 2, 3, 4 (bozuk kayıt testleri), 8 (geçersiz kimlik) |
+| *(spec dışı ek)* Codex/Hermes skill kütüphaneleri | 11 |
+| *(spec dışı ek)* Codex TOML agent kütüphanesi | 12 |
 
-Boşluk yok.
+Boşluk yok. Son iki satır spec'te yoktu: proje sahibi "Claude/Codex/Hermes için
+kurulmuş skill'leri `/` komutlarıyla kullanmak" isteğini hatırlattı, ölçüm
+kütüphanenin üçte birinin görünmez olduğunu gösterdi ve kapsam bilinçli genişletildi.
 
 **Bilinen sapma.** Spec "Codex `root` ile filtrelenir" demiyor ama ima ediyordu;
 uygulama `root`'u Codex'te yok sayıyor ve bunun gerekçesi kodda yazılı
@@ -2280,3 +2292,316 @@ tercih edildi.
 
 **Yer tutucu taraması.** "TBD", "sonra doldur", "uygun hata yönetimi ekle" gibi
 ifade yok; kod gerektiren her adımda kod var.
+
+---
+
+### Task 11: Codex ve Hermes skill köklerini tara
+
+**Files:**
+- Modify: `src/fusion_cli/tools/capabilities.py` (`_skill_roots`)
+- Test: `tests/test_capabilities_external.py`
+
+**Interfaces:**
+- Consumes: mevcut `CapabilityRegistry(home, root)`, `_to_capability`.
+- Produces: davranış değişikliği — `skills()` artık Codex ve Hermes köklerini de
+  kapsar. İmza değişmez.
+
+Ölçüm: Codex `~/.codex/skills/**/SKILL.md` altında 6, Hermes
+`~/.hermes/skills/**/SKILL.md` altında 75 skill tutuyor. **İkisi de Claude ile
+aynı `SKILL.md` biçimini kullanıyor**, bu yüzden ayrıştırıcıya dokunulmaz;
+yalnızca kök listesi genişler.
+
+`source` etiketi olarak "global" değil `codex` ve `hermes` kullanılır: `/skills`
+çıktısında yeteneğin nereden geldiği görünsün.
+
+- [ ] **Step 1: Testi yaz**
+
+`tests/test_capabilities_external.py`:
+
+```python
+"""Diğer araçların skill ve agent kütüphanelerinin keşfi."""
+
+from __future__ import annotations
+
+from fusion_cli.tools.capabilities import CapabilityRegistry
+
+SKILL = """---
+name: {name}
+description: {desc}
+---
+
+Gövde.
+"""
+
+
+def _skill_yaz(kok, ad, desc="açıklama"):
+    hedef = kok / ad
+    hedef.mkdir(parents=True, exist_ok=True)
+    (hedef / "SKILL.md").write_text(SKILL.format(name=ad, desc=desc), encoding="utf-8")
+
+
+def test_codex_skilleri_bulunur(tmp_path):
+    _skill_yaz(tmp_path / ".codex" / "skills" / ".system", "imagegen")
+
+    isimler = {s.name: s.source for s in CapabilityRegistry(tmp_path, tmp_path).skills()}
+
+    assert isimler.get("imagegen") == "codex"
+
+
+def test_hermes_skilleri_bulunur(tmp_path):
+    _skill_yaz(tmp_path / ".hermes" / "skills" / "research", "deep-research")
+
+    isimler = {s.name: s.source for s in CapabilityRegistry(tmp_path, tmp_path).skills()}
+
+    assert isimler.get("deep-research") == "hermes"
+
+
+def test_claude_ayni_adli_skili_yener(tmp_path):
+    _skill_yaz(tmp_path / ".claude" / "skills", "ortak", desc="claude sürümü")
+    _skill_yaz(tmp_path / ".hermes" / "skills", "ortak", desc="hermes sürümü")
+
+    bulunan = {s.name: s for s in CapabilityRegistry(tmp_path, tmp_path).skills()}
+
+    assert bulunan["ortak"].source == "global"
+
+
+def test_kaynak_yoksa_kesif_dusmez(tmp_path):
+    assert CapabilityRegistry(tmp_path, tmp_path).skills() == ()
+```
+
+- [ ] **Step 2: Testin başarısız olduğunu gör**
+
+Çalıştır: `.venv/bin/python -m pytest -q tests/test_capabilities_external.py`
+Beklenen: `test_codex_skilleri_bulunur` ve `test_hermes_skilleri_bulunur` FAIL —
+`assert None == 'codex'` (kök taranmıyor).
+
+- [ ] **Step 3: Kök listesini genişlet**
+
+`src/fusion_cli/tools/capabilities.py` içinde `_skill_roots` metodunu değiştir:
+
+```python
+    def _skill_roots(self) -> tuple[tuple[Path, str], ...]:
+        # Sıra ÖNCELİKTİR: aynı adlı skill'de ilk bulunan kazanır (bkz. _discover_skills).
+        # Claude önce gelir çünkü kullanıcının birincil kütüphanesi odur; Codex ve
+        # Hermes aynı SKILL.md biçimini kullandığı için ayrıştırıcı değişmez.
+        return (
+            (self._home / ".claude" / "skills", "global"),
+            (self._home / ".claude" / "plugins", "plugin"),
+            (self._home / ".codex" / "skills", "codex"),
+            (self._home / ".hermes" / "skills", "hermes"),
+            (self._root / ".claude" / "skills", "proje"),
+            (self._root / ".fusion" / "skills", "proje"),
+        )
+```
+
+- [ ] **Step 4: Testlerin geçtiğini gör**
+
+Çalıştır: `.venv/bin/python -m pytest -q tests/test_capabilities_external.py`
+Beklenen: 4 passed
+
+- [ ] **Step 5: Gerçek veriyle duman testi**
+
+```bash
+.venv/bin/python -c "
+from pathlib import Path
+from fusion_cli.tools.capabilities import CapabilityRegistry
+import collections
+skills = CapabilityRegistry(Path.home(), Path.cwd()).skills()
+print('toplam skill:', len(skills))
+print(collections.Counter(s.source for s in skills))
+"
+```
+Beklenen: toplam sayı önceki değerden ~81 fazla; sayaçta `codex` ve `hermes` görünür.
+
+- [ ] **Step 6: Kalite kapısı ve commit**
+
+```bash
+.venv/bin/ruff check src tests
+.venv/bin/ruff format src/fusion_cli/tools/capabilities.py tests/test_capabilities_external.py
+.venv/bin/mypy src
+.venv/bin/python -m pytest -q
+git add src/fusion_cli/tools/capabilities.py tests/test_capabilities_external.py
+git commit -m "feat(tools): Codex ve Hermes skill kütüphanelerini de tara"
+```
+
+---
+
+### Task 12: Codex TOML agent'larını oku
+
+**Files:**
+- Modify: `src/fusion_cli/tools/capabilities.py` (`_agent_roots`, `_discover_agents`, yeni `_toml_capability`)
+- Test: `tests/test_capabilities_external.py` (ekleme)
+
+**Interfaces:**
+- Consumes: `Capability` (mevcut).
+- Produces: `_discover_agents` artık `.toml` agent'ları da döndürür. Dış imza
+  değişmez; `find_agent` ve `/agents` kendiliğinden kapsar.
+
+Ölçüm: `~/.codex/agents/` altında 97 agent var ve hepsi TOML. Şekil:
+`name = "..."`, `description = "..."`, `developer_instructions = """..."""`.
+Markdown frontmatter ayrıştırıcısı bunu okuyamaz. `tomllib` Python 3.11
+stdlib'indedir ve proje `requires-python = ">=3.11"` olduğu için **yeni bağımlılık
+eklenmez**.
+
+- [ ] **Step 1: Testi yaz**
+
+`tests/test_capabilities_external.py` dosyasının sonuna ekle:
+
+```python
+TOML_AGENT = '''
+name = "architect"
+description = "Sistem tasarımı uzmanı"
+developer_instructions = """
+Sen bir mimarsın.
+"""
+'''
+
+
+def _toml_agent_yaz(home, ad, govde=TOML_AGENT):
+    hedef = home / ".codex" / "agents"
+    hedef.mkdir(parents=True, exist_ok=True)
+    (hedef / f"{ad}.toml").write_text(govde, encoding="utf-8")
+
+
+def test_codex_toml_agenti_bulunur(tmp_path):
+    _toml_agent_yaz(tmp_path, "architect")
+
+    bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert bulunan["architect"].description == "Sistem tasarımı uzmanı"
+    assert bulunan["architect"].source == "codex"
+
+
+def test_bozuk_toml_kesfi_dusurmez(tmp_path):
+    _toml_agent_yaz(tmp_path, "saglam")
+    _toml_agent_yaz(tmp_path, "bozuk", govde='name = "bozuk"\ndescription = ')
+
+    isimler = {a.name for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert "saglam" in isimler
+    assert "bozuk" not in isimler
+
+
+def test_adsiz_toml_dosya_adina_duser(tmp_path):
+    _toml_agent_yaz(tmp_path, "adsiz", govde='description = "yalnız açıklama"')
+
+    isimler = {a.name for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert "adsiz" in isimler
+
+
+def test_claude_agenti_ayni_adli_codex_agentini_yener(tmp_path):
+    hedef = tmp_path / ".claude" / "agents"
+    hedef.mkdir(parents=True)
+    (hedef / "architect.md").write_text(
+        "---\nname: architect\ndescription: claude sürümü\n---\n", encoding="utf-8"
+    )
+    _toml_agent_yaz(tmp_path, "architect")
+
+    bulunan = {a.name: a for a in CapabilityRegistry(tmp_path, tmp_path).agents()}
+
+    assert bulunan["architect"].source == "global"
+```
+
+- [ ] **Step 2: Testin başarısız olduğunu gör**
+
+Çalıştır: `.venv/bin/python -m pytest -q tests/test_capabilities_external.py`
+Beklenen: yeni dört test FAIL — `KeyError: 'architect'` (TOML taranmıyor).
+
+- [ ] **Step 3: TOML okuyucusunu yaz**
+
+`src/fusion_cli/tools/capabilities.py` — dosyanın üstüne:
+
+```python
+import tomllib
+```
+
+`_agent_roots`'un ardına yeni yardımcı:
+
+```python
+def _toml_capability(path: Path, source: str) -> Capability | None:
+    """Codex biçimi TOML agent'ını `Capability`'ye çevir. Bozuksa `None`.
+
+    Codex agent'ları markdown değil TOML tutar: `name`, `description` ve
+    `developer_instructions` alanları vardır. Ayrıştırma başarısız olursa o dosya
+    atlanır — tek bir bozuk agent tüm keşfi düşürmemelidir.
+    """
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, tomllib.TOMLDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return Capability(
+        name=str(data.get("name") or path.stem),
+        description=str(data.get("description") or ""),
+        path=path,
+        source=source,
+        tools=(),
+    )
+```
+
+`_agent_roots` metodunu değiştir:
+
+```python
+    def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
+        # Sıra ÖNCELİKTİR; Claude kullanıcının birincil kütüphanesidir.
+        return (
+            (self._home / ".claude" / "agents", "global"),
+            (self._home / ".codex" / "agents", "codex"),
+            (self._root / ".claude" / "agents", "proje"),
+        )
+```
+
+`_discover_agents` metodunu değiştir:
+
+```python
+    def _discover_agents(self) -> tuple[Capability, ...]:
+        found: dict[str, Capability] = {}
+        for root, source in self._agent_roots():
+            if not root.exists():
+                continue
+            for path in sorted(root.glob("*.md")):
+                capability = _to_capability(path, source, fallback=path.stem)
+                found.setdefault(capability.name, capability)
+            # Codex agent'ları TOML tutar; aynı kökte iki biçim yan yana olabilir.
+            for path in sorted(root.glob("*.toml")):
+                capability = _toml_capability(path, source)
+                if capability is not None:
+                    found.setdefault(capability.name, capability)
+        return tuple(found.values())
+```
+
+**Not:** `tools` alanı boş bırakılır. Codex TOML'unda Claude'un `tools:` listesine
+karşılık gelen bir alan yoktur; boş demet zaten "tam yetki" anlamına gelir
+(bkz. `map_tools`).
+
+- [ ] **Step 4: Testlerin geçtiğini gör**
+
+Çalıştır: `.venv/bin/python -m pytest -q tests/test_capabilities_external.py`
+Beklenen: 8 passed
+
+- [ ] **Step 5: Gerçek veriyle duman testi**
+
+```bash
+.venv/bin/python -c "
+from pathlib import Path
+from fusion_cli.tools.capabilities import CapabilityRegistry
+import collections
+agents = CapabilityRegistry(Path.home(), Path.cwd()).agents()
+print('toplam agent:', len(agents))
+print(collections.Counter(a.source for a in agents))
+"
+```
+Beklenen: `codex` kaynaklı agent'lar listede görünür; toplam sayı artar.
+
+- [ ] **Step 6: Tam paket ve commit**
+
+```bash
+.venv/bin/ruff check src tests
+.venv/bin/ruff format src/fusion_cli/tools/capabilities.py tests/test_capabilities_external.py
+.venv/bin/mypy src
+.venv/bin/python -m pytest -q
+git add src/fusion_cli/tools/capabilities.py tests/test_capabilities_external.py
+git commit -m "feat(tools): Codex TOML agent kütüphanesini oku"
+```
