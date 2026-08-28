@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
@@ -74,6 +75,8 @@ def build_agent_registry(
         extended.register(_search_codebase_tool(deps))
     if deps.asker is not None:
         extended.register(_ask_user_tool(deps.asker, deps))
+    if deps.home is not None:
+        extended.register(build_history_tool(deps.home))
     return extended
 
 
@@ -421,3 +424,54 @@ def _invoke_agent_tool(
 
 def _format(hits: tuple[Capability, ...]) -> str:
     return "\n".join(f"- {item.name} — {item.description}" for item in hits)
+
+
+# --------------------------------------------------------------------------- #
+# Devralınan oturum geçmişi
+# --------------------------------------------------------------------------- #
+
+
+def build_history_tool(home: Path) -> Tool:
+    """`read_session` — devralınan oturumun ayrıntısını imleçle oku.
+
+    Künye ajana NEREYE bakacağını söyler; bu araç oraya BAKMASINI sağlar. Oturumun
+    tamamı hiçbir zaman bağlama yüklenmez: medyan bir oturum 1,3 MB'tır.
+    """
+
+    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        from ...history import source_by_name
+
+        source_name = args.get("source")
+        session_id = args.get("session_id")
+        if not isinstance(source_name, str) or not isinstance(session_id, str):
+            return ToolResult.failure("'source' ve 'session_id' metin olmalı.")
+        source = source_by_name(home, source_name)
+        if source is None:
+            return ToolResult.failure(f"Bilinmeyen ya da kurulu olmayan kaynak: {source_name}")
+        cursor = args.get("cursor")
+        limit = args.get("limit")
+        turns = source.read(
+            session_id,
+            cursor=cursor if isinstance(cursor, int) and cursor >= 0 else 0,
+            limit=limit if isinstance(limit, int) and 0 < limit <= 100 else 20,
+        )
+        if not turns:
+            return ToolResult.failure(f"Oturum bulunamadı ya da bu imleçte tur yok: {session_id}")
+        return ToolResult("\n\n".join(f"[{t.role}] {t.text}" for t in turns))
+
+    return Tool(
+        name="read_session",
+        description="Devralınan bir oturumun turlarını imleçle oku. Künyede gördüğün "
+        "satır numarasını 'cursor' olarak ver; oturumun tamamını çekmeye KALKMA.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "source": _STRING,
+                "session_id": _STRING,
+                "cursor": {"type": "integer"},
+                "limit": {"type": "integer"},
+            },
+            "required": ["source", "session_id"],
+        },
+        run=_run,
+    )

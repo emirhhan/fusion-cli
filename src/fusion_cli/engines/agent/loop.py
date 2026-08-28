@@ -243,6 +243,8 @@ class AgentDeps:
     lessons: LessonMemory | None = None
     #: Skill/agent kütüphanesi. Yoksa arama ve devretme araçları hiç sunulmaz.
     capabilities: CapabilityRegistry | None = None
+    #: Geçmiş kaynaklarının aranacağı ev dizini. Yoksa `read_session` aracı hiç sunulmaz.
+    home: Path | None = None
     #: Kullanıcının `.claude/settings.local.json` içinde onaysız izin verdiği komutlar.
     allowed_commands: frozenset[str] = frozenset()
     #: Verilirse ders çıkarımı turu BEKLETMEDEN arka planda çalışır (REPL için).
@@ -421,7 +423,7 @@ async def run_agent(
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
     # açamaz (`verify=False` ile zaten kapatılıyor, bütçe bunu ikinci kez garanti eder).
-    while (verify and budget.stop is None and budget.take_verify_round()):
+    while verify and budget.stop is None and budget.take_verify_round():
         verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
         # Bulgu YOKLUĞU başarı değildir: `ok=False` tek başına düzeltmeyi hak eder.
         # Koşul eskiden `not verification.findings` de arıyordu; yalnızca özet
@@ -518,11 +520,7 @@ def _mark_unverified(outcome: AgentOutcome, verification: VerificationResult | N
     outcome.ok = False
 
 
-
-VERIFICATION_NOTES = (
-    "⚠ Doğrulama notları — işi engellemiyor:\n"
-    "{notes}\n\n"
-)
+VERIFICATION_NOTES = "⚠ Doğrulama notları — işi engellemiyor:\n{notes}\n\n"
 
 
 def _mark_verification_notes(
@@ -542,15 +540,10 @@ def _mark_verification_notes(
         *(f"- [öneri] {finding}" for finding in verification.advisories[:5]),
     ]
 
-    outcome.final_text = (
-        VERIFICATION_NOTES.format(notes="\n".join(lines))
-        + outcome.final_text
-    )
+    outcome.final_text = VERIFICATION_NOTES.format(notes="\n".join(lines)) + outcome.final_text
 
 
-def _announce_answer(
-    outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool
-) -> None:
+def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:
     """Kabul edilmiş nihai cevabı TEK noktadan yayınla.
 
     Yayın noktası bilinçli olarak `run_agent`'ın SONUDUR, `_drive`'ın değil:
@@ -789,8 +782,8 @@ async def _drive(
         )
         budget.record_round(progressed=_progress_marker(deps, state) != before)
         # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
-        state.read_only_rounds = 0 if state.mutating_tool_calls_made > 0 else (
-            state.read_only_rounds + 1
+        state.read_only_rounds = (
+            0 if state.mutating_tool_calls_made > 0 else (state.read_only_rounds + 1)
         )
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
@@ -822,9 +815,7 @@ async def _drive(
             messages.append(reflexion.note(persistent=False))
         if _looks_like_wrong_workspace(state):
             state.warned_wrong_workspace = True
-            oneri = find_workspace_for(
-                tuple(state.missing_paths), deps.tool_context.root
-            )
+            oneri = find_workspace_for(tuple(state.missing_paths), deps.tool_context.root)
             messages.append(
                 reflexion.wrong_workspace_note(
                     str(deps.tool_context.root), str(oneri) if oneri else ""
@@ -1252,9 +1243,7 @@ def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> 
     )
 
 
-def _needs_push_to_act(
-    state: _State, *, plan_mode: bool, execution: ExecutionPolicy
-) -> bool:
+def _needs_push_to_act(state: _State, *, plan_mode: bool, execution: ExecutionPolicy) -> bool:
     """Model okumaktan çıkıp yazmaya itilmeli mi?
 
     Yalnızca görev GERÇEKTEN değişiklik istiyorsa konuşur (`requires_tool_evidence`
@@ -1484,9 +1473,7 @@ async def _run_tools(
                 contract_errors.extend(validate_arguments(function_schema, args))
 
         if not contract_errors:
-            contract_errors.extend(
-                _targeted_edit_required(call.name, args, deps, execution, state)
-            )
+            contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution, state))
 
         if contract_errors:
             # Aynı bozuk çağrı ikinci kez geldiyse onarım hakkı harcanmaz: model
@@ -1819,9 +1806,7 @@ def _already_done_block(budget: TurnBudget) -> str:
 
 
 def _correction_task(task: str, feedback: str, budget: TurnBudget) -> str:
-    return _CORRECTION_TASK.format(
-        task=task, feedback=feedback, done=_already_done_block(budget)
-    )
+    return _CORRECTION_TASK.format(task=task, feedback=feedback, done=_already_done_block(budget))
 
 
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
@@ -1864,16 +1849,13 @@ def _recall_skill(
     if depth > 0:
         return ""
 
-    skills = (
-        deps.capabilities.skills()
-        if deps.capabilities is not None
-        else ()
-    )
+    skills = deps.capabilities.skills() if deps.capabilities is not None else ()
 
     return skill_recall.auto_expertise_block(
         classification,
         skills,
     )
+
 
 async def _verify(
     outcome: AgentOutcome, deps: AgentDeps, *, plan_mode: bool, depth: int
