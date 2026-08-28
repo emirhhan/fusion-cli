@@ -8,9 +8,10 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.engine_tools import build_agent_registry, build_history_tool
 from fusion_cli.engines.agent.loop import AgentDeps
+from fusion_cli.ui import messages
 
 from .agent_harness import Publisher
-from .fakes import AlwaysApprove, RecordingSink, make_config
+from .fakes import AlwaysApprove, RecordingSink, ScriptedProvider, make_config, model_result
 
 # Not: pyproject'te `asyncio_mode = "auto"` — `@pytest.mark.asyncio` GEREKMEZ.
 
@@ -43,6 +44,10 @@ def test_home_varsa_arac_kayit_defterinde_var(tmp_path):
     registry = build_agent_registry(deps, depth=0, run_agent=_hicbir_alt_ajan_calismaz)
 
     assert registry.get("read_session") is not None
+
+
+def test_history_tool_uses_centralized_description(tmp_path) -> None:
+    assert build_history_tool(tmp_path).description == messages.READ_SESSION_DESCRIPTION
 
 
 def _claude_kur(home, mesajlar):
@@ -98,3 +103,67 @@ async def test_imlec_gecirilir(tmp_path):
 
     assert "m1" in sonuc.output
     assert "m0" not in sonuc.output
+
+
+async def test_large_single_message_uses_text_cursor_continuation(tmp_path) -> None:
+    from fusion_cli.engines.agent.engine_tools import READ_SESSION_CHAR_BUDGET
+
+    message = "x" * (READ_SESSION_CHAR_BUDGET * 2)
+    _claude_kur(tmp_path, [message])
+    tool = build_history_tool(tmp_path)
+
+    first = await tool.run(
+        {"source": "claude", "session_id": "s1", "limit": 1},
+        ToolContext(root=tmp_path),
+    )
+
+    assert len(first.output) <= READ_SESSION_CHAR_BUDGET
+    assert "text_cursor=" in first.output
+    cursor_text = first.output.rsplit("text_cursor=", 1)[1].split("]", 1)[0]
+    second = await tool.run(
+        {
+            "source": "claude",
+            "session_id": "s1",
+            "limit": 1,
+            "text_cursor": int(cursor_text),
+        },
+        ToolContext(root=tmp_path),
+    )
+
+    assert second.ok is True
+    assert len(second.output) <= READ_SESSION_CHAR_BUDGET
+    assert "[user]" in second.output
+
+
+async def test_run_agent_task_injects_home_digest_memory_and_history_tool(
+    tmp_path, monkeypatch
+) -> None:
+    from fusion_cli.cli.session import run_agent_task
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    memories = tmp_path / ".hermes" / "memories"
+    memories.mkdir(parents=True)
+    (memories / "USER.md").write_text("harici bellek işareti", encoding="utf-8")
+    provider = ScriptedProvider([model_result("tamam")])
+    monkeypatch.setattr(agent_loop, "build_provider", lambda *args, **kwargs: provider)
+
+    await run_agent_task(
+        "görev",
+        make_config(),
+        sinks=(),
+        prompter_factory=lambda _flush: AlwaysApprove(),
+        root=tmp_path,
+        home=tmp_path,
+        extra_system="devralınan künye işareti",
+        interactive=False,
+    )
+
+    system_text = provider.seen_messages[0][0].content
+    tool_names = {
+        str(schema["function"]["name"])
+        for schema in provider.seen_requests[0]
+        if isinstance(schema.get("function"), dict)
+    }
+    assert "devralınan künye işareti" in system_text
+    assert "harici bellek işareti" in system_text
+    assert "read_session" in tool_names

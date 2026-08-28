@@ -9,8 +9,12 @@ tek bir dosya yazmaktır.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
+
+_UNKNOWN_DATE = "tarih bilinmiyor"
+_FALLBACK_TITLE = "{date} · {size} bayt"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +31,8 @@ class SessionRef:
     updated_at: float
     #: Turdaki mesaj sayısı. Bilinmiyorsa 0.
     turn_count: int = 0
+    #: Kaynağın güvenilir biçimde ölçebildiği oturum boyutu. Bilinmiyorsa 0.
+    size_bytes: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +70,23 @@ class HistorySource(Protocol):
         uygulanmalıdır."""
         ...
 
+    def list_for_root(self, root: Path, limit: int | None = None) -> tuple[SessionRef, ...]:
+        """Yalnızca `root` ile aidiyeti KESİN olan oturumları döndür.
+
+        Açılış listesi bu dar sözleşmeyi kullanır. Kaynak proje aidiyetini
+        kanıtlayamıyorsa boş demet döndürür; `/resume` için kullanılan `list`
+        ise tam listeyi proje öncelikli biçimde sunmaya devam eder.
+        """
+        ...
+
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:
         """`cursor`'dan başlayarak en fazla `limit` tur döndür."""
         ...
+
+
+def fallback_title(updated_at: float, size_bytes: int) -> str:
+    """Başlık metni yoksa tasarımdaki tarih + boyut yedeğini üret."""
+    date = _UNKNOWN_DATE
+    if updated_at > 0:
+        date = datetime.fromtimestamp(updated_at, tz=UTC).date().isoformat()
+    return _FALLBACK_TITLE.format(date=date, size=max(size_bytes, 0))

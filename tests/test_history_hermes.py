@@ -166,3 +166,47 @@ def test_list_limit_verilmezse_hepsi_doner(tmp_path):
     refs = HermesSource(tmp_path).list()
 
     assert [r.session_id for r in refs] == ["s2", "s1", "s0"]
+
+
+def test_malformed_numeric_fields_do_not_crash_listing_or_reading(tmp_path) -> None:
+    _kur(
+        tmp_path,
+        [("s1", "cli", "başlık", "/x", "bozuk-zaman", "bozuk-sayı")],
+        [("m1", "s1", "user", "mesaj", "bozuk-zaman")],
+    )
+
+    (ref,) = HermesSource(tmp_path).list()
+    (turn,) = HermesSource(tmp_path).read("s1")
+
+    assert ref.updated_at == 0.0
+    assert ref.turn_count == 0
+    assert turn.timestamp == 0.0
+
+
+def test_session_without_identifier_is_skipped(tmp_path) -> None:
+    _kur(
+        tmp_path,
+        [
+            (None, "cli", "bozuk", "/x", 200.0, 0),
+            ("s1", "cli", "sağlam", "/x", 100.0, 0),
+        ],
+        [],
+    )
+
+    refs = HermesSource(tmp_path).list()
+
+    assert [ref.session_id for ref in refs] == ["s1"]
+
+
+def test_title_falls_back_to_date_and_size(tmp_path) -> None:
+    _kur(
+        tmp_path,
+        [("s1", "cli", None, "/x", 1_700_000_000.0, 0)],
+        [],
+    )
+
+    (ref,) = HermesSource(tmp_path).list()
+
+    assert "2023-11-14" in ref.title
+    assert "bayt" in ref.title
+    assert ref.title != "s1"

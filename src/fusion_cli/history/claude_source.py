@@ -13,11 +13,12 @@ bir JSON kaydı olarak tutar. Slug, çalışma dizini yolundaki `/` karakterleri
 
 from __future__ import annotations
 
+import builtins
 import json
 from collections.abc import Generator
 from pathlib import Path
 
-from .models import SessionRef, Turn
+from .models import SessionRef, Turn, fallback_title
 
 #: Başlık olarak kullanılacak metnin en fazla uzunluğu.
 TITLE_BUDGET = 60
@@ -102,9 +103,28 @@ class ClaudeSource:
     def list(self, root: Path | None = None, limit: int | None = None) -> tuple[SessionRef, ...]:
         wanted_slug = slug_for(root) if root is not None else None
         ordered_paths = self._sorted_candidates(wanted_slug)
+        return self._refs_from_paths(ordered_paths, limit)
+
+    def list_for_root(self, root: Path, limit: int | None = None) -> tuple[SessionRef, ...]:
+        """Yalnızca Claude slug'ı `root` ile birebir eşleşen oturumları döndür."""
+        project = self._projects_root() / slug_for(root)
+        if not project.is_dir():
+            return ()
+        candidates: list[tuple[float, Path]] = []
+        for path in project.glob("*.jsonl"):
+            try:
+                candidates.append((path.stat().st_mtime, path))
+            except OSError:
+                continue
+        candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+        return self._refs_from_paths([path for _, path in candidates], limit)
+
+    def _refs_from_paths(
+        self, ordered_paths: builtins.list[Path], limit: int | None
+    ) -> tuple[SessionRef, ...]:
         if limit is not None:
             ordered_paths = ordered_paths[:limit]
-        refs: list[SessionRef] = []
+        refs: builtins.list[SessionRef] = []
         for path in ordered_paths:
             ref = self._read_ref(path)
             if ref is not None:
@@ -126,15 +146,18 @@ class ClaudeSource:
                     if text and not _is_noise(text):
                         first_user = text.splitlines()[0][:TITLE_BUDGET]
         try:
-            updated_at = path.stat().st_mtime
+            stat_result = path.stat()
         except OSError:
             return None
+        updated_at = stat_result.st_mtime
+        size_bytes = stat_result.st_size
         return SessionRef(
             source=self.name,
             session_id=path.stem,
-            title=title or first_user or path.stem,
+            title=title or first_user or fallback_title(updated_at, size_bytes),
             updated_at=updated_at,
             turn_count=turn_count,
+            size_bytes=size_bytes,
         )
 
     def _records(self, path: Path) -> Generator[dict[str, object], None, None]:
@@ -159,7 +182,10 @@ class ClaudeSource:
         base = self._projects_root()
         if not base.is_dir():
             return None
-        return next(iter(sorted(base.glob(f"*/{session_id}.jsonl"))), None)
+        return next(
+            (path for path in sorted(base.glob("*/*.jsonl")) if path.stem == session_id),
+            None,
+        )
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:
         path = self._find(session_id)

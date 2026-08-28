@@ -134,6 +134,8 @@ async def run_agent_task(
     mode: ApprovalMode = ApprovalMode.AUTO,
     task_type: str = "general",
     root: Path | None = None,
+    home: Path | None = None,
+    extra_system: str = "",
     interactive: bool | None = None,
     memory: Memory | None = None,
     extra_roots: tuple[Path, ...] = (),
@@ -179,13 +181,22 @@ async def run_agent_task(
             asker=prompter if can_ask else None,
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
-            capabilities=CapabilityRegistry(Path.home(), tool_context.root),
+            capabilities=CapabilityRegistry(home, tool_context.root) if home is not None else None,
+            home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
             verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),
             task_type=task_type,
             background=background,
         )
-        outcome = await _run_agent_with_mcp(task, deps, config, bus, history=history, mode=mode)
+        outcome = await _run_agent_with_mcp(
+            task,
+            deps,
+            config,
+            bus,
+            history=history,
+            mode=mode,
+            extra_system=extra_system,
+        )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
         # kapı turu kestiğinde sebep ZATEN yayınlandı; ikinci bir "(model boş yanıt
@@ -225,6 +236,7 @@ async def _run_agent_with_mcp(
     *,
     history: list[Message] | None,
     mode: ApprovalMode,
+    extra_system: str,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -237,19 +249,27 @@ async def _run_agent_with_mcp(
     """
     plan_mode = mode is ApprovalMode.PLAN
     if not config.mcp_servers:
-        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+        return await run_agent(
+            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+        )
     try:
         from ..mcp_bridge.client import McpClient
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
-        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+        return await run_agent(
+            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+        )
     try:
         async with McpClient(config.mcp_servers) as client:
             await client.register_into(deps.base_registry)
-            return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+            return await run_agent(
+                task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+            )
     except Exception as error:
         bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-        return await run_agent(task, deps, history=history, plan_mode=plan_mode)
+        return await run_agent(
+            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+        )
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

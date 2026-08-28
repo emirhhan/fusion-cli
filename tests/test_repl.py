@@ -47,7 +47,10 @@ class _SayacBellek:
 @pytest.fixture
 def state(tmp_path):
     memory = null_memory()
-    return ReplState(config=make_config(), memory=memory, root=tmp_path)
+    # `home` ve `root` AYRI tutulur. Aynı dizin verilirse proje-yerel bir yetenek
+    # aynı anda "global" kökten de görünür ve kaynak etiketi anlamını yitirir;
+    # kaynak etiketini doğrulayan testler bunu yakalayamaz hale gelir.
+    return ReplState(config=make_config(), memory=memory, root=tmp_path, home=tmp_path / "ev")
 
 
 @pytest.fixture
@@ -866,6 +869,35 @@ async def test_repl_agent_turu_gorev_tipini_gecirir(state, monkeypatch):
     assert yakalanan.get("task_type") == "code"
 
 
+async def test_plain_repl_consumes_pending_digest_once_and_registers_history_tool(
+    state, tmp_path, monkeypatch
+) -> None:
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.engines.agent import AgentOutcome
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    observations: list[tuple[str, bool]] = []
+
+    async def _fake_run_agent(task, deps, **kwargs):
+        registry = build_agent_registry(deps, depth=0, run_agent=_fake_run_agent)
+        observations.append(
+            (str(kwargs.get("extra_system", "")), registry.get("read_session") is not None)
+        )
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.engines.agent.run_agent", _fake_run_agent)
+    state.home = tmp_path
+    state.pending_digest = "tek kullanımlık devralma künyesi"
+
+    await repl_loop._agent_turn("ilk görev", state, Console(quiet=True), _SahteArkaPlan())
+    await repl_loop._agent_turn("ikinci görev", state, Console(quiet=True), _SahteArkaPlan())
+
+    assert observations[0] == ("tek kullanımlık devralma künyesi", True)
+    assert "tek kullanımlık devralma künyesi" not in observations[1][0]
+    assert observations[1][1] is True
+    assert state.pending_digest is None
+
+
 class _SahteArkaPlan:
     def spawn(self, *a, **k):
         return None
@@ -973,7 +1005,13 @@ def test_repl_durumu_ek_dizinleri_tasir(tmp_path):
     ek = tmp_path / "diger-proje"
     ek.mkdir()
 
-    state = ReplState(config=make_config(), memory=null_memory(), root=tmp_path, extra_roots=(ek,))
+    state = ReplState(
+        config=make_config(),
+        memory=null_memory(),
+        root=tmp_path,
+        home=tmp_path,
+        extra_roots=(ek,),
+    )
 
     assert state.extra_roots == (ek,)
 

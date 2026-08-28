@@ -7,7 +7,9 @@ import json
 from fusion_cli.history.registry import available_sources, recent_sessions, source_by_name
 
 
-def _claude_kur(home, slug="-x", session_id="s1", metin="merhaba", mtime=None):
+def _claude_kur(home, slug=None, session_id="s1", metin="merhaba", mtime=None):
+    if slug is None:
+        slug = str(home / "proje").replace("/", "-")
     hedef = home / ".claude" / "projects" / slug
     hedef.mkdir(parents=True, exist_ok=True)
     yol = hedef / f"{session_id}.jsonl"
@@ -69,13 +71,13 @@ def test_recent_sessions_limiti_adaptore_gecirir(tmp_path, monkeypatch):
     from fusion_cli.history.claude_source import ClaudeSource
 
     seen_limits: list[int | None] = []
-    original_list = ClaudeSource.list
+    original_list = ClaudeSource.list_for_root
 
     def _kaydeden_list(self, root=None, limit=None):
         seen_limits.append(limit)
         return original_list(self, root, limit)
 
-    monkeypatch.setattr(ClaudeSource, "list", _kaydeden_list)
+    monkeypatch.setattr(ClaudeSource, "list_for_root", _kaydeden_list)
 
     recent_sessions(tmp_path, tmp_path / "proje", limit=3)
 
@@ -102,7 +104,7 @@ def test_recent_sessions_birden_fazla_kaynak_harmanlaninca_dogru_sirali(tmp_path
     )
     baglanti.execute(
         "INSERT INTO sessions VALUES (?,?,?,?,?,?)",
-        ("hermes-yeni", "cli", "h-yeni", "/x", 999.0, 0),
+        ("hermes-yeni", "cli", "h-yeni", str(tmp_path / "proje"), 999.0, 0),
     )
     baglanti.commit()
     baglanti.close()
@@ -110,3 +112,30 @@ def test_recent_sessions_birden_fazla_kaynak_harmanlaninca_dogru_sirali(tmp_path
     refs = recent_sessions(tmp_path, tmp_path / "proje", limit=1)
 
     assert [r.session_id for r in refs] == ["hermes-yeni"]
+
+
+def test_recent_sessions_isolates_a_corrupt_source(tmp_path, monkeypatch) -> None:
+    from fusion_cli.history import registry
+    from fusion_cli.history.models import SessionRef
+
+    class BrokenSource:
+        name = "broken"
+
+        def list_for_root(self, root, limit=None):
+            raise ValueError("bozuk kaynak")
+
+    class HealthySource:
+        name = "healthy"
+
+        def list_for_root(self, root, limit=None):
+            return (SessionRef("healthy", "h1", "sağlam", 10.0),)
+
+    monkeypatch.setattr(
+        registry,
+        "available_sources",
+        lambda _home: (BrokenSource(), HealthySource()),
+    )
+
+    refs = recent_sessions(tmp_path, tmp_path / "proje")
+
+    assert [ref.session_id for ref in refs] == ["h1"]

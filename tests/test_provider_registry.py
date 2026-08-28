@@ -75,7 +75,7 @@ def state(tmp_path):
 
     from .fakes import make_config
 
-    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path)
+    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
 
 
 def _run(state, satir):

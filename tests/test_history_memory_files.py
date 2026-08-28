@@ -5,46 +5,74 @@ from __future__ import annotations
 from fusion_cli.history.memory_files import read_external_memory
 
 
-def test_dosya_yoksa_bos_doner(tmp_path):
+def test_missing_files_return_empty_text(tmp_path):
     assert read_external_memory(tmp_path, tmp_path / "proje") == ""
 
 
-def test_claude_bellegi_okunur(tmp_path):
-    proje = tmp_path / "proje"
-    slug = str(proje).replace("/", "-")
-    hedef = tmp_path / ".claude" / "projects" / slug / "memory"
-    hedef.mkdir(parents=True)
-    (hedef / "MEMORY.md").write_text("- kullanıcı Türkçe konuşur", encoding="utf-8")
+def test_claude_memory_is_read(tmp_path):
+    root = tmp_path / "proje"
+    slug = str(root).replace("/", "-")
+    target = tmp_path / ".claude" / "projects" / slug / "memory"
+    target.mkdir(parents=True)
+    (target / "MEMORY.md").write_text("- kullanıcı Türkçe konuşur", encoding="utf-8")
 
-    cikti = read_external_memory(tmp_path, proje)
+    output = read_external_memory(tmp_path, root)
 
-    assert "kullanıcı Türkçe konuşur" in cikti
-    assert "claude" in cikti
-
-
-def test_hermes_bellegi_okunur(tmp_path):
-    hedef = tmp_path / ".hermes" / "memories"
-    hedef.mkdir(parents=True)
-    (hedef / "USER.md").write_text("- kullanıcı motosiklet satıyor", encoding="utf-8")
-
-    cikti = read_external_memory(tmp_path, tmp_path / "proje")
-
-    assert "motosiklet" in cikti
+    assert "kullanıcı Türkçe konuşur" in output
+    assert "claude" in output
 
 
-def test_uzun_dosya_kirpilir(tmp_path):
-    hedef = tmp_path / ".hermes" / "memories"
-    hedef.mkdir(parents=True)
-    (hedef / "MEMORY.md").write_text("x" * 20_000, encoding="utf-8")
+def test_hermes_memory_is_read(tmp_path):
+    target = tmp_path / ".hermes" / "memories"
+    target.mkdir(parents=True)
+    (target / "USER.md").write_text("- kullanıcı motosiklet satıyor", encoding="utf-8")
 
-    cikti = read_external_memory(tmp_path, tmp_path / "proje")
+    output = read_external_memory(tmp_path, tmp_path / "proje")
 
-    assert "kırpıldı" in cikti
+    assert "motosiklet" in output
 
 
-def test_bos_dosya_atlanir(tmp_path):
-    hedef = tmp_path / ".hermes" / "memories"
-    hedef.mkdir(parents=True)
-    (hedef / "MEMORY.md").write_text("   \n", encoding="utf-8")
+def test_long_memory_file_is_truncated(tmp_path):
+    target = tmp_path / ".hermes" / "memories"
+    target.mkdir(parents=True)
+    (target / "MEMORY.md").write_text("x" * 20_000, encoding="utf-8")
+
+    output = read_external_memory(tmp_path, tmp_path / "proje")
+
+    assert "kırpıldı" in output
+
+
+def test_blank_memory_file_is_skipped(tmp_path):
+    target = tmp_path / ".hermes" / "memories"
+    target.mkdir(parents=True)
+    (target / "MEMORY.md").write_text("   \n", encoding="utf-8")
 
     assert read_external_memory(tmp_path, tmp_path / "proje") == ""
+
+
+def test_invalid_utf8_memory_does_not_hide_other_sources(tmp_path) -> None:
+    claude = tmp_path / ".claude" / "projects" / str(tmp_path / "proje").replace("/", "-")
+    claude_memory = claude / "memory"
+    claude_memory.mkdir(parents=True)
+    (claude_memory / "MEMORY.md").write_bytes(b"\xff\xfe")
+    hermes_memory = tmp_path / ".hermes" / "memories"
+    hermes_memory.mkdir(parents=True)
+    (hermes_memory / "USER.md").write_text("geçerli bellek", encoding="utf-8")
+
+    output = read_external_memory(tmp_path, tmp_path / "proje")
+
+    assert "geçerli bellek" in output
+
+
+def test_symlinked_memory_is_rejected_without_reading_target(tmp_path) -> None:
+    target = tmp_path / "ozel.txt"
+    target.write_text("okunmamasi gereken ozel icerik", encoding="utf-8")
+    memories = tmp_path / ".hermes" / "memories"
+    memories.mkdir(parents=True)
+    link = memories / "MEMORY.md"
+    link.symlink_to(target)
+
+    output = read_external_memory(tmp_path, tmp_path / "proje")
+
+    assert output == ""
+    assert "ozel icerik" not in output

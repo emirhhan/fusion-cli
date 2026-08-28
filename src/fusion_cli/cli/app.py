@@ -274,6 +274,7 @@ def agent(
                 ),
                 mode=approval,
                 root=root,
+                home=Path.home(),
                 memory=open_memory(config, root=root, enabled=not no_memory),
                 extra_roots=tuple(add_dir or ()),
             )

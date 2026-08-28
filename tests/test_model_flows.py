@@ -301,7 +301,7 @@ def test_level_argumanla_ekran_acmadan_calisir(config, tmp_path):
     from fusion_cli.cli.repl.state import ReplState
     from fusion_cli.memory.factory import null_memory
 
-    state = ReplState(config=config, memory=null_memory(), root=tmp_path)
+    state = ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path)
     registry = build_registry()
     _, arguman = parse("/level premium")
 
@@ -315,7 +315,7 @@ def test_level_bilinmeyen_kademeyle_anlasilir_hata_verir(config, tmp_path):
     from fusion_cli.cli.repl.state import ReplState
     from fusion_cli.memory.factory import null_memory
 
-    state = ReplState(config=config, memory=null_memory(), root=tmp_path)
+    state = ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path)
 
     sonuc = build_registry().get("level").handler(state, "yok-boyle")
 

@@ -171,17 +171,17 @@ class CapabilityRegistry:
         return (
             (self._home / ".claude" / "skills", "global"),
             (self._home / ".claude" / "plugins", "plugin"),
-            (self._home / ".codex" / "skills", "codex"),
-            (self._home / ".hermes" / "skills", "hermes"),
             (self._root / ".claude" / "skills", "proje"),
             (self._root / ".fusion" / "skills", "proje"),
+            (self._home / ".codex" / "skills", "codex"),
+            (self._home / ".hermes" / "skills", "hermes"),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
         return (
             (self._home / ".claude" / "agents", "global"),
-            (self._home / ".codex" / "agents", "codex"),
             (self._root / ".claude" / "agents", "proje"),
+            (self._home / ".codex" / "agents", "codex"),
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -191,7 +191,7 @@ class CapabilityRegistry:
                 continue
             for path in sorted(root.rglob("SKILL.md")):
                 capability = _to_capability(path, source, fallback=path.parent.name)
-                # İlk bulunan kazanır: global > plugin > proje sırası bilinçlidir.
+                # İlk bulunan kazanır: tüm Claude/proje kökleri dış kaynaklardan önce.
                 found.setdefault(capability.name, capability)
         return tuple(found.values())
 

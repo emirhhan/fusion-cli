@@ -310,3 +310,26 @@ def test_root_verildiginde_diger_proje_kaybolmaz_ama_geriye_atilir(tmp_path):
 
     # Beklenti: "bu-proje" ESKİ OLMASINA RAĞMEN ÖNCE GELIR (aidiyet sayesinde)
     assert [r.session_id for r in refs] == ["bu-proje", "diger"]
+
+
+def test_model_controlled_session_id_is_not_a_glob(tmp_path) -> None:
+    _oturum_yaz(
+        tmp_path,
+        "-p",
+        "safe-id",
+        [{"type": "user", "message": {"role": "user", "content": "özel içerik"}}],
+    )
+    source = ClaudeSource(tmp_path)
+
+    for unsafe_id in ("*", "[a]", "../safe-id", "-p/safe-id"):
+        assert source.read(unsafe_id) == ()
+
+
+def test_title_falls_back_to_date_and_size(tmp_path) -> None:
+    path = _oturum_yaz(tmp_path, "-p", "s1", [], mtime=1_700_000_000.0)
+
+    (ref,) = ClaudeSource(tmp_path).list()
+
+    assert "2023-11-14" in ref.title
+    assert f"{path.stat().st_size} bayt" in ref.title
+    assert ref.title != "s1"

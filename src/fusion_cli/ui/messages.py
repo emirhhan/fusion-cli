@@ -581,6 +581,17 @@ HISTORY_SECRETS_FOUND = (
     "⚠ Bu oturumda {count} anahtar/token göründü. Bunları değiştirmeni öneririm."
 )
 HISTORY_RECENT_TITLE = "son oturumlar"
+READ_SESSION_INVALID_ARGUMENTS = "'source' ve 'session_id' metin olmalı."
+READ_SESSION_UNKNOWN_SOURCE = "Bilinmeyen ya da kurulu olmayan kaynak: {source}"
+READ_SESSION_EMPTY = "Oturum bulunamadı ya da bu imleçte tur yok: {session_id}"
+READ_SESSION_INVALID_TEXT_CURSOR = "Metin imleci ilk turun sınırları dışında: {cursor}"
+READ_SESSION_DESCRIPTION = (
+    "Devralınan bir oturumun turlarını imleçle oku. Künyede gördüğün satır "
+    "numarasını 'cursor' olarak ver; büyük bir tur bölünürse dönen 'text_cursor' "
+    "değeriyle aynı turdan devam et. Oturumun tamamını tek çağrıda çekme."
+)
+READ_SESSION_CONTINUATION = "\n\n[devam: cursor={cursor}, text_cursor={text_cursor}]"
+READ_SESSION_COMPLETE = "\n\n[devam: tamamlandı]"
 
 
 # --- setup ----------------------------------------------------------------- #

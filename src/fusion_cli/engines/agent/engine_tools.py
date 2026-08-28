@@ -27,12 +27,22 @@ from ...tools.capabilities import (
     search,
 )
 from ...tools.registry import ToolRegistry
+from ...ui import messages
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
 
 #: Alt-ajan iç içe çağrı sınırı. Runaway özyinelemeyi keser.
 MAX_AGENT_DEPTH = 1
+
+#: Tek `read_session` sonucunun modele taşıyabileceği en fazla karakter. 12 bin
+#: karakter, bir araç sayfasını küçük tutarken birkaç kısa turu birlikte görmeye
+#: yeter; devam imleci büyük tek turları kayıpsız böler.
+READ_SESSION_CHAR_BUDGET = 12_000
+#: Devam bilgisinin gövde bütçesinden önceden ayrılan üst sınırı.
+_READ_SESSION_METADATA_BUDGET = 160
+_READ_SESSION_DEFAULT_LIMIT = 20
+_READ_SESSION_MAX_LIMIT = 100
 
 _STRING = {"type": "string"}
 
@@ -431,6 +441,15 @@ def _format(hits: tuple[Capability, ...]) -> str:
 # --------------------------------------------------------------------------- #
 
 
+@dataclass(frozen=True, slots=True)
+class _HistoryPage:
+    """Sınırlandırılmış araç gövdesi ve varsa kesin devam konumu."""
+
+    body: str
+    next_cursor: int | None
+    next_text_cursor: int = 0
+
+
 def build_history_tool(home: Path) -> Tool:
     """`read_session` — devralınan oturumun ayrıntısını imleçle oku.
 
@@ -444,25 +463,37 @@ def build_history_tool(home: Path) -> Tool:
         source_name = args.get("source")
         session_id = args.get("session_id")
         if not isinstance(source_name, str) or not isinstance(session_id, str):
-            return ToolResult.failure("'source' ve 'session_id' metin olmalı.")
+            return ToolResult.failure(messages.READ_SESSION_INVALID_ARGUMENTS)
         source = source_by_name(home, source_name)
         if source is None:
-            return ToolResult.failure(f"Bilinmeyen ya da kurulu olmayan kaynak: {source_name}")
-        cursor = args.get("cursor")
-        limit = args.get("limit")
+            return ToolResult.failure(
+                messages.READ_SESSION_UNKNOWN_SOURCE.format(source=source_name)
+            )
+        cursor = _bounded_int(args.get("cursor"), default=0, minimum=0)
+        limit = _bounded_int(
+            args.get("limit"),
+            default=_READ_SESSION_DEFAULT_LIMIT,
+            minimum=1,
+            maximum=_READ_SESSION_MAX_LIMIT,
+        )
+        text_cursor = _bounded_int(args.get("text_cursor"), default=0, minimum=0)
         turns = source.read(
             session_id,
-            cursor=cursor if isinstance(cursor, int) and cursor >= 0 else 0,
-            limit=limit if isinstance(limit, int) and 0 < limit <= 100 else 20,
+            cursor=cursor,
+            limit=limit + 1,
         )
         if not turns:
-            return ToolResult.failure(f"Oturum bulunamadı ya da bu imleçte tur yok: {session_id}")
-        return ToolResult("\n\n".join(f"[{t.role}] {t.text}" for t in turns))
+            return ToolResult.failure(messages.READ_SESSION_EMPTY.format(session_id=session_id))
+        if text_cursor > len(turns[0].text):
+            return ToolResult.failure(
+                messages.READ_SESSION_INVALID_TEXT_CURSOR.format(cursor=text_cursor)
+            )
+        page = _history_page(turns, cursor, limit, text_cursor)
+        return ToolResult(_history_page_output(page))
 
     return Tool(
         name="read_session",
-        description="Devralınan bir oturumun turlarını imleçle oku. Künyede gördüğün "
-        "satır numarasını 'cursor' olarak ver; oturumun tamamını çekmeye KALKMA.",
+        description=messages.READ_SESSION_DESCRIPTION,
         parameters={
             "type": "object",
             "properties": {
@@ -470,8 +501,64 @@ def build_history_tool(home: Path) -> Tool:
                 "session_id": _STRING,
                 "cursor": {"type": "integer"},
                 "limit": {"type": "integer"},
+                "text_cursor": {"type": "integer"},
             },
             "required": ["source", "session_id"],
         },
         run=_run,
     )
+
+
+def _bounded_int(
+    value: object,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int | None = None,
+) -> int:
+    """Modelden gelen tamsayıyı güvenli aralığa daralt; bozuksa varsayılanı kullan."""
+    if not isinstance(value, int) or isinstance(value, bool) or value < minimum:
+        return default
+    if maximum is not None and value > maximum:
+        return default
+    return value
+
+
+def _history_page(
+    turns: tuple[object, ...], cursor: int, limit: int, text_cursor: int
+) -> _HistoryPage:
+    """Turları karakter bütçesine sığdır ve devam konumunu hesapla."""
+    from ...history.models import Turn
+
+    visible = tuple(turn for turn in turns[:limit] if isinstance(turn, Turn))
+    body_budget = READ_SESSION_CHAR_BUDGET - _READ_SESSION_METADATA_BUDGET
+    parts: list[str] = []
+    used = 0
+    for index, turn in enumerate(visible):
+        offset = text_cursor if index == 0 else 0
+        prefix = ("\n\n" if parts else "") + f"[{turn.role}] "
+        available = body_budget - used - len(prefix)
+        if available <= 0:
+            return _HistoryPage("".join(parts), cursor + index, offset)
+        remaining_text = turn.text[offset:]
+        if len(remaining_text) > available:
+            parts.append(prefix + remaining_text[:available])
+            return _HistoryPage("".join(parts), cursor + index, offset + available)
+        parts.append(prefix + remaining_text)
+        used += len(prefix) + len(remaining_text)
+    if len(turns) > limit:
+        return _HistoryPage("".join(parts), cursor + limit)
+    return _HistoryPage("".join(parts), None)
+
+
+def _history_page_output(page: _HistoryPage) -> str:
+    """Gövdeye açık tamamlanma/devam üstverisi ekle ve sert bütçeyi koru."""
+    if page.next_cursor is None:
+        metadata = messages.READ_SESSION_COMPLETE
+    else:
+        metadata = messages.READ_SESSION_CONTINUATION.format(
+            cursor=page.next_cursor,
+            text_cursor=page.next_text_cursor,
+        )
+    body = page.body[: READ_SESSION_CHAR_BUDGET - len(metadata)]
+    return body + metadata

@@ -19,7 +19,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from .models import SessionRef, Turn
+from .models import SessionRef, Turn, fallback_title
 
 #: Okunan tip → ortak rol eşlemesi. Listede olmayan tipler yok sayılır.
 _ROLES = {"userMessage": "user", "agentMessage": "assistant"}
@@ -75,19 +75,54 @@ class CodexSource:
                 continue
             if not isinstance(record, dict) or not record.get("id"):
                 continue
+            session_id = str(record["id"])
+            updated_at = _epoch(record.get("updated_at"))
+            stored_title = str(record.get("thread_name") or "").strip()
+            first_user, size_bytes = (
+                self._fallback_metadata(session_id) if not stored_title else ("", 0)
+            )
             refs.append(
                 SessionRef(
                     source=self.name,
-                    session_id=str(record["id"]),
-                    title=str(record.get("thread_name") or record["id"]),
-                    updated_at=_epoch(record.get("updated_at")),
+                    session_id=session_id,
+                    title=stored_title or first_user or fallback_title(updated_at, size_bytes),
+                    updated_at=updated_at,
                     turn_count=0,
+                    size_bytes=size_bytes,
                 )
             )
         refs.sort(key=lambda r: r.updated_at, reverse=True)
         if limit is not None:
             refs = refs[:limit]
         return tuple(refs)
+
+    def list_for_root(self, root: Path, limit: int | None = None) -> tuple[SessionRef, ...]:
+        """Codex proje aidiyetini kanıtlamadığı için açılış listesine katılmaz."""
+        return ()
+
+    def _fallback_metadata(self, session_id: str) -> tuple[str, int]:
+        """Başlıksız bir Codex kaydı için ilk kullanıcı metni ve içerik boyutu."""
+        connection = self._connect()
+        if connection is None:
+            return "", 0
+        try:
+            row = connection.execute(
+                "SELECT (SELECT item_json FROM thread_items "
+                "WHERE thread_id = ? AND item_type = 'userMessage' "
+                "ORDER BY rollout_ordinal LIMIT 1), "
+                "COALESCE(SUM(length(CAST(item_json AS BLOB))), 0) "
+                "FROM thread_items WHERE thread_id = ?",
+                (session_id, session_id),
+            ).fetchone()
+        except sqlite3.Error:
+            return "", 0
+        finally:
+            connection.close()
+        if row is None:
+            return "", 0
+        first_user = _text_of(row[0], "userMessage")
+        title = first_user.splitlines()[0][:60] if first_user else ""
+        return title, _safe_int(row[1])
 
     def read(self, session_id: str, cursor: int = 0, limit: int = 50) -> tuple[Turn, ...]:
         """`cursor`'dan başlayarak en fazla `limit` GEÇERLİ tur döndür.
@@ -164,8 +199,18 @@ def _millis_to_seconds(value: object) -> float:
         return 0.0
     try:
         return float(value or 0) / 1000.0
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.0
+
+
+def _safe_int(value: object) -> int:
+    """Beklenmedik SQLite değerini negatif olmayan tam sayıya daralt."""
+    if not isinstance(value, (int, float, str)):
+        return 0
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _epoch(value: object) -> float:

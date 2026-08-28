@@ -15,13 +15,16 @@ import os
 
 from fusion_cli.cli.repl.state import ReplState
 from fusion_cli.cli.repl.tui_loop import _print_startup, _TuiSession
+from fusion_cli.history.claude_source import slug_for
 from fusion_cli.memory.factory import null_memory
 
 from .fakes import make_config
 
 
-def _claude_kur(home, session_id, metin, mtime):
-    hedef = home / ".claude" / "projects" / "-x"
+def _claude_kur(home, root, session_id, metin, mtime):
+    # Açılış listesi yalnız proje aidiyeti KESİN kayıtları gösterir: dizin adı
+    # çalışma kökünün slug'ıyla birebir eşleşmeli, yoksa oturum hiç görünmez.
+    hedef = home / ".claude" / "projects" / slug_for(root)
     hedef.mkdir(parents=True, exist_ok=True)
     yol = hedef / f"{session_id}.jsonl"
     yol.write_text(
@@ -39,7 +42,7 @@ def test_tui_acilisinda_oturum_varsa_liste_basilir(tmp_path):
     home = tmp_path / "home"
     root = tmp_path / "proje"
     root.mkdir()
-    _claude_kur(home, "s1", "ilk iş", 1000)
+    _claude_kur(home, root, "s1", "ilk iş", 1000)
     state = _state(root, home)
     session = _TuiSession(state)
 

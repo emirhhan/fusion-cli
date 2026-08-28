@@ -15,7 +15,7 @@ from .fakes import make_config
 
 
 def _state(tmp_path) -> ReplState:
-    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path)
+    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path)
 
 
 class _Tool:
@@ -310,6 +310,29 @@ async def test_agent_turu_verilen_arac_baglamini_kullanir(tmp_path):
 
     assert context.changes.paths, "değişiklik kümesi çağıranın bağlamında birikmedi"
     assert (tmp_path / "a.txt").exists()
+
+
+async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monkeypatch) -> None:
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+    state.pending_digest = "TUI devralma künyesi"
+
+    await session._turn("ilk görev")
+    await session._turn("ikinci görev")
+
+    assert calls[0]["home"] == state.home
+    assert calls[0]["extra_system"] == "TUI devralma künyesi"
+    assert "TUI devralma künyesi" not in str(calls[1]["extra_system"])
+    assert state.pending_digest is None
 
 
 class _Onaylayan:

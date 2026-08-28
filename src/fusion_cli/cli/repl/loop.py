@@ -84,6 +84,7 @@ async def run_repl(
             config=config,
             memory=memory,
             root=root,
+            home=Path.home(),
             extra_roots=extra_roots,
             health=_build_health(config),
         )
@@ -93,6 +94,7 @@ async def run_repl(
         config=config,
         memory=memory,
         root=root,
+        home=Path.home(),
         extra_roots=extra_roots,
         health=_build_health(config),
     )
@@ -412,6 +414,7 @@ async def _agent_turn(
             code_index=state.memory.code_index if state.memory.enabled else None,
             lessons=state.memory.lessons,
             capabilities=state.capabilities,
+            home=state.home,
             allowed_commands=state.allowed_commands,
             background=background,
             verifier=build_verifier(state.config, root=state.root, tool_context=tool_context),
@@ -422,6 +425,9 @@ async def _agent_turn(
             health=state.health,
         )
         try:
+            turn_extra_system = "\n\n".join(
+                part for part in (macros.mode_prompt(mode), state.take_pending_digest()) if part
+            )
             outcome = await _drive_agent(
                 run_agent,
                 line,
@@ -429,7 +435,7 @@ async def _agent_turn(
                 state,
                 console,
                 plan_mode=state.approval.value == "plan",
-                extra_system=macros.mode_prompt(mode),
+                extra_system=turn_extra_system,
                 step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
             )
             # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.

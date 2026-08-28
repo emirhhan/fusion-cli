@@ -49,6 +49,8 @@ class ReplState:
     config: Config
     memory: Memory
     root: Path
+    #: Geçmiş, yetenek ve dış bellek kökü. Composition root tarafından enjekte edilir.
+    home: Path
     #: Proje kökünün YANINDA erişime açılan dizinler (`--add-dir`).
     #
     # Tek-atış `fusion agent` bunu destekliyordu ama interaktif oturum
@@ -56,8 +58,6 @@ class ReplState:
     # erişemiyor, `run_shell(ls -la ..)` ile dolaşmaya çalışıp tur bütçesini
     # yakıyordu.
     extra_roots: tuple[Path, ...] = ()
-    #: Geçmiş kaynaklarının aranacağı ev dizini. Test enjekte edebilsin diye alandır.
-    home: Path = field(default_factory=Path.home)
     engine: Engine = Engine.AGENT
     approval: ApprovalMode = ApprovalMode.AUTO
     task_type: str = "general"
@@ -105,6 +105,12 @@ class ReplState:
     reminders: list[Reminder] = field(default_factory=list)
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.
     pending_digest: str | None = None
+
+    def take_pending_digest(self) -> str:
+        """Devralma künyesini bir kez al ve sonraki turlardan temizle."""
+        digest = self.pending_digest or ""
+        self.pending_digest = None
+        return digest
 
     def __post_init__(self) -> None:
         if self.capabilities is None:

@@ -120,7 +120,9 @@ def _state(tmp_path, health=None):
 
     from .fakes import make_config
 
-    return ReplState(config=make_config(), memory=null_memory(), root=tmp_path, health=health)
+    return ReplState(
+        config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path, health=health
+    )
 
 
 def _run(state, satir):

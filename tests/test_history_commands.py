@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 
 from fusion_cli.cli.repl.commands import build_registry
@@ -29,6 +30,12 @@ def test_home_verilmezse_resume_komutu_yok():
     registry = build_registry()
 
     assert registry.get("resumeclaude") is None
+
+
+def test_repl_state_requires_injected_home() -> None:
+    parameter = inspect.signature(ReplState).parameters["home"]
+
+    assert parameter.default is inspect.Parameter.empty
 
 
 def test_kurulu_kaynak_icin_komut_eklenir(tmp_path):

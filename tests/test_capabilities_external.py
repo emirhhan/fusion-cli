@@ -121,3 +121,32 @@ def test_bozuk_ve_eksik_codex_promptu_bos_doner(tmp_path):
 
     assert load_agent_prompt(tmp_path / ".codex" / "agents" / "bozuk.toml") == ""
     assert load_agent_prompt(tmp_path / ".codex" / "agents" / "eksik.toml") == ""
+
+
+def test_project_claude_skill_beats_codex_and_hermes(tmp_path) -> None:
+    root = tmp_path / "proje"
+    _skill_yaz(root / ".claude" / "skills", "ortak", desc="proje sürümü")
+    _skill_yaz(tmp_path / ".codex" / "skills", "ortak", desc="codex sürümü")
+    _skill_yaz(tmp_path / ".hermes" / "skills", "ortak", desc="hermes sürümü")
+
+    capability = CapabilityRegistry(tmp_path, root).get_skill("ortak")
+
+    assert capability is not None
+    assert capability.source == "proje"
+    assert capability.description == "proje sürümü"
+
+
+def test_project_claude_agent_beats_codex(tmp_path) -> None:
+    root = tmp_path / "proje"
+    target = root / ".claude" / "agents"
+    target.mkdir(parents=True)
+    (target / "architect.md").write_text(
+        "---\nname: architect\ndescription: proje sürümü\n---\n", encoding="utf-8"
+    )
+    _toml_agent_yaz(tmp_path, "architect")
+
+    capability = CapabilityRegistry(tmp_path, root).get_agent("architect")
+
+    assert capability is not None
+    assert capability.source == "proje"
+    assert capability.description == "proje sürümü"

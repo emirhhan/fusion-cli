@@ -406,6 +406,8 @@ class _TuiSession:
                     mode=self._state.approval,
                     task_type=self._state.task_type,
                     root=self._state.root,
+                    home=self._state.home,
+                    extra_system=self._state.take_pending_digest(),
                     interactive=True,
                     memory=self._state.memory,
                     history=self._state.history,

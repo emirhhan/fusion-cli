@@ -197,3 +197,17 @@ def test_list_limit_verilmezse_hepsi_doner(tmp_path):
     refs = CodexSource(tmp_path).list()
 
     assert [r.session_id for r in refs] == ["s2", "s1", "s0"]
+
+
+def test_title_falls_back_to_date_and_size(tmp_path) -> None:
+    _kur(
+        tmp_path,
+        [("th1", 1, "agentMessage", {"type": "agentMessage", "text": "cevap"})],
+    )
+    _indeks(tmp_path, [{"id": "th1", "updated_at": "2023-11-14T00:00:00Z"}])
+
+    (ref,) = CodexSource(tmp_path).list()
+
+    assert "2023-11-14" in ref.title
+    assert "bayt" in ref.title
+    assert ref.title != "th1"

@@ -77,8 +77,9 @@ async def test_agent_session_surfaces_non_rate_failure(
         *,
         history=None,
         plan_mode=False,
+        extra_system=None,
     ):
-        del history, plan_mode
+        del history, plan_mode, extra_system
         return AgentOutcome(
             final_text="İşlem tamamlanmadı: gerekli araç kanıtı yok.",
             messages=[Message("user", "görev")],

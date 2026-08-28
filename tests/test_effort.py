@@ -22,7 +22,7 @@ def config(tmp_path):
 
 @pytest.fixture
 def state(config, tmp_path):
-    return ReplState(config=config, memory=null_memory(), root=tmp_path)
+    return ReplState(config=config, memory=null_memory(), root=tmp_path, home=tmp_path)
 
 
 def _run(state, satir):
