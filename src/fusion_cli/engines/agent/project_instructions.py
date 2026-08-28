@@ -53,13 +53,22 @@ def read_project_instructions(root: Path) -> str:
     return ""
 
 
-def read_all_instructions(root: Path, home: Path) -> str:
+def read_all_instructions(root: Path, home: Path | None) -> str:
     """Proje talimatı ve dış araç belleklerini birlikte döndür.
 
     Sıra bilinçlidir: proje talimatı önce gelir, çünkü çakışma halinde projenin
     kendi kuralı kullanıcının genel belleğini yener.
+
+    `home` verilmezse (ör. testte ya da ev dizini bilinmiyorsa) dış bellek hiç
+    okunmaz — bu, `AgentDeps` alanlarının "yoksa o yetenek hiç sunulmaz" deseniyle
+    tutarlıdır.
     """
+    proje_talimati = read_project_instructions(root)
+    if home is None:
+        return proje_talimati
+
     from ...history.memory_files import read_external_memory
 
-    parts = [read_project_instructions(root), read_external_memory(home, root)]
+    dis_bellek = read_external_memory(home, root)
+    parts = [proje_talimati, dis_bellek]
     return "\n".join(part for part in parts if part)

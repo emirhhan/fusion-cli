@@ -53,7 +53,9 @@ def sink():
     return RecordingSink()
 
 
-def _deps(tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, **config_args):
+def _deps(
+    tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, home=None, **config_args
+):
     prompter = prompter or AlwaysApprove()
     return AgentDeps(
         config=make_config(**config_args),
@@ -61,6 +63,7 @@ def _deps(tmp_path, sink, *, mode=ApprovalMode.AUTO, prompter=None, asker=None, 
         policy=build_policy(mode, prompter),
         tool_context=ToolContext(root=tmp_path),
         asker=asker,
+        home=home,
     )
 
 
@@ -300,6 +303,75 @@ async def test_talimat_dosyasi_yoksa_sistem_promptu_etkilenmez(monkeypatch, tmp_
 
     sistem = provider.seen_messages[0][0]
     assert "proje_talimati" not in sistem.content
+
+
+async def test_home_verildiginde_dis_bellek_sistem_promptuna_girer(monkeypatch, tmp_path, sink):
+    """`read_all_instructions` ölü kod olmamalı: `deps.home` verildiğinde Claude'un
+    dış bellek dosyası (`~/.claude/projects/<slug>/memory/MEMORY.md`) gerçekten
+    ajan turunun ürettiği sistem metnine ulaşmalı."""
+    from fusion_cli.history.claude_source import slug_for
+
+    home = tmp_path / "ev"
+    root = tmp_path / "proje"
+    root.mkdir()
+    bellek_dizini = home / ".claude" / "projects" / slug_for(root) / "memory"
+    bellek_dizini.mkdir(parents=True)
+    (bellek_dizini / "MEMORY.md").write_text(
+        "Kullanıcı: motosiklet ekipmanı satıyor.", encoding="utf-8"
+    )
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=root),
+        home=home,
+    )
+    await run_agent("gorev", deps)
+
+    sistem = provider.seen_messages[0][0]
+    assert "Kullanıcı: motosiklet ekipmanı satıyor." in sistem.content
+
+
+async def test_home_yoksa_dis_bellek_okunmaz_ama_proje_talimati_calisir(
+    monkeypatch, tmp_path, sink
+):
+    (tmp_path / "CLAUDE.md").write_text("proje kurali", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    await run_agent("gorev", _deps(tmp_path, sink, home=None))
+
+    sistem = provider.seen_messages[0][0]
+    assert "proje kurali" in sistem.content
+    assert "dis_bellek" not in sistem.content
+
+
+async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, sink):
+    from fusion_cli.history.claude_source import slug_for
+
+    home = tmp_path / "ev"
+    root = tmp_path / "proje"
+    root.mkdir()
+    (root / "CLAUDE.md").write_text("proje kurali once gelmeli", encoding="utf-8")
+    bellek_dizini = home / ".claude" / "projects" / slug_for(root) / "memory"
+    bellek_dizini.mkdir(parents=True)
+    (bellek_dizini / "MEMORY.md").write_text("dis bellek sonra gelmeli", encoding="utf-8")
+    provider = _kur(monkeypatch, ScriptedProvider([model_result(TAM_CEVAP)]))
+
+    deps = AgentDeps(
+        config=make_config(),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=root),
+        home=home,
+    )
+    await run_agent("gorev", deps)
+
+    sistem = provider.seen_messages[0][0]
+    assert sistem.content.index("proje kurali once gelmeli") < sistem.content.index(
+        "dis bellek sonra gelmeli"
+    )
 
 
 async def test_alt_ajan_temiz_baglamla_calisir(monkeypatch, tmp_path, sink):

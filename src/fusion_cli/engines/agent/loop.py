@@ -77,7 +77,7 @@ from .classify import TaskClassification, TaskKind, classify_task_details, recal
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
 from .playbook_stage import maybe_run_playbook, run_workflow_stages
-from .project_instructions import read_project_instructions
+from .project_instructions import read_all_instructions
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -360,13 +360,13 @@ async def run_agent(
     )
     remembered = as_prompt_block(recalled)
     expertise = _recall_skill(classification, deps, depth=depth)
-    proje_talimati = read_project_instructions(deps.tool_context.root)
+    proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
-            part for part in (proje_talimati, remembered, expertise, extra_system) if part
+            part for part in (proje_ve_dis_bellek, remembered, expertise, extra_system) if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
