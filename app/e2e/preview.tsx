@@ -21,6 +21,7 @@ import { TerminalPanel } from "../src/processes/TerminalPanel";
 import { ProcessesPanel } from "../src/processes/ProcessesPanel";
 import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
+import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 
 const params = new URLSearchParams(location.search);
 const theme = (params.get("theme") ?? "light") as ThemePreference;
@@ -63,6 +64,16 @@ const workspaceClient = {
     if (name === "proje.komut_onerileri") return { ok: true, komutlar: [{ tur: "check", ad: "Tüm kalite kapısı", komut: "make check" }, { tur: "build", ad: "Üretim derlemesi", komut: "npm run build" }] };
     if (name === "proje.git_durum") return { ok: true, git: true, branch: "fusion-app", degisen: 3, ileride: 2, geride: 0 };
     if (name === "proje.onizle") return { ok: true, yol: String(data.yol), tur: "image", mime: "image/svg+xml", boyut: 205, base64: btoa('<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="100%" height="100%" rx="24" fill="#101828"/><circle cx="360" cy="180" r="88" fill="#10a37f"/><text x="360" y="320" text-anchor="middle" fill="white" font-size="34" font-family="sans-serif">Fusion App</text></svg>') };
+    if (name === "yetenek.katalog") return { ok: true,
+      beceriler: [
+        { ad: "frontend-design", aciklama: "Üretim kalitesinde arayüz tasarım disiplini", kaynak: "claude+codex", tur: "beceri", etkin: true, izinler: ["dosya okuma", "dosya düzenleme"] },
+        { ad: "systematic-debugging", aciklama: "Kanıta dayalı hata ayıklama", kaynak: "claude", tur: "beceri", etkin: true, izinler: ["dosya okuma", "komut çalıştırma"] },
+      ],
+      ajanlar: [{ ad: "architect", aciklama: "Mimari kararları ve sınırları inceler", kaynak: "codex", tur: "ajan", etkin: true, izinler: ["dosya okuma"] }],
+      talimatlar: [{ ad: "CLAUDE.md", aciklama: "Aktif proje talimatı", kaynak: "proje", tur: "talimat", etkin: true, izinler: [] }],
+      mcp: [{ ad: "figma", aciklama: "Figma tasarım dosyaları ve düğümleri", kaynak: "fusion", tur: "mcp", etkin: false, izinler: ["yerel komut", "dış araçlar"] }],
+    };
+    if (name === "yetenek.detay") return { ok: true, tur: data.tur, ad: data.ad, icerik: "Bu uzmanlık, görevin gerektirdiği dosyaları önce okur; değişiklikten sonra test ve görsel kanıt toplar.", kesildi: false };
     return { ok: true };
   },
 } as unknown as ProtocolClient;
@@ -126,14 +137,15 @@ function historyFixture(): HistoryController {
 
 function Preview() {
   const inspector = state.startsWith("workspace-") ? <WorkspaceInspector /> : <Inspector />;
+  const capabilities = state === "capabilities";
   return (
     <>
       <Shell
-        composer={<Composer onSend={() => undefined} />}
-        content={state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
-        header={<AppHeader inspectorOpen={inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title="macOS uygulaması" />}
-        inspector={inspector}
-        inspectorOpen={inspectorOpen}
+        composer={capabilities ? undefined : <Composer onSend={() => undefined} />}
+        content={capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
+        header={<AppHeader inspectorOpen={!capabilities && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={capabilities ? "Beceriler ve Ajanlar" : "macOS uygulaması"} />}
+        inspector={capabilities ? undefined : inspector}
+        inspectorOpen={!capabilities && inspectorOpen}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}

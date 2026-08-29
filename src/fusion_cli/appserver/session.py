@@ -16,6 +16,7 @@ C1/C4).
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -29,8 +30,10 @@ from ..config.paths import credentials_file
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
 from ..memory.factory import build_memory
+from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
+from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .processes import ProcessManager
@@ -83,6 +86,12 @@ class AppSession:
         )
         self._workspace_journal = WorkspaceJournal()
         self._processes = ProcessManager(self._state.root, writer)
+        self._all_capabilities = CapabilityRegistry(home, root)
+        self._disabled_skills: set[str] = set()
+        self._disabled_agents: set[str] = set()
+        self._disabled_mcp: set[str] = set()
+        self._pending_capability: tuple[str, str] | None = None
+        self._refresh_capabilities()
         self._turn: asyncio.Task[Any] | None = None
 
     async def handle(self, request: Request) -> None:
@@ -136,6 +145,23 @@ class AppSession:
             return suggested_commands(self._state.root)
         if request.name == "proje.git_durum":
             return git_status(self._state.root)
+        if request.name == "yetenek.katalog":
+            return catalog(
+                self._all_capabilities,
+                self._state.config,
+                self._state.root,
+                disabled_skills=self._disabled_skills,
+                disabled_agents=self._disabled_agents,
+                disabled_mcp=self._disabled_mcp,
+            )
+        if request.name == "yetenek.detay":
+            return detail(
+                self._all_capabilities, self._state.config, self._state.root, request.data
+            )
+        if request.name == "yetenek.etkinlik":
+            return self._set_capability_enabled(request.data)
+        if request.name == "yetenek.kullan":
+            return self._select_capability(request.data)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
@@ -157,15 +183,24 @@ class AppSession:
         seçebilmesi içindir — önceden yalnız AUTO'ya çivili başlıyordu.
         """
         root_value = data.get("kok")
+        capability_roots_changed = False
         if isinstance(root_value, str) and root_value:
             self._root = Path(root_value)
             self._state.root = self._root
             self._workspace_journal.clear()
             self._processes.update_root(self._root)
+            capability_roots_changed = True
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)
             self._state.home = self._home
+            capability_roots_changed = True
+        if capability_roots_changed:
+            self._all_capabilities = CapabilityRegistry(self._home, self._root)
+            self._disabled_skills.clear()
+            self._disabled_agents.clear()
+            self._disabled_mcp.clear()
+            self._refresh_capabilities()
         mode_error = self._apply_mode(data.get("mod"))
         if mode_error is not None:
             return mode_error
@@ -242,18 +277,30 @@ class AppSession:
 
         sink = ProtocolSink(self._writer)
         prompter = ProtocolPrompter(self._writer, self.pending)
+        config = self._state.config
+        if self._disabled_mcp:
+            config = replace(
+                config,
+                mcp_servers=tuple(
+                    server for server in config.mcp_servers if server.name not in self._disabled_mcp
+                ),
+            )
+        capability_context = self._take_capability_context()
+        inherited_context = self._state.take_pending_digest()
+        extra_system = "\n\n".join(part for part in (inherited_context, capability_context) if part)
         self._turn = asyncio.ensure_future(
             run_agent_task(
                 task,
-                self._state.config,
+                config,
                 sinks=(sink,),
                 prompter_factory=lambda _drain: prompter,
                 mode=self._state.approval,
                 root=self._state.root,
                 home=self._state.home,
                 history=self._state.history,
-                extra_system=self._state.take_pending_digest(),
+                extra_system=extra_system,
                 interactive=True,
+                capabilities=self._state.capabilities,
             )
         )
         try:
@@ -266,6 +313,63 @@ class AppSession:
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         self._state.history = outcome.messages
         return {"ok": outcome.ok, "metin": outcome.final_text}
+
+    def _refresh_capabilities(self) -> None:
+        self._state.capabilities = CapabilityRegistry(
+            self._state.home,
+            self._state.root,
+            disabled_skills=frozenset(self._disabled_skills),
+            disabled_agents=frozenset(self._disabled_agents),
+        )
+
+    def _known_capability(self, kind: str, name: str) -> bool:
+        if kind == "beceri":
+            return self._all_capabilities.get_skill(name) is not None
+        if kind == "ajan":
+            return self._all_capabilities.get_agent(name) is not None
+        if kind == "mcp":
+            return any(server.name == name for server in self._state.config.mcp_servers)
+        return False
+
+    def _set_capability_enabled(self, data: dict[str, Any]) -> dict[str, Any]:
+        kind, name, enabled = str(data.get("tur", "")), str(data.get("ad", "")), data.get("etkin")
+        if not isinstance(enabled, bool) or not self._known_capability(kind, name):
+            return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
+        target = {
+            "beceri": self._disabled_skills,
+            "ajan": self._disabled_agents,
+            "mcp": self._disabled_mcp,
+        }[kind]
+        target.discard(name) if enabled else target.add(name)
+        self._refresh_capabilities()
+        return {"ok": True, "tur": kind, "ad": name, "etkin": enabled}
+
+    def _select_capability(self, data: dict[str, Any]) -> dict[str, Any]:
+        kind, name = str(data.get("tur", "")), str(data.get("ad", ""))
+        if not self._known_capability(kind, name):
+            return {"ok": False, "metin": "Katalog öğesi bulunamadı."}
+        self._pending_capability = (kind, name)
+        return {"ok": True, "tur": kind, "ad": name, "sonraki_tur": True}
+
+    def _take_capability_context(self) -> str:
+        selected, self._pending_capability = self._pending_capability, None
+        if selected is None:
+            return ""
+        kind, name = selected
+        if kind == "beceri":
+            item = self._all_capabilities.get_skill(name)
+            body = load_skill_text(item.path, budget=6_000) if item else ""
+            return f"# Kullanıcının açıkça seçtiği beceri: {name}\n{body}" if body else ""
+        if kind == "ajan":
+            item = self._all_capabilities.get_agent(name)
+            body = load_agent_prompt(item.path)[:6_000] if item else ""
+            return f"# Kullanıcının açıkça seçtiği uzman ajan: {name}\n{body}" if body else ""
+        if kind == "mcp":
+            return (
+                f"Kullanıcı bu turda özellikle '{name}' MCP sunucusunun "
+                "araçlarını kullanmanı istedi."
+            )
+        return ""
 
     def _cancel_turn(self) -> dict[str, Any]:
         if self._turn is None or self._turn.done():

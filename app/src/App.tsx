@@ -31,6 +31,7 @@ import { PreviewPanel } from "./workspace/PreviewPanel";
 import { ProcessesPanel } from "./processes/ProcessesPanel";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
+import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -198,6 +199,7 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [page, setPage] = useState<"chat" | "skills">("chat");
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
 
@@ -212,11 +214,14 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
     controller.send(active.id, task);
     setDraft("");
   };
-  const content = active.messages.length > 0 ? (
+  const conversationContent = active.messages.length > 0 ? (
     <Conversation mesajlar={active.messages} />
   ) : (
     <EmptyState onSelectPrompt={setDraft} />
   );
+  const content = page === "skills" ? (
+    <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
+  ) : conversationContent;
   const status = active.status === "crashed"
     ? "Bağlantı kesildi"
     : active.running
@@ -225,7 +230,7 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
 
   return (
     <Shell
-      composer={
+      composer={page === "chat" ? (
         <Composer
           onSend={send}
           onStop={() => controller.stop(active.id)}
@@ -233,7 +238,7 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           running={active.running}
           value={draft}
         />
-      }
+      ) : undefined}
       content={
         <>
           {content}
@@ -267,11 +272,11 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           themePreference={themePreference}
-          title={active.title}
+          title={page === "skills" ? "Beceriler ve Ajanlar" : active.title}
         />
       }
-      inspector={<ProjectInspector client={active.client} key={active.id} root={active.root} />}
-      inspectorOpen={layout.inspectorOpen}
+      inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} root={active.root} /> : undefined}
+      inspectorOpen={page === "chat" && layout.inspectorOpen}
       onInspectorClose={layout.closeInspector}
       sidebar={
         <Sidebar
@@ -279,16 +284,20 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
           onNavigate={(destination) => {
-            if (destination.startsWith("resume:")) {
+            if (destination === "skills") {
+              setPage("skills");
+            } else if (destination.startsWith("resume:")) {
+              setPage("chat");
               const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
               setHistoryOpen(true);
               void history.openSource(source);
             } else if (destination.startsWith("project:")) {
+              setPage("chat");
               void controller.create({ root: destination.slice("project:".length) });
             }
           }}
-          onSec={controller.select}
-          onYeni={() => void controller.create()}
+          onSec={(id) => { setPage("chat"); controller.select(id); }}
+          onYeni={() => { setPage("chat"); void controller.create(); }}
           oturumlar={controller.sessions.map((session) => ({
             session_id: session.id,
             source: session.source,

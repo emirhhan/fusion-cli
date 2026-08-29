@@ -12,6 +12,8 @@ export function olayMetni(veri: Record<string, unknown>): string | null {
       return `araç çalıştı: ${ad}`;
     case "ModelCallStarted":
       return "model düşünüyor…";
+    case "CapabilityActivated":
+      return `${String(veri.name ?? "uzmanlık")} [${String(veri.source ?? "fusion")}] bu görev için otomatik seçildi`;
     case "FilesChanged": {
       const paths = veri.paths;
       if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) return null;

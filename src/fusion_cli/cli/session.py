@@ -142,6 +142,7 @@ async def run_agent_task(
     history: list[Message] | None = None,
     background: BackgroundTasks | None = None,
     tool_context: ToolContext | None = None,
+    capabilities: CapabilityRegistry | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -181,7 +182,8 @@ async def run_agent_task(
             asker=prompter if can_ask else None,
             code_index=store.code_index if store.enabled else None,
             lessons=store.lessons,
-            capabilities=CapabilityRegistry(home, tool_context.root) if home is not None else None,
+            capabilities=capabilities
+            or (CapabilityRegistry(home, tool_context.root) if home is not None else None),
             home=home,
             allowed_commands=load_allowed_commands(tool_context.root),
             verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),

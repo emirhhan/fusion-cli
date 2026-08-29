@@ -224,6 +224,16 @@ class LessonsRecalled(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class CapabilityActivated(Event):
+    """Bir beceri otomatik eşleşti veya kullanıcı tarafından açıkça seçildi."""
+
+    kind: str
+    name: str
+    source: str
+    automatic: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class LessonsLearned(Event):
     """Turdan yeni ders(ler) çıkarılıp belleğe yazıldı."""
 

@@ -289,6 +289,26 @@ describe("SessionUygulama", () => {
     expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1);
   });
 
+  it("sol navigasyondan native beceri ve ajan kataloğunu açar", async () => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({ oturum_id: id, kok: "/proje", pid: 41, durum: "calisiyor", kapanis_nedeni: null })),
+      send: vi.fn(async (_id, line) => {
+        const request = JSON.parse(line);
+        if (request.ad !== "yetenek.katalog") return;
+        queueMicrotask(() => lineHandler?.({ oturum_id: "varsayilan", satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true, beceriler: [], ajanlar: [], talimatlar: [], mcp: [] } }) }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => { lineHandler = handler; return () => undefined; }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama transport={transport} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Beceriler ve Ajanlar" }));
+    expect(await screen.findByRole("heading", { name: "Beceriler ve Ajanlar", level: 1 })).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Fusion'a bir görev ver")).toBeNull();
+  });
+
   it("keşfedilen geçmiş kaynağını sidebar ve seçiciye bağlar", async () => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     const transport: SessionTransport = {

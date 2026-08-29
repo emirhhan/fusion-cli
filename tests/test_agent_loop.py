@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.events import (
+    CapabilityActivated,
     ContextCompressed,
     SelfReviewFinished,
     SelfReviewStarted,
@@ -818,6 +819,10 @@ Responsive arayüzlerde görsel hiyerarşiyi ve bileşen tutarlılığını koru
     # Recall V2: uygun uzmanlığı doğrudan context'e koyuyoruz.
     assert "# Uzmanlık talimatı: frontend-design" in sistem.content
     assert "TEST_UI_SKILL_MARKER" in sistem.content
+    activated = next(event for event in sink.events if isinstance(event, CapabilityActivated))
+    assert activated.name == "frontend-design"
+    assert activated.source == "proje"
+    assert activated.automatic is True
 
 
 async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp_path, sink):

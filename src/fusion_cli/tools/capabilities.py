@@ -141,20 +141,33 @@ def load_agent_prompt(path: Path) -> str:
 class CapabilityRegistry:
     """Skill ve agent keşfi. Tarama oturumda bir kez yapılır."""
 
-    def __init__(self, home: Path, root: Path) -> None:
+    def __init__(
+        self,
+        home: Path,
+        root: Path,
+        *,
+        disabled_skills: frozenset[str] = frozenset(),
+        disabled_agents: frozenset[str] = frozenset(),
+    ) -> None:
         self._home = home
         self._root = root
+        self._disabled_skills = disabled_skills
+        self._disabled_agents = disabled_agents
         self._skills: tuple[Capability, ...] | None = None
         self._agents: tuple[Capability, ...] | None = None
 
     def skills(self) -> tuple[Capability, ...]:
         if self._skills is None:
-            self._skills = self._discover_skills()
+            self._skills = tuple(
+                item for item in self._discover_skills() if item.name not in self._disabled_skills
+            )
         return self._skills
 
     def agents(self) -> tuple[Capability, ...]:
         if self._agents is None:
-            self._agents = self._discover_agents()
+            self._agents = tuple(
+                item for item in self._discover_agents() if item.name not in self._disabled_agents
+            )
         return self._agents
 
     def get_skill(self, name: str) -> Capability | None:
