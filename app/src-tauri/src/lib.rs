@@ -1,4 +1,6 @@
 mod core_process;
+mod runtime_manifest;
+mod runtime_paths;
 
 use core_process::CoreProcess;
 use tauri::Manager;
