@@ -1,0 +1,96 @@
+.approval-backdrop {
+  align-items: center;
+  background: var(--surface-overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--space-6);
+  position: fixed;
+  z-index: var(--z-dialog);
+}
+
+.approval {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  max-width: 520px;
+  outline: 0;
+  padding: var(--space-6);
+  width: 100%;
+}
+
+.approval:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.approval__eyebrow {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+}
+
+.approval h2 {
+  font-size: var(--text-lg);
+  line-height: var(--line-tight);
+  margin: 0;
+}
+
+.approval__explanation {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: var(--space-2) 0 var(--space-4);
+}
+
+.approval__tool {
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+  padding: var(--space-3);
+}
+
+.approval__tool dl,
+.approval__tool dl div {
+  margin: 0;
+}
+
+.approval__tool dl {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.approval__tool dl div {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(72px, auto) 1fr;
+}
+
+.approval__tool dt {
+  color: var(--text-secondary);
+}
+
+.approval__tool dd {
+  margin: 0;
+}
+
+.approval__danger {
+  color: var(--text-danger);
+  font-size: var(--text-sm);
+  margin: var(--space-3) 0 0;
+}
+
+.approval__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-5);
+}

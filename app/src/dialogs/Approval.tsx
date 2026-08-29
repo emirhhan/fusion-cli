@@ -1,61 +1,71 @@
+import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { Soru } from "../protocol/types";
+import { Button } from "../ui/Button";
+import "./Approval.css";
 
 interface ApprovalProps {
-  soru: Soru;
   onCevap: (veri: Record<string, unknown>) => void;
+  soru: Soru;
 }
 
-/** Çekirdeğin onay sözleşmesini değiştirmeden kullanıcıya gösterir. */
 export function Approval({ soru, onCevap }: ApprovalProps) {
+  const dialogRef = useRef<HTMLElement>(null);
   const argumentsList = Object.entries(soru.argumanlar ?? {});
+  const deny = soru.secenekler?.find((option) => option.deger === "deny");
+  const recommended = soru.onerilen ?? soru.secenekler?.find((option) => option.deger !== "deny")?.deger;
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Escape" && deny) {
+      event.preventDefault();
+      onCevap({ secim: deny.deger });
+    }
+  };
+
   return (
-    <section
-      aria-labelledby="approval-title"
-      role="dialog"
-      style={{
-        background: "var(--zemin)",
-        border: "1px solid var(--kenarlik)",
-        borderRadius: "var(--yaricap)",
-        color: "var(--ana-metin)",
-        maxWidth: 480,
-        padding: 20,
-      }}
-    >
-      <h2 id="approval-title" style={{ fontSize: 16, margin: "0 0 8px" }}>
-        Bu işleme izin verilsin mi?
-      </h2>
-      <div style={{ fontFamily: "monospace", fontSize: 13, marginBottom: 12 }}>
-        <div>{soru.arac}</div>
-        {argumentsList.length > 0 && (
-          <div style={{ color: "var(--sonuk-metin)", marginTop: 4 }}>
-            {argumentsList.map(([key, value]) => `${key}: ${value}`).join("  ·  ")}
-          </div>
-        )}
-      </div>
-      {soru.tehlike && (
-        <div style={{ color: "var(--tehlike)", fontSize: 13, marginBottom: 12 }}>
-          ⚠ {soru.tehlike}
+    <div className="approval-backdrop">
+      <section
+        aria-labelledby="approval-title"
+        aria-modal="true"
+        className="approval"
+        onKeyDown={onKeyDown}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
+        <div className="approval__eyebrow">İzin gerekiyor</div>
+        <h2 id="approval-title">Bu işleme izin verilsin mi?</h2>
+        <p className="approval__explanation">Fusion aşağıdaki aracı belirtilen kapsamda çalıştırmak istiyor.</p>
+        <div className="approval__tool">
+          <strong>{soru.arac}</strong>
+          {argumentsList.length > 0 && (
+            <dl>
+              {argumentsList.map(([key, value]) => (
+                <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>
+              ))}
+            </dl>
+          )}
         </div>
-      )}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-        {(soru.secenekler ?? []).map((secenek) => (
-          <button
-            key={secenek.deger ?? secenek.etiket}
-            onClick={() => onCevap({ secim: secenek.deger })}
-            style={{
-              background: secenek.deger === "deny" ? "var(--zemin)" : "var(--birincil-buton)",
-              border: "1px solid var(--kenarlik)",
-              borderRadius: 999,
-              color: secenek.deger === "deny" ? "var(--ana-metin)" : "var(--ters-metin)",
-              cursor: "pointer",
-              padding: "8px 14px",
-            }}
-            type="button"
-          >
-            {secenek.etiket}
-          </button>
-        ))}
-      </div>
-    </section>
+        {soru.tehlike && <p className="approval__danger">Dikkat: {soru.tehlike}</p>}
+        <div className="approval__actions">
+          {(soru.secenekler ?? []).map((option) => {
+            const isRecommended = option.deger === recommended;
+            return (
+              <Button
+                data-recommended={isRecommended || undefined}
+                key={option.deger ?? option.etiket}
+                onClick={() => onCevap({ secim: option.deger })}
+                variant={isRecommended ? "primary" : option.deger === "deny" ? "ghost" : "secondary"}
+              >
+                {option.etiket}
+              </Button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
   );
 }

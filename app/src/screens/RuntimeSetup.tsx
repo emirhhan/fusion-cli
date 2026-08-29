@@ -1,4 +1,5 @@
 import type { RuntimeState } from "../runtime/types";
+import { Button } from "../ui/Button";
 import "../theme/tokens.css";
 import "./RuntimeSetup.css";
 
@@ -36,9 +37,9 @@ export function RuntimeSetup({ state, progress, message, version, onRepair }: Ru
         )}
         {version && <p className="runtime-setup__version">Sürüm {version}</p>}
         {repairable && (
-          <button className="runtime-setup__repair" onClick={onRepair} type="button">
+          <Button className="runtime-setup__repair" onClick={onRepair} variant="primary">
             Çalışma zamanını onar
-          </button>
+          </Button>
         )}
         {(repairable || state === "hata") && (
           <details className="runtime-setup__details">

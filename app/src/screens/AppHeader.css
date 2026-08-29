@@ -42,6 +42,33 @@
   gap: var(--space-2);
 }
 
+.app-header__theme {
+  align-items: center;
+  display: flex;
+}
+
+.app-header__theme > span {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.app-header__theme select {
+  appearance: none;
+  background: var(--surface-hover);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  height: 30px;
+  padding: 0 var(--space-3);
+  text-align: center;
+}
+
 .app-header__status {
   gap: var(--space-1);
 }
@@ -55,7 +82,8 @@
 
 @media (max-width: 720px) {
   .app-header__project,
-  .app-header__status {
+  .app-header__status,
+  .app-header__theme {
     display: none;
   }
 }

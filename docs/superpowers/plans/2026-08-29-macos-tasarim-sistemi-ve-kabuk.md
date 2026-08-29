@@ -263,29 +263,29 @@ git commit -m "feat(ui): bağlamsal sağ denetçiyi ekle"
 - Modify: `app/src/dialogs/Approval.test.tsx`
 - Modify: `app/src/screens/RuntimeSetup.css`
 
-- [ ] **Step 1: Birleşim testlerini yaz**
+- [x] **Step 1: Birleşim testlerini yaz**
 
 Uygulamanın header/sidebar/conversation/composer/inspector slotlarını bağladığını, panel eylemlerini, tema seçimini, yeni görev temizliğini ve protokol mesaj gönderimini doğrula. Runtime kapısı davranışı değişmemelidir.
 
-- [ ] **Step 2: Onay erişilebilirlik testlerini genişlet**
+- [x] **Step 2: Onay erişilebilirlik testlerini genişlet**
 
 Odak diyaloğa taşınır, Escape yalnız güvenli reddetme seçeneği varsa reddeder, ilk önerilen eylem görsel ve semantik olarak belirtilir, araç/konum/etki sade Türkçeyle gösterilir.
 
-- [ ] **Step 3: Kırmızı testleri çalıştır**
+- [x] **Step 3: Kırmızı testleri çalıştır**
 
 Run: `cd app && npm test -- src/App.test.tsx src/App.runtime.test.tsx src/dialogs/Approval.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 4: Tüm yüzeyleri bağla**
+- [x] **Step 4: Tüm yüzeyleri bağla**
 
 Satır içi `Composer` ve yükleme/hata stilleri kaldırılır. `Uygulama`, Phase B bileşenlerini gerçek protokol istemcisine bağlar. Tema tercihi başlık menüsünden değişir. RuntimeSetup aynı token, kontrol ve odak sistemini kullanır.
 
-- [ ] **Step 5: Tam uygulama kalite kapısı**
+- [x] **Step 5: Tam uygulama kalite kapısı**
 
 Run: `cd app && npm run check`
 Expected: 0 exit, tüm React/TypeScript/Rust kontrolleri temiz.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/src

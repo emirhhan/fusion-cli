@@ -88,21 +88,12 @@
 }
 
 .runtime-setup__repair {
-  background: var(--birincil-buton);
-  border: 0;
-  border-radius: 10px;
-  color: var(--ters-metin);
-  cursor: pointer;
-  font: inherit;
-  font-size: 14px;
   font-weight: 550;
   min-height: 42px;
-  padding: 0 18px;
 }
 
-.runtime-setup__repair:focus-visible,
 .runtime-setup__details summary:focus-visible {
-  outline: 2px solid var(--ana-metin);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }
 

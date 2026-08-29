@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Approval } from "./Approval";
 
@@ -44,5 +44,20 @@ describe("Approval", () => {
     render(<Approval soru={temel} onCevap={onCevap} />);
     screen.getByText("Reddet").click();
     expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
+
+  it("açıldığında diyaloğa odaklanır ve güvenli reddi Escape ile seçer", () => {
+    const onCevap = vi.fn();
+    render(<Approval soru={temel} onCevap={onCevap} />);
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
+  });
+
+  it("önerilen seçeneği semantik olarak işaretler", () => {
+    render(<Approval soru={{ ...temel, onerilen: "once" }} onCevap={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Bir kez izin ver" }).getAttribute("data-recommended")).toBe(
+      "true",
+    );
   });
 });
