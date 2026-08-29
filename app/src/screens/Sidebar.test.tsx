@@ -1,13 +1,20 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
+
+const sidebarStyles = readFileSync(resolve(process.cwd(), "src/screens/Sidebar.css"), "utf8");
 
 const sessions = [
   { session_id: "1", title: "İlk iş", source: "claude", project: "Şeker Oyunu" },
   { session_id: "2", title: "İkinci iş", source: "codex", project: "Kurumsal Site" },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.querySelector("[data-test-sidebar-styles]")?.remove();
+});
 
 describe("Sidebar", () => {
   it("oturumları kaynak etiketiyle listeler", () => {
@@ -103,5 +110,30 @@ describe("Sidebar", () => {
     );
     expect(container.querySelector(".sidebar")?.getAttribute("data-collapsed")).toBe("true");
     expect(screen.getByRole("button", { name: /yeni görev/i })).toBeTruthy();
+  });
+
+  it("ikon rayında sohbet ve projelerin görünür kimliğini korur", () => {
+    const style = document.createElement("style");
+    style.dataset.testSidebarStyles = "true";
+    style.textContent = sidebarStyles;
+    document.head.append(style);
+    render(
+      <Sidebar
+        collapsed
+        etkin={null}
+        onNavigate={vi.fn()}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={sessions}
+        projeler={[{ root: "/fusion", name: "Fusion", pinned: true, updated_at: 1 }]}
+      />,
+    );
+
+    const session = screen.getByRole("button", { name: "İlk iş" });
+    const project = screen.getByRole("button", { name: "Fusion projesini aç" });
+    expect(getComputedStyle(session).display).not.toBe("none");
+    expect(getComputedStyle(project).display).not.toBe("none");
+    expect(getComputedStyle(session.querySelector(".sidebar__session-title")!).display).not.toBe("none");
+    expect(getComputedStyle(project.querySelector(".sidebar__label")!).display).not.toBe("none");
   });
 });

@@ -5,7 +5,9 @@
   display: grid;
   gap: var(--space-2);
   grid-template-columns: auto minmax(0, 1fr) auto;
+  min-width: 0;
   min-height: var(--header-height);
+  overflow: hidden;
   padding: 0 var(--space-3);
 }
 
@@ -39,6 +41,7 @@
 }
 
 .app-header__actions {
+  flex: 0 0 auto;
   gap: var(--space-2);
 }
 
@@ -82,8 +85,22 @@
 
 @media (max-width: 720px) {
   .app-header__project,
-  .app-header__status,
-  .app-header__theme {
+  .app-header__status {
     display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .app-header {
+    gap: var(--space-1);
+    padding-inline: var(--space-2);
+  }
+
+  .app-header__actions {
+    gap: var(--space-1);
+  }
+
+  .app-header__theme select {
+    padding-inline: var(--space-2);
   }
 }

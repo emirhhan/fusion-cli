@@ -3,6 +3,7 @@
   display: grid;
   grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) 0;
   height: 100dvh;
+  max-width: 100vw;
   overflow: hidden;
   width: 100%;
 }
@@ -48,6 +49,8 @@
 
 .app-shell__composer {
   background: var(--surface-canvas);
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .app-shell__inspector {
@@ -94,16 +97,19 @@
   }
 
   .app-shell__inspector {
+    box-sizing: border-box;
     bottom: 0;
     box-shadow: var(--shadow-overlay);
     max-width: calc(100vw - var(--sidebar-rail-width));
     position: fixed;
     right: 0;
-    top: 0;
-    width: var(--inspector-width);
+    top: var(--header-height);
+    width: min(var(--inspector-width), calc(100vw - var(--sidebar-rail-width)));
   }
 
   .app-shell__backdrop {
     display: block;
+    left: var(--sidebar-rail-width);
+    top: var(--header-height);
   }
 }

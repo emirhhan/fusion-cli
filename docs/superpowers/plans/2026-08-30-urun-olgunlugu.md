@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Kullanıcının gerçek kullanımda bulduğu sekiz eksiği kapatmak. Kaynak: 30 Ağustos kullanım geri bildirimi.
+**Goal:** Kullanıcının gerçek kullanımda bulduğu on dört eksiği kapatmak. Kaynak: 30 Ağustos kullanım geri bildirimi ve Claude oturumundaki son ek talepler.
 
 **Architecture:** Yetenekler ÇEKİRDEKTE zaten var (web tarayıcı sağlayıcıları, motor
 seçimi, oturum yönetimi); eksik olan bunların masaüstü protokolüne ve arayüze
@@ -84,11 +84,72 @@ sağlayıcı görünümü.
 
 ### Görev 7: Responsive
 
-- [ ] Daraltma/genişletmede kaybolan butonları bul ve düzelt; görsel senaryo ekle.
+- [x] Daraltma/genişletmede kaybolan butonları bul ve düzelt; görsel senaryo ekle.
 
 ### Görev 8: Dersler
 
 Altı-yedi sayfalık, önizlemeli, gerçekten öğreten içerik.
+
+### Görev 9: Yerel klasörden yeni görev
+
+Yeni görev yalnız mevcut proje listesinden veya belirsiz bir varsayılan kökten
+açılmaz. Kullanıcı macOS/Windows yerel klasör seçicisinden Masaüstü, kullanıcı
+dizini veya erişebildiği herhangi bir klasörü seçebilir; isterse yeni klasör
+oluşturabilir. Son kullanılan anlamlı klasör hatırlanır.
+
+- [ ] Yerel klasör seçici için Tauri köprüsünü testle sabitle.
+- [ ] Sidebar'daki Yeni görev eylemini Sohbet ve Klasörde kod görevi seçenekleriyle bağla.
+- [ ] İptal edilen seçici boş veya `/` köklü oturum oluşturmamalı.
+
+### Görev 10: Slash komut ve MCP paleti
+
+Composer'a `/` yazıldığında mevcut `komut.listele` sözleşmesinden gelen komutlar
+ve etkin MCP girdileri aşağıda filtrelenir. `/m` yazmak model, mode ve MCP gibi
+eşleşmeleri gösterir; tıklamak metni composer'a yerleştirir; Enter köprülenmiş
+komutu çalıştırır veya seçim adımını açar. Ayrı `/` araç düğmesi kaldırılır.
+
+- [ ] Filtreleme, klavye gezinmesi, tıklayarak tamamlama ve Enter davranışını kırmızı testle yaz.
+- [ ] Desteklenmeyen komut çalıştırılmaz; nedenini kullanıcı görür.
+- [ ] Dinamik `/resume<kaynak>` ve mevcut MCP katalog öğeleri yalnız keşfedildiklerinde görünür.
+
+### Görev 11: Dosya, görsel ve sürükle-bırak ekleri
+
+Ataç yerel dosya seçiciyi açar. Dosya ve görseller composer üzerine
+sürüklenebilir; seçilen ekler göndermeden önce ad, tür ve kaldırma eylemiyle
+görünür. Protokol, ekleri mutlak yol ve güvenli metadata olarak taşır; sır içeriği
+arayüz olayına kopyalanmaz.
+
+- [ ] Ataç, çoklu seçim, sürükle-bırak ve ek kaldırmayı testle sabitle.
+- [ ] Görsel ve normal dosya eklerini protokol isteğine bağla.
+- [ ] Olmayan/erişilemeyen dosyada anlaşılır hata göster.
+
+### Görev 12: Shift+Tab kip geçişi
+
+Composer odaktayken Shift+Tab, Claude'daki gibi çalışma kipleri arasında döner;
+normal Tab erişilebilir klavye dolaşımını korur. Seçili kip görünür ve mesajla
+birlikte çekirdeğe gider.
+
+- [ ] Shift+Tab döngüsünü ve Tab'ın engellenmediğini testle sabitle.
+- [ ] Sohbet varsayılanını ve Kod kipindeki proje/model seçeneklerini bağla.
+
+### Görev 13: Fusion pixel karakteri ve gerçek kaynak ikonları
+
+Boş görev ekranındaki merkez `F`, Fusion marka geometrisinden türetilmiş sade
+bir pixel karakter olur. Claude, Codex, Hermes ve web sağlayıcı satırları mevcut
+olduklarında kendi tanınabilir ikonlarını kullanır; bilinmeyen kaynak güvenli
+Fusion yedeğine düşer.
+
+- [ ] Pixel karakter için açık/koyu ve azaltılmış hareket durumlarını görsel testle sabitle.
+- [ ] Kaynak ikon eşlemesini bileşen testiyle sabitle; dekoratif ikonların erişilebilirlik ağacını kirletmediğini doğrula.
+
+### Görev 14: Açık ve daraltılabilir geçmiş ağacı
+
+Geçmiş konuşmalar bölümü ilk açılışta açıktır, proje başlıkları altında
+gruplanır ve kullanıcı tarafından daraltılabilir. Tercih kalıcıdır. Sohbet silme
+eylemi satır menüsündedir ve geri alınamazlık onayı ister.
+
+- [ ] Varsayılan açık, daraltma tercihi ve proje gruplamasını testle sabitle.
+- [ ] Silme onayı ve etkin konuşma silinince güvenli seçim davranışını testle sabitle.
 
 ## Çıkış Kriterleri
 
@@ -98,3 +159,9 @@ Altı-yedi sayfalık, önizlemeli, gerçekten öğreten içerik.
 - [ ] Sohbet silinebilir ve projeye bağlanabilir.
 - [ ] Ayarlar ve Kontrol Paneli ayrı, ikisi de gerçek veriye bağlı.
 - [ ] Dar ve geniş ekranda hiçbir kontrol kaybolmaz.
+- [ ] Kullanıcı herhangi bir yerel klasörde yeni görev açabilir.
+- [ ] `/` paleti komutları ve mevcut MCP girdilerini filtreleyip çalıştırır.
+- [ ] Ataç ve sürükle-bırak ile dosya/görsel eklenir.
+- [ ] Shift+Tab çalışma kipini değiştirir; normal Tab erişilebilirliği korunur.
+- [ ] Boş ekranda Fusion pixel karakteri, kaynaklarda gerçek ikonlar görünür.
+- [ ] Geçmiş ilk açılışta açık, projeye göre gruplu ve daraltılabilirdir.
