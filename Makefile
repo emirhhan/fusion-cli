@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: setup venv install format lint type test deadlock check clean eval app-check runtime-bundle app-package
+.PHONY: setup venv install format lint type test deadlock check clean eval app-check app-visual runtime-bundle app-package
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -49,6 +49,9 @@ check: lint type test deadlock
 
 app-check:
 	cd app && npm ci && npm run check
+
+app-visual:
+	cd app && npm ci && npx playwright install chromium && npm run test:visual
 
 runtime-bundle:
 	$(PY) -m pip install -e ".[desktop,mcp,gateway]"

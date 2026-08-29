@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "test": "vitest run --environment jsdom",
     "test:watch": "vitest --environment jsdom",
+    "test:visual": "playwright test",
     "runtime:build": "node scripts/run-python.mjs ../desktop_build/runtime/build_runtime.py --output src-tauri/resources/runtime",
     "runtime:smoke": "node scripts/run-python.mjs ../desktop_build/runtime/smoke_runtime.py src-tauri/resources/runtime/unpacked/fusion",
     "bundle:mac": "npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.bundle.conf.json --bundles app,dmg",
@@ -22,6 +23,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.3",

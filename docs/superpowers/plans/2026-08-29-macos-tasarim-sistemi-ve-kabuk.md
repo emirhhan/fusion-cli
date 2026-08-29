@@ -304,35 +304,35 @@ git commit -m "feat(app): profesyonel macOS kabuğunu bağla"
 - Modify: `Makefile`
 - Create: `docs/superpowers/reports/2026-08-29-macos-tasarim-sistemi-sonuc.md`
 
-- [ ] **Step 1: Playwright görsel kapısını ekle**
+- [x] **Step 1: Playwright görsel kapısını ekle**
 
 `@playwright/test` yalnız geliştirme bağımlılığıdır. Test fixture'ı gerçek bileşenleri deterministik örnek mesajlar ve olaylarla render eder; ürün kodunda demo veri bulunmaz.
 
-- [ ] **Step 2: Durum matrisini yaz**
+- [x] **Step 2: Durum matrisini yaz**
 
 En az şu ekran görüntüleri tutulur: 1440px açık boş, 1440px açık konuşma+denetçi, 1440px koyu konuşma, 1100px dar navigasyon, 820px örtü denetçi, onay diyaloğu, klavye odak durumu. Animasyonlar ve zaman bağımlı içerik testte kapatılır.
 
-- [ ] **Step 3: İlk snapshotları üret ve tek tek incele**
+- [x] **Step 3: İlk snapshotları üret ve tek tek incele**
 
 Run: `cd app && npx playwright test --update-snapshots`
 Expected: snapshotlar oluşur. Her PNG yerel olarak açılıp taşma, hizalama, kontrast ve Figma ölçüleri bakımından gözle incelenir; sorun varsa ürün CSS'i düzeltilir, tolerans yükseltilmez.
 
-- [ ] **Step 4: Regresyon modunda doğrula**
+- [x] **Step 4: Regresyon modunda doğrula**
 
 Run: `cd app && npx playwright test`
 Expected: PASS, snapshot farkı yok.
 
-- [ ] **Step 5: Proje kalite kapılarını çalıştır**
+- [x] **Step 5: Proje kalite kapılarını çalıştır**
 
 Run: `make check && make app-check`
 Expected: Python, React, TypeScript ve Rust testlerinin tamamı geçer.
 
-- [ ] **Step 6: Paketlenmiş uygulamayı yeniden doğrula**
+- [x] **Step 6: Paketlenmiş uygulamayı yeniden doğrula**
 
 Run: `make app-package`
 Expected: `.app` ve `.dmg` yeniden üretilir; temiz HOME ilk/ikinci açılış smoke testi geçer.
 
-- [ ] **Step 7: Sonuç raporunu yaz ve commit et**
+- [x] **Step 7: Sonuç raporunu yaz ve commit et**
 
 Rapor; test sayılarını, ekran matrisini, ölçülen paketleri, bilinen imzasız dağıtım kısıtını ve Phase C'ye kalan gerçek veri bağlantılarını kaydeder.
 
@@ -343,11 +343,11 @@ git commit -m "test(ui): macOS görsel kalite kapısını ekle"
 
 ## Phase B exit criteria
 
-- [ ] Açık ve koyu temada semantik tokenlar kullanılıyor; ham bileşen renkleri ve Vite kalıntıları yok.
-- [ ] 1440px'te sol panel 281px, ana alan akışkan, sağ denetçi bağlamsal ve 320px.
-- [ ] Orta/küçük pencerelerde ana sohbet kullanılabilir; paneller klavyeyle açılıp kapanıyor.
-- [ ] Sidebar, başlık, konuşma, composer, onay ve denetçi tek görsel sistemde.
-- [ ] Navigasyon Phase C kaynaklarını kabul edecek tipli sözleşmeye sahip; demo veri ürün koduna gömülü değil.
-- [ ] Erişilebilir roller, adlar, focus-visible ve reduced-motion davranışları testli.
-- [ ] Görsel durum matrisi snapshot regresyonuyla korunuyor.
-- [ ] `make check`, `make app-check` ve `make app-package` temiz.
+- [x] Açık ve koyu temada semantik tokenlar kullanılıyor; ham bileşen renkleri ve Vite kalıntıları yok.
+- [x] 1440px'te sol panel 281px, ana alan akışkan, sağ denetçi bağlamsal ve 320px.
+- [x] Orta/küçük pencerelerde ana sohbet kullanılabilir; paneller klavyeyle açılıp kapanıyor.
+- [x] Sidebar, başlık, konuşma, composer, onay ve denetçi tek görsel sistemde.
+- [x] Navigasyon Phase C kaynaklarını kabul edecek tipli sözleşmeye sahip; demo veri ürün koduna gömülü değil.
+- [x] Erişilebilir roller, adlar, focus-visible ve reduced-motion davranışları testli.
+- [x] Görsel durum matrisi snapshot regresyonuyla korunuyor.
+- [x] `make check`, `make app-check` ve `make app-package` temiz.
