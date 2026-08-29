@@ -105,8 +105,7 @@ impl SessionManager {
 
         let root = match root {
             Some(path) => path.to_path_buf(),
-            None => std::env::current_dir()
-                .map_err(|error| format!("çalışma dizini belirlenemedi: {error}"))?,
+            None => varsayilan_kok()?,
         };
         if !root.is_dir() {
             return Err(format!("çalışma dizini bulunamadı: {}", root.display()));
@@ -249,6 +248,23 @@ impl SessionManager {
     }
 }
 
+/// Kök verilmediğinde kullanılacak dizin.
+///
+/// `std::env::current_dir()` KULLANILMAZ: Finder/LaunchServices ile açılan bir
+/// uygulamada çalışma dizini `/` olur ve her sohbet dosya ağacında `/sbin`,
+/// `/usr`, `/var` gösterirdi — kullanıcı bunu bildirdi. Ev dizini hem güvenli
+/// hem anlamlı bir başlangıçtır; kullanıcı proje seçtiğinde zaten değişir.
+fn varsayilan_kok() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .ok_or_else(|| "ev dizini belirlenemedi".to_string())?;
+    if home.as_os_str().is_empty() || home == Path::new("/") {
+        return Err("ev dizini geçersiz".into());
+    }
+    Ok(home)
+}
+
 #[cfg(test)]
 #[derive(Default)]
 struct SessionRegistry {
@@ -319,6 +335,15 @@ mod testler {
         assert!(registry.insert_if_absent(first.clone()));
         assert!(!registry.insert_if_absent(second));
         assert_eq!(registry.list(), vec![first]);
+    }
+
+    /// Finder'dan açılan uygulamada çalışma dizini `/` olur; oraya düşmek
+    /// her sohbette dosya ağacında `/sbin`, `/usr`, `/var` göstermek demekti.
+    #[test]
+    fn kok_verilmediginde_kok_dizine_dusulmez() {
+        let kok = varsayilan_kok().expect("ev dizini bulunmalı");
+        assert_ne!(kok, PathBuf::from("/"));
+        assert!(kok.is_dir(), "varsayılan kök gerçek bir dizin olmalı");
     }
 
     #[test]
