@@ -372,6 +372,10 @@ APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
 APP_UNKNOWN_REQUEST = "Bilinmeyen istek: {name}"
 APP_TURN_CANCELLED = "Tur iptal edildi."
 APP_NO_RUNNING_TURN = "Çalışan tur yok."
+#: Bir süreç bir oturum, bir oturumda aynı anda bir tur — ikinci `tur.calistir`
+#: mevcut turu sessizce üzerine yazmak yerine reddedilir; kullanıcı önce
+#: `tur.kes` ile mevcut turu durdurmalı ya da bitmesini beklemeli.
+APP_TURN_ALREADY_RUNNING = "Zaten çalışan bir tur var. Önce onu bitir ya da `tur.kes` ile iptal et."
 REPL_TURN_CANCELLED = "tur durduruldu"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."
 REPL_LEARN_USAGE = "Kullanım: /learn <kalıcı olarak hatırlanacak kural>"

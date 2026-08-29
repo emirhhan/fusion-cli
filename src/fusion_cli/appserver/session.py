@@ -92,6 +92,8 @@ class AppSession:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar."""
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
+        if self._turn is not None and not self._turn.done():
+            return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import run_agent_task
 
         sink = ProtocolSink(self._writer)
