@@ -80,6 +80,47 @@ async def test_binary_dosya_metne_cevrilmeden_metadata_dondurur(tmp_path: Path):
     assert result["sha256"] == hashlib.sha256(raw).hexdigest()
 
 
+async def test_desteklenen_asset_onizlemesi_base64_ve_mime_dondurur(tmp_path: Path):
+    """UI doğrudan filesystem erişimi alırsa proje kökü güvenlik sınırı atlanır."""
+    raw = b"\x89PNG\r\n\x1a\ncontent"
+    (tmp_path / "image.png").write_bytes(raw)
+
+    result = await _request(tmp_path, "proje.onizle", {"yol": "image.png"})
+
+    assert result == {
+        "ok": True,
+        "yol": "image.png",
+        "tur": "image",
+        "mime": "image/png",
+        "boyut": len(raw),
+        "base64": "iVBORw0KGgpjb250ZW50",
+    }
+
+
+async def test_onizleme_desteklenmeyen_turu_buyuk_dosyayi_ve_kok_kacisini_reddeder(
+    tmp_path: Path,
+):
+    """Önizleme genel amaçlı sınırsız bir dosya okuma API'sine dönüşmemeli."""
+    (tmp_path / "archive.zip").write_bytes(b"PK")
+    (tmp_path / "large.png").write_bytes(b"x" * (8 * 1024 * 1024 + 1))
+
+    unsupported = await _request(tmp_path, "proje.onizle", {"yol": "archive.zip"})
+    large = await _request(tmp_path, "proje.onizle", {"yol": "large.png"})
+    outside = await _request(tmp_path, "proje.onizle", {"yol": "../secret.png"})
+
+    assert unsupported == {
+        "ok": False,
+        "kod": "UNSUPPORTED_PREVIEW",
+        "metin": "Bu dosya türü uygulama içinde önizlenemiyor.",
+    }
+    assert large == {
+        "ok": False,
+        "kod": "PREVIEW_TOO_LARGE",
+        "metin": "Önizleme için dosya 8 MB sınırını aşıyor.",
+    }
+    assert outside == {"ok": False, "metin": "Proje klasörünün dışına çıkılamaz."}
+
+
 async def test_metin_okuma_bayt_tavaninda_kesilir(tmp_path: Path):
     """Tavan uygulanmazsa tek büyük dosya stdio protokolünü ve arayüzü kilitler."""
     (tmp_path / "large.txt").write_text("abcdefghij", encoding="utf-8")

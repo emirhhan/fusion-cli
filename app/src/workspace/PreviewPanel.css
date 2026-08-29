@@ -1,0 +1,16 @@
+.preview-panel { display: grid; gap: 14px; min-height: 0; height: 100%; }
+.preview-panel form { display: grid; gap: 6px; }
+.preview-panel form label { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.preview-panel form div { align-items: center; display: flex; gap: 8px; }
+.preview-panel input { background: var(--surface-subtle); border: 1px solid var(--border-default); border-radius: 9px; color: var(--text-primary); flex: 1; min-width: 0; padding: 8px 10px; }
+.preview-panel button { align-self: center; background: var(--text-primary); border: 0; border-radius: 9px; color: var(--text-inverse); cursor: pointer; min-height: 36px; padding: 8px 11px; white-space: nowrap; }
+.preview-panel__error { color: var(--status-error, #b42318); font-size: 13px; margin: 0; }
+.preview-panel__empty { color: var(--text-secondary); font-size: 13px; line-height: 1.5; margin: auto 0; text-align: center; }
+.preview-panel__asset { display: grid; gap: 10px; min-height: 0; }
+.preview-panel__asset header { display: grid; gap: 2px; }
+.preview-panel__asset header strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.preview-panel__asset header span { color: var(--text-secondary); font-size: 11px; }
+.preview-panel__asset img, .preview-panel__asset video { border-radius: 10px; display: block; max-height: 52vh; max-width: 100%; object-fit: contain; }
+.preview-panel__asset audio { width: 100%; }
+.preview-panel__asset pre { background: var(--surface-subtle); border: 1px solid var(--border-subtle); border-radius: 10px; margin: 0; overflow: auto; padding: 12px; white-space: pre-wrap; }
+.preview-panel__frame { background: white; border: 1px solid var(--border-default); border-radius: 10px; height: min(58vh, 620px); width: 100%; }

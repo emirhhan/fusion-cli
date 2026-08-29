@@ -40,6 +40,7 @@ from .workspace import (
     WorkspaceJournal,
     list_changes,
     list_entries,
+    preview_entry,
     read_entry,
     undo_entry,
     workspace_status,
@@ -115,6 +116,8 @@ class AppSession:
             return list_entries(self._state.root, request.data)
         if request.name == "proje.oku":
             return read_entry(self._state.root, request.data)
+        if request.name == "proje.onizle":
+            return preview_entry(self._state.root, request.data)
         if request.name == "proje.yaz":
             return write_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "proje.degisiklikler":

@@ -7,6 +7,7 @@ kökünün dışına çıkamaz.
 
 from __future__ import annotations
 
+import base64
 import difflib
 import hashlib
 import mimetypes
@@ -21,6 +22,7 @@ _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 200
 _DEFAULT_MAX_BYTES = 256 * 1024
 _MAX_READ_BYTES = 2 * 1024 * 1024
+_MAX_PREVIEW_BYTES = 8 * 1024 * 1024
 _OUTSIDE = "Proje klasörünün dışına çıkılamaz."
 
 
@@ -220,6 +222,54 @@ def read_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         "sha256": digest,
         "icerik": None if binary else text,
         "kesildi": len(raw) > max_bytes,
+    }
+
+
+def preview_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
+    """Desteklenen bir asset'i kök sınırı ve sabit boyut tavanıyla döndürür."""
+    try:
+        path = _resolve_inside(root, data.get("yol", ""))
+    except WorkspacePathError as error:
+        return _error(str(error))
+    if not path.exists() or not path.is_file():
+        return _error("Dosya bulunamadı.")
+    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    if mime.startswith("image/"):
+        kind = "image"
+    elif mime.startswith("audio/"):
+        kind = "audio"
+    elif mime.startswith("video/"):
+        kind = "video"
+    elif mime == "application/pdf":
+        kind = "pdf"
+    elif mime in {"text/html", "application/xhtml+xml"}:
+        kind = "html"
+    elif mime.startswith("text/"):
+        kind = "text"
+    else:
+        return {
+            "ok": False,
+            "kod": "UNSUPPORTED_PREVIEW",
+            "metin": "Bu dosya türü uygulama içinde önizlenemiyor.",
+        }
+    try:
+        size = path.stat().st_size
+        if size > _MAX_PREVIEW_BYTES:
+            return {
+                "ok": False,
+                "kod": "PREVIEW_TOO_LARGE",
+                "metin": "Önizleme için dosya 8 MB sınırını aşıyor.",
+            }
+        raw = path.read_bytes()
+    except OSError:
+        return _error("Dosya okunamadı.")
+    return {
+        "ok": True,
+        "yol": _relative(root, path),
+        "tur": kind,
+        "mime": mime,
+        "boyut": len(raw),
+        "base64": base64.b64encode(raw).decode("ascii"),
     }
 
 

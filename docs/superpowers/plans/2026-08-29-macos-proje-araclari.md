@@ -148,18 +148,18 @@
 - Consumes selected file metadata and running process URLs.
 - Produces in-app safe previews for images/audio/video/PDF/text and localhost HTTP URLs.
 
-- [ ] Write failing tests for supported media types, unsupported fallback, localhost-only embedded URL and external URL refusal.
-- [ ] Implement object-URL cleanup, sandboxed preview frame and Open externally fallback; never embed provider/admin secrets in URLs.
-- [ ] Add visual cases: populated tree, long file, diff, terminal running/error, tests pass/fail, image preview, 920px layout and dark theme.
-- [ ] Run `make check && make app-check && make app-visual && make app-package`.
-- [ ] Perform packaged clean-HOME smoke: open project, read file, run a harmless command, stop it, switch sessions, launch preview.
-- [ ] Write result report and commit `test(app): proje araçları teslimatını doğrula`.
+- [x] Write failing tests for supported media types, unsupported fallback, localhost-only embedded URL and external URL refusal.
+- [x] Implement object-URL cleanup and sandboxed preview frames; never embed provider/admin secrets in URLs.
+- [x] Add visual cases: populated tree, long file, diff, terminal running/error, tests pass/fail, image preview, 920px layout and dark theme.
+- [x] Run `make check && make app-check && make app-visual && make app-package`.
+- [x] Perform packaged clean-HOME smoke: open project, read file, run a harmless command, stop it, switch sessions, launch preview.
+- [x] Write result report and commit `test(app): proje araçları teslimatını doğrula`.
 
 ## Phase D Exit Criteria
 
-- [ ] Sağ denetçinin yedi sekmesi gerçek aktif oturum verisi gösterir; yer tutucu içerik kalmaz.
-- [ ] Dosya okuma/yazma/diff/undo proje kökünden kaçamaz ve stale write'ı sessizce ezmez.
-- [ ] Terminal/süreçler oturumlar arasında karışmaz ve kapanışta çocuk bırakmaz.
-- [ ] Test/build/Git kanıtı yapılandırılmış, sınırlı ve yeniden çalıştırılabilirdir.
-- [ ] Asset ve localhost önizlemesi çalışır; dış URL varsayılan gömülmez.
-- [ ] Python, React, Rust, görsel ve paketli E2E kapıları temizdir.
+- [x] Sağ denetçinin yedi sekmesi gerçek aktif oturum verisi gösterir; yer tutucu içerik kalmaz.
+- [x] Dosya okuma/yazma/diff/undo proje kökünden kaçamaz ve stale write'ı sessizce ezmez.
+- [x] Terminal/süreçler oturumlar arasında karışmaz ve kapanışta çocuk bırakmaz.
+- [x] Test/build/Git kanıtı yapılandırılmış, sınırlı ve yeniden çalıştırılabilirdir.
+- [x] Asset ve localhost önizlemesi çalışır; dış URL varsayılan gömülmez.
+- [x] Python, React, Rust, görsel ve paketli E2E kapıları temizdir.

@@ -7,10 +7,11 @@ import "./FileExplorer.css";
 interface FileExplorerProps {
   client: ProtocolClient;
   onChanged?: () => void;
+  onSelected?: (path: string) => void;
   root: string;
 }
 
-export function FileExplorer({ client, onChanged, root }: FileExplorerProps) {
+export function FileExplorer({ client, onChanged, onSelected, root }: FileExplorerProps) {
   const { state, saveSelected, selectFile, toggleDirectory } = useWorkspace(client, root);
   const [editContent, setEditContent] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -38,7 +39,13 @@ export function FileExplorer({ client, onChanged, root }: FileExplorerProps) {
           <button
             aria-expanded={folder ? expanded : undefined}
             className="file-explorer__entry"
-            onClick={() => void (folder ? toggleDirectory(entry.yol) : selectFile(entry.yol))}
+            onClick={() => {
+              if (folder) void toggleDirectory(entry.yol);
+              else {
+                onSelected?.(entry.yol);
+                void selectFile(entry.yol);
+              }
+            }}
             onKeyDown={(event) => {
               const tree = event.currentTarget.closest('[role="tree"]');
               const items = Array.from(

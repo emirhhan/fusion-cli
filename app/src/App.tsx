@@ -27,6 +27,7 @@ import {
 import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
 import { TestsPanel } from "./workspace/TestsPanel";
+import { PreviewPanel } from "./workspace/PreviewPanel";
 import { ProcessesPanel } from "./processes/ProcessesPanel";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
@@ -103,6 +104,7 @@ function projectName(root: string): string {
 
 function ProjectInspector({ client, root }: { client: ProtocolClient; root: string }) {
   const [revision, setRevision] = useState(0);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
@@ -116,11 +118,12 @@ function ProjectInspector({ client, root }: { client: ProtocolClient; root: stri
   return (
     <Inspector
       content={{
-        files: <FileExplorer client={client} key={revision} onChanged={changed} root={root} />,
+        files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
         terminal: <TerminalPanel controller={processes} />,
         processes: <ProcessesPanel controller={processes} />,
         tests: <TestsPanel client={client} processes={processes} />,
+        preview: <PreviewPanel client={client} selectedPath={selectedPath} />,
       }}
     />
   );
