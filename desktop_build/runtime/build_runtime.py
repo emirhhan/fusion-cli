@@ -28,17 +28,36 @@ _SPEC_PATH = Path(__file__).resolve().parent / "fusion_runtime.spec"
 _BUNDLE_NAME = "fusion-runtime"
 
 
-def macos_target(machine: str) -> str:
-    """Verilen makine mimarisini Tauri hedef üçlüsüne çevirir."""
-    names = {
-        "arm64": "aarch64-apple-darwin",
-        "aarch64": "aarch64-apple-darwin",
-        "x86_64": "x86_64-apple-darwin",
-    }
+#: Platform + mimari → Tauri hedef üçlüsü. Değer `runtime-manifest.json` içindeki
+#: `target` alanına yazılır ve Rust tarafında `RuntimeManifest::validate` ile
+#: karşılaştırılır: yanlış yazılırsa hata paket AÇILDIKTAN sonra ortaya çıkar.
+_TARGETS = {
+    ("darwin", "arm64"): "aarch64-apple-darwin",
+    ("darwin", "aarch64"): "aarch64-apple-darwin",
+    ("darwin", "x86_64"): "x86_64-apple-darwin",
+    ("windows", "amd64"): "x86_64-pc-windows-msvc",
+    ("windows", "x86_64"): "x86_64-pc-windows-msvc",
+    ("windows", "arm64"): "aarch64-pc-windows-msvc",
+}
+
+
+def platform_target(system: str, machine: str) -> str:
+    """Verilen platform ve mimariyi Tauri hedef üçlüsüne çevirir."""
+    key = (system.casefold(), machine.casefold())
     try:
-        return names[machine.casefold()]
+        return _TARGETS[key]
     except KeyError as error:
-        raise ValueError(f"Desteklenmeyen macOS mimarisi: {machine}") from error
+        raise ValueError(f"Desteklenmeyen platform/mimari: {system}/{machine}") from error
+
+
+def entrypoint_name(system: str) -> str:
+    """Paketlenmiş giriş noktasının dosya adı; Windows'ta uzantı zorunludur."""
+    return "fusion.exe" if system.casefold() == "windows" else "fusion"
+
+
+def macos_target(machine: str) -> str:
+    """Geriye dönük ad; `platform_target("Darwin", machine)` ile aynıdır."""
+    return platform_target("Darwin", machine)
 
 
 def sha256_file(path: Path) -> str:
@@ -98,7 +117,7 @@ def build_manifest(root: Path, archive: Path, *, version: str, target: str) -> d
         "target": target,
         "archive": archive.name,
         "archive_sha256": sha256_file(archive),
-        "entrypoint": "fusion",
+        "entrypoint": entrypoint_name(platform.system()),
         "files": files,
     }
 
@@ -150,7 +169,10 @@ def build_runtime(output_dir: Path, work_dir: Path) -> tuple[Path, Path]:
     write_archive(bundle_root, archive_path)
 
     manifest = build_manifest(
-        bundle_root, archive_path, version=__version__, target=macos_target(platform.machine())
+        bundle_root,
+        archive_path,
+        version=__version__,
+        target=platform_target(platform.system(), platform.machine()),
     )
     manifest_path = output_dir / "runtime-manifest.json"
     manifest_text = json.dumps(manifest, sort_keys=True, indent=2) + "\n"

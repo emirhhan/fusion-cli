@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+import pytest
+
 from desktop_build.runtime import build_runtime as runtime_builder
 from desktop_build.runtime.build_runtime import (
     build_manifest,
@@ -82,3 +84,31 @@ def test_runtime_derlemesi_izlenen_readme_dosyasini_korur(tmp_path: Path, monkey
     build_runtime(output, tmp_path / "work")
 
     assert readme.read_text(encoding="utf-8") == "Bu dosya depoya aittir.\n"
+
+
+def test_windows_hedefi_ve_exe_giris_noktasi():
+    """Windows paketi Tauri'nin MSVC üçlüsünü ve `.exe` giriş noktasını taşımalı.
+
+    PyInstaller çapraz derleme yapmaz: Windows ikilisi Windows'ta üretilir. Ama
+    hedef adı ve giriş noktası ADI platformdan türetilir; bu iki alanı yanlış
+    yazmak, Rust tarafındaki `RuntimeManifest::validate` ve giriş noktası
+    çözümlemesini paket açıldıktan SONRA patlatır.
+    """
+    from desktop_build.runtime.build_runtime import entrypoint_name, platform_target
+
+    assert platform_target("Darwin", "arm64") == "aarch64-apple-darwin"
+    assert platform_target("Darwin", "x86_64") == "x86_64-apple-darwin"
+    assert platform_target("Windows", "AMD64") == "x86_64-pc-windows-msvc"
+    assert platform_target("Windows", "ARM64") == "aarch64-pc-windows-msvc"
+
+    assert entrypoint_name("Darwin") == "fusion"
+    assert entrypoint_name("Windows") == "fusion.exe"
+
+
+def test_desteklenmeyen_platform_sessizce_gecilmez():
+    from desktop_build.runtime.build_runtime import platform_target
+
+    with pytest.raises(ValueError):
+        platform_target("Linux", "x86_64")
+    with pytest.raises(ValueError):
+        platform_target("Windows", "itanium")

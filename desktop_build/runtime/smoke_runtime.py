@@ -9,10 +9,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import secrets
-import select
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,16 +30,29 @@ _DUMMY_SECRET_ENV = {"FUSION_SECRET_KEY": secrets.token_urlsafe(32)}
 def _request(
     process: subprocess.Popen[str], request_id: str, name: str, data: dict[str, object]
 ) -> dict[str, Any]:
+    """İsteği yolla ve eşleşen yanıtı bekle.
+
+    Okuma zaman aşımı `select` ile DEĞİL iş parçacığıyla kurulur: `select`
+    Windows'ta yalnız soketlerde çalışır, boruda çalışmaz. Aynı kod iki
+    platformda da geçerli olsun diye taşınabilir olan seçildi.
+    """
     assert process.stdin is not None and process.stdout is not None
+    stdout = process.stdout
     request = {"tip": "istek", "id": request_id, "ad": name, "veri": data}
     process.stdin.write(json.dumps(request) + "\n")
     process.stdin.flush()
-    while True:
-        readable, _, _ = select.select([process.stdout], [], [], _TIMEOUT_SANIYE)
-        assert readable, f"{name} isteği 30 saniyede yanıt vermedi"
-        response = json.loads(process.stdout.readline())
-        if response.get("tip") == "sonuc" and response.get("id") == request_id:
-            return cast(dict[str, Any], response.get("veri", {}))
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-smoke-read") as reader:
+        while True:
+            try:
+                line = reader.submit(stdout.readline).result(timeout=_TIMEOUT_SANIYE)
+            except FutureTimeoutError as error:
+                raise AssertionError(
+                    f"{name} isteği {_TIMEOUT_SANIYE} saniyede yanıt vermedi"
+                ) from error
+            assert line, f"{name} isteği yanıtsız kaldı: süreç akışı kapandı"
+            response = json.loads(line)
+            if response.get("tip") == "sonuc" and response.get("id") == request_id:
+                return cast(dict[str, Any], response.get("veri", {}))
 
 
 def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
@@ -59,7 +74,8 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env={**env, "HOME": str(home)},
+            # Windows ev dizinini HOME değil USERPROFILE belirler; ikisi de verilir.
+            env={**env, "HOME": str(home), "USERPROFILE": str(home)},
         )
         listing = _request(process, "files", "proje.listele", {"yol": ""})
         assert listing["ok"] is True and any(
@@ -70,7 +86,9 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
         preview = _request(process, "preview", "proje.onizle", {"yol": "pixel.png"})
         assert preview["ok"] is True and preview["tur"] == "image"
 
-        started = _request(process, "start", "surec.baslat", {"komut": "sleep 30"})
+        # Uzun süren zararsız komut platforma göre değişir: Windows'ta `sleep` yoktur.
+        uzun_komut = "timeout /t 30 /nobreak" if platform.system() == "Windows" else "sleep 30"
+        started = _request(process, "start", "surec.baslat", {"komut": uzun_komut})
         process_id = started["surec_id"]
         processes = _request(process, "list", "surec.listele", {})
         assert any(item["surec_id"] == process_id for item in processes["surecler"])
@@ -135,10 +153,23 @@ def smoke(executable: Path) -> None:
 def main() -> None:
     """CLI girişi: verilen ikili yolunu duman testinden geçirir."""
     parser = argparse.ArgumentParser(description="Paketlenmiş Fusion ikilisini sınar.")
-    parser.add_argument("executable", type=Path, help="Paketlenmiş `fusion` ikilisinin yolu")
+    parser.add_argument(
+        "executable",
+        type=Path,
+        help="Paketlenmiş giriş noktasının yolu (Windows'ta `.exe` uzantısı eklenir)",
+    )
     args = parser.parse_args()
 
-    smoke(args.executable.resolve())
+    # Windows'ta giriş noktası `fusion.exe`. Çağıranın (npm script, CI) uzantıyı
+    # bilmesi gerekmesin: uzantısız yol verildiyse ve karşılığı yoksa `.exe`
+    # denenir. Böylece tek bir komut satırı iki platformda da çalışır.
+    executable = args.executable
+    if not executable.exists():
+        with_exe = executable.with_name(executable.name + ".exe")
+        if with_exe.exists():
+            executable = with_exe
+
+    smoke(executable.resolve())
     print(
         "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol, "
         "önizleme ve ders protokolleri doğrulandı."
