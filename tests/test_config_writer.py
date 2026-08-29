@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import multiprocessing
+import sys
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 import yaml
@@ -10,8 +13,39 @@ import yaml
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.model_select import apply_tier
 from fusion_cli.config.models import McpServerConfig
-from fusion_cli.config.writer import write_mcp_servers, write_model_section
+from fusion_cli.config.writer import write_mcp_servers, write_model_section, write_provider
 from fusion_cli.core.errors import ConfigError
+
+
+def _paused_model_write(
+    path: Path,
+    read_finished: multiprocessing.synchronize.Event,
+    resume: multiprocessing.synchronize.Event,
+) -> None:
+    """İlk okumadan sonra yazımı durdur; yarış sırasını deterministik yap."""
+    from fusion_cli.config import writer
+
+    original_read = writer._read_existing
+
+    def paused_read(target: Path) -> dict[str, object]:
+        existing = original_read(target)
+        read_finished.set()
+        if not resume.wait(timeout=10):
+            raise TimeoutError("eşzamanlı config testi devam sinyali alamadı")
+        return existing
+
+    writer._read_existing = paused_read
+    writer.write_model_section(apply_tier(load_config(), "premium"), path)
+
+
+def _provider_write(
+    path: Path,
+    started: multiprocessing.synchronize.Event,
+    finished: multiprocessing.synchronize.Event,
+) -> None:
+    started.set()
+    write_provider(load_config(), "openrouter", path)
+    finished.set()
 
 
 def test_yazilan_dosya_geri_okununca_ayni_modelleri_verir(tmp_path):
@@ -113,7 +147,44 @@ def test_yazim_atomiktir_gecici_dosya_birakilmaz(tmp_path):
 
     write_model_section(load_config(), hedef)
 
-    assert [item.name for item in tmp_path.iterdir()] == ["config.yaml"]
+    assert hedef.is_file()
+    assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="fork yalnız macOS/Linux'ta var")
+def test_iki_surec_farkli_config_bolumlerini_yazarken_guncellemeler_kaybolmaz(tmp_path):
+    """Panel ve CLI'nin read-modify-write işlemleri tek transaction olmalı."""
+    context = multiprocessing.get_context("fork")
+    read_finished = context.Event()
+    resume = context.Event()
+    provider_started = context.Event()
+    provider_finished = context.Event()
+    hedef = tmp_path / "config.yaml"
+
+    model_process = context.Process(
+        target=_paused_model_write,
+        args=(hedef, read_finished, resume),
+    )
+    provider_process = context.Process(
+        target=_provider_write,
+        args=(hedef, provider_started, provider_finished),
+    )
+    model_process.start()
+    assert read_finished.wait(timeout=5)
+    provider_process.start()
+    assert provider_started.wait(timeout=5)
+
+    provider_was_serialized = not provider_finished.wait(timeout=2)
+    resume.set()
+    model_process.join(timeout=10)
+    provider_process.join(timeout=10)
+
+    assert provider_was_serialized, "ikinci süreç ilk read-modify-write bitmeden yazdı"
+    assert model_process.exitcode == 0
+    assert provider_process.exitcode == 0
+    written = yaml.safe_load(hedef.read_text(encoding="utf-8"))
+    assert written["runtime"]["provider"] == "openrouter"
+    assert written["agent"]["name"] == apply_tier(load_config(), "premium").agent.name
 
 
 # --- MCP sunucu listesi ------------------------------------------------------ #

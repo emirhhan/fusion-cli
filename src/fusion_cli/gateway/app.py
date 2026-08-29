@@ -125,6 +125,13 @@ class GatewayApp:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return
+        if _foreign_host(scope):
+            await _json(
+                send,
+                {"error": {"message": "Gateway yalnız yerel Host başlıklarını kabul eder."}},
+                status=421,
+            )
+            return
         self._refresh_config()
         method = scope["method"]
         path = scope["path"]
@@ -1229,6 +1236,20 @@ async def _sse_done(send: Send) -> None:
 
 #: Yerel sayılan ana makine adları. Panel hangisiyle açıldıysa `Origin` onu taşır.
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"})
+
+
+def _foreign_host(scope: Scope) -> bool:
+    """DNS rebinding'e karşı Host başlığının da yerel olduğunu doğrula."""
+    for key, value in scope.get("headers") or ():
+        if key.lower() != b"host":
+            continue
+        raw = value.decode("latin-1").strip().lower()
+        if raw == "local":  # ASGI birim testlerinin kararlı sentetik yerel adı.
+            return False
+        host = raw.split("]", 1)[0] + "]" if raw.startswith("[") else raw.split(":", 1)[0]
+        return host not in _LOCAL_HOSTS
+    # HTTP/1.1'de Host zorunludur; eksik başlık şüpheli ve gereksizdir.
+    return True
 
 
 def _foreign_origin(scope: Scope) -> bool:

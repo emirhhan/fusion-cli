@@ -7,6 +7,8 @@ Sunucu YALNIZCA yerelde dinler (varsayılan 127.0.0.1) — uzak/paylaşımlı de
 
 from __future__ import annotations
 
+import logging
+
 from ..config.models import Config
 from ..core.errors import FusionError
 from ..core.health import HealthRegistry
@@ -15,6 +17,8 @@ from .app import GatewayApp
 #: Varsayılan yerel adres ve port. Koda gömülü sihirli değer değil, gateway sabiti.
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8787
+
+_logger = logging.getLogger(__name__)
 
 
 def build_app(config: Config) -> GatewayApp:
@@ -37,4 +41,10 @@ def serve(config: Config, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT)
             "Gateway için 'uvicorn' gerekiyor ama kurulu değil. Kur: "
             "pip install 'fusion-cli[gateway]'"
         ) from None
+    if host == "0.0.0.0":
+        _logger.warning(
+            "GÜVENLİK UYARISI: Fusion gateway 0.0.0.0 üzerinde tüm ağ arayüzlerine "
+            "açılıyor. Yalnızca güvenilir bir ağda kullanın; Origin/CSRF koruması "
+            "tarayıcı kaynaklı saldırıları sınırlar ancak kimlik doğrulaması sağlamaz."
+        )
     uvicorn.run(build_app(config), host=host, port=port, log_level="warning")

@@ -107,3 +107,19 @@ async def test_okuma_uclari_origin_ile_engellenmez(tmp_path):
         cevap = await client.get("/health", headers={"origin": "http://evil.example"})
 
     assert cevap.status_code == 200
+
+
+async def test_dns_rebinding_yabanci_host_ile_yerel_gatewaye_erisemez(tmp_path):
+    """DNS rebinding'de Origin saldırgan alanı gibi görünmeyebilir; Host ayrıca yerel olmalı."""
+    async with _client(_app(tmp_path)) as client:
+        cevap = await client.get("/dashboard", headers={"host": "evil.example"})
+
+    assert cevap.status_code == 421
+
+
+@pytest.mark.parametrize("host", ["localhost:8787", "127.0.0.1:8787", "[::1]:8787", "local"])
+async def test_yerel_host_degerleri_korunur(tmp_path, host):
+    async with _client(_app(tmp_path)) as client:
+        cevap = await client.get("/health", headers={"host": host})
+
+    assert cevap.status_code == 200

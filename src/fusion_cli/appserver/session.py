@@ -16,6 +16,8 @@ C1/C4).
 from __future__ import annotations
 
 import asyncio
+import shlex
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -35,6 +37,7 @@ from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
+from .control import delete_secret, save_secret, snapshot
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
@@ -86,6 +89,13 @@ class AppSession:
         )
         self._workspace_journal = WorkspaceJournal()
         self._processes = ProcessManager(self._state.root, writer)
+        self._gateway_process_id: str | None = None
+        executable = shlex.quote(sys.executable)
+        self._gateway_command = (
+            f"{executable} serve --host 127.0.0.1 --port 8787"
+            if getattr(sys, "frozen", False)
+            else f"{executable} -m fusion_cli serve --host 127.0.0.1 --port 8787"
+        )
         self._all_capabilities = CapabilityRegistry(home, root)
         self._disabled_skills: set[str] = set()
         self._disabled_agents: set[str] = set()
@@ -162,6 +172,22 @@ class AppSession:
             return self._set_capability_enabled(request.data)
         if request.name == "yetenek.kullan":
             return self._select_capability(request.data)
+        if request.name == "kontrol.durum":
+            return self._control_status()
+        if request.name == "kontrol.anahtar_kaydet":
+            return save_secret(
+                self._secret_store,
+                str(request.data.get("saglayici", "")),
+                request.data.get("deger"),
+            )
+        if request.name == "kontrol.anahtar_sil":
+            return delete_secret(
+                self._secret_store, str(request.data.get("saglayici", ""))
+            )
+        if request.name == "kontrol.gateway_baslat":
+            return await self._start_gateway()
+        if request.name == "kontrol.gateway_durdur":
+            return await self._stop_gateway()
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
@@ -243,6 +269,55 @@ class AppSession:
             "mod": self._state.approval.value,
             "motor": self._state.engine.value,
         }
+
+    def _gateway_status(self) -> dict[str, Any]:
+        if self._gateway_process_id is None:
+            return {"durum": "kapali", "adres": "http://127.0.0.1:8787/v1"}
+        records = self._processes.list().get("surecler", [])
+        record = next(
+            (item for item in records if item.get("surec_id") == self._gateway_process_id), None
+        )
+        if record is None or record.get("durum") != "calisiyor":
+            self._gateway_process_id = None
+            return {"durum": "kapali", "adres": "http://127.0.0.1:8787/v1"}
+        return {
+            "durum": "calisiyor",
+            "adres": "http://127.0.0.1:8787/v1",
+            "pid": record.get("pid"),
+        }
+
+    def _control_status(self) -> dict[str, Any]:
+        return snapshot(
+            self._state.config,
+            self._secret_store,
+            root=str(self._state.root),
+            approval=self._state.approval.value,
+            engine=self._state.engine.value,
+            gateway=self._gateway_status(),
+        )
+
+    async def _start_gateway(self) -> dict[str, Any]:
+        if self._gateway_status()["durum"] == "calisiyor":
+            return {"ok": False, "metin": "Gateway zaten çalışıyor."}
+        result = await self._processes.start({"komut": self._gateway_command, "cwd": ""})
+        if result.get("ok") is True:
+            self._gateway_process_id = str(result["surec_id"])
+            return {
+                "ok": True,
+                "durum": "calisiyor",
+                "adres": "http://127.0.0.1:8787/v1",
+                "pid": result.get("pid"),
+            }
+        return result
+
+    async def _stop_gateway(self) -> dict[str, Any]:
+        if self._gateway_process_id is None:
+            return {"ok": False, "metin": "Gateway çalışmıyor."}
+        process_id, self._gateway_process_id = self._gateway_process_id, None
+        result = await self._processes.stop({"surec_id": process_id})
+        if result.get("ok") is True:
+            return {"ok": True, "durum": result.get("durum", "durduruldu")}
+        return result
 
     def _run_command(self, data: dict[str, Any]) -> dict[str, Any]:
         """`run_command` sonucu tel-hazır — olduğu gibi geri gönder."""

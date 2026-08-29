@@ -6,7 +6,10 @@ Sağlayıcı sahte enjekte edilir; ağ yok. `httpx.ASGITransport` uygulamayı do
 from __future__ import annotations
 
 import json
+import logging
 import re
+import sys
+from types import ModuleType
 
 import httpx
 import pytest
@@ -27,6 +30,30 @@ def _app(reply="Merhaba, ben mock model.", ok=True):
     return GatewayApp(
         config, provider_factory=lambda spec: FakeProvider("mock", chunks=(reply,), ok=ok)
     )
+
+
+def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(
+    caplog, monkeypatch
+):
+    from fusion_cli.gateway import server
+
+    baslatildi = False
+    sahte_uvicorn = ModuleType("uvicorn")
+
+    def run(app, *, host, port, log_level):
+        nonlocal baslatildi
+        baslatildi = True
+
+    sahte_uvicorn.run = run
+    monkeypatch.setitem(sys.modules, "uvicorn", sahte_uvicorn)
+
+    with caplog.at_level(logging.WARNING, logger="fusion_cli.gateway.server"):
+        server.serve(make_config(), host="0.0.0.0", port=8787)
+
+    assert baslatildi is True
+    assert "0.0.0.0" in caplog.text
+    assert "tüm ağ arayüzlerine" in caplog.text
+    assert "kimlik doğrulaması sağlamaz" in caplog.text
 
 
 # --- temel uçlar ----------------------------------------------------------- #

@@ -23,10 +23,15 @@ ayrıştırıcıya (ruamel) bağımlılık eklemekti, seçimi kalıcılaştırma
 
 from __future__ import annotations
 
+import importlib
 import os
 import tempfile
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
+from types import ModuleType
 
 import yaml
 
@@ -34,6 +39,12 @@ from ..core.errors import ConfigError
 from ..core.types import ModelSpec
 from .models import Config
 from .paths import user_config_candidates, user_config_dir
+
+_fcntl: ModuleType | None
+try:
+    _fcntl = importlib.import_module("fcntl")
+except ModuleNotFoundError:  # pragma: no cover - macOS/Linux'ta her zaman mevcut
+    _fcntl = None
 
 #: Bu modülün yazdığı bölümler. Dosyadaki geri kalan her şeye dokunulmaz.
 #:
@@ -51,16 +62,17 @@ def write_model_section(config: Config, path: Path | None = None) -> Path:
     yapılandırma dizininde yeni bir `config.yaml` oluşturulur.
     """
     target = path or _target_path(config)
-    existing = _read_existing(target)
-    existing.update(
-        {
-            "agent": _spec_to_dict(config.agent),
-            "judge": _spec_to_dict(config.judge),
-            "candidates": [_spec_to_dict(spec) for spec in config.candidates],
-            "task_model_map": dict(config.task_model_map),
-        }
-    )
-    _atomic_write(target, existing)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        existing.update(
+            {
+                "agent": _spec_to_dict(config.agent),
+                "judge": _spec_to_dict(config.judge),
+                "candidates": [_spec_to_dict(spec) for spec in config.candidates],
+                "task_model_map": dict(config.task_model_map),
+            }
+        )
+        _atomic_write(target, existing)
     return target
 
 
@@ -74,12 +86,13 @@ def write_verification_commands(
     onaylamak onları sıfırlamamalıdır.
     """
     target = path or _target_path(config)
-    existing = _read_existing(target)
-    runtime = existing.get("runtime")
-    updated = dict(runtime) if isinstance(runtime, dict) else {}
-    updated["verification_commands"] = list(commands)
-    existing["runtime"] = updated
-    _atomic_write(target, existing)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated["verification_commands"] = list(commands)
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
     return target
 
 
@@ -89,43 +102,45 @@ def write_provider(config: Config, provider: str, path: Path | None = None) -> P
     Yalnızca bu anahtar güncellenir; `runtime`ın diğer ayarları korunur.
     """
     target = path or _target_path(config)
-    existing = _read_existing(target)
-    runtime = existing.get("runtime")
-    updated = dict(runtime) if isinstance(runtime, dict) else {}
-    updated["provider"] = provider
-    existing["runtime"] = updated
-    _atomic_write(target, existing)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated["provider"] = provider
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
     return target
 
 
 def write_web_sessions(config: Config, path: Path | None = None) -> Path:
     """Web sağlayıcı tanımlarını yaz; cookie/token değerlerini ASLA yazma."""
     target = path or _target_path(config)
-    existing = _read_existing(target)
-    existing["web_sessions"] = [
-        {
-            key: value
-            for key, value in {
-                "model": session.model,
-                "endpoint": session.endpoint,
-                "provider": session.provider,
-                "account": session.account,
-                "transport": session.transport,
-                "auth_env": session.auth_env,
-                "credential_ref": session.credential_ref,
-                "tool_support": session.tool_support,
-                # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
-                # yeniden ölçülmeden mutation iznini kaybetmemeli.
-                "tool_eval_passed": session.tool_eval_passed,
-                "headless": session.headless,
-                "timeout_s": session.timeout_s,
-                "enabled": session.enabled,
-            }.items()
-            if value is not None and value != ""
-        }
-        for session in config.web_sessions
-    ]
-    _atomic_write(target, existing)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        existing["web_sessions"] = [
+            {
+                key: value
+                for key, value in {
+                    "model": session.model,
+                    "endpoint": session.endpoint,
+                    "provider": session.provider,
+                    "account": session.account,
+                    "transport": session.transport,
+                    "auth_env": session.auth_env,
+                    "credential_ref": session.credential_ref,
+                    "tool_support": session.tool_support,
+                    # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
+                    # yeniden ölçülmeden mutation iznini kaybetmemeli.
+                    "tool_eval_passed": session.tool_eval_passed,
+                    "headless": session.headless,
+                    "timeout_s": session.timeout_s,
+                    "enabled": session.enabled,
+                }.items()
+                if value is not None and value != ""
+            }
+            for session in config.web_sessions
+        ]
+        _atomic_write(target, existing)
     return target
 
 
@@ -137,20 +152,21 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     genel dosya araçlarına asla verilmez (§ güvenlik sınırı, docs/WEB_PROVIDERS.md).
     """
     target = path or _target_path(config)
-    existing = _read_existing(target)
-    existing["mcp_servers"] = [
-        {
-            key: value
-            for key, value in {
-                "name": server.name,
-                "command": server.command,
-                "args": list(server.args),
-            }.items()
-            if value is not None and value != ()
-        }
-        for server in config.mcp_servers
-    ]
-    _atomic_write(target, existing)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        existing["mcp_servers"] = [
+            {
+                key: value
+                for key, value in {
+                    "name": server.name,
+                    "command": server.command,
+                    "args": list(server.args),
+                }.items()
+                if value is not None and value != ()
+            }
+            for server in config.mcp_servers
+        ]
+        _atomic_write(target, existing)
     return target
 
 
@@ -198,6 +214,57 @@ def _spec_to_dict(spec: ModelSpec) -> dict[str, object]:
         for key, value in data.items()
         if value is not None and value != () and value != ""
     }
+
+
+@contextmanager
+def _config_lock(path: Path) -> Iterator[None]:
+    """Aynı config hedefindeki tüm read-modify-write işlemini süreçler arası kilitle."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f".{path.name}.lock")
+    if _fcntl is None:  # pragma: no cover - yalnız POSIX dışı güvenli fallback
+        with _fallback_config_lock(lock_path.with_suffix(f"{lock_path.suffix}.fallback")):
+            yield
+        return
+
+    try:
+        descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError as exc:
+        raise ConfigError(f"Yapılandırma kilitlenemedi ({path}): {exc}") from exc
+    try:
+        _fcntl.flock(descriptor, _fcntl.LOCK_EX)
+    except OSError as exc:
+        os.close(descriptor)
+        raise ConfigError(f"Yapılandırma kilitlenemedi ({path}): {exc}") from exc
+    try:
+        yield
+    finally:
+        try:
+            _fcntl.flock(descriptor, _fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+@contextmanager
+def _fallback_config_lock(lock_path: Path) -> Iterator[None]:
+    """`flock` yoksa atomik lock-file oluştur; belirsizlikte veri kaybı yerine hata ver."""
+    deadline = time.monotonic() + 10.0
+    descriptor: int | None = None
+    while descriptor is None:
+        try:
+            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                raise ConfigError(
+                    f"Yapılandırma kilidi zaman aşımına uğradı ({lock_path})."
+                ) from None
+            time.sleep(0.05)
+        except OSError as exc:
+            raise ConfigError(f"Yapılandırma kilitlenemedi ({lock_path}): {exc}") from exc
+    try:
+        yield
+    finally:
+        os.close(descriptor)
+        lock_path.unlink(missing_ok=True)
 
 
 def _atomic_write(path: Path, data: dict[str, object]) -> None:
