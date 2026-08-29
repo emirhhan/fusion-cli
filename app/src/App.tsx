@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { ProtocolClient } from "./protocol/client";
+import { Shell } from "./screens/Shell";
 
 /**
  * Çekirdek süreç beklenmedik şekilde kapandığında kullanıcıya gösterilecek
@@ -58,5 +59,10 @@ export default function App() {
     };
   }, []);
 
-  return <pre style={{ padding: 24, fontFamily: "monospace" }}>{durum}</pre>;
+  return (
+    <Shell
+      kenar={<div style={{ padding: 16 }}>Kenar Çubuğu</div>}
+      icerik={<pre style={{ padding: 24, fontFamily: "monospace" }}>{durum}</pre>}
+    />
+  );
 }

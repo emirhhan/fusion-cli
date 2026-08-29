@@ -1,0 +1,17 @@
+/* Ölçülmüş değerler. Kaynak: docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md
+   Hiçbir bileşen ham hex yazmaz; hepsi buradan gelir. */
+:root {
+  --zemin: #ffffff;
+  --kenar-cubugu: #f9f9fa;
+  --secili-satir: #efeff0;
+  --kullanici-balonu: #f5f5f5;
+  --birincil-buton: #000000;
+  --vurgu-hapi: #ebebfa;
+  --sonuk-metin: #7c7c7d;
+  --kenarlik: #e9e9eb;
+
+  --kenar-cubugu-genislik: 281px;
+  --icerik-en-fazla: 768px;
+  --yaricap: 12px;
+  --bosluk-birim: 8px;
+}
