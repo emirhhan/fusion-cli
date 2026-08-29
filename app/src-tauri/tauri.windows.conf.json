@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "targets": ["nsis"],
+    "resources": {
+      "resources/runtime/runtime-manifest.json": "runtime/runtime-manifest.json",
+      "resources/runtime/fusion-runtime.tar.gz": "runtime/fusion-runtime.tar.gz"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["Turkish", "English"]
+      }
+    }
+  }
+}

@@ -24,16 +24,25 @@ pub struct RuntimePaths {
 }
 
 impl RuntimePaths {
-    /// Verilen ev dizininden macOS çalışma zamanı yol modelini üretir.
+    /// Verilen ev dizininden platformun çalışma zamanı yol modelini üretir.
     ///
-    /// Kök her zaman `~/Library/Application Support/Fusion/runtime`dır;
-    /// bu sözleşme dışına çıkan bir çağıran olmamalıdır.
+    /// macOS'ta kök `~/Library/Application Support/Fusion/runtime`,
+    /// Windows'ta `%LOCALAPPDATA%\Fusion\runtime`dır. Windows'ta LOCAL seçildi:
+    /// çalışma zamanı yüz megabaytlarca makineye özel ikili taşır ve gezici
+    /// (roaming) profile girerse her oturum açılışında ağ üzerinden kopyalanır.
+    /// Bu sözleşme dışına çıkan bir çağıran olmamalıdır.
     pub fn for_home(home: &Path) -> Self {
-        let root = home
-            .join("Library")
-            .join("Application Support")
-            .join("Fusion")
-            .join("runtime");
+        let root = if cfg!(windows) {
+            home.join("AppData")
+                .join("Local")
+                .join("Fusion")
+                .join("runtime")
+        } else {
+            home.join("Library")
+                .join("Application Support")
+                .join("Fusion")
+                .join("runtime")
+        };
         Self {
             active_record: root.join("active-runtime.json"),
             lock_file: root.join("runtime.lock"),
@@ -58,12 +67,27 @@ impl RuntimePaths {
 mod tests {
     use super::*;
 
+    #[cfg(not(windows))]
     #[test]
     fn macos_runtime_koku_fusion_application_support_altindadir() {
         let paths = RuntimePaths::for_home(Path::new("/Users/ada"));
         assert_eq!(
             paths.root,
             PathBuf::from("/Users/ada/Library/Application Support/Fusion/runtime")
+        );
+        assert_eq!(paths.active_record, paths.root.join("active-runtime.json"));
+        assert_eq!(paths.lock_file, paths.root.join("runtime.lock"));
+    }
+
+    /// Windows'ta çalışma zamanı GEZİCİ profile girmemeli: yüz megabaytlık
+    /// makineye özel ikili her oturum açılışında ağ üzerinden kopyalanırdı.
+    #[cfg(windows)]
+    #[test]
+    fn windows_runtime_koku_local_appdata_altindadir() {
+        let paths = RuntimePaths::for_home(Path::new("C:\\Users\\ada"));
+        assert_eq!(
+            paths.root,
+            PathBuf::from("C:\\Users\\ada\\AppData\\Local\\Fusion\\runtime")
         );
         assert_eq!(paths.active_record, paths.root.join("active-runtime.json"));
         assert_eq!(paths.lock_file, paths.root.join("runtime.lock"));

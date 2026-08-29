@@ -4,7 +4,6 @@ import hashlib
 from pathlib import Path
 
 import pytest
-
 from desktop_build.runtime import build_runtime as runtime_builder
 from desktop_build.runtime.build_runtime import (
     build_manifest,

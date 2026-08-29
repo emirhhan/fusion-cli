@@ -19,6 +19,7 @@
 
 use std::fs::OpenOptions;
 use std::io::Read;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 
@@ -187,7 +188,13 @@ fn extract_checked(
             if let Some(parent) = target.parent() {
                 std::fs::create_dir_all(parent).map_err(RuntimeError::Io)?;
             }
+            #[cfg(unix)]
             std::os::unix::fs::symlink(&link_name, &target).map_err(RuntimeError::Io)?;
+            // Windows'ta sembolik bağ kurmak ayrıcalık ister ve Windows paketinde
+            // sembolik bağ bulunmaz. Sessizce atlamak yerine reddedilir: beklenmedik
+            // bir üye varsa kurulum yarım kalmış sayılmalı, "kuruldu" denmemeli.
+            #[cfg(not(unix))]
+            return Err(RuntimeError::UnsafePath(relative));
         } else {
             return Err(RuntimeError::UnsafePath(relative));
         }
@@ -283,18 +290,37 @@ fn verify_tree(
 
 /// Bir dosyanın izin bitlerini manifestte kayıtlı moda göre ayarlar; tar
 /// başlığındaki izne güvenmek yerine kaydı otoritatif kabul eder.
+///
+/// Windows'ta POSIX izin biti yoktur ve çalıştırılabilirlik uzantıyla belirlenir;
+/// orada bu işlem anlamsızdır ve sessizce atlanır.
+#[cfg(unix)]
 fn set_mode(path: &Path, mode: u32) -> Result<(), RuntimeError> {
     let permissions = std::fs::Permissions::from_mode(mode & 0o7777);
     std::fs::set_permissions(path, permissions).map_err(RuntimeError::Io)
 }
 
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) -> Result<(), RuntimeError> {
+    Ok(())
+}
+
 /// Giriş noktasının çalıştırılabilir izne sahip olduğundan emin olur; bazı
 /// dosya sistemleri arşivdeki izin bitini birebir korumayabilir.
+///
+/// Windows'ta çalıştırılabilirlik izin biti değil `.exe` uzantısıdır; orada
+/// yapılacak bir şey yoktur, ama dosyanın VARLIĞI yine doğrulanır.
+#[cfg(unix)]
 fn ensure_executable(path: &Path) -> Result<(), RuntimeError> {
     let metadata = std::fs::metadata(path).map_err(RuntimeError::Io)?;
     let mut permissions = metadata.permissions();
     permissions.set_mode(permissions.mode() | 0o111);
     std::fs::set_permissions(path, permissions).map_err(RuntimeError::Io)
+}
+
+#[cfg(not(unix))]
+fn ensure_executable(path: &Path) -> Result<(), RuntimeError> {
+    std::fs::metadata(path).map_err(RuntimeError::Io)?;
+    Ok(())
 }
 
 /// Verilen yolun `root` altında kaldığını doğrular.

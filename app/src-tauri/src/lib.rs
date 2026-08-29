@@ -16,11 +16,26 @@ use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
 use tauri::{Emitter, Manager};
 
 /// Bu makinenin çalışma zamanı paketiyle eşleşmesi gereken hedef üçlü.
-/// Fusion şu an yalnız macOS'u hedefler (Apple Silicon + Intel); değer
-/// `runtime-manifest.json` içindeki `target` alanıyla `RuntimeManifest::validate`
-/// tarafından karşılaştırılır.
+///
+/// Değer `runtime-manifest.json` içindeki `target` alanıyla
+/// `RuntimeManifest::validate` tarafından karşılaştırılır ve
+/// `desktop_build/runtime/build_runtime.py` içindeki `platform_target` ile
+/// AYNI dizeleri üretmek zorundadır: ikisi ayrışırsa paket kurulur ama
+/// doğrulama reddeder. Desteklenmeyen bir platformda derlemeyi sessizce
+/// yanlış bir üçlüyle sürdürmek yerine derleme zamanında durulur.
 fn beklenen_hedef() -> String {
-    format!("{}-apple-darwin", std::env::consts::ARCH)
+    #[cfg(target_os = "macos")]
+    {
+        format!("{}-apple-darwin", std::env::consts::ARCH)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        format!("{}-pc-windows-msvc", std::env::consts::ARCH)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        compile_error!("Fusion masaüstü yalnız macOS ve Windows hedefler")
+    }
 }
 
 /// Geliştirici Kipi geçersiz kılması: paketlenmiş, doğrulanmış çalışma
