@@ -41,6 +41,11 @@ gateway = ["uvicorn>=0.30,<1"]
 # MCP köprüsü opsiyoneldir: `fusion mcp` (sunucu) ve dış MCP sunucularına bağlanma
 # (istemci) için gerekir. Resmî Model Context Protocol SDK'sı.
 mcp = ["mcp>=1.9,<2"]
+# Masaüstü paketleyici opsiyoneldir: yalnızca bağımsız `onedir` çalışma zamanını
+# derleyecek kişiye gerekir, normal geliştirici kurulumuna zorunlu kılınmaz.
+desktop = [
+    "pyinstaller>=6.15,<7",
+]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<2",
@@ -78,7 +83,7 @@ where = ["src"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "desktop_build"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RUF", "ANN", "ASYNC", "PTH"]
@@ -127,7 +132,7 @@ ignore = [
 # surumunu kullanir. 3.11'e sabitlemek, bagimliliklarin 3.12 sozdizimli stub'larini
 # (numpy) ayristirilamaz kiliyordu. 3.11 uyumlulugu CI matrisinde gercekten
 # calistirilarak dogrulaniyor; sozdizimi denetimiyle degil.
-files = ["src", "evals", "prompt_opt"]
+files = ["src", "evals", "prompt_opt", "desktop_build"]
 strict = true
 warn_unreachable = true
 

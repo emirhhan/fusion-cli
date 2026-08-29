@@ -38,3 +38,7 @@ voltiva-shop/
 .fusion-repair-backup/
 fusion-repair-report-*.txt
 .eval-artifacts/
+
+# Masaüstü çalışma zamanı paketi — deterministik derleme ürünü, commit edilmez
+app/src-tauri/resources/runtime/
+*.tar.gz
