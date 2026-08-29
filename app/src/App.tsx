@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Approval } from "./dialogs/Approval";
+import { HistoryPicker } from "./dialogs/HistoryPicker";
+import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayMetni } from "./protocol/olayMetni";
 import type { Soru } from "./protocol/types";
@@ -156,7 +158,9 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
   const layout = useLayout();
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [historyOpen, setHistoryOpen] = useState(false);
   const active = controller.activeSession;
+  const history = useHistory(active?.client ?? null);
 
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
@@ -200,6 +204,19 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
               soru={active.question.data}
             />
           )}
+          {historyOpen && (
+            <HistoryPicker
+              history={history}
+              onClose={() => setHistoryOpen(false)}
+              onResume={(session) => controller.resume({
+                source: session.kaynak,
+                sessionId: session.oturum_id,
+                title: session.baslik,
+                root: active.root,
+              })}
+              open
+            />
+          )}
         </>
       }
       header={
@@ -220,7 +237,14 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
       sidebar={
         <Sidebar
           collapsed={layout.sidebarCollapsed}
+          availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
+          onNavigate={(destination) => {
+            if (!destination.startsWith("resume:")) return;
+            const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
+            setHistoryOpen(true);
+            void history.openSource(source);
+          }}
           onSec={controller.select}
           onYeni={() => void controller.create()}
           oturumlar={controller.sessions.map((session) => ({

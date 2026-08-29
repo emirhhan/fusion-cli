@@ -92,13 +92,13 @@
 - Modify: `app/src/screens/Sidebar.tsx`
 - Modify: `app/src/App.tsx`
 
-- [ ] Yalnız protokolden dönen kaynakların sidebar'da görünmesini test et.
-- [ ] Kaynak seçimi sonrası başlık/tarih/proje/kaynak listesi, arama ve sayfalama testlerini yaz.
-- [ ] Oturum seçilmeden devralma yapılmadığını; önizleme turlarının aşamalı yüklendiğini test et.
-- [ ] `gecmis.surdur` başarısında yeni `[claude]`/`[codex]`/`[hermes]` etiketli Fusion oturumu oluştur.
-- [ ] Sır sayısı varsa teknik jargon kullanmadan tek, sakin uyarı göster.
-- [ ] Run: `cd app && npm test -- src/history src/dialogs/HistoryPicker.test.tsx src/App.test.tsx && npm run build`
-- [ ] Commit: `feat(app): geçmiş seçme ve sürdürme akışını ekle`
+- [x] Yalnız protokolden dönen kaynakların sidebar'da görünmesini test et.
+- [x] Kaynak seçimi sonrası başlık/tarih/proje/kaynak listesi, arama ve sayfalama testlerini yaz.
+- [x] Oturum seçilmeden devralma yapılmadığını; önizleme turlarının aşamalı yüklendiğini test et.
+- [x] `gecmis.surdur` başarısında yeni `[claude]`/`[codex]`/`[hermes]` etiketli Fusion oturumu oluştur.
+- [x] Sır sayısı varsa teknik jargon kullanmadan tek, sakin uyarı göster.
+- [x] Run: `cd app && npm test -- src/history src/dialogs/HistoryPicker.test.tsx src/App.test.tsx && npm run build`
+- [x] Commit: `feat(app): geçmiş seçme ve sürdürme akışını ekle`
 
 ### Task 6: Oturum arama, yakın projeler ve görünüm kalıcılığı
 

@@ -125,4 +125,54 @@ describe("SessionUygulama", () => {
     expect(screen.getByRole("heading", { name: "ilk görev" })).toBeTruthy();
     expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1);
   });
+
+  it("keşfedilen geçmiş kaynağını sidebar ve seçiciye bağlar", async () => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({
+        oturum_id: id,
+        kok: "/proje",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async (id, line) => {
+        const request = JSON.parse(line) as { id: string; ad: string };
+        const veri = request.ad === "gecmis.kaynaklar"
+          ? { ok: true, kaynaklar: [{ ad: "claude", komut: "/resumeclaude" }] }
+          : request.ad === "gecmis.oturumlar"
+            ? {
+                ok: true,
+                kaynak: "claude",
+                oturumlar: [{
+                  kaynak: "claude",
+                  oturum_id: "c1",
+                  baslik: "Eski oyun konuşması",
+                  guncellendi: 100,
+                  tur_sayisi: 2,
+                  boyut: 100,
+                }],
+                next_cursor: null,
+                has_more: false,
+              }
+            : { ok: true };
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
+        }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => {
+        lineHandler = handler;
+        return () => undefined;
+      }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Claude geçmişi" }));
+    expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
+  });
 });

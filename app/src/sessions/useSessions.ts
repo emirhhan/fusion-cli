@@ -8,6 +8,7 @@ import { initialSessionState, sessionReducer } from "./store";
 import type {
   BackendSessionSnapshot,
   NewSession,
+  ResumeSession,
   SessionClosedEvent,
   SessionLineEvent,
   SessionTransport,
@@ -43,18 +44,18 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const requestedClose = useRef(new Set<string>());
   const mounted = useRef(false);
 
-  const create = useCallback(
-    async (input: NewSession = {}) => {
+  const connect = useCallback(
+    async (input: NewSession = {}, publish = true) => {
       const id = input.id ?? nextSessionId();
       requestedClose.current.delete(id);
       const existing = clients.current.get(id);
       if (existing) {
-        dispatch({ type: "selected", id });
-        return id;
+        if (publish) dispatch({ type: "selected", id });
+        return { id, client: existing, snapshot: null };
       }
 
       const snapshot = await transport.create(id, input.root);
-      if (!mounted.current) return id;
+      if (!mounted.current) throw new Error("Oturum görünümü kapandı.");
       const client = new ProtocolClient(
         (line) => {
           void transport.send(id, line).catch((reason) => {
@@ -81,20 +82,75 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         }
       });
       clients.current.set(id, client);
-      dispatch({
-        type: "created",
-        session: {
-          id,
-          title: input.title ?? "Yeni görev",
-          source: input.source ?? "fusion",
-          root: snapshot.kok,
-          pid: snapshot.pid,
-          client,
-        },
-      });
-      return id;
+      if (publish) {
+        dispatch({
+          type: "created",
+          session: {
+            id,
+            title: input.title ?? "Yeni görev",
+            source: input.source ?? "fusion",
+            root: snapshot.kok,
+            pid: snapshot.pid,
+            client,
+          },
+        });
+      }
+      return { id, client, snapshot };
     },
     [transport],
+  );
+
+  const create = useCallback(
+    async (input: NewSession = {}) => (await connect(input)).id,
+    [connect],
+  );
+
+  const resume = useCallback(
+    async (input: ResumeSession) => {
+      const connection = await connect(
+        {
+          title: `[${input.source}] ${input.title}`,
+          source: input.source,
+          root: input.root,
+        },
+        false,
+      );
+      if (!connection.snapshot) {
+        throw new Error("Devralma için yeni bir konuşma oluşturulamadı.");
+      }
+      try {
+        const result = await connection.client.request("gecmis.surdur", {
+          kaynak: input.source,
+          oturum_id: input.sessionId,
+        });
+        if (result.ok !== true) {
+          throw new Error(typeof result.metin === "string" ? result.metin : "Geçmiş devralınamadı.");
+        }
+        dispatch({
+          type: "created",
+          session: {
+            id: connection.id,
+            title: `[${input.source}] ${input.title}`,
+            source: input.source,
+            root: connection.snapshot.kok,
+            pid: connection.snapshot.pid,
+            client: connection.client,
+          },
+        });
+        return {
+          id: connection.id,
+          secretCount: typeof result.sir_sayisi === "number" ? result.sir_sayisi : 0,
+        };
+      } catch (reason) {
+        connection.client.close();
+        clients.current.delete(connection.id);
+        lineHandlers.current.delete(connection.id);
+        requestedClose.current.add(connection.id);
+        await transport.close(connection.id).catch(() => undefined);
+        throw reason;
+      }
+    },
+    [connect, transport],
   );
 
   useEffect(() => {
@@ -227,6 +283,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     close,
     create,
     select: (id: string) => dispatch({ type: "selected", id }),
+    resume,
     send,
     sessions,
     state,

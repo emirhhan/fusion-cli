@@ -60,6 +60,13 @@ export interface NewSession {
   root?: string;
 }
 
+export interface ResumeSession {
+  source: Exclude<SessionSource, "fusion">;
+  sessionId: string;
+  title: string;
+  root?: string;
+}
+
 export interface SessionState {
   activeId: string | null;
   order: string[];
