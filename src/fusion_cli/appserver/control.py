@@ -30,6 +30,50 @@ def _provider(provider_id: str) -> ProviderDefinition | None:
     )
 
 
+def web_provider_cards(config: Config) -> dict[str, Any]:
+    """`web.saglayicilar`: dört tarayıcı sağlayıcısının panel kartları.
+
+    Bu sağlayıcılar API anahtarı kullanmaz; kartlar `anahtar_gerekir: False`
+    taşır ve panel onlara anahtar kutusu ÇİZMEZ.
+    """
+    from ..providers.web_control import provider_cards
+
+    return {
+        "ok": True,
+        "saglayicilar": provider_cards(sessions=config.web_sessions, secret_store=None),
+    }
+
+
+def start_web_login(saglayici: object, hesap: object) -> dict[str, Any]:
+    """`web.giris`: ayrı bir tarayıcı penceresi açar ve süreç kimliğini döndürür."""
+    from ..providers.web_control import start_login
+
+    try:
+        pid = start_login(str(saglayici or ""), str(hesap or "main"))
+    except ValueError as error:
+        return {"ok": False, "metin": str(error)}
+    except OSError as error:
+        return {"ok": False, "metin": f"Giriş tarayıcısı açılamadı: {error}"}
+    return {"ok": True, "pid": pid}
+
+
+def web_login_state(pid: object) -> dict[str, Any]:
+    """`web.giris_durumu`: giriş penceresi hâlâ açık mı?
+
+    Panel bunu yoklar; pencere kapandığı anda doğrulamayı KENDİLİĞİNDEN çalıştırır,
+    kullanıcı elle çerez kopyalamak zorunda kalmaz.
+    """
+    from ..providers.web_control import process_alive
+
+    if not isinstance(pid, (int, str)):
+        return {"ok": False, "metin": "Geçersiz süreç kimliği."}
+    try:
+        numeric = int(pid)
+    except (TypeError, ValueError):
+        return {"ok": False, "metin": "Geçersiz süreç kimliği."}
+    return {"ok": True, "acik": process_alive(numeric)}
+
+
 def secret_store_error(store: SecretStore) -> str | None:
     """Anahtarlık okunamıyorsa SEBEBİNİ döndür; okunuyorsa None.
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
+import { WebProviders } from "./WebProviders";
 import "./ControlPanel.css";
 
 interface ProviderRow { id: string; ad: string; ortam: string; kurulu: boolean }
@@ -90,6 +91,10 @@ export function ControlPanel({ client, onClose }: { client: ProtocolClient; onCl
             <Definition label="Dosya kapsamı" value={state.izin.kokle_sinirli ? "Yalnız proje kökü" : "Onayla genişletilebilir"} />
             <Definition label="Aktif proje" value={state.kok} />
           </dl>
+        </section>
+
+        <section className="control-panel__section control-panel__section--wide">
+          <WebProviders client={client} />
         </section>
 
         <section className="control-panel__section control-panel__section--wide">

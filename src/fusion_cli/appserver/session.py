@@ -37,7 +37,14 @@ from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
-from .control import delete_secret, save_secret, snapshot
+from .control import (
+    delete_secret,
+    save_secret,
+    snapshot,
+    start_web_login,
+    web_login_state,
+    web_provider_cards,
+)
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
@@ -187,6 +194,12 @@ class AppSession:
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":
             return await self._stop_gateway()
+        if request.name == "web.saglayicilar":
+            return web_provider_cards(self._state.config)
+        if request.name == "web.giris":
+            return start_web_login(request.data.get("saglayici"), request.data.get("hesap"))
+        if request.name == "web.giris_durumu":
+            return web_login_state(request.data.get("pid"))
         if request.name == "ders.listele":
             return list_lessons()
         if request.name == "ders.getir":

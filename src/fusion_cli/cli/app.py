@@ -389,6 +389,21 @@ def mcp(
     asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
 
 
+@app.command(name="web-login", hidden=True)
+def web_login(provider: str, account: str = "main") -> None:
+    """Web sağlayıcısı için giriş tarayıcısını aç (panel tarafından çağrılır).
+
+    Paketlenmiş ikilide `python -m fusion_cli.providers.web_login` ÇALIŞMAZ:
+    `sys.executable` Fusion ikilisidir ve `-m` bayrağını tanımaz. Panel bu
+    komutu çağırır; iki kurulum biçiminde de aynı pencere açılır.
+    """
+    import asyncio
+
+    from ..providers.web_browser import open_login_browser
+
+    asyncio.run(open_login_browser(provider, account))
+
+
 @app.command(name="runtime-health", hidden=True)
 def runtime_health(as_json: bool = typer.Option(False, "--json")) -> None:
     """Paketli masaüstü çalışma zamanının bütünlüğünü doğrula."""
