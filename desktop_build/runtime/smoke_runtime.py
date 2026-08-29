@@ -8,21 +8,31 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import secrets
 import select
 import subprocess
 from pathlib import Path
 
 _TIMEOUT_SANIYE = 30
+#: Şifreli credential deposunun anahtarı boşsa oturum açılışı sistem
+#: anahtarlığına (macOS Keychain) dokunur; başsız/etkileşimsiz bir ortamda bu
+#: erişim süresiz asılı kalabilir. Duman testi gerçek sırra dokunmaz — yalnız
+#: bu tek süreç için rastgele, tek kullanımlık bir değer üretip anahtarlık
+#: yolunu devre dışı bırakır.
+_DUMMY_SECRET_ENV = {"FUSION_SECRET_KEY": secrets.token_urlsafe(32)}
 
 
 def smoke(executable: Path) -> None:
     """Paketlenmiş ikiliyi çalıştırıp sağlık ve stdio protokolünü doğrular."""
+    env = {**os.environ, **_DUMMY_SECRET_ENV}
     health = subprocess.run(
         [str(executable), "runtime-health", "--json"],
         check=True,
         capture_output=True,
         text=True,
         timeout=_TIMEOUT_SANIYE,
+        env=env,
     )
     assert json.loads(health.stdout)["ok"] is True
 
@@ -32,6 +42,7 @@ def smoke(executable: Path) -> None:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=env,
     )
     request = {"tip": "istek", "id": "smoke-1", "ad": "oturum.durum", "veri": {}}
     assert process.stdin is not None and process.stdout is not None

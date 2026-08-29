@@ -8,7 +8,15 @@ dizine açar (başlangıç gecikir, bütünlük doğrulaması imkânsızlaşır)
 bir kez kurulur ve SHA-256 manifestiyle doğrulanır.
 """
 
+import os
+
 from PyInstaller.utils.hooks import collect_all, copy_metadata
+
+# PyInstaller göreli betik/pathex girdilerini SPECPATH'e (bu dosyanın kendi
+# dizinine) göre çözer — çalıştırma dizinine göre DEĞİL. Depo kökü bu yüzden
+# SPECPATH'ten iki seviye yukarı çıkılarak hesaplanır; böylece tarif hangi
+# dizinden tetiklenirse tetiklensin aynı sonucu üretir.
+_repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 
 datas = []
 binaries = []
@@ -22,8 +30,8 @@ for distribution in ("fusion-cli", "litellm", "chromadb", "keyring", "httpx"):
     datas += copy_metadata(distribution)
 
 a = Analysis(
-    ["desktop_build/runtime/entrypoint.py"],
-    pathex=["src"],
+    [os.path.join(SPECPATH, "entrypoint.py")],  # noqa: F821
+    pathex=[os.path.join(_repo_root, "src")],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
