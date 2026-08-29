@@ -138,6 +138,16 @@ def test_readme_anahtar_konumunu_tek_yer_olarak_yazar():
     assert "APPDATA" in metin
 
 
+def test_macos_kurulumu_cli_ve_python_onkosulu_istemez():
+    root = Path(__file__).resolve().parents[1]
+    guide = (root / "app/KURULUM.md").read_text(encoding="utf-8")
+
+    assert "Fusion CLI'ın kurulu" not in guide
+    assert "Python kur" not in guide
+    assert "sağ tıklayın" in guide
+    assert "Çalışma zamanını onar" in guide
+
+
 # --- Wheel smoke testi ------------------------------------------------------- #
 
 

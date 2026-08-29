@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: setup venv install format lint type test deadlock check clean eval
+.PHONY: setup venv install format lint type test deadlock check clean eval app-check runtime-bundle app-package
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -20,11 +20,11 @@ install:
 	$(PY) -m pip install --quiet -e ".[dev]"
 
 format:
-	$(RUFF) format src tests evals prompt_opt
+	$(RUFF) format src tests evals prompt_opt desktop_build
 
 lint:
-	$(RUFF) format --check src tests evals prompt_opt
-	$(RUFF) check src tests evals prompt_opt
+	$(RUFF) format --check src tests evals prompt_opt desktop_build
+	$(RUFF) check src tests evals prompt_opt desktop_build
 
 type:
 	$(MYPY)
@@ -46,6 +46,18 @@ deadlock:
 	$(PYTEST) $(DEADLOCK_SUITES)
 
 check: lint type test deadlock
+
+app-check:
+	cd app && npm ci && npm run check
+
+runtime-bundle:
+	$(PY) -m pip install -e ".[desktop,mcp,gateway]"
+	cd app && npm run runtime:build && npm run runtime:smoke
+
+app-package:
+	$(PY) -m pip install -e ".[desktop,mcp,gateway]"
+	cd app && npm run bundle:mac
+	$(PY) desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
 
 # Değerlendirme seti: başlangıç görevlerini koştur, raporu eval-report.json'a yaz.
 # GERÇEK model çağrısı yapar (ağ + anahtar gerekir). İki raporu karşılaştırmak için:

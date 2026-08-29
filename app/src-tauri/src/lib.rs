@@ -3,6 +3,7 @@ mod runtime_installer;
 mod runtime_manager;
 mod runtime_manifest;
 mod runtime_paths;
+mod runtime_smoke;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -127,6 +128,17 @@ async fn runtime_onar(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if runtime_smoke::requested(std::env::args_os()) {
+        let exit_code = match runtime_smoke::run_from_bundle() {
+            Ok(()) => 0,
+            Err(error) => {
+                eprintln!("[fusion][runtime-smoke] {error}");
+                1
+            }
+        };
+        std::process::exit(exit_code);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(CoreProcess::new())

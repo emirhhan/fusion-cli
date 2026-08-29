@@ -1,0 +1,60 @@
+name: Desktop macOS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Python bağımlılıklarını kur
+        run: python -m pip install -e '.[dev,desktop,mcp,gateway]'
+      - name: Ön yüz bağımlılıklarını kur
+        working-directory: app
+        run: npm ci
+      - name: React ve Rust kalite kapıları
+        working-directory: app
+        run: npm run check
+      - name: Native runtime ve uygulama paketini üret
+        working-directory: app
+        run: npm run bundle:mac
+      - name: Mimariyi ve uygulama paketini doğrula
+        env:
+          EXPECTED_TARGET: ${{ matrix.target }}
+        run: |
+          rustc -vV
+          python - <<'PY'
+          import json, os, pathlib
+          manifest = json.loads(pathlib.Path("app/src-tauri/resources/runtime/runtime-manifest.json").read_text())
+          assert manifest["target"] == os.environ["EXPECTED_TARGET"]
+          PY
+          python desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
+      - name: İmzasız macOS paketlerini sakla
+        uses: actions/upload-artifact@v4
+        with:
+          name: fusion-macos-${{ matrix.target }}
+          path: |
+            app/src-tauri/target/release/bundle/macos/Fusion.app
+            app/src-tauri/target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
