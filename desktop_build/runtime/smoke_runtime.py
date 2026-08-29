@@ -131,7 +131,8 @@ def main() -> None:
 
     smoke(args.executable.resolve())
     print(
-        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve önizleme protokolleri doğrulandı."
+        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve "
+        "önizleme protokolleri doğrulandı."
     )
 
 
