@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import dataclass
 
 import pytest
 
 from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter, ProtocolSink
-from fusion_cli.core.events import TurnOutcome
+from fusion_cli.core.events import Event, TurnOutcome
 from fusion_cli.engines.agent.approval import ApprovalAnswer, ApprovalRequest
+
+
+@dataclass(frozen=True, slots=True)
+class _SerilestirilemeyenOlay(Event):
+    """Testte bilinçli olarak JSON'a çevrilemeyen bir alan taşır (sınıf nesnesi)."""
+
+    deger: type = int
 
 
 class _Tool:
@@ -91,21 +99,37 @@ def test_eslesmeyen_kimlik_yok_sayilir() -> None:
     assert PendingQuestions().resolve("olmayan", {"secim": "once"}) is False
 
 
-async def test_onay_yukunde_gizli_arguman_degeri_yoktur() -> None:
-    """Onay teli, araç argümanlarının değerini hiçbir koşulda taşımaz."""
-    sentinel = "gizli-deger-bu-telde-asla-gorunmemeli"
+def test_serilestirilemeyen_olay_sessizce_kaybolmaz() -> None:
+    """I6: `_plain`in fırlattığı `TypeError` yutulmaz, `ProtocolError` olayına döner."""
+    satirlar: list[str] = []
+
+    ProtocolSink(satirlar.append).handle(_SerilestirilemeyenOlay())
+
+    assert len(satirlar) == 1
+    yuk = json.loads(satirlar[0])
+    assert yuk["tip"] == "olay"
+    assert yuk["veri"]["olay"] == "ProtocolError"
+    assert "_SerilestirilemeyenOlay" in yuk["veri"]["mesaj"]
+
+
+async def test_onay_yukunde_arguman_degeri_de_tasinir() -> None:
+    """Onay teli, hangi komutun/dosyanın onaylandığını görsün diye argüman
+    DEĞERLERİNİ de taşımalı — yalnız adları göstermek kullanıcıyı körlemesine
+    onaya zorlardı ve zaten `ToolExecuted.args` olayıyla aynı değerler tele
+    akıyordu (redaksiyon anlamsızdı)."""
+    deger = "rm -rf gizli-klasor"
     satirlar: list[str] = []
     pending = PendingQuestions()
     prompter = ProtocolPrompter(satirlar.append, pending)
 
     gorev = asyncio.ensure_future(
-        prompter.confirm(_request(args={"zeta": sentinel, "alpha": {"token": sentinel}}))
+        prompter.confirm(_request(args={"zeta": deger, "alpha": "sabit"}))
     )
     await asyncio.sleep(0)
 
-    assert sentinel not in satirlar[0]
     yuk = json.loads(satirlar[0])
-    assert yuk["veri"]["argumanlar"] == ["alpha", "zeta"]
+    assert yuk["veri"]["argumanlar"] == ["alpha='sabit'", f"zeta={deger!r}"]
+    assert deger in satirlar[0]
 
     pending.resolve(yuk["id"], {"secim": "deny"})
     await gorev

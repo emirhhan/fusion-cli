@@ -15,7 +15,7 @@ from ..core.events import Event
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
-from .protocol import encode_event, encode_question
+from .protocol import encode_error, encode_event, encode_question
 from .serialize import event_to_dict
 
 #: Tek satır yazan taraf. Testte listeye, üretimde stdout'a yazar.
@@ -29,8 +29,20 @@ class ProtocolSink:
         self._writer = writer
 
     def handle(self, event: Event) -> None:
-        """Olayı tek bir protokol satırı olarak ilet."""
-        self._writer(encode_event(event_to_dict(event)))
+        """Olayı tek bir protokol satırı olarak ilet.
+
+        `event_to_dict` desteklenmeyen bir alan tipinde `TypeError` fırlatabilir
+        (bkz. `serialize.py::_plain`). `EventBus._dispatch` bu istisnayı yakalayıp
+        kimsenin okumadığı `failures` listesine yazar — olay sessizce kaybolurdu.
+        Burada yakalanıp `ProtocolError` olayına çevrilir: uygulama en azından
+        BİR olayın iletilemediğini görür.
+        """
+        try:
+            self._writer(encode_event(event_to_dict(event)))
+        except TypeError:
+            self._writer(
+                encode_error(messages.APP_EVENT_SERIALIZE_FAILED.format(olay=type(event).__name__))
+            )
 
 
 class PendingQuestions:
@@ -81,7 +93,7 @@ class ProtocolPrompter:
             {
                 "tur": "onay",
                 "arac": request.tool.name,
-                "argumanlar": sorted(str(name) for name in request.args),
+                "argumanlar": _preview_args(request),
                 "tehlike": request.danger,
                 "secenekler": _approval_options(request),
             }
@@ -121,6 +133,20 @@ class ProtocolPrompter:
             return await future
         finally:
             self._pending.discard(identifier, future)
+
+
+def _preview_args(request: ApprovalRequest) -> list[str]:
+    """Onay için `ad=değer` çiftleri; terminal önizlemesiyle (`tui_loop._preview`)
+    AYNI bilgiyi taşır.
+
+    Önceki sürüm yalnız argüman ADLARINI gönderiyordu — kullanıcı `run_shell(command)`
+    görüp hangi komutun çalışacağını bilmeden onaylıyordu. Bu redaksiyon zaten
+    anlamsızdı: aynı değerler `ToolExecuted.args` olayıyla tam hâlde tele akıyordu
+    (bkz. `core/events.py`); burada gizlemek yalnız onay kararını körleştiriyordu.
+    Değerler terminaldeki gibi `repr()` ile taşınır — JSON'a çevrilemeyen bir tip
+    (Path, dataclass, …) gelse bile tel bozulmaz.
+    """
+    return [f"{name}={value!r}" for name, value in sorted(request.args.items())]
 
 
 def _approval_options(request: ApprovalRequest) -> list[dict[str, str]]:
