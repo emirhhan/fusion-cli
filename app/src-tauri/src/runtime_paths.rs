@@ -5,9 +5,14 @@
 //! tam macOS uygulaması tasarımında (`docs/superpowers/specs/...`) belirtilen
 //! `~/Library/Application Support/Fusion/runtime` yolu birebir kullanılır.
 //!
-//! `version_dir` ve `staging_dir` bu görevde yalnızca testlerden çağrılıyor;
-//! üretim çağıranı (A/4: kurulum akışı) ayrı bir görevde gelecek. O görev bu
-//! modülü kullanmaya başlayınca `allow(dead_code)` kaldırılacaktır.
+//! `root`, `lock_file`, `version_dir` ve `staging_dir` artık A/4'teki
+//! (`runtime_installer.rs`) kurulum akışı tarafından çağrılıyor. Bu
+//! modülün `allow(dead_code)`'u yine de duruyor: `runtime_installer::install`
+//! bu görevde yalnızca testlerden çağrılıyor, üretimde onu tetikleyen bir
+//! Tauri komutu henüz yok — Rust'ın ölü kod analizi yalnızca ÇALIŞAN
+//! köklerden ulaşılabilirliğe bakar, test-only çağrı bu modülü "kullanılıyor"
+//! saydırmaya yetmiyor. Gerçek kaldırma, `install()`'ı bir Tauri komutuna
+//! bağlayan sürüm seçimi/etkinleştirme görevinde olacak.
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};

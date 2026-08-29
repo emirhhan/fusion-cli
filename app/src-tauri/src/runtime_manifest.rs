@@ -6,11 +6,16 @@
 //! bozuk bir alan sessizce varsayılana düşmez — tipli bir hata döner, çünkü
 //! kurulum/onarım/rollback bu tipin üstüne bina edilecektir.
 //!
-//! `read`, `RuntimeFile` alanları ve bazı `RuntimeError` varyantları bu
-//! görevde henüz hiçbir yerden çağrılmıyor — bunları tüketen kurulum akışı
-//! (A/4: "Güvenli, kilitli ve atomik runtime kurulumu") ayrı bir görevde
-//! gelecek. O görev bu modülü kullanmaya başlayınca `allow(dead_code)`
-//! kaldırılacaktır.
+//! `read`, `validate`, `RuntimeFile` alanları ve çoğu `RuntimeError` varyantı
+//! artık A/4'teki (`runtime_installer.rs`) kurulum akışı tarafından
+//! çağrılıyor. Ama bu modülün `allow(dead_code)`'u hâlâ duruyor: Rust'ın ölü
+//! kod analizi yalnızca ÇALIŞAN (üretim) köklerden ulaşılabilirliğe bakar —
+//! `runtime_installer::install`'ı yalnızca testler çağırıyor, hiçbir Tauri
+//! komutu henüz onu üretimde çağırmıyor; bu yüzden test-only çağrı zinciri
+//! bu modülün öğelerini "kullanılıyor" saydırmaya yetmiyor (doğrulama:
+//! `cargo build --lib`, testler olmadan, aynı uyarıları üretiyor). Gerçek
+//! kaldırma, `install()`'ı bir Tauri komutuna bağlayan sürüm seçimi/
+//! etkinleştirme görevinde olacak.
 #![allow(dead_code)]
 
 use std::path::{Component, Path, PathBuf};
@@ -89,8 +94,8 @@ pub enum RuntimeError {
     #[error("çalışma zamanı arşivi açılamadı")]
     Archive(#[source] std::io::Error),
 
-    #[error("çalışma zamanı sağlık denetimi başarısız oldu")]
-    Health,
+    #[error("çalışma zamanı sağlık denetimi başarısız oldu: {0}")]
+    Health(String),
 
     #[error("kullanılabilir sağlıklı bir çalışma zamanı bulunamadı")]
     NoHealthyRuntime,
