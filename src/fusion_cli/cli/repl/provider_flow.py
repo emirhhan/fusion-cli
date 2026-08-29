@@ -73,11 +73,12 @@ def _persist(config: Config, secim: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _addable(providers: tuple[ProviderDefinition, ...]) -> tuple[ProviderDefinition, ...]:
+def addable_providers(providers: tuple[ProviderDefinition, ...]) -> tuple[ProviderDefinition, ...]:
     """Anahtar EKLENEBİLEN sağlayıcılar: yürütücüsü olan ve anahtar isteyen.
 
     Yerel (anahtarsız) ve yürütücüsü olmayan (web-session, framework) sağlayıcılar
-    dışarıda kalır — onlara anahtar eklemek anlamsızdır.
+    dışarıda kalır — onlara anahtar eklemek anlamsızdır. Genel (public) yüzey:
+    appserver komut köprüsü de aynı listeyi kurmak için bunu çağırır.
     """
     return tuple(p for p in providers if p.implemented and p.auth_env is not None)
 
@@ -97,7 +98,7 @@ def add_credential(
     """
     if not store.available:
         return messages.CRED_NO_KEY
-    eklenebilir = _addable(providers)
+    eklenebilir = addable_providers(providers)
     picked = picker(
         tuple(Choice(p.id, p.name, p.auth_env or "") for p in eklenebilir),
         title=messages.CRED_TITLE,

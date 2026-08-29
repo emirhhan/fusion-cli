@@ -388,7 +388,7 @@ def _profile_candidate_choices(
 def _credential_choices() -> tuple[Choice, ...]:
     return tuple(
         Choice(provider.id, provider.name, provider.auth_env or "")
-        for provider in provider_flow._addable(BUILTIN_PROVIDERS)
+        for provider in provider_flow.addable_providers(BUILTIN_PROVIDERS)
     )
 
 
@@ -397,7 +397,7 @@ def _addable_provider(provider_id: str) -> ProviderDefinition | None:
     return next(
         (
             provider
-            for provider in provider_flow._addable(BUILTIN_PROVIDERS)
+            for provider in provider_flow.addable_providers(BUILTIN_PROVIDERS)
             if provider.id == wanted
         ),
         None,

@@ -125,7 +125,7 @@ def test_wizard_yerel_saglayiciyi_sunmaz(tmp_path):
     # Ollama (yerel, anahtarsız) ve web-session (framework) eklenebilir listede olmamalı.
     from fusion_cli.providers.registry import BUILTIN_PROVIDERS
 
-    eklenebilir = provider_flow._addable(BUILTIN_PROVIDERS)
+    eklenebilir = provider_flow.addable_providers(BUILTIN_PROVIDERS)
     kimlikler = {p.id for p in eklenebilir}
     assert "ollama" not in kimlikler
     assert "chatgpt_web" not in kimlikler
