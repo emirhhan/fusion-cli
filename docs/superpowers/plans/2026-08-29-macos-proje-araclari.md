@@ -34,12 +34,12 @@
 - Produces: `read_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]`
 - Produces protocol requests `proje.listele`, `proje.oku`, `proje.durum`
 
-- [ ] Write failing tests proving: deterministic folder-first listing, hidden files included, pagination, UTF-8 read with SHA-256, binary metadata without content, size cap, `..`/absolute/symlink escape rejection.
-- [ ] Run `.venv/bin/pytest tests/test_appserver_workspace.py -q` and confirm failures are missing behavior rather than fixture errors.
-- [ ] Implement `workspace.py` with a single `_resolve_inside(root, raw)` boundary and structured Turkish errors.
-- [ ] Route the three requests in `AppSession._dispatch`; `proje.durum` returns root, Git presence and readable/writable state without scanning the whole tree.
-- [ ] Run `.venv/bin/pytest tests/test_appserver_workspace.py tests/test_appserver_session.py -q`.
-- [ ] Commit `feat(app): proje çalışma alanını protokole aç`.
+- [x] Write failing tests proving: deterministic folder-first listing, hidden files included, pagination, UTF-8 read with SHA-256, binary metadata without content, size cap, `..`/absolute/symlink escape rejection.
+- [x] Run `.venv/bin/pytest tests/test_appserver_workspace.py -q` and confirm failures are missing behavior rather than fixture errors.
+- [x] Implement `workspace.py` with a single `_resolve_inside(root, raw)` boundary and structured Turkish errors.
+- [x] Route the three requests in `AppSession._dispatch`; `proje.durum` returns root, Git presence and readable/writable state without scanning the whole tree.
+- [x] Run `.venv/bin/pytest tests/test_appserver_workspace.py tests/test_appserver_session.py -q`.
+- [x] Commit `feat(app): proje çalışma alanını protokole aç`.
 
 ### Task 2: Gerçek dosya ağacı ve okuyucu denetçisi
 
@@ -57,12 +57,12 @@
 - Consumes: `proje.listele`, `proje.oku`, active session `ProtocolClient`
 - Produces: `WorkspaceInspector({ client, root })`
 
-- [ ] Write failing component/hook tests for lazy folder expansion, selection, loading/error/empty states, binary file state, keyboard navigation and active-session isolation.
-- [ ] Run `cd app && npm test -- src/workspace` and observe the expected missing-module failures.
-- [ ] Implement typed decoding in `useWorkspace`; never infer protocol payloads with unchecked casts.
-- [ ] Implement accessible tree/treeitem semantics and a selectable text viewer with line numbers; do not load child folders until expanded.
-- [ ] Pass real content into `Inspector.files` from the active session and reset only when session identity changes.
-- [ ] Run `cd app && npm test -- src/workspace src/screens/Inspector.test.tsx src/App.test.tsx && npm run build`.
+- [x] Write failing component/hook tests for lazy folder expansion, selection, loading/error/empty states, binary file state, keyboard navigation and active-session isolation.
+- [x] Run `cd app && npm test -- src/workspace` and observe the expected missing behavior failure.
+- [x] Implement typed decoding in `useWorkspace`; never infer protocol payloads with unchecked casts.
+- [x] Implement accessible tree/treeitem semantics and a selectable text viewer; do not load child folders until expanded.
+- [x] Pass real content into `Inspector.files` from the active session and reset only when session identity changes.
+- [x] Run `cd app && npm test -- src/workspace src/screens/Inspector.test.tsx src/App.test.tsx && npm run build`.
 - [ ] Commit `feat(app): gerçek proje dosyalarını denetçiye bağla`.
 
 ### Task 3: Güvenli düzenleme, diff ve geri alma

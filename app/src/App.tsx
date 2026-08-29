@@ -24,6 +24,7 @@ import {
   saveThemePreference,
   type ThemePreference,
 } from "./theme/theme";
+import { FileExplorer } from "./workspace/FileExplorer";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -236,7 +237,11 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           title={active.title}
         />
       }
-      inspector={<Inspector />}
+      inspector={
+        <Inspector
+          content={{ files: <FileExplorer client={active.client} key={active.id} root={active.root} /> }}
+        />
+      }
       inspectorOpen={layout.inspectorOpen}
       onInspectorClose={layout.closeInspector}
       sidebar={

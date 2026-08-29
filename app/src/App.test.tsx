@@ -94,6 +94,79 @@ describe("Uygulama", () => {
 });
 
 describe("SessionUygulama", () => {
+  it("aktif projenin dosya ağacını açar ve seçilen metni gösterir", async () => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({
+        oturum_id: id,
+        kok: "/proje",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async (id, line) => {
+        const request = JSON.parse(line) as { id: string; ad: string; veri: Record<string, unknown> };
+        let veri: Record<string, unknown> = { ok: true };
+        if (request.ad === "gecmis.kaynaklar") veri = { ok: true, kaynaklar: [] };
+        if (request.ad === "proje.durum") {
+          veri = { ok: true, kok: "/proje", git: true, okunabilir: true, yazilabilir: true };
+        }
+        if (request.ad === "proje.listele" && request.veri.yol === "") {
+          veri = {
+            ok: true,
+            yol: "",
+            girdiler: [
+              { ad: "src", yol: "src", tur: "klasor", boyut: 0, degistirilme: 10 },
+            ],
+            next_cursor: null,
+            has_more: false,
+          };
+        }
+        if (request.ad === "proje.listele" && request.veri.yol === "src") {
+          veri = {
+            ok: true,
+            yol: "src",
+            girdiler: [
+              { ad: "main.py", yol: "src/main.py", tur: "dosya", boyut: 15, degistirilme: 11 },
+            ],
+            next_cursor: null,
+            has_more: false,
+          };
+        }
+        if (request.ad === "proje.oku") {
+          veri = {
+            ok: true,
+            yol: "src/main.py",
+            tur: "metin",
+            mime: "text/x-python",
+            boyut: 15,
+            sha256: "abc",
+            icerik: "print('Fusion')",
+            kesildi: false,
+          };
+        }
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
+        }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => {
+        lineHandler = handler;
+        return () => undefined;
+      }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+
+    render(<SessionUygulama transport={transport} />);
+
+    fireEvent.click(await screen.findByRole("treeitem", { name: "src" }));
+    fireEvent.click(await screen.findByRole("treeitem", { name: "main.py" }));
+    expect(await screen.findByText("print('Fusion')")).toBeTruthy();
+    expect(screen.getByText("src/main.py")).toBeTruthy();
+  });
+
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {
     const transport: SessionTransport = {
       create: vi.fn(async (id) => ({

@@ -1,0 +1,145 @@
+.file-explorer {
+  display: grid;
+  grid-template-rows: minmax(160px, 42%) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.file-explorer__tree,
+.file-explorer__viewer {
+  min-height: 0;
+  overflow: auto;
+}
+
+.file-explorer__tree {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: var(--space-2) 0;
+}
+
+.file-explorer__entry {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  cursor: default;
+  display: flex;
+  font: inherit;
+  gap: 7px;
+  min-height: 32px;
+  padding-block: 4px;
+  padding-inline-end: var(--space-2);
+  text-align: start;
+  width: 100%;
+}
+
+.file-explorer__entry:hover,
+.file-explorer__entry:focus-visible {
+  background: var(--surface-selected);
+}
+
+.file-explorer__entry:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.file-explorer__chevron {
+  color: var(--text-secondary);
+  display: inline-grid;
+  font-size: 18px;
+  place-items: center;
+  width: 12px;
+}
+
+.file-explorer__kind {
+  border: 1.5px solid currentColor;
+  color: var(--text-secondary);
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 13px;
+  width: 11px;
+}
+
+.file-explorer__kind--klasor {
+  border-radius: 2px;
+  height: 10px;
+  position: relative;
+  width: 14px;
+}
+
+.file-explorer__kind--klasor::before {
+  border: 1.5px solid currentColor;
+  border-bottom: 0;
+  border-radius: 2px 2px 0 0;
+  content: "";
+  height: 3px;
+  left: -1.5px;
+  position: absolute;
+  top: -5px;
+  width: 7px;
+}
+
+.file-explorer__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-explorer__viewer {
+  padding: var(--space-3);
+}
+
+.file-explorer__file-head {
+  display: grid;
+  gap: 3px;
+  margin-bottom: var(--space-3);
+}
+
+.file-explorer__file-head strong {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.file-explorer__file-head span,
+.file-explorer__notice,
+.file-explorer__state {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.file-explorer__viewer pre {
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  margin: 0;
+  min-height: 120px;
+  overflow: auto;
+  padding: var(--space-3);
+  tab-size: 2;
+  white-space: pre;
+}
+
+.file-explorer__code-line {
+  display: grid;
+  grid-template-columns: 3ch minmax(max-content, 1fr);
+  min-width: max-content;
+}
+
+.file-explorer__line-number {
+  border-inline-end: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  margin-inline-end: var(--space-2);
+  padding-inline-end: var(--space-2);
+  text-align: end;
+  user-select: none;
+}
+
+.file-explorer__state {
+  margin: 0;
+  padding: var(--space-3);
+}
+
+.file-explorer__state--error {
+  color: var(--text-danger);
+}
