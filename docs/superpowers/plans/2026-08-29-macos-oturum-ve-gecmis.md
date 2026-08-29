@@ -27,13 +27,13 @@
 - Create: `src/fusion_cli/appserver/history.py`
 - Create: `tests/test_appserver_history.py`
 
-- [ ] `gecmis.kaynaklar` için yalnız kurulu kaynakları döndüren kırmızı test yaz.
-- [ ] `gecmis.oturumlar` için kaynak doğrulama, limit/cursor sınırı ve `SessionRef` serileştirme testleri yaz.
-- [ ] `gecmis.onizle` için sayfalı `Turn` serileştirme, `next_cursor` ve `has_more` testleri yaz.
-- [ ] `gecmis.surdur` için kaynağın salt okunması, künye/sır sayısı ve `pending_digest` kurulması testlerini yaz.
-- [ ] Saf `history.py` servis fonksiyonlarını ve `AppSession._dispatch` yönlendirmesini uygula.
-- [ ] Run: `.venv/bin/pytest tests/test_appserver_history.py tests/test_appserver_session.py -q`
-- [ ] Commit: `feat(app): geçmiş kaynaklarını masaüstü protokolüne aç`
+- [x] `gecmis.kaynaklar` için yalnız kurulu kaynakları döndüren kırmızı test yaz.
+- [x] `gecmis.oturumlar` için kaynak doğrulama, limit/cursor sınırı ve `SessionRef` serileştirme testleri yaz.
+- [x] `gecmis.onizle` için sayfalı `Turn` serileştirme, `next_cursor` ve `has_more` testleri yaz.
+- [x] `gecmis.surdur` için kaynağın salt okunması, künye/sır sayısı ve `pending_digest` kurulması testlerini yaz.
+- [x] Saf `history.py` servis fonksiyonlarını ve `AppSession._dispatch` yönlendirmesini uygula.
+- [x] Run: `.venv/bin/pytest tests/test_appserver_history.py tests/test_appserver_session.py -q`
+- [x] Commit: `feat(app): geçmiş kaynaklarını masaüstü protokolüne aç`
 
 ### Task 2: Devralınan bağlamı gerçek tura taşıma
 

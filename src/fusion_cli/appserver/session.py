@@ -32,6 +32,7 @@ from ..memory.factory import build_memory
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .commands import command_choices, list_commands, run_command
+from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .protocol import Reply, Request, encode_result
 
 
@@ -83,6 +84,18 @@ class AppSession:
             return self._start_session(request.data)
         if request.name == "oturum.durum":
             return self._status()
+        if request.name == "gecmis.kaynaklar":
+            return list_sources(self._home)
+        if request.name == "gecmis.oturumlar":
+            return list_sessions(self._home, self._state.root, request.data)
+        if request.name == "gecmis.onizle":
+            return preview_session(self._home, request.data)
+        if request.name == "gecmis.surdur":
+            prepared = prepare_resume(self._home, self._state.root, request.data)
+            if isinstance(prepared, PreparedResume):
+                self._state.pending_digest = prepared.digest
+                return prepared.payload
+            return prepared
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
