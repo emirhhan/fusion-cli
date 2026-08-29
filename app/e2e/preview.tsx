@@ -22,6 +22,8 @@ import { ProcessesPanel } from "../src/processes/ProcessesPanel";
 import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
 import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
+import { ControlPanel } from "../src/control/ControlPanel";
+import { Onboarding, type OnboardingValue } from "../src/onboarding";
 
 const params = new URLSearchParams(location.search);
 const theme = (params.get("theme") ?? "light") as ThemePreference;
@@ -74,6 +76,18 @@ const workspaceClient = {
       mcp: [{ ad: "figma", aciklama: "Figma tasarım dosyaları ve düğümleri", kaynak: "fusion", tur: "mcp", etkin: false, izinler: ["yerel komut", "dış araçlar"] }],
     };
     if (name === "yetenek.detay") return { ok: true, tur: data.tur, ad: data.ad, icerik: "Bu uzmanlık, görevin gerektirdiği dosyaları önce okur; değişiklikten sonra test ve görsel kanıt toplar.", kesildi: false };
+    if (name === "kontrol.durum") return { ok: true, kok: "/Projects/fusion-cli",
+      model: { agent: "openrouter/qwen3-coder", hakem: "nvidia_nim/llama-3.3-70b", adaylar: ["openrouter/deepseek-r1", "nvidia_nim/qwen3-next"], saglayici: "auto", yogunluk: "high" },
+      izin: { mod: "ask", kokle_sinirli: false },
+      mcp: [{ ad: "figma", komut: "npx" }, { ad: "github", komut: "docker" }],
+      saglayicilar: [
+        { id: "openrouter", ad: "OpenRouter", ortam: "OPENROUTER_API_KEY", kurulu: true },
+        { id: "nvidia_nim", ad: "NVIDIA NIM", ortam: "NVIDIA_NIM_API_KEY", kurulu: true },
+        { id: "openai", ad: "OpenAI", ortam: "OPENAI_API_KEY", kurulu: false },
+        { id: "anthropic", ad: "Anthropic", ortam: "ANTHROPIC_API_KEY", kurulu: false },
+      ],
+      sir_deposu_hazir: true, gateway: { durum: "calisiyor", adres: "http://127.0.0.1:8787/v1", pid: 4821 },
+    };
     return { ok: true };
   },
 } as unknown as ProtocolClient;
@@ -138,14 +152,22 @@ function historyFixture(): HistoryController {
 function Preview() {
   const inspector = state.startsWith("workspace-") ? <WorkspaceInspector /> : <Inspector />;
   const capabilities = state === "capabilities";
+  const control = state === "control";
+  const onboarding = state === "onboarding";
+  const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
+  if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
+    runtime={{ status: "ready", version: "0.3.0a1" }}
+    sources={[{ kind: "claude", status: "found", itemCount: 18 }, { kind: "codex", status: "found", itemCount: 24 }, { kind: "hermes", status: "not-found" }]}
+    providers={[{ id: "openrouter", name: "OpenRouter", secretConfigured: true, status: "ready" }, { id: "nvidia", name: "NVIDIA NIM", secretConfigured: true, status: "ready" }]}
+    projects={[{ id: "/Projects/fusion-cli", name: "fusion-cli", description: "Aktif çalışma alanı", path: "/Projects/fusion-cli" }]} />;
   return (
     <>
       <Shell
-        composer={capabilities ? undefined : <Composer onSend={() => undefined} />}
-        content={capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
-        header={<AppHeader inspectorOpen={!capabilities && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={capabilities ? "Beceriler ve Ajanlar" : "macOS uygulaması"} />}
-        inspector={capabilities ? undefined : inspector}
-        inspectorOpen={!capabilities && inspectorOpen}
+        composer={capabilities || control ? undefined : <Composer onSend={() => undefined} />}
+        content={capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
+        header={<AppHeader inspectorOpen={!capabilities && !control && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control ? undefined : inspector}
+        inspectorOpen={!capabilities && !control && inspectorOpen}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}

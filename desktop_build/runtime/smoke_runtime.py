@@ -82,6 +82,13 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
         second = _request(process, "second", "proje.listele", {"yol": ""})
         assert [entry["ad"] for entry in second["girdiler"]] == ["second.txt"]
 
+        capabilities = _request(process, "capabilities", "yetenek.katalog", {})
+        assert capabilities["ok"] is True
+        control = _request(process, "control", "kontrol.durum", {})
+        assert control["ok"] is True and control["gateway"]["durum"] == "kapali"
+        # Kontrol sözleşmesi sır değerlerini asla paketli süreçten dışarı çıkarmaz.
+        assert _DUMMY_SECRET_ENV["FUSION_SECRET_KEY"] not in json.dumps(control)
+
         assert process.stdin is not None
         process.stdin.close()
         assert process.wait(timeout=_TIMEOUT_SANIYE) == 0
@@ -123,7 +130,7 @@ def main() -> None:
     args = parser.parse_args()
 
     smoke(args.executable.resolve())
-    print("Duman testi geçti: sağlık, proje, süreç, oturum ve önizleme protokolleri doğrulandı.")
+    print("Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve önizleme protokolleri doğrulandı.")
 
 
 if __name__ == "__main__":

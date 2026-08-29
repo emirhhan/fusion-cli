@@ -32,6 +32,9 @@ import { ProcessesPanel } from "./processes/ProcessesPanel";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
+import { ControlPanel } from "./control/ControlPanel";
+import { Onboarding, type OnboardingValue } from "./onboarding";
+import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -193,13 +196,89 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   );
 }
 
-export function SessionUygulama({ transport }: { transport?: SessionTransport }) {
+function ConnectedOnboarding({
+  client,
+  projects,
+  runtimeVersion,
+  onFinish,
+}: {
+  client: ProtocolClient;
+  projects: SampleProject[];
+  runtimeVersion?: string;
+  onFinish: (projectId: string | null) => void;
+}) {
+  const [value, setValue] = useState<OnboardingValue>({ step: "welcome", selectedProjectId: null });
+  const [sources, setSources] = useState<DiscoveredSource[]>([
+    { kind: "claude", status: "not-found" },
+    { kind: "codex", status: "not-found" },
+    { kind: "hermes", status: "not-found" },
+  ]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      client.request("gecmis.kaynaklar", {}),
+      client.request("kontrol.durum", {}),
+    ]).then(([history, control]) => {
+      if (!alive) return;
+      const found = new Set(
+        Array.isArray(history.kaynaklar)
+          ? history.kaynaklar.map((item) => String((item as Record<string, unknown>).ad ?? ""))
+          : [],
+      );
+      setSources((["claude", "codex", "hermes"] as const).map((kind) => ({
+        kind,
+        status: found.has(kind) ? "found" : "not-found",
+        itemCount: found.has(kind) ? 1 : 0,
+      })));
+      const rows = Array.isArray(control.saglayicilar) ? control.saglayicilar : [];
+      setProviders(rows.slice(0, 8).map((raw) => {
+        const row = raw as Record<string, unknown>;
+        const configured = row.kurulu === true;
+        return {
+          id: String(row.id ?? ""),
+          name: String(row.ad ?? row.id ?? "Sağlayıcı"),
+          secretConfigured: configured,
+          status: configured ? "ready" : "needs-setup",
+        };
+      }));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [client]);
+
+  return (
+    <Onboarding
+      onChange={setValue}
+      onComplete={({ selectedProjectId }) => onFinish(selectedProjectId)}
+      onSkip={() => onFinish(null)}
+      projects={projects}
+      providers={providers}
+      runtime={{ status: "ready", version: runtimeVersion }}
+      sources={sources}
+      value={value}
+    />
+  );
+}
+
+export function SessionUygulama({
+  transport,
+  onboarding = false,
+  runtimeVersion,
+  onOnboardingComplete = () => undefined,
+}: {
+  transport?: SessionTransport;
+  onboarding?: boolean;
+  runtimeVersion?: string;
+  onOnboardingComplete?: () => void;
+}) {
   const controller = useSessions(transport);
   const layout = useLayout();
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [page, setPage] = useState<"chat" | "skills">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control">("chat");
+  const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
 
@@ -207,6 +286,27 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
   }
   if (!active) return <div className="app-status-screen">Bağlanıyor…</div>;
+
+  if (showOnboarding) {
+    const projects: SampleProject[] = [
+      { id: active.root, name: projectName(active.root), description: "Şu anda açık olan çalışma alanı", path: active.root },
+      ...controller.recentProjects.filter((project) => project.root !== active.root).slice(0, 3).map((project) => ({
+        id: project.root, name: project.name, description: "Yakın zamanda kullanılan proje", path: project.root,
+      })),
+    ];
+    return (
+      <ConnectedOnboarding
+        client={active.client}
+        onFinish={(projectId) => {
+          setShowOnboarding(false);
+          onOnboardingComplete();
+          if (projectId && projectId !== active.root) void controller.create({ root: projectId });
+        }}
+        projects={projects}
+        runtimeVersion={runtimeVersion}
+      />
+    );
+  }
 
   const draft = drafts[active.id] ?? "";
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
@@ -219,9 +319,11 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
   ) : (
     <EmptyState onSelectPrompt={setDraft} />
   );
-  const content = page === "skills" ? (
-    <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
-  ) : conversationContent;
+  const content = page === "skills"
+    ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
+    : page === "control"
+      ? <ControlPanel client={active.client} onClose={() => setPage("chat")} />
+      : conversationContent;
   const status = active.status === "crashed"
     ? "Bağlantı kesildi"
     : active.running
@@ -272,7 +374,7 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           themePreference={themePreference}
-          title={page === "skills" ? "Beceriler ve Ajanlar" : active.title}
+          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? "Kontrol Paneli" : active.title}
         />
       }
       inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} root={active.root} /> : undefined}
@@ -286,6 +388,8 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           onNavigate={(destination) => {
             if (destination === "skills") {
               setPage("skills");
+            } else if (destination === "control-panel" || destination === "settings") {
+              setPage("control");
             } else if (destination.startsWith("resume:")) {
               setPage("chat");
               const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
@@ -328,8 +432,21 @@ interface AppProps {
 
 export default function App({ runtimeTransport, sessionTransport }: AppProps = {}) {
   const runtime = useRuntime(runtimeTransport);
+  const [onboardingComplete, setOnboardingComplete] = useState(
+    () => localStorage.getItem("fusion.onboarding.completed.v1") === "true",
+  );
   if (runtime.state !== "hazir") {
     return <RuntimeSetup {...runtime} onRepair={runtime.repair} />;
   }
-  return <CoreConnectedApp transport={sessionTransport} />;
+  return (
+    <SessionUygulama
+      onboarding={!onboardingComplete}
+      onOnboardingComplete={() => {
+        localStorage.setItem("fusion.onboarding.completed.v1", "true");
+        setOnboardingComplete(true);
+      }}
+      runtimeVersion={runtime.version}
+      transport={sessionTransport}
+    />
+  );
 }
