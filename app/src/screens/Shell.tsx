@@ -37,7 +37,7 @@ export function Shell({
       data-inspector-open={inspectorOpen}
       data-sidebar-collapsed={sidebarCollapsed}
     >
-      <aside aria-label="Ana navigasyon" className="app-shell__sidebar" role="navigation">
+      <aside aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
         {sidebar}
       </aside>
       <section className="app-shell__workspace">
@@ -46,7 +46,7 @@ export function Shell({
         {composer && <footer className="app-shell__composer">{composer}</footer>}
       </section>
       {inspector && (
-        <aside aria-label="Denetçi" className="app-shell__inspector">
+        <aside aria-label="Denetçi" className="app-shell__inspector" id="fusion-inspector">
           {inspector}
         </aside>
       )}

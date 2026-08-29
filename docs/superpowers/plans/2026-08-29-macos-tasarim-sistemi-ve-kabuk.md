@@ -148,24 +148,24 @@ git commit -m "feat(ui): uyarlanabilir üç bölmeli kabuk ekle"
 - Create: `app/src/screens/AppHeader.test.tsx`
 - Create: `app/src/screens/AppHeader.css`
 
-- [ ] **Step 1: Bilgi mimarisi testlerini genişlet**
+- [x] **Step 1: Bilgi mimarisi testlerini genişlet**
 
 Testler Yeni görev, arama, sabit/yakın oturumlar, `[fusion]`/`[claude]`/`[codex]`/`[hermes]` kaynak rozetleri, Beceriler ve Ajanlar, Dersler, Kontrol Paneli ve Ayarlar satırlarını; yalnız bulunan kaynakların görünmesini; arama filtresini; dar moddaki erişilebilir adları doğrular.
 
-- [ ] **Step 2: Başlık testi yaz**
+- [x] **Step 2: Başlık testi yaz**
 
 Başlık; etkin konuşma/proje adını, yerel çalışma durumu metnini ve iki panel düğmesini gösterir. Durum yalnız renkle aktarılmaz.
 
-- [ ] **Step 3: Kırmızı testleri çalıştır**
+- [x] **Step 3: Kırmızı testleri çalıştır**
 
 Run: `cd app && npm test -- src/screens/Sidebar.test.tsx src/screens/AppHeader.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 4: Navigasyonu ve başlığı uygula**
+- [x] **Step 4: Navigasyonu ve başlığı uygula**
 
 Satırlar 36px hedef yüksekliği, 8px yarıçap ve açık gri aktif yüzey kullanır. Kaynak bilgisi ikincil metindir, parlak rozet değildir. Satır eylemleri hover/focus-within ile görünür; klavyede kaybolmaz. Arama gerçek filtreleme yapar ama Phase C gelene kadar ağ çağrısı yapmaz.
 
-- [ ] **Step 5: Test, build ve commit**
+- [x] **Step 5: Test, build ve commit**
 
 Run: `cd app && npm test -- src/screens/Sidebar.test.tsx src/screens/AppHeader.test.tsx && npm run build`
 Expected: PASS.
