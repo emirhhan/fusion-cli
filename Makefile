@@ -15,9 +15,15 @@ setup:
 venv:
 	./setup.sh
 
+# Geliştirici kurulumu TEK yerde tanımlıdır. Paketleme hedefleri kendi pip
+# satırlarını yazsaydı (eskiden öyleydi: `.[desktop,mcp,gateway]`), `make install`
+# ile kurulan ortam `make app-package` ile kurulandan sessizce ayrışırdı —
+# kapılar bir ortamda geçip ötekinde patlardı.
+EXTRAS := dev,desktop,mcp,gateway
+
 install:
 	$(PY) -m pip install --quiet --upgrade pip
-	$(PY) -m pip install --quiet -e ".[dev]"
+	$(PY) -m pip install --quiet -e ".[$(EXTRAS)]"
 
 format:
 	$(RUFF) format src tests evals prompt_opt desktop_build
@@ -53,12 +59,10 @@ app-check:
 app-visual:
 	cd app && npm ci && npx playwright install chromium && npm run test:visual
 
-runtime-bundle:
-	$(PY) -m pip install -e ".[desktop,mcp,gateway]"
+runtime-bundle: install
 	cd app && npm run runtime:build && npm run runtime:smoke
 
-app-package:
-	$(PY) -m pip install -e ".[desktop,mcp,gateway]"
+app-package: install
 	cd app && npm run bundle:mac
 	$(PY) desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
 
