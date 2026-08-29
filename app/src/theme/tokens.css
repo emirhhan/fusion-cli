@@ -6,9 +6,12 @@
   --secili-satir: #efeff0;
   --kullanici-balonu: #f5f5f5;
   --birincil-buton: #000000;
+  --ana-metin: var(--birincil-buton);
   --vurgu-hapi: #ebebfa;
   --sonuk-metin: #7c7c7d;
   --kenarlik: #e9e9eb;
+  --tehlike: #b42318;
+  --ters-metin: #ffffff;
 
   --kenar-cubugu-genislik: 281px;
   --icerik-en-fazla: 768px;

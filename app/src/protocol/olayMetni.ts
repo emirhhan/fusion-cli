@@ -12,8 +12,11 @@ export function olayMetni(veri: Record<string, unknown>): string | null {
       return `araç çalıştı: ${ad}`;
     case "ModelCallStarted":
       return "model düşünüyor…";
-    case "FilesChanged":
-      return `dosyalar değişti: ${(veri.paths as string[] | undefined)?.join(", ") ?? ""}`;
+    case "FilesChanged": {
+      const paths = veri.paths;
+      if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) return null;
+      return `dosyalar değişti: ${paths.join(", ")}`;
+    }
     case "TurnOutcome": {
       const durum = String(veri.status ?? "");
       if (durum === "completed") return "görev tamamlandı";

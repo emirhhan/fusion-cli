@@ -19,4 +19,13 @@ describe("tasarım token'ları", () => {
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
     expect(css).toContain("--kenar-cubugu-genislik: 281px");
   });
+
+  it("ekranların kullandığı ana metin rengini tanımlar", () => {
+    expect(css).toContain("--ana-metin:");
+  });
+
+  it("onay diyaloğunun tehlike ve ters metin renklerini tanımlar", () => {
+    expect(css).toContain("--tehlike:");
+    expect(css).toContain("--ters-metin:");
+  });
 });

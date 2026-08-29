@@ -19,4 +19,9 @@ describe("olayMetni", () => {
   it("bilinmeyen olay için null döner", () => {
     expect(olayMetni({ olay: "BilinmeyenOlay" })).toBeNull();
   });
+
+  it("bozuk dosya listesi arayüzü düşürmez", () => {
+    expect(() => olayMetni({ olay: "FilesChanged", paths: { path: "a.txt" } })).not.toThrow();
+    expect(olayMetni({ olay: "FilesChanged", paths: { path: "a.txt" } })).toBeNull();
+  });
 });
