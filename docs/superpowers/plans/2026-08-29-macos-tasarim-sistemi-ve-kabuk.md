@@ -229,20 +229,20 @@ git commit -m "feat(ui): konuşma ve görev girişini yenile"
 - Create: `app/src/ui/StatusRow.tsx`
 - Create: `app/src/ui/StatusRow.test.tsx`
 
-- [ ] **Step 1: Denetçi sekme testlerini yaz**
+- [x] **Step 1: Denetçi sekme testlerini yaz**
 
 Dosyalar, Değişiklikler, Terminal, Süreçler, Testler, Önizleme ve Bağlam sekmelerinin klavye ile dolaşılabildiğini; `tablist/tab/tabpanel` rollerini; boş/yükleniyor/hata durumlarını doğrula.
 
-- [ ] **Step 2: Kırmızı testi çalıştır**
+- [x] **Step 2: Kırmızı testi çalıştır**
 
 Run: `cd app && npm test -- src/screens/Inspector.test.tsx src/ui/StatusRow.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 3: Denetçi iskeletini uygula**
+- [x] **Step 3: Denetçi iskeletini uygula**
 
 Sekmeler yatay taşmada kaydırılır; aktif sekme ince alt çizgi ve metinle belirtilir. İçerik sahte ürün verisi üretmez: protokol bağlanana kadar dürüst boş durum ve ilgili eylem gösterir. `StatusRow`, Kontrol Paneli ve ilerideki ayar ekranlarının yoğun satır temelidir.
 
-- [ ] **Step 4: Test, build ve commit**
+- [x] **Step 4: Test, build ve commit**
 
 Run: `cd app && npm test -- src/screens/Inspector.test.tsx src/ui/StatusRow.test.tsx && npm run build`
 Expected: PASS.

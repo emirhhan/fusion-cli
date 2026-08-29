@@ -1,0 +1,105 @@
+.inspector {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+}
+
+.inspector__tabs {
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-1);
+  overflow-x: auto;
+  padding: var(--space-2);
+  scrollbar-width: none;
+}
+
+.inspector__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.inspector__tabs button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  padding: 0 var(--space-2);
+  position: relative;
+}
+
+.inspector__tabs button span {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.inspector__tabs button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.inspector__tabs button[aria-selected="true"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.inspector__tabs button[aria-selected="true"]::after {
+  background: var(--text-primary);
+  border-radius: var(--radius-pill);
+  bottom: -9px;
+  content: "";
+  height: 2px;
+  left: var(--space-2);
+  position: absolute;
+  right: var(--space-2);
+}
+
+.inspector__panel {
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.inspector__panel-title {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.inspector__panel-title h2 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin: 0;
+}
+
+.inspector__empty,
+.inspector__state {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  margin: var(--space-8) auto;
+  max-width: 240px;
+  text-align: center;
+}
+
+.inspector__empty p {
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+
+.inspector__empty span {
+  font-size: var(--text-xs);
+}
+
+.inspector__state--error {
+  color: var(--text-danger);
+}
