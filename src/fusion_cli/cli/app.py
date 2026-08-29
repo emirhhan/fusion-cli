@@ -389,6 +389,25 @@ def mcp(
     asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
 
 
+@app.command(name="runtime-health", hidden=True)
+def runtime_health(as_json: bool = typer.Option(False, "--json")) -> None:
+    """Paketli masaüstü çalışma zamanının bütünlüğünü doğrula."""
+    import json
+
+    from ..runtime_health import collect_runtime_health
+
+    report = collect_runtime_health()
+    if as_json:
+        typer.echo(json.dumps(report.to_dict(), ensure_ascii=False, sort_keys=True))
+    else:
+        template = (
+            messages.RUNTIME_HEALTH_OK if report.resources_ok else messages.RUNTIME_HEALTH_BROKEN
+        )
+        typer.echo(template.format(version=report.version))
+    if not report.resources_ok:
+        raise typer.Exit(1)
+
+
 @app.command(name="app")
 def app_protocol() -> None:
     """Masaüstü uygulaması için stdio protokolünü konuş.

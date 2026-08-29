@@ -682,3 +682,6 @@ GATEWAY_FOREIGN_ORIGIN = (
     "Yabancı kaynaklı istek reddedildi. Bu gateway sağlayıcı anahtarlarını taşır; "
     "yalnız yerel sayfalar ve Origin göndermeyen istemciler durum değiştirebilir."
 )
+
+RUNTIME_HEALTH_OK = "Fusion runtime {version}: hazır"
+RUNTIME_HEALTH_BROKEN = "Fusion runtime {version}: bozuk"
