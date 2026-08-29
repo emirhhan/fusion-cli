@@ -367,6 +367,11 @@ REPL_UNKNOWN_COMMAND = "bilinmeyen komut: /{name} — komut listesi için /help"
 APP_COMMAND_UNKNOWN = "Bilinmeyen komut."
 APP_COMMAND_FAILED = "Komut çalıştırılamadı."
 APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
+
+#: Uygulama protokolü metinleri.
+APP_UNKNOWN_REQUEST = "Bilinmeyen istek: {name}"
+APP_TURN_CANCELLED = "Tur iptal edildi."
+APP_NO_RUNNING_TURN = "Çalışan tur yok."
 REPL_TURN_CANCELLED = "tur durduruldu"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."
 REPL_LEARN_USAGE = "Kullanım: /learn <kalıcı olarak hatırlanacak kural>"
