@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Approval } from "./dialogs/Approval";
 import { ProtocolClient } from "./protocol/client";
 import { olayMetni } from "./protocol/olayMetni";
 import type { Soru } from "./protocol/types";
 import { useRuntime } from "./runtime/useRuntime";
 import type { RuntimeTransport } from "./runtime/types";
+import { useSessions } from "./sessions/useSessions";
+import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
 import { Composer } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
@@ -22,8 +22,6 @@ import {
   saveThemePreference,
   type ThemePreference,
 } from "./theme/theme";
-
-const CORE_CLOSED = "Çekirdek beklenmedik şekilde kapandı. Uygulamayı yeniden başlatmayı deneyin.";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -71,10 +69,7 @@ function useConversation(client: ProtocolClient) {
   return { answer, clear, messages, question, running, send, stop };
 }
 
-export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
-  const conversation = useConversation(istemci);
-  const layout = useLayout();
-  const [draft, setDraft] = useState("");
+function useAppTheme() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
 
   useEffect(() => {
@@ -90,6 +85,14 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
     saveThemePreference(preference);
     setThemePreference(preference);
   };
+  return { changeTheme, themePreference };
+}
+
+export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
+  const conversation = useConversation(istemci);
+  const layout = useLayout();
+  const [draft, setDraft] = useState("");
+  const { changeTheme, themePreference } = useAppTheme();
   const clear = () => {
     setDraft("");
     conversation.clear();
@@ -148,49 +151,103 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   );
 }
 
-export function CoreConnectedApp() {
-  const [client, setClient] = useState<ProtocolClient | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let lineUnlisten: UnlistenFn | null = null;
-    let closeUnlisten: UnlistenFn | null = null;
-    let active = true;
-    let current: ProtocolClient | null = null;
-    void invoke("cekirdek_baslat")
-      .then(async () => {
-        current = new ProtocolClient(
-          (line) => void invoke("cekirdege_yaz", { satir: line }),
-          (handler) => {
-            void listen<string>("cekirdek-satir", (event) => handler(event.payload)).then(
-              (unlisten) => {
-                lineUnlisten = unlisten;
-              },
-            );
-          },
-        );
-        closeUnlisten = await listen("cekirdek-kapandi", () => {
-          current?.close(CORE_CLOSED);
-          setError(CORE_CLOSED);
-        });
-        if (active) setClient(current);
-      })
-      .catch((reason) => setError(String(reason)));
-    return () => {
-      active = false;
-      lineUnlisten?.();
-      closeUnlisten?.();
-      current?.close();
-    };
-  }, []);
-  if (error) return <div className="app-status-screen">Hata: {error}</div>;
-  if (!client) return <div className="app-status-screen">Bağlanıyor…</div>;
-  return <Uygulama istemci={client} />;
+export function SessionUygulama({ transport }: { transport?: SessionTransport }) {
+  const controller = useSessions(transport);
+  const layout = useLayout();
+  const { changeTheme, themePreference } = useAppTheme();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const active = controller.activeSession;
+
+  if (controller.state.connectionError) {
+    return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
+  }
+  if (!active) return <div className="app-status-screen">Bağlanıyor…</div>;
+
+  const draft = drafts[active.id] ?? "";
+  const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
+  const send = (task: string) => {
+    controller.send(active.id, task);
+    setDraft("");
+  };
+  const content = active.messages.length > 0 ? (
+    <Conversation mesajlar={active.messages} />
+  ) : (
+    <EmptyState onSelectPrompt={setDraft} />
+  );
+  const status = active.status === "crashed"
+    ? "Bağlantı kesildi"
+    : active.running
+      ? "Çalışıyor"
+      : "Hazır";
+
+  return (
+    <Shell
+      composer={
+        <Composer
+          onSend={send}
+          onStop={() => controller.stop(active.id)}
+          onValueChange={setDraft}
+          running={active.running}
+          value={draft}
+        />
+      }
+      content={
+        <>
+          {content}
+          {active.question && (
+            <Approval
+              onCevap={(answer) => controller.answer(active.id, answer)}
+              soru={active.question.data}
+            />
+          )}
+        </>
+      }
+      header={
+        <AppHeader
+          inspectorOpen={layout.inspectorOpen}
+          onThemeChange={changeTheme}
+          onToggleInspector={layout.toggleInspector}
+          onToggleSidebar={layout.toggleSidebar}
+          sidebarCollapsed={layout.sidebarCollapsed}
+          status={status}
+          themePreference={themePreference}
+          title={active.title}
+        />
+      }
+      inspector={<Inspector />}
+      inspectorOpen={layout.inspectorOpen}
+      onInspectorClose={layout.closeInspector}
+      sidebar={
+        <Sidebar
+          collapsed={layout.sidebarCollapsed}
+          etkin={active.id}
+          onSec={controller.select}
+          onYeni={() => void controller.create()}
+          oturumlar={controller.sessions.map((session) => ({
+            session_id: session.id,
+            source: session.source,
+            title: session.title,
+          }))}
+        />
+      }
+      sidebarCollapsed={layout.sidebarCollapsed}
+    />
+  );
 }
 
-export default function App({ runtimeTransport }: { runtimeTransport?: RuntimeTransport } = {}) {
+export function CoreConnectedApp({ transport }: { transport?: SessionTransport } = {}) {
+  return <SessionUygulama transport={transport} />;
+}
+
+interface AppProps {
+  runtimeTransport?: RuntimeTransport;
+  sessionTransport?: SessionTransport;
+}
+
+export default function App({ runtimeTransport, sessionTransport }: AppProps = {}) {
   const runtime = useRuntime(runtimeTransport);
   if (runtime.state !== "hazir") {
     return <RuntimeSetup {...runtime} onRepair={runtime.repair} />;
   }
-  return <CoreConnectedApp />;
+  return <CoreConnectedApp transport={sessionTransport} />;
 }

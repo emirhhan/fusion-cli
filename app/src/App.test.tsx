@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { Uygulama } from "./App";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { SessionUygulama, Uygulama } from "./App";
 import { ProtocolClient } from "./protocol/client";
+import type { SessionTransport } from "./sessions/types";
 
 function fakeClient() {
   let listener: ((line: string) => void) | null = null;
@@ -89,5 +90,39 @@ describe("Uygulama", () => {
       "value",
       "Yeni bir web projesi oluştur",
     );
+  });
+});
+
+describe("SessionUygulama", () => {
+  it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {
+    const transport: SessionTransport = {
+      create: vi.fn(async (id) => ({
+        oturum_id: id,
+        kok: "/proje",
+        pid: id === "varsayilan" ? 41 : 42,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async () => () => undefined),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama transport={transport} />);
+    await screen.findByRole("heading", { name: "Yeni görev" });
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Mesaj" }), {
+      target: { value: "ilk görev" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
+    await waitFor(() => expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1));
+    fireEvent.click(screen.getByRole("button", { name: "Yeni görev" }));
+
+    await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("heading", { name: "Yeni görev" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "ilk görev" }));
+    expect(screen.getByRole("heading", { name: "ilk görev" })).toBeTruthy();
+    expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1);
   });
 });

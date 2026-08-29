@@ -55,13 +55,13 @@
 - Modify: `app/src-tauri/src/lib.rs`
 - Modify: `app/src-tauri/src/core_process.rs`
 
-- [ ] Süreç kimliği, proje kökü, PID, durum ve kapanış nedenini modelleyen Rust testlerini yaz.
-- [ ] `oturum_olustur`, `oturuma_yaz`, `oturum_kapat`, `oturumlari_listele` Tauri komutlarının kırmızı testlerini yaz.
-- [ ] Her süreç için ayrı stdout olay adı ve kontrollü stdin sahipliği uygula.
-- [ ] Çöküşün yalnız ilgili oturuma olay ürettiğini ve uygulama kapanışında tüm çocukların kapandığını doğrula.
-- [ ] Eski tekil `cekirdek_*` komutlarını geçiş uyumluluğu için yöneticinin varsayılan oturumuna delege et.
-- [ ] Run: `cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
-- [ ] Commit: `feat(app): çoklu oturum süreç yöneticisi ekle`
+- [x] Süreç kimliği, proje kökü, PID, durum ve kapanış nedenini modelleyen Rust testlerini yaz.
+- [x] `oturum_olustur`, `oturuma_yaz`, `oturum_kapat`, `oturumlari_listele` Tauri komutlarının kırmızı testlerini yaz.
+- [x] Her süreç için ayrı stdout olay adı ve kontrollü stdin sahipliği uygula.
+- [x] Çöküşün yalnız ilgili oturuma olay ürettiğini ve uygulama kapanışında tüm çocukların kapandığını doğrula.
+- [x] Eski tekil `cekirdek_*` komutlarını geçiş uyumluluğu için yöneticinin varsayılan oturumuna delege et.
+- [x] Run: `cd app/src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test`
+- [x] Commit: `feat(app): çoklu oturum süreç yöneticisi ekle`
 
 ### Task 4: React oturum deposu ve süreç taşıması
 
@@ -73,12 +73,12 @@
 - Create: `app/src/sessions/useSessions.test.tsx`
 - Modify: `app/src/App.tsx`
 
-- [ ] Oturum oluşturma/seçme/başlık güncelleme/çalışma durumu/çöküş reducer testlerini yaz.
-- [ ] Her oturumun kendi `ProtocolClient` örneğini ve mesaj dizisini taşıdığını test et.
-- [ ] Tauri çoklu süreç olaylarını `useSessions` içinde bağla; kapanışta dinleyicileri ve istemcileri temizle.
-- [ ] Aktif oturum değişiminde sidebar/header/conversation/composer'ın doğru depoyu kullandığını bağla.
-- [ ] Run: `cd app && npm test -- src/sessions src/App.test.tsx && npm run build`
-- [ ] Commit: `feat(app): çoklu konuşma durumunu arayüze bağla`
+- [x] Oturum oluşturma/seçme/başlık güncelleme/çalışma durumu/çöküş reducer testlerini yaz.
+- [x] Her oturumun kendi `ProtocolClient` örneğini ve mesaj dizisini taşıdığını test et.
+- [x] Tauri çoklu süreç olaylarını `useSessions` içinde bağla; kapanışta dinleyicileri ve istemcileri temizle.
+- [x] Aktif oturum değişiminde sidebar/header/conversation/composer'ın doğru depoyu kullandığını bağla.
+- [x] Run: `cd app && npm test -- src/sessions src/App.test.tsx && npm run build`
+- [x] Commit: `feat(app): çoklu konuşma durumunu arayüze bağla`
 
 ### Task 5: Geçmiş kaynak seçici ve konuşma önizlemesi
 

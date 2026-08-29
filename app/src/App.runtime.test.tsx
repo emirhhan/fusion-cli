@@ -4,7 +4,18 @@ import App from "./App";
 import type { RuntimeBackendStatus, RuntimeTransport } from "./runtime/types";
 
 const tauri = vi.hoisted(() => ({
-  invoke: vi.fn().mockResolvedValue(undefined),
+  invoke: vi.fn(async (command: string) => {
+    if (command === "oturum_olustur") {
+      return {
+        oturum_id: "varsayilan",
+        kok: "/proje",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      };
+    }
+    return undefined;
+  }),
   listen: vi.fn().mockResolvedValue(() => undefined),
 }));
 
@@ -40,7 +51,7 @@ describe("App runtime kapısı", () => {
 
     render(<App runtimeTransport={transport} />);
     await screen.findByText("Kurulum gerekli");
-    expect(tauri.invoke).not.toHaveBeenCalledWith("cekirdek_baslat");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("oturum_olustur", expect.anything());
 
     prepared.resolve({
       state: "hazir",
@@ -48,6 +59,11 @@ describe("App runtime kapısı", () => {
       message: "Hazır",
       can_repair: false,
     });
-    await waitFor(() => expect(tauri.invoke).toHaveBeenCalledWith("cekirdek_baslat"));
+    await waitFor(() =>
+      expect(tauri.invoke).toHaveBeenCalledWith("oturum_olustur", {
+        oturumId: "varsayilan",
+        kok: null,
+      }),
+    );
   });
 });

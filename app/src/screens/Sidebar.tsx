@@ -42,6 +42,7 @@ function SessionButton({ session, active, onSelect }: {
 }) {
   return (
     <button
+      aria-label={session.title}
       className="sidebar__session"
       data-etkin={active}
       onClick={onSelect}
