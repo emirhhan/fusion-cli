@@ -33,31 +33,31 @@
 - Modify: `app/src/main.tsx`
 - Replace: `app/src/App.css`
 
-- [ ] **Step 1: Tema çözümleme testlerini yaz**
+- [x] **Step 1: Tema çözümleme testlerini yaz**
 
 `theme.test.ts`, `system`, `light`, `dark` tercihlerinin gerçek temaya dönüşmesini; geçersiz saklı değerin `system` kabul edilmesini ve tema değişikliğinin `document.documentElement.dataset.theme` alanına uygulanmasını doğrular.
 
-- [ ] **Step 2: Testin mevcut durumda başarısız olduğunu doğrula**
+- [x] **Step 2: Testin mevcut durumda başarısız olduğunu doğrula**
 
 Run: `cd app && npm test -- src/theme/theme.test.ts`
 Expected: FAIL — `theme.ts` bulunmuyor.
 
-- [ ] **Step 3: Semantik tema katmanını uygula**
+- [x] **Step 3: Semantik tema katmanını uygula**
 
 `tokens.css` içinde renk rolleri (`--surface-canvas`, `--surface-sidebar`, `--text-primary`, `--border-subtle`, durum renkleri), 4px tabanlı boşluk ölçeği, tipografi, yarıçap, katman ve hareket tokenları tanımlanır. Ölçülmüş eski Türkçe değişkenler geçiş süresince alias olarak kalır. `[data-theme="dark"]` ve `@media (prefers-color-scheme: dark)` aynı semantik rolleri koyu palete map eder.
 
 `theme.ts` saf çözümleme fonksiyonları ve `applyTheme()` sağlar. İlk boyama `main.tsx` içinde React renderından önce yapılır; varsayılan `system` olur.
 
-- [ ] **Step 4: Vite kalıntılarını kaldır ve global reseti bağla**
+- [x] **Step 4: Vite kalıntılarını kaldır ve global reseti bağla**
 
 `App.css` yalnız uygulama düzeyi yardımcı sınıfları içerir; Vite logo, mavi link, genel input/button gölgeleri ve eski dark media kuralları silinir. `main.tsx`, `tokens.css` ve `App.css` dosyalarını tek kez yükler.
 
-- [ ] **Step 5: Hedefli ve tam UI testini çalıştır**
+- [x] **Step 5: Hedefli ve tam UI testini çalıştır**
 
 Run: `cd app && npm test -- src/theme/theme.test.ts src/theme/tokens.test.ts && npm run build`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/src/theme app/src/main.tsx app/src/App.css

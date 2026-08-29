@@ -1,26 +1,110 @@
-/* Ölçülmüş değerler. Kaynak: docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md
-   Hiçbir bileşen ham hex yazmaz; hepsi buradan gelir. */
+/* Ölçülmüş açık tema değerleri:
+   docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md */
 :root {
-  --zemin: #ffffff;
-  --kenar-cubugu: #f9f9fa;
-  --secili-satir: #efeff0;
-  --kullanici-balonu: #f5f5f5;
-  --birincil-buton: #000000;
-  --ana-metin: var(--birincil-buton);
-  --vurgu-hapi: #ebebfa;
-  --sonuk-metin: #7c7c7d;
-  --kenarlik: #e9e9eb;
-  --tehlike: #b42318;
-  --ters-metin: #ffffff;
+  --surface-canvas: #ffffff;
+  --surface-sidebar: #f9f9fa;
+  --surface-selected: #efeff0;
+  --surface-message-user: #f5f5f5;
+  --surface-accent-subtle: #ebebfa;
+  --surface-raised: #ffffff;
+  --surface-hover: #f2f2f3;
+  --surface-overlay: rgb(0 0 0 / 32%);
+
+  --text-primary: #000000;
+  --text-secondary: #7c7c7d;
+  --text-inverse: #ffffff;
+  --text-danger: #b42318;
+  --text-success: #087a55;
+  --text-warning: #925f00;
+
+  --border-subtle: #e9e9eb;
+  --border-strong: #c9c9cc;
+  --control-primary: #000000;
+  --focus-ring: #6b63d9;
+
+  /* Eski bileşenler taşınırken korunan uyumluluk adları. */
+  --zemin: var(--surface-canvas);
+  --kenar-cubugu: var(--surface-sidebar);
+  --secili-satir: var(--surface-selected);
+  --kullanici-balonu: var(--surface-message-user);
+  --birincil-buton: var(--control-primary);
+  --ana-metin: var(--text-primary);
+  --vurgu-hapi: var(--surface-accent-subtle);
+  --sonuk-metin: var(--text-secondary);
+  --kenarlik: var(--border-subtle);
+  --tehlike: var(--text-danger);
+  --ters-metin: var(--text-inverse);
 
   --kenar-cubugu-genislik: 281px;
+  --inspector-width: 320px;
+  --sidebar-rail-width: 68px;
   --icerik-en-fazla: 768px;
-  --yaricap: 12px;
-  --bosluk-birim: 8px;
+  --header-height: 52px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --bosluk-birim: var(--space-2);
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+  --yaricap: var(--radius-md);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.125rem;
+  --line-tight: 1.3;
+  --line-body: 1.6;
+
+  --shadow-overlay: 0 20px 60px rgb(0 0 0 / 18%);
+  --duration-fast: 120ms;
+  --duration-normal: 180ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --z-header: 10;
+  --z-overlay: 30;
+  --z-dialog: 40;
+}
+
+:root[data-theme="dark"] {
+  --surface-canvas: #212121;
+  --surface-sidebar: #181818;
+  --surface-selected: #303030;
+  --surface-message-user: #303030;
+  --surface-accent-subtle: #343247;
+  --surface-raised: #292929;
+  --surface-hover: #2b2b2b;
+  --surface-overlay: rgb(0 0 0 / 58%);
+  --text-primary: #f4f4f4;
+  --text-secondary: #a6a6a6;
+  --text-inverse: #171717;
+  --text-danger: #ff9b95;
+  --text-success: #69d3ac;
+  --text-warning: #f4c66e;
+  --border-subtle: #383838;
+  --border-strong: #595959;
+  --control-primary: #f4f4f4;
+  --focus-ring: #aaa5ff;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 * {
-  box-sizing: border-box;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 html,
@@ -32,11 +116,55 @@ body,
 
 body,
 button,
-input {
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 body {
-  background: var(--zemin);
-  color: var(--ana-metin);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--line-body);
+  min-width: 320px;
+  overflow: hidden;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea,
+select {
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+::selection {
+  background: var(--surface-accent-subtle);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

@@ -9,11 +9,11 @@ describe("tasarım token'ları", () => {
   const css = readFileSync(join(__dirname, "./tokens.css"), "utf8");
 
   it("ölçülmüş renkleri taşır", () => {
-    expect(css).toContain("--zemin: #ffffff");
-    expect(css).toContain("--kenar-cubugu: #f9f9fa");
-    expect(css).toContain("--secili-satir: #efeff0");
-    expect(css).toContain("--kullanici-balonu: #f5f5f5");
-    expect(css).toContain("--vurgu-hapi: #ebebfa");
+    expect(css).toContain("--surface-canvas: #ffffff");
+    expect(css).toContain("--surface-sidebar: #f9f9fa");
+    expect(css).toContain("--surface-selected: #efeff0");
+    expect(css).toContain("--surface-message-user: #f5f5f5");
+    expect(css).toContain("--surface-accent-subtle: #ebebfa");
   });
 
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
@@ -30,7 +30,13 @@ describe("tasarım token'ları", () => {
   });
 
   it("uygulama tipografisini ve sayfa sıfırlamasını sabitler", () => {
-    expect(css).toContain("font-family: Inter, system-ui");
+    expect(css).toContain("--font-sans: Inter");
     expect(css).toContain("margin: 0");
+  });
+
+  it("koyu tema ve azaltılmış hareket sözleşmelerini taşır", () => {
+    expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toContain("prefers-reduced-motion: reduce");
+    expect(css).toContain("--focus-ring:");
   });
 });
