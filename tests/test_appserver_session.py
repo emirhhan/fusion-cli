@@ -192,6 +192,36 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     assert gorulen_gecmisler[1] is ilk_turun_ciktisi
 
 
+async def test_devralinan_kunye_yalniz_sonraki_tura_extra_system_olarak_gecer(
+    tmp_path, monkeypatch
+):
+    """CLI ile aynı sözleşme: devralma künyesi tur BAŞLARKEN tüketilir.
+
+    Böylece aynı dış konuşma sonraki bağımsız turlara tekrar tekrar enjekte
+    edilmez. Tur sonradan başarısız olsa bile başlayan turun bağlamına girmiştir.
+    """
+    lines: list[str] = []
+    session = _session(tmp_path, lines)
+    session._state.pending_digest = "<devralinan_oturum>kanıt</devralinan_oturum>"
+    seen: list[str] = []
+
+    def _fake(*_args, **kwargs):
+        seen.append(kwargs["extra_system"])
+
+        async def _run():
+            return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+        return _run()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _fake)
+
+    await session.handle(Request(id="digest-1", name="tur.calistir", data={"gorev": "devam"}))
+    await session.handle(Request(id="digest-2", name="tur.calistir", data={"gorev": "sonra"}))
+
+    assert seen == ["<devralinan_oturum>kanıt</devralinan_oturum>", ""]
+    assert session._state.pending_digest is None
+
+
 async def test_kapanista_calisan_tur_gercekten_iptal_edilir(tmp_path, monkeypatch):
     """SORUN 3: `close()` bekleyen turu yalnızca serbest bırakmaz, gerçekten iptal eder."""
     satirlar: list[str] = []

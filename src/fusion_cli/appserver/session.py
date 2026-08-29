@@ -210,6 +210,7 @@ class AppSession:
                 root=self._state.root,
                 home=self._state.home,
                 history=self._state.history,
+                extra_system=self._state.take_pending_digest(),
                 interactive=True,
             )
         )

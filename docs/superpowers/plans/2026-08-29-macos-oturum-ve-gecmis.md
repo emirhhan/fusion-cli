@@ -42,11 +42,11 @@
 - Modify: `tests/test_appserver_session.py`
 - Modify: `tests/test_appserver_history.py`
 
-- [ ] `pending_digest` değerinin ilk `tur.calistir` çağrısında `extra_system` olarak geçtiğini ve ikinci turda temiz olduğunu gösteren kırmızı test yaz.
-- [ ] Başarısız/iptal edilen turda künyenin kaybolmaması gerekip gerekmediğini CLI davranışıyla eşleştir; kabul edilen sözleşmeyi testle sabitle.
-- [ ] `_run_turn` çağrısını `take_pending_digest()` ile bağla.
-- [ ] Run: `.venv/bin/pytest tests/test_appserver_history.py tests/test_appserver_session.py -q`
-- [ ] Commit: `fix(app): devralınan geçmişi sonraki tura aktar`
+- [x] `pending_digest` değerinin ilk `tur.calistir` çağrısında `extra_system` olarak geçtiğini ve ikinci turda temiz olduğunu gösteren kırmızı test yaz.
+- [x] Başarısız/iptal edilen turda künyenin kaybolmaması gerekip gerekmediğini CLI davranışıyla eşleştir; kabul edilen sözleşmeyi testle sabitle.
+- [x] `_run_turn` çağrısını `take_pending_digest()` ile bağla.
+- [x] Run: `.venv/bin/pytest tests/test_appserver_history.py tests/test_appserver_session.py -q`
+- [x] Commit: `fix(app): devralınan geçmişi sonraki tura aktar`
 
 ### Task 3: Rust çoklu oturum süreç yöneticisi
 
