@@ -5,8 +5,11 @@ import { Approval } from "./dialogs/Approval";
 import { ProtocolClient } from "./protocol/client";
 import { olayMetni } from "./protocol/olayMetni";
 import type { Soru } from "./protocol/types";
+import { useRuntime } from "./runtime/useRuntime";
+import type { RuntimeTransport } from "./runtime/types";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import { EmptyState } from "./screens/EmptyState";
+import { RuntimeSetup } from "./screens/RuntimeSetup";
 import { Shell } from "./screens/Shell";
 import { Sidebar } from "./screens/Sidebar";
 
@@ -76,7 +79,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   );
 }
 
-export default function App() {
+export function CoreConnectedApp() {
   const [client, setClient] = useState<ProtocolClient | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -96,4 +99,12 @@ export default function App() {
   if (error) return <div style={{ padding: 24 }}>Hata: {error}</div>;
   if (!client) return <div style={{ padding: 24 }}>Bağlanıyor…</div>;
   return <Uygulama istemci={client} />;
+}
+
+export default function App({ runtimeTransport }: { runtimeTransport?: RuntimeTransport } = {}) {
+  const runtime = useRuntime(runtimeTransport);
+  if (runtime.state !== "hazir") {
+    return <RuntimeSetup {...runtime} onRepair={runtime.repair} />;
+  }
+  return <CoreConnectedApp />;
 }

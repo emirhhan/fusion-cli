@@ -12,14 +12,10 @@
 //!   mutlak yol ve hedef ağacın dışına çözülen sembolik bağ reddedilir
 //!   (zip-slip savunması); her dosyanın SHA-256'sı manifestle karşılaştırılır.
 //!
-//! `install` ve etrafındaki tüm yardımcılar bu görevde yalnızca testlerden
-//! çağrılıyor. Onu üretimde tetikleyecek bir Tauri komutu (sürüm seçimi/
-//! etkinleştirme akışıyla birlikte) henüz yok; Rust'ın ölü kod analizi
-//! yalnızca ÇALIŞAN köklerden ulaşılabilirliğe baktığından test-only çağrı
-//! bunu "kullanılıyor" saydırmaya yetmiyor. Bu yüzden modül düzeyinde
-//! `allow(dead_code)` şimdilik duruyor; kaldırma zamanı gerçek çağıran
-//! eklendiğinde gelecek.
-#![allow(dead_code)]
+//! `install` ve etrafındaki tüm yardımcılar, `RuntimeManager::prepare`/
+//! `repair` üzerinden A/7'nin `runtime_hazirla`/`runtime_onar` Tauri
+//! komutlarıyla üretimde çağrılıyor; dosya kapsamlı `allow(dead_code)`
+//! bu yüzden kaldırıldı.
 
 use std::fs::OpenOptions;
 use std::io::Read;
@@ -44,7 +40,6 @@ pub struct RuntimeResources {
 #[derive(Debug, Clone)]
 pub struct InstalledRuntime {
     pub version: String,
-    pub directory: PathBuf,
     pub executable: PathBuf,
 }
 
@@ -107,7 +102,6 @@ pub fn install(
 
     Ok(InstalledRuntime {
         version: manifest.runtime_version,
-        directory: destination,
         executable,
     })
 }

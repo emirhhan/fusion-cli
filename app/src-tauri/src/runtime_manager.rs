@@ -9,15 +9,11 @@
 //! dosya + `rename` ile atomik yapılır, yoksa yarım yazılmış bir kayıt
 //! uygulamayı tümden açılmaz hale getirir.
 //!
-//! `RuntimeManager::prepare`/`repair` şu an yalnızca test modülünden
-//! çağrılıyor; onu bir Tauri komutuna bağlayan sürüm seçimi/etkinleştirme
-//! akışı A/7'de gelecek. Rust'ın ölü kod analizi yalnızca ÇALIŞAN
-//! köklerden ulaşılabilirliğe baktığından (doğrulama: `cargo clippy
-//! --all-targets -- -D warnings`, test-only çağrı zinciri özel fonksiyonları
-//! "kullanılıyor" saydırmıyor), `runtime_installer.rs`/`runtime_manifest.rs`/
-//! `runtime_paths.rs` ile aynı gerekçeyle burada da dosya kapsamlı
-//! `allow(dead_code)` duruyor; gerçek kaldırma A/7'de olacak.
-#![allow(dead_code)]
+//! `RuntimeManager::prepare`/`repair`, A/7'de eklenen `runtime_hazirla`/
+//! `runtime_onar` Tauri komutları üzerinden üretimde çağrılır; `status`
+//! ise `runtime_durum` komutunun temelidir. Bu yüzden dosya kapsamlı
+//! `allow(dead_code)` artık YOK — her genel öğenin gerçek bir üretim
+//! çağıranı var.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -65,6 +61,10 @@ pub struct RuntimeReady {
 #[derive(Debug, Clone, PartialEq)]
 pub enum RuntimeSource {
     Bundled,
+    #[expect(
+        dead_code,
+        reason = "açık geliştirici runtime seçimi ayarlar ekranı bağlandığında üretilecek"
+    )]
     Developer,
 }
 
@@ -78,6 +78,16 @@ pub struct RuntimeHealthReport {
     pub resources_ok: bool,
 }
 
+impl RuntimeHealthReport {
+    fn is_healthy(&self) -> bool {
+        self.ok
+            && self.resources_ok
+            && !self.version.trim().is_empty()
+            && !self.python.trim().is_empty()
+            && !self.platform.trim().is_empty()
+    }
+}
+
 /// Arayüze taşınan, kullanıcıya görünen çalışma zamanı durumu.
 #[derive(Debug, Clone, Serialize)]
 pub struct RuntimeStatus {
@@ -89,22 +99,29 @@ pub struct RuntimeStatus {
 
 impl RuntimeStatus {
     pub fn ready(runtime: RuntimeReady) -> Self {
+        let message = match runtime.source {
+            RuntimeSource::Bundled => "Fusion hazır",
+            RuntimeSource::Developer => "Fusion geliştirici çalışma zamanıyla hazır",
+        };
         Self {
             state: "hazir".into(),
             version: Some(runtime.version),
-            message: "Fusion hazır".into(),
+            message: message.into(),
             can_repair: false,
         }
     }
 
     /// Henüz hiçbir sürüm hazırlanmamışken (uygulama daha `prepare`
-    /// çağırmadan) gösterilecek durum.
-    fn hazirlanmadi() -> Self {
+    /// çağırmadan) gösterilecek durum. Arayüz bu durumu gördüğünde
+    /// otomatik olarak `runtime_hazirla` çağırır; bu yüzden `can_repair`
+    /// false'tur — kullanıcının elle tetikleyeceği bir onarım değil,
+    /// normal ilk kurulum akışıdır.
+    fn eksik() -> Self {
         Self {
-            state: "hazirlanmadi".into(),
+            state: "eksik".into(),
             version: None,
             message: "Çalışma zamanı henüz hazırlanmadı".into(),
-            can_repair: true,
+            can_repair: false,
         }
     }
 }
@@ -156,7 +173,7 @@ impl HealthProbe for CommandHealthProbe {
         }
         let report: RuntimeHealthReport =
             serde_json::from_slice(&output.stdout).map_err(RuntimeError::HealthDecode)?;
-        if !report.ok {
+        if !report.is_healthy() {
             return Err(RuntimeError::Health("paket kaynakları eksik".into()));
         }
         Ok(report)
@@ -284,12 +301,18 @@ fn log_diagnostic_stderr(bytes: &[u8]) {
 /// `prepare`/`repair` çağrıldıktan sonra `status`/`executable` en son
 /// başarılı sonucu yansıtır; `executable`, hiçbir sağlıklı çalışma zamanı
 /// hazırlanmadan çağrılırsa `RuntimeError::NoHealthyRuntime` döner.
+///
+/// `Clone` derive edilir: paylaşılan durum (`hazir`) `Arc<Mutex<..>>`
+/// içinde tutulur, böylece Tauri komutları `tauri::State` yaşam süresini
+/// `async`/`spawn_blocking` sınırının ötesine taşımadan yöneticinin
+/// sahipli bir klonunu alıp arka plan iş parçacığına gönderebilir.
+#[derive(Clone)]
 pub struct RuntimeManager {
     resources: RuntimeResources,
     paths: RuntimePaths,
     expected_target: String,
     probe: Arc<dyn HealthProbe>,
-    hazir: Mutex<Option<RuntimeReady>>,
+    hazir: Arc<Mutex<Option<RuntimeReady>>>,
 }
 
 impl RuntimeManager {
@@ -304,7 +327,7 @@ impl RuntimeManager {
             paths,
             expected_target: expected_target.into(),
             probe,
-            hazir: Mutex::new(None),
+            hazir: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -397,7 +420,7 @@ impl RuntimeManager {
     pub fn status(&self) -> RuntimeStatus {
         match self.hazir.lock().unwrap().clone() {
             Some(ready) => RuntimeStatus::ready(ready),
-            None => RuntimeStatus::hazirlanmadi(),
+            None => RuntimeStatus::eksik(),
         }
     }
 
@@ -576,8 +599,26 @@ mod tests {
             .to_string()
     }
 
+    #[test]
+    fn saglik_raporu_tum_sozlesmeyi_dogrular() {
+        let mut report = RuntimeHealthReport {
+            ok: true,
+            version: "0.3.0a1".into(),
+            python: "3.11.0".into(),
+            platform: "macOS-arm64".into(),
+            resources_ok: true,
+        };
+        assert!(report.is_healthy());
+
+        report.resources_ok = false;
+        assert!(!report.is_healthy());
+        report.resources_ok = true;
+        report.python.clear();
+        assert!(!report.is_healthy());
+    }
+
     struct ManagerFixture {
-        temp: tempfile::TempDir,
+        _temp: tempfile::TempDir,
         paths: RuntimePaths,
         manager: RuntimeManager,
         probe: Arc<FakeProbe>,
@@ -611,7 +652,7 @@ mod tests {
             );
 
             Self {
-                temp,
+                _temp: temp,
                 paths,
                 manager,
                 probe,

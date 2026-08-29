@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest run --environment jsdom",
+    "test:watch": "vitest --environment jsdom",
     "preview": "vite preview",
     "tauri": "tauri"
   },

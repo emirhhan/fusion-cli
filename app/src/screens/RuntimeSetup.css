@@ -1,0 +1,128 @@
+.runtime-setup {
+  align-items: center;
+  background: var(--zemin);
+  color: var(--ana-metin);
+  display: flex;
+  min-height: 100%;
+  padding: 48px 24px;
+}
+
+.runtime-setup__card {
+  margin: 0 auto;
+  max-width: 420px;
+  text-align: center;
+  width: 100%;
+}
+
+.runtime-setup__mark {
+  height: 42px;
+  margin: 0 auto 28px;
+  position: relative;
+  width: 42px;
+}
+
+.runtime-setup__mark span {
+  border: 2px solid var(--ana-metin);
+  border-radius: 12px;
+  height: 31px;
+  left: 5px;
+  position: absolute;
+  top: 5px;
+  transform: rotate(45deg);
+  width: 31px;
+}
+
+.runtime-setup__mark span:last-child {
+  transform: rotate(-45deg);
+}
+
+.runtime-setup h1 {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.runtime-setup__message {
+  color: var(--sonuk-metin);
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 10px 0 24px;
+}
+
+.runtime-setup__progress {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+}
+
+.runtime-setup__progress progress {
+  appearance: none;
+  background: var(--kenarlik);
+  border: 0;
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.runtime-setup__progress progress::-webkit-progress-bar {
+  background: var(--kenarlik);
+}
+
+.runtime-setup__progress progress::-webkit-progress-value {
+  background: var(--ana-metin);
+  border-radius: 999px;
+  transition: width 180ms ease;
+}
+
+.runtime-setup__progress span,
+.runtime-setup__version {
+  color: var(--sonuk-metin);
+  font-size: 12px;
+}
+
+.runtime-setup__version {
+  margin: 18px 0 0;
+}
+
+.runtime-setup__repair {
+  background: var(--birincil-buton);
+  border: 0;
+  border-radius: 10px;
+  color: var(--ters-metin);
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  min-height: 42px;
+  padding: 0 18px;
+}
+
+.runtime-setup__repair:focus-visible,
+.runtime-setup__details summary:focus-visible {
+  outline: 2px solid var(--ana-metin);
+  outline-offset: 3px;
+}
+
+.runtime-setup__details {
+  color: var(--sonuk-metin);
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 18px;
+}
+
+.runtime-setup__details summary {
+  cursor: pointer;
+}
+
+.runtime-setup__details p {
+  margin: 8px 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-setup__progress progress::-webkit-progress-value {
+    transition: none;
+  }
+}

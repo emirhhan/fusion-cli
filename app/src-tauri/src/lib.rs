@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use core_process::CoreProcess;
 use runtime_installer::RuntimeResources;
-use runtime_manager::{CommandHealthProbe, RuntimeManager};
+use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Bu makinenin çalışma zamanı paketiyle eşleşmesi gereken hedef üçlü.
 /// Fusion şu an yalnız macOS'u hedefler (Apple Silicon + Intel); değer
@@ -67,6 +67,64 @@ fn cekirdege_yaz(satir: String, durum: tauri::State<CoreProcess>) -> Result<(), 
     durum.send(satir)
 }
 
+/// Arayüzün gösterebileceği güncel çalışma zamanı durumunu döner.
+///
+/// Ağ çağrısı yapmaz, dosya değiştirmez; yalnızca en son `prepare`/`repair`
+/// sonucunun senkron anlık görüntüsüdür (bkz. `RuntimeManager::status`).
+#[tauri::command]
+fn runtime_durum(manager: tauri::State<RuntimeManager>) -> RuntimeStatus {
+    manager.status()
+}
+
+/// Çalışma zamanını kullanıma hazırlar (ilk kurulum ya da güncelleme).
+///
+/// Sağlık denetimi (dolayısıyla olası askıda kalma riski taşıyan tek adım)
+/// `RuntimeManager`/`CommandHealthProbe` içinde 30 saniyelik sabit bir zaman
+/// aşımına bağlıdır (`SAGLIK_ZAMAN_ASIMI`); bu komut o sınırı OLDUĞU GİBİ
+/// aşağı taşır ve asla kendi başına ek bir bekleme eklemez. `spawn_blocking`
+/// kullanılması, senkron kurulum/sağlık kodunun Tauri'nin async çalışma
+/// zamanını TIKAMAMASI içindir; arayüz bu süre boyunca `runtime-ilerleme`
+/// olaylarını dinleyerek kullanıcıya ilerleme gösterebilir.
+#[tauri::command]
+async fn runtime_hazirla(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, RuntimeManager>,
+) -> Result<RuntimeStatus, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager
+            .prepare(|progress| {
+                let _ = app.emit("runtime-ilerleme", progress);
+            })
+            .map(RuntimeStatus::ready)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Çalışma zamanı görevi tamamlanamadı: {error}"))?
+}
+
+/// Paket sürümünü, kullanıcı verisine dokunmadan yeniden kurmayı dener.
+///
+/// Aynı zaman aşımı/ilerleme garantisi `runtime_hazirla` ile paylaşılır;
+/// bkz. oradaki belge notu.
+#[tauri::command]
+async fn runtime_onar(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, RuntimeManager>,
+) -> Result<RuntimeStatus, String> {
+    let manager = manager.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        manager
+            .repair(|progress| {
+                let _ = app.emit("runtime-ilerleme", progress);
+            })
+            .map(RuntimeStatus::ready)
+            .map_err(|error| error.to_string())
+    })
+    .await
+    .map_err(|error| format!("Onarım görevi tamamlanamadı: {error}"))?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -85,7 +143,13 @@ pub fn run() {
             app.manage(manager);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![cekirdek_baslat, cekirdege_yaz])
+        .invoke_handler(tauri::generate_handler![
+            cekirdek_baslat,
+            cekirdege_yaz,
+            runtime_durum,
+            runtime_hazirla,
+            runtime_onar
+        ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let durum = window.state::<CoreProcess>();

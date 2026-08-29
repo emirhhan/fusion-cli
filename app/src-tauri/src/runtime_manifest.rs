@@ -6,17 +6,10 @@
 //! bozuk bir alan sessizce varsayılana düşmez — tipli bir hata döner, çünkü
 //! kurulum/onarım/rollback bu tipin üstüne bina edilecektir.
 //!
-//! `read`, `validate`, `RuntimeFile` alanları ve çoğu `RuntimeError` varyantı
-//! artık A/4'teki (`runtime_installer.rs`) kurulum akışı tarafından
-//! çağrılıyor. Ama bu modülün `allow(dead_code)`'u hâlâ duruyor: Rust'ın ölü
-//! kod analizi yalnızca ÇALIŞAN (üretim) köklerden ulaşılabilirliğe bakar —
-//! `runtime_installer::install`'ı yalnızca testler çağırıyor, hiçbir Tauri
-//! komutu henüz onu üretimde çağırmıyor; bu yüzden test-only çağrı zinciri
-//! bu modülün öğelerini "kullanılıyor" saydırmaya yetmiyor (doğrulama:
-//! `cargo build --lib`, testler olmadan, aynı uyarıları üretiyor). Gerçek
-//! kaldırma, `install()`'ı bir Tauri komutuna bağlayan sürüm seçimi/
-//! etkinleştirme görevinde olacak.
-#![allow(dead_code)]
+//! `read`, `validate`, `RuntimeFile` alanları ve çoğu `RuntimeError` varyantı,
+//! `runtime_installer.rs` üzerinden A/7'nin `runtime_hazirla`/`runtime_onar`
+//! Tauri komutlarıyla artık üretimde de çağrılıyor; dosya kapsamlı
+//! `allow(dead_code)` bu yüzden kaldırıldı.
 
 use std::path::{Component, Path, PathBuf};
 
@@ -136,6 +129,8 @@ impl RuntimeManifest {
         if self.target != target {
             return Err(RuntimeError::TargetMismatch);
         }
+        safe_relative(&self.archive)?;
+        safe_relative(&self.entrypoint)?;
         for dosya in &self.files {
             safe_relative(&dosya.path)?;
         }
@@ -233,6 +228,23 @@ mod tests {
         }"#,
         )
         .unwrap();
+        assert!(matches!(
+            manifest.validate("aarch64-apple-darwin"),
+            Err(RuntimeError::UnsafePath(_))
+        ));
+    }
+
+    #[test]
+    fn manifest_icindeki_guvensiz_arsiv_yolu_reddedilir() {
+        let manifest: RuntimeManifest = serde_json::from_str(
+            r#"{
+          "schema":1,"runtime_version":"0.3.0a1","target":"aarch64-apple-darwin",
+          "archive":"../../fusion-runtime.tar.gz","archive_sha256":"aa",
+          "entrypoint":"fusion","files":[]
+        }"#,
+        )
+        .unwrap();
+
         assert!(matches!(
             manifest.validate("aarch64-apple-darwin"),
             Err(RuntimeError::UnsafePath(_))
