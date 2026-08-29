@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { ProtocolClient } from "./client";
 
 /** Testte gerçek süreç yok: satır gönderen/alan sahte bir taşıma kullanılır. */
@@ -71,5 +71,45 @@ describe("ProtocolClient", () => {
     const c = new ProtocolClient(t.gonder, t.dinle);
 
     expect(() => t.al(JSON.stringify({ tip: "sonuc", id: "yok", veri: {} }))).not.toThrow();
+  });
+
+  // KANIT: bu test close() içindeki reddet() çağrısı kaldırılıp (bekleyen'i
+  // yalnız sessizce temizleyecek şekilde) geçici olarak geri alındığında
+  // KIRMIZI koşar — istek sonsuza dek ne çözülür ne reddedilir, aşağıdaki
+  // `await` zaman aşımına takılıp test başarısız olur. Test seviyesindeki
+  // zaman aşımı (3000ms) bu KIRMIZI koşunun sonsuza dek asılı kalmasını önler.
+  it(
+    "çekirdek kapandığında bekleyen istek REDDEDİLİR (sonsuza dek asılı kalmaz)",
+    async () => {
+      const t = sahteTasima();
+      const c = new ProtocolClient(t.gonder, t.dinle);
+
+      const bekleyen = c.request("oturum.durum", {});
+      c.close("çekirdek kapandı");
+
+      await expect(bekleyen).rejects.toThrow("çekirdek kapandı");
+    },
+    3000,
+  );
+
+  it("close() sonrası gelen satırlar yok sayılır", () => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+    const gorulen: unknown[] = [];
+    c.onEvent((e) => gorulen.push(e));
+
+    c.close();
+    t.al(JSON.stringify({ tip: "olay", veri: { olay: "kapanış-sonrası" } }));
+
+    expect(gorulen).toEqual([]);
+  });
+
+  it("close() sonrası yeni istek hemen reddedilir", async () => {
+    const t = sahteTasima();
+    const c = new ProtocolClient(t.gonder, t.dinle);
+
+    c.close();
+
+    await expect(c.request("oturum.durum", {})).rejects.toThrow();
   });
 });
