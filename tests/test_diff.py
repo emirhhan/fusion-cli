@@ -52,7 +52,8 @@ def test_eklenen_ve_silinen_satir_metni_gorunur():
     assert "ilk satir" in cikti
 
 
-def test_eklenen_satir_yesil_silinen_kirmizi_boyanir():
+def test_eklenen_satir_yesil_silinen_kirmizi_boyanir(monkeypatch):
+    monkeypatch.delenv("NO_COLOR", raising=False)
     buffer = io.StringIO()
     console = Console(file=buffer, force_terminal=True, width=80, color_system="truecolor")
     console.print(render_diff(_UNIFIED).body)
