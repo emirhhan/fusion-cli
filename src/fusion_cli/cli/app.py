@@ -389,6 +389,21 @@ def mcp(
     asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
 
 
+@app.command(name="app")
+def app_protocol() -> None:
+    """Masaüstü uygulaması için stdio protokolünü konuş.
+
+    Uygulama bu süreci kendisi doğurur ve stdin/stdout üzerinden satır satır
+    JSON konuşur. Doğrudan elle çalıştırmak için değildir.
+    """
+    import asyncio
+    from pathlib import Path
+
+    from ..appserver.server import run_stdio
+
+    asyncio.run(run_stdio(Path.cwd(), Path.home()))
+
+
 @app.command(name="mcp-tools")
 def mcp_tools() -> None:
     """Yapılandırılmış dış MCP sunucularının araçlarını listele (bağlanır ve keşfeder)."""
