@@ -67,7 +67,7 @@ async def test_bir_sureci_durdurmak_digerini_etkilemez(tmp_path: Path):
     """Process-group sahipliği yanlışsa bir terminali durdurmak kardeş süreci öldürür."""
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")
-    command = "python3 -c \"import time; time.sleep(30)\""
+    command = 'python3 -c "import time; time.sleep(30)"'
     first = await _send(session, lines, "surec.baslat", {"komut": command})
     second = await _send(session, lines, "surec.baslat", {"komut": command})
 

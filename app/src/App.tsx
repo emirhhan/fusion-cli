@@ -26,6 +26,7 @@ import {
 } from "./theme/theme";
 import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
+import { TestsPanel } from "./workspace/TestsPanel";
 import { ProcessesPanel } from "./processes/ProcessesPanel";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
@@ -119,6 +120,7 @@ function ProjectInspector({ client, root }: { client: ProtocolClient; root: stri
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
         terminal: <TerminalPanel controller={processes} />,
         processes: <ProcessesPanel controller={processes} />,
+        tests: <TestsPanel client={client} processes={processes} />,
       }}
     />
   );

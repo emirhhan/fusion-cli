@@ -63,7 +63,7 @@
 - [x] Implement accessible tree/treeitem semantics and a selectable text viewer; do not load child folders until expanded.
 - [x] Pass real content into `Inspector.files` from the active session and reset only when session identity changes.
 - [x] Run `cd app && npm test -- src/workspace src/screens/Inspector.test.tsx src/App.test.tsx && npm run build`.
-- [ ] Commit `feat(app): gerçek proje dosyalarını denetçiye bağla`.
+- [x] Commit `feat(app): gerçek proje dosyalarını denetçiye bağla`.
 
 ### Task 3: Güvenli düzenleme, diff ve geri alma
 
@@ -86,7 +86,7 @@
 - [x] Implement Git-backed changes when `.git` exists and journal-backed changes otherwise.
 - [x] Connect Changes panel refresh to successful agent file events and direct edits.
 - [x] Run narrow tests, then `make app-check`.
-- [ ] Commit `feat(app): dosya değişikliklerini ve geri almayı ekle`.
+- [x] Commit `feat(app): dosya değişikliklerini ve geri almayı ekle`.
 
 ### Task 4: Oturuma bağlı terminal ve süreç yöneticisi
 
@@ -109,7 +109,7 @@
 - [x] Implement an oturum-owned process registry with stdin and bounded buffers; use process groups so stop/close cannot orphan children.
 - [x] Add oturum-scoped terminal, stop actions and process rows; no command text in localStorage.
 - [x] Run Python/React narrow tests plus `make app-check`.
-- [ ] Commit `feat(app): terminal ve süreçleri çalışma alanına bağla`.
+- [x] Commit `feat(app): terminal ve süreçleri çalışma alanına bağla`.
 
 ### Task 5: Test, build ve Git kanıt yüzeyleri
 
@@ -126,11 +126,11 @@
 - Produces `proje.git_durum`, `proje.komut_onerileri`, `proje.kanit_calistir`
 - Test evidence includes command, exit code, duration, bounded output and timestamp.
 
-- [ ] Write failing fixture-repository tests for porcelain status parsing and package/Makefile command discovery without executing package scripts.
-- [ ] Implement read-only Git status/history and explicit test/lint/build command execution through the process registry.
-- [ ] Render pass/fail/running state with text and icon, preserve raw output behind disclosure, and offer rerun.
-- [ ] Run narrow tests and `make check && make app-check`.
-- [ ] Commit `feat(app): test ve git kanıtlarını görünür yap`.
+- [x] Write failing fixture-repository tests for porcelain status parsing and package/Makefile command discovery without executing package scripts.
+- [x] Implement read-only Git status/history and explicit test/lint/build command execution through the process registry.
+- [x] Render pass/fail/running state with text and icon, preserve raw output behind disclosure, and offer rerun.
+- [x] Run narrow tests and `make check && make app-check`.
+- [x] Commit `feat(app): test ve git kanıtlarını görünür yap`.
 
 ### Task 6: Asset ve geliştirme önizlemesi, D aşaması yayın kapısı
 

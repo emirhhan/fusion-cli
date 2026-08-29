@@ -197,6 +197,15 @@ describe("SessionUygulama", () => {
             }] : [],
           };
         }
+        if (request.ad === "proje.komut_onerileri") {
+          veri = {
+            ok: true,
+            komutlar: [{ tur: "test", ad: "Testleri çalıştır", komut: "npm test" }],
+          };
+        }
+        if (request.ad === "proje.git_durum") {
+          veri = { ok: true, git: true, branch: "main", degisen: 1, ileride: 0, geride: 0 };
+        }
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
           satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
@@ -241,6 +250,11 @@ describe("SessionUygulama", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Süreçler" }));
     expect(await screen.findByText("npm test")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Testler" }));
+    expect(await screen.findByText("main")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Testleri çalıştır" }));
+    expect(await screen.findByText("testler geçti")).toBeTruthy();
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {

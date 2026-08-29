@@ -34,6 +34,7 @@ from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .commands import command_choices, list_commands, run_command
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .processes import ProcessManager
+from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_result
 from .workspace import (
     WorkspaceJournal,
@@ -128,6 +129,10 @@ class AppSession:
             return self._processes.list()
         if request.name == "surec.kes":
             return await self._processes.stop(request.data)
+        if request.name == "proje.komut_onerileri":
+            return suggested_commands(self._state.root)
+        if request.name == "proje.git_durum":
+            return git_status(self._state.root)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
