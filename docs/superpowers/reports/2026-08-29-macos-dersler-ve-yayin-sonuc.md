@@ -69,8 +69,8 @@ yeniden üretmek.
 
 - `Fusion_0.3.0-alpha.1_aarch64.dmg` — 157 MiB, `Fusion.app` 166 MiB.
   Paylaşılabilir kopya: `~/Desktop/Fusion-0.3.0-alpha.1-Apple-Silicon.dmg`
-  SHA-256: `98015c495fbacf7af79c886a4347f0ff9fd833af57dada0d387f0f76f0f5aebf`
-  (borç düzeltmeleri sonrası yeniden üretildi, 158 MiB)
+  SHA-256: `d18db2a53f6af316061448668a49c75075a91cd24f85b82cd469be9ff152c276`
+  (marka kimliği ve Windows hazırlığı sonrası yeniden üretildi, 158 MiB)
 - Paket sıfırdan üretildi (`make app-package`): PyInstaller çalışma zamanı, deterministik
   arşiv, paket içi çalışma zamanı smoke'u, Tauri release bundle ve DMG.
 - Temiz HOME doğrulaması geçti: `Uygulama paketi doğrulandı: 0.3.0a1 · aarch64-apple-darwin`
