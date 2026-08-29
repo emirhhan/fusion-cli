@@ -28,4 +28,9 @@ describe("tasarım token'ları", () => {
     expect(css).toContain("--tehlike:");
     expect(css).toContain("--ters-metin:");
   });
+
+  it("uygulama tipografisini ve sayfa sıfırlamasını sabitler", () => {
+    expect(css).toContain("font-family: Inter, system-ui");
+    expect(css).toContain("margin: 0");
+  });
 });
