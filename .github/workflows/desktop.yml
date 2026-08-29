@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Geliştirme dalından da elle çalıştırılabilsin: Intel (x86_64) paketi bu
+  # makinede üretilemiyor, tek yolu CI. Dal `main` olmadığı ve PR açılmadığı
+  # sürece yukarıdaki iki tetikleyici hiç çalışmaz.
+  workflow_dispatch:
 
 jobs:
   package:
