@@ -1,7 +1,15 @@
 //! Fusion çekirdeğini alt süreç olarak yönetir ve stdio satırlarını aktarır.
 //!
-//! Burada ürün mantığı YOKTUR: süreç bulunur, başlatılır, satırlar iki yöne
-//! taşınır. Karar veren taraf her zaman arayüzdür.
+//! Burada ürün mantığı YOKTUR: süreç başlatılır, satırlar iki yöne taşınır.
+//! Hangi ikilinin çalıştırılacağına karar veren taraf her zaman `RuntimeManager`
+//! (bkz. `runtime_manager.rs`) — bu modül asla sistemdeki `fusion` komutuna,
+//! `HOME` altındaki kurulumlara ya da `PATH`'e bakmaz. Sebep: kullanıcının
+//! makinesindeki `fusion` başka bir sürüm, yarım kurulum ya da hiç olmayabilir;
+//! sessiz bir geri düşüş teşhis edilemeyen hatalar üretir. Ayrıca GUI
+//! uygulamaları minimal bir ortamla açılır (`launchctl getenv PATH` çoğu
+//! zaman boştur), bu yüzden "sistemde kurulu" varsayımı zaten güvenilmez.
+//! Geliştirici Kipi bu kuralın TEK istisnasıdır ve yalnız `lib.rs`'te,
+//! açıkça istenmişse devreye girer.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -19,23 +27,51 @@ const DURDURMA_ZAMAN_ASIMI: Duration = Duration::from_millis(2000);
 /// Bekleme sırasında sürecin çıkış yapıp yapmadığını denetleme aralığı.
 const YOKLAMA_ARALIGI: Duration = Duration::from_millis(50);
 
-/// Çekirdek hiçbir adayda bulunamazsa kullanıcıya gösterilecek, eyleme dönük
-/// tek mesaj. `ui` katmanı olmadığından metin burada sabit durur.
-const KURULUM_MESAJI: &str = "Fusion CLI bulunamadı. Devam etmeden önce Fusion CLI'ın kurulu \
-     olması gerekir: kurulum belgelerini izleyip `fusion` komutunun çalıştırılabilir \
-     olduğundan emin olun.";
-
 pub struct CoreProcess {
     child: Mutex<Option<Child>>,
     stdin: Mutex<Option<ChildStdin>>,
 }
 
+/// `start()`'ın çalıştıracağı komutun saf (yan etkisiz) tanımı. Testler
+/// gerçek bir süreç açmadan bu değeri denetler.
+#[derive(Debug, PartialEq)]
+struct CoreLaunch {
+    executable: PathBuf,
+    args: Vec<String>,
+}
+
+/// Verilen çalışma zamanı ikilisi için başlatma komutunu üretir. Argüman
+/// listesi sabittir: çekirdek her zaman uzun ömürlü, stdio üzerinden JSON
+/// konuşan `app` alt komutuyla açılır.
+fn core_launch(executable: &Path) -> CoreLaunch {
+    CoreLaunch {
+        executable: executable.to_path_buf(),
+        args: vec!["app".to_string()],
+    }
+}
+
+/// Verilen yolun gerçekten çalıştırılabilir bir çalışma zamanı olduğunu
+/// denetler. Başarısızlık PATH aramasına DÜŞMEZ — `RuntimeManager` zaten
+/// tek doğrulanmış adayı vermiştir; burada hata varsa kurulum bozuktur ve
+/// kullanıcı onarım akışına yönlendirilmelidir.
+fn validate_runtime_executable(path: &Path) -> Result<(), String> {
+    if dosya_calistirilabilir_mi(path) {
+        Ok(())
+    } else {
+        Err("Çalışma zamanı hazır değil. Ayarlar > Çalışma Zamanı bölümünden onarın.".into())
+    }
+}
+
 impl CoreProcess {
     pub fn new() -> Self {
-        Self { child: Mutex::new(None), stdin: Mutex::new(None) }
+        Self {
+            child: Mutex::new(None),
+            stdin: Mutex::new(None),
+        }
     }
 
-    /// Çekirdeği başlat. Zaten çalışan bir süreç varsa yenisini AÇMAZ:
+    /// Çekirdeği verilen, önceden doğrulanmış çalışma zamanı ikilisiyle
+    /// başlat. Zaten çalışan bir süreç varsa yenisini AÇMAZ:
     /// `React.StrictMode` dev modunda `useEffect`i mount→unmount→mount olarak
     /// iki kez çalıştırdığından bu komut iki kez çağrılabilir. İkinci çağrıda
     /// yeni bir süreç açmak eskisini yetim bırakır ve iki stdout okuma
@@ -48,7 +84,7 @@ impl CoreProcess {
     /// kaydedilmesi arasında iki eşzamanlı çağrı (yine StrictMode'un çok
     /// hızlı ardışık iki çağrısı) birbirini görmeden ikisi de spawn
     /// edebilir — kontrol+kayıt atomik olmalı.
-    pub fn start(&self, app: AppHandle) -> Result<(), String> {
+    pub fn start(&self, app: AppHandle, executable: &Path) -> Result<(), String> {
         let mut cocuk_kilit = self.child.lock().unwrap();
         if let Some(cocuk) = cocuk_kilit.as_mut() {
             if matches!(cocuk.try_wait(), Ok(None)) {
@@ -56,23 +92,20 @@ impl CoreProcess {
             }
         }
 
-        let ev_dizini = std::env::var("HOME").ok().map(PathBuf::from);
-        let path_degiskeni = std::env::var("PATH").ok();
-        let yol = cekirdek_yolunu_bul(
-            sidecar_yolu(&app).as_deref(),
-            ev_dizini.as_deref(),
-            path_degiskeni.as_deref(),
-            &dosya_calistirilabilir_mi,
-        )
-        .ok_or_else(|| KURULUM_MESAJI.to_string())?;
+        validate_runtime_executable(executable)?;
+        let launch = core_launch(executable);
 
-        let mut cocuk = Command::new(yol)
-            .arg("app")
+        // stderr şimdilik `Stdio::null()`: sır sızıntısını ve sınırsız günlük
+        // büyümesini önler. Yapılandırılmış, maskeli tanılama günlükleri
+        // F aşamasındaki tanılama sınırında eklenecek. Stdout yalnız JSON
+        // protokolüne ayrılmış kalır, başka hiçbir akış onunla karışmaz.
+        let mut cocuk = Command::new(&launch.executable)
+            .args(&launch.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("çekirdek başlatılamadı: {e}"))?;
+            .map_err(|error| format!("Fusion çalışma zamanı başlatılamadı: {error}"))?;
 
         let cikti = cocuk.stdout.take().ok_or("çekirdek çıktısı alınamadı")?;
         *self.stdin.lock().unwrap() = cocuk.stdin.take();
@@ -129,13 +162,6 @@ impl CoreProcess {
     }
 }
 
-/// Paketlenmiş sidecar ikilisinin yolu. Paketleme henüz kurulmadığından her
-/// zaman `None` döner ve arama sessizce sonraki adaya geçer. Paketleme
-/// eklendiğinde burada `app.path()` üzerinden gerçek sidecar yolu çözülecek.
-fn sidecar_yolu(_app: &AppHandle) -> Option<PathBuf> {
-    None
-}
-
 /// Bir yolun var olan ve çalıştırılabilir bir dosya olup olmadığını
 /// denetler (Unix'te çalıştırma izni biti dâhil).
 fn dosya_calistirilabilir_mi(yol: &Path) -> bool {
@@ -156,107 +182,55 @@ fn dosya_calistirilabilir_mi(yol: &Path) -> bool {
     }
 }
 
-/// Fusion çekirdeğinin ikili yolunu sırayla arar ve ilk bulunanı döner:
-/// 1. Uygulamayla gelen sidecar
-/// 2. `<ev>/.local/bin/fusion`
-/// 3. `<ev>/.local/share/fusion-cli/venv/bin/fusion`
-/// 4. `/opt/homebrew/bin/fusion`, `/usr/local/bin/fusion`
-/// 5. `PATH` üzerinde `fusion`
-///
-/// Saf ve test edilebilir tutmak için dosya sistemine doğrudan bakmaz;
-/// `calistirilabilir_mi` yüklemi enjekte edilir.
-pub fn cekirdek_yolunu_bul(
-    sidecar: Option<&Path>,
-    ev_dizini: Option<&Path>,
-    path_degiskeni: Option<&str>,
-    calistirilabilir_mi: &dyn Fn(&Path) -> bool,
-) -> Option<PathBuf> {
-    if let Some(p) = sidecar {
-        if calistirilabilir_mi(p) {
-            return Some(p.to_path_buf());
-        }
-    }
-
-    if let Some(ev) = ev_dizini {
-        for goreli in [".local/bin/fusion", ".local/share/fusion-cli/venv/bin/fusion"] {
-            let aday = ev.join(goreli);
-            if calistirilabilir_mi(&aday) {
-                return Some(aday);
-            }
-        }
-    }
-
-    for sabit in ["/opt/homebrew/bin/fusion", "/usr/local/bin/fusion"] {
-        let aday = PathBuf::from(sabit);
-        if calistirilabilir_mi(&aday) {
-            return Some(aday);
-        }
-    }
-
-    if let Some(path_str) = path_degiskeni {
-        for dizin in std::env::split_paths(path_str) {
-            let aday = dizin.join("fusion");
-            if calistirilabilir_mi(&aday) {
-                return Some(aday);
-            }
-        }
-    }
-
-    None
-}
-
 #[cfg(test)]
 mod testler {
     use super::*;
 
-    fn sahte_yuklem(var_olanlar: &'static [&'static str]) -> impl Fn(&Path) -> bool {
-        move |yol: &Path| var_olanlar.contains(&yol.to_str().unwrap_or(""))
-    }
-
     #[test]
-    fn sidecar_varsa_once_o_kullanilir() {
-        let sidecar = PathBuf::from("/sidecar/fusion");
-        let mevcut = sahte_yuklem(&["/sidecar/fusion", "/home/user/.local/bin/fusion"]);
-        let sonuc =
-            cekirdek_yolunu_bul(Some(&sidecar), Some(Path::new("/home/user")), None, &mevcut);
-        assert_eq!(sonuc, Some(sidecar));
-    }
-
-    #[test]
-    fn sidecar_yoksa_ev_dizinindeki_local_bin_kullanilir() {
-        let mevcut = sahte_yuklem(&["/home/user/.local/bin/fusion"]);
-        let sonuc = cekirdek_yolunu_bul(None, Some(Path::new("/home/user")), None, &mevcut);
-        assert_eq!(sonuc, Some(PathBuf::from("/home/user/.local/bin/fusion")));
-    }
-
-    #[test]
-    fn local_bin_yoksa_venv_kullanilir() {
-        let mevcut = sahte_yuklem(&["/home/user/.local/share/fusion-cli/venv/bin/fusion"]);
-        let sonuc = cekirdek_yolunu_bul(None, Some(Path::new("/home/user")), None, &mevcut);
+    fn cekirdek_komutu_yalniz_verilen_runtimei_kullanir() {
+        let launch = core_launch(Path::new(
+            "/Application Support/Fusion/runtime/0.3.0a1/fusion",
+        ));
         assert_eq!(
-            sonuc,
-            Some(PathBuf::from("/home/user/.local/share/fusion-cli/venv/bin/fusion"))
+            launch.executable,
+            PathBuf::from("/Application Support/Fusion/runtime/0.3.0a1/fusion")
         );
+        assert_eq!(launch.args, vec!["app"]);
     }
 
     #[test]
-    fn ev_ve_sabit_yollar_yoksa_path_uzerinden_bulunur() {
-        let mevcut = sahte_yuklem(&["/opt/bin/fusion"]);
-        let sonuc = cekirdek_yolunu_bul(None, None, Some("/usr/bin:/opt/bin"), &mevcut);
-        assert_eq!(sonuc, Some(PathBuf::from("/opt/bin/fusion")));
+    fn paketli_runtime_yolu_yoksa_path_aramasi_yapilmaz() {
+        let missing = Path::new("/missing/fusion");
+        let error = validate_runtime_executable(missing).unwrap_err();
+        assert!(error.contains("Çalışma zamanı hazır değil"));
     }
 
     #[test]
-    fn hicbir_aday_bulunamazsa_none_doner() {
-        let mevcut = sahte_yuklem(&[]);
-        let sonuc = cekirdek_yolunu_bul(None, None, None, &mevcut);
-        assert_eq!(sonuc, None);
+    fn calistirilabilir_dosya_dogrulamadan_gecer() {
+        let gecici = tempfile::NamedTempFile::new().expect("geçici dosya oluşturulamadı");
+        let mut izinler = std::fs::metadata(gecici.path()).unwrap().permissions();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            izinler.set_mode(0o755);
+        }
+        std::fs::set_permissions(gecici.path(), izinler).unwrap();
+
+        assert!(validate_runtime_executable(gecici.path()).is_ok());
     }
 
     #[test]
-    fn sabit_kurulum_yollari_ev_dizininden_sonra_denenir() {
-        let mevcut = sahte_yuklem(&["/opt/homebrew/bin/fusion"]);
-        let sonuc = cekirdek_yolunu_bul(None, Some(Path::new("/home/user")), None, &mevcut);
-        assert_eq!(sonuc, Some(PathBuf::from("/opt/homebrew/bin/fusion")));
+    fn calistirma_izni_olmayan_dosya_reddedilir() {
+        let gecici = tempfile::NamedTempFile::new().expect("geçici dosya oluşturulamadı");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut izinler = std::fs::metadata(gecici.path()).unwrap().permissions();
+            izinler.set_mode(0o644);
+            std::fs::set_permissions(gecici.path(), izinler).unwrap();
+
+            let error = validate_runtime_executable(gecici.path()).unwrap_err();
+            assert!(error.contains("Çalışma zamanı hazır değil"));
+        }
     }
 }
