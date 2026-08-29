@@ -89,6 +89,15 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
         # Kontrol sözleşmesi sır değerlerini asla paketli süreçten dışarı çıkarmaz.
         assert _DUMMY_SECRET_ENV["FUSION_SECRET_KEY"] not in json.dumps(control)
 
+        # Dersler paketli ikilide de çalışmalı: ekran bu iki isteğin üstünde duruyor.
+        lessons = _request(process, "lessons", "ders.listele", {})
+        assert lessons["ok"] is True and len(lessons["dersler"]) == 8
+        lesson = _request(process, "lesson", "ders.getir", {"id": lessons["dersler"][0]["id"]})
+        assert lesson["ok"] is True and lesson["adimlar"]
+        # Ders adımı yürütülebilir komut taşımaz; paketli sürümde de taşımamalı.
+        for step in lesson["adimlar"]:
+            assert step["eylem"]["tur"] in ("composer", "sekme")
+
         assert process.stdin is not None
         process.stdin.close()
         assert process.wait(timeout=_TIMEOUT_SANIYE) == 0
@@ -131,8 +140,8 @@ def main() -> None:
 
     smoke(args.executable.resolve())
     print(
-        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve "
-        "önizleme protokolleri doğrulandı."
+        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol, "
+        "önizleme ve ders protokolleri doğrulandı."
     )
 
 

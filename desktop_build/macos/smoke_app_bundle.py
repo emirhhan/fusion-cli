@@ -72,6 +72,35 @@ def launch_clean(app: Path) -> None:
         assert active.read_bytes() == first_record
         assert active.stat().st_mtime_ns == first_mtime, "İkinci açılış runtime'ı yeniden kurdu"
 
+        _assert_repairs_corrupted_runtime(app, home, runtime, marker)
+
+
+def _assert_repairs_corrupted_runtime(app: Path, home: Path, runtime: Path, marker: Path) -> None:
+    """Kurulu çalışma zamanını BOZ; uygulama açılışta bunu görüp onarmalı.
+
+    Kullanıcının Apple Developer hesabı yok ve uygulama imzasız dağıtılıyor;
+    bozulan bir kurulumu komut satırından elle onaracak kullanıcı yok. Bu yüzden
+    onarım iddiası laf değil, paketlenmiş uygulama üzerinde ölçülür.
+    """
+    installed = next(
+        (item for item in sorted(runtime.iterdir()) if item.is_dir()),
+        None,
+    )
+    assert installed is not None, "Kurulu sürüm dizini bulunamadı"
+    executable = installed / "fusion"
+    assert executable.is_file(), f"Giriş noktası yok: {executable}"
+
+    original = executable.read_bytes()
+    executable.write_bytes(b"BOZUK")
+    marker.unlink(missing_ok=True)
+
+    _launch(app, home)
+
+    assert marker.is_file(), "Bozuk çalışma zamanından sonra uygulama açılamadı"
+    repaired = executable.read_bytes()
+    assert repaired != b"BOZUK", "Bozuk giriş noktası onarılmadı"
+    assert repaired == original, "Onarım paket sürümünü birebir geri getirmedi"
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fusion.app dağıtım paketini doğrular.")
