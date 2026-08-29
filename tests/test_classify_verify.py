@@ -355,7 +355,7 @@ def test_calisir_hale_getirme_istegi_feature_sayilir(request_text):
 
 
 def test_calisir_hale_getirme_aciklama_sorusuysa_feature_degil():
-    """"nasıl çalışır hale getirilir" bir soru; iş emri değil."""
+    """ "nasıl çalışır hale getirilir" bir soru; iş emri değil."""
     assert classify_task("bu panel nasıl çalışır hale getirilir açıkla") is not TaskKind.FEATURE
 
 

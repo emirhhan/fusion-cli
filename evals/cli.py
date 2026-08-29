@@ -162,8 +162,7 @@ def _matrix(args: argparse.Namespace) -> int:
                 "success_rate": report.task_success_rate,
                 "mean_model_calls": report.mean_model_calls,
                 "mean_duration_seconds": report.mean_duration_seconds,
-                "delta_model_calls_vs_direct": report.mean_model_calls
-                - direct.mean_model_calls,
+                "delta_model_calls_vs_direct": report.mean_model_calls - direct.mean_model_calls,
                 "delta_duration_seconds_vs_direct": report.mean_duration_seconds
                 - direct.mean_duration_seconds,
             }

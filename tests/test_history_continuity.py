@@ -112,9 +112,7 @@ def test_dis_tur_sistem_metnini_miras_almaz() -> None:
     """Kullanıcının yeni mesajı yeni bir görevdir; dersleri yeniden hatırlanır."""
     onceki = _biten_tur("asıl turda hatırlanan dersler")
 
-    mesajlar = _initial_messages(
-        "yeni görev", onceki, plan_mode=False, extra_system="yeni dersler"
-    )
+    mesajlar = _initial_messages("yeni görev", onceki, plan_mode=False, extra_system="yeni dersler")
 
     assert "yeni dersler" in mesajlar[0].content
 
@@ -147,4 +145,3 @@ def test_web_compression_threshold() -> None:
     assert needs_compression(uzun_web_mesajlar, threshold_chars=WEB_COMPRESS_THRESHOLD_CHARS)
     # 25.000 karakter standart 177.000 karakterlik API eşiğini aşmaz
     assert not needs_compression(uzun_web_mesajlar)
-

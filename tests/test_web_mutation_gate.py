@@ -233,16 +233,13 @@ def test_calisir_hale_getirme_sorusu_etki_istemez():
 
 
 def test_arayuz_ogesi_ekleme_istegi_mutasyon_sayilir():
-    """"rozetin yanına bir span ekle" bir okuma isteği değildir.
+    """ "rozetin yanına bir span ekle" bir okuma isteği değildir.
 
     Ölçüldü (canlı koşu): bu istek hiçbir nesne desenine uymuyordu, görev
     `workspace_read` sanıldı ve BEŞ araç turluk keşif bütçesine düştü; tur
     "araç turu sınırına ulaşıldı (5)" ile kesildi.
     """
-    istek = (
-        "Sistem durumu rozetinin yanina 'Son guncelleme: <saat>' gosteren "
-        "kucuk bir span ekle."
-    )
+    istek = "Sistem durumu rozetinin yanina 'Son guncelleme: <saat>' gosteren kucuk bir span ekle."
 
     assert required_effect_for(istek) == "workspace_mutation"
 
@@ -274,5 +271,5 @@ def test_nesnesiz_duzelt_fiili_de_mutasyon_sayilir():
 
 
 def test_cok_anlamli_fiiller_listede_degil():
-    """"cevap yaz" bir dosya değişikliği değildir; liste dar tutulur."""
+    """ "cevap yaz" bir dosya değişikliği değildir; liste dar tutulur."""
     assert required_effect_for("kısa bir cevap yaz") != "workspace_mutation"

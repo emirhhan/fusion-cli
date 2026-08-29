@@ -172,9 +172,7 @@ async def test_soru_kapisi_kanit_kapisi_olmadan_da_calisir(monkeypatch, tmp_path
     sonuc = await run_agent("projedeki dizinlere bak", web_deps(tmp_path, sink))
 
     assert provider.calls >= 3
-    assert any(
-        mesaj.content == reflexion.ASKED_INSTEAD_OF_ACTING_NOTE for mesaj in sonuc.messages
-    )
+    assert any(mesaj.content == reflexion.ASKED_INSTEAD_OF_ACTING_NOTE for mesaj in sonuc.messages)
 
 
 # --- 4. öncü metin görünür, çerçeve sızmaz --------------------------------- #

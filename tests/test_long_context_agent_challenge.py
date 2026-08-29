@@ -33,9 +33,7 @@ def test_long_context_web_threshold_trigger() -> None:
         Message("assistant", "Middleware ve config okundu."),
         Message(
             "tool",
-            "MIDDLEWARE_CONFIG = {\n"
-            + '    "auth_middleware_enabled": True,\n' * 350
-            + "}\n",
+            "MIDDLEWARE_CONFIG = {\n" + '    "auth_middleware_enabled": True,\n' * 350 + "}\n",
         ),
     ]
 

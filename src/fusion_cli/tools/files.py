@@ -173,9 +173,7 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     pencere = lines[offset - 1 : offset - 1 + limit]
     son = offset + len(pencere) - 1
-    numbered = "\n".join(
-        f"{index:>5}\t{line}" for index, line in enumerate(pencere, offset)
-    )
+    numbered = "\n".join(f"{index:>5}\t{line}" for index, line in enumerate(pencere, offset))
     kalan = len(lines) - son
     if kirpildi or kalan > 0:
         # Sessiz kırpma modele "dosyanın tamamını okudum" yanılgısı verir; sonra
@@ -288,15 +286,12 @@ def _replace_range_text(
     line_count = len(lines)
 
     if line_count == 0:
-        raise ArgumentError(
-            "Dosya boş; satır aralığı değiştirilemez. write_file kullan."
-        )
+        raise ArgumentError("Dosya boş; satır aralığı değiştirilemez. write_file kullan.")
     if start_line > end_line:
         raise ArgumentError("'start_line', 'end_line'dan büyük olamaz.")
     if start_line > line_count or end_line > line_count:
         raise ArgumentError(
-            f"Satır aralığı dosyanın dışında: {start_line}-{end_line}; "
-            f"dosya {line_count} satır."
+            f"Satır aralığı dosyanın dışında: {start_line}-{end_line}; dosya {line_count} satır."
         )
 
     prefix = "".join(lines[: start_line - 1])
@@ -330,6 +325,7 @@ def _replace_range_text(
             replacement += eol
 
     return prefix + replacement + suffix
+
 
 def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Okunmuş bir dosyada satır aralığını yalnız YENİ içerikle değiştir.
@@ -403,8 +399,7 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
     context.fully_read.discard(path)
 
     return ToolResult(
-        f"düzenlendi: {display_path(context, path)} "
-        f"(satır {start_line}-{end_line} değiştirildi)"
+        f"düzenlendi: {display_path(context, path)} (satır {start_line}-{end_line} değiştirildi)"
     )
 
 
@@ -563,6 +558,7 @@ def _tolerate_line_numbers(text: str, old: str) -> str:
         return old
     soyulmus = _LINE_NUMBERED.sub("", old)
     return soyulmus if soyulmus and soyulmus in text else old
+
 
 #: Eşleşme bulunamadığında modele dönen açıklama.
 _NOT_FOUND = (

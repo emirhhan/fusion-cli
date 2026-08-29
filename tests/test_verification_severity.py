@@ -16,12 +16,7 @@ from fusion_cli.engines.agent.web_verify import inspect_web_output_by_severity
 
 def test_main_eksikligi_warning_ama_blocking_degil():
     blocking, warnings, advisories = inspect_web_output_by_severity(
-        {
-            "index.html": (
-                "<html><body><header>x</header>"
-                "<section>icerik</section></body></html>"
-            )
-        }
+        {"index.html": ("<html><body><header>x</header><section>icerik</section></body></html>")}
     )
 
     assert blocking == ()
@@ -49,9 +44,7 @@ def test_kirik_gorsel_blocking_kalir():
     blocking, warnings, advisories = inspect_web_output_by_severity(
         {
             "index.html": (
-                '<html><body><main>'
-                '<img src="https://via.placeholder.com/100">'
-                "</main></body></html>"
+                '<html><body><main><img src="https://via.placeholder.com/100"></main></body></html>'
             )
         }
     )

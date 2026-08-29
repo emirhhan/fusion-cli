@@ -297,9 +297,7 @@ def _instruction_schema(value: object) -> object:
     """Emulated prompt için schema description tekrarlarını kaldır."""
     if isinstance(value, Mapping):
         return {
-            key: _instruction_schema(item)
-            for key, item in value.items()
-            if key != "description"
+            key: _instruction_schema(item) for key, item in value.items() if key != "description"
         }
     if isinstance(value, list):
         return [_instruction_schema(item) for item in value]
@@ -351,6 +349,7 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
         )
 
     return "\n".join(lines)
+
 
 @dataclass(frozen=True, slots=True)
 class EmulatedParse:

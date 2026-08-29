@@ -144,8 +144,7 @@ GERCEK_IS_YAPAN_TUR = Scenario(
     ),
     files={"package.json": PACKAGE_JSON},
     replies=(
-        "Mevcut betikleri görmek için dosyayı okuyorum.\n"
-        + call("read_file", path="package.json"),
+        "Mevcut betikleri görmek için dosyayı okuyorum.\n" + call("read_file", path="package.json"),
         "Lint betiğini ekliyorum.\n"
         + call(
             "edit_file",

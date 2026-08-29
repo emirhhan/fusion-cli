@@ -39,7 +39,7 @@ def test_arac_cagrildiysa_bu_kapi_konusmaz() -> None:
 
 
 def test_basit_gorevde_zorlanmaz() -> None:
-    """"Bu dosya ne yapıyor" gibi bir soru araçsız cevaplanabilir."""
+    """ "Bu dosya ne yapıyor" gibi bir soru araçsız cevaplanabilir."""
     durum = _State()
 
     assert _never_acted(durum, _politika(complex_task=False)) is False

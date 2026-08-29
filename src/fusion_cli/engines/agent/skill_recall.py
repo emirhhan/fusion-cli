@@ -88,27 +88,20 @@ def should_auto_context(classification: TaskClassification) -> bool:
 
     return (
         classification.confidence >= AUTO_MIN_CONFIDENCE
-        or classification.score_for(classification.primary)
-        >= AUTO_STRONG_PRIMARY_SCORE
+        or classification.score_for(classification.primary) >= AUTO_STRONG_PRIMARY_SCORE
     )
 
 
 def should_auto_skill(classification: TaskClassification) -> bool:
     """Primary tür için otomatik kullanıcı skill'i enjekte edilmeli mi?"""
 
-    return (
-        should_auto_context(classification)
-        and classification.primary in SKILL_QUERIES
-    )
+    return should_auto_context(classification) and classification.primary in SKILL_QUERIES
 
 
 def should_auto_reference(classification: TaskClassification) -> bool:
     """Fusion'ın kendi görev referansı otomatik enjekte edilmeli mi?"""
 
-    return (
-        should_auto_context(classification)
-        and classification.primary in _REFERENCES
-    )
+    return should_auto_context(classification) and classification.primary in _REFERENCES
 
 
 def skill_query(kind: TaskKind) -> str:
@@ -174,6 +167,7 @@ def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:
         secilen.append(bolum)
         uzunluk += len(bolum)
     return "".join(secilen).strip()
+
 
 def auto_expertise_block(
     classification: TaskClassification,

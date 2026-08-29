@@ -296,6 +296,7 @@ def tool_contract_repair_note(detail: str) -> Message:
         harness_note=True,
     )
 
+
 def verification_action_required_note() -> Message:
     """Blocking verification correction'ın araçsız kapanmasını engelle."""
 

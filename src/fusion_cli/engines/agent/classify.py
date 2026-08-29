@@ -281,16 +281,8 @@ def _classification_scores(request: str) -> tuple[tuple[TaskKind, int], ...]:
     scores: list[tuple[TaskKind, int]] = []
 
     for kind, keywords in _RULES:
-        full_hits = sum(
-            1
-            for keyword in keywords
-            if _matches(keyword, tokens, lowered)
-        )
-        head_hits = sum(
-            1
-            for keyword in keywords
-            if _matches(keyword, head_tokens, head)
-        )
+        full_hits = sum(1 for keyword in keywords if _matches(keyword, tokens, lowered))
+        head_hits = sum(1 for keyword in keywords if _matches(keyword, head_tokens, head))
 
         score = full_hits + (_HEAD_MATCH_BONUS * head_hits)
 
@@ -326,15 +318,8 @@ def classify_task_details(request: str) -> TaskClassification:
         )
 
     # Git/deploy ve "çalışır hale getir" sözleşmeleri gerçek mutation emirleridir.
-    forced_feature = (
-        (
-            _OPERATION_RE.search(lowered)
-            and not _EXPLANATION_RE.search(lowered)
-        )
-        or (
-            _MAKE_OPERATIONAL_RE.search(lowered)
-            and not _EXPLANATION_RE.search(lowered)
-        )
+    forced_feature = (_OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered)) or (
+        _MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered)
     )
 
     scores = _classification_scores(request)
@@ -344,18 +329,10 @@ def classify_task_details(request: str) -> TaskClassification:
     else:
         # _RULES sırası tie-breaker olarak korunur: sorted stable'dır.
         ranked = sorted(scores, key=lambda item: item[1], reverse=True)
-        primary = (
-            ranked[0][0]
-            if ranked and ranked[0][1] > 0
-            else TaskKind.GENERAL
-        )
+        primary = ranked[0][0] if ranked and ranked[0][1] > 0 else TaskKind.GENERAL
 
     positive = sorted(
-        (
-            (kind, score)
-            for kind, score in scores
-            if score > 0 and kind is not primary
-        ),
+        ((kind, score) for kind, score in scores if score > 0 and kind is not primary),
         key=lambda item: item[1],
         reverse=True,
     )

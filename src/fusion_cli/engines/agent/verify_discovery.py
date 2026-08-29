@@ -78,8 +78,10 @@ def discover_commands(
     for kesif in (_python, _node, _rust, _go, _make):
         plan = kesif(root) if kesif is not _node else _node(root, node_scripts)
         if plan:
-            return plan if include_tests else tuple(
-                komut for komut in plan if not _is_test_command(komut)
+            return (
+                plan
+                if include_tests
+                else tuple(komut for komut in plan if not _is_test_command(komut))
             )
     return ()
 

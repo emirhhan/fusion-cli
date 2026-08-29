@@ -72,9 +72,7 @@ def _check(ad: str, komut: str, root: Path) -> list[str]:
     """Tek bir betiğin gösterdiği hedefleri denetle."""
     bulgular: list[str] = []
     for eslesme in _PREFIX_RUN.finditer(komut):
-        bulgular.extend(
-            _check_target(ad, root, eslesme.group("path"), eslesme.group("script"))
-        )
+        bulgular.extend(_check_target(ad, root, eslesme.group("path"), eslesme.group("script")))
     for eslesme in _CD_RUN.finditer(komut):
         yol = eslesme.group("path")
         # TÜM npm çağrıları denetlenir, yalnızca ilki değil: "npm install && npm

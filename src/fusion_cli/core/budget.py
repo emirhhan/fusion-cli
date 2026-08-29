@@ -129,9 +129,7 @@ class TurnBudget:
     def next_timeout_s(self) -> float | None:
         """Hard ve idle deadline arasından önce dolacak olanı döndür."""
         limits = [
-            value
-            for value in (self.remaining_s(), self.idle_remaining_s())
-            if value is not None
+            value for value in (self.remaining_s(), self.idle_remaining_s()) if value is not None
         ]
         return min(limits) if limits else None
 

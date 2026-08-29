@@ -86,9 +86,7 @@ class AgentTaskExecutor:
     async def run(self, task: EvalTask) -> TaskExecution:
         return await self.run_sample(task, sample_index=None)
 
-    async def run_sample(
-        self, task: EvalTask, *, sample_index: int | None
-    ) -> TaskExecution:
+    async def run_sample(self, task: EvalTask, *, sample_index: int | None) -> TaskExecution:
         workspace = self._prepare_workspace(task.id, task.setup, sample_index=sample_index)
         before = _snapshot(workspace)
 
@@ -152,9 +150,7 @@ class AgentTaskExecutor:
         except OSError:
             return 1
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=SHELL_TIMEOUT_S
-            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=SHELL_TIMEOUT_S)
         except TimeoutError:
             process.kill()
             stdout, stderr = await process.communicate()
@@ -192,9 +188,7 @@ def _verification_env() -> dict[str, str]:
     repo_root = str(Path(__file__).resolve().parents[1])
     mevcut_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
-        f"{repo_root}{os.pathsep}{mevcut_pythonpath}"
-        if mevcut_pythonpath
-        else repo_root
+        f"{repo_root}{os.pathsep}{mevcut_pythonpath}" if mevcut_pythonpath else repo_root
     )
     return env
 

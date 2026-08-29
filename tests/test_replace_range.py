@@ -35,12 +35,7 @@ def test_replace_range_okumadan_duzenlemeyi_reddeder(tmp_path):
 def test_replace_range_old_payload_olmadan_duzenler(tmp_path):
     path = tmp_path / "app.py"
     path.write_text(
-        "def f():\n"
-        "    x = 1\n"
-        "    y = 2\n"
-        "    return x + y\n"
-        "\n"
-        "print(f())\n",
+        "def f():\n    x = 1\n    y = 2\n    return x + y\n\nprint(f())\n",
         encoding="utf-8",
     )
     context = ToolContext(root=tmp_path)
@@ -59,12 +54,7 @@ def test_replace_range_old_payload_olmadan_duzenler(tmp_path):
 
     assert result.ok, result.output
     assert path.read_text(encoding="utf-8") == (
-        "def f():\n"
-        "    x = 10\n"
-        "    y = 20\n"
-        "    return x + y\n"
-        "\n"
-        "print(f())\n"
+        "def f():\n    x = 10\n    y = 20\n    return x + y\n\nprint(f())\n"
     )
 
 

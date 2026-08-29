@@ -85,6 +85,7 @@ def inspect_web_output(files: Mapping[str, str]) -> tuple[str, ...]:
     blocking, warnings, advisories = inspect_web_output_by_severity(files)
     return (*blocking, *warnings, *advisories)
 
+
 def _birlestir(files: Mapping[str, str], suffixes: tuple[str, ...]) -> str:
     return "\n".join(icerik for ad, icerik in files.items() if ad.lower().endswith(suffixes))
 
@@ -187,9 +188,7 @@ def _tutarsiz_tutarlar(html: str, js: str) -> list[str]:
     return bulgular
 
 
-_HP_ZERO_GUARD = re.compile(
-    r"\b(?P<receiver>[\w$]+(?:\.[\w$]+)*)\.hp\s*<=\s*0\b", re.I
-)
+_HP_ZERO_GUARD = re.compile(r"\b(?P<receiver>[\w$]+(?:\.[\w$]+)*)\.hp\s*<=\s*0\b", re.I)
 
 
 def _hp_azaltiliyor_mu(code: str, receiver: str) -> bool:

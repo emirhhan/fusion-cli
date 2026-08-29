@@ -14,9 +14,7 @@ from fusion_cli.ui.text import format_model, format_served_model
 
 
 def _sonuc(model: str, served_by: str) -> ModelResult:
-    return ModelResult(
-        name=model, model=model, text="", latency_ms=1, ok=True, served_by=served_by
-    )
+    return ModelResult(name=model, model=model, text="", latency_ms=1, ok=True, served_by=served_by)
 
 
 def test_gozlenen_kademe_satira_eklenir() -> None:

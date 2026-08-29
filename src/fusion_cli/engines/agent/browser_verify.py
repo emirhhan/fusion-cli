@@ -180,6 +180,7 @@ def _browser_verification_result(
         advisories=advisories,
     )
 
+
 def _console(page: PageObservation) -> list[str]:
     benzersiz = _tekille(page.console_errors)
     if not benzersiz:
@@ -425,9 +426,7 @@ class BrowserVerifier:
             browser = await driver.chromium.launch()
             try:
                 for path in pages:
-                    observations.append(
-                        await self._observe_page(browser, path.as_uri(), path.name)
-                    )
+                    observations.append(await self._observe_page(browser, path.as_uri(), path.name))
             finally:
                 await browser.close()
         return observations

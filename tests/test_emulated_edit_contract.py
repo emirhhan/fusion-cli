@@ -82,6 +82,7 @@ def test_sozlesme_replace_range_ornegi_icerir() -> None:
     assert "replace_range" in metin
     assert "Eski içeriği" in metin or "ESKİ içeriği" in metin
 
+
 def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
     """Örnek ile ayrıştırıcı ayrışırsa modele yanlış biçim öğretmiş oluruz."""
     from fusion_cli.core.tool_emulation import EDIT_EXAMPLE
@@ -100,6 +101,7 @@ def test_sozlesme_var_olan_dosyada_replace_range_tercihini_soyler() -> None:
 
     assert "replace_range kullan" in metin
     assert "write_file DEĞİL" in metin
+
 
 # --- Takma adlar: çalışır ama listelenmez --------------------------------------- #
 
@@ -311,11 +313,7 @@ async def test_dongu_notu_yazma_cikisini_kapatmaz(tmp_path):
             model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-1", new="b")]),
             model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-2", new="d")]),
             model_result(tool_calls=[tool_call("edit_file", path="cart.js", old="YOK-3", new="f")]),
-            model_result(
-                tool_calls=[
-                    tool_call("write_file", path="cart.js", content=yeni_icerik)
-                ]
-            ),
+            model_result(tool_calls=[tool_call("write_file", path="cart.js", content=yeni_icerik)]),
             model_result("Dosya yeniden yazıldı: `cart.js`."),
         ]
     )

@@ -64,18 +64,14 @@ def test_landing_page_creation_website_kalir():
 
 
 def test_readme_belgesi_feature_ekle_kelimesine_yenilmez():
-    result = classify_task_details(
-        "README dosyasına kurulum belgesi ekle ve örnek komutları yaz."
-    )
+    result = classify_task_details("README dosyasına kurulum belgesi ekle ve örnek komutları yaz.")
 
     assert result.primary is TaskKind.DOCS
     assert TaskKind.FEATURE in result.secondary
 
 
 def test_test_yazma_feature_yaz_kelimesine_yenilmez():
-    result = classify_task_details(
-        "Bu fonksiyon için pytest testi yaz ve coverage kontrol et."
-    )
+    result = classify_task_details("Bu fonksiyon için pytest testi yaz ve coverage kontrol et.")
 
     assert result.primary is TaskKind.TEST
     assert TaskKind.FEATURE in result.secondary
@@ -89,9 +85,7 @@ def test_bugfix_test_beraberliginde_duzeltme_primarydir():
 
 
 def test_secondary_skor_sirasina_gore_doner():
-    result = classify_task_details(
-        "Yeni export özelliği yap. Sonra test et ve sonucu doğrula."
-    )
+    result = classify_task_details("Yeni export özelliği yap. Sonra test et ve sonucu doğrula.")
 
     assert result.primary is TaskKind.FEATURE
     assert len(result.secondary) >= 1
@@ -104,10 +98,10 @@ def test_general_gorevde_guven_sifirdir():
     assert result.secondary == ()
     assert result.confidence == 0.0
 
+
 def test_ciplak_yap_belirsizdir_feature_zorlamaz():
     result = classify_task_details("yap")
 
     assert result.primary is TaskKind.GENERAL
     assert result.secondary == ()
     assert result.confidence == 0.0
-

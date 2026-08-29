@@ -26,9 +26,7 @@ def _tek_cagri(metin: str):
 
 
 def test_sondaki_virgul_kurtarilir() -> None:
-    metin = (
-        'FUSION_TOOL_CALL{"name":"read_file","arguments":{"path":"a.py",},}FUSION_TOOL_CALL_END'
-    )
+    metin = 'FUSION_TOOL_CALL{"name":"read_file","arguments":{"path":"a.py",},}FUSION_TOOL_CALL_END'
 
     cagrilar = _tek_cagri(metin)
 

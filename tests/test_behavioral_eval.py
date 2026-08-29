@@ -95,9 +95,8 @@ class _FakeArena:
 
         gems = []
         for gem in self.gems:
-            if (
-                float(gem["x"]) == float(self.player["x"])
-                and float(gem["y"]) == float(self.player["y"])
+            if float(gem["x"]) == float(self.player["x"]) and float(gem["y"]) == float(
+                self.player["y"]
             ):
                 self.player["xp"] = float(self.player["xp"]) + float(gem["value"])
                 self.player["level"] = int(self.player["level"]) + 1
@@ -149,12 +148,7 @@ def test_verification_env_repo_evals_paketini_bulabilir():
 def test_reference_arena_gercek_chromiumda_gecer():
     from evals.behavioral import run_arena_browser
 
-    root = (
-        Path(__file__).resolve().parents[1]
-        / "evals"
-        / "fixtures"
-        / "arena_reference"
-    )
+    root = Path(__file__).resolve().parents[1] / "evals" / "fixtures" / "arena_reference"
 
     result = run_arena_browser(root)
 
@@ -164,12 +158,7 @@ def test_reference_arena_gercek_chromiumda_gecer():
 def test_bozuk_arena_console_temiz_olsa_da_davranistan_kalir():
     from evals.behavioral import run_arena_browser
 
-    root = (
-        Path(__file__).resolve().parents[1]
-        / "evals"
-        / "fixtures"
-        / "arena_broken"
-    )
+    root = Path(__file__).resolve().parents[1] / "evals" / "fixtures" / "arena_broken"
 
     result = run_arena_browser(root)
 

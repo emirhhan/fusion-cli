@@ -31,9 +31,7 @@ _COMPLEX_KINDS = frozenset(
 #
 # Etki tespiti bu boşluğu kapatır: metin gerçek bir değişiklik istiyorsa görev
 # türü ne olursa olsun karmaşık bütçeye alınır.
-_MUTATING_EFFECTS = frozenset(
-    {"workspace_mutation", "shell_action", "git_push", "git_commit"}
-)
+_MUTATING_EFFECTS = frozenset({"workspace_mutation", "shell_action", "git_push", "git_commit"})
 _EXTENDED_MARKERS = (
     "kapsamlı",
     "kapsamli",
