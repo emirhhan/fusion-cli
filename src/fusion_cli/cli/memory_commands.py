@@ -14,7 +14,7 @@ from rich.table import Table
 
 from ..config.loader import load_config
 from ..core.memory import Feedback, Lesson, LessonKind, LessonSource, ModelStats
-from ..memory.factory import Memory, build_memory
+from ..memory.factory import Memory, build_memory, build_performance_memory
 from ..memory.lesson_scoring import LESSON_CONFIDENCE_FLOOR
 from ..memory.seed import SEED_LESSONS, seed
 from ..ui import messages, theme
@@ -36,7 +36,8 @@ _SOURCE_LABELS = {
 @app.command("stats")
 def show_stats() -> None:
     """Model performans istatistikleri (fusion öz-öğrenmesi)."""
-    memory = _open()
+    # Tablo gömme kullanmaz; ucuz yoldan açılır (bkz. `build_performance_memory`).
+    memory = _open(performance_only=True)
     rows = memory.performance.stats()
     if not rows:
         console.print(f"[{theme.DIM}]{messages.MEMORY_EMPTY_STATS}[/{theme.DIM}]")
@@ -109,9 +110,13 @@ def feedback(task_type: str, model: str, verdict: str) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _open() -> Memory:
+def _open(*, performance_only: bool = False) -> Memory:
     config = load_config()
-    memory = build_memory(config, root=Path.cwd())
+    memory = (
+        build_performance_memory(config)
+        if performance_only
+        else build_memory(config, root=Path.cwd())
+    )
     if not memory.enabled:
         console.print(
             f"[{theme.ERROR}]"

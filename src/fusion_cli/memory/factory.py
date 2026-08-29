@@ -62,3 +62,21 @@ def build_memory(config: Config, *, root: Path) -> Memory:
         )
     except MemoryUnavailableError as exc:
         return null_memory(str(exc))
+
+
+def build_performance_memory(config: Config) -> Memory:
+    """Yalnız performans tablosunu açan ucuz bellek (`fusion stats` / `memory stats`).
+
+    Model performans tablosu gömme kullanmaz. Buna rağmen tam kurulumdan geçmek,
+    NIM sağlayıcısında `build_embedding_function` içindeki yoklama isteği yüzünden
+    kullanıcıyı ağa ve kotaya bağımlı kılıyordu: tabloyu görmek için ödenmemesi
+    gereken bir bedel. Ders ve kod dizini bu yolda hiç açılmaz; null kalır.
+    """
+    try:
+        return Memory(
+            performance=ChromaPerformanceMemory(config.memory_dir),
+            lessons=NullLessonMemory(),
+            code_index=NullCodeIndex(),
+        )
+    except MemoryUnavailableError as exc:
+        return null_memory(str(exc))
