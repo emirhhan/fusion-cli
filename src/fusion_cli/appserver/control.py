@@ -30,11 +30,29 @@ def _provider(provider_id: str) -> ProviderDefinition | None:
     )
 
 
+def secret_store_error(store: SecretStore) -> str | None:
+    """Anahtarlık okunamıyorsa SEBEBİNİ döndür; okunuyorsa None.
+
+    Hatayı yutup boş liste göstermek, kullanıcıya kayıtlı anahtarını kaybetmiş
+    gibi görünür ve gerçek arızayı (kilitli anahtarlık, erişim reddi) gizler.
+    Sebep taşınır; sırrın kendisi bu sınırdan hiçbir koşulda geçmez.
+    """
+    if not store.available:
+        return "Sistem anahtarlığı bu ortamda kullanılamıyor."
+    try:
+        store.list_names()
+    except Exception as error:  # anahtarlık arızası uygulamayı düşürmemeli
+        return f"Sistem anahtarlığı okunamadı: {error}"
+    return None
+
+
 def provider_rows(store: SecretStore) -> list[dict[str, Any]]:
     """Yalnız metadata döndür; sır değeri hiçbir zaman bu sınıra geçmez."""
     try:
         stored = set(store.list_names()) if store.available else set()
     except Exception:
+        # Sebep ayrıca `secret_store_error` ile taşınır; burada liste yine de
+        # üretilir ki panel boş kalmasın.
         stored = set()
     environment = environ_snapshot()
     return [
@@ -76,6 +94,7 @@ def snapshot(
         "mcp": [{"ad": server.name, "komut": server.command} for server in config.mcp_servers],
         "saglayicilar": provider_rows(store),
         "sir_deposu_hazir": store.available,
+        "sir_deposu_hatasi": secret_store_error(store),
         "gateway": gateway,
     }
 

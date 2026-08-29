@@ -103,3 +103,33 @@ async def test_kontrol_anahtar_siler_ve_gateway_yasam_dongusunu_yonetir(tmp_path
     assert started["ok"] is True and started["durum"] == "calisiyor"
     assert duplicate["ok"] is False
     assert stopped["ok"] is True and stopped["durum"] in {"durduruldu", "tamamlandi"}
+
+
+def test_anahtarlik_okunamazsa_sessizce_kurulu_degil_denmez():
+    """Anahtarlık okunamıyorsa bu SÖYLENİR; "kurulu değil" diye gösterilmez.
+
+    Eskiden istisna yutuluyor ve kullanıcı, kayıtlı anahtarını kaybetmiş gibi
+    boş bir liste görüyordu — üstelik sebebi hiçbir yerde yazmıyordu. Bu, aynı
+    anahtarı ikinci kez girmeye ve gerçek arızayı gözden kaçırmaya yol açar.
+    """
+    from fusion_cli.appserver.control import provider_rows, secret_store_error
+
+    class BozukDepo:
+        available = True
+
+        def list_names(self) -> tuple[str, ...]:
+            raise OSError("anahtarlık kilitli")
+
+        def set(self, env_name: str, value: str) -> None: ...
+        def delete(self, env_name: str) -> bool:
+            return False
+
+    store = BozukDepo()
+    rows = provider_rows(store)
+    assert rows, "sağlayıcı listesi yine de gösterilmeli"
+
+    hata = secret_store_error(store)
+    assert hata is not None
+    assert "anahtarlık" in hata.casefold()
+    # Sebep taşınır ama sırrın kendisi asla; burada zaten sır yok.
+    assert "kilitli" in hata

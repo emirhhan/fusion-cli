@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Icon, type IconName } from "../ui/Icon";
+import { Logo } from "../brand/Logo";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -122,8 +123,8 @@ export function Sidebar({
     <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed}>
       <div className="sidebar__top">
         <div aria-label="Fusion" className="sidebar__brand">
-          <span className="sidebar__brand-mark" aria-hidden="true">F</span>
-          <span className="sidebar__label">Fusion</span>
+          <Logo size={24} />
+          <span className="sidebar__label fusion-wordmark">Fusion</span>
         </div>
         <NavItem icon="new" label="Yeni görev" onClick={onYeni} />
         <label className="sidebar__search">

@@ -280,6 +280,9 @@ export function SessionUygulama({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
   const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons">("chat");
+  // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
+  // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
+  const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
   const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
@@ -401,7 +404,7 @@ export function SessionUygulama({
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           themePreference={themePreference}
-          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? "Kontrol Paneli" : page === "lessons" ? "Dersler" : active.title}
+          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : active.title}
         />
       }
       inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} requestedTab={requestedTab} root={active.root} /> : undefined}
@@ -418,6 +421,7 @@ export function SessionUygulama({
             } else if (destination === "lessons") {
               setPage("lessons");
             } else if (destination === "control-panel" || destination === "settings") {
+              setControlTitle(destination === "settings" ? "Ayarlar" : "Kontrol Paneli");
               setPage("control");
             } else if (destination.startsWith("resume:")) {
               setPage("chat");

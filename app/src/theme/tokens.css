@@ -1,16 +1,33 @@
 /* Ölçülmüş açık tema değerleri:
-   docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md */
+   docs/superpowers/specs/2026-08-29-uygulama-gorsel-dil.md
+
+   Marka kimliği (Fusion Core System) bu ölçümlerin ÜSTÜNE bindirilir: yapı,
+   oranlar ve yüzey hiyerarşisi referanstan gelir; renk kimliği markadan.
+   Marka renkleri yalnız burada tanımlanır; hiçbir bileşen ham kod yazmaz. */
 :root {
+  /* --- Marka paleti (Fusion Core System) ------------------------------- */
+  --brand-obsidian: #0b0a0d;
+  --brand-carbon: #14181d;
+  --brand-soft-white: #f3f5f6;
+  --brand-signal: #a8ff3e;
+  /* Signal Green beyaz üstünde 1.23:1 verir — açık temada METİN OLAMAZ.
+     Açık temada okunabilir karşılığı budur (beyaz üstünde 6.27:1). */
+  --brand-signal-deep: #446b00;
+
   --surface-canvas: #ffffff;
   --surface-sidebar: #f9f9fa;
   --surface-selected: #efeff0;
   --surface-message-user: #f5f5f5;
-  --surface-accent-subtle: #ebebfa;
+  /* Referanstaki mor vurgu, markanın yeşiline çevrildi: vurgu artık
+     ürün kimliğinin parçası, referansın rastgele bir değeri değil. */
+  --surface-accent-subtle: #eef7dc;
   --surface-raised: #ffffff;
   --surface-hover: #f2f2f3;
   --surface-overlay: rgb(0 0 0 / 32%);
 
-  --text-primary: #000000;
+  /* Saf siyah yerine Obsidian: marka mürekkebi. Fark göz için küçük,
+     kimlik için belirleyici. */
+  --text-primary: #0b0a0d;
   --text-secondary: #7c7c7d;
   --text-inverse: #ffffff;
   --text-danger: #b42318;
@@ -19,8 +36,16 @@
 
   --border-subtle: #e9e9eb;
   --border-strong: #c9c9cc;
-  --control-primary: #000000;
-  --focus-ring: #6b63d9;
+  --control-primary: #0b0a0d;
+  --focus-ring: var(--brand-signal-deep);
+
+  /* --- Vurgu sözleşmesi ------------------------------------------------
+     `--accent` DOLGU rengidir, metin rengi değildir. Üstüne yazılacak metin
+     her zaman `--accent-on` olur (yeşil üstünde Obsidian: 16.02:1).
+     Zemin üstünde vurgulu METİN gerektiğinde `--accent-text` kullanılır. */
+  --accent: var(--brand-signal);
+  --accent-on: var(--brand-obsidian);
+  --accent-text: var(--brand-signal-deep);
 
   /* Eski bileşenler taşınırken korunan uyumluluk adları. */
   --zemin: var(--surface-canvas);
@@ -58,7 +83,11 @@
   --radius-pill: 999px;
   --yaricap: var(--radius-md);
 
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* Marka tipografisi Satoshi'dir. Uygulama İNTERNETE ÇIKMAZ ve font dosyası
+     depoya gömülmedi; Satoshi kurulu sistemlerde kullanılır, değilse yığın
+     sessizce Inter/sistem yazı tipine düşer. Metrikleri yakın seçildi ki
+     düşüş yerleşimi bozmasın. */
+  --font-sans: Satoshi, "Satoshi Variable", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
@@ -77,24 +106,32 @@
 }
 
 :root[data-theme="dark"] {
-  --surface-canvas: #212121;
-  --surface-sidebar: #181818;
-  --surface-selected: #303030;
-  --surface-message-user: #303030;
-  --surface-accent-subtle: #343247;
-  --surface-raised: #292929;
-  --surface-hover: #2b2b2b;
-  --surface-overlay: rgb(0 0 0 / 58%);
-  --text-primary: #f4f4f4;
-  --text-secondary: #a6a6a6;
-  --text-inverse: #171717;
+  /* Koyu tema markanın kendi evidir: Carbon içerik zemini, Obsidian en derin
+     yüzey (kenar çubuğu), Soft White mürekkep, Signal Green vurgu.
+     Ölçülen kontrastlar: Soft White/Carbon 16.30:1, ikincil metin 7.05:1,
+     Signal Green/Obsidian 16.02:1 — üçü de WCAG AA'nın epey üstünde. */
+  --surface-canvas: #14181d;
+  --surface-sidebar: #0b0a0d;
+  --surface-selected: #232a33;
+  --surface-message-user: #1e242b;
+  --surface-accent-subtle: #1e2a12;
+  --surface-raised: #1a1f26;
+  --surface-hover: #1e242b;
+  --surface-overlay: rgb(0 0 0 / 64%);
+  --text-primary: #f3f5f6;
+  --text-secondary: #9aa4af;
+  --text-inverse: #0b0a0d;
   --text-danger: #ff9b95;
   --text-success: #69d3ac;
   --text-warning: #f4c66e;
-  --border-subtle: #383838;
-  --border-strong: #595959;
-  --control-primary: #f4f4f4;
-  --focus-ring: #aaa5ff;
+  --border-subtle: #232a33;
+  --border-strong: #3a444f;
+  --control-primary: #f3f5f6;
+  /* Koyu zeminde markanın kendi yeşili doğrudan kullanılabilir. */
+  --focus-ring: var(--brand-signal);
+  --accent: var(--brand-signal);
+  --accent-on: var(--brand-obsidian);
+  --accent-text: var(--brand-signal);
 }
 
 *,

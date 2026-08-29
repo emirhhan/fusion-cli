@@ -29,3 +29,7 @@
 .control-panel li { align-items: center; border-top: 1px solid var(--border-subtle); display: flex; font-size: 13px; justify-content: space-between; padding: 9px 0; }
 .control-panel li code { color: var(--text-secondary); font-size: 11px; }
 @media (max-width: 900px) { .control-panel { padding: 22px; } .control-panel__layout { grid-template-columns: 1fr; } .control-panel__section--wide { grid-column: auto; } .control-panel__provider { grid-template-columns: 1fr auto; } .control-panel__provider input { grid-column: 1 / -1; } }
+
+/* Anahtarlık arızası sessiz kalmaz: kullanıcı kayıtlı anahtarını kaybetmiş
+   sanmasın diye sebep panelde görünür. */
+.control-panel__warning { color: var(--text-warning); font-size: 13px; margin: 0 0 8px; }

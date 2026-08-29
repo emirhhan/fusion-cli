@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import platform
 import signal
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,55 @@ from typing import Any
 from .bridges import Writer
 from .protocol import encode_event
 from .workspace import WorkspacePathError, resolve_workspace_path
+
+
+def shell_command(system: str, shell: str | None, command: str) -> tuple[str, ...]:
+    """Kullanıcının yazdığı komutu, platformun kabuğuyla çalıştıracak argv üretir.
+
+    Windows'ta `/bin/zsh` ve `/bin/sh` yoktur; `SHELL` değişkeni de genelde
+    tanımsızdır. Orada `cmd.exe /c` kullanılır — kullanıcı Komut İstemi'nde ne
+    yazıyorsa Fusion'ın terminalinde de aynısını yazabilsin diye.
+    """
+    if system.casefold() == "windows":
+        return (os.environ.get("COMSPEC", "cmd.exe"), "/c", command)
+    return (shell or "/bin/sh", "-lc", command)
+
+
+def _process_group_kwargs() -> dict[str, Any]:
+    """Alt süreci kendi grubunda başlatan platforma özgü argümanlar.
+
+    Grup şart: `npm run dev` gibi komutlar kendi çocuklarını doğurur ve yalnız
+    kabuğu öldürmek onları öksüz bırakır. POSIX'te yeni oturum, Windows'ta yeni
+    süreç grubu bayrağı kullanılır.
+    """
+    if platform.system().casefold() == "windows":
+        # Sabit yalnız Windows'ta tanımlıdır; macOS'ta mypy/çalışma zamanı
+        # görmez. Değeri Windows API'sinden gelir ve değişmez.
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x00000200)}
+    return {"start_new_session": True}
+
+
+def terminate_process_tree(pid: int, *, force: bool) -> None:
+    """Süreci ve doğurduğu çocukları sonlandır.
+
+    POSIX'te süreç grubuna sinyal gönderilir. Windows'ta `os.killpg` YOKTUR;
+    orada ağacı `taskkill /T` sonlandırır. Eskiden bu ayrım yoktu ve Windows'ta
+    `AttributeError` `close()` içindeki `return_exceptions=True` tarafından
+    yutuluyordu: süreçler öksüz kalıyor, kimseye söylenmiyordu.
+    """
+    if platform.system().casefold() == "windows":
+        flags = ["/F"] if force else []
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", *flags],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+
 
 _MAX_BUFFER = 256 * 1024
 
@@ -73,19 +124,18 @@ class ProcessManager:
         if not cwd.is_dir():
             return {"ok": False, "metin": "Çalışma klasörü bulunamadı."}
 
-        shell = os.environ.get("SHELL", "/bin/zsh")
-        if not await asyncio.to_thread(Path(shell).is_file):
-            shell = "/bin/sh"
+        shell = os.environ.get("SHELL")
+        if shell and not await asyncio.to_thread(Path(shell).is_file):
+            shell = None
+        argv = shell_command(platform.system(), shell, command)
         try:
             process = await asyncio.create_subprocess_exec(
-                shell,
-                "-lc",
-                command,
+                *argv,
                 cwd=cwd,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
+                **_process_group_kwargs(),
             )
         except OSError:
             return {"ok": False, "metin": "Süreç başlatılamadı."}
@@ -148,13 +198,11 @@ class ProcessManager:
     async def _stop_record(self, record: ManagedProcess) -> None:
         if record.process.returncode is None:
             record.status = "durduruldu"
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(record.process.pid, signal.SIGTERM)
+            terminate_process_tree(record.process.pid, force=False)
             try:
                 await asyncio.wait_for(record.process.wait(), timeout=1.5)
             except TimeoutError:
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(record.process.pid, signal.SIGKILL)
+                terminate_process_tree(record.process.pid, force=True)
                 await record.process.wait()
         record.exit_code = record.process.returncode
         if record.pump is not None and record.pump is not asyncio.current_task():

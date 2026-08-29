@@ -13,7 +13,33 @@ describe("tasarım token'ları", () => {
     expect(css).toContain("--surface-sidebar: #f9f9fa");
     expect(css).toContain("--surface-selected: #efeff0");
     expect(css).toContain("--surface-message-user: #f5f5f5");
-    expect(css).toContain("--surface-accent-subtle: #ebebfa");
+    // Vurgu tonu BİLEREK referanstan ayrıldı: mor, markanın rengi değil.
+    // Yeşil vurgunun açık temadaki sakin karşılığı bu.
+    expect(css).toContain("--surface-accent-subtle: #eef7dc");
+  });
+
+  it("marka paletini tek kaynakta tanımlar", () => {
+    expect(css).toContain("--brand-obsidian: #0b0a0d");
+    expect(css).toContain("--brand-carbon: #14181d");
+    expect(css).toContain("--brand-soft-white: #f3f5f6");
+    expect(css).toContain("--brand-signal: #a8ff3e");
+    expect(css).toContain("--brand-signal-deep: #446b00");
+  });
+
+  it("Signal Green'i açık temada METİN olarak kullanmaz", () => {
+    // #a8ff3e beyaz üstünde 1.23:1 verir; metin olarak okunamaz. Açık temada
+    // vurgulu metin koyu yeşile düşer, vurgu rengi yalnız dolgudur.
+    const acikTema = css.slice(0, css.indexOf(':root[data-theme="dark"]'));
+    expect(acikTema).toContain("--accent-text: var(--brand-signal-deep)");
+    expect(acikTema).toContain("--focus-ring: var(--brand-signal-deep)");
+  });
+
+  it("koyu temayı marka yüzeylerine bağlar", () => {
+    const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
+    expect(koyuTema).toContain("--surface-canvas: #14181d");
+    expect(koyuTema).toContain("--surface-sidebar: #0b0a0d");
+    expect(koyuTema).toContain("--text-primary: #f3f5f6");
+    expect(koyuTema).toContain("--focus-ring: var(--brand-signal)");
   });
 
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
@@ -30,7 +56,7 @@ describe("tasarım token'ları", () => {
   });
 
   it("uygulama tipografisini ve sayfa sıfırlamasını sabitler", () => {
-    expect(css).toContain("--font-sans: Inter");
+    expect(css).toContain("--font-sans: Satoshi");
     expect(css).toContain("margin: 0");
   });
 

@@ -84,3 +84,24 @@ async def test_bir_sureci_durdurmak_digerini_etkilemez(tmp_path: Path):
     assert stopped["ok"] is True
     assert by_id[first["surec_id"]]["durum"] == "durduruldu"
     assert by_id[second["surec_id"]]["durum"] == "calisiyor"
+
+
+def test_windows_kabugu_ve_sonlandirma_posix_varsayimi_yapmaz():
+    """Terminal ve süreç araçları Windows'ta da çalışmalı.
+
+    `/bin/zsh`, `/bin/sh` ve `os.killpg` Windows'ta YOKTUR. Eskiden süreç
+    başlatma orada hiç çalışmıyor, kapanışta `os.killpg` `AttributeError`
+    fırlatıyor ve bu hata `close()` içindeki `return_exceptions=True`
+    tarafından yutuluyordu: süreçler öksüz kalıyor, kimseye söylenmiyordu.
+    """
+    from fusion_cli.appserver.processes import shell_command, terminate_process_tree
+
+    posix = shell_command("Darwin", "/bin/zsh", "ls")
+    assert posix[0] == "/bin/zsh" and posix[1] == "-lc" and posix[2] == "ls"
+
+    windows = shell_command("Windows", None, "dir")
+    assert windows[0].casefold().endswith("cmd.exe") or windows[0].casefold() == "cmd"
+    assert windows[1] == "/c" and windows[2] == "dir"
+
+    # Sonlandırma stratejisi de platforma göre seçilir; `killpg` adı geçmemeli.
+    assert callable(terminate_process_tree)

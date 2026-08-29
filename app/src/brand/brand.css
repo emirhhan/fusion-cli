@@ -1,0 +1,26 @@
+/* Marka işaretinin renk sözleşmesi.
+
+   İşaret her iki temada da KENDİ kimliğini korur: disk Obsidian, mürekkep Soft
+   White, dilim Signal Green. Tema değiştiğinde logo renk değiştirmez — marka
+   işareti temanın değil markanın malıdır. Değişen tek şey, koyu zeminde diskin
+   zeminden ayrılabilmesi için eklenen ince çerçevedir. */
+.fusion-logo {
+  /* İşaret negatif alanla çalışır: "F" ve kanallar ZEMİNİN rengidir. Bu yüzden
+     mürekkep temaya göre döner — açık zeminde Obsidian, koyu zeminde Soft White.
+     Signal Green her iki temada da aynı kalır: markanın sabiti odur. */
+  --logo-ink: var(--brand-obsidian);
+  --logo-signal: var(--brand-signal);
+  display: block;
+  flex: 0 0 auto;
+}
+
+:root[data-theme="dark"] .fusion-logo {
+  --logo-ink: var(--brand-soft-white);
+}
+
+/* Sözcük markası: işaretin yanındaki "Fusion". */
+.fusion-wordmark {
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}

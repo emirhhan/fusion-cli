@@ -10,6 +10,7 @@ interface ControlState {
   izin: { mod: string; kokle_sinirli: boolean };
   mcp: { ad: string; komut: string }[];
   saglayicilar: ProviderRow[];
+  sir_deposu_hatasi?: string | null;
   sir_deposu_hazir: boolean;
   gateway: { durum: string; adres: string; pid?: number };
 }
@@ -92,7 +93,10 @@ export function ControlPanel({ client, onClose }: { client: ProtocolClient; onCl
         </section>
 
         <section className="control-panel__section control-panel__section--wide">
-          <div className="control-panel__section-heading"><div><span>Kimlik bilgileri</span><h3>Sağlayıcılar</h3><p>Anahtarlar sistem anahtarlığında şifrelenir; değerleri arayüze geri okunmaz.</p></div><i data-online={state.sir_deposu_hazir}>{state.sir_deposu_hazir ? "Anahtarlık hazır" : "Anahtarlık yok"}</i></div>
+          <div className="control-panel__section-heading"><div><span>Kimlik bilgileri</span><h3>Sağlayıcılar</h3><p>Anahtarlar sistem anahtarlığında şifrelenir; değerleri arayüze geri okunmaz.</p></div><i data-online={state.sir_deposu_hazir && !state.sir_deposu_hatasi}>{state.sir_deposu_hatasi ? "Anahtarlık okunamadı" : state.sir_deposu_hazir ? "Anahtarlık hazır" : "Anahtarlık yok"}</i></div>
+          {state.sir_deposu_hatasi && (
+            <p className="control-panel__warning" role="status">{state.sir_deposu_hatasi}</p>
+          )}
           <div className="control-panel__providers">
             {state.saglayicilar.map((provider) => (
               <div className="control-panel__provider" key={provider.id}>
