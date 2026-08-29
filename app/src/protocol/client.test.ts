@@ -68,7 +68,9 @@ describe("ProtocolClient", () => {
 
   it("eşleşmeyen sonuç kimliği yok sayılır", () => {
     const t = sahteTasima();
-    const c = new ProtocolClient(t.gonder, t.dinle);
+    // İstemci kurulur ve dinlemeye başlar; bu testte örneğe doğrudan
+    // erişilmez, sınanan şey gelen satırın istisna fırlatmadan yutulmasıdır.
+    new ProtocolClient(t.gonder, t.dinle);
 
     expect(() => t.al(JSON.stringify({ tip: "sonuc", id: "yok", veri: {} }))).not.toThrow();
   });
