@@ -85,18 +85,41 @@ Intel hedefli Python ve Rust zinciri kurulu değil. Paket yalnız Apple Silicon
 Intel bir Mac'te ya da CI'daki x86_64 işinde derlenmesi gerekir; CI tanımı
 `9b15b5a` ile eklenmişti.
 
-## Yapılmayanlar (planda açık bırakıldı)
+## Sonradan kapatılan üç doğrulama
 
-Bunlar sessizce atlanmadı; yapılmadıkları için işaretlenmedi:
+- **Çevrimdışı açılış — kapandı.** `sandbox-exec` ile ağ TAMAMEN reddedilerek
+  paketli çalışma zamanı çalıştırıldı: `runtime-health --json` exit 0 döndü ve
+  tam protokol duman testi geçti. Artık sözleşme iddiası değil, ölçüm.
+- **Onarım — kapandı.** Paketli uygulamanın duman testine üçüncü aşama eklendi:
+  kurulu çalışma zamanının giriş noktası bozuluyor, uygulama yeniden açılıyor ve
+  ikili BİREBİR eski hâline dönmüş olarak doğrulanıyor (`smoke_app_bundle.py`).
+- **Ders akışı — kapandı (protokol düzeyinde).** Paketli ikilinin duman testi
+  artık `ders.listele` ve `ders.getir`'i de çalıştırıyor ve hiçbir adımın
+  yürütülebilir komut taşımadığını doğruluyor. Arayüzde tıklayarak denemek
+  kullanıcıya kalıyor; iddia edilmiyor.
 
-- Ağı fiilen kapatarak çevrimdışı açılış denemesi.
-- Bozuk çalışma zamanını onarma/geri alma senaryosunun paketli uygulamada tekrar
-  koşturulması (A/10'da bir kez geçmişti, bu teslimatta tekrarlanmadı).
-- Temiz HOME'daki paketli uygulamada bir ders adımının elle uçtan uca denenmesi.
-  Paket smoke'u geçti, ders akışı bileşen ve görsel testleriyle doğrulandı.
+## Kapatılan çekirdek/CLI borçları
+
+- **`make install` extras tutarsızlığı.** Paketleme hedefleri kendi pip satırlarını
+  yazıyordu; ortamlar sessizce ayrışıyordu. Tek `EXTRAS` değişkeninde toplandı ve
+  CI'daki satırla birebir aynı hâle geldi.
+- **`fusion stats` gereksiz gömme yüklemesi.** Tablo gömme kullanmadığı hâlde tam
+  bellek kurulumundan geçiyordu; NIM sağlayıcısında bu, `build_embedding_function`
+  içindeki yoklama isteği yüzünden GERÇEK bir ağ çağrısı ve kota tüketimiydi.
+  Artık yalnız performans koleksiyonu açılıyor.
+- **Isıtmanın web oturumunu atlaması.** `build_provider` çağrılarının onunda dokuzu
+  web oturum kaydını geçiriyordu, ısıtma geçirmiyordu: agent modeli web oturumuysa
+  ısıtma var olmayan bir uca gidiyor, hata yutuluyor ve ısıtma hiç olmuyordu.
+- **Paralel süreçlerde kilit beklemesi.** İki Fusion süreci aynı SQLite dosyasını
+  açtığında ikincisi kilidi sınırsız bekliyordu. Açılış artık 5 sn ile sınırlı;
+  aşılırsa sebep söylenip belleksiz devam ediliyor — bellek zaten bir iyileştirme.
+- **`cryptography` 45 → 50.** Üst sınır `<46`'dan `<51`'e taşındı; tam paket ve
+  anahtar/sır testleriyle doğrulandı.
 
 ## Kalan açık maddeler
 
+- Intel (x86_64) paketi. Workflow `workflow_dispatch` ile elle çalıştırılabilir
+  hâle getirildi; bu makinede Intel zinciri olmadığı için tek yol CI.
 - `healthy_version`, eski kurulu sürümlerin giriş noktası adını GÜNCEL manifestten
   okuyor (eski manifestler saklanmıyor). Tek-ikili modelde sorun değil; giriş
   noktası adı sürümler arası değişirse rollback kırılır.
