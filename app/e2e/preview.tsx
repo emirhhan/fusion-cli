@@ -23,6 +23,7 @@ import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
 import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 import { ControlPanel } from "../src/control/ControlPanel";
+import { Lessons } from "../src/lessons/Lessons";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 
 const params = new URLSearchParams(location.search);
@@ -51,6 +52,21 @@ const processController = {
 
 const workspaceClient = {
   request: async (name: string, data: Record<string, unknown>) => {
+    if (name === "ders.listele") return { ok: true, dersler: [
+      { id: "ilk-proje", baslik: "İlk proje", ozet: "Boş bir klasörden gerçek bir projeye ilk adımı at.", adim_sayisi: 2 },
+      { id: "basit-oyun-veya-site", baslik: "Basit oyun veya web sitesi", ozet: "Tek dosyalık küçük bir oyun ya da sayfa üret ve sonucu izle.", adim_sayisi: 2 },
+      { id: "varlik-ekleme-onizleme", baslik: "Asset ekleme ve önizleme", ozet: "Bir görsel veya ikon ekle ve sonucu önizlemede gör.", adim_sayisi: 2 },
+      { id: "model-ve-dusunme-duzeyi", baslik: "Model ve düşünme düzeyi", ozet: "Hangi modelin, hakemin ve düşünme düzeyinin kullanıldığını gör.", adim_sayisi: 2 },
+      { id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Küçük zararsız bir değişiklik yap, sonra geri al.", adim_sayisi: 3 },
+      { id: "gecmis-surdurme", baslik: "Geçmiş sürdürme", ozet: "Önceki bir oturumu bul ve kaldığın yerden devam et.", adim_sayisi: 2 },
+      { id: "beceri-ve-ajan-kullanma", baslik: "Beceri ve ajan kullanma", ozet: "Katalogdaki bir beceriyi veya ajanı gör ve dene.", adim_sayisi: 2 },
+      { id: "test-paketleme-paylasma", baslik: "Test etme, paketleme ve paylaşma", ozet: "Testleri çalıştır, paketleme adımlarını öğren ve paylaşmaya hazırlan.", adim_sayisi: 2 },
+    ] };
+    if (name === "ders.getir") return { ok: true, id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Küçük zararsız bir değişiklik yap, sonra geri al.", adimlar: [
+      { id: "onay-modu", baslik: "Onay modunu tanı", aciklama: "Kontrol panelinden mevcut izin/onay modunu gör.", eylem: { tur: "sekme", hedef: "kontrol" } },
+      { id: "degisiklik-yap", baslik: "Küçük bir değişiklik yap", aciklama: "Zararsız, geri alınabilir küçük bir dosya değişikliği iste.", eylem: { tur: "composer", gorev: "Proje klasörüne test.txt adında zararsız, boş bir dosya ekle." } },
+      { id: "geri-al", baslik: "Değişikliği geri al", aciklama: "Proje sekmesindeki değişiklikler listesinden son adımı geri al.", eylem: { tur: "sekme", hedef: "proje" } },
+    ] };
     if (name === "proje.durum") return { ok: true, kok: "/Projects/fusion-cli", git: true, okunabilir: true, yazilabilir: true };
     if (name === "proje.listele") {
       if (data.yol === "assets") return { ok: true, girdiler: [{ ad: "fusion-preview.svg", yol: "assets/fusion-preview.svg", tur: "dosya", boyut: 205, degistirilme: 1 }], next_cursor: null, has_more: false };
@@ -154,6 +170,7 @@ function Preview() {
   const capabilities = state === "capabilities";
   const control = state === "control";
   const onboarding = state === "onboarding";
+  const lessons = state === "lessons" || state === "lessons-step";
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
   if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
     runtime={{ status: "ready", version: "0.3.0a1" }}
@@ -163,11 +180,11 @@ function Preview() {
   return (
     <>
       <Shell
-        composer={capabilities || control ? undefined : <Composer onSend={() => undefined} />}
-        content={capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
-        header={<AppHeader inspectorOpen={!capabilities && !control && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
-        inspector={capabilities || control ? undefined : inspector}
-        inspectorOpen={!capabilities && !control && inspectorOpen}
+        composer={capabilities || control || lessons ? undefined : <Composer onSend={() => undefined} />}
+        content={lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
+        header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control || lessons ? undefined : inspector}
+        inspectorOpen={!capabilities && !control && !lessons && inspectorOpen}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
