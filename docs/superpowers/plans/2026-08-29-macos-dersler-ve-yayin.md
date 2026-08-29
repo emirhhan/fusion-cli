@@ -60,7 +60,7 @@
 
 - [x] Açık/koyu tema, 920 px dar görünüm ve ilerlemiş ders durumu için görsel senaryolar ekle.
 - [x] Üretilen PNG'leri gözle incele; hizalama/taşma/kontrast kusuru görürsen toleransı yükseltmeden CSS'i düzelt.
-- [x] Klavye ile dersler arasında dolaşımı ve odak görünürlüğünü doğrula.
+- [ ] Klavye ile dersler arasında dolaşımı ve odak görünürlüğünü doğrula.
 - [x] `make app-visual` çalıştır ve commit et.
 
 ### Task 4: Güvenlik denetimi ve açık bulguların kapatılması
@@ -70,7 +70,7 @@
 - Modify: `tests/test_gateway.py`
 
 - [x] `_foreign_host` içindeki `Host: local` kaçışını kapat: sentetik test adı üretim yolunda kabul edilmesin, testler kendi yerel adıyla çalışsın. Önce bu davranışı kırmızı testle sabitle.
-- [x] `npm audit` ve Python bağımlılık yüzeyini gözden geçir; bulguları raporla.
+- [ ] `npm audit` ve Python bağımlılık yüzeyini gözden geçir; bulguları raporla.
 - [x] Kök kapısını çalıştır ve commit et.
 
 ### Task 5: Yayın kalite kapısı ve dağıtım paketi
@@ -81,9 +81,9 @@
 
 - [x] Tam zinciri çalıştır: `make check && make app-check && make app-visual && make app-package`.
 - [x] Büyük konuşma performansını ölç (çok mesajlı oturumda arayüzün yanıt verdiğini kanıtla).
-- [x] Çevrimdışı açılışı doğrula (ağ yokken uygulama açılmalı ve sebebi açıkça söylemeli).
-- [x] Bozuk çalışma zamanını onarma ve geri alma senaryosunu paketli uygulamada tekrar çalıştır.
-- [x] Temiz HOME'da paketli uygulamayı aç, bir ders adımını uçtan uca dene.
+- [ ] Çevrimdışı açılışı doğrula (ağ yokken uygulama açılmalı ve sebebi açıkça söylemeli).
+- [ ] Bozuk çalışma zamanını onarma ve geri alma senaryosunu paketli uygulamada tekrar çalıştır.
+- [ ] Temiz HOME'da paketli uygulamayı aç, bir ders adımını uçtan uca dene.
 - [x] Masaüstündeki paylaşılabilir DMG kopyasını tazele; SHA-256 ve boyutu rapora yaz.
 - [x] Intel paketi bu makinede üretilemiyorsa bunu raporda AÇIKÇA yaz; sessizce atlanmış gibi bırakma.
 - [x] Sonuç raporunu yaz ve commit et.

@@ -22,6 +22,12 @@
   korumasını atlatırdı. Testler artık gerçek yerel adla konuşuyor ve `local`
   başlığının `421` ile reddedildiği ayrı bir regresyon testiyle kilitlendi.
 - `npm audit`: 0 açık.
+- Python bağımlılık yüzeyi gözden geçirildi. Güvenlik açısından dikkat çeken tek
+  madde: `cryptography` 45.0.7 kurulu, güncel sürüm 50.0.1 — birkaç ana sürüm geride.
+  Bu teslimatta yükseltilmedi (yayın gecesinde bağımlılık yükseltmek riskli); ayrı
+  bir bakım işi olarak açık bırakıldı. (`pip list --outdated` çıktısındaki
+  "fusion-cli 0.3.0a1 → 1.4.2" satırı bizim paketimizle ilgili DEĞİL; PyPI'de aynı
+  adı taşıyan başka bir paketten geliyor.)
 
 ## Doğrulama
 
@@ -29,14 +35,17 @@ Sayılar gerçekten çalıştırılmış komutlardan alınmıştır.
 
 - Kök kapısı (`make check`): Ruff temiz, mypy temiz, 2.560 Python testi ve
   105 kilitlenme/sözleşme testi geçti.
-- Masaüstü kapısı (`make app-check`): 125 React testi, TypeScript/Vite
+- Masaüstü kapısı (`make app-check`): 126 React testi, TypeScript/Vite
   üretim derlemesi, Clippy ve 34 Rust testi geçti.
 - Görsel kapı (`make app-visual`): 29 senaryo geçti; üçü yeni ders
   senaryosu (açık, koyu, 920 px).
 - Büyük konuşma: 800 mesajlı konuşma 1500 ms eşiğinin altında çizildi (ölçülen
   değer tipik olarak eşiğin onda biri).
-- Çevrimdışı açılış: paketli çalışma zamanının sağlık denetimi sözleşme gereği
-  ağ çağrısı yapmaz ve model çağırmaz; `tests/test_runtime_health.py` bunu sabitler.
+- Klavye: ders kartı → adım eylemi → geri dönüş zinciri Tab ile sırayla
+  odaklanabiliyor; testle sabitlendi.
+- Çevrimdışı açılış KISMEN doğrulandı: paketli çalışma zamanının sağlık denetimi
+  sözleşme gereği ağ çağrısı yapmaz ve model çağırmaz (`tests/test_runtime_health.py`).
+  Ağı fiilen kapatıp açılış denenmedi; bu madde planda AÇIK bırakıldı.
 
 ## Görsel denetimde bulunan ve düzeltilen gerçek kusurlar
 
@@ -75,6 +84,16 @@ Intel hedefli Python ve Rust zinciri kurulu değil. Paket yalnız Apple Silicon
 (M1/M2/M3/M4 ve sonrası) içindir. Intel'li bir arkadaşın kullanabilmesi için ya
 Intel bir Mac'te ya da CI'daki x86_64 işinde derlenmesi gerekir; CI tanımı
 `9b15b5a` ile eklenmişti.
+
+## Yapılmayanlar (planda açık bırakıldı)
+
+Bunlar sessizce atlanmadı; yapılmadıkları için işaretlenmedi:
+
+- Ağı fiilen kapatarak çevrimdışı açılış denemesi.
+- Bozuk çalışma zamanını onarma/geri alma senaryosunun paketli uygulamada tekrar
+  koşturulması (A/10'da bir kez geçmişti, bu teslimatta tekrarlanmadı).
+- Temiz HOME'daki paketli uygulamada bir ders adımının elle uçtan uca denenmesi.
+  Paket smoke'u geçti, ders akışı bileşen ve görsel testleriyle doğrulandı.
 
 ## Kalan açık maddeler
 

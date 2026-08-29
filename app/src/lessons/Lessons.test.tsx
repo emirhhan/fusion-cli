@@ -89,3 +89,24 @@ describe("Lessons", () => {
     expect(await screen.findByText("İlk proje")).toBeTruthy();
   });
 });
+
+describe("Lessons — klavye", () => {
+  it("ders kartları ve adım eylemleri Tab ile sırayla odaklanabilir", async () => {
+    render(<Lessons client={client()} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} />);
+
+    const first = await screen.findByRole("button", { name: /İlk proje/ });
+    first.focus();
+    expect(document.activeElement).toBe(first);
+
+    fireEvent.click(first);
+    const tryButton = await screen.findByRole("button", { name: "Bunu dene" });
+    tryButton.focus();
+    expect(document.activeElement).toBe(tryButton);
+
+    const back = screen.getByRole("button", { name: "← Dersler" });
+    back.focus();
+    expect(document.activeElement).toBe(back);
+    fireEvent.click(back);
+    expect(await screen.findByRole("button", { name: /Basit oyun/ })).toBeTruthy();
+  });
+});
