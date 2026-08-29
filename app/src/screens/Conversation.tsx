@@ -1,31 +1,53 @@
+import { Button } from "../ui/Button";
+import "./Conversation.css";
+
 export interface Mesaj {
-  rol: "kullanici" | "asistan" | "olay";
   metin: string;
+  rol: "kullanici" | "asistan" | "olay";
 }
 
-/**
- * Kullanıcı ve asistan mesajları SİMETRİK DEĞİLDİR.
- *
- * Ölçüldü: kullanıcı mesajı sağa hizalı kabarcık, asistan mesajı kabarcıksız
- * tam genişlikte metin. İki taraflı kabarcık düzeni referansın görünümünü bozar.
- */
+function AssistantMessage({ text }: { text: string }) {
+  const copy = () => {
+    void navigator.clipboard?.writeText(text);
+  };
+  return (
+    <article aria-label="Fusion yanıtı" className="conversation__article">
+      <div className="conversation__text">{text}</div>
+      <div className="conversation__actions">
+        <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
+      </div>
+    </article>
+  );
+}
+
 export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "24px 0" }}>
-      <div style={{ maxWidth: "var(--icerik-en-fazla)", margin: "0 auto", padding: "0 16px" }}>
-        {mesajlar.map((m, i) => (
-          <div key={i} style={{ marginBottom: 20, display: "flex", justifyContent: m.rol === "kullanici" ? "flex-end" : "flex-start" }}>
-            {m.rol === "kullanici" ? (
-              <div style={{ background: "var(--kullanici-balonu)", borderRadius: "var(--yaricap)", padding: "10px 16px", maxWidth: "82%" }}>
-                {m.metin}
+    <div className="conversation">
+      <div aria-live="polite" className="conversation__stream">
+        {mesajlar.map((message, index) => {
+          if (message.rol === "kullanici") {
+            return (
+              <div className="conversation__message conversation__message--user" key={index}>
+                <div className="conversation__bubble">{message.metin}</div>
               </div>
-            ) : m.rol === "olay" ? (
-              <div style={{ color: "var(--sonuk-metin)", fontSize: 13 }}>{m.metin}</div>
-            ) : (
-              <div style={{ width: "100%", lineHeight: 1.65 }}>{m.metin}</div>
-            )}
-          </div>
-        ))}
+            );
+          }
+          if (message.rol === "olay") {
+            return (
+              <div className="conversation__message conversation__message--event" key={index}>
+                <details className="conversation__event">
+                  <summary>{message.metin}</summary>
+                  <div className="conversation__event-detail">Çalışma ayrıntısı</div>
+                </details>
+              </div>
+            );
+          }
+          return (
+            <div className="conversation__message conversation__message--assistant" key={index}>
+              <AssistantMessage text={message.metin} />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

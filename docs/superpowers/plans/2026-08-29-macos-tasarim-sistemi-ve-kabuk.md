@@ -189,28 +189,28 @@ git commit -m "feat(ui): uygulama navigasyonunu tamamla"
 - Modify: `app/src/protocol/olayMetni.ts`
 - Modify: `app/src/protocol/olayMetni.test.ts`
 
-- [ ] **Step 1: Konuşma hiyerarşisi testlerini yaz**
+- [x] **Step 1: Konuşma hiyerarşisi testlerini yaz**
 
 Kullanıcı mesajının balon, asistanın düz makale, olayların açılabilir çalışma satırı olduğunu; kopyalama eylemini; uzun metin taşmasını ve güvenli boş durumu doğrula.
 
-- [ ] **Step 2: Composer davranış testlerini yaz**
+- [x] **Step 2: Composer davranış testlerini yaz**
 
 Enter gönderir, Shift+Enter yeni satır açar, boş metin gönderilmez, çalışan turda gönder düğmesi durdur eylemine dönüşür, `/` komut tetikleyicisi ve ek düğmesi klavyeyle erişilebilirdir.
 
-- [ ] **Step 3: Kırmızı testleri çalıştır**
+- [x] **Step 3: Kırmızı testleri çalıştır**
 
 Run: `cd app && npm test -- src/screens/Conversation.test.tsx src/screens/Composer.test.tsx`
 Expected: FAIL.
 
-- [ ] **Step 4: Figma konuşma yüzeyini uygula**
+- [x] **Step 4: Figma konuşma yüzeyini uygula**
 
 Konuşma sütunu en fazla 768px; kullanıcı balonu en fazla %82; Fusion mesajı balonsuz ve seçilebilir metindir. Olay özetleri sakin, tek satırlı başlıklar; hata/test kanıtı açık; ham ayrıntı `details/summary` ile açılır. Composer alt yüzeyde sticky konumlanır, metin alanı içeriğe göre kontrollü büyür.
 
-- [ ] **Step 5: Boş durumu ürün girişine dönüştür**
+- [x] **Step 5: Boş durumu ürün girişine dönüştür**
 
 Boş ekran tek büyük slogan yerine kısa başlık, görev girişi ve üç gerçekçi başlangıç önerisi gösterir; öneriler `onSelectPrompt` ile composer'a taşınır.
 
-- [ ] **Step 6: Test, build ve commit**
+- [x] **Step 6: Test, build ve commit**
 
 Run: `cd app && npm test -- src/screens/Conversation.test.tsx src/screens/Composer.test.tsx src/protocol/olayMetni.test.ts && npm run build`
 Expected: PASS.
