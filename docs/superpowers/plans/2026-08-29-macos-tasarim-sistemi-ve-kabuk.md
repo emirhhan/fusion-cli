@@ -109,29 +109,29 @@ git commit -m "feat(ui): erişilebilir kontrol ilkelleri ekle"
 - Create: `app/src/state/useLayout.ts`
 - Create: `app/src/state/useLayout.test.tsx`
 
-- [ ] **Step 1: Kabuk ve görünüm durumu testlerini yaz**
+- [x] **Step 1: Kabuk ve görünüm durumu testlerini yaz**
 
 Testler 281px sol panel tokenını, `navigation/main/complimentary` semantiğini, sol ve sağ panel aç/kapa eylemlerini, tercihin saklanmasını ve Escape ile küçük ekran örtü panelinin kapanmasını doğrular.
 
-- [ ] **Step 2: Kırmızı testi çalıştır**
+- [x] **Step 2: Kırmızı testi çalıştır**
 
 Run: `cd app && npm test -- src/screens/Shell.test.tsx src/state/useLayout.test.tsx`
 Expected: FAIL — yeni sözleşme uygulanmadı.
 
-- [ ] **Step 3: Kabuk sözleşmesini uygula**
+- [x] **Step 3: Kabuk sözleşmesini uygula**
 
 `Shell` şu slotları alır: `sidebar`, `header`, `content`, `composer`, `inspector`. Geniş görünümde 281px + akışkan ana alan + 320px denetçi; 1024–1199px arasında daraltılmış 68px sol şerit; 1024px altında sağ denetçi modal olmayan örtü panelidir. Panel düğmeleri `aria-expanded`/`aria-controls` taşır.
 
-- [ ] **Step 4: Görünüm durumunu kalıcılaştır**
+- [x] **Step 4: Görünüm durumunu kalıcılaştır**
 
 `useLayout` yalnız pencere görünümü tercihlerine sahip olur; Phase C oturum durumu burada tutulmaz. `localStorage` erişimi hata verse bile güvenli varsayılanlarla çalışır.
 
-- [ ] **Step 5: Test ve build**
+- [x] **Step 5: Test ve build**
 
 Run: `cd app && npm test -- src/screens/Shell.test.tsx src/state/useLayout.test.tsx && npm run build`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add app/src/screens/Shell.tsx app/src/screens/Shell.css app/src/screens/Shell.test.tsx app/src/state

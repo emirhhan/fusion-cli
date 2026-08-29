@@ -1,0 +1,109 @@
+.app-shell {
+  background: var(--surface-canvas);
+  display: grid;
+  grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) 0;
+  height: 100dvh;
+  overflow: hidden;
+  width: 100%;
+}
+
+.app-shell[data-inspector-open="true"] {
+  grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) var(--inspector-width);
+}
+
+.app-shell[data-sidebar-collapsed="true"] {
+  grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) 0;
+}
+
+.app-shell[data-sidebar-collapsed="true"][data-inspector-open="true"] {
+  grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) var(--inspector-width);
+}
+
+.app-shell__sidebar {
+  background: var(--surface-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  min-width: 0;
+  overflow: hidden auto;
+}
+
+.app-shell__workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell__header {
+  min-height: var(--header-height);
+  position: relative;
+  z-index: var(--z-header);
+}
+
+.app-shell__main {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.app-shell__composer {
+  background: var(--surface-canvas);
+}
+
+.app-shell__inspector {
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border-subtle);
+  min-width: 0;
+  overflow: hidden auto;
+  position: relative;
+  z-index: calc(var(--z-overlay) + 1);
+}
+
+.app-shell[data-inspector-open="false"] .app-shell__inspector {
+  display: none;
+}
+
+.app-shell__backdrop {
+  background: var(--surface-overlay);
+  border: 0;
+  display: none;
+  inset: 0;
+  padding: 0;
+  position: fixed;
+  z-index: var(--z-overlay);
+}
+
+@media (max-width: 1199px) {
+  .app-shell,
+  .app-shell[data-sidebar-collapsed="false"] {
+    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) 0;
+  }
+
+  .app-shell[data-inspector-open="true"],
+  .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
+    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) var(--inspector-width);
+  }
+}
+
+@media (max-width: 1023px) {
+  .app-shell,
+  .app-shell[data-inspector-open="true"],
+  .app-shell[data-sidebar-collapsed="false"],
+  .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
+    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr);
+  }
+
+  .app-shell__inspector {
+    bottom: 0;
+    box-shadow: var(--shadow-overlay);
+    max-width: calc(100vw - var(--sidebar-rail-width));
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: var(--inspector-width);
+  }
+
+  .app-shell__backdrop {
+    display: block;
+  }
+}

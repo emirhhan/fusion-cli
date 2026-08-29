@@ -67,8 +67,8 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
     : <EmptyState />;
   return (
     <Shell
-      kenar={<Sidebar etkin={null} onSec={() => undefined} onYeni={conversation.clear} oturumlar={[]} />}
-      icerik={
+      sidebar={<Sidebar etkin={null} onSec={() => undefined} onYeni={conversation.clear} oturumlar={[]} />}
+      content={
         <>
           {content}
           {conversation.question && <Approval onCevap={conversation.answer} soru={conversation.question.data} />}
