@@ -39,6 +39,7 @@ from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
 from .control import delete_secret, save_secret, snapshot
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
+from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_result
@@ -186,6 +187,10 @@ class AppSession:
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":
             return await self._stop_gateway()
+        if request.name == "ders.listele":
+            return list_lessons()
+        if request.name == "ders.getir":
+            return get_lesson(str(request.data.get("id", "")))
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
