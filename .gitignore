@@ -28,6 +28,9 @@ htmlcov/
 # İşletim sistemi
 .DS_Store
 
+# İzole geliştirme çalışma alanları
+.worktrees/
+
 # Agent koşularının ürettiği örnek siteler (depoya ait değil).
 voltiva-shop/
 
