@@ -130,7 +130,9 @@ def main() -> None:
     args = parser.parse_args()
 
     smoke(args.executable.resolve())
-    print("Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve önizleme protokolleri doğrulandı.")
+    print(
+        "Duman testi geçti: sağlık, proje, süreç, oturum, katalog, kontrol ve önizleme protokolleri doğrulandı."
+    )
 
 
 if __name__ == "__main__":

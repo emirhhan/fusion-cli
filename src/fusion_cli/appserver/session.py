@@ -181,9 +181,7 @@ class AppSession:
                 request.data.get("deger"),
             )
         if request.name == "kontrol.anahtar_sil":
-            return delete_secret(
-                self._secret_store, str(request.data.get("saglayici", ""))
-            )
+            return delete_secret(self._secret_store, str(request.data.get("saglayici", "")))
         if request.name == "kontrol.gateway_baslat":
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":

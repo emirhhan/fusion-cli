@@ -32,9 +32,7 @@ def _app(reply="Merhaba, ben mock model.", ok=True):
     )
 
 
-def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(
-    caplog, monkeypatch
-):
+def test_serve_0_0_0_0_guvenlik_uyarisi_verir_ve_calismaya_devam_eder(caplog, monkeypatch):
     from fusion_cli.gateway import server
 
     baslatildi = False

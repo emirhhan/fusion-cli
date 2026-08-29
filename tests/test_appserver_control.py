@@ -91,9 +91,7 @@ async def test_kontrol_anahtar_siler_ve_gateway_yasam_dongusunu_yonetir(tmp_path
     secrets.set("OPENROUTER_API_KEY", "secret")
     session._secret_store = secrets  # type: ignore[assignment]
 
-    deleted = await _request(
-        session, lines, "kontrol.anahtar_sil", {"saglayici": "openrouter"}
-    )
+    deleted = await _request(session, lines, "kontrol.anahtar_sil", {"saglayici": "openrouter"})
     # Gerçek gateway yerine kısa ömürlü, zararsız bir süreçle yaşam döngüsü kanıtlanır.
     session._gateway_command = "python3 -c 'import time; time.sleep(10)'"
     started = await _request(session, lines, "kontrol.gateway_baslat", {})
