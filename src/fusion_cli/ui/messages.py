@@ -219,6 +219,7 @@ RUN_EMPTY_TASK = "Görev metni boş olamaz."
 RUN_UNKNOWN_TASK_TYPE = "Bilinmeyen görev tipi: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_MODE = "Bilinmeyen onay modu: {given}. Geçerli olanlar: {valid}"
 RUN_UNKNOWN_FEEDBACK = "Bilinmeyen geri bildirim: {given}. Geçerli olanlar: {valid}"
+RUN_UNKNOWN_ENGINE = "Bilinmeyen motor: {given}. Geçerli olanlar: {valid}"
 
 
 # --- REPL ------------------------------------------------------------------ #
@@ -367,6 +368,10 @@ REPL_UNKNOWN_COMMAND = "bilinmeyen komut: /{name} — komut listesi için /help"
 APP_COMMAND_UNKNOWN = "Bilinmeyen komut."
 APP_COMMAND_FAILED = "Komut çalıştırılamadı."
 APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
+#: Terminal seçicisi gerektiren ama protokole köprülenmemiş komut (örn. `/resume<kaynak>`).
+APP_COMMAND_UNSUPPORTED_INTERACTIVE = (
+    "Bu komut uygulama protokolünde desteklenmiyor (terminal seçicisi gerektiriyor)."
+)
 
 #: Uygulama protokolü metinleri.
 APP_UNKNOWN_REQUEST = "Bilinmeyen istek: {name}"
@@ -375,6 +380,9 @@ APP_UNMATCHED_REPLY_ID = "eşleşmeyen cevap kimliği"
 APP_BACKGROUND_TASK_FAILED = "arka plan isteği başarısız"
 APP_TURN_CANCELLED = "Tur iptal edildi."
 APP_NO_RUNNING_TURN = "Çalışan tur yok."
+#: Bir olay JSON'a çevrilemediğinde (bkz. `serialize.py::_plain`) sessizce
+#: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.
+APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
 #: Bir süreç bir oturum, bir oturumda aynı anda bir tur — ikinci `tur.calistir`
 #: mevcut turu sessizce üzerine yazmak yerine reddedilir; kullanıcı önce
 #: `tur.kes` ile mevcut turu durdurmalı ya da bitmesini beklemeli.
