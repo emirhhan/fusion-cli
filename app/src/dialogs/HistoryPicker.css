@@ -23,11 +23,6 @@
   width: 100%;
 }
 
-.history-picker:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
-}
-
 .history-picker__header {
   align-items: flex-start;
   border-bottom: 1px solid var(--border-subtle);

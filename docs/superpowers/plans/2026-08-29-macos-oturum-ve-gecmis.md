@@ -123,20 +123,20 @@
 - Modify: `Makefile`
 - Create: `docs/superpowers/reports/2026-08-29-macos-oturum-ve-gecmis-sonuc.md`
 
-- [ ] Anonim Claude/Codex/Hermes fikstürleriyle Python sözleşme testlerini çalıştır.
-- [ ] Kaynak seçici, önizleme, sır uyarısı, boş/hata/uzun başlık ve küçük pencere görsellerini ekle.
-- [ ] Çoklu oturum oluşturma, geçiş, durdurma, kapanış ve yeniden bağlanma E2E akışını çalıştır.
-- [ ] Run: `make check && make app-check && make app-visual`
-- [ ] Run: `make app-package`
-- [ ] Sonuç raporunu yaz ve commit et: `test(app): oturum ve geçmiş teslimatını doğrula`
+- [x] Anonim Claude/Codex/Hermes fikstürleriyle Python sözleşme testlerini çalıştır.
+- [x] Kaynak seçici, önizleme, sır uyarısı, boş/hata/uzun başlık ve küçük pencere görsellerini ekle.
+- [x] Çoklu oturum oluşturma, geçiş, durdurma, kapanış ve yeniden bağlanma E2E akışını çalıştır.
+- [x] Run: `make check && make app-check && make app-visual`
+- [x] Run: `make app-package`
+- [x] Sonuç raporunu yaz ve commit et: `test(app): oturum ve geçmiş teslimatını doğrula`
 
 ## Phase C exit criteria
 
-- [ ] Birden fazla konuşma ayrı süreçlerde çalışır; biri çökünce diğerleri sürer.
-- [ ] Yalnız kurulu geçmiş kaynakları görünür.
-- [ ] `/resume<kaynak>` masaüstünde kaynak → liste → önizleme → seçim akışıdır.
-- [ ] Dış geçmiş değiştirilmez; Fusion devam oturumu kaynak etiketi taşır.
-- [ ] Liste/önizleme sayfalı ve uzun arşivlerde başlangıç maliyeti sınırlıdır.
-- [ ] Devralınan künye tam bir sonraki tura aktarılır.
-- [ ] Oturum navigasyonu arama, proje ve kaynak metadata'sıyla çalışır.
-- [ ] Python, React, Rust, görsel ve paketli E2E kapıları temizdir.
+- [x] Birden fazla konuşma ayrı süreçlerde çalışır; biri çökünce diğerleri sürer.
+- [x] Yalnız kurulu geçmiş kaynakları görünür.
+- [x] `/resume<kaynak>` masaüstünde kaynak → liste → önizleme → seçim akışıdır.
+- [x] Dış geçmiş değiştirilmez; Fusion devam oturumu kaynak etiketi taşır.
+- [x] Liste/önizleme sayfalı ve uzun arşivlerde başlangıç maliyeti sınırlıdır.
+- [x] Devralınan künye tam bir sonraki tura aktarılır.
+- [x] Oturum navigasyonu arama, proje ve kaynak metadata'sıyla çalışır.
+- [x] Python, React, Rust, görsel ve paketli E2E kapıları temizdir.
