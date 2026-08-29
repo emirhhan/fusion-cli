@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
 
 const sessions = [
-  { session_id: "1", title: "İlk iş", source: "claude" },
-  { session_id: "2", title: "İkinci iş", source: "codex" },
+  { session_id: "1", title: "İlk iş", source: "claude", project: "Şeker Oyunu" },
+  { session_id: "2", title: "İkinci iş", source: "codex", project: "Kurumsal Site" },
 ];
 
 afterEach(cleanup);
@@ -51,6 +51,35 @@ describe("Sidebar", () => {
     });
     expect(screen.queryByText("İlk iş")).toBeNull();
     expect(screen.getByText("İkinci iş")).toBeTruthy();
+  });
+
+  it("Türkçe proje adıyla arar", () => {
+    render(<Sidebar oturumlar={sessions} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: /ara/i }), {
+      target: { value: "şeker" },
+    });
+    expect(screen.getByText("İlk iş")).toBeTruthy();
+    expect(screen.queryByText("İkinci iş")).toBeNull();
+  });
+
+  it("sabit ve yakın projeleri kendi bölümlerinde güncellik sırasıyla gösterir", () => {
+    render(
+      <Sidebar
+        etkin={null}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[]}
+        projeler={[
+          { root: "/z", name: "Dün", pinned: false, updated_at: 10 },
+          { root: "/a", name: "Sabit", pinned: true, updated_at: 1 },
+          { root: "/b", name: "Bugün", pinned: false, updated_at: 20 },
+        ]}
+      />,
+    );
+    expect(screen.getByText("Sabit projeler")).toBeTruthy();
+    expect(screen.getByText("Yakın projeler")).toBeTruthy();
+    const projectButtons = screen.getAllByRole("button", { name: /projesini aç/i });
+    expect(projectButtons.map((button) => button.textContent)).toEqual(["Sabit", "Bugün", "Dün"]);
   });
 
   it("yalnız keşfedilmiş geçmiş kaynaklarını önerir", () => {

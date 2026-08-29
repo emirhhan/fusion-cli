@@ -5,6 +5,7 @@ import { ProtocolClient } from "../protocol/client";
 import { olayMetni } from "../protocol/olayMetni";
 import type { Soru } from "../protocol/types";
 import { initialSessionState, sessionReducer } from "./store";
+import { loadSessionView, saveSessionView } from "./persistence";
 import type {
   BackendSessionSnapshot,
   NewSession,
@@ -37,8 +38,16 @@ function nextSessionId(): string {
   return `oturum-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function projectName(root: string): string {
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? root;
+}
+
 export function useSessions(transport: SessionTransport = tauriSessionTransport) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState);
+  const persistedView = useRef(
+    typeof window === "undefined" ? null : loadSessionView(window.localStorage),
+  );
   const clients = useRef(new Map<string, ProtocolClient>());
   const lineHandlers = useRef(new Map<string, (line: string) => void>());
   const requestedClose = useRef(new Set<string>());
@@ -184,7 +193,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           return;
         }
         [unlistenLine, unlistenClosed] = listeners;
-        await create({ id: DEFAULT_SESSION_ID });
+        const previousActive = persistedView.current?.sessions.find(
+          (session) => session.id === persistedView.current?.activeId,
+        );
+        await create({ id: DEFAULT_SESSION_ID, root: previousActive?.root });
       } catch (reason) {
         if (active) dispatch({ type: "connectionFailed", reason: String(reason) });
       }
@@ -202,6 +214,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       requestedClose.current.clear();
     };
   }, [create, transport]);
+
+  useEffect(() => {
+    if (state.order.length === 0 || typeof window === "undefined") return;
+    saveSessionView(window.localStorage, state);
+  }, [state]);
 
   const send = useCallback(
     (id: string, task: string) => {
@@ -275,6 +292,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     () => state.order.map((id) => state.sessions[id]).filter(Boolean),
     [state.order, state.sessions],
   );
+  const recentProjects = useMemo(() => {
+    const roots = new Map<string, { name: string; root: string; updatedAt: number }>();
+    for (const session of persistedView.current?.sessions ?? []) {
+      const name = projectName(session.root);
+      roots.set(session.root, { name, root: session.root, updatedAt: session.updatedAt });
+    }
+    const now = Date.now();
+    sessions.forEach((session) => {
+      const name = projectName(session.root);
+      roots.set(session.root, { name, root: session.root, updatedAt: now });
+    });
+    return [...roots.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+  }, [sessions]);
 
   return {
     activeSession,
@@ -284,6 +314,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     create,
     select: (id: string) => dispatch({ type: "selected", id }),
     resume,
+    recentProjects,
     send,
     sessions,
     state,

@@ -3,9 +3,17 @@ import { Icon, type IconName } from "../ui/Icon";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
+  project?: string;
   session_id: string;
   source: string;
   title: string;
+}
+
+export interface ProjeSatiri {
+  name: string;
+  pinned: boolean;
+  root: string;
+  updated_at: number;
 }
 
 type HistorySource = "fusion" | "claude" | "codex" | "hermes";
@@ -18,6 +26,7 @@ interface SidebarProps {
   onSec: (id: string) => void;
   onYeni: () => void;
   oturumlar: OturumSatiri[];
+  projeler?: ProjeSatiri[];
 }
 
 interface NavItemProps {
@@ -49,7 +58,9 @@ function SessionButton({ session, active, onSelect }: {
       type="button"
     >
       <span className="sidebar__session-title">{session.title}</span>
-      <span className="sidebar__session-source">[{session.source}]</span>
+      <span className="sidebar__session-source">
+        [{session.source}]{session.project ? ` · ${session.project}` : ""}
+      </span>
     </button>
   );
 }
@@ -62,15 +73,50 @@ export function Sidebar({
   onSec,
   onYeni,
   oturumlar,
+  projeler = [],
 }: SidebarProps) {
   const [query, setQuery] = useState("");
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     if (!normalized) return oturumlar;
     return oturumlar.filter((session) =>
-      `${session.title} ${session.source}`.toLocaleLowerCase("tr").includes(normalized),
+      `${session.title} ${session.source} ${session.project ?? ""}`
+        .toLocaleLowerCase("tr")
+        .includes(normalized),
     );
   }, [oturumlar, query]);
+  const filteredProjects = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase("tr");
+    const matches = normalized
+      ? projeler.filter((project) =>
+          `${project.name} ${project.root}`.toLocaleLowerCase("tr").includes(normalized),
+        )
+      : projeler;
+    return [...matches].sort((left, right) => {
+      if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
+      return right.updated_at - left.updated_at;
+    });
+  }, [projeler, query]);
+  const pinnedProjects = filteredProjects.filter((project) => project.pinned);
+  const recentProjects = filteredProjects.filter((project) => !project.pinned);
+
+  const projectSection = (title: string, projects: ProjeSatiri[]) => projects.length > 0 && (
+    <section aria-label={title} className="sidebar__section">
+      <h2 className="sidebar__section-title">{title}</h2>
+      {projects.map((project) => (
+        <button
+          aria-label={`${project.name} projesini aç`}
+          className="sidebar__project"
+          key={project.root}
+          onClick={() => onNavigate(`project:${project.root}`)}
+          type="button"
+        >
+          <Icon name="files" size={17} />
+          <span className="sidebar__label">{project.name}</span>
+        </button>
+      ))}
+    </section>
+  );
 
   return (
     <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed}>
@@ -94,6 +140,8 @@ export function Sidebar({
       </div>
 
       <div className="sidebar__scroll">
+        {projectSection("Sabit projeler", pinnedProjects)}
+        {projectSection("Yakın projeler", recentProjects)}
         {filteredSessions.length > 0 && (
           <section aria-labelledby="recent-sessions-title" className="sidebar__section">
             <h2 id="recent-sessions-title" className="sidebar__section-title">Sohbetler</h2>

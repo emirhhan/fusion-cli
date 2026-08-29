@@ -108,12 +108,12 @@
 - Create: `app/src/sessions/persistence.ts`
 - Create: `app/src/sessions/persistence.test.ts`
 
-- [ ] Başlık, proje ve kaynak üzerinden Türkçe-duyarlı arama testlerini yaz.
-- [ ] Sabit/yakın proje ve yakın konuşma bölümlerinin sıralama testlerini yaz.
-- [ ] Yalnız güvenli oturum metadata'sını atomik/versiyonlu sakla; mesaj ve sır içeriğini localStorage'a yazma.
-- [ ] Bozuk/eski görünüm kaydında güvenli geri dönüşü test et.
-- [ ] Run: `cd app && npm test -- src/screens/Sidebar.test.tsx src/sessions && npm run build`
-- [ ] Commit: `feat(app): oturum navigasyonunu kalıcılaştır`
+- [x] Başlık, proje ve kaynak üzerinden Türkçe-duyarlı arama testlerini yaz.
+- [x] Sabit/yakın proje ve yakın konuşma bölümlerinin sıralama testlerini yaz.
+- [x] Yalnız güvenli oturum metadata'sını atomik/versiyonlu sakla; mesaj ve sır içeriğini localStorage'a yazma.
+- [x] Bozuk/eski görünüm kaydında güvenli geri dönüşü test et.
+- [x] Run: `cd app && npm test -- src/screens/Sidebar.test.tsx src/sessions && npm run build`
+- [x] Commit: `feat(app): oturum navigasyonunu kalıcılaştır`
 
 ### Task 7: Phase C sözleşme, görsel ve paketli E2E kapısı
 

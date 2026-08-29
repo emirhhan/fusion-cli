@@ -90,6 +90,11 @@ function useAppTheme() {
   return { changeTheme, themePreference };
 }
 
+function projectName(root: string): string {
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? root;
+}
+
 export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const conversation = useConversation(istemci);
   const layout = useLayout();
@@ -240,10 +245,13 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
           onNavigate={(destination) => {
-            if (!destination.startsWith("resume:")) return;
-            const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
-            setHistoryOpen(true);
-            void history.openSource(source);
+            if (destination.startsWith("resume:")) {
+              const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
+              setHistoryOpen(true);
+              void history.openSource(source);
+            } else if (destination.startsWith("project:")) {
+              void controller.create({ root: destination.slice("project:".length) });
+            }
           }}
           onSec={controller.select}
           onYeni={() => void controller.create()}
@@ -251,6 +259,13 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
             session_id: session.id,
             source: session.source,
             title: session.title,
+            project: projectName(session.root),
+          }))}
+          projeler={controller.recentProjects.map((project) => ({
+            name: project.name,
+            pinned: false,
+            root: project.root,
+            updated_at: project.updatedAt,
           }))}
         />
       }

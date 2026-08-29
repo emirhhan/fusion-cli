@@ -1,7 +1,9 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
 import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
+
+afterEach(() => localStorage.clear());
 
 function fakeTransport() {
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;

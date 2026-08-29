@@ -73,3 +73,9 @@ export interface SessionState {
   sessions: Record<string, SessionModel>;
   connectionError: string | null;
 }
+
+export interface RecentProject {
+  name: string;
+  root: string;
+  updatedAt: number;
+}
