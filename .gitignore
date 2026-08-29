@@ -40,5 +40,8 @@ fusion-repair-report-*.txt
 .eval-artifacts/
 
 # Masaüstü çalışma zamanı paketi — deterministik derleme ürünü, commit edilmez
-app/src-tauri/resources/runtime/
+app/src-tauri/resources/runtime/runtime-manifest.json
+app/src-tauri/resources/runtime/fusion-runtime.tar.gz
+app/src-tauri/resources/runtime/unpacked/
+desktop_build/runtime/work/
 *.tar.gz

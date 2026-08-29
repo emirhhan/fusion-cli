@@ -1,8 +1,8 @@
 [package]
-name = "app"
+name = "fusion-desktop"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Fusion yapay zekâ çalışma alanı"
+authors = ["Fusion"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,4 +29,3 @@ sha2 = "0.10"
 tar = "0.4"
 tempfile = "3"
 thiserror = "2"
-

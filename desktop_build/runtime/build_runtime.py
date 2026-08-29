@@ -126,12 +126,17 @@ def _run_pyinstaller(dist_path: Path, build_path: Path) -> None:
 def build_runtime(output_dir: Path, work_dir: Path) -> tuple[Path, Path]:
     """Bağımsız çalışma zamanını derler, deterministik arşivler ve manifesti yazar.
 
-    Her çağrı önce YALNIZCA kendisine ait `output_dir` ve `work_dir`
-    dizinlerini temizler — depo kökünde başka hiçbir şeye dokunmaz. Smoke
-    testinin doğrudan çalıştırabilmesi için `output_dir/unpacked` altına
-    paketin açık kopyası da bırakılır.
+    Her çağrı `output_dir` içindeki yalnızca kendi ürettiği üç yolu ve kendisine
+    ait `work_dir` dizinini temizler. Böylece çıktı klasöründeki izlenen README
+    gibi depo dosyaları korunur. Smoke testinin doğrudan çalıştırabilmesi için
+    `output_dir/unpacked` altına paketin açık kopyası da bırakılır.
     """
-    shutil.rmtree(output_dir, ignore_errors=True)
+    for generated in ("runtime-manifest.json", "fusion-runtime.tar.gz", "unpacked"):
+        path = output_dir / generated
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink(missing_ok=True)
     shutil.rmtree(work_dir, ignore_errors=True)
     output_dir.mkdir(parents=True, exist_ok=True)
     work_dir.mkdir(parents=True, exist_ok=True)

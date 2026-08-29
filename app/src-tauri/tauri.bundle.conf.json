@@ -1,0 +1,13 @@
+{
+  "bundle": {
+    "targets": ["app", "dmg"],
+    "resources": {
+      "resources/runtime/runtime-manifest.json": "runtime/runtime-manifest.json",
+      "resources/runtime/fusion-runtime.tar.gz": "runtime/fusion-runtime.tar.gz"
+    },
+    "macOS": {
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": null
+    }
+  }
+}

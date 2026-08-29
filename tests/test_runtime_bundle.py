@@ -3,7 +3,13 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from desktop_build.runtime.build_runtime import build_manifest, macos_target, write_archive
+from desktop_build.runtime import build_runtime as runtime_builder
+from desktop_build.runtime.build_runtime import (
+    build_manifest,
+    build_runtime,
+    macos_target,
+    write_archive,
+)
 
 
 def test_macos_target_mimariyi_tauri_adina_cevirir():
@@ -56,3 +62,23 @@ def test_manifest_symlink_girdisini_hedefiyle_isaretler(tmp_path: Path):
     entry = next(item for item in manifest["files"] if item["path"] == "libfusion.so")
     assert entry["kind"] == "symlink"
     assert entry["target"] == "libfusion.dylib"
+
+
+def test_runtime_derlemesi_izlenen_readme_dosyasini_korur(tmp_path: Path, monkeypatch):
+    output = tmp_path / "output"
+    output.mkdir()
+    readme = output / "README.md"
+    readme.write_text("Bu dosya depoya aittir.\n", encoding="utf-8")
+
+    def fake_pyinstaller(dist_path: Path, _build_path: Path) -> None:
+        bundle = dist_path / "fusion-runtime"
+        bundle.mkdir(parents=True)
+        executable = bundle / "fusion"
+        executable.write_bytes(b"runtime")
+        executable.chmod(0o755)
+
+    monkeypatch.setattr(runtime_builder, "_run_pyinstaller", fake_pyinstaller)
+
+    build_runtime(output, tmp_path / "work")
+
+    assert readme.read_text(encoding="utf-8") == "Bu dosya depoya aittir.\n"
