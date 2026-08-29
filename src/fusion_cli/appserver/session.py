@@ -34,6 +34,7 @@ from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .commands import command_choices, list_commands, run_command
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .protocol import Reply, Request, encode_result
+from .workspace import list_entries, read_entry, workspace_status
 
 
 def _build_health(config: Config) -> HealthRegistry:
@@ -96,6 +97,12 @@ class AppSession:
                 self._state.pending_digest = prepared.digest
                 return prepared.payload
             return prepared
+        if request.name == "proje.durum":
+            return workspace_status(self._state.root)
+        if request.name == "proje.listele":
+            return list_entries(self._state.root, request.data)
+        if request.name == "proje.oku":
+            return read_entry(self._state.root, request.data)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
