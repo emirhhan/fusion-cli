@@ -153,6 +153,7 @@ async def _warm_up(state: ReplState) -> None:
     """
     from ...core.types import CompletionRequest, Message
     from ...providers.factory import build_provider
+    from ...providers.web_registry import web_registry_for
 
     request = CompletionRequest(
         messages=(Message("user", "hi"),),
@@ -162,10 +163,16 @@ async def _warm_up(state: ReplState) -> None:
         max_retries=0,
     )
     # Sessiz sağlayıcı: ısıtma ne gösterilir ne de muhasebeye girer (1 token).
+    #
+    # Web oturum kaydı BURADA DA geçilir. Geçilmediğinde, agent modeli bir web
+    # oturumuysa ısıtma var olmayan bir uca gidiyor, hata yutuluyor ve ısıtma
+    # hiç gerçekleşmiyordu. Tarayıcı taşımasında ısıtmanın değeri daha da büyük:
+    # ilk mesajın beklediği asıl gecikme oturumun açılmasıdır.
     await build_provider(
         state.config.agent,
         publisher=None,
         retry_delays_s=state.config.runtime.retry_delays_s,
+        web_sessions=web_registry_for(state.config),
     ).complete(request)
 
 

@@ -1046,3 +1046,32 @@ def test_ek_dizin_verilmezse_kok_disi_reddedilir(tmp_path):
 
     with pytest.raises(PathAccessError):
         resolve_path(context, str(disari / "a.txt"))
+
+
+async def test_isitma_web_oturum_kaydini_gecirir(tmp_path: Path, monkeypatch) -> None:
+    """Isıtma, gerçek sağlayıcıyı ısıtmalı — web oturumlu modelde yanlış olanı değil.
+
+    `build_provider` çağrılarının onunda dokuzu `web_sessions=web_registry_for(...)`
+    geçiriyordu; ısıtma geçirmiyordu. Agent modeli bir web oturumuysa ısıtma
+    var olmayan bir uca gidiyor, hata sessizce yutuluyor ve ısıtma hiç olmuyordu.
+    """
+    from fusion_cli.cli.repl import loop as repl_loop
+
+    gorulen: dict[str, object] = {}
+
+    class SahteSaglayici:
+        async def complete(self, request: object) -> None:
+            return None
+
+    def sahte_build_provider(spec: object, **kwargs: object) -> SahteSaglayici:
+        gorulen.update(kwargs)
+        return SahteSaglayici()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", sahte_build_provider)
+    state = ReplState(
+        config=make_config(), memory=null_memory(), root=tmp_path, home=tmp_path / "ev"
+    )
+
+    await repl_loop._warm_up(state)
+
+    assert "web_sessions" in gorulen, "ısıtma web oturum kaydını hiç geçirmiyor"
