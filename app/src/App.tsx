@@ -26,6 +26,9 @@ import {
 } from "./theme/theme";
 import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
+import { ProcessesPanel } from "./processes/ProcessesPanel";
+import { TerminalPanel } from "./processes/TerminalPanel";
+import { useProcesses } from "./processes/useProcesses";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -99,6 +102,7 @@ function projectName(root: string): string {
 
 function ProjectInspector({ client, root }: { client: ProtocolClient; root: string }) {
   const [revision, setRevision] = useState(0);
+  const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
     const modifyingTools = new Set(["write_file", "edit_file", "multi_edit", "replace_range"]);
@@ -113,6 +117,8 @@ function ProjectInspector({ client, root }: { client: ProtocolClient; root: stri
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
+        terminal: <TerminalPanel controller={processes} />,
+        processes: <ProcessesPanel controller={processes} />,
       }}
     />
   );

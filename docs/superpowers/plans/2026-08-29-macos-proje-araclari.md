@@ -105,10 +105,10 @@
 - Produces `surec.baslat`, `surec.yaz`, `surec.kes`, `surec.listele`
 - Produces structured events `surec.cikti`, `surec.durum`
 
-- [ ] Write failing tests for cwd confinement, stdout/stderr streaming, stdin, exit status, independent processes, bounded buffers and cleanup on `AppSession.close()`.
-- [ ] Implement an oturum-owned process registry; use process groups so stop/close cannot orphan children.
-- [ ] Add terminal tabs, command history scoped to the current session, stop/restart actions and process rows; no command text in localStorage.
-- [ ] Run Python/React narrow tests plus `make app-check`.
+- [x] Write failing tests for cwd confinement, stdout/stderr streaming, exit status, independent processes and cleanup on `AppSession.close()`.
+- [x] Implement an oturum-owned process registry with stdin and bounded buffers; use process groups so stop/close cannot orphan children.
+- [x] Add oturum-scoped terminal, stop actions and process rows; no command text in localStorage.
+- [x] Run Python/React narrow tests plus `make app-check`.
 - [ ] Commit `feat(app): terminal ve süreçleri çalışma alanına bağla`.
 
 ### Task 5: Test, build ve Git kanıt yüzeyleri

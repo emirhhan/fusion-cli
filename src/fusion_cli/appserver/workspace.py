@@ -106,6 +106,11 @@ def _resolve_inside(root: Path, raw: object) -> Path:
     return candidate
 
 
+def resolve_workspace_path(root: Path, raw: object) -> Path:
+    """Diğer appserver servisleri için kanonik proje-kökü sınırı."""
+    return _resolve_inside(root, raw)
+
+
 def _relative(root: Path, path: Path) -> str:
     value = path.relative_to(root.resolve()).as_posix()
     return "" if value == "." else value

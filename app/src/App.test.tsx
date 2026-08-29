@@ -96,6 +96,7 @@ describe("Uygulama", () => {
 describe("SessionUygulama", () => {
   it("aktif projenin dosya ağacını açar ve seçilen metni gösterir", async () => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    let processStarted = false;
     const transport: SessionTransport = {
       create: vi.fn(async (id) => ({
         oturum_id: id,
@@ -167,6 +168,35 @@ describe("SessionUygulama", () => {
             }],
           };
         }
+        if (request.ad === "surec.baslat") {
+          processStarted = true;
+          veri = {
+            ok: true,
+            surec_id: "surec-1",
+            komut: request.veri.komut,
+            cwd: ".",
+            pid: 99,
+            durum: "bitti",
+            cikis_kodu: 0,
+            cikti: "testler geçti",
+            baslangic: 10,
+          };
+        }
+        if (request.ad === "surec.listele") {
+          veri = {
+            ok: true,
+            surecler: processStarted ? [{
+              surec_id: "surec-1",
+              komut: "npm test",
+              cwd: ".",
+              pid: 99,
+              durum: "bitti",
+              cikis_kodu: 0,
+              cikti: "testler geçti",
+              baslangic: 10,
+            }] : [],
+          };
+        }
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
           satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
@@ -201,6 +231,16 @@ describe("SessionUygulama", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Değişiklikler" }));
     expect(await screen.findByText("+print('Fusion App')")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Terminal komutu" }), {
+      target: { value: "npm test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+    expect(await screen.findByText("testler geçti")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Süreçler" }));
+    expect(await screen.findByText("npm test")).toBeTruthy();
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {

@@ -33,6 +33,7 @@ from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .commands import command_choices, list_commands, run_command
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
+from .processes import ProcessManager
 from .protocol import Reply, Request, encode_result
 from .workspace import (
     WorkspaceJournal,
@@ -79,6 +80,7 @@ class AppSession:
             health=_build_health(config),
         )
         self._workspace_journal = WorkspaceJournal()
+        self._processes = ProcessManager(self._state.root, writer)
         self._turn: asyncio.Task[Any] | None = None
 
     async def handle(self, request: Request) -> None:
@@ -118,6 +120,14 @@ class AppSession:
             return list_changes(self._state.root, self._workspace_journal)
         if request.name == "proje.geri_al":
             return undo_entry(self._state.root, request.data, self._workspace_journal)
+        if request.name == "surec.baslat":
+            return await self._processes.start(request.data)
+        if request.name == "surec.yaz":
+            return await self._processes.write(request.data)
+        if request.name == "surec.listele":
+            return self._processes.list()
+        if request.name == "surec.kes":
+            return await self._processes.stop(request.data)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
@@ -143,6 +153,7 @@ class AppSession:
             self._root = Path(root_value)
             self._state.root = self._root
             self._workspace_journal.clear()
+            self._processes.update_root(self._root)
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)
@@ -262,4 +273,5 @@ class AppSession:
         """Çalışan turu iptal et, bekleyen soruları serbest bırak."""
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
+        await self._processes.close()
         self.pending.cancel_all()
