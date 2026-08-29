@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /** Ölçülmüş değerler sessizce değişmemeli; değişirse referanstan sapılmış olur. */
 describe("tasarım token'ları", () => {
-  const css = readFileSync(new URL("./tokens.css", import.meta.url), "utf8");
+  const __dirname = dirname(fileURLToPath(import.meta.url));
+  const css = readFileSync(join(__dirname, "./tokens.css"), "utf8");
 
   it("ölçülmüş renkleri taşır", () => {
     expect(css).toContain("--zemin: #ffffff");
