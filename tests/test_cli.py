@@ -172,3 +172,25 @@ def _ornek_oturum() -> dict:
         else:
             ornek[ad] = "x"
     return ornek
+
+
+def test_modul_olarak_calistirilinca_komut_isler():
+    """`python -m fusion_cli.cli.app` konsol girişiyle AYNI yolu izlemeli.
+
+    Ölçüldü: `__main__` bloğu yokken modül yalnız içe aktarılıyor, hiçbir komut
+    çalıştırmadan sessizce 0 ile çıkıyordu. Kurulum sarmalayıcıları bu yolu
+    kullandığı için `fusion` komutu hiçbir şey yapmıyormuş gibi görünüyordu —
+    hata yalnız sarmalayıcıdan çağrılınca ortaya çıktığı için testlerden kaçıyordu.
+    """
+    import subprocess
+    import sys
+
+    sonuc = subprocess.run(
+        [sys.executable, "-m", "fusion_cli.cli.app", "version"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert sonuc.returncode == 0, sonuc.stderr
+    assert "fusion-cli" in sonuc.stdout

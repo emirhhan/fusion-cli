@@ -577,3 +577,11 @@ def main() -> None:
     except KeyboardInterrupt:
         console.print(f"[{theme.WARN}]{messages.ERROR_INTERRUPTED}[/{theme.WARN}]")
         sys.exit(130)
+
+
+if __name__ == "__main__":  # `python -m fusion_cli.cli.app`
+    # Modül olarak çalıştırma konsol girişiyle AYNI yolu izlemeli. Bu blok yokken
+    # `python -m fusion_cli.cli.app` modülü yalnız içe aktarıyor, hiçbir komut
+    # çalıştırmadan sessizce 0 ile çıkıyordu — kurulum sarmalayıcıları bu yolu
+    # kullandığı için komut hiçbir şey yapmıyormuş gibi görünüyordu.
+    main()
