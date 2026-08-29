@@ -22,7 +22,9 @@ dependencies = [
     # Direct dependency: provider catalog, embeddings and web tools import httpx.
     "httpx>=0.27,<1",
     # Ortak bilgi paketinin Ed25519 imza doğrulaması için (stdlib'de Ed25519 yok).
-    "cryptography>=42,<46",
+    # Üst sınır 46 -> 51: 50.0.1 ile tam paket (2.560 test) ve anahtar/sır testleri
+    # doğrulandı. Sınır tamamen kaldırılmıyor; bir sonraki ana sürüm yine ölçülsün.
+    "cryptography>=42,<51",
     # API keys and web-session cookies use the OS credential vault when available.
     "keyring>=25,<27",
 ]
