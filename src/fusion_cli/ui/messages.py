@@ -370,6 +370,9 @@ APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
 
 #: Uygulama protokolü metinleri.
 APP_UNKNOWN_REQUEST = "Bilinmeyen istek: {name}"
+APP_UNDECODABLE_LINE = "çözülemeyen satır"
+APP_UNMATCHED_REPLY_ID = "eşleşmeyen cevap kimliği"
+APP_BACKGROUND_TASK_FAILED = "arka plan isteği başarısız"
 APP_TURN_CANCELLED = "Tur iptal edildi."
 APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: Bir süreç bir oturum, bir oturumda aynı anda bir tur — ikinci `tur.calistir`
