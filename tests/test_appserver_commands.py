@@ -240,6 +240,73 @@ def test_tamamlanmamis_secim_run_command_ile_yapisal_doner(state: ReplState) -> 
     assert result["secici"]["tur"] == "metin"
 
 
+def test_profiles_edit_incompatible_secilen_aday_uygulanir(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """I2: `edit <profil> incompatible` seçim yükünden dönen bir aday, doğrulamada
+    AYNI (geniş) kapsam kullanılmadığı için hep `APP_COMMAND_INVALID_SELECTION` ile
+    geri dönüyordu — seçenek üretimi `show_incompatible=True` kullanırken doğrulama
+    hep `False` kullanıyordu. Gerçek yapılandırmada uyumsuz aday olup olmadığına
+    bağımlı kalmamak için `profiles_flow.edit_profile_primary` burada sahtelenir.
+    """
+    from fusion_cli.cli.repl.profiles_flow import FlowResult
+    from fusion_cli.ui.picker import Choice
+
+    def sahte_edit_profile_primary(config, tier_name, *, picker, show_incompatible=False):
+        choices = (Choice("uygun-model", "uygun-model", ""),)
+        if show_incompatible:
+            choices = (*choices, Choice("uyumsuz-model", "uyumsuz-model", ""))
+        picked = picker(choices, title="t")
+        if picked is None:
+            return FlowResult(config, "iptal")
+        return FlowResult(config, f"uygulandı: {picked}")
+
+    monkeypatch.setattr(
+        "fusion_cli.appserver.commands.profiles_flow.edit_profile_primary",
+        sahte_edit_profile_primary,
+    )
+
+    payload = command_choices(state, "profiles", "edit medium incompatible")
+    assert payload is not None
+    assert {c["deger"] for c in payload["secenekler"]} == {"uygun-model", "uyumsuz-model"}
+
+    result = run_command(build_registry(), state, "profiles", "edit medium uyumsuz-model")
+
+    assert result["ok"] is True
+    assert result["metin"] == "uygulandı: uyumsuz-model"
+
+
+def test_resume_ailesi_terminal_girdisine_inmeden_reddedilir(
+    state: ReplState, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """C3: köprülenmemiş etkileşimli komutlar (`/resume<kaynak>`) `run_command`'a
+    hiç girmeden reddedilmeli — argümansız çağrıldığında düz REPL `pick()` açardı;
+    appserver'da bu, uygulamanın protokol satırlarını çalan bir `input()` demekti.
+    """
+
+    def forbidden(*_args: object, **_kwargs: object) -> str:
+        raise AssertionError("terminal girdisi (pick/input) çağrıldı")
+
+    monkeypatch.setattr("builtins.input", forbidden)
+    monkeypatch.setattr("fusion_cli.ui.picker._pick_interactive", forbidden)
+    registry = build_registry()
+    registry.register(SlashCommand("resumeclaude", "test", forbidden, group="Geçmiş"))
+
+    result = run_command(registry, state, "resumeclaude", "")
+
+    assert result == {"ok": False, "metin": messages.APP_COMMAND_UNSUPPORTED_INTERACTIVE}
+
+
+def test_liste_destekleniyor_alanini_tasir(state: ReplState) -> None:
+    registry = build_registry()
+    registry.register(SlashCommand("resumefake", "test", lambda _s, _a: "", group="Geçmiş"))
+
+    rows = {row["ad"]: row for row in list_commands(registry)}
+
+    assert rows["help"]["destekleniyor"] is True
+    assert rows["resumefake"]["destekleniyor"] is False
+
+
 def test_secim_uretici_hatasi_guvenli_sonuca_cevrilir(
     state: ReplState, monkeypatch: pytest.MonkeyPatch
 ) -> None:

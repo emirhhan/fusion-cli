@@ -13,8 +13,14 @@
 
 Uygulama seçilen değeri `arguman_on_eki` sonuna ekler. Sonraki bir seçici varsa
 aynı argümanla yeniden `command_choices`, akış tamamlandıysa `run_command` çağrılır.
-Köprü bütün etkileşimli dalları terminal işleyicisinden önce yakalar; appserver
-`prompt_toolkit`, `input()` veya `getpass` çağırmaz.
+Köprü, seçici açan sekiz komut yüzeyini (level/mode/effort/model/provider/
+development/profiles edit/providers add) terminal işleyicisinden önce yakalar;
+bunlar için appserver `prompt_toolkit`, `input()` veya `getpass` hiç çağırmaz.
+
+Köprülenmemiş etkileşimli komutlar (örn. dinamik `/resume<kaynak>` ailesi —
+argümansız çağrıldığında düz `pick()` açar) `run_command`'a hiç ulaşmadan,
+terminal işleyicisi çağrılmadan `APP_COMMAND_UNSUPPORTED_INTERACTIVE` ile
+reddedilir; `list_commands` bunları `destekleniyor: False` ile işaretler.
 """
 
 from __future__ import annotations
@@ -67,15 +73,32 @@ class ChoicePayload(TypedDict):
 CommandResult = dict[str, Any]
 PickerCall = Callable[..., str | None]
 
+#: Bu ÖN EKLE başlayan komutlar terminal dışında hiç köprülenmedi: dinamik
+#: `/resume<kaynak>` ailesi argümansız çağrıldığında düz REPL `pick()` açar
+#: (bkz. `cli/repl/commands.py::_resume`). Appserver'da terminal yok; bu yüzden
+#: bunlar `run_command`'a hiç girmeden açıkça reddedilir.
+_UNSUPPORTED_INTERACTIVE_PREFIXES = ("resume",)
 
-def list_commands(registry: CommandRegistry) -> list[dict[str, str]]:
-    """Kayıt defterindeki bütün komutları uygulama menüsü biçiminde döndür."""
+
+def _is_unsupported_interactive(name: str) -> bool:
+    """Bu komut köprülenmemiş bir etkileşimli dal mı? (terminal işleyicisine düşer)"""
+    return any(name.startswith(prefix) for prefix in _UNSUPPORTED_INTERACTIVE_PREFIXES)
+
+
+def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
+    """Kayıt defterindeki bütün komutları uygulama menüsü biçiminde döndür.
+
+    `destekleniyor` alanı, komutun protokol üzerinden GERÇEKTEN çalıştırılabileceğini
+    bildirir. `False` olan bir komut listede görünür ama `run_command` onu her zaman
+    açık bir hatayla reddeder — sessizce etkisiz kalmaz.
+    """
     return [
         {
             "ad": command.name,
             "aciklama": command.summary,
             "grup": command.group,
             "kullanim": command.usage,
+            "destekleniyor": not _is_unsupported_interactive(command.name),
         }
         for command in registry.all()
     ]
@@ -94,6 +117,8 @@ def run_command(
     if command is None:
         return _error(messages.APP_COMMAND_UNKNOWN)
     canonical = command.name
+    if _is_unsupported_interactive(canonical):
+        return _error(messages.APP_COMMAND_UNSUPPORTED_INTERACTIVE)
     try:
         payload = command_choices(state, canonical, argument)
         if payload is not None:
@@ -265,7 +290,13 @@ def _apply_profile(state: ReplState, argument: str) -> CommandResult:
     if len(words) != 3 or words[0].casefold() != "edit":
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     tier_name, candidate = words[1].casefold(), words[2]
-    valid = {choice.value for choice in _profile_candidate_choices(state, tier_name, False)}
+    # `komut.secenekler edit <tier> incompatible` ile üretilen seçim yükü, devam
+    # argümanı olarak SEÇİLENİN adını taşır — "incompatible" sözcüğü argümanda
+    # kalmaz, bu yüzden burada hangi listeden geldiği bilinmez. `show_incompatible`
+    # kapsamı yalnız EKLER (uygun + uyumsuz), hiç çıkarmaz; o yüzden doğrulama
+    # her zaman geniş kapsamla yapılır — seçenek üretimiyle AYNI kaynak, uyumsuz
+    # akıştan seçilen bir aday artık `APP_COMMAND_INVALID_SELECTION`a takılmaz.
+    valid = {choice.value for choice in _profile_candidate_choices(state, tier_name, True)}
     if candidate not in valid:
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
     result = profiles_flow.edit_profile_primary(
