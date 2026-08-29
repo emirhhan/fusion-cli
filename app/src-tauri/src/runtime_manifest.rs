@@ -97,6 +97,21 @@ pub enum RuntimeError {
     #[error("çalışma zamanı sağlık denetimi başarısız oldu: {0}")]
     Health(String),
 
+    #[error("çalışma zamanı sağlık denetimi zaman aşımına uğradı")]
+    HealthTimeout,
+
+    #[error("çalışma zamanı sağlık raporu çözümlenemedi")]
+    HealthDecode(#[source] serde_json::Error),
+
+    #[error("etkin sürüm kaydı çözümlenemedi")]
+    ActiveRecordDecode(#[source] serde_json::Error),
+
+    #[error("etkin sürüm kaydı hazırlanamadı")]
+    ActiveRecordEncode(#[source] serde_json::Error),
+
+    #[error("uygulama kaynak dizini çözülemedi: {0}")]
+    ResourceDir(String),
+
     #[error("kullanılabilir sağlıklı bir çalışma zamanı bulunamadı")]
     NoHealthyRuntime,
 }

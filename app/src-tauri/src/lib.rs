@@ -1,5 +1,6 @@
 mod core_process;
 mod runtime_installer;
+mod runtime_manager;
 mod runtime_manifest;
 mod runtime_paths;
 
