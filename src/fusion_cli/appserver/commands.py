@@ -98,9 +98,7 @@ def run_command(
         payload = command_choices(state, canonical, argument)
         if payload is not None:
             return {"ok": True, "metin": "", "secici": payload}
-        special = _run_interactive_completion(
-            state, canonical, argument, secret_store=secret_store
-        )
+        special = _run_interactive_completion(state, canonical, argument, secret_store=secret_store)
         if special is not None:
             return special
         return {"ok": True, "metin": command.handler(state, argument)}
@@ -108,9 +106,7 @@ def run_command(
         return _error(messages.APP_COMMAND_FAILED)
 
 
-def command_choices(
-    state: ReplState, name: str, argument: str = ""
-) -> ChoicePayload | None:
+def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePayload | None:
     """Komutun sıradaki seçici/metin adımını döndür; yoksa `None`."""
     canonical = "development" if name.casefold() == "dev" else name.casefold()
     stripped = argument.strip()

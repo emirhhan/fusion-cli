@@ -363,6 +363,10 @@ WELCOME_ABILITY_ITEMS = (
     ("güvenlik", "diff önizlemesi, yıkıcı komutta onay"),
 )
 REPL_UNKNOWN_COMMAND = "bilinmeyen komut: /{name} — komut listesi için /help"
+#: Uygulama protokolünde ham komut/argüman ya da istisna ayrıntısı tekrarlanmaz.
+APP_COMMAND_UNKNOWN = "Bilinmeyen komut."
+APP_COMMAND_FAILED = "Komut çalıştırılamadı."
+APP_COMMAND_INVALID_SELECTION = "Geçersiz komut seçimi."
 REPL_TURN_CANCELLED = "tur durduruldu"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."
 REPL_LEARN_USAGE = "Kullanım: /learn <kalıcı olarak hatırlanacak kural>"
