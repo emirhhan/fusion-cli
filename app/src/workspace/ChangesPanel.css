@@ -1,0 +1,101 @@
+.changes-panel {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.changes-panel__item {
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-4);
+}
+
+.changes-panel__item header,
+.file-explorer__file-head > div,
+.file-explorer__editor-actions {
+  align-items: center;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.changes-panel__item header strong {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.changes-panel__item header span {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.changes-panel__item pre {
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font: 10px/1.5 var(--font-mono);
+  max-height: 280px;
+  overflow: auto;
+  padding: var(--space-2);
+}
+
+.changes-panel__item pre span {
+  display: block;
+  min-width: max-content;
+  white-space: pre;
+}
+
+.changes-panel__item pre .is-added { color: var(--text-success); }
+.changes-panel__item pre .is-removed { color: var(--text-danger); }
+
+.changes-panel button,
+.file-explorer__file-head button,
+.file-explorer__editor-actions button {
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  min-height: 32px;
+  padding: 4px var(--space-2);
+}
+
+.changes-panel__state {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.changes-panel__state--error,
+.file-explorer__editor [role="alert"] { color: var(--text-danger); }
+
+.changes-panel__note {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.changes-panel__confirm {
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: 1fr 1fr;
+}
+
+.changes-panel__confirm span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  grid-column: 1 / -1;
+}
+
+.file-explorer__editor {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.file-explorer__editor textarea {
+  background: var(--surface-sidebar);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: 11px/1.55 var(--font-mono);
+  min-height: 260px;
+  padding: var(--space-3);
+  resize: vertical;
+  tab-size: 2;
+  width: 100%;
+}

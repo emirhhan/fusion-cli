@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { WorkspaceEntry } from "./types";
 import { useWorkspace } from "./useWorkspace";
@@ -6,11 +6,19 @@ import "./FileExplorer.css";
 
 interface FileExplorerProps {
   client: ProtocolClient;
+  onChanged?: () => void;
   root: string;
 }
 
-export function FileExplorer({ client, root }: FileExplorerProps) {
-  const { state, selectFile, toggleDirectory } = useWorkspace(client, root);
+export function FileExplorer({ client, onChanged, root }: FileExplorerProps) {
+  const { state, saveSelected, selectFile, toggleDirectory } = useWorkspace(client, root);
+  const [editContent, setEditContent] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditContent(null);
+    setSaveError(null);
+  }, [state.selected?.yol]);
 
   const moveTreeFocus = (event: KeyboardEvent<HTMLButtonElement>, target: number) => {
     const tree = event.currentTarget.closest('[role="tree"]');
@@ -93,11 +101,45 @@ export function FileExplorer({ client, root }: FileExplorerProps) {
         {state.selected ? (
           <>
             <div className="file-explorer__file-head">
-              <strong>{state.selected.yol}</strong>
+              <div>
+                <strong>{state.selected.yol}</strong>
+                {state.selected.tur === "metin" && editContent === null && (
+                  <button onClick={() => setEditContent(state.selected?.icerik ?? "")} type="button">
+                    Düzenle
+                  </button>
+                )}
+              </div>
               <span>{state.selected.mime} · {state.selected.boyut.toLocaleString("tr-TR")} bayt</span>
             </div>
             {state.selected.tur === "binary" ? (
               <p className="file-explorer__state">Bu dosya metin değil. Önizleme sekmesinden açılabilir.</p>
+            ) : editContent !== null ? (
+              <div className="file-explorer__editor">
+                <textarea
+                  aria-label="Dosya içeriği"
+                  onChange={(event) => setEditContent(event.target.value)}
+                  spellCheck={false}
+                  value={editContent}
+                />
+                {saveError && <p role="alert">{saveError}</p>}
+                <div className="file-explorer__editor-actions">
+                  <button onClick={() => setEditContent(null)} type="button">Vazgeç</button>
+                  <button
+                    onClick={() => {
+                      void saveSelected(editContent)
+                        .then(() => {
+                          setEditContent(null);
+                          setSaveError(null);
+                          onChanged?.();
+                        })
+                        .catch((reason) => setSaveError(String(reason)));
+                    }}
+                    type="button"
+                  >
+                    Kaydet
+                  </button>
+                </div>
+              </div>
             ) : (
               <pre tabIndex={0}>
                 <code>

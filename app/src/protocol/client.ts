@@ -49,12 +49,18 @@ export class ProtocolClient {
     this.gonder(JSON.stringify(cevap));
   }
 
-  onEvent(f: (veri: Record<string, unknown>) => void): void {
+  onEvent(f: (veri: Record<string, unknown>) => void): () => void {
     this.olayDinleyicileri.push(f);
+    return () => {
+      this.olayDinleyicileri = this.olayDinleyicileri.filter((listener) => listener !== f);
+    };
   }
 
-  onQuestion(f: (id: string, veri: Record<string, unknown>) => void): void {
+  onQuestion(f: (id: string, veri: Record<string, unknown>) => void): () => void {
     this.soruDinleyicileri.push(f);
+    return () => {
+      this.soruDinleyicileri = this.soruDinleyicileri.filter((listener) => listener !== f);
+    };
   }
 
   /**

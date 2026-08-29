@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
 
 from fusion_cli.appserver.protocol import Request
@@ -16,6 +17,10 @@ async def _request(root: Path, name: str, data: dict[str, object]) -> dict[str, 
     await session.handle(Request(id="workspace", name=name, data=data))
     await session.close()
     return json.loads(lines[-1])["veri"]
+
+
+def _git(root: Path, *args: str) -> None:
+    subprocess.run(["git", *args], cwd=root, check=True)
 
 
 async def test_proje_listesi_klasorleri_once_ve_sayfali_dondurur(tmp_path: Path):
@@ -119,3 +124,107 @@ async def test_proje_durumu_tum_agaci_taramadan_temel_yetenekleri_bildirir(tmp_p
         "okunabilir": True,
         "yazilabilir": True,
     }
+
+
+async def test_proje_yaz_sha_kapisi_diff_ve_geri_alma_saglar(tmp_path: Path):
+    """Hash kapısı veya anlık görüntü kalkarsa UI başkasının yazımını sessizce ezer."""
+    path = tmp_path / "app.txt"
+    path.write_text("eski\n", encoding="utf-8")
+    old_sha = hashlib.sha256(b"eski\n").hexdigest()
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path.parent / ".fusion-home")
+
+    await session.handle(
+        Request(
+            id="write",
+            name="proje.yaz",
+            data={"yol": "app.txt", "icerik": "yeni\n", "expected_sha256": old_sha},
+        )
+    )
+    written = json.loads(lines[-1])["veri"]
+
+    assert written["ok"] is True
+    assert written["yol"] == "app.txt"
+    assert written["added"] == 1
+    assert written["removed"] == 1
+    assert "-eski" in written["diff"]
+    assert "+yeni" in written["diff"]
+    assert path.read_text(encoding="utf-8") == "yeni\n"
+
+    await session.handle(Request(id="changes", name="proje.degisiklikler", data={}))
+    changes = json.loads(lines[-1])["veri"]
+    assert [item["yol"] for item in changes["degisiklikler"]] == ["app.txt"]
+
+    await session.handle(Request(id="undo", name="proje.geri_al", data={"yol": "app.txt"}))
+    undone = json.loads(lines[-1])["veri"]
+    await session.close()
+
+    assert undone["ok"] is True
+    assert path.read_text(encoding="utf-8") == "eski\n"
+
+
+async def test_proje_yaz_stale_hashte_dosyaya_dokunmaz(tmp_path: Path):
+    """Beklenen özet karşılaştırılmazsa dışarıdaki yeni değişiklik kaybolur."""
+    path = tmp_path / "app.txt"
+    path.write_text("başkası değiştirdi", encoding="utf-8")
+
+    result = await _request(
+        tmp_path,
+        "proje.yaz",
+        {"yol": "app.txt", "icerik": "benim sürümüm", "expected_sha256": "eski-ozet"},
+    )
+
+    assert result == {
+        "ok": False,
+        "kod": "STALE_FILE",
+        "metin": "Dosya başka bir işlem tarafından değiştirildi. Yeniden yükleyip tekrar dene.",
+    }
+    assert path.read_text(encoding="utf-8") == "başkası değiştirdi"
+
+
+async def test_proje_yaz_sembolik_bagla_kok_disina_cikamaz(tmp_path: Path):
+    """Yazma yolu okuma sınırını atlatırsa proje dışındaki dosya değişebilir."""
+    outside = tmp_path.parent / "outside-write-target.txt"
+    outside.write_text("koru", encoding="utf-8")
+    (tmp_path / "link.txt").symlink_to(outside)
+
+    result = await _request(
+        tmp_path,
+        "proje.yaz",
+        {
+            "yol": "link.txt",
+            "icerik": "boz",
+            "expected_sha256": hashlib.sha256(b"koru").hexdigest(),
+        },
+    )
+
+    assert result == {"ok": False, "metin": "Proje klasörünün dışına çıkılamaz."}
+    assert outside.read_text(encoding="utf-8") == "koru"
+
+
+async def test_degisiklikler_agentin_git_ve_yeni_dosya_degisimlerini_gosterir(tmp_path: Path):
+    """Yalnız UI günlüğü okunursa agentın gerçek dosya değişiklikleri görünmez kalır."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "fusion@test.local")
+    _git(tmp_path, "config", "user.name", "Fusion Test")
+    (tmp_path / "tracked.txt").write_text("önce\n", encoding="utf-8")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "commit", "-qm", "baseline")
+    (tmp_path / "tracked.txt").write_text("sonra\n", encoding="utf-8")
+    (tmp_path / "new.txt").write_text("yeni dosya\n", encoding="utf-8")
+
+    result = await _request(tmp_path, "proje.degisiklikler", {})
+
+    by_path = {item["yol"]: item for item in result["degisiklikler"]}
+    assert set(by_path) == {"new.txt", "tracked.txt"}
+    assert "-önce" in by_path["tracked.txt"]["diff"]
+    assert "+sonra" in by_path["tracked.txt"]["diff"]
+    assert "+yeni dosya" in by_path["new.txt"]["diff"]
+
+    tracked_undo = await _request(tmp_path, "proje.geri_al", {"yol": "tracked.txt"})
+    new_undo = await _request(tmp_path, "proje.geri_al", {"yol": "new.txt"})
+
+    assert tracked_undo["ok"] is True
+    assert new_undo["ok"] is True
+    assert (tmp_path / "tracked.txt").read_text(encoding="utf-8") == "önce\n"
+    assert not (tmp_path / "new.txt").exists()

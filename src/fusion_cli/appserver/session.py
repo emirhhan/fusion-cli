@@ -34,7 +34,15 @@ from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .commands import command_choices, list_commands, run_command
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
 from .protocol import Reply, Request, encode_result
-from .workspace import list_entries, read_entry, workspace_status
+from .workspace import (
+    WorkspaceJournal,
+    list_changes,
+    list_entries,
+    read_entry,
+    undo_entry,
+    workspace_status,
+    write_entry,
+)
 
 
 def _build_health(config: Config) -> HealthRegistry:
@@ -70,6 +78,7 @@ class AppSession:
             home=home,
             health=_build_health(config),
         )
+        self._workspace_journal = WorkspaceJournal()
         self._turn: asyncio.Task[Any] | None = None
 
     async def handle(self, request: Request) -> None:
@@ -103,6 +112,12 @@ class AppSession:
             return list_entries(self._state.root, request.data)
         if request.name == "proje.oku":
             return read_entry(self._state.root, request.data)
+        if request.name == "proje.yaz":
+            return write_entry(self._state.root, request.data, self._workspace_journal)
+        if request.name == "proje.degisiklikler":
+            return list_changes(self._state.root, self._workspace_journal)
+        if request.name == "proje.geri_al":
+            return undo_entry(self._state.root, request.data, self._workspace_journal)
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
@@ -127,6 +142,7 @@ class AppSession:
         if isinstance(root_value, str) and root_value:
             self._root = Path(root_value)
             self._state.root = self._root
+            self._workspace_journal.clear()
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)

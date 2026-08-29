@@ -80,12 +80,12 @@
 - Produces protocol requests `proje.yaz`, `proje.degisiklikler`, `proje.geri_al`
 - `proje.yaz` consumes `{yol, icerik, expected_sha256}` and returns `{sha256, diff, added, removed}`
 
-- [ ] Write failing Python tests for stale-hash rejection, atomic write, unified diff, symlink escape and exact one-file undo; write React tests for visible diff and explicit undo confirmation.
-- [ ] Run the narrow Python and React tests and confirm red.
-- [ ] Implement temp-file + `os.replace` writes and an in-memory per-session undo journal capped by count and bytes; never store secrets in browser persistence.
-- [ ] Implement Git-backed changes when `.git` exists and journal-backed changes otherwise.
-- [ ] Connect Changes panel refresh to successful agent file events and direct edits.
-- [ ] Run narrow tests, then `make app-check`.
+- [x] Write failing Python tests for stale-hash rejection, atomic write, unified diff, symlink escape and exact one-file undo; write React tests for visible diff and explicit undo confirmation.
+- [x] Run the narrow Python and React tests and confirm red.
+- [x] Implement temp-file + atomic replace writes and an in-memory per-session undo journal capped by count and bytes; never store secrets in browser persistence.
+- [x] Implement Git-backed changes when `.git` exists and journal-backed changes otherwise.
+- [x] Connect Changes panel refresh to successful agent file events and direct edits.
+- [x] Run narrow tests, then `make app-check`.
 - [ ] Commit `feat(app): dosya değişikliklerini ve geri almayı ekle`.
 
 ### Task 4: Oturuma bağlı terminal ve süreç yöneticisi

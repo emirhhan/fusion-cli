@@ -145,6 +145,28 @@ describe("SessionUygulama", () => {
             kesildi: false,
           };
         }
+        if (request.ad === "proje.yaz") {
+          veri = {
+            ok: true,
+            yol: "src/main.py",
+            sha256: "def",
+            diff: "--- a/src/main.py\n+++ b/src/main.py\n-print('Fusion')\n+print('Fusion App')",
+            added: 1,
+            removed: 1,
+          };
+        }
+        if (request.ad === "proje.degisiklikler") {
+          veri = {
+            ok: true,
+            degisiklikler: [{
+              yol: "src/main.py",
+              diff: "--- a/src/main.py\n+++ b/src/main.py\n-print('Fusion')\n+print('Fusion App')",
+              added: 1,
+              removed: 1,
+              geri_alinabilir: true,
+            }],
+          };
+        }
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
           satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
@@ -165,6 +187,20 @@ describe("SessionUygulama", () => {
     fireEvent.click(await screen.findByRole("treeitem", { name: "main.py" }));
     expect(await screen.findByText("print('Fusion')")).toBeTruthy();
     expect(screen.getByText("src/main.py")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Düzenle" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Dosya içeriği" }), {
+      target: { value: "print('Fusion App')" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await waitFor(() => {
+      const calls = vi.mocked(transport.send).mock.calls.map(([, line]) => JSON.parse(line));
+      expect(calls.some((request) => request.ad === "proje.yaz" &&
+        request.veri.expected_sha256 === "abc")).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Değişiklikler" }));
+    expect(await screen.findByText("+print('Fusion App')")).toBeTruthy();
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {

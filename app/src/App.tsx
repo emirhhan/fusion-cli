@@ -25,6 +25,7 @@ import {
   type ThemePreference,
 } from "./theme/theme";
 import { FileExplorer } from "./workspace/FileExplorer";
+import { ChangesPanel } from "./workspace/ChangesPanel";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -94,6 +95,27 @@ function useAppTheme() {
 function projectName(root: string): string {
   const parts = root.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? root;
+}
+
+function ProjectInspector({ client, root }: { client: ProtocolClient; root: string }) {
+  const [revision, setRevision] = useState(0);
+  const changed = () => setRevision((current) => current + 1);
+  useEffect(() => client.onEvent((event) => {
+    const modifyingTools = new Set(["write_file", "edit_file", "multi_edit", "replace_range"]);
+    if (
+      event.olay === "FilesChanged" ||
+      (event.olay === "ToolExecuted" && event.outcome === "ok" &&
+        typeof event.name === "string" && modifyingTools.has(event.name))
+    ) changed();
+  }), [client]);
+  return (
+    <Inspector
+      content={{
+        files: <FileExplorer client={client} key={revision} onChanged={changed} root={root} />,
+        changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
+      }}
+    />
+  );
 }
 
 export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
@@ -237,11 +259,7 @@ export function SessionUygulama({ transport }: { transport?: SessionTransport })
           title={active.title}
         />
       }
-      inspector={
-        <Inspector
-          content={{ files: <FileExplorer client={active.client} key={active.id} root={active.root} /> }}
-        />
-      }
+      inspector={<ProjectInspector client={active.client} key={active.id} root={active.root} />}
       inspectorOpen={layout.inspectorOpen}
       onInspectorClose={layout.closeInspector}
       sidebar={

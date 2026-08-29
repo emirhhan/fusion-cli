@@ -113,5 +113,30 @@ export function useWorkspace(client: ProtocolClient, root: string) {
     }
   }, [client]);
 
-  return { state, selectFile, toggleDirectory };
+  const saveSelected = useCallback(async (content: string) => {
+    const selected = state.selected;
+    if (!selected || selected.tur !== "metin") throw new Error("Düzenlenebilir dosya seçilmedi.");
+    const result = await client.request("proje.yaz", {
+      yol: selected.yol,
+      icerik: content,
+      expected_sha256: selected.sha256,
+    });
+    if (result.ok !== true || typeof result.sha256 !== "string") {
+      throw new Error(messageFrom(result, "Dosya kaydedilemedi."));
+    }
+    setState((current) => ({
+      ...current,
+      selected: current.selected ? {
+        ...current.selected,
+        icerik: content,
+        sha256: result.sha256 as string,
+        boyut: new TextEncoder().encode(content).length,
+        kesildi: false,
+      } : null,
+      error: null,
+    }));
+    return result;
+  }, [client, state.selected]);
+
+  return { state, saveSelected, selectFile, toggleDirectory };
 }
