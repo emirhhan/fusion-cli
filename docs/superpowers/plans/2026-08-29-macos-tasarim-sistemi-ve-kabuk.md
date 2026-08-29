@@ -73,27 +73,27 @@ git commit -m "feat(ui): semantik tema sistemini kur"
 - Create: `app/src/ui/Button.test.tsx`
 - Create: `app/src/ui/controls.css`
 
-- [ ] **Step 1: İkon ve düğme erişilebilirlik testlerini yaz**
+- [x] **Step 1: İkon ve düğme erişilebilirlik testlerini yaz**
 
 Testler dekoratif ikonun erişilebilirlik ağacından gizlendiğini, anlam taşıyan ikonun başlık alabildiğini, yalnız ikonlu düğmenin zorunlu `aria-label` ile erişilebilir olduğunu ve yükleniyor/devre dışı durumlarının metinle taşındığını doğrular.
 
-- [ ] **Step 2: Testlerin kırmızı olduğunu gör**
+- [x] **Step 2: Testlerin kırmızı olduğunu gör**
 
 Run: `cd app && npm test -- src/ui/Icon.test.tsx src/ui/Button.test.tsx`
 Expected: FAIL — bileşen modülleri yok.
 
-- [ ] **Step 3: Tek çizgi ailesini ve düğme varyantlarını uygula**
+- [x] **Step 3: Tek çizgi ailesini ve düğme varyantlarını uygula**
 
 `Icon` yalnız projede kullanılan küçük SVG path kataloğunu (`new`, `search`, `panel`, `settings`, `lessons`, `skills`, `files`, `changes`, `terminal`, `tests`, `preview`, `send`, `attach`, `chevron`, `sidebar`) içerir. Tüm ikonlar `currentColor`, `fill="none"`, `strokeLinecap="round"` ve 1.75px stroke kullanır.
 
 `Button`; `primary`, `secondary`, `ghost`, `danger` ve `icon` varyantlarını aynı odak/hover/disabled sözleşmesiyle sunar.
 
-- [ ] **Step 4: Test ve build doğrulaması**
+- [x] **Step 4: Test ve build doğrulaması**
 
 Run: `cd app && npm test -- src/ui && npm run build`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/src/ui
