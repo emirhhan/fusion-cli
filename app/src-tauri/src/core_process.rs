@@ -1,6 +1,8 @@
-//! Fusion çekirdeğini alt süreç olarak yönetir ve stdio satırlarını aktarır.
+//! Fusion çekirdeği alt süreçleri için ortak başlatma ve durdurma kuralları.
 //!
-//! Burada ürün mantığı YOKTUR: süreç başlatılır, satırlar iki yöne taşınır.
+//! Oturum sahipliği ve stdio aktarımı `session_manager` içindedir. Burada ürün
+//! mantığı YOKTUR: yalnız çalıştırılabilir dosya doğrulanır, komut tanımlanır
+//! ve kapanmayan bir alt süreç sınırlı süre sonunda güvenle sonlandırılır.
 //! Hangi ikilinin çalıştırılacağına karar veren taraf her zaman `RuntimeManager`
 //! (bkz. `runtime_manager.rs`) — bu modül asla sistemdeki `fusion` komutuna,
 //! `HOME` altındaki kurulumlara ya da `PATH`'e bakmaz. Sebep: kullanıcının
@@ -11,39 +13,31 @@
 //! Geliştirici Kipi bu kuralın TEK istisnasıdır ve yalnız `lib.rs`'te,
 //! açıkça istenmişse devreye girer.
 
-use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::process::Child;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
 
-/// `stop()` çekirdeğin stdin EOF'una tepki verip düzgün çıkması için bu kadar
+/// Çekirdeğin stdin EOF'una tepki verip düzgün çıkması için bu kadar
 /// bekler. Pencere kapanış olayı ana döngüde senkron çalıştığından kullanıcıyı
 /// uzun süre bekletmemek adına kısa tutulur; süre aşılırsa `kill()` ile
 /// zorla sonlandırılır.
-const DURDURMA_ZAMAN_ASIMI: Duration = Duration::from_millis(2000);
+pub(crate) const DURDURMA_ZAMAN_ASIMI: Duration = Duration::from_millis(2000);
 
 /// Bekleme sırasında sürecin çıkış yapıp yapmadığını denetleme aralığı.
-const YOKLAMA_ARALIGI: Duration = Duration::from_millis(50);
+pub(crate) const YOKLAMA_ARALIGI: Duration = Duration::from_millis(50);
 
-pub struct CoreProcess {
-    child: Mutex<Option<Child>>,
-    stdin: Mutex<Option<ChildStdin>>,
-}
-
-/// `start()`'ın çalıştıracağı komutun saf (yan etkisiz) tanımı. Testler
+/// Oturum yöneticisinin çalıştıracağı komutun saf (yan etkisiz) tanımı. Testler
 /// gerçek bir süreç açmadan bu değeri denetler.
 #[derive(Debug, PartialEq)]
-struct CoreLaunch {
-    executable: PathBuf,
-    args: Vec<String>,
+pub(crate) struct CoreLaunch {
+    pub(crate) executable: PathBuf,
+    pub(crate) args: Vec<String>,
 }
 
 /// Verilen çalışma zamanı ikilisi için başlatma komutunu üretir. Argüman
 /// listesi sabittir: çekirdek her zaman uzun ömürlü, stdio üzerinden JSON
 /// konuşan `app` alt komutuyla açılır.
-fn core_launch(executable: &Path) -> CoreLaunch {
+pub(crate) fn core_launch(executable: &Path) -> CoreLaunch {
     CoreLaunch {
         executable: executable.to_path_buf(),
         args: vec!["app".to_string()],
@@ -54,7 +48,7 @@ fn core_launch(executable: &Path) -> CoreLaunch {
 /// denetler. Başarısızlık PATH aramasına DÜŞMEZ — `RuntimeManager` zaten
 /// tek doğrulanmış adayı vermiştir; burada hata varsa kurulum bozuktur ve
 /// kullanıcı onarım akışına yönlendirilmelidir.
-fn validate_runtime_executable(path: &Path) -> Result<(), String> {
+pub(crate) fn validate_runtime_executable(path: &Path) -> Result<(), String> {
     if dosya_calistirilabilir_mi(path) {
         Ok(())
     } else {
@@ -62,102 +56,20 @@ fn validate_runtime_executable(path: &Path) -> Result<(), String> {
     }
 }
 
-impl CoreProcess {
-    pub fn new() -> Self {
-        Self {
-            child: Mutex::new(None),
-            stdin: Mutex::new(None),
-        }
-    }
-
-    /// Çekirdeği verilen, önceden doğrulanmış çalışma zamanı ikilisiyle
-    /// başlat. Zaten çalışan bir süreç varsa yenisini AÇMAZ:
-    /// `React.StrictMode` dev modunda `useEffect`i mount→unmount→mount olarak
-    /// iki kez çalıştırdığından bu komut iki kez çağrılabilir. İkinci çağrıda
-    /// yeni bir süreç açmak eskisini yetim bırakır ve iki stdout okuma
-    /// thread'i aynı global "cekirdek-satir" olayına yazıp istek kimliklerini
-    /// karıştırır. Var olan süreci kullanmaya devam etmek güvenlidir; arayüz
-    /// tarafı (App.tsx) ikinci mount'ta zaten eski dinleyicisini bırakır.
-    ///
-    /// `child` kilidi denetim + fork boyunca AÇIK TUTULUR (tek bir kilitleme
-    /// bloğu): aksi halde "hâlâ çalışıyor mu" kontrolü ile sürecin
-    /// kaydedilmesi arasında iki eşzamanlı çağrı (yine StrictMode'un çok
-    /// hızlı ardışık iki çağrısı) birbirini görmeden ikisi de spawn
-    /// edebilir — kontrol+kayıt atomik olmalı.
-    pub fn start(&self, app: AppHandle, executable: &Path) -> Result<(), String> {
-        let mut cocuk_kilit = self.child.lock().unwrap();
-        if let Some(cocuk) = cocuk_kilit.as_mut() {
-            if matches!(cocuk.try_wait(), Ok(None)) {
-                return Ok(());
-            }
-        }
-
-        validate_runtime_executable(executable)?;
-        let launch = core_launch(executable);
-
-        // stderr şimdilik `Stdio::null()`: sır sızıntısını ve sınırsız günlük
-        // büyümesini önler. Yapılandırılmış, maskeli tanılama günlükleri
-        // F aşamasındaki tanılama sınırında eklenecek. Stdout yalnız JSON
-        // protokolüne ayrılmış kalır, başka hiçbir akış onunla karışmaz.
-        let mut cocuk = Command::new(&launch.executable)
-            .args(&launch.args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|error| format!("Fusion çalışma zamanı başlatılamadı: {error}"))?;
-
-        let cikti = cocuk.stdout.take().ok_or("çekirdek çıktısı alınamadı")?;
-        *self.stdin.lock().unwrap() = cocuk.stdin.take();
-        *cocuk_kilit = Some(cocuk);
-        drop(cocuk_kilit);
-
-        std::thread::spawn(move || {
-            for satir in BufReader::new(cikti).lines() {
-                match satir {
-                    Ok(s) => {
-                        let _ = app.emit("cekirdek-satir", s);
-                    }
-                    Err(_) => break,
+pub(crate) fn stop_child(mut child: Child) {
+    let baslangic = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => return,
+            Ok(None) => {
+                if baslangic.elapsed() >= DURDURMA_ZAMAN_ASIMI {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return;
                 }
+                std::thread::sleep(YOKLAMA_ARALIGI);
             }
-            let _ = app.emit("cekirdek-kapandi", ());
-        });
-        Ok(())
-    }
-
-    /// Arayüzden gelen satırı çekirdeğe yaz.
-    pub fn send(&self, satir: String) -> Result<(), String> {
-        let mut kilit = self.stdin.lock().unwrap();
-        let giris = kilit.as_mut().ok_or("çekirdek çalışmıyor")?;
-        writeln!(giris, "{satir}").map_err(|e| format!("yazılamadı: {e}"))?;
-        giris.flush().map_err(|e| format!("boşaltılamadı: {e}"))
-    }
-
-    /// Pencere kapanınca çekirdeği sonlandır. stdin kapatılarak çekirdeğe
-    /// düzgün çıkması için `DURDURMA_ZAMAN_ASIMI` kadar süre tanınır; bu süre
-    /// içinde çıkmazsa `kill()` ile zorla sonlandırılır — aksi halde çekirdek
-    /// EOF'a tepki vermediğinde uygulama kapanırken süresiz asılı kalırdı.
-    pub fn stop(&self) {
-        *self.stdin.lock().unwrap() = None; // stdin kapanır, çekirdek düzgün çıkmayı dener
-        let Some(mut cocuk) = self.child.lock().unwrap().take() else {
-            return;
-        };
-
-        let baslangic = Instant::now();
-        loop {
-            match cocuk.try_wait() {
-                Ok(Some(_)) => return,
-                Ok(None) => {
-                    if baslangic.elapsed() >= DURDURMA_ZAMAN_ASIMI {
-                        let _ = cocuk.kill();
-                        let _ = cocuk.wait();
-                        return;
-                    }
-                    std::thread::sleep(YOKLAMA_ARALIGI);
-                }
-                Err(_) => return,
-            }
+            Err(_) => return,
         }
     }
 }

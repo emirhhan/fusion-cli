@@ -4,14 +4,15 @@ mod runtime_manager;
 mod runtime_manifest;
 mod runtime_paths;
 mod runtime_smoke;
+mod session_manager;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use core_process::CoreProcess;
 use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
+use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
 use tauri::{Emitter, Manager};
 
 /// Bu makinenin çalışma zamanı paketiyle eşleşmesi gereken hedef üçlü.
@@ -53,19 +54,56 @@ fn gelistirici_calisma_zamani_override(_ortam: impl Fn(&str) -> Option<String>) 
 fn cekirdek_baslat(
     app: tauri::AppHandle,
     runtime: tauri::State<RuntimeManager>,
-    process: tauri::State<CoreProcess>,
+    sessions: tauri::State<SessionManager>,
 ) -> Result<(), String> {
-    let executable =
-        match gelistirici_calisma_zamani_override(|anahtar| std::env::var(anahtar).ok()) {
-            Some(yol) => yol,
-            None => runtime.executable().map_err(|error| error.to_string())?,
-        };
-    process.start(app, &executable)
+    let executable = runtime_executable(&runtime)?;
+    sessions
+        .start(app, &executable, VARSAYILAN_OTURUM, None)
+        .map(|_| ())
 }
 
 #[tauri::command]
-fn cekirdege_yaz(satir: String, durum: tauri::State<CoreProcess>) -> Result<(), String> {
-    durum.send(satir)
+fn cekirdege_yaz(satir: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
+    sessions.send(VARSAYILAN_OTURUM, satir)
+}
+
+fn runtime_executable(runtime: &RuntimeManager) -> Result<PathBuf, String> {
+    match gelistirici_calisma_zamani_override(|anahtar| std::env::var(anahtar).ok()) {
+        Some(yol) => Ok(yol),
+        None => runtime.executable().map_err(|error| error.to_string()),
+    }
+}
+
+#[tauri::command]
+fn oturum_olustur(
+    app: tauri::AppHandle,
+    runtime: tauri::State<RuntimeManager>,
+    sessions: tauri::State<SessionManager>,
+    oturum_id: String,
+    kok: Option<String>,
+) -> Result<SessionSnapshot, String> {
+    let executable = runtime_executable(&runtime)?;
+    let root = kok.as_deref().map(std::path::Path::new);
+    sessions.start(app, &executable, &oturum_id, root)
+}
+
+#[tauri::command]
+fn oturuma_yaz(
+    oturum_id: String,
+    satir: String,
+    sessions: tauri::State<SessionManager>,
+) -> Result<(), String> {
+    sessions.send(&oturum_id, satir)
+}
+
+#[tauri::command]
+fn oturum_kapat(oturum_id: String, sessions: tauri::State<SessionManager>) -> Result<(), String> {
+    sessions.stop(&oturum_id)
+}
+
+#[tauri::command]
+fn oturumlari_listele(sessions: tauri::State<SessionManager>) -> Vec<SessionSnapshot> {
+    sessions.list()
 }
 
 /// Arayüzün gösterebileceği güncel çalışma zamanı durumunu döner.
@@ -141,7 +179,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .manage(CoreProcess::new())
+        .manage(SessionManager::new())
         .setup(|app| {
             let resources = RuntimeResources::from_app(app.handle())?;
             let ev_dizini = app.path().home_dir()?;
@@ -158,14 +196,18 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             cekirdek_baslat,
             cekirdege_yaz,
+            oturum_olustur,
+            oturuma_yaz,
+            oturum_kapat,
+            oturumlari_listele,
             runtime_durum,
             runtime_hazirla,
             runtime_onar
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let durum = window.state::<CoreProcess>();
-                durum.stop();
+                let sessions = window.state::<SessionManager>();
+                sessions.stop_all();
             }
         })
         .run(tauri::generate_context!())
