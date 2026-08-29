@@ -22,7 +22,7 @@ from .fakes import FakeProvider, make_config
 
 
 def _client(app):
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost")
 
 
 def _app(reply="Merhaba, ben mock model.", ok=True):

@@ -36,7 +36,7 @@ def _app(tmp_path):
 
 
 def _client(app):
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost")
 
 
 DURUM_DEGISTIREN = (
@@ -117,7 +117,20 @@ async def test_dns_rebinding_yabanci_host_ile_yerel_gatewaye_erisemez(tmp_path):
     assert cevap.status_code == 421
 
 
-@pytest.mark.parametrize("host", ["localhost:8787", "127.0.0.1:8787", "[::1]:8787", "local"])
+async def test_test_kolayligi_uretim_yoluna_sizmaz(tmp_path):
+    """`local` gerçek bir yerel ad DEĞİLDİR; testin kolaylığı üretimde kapı açmamalı.
+
+    Daha önce ASGI testleri `http://local` tabanıyla konuştuğu için `_foreign_host`
+    bu adı koşulsuz kabul ediyordu. "local" adını 127.0.0.1'e çözen bir ağda bu,
+    DNS-rebinding korumasını atlatırdı.
+    """
+    async with _client(_app(tmp_path)) as client:
+        cevap = await client.get("/health", headers={"host": "local"})
+
+    assert cevap.status_code == 421
+
+
+@pytest.mark.parametrize("host", ["localhost:8787", "127.0.0.1:8787", "[::1]:8787", "localhost"])
 async def test_yerel_host_degerleri_korunur(tmp_path, host):
     async with _client(_app(tmp_path)) as client:
         cevap = await client.get("/health", headers={"host": host})

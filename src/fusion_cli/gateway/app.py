@@ -1244,8 +1244,6 @@ def _foreign_host(scope: Scope) -> bool:
         if key.lower() != b"host":
             continue
         raw = value.decode("latin-1").strip().lower()
-        if raw == "local":  # ASGI birim testlerinin kararlı sentetik yerel adı.
-            return False
         host = raw.split("]", 1)[0] + "]" if raw.startswith("[") else raw.split(":", 1)[0]
         return host not in _LOCAL_HOSTS
     # HTTP/1.1'de Host zorunludur; eksik başlık şüpheli ve gereksizdir.

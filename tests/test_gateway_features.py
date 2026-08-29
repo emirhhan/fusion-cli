@@ -19,7 +19,7 @@ from .fakes import FakeProvider, make_config, request
 
 
 def _client(app):
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local")
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://localhost")
 
 
 def _store(tmp_path):
