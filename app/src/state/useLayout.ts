@@ -39,6 +39,7 @@ export function useLayout() {
   return {
     ...layout,
     closeInspector: () => setLayout((current) => ({ ...current, inspectorOpen: false })),
+    openInspector: () => setLayout((current) => ({ ...current, inspectorOpen: true })),
     toggleInspector: () =>
       setLayout((current) => ({ ...current, inspectorOpen: !current.inspectorOpen })),
     toggleSidebar: () =>

@@ -1,10 +1,10 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { IconName } from "../ui/Icon";
 import { Icon } from "../ui/Icon";
 import "./Inspector.css";
 
 type InspectorStatus = "ready" | "loading" | "error";
-type InspectorTabId = "files" | "changes" | "terminal" | "processes" | "tests" | "preview" | "context";
+export type InspectorTabId = "files" | "changes" | "terminal" | "processes" | "tests" | "preview" | "context";
 
 const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "files", label: "Dosyalar", icon: "files" },
@@ -19,11 +19,25 @@ const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
 interface InspectorProps {
   content?: Partial<Record<InspectorTabId, ReactNode>>;
   errorMessage?: string;
+  /**
+   * Dışarıdan istenen sekme. Ders adımı "proje sekmesini aç" dediğinde
+   * kullanılır; kullanıcının elle seçtiği sekmeyi kilitlemez — istek
+   * değiştiğinde bir kez uygulanır, sonra denetim yine kullanıcıdadır.
+   */
+  requestedTab?: InspectorTabId | null;
   status?: InspectorStatus;
 }
 
-export function Inspector({ content = {}, errorMessage = "Denetçi yüklenemedi", status = "ready" }: InspectorProps) {
+export function Inspector({
+  content = {},
+  errorMessage = "Denetçi yüklenemedi",
+  requestedTab = null,
+  status = "ready",
+}: InspectorProps) {
   const [activeTab, setActiveTab] = useState<InspectorTabId>("files");
+  useEffect(() => {
+    if (requestedTab) setActiveTab(requestedTab);
+  }, [requestedTab]);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const selectAt = (index: number) => {
     const tab = tabs[(index + tabs.length) % tabs.length];

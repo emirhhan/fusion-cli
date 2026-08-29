@@ -13,7 +13,7 @@ import { AppHeader } from "./screens/AppHeader";
 import { Composer } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import { EmptyState } from "./screens/EmptyState";
-import { Inspector } from "./screens/Inspector";
+import { Inspector, type InspectorTabId } from "./screens/Inspector";
 import { RuntimeSetup } from "./screens/RuntimeSetup";
 import { Shell } from "./screens/Shell";
 import { Sidebar } from "./screens/Sidebar";
@@ -33,6 +33,7 @@ import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
+import { Lessons } from "./lessons/Lessons";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 
@@ -106,7 +107,7 @@ function projectName(root: string): string {
   return parts[parts.length - 1] ?? root;
 }
 
-function ProjectInspector({ client, root }: { client: ProtocolClient; root: string }) {
+function ProjectInspector({ client, requestedTab, root }: { client: ProtocolClient; requestedTab: InspectorTabId | null; root: string }) {
   const [revision, setRevision] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const processes = useProcesses(client);
@@ -121,6 +122,7 @@ function ProjectInspector({ client, root }: { client: ProtocolClient; root: stri
   }), [client]);
   return (
     <Inspector
+      requestedTab={requestedTab}
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
@@ -277,7 +279,8 @@ export function SessionUygulama({
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [page, setPage] = useState<"chat" | "skills" | "control">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons">("chat");
+  const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
@@ -319,11 +322,35 @@ export function SessionUygulama({
   ) : (
     <EmptyState onSelectPrompt={setDraft} />
   );
+  /** Ders adımının işaret ettiği yüzeyi aç. Hiçbir şey çalıştırılmaz. */
+  const openLessonTarget = (hedef: string) => {
+    if (hedef === "yetenek") return setPage("skills");
+    if (hedef === "kontrol") return setPage("control");
+    if (hedef === "gecmis") {
+      setPage("chat");
+      return setHistoryOpen(true);
+    }
+    setPage("chat");
+    layout.openInspector();
+    setRequestedTab(hedef === "surec" ? "processes" : "files");
+  };
   const content = page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
       ? <ControlPanel client={active.client} onClose={() => setPage("chat")} />
-      : conversationContent;
+      : page === "lessons"
+        ? (
+          <Lessons
+            client={active.client}
+            onClose={() => setPage("chat")}
+            onOpenTab={openLessonTarget}
+            onUseComposer={(gorev) => {
+              setPage("chat");
+              setDraft(gorev);
+            }}
+          />
+        )
+        : conversationContent;
   const status = active.status === "crashed"
     ? "Bağlantı kesildi"
     : active.running
@@ -374,10 +401,10 @@ export function SessionUygulama({
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           themePreference={themePreference}
-          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? "Kontrol Paneli" : active.title}
+          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? "Kontrol Paneli" : page === "lessons" ? "Dersler" : active.title}
         />
       }
-      inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} root={active.root} /> : undefined}
+      inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} requestedTab={requestedTab} root={active.root} /> : undefined}
       inspectorOpen={page === "chat" && layout.inspectorOpen}
       onInspectorClose={layout.closeInspector}
       sidebar={
@@ -388,6 +415,8 @@ export function SessionUygulama({
           onNavigate={(destination) => {
             if (destination === "skills") {
               setPage("skills");
+            } else if (destination === "lessons") {
+              setPage("lessons");
             } else if (destination === "control-panel" || destination === "settings") {
               setPage("control");
             } else if (destination.startsWith("resume:")) {
