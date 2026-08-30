@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
+import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayMetni } from "./protocol/olayMetni";
@@ -36,6 +37,7 @@ import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
+import { selectDirectory } from "./platform/dialog";
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -268,17 +270,22 @@ export function SessionUygulama({
   onboarding = false,
   runtimeVersion,
   onOnboardingComplete = () => undefined,
+  selectFolder = selectDirectory,
 }: {
   transport?: SessionTransport;
   onboarding?: boolean;
   runtimeVersion?: string;
   onOnboardingComplete?: () => void;
+  selectFolder?: (defaultPath?: string) => Promise<string | null>;
 }) {
   const controller = useSessions(transport);
   const layout = useLayout();
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskBusy, setNewTaskBusy] = useState(false);
+  const [newTaskError, setNewTaskError] = useState<string | null>(null);
   const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
@@ -362,6 +369,31 @@ export function SessionUygulama({
     : active.running
       ? "Çalışıyor"
       : "Hazır";
+  const chooseTaskFolder = async () => {
+    setNewTaskBusy(true);
+    setNewTaskError(null);
+    try {
+      const storedRoot = localStorage.getItem("fusion.last-project-root") ?? undefined;
+      const root = (await selectFolder(storedRoot === "/" ? undefined : storedRoot))?.trim();
+      if (!root) {
+        setNewTaskOpen(false);
+        return;
+      }
+      if (root === "/") {
+        setNewTaskError("Kök dizin yerine çalışacağın proje klasörünü seç.");
+        return;
+      }
+      await controller.create({ root });
+      localStorage.setItem("fusion.last-project-root", root);
+      setPage("chat");
+      setWorkspaceMode("kod");
+      setNewTaskOpen(false);
+    } catch {
+      setNewTaskError("Klasör açılamadı. Erişimi kontrol edip yeniden dene.");
+    } finally {
+      setNewTaskBusy(false);
+    }
+  };
 
   return (
     <Shell
@@ -401,6 +433,20 @@ export function SessionUygulama({
               open
             />
           )}
+          <NewTaskDialog
+            busy={newTaskBusy}
+            error={newTaskError}
+            onCancel={() => { setNewTaskError(null); setNewTaskOpen(false); }}
+            onChat={() => {
+              setNewTaskOpen(false);
+              setNewTaskError(null);
+              setPage("chat");
+              setWorkspaceMode("sohbet");
+              void controller.create();
+            }}
+            onFolder={() => void chooseTaskFolder()}
+            open={newTaskOpen}
+          />
         </>
       }
       header={
@@ -443,7 +489,7 @@ export function SessionUygulama({
             }
           }}
           onSec={(id) => { setPage("chat"); controller.select(id); }}
-          onYeni={() => { setPage("chat"); void controller.create(); }}
+          onYeni={() => { setNewTaskError(null); setNewTaskOpen(true); }}
           oturumlar={controller.sessions.map((session) => ({
             session_id: session.id,
             source: session.source,

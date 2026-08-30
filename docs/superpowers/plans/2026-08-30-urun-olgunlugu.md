@@ -65,8 +65,8 @@ Kullanıcının istediği ayrım motor değil ÇALIŞMA KİPİDİR:
 
 **Files:** `app/src-tauri/src/session_manager.rs`, `app/src/App.tsx`
 
-- [ ] Kök verilmediğinde ev dizinine düşüldüğünü, ASLA `/` olmadığını testle sabitle.
-- [ ] Proje seçiciyi arayüze bağla; son proje hatırlansın.
+- [x] Kök verilmediğinde ev dizinine düşüldüğünü, ASLA `/` olmadığını testle sabitle.
+- [x] Proje seçiciyi arayüze bağla; son proje hatırlansın.
 
 ### Görev 4: Oturum yönetimi
 
@@ -97,9 +97,9 @@ açılmaz. Kullanıcı macOS/Windows yerel klasör seçicisinden Masaüstü, kul
 dizini veya erişebildiği herhangi bir klasörü seçebilir; isterse yeni klasör
 oluşturabilir. Son kullanılan anlamlı klasör hatırlanır.
 
-- [ ] Yerel klasör seçici için Tauri köprüsünü testle sabitle.
-- [ ] Sidebar'daki Yeni görev eylemini Sohbet ve Klasörde kod görevi seçenekleriyle bağla.
-- [ ] İptal edilen seçici boş veya `/` köklü oturum oluşturmamalı.
+- [x] Yerel klasör seçici için Tauri köprüsünü testle sabitle.
+- [x] Sidebar'daki Yeni görev eylemini Sohbet ve Klasörde kod görevi seçenekleriyle bağla.
+- [x] İptal edilen seçici boş veya `/` köklü oturum oluşturmamalı.
 
 ### Görev 10: Slash komut ve MCP paleti
 

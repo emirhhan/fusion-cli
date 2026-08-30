@@ -94,6 +94,41 @@ describe("Uygulama", () => {
 });
 
 describe("SessionUygulama", () => {
+  it("yerel seçiciden alınan klasörde kod görevi açar; iptalde oturum oluşturmaz", async () => {
+    const transport: SessionTransport = {
+      create: vi.fn(async (id, root) => ({
+        oturum_id: id,
+        kok: root ?? "/Users/test",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async () => () => undefined),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    const selectFolder = vi.fn()
+      .mockResolvedValueOnce("/Users/test/Desktop/Oyun")
+      .mockResolvedValueOnce(null);
+
+    render(<SessionUygulama selectFolder={selectFolder} transport={transport} />);
+    await screen.findByRole("heading", { name: "Yeni görev" });
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Klasörde kod görevi" }));
+    await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop/Oyun");
+    expect(localStorage.getItem("fusion.last-project-root")).toBe("/Users/test/Desktop/Oyun");
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Klasörde kod görevi" }));
+    await waitFor(() => expect(selectFolder).toHaveBeenCalledTimes(2));
+    expect(transport.create).toHaveBeenCalledTimes(2);
+    expect(selectFolder).toHaveBeenLastCalledWith("/Users/test/Desktop/Oyun");
+  });
+
   it("aktif projenin dosya ağacını açar ve seçilen metni gösterir", async () => {
     let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     let processStarted = false;
@@ -280,7 +315,8 @@ describe("SessionUygulama", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
     await waitFor(() => expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1));
-    fireEvent.click(screen.getByRole("button", { name: "Yeni görev" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet başlat" }));
 
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("heading", { name: "Yeni görev" })).toBeTruthy();
