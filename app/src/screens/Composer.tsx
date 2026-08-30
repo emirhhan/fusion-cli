@@ -152,6 +152,15 @@ export function Composer({
     }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      const normalizedDraft = draft.trim().toLocaleLowerCase("tr");
+      const exactCommands = commands.filter(
+        (command) => `/${command.ad}`.toLocaleLowerCase("tr") === normalizedDraft,
+      );
+      if (exactCommands.some((command) => command.destekleniyor)) {
+        send();
+        return;
+      }
+      if (exactCommands.length > 0) return;
       const selected = filteredCommands[activeCommand];
       if (selected && draft.trim() !== `/${selected.ad}`) {
         setDraft(`/${selected.ad}`);

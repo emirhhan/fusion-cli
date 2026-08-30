@@ -121,3 +121,85 @@ exit 0
 ## Endişeler
 
 Açık engel yok. Browser `File` nesnesi gerçek path sağlamazsa mevcut ikincil `name` fallback'i korunur; core existence doğrulaması bu yolu reddedebilir. Masaüstündeki birincil ve güvenilir akış Tauri native drop gerçek path'idir.
+
+## Fix round 1/5 — Exact komut önceliği
+
+### Important finding ve çözüm
+
+Gerçek registry sırası `/models`, `/model`, `/mode` olduğunda filtre ilk olarak `/models` satırını etkin bırakıyordu. Kullanıcı exact `/model` veya `/mode` yazıp Enter'a bastığında Composer typed komutu çalıştırmadan önce aktif öneriyi `/models` ile değiştiriyordu.
+
+Enter dalı artık autocomplete seçimine bakmadan önce tüm `commands` içinde locale-normalized exact komut adını arar. En az bir exact kayıt destekleniyorsa var olan `send()` yolunu çalıştırır. Exact kayıt yalnız desteklenmeyen satırlardan oluşuyorsa input'u koruyup hiçbir şey çalıştırmaz. Exact eşleşme yoksa önceki Arrow seçimi ve prefix autocomplete akışı aynen devam eder; click-to-fill değiştirilmedi. Bu karşılaştırma `/mcp github` gibi çok sözcüklü adları ve `/resumeclaude` gibi türetilmiş resume adlarını da aynı command-name sözleşmesiyle kapsar.
+
+### RED
+
+Komut:
+
+```text
+cd app && npm test -- src/screens/Composer.test.tsx
+```
+
+Çıktı (exit 1):
+
+```text
+Test Files  1 failed (1)
+Tests       3 failed | 17 passed (20)
+FAIL: exact /model için onSend çağrısı 0; beklenen ["/model"]
+FAIL: exact /mode için onSend çağrısı 0; beklenen ["/mode"]
+FAIL: desteklenmeyen /legacy onSend ile 1 kez çalıştırıldı
+Duration    987ms
+```
+
+Bu RED, hem ilk filtre sonucunun exact komutu ele geçirmesini hem de unsupported exact komutun yanlışlıkla gönderilmesini gerçek `Composer` davranışında yakaladı.
+
+### GREEN
+
+İlk focused GREEN:
+
+```text
+cd app && npm test -- src/screens/Composer.test.tsx
+Test Files  1 passed (1)
+Tests       20 passed (20)
+Duration    887ms
+exit 0
+```
+
+Composer/App focused doğrulama:
+
+```text
+cd app && npm test -- src/screens/Composer.test.tsx src/App.test.tsx
+Test Files  2 passed (2)
+Tests       42 passed (42)
+Duration    1.98s
+exit 0
+```
+
+Tam npm suite:
+
+```text
+cd app && npm test
+Test Files  53 passed (53)
+Tests       291 passed (291)
+Duration    9.22s
+exit 0
+```
+
+Production build:
+
+```text
+cd app && npm run build
+✓ 140 modules transformed.
+✓ built in 591ms
+exit 0
+```
+
+### Self-review
+
+- Registry order testi literal `/models`, `/model`, `/mode` sırasını kullanır; exact `/model` ve `/mode` için gönderilen payload'u ve `/models` replacement callback'inin oluşmadığını gözler.
+- Unsupported exact test disabled satırın Enter ile gönderilmediğini ve input'un değişmediğini gözler.
+- Mutation kontrolü: exact kontrolü autocomplete dalının altına taşınırsa iki collision testi; supported filtresi kaldırılırsa unsupported testi kırılır.
+- IME guard exact kontrolün önünde kalır. Prefix ve click davranışları mevcut Composer/App testleriyle doğrulanır; ArrowUp/ArrowDown dalları exact Enter kontrolünün önünde ve değişmeden kaldı.
+- Yalnız Composer kaynak/testi ve bu rapor değiştirildi; snapshot, asset, `:memory:.ses` ve kök `index.html` değişmedi.
+
+### Endişeler
+
+Açık endişe yok.

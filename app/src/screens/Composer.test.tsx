@@ -128,6 +128,7 @@ describe("Composer — çalışma kipi", () => {
 
 describe("Composer — slash paleti ve ekler", () => {
   const commands = [
+    { ad: "models", aciklama: "Modelleri listele", grup: "Model", kullanim: "", destekleniyor: true },
     { ad: "model", aciklama: "Modeli değiştir", grup: "Model", kullanim: "[alt-komut]", destekleniyor: true },
     { ad: "mode", aciklama: "Profili değiştir", grup: "Model", kullanim: "[profil]", destekleniyor: true },
     { ad: "mcp github", aciklama: "GitHub MCP sunucusu", grup: "MCP", kullanim: "", destekleniyor: true },
@@ -153,6 +154,46 @@ describe("Composer — slash paleti ve ekler", () => {
     fireEvent.change(textbox, { target: { value: "/mcp github" } });
     fireEvent.keyDown(textbox, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/mcp github");
+  });
+
+  it.each(["/model", "/mode"])(
+    "çakışan registry sırasında exact %s komutunu ilk öneriyle değiştirmeden çalıştırır",
+    (typedCommand) => {
+      const onSend = vi.fn();
+      const onValueChange = vi.fn();
+      render(
+        <Composer
+          commands={commands}
+          onSend={onSend}
+          onValueChange={onValueChange}
+          value={typedCommand}
+        />,
+      );
+
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Mesaj" }), { key: "Enter" });
+
+      expect(onSend).toHaveBeenCalledWith(typedCommand);
+      expect(onValueChange).toHaveBeenCalledWith("");
+      expect(onValueChange).not.toHaveBeenCalledWith("/models");
+    },
+  );
+
+  it("desteklenmeyen exact komutu Enter ile çalıştırmaz", () => {
+    const onSend = vi.fn();
+    render(<Composer commands={[{
+      ad: "legacy",
+      aciklama: "Eski komut",
+      grup: "Komut",
+      kullanim: "",
+      destekleniyor: false,
+    }]} onSend={onSend} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/legacy" } });
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox).toHaveProperty("value", "/legacy");
   });
 
   it("ekleri gösterir, kaldırır ve sürüklenen dosyayı bildirir", () => {
