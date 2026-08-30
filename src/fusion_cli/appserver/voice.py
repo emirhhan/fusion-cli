@@ -27,9 +27,13 @@ MAX_SPEECH_CHARS = 4_000
 #: Katalogda doğrulandı: `com.apple.ttsbundle.Cem`, tr-TR, 120 MB, ücretsiz.
 BETTER_TURKISH_VOICE = "Cem"
 
-#: Ses kimliğindeki kalite işaretleri, iyiden kötüye. `compact` en düşük
-#: kademedir ve yalnız başka seçenek yokken kullanılır.
+#: Kalite işaretleri, iyiden kötüye. `compact` Apple'ın en düşük kademesidir
+#: ve belirgin biçimde robotik duyulur; yalnız başka seçenek yokken kullanılır.
 _QUALITY_ORDER = ("premium", "ttsbundle", "enhanced", "compact")
+
+#: Kalite işareti hiç görünmeyen ses için varsayılan sıra. `say -v ?` kalite
+#: bilgisi vermediğinden çoğu ses buraya düşer; compact'ten kötü sayılmaz.
+_UNKNOWN_RANK = _QUALITY_ORDER.index("compact")
 
 
 def _quality_rank(identifier: str) -> int:
@@ -37,8 +41,7 @@ def _quality_rank(identifier: str) -> int:
     for index, marker in enumerate(_QUALITY_ORDER):
         if marker in lowered:
             return index
-    # Tanınmayan aile compact'ten iyi sayılır: Apple dışı sesler genelde öyledir.
-    return len(_QUALITY_ORDER) - 2
+    return _UNKNOWN_RANK
 
 
 def best_voice(installed: tuple[tuple[str, str, str], ...]) -> str | None:
@@ -51,7 +54,13 @@ def best_voice(installed: tuple[tuple[str, str, str], ...]) -> str | None:
     turkish = [item for item in installed if item[1].casefold().startswith("tr")]
     if not turkish:
         return None
-    return min(turkish, key=lambda item: _quality_rank(item[2]))[0]
+    # Eşit kalitede ada göre bilinen tercih uygulanır: iki compact ses arasında
+    # Cem, Yelda'dan belirgin biçimde daha doğal duyuluyor (dinlenerek seçildi).
+    tercih = {"cem": 0, "yelda": 1}
+    return min(
+        turkish,
+        key=lambda item: (_quality_rank(item[2]), tercih.get(item[0].casefold(), 2)),
+    )[0]
 
 
 def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
@@ -105,9 +114,13 @@ def installed_voice_records() -> tuple[tuple[str, str, str], ...]:
         parts = line.split()
         if len(parts) < 2:
             continue
-        name, locale = parts[0], parts[1].replace("_", "-")
-        # `say -v ?` kimliği vermez; kurulu compact sesler bu adla gelir.
-        records.append((name, locale, f"com.apple.voice.compact.{locale}.{name}"))
+        locale = parts[1].replace("_", "-")
+        # `say -v ?` KALİTE bilgisi vermez. Kimliği uydurmak yanlış olurdu:
+        # yüksek kaliteli bir ses kurulduğunda onu "compact" diye etiketler ve
+        # sıralama sessizce yanlış sesi seçerdi. Bu yüzden kimlik alanına
+        # yalnız `say`in gerçekten söylediği ad yazılır; kalite ipucu varsa
+        # (macOS bazı sesleri "Cem (Enhanced)" gibi listeler) addan okunur.
+        records.append((parts[0], locale, line.split("#")[0].strip()))
     return tuple(records)
 
 
