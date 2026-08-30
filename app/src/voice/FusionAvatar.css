@@ -15,7 +15,7 @@
 .fusion-avatar__frame {
   grid-area: 1 / 1;
   height: 100%;
-  image-rendering: pixelated;
+  object-fit: contain;
   width: 100%;
   z-index: 1;
 }
