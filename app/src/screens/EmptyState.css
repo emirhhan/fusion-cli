@@ -17,7 +17,8 @@
 .empty-state__character {
   align-items: center;
   display: flex;
-  height: 96px;
+  /* Karakter 168 piksellik kareden ölçeklenir; kutu ona göre açılır. */
+  height: 118px;
   justify-content: center;
   margin: 0 auto var(--space-4);
 }

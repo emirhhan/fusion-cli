@@ -526,7 +526,7 @@ export function SessionUygulama({
   const conversationContent = active.messages.length > 0 ? (
     <Conversation mesajlar={active.messages} />
   ) : (
-    <EmptyState onSelectPrompt={setDraft} />
+    <EmptyState durum={active.running ? "thinking" : "idle"} onSelectPrompt={setDraft} />
   );
   /** Ders adımının işaret ettiği yüzeyi aç. Hiçbir şey çalıştırılmaz. */
   const openLessonTarget = (hedef: string) => {
