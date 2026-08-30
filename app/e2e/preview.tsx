@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import "../src/theme/tokens.css";
+import "../src/brand/brand.css";
 import "../src/App.css";
 import { Approval } from "../src/dialogs/Approval";
 import { HistoryPicker } from "../src/dialogs/HistoryPicker";
@@ -38,6 +39,17 @@ const messages = [
   { rol: "kullanici" as const, metin: "Fusion için profesyonel bir macOS uygulaması hazırla." },
   { rol: "olay" as const, metin: "7 arayüz testi ve üretim derlemesi tamamlandı" },
   { rol: "asistan" as const, metin: "Uygulama kabuğunu tamamladım. Sol navigasyon, konuşma alanı ve bağlamsal denetçi aynı tasarım sistemiyle çalışıyor.\n\nAçık ve koyu tema ile dar pencere davranışları da doğrulandı." },
+];
+
+const composerCommands = [
+  { ad: "models", aciklama: "Modelleri listele", grup: "Model", kullanim: "", destekleniyor: true },
+  { ad: "model", aciklama: "Etkin modeli değiştir", grup: "Model", kullanim: "[model]", destekleniyor: true },
+  { ad: "mode", aciklama: "Çalışma profilini değiştir", grup: "Oturum", kullanim: "[profil]", destekleniyor: true },
+  { ad: "mcp github", aciklama: "GitHub MCP sunucusunu yönet", grup: "MCP", kullanim: "", destekleniyor: true },
+] satisfies React.ComponentProps<typeof Composer>["commands"];
+
+const composerAttachments = [
+  { kind: "file" as const, name: "arayuz-notlari.md", path: "/Projects/fusion-cli/docs/arayuz-notlari.md" },
 ];
 
 const workspaceProcesses = [{
@@ -219,6 +231,11 @@ function Preview() {
   const lessons = state === "lessons" || state === "lessons-step";
   const settings = state === "settings";
   const voice = state.startsWith("voice-");
+  const composerValue = state === "composer-menu"
+    ? "/m"
+    : state === "composer-attachment"
+      ? "Bu dosyayı incele"
+      : undefined;
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
   if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
     runtime={{ status: "ready", version: "0.3.0a1" }}
@@ -228,7 +245,19 @@ function Preview() {
   return (
     <>
       <Shell
-        composer={capabilities || control || lessons || settings ? undefined : <Composer onSend={() => undefined} />}
+        composer={capabilities || control || lessons || settings ? undefined : (
+          <Composer
+            approval="auto"
+            attachments={state === "composer-attachment" ? composerAttachments : []}
+            commands={composerCommands}
+            mode="sohbet"
+            onApprovalChange={() => undefined}
+            onModeChange={() => undefined}
+            onSend={() => undefined}
+            onVoice={() => undefined}
+            value={composerValue}
+          />
+        )}
         content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
         header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={settings ? "Ayarlar" : lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
         inspector={capabilities || control || lessons || settings ? undefined : inspector}

@@ -8,8 +8,8 @@
  * ve gömülü gradyanlar bilerek KULLANILMADI — onlar her boyutta bulanıklaşır.
  *
  * Kompozisyon: disk, negatif alanda "F" ve alt parçadaki Signal Green pay.
- * Renkler `brand.css`'teki `--logo-*` değişkenlerinden gelir; bileşen ham renk
- * kodu taşımaz, böylece açık ve koyu temada aynı dosya doğru görünür.
+ * Renkler `brand.css`'teki sınıflardan gelir; bileşen ham renk kodu taşımaz,
+ * böylece açık ve koyu temada aynı dosya doğru görünür.
  */
 export interface LogoProps {
   /** Kenar uzunluğu (px). İşaret kare oranlıdır. */
@@ -50,8 +50,13 @@ export function Logo({ size = 24, title }: LogoProps) {
         </clipPath>
       </defs>
       <g mask={`url(#${id}-cut)`}>
-        <rect width="64" height="64" fill="var(--logo-ink)" />
-        <rect width="64" height="64" fill="var(--logo-signal)" clipPath={`url(#${id}-wedge)`} />
+        <rect className="fusion-logo__ink" width="64" height="64" />
+        <rect
+          className="fusion-logo__signal"
+          width="64"
+          height="64"
+          clipPath={`url(#${id}-wedge)`}
+        />
       </g>
     </svg>
   );
