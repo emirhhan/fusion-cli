@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
+import { Connectors } from "./Connectors";
+import { Instructions } from "./Instructions";
 import "./Settings.css";
 
 /**
@@ -141,6 +143,10 @@ export function Settings({ client, onClose, onThemeChange, themePreference }: Se
             Sağlayıcıları eklemek ve çıkarmak Kontrol Paneli'ndedir.
           </p>
         </article>
+
+        <Instructions client={client} />
+
+        <Connectors client={client} />
 
         <article className="settings__card">
           <h3>Gizlilik</h3>

@@ -30,3 +30,58 @@
   .settings { padding: 20px; }
   .settings__grid { grid-template-columns: 1fr; }
 }
+
+/* Talimat ve bağlantı kartları iki sütunu birden kaplar. */
+.settings__card--wide { grid-column: 1 / -1; }
+
+.settings__sr-only {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.settings__card textarea {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: var(--line-body);
+  padding: 10px 12px;
+  resize: vertical;
+  width: 100%;
+}
+
+.settings__actions { align-items: center; display: flex; gap: 10px; margin-top: 8px; }
+.settings__actions small { color: var(--text-secondary); font-size: 11px; margin-left: auto; }
+
+.settings__card button {
+  background: var(--surface-hover); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 6px 12px;
+}
+.settings__card button:disabled { cursor: default; opacity: 0.55; }
+.settings__card button:hover:not(:disabled) { background: var(--surface-raised); }
+
+.settings__list { display: grid; gap: 6px; list-style: none; margin: 0 0 12px; padding: 0; }
+.settings__list li {
+  align-items: center; background: var(--surface-canvas); border-radius: var(--radius-sm);
+  display: grid; gap: 10px; grid-template-columns: auto 1fr auto; padding: 7px 10px;
+}
+.settings__list code { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.settings__form {
+  align-items: center; display: grid; gap: 8px 10px; grid-template-columns: auto 1fr;
+}
+.settings__form label { color: var(--text-secondary); font-size: 12px; }
+.settings__form input {
+  background: var(--surface-canvas); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); color: var(--text-primary); font: inherit;
+  font-size: 13px; padding: 7px 10px;
+}
+.settings__form button { grid-column: 2; justify-self: start; }
