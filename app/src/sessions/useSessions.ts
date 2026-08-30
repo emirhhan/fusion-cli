@@ -6,6 +6,7 @@ import { olayMetni } from "../protocol/olayMetni";
 import type { Soru } from "../protocol/types";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
+import { isProjectRoot, projectName } from "./projectRoots";
 import type {
   BackendSessionSnapshot,
   NewSession,
@@ -37,11 +38,6 @@ export const tauriSessionTransport: SessionTransport = {
 function nextSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `oturum-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function projectName(root: string): string {
-  const parts = root.split(/[\\/]/).filter(Boolean);
-  return parts[parts.length - 1] ?? root;
 }
 
 export function useSessions(transport: SessionTransport = tauriSessionTransport) {
@@ -348,7 +344,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       const name = projectName(session.root);
       roots.set(session.root, { name, root: session.root, updatedAt: now });
     });
-    return [...roots.values()].sort((left, right) => right.updatedAt - left.updatedAt);
+    return [...roots.values()]
+      .filter((project) => isProjectRoot(project.root))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
   }, [sessions]);
 
   return {
