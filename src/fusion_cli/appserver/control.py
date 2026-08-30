@@ -88,6 +88,35 @@ def web_login_state(pid: object) -> dict[str, Any]:
     return {"ok": True, "acik": process_alive(numeric)}
 
 
+def connect_web_session(
+    config: Config, saglayici: object, hesap: object
+) -> tuple[Config | None, dict[str, Any]]:
+    """`web.baglan`: giriş sonrası oturumu yapılandırmaya yaz ve etkinleştir.
+
+    Giriş penceresinin kapanması tek başına yetmez: oturum `web_sessions`'a
+    yazılmazsa Fusion o sağlayıcıyı model yönlendirmesinde HİÇ kullanamaz.
+    """
+    from ..providers.web_control import register_session
+
+    return register_session(config, str(saglayici or ""), str(hesap or "main"))
+
+
+def disconnect_web_session(
+    config: Config, saglayici: object, hesap: object
+) -> tuple[Config | None, dict[str, Any]]:
+    """`web.cikis`: oturumu kaldır ve tarayıcı profilini sil."""
+    from ..providers.web_control import remove_session
+
+    return remove_session(config, str(saglayici or ""), str(hesap or "main"))
+
+
+async def verify_web_session(config: Config, saglayici: object, hesap: object) -> dict[str, Any]:
+    """`web.dogrula`: gerçek ve küçük bir istekle oturumun çalıştığını kanıtla."""
+    from ..providers.web_control import validate_session
+
+    return await validate_session(config, str(saglayici or ""), str(hesap or "main"))
+
+
 def secret_store_error(store: SecretStore) -> str | None:
     """Anahtarlık okunamıyorsa SEBEBİNİ döndür; okunuyorsa None.
 

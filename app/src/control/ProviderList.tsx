@@ -20,6 +20,8 @@ interface ProviderRow {
   hesap?: string;
   id: string;
   ortam?: string;
+  /** Tarayıcı profili var mı? Tek başına "bağlı" demek DEĞİLDİR. */
+  profil_var?: boolean;
   tur: "web" | "anahtar";
 }
 
@@ -62,14 +64,23 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
     return rows.filter((row) => row.ad.toLocaleLowerCase("tr").includes(q));
   }, [query, rows]);
 
-  /** Web girişini aç ve pencere kapanınca listeyi tazele. */
+  /**
+   * Web girişini aç; pencere kapanınca oturumu KAYDET ve gerçekten sına.
+   *
+   * Eskiden yalnız pencere kapanınca liste tazeleniyordu ve "bağlı" kararı
+   * tarayıcı profili klasörünün varlığından veriliyordu. Giriş yapmadan
+   * pencereyi kapatmak bile "bağlı" gösteriyor, Fusion ise o sağlayıcıyı
+   * kullanamıyordu. Artık üç adım var: giriş → kayıt → küçük bir gerçek istek.
+   */
   const login = async (row: ProviderRow) => {
+    const hesap = row.hesap ?? "main";
     setBusy(row.id);
     setNotice(null);
-    const acilis = (await client.request("web.giris", {
-      saglayici: row.id,
-      hesap: row.hesap ?? "main",
-    })) as { ok?: boolean; metin?: string; pid?: number };
+    const acilis = (await client.request("web.giris", { saglayici: row.id, hesap })) as {
+      ok?: boolean;
+      metin?: string;
+      pid?: number;
+    };
     if (!acilis?.ok || !acilis.pid) {
       setNotice(acilis?.metin ?? "Giriş penceresi açılamadı.");
       setBusy(null);
@@ -83,10 +94,59 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
         timers.current.push(window.setTimeout(() => void poll(), YOKLAMA_MS));
         return;
       }
+      setNotice("Oturum kaydediliyor…");
+      const kayit = (await client.request("web.baglan", { saglayici: row.id, hesap })) as {
+        ok?: boolean;
+        metin?: string;
+      };
+      if (!kayit?.ok) {
+        setBusy(null);
+        setNotice(kayit?.metin ?? "Oturum kaydedilemedi.");
+        await load();
+        return;
+      }
+      setNotice("Oturum sınanıyor…");
+      const sinama = (await client.request("web.dogrula", { saglayici: row.id, hesap })) as {
+        ok?: boolean;
+        metin?: string;
+      };
       setBusy(null);
+      setNotice(
+        sinama?.ok
+          ? `${row.ad} bağlandı ve çalışıyor.`
+          : `${row.ad} kaydedildi ama sınama geçmedi: ${sinama?.metin ?? "sebep bilinmiyor"}`,
+      );
       await load();
     };
     await poll();
+  };
+
+  /** Kayıtlı oturumu gerçek bir istekle sına. */
+  const verify = async (row: ProviderRow) => {
+    setBusy(row.id);
+    setNotice("Oturum sınanıyor…");
+    const sonuc = (await client.request("web.dogrula", {
+      saglayici: row.id,
+      hesap: row.hesap ?? "main",
+    })) as { ok?: boolean; metin?: string; gecikme_ms?: number };
+    setBusy(null);
+    setNotice(
+      sonuc?.ok
+        ? `Çalışıyor${sonuc.gecikme_ms ? ` · ${Math.round(sonuc.gecikme_ms)} ms` : ""}.`
+        : (sonuc?.metin ?? "Sınama geçmedi."),
+    );
+  };
+
+  /** Oturumu kapat: kayıt kaldırılır, tarayıcı profili silinir. */
+  const logout = async (row: ProviderRow) => {
+    setBusy(row.id);
+    const sonuc = (await client.request("web.cikis", {
+      saglayici: row.id,
+      hesap: row.hesap ?? "main",
+    })) as { ok?: boolean; metin?: string };
+    setBusy(null);
+    setNotice(sonuc?.metin ?? (sonuc?.ok ? "Oturum kapatıldı." : "Oturum kapatılamadı."));
+    await load();
   };
 
   const saveKey = async (row: ProviderRow) => {
@@ -172,14 +232,42 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
                       Kendi aboneliğinle çalışır; anahtar gerekmez. Giriş ayrı bir pencerede
                       yapılır ve oturum bu bilgisayarda kalır.
                     </p>
-                    <button
-                      className="provider-list__action"
-                      disabled={busy === row.id}
-                      onClick={() => void login(row)}
-                      type="button"
-                    >
-                      {busy === row.id ? "Pencere açık…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
-                    </button>
+                    {!row.bagli && row.profil_var && (
+                      <p className="provider-list__warn">
+                        Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış
+                        olabilir. Yeniden bağlan.
+                      </p>
+                    )}
+                    <div className="provider-list__buttons">
+                      <button
+                        className="provider-list__action"
+                        disabled={busy === row.id}
+                        onClick={() => void login(row)}
+                        type="button"
+                      >
+                        {busy === row.id ? "Sürüyor…" : row.bagli ? "Yeniden bağlan" : "Oturum aç"}
+                      </button>
+                      {row.bagli && (
+                        <>
+                          <button
+                            className="provider-list__action"
+                            disabled={busy === row.id}
+                            onClick={() => void verify(row)}
+                            type="button"
+                          >
+                            Bağlantıyı sına
+                          </button>
+                          <button
+                            className="provider-list__action provider-list__action--danger"
+                            disabled={busy === row.id}
+                            onClick={() => void logout(row)}
+                            type="button"
+                          >
+                            Çıkış yap
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <>

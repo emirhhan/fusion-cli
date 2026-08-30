@@ -151,3 +151,13 @@
   opacity: 0.55;
   cursor: default;
 }
+
+.provider-list__buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.provider-list__action--danger { color: var(--text-danger, #b42318); }
+
+.provider-list__warn {
+  color: var(--text-danger, #b42318);
+  font-size: 12px;
+  margin: 0;
+}

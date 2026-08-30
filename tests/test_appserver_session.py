@@ -144,19 +144,23 @@ async def test_tur_ekleri_yalniz_yol_metadatasi_olarak_baglanca_girer(tmp_path, 
     monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _fake)
     attachment = tmp_path / "ornek.png"
     attachment.write_bytes(b"PNG")
-    await oturum.handle(Request(
-        id="ek-1",
-        name="tur.calistir",
-        data={
-            "gorev": "görseli incele",
-            "ekler": [{
-                "path": str(attachment),
-                "name": "ornek.png",
-                "kind": "image",
-                "icerik": "BURASI-PROTOKOLE-GIRMEMELI",
-            }],
-        },
-    ))
+    await oturum.handle(
+        Request(
+            id="ek-1",
+            name="tur.calistir",
+            data={
+                "gorev": "görseli incele",
+                "ekler": [
+                    {
+                        "path": str(attachment),
+                        "name": "ornek.png",
+                        "kind": "image",
+                        "icerik": "BURASI-PROTOKOLE-GIRMEMELI",
+                    }
+                ],
+            },
+        )
+    )
 
     assert str(attachment) in gorulen["extra_system"]
     assert '"kind": "image"' in gorulen["extra_system"]
@@ -171,14 +175,16 @@ async def test_olmayan_ek_acik_hatayla_reddedilir(tmp_path, monkeypatch):
         raise AssertionError("geçersiz ekte agent turu başlamamalı")
 
     monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calismamali)
-    await oturum.handle(Request(
-        id="ek-yok",
-        name="tur.calistir",
-        data={
-            "gorev": "dosyayı incele",
-            "ekler": [{"path": str(tmp_path / "silinmis.png"), "name": "silinmis.png"}],
-        },
-    ))
+    await oturum.handle(
+        Request(
+            id="ek-yok",
+            name="tur.calistir",
+            data={
+                "gorev": "dosyayı incele",
+                "ekler": [{"path": str(tmp_path / "silinmis.png"), "name": "silinmis.png"}],
+            },
+        )
+    )
 
     sonuc = _sonuc(satirlar, "ek-yok")
     assert sonuc["ok"] is False
@@ -472,3 +478,58 @@ async def test_tur_kes_calisan_turu_gercekten_iptal_eder(tmp_path, monkeypatch):
     tur_sonucu = _sonuc(satirlar, "1")
     assert tur_sonucu == {"ok": False, "metin": messages.APP_TURN_CANCELLED}
     assert oturum._turn is None
+
+
+async def test_web_baglan_oturumu_yapilandirmaya_yazar(tmp_path):
+    """Giriş penceresi kapandıktan sonra oturum gerçekten kaydedilmeli.
+
+    Eskiden yalnız profil klasörüne bakılıyordu; oturum `web_sessions`'a
+    yazılmadığı için Fusion o sağlayıcıyı hiç kullanamıyordu.
+    """
+    from dataclasses import replace
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.config = replace(oturum._state.config, source=tmp_path / "config.yaml")
+
+    await oturum.handle(
+        Request(id="1", name="web.baglan", data={"saglayici": "chatgpt_web", "hesap": "main"})
+    )
+
+    veri = json.loads(satirlar[-1])["veri"]
+    assert veri["ok"] is True
+    kayitli = oturum._state.config.web_sessions
+    assert [item.provider for item in kayitli] == ["chatgpt_web"]
+    assert kayitli[0].enabled is True
+
+
+async def test_web_cikis_oturumu_kaldirir(tmp_path):
+    from dataclasses import replace
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.config = replace(oturum._state.config, source=tmp_path / "config.yaml")
+    await oturum.handle(
+        Request(id="1", name="web.baglan", data={"saglayici": "chatgpt_web", "hesap": "main"})
+    )
+
+    await oturum.handle(
+        Request(id="2", name="web.cikis", data={"saglayici": "chatgpt_web", "hesap": "main"})
+    )
+
+    veri = json.loads(satirlar[-1])["veri"]
+    assert veri["ok"] is True
+    assert oturum._state.config.web_sessions == ()
+
+
+async def test_web_dogrula_kayitsiz_saglayiciyi_reddeder(tmp_path):
+    """Doğrulama uydurmaz: kayıtlı oturum yoksa açıkça hayır der."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(id="1", name="web.dogrula", data={"saglayici": "chatgpt_web", "hesap": "main"})
+    )
+
+    veri = json.loads(satirlar[-1])["veri"]
+    assert veri["ok"] is False

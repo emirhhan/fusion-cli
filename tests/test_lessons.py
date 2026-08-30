@@ -1,5 +1,3 @@
-
-
 def test_adim_isareti_yalniz_bilinen_arayuz_noktalarini_gosterir():
     """`isaret` uydurulamaz: yalnız arayüzde gerçekten var olan noktalar.
 

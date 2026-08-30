@@ -42,11 +42,14 @@ from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
 from .connectors import add_connector, list_connectors, remove_connector
 from .control import (
+    connect_web_session,
     delete_secret,
+    disconnect_web_session,
     provider_catalog_rows,
     save_secret,
     snapshot,
     start_web_login,
+    verify_web_session,
     web_login_state,
     web_provider_cards,
 )
@@ -328,6 +331,18 @@ class AppSession:
             return web_provider_cards(self._state.config)
         if request.name == "web.giris":
             return start_web_login(request.data.get("saglayici"), request.data.get("hesap"))
+        if request.name == "web.baglan":
+            return self._change_web_session(
+                connect_web_session, request.data.get("saglayici"), request.data.get("hesap")
+            )
+        if request.name == "web.cikis":
+            return self._change_web_session(
+                disconnect_web_session, request.data.get("saglayici"), request.data.get("hesap")
+            )
+        if request.name == "web.dogrula":
+            return await verify_web_session(
+                self._state.config, request.data.get("saglayici"), request.data.get("hesap")
+            )
         if request.name == "web.giris_durumu":
             return web_login_state(request.data.get("pid"))
         if request.name == "ders.listele":
@@ -403,6 +418,18 @@ class AppSession:
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
         return None
+
+    def _change_web_session(
+        self,
+        action: Callable[[Config, object, object], tuple[Config | None, dict[str, Any]]],
+        saglayici: object,
+        hesap: object,
+    ) -> dict[str, Any]:
+        """Web oturumunu yaz/sil ve BAŞARILIYSA oturumun yapılandırmasını güncelle."""
+        yeni, sonuc = action(self._state.config, saglayici, hesap)
+        if yeni is not None:
+            self._state.config = yeni
+        return sonuc
 
     def _change_connectors(
         self,
