@@ -319,6 +319,14 @@ fn kapatmayi_onayla(app: tauri::AppHandle) {
 ///
 /// Yardımcının her satırı olduğu gibi `ses://tanima` olayıyla yayılır; ayrıştırma
 /// arayüz tarafındadır.
+fn speech_helper_resource_name(target_os: &str) -> &'static str {
+    match target_os {
+        "macos" => "fusion-listen",
+        "windows" => "fusion-listen.exe",
+        _ => unreachable!("Fusion masaüstü yalnız macOS ve Windows hedefler"),
+    }
+}
+
 #[tauri::command]
 fn tanima_baslat(
     app: tauri::AppHandle,
@@ -326,7 +334,10 @@ fn tanima_baslat(
 ) -> Result<(), String> {
     let helper = app
         .path()
-        .resolve("fusion-listen", tauri::path::BaseDirectory::Resource)
+        .resolve(
+            speech_helper_resource_name(std::env::consts::OS),
+            tauri::path::BaseDirectory::Resource,
+        )
         .map_err(|error| format!("tanıma yardımcısı bulunamadı: {error}"))?;
     if !helper.is_file() {
         return Err("Bu pakette konuşma tanıma yardımcısı yok.".into());
@@ -575,5 +586,11 @@ mod voice_geometry_tests {
 
         assert_eq!(plan.size, (360.0, 112.0));
         assert_eq!(plan.on_top, None);
+    }
+
+    #[test]
+    fn speech_helper_resource_name_matches_each_packaged_platform() {
+        assert_eq!(speech_helper_resource_name("macos"), "fusion-listen");
+        assert_eq!(speech_helper_resource_name("windows"), "fusion-listen.exe");
     }
 }

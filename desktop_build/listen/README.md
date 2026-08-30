@@ -1,8 +1,9 @@
 # Konuşma tanıma yardımcısı
 
 `main.swift`, macOS'un **cihaz üstü** konuşma tanıyıcısını (`SFSpeechRecognizer`)
-kullanan küçük bir yardımcıdır. Uygulama bunu alt süreç olarak çalıştırır ve
-satır başına bir JSON okur:
+kullanan küçük bir yardımcıdır. `windows/FusionListen.cs` aynı sözleşmeyi
+Windows Speech Recognition ile sağlar. Uygulama adaptörü alt süreç olarak
+çalıştırır ve satır başına bir JSON okur:
 
 ```
 {"tur":"hazir","metin":"tr-TR"}
@@ -34,3 +35,16 @@ swiftc -O -o fusion-listen desktop_build/listen/main.swift
 ```
 
 CI'daki macOS koşucularında Swift zaten kuruludur.
+
+Paket scripti platforma göre doğru resource adını zorunlu kılar:
+
+```bash
+python desktop_build/listen/build_adapter.py --platform macos \
+  --output app/src-tauri/resources/fusion-listen
+```
+
+Windows karşılığı `fusion-listen.exe` üretir. Derleyici bulunamazsa, derleme
+non-zero dönerse veya beklenen çıktı oluşmazsa paketleme sessizce devam etmez.
+
+macOS helper `SIGTERM` ve `SIGINT` aldığında recognition task'i iptal eder,
+audio request'i kapatır, çalışan motoru durdurur ve mikrofon tap'ini kaldırır.

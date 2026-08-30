@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import select
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +17,178 @@ from desktop_build.runtime.build_runtime import (
     macos_target,
     write_archive,
 )
+
+
+LISTEN_BUILD_SCRIPT = Path("desktop_build/listen/build_adapter.py")
+
+
+def _fake_listen_compiler(tmp_path: Path) -> Path:
+    compiler_py = tmp_path / "fake_listen_compiler.py"
+    compiler_py.write_text(
+        """import os
+import sys
+from pathlib import Path
+
+if os.environ.get("FAKE_LISTEN_COMPILE_FAIL"):
+    print("sentetik derleme hatası", file=sys.stderr)
+    raise SystemExit(7)
+
+args = sys.argv[1:]
+if "-o" in args:
+    output = Path(args[args.index("-o") + 1])
+else:
+    output_dir = Path(args[args.index("--output") + 1])
+    output = output_dir / "FusionListen.exe"
+output.parent.mkdir(parents=True, exist_ok=True)
+output.write_bytes(b"compiled-listen-adapter")
+""",
+        encoding="utf-8",
+    )
+    if os.name == "nt":
+        wrapper = tmp_path / "fake-listen-compiler.cmd"
+        wrapper.write_text(f'@"{sys.executable}" "{compiler_py}" %*\r\n', encoding="utf-8")
+    else:
+        wrapper = tmp_path / "fake-listen-compiler"
+        wrapper.write_text(
+            f"#!{sys.executable}\nexec(compile(open({str(compiler_py)!r}, 'rb').read(), {str(compiler_py)!r}, 'exec'))\n",
+            encoding="utf-8",
+        )
+        wrapper.chmod(0o755)
+    return wrapper
+
+
+def _run_listen_build(
+    tmp_path: Path,
+    *,
+    platform_name: str,
+    arch: str,
+    output_name: str,
+    fail: bool = False,
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    output = tmp_path / output_name
+    env = os.environ.copy()
+    if fail:
+        env["FAKE_LISTEN_COMPILE_FAIL"] = "1"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(LISTEN_BUILD_SCRIPT),
+            "--platform",
+            platform_name,
+            "--arch",
+            arch,
+            "--compiler",
+            str(_fake_listen_compiler(tmp_path)),
+            "--output",
+            str(output),
+        ],
+        cwd=Path.cwd(),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    return result, output
+
+
+@pytest.mark.parametrize("arch", ["arm64", "x86_64"])
+def test_macos_listen_adapter_contract_builds_fusion_listen(tmp_path: Path, arch: str):
+    result, output = _run_listen_build(
+        tmp_path,
+        platform_name="macos",
+        arch=arch,
+        output_name="fusion-listen",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_bytes() == b"compiled-listen-adapter"
+
+
+def test_windows_listen_adapter_contract_builds_fusion_listen_exe(tmp_path: Path):
+    result, output = _run_listen_build(
+        tmp_path,
+        platform_name="windows",
+        arch="AMD64",
+        output_name="fusion-listen.exe",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output.read_bytes() == b"compiled-listen-adapter"
+
+
+def test_listen_adapter_compile_failure_is_not_silent(tmp_path: Path):
+    result, output = _run_listen_build(
+        tmp_path,
+        platform_name="windows",
+        arch="AMD64",
+        output_name="fusion-listen.exe",
+        fail=True,
+    )
+
+    assert result.returncode != 0
+    assert not output.exists()
+    assert "derlenemedi" in result.stderr.lower()
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS Swift signal cleanup testi",
+)
+def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
+    output = tmp_path / "fusion-listen"
+    build = subprocess.run(
+        [
+            sys.executable,
+            str(LISTEN_BUILD_SCRIPT),
+            "--platform",
+            "macos",
+            "--arch",
+            "arm64",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert build.returncode == 0, build.stderr
+
+    env = os.environ.copy()
+    env["FUSION_LISTEN_SIGNAL_SMOKE"] = "1"
+    helper = subprocess.Popen(
+        [str(output), "tr-TR"],
+        env=env,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert helper.stdout is not None
+        ready, _, _ = select.select([helper.stdout], [], [], 3)
+        assert ready, "helper signal smoke için hazır olmadı"
+        assert json.loads(helper.stdout.readline()) == {"tur": "hazir", "metin": "tr-TR"}
+        helper.terminate()
+        assert helper.wait(timeout=3) == 0
+    finally:
+        if helper.poll() is None:
+            helper.kill()
+
+
+def test_desktop_bundle_scripts_build_platform_listen_adapters():
+    package = json.loads(Path("app/package.json").read_text(encoding="utf-8"))
+    scripts = package["scripts"]
+
+    assert "build_adapter.py --platform macos" in scripts["listen:build:mac"]
+    assert "build_adapter.py --platform windows" in scripts["listen:build:win"]
+    assert scripts["bundle:mac"].startswith("npm run listen:build:mac &&")
+    assert scripts["bundle:win"].startswith("npm run listen:build:win &&")
+
+
+def test_windows_tauri_bundle_maps_listen_exe_as_resource():
+    config = json.loads(
+        Path("app/src-tauri/tauri.windows.bundle.conf.json").read_text(encoding="utf-8")
+    )
+
+    assert config["bundle"]["resources"]["resources/fusion-listen.exe"] == "fusion-listen.exe"
 
 
 def test_macos_target_mimariyi_tauri_adina_cevirir():

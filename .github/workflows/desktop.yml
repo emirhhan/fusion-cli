@@ -38,6 +38,9 @@ jobs:
       - name: Ön yüz bağımlılıklarını kur
         working-directory: app
         run: npm ci
+      - name: macOS konuşma adaptörünü derle
+        working-directory: app
+        run: npm run listen:build:mac
       - name: React ve Rust kalite kapıları
         working-directory: app
         run: npm run check
@@ -55,6 +58,8 @@ jobs:
           assert manifest["target"] == os.environ["EXPECTED_TARGET"]
           PY
           python desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
+          EXPECTED_ARCH=$([ "${{ matrix.target }}" = "aarch64-apple-darwin" ] && echo arm64 || echo x86_64)
+          lipo -archs app/src-tauri/target/release/bundle/macos/Fusion.app/Contents/Resources/fusion-listen | grep -qw "$EXPECTED_ARCH"
       - name: DMG'yi anlaşılır bir adla kopyala
         run: |
           mkdir -p dagitim
@@ -86,6 +91,9 @@ jobs:
       - name: Ön yüz bağımlılıklarını kur
         working-directory: app
         run: npm ci
+      - name: Windows konuşma adaptörünü derle
+        working-directory: app
+        run: npm run listen:build:win
       - name: React ve Rust kalite kapıları
         working-directory: app
         run: npm run check
@@ -95,7 +103,7 @@ jobs:
       - name: Hedefi doğrula
         run: |
           rustc -vV
-          python -c "import json,pathlib;m=json.loads(pathlib.Path('app/src-tauri/resources/runtime/runtime-manifest.json').read_text());assert m['target']=='x86_64-pc-windows-msvc',m['target'];assert m['entrypoint']=='fusion.exe',m['entrypoint'];print('hedef ve giriş noktası doğru')"
+          python -c "import json,pathlib;m=json.loads(pathlib.Path('app/src-tauri/resources/runtime/runtime-manifest.json').read_text());assert m['target']=='x86_64-pc-windows-msvc',m['target'];assert m['entrypoint']=='fusion.exe',m['entrypoint'];h=pathlib.Path('app/src-tauri/resources/fusion-listen.exe');assert h.read_bytes()[:2]==b'MZ';print('runtime ve konuşma adaptörü doğru')"
       - name: Kurucuyu anlaşılır bir adla kopyala
         shell: pwsh
         run: |
