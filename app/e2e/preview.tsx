@@ -104,6 +104,7 @@ const workspaceClient = {
     if (name === "proje.komut_onerileri") return { ok: true, komutlar: [{ tur: "check", ad: "Tüm kalite kapısı", komut: "make check" }, { tur: "build", ad: "Üretim derlemesi", komut: "npm run build" }] };
     if (name === "proje.git_durum") return { ok: true, git: true, branch: "fusion-app", degisen: 3, ileride: 2, geride: 0 };
     if (name === "proje.onizle") return { ok: true, yol: String(data.yol), tur: "image", mime: "image/svg+xml", boyut: 205, base64: btoa('<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="100%" height="100%" rx="24" fill="#101828"/><circle cx="360" cy="180" r="88" fill="#10a37f"/><text x="360" y="320" text-anchor="middle" fill="white" font-size="34" font-family="sans-serif">Fusion App</text></svg>') };
+    if (name === "web.onizleme_dogrula") return { ok: true, url: String(data.url), durum: 200 };
     if (name === "yetenek.katalog") return { ok: true,
       beceriler: [
         { ad: "frontend-design", aciklama: "Üretim kalitesinde arayüz tasarım disiplini", kaynak: "claude+codex", tur: "beceri", etkin: true, izinler: ["dosya okuma", "dosya düzenleme"] },
@@ -245,8 +246,12 @@ function historyFixture(): HistoryController {
 function Preview() {
   const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
   const inspectorWidth = Number(params.get("inspectorWidth") ?? "420");
+  const requestedInspectorTab = params.get("inspectorTab");
+  const inspectorTab = requestedInspectorTab === "preview" || requestedInspectorTab === "terminal"
+    ? requestedInspectorTab
+    : state === "workspace-error" ? "terminal" : "files";
   const inspector = state.startsWith("workspace-")
-    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={state === "workspace-error" ? "terminal" : "files"} width={inspectorWidth} />
+    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} width={inspectorWidth} />
     : <Inspector collapsed={inspectorCollapsed} width={inspectorWidth} />;
   const capabilities = state === "capabilities";
   const control = state === "control";
