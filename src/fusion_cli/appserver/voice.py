@@ -81,6 +81,56 @@ def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
     )
 
 
+#: Piper sentez parametreleri. Değerler UYDURULMADI: aynı cümle üç farklı hızda
+#: dinlenerek seçildi ve kullanıcı "biraz hızlandıralım, robotik olsa da olur"
+#: dedi. Bu yüzden `length_scale` 1.0'ın altında — varsayılandan hızlı.
+PIPER_DEFAULTS: dict[str, float] = {
+    "length_scale": 0.92,
+    # Hece süresi değişkenliği: mekanik tınıyı azaltan asıl ayar.
+    "noise_w_scale": 0.9,
+    "sentence_silence": 0.25,
+}
+
+#: Piper'ın Türkçe modeli. Katalogda doğrulandı: tek Türkçe ses budur
+#: (`fahrettin` ve `fettah` 404 veriyor). MIT lisanslı, 60 MB, çevrimdışı.
+PIPER_TURKISH_MODEL = "tr_TR-dfki-medium"
+
+
+def piper_argv(model: str, output: str, settings: dict[str, float]) -> list[str]:
+    """Piper'ı çalıştıracak komutu üret."""
+    return [
+        "piper",
+        "-m",
+        model,
+        "-f",
+        output,
+        "--length-scale",
+        str(settings["length_scale"]),
+        "--noise-w-scale",
+        str(settings["noise_w_scale"]),
+        "--sentence-silence",
+        str(settings["sentence_silence"]),
+    ]
+
+
+def engine_for(
+    *, piper_model: str | None, system_voice: str | None
+) -> tuple[str | None, str | None]:
+    """Hangi motorun kullanılacağını ve gerekiyorsa sebebini döndür.
+
+    Piper varsa o tercih edilir: sistem sesinden daha doğal ve Windows'ta da
+    çalışır. Model indirilmemişse sistem sesine düşülür ama SEBEBİ söylenir —
+    sessizce daha kötü sesle konuşmak kullanıcıyı yanıltır.
+    """
+    if piper_model:
+        return "piper", None
+    if system_voice:
+        return "sistem", (
+            "Daha doğal ses için Piper modeli indirilmedi; şimdilik sistem sesi kullanılıyor."
+        )
+    return None, "Bu bilgisayarda kullanılabilir bir Türkçe ses yok."
+
+
 def turkish_voice(installed: tuple[str, ...]) -> str | None:
     """Kurulu sesler arasından Türkçe olanın adını döndür.
 
@@ -168,11 +218,14 @@ def speak(text: object) -> dict[str, Any]:
     Süreç BEKLENMEZ: uzun bir cevabı okurken arayüz donmamalı. Konuşmayı
     durdurmak `ses.durdur` ile yapılır.
     """
-    content = str(text or "").strip()
+    from .voice_text import prepare_speech
+
+    # Ham cevap seslendirilmez: markdown, kod bloğu, dosya yolu ve sayılar
+    # önce okunabilir hâle getirilir (bkz. `voice_text`). Bu katman olmadan
+    # hangi model kullanılırsa kullanılsın sonuç kötü duyulur.
+    content = prepare_speech(str(text or ""))
     if not content:
         return {"ok": False, "metin": "Okunacak metin boş."}
-    if len(content) > MAX_SPEECH_CHARS:
-        content = content[:MAX_SPEECH_CHARS]
     voice = best_voice(installed_voice_records())
     try:
         argv = speak_argv(platform.system(), content, voice=voice)

@@ -82,3 +82,36 @@ def test_daha_iyi_ses_kuruluysa_kullanici_bilgilendirilir():
 
     iyi_ses_var = (("Cem", "tr-TR", "com.apple.ttsbundle.Cem"),)
     assert upgrade_hint(iyi_ses_var) is None
+
+
+def test_piper_komutu_hizli_ve_ayarlanabilir():
+    """Piper parametreleri sabit değil, ölçülerek seçilmiş varsayılanlardır.
+
+    Kullanıcı "biraz hızlandıralım, robotik olsa da olur" dedi: bu yüzden
+    varsayılan `length_scale` 1.0'ın ALTINDA (daha hızlı) seçildi.
+    """
+    from fusion_cli.appserver.voice import PIPER_DEFAULTS, piper_argv
+
+    assert PIPER_DEFAULTS["length_scale"] < 1.0
+
+    argv = piper_argv("/tmp/model.onnx", "/tmp/cikti.wav", PIPER_DEFAULTS)
+
+    assert "--length-scale" in argv
+    assert "--sentence-silence" in argv
+    assert argv[argv.index("-m") + 1] == "/tmp/model.onnx"
+    assert argv[argv.index("-f") + 1] == "/tmp/cikti.wav"
+
+
+def test_piper_modeli_yoksa_sistem_sesine_dusulur_ve_sebep_soylenir():
+    """Model indirilmemişse sessizce susmak yanlış olurdu."""
+    from fusion_cli.appserver.voice import engine_for
+
+    motor, sebep = engine_for(piper_model=None, system_voice="Cem")
+    assert motor == "sistem"
+    assert sebep and "indir" in sebep.casefold()
+
+    motor, sebep = engine_for(piper_model="/tmp/model.onnx", system_voice="Cem")
+    assert motor == "piper" and sebep is None
+
+    motor, sebep = engine_for(piper_model=None, system_voice=None)
+    assert motor is None and sebep
