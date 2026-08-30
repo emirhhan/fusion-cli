@@ -534,10 +534,26 @@ impl RuntimeResources {
 mod tests {
     use super::*;
     use std::collections::HashMap;
-    use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     const TEST_TARGET: &str = "aarch64-apple-darwin";
+    #[cfg(windows)]
+    const TEST_TARGET: &str = "x86_64-pc-windows-msvc";
+    #[cfg(unix)]
+    const TEST_ENTRYPOINT: &str = "fusion";
+    #[cfg(windows)]
+    const TEST_ENTRYPOINT: &str = "fusion.exe";
     const PAKET_SURUMU: &str = "0.3.0a1";
+
+    fn make_executable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut izinler = std::fs::metadata(path).unwrap().permissions();
+            izinler.set_mode(0o755);
+            std::fs::set_permissions(path, izinler).unwrap();
+        }
+    }
 
     /// Sahte sağlık probu: gerçek süreç başlatmadan, verilen yürütülebilir
     /// dosyanın içeriğindeki sürüm işaretine göre geçer/kalır kararı verir.
@@ -681,7 +697,7 @@ mod tests {
             let fixture = Self::new();
             let bozuk_dizin = fixture.paths.version_dir(PAKET_SURUMU);
             std::fs::create_dir_all(&bozuk_dizin).unwrap();
-            std::fs::write(bozuk_dizin.join("fusion"), b"bozuk ikili").unwrap();
+            std::fs::write(bozuk_dizin.join(TEST_ENTRYPOINT), b"bozuk ikili").unwrap();
             fixture.write_active_record(PAKET_SURUMU, None);
             fixture
         }
@@ -689,11 +705,9 @@ mod tests {
         fn install_existing_version(&self, version: &str) {
             let dizin = self.paths.version_dir(version);
             std::fs::create_dir_all(&dizin).unwrap();
-            let executable = dizin.join("fusion");
+            let executable = dizin.join(TEST_ENTRYPOINT);
             std::fs::write(&executable, format!("#!/bin/sh\necho fusion-{version}\n")).unwrap();
-            let mut izinler = std::fs::metadata(&executable).unwrap().permissions();
-            izinler.set_mode(0o755);
-            std::fs::set_permissions(&executable, izinler).unwrap();
+            make_executable(&executable);
         }
 
         fn write_active_record(&self, active: &str, previous: Option<&str>) {
@@ -715,7 +729,7 @@ mod tests {
     /// manifest üretir; kurulum kodunu hiçbir yerde mocklamaz.
     fn write_fixture_package(archive_path: &Path, manifest_path: &Path, version: &str) {
         let content = format!("#!/bin/sh\necho fusion-{version}\n");
-        let archive_bytes = build_tar_gz("fusion", content.as_bytes(), 0o755);
+        let archive_bytes = build_tar_gz(TEST_ENTRYPOINT, content.as_bytes(), 0o755);
         std::fs::write(archive_path, &archive_bytes).unwrap();
         let archive_hash = sha256_hex(&archive_bytes);
         let file_hash = sha256_hex(content.as_bytes());
@@ -726,9 +740,9 @@ mod tests {
             "target": TEST_TARGET,
             "archive": "fusion-runtime.tar.gz",
             "archive_sha256": archive_hash,
-            "entrypoint": "fusion",
+            "entrypoint": TEST_ENTRYPOINT,
             "files": [{
-                "path": "fusion",
+                "path": TEST_ENTRYPOINT,
                 "kind": "file",
                 "mode": 0o755,
                 "sha256": file_hash,

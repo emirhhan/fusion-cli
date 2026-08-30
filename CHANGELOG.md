@@ -3,6 +3,13 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a6] — 2026-08-30
+
+- Rust çalışma zamanı testleri Windows hedefi, `.exe` giriş noktası ve Windows
+  izin modeliyle derlenebilir hâle getirildi.
+- POSIX çalıştırma izni ve kabuk protokolü testleri yalnız Unix hedeflerinde
+  derlenecek biçimde sınırlandı.
+
 ## [0.3.0a5] — 2026-08-30
 
 - Windows paket ayarı normal Cargo kalite kapısından ayrıldı; temiz makinede

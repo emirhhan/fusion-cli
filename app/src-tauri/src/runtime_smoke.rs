@@ -140,6 +140,7 @@ fn terminate(child: &mut Child) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -159,6 +160,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn cekirdek_protokolu_oturum_durumuyla_dogrulanir() {
         let temp = tempfile::tempdir().unwrap();

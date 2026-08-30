@@ -120,29 +120,27 @@ mod testler {
     #[test]
     fn calistirilabilir_dosya_dogrulamadan_gecer() {
         let gecici = tempfile::NamedTempFile::new().expect("geçici dosya oluşturulamadı");
-        let mut izinler = std::fs::metadata(gecici.path()).unwrap().permissions();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            izinler.set_mode(0o755);
-        }
-        std::fs::set_permissions(gecici.path(), izinler).unwrap();
-
-        assert!(validate_runtime_executable(gecici.path()).is_ok());
-    }
-
-    #[test]
-    fn calistirma_izni_olmayan_dosya_reddedilir() {
-        let gecici = tempfile::NamedTempFile::new().expect("geçici dosya oluşturulamadı");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let mut izinler = std::fs::metadata(gecici.path()).unwrap().permissions();
-            izinler.set_mode(0o644);
+            izinler.set_mode(0o755);
             std::fs::set_permissions(gecici.path(), izinler).unwrap();
-
-            let error = validate_runtime_executable(gecici.path()).unwrap_err();
-            assert!(error.contains("Çalışma zamanı hazır değil"));
         }
+
+        assert!(validate_runtime_executable(gecici.path()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn calistirma_izni_olmayan_dosya_reddedilir() {
+        let gecici = tempfile::NamedTempFile::new().expect("geçici dosya oluşturulamadı");
+        use std::os::unix::fs::PermissionsExt;
+        let mut izinler = std::fs::metadata(gecici.path()).unwrap().permissions();
+        izinler.set_mode(0o644);
+        std::fs::set_permissions(gecici.path(), izinler).unwrap();
+
+        let error = validate_runtime_executable(gecici.path()).unwrap_err();
+        assert!(error.contains("Çalışma zamanı hazır değil"));
     }
 }
