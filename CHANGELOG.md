@@ -3,6 +3,17 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a2] — 2026-08-30
+
+- Masaüstü Ayarlar ekranına oturumluk token, tahmini maliyet ve ölçülmüş model
+  sağlığı özeti eklendi.
+- Ses hızı, tını, özel Piper modeli ve çevrimdışı Türkçe model indirme Ayarlar'a
+  taşındı.
+- Windows WebView'da sürgü bırakılırken eski değerin kaydedilebildiği olay
+  sıralaması düzeltildi.
+- Ayarlar'ın kaydırma altındaki kullanım ve ses kartları geniş/dar görsel
+  regresyon testlerine alındı.
+
 ## [0.3.0a1] — 2026-07-26
 
 İlk kamuya açık alfa. Bu sürümün ağırlığı yeni özelliklerde değil, **sessizce

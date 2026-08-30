@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * Panel içi ses ayarları.
@@ -36,7 +36,20 @@ export function VoiceSettings({
   showOnTop?: boolean;
 }) {
   const [taslak, setTaslak] = useState(prefs);
-  useEffect(() => setTaslak(prefs), [prefs]);
+  const taslakRef = useRef(prefs);
+  useEffect(() => {
+    taslakRef.current = prefs;
+    setTaslak(prefs);
+  }, [prefs]);
+
+  const guncelle = (next: VoicePrefs) => {
+    // Windows WebView change + mouseUp olaylarını aynı React çevriminde
+    // işleyebilir. State henüz çizilmeden mouseUp gelirse eski değer
+    // kaydedilmesin diye son taslak eşzamanlı olarak ref'te de tutulur.
+    taslakRef.current = next;
+    setTaslak(next);
+  };
+  const kaydet = () => onChange(taslakRef.current);
 
   const dosyaAdi = taslak.model?.split(/[\\/]/).filter(Boolean).slice(-1)[0];
 
@@ -49,10 +62,10 @@ export function VoiceSettings({
           id="ses-hiz"
           max={1.6}
           min={0.6}
-          onChange={(event) => setTaslak({ ...taslak, hiz: Number(event.target.value) })}
-          onMouseUp={() => onChange(taslak)}
-          onKeyUp={() => onChange(taslak)}
-          onTouchEnd={() => onChange(taslak)}
+          onChange={(event) => guncelle({ ...taslakRef.current, hiz: Number(event.target.value) })}
+          onMouseUp={kaydet}
+          onKeyUp={kaydet}
+          onTouchEnd={kaydet}
           step={0.05}
           type="range"
           value={taslak.hiz}
@@ -67,10 +80,12 @@ export function VoiceSettings({
           id="ses-robotik"
           max={1}
           min={0}
-          onChange={(event) => setTaslak({ ...taslak, robotik: Number(event.target.value) })}
-          onMouseUp={() => onChange(taslak)}
-          onKeyUp={() => onChange(taslak)}
-          onTouchEnd={() => onChange(taslak)}
+          onChange={(event) =>
+            guncelle({ ...taslakRef.current, robotik: Number(event.target.value) })
+          }
+          onMouseUp={kaydet}
+          onKeyUp={kaydet}
+          onTouchEnd={kaydet}
           step={0.05}
           type="range"
           value={taslak.robotik}
