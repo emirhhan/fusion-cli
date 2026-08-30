@@ -191,7 +191,52 @@
 .voice-panel[data-mode="mini"] .voice-ask__text { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .voice-panel[data-mode="mini"] .voice-ask__buttons { justify-content: flex-start; }
 .voice-panel[data-mode="mini"] .voice-ask__buttons button { min-height: 32px; padding: 0 10px; }
-.voice-settings { border: 0; padding: 0; }
+.voice-settings {
+  border: 0;
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  width: 100%;
+}
+.voice-settings__row {
+  align-items: center;
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 11px;
+  gap: 8px;
+  grid-template-columns: 52px minmax(0, 1fr) 46px;
+}
+.voice-settings__row input { accent-color: var(--accent-text); min-width: 0; width: 100%; }
+.voice-settings__row output { font-variant-numeric: tabular-nums; text-align: right; }
+.voice-settings__toggle {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+}
+.voice-settings__toggle input { accent-color: var(--accent-text); }
+.voice-settings__model { align-items: center; display: flex; gap: 8px; min-width: 0; }
+.voice-settings__model button {
+  background: var(--surface-hover);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  min-height: 36px;
+  padding: 5px 10px;
+}
+.voice-settings__model button:disabled { cursor: not-allowed; opacity: .55; }
+.voice-settings__model small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 @keyframes talk-enter {
   from { opacity: 0; transform: translateY(10px) scale(.98); }
