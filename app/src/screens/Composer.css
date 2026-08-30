@@ -158,3 +158,17 @@
 .composer__approval[data-mode="security"] { background: var(--surface-accent-subtle); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) { .composer__approval { transition: none; } }
+
+/* Görsel ek önizlemesi. */
+
+.composer__attachment[data-gorsel="true"] {
+  padding-left: 4px;
+}
+
+.composer__attachment-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  object-fit: cover;
+  display: block;
+}

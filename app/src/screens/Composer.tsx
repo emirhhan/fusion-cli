@@ -2,6 +2,7 @@ import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
+import { AttachmentChip } from "./AttachmentChip";
 
 /** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
 export type WorkspaceMode = "sohbet" | "kod";
@@ -168,15 +169,11 @@ export function Composer({
         {attachments.length > 0 && (
           <div aria-label="Ekler" className="composer__attachments">
             {attachments.map((attachment) => (
-              <span className="composer__attachment" key={attachment.path}>
-                <span aria-hidden="true">{attachment.kind === "image" ? "▧" : "▤"}</span>
-                <span>{attachment.name}</span>
-                <button
-                  aria-label={`${attachment.name} ekini kaldır`}
-                  onClick={() => onRemoveAttachment(attachment.path)}
-                  type="button"
-                >×</button>
-              </span>
+              <AttachmentChip
+                attachment={attachment}
+                key={attachment.path}
+                onRemove={() => onRemoveAttachment(attachment.path)}
+              />
             ))}
           </div>
         )}
