@@ -102,4 +102,10 @@ describe("Inspector", () => {
     render(<Inspector collapsed />);
     expect(screen.getByRole("tab", { name: "Dosyalar" }).hasAttribute("aria-controls")).toBe(false);
   });
+
+  it("geniş görünümde yalnız bağlı aktif sekmeye aria-controls verir", () => {
+    render(<Inspector activeTab="files" />);
+    expect(screen.getByRole("tab", { name: "Dosyalar" }).getAttribute("aria-controls")).toBe("inspector-panel-files");
+    expect(screen.getByRole("tab", { name: "Terminal" }).hasAttribute("aria-controls")).toBe(false);
+  });
 });

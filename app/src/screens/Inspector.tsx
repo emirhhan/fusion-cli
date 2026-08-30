@@ -156,7 +156,7 @@ export function Inspector({
         <div aria-label="Denetçi araçları" className="inspector__tabs" role="tablist">
           {tabs.map((tab) => (
             <button
-              aria-controls={collapsed ? undefined : `inspector-panel-${tab.id}`}
+              aria-controls={!collapsed && activeTab === tab.id ? `inspector-panel-${tab.id}` : undefined}
               aria-selected={activeTab === tab.id}
               id={`inspector-tab-${tab.id}`}
               key={tab.id}
