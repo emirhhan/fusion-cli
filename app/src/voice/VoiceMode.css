@@ -166,3 +166,31 @@
   .voice-panel { animation: none; }
   .voice-wave__bar { transition: none; }
 }
+
+/* Panel içi onay: konuşurken ana pencereye dönmek gerekmesin. */
+.voice-ask {
+  background: var(--surface-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  width: 100%;
+}
+
+.voice-ask__text {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: var(--line-body);
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.voice-ask__buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.voice-ask__buttons button {
+  background: var(--surface-raised); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 6px 12px;
+}
+.voice-ask__buttons button:hover { background: var(--accent); color: var(--accent-on); }
+.voice-ask__buttons button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

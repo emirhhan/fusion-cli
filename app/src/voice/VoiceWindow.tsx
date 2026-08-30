@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { emitVoiceMessage, onVoicePrefsState, requestVoicePrefs } from "./bridge";
+import {
+  answerVoiceAsk,
+  emitVoiceMessage,
+  onVoiceAsk,
+  onVoicePrefsState,
+  requestVoicePrefs,
+  type VoiceAsk,
+} from "./bridge";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode, type VoiceState } from "./VoiceMode";
 import type { VoicePrefs } from "./VoiceSettings";
@@ -27,6 +34,13 @@ export function VoiceWindow() {
   const [wide, setWide] = useState(true);
   const [onTop, setOnTop] = useState(true);
   const [prefs, setPrefs] = useState<VoicePrefs>({ hiz: 1, model: null, robotik: 0.5 });
+  const [ask, setAsk] = useState<VoiceAsk | null>(null);
+
+  // Onay sorusu panelde görünür: konuşurken ana pencereye dönmek gerekmesin.
+  useEffect(() => {
+    const cikar = onVoiceAsk((gelen) => setAsk(gelen?.acik ? gelen : null));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, []);
 
   // Dinleme KENDİLİĞİNDEN başlar: kullanıcı mikrofona basarak paneli zaten
   // açtı, bir kez daha basmasını istemek fazladan adımdı.
@@ -84,6 +98,11 @@ export function VoiceWindow() {
 
   return (
     <VoiceMode
+      ask={ask}
+      onAnswer={(cevap) => {
+        setAsk(null);
+        void answerVoiceAsk(cevap);
+      }}
       onClose={() => void closeVoiceWindow()}
       onPickModel={() => {
         // Kendi ses dosyası: yol tercihlere yazılır, dosya KOPYALANMAZ.

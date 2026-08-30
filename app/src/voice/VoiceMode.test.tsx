@@ -60,3 +60,31 @@ describe("VoiceMode", () => {
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("true");
   });
 });
+
+describe("VoiceMode — onay", () => {
+  const ASK = {
+    acik: true,
+    arac: "write_file",
+    metin: "app.py dosyası yazılsın mı?",
+    secenekler: [
+      { deger: "evet", etiket: "Onayla" },
+      { deger: "hayir", etiket: "Reddet" },
+    ],
+  };
+
+  it("açık onayı panelde gösterir ve seçimi geri verir", () => {
+    const onAnswer = vi.fn();
+    render(
+      <VoiceMode ask={ASK} onAnswer={onAnswer} onClose={vi.fn()} onToggleListen={vi.fn()} state="thinking" />,
+    );
+    expect(screen.getByText("app.py dosyası yazılsın mı?")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reddet" }));
+    expect(onAnswer).toHaveBeenCalledWith("hayir");
+  });
+
+  it("onay yokken hiçbir şey çizmez", () => {
+    render(<VoiceMode ask={null} onAnswer={vi.fn()} onClose={vi.fn()} onToggleListen={vi.fn()} state="idle" />);
+    expect(screen.queryByRole("group", { name: "Onay" })).toBeNull();
+  });
+});

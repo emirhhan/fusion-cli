@@ -52,7 +52,9 @@ import { listen } from "@tauri-apps/api/event";
 import {
   kabukVar,
   onVoiceMessage,
+  onVoiceAnswer,
   onVoicePrefsRequest,
+  publishVoiceAsk,
   publishVoicePrefs,
   type VoicePrefsPayload,
 } from "./voice/bridge";
@@ -491,6 +493,38 @@ export function SessionUygulama({
     const cikar = onVoicePrefsRequest((istek) => void yayinla(istek).catch(() => undefined));
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active]);
+
+  // Açık onay konuşma penceresine de yayılır ve oradan gelen cevap aynı
+  // `answer` yolundan geçer: iki ayrı onay mantığı olsaydı biri düzeltilirken
+  // öteki eskirdi.
+  useEffect(() => {
+    if (!active) return;
+    const soru = active.question;
+    void publishVoiceAsk(
+      soru
+        ? {
+            acik: true,
+            arac: soru.data.arac,
+            metin: soru.data.soru ?? `${soru.data.arac ?? "İşlem"} çalıştırılsın mı?`,
+            secenekler: (soru.data.secenekler ?? [
+              { deger: "evet", etiket: "Onayla" },
+              { deger: "hayir", etiket: "Reddet" },
+            ]).map((secenek) => ({
+              deger: secenek.deger ?? secenek.etiket,
+              etiket: secenek.etiket,
+            })),
+          }
+        : null,
+    ).catch(() => undefined);
+  }, [active?.question, active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = active.id;
+    // Cevap biçimi ana penceredeki onay kutusuyla AYNIDIR: `{ secim }`.
+    const cikar = onVoiceAnswer((cevap) => controller.answer(id, { secim: cevap }));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active?.id, controller]);
 
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;

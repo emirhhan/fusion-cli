@@ -118,3 +118,55 @@ export function onVoicePrefsState(
 ): Promise<() => void> {
   return dinle(VOICE_PREFS_STATE, handler, transport);
 }
+
+/**
+ * Onay köprüsü.
+ *
+ * Konuşurken bir onay çıkarsa kullanıcı ana pencereye dönmek zorunda
+ * kalmamalı: soru panelde görünür ve cevap aynı yoldan geri döner. Onay
+ * kararı yine ÇEKİRDEĞE aittir; köprü yalnız soruyu ve cevabı taşır, kendi
+ * başına hiçbir şeyi onaylamaz.
+ */
+
+export const VOICE_ASK = "fusion://ses-onay";
+export const VOICE_ANSWER = "fusion://ses-onay-cevap";
+
+export interface VoiceAsk {
+  /** Onaylanacak aracın adı; yoksa serbest soru. */
+  arac?: string;
+  /** Soru metni ya da özet. */
+  metin: string;
+  secenekler: { deger: string; etiket: string }[];
+  /** Soru kapandıysa null yayınlanır. */
+  acik: boolean;
+}
+
+export async function publishVoiceAsk(
+  ask: VoiceAsk | null,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_ASK, ask);
+}
+
+export function onVoiceAsk(
+  handler: (ask: VoiceAsk | null) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_ASK, handler, transport);
+}
+
+export async function answerVoiceAsk(
+  answer: string,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_ANSWER, answer);
+}
+
+export function onVoiceAnswer(
+  handler: (answer: string) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_ANSWER, handler, transport);
+}

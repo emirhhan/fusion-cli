@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { FusionAvatar, type AvatarState } from "./FusionAvatar";
 import { MicIcon } from "./MicIcon";
+import type { VoiceAsk } from "./bridge";
 import { VoiceSettings, type VoicePrefs } from "./VoiceSettings";
 import { Waveform } from "./Waveform";
 import "./VoiceMode.css";
@@ -45,6 +46,9 @@ interface VoiceModeProps {
   onTop?: boolean;
   onTopChange?: (next: boolean) => void;
   prefs?: VoicePrefs;
+  /** Çekirdekten gelen açık onay sorusu; yoksa hiç çizilmez. */
+  ask?: VoiceAsk | null;
+  onAnswer?: (answer: string) => void;
   /** O anda duyulan/üretilen metin; boşsa gösterilmez. */
   transcript?: string;
   state: VoiceState;
@@ -56,6 +60,8 @@ interface VoiceModeProps {
 const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
 
 export function VoiceMode({
+  ask = null,
+  onAnswer,
   onClose,
   onPickModel,
   onPrefsChange,
@@ -121,6 +127,18 @@ export function VoiceMode({
         <div className="voice-panel__stage">
           <FusionAvatar scale={wide ? 2 : 1.2} state={AVATAR[state]} />
           <Waveform active={state === "listening"} />
+          {ask && onAnswer && (
+            <div aria-label="Onay" className="voice-ask" role="group">
+              <p className="voice-ask__text">{ask.metin}</p>
+              <div className="voice-ask__buttons">
+                {ask.secenekler.map((secenek) => (
+                  <button key={secenek.deger} onClick={() => onAnswer(secenek.deger)} type="button">
+                    {secenek.etiket}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>
           {wide && transcript && <p className="voice-panel__transcript">{transcript}</p>}
         </div>
