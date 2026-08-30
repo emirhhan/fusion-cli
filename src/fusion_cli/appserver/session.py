@@ -16,6 +16,7 @@ C1/C4).
 from __future__ import annotations
 
 import asyncio
+import json
 import shlex
 import sys
 from dataclasses import replace
@@ -75,6 +76,50 @@ def _build_health(config: Config) -> HealthRegistry:
         failure_threshold=runtime.circuit_failure_threshold,
         cooldown_s=runtime.circuit_cooldown_s,
         alpha=runtime.reliability_alpha,
+    )
+
+
+def _attachment_context(value: object) -> tuple[str, str | None]:
+    """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
+
+    Dosya içeriği burada okunmaz; arayüz mutlak yolu verir ve agent standart
+    dosya araçları/izinleri üzerinden gerektiğinde kendisi okur.
+    """
+    if not isinstance(value, list):
+        return "", None
+    attachments: list[dict[str, str]] = []
+    unavailable: list[str] = []
+    for raw in value[:20]:
+        if not isinstance(raw, dict):
+            continue
+        path = raw.get("path")
+        if not isinstance(path, str) or not path.strip() or len(path) > 4096:
+            continue
+        local_path = Path(path).expanduser()
+        if not local_path.is_absolute() or not local_path.is_file():
+            unavailable.append(str(raw.get("name") or path)[:512])
+            continue
+        attachments.append(
+            {
+                "path": str(local_path),
+                "name": str(raw.get("name", ""))[:512],
+                "kind": "image" if raw.get("kind") == "image" else "file",
+            }
+        )
+    if unavailable:
+        names = ", ".join(unavailable[:3])
+        suffix = "…" if len(unavailable) > 3 else ""
+        return "", f"Ek açılamadı veya artık mevcut değil: {names}{suffix}"
+    if not attachments:
+        return "", None
+    payload = json.dumps(attachments, ensure_ascii=False)
+    return (
+        "<kullanici_ekleri>\n"
+        "Bu yolları kullanıcı bu tur için açıkça ekledi. İçerikleri yalnız görev "
+        "gerektiriyorsa standart izin ve araç kurallarıyla oku.\n"
+        f"{payload}\n"
+        "</kullanici_ekleri>",
+        None,
     )
 
 
@@ -215,7 +260,13 @@ class AppSession:
         if request.name == "komut.secenekler":
             return self._command_options(request.data)
         if request.name == "tur.calistir":
-            return await self._run_turn(str(request.data.get("gorev", "")))
+            attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
+            if attachment_error:
+                return {"ok": False, "metin": attachment_error}
+            return await self._run_turn(
+                str(request.data.get("gorev", "")),
+                attachment_context,
+            )
         if request.name == "tur.kes":
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
@@ -374,7 +425,7 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}
 
-    async def _run_turn(self, task: str) -> dict[str, Any]:
+    async def _run_turn(self, task: str, attachment_context: str = "") -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
         Yapılandırma ve onay modu `self._state`'TEN okunur (bkz. modül
@@ -400,7 +451,11 @@ class AppSession:
             )
         capability_context = self._take_capability_context()
         inherited_context = self._state.take_pending_digest()
-        extra_system = "\n\n".join(part for part in (inherited_context, capability_context) if part)
+        extra_system = "\n\n".join(
+            part
+            for part in (inherited_context, capability_context, attachment_context)
+            if part
+        )
         self._turn = asyncio.ensure_future(
             run_agent_task(
                 task,

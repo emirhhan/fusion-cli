@@ -67,6 +67,12 @@ export interface ResumeSession {
   root?: string;
 }
 
+export interface SessionAttachment {
+  kind: "file" | "image";
+  name: string;
+  path: string;
+}
+
 export interface SessionState {
   activeId: string | null;
   order: string[];

@@ -1,15 +1,33 @@
-import { useState, type KeyboardEvent } from "react";
+import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "../ui/Button";
 import "./Composer.css";
 
 /** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
 export type WorkspaceMode = "sohbet" | "kod";
 
+export interface ComposerCommand {
+  ad: string;
+  aciklama: string;
+  grup: string;
+  kullanim: string;
+  destekleniyor: boolean;
+}
+
+export interface ComposerAttachment {
+  kind: "file" | "image";
+  name: string;
+  path: string;
+}
+
 interface ComposerProps {
+  attachments?: ComposerAttachment[];
+  attachmentError?: string | null;
+  commands?: ComposerCommand[];
   mode?: WorkspaceMode;
   onAttach?: () => void;
-  onCommand?: () => void;
+  onDropFiles?: (files: File[]) => void;
   onModeChange?: (mode: WorkspaceMode) => void;
+  onRemoveAttachment?: (path: string) => void;
   onSend: (task: string) => void;
   onStop?: () => void;
   onValueChange?: (value: string) => void;
@@ -18,10 +36,14 @@ interface ComposerProps {
 }
 
 export function Composer({
+  attachments = [],
+  attachmentError = null,
+  commands = [],
   mode = "sohbet",
   onAttach = () => undefined,
-  onCommand = () => undefined,
+  onDropFiles = () => undefined,
   onModeChange,
+  onRemoveAttachment = () => undefined,
   onSend,
   onStop = () => undefined,
   onValueChange,
@@ -29,10 +51,20 @@ export function Composer({
   value,
 }: ComposerProps) {
   const [internalValue, setInternalValue] = useState("");
+  const [activeCommand, setActiveCommand] = useState(0);
   const draft = value ?? internalValue;
+  const filteredCommands = useMemo(() => {
+    if (!draft.startsWith("/") || draft.includes("\n")) return [];
+    const query = draft.slice(1).trim().toLocaleLowerCase("tr");
+    return commands.filter((command) =>
+      `${command.ad} ${command.aciklama} ${command.grup}`.toLocaleLowerCase("tr").includes(query),
+    ).slice(0, 8);
+  }, [commands, draft]);
+  const paletteOpen = filteredCommands.length > 0;
   const setDraft = (next: string) => {
     if (value === undefined) setInternalValue(next);
     onValueChange?.(next);
+    setActiveCommand(0);
   };
   const send = () => {
     const task = draft.trim();
@@ -41,15 +73,76 @@ export function Composer({
     onSend(task);
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Tab" && event.shiftKey && onModeChange) {
+      event.preventDefault();
+      onModeChange(mode === "sohbet" ? "kod" : "sohbet");
+      return;
+    }
+    if (paletteOpen && event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveCommand((current) => (current + 1) % filteredCommands.length);
+      return;
+    }
+    if (paletteOpen && event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveCommand((current) => (current - 1 + filteredCommands.length) % filteredCommands.length);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
+      const selected = filteredCommands[activeCommand];
+      if (selected && draft.trim() !== `/${selected.ad}`) {
+        setDraft(`/${selected.ad}`);
+        return;
+      }
       send();
     }
+  };
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const files = [...event.dataTransfer.files];
+    if (files.length) onDropFiles(files);
   };
 
   return (
     <div className="composer-wrap">
-      <div className="composer">
+      <div className="composer" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+        {paletteOpen && (
+          <div aria-label="Komut önerileri" className="composer__palette" role="listbox">
+            {filteredCommands.map((command, index) => (
+              <button
+                aria-label={`${command.ad} — ${command.aciklama}`}
+                aria-selected={index === activeCommand}
+                disabled={!command.destekleniyor}
+                key={`${command.grup}:${command.ad}`}
+                onClick={() => setDraft(`/${command.ad}`)}
+                role="option"
+                title={command.destekleniyor ? undefined : "Bu komut uygulamada henüz desteklenmiyor"}
+                type="button"
+              >
+                <code>/{command.ad}</code>
+                <span>{command.aciklama}</span>
+                <small>{command.grup}</small>
+              </button>
+            ))}
+          </div>
+        )}
+        {attachments.length > 0 && (
+          <div aria-label="Ekler" className="composer__attachments">
+            {attachments.map((attachment) => (
+              <span className="composer__attachment" key={attachment.path}>
+                <span aria-hidden="true">{attachment.kind === "image" ? "▧" : "▤"}</span>
+                <span>{attachment.name}</span>
+                <button
+                  aria-label={`${attachment.name} ekini kaldır`}
+                  onClick={() => onRemoveAttachment(attachment.path)}
+                  type="button"
+                >×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        {attachmentError && <p aria-live="polite" className="composer__attachment-error">{attachmentError}</p>}
         <textarea
           aria-label="Mesaj"
           disabled={running}
@@ -77,10 +170,7 @@ export function Composer({
               </div>
             )}
             <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
-            <Button aria-label="Komutlar" className="composer__command" onClick={onCommand} variant="ghost">
-              /
-            </Button>
-            <span className="composer__mode">Agent · Otomatik</span>
+            <span className="composer__agent">Agent · Otomatik</span>
           </div>
           {running ? (
             <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />

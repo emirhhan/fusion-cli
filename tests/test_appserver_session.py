@@ -128,6 +128,64 @@ async def test_calisan_tur_varken_ikinci_istek_reddedilir(tmp_path, monkeypatch)
     assert birinci_sonuc == {"ok": True, "metin": "bitti"}
 
 
+async def test_tur_ekleri_yalniz_yol_metadatasi_olarak_baglanca_girer(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    gorulen: dict[str, str] = {}
+
+    def _fake(*_args, **kwargs):
+        gorulen["extra_system"] = kwargs["extra_system"]
+
+        async def _run():
+            return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+        return _run()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _fake)
+    attachment = tmp_path / "ornek.png"
+    attachment.write_bytes(b"PNG")
+    await oturum.handle(Request(
+        id="ek-1",
+        name="tur.calistir",
+        data={
+            "gorev": "görseli incele",
+            "ekler": [{
+                "path": str(attachment),
+                "name": "ornek.png",
+                "kind": "image",
+                "icerik": "BURASI-PROTOKOLE-GIRMEMELI",
+            }],
+        },
+    ))
+
+    assert str(attachment) in gorulen["extra_system"]
+    assert '"kind": "image"' in gorulen["extra_system"]
+    assert "BURASI-PROTOKOLE-GIRMEMELI" not in gorulen["extra_system"]
+
+
+async def test_olmayan_ek_acik_hatayla_reddedilir(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    def _calismamali(*_args, **_kwargs):
+        raise AssertionError("geçersiz ekte agent turu başlamamalı")
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calismamali)
+    await oturum.handle(Request(
+        id="ek-yok",
+        name="tur.calistir",
+        data={
+            "gorev": "dosyayı incele",
+            "ekler": [{"path": str(tmp_path / "silinmis.png"), "name": "silinmis.png"}],
+        },
+    ))
+
+    sonuc = _sonuc(satirlar, "ek-yok")
+    assert sonuc["ok"] is False
+    assert "silinmis.png" in sonuc["metin"]
+    assert "mevcut değil" in sonuc["metin"]
+
+
 async def test_secret_store_run_command_a_gecirilir(tmp_path, monkeypatch):
     """SORUN 2a: `run_command` her zaman oturumun sır deposuyla çağrılır."""
     satirlar: list[str] = []

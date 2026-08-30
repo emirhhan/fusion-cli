@@ -1,7 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
+import {
+  CommandSelector,
+  type CommandSelectorPayload,
+} from "./dialogs/CommandSelector";
 import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayMetni } from "./protocol/olayMetni";
@@ -11,7 +15,12 @@ import type { RuntimeTransport } from "./runtime/types";
 import { useSessions } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
-import { Composer, type WorkspaceMode } from "./screens/Composer";
+import {
+  Composer,
+  type ComposerAttachment,
+  type ComposerCommand,
+  type WorkspaceMode,
+} from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import { EmptyState } from "./screens/EmptyState";
 import { Inspector, type InspectorTabId } from "./screens/Inspector";
@@ -37,7 +46,31 @@ import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
-import { selectDirectory } from "./platform/dialog";
+import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { listenForFileDrops } from "./platform/drop";
+
+function attachmentFromPath(path: string): ComposerAttachment {
+  return {
+    kind: /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(path) ? "image" : "file",
+    name: path.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? path,
+    path,
+  };
+}
+
+function commandSelectorFrom(value: unknown): CommandSelectorPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const continuation = row.devam as Record<string, unknown> | undefined;
+  if (
+    typeof row.adim !== "string" ||
+    !["secim", "metin", "gizli_metin"].includes(String(row.tur)) ||
+    typeof row.baslik !== "string" ||
+    !continuation ||
+    typeof continuation.komut !== "string" ||
+    typeof continuation.arguman_on_eki !== "string"
+  ) return null;
+  return value as CommandSelectorPayload;
+}
 
 function useConversation(client: ProtocolClient) {
   const [messages, setMessages] = useState<Mesaj[]>([]);
@@ -271,17 +304,25 @@ export function SessionUygulama({
   runtimeVersion,
   onOnboardingComplete = () => undefined,
   selectFolder = selectDirectory,
+  selectFiles = selectLocalFiles,
 }: {
   transport?: SessionTransport;
   onboarding?: boolean;
   runtimeVersion?: string;
   onOnboardingComplete?: () => void;
   selectFolder?: (defaultPath?: string) => Promise<string | null>;
+  selectFiles?: (defaultPath?: string) => Promise<string[]>;
 }) {
   const controller = useSessions(transport);
   const layout = useLayout();
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [commands, setCommands] = useState<ComposerCommand[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
@@ -297,6 +338,73 @@ export function SessionUygulama({
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
+  const composerCommands = useMemo<ComposerCommand[]>(() => [
+    ...commands.filter((command) => !command.ad.toLocaleLowerCase("tr").startsWith("resume")),
+    ...history.sources.map((source) => ({
+      ad: `resume${source.ad}`,
+      aciklama: `${source.ad[0].toLocaleUpperCase("tr")}${source.ad.slice(1)} konuşmasına devam et`,
+      grup: "Geçmiş",
+      kullanim: source.komut,
+      destekleniyor: true,
+    })),
+  ], [commands, history.sources]);
+
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    let unlisten: (() => void) | null = null;
+    void listenForFileDrops((paths) => {
+      if (!alive) return;
+      setAttachments((current) => ({
+        ...current,
+        [active.id]: [...(current[active.id] ?? []), ...paths.map(attachmentFromPath)]
+          .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
+      }));
+    }).then((stop) => {
+      if (alive) unlisten = stop;
+      else stop();
+    }).catch(() => undefined);
+    return () => { alive = false; unlisten?.(); };
+  }, [active?.id]);
+
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    void Promise.all([
+      active.client.request("komut.listele", {}),
+      active.client.request("yetenek.katalog", {}),
+    ]).then(([commandPayload, capabilityPayload]) => {
+      if (!alive) return;
+      const listed = Array.isArray(commandPayload.komutlar) ? commandPayload.komutlar : [];
+      const commandRows: ComposerCommand[] = listed.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        if (typeof row.ad !== "string") return [];
+        return [{
+          ad: row.ad,
+          aciklama: String(row.aciklama ?? ""),
+          grup: String(row.grup ?? "Komut"),
+          kullanim: String(row.kullanim ?? ""),
+          destekleniyor: row.destekleniyor !== false,
+        }];
+      });
+      const mcpRows: ComposerCommand[] = (Array.isArray(capabilityPayload.mcp) ? capabilityPayload.mcp : [])
+        .flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return [];
+          const row = raw as Record<string, unknown>;
+          if (typeof row.ad !== "string" || row.etkin === false) return [];
+          return [{
+            ad: `mcp ${row.ad}`,
+            aciklama: String(row.aciklama ?? `${row.ad} MCP sunucusu`),
+            grup: "MCP",
+            kullanim: "",
+            destekleniyor: true,
+          }];
+        });
+      setCommands([...commandRows, ...mcpRows]);
+    }).catch(() => { if (alive) setCommands([]); });
+    return () => { alive = false; };
+  }, [active?.client, active?.id]);
 
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
@@ -325,9 +433,32 @@ export function SessionUygulama({
   }
 
   const draft = drafts[active.id] ?? "";
+  const activeAttachments = attachments[active.id] ?? [];
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
+  const executeCommand = async (input: string, recordInput = true) => {
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      const result = await controller.runCommand(active.id, input, recordInput);
+      const next = commandSelectorFrom(result.secici);
+      setCommandSelector(next);
+      if (result.ok === false) setCommandError(String(result.metin ?? "Komut tamamlanamadı."));
+    } catch {
+      setCommandError("Komut çalıştırılamadı. Bağlantıyı kontrol edip yeniden dene.");
+    } finally {
+      setCommandBusy(false);
+    }
+  };
   const send = (task: string) => {
-    controller.send(active.id, task);
+    const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
+    if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
+      setHistoryOpen(true);
+      void history.openSource(resumeSource);
+    } else if (task.startsWith("/")) void executeCommand(task);
+    else {
+      controller.send(active.id, task, activeAttachments);
+      setAttachments((current) => ({ ...current, [active.id]: [] }));
+    }
     setDraft("");
   };
   const conversationContent = active.messages.length > 0 ? (
@@ -399,12 +530,37 @@ export function SessionUygulama({
     <Shell
       composer={page === "chat" ? (
         <Composer
+          attachments={activeAttachments}
+          attachmentError={attachmentError ?? commandError}
+          commands={composerCommands}
           mode={workspaceMode}
+          onAttach={() => {
+            setAttachmentError(null);
+            void selectFiles(active.root).then((paths) => {
+              const additions = paths.map(attachmentFromPath);
+              setAttachments((current) => ({
+                ...current,
+                [active.id]: [...(current[active.id] ?? []), ...additions]
+                  .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
+              }));
+            }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
+          }}
+          onDropFiles={(files) => {
+            const additions = files.map((file): ComposerAttachment => {
+              const localPath = (file as File & { path?: string }).path || file.webkitRelativePath || file.name;
+              return { kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath };
+            });
+            setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
+          }}
           onModeChange={(next) => {
             setWorkspaceMode(next);
             void active.client.request("oturum.baslat", { kip: next });
           }}
           onSend={send}
+          onRemoveAttachment={(path) => setAttachments((current) => ({
+            ...current,
+            [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
+          }))}
           onStop={() => controller.stop(active.id)}
           onValueChange={setDraft}
           running={active.running}
@@ -447,6 +603,19 @@ export function SessionUygulama({
             onFolder={() => void chooseTaskFolder()}
             open={newTaskOpen}
           />
+          {commandSelector && (
+            <CommandSelector
+              busy={commandBusy}
+              error={commandError}
+              onCancel={() => {
+                setCommandError(null);
+                setCommandSelector(null);
+              }}
+              onSelect={(input) => void executeCommand(input, false)}
+              open
+              selector={commandSelector}
+            />
+          )}
         </>
       }
       header={

@@ -12,6 +12,7 @@ import type {
   ResumeSession,
   SessionClosedEvent,
   SessionLineEvent,
+  SessionAttachment,
   SessionTransport,
 } from "./types";
 
@@ -221,7 +222,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [state]);
 
   const send = useCallback(
-    (id: string, task: string) => {
+    (id: string, task: string, attachments: SessionAttachment[] = []) => {
       const session = state.sessions[id];
       if (!session || !task.trim() || session.status !== "ready") return;
       dispatch({ type: "runningChanged", id, running: true });
@@ -230,7 +231,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         dispatch({ type: "titleChanged", id, title: task.trim().slice(0, 64) });
       }
       void session.client
-        .request("tur.calistir", { gorev: task })
+        .request("tur.calistir", { gorev: task, ekler: attachments })
         .then((result) => {
           const text = typeof result.metin === "string" ? result.metin : "";
           if (text) {
@@ -245,6 +246,34 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           });
         })
         .finally(() => dispatch({ type: "runningChanged", id, running: false }));
+    },
+    [state.sessions],
+  );
+
+  const runCommand = useCallback(
+    async (id: string, input: string, recordInput = true) => {
+      const session = state.sessions[id];
+      const trimmed = input.trim();
+      if (!session || !trimmed.startsWith("/") || session.status !== "ready") {
+        return { ok: false, metin: "Komut çalıştırılamadı." };
+      }
+      const [name, ...parts] = trimmed.slice(1).split(/\s+/);
+      if (recordInput) {
+        dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: trimmed } });
+      }
+      const result = await session.client.request("komut.calistir", {
+        ad: name,
+        arguman: parts.join(" "),
+      });
+      const text = typeof result.metin === "string" ? result.metin : "";
+      if (text || !result.secici) {
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: { rol: "asistan", metin: text || "Komut tamamlandı." },
+        });
+      }
+      return result;
     },
     [state.sessions],
   );
@@ -327,6 +356,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     resume,
     recentProjects,
     remove,
+    runCommand,
     send,
     sessions,
     state,

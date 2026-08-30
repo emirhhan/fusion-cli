@@ -44,6 +44,42 @@ function fakeTransport() {
 }
 
 describe("useSessions", () => {
+  it("ek yollarını yalnız çekirdek görev bağlamına ekler, kullanıcı mesajını temiz tutar", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    act(() => result.current.send("varsayilan", "Bu görseli incele", [
+      { path: "/Users/test/Desktop/ornek.png", name: "ornek.png", kind: "image" },
+    ]));
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    expect(request.veri.gorev).toBe("Bu görseli incele");
+    expect(request.veri.ekler).toEqual([
+      { path: "/Users/test/Desktop/ornek.png", name: "ornek.png", kind: "image" },
+    ]);
+    expect(result.current.state.sessions.varsayilan.messages[0].metin).toBe("Bu görseli incele");
+  });
+
+  it("slash komutunu tur yerine komut.calistir ile yürütür", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/mcp github"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    expect(request.ad).toBe("komut.calistir");
+    expect(request.veri).toEqual({ ad: "mcp", arguman: "github" });
+    act(() => fake.emitLine({
+      oturum_id: "varsayilan",
+      satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true, metin: "MCP hazır" } }),
+    }));
+    await act(async () => { await expect(command).resolves.toMatchObject({ ok: true }); });
+    expect(result.current.state.sessions.varsayilan.messages.at(-1)?.metin).toBe("MCP hazır");
+  });
+
   it("her protokol satırını yalnız ait olduğu oturuma yönlendirir", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

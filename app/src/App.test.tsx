@@ -390,6 +390,16 @@ describe("SessionUygulama", () => {
     };
     render(<SessionUygulama transport={transport} />);
 
+    const composer = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(composer, { target: { value: "/res" } });
+    expect(await screen.findByRole("option", { name: /resumeclaude/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /resumehermes/ })).toBeNull();
+    fireEvent.keyDown(composer, { key: "Enter" });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Kapat" }));
+
     fireEvent.click(await screen.findByRole("button", { name: "Claude geçmişi" }));
     expect(await screen.findByRole("dialog", { name: "Bir konuşma seçin" })).toBeTruthy();
     expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();

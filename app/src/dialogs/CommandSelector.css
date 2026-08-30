@@ -1,0 +1,82 @@
+.command-selector-backdrop {
+  align-items: center;
+  background: rgb(0 0 0 / 30%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: var(--space-5);
+  position: fixed;
+  z-index: var(--z-dialog);
+}
+
+.command-selector {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 55px rgb(0 0 0 / 18%);
+  max-height: min(680px, calc(100vh - 48px));
+  max-width: 520px;
+  overflow: auto;
+  padding: var(--space-6);
+  width: 100%;
+}
+
+.command-selector header > span {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.command-selector h2 {
+  font-size: var(--text-xl);
+  margin: var(--space-1) 0 var(--space-5);
+}
+
+.command-selector__choices {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.command-selector__choices button {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+}
+
+.command-selector__choices button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.command-selector__choices strong,
+.command-selector__choices small { display: block; }
+.command-selector__choices small { color: var(--text-secondary); margin-top: 3px; }
+
+.command-selector form { display: flex; gap: var(--space-2); }
+.command-selector form input {
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3);
+}
+.command-selector form button,
+.command-selector footer button {
+  border: 0;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+}
+.command-selector form button { background: var(--accent-primary); color: var(--text-on-accent); }
+.command-selector footer { align-items: center; display: flex; justify-content: space-between; margin-top: var(--space-4); }
+.command-selector footer button { background: transparent; color: var(--text-secondary); }
+.command-selector__error { color: var(--text-danger); font-size: var(--text-sm); }
+
+@media (max-width: 620px) {
+  .command-selector-backdrop { align-items: flex-end; padding: var(--space-3); }
+  .command-selector { padding: var(--space-5); }
+  .command-selector form { flex-direction: column; }
+}

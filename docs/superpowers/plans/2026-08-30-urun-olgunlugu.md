@@ -56,8 +56,8 @@ Kullanıcının istediği ayrım motor değil ÇALIŞMA KİPİDİR:
 
 **Files:** `src/fusion_cli/appserver/session.py`, `app/src/App.tsx`, `app/src/screens/Sidebar.tsx`
 
-- [ ] "merhaba" gibi bir mesajın proje taramasını TETİKLEMEDİĞİNİ testle sabitle.
-- [ ] Kip seçimini protokole ve arayüze aç; varsayılan Sohbet.
+- [x] "merhaba" gibi bir mesajın proje taramasını TETİKLEMEDİĞİNİ testle sabitle.
+- [x] Kip seçimini protokole ve arayüze aç; varsayılan Sohbet.
 
 ### Görev 3: Çalışma dizini
 
@@ -70,8 +70,8 @@ Kullanıcının istediği ayrım motor değil ÇALIŞMA KİPİDİR:
 
 ### Görev 4: Oturum yönetimi
 
-- [ ] Sohbet silme (onaylı, geri alınamaz olduğu söylenir).
-- [ ] Sohbetleri projeye göre gruplama; proje altında sohbet açma.
+- [x] Sohbet silme (onaylı, geri alınamaz olduğu söylenir).
+- [x] Sohbetleri projeye göre gruplama; proje altında sohbet açma.
 
 ### Görev 5: Gerçek Ayarlar ekranı
 
@@ -108,9 +108,9 @@ ve etkin MCP girdileri aşağıda filtrelenir. `/m` yazmak model, mode ve MCP gi
 eşleşmeleri gösterir; tıklamak metni composer'a yerleştirir; Enter köprülenmiş
 komutu çalıştırır veya seçim adımını açar. Ayrı `/` araç düğmesi kaldırılır.
 
-- [ ] Filtreleme, klavye gezinmesi, tıklayarak tamamlama ve Enter davranışını kırmızı testle yaz.
-- [ ] Desteklenmeyen komut çalıştırılmaz; nedenini kullanıcı görür.
-- [ ] Dinamik `/resume<kaynak>` ve mevcut MCP katalog öğeleri yalnız keşfedildiklerinde görünür.
+- [x] Filtreleme, klavye gezinmesi, tıklayarak tamamlama ve Enter davranışını kırmızı testle yaz.
+- [x] Desteklenmeyen komut çalıştırılmaz; nedenini kullanıcı görür.
+- [x] Dinamik `/resume<kaynak>` ve mevcut MCP katalog öğeleri yalnız keşfedildiklerinde görünür.
 
 ### Görev 11: Dosya, görsel ve sürükle-bırak ekleri
 
@@ -119,9 +119,9 @@ sürüklenebilir; seçilen ekler göndermeden önce ad, tür ve kaldırma eylemi
 görünür. Protokol, ekleri mutlak yol ve güvenli metadata olarak taşır; sır içeriği
 arayüz olayına kopyalanmaz.
 
-- [ ] Ataç, çoklu seçim, sürükle-bırak ve ek kaldırmayı testle sabitle.
-- [ ] Görsel ve normal dosya eklerini protokol isteğine bağla.
-- [ ] Olmayan/erişilemeyen dosyada anlaşılır hata göster.
+- [x] Ataç, çoklu seçim, sürükle-bırak ve ek kaldırmayı testle sabitle.
+- [x] Görsel ve normal dosya eklerini protokol isteğine bağla.
+- [x] Olmayan/erişilemeyen dosyada anlaşılır hata göster.
 
 ### Görev 12: Shift+Tab kip geçişi
 
@@ -129,8 +129,8 @@ Composer odaktayken Shift+Tab, Claude'daki gibi çalışma kipleri arasında dö
 normal Tab erişilebilir klavye dolaşımını korur. Seçili kip görünür ve mesajla
 birlikte çekirdeğe gider.
 
-- [ ] Shift+Tab döngüsünü ve Tab'ın engellenmediğini testle sabitle.
-- [ ] Sohbet varsayılanını ve Kod kipindeki proje/model seçeneklerini bağla.
+- [x] Shift+Tab döngüsünü ve Tab'ın engellenmediğini testle sabitle.
+- [x] Sohbet varsayılanını ve Kod kipindeki proje/model seçeneklerini bağla.
 
 ### Görev 13: Fusion pixel karakteri ve gerçek kaynak ikonları
 
