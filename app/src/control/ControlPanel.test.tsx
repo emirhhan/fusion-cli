@@ -22,6 +22,13 @@ function client() {
         sir_deposu_hazir: true,
         gateway: { durum: gateway, adres: "http://127.0.0.1:8787/v1" },
       };
+      if (name === "saglayici.katalog") return {
+        ok: true,
+        saglayicilar: [
+          { id: "chatgpt_web", ad: "ChatGPT Web", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+          { id: "openrouter", ad: "OpenRouter", tur: "anahtar", eylem: "anahtar", bagli: false, ortam: "OPENROUTER_API_KEY" },
+        ],
+      };
       if (name === "kontrol.gateway_baslat") gateway = "calisiyor";
       if (name === "kontrol.gateway_durdur") gateway = "kapali";
       return { ok: true, ...data, durum: gateway };
@@ -38,17 +45,17 @@ describe("ControlPanel", () => {
     expect(screen.getByText("http://127.0.0.1:8787/v1")).toBeTruthy();
   });
 
-  it("anahtarı parola alanından kaydeder, değeri ekrana yansıtmaz ve alanı temizler", async () => {
+  it("sağlayıcı satırına tıklayınca anahtarı parola alanından kaydeder, değeri ekrana yansıtmaz", async () => {
     const fake = client();
     render(<ControlPanel client={fake} onClose={() => undefined} />);
-    await screen.findByText("OpenRouter");
-    const input = screen.getByLabelText("OpenRouter API anahtarı") as HTMLInputElement;
+    // Anahtar alanı artık listede AÇIK durmuyor; satıra tıklayınca açılıyor.
+    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/ }));
+    const input = (await screen.findByLabelText(/API anahtarı/i)) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "sk-gizli-test-degeri" } });
-    fireEvent.click(screen.getByRole("button", { name: "OpenRouter anahtarını kaydet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
       saglayici: "openrouter", deger: "sk-gizli-test-degeri",
     }));
-    expect(input.value).toBe("");
     expect(screen.queryByText("sk-gizli-test-degeri")).toBeNull();
   });
 

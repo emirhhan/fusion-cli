@@ -114,3 +114,36 @@ async def test_bilinmeyen_saglayiciya_giris_istegi_sureci_cokertmez(tmp_path):
 
     veri = json.loads(lines[-1])["veri"]
     assert veri["ok"] is False and veri["metin"]
+
+
+def test_tek_liste_hem_anahtarli_hem_web_saglayicilari_tasir(tmp_path, monkeypatch):
+    """Panel TEK bir kısa liste çizer; tür farkı satırın içinde belirtilir.
+
+    Kullanıcı uzun uzun anahtar kutuları istemiyor: "ismi yazsın, tıklayalım,
+    dikdörtgen açılsın, API varsa girelim, web sağlayıcısıysa oturum açalım."
+    Bu yüzden liste tek ve kısa; ayrıntı tıklayınca açılır.
+    """
+    from fusion_cli.providers import web_control
+    from fusion_cli.providers.web_control import provider_catalog
+
+    monkeypatch.setattr(
+        web_control, "browser_profile_dir", lambda provider, account: tmp_path / provider
+    )
+    satirlar = provider_catalog(sessions=(), secret_store=None)
+
+    kimlikler = {satir["id"] for satir in satirlar}
+    assert {"chatgpt_web", "claude_web", "gemini_web", "copilot_web"} <= kimlikler
+    assert "openrouter" in kimlikler
+
+    for satir in satirlar:
+        assert satir["ad"]
+        assert satir["tur"] in ("web", "anahtar")
+        assert isinstance(satir["bagli"], bool)
+        # Kısa satır: uzun açıklama ve anahtar değeri TAŞIMAZ.
+        assert "deger" not in satir
+        assert "cookie" not in str(satir).casefold()
+
+    web = next(s for s in satirlar if s["id"] == "gemini_web")
+    assert web["tur"] == "web" and web["eylem"] == "oturum"
+    anahtar = next(s for s in satirlar if s["id"] == "openrouter")
+    assert anahtar["tur"] == "anahtar" and anahtar["eylem"] == "anahtar"

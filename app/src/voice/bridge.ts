@@ -30,6 +30,11 @@ interface Listener {
   ) => Promise<() => void>;
 }
 
+/** Tauri kabuğu var mı? Tarayıcıda (ve testte) olay köprüsü yoktur. */
+export function kabukVar(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 export async function emitVoiceMessage(
   message: VoiceMessage,
   transport: Emitter = { emit: tauriEmit },
@@ -37,6 +42,7 @@ export async function emitVoiceMessage(
   // Boş söz gönderilmez: tanıma sessizlikte boş dize döndürebilir ve sohbete
   // boş bir mesaj düşmesi kullanıcıyı yanıltır.
   if (!message.metin.trim()) return;
+  if (transport.emit === tauriEmit && !kabukVar()) return;
   await transport.emit(VOICE_EVENT, message);
 }
 
@@ -44,5 +50,10 @@ export function onVoiceMessage(
   handler: (message: VoiceMessage) => void,
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
+  // Kabuk yoksa dinleme kurulamaz. Denemek, uygulama açılışında yakalanmayan
+  // bir reddedilmiş söz üretir; sessizce boş bir sökücü döndürmek doğrusudur.
+  if (transport.listen === (tauriListen as Listener["listen"]) && !kabukVar()) {
+    return Promise.resolve(() => undefined);
+  }
   return transport.listen(VOICE_EVENT, (event) => handler(event.payload as VoiceMessage));
 }

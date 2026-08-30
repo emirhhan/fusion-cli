@@ -1,0 +1,153 @@
+/* Sağlayıcı listesi: kısa satırlar, ayrıntı tıklayınca açılır. */
+
+.provider-list {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg, 14px);
+  background: var(--surface-raised);
+  padding: 18px;
+}
+
+.provider-list__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.provider-list__head span {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: var(--text-muted);
+}
+
+.provider-list__head h3 {
+  margin: 2px 0 0;
+  font-size: 16px;
+}
+
+.provider-list__search {
+  width: 160px;
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--surface);
+  color: inherit;
+  font-size: 13px;
+}
+
+.provider-list__notice {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.provider-list__rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+/* Satır KISA: ad ve durum. Uzun anahtar kutuları burada değil, ayrıntıda. */
+.provider-list__row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease;
+}
+
+.provider-list__row:hover,
+.provider-list__row:focus-visible {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
+  border-color: var(--hairline);
+}
+
+.provider-list__row[aria-expanded="true"] {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
+  border-color: var(--hairline);
+}
+
+.provider-list__mark {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.provider-list__name {
+  font-size: 14px;
+}
+
+.provider-list__state {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.provider-list__row[data-bagli="true"] .provider-list__state {
+  color: var(--accent-positive, #2f9e6d);
+}
+
+.provider-list__detail {
+  display: grid;
+  gap: 8px;
+  margin: 2px 0 8px 32px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.provider-list__detail p,
+.provider-list__detail small {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.provider-list__detail label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.provider-list__detail input {
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+}
+
+.provider-list__action {
+  justify-self: start;
+  padding: 7px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.provider-list__action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

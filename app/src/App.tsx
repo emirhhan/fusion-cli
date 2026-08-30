@@ -49,7 +49,7 @@ import { Lessons } from "./lessons/Lessons";
 import { Settings } from "./settings/Settings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { onVoiceMessage } from "./voice/bridge";
+import { kabukVar, onVoiceMessage } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
@@ -418,6 +418,7 @@ export function SessionUygulama({
 
   // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
   useEffect(() => {
+    if (!kabukVar()) return;
     const cikar = listen("uygulama://kapatma-istegi", () => setCloseAsked(true));
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, []);

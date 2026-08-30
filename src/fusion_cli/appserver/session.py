@@ -41,6 +41,7 @@ from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
 from .control import (
     delete_secret,
+    provider_catalog_rows,
     save_secret,
     snapshot,
     start_web_login,
@@ -257,6 +258,8 @@ class AppSession:
             )
         if request.name == "ses.durdur":
             return voice_stop()
+        if request.name == "saglayici.katalog":
+            return provider_catalog_rows(self._state.config, self._secret_store)
         if request.name == "web.saglayicilar":
             return web_provider_cards(self._state.config)
         if request.name == "web.giris":

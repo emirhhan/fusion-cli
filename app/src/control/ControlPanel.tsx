@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
-import { WebProviders } from "./WebProviders";
+import { ProviderList } from "./ProviderList";
 import "./ControlPanel.css";
 
 interface ProviderRow { id: string; ad: string; ortam: string; kurulu: boolean }
@@ -47,7 +47,6 @@ interface ControlPanelProps {
 
 export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: ControlPanelProps) {
   const [state, setState] = useState<ControlState | null>(null);
-  const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -131,44 +130,10 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: Co
         </section>
 
         <section className="control-panel__section control-panel__section--wide">
-          <WebProviders client={client} />
-        </section>
-
-        <section className="control-panel__section control-panel__section--wide">
-          <div className="control-panel__section-heading"><div><span>Kimlik bilgileri</span><h3>Sağlayıcılar</h3><p>Anahtarlar sistem anahtarlığında şifrelenir; değerleri arayüze geri okunmaz.</p></div><i data-online={state.sir_deposu_hazir && !state.sir_deposu_hatasi}>{state.sir_deposu_hatasi ? "Anahtarlık okunamadı" : state.sir_deposu_hazir ? "Anahtarlık hazır" : "Anahtarlık yok"}</i></div>
           {state.sir_deposu_hatasi && (
             <p className="control-panel__warning" role="status">{state.sir_deposu_hatasi}</p>
           )}
-          <div className="control-panel__providers">
-            {state.saglayicilar.map((provider) => (
-              <div className="control-panel__provider" key={provider.id}>
-                <div><strong>{provider.ad}</strong><small>{provider.ortam}</small></div>
-                <span data-configured={provider.kurulu}>{provider.kurulu ? "Yapılandırıldı" : "Anahtar gerekli"}</span>
-                <input
-                  aria-label={`${provider.ad} API anahtarı`}
-                  autoComplete="off"
-                  disabled={!state.sir_deposu_hazir}
-                  onChange={(event) => setSecrets((current) => ({ ...current, [provider.id]: event.target.value }))}
-                  placeholder="Yeni anahtar"
-                  type="password"
-                  value={secrets[provider.id] ?? ""}
-                />
-                <Button
-                  aria-label={`${provider.ad} anahtarını kaydet`}
-                  disabled={!secrets[provider.id]?.trim()}
-                  loading={busy === `save:${provider.id}`}
-                  onClick={async () => {
-                    const value = secrets[provider.id] ?? "";
-                    setBusy(`save:${provider.id}`);
-                    setSecrets((current) => ({ ...current, [provider.id]: "" }));
-                    await perform("kontrol.anahtar_kaydet", { saglayici: provider.id, deger: value }, `${provider.ad} anahtarı kaydedildi.`);
-                  }}
-                  variant="secondary"
-                >Kaydet</Button>
-                {provider.kurulu && <Button aria-label={`${provider.ad} anahtarını sil`} onClick={() => void perform("kontrol.anahtar_sil", { saglayici: provider.id }, `${provider.ad} anahtarı silindi.`)} variant="ghost">Sil</Button>}
-              </div>
-            ))}
-          </div>
+          <ProviderList client={client} />
         </section>
 
         <section className="control-panel__section">

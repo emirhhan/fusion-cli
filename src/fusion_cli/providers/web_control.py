@@ -17,13 +17,21 @@ import sys
 from pathlib import Path
 from typing import Any, Protocol
 
+from ..config.keys import environ_snapshot
 from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
 
 
 class SecretReader(Protocol):
+    """Katalog için gereken EN DAR yüzey.
+
+    `get` bilerek istenmez: katalog yalnız "bu anahtar kayıtlı mı" bilgisini
+    kullanır, değerini asla okumaz. Dar protokol, sırra erişebilen bir deponun
+    buraya geçmesini gereksiz kılar.
+    """
+
     @property
     def available(self) -> bool: ...
-    def get(self, env_name: str) -> str | None: ...
+    def list_names(self) -> tuple[str, ...]: ...
 
 
 def login_argv(provider: str, account: str) -> list[str]:
@@ -78,6 +86,50 @@ def process_alive(pid: int) -> bool:
 
 def _profile_dir(provider: str, account: str) -> Path:
     return browser_profile_dir(provider, normalize_account(account or "main"))
+
+
+def provider_catalog(
+    *,
+    sessions: tuple[Any, ...],
+    secret_store: SecretReader | None,
+) -> list[dict[str, Any]]:
+    """Panelde çizilecek TEK ve KISA sağlayıcı listesi.
+
+    İki ayrı bölüm (anahtarlı sağlayıcılar + web sağlayıcıları) yerine tek liste
+    verilir: kullanıcı uzun anahtar kutuları değil, "ismi yazsın, tıklayınca
+    açılsın" istedi. Satır yalnız kimlik, ad, tür ve bağlı olup olmadığını
+    taşır; anahtar ya da çerez değeri bu sınırdan HİÇBİR koşulda geçmez.
+    """
+    from .registry import BUILTIN_PROVIDERS
+
+    rows: list[dict[str, Any]] = [
+        {**card, "tur": "web", "eylem": "oturum"}
+        for card in provider_cards(sessions=sessions, secret_store=secret_store)
+    ]
+
+    stored: set[str] = set()
+    if secret_store is not None and secret_store.available:
+        try:
+            stored = set(secret_store.list_names())
+        except Exception:
+            stored = set()
+    environment = environ_snapshot()
+
+    for provider in BUILTIN_PROVIDERS:
+        if not provider.implemented or provider.auth_env is None:
+            continue
+        rows.append(
+            {
+                "id": provider.id,
+                "ad": provider.name,
+                "tur": "anahtar",
+                "eylem": "anahtar",
+                "ortam": provider.auth_env,
+                "bagli": provider.auth_env in stored
+                or bool(environment.get(provider.auth_env, "").strip()),
+            }
+        )
+    return rows
 
 
 def provider_cards(

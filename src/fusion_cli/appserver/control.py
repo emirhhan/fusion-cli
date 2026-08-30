@@ -30,6 +30,20 @@ def _provider(provider_id: str) -> ProviderDefinition | None:
     )
 
 
+def provider_catalog_rows(config: Config, store: SecretStore) -> dict[str, Any]:
+    """`saglayici.katalog`: tek ve kısa sağlayıcı listesi.
+
+    Web sağlayıcıları ve anahtarlı sağlayıcılar AYNI listede döner; panel iki
+    ayrı bölüm çizmek yerine tek liste çizer ve ayrıntıyı tıklayınca açar.
+    """
+    from ..providers.web_control import provider_catalog
+
+    return {
+        "ok": True,
+        "saglayicilar": provider_catalog(sessions=config.web_sessions, secret_store=store),
+    }
+
+
 def web_provider_cards(config: Config) -> dict[str, Any]:
     """`web.saglayicilar`: dört tarayıcı sağlayıcısının panel kartları.
 
