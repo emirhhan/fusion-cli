@@ -3,6 +3,15 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a5] — 2026-08-30
+
+- Windows paket ayarı normal Cargo kalite kapısından ayrıldı; temiz makinede
+  henüz üretilmemiş runtime arşivini araması engellendi.
+- macOS paket komutu, ses tanıma yardımcı ikilisini Swift kaynağından kendisi
+  derleyecek hâle getirildi.
+- Dosya seçildikten hemen sonra Düzenle'ye basıldığında geciken seçme efektinin
+  editörü kapatabilmesi düzeltildi.
+
 ## [0.3.0a4] — 2026-08-30
 
 - Ses ayarları ilk açıldığında geciken bir eşitlemenin kullanıcının hızlı sürgü

@@ -11,11 +11,12 @@
     "test:visual": "playwright test",
     "runtime:build": "node scripts/run-python.mjs ../desktop_build/runtime/build_runtime.py --output src-tauri/resources/runtime",
     "runtime:smoke": "node scripts/run-python.mjs ../desktop_build/runtime/smoke_runtime.py src-tauri/resources/runtime/unpacked/fusion",
-    "bundle:mac": "npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.bundle.conf.json --bundles app,dmg",
+    "listen:build:mac": "swiftc -O -o src-tauri/resources/fusion-listen ../desktop_build/listen/main.swift",
+    "bundle:mac": "npm run listen:build:mac && npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.bundle.conf.json --bundles app,dmg",
     "check": "npm test && npm run build && cd src-tauri && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test",
     "preview": "vite preview",
     "tauri": "tauri",
-    "bundle:win": "npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.windows.conf.json --bundles nsis"
+    "bundle:win": "npm run runtime:build && npm run runtime:smoke && tauri build --config src-tauri/tauri.windows.bundle.conf.json --bundles nsis"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { WorkspaceEntry } from "./types";
 import { useWorkspace } from "./useWorkspace";
@@ -15,11 +15,6 @@ export function FileExplorer({ client, onChanged, onSelected, root }: FileExplor
   const { state, saveSelected, selectFile, toggleDirectory } = useWorkspace(client, root);
   const [editContent, setEditContent] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setEditContent(null);
-    setSaveError(null);
-  }, [state.selected?.yol]);
 
   const moveTreeFocus = (event: KeyboardEvent<HTMLButtonElement>, target: number) => {
     const tree = event.currentTarget.closest('[role="tree"]');
@@ -42,6 +37,10 @@ export function FileExplorer({ client, onChanged, onSelected, root }: FileExplor
             onClick={() => {
               if (folder) void toggleDirectory(entry.yol);
               else {
+                // Seçim değişikliğinin sonradan çalışan bir effect'i, kullanıcı
+                // yeni dosyada hemen Düzenle'ye bastıktan sonra editörü kapatmasın.
+                setEditContent(null);
+                setSaveError(null);
                 onSelected?.(entry.yol);
                 void selectFile(entry.yol);
               }
