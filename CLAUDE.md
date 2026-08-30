@@ -27,7 +27,12 @@
 
 ## Sırlar
 
-- `.env` dosyası okunmaz, içeriği hiçbir yere yazılmaz, commit'lenmez.
+Bu bölüm BU DEPODA çalışan ajanlar içindir; Fusion'ın ürün davranışı değildir.
+Fusion kullanıcının kendi projesinde `.env` okur (`config/loader.py`) ve
+kullanıcı istediğinde içeriğini modele iletir — maskeleme yapmaz.
+
+- Bu deponun `.env` dosyası okunmaz, içeriği hiçbir yere yazılmaz, commit'lenmez.
+  Sebep: burada kullanıcının gerçek API anahtarları duruyor.
 - API anahtarı, token veya kişisel veri koda, log'a, teste ya da dokümana girmez.
 
 ## Commit
