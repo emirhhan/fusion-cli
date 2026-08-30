@@ -144,6 +144,7 @@ async def run_agent_task(
     tool_context: ToolContext | None = None,
     capabilities: CapabilityRegistry | None = None,
     system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -200,6 +201,7 @@ async def run_agent_task(
             mode=mode,
             extra_system=extra_system,
             system_prompt=system_prompt,
+            images=images,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -242,6 +244,7 @@ async def _run_agent_with_mcp(
     mode: ApprovalMode,
     extra_system: str,
     system_prompt: str | None = None,
+    images: tuple[str, ...] = (),
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -261,6 +264,7 @@ async def _run_agent_with_mcp(
             plan_mode=plan_mode,
             extra_system=extra_system,
             system_prompt=system_prompt,
+            images=images,
         )
     try:
         from ..mcp_bridge.client import McpClient
@@ -273,6 +277,7 @@ async def _run_agent_with_mcp(
             plan_mode=plan_mode,
             extra_system=extra_system,
             system_prompt=system_prompt,
+            images=images,
         )
     try:
         async with McpClient(config.mcp_servers) as client:
@@ -284,6 +289,7 @@ async def _run_agent_with_mcp(
                 plan_mode=plan_mode,
                 extra_system=extra_system,
                 system_prompt=system_prompt,
+                images=images,
             )
     except Exception as error:
         bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
@@ -294,6 +300,7 @@ async def _run_agent_with_mcp(
             plan_mode=plan_mode,
             extra_system=extra_system,
             system_prompt=system_prompt,
+            images=images,
         )
 
 

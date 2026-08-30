@@ -88,6 +88,54 @@ def _build_health(config: Config) -> HealthRegistry:
     )
 
 
+#: Modele gönderilecek tek görselin üst sınırı. Büyük bir görsel isteği şişirir,
+#: çoğu uçta reddedilir ve kullanıcıya sebebi belirsiz bir hata döner.
+MAX_GORSEL_BAYT = 5 * 1024 * 1024
+
+#: Uzantıdan MIME türü. Liste dar tutulur: tanımadığımız bir türü "image/*"
+#: diye göndermek uçta çözülemeyen bir yük üretir.
+_GORSEL_TURLERI = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def _attachment_images(value: object) -> tuple[str, ...]:
+    """Görsel ekleri modele iliştirilebilir veri URI'lerine çevir.
+
+    Eskiden ek olarak YALNIZ dosya yolu metin bağlamına giriyordu; görebilen bir
+    model bile resmi hiç görmüyordu. Okunamayan, çok büyük ya da tanınmayan
+    türdeki dosyalar sessizce atlanır — yol bilgisi metin bağlamında zaten
+    kalır ve model gerektiğinde dosyayı araçla okuyabilir.
+    """
+    if not isinstance(value, list):
+        return ()
+    import base64
+
+    uriler: list[str] = []
+    for raw in value[:8]:
+        if not isinstance(raw, dict) or raw.get("kind") != "image":
+            continue
+        path = raw.get("path")
+        if not isinstance(path, str):
+            continue
+        local_path = Path(path).expanduser()
+        tur = _GORSEL_TURLERI.get(local_path.suffix.casefold())
+        if tur is None:
+            continue
+        try:
+            if local_path.stat().st_size > MAX_GORSEL_BAYT:
+                continue
+            ham = local_path.read_bytes()
+        except OSError:
+            continue
+        uriler.append(f"data:{tur};base64,{base64.b64encode(ham).decode('ascii')}")
+    return tuple(uriler)
+
+
 def _attachment_context(value: object) -> tuple[str, str | None]:
     """Eklerin yalnız güvenli metadata'sını tur bağlamına dönüştürür.
 
@@ -299,6 +347,7 @@ class AppSession:
             return await self._run_turn(
                 str(request.data.get("gorev", "")),
                 attachment_context,
+                _attachment_images(request.data.get("ekler")),
             )
         if request.name == "tur.kes":
             return self._cancel_turn()
@@ -474,7 +523,12 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_COMMAND_UNKNOWN}
         return {"ok": True, "secici": payload}
 
-    async def _run_turn(self, task: str, attachment_context: str = "") -> dict[str, Any]:
+    async def _run_turn(
+        self,
+        task: str,
+        attachment_context: str = "",
+        images: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
         Yapılandırma ve onay modu `self._state`'TEN okunur (bkz. modül
@@ -523,6 +577,8 @@ class AppSession:
                 home=self._state.home,
                 history=self._state.history,
                 extra_system=extra_system,
+                # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
+                images=images,
                 system_prompt=(None if self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT),
                 interactive=True,
                 capabilities=self._state.capabilities,
