@@ -166,17 +166,28 @@ const workspaceClient = {
   },
 } as unknown as ProtocolClient;
 
-function WorkspaceInspector() {
+function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, width = 420 }) {
   const [selected, setSelected] = React.useState<string | null>(null);
-  return <Inspector content={{
-    files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
-    changes: <ChangesPanel client={workspaceClient} revision={0} />,
-    terminal: <TerminalPanel controller={processController} />,
-    processes: <ProcessesPanel controller={processController} />,
-    tests: <TestsPanel client={workspaceClient} processes={processController} />,
-    preview: <PreviewPanel client={workspaceClient} selectedPath={selected} />,
-    context: <div><strong>Aktif bağlam</strong><p>CLAUDE.md · 4 skill · 2 MCP sunucusu</p></div>,
-  }} />;
+  const [activeTab, setActiveTab] = React.useState<React.ComponentProps<typeof Inspector>["activeTab"]>(initialTab);
+  return (
+    <Inspector
+      activeTab={activeTab}
+      collapsed={collapsed}
+      content={{
+        files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
+        changes: <ChangesPanel client={workspaceClient} revision={0} />,
+        terminal: <TerminalPanel controller={processController} />,
+        processes: <ProcessesPanel controller={processController} />,
+        tests: <TestsPanel client={workspaceClient} processes={processController} />,
+        preview: <PreviewPanel client={workspaceClient} selectedPath={selected} />,
+        context: <div><strong>Aktif bağlam</strong><p>CLAUDE.md · 4 skill · 2 MCP sunucusu</p></div>,
+      }}
+      onActiveTabChange={setActiveTab}
+      onCollapsedChange={() => undefined}
+      onWidthChange={() => undefined}
+      width={width}
+    />
+  );
 }
 
 const historySession = {
@@ -224,7 +235,11 @@ function historyFixture(): HistoryController {
 }
 
 function Preview() {
-  const inspector = state.startsWith("workspace-") ? <WorkspaceInspector /> : <Inspector />;
+  const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
+  const inspectorWidth = Number(params.get("inspectorWidth") ?? "420");
+  const inspector = state.startsWith("workspace-")
+    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={state === "workspace-error" ? "terminal" : "files"} width={inspectorWidth} />
+    : <Inspector collapsed={inspectorCollapsed} width={inspectorWidth} />;
   const capabilities = state === "capabilities";
   const control = state === "control";
   const onboarding = state === "onboarding";
@@ -261,7 +276,9 @@ function Preview() {
         content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
         header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={settings ? "Ayarlar" : lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
         inspector={capabilities || control || lessons || settings ? undefined : inspector}
+        inspectorCollapsed={inspectorCollapsed}
         inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen}
+        inspectorWidth={inspectorWidth}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {voice && (

@@ -6,6 +6,9 @@
   max-width: 100vw;
   overflow: hidden;
   width: 100%;
+  transition-duration: var(--duration-normal);
+  transition-property: grid-template-columns;
+  transition-timing-function: var(--ease-standard);
 }
 
 .app-shell[data-inspector-open="true"] {

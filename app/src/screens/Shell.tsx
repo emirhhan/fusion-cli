@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import "./Shell.css";
 
 const inspectorOverlayQuery = "(max-width: 1023px)";
@@ -48,7 +55,9 @@ interface ShellProps {
   content: ReactNode;
   header?: ReactNode;
   inspector?: ReactNode;
+  inspectorCollapsed?: boolean;
   inspectorOpen?: boolean;
+  inspectorWidth?: number;
   onInspectorClose?: () => void;
   sidebar: ReactNode;
   sidebarCollapsed?: boolean;
@@ -59,7 +68,9 @@ export function Shell({
   content,
   header,
   inspector,
+  inspectorCollapsed = false,
   inspectorOpen = Boolean(inspector),
+  inspectorWidth = 420,
   onInspectorClose,
   sidebar,
   sidebarCollapsed = false,
@@ -68,7 +79,8 @@ export function Shell({
   const overlayOwnsFocus = useRef(false);
   const previousFocus = useRef<HTMLElement | null>(null);
   const inspectorOverlay = useMediaQuery(inspectorOverlayQuery);
-  const inspectorModal = inspectorOpen && inspectorOverlay;
+  const inspectorModal = inspectorOpen && inspectorOverlay && !inspectorCollapsed;
+  const inspectorTrackWidth = inspectorCollapsed ? 56 : inspectorWidth;
   const restorePreviousFocus = useCallback(() => {
     const previous = previousFocus.current;
     previousFocus.current = null;
@@ -151,6 +163,7 @@ export function Shell({
       data-inspector-open={inspectorOpen}
       data-inspector-overlay={inspectorOverlay}
       data-sidebar-collapsed={sidebarCollapsed}
+      style={{ "--inspector-width": `${inspectorTrackWidth}px` } as CSSProperties}
     >
       <aside aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
         {sidebar}
@@ -173,7 +186,7 @@ export function Shell({
           {inspector}
         </aside>
       )}
-      {inspector && inspectorOpen && (
+      {inspector && inspectorOpen && !inspectorCollapsed && (
         <button
           aria-label="Denetçiyi kapat"
           className="app-shell__backdrop"

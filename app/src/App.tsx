@@ -30,6 +30,7 @@ import { RuntimeSetup } from "./screens/RuntimeSetup";
 import { Shell } from "./screens/Shell";
 import { Sidebar } from "./screens/Sidebar";
 import { useLayout } from "./state/useLayout";
+import { useInspectorLayout } from "./state/useInspectorLayout";
 import {
   applyTheme,
   readThemePreference,
@@ -172,7 +173,27 @@ function projectName(root: string): string {
   return parts[parts.length - 1] ?? root;
 }
 
-function ProjectInspector({ client, requestedTab, root }: { client: ProtocolClient; requestedTab: InspectorTabId | null; root: string }) {
+function ProjectInspector({
+  activeTab,
+  client,
+  collapsed,
+  onActiveTabChange,
+  onCollapsedChange,
+  onWidthChange,
+  requestedTab,
+  root,
+  width,
+}: {
+  activeTab: InspectorTabId;
+  client: ProtocolClient;
+  collapsed: boolean;
+  onActiveTabChange: (tab: InspectorTabId) => void;
+  onCollapsedChange: (collapsed: boolean) => void;
+  onWidthChange: (width: number) => void;
+  requestedTab: InspectorTabId | null;
+  root: string;
+  width: number;
+}) {
   const [revision, setRevision] = useState(0);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const processes = useProcesses(client);
@@ -187,7 +208,13 @@ function ProjectInspector({ client, requestedTab, root }: { client: ProtocolClie
   }), [client]);
   return (
     <Inspector
+      activeTab={activeTab}
+      collapsed={collapsed}
+      onActiveTabChange={onActiveTabChange}
+      onCollapsedChange={onCollapsedChange}
+      onWidthChange={onWidthChange}
       requestedTab={requestedTab}
+      width={width}
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
@@ -203,6 +230,7 @@ function ProjectInspector({ client, requestedTab, root }: { client: ProtocolClie
 export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const conversation = useConversation(istemci);
   const layout = useLayout();
+  const inspectorLayout = useInspectorLayout();
   const [draft, setDraft] = useState("");
   // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
   useAppTheme();
@@ -245,8 +273,19 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
           title="Yeni görev"
         />
       }
-      inspector={<Inspector />}
+      inspector={
+        <Inspector
+          activeTab={inspectorLayout.activeTab}
+          collapsed={inspectorLayout.collapsed}
+          onActiveTabChange={inspectorLayout.setActiveTab}
+          onCollapsedChange={inspectorLayout.setCollapsed}
+          onWidthChange={inspectorLayout.setWidth}
+          width={inspectorLayout.width}
+        />
+      }
+      inspectorCollapsed={inspectorLayout.collapsed}
       inspectorOpen={layout.inspectorOpen}
+      inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
       sidebar={
         <Sidebar
@@ -344,6 +383,7 @@ export function SessionUygulama({
 }) {
   const controller = useSessions(transport);
   const layout = useLayout();
+  const inspectorLayout = useInspectorLayout();
   const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
@@ -842,8 +882,23 @@ export function SessionUygulama({
           title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : page === "settings" ? "Ayarlar" : active.title}
         />
       }
-      inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} requestedTab={requestedTab} root={active.root} /> : undefined}
+      inspector={page === "chat" ? (
+        <ProjectInspector
+          activeTab={inspectorLayout.activeTab}
+          client={active.client}
+          collapsed={inspectorLayout.collapsed}
+          key={active.id}
+          onActiveTabChange={inspectorLayout.setActiveTab}
+          onCollapsedChange={inspectorLayout.setCollapsed}
+          onWidthChange={inspectorLayout.setWidth}
+          requestedTab={requestedTab}
+          root={active.root}
+          width={inspectorLayout.width}
+        />
+      ) : undefined}
+      inspectorCollapsed={inspectorLayout.collapsed}
       inspectorOpen={page === "chat" && layout.inspectorOpen}
+      inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
       sidebar={
         <Sidebar

@@ -353,4 +353,17 @@ describe("Shell", () => {
       expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Denetçi" }));
     });
   });
+
+  it("çalışma paneli genişliğini grid değişkenine taşır ve araç şeridine daraltır", () => {
+    const { container, rerender } = render(
+      <Shell content="İçerik" inspector="Denetçi" inspectorOpen inspectorWidth={512} sidebar="Gezinme" />,
+    );
+    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--inspector-width")).toBe("512px");
+
+    rerender(
+      <Shell content="İçerik" inspector="Denetçi" inspectorCollapsed inspectorOpen inspectorWidth={512} sidebar="Gezinme" />,
+    );
+    expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--inspector-width")).toBe("56px");
+    expect(screen.queryByRole("button", { name: "Denetçiyi kapat" })).toBeNull();
+  });
 });

@@ -3,12 +3,47 @@
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
   min-width: 0;
+  position: relative;
+}
+
+.inspector__resize-handle {
+  bottom: 0;
+  cursor: col-resize;
+  left: -5px;
+  position: absolute;
+  top: 0;
+  width: 10px;
+  z-index: 3;
+}
+
+.inspector__resize-handle::after {
+  background: transparent;
+  bottom: 0;
+  content: "";
+  left: 4px;
+  position: absolute;
+  top: 0;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+  width: 2px;
+}
+
+.inspector__resize-handle:hover::after,
+.inspector__resize-handle:focus-visible::after {
+  background: var(--focus-ring);
+}
+
+.inspector__topbar {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  min-width: 0;
 }
 
 .inspector__tabs {
-  border-bottom: 1px solid var(--border-subtle);
   display: flex;
+  flex: 1 1 auto;
   gap: var(--space-1);
+  min-width: 0;
   overflow-x: auto;
   padding: var(--space-2);
   scrollbar-width: none;
@@ -26,10 +61,14 @@
   color: var(--text-secondary);
   display: flex;
   flex: 0 0 auto;
-  height: 34px;
+  height: 40px;
   justify-content: center;
+  min-width: 40px;
   padding: 0 var(--space-2);
   position: relative;
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
 }
 
 .inspector__tabs button span {
@@ -47,6 +86,10 @@
   color: var(--text-primary);
 }
 
+.inspector__tabs button:active {
+  transform: scale(0.96);
+}
+
 .inspector__tabs button[aria-selected="true"] {
   background: var(--surface-selected);
   color: var(--text-primary);
@@ -61,6 +104,72 @@
   left: var(--space-2);
   position: absolute;
   right: var(--space-2);
+}
+
+.inspector__collapse {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 0 40px;
+  height: 40px;
+  justify-content: center;
+  margin-right: var(--space-2);
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+  width: 40px;
+}
+
+.inspector__collapse:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.inspector__collapse:active {
+  transform: scale(0.96);
+}
+
+.inspector__collapse svg {
+  transform: rotate(180deg);
+}
+
+.inspector[data-collapsed="true"] {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.inspector[data-collapsed="true"] .inspector__topbar {
+  align-items: stretch;
+  border-bottom: 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.inspector[data-collapsed="true"] .inspector__tabs {
+  align-items: center;
+  flex-direction: column;
+  overflow: hidden auto;
+  padding: var(--space-2);
+}
+
+.inspector[data-collapsed="true"] .inspector__tabs button[aria-selected="true"]::after {
+  bottom: var(--space-2);
+  left: -8px;
+  right: auto;
+  top: var(--space-2);
+  height: auto;
+  width: 2px;
+}
+
+.inspector[data-collapsed="true"] .inspector__collapse {
+  margin: var(--space-2);
+  order: -1;
+}
+
+.inspector[data-collapsed="true"] .inspector__collapse svg {
+  transform: none;
 }
 
 .inspector__panel {
