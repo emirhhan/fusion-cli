@@ -2,12 +2,48 @@ import { Button } from "../ui/Button";
 import "./Conversation.css";
 
 import type { OlayAdimi } from "../protocol/olayMetni";
+import { assetUrl } from "../platform/assetUrl";
+
+export interface MesajEki {
+  kind: "image" | "file";
+  name: string;
+  path: string;
+}
 
 export interface Mesaj {
   metin: string;
   rol: "kullanici" | "asistan" | "olay";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
+  /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
+  ekler?: MesajEki[];
+}
+
+/**
+ * Gönderilmiş eklerin dökümü.
+ *
+ * Ek gönderildikten sonra composer'dan siliniyordu ve geçmişte hiçbir izi
+ * kalmıyordu: kullanıcı hangi görseli gönderdiğini göremiyordu. Görseller
+ * küçük önizlemeyle, diğer dosyalar adıyla durur.
+ */
+function SentAttachments({ ekler }: { ekler: MesajEki[] }) {
+  return (
+    <div aria-label="Gönderilen ekler" className="conversation__attachments">
+      {ekler.map((ek) => {
+        const kaynak = ek.kind === "image" ? assetUrl(ek.path) : null;
+        return (
+          <span className="conversation__attachment" key={ek.path} title={ek.path}>
+            {kaynak ? (
+              <img alt={`${ek.name} önizlemesi`} height={44} src={kaynak} width={44} />
+            ) : (
+              <span aria-hidden="true">▤</span>
+            )}
+            <span className="conversation__attachment-name">{ek.name}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 function AssistantMessage({ text }: { text: string }) {
@@ -78,7 +114,12 @@ export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={index}>
-                <div className="conversation__bubble">{message.metin}</div>
+                <div className="conversation__sent">
+                  {message.ekler && message.ekler.length > 0 && (
+                    <SentAttachments ekler={message.ekler} />
+                  )}
+                  <div className="conversation__bubble">{message.metin}</div>
+                </div>
               </div>
             );
           }

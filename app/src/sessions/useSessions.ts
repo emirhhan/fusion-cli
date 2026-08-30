@@ -216,7 +216,17 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       const session = state.sessions[id];
       if (!session || !task.trim() || session.status !== "ready") return;
       dispatch({ type: "runningChanged", id, running: true });
-      dispatch({ type: "messageAdded", id, message: { rol: "kullanici", metin: task } });
+      // Ekler mesajla birlikte KAYDEDİLİR: gönderdikten sonra composer temizlenir
+      // ve aksi hâlde kullanıcının ne gönderdiğinin geçmişte hiçbir izi kalmaz.
+      dispatch({
+        type: "messageAdded",
+        id,
+        message: {
+          rol: "kullanici",
+          metin: task,
+          ...(attachments.length > 0 ? { ekler: attachments } : {}),
+        },
+      });
       if (session.title === "Yeni görev") {
         dispatch({ type: "titleChanged", id, title: task.trim().slice(0, 64) });
       }

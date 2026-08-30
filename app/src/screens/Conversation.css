@@ -135,3 +135,46 @@
 .conversation__step-detail { color: var(--text-secondary); }
 .conversation__step-source { color: var(--accent); text-decoration: none; }
 .conversation__step-source:hover { text-decoration: underline; }
+
+/* Gönderilen ekler: kullanıcı ne yolladığını geçmişte de görür. */
+.conversation__sent {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: end;
+  max-width: 82%;
+}
+
+.conversation__attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.conversation__attachment {
+  align-items: center;
+  background: var(--surface-hover);
+  border-radius: var(--radius-md, 10px);
+  display: flex;
+  gap: var(--space-2);
+  max-width: 220px;
+  padding: 4px 10px 4px 4px;
+}
+
+.conversation__attachment img {
+  border-radius: 8px;
+  display: block;
+  height: 44px;
+  object-fit: cover;
+  width: 44px;
+}
+
+.conversation__attachment-name {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation__sent .conversation__bubble { max-width: 100%; }

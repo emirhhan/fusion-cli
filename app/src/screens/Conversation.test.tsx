@@ -64,3 +64,25 @@ describe("Conversation", () => {
     expect(container.querySelector(".conversation__text")?.textContent).toContain("ikinci satır");
   });
 });
+
+describe("Conversation — gönderilen ekler", () => {
+  it("görsel eki küçük önizlemeyle gösterir", () => {
+    render(
+      <Conversation
+        mesajlar={[{
+          rol: "kullanici",
+          metin: "şunu incele",
+          ekler: [{ kind: "image", name: "ekran.png", path: "/tmp/ekran.png" }],
+        }]}
+      />,
+    );
+    // Kabuk yokken önizleme adresi üretilemez; ad yine görünür.
+    expect(screen.getByText("ekran.png")).toBeTruthy();
+  });
+
+  it("eksiz mesajda ek bölümü hiç çizilmez", () => {
+    render(<Conversation mesajlar={[{ rol: "kullanici", metin: "merhaba" }]} />);
+    expect(screen.queryByLabelText("Gönderilen ekler")).toBeNull();
+  });
+});
+
