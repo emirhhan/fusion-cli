@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode, type VoiceState } from "./VoiceMode";
 import { closeVoiceWindow } from "./windowBridge";
 
@@ -20,7 +21,13 @@ export function VoiceWindow() {
   return (
     <VoiceMode
       onClose={() => void closeVoiceWindow()}
-      onToggleListen={() => setState((current) => (current === "listening" ? "idle" : "listening"))}
+      onToggleListen={() =>
+        setState((current) => {
+          const next = current === "listening" ? "idle" : "listening";
+          if (cuesEnabled()) playCue(next === "listening" ? "listen-start" : "listen-stop");
+          return next;
+        })
+      }
       state={state}
       transcript=""
     />

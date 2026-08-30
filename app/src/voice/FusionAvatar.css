@@ -1,11 +1,12 @@
-/* Pixel karakterin yerleşimi ve hareketi.
+/* Karakterin hareketi.
  *
  * Yalnız `transform` ve `opacity` animasyonlanır: bunlar derleyici katmanında
  * çalışır ve yerleşim hesabı tetiklemez. `width/height/top` animasyonlamak
- * kullanıcının "kasıyor gibi" dediği takılmayı üretir. */
-/* Karakter ZEMİNSİZ durur: kullanılan kare gerçekten şeffaf. */
+ * kullanıcının "kasıyor gibi" dediği takılmayı üretir.
+ *
+ * Karakterin kendi karesi şeffaftır; altına zemin KONULMAZ. */
 .fusion-avatar {
-  animation: fusion-hover 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: fusion-hover 3.4s cubic-bezier(0.45, 0, 0.55, 1) infinite;
   display: grid;
   place-items: center;
   position: relative;
@@ -13,39 +14,48 @@
 
 .fusion-avatar__frame {
   grid-area: 1 / 1;
-  /* Kareler parıltının ÜSTÜNDE durur; altında kalınca yüz soluklaşıyordu. */
-  z-index: 1;
   height: 100%;
-  /* Pixel art bulanıklaşmamalı; ara değerde ölçekleme yok. */
   image-rendering: pixelated;
   width: 100%;
+  z-index: 1;
 }
 
 /* Süzülme her durumda var; hız duruma göre değişir. Yay eğrisi kullanılır ki
    iniş çıkış yumuşak olsun, testere dişi gibi değil. */
-.fusion-avatar[data-state="thinking"] { animation-duration: 2.4s; }
-.fusion-avatar[data-state="talking"] { animation-duration: 1.4s; }
-.fusion-avatar[data-state="happy"] { animation-duration: 1s; }
+.fusion-avatar[data-state="listening"] { animation-duration: 2.6s; }
+.fusion-avatar[data-state="talking"] { animation-duration: 1.8s; }
+.fusion-avatar[data-state="happy"] { animation-duration: 1.2s; }
 
 @keyframes fusion-hover {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-6%); }
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-5%) rotate(-1.2deg); }
 }
 
-/* Dinlerken nabız: mikrofonun açık olduğunu söyler. */
+/* Düşünürken karakter kendi ekseninde hafifçe salınır: "dönüyor" hissi verir
+   ama tam tur atmaz — tam tur, tek kare olduğu için sahte durur. */
+.fusion-avatar[data-state="thinking"] { animation: fusion-think 2.8s ease-in-out infinite; }
+
+@keyframes fusion-think {
+  0%, 100% { transform: translateY(0) rotate(-4deg); }
+  50% { transform: translateY(-4%) rotate(4deg); }
+}
+
+/* Dinlerken nabız: mikrofonun açık olduğunu söyler. Karakterin ARKASINDA
+   kalır, yoksa yüzü soluklaştırır. */
 .fusion-avatar__glow {
   background: radial-gradient(circle, var(--accent) 0%, transparent 62%);
   grid-area: 1 / 1;
-  height: 140%;
+  height: 130%;
   opacity: 0;
   pointer-events: none;
-  width: 140%;
+  width: 130%;
 }
 .fusion-avatar[data-state="listening"] .fusion-avatar__glow { animation: fusion-pulse 1.6s ease-in-out infinite; }
+.fusion-avatar[data-state="talking"] .fusion-avatar__glow { animation: fusion-pulse 0.9s ease-in-out infinite; }
 
 @keyframes fusion-pulse {
-  0%, 100% { opacity: .10; transform: scale(.92); }
-  50% { opacity: .26; transform: scale(1.04); }
+  0%, 100% { opacity: .08; transform: scale(.9); }
+  50% { opacity: .22; transform: scale(1.05); }
 }
 
 @media (prefers-reduced-motion: reduce) {

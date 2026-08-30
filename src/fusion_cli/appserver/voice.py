@@ -11,9 +11,11 @@ Türkçe uyumu ölçüldü: macOS'ta `Yelda tr_TR` sesi kuruludur.
 from __future__ import annotations
 
 import contextlib
+import os
 import platform
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Any
 
 #: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
@@ -94,6 +96,38 @@ PIPER_DEFAULTS: dict[str, float] = {
 #: Piper'ın Türkçe modeli. Katalogda doğrulandı: tek Türkçe ses budur
 #: (`fahrettin` ve `fettah` 404 veriyor). MIT lisanslı, 60 MB, çevrimdışı.
 PIPER_TURKISH_MODEL = "tr_TR-dfki-medium"
+
+
+def _data_home() -> Path:
+    """Kullanıcı verisinin kökü. Platforma göre değişir."""
+    if platform.system() == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "Fusion"
+    if platform.system() == "Windows":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
+        return Path(base) / "Fusion"
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "fusion"
+
+
+def piper_model_path() -> Path:
+    """İndirilen Piper modelinin yolu.
+
+    Model uygulama PAKETİNE yazılmaz: paket imzasını bozar ve her güncellemede
+    silinir. Kullanıcı veri dizini güncellemeden etkilenmez.
+    """
+    return _data_home() / "voices" / f"{PIPER_TURKISH_MODEL}.onnx"
+
+
+def piper_download_urls() -> tuple[str, str]:
+    """Model ve yapılandırma dosyasının indirme adresleri.
+
+    Kaynak, Piper'ın resmî ses deposudur. Adres elle kurulmaz; katalogdaki
+    dizin düzeni sabittir (`<dil>/<yerel>/<ses>/<kalite>`).
+    """
+    taban = (
+        "https://huggingface.co/rhasspy/piper-voices/resolve/main/"
+        "tr/tr_TR/dfki/medium/tr_TR-dfki-medium"
+    )
+    return f"{taban}.onnx", f"{taban}.onnx.json"
 
 
 def piper_argv(model: str, output: str, settings: dict[str, float]) -> list[str]:

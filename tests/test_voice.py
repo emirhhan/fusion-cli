@@ -115,3 +115,29 @@ def test_piper_modeli_yoksa_sistem_sesine_dusulur_ve_sebep_soylenir():
 
     motor, sebep = engine_for(piper_model=None, system_voice=None)
     assert motor is None and sebep
+
+
+def test_piper_model_yolu_kullanici_verisinde_durur(tmp_path, monkeypatch):
+    """Model uygulama paketine DEĞİL, kullanıcı veri dizinine iner.
+
+    Paketin içine yazmak imzayı bozar ve güncellemede silinir; kullanıcı
+    verisi ise güncellemeden etkilenmez.
+    """
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    yol = voice.piper_model_path()
+
+    assert yol.name.endswith(".onnx")
+    assert tmp_path in yol.parents
+
+
+def test_model_indirme_adresi_bilinen_depodan_gelir():
+    from fusion_cli.appserver.voice import piper_download_urls
+
+    onnx, config = piper_download_urls()
+    for adres in (onnx, config):
+        assert adres.startswith("https://huggingface.co/rhasspy/piper-voices/")
+        assert "tr/tr_TR/dfki" in adres
+    assert onnx.endswith(".onnx")
+    assert config.endswith(".onnx.json")
