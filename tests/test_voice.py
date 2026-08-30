@@ -85,6 +85,21 @@ def test_yalniz_fusionun_baslattigi_ses_sureci_beklenir_ve_durdurulur(monkeypatc
     assert voice.wait_for_speech(9999) is False
 
 
+def test_basarisiz_ses_sureci_tamamlanmis_sayilmaz(monkeypatch):
+    from fusion_cli.appserver import voice
+
+    class FailedProcess:
+        pid = 4343
+
+        def wait(self, timeout=None):
+            return 7
+
+    process = FailedProcess()
+    voice._register_speech_process(process)  # type: ignore[arg-type]
+
+    assert voice.wait_for_speech(process.pid) is False
+
+
 def test_turkce_ses_secimi_kurulu_olanlardan_yapilir():
     """Ses adı uydurulmaz: sistemde kurulu Türkçe seslerden seçilir."""
     assert turkish_voice(("Yelda tr_TR", "Alex en_US")) == "Yelda"

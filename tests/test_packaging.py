@@ -178,11 +178,21 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
     venv.create(ortam, with_pip=True)
     pip = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "pip"
     fusion = ortam / ("Scripts" if sys.platform == "win32" else "bin") / "fusion"
-    subprocess.run([str(pip), "install", "-q", str(tekerlekler[0])], check=True)
+    # Repo kökündeki editable `*.egg-info`, pip'in wheel'i zaten kurulu sanmasına
+    # yol açmamalı; gerçek temiz kullanıcı ortamını repo dışından ölç.
+    subprocess.run(
+        [str(pip), "install", "-q", str(tekerlekler[0])],
+        check=True,
+        cwd=tmp_path,
+    )
 
     for argumanlar in (["version"], ["--help"], ["doctor"]):
         sonuc = subprocess.run(
-            [str(fusion), *argumanlar], capture_output=True, text=True, timeout=120
+            [str(fusion), *argumanlar],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=tmp_path,
         )
         # doctor yapılandırma eksikse 1 döner; çökmesi (>1) kabul edilemez.
         assert sonuc.returncode in (0, 1), f"fusion {argumanlar}: {sonuc.stderr[:400]}"

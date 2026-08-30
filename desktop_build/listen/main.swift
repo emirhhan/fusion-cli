@@ -69,10 +69,13 @@ guard let tanıyıcı = SFSpeechRecognizer(locale: Locale(identifier: dil)) else
 
 func başlat() {
     guard tanıyıcı.isAvailable else { yaz("hata", "Tanıyıcı şu an kullanılamıyor."); bitir(3) }
+    guard tanıyıcı.supportsOnDeviceRecognition else {
+        yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
+    }
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
     // Ses buluta gitmesin: cihaz üstü zorunlu.
-    if tanıyıcı.supportsOnDeviceRecognition { r.requiresOnDeviceRecognition = true }
+    r.requiresOnDeviceRecognition = true
     istek = r
 
     let girdi = motor.inputNode

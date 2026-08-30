@@ -92,7 +92,9 @@ impl SpeechManager {
             match child_slot.as_ref() {
                 Some(child) if child.id() == pid => child_slot.take(),
                 Some(_) => return false,
-                None => return true,
+                // `stop()` child'ı yuvadan bilerek çıkardıysa eski stdout
+                // okuyucusu artık bir "beklenmedik son" olayı yayınlamamalı.
+                None => return false,
             }
         };
         if let Some(child) = child {
@@ -300,6 +302,19 @@ mod tests {
         assert!(manager.is_running());
         assert_ne!(first_pid, second_pid);
         manager.stop().expect("ikinci child temizlenmeli");
+    }
+
+    #[test]
+    fn intentionally_stopped_child_does_not_publish_an_ended_signal() {
+        let manager = SpeechManager::new();
+        let pid = manager
+            .start(&mut helper_command("sleep"))
+            .expect("child başlamalı")
+            .pid();
+
+        manager.stop().expect("child temizlenmeli");
+
+        assert!(!manager.finish(pid));
     }
 
     #[test]

@@ -530,13 +530,20 @@ export function SessionUygulama({
     if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
+      const accepted = controller.send(active.id, mesaj.metin, []);
+      if (!accepted) {
+        void publishVoiceRuntimeState({
+          durum: "error",
+          metin: "Bu konuşmada bir görev zaten çalışıyor. Bitmesini bekleyip yeniden konuş.",
+        });
+        return;
+      }
       voiceTurn.current = {
         afterIndex: active.messages.length,
         sawRunning: false,
         sessionId: active.id,
       };
       void publishVoiceRuntimeState({ durum: "thinking" });
-      controller.send(active.id, mesaj.metin, []);
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active, controller]);

@@ -44,6 +44,21 @@ function fakeTransport() {
 }
 
 describe("useSessions", () => {
+  it("aynı oturum çalışırken ikinci turu çekirdeğe ve mesaja eklemez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    act(() => {
+      result.current.send("varsayilan", "ilk görev");
+      result.current.send("varsayilan", "ikinci görev");
+    });
+
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    expect(result.current.state.sessions.varsayilan.messages).toHaveLength(1);
+    expect(result.current.state.sessions.varsayilan.messages[0].metin).toBe("ilk görev");
+  });
+
   it("ek yollarını yalnız çekirdek görev bağlamına ekler, kullanıcı mesajını temiz tutar", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

@@ -12,6 +12,7 @@ const cases = [
 
 for (const visual of cases) {
   test(`talk-contract-${visual.name}`, async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: visual.width, height: visual.height });
     await page.goto(`/e2e/preview.html?${visual.query}`);
     await expect(page.getByRole("region", { name: "Fusion Talk" })).toBeVisible();
@@ -21,6 +22,7 @@ for (const visual of cases) {
 
   test(`talk-candidate-${visual.name}`, async ({ page }) => {
     test.skip(!candidateDir, "Yalnız kullanıcı görsel incelemesi için çalışır");
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: visual.width, height: visual.height });
     await page.goto(`/e2e/preview.html?${visual.query}`);
     await expect(page.getByRole("region", { name: "Fusion Talk" })).toBeVisible();

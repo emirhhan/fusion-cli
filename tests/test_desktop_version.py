@@ -46,5 +46,5 @@ def test_macos_paket_komutu_dinleme_yardimcisini_kaynaktan_uretir():
     app = json.loads((root / "app/package.json").read_text(encoding="utf-8"))
 
     assert (root / "desktop_build/listen/main.swift").is_file()
-    assert "swiftc" in app["scripts"]["listen:build:mac"]
+    assert "build_adapter.py --platform macos" in app["scripts"]["listen:build:mac"]
     assert "npm run listen:build:mac" in app["scripts"]["bundle:mac"]

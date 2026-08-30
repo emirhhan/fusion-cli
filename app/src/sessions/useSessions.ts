@@ -47,6 +47,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const clients = useRef(new Map<string, ProtocolClient>());
   const lineHandlers = useRef(new Map<string, (line: string) => void>());
   const requestedClose = useRef(new Set<string>());
+  const runningRequests = useRef(new Set<string>());
   const mounted = useRef(false);
 
   const connect = useCallback(
@@ -203,6 +204,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       clients.current.clear();
       lineHandlers.current.clear();
       requestedClose.current.clear();
+      runningRequests.current.clear();
     };
   }, [create, transport]);
 
@@ -214,7 +216,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const send = useCallback(
     (id: string, task: string, attachments: SessionAttachment[] = []) => {
       const session = state.sessions[id];
-      if (!session || !task.trim() || session.status !== "ready") return;
+      if (
+        !session || !task.trim() || session.status !== "ready" ||
+        session.running || runningRequests.current.has(id)
+      ) return false;
+      runningRequests.current.add(id);
       dispatch({ type: "runningChanged", id, running: true });
       // Ekler mesajla birlikte KAYDEDİLİR: gönderdikten sonra composer temizlenir
       // ve aksi hâlde kullanıcının ne gönderdiğinin geçmişte hiçbir izi kalmaz.
@@ -245,7 +251,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             message: { rol: "asistan", metin: `Hata: ${String(reason)}` },
           });
         })
-        .finally(() => dispatch({ type: "runningChanged", id, running: false }));
+        .finally(() => {
+          runningRequests.current.delete(id);
+          dispatch({ type: "runningChanged", id, running: false });
+        });
+      return true;
     },
     [state.sessions],
   );

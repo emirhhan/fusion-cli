@@ -55,7 +55,7 @@ def wait_for_speech(pid: object) -> bool:
         return False
     process, cleanup = owned
     try:
-        process.wait()
+        return_code = process.wait()
     finally:
         with _SPEECH_LOCK:
             current = _SPEECH_PROCESSES.get(numeric_pid)
@@ -63,7 +63,7 @@ def wait_for_speech(pid: object) -> bool:
                 _SPEECH_PROCESSES.pop(numeric_pid, None)
         if cleanup is not None:
             cleanup.unlink(missing_ok=True)
-    return True
+    return return_code == 0
 
 
 #: Apple'ın ücretsiz indirilebilen yüksek kaliteli Türkçe sesi. Sistemde

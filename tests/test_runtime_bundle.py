@@ -173,6 +173,14 @@ def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
             helper.kill()
 
 
+def test_macos_listen_fails_closed_without_on_device_recognition():
+    source = Path("desktop_build/listen/main.swift").read_text(encoding="utf-8")
+
+    assert "guard tanıyıcı.supportsOnDeviceRecognition else" in source
+    assert "r.requiresOnDeviceRecognition = true" in source
+    assert "if tanıyıcı.supportsOnDeviceRecognition" not in source
+
+
 def test_desktop_bundle_scripts_build_platform_listen_adapters():
     package = json.loads(Path("app/package.json").read_text(encoding="utf-8"))
     scripts = package["scripts"]
