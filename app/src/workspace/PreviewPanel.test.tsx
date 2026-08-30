@@ -49,11 +49,71 @@ describe("PreviewPanel", () => {
     render(<PreviewPanel client={client} selectedPath="archive.zip" />);
 
     expect(await screen.findByText("Bu dosya türü uygulama içinde önizlenemiyor.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), {
       target: { value: "https://example.com" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Adresi aç" }));
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("yalnız localhost"));
     expect(screen.queryByTitle("Yerel geliştirme önizlemesi")).toBeNull();
+    expect(screen.getByRole("button", { name: "Dışarıda aç" }).hasAttribute("disabled")).toBe(true);
+  });
+
+  it("yerel web geçmişinde geri, ileri, yenile ve harici aç eylemlerini yönetir", async () => {
+    const openExternal = vi.fn(async () => undefined);
+    const client = { request: vi.fn() } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} openExternal={openExternal} selectedPath={null} />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+    const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
+    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.change(address, { target: { value: "http://localhost:4173" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173");
+
+    fireEvent.click(screen.getByRole("button", { name: "Geri" }));
+    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3000");
+    fireEvent.click(screen.getByRole("button", { name: "İleri" }));
+    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173");
+    const before = screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision");
+    fireEvent.click(screen.getByRole("button", { name: "Yenile" }));
+    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision")).not.toBe(before);
+    fireEvent.click(screen.getByRole("button", { name: "Dışarıda aç" }));
+    await waitFor(() => expect(openExternal).toHaveBeenCalledWith("http://localhost:4173"));
+  });
+
+  it("metin dosyasını dosya modunda ve seçilen viewport ölçüsünü web modunda gösterir", async () => {
+    const client = {
+      request: vi.fn(async () => ({
+        ok: true, yol: "README.md", tur: "text", mime: "text/markdown",
+        boyut: 13, base64: "IyBGdXNpb24gQXBw",
+      })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath="README.md" />);
+    expect(await screen.findByText("# Fusion App")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), {
+      target: { value: "http://127.0.0.1:5173" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Önizleme boyutu" }), {
+      target: { value: "mobile" },
+    });
+    expect(screen.getByTestId("web-preview-viewport").getAttribute("data-viewport")).toBe("mobile");
+  });
+
+  it("iframe yüklenemediğinde boş alan yerine açıklama ve harici açma sunar", async () => {
+    const client = { request: vi.fn() } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} loadTimeoutMs={1} selectedPath={null} />);
+    fireEvent.click(screen.getByRole("tab", { name: "Web" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), {
+      target: { value: "http://localhost:9000" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("önizleme yüklenemedi");
+    expect(alert.querySelector("button")?.textContent).toBe("Dışarıda aç");
   });
 });
