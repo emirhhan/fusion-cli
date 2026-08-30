@@ -45,3 +45,4 @@ app/src-tauri/resources/runtime/fusion-runtime.tar.gz
 app/src-tauri/resources/runtime/unpacked/
 desktop_build/runtime/work/
 *.tar.gz
+app/src-tauri/resources/fusion-listen

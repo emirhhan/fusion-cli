@@ -63,6 +63,7 @@ runtime-bundle: install
 	cd app && npm run runtime:build && npm run runtime:smoke
 
 app-package: install
+	$(PY) desktop_build/listen/build_listen.py || true
 	cd app && npm run bundle:mac
 	$(PY) desktop_build/macos/smoke_app_bundle.py app/src-tauri/target/release/bundle/macos/Fusion.app
 

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Konuşma tanıma izin metinleri.
+
+      Bu iki anahtar OLMADAN macOS izin penceresini HİÇ göstermez ve tanıma
+      sessizce çalışmaz — ölçüldü: `SFSpeechRecognizer.authorizationStatus()`
+      `notDetermined` olarak kalıyor ve hiçbir hata da üretilmiyor.
+
+      Metinler kullanıcının göreceği cümlelerdir; ne için istendiğini açıkça
+      söyler, "uygulamanın çalışması için gerekli" gibi boş bir gerekçe vermez.
+    -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Fusion ile konuşabilmen için mikrofonu kullanır. Ses bu bilgisayardan çıkmaz.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Söylediklerini yazıya çevirmek için macOS'un cihaz üstü tanıyıcısını kullanır. Ses buluta gönderilmez.</string>
+</dict>
+</plist>

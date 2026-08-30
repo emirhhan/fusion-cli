@@ -45,6 +45,7 @@ import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Settings } from "./settings/Settings";
+import { onVoiceMessage } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
@@ -407,6 +408,16 @@ export function SessionUygulama({
     }).catch(() => { if (alive) setCommands([]); });
     return () => { alive = false; };
   }, [active?.client, active?.id]);
+
+  // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
+  // kullanıcı yazışmış gibi tam dökümü görür.
+  useEffect(() => {
+    if (!active) return;
+    const cikar = onVoiceMessage((mesaj) => {
+      if (mesaj.kaynak === "kullanici") controller.send(active.id, mesaj.metin, []);
+    });
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active, controller]);
 
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
