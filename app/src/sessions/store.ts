@@ -29,6 +29,7 @@ export type SessionAction =
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
   | { type: "crashed"; id: string; reason: string }
   | { type: "cleared"; id: string }
+  | { type: "removed"; id: string }
   | { type: "connectionFailed"; reason: string };
 
 function updateSession(
@@ -105,6 +106,16 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         question: null,
         running: false,
       }));
+    case "removed": {
+      // Silme geri alınamaz: oturum listeden çıkar. Son oturum silinirse
+      // etkin seçim boşa düşer ve arayüz yeni görev ekranına döner.
+      const kalan = { ...state.sessions };
+      delete kalan[action.id];
+      const sira = state.order.filter((item) => item !== action.id);
+      const etkin =
+        state.activeId === action.id ? (sira[sira.length - 1] ?? null) : state.activeId;
+      return { ...state, sessions: kalan, order: sira, activeId: etkin };
+    }
     case "connectionFailed":
       return { ...state, connectionError: action.reason };
   }

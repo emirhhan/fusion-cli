@@ -166,71 +166,78 @@
   width: 1px;
 }
 
-.sidebar[data-collapsed="true"] {
-  /* Empty token activates the shared rail declarations below. */
-  --sidebar-rail: ;
+/* Dar kip ("rail"): yalnız ikonlar görünür.
+ *
+ * Burada ESKİDEN `display: var(--sidebar-rail) none` biçiminde bir değişken
+ * hilesi vardı. Hile, geniş kipte değişken TANIMSIZ olduğunda özelliği
+ * "computed-value time"da geçersiz kılar ve CSS onu `unset`e çevirir — yani
+ * daha önce kazanmış olan temel değeri de SİLER. Sonuç ölçüldü: sohbet
+ * düğmesinin `display: grid`i ve yatay dolgusu geniş kipte kayboluyor, başlık
+ * ile kaynak etiketi aynı satıra çöküyordu. Bu yüzden gerçek seçici kullanılır.
+ */
+.sidebar[data-collapsed="true"] .sidebar__label,
+.sidebar[data-collapsed="true"] .sidebar__search input,
+.sidebar[data-collapsed="true"] .sidebar__section-title,
+.sidebar[data-collapsed="true"] .sidebar__session-source,
+.sidebar[data-collapsed="true"] .sidebar__project > svg {
+  display: none;
 }
 
-@media (max-width: 1199px) {
-  .sidebar {
-    --sidebar-rail: ;
-  }
+.sidebar[data-collapsed="true"] .sidebar__nav-item,
+.sidebar[data-collapsed="true"] .sidebar__brand,
+.sidebar[data-collapsed="true"] .sidebar__search,
+.sidebar[data-collapsed="true"] .sidebar__project,
+.sidebar[data-collapsed="true"] .sidebar__session {
+  justify-content: center;
+  padding-inline: 0;
 }
 
-.sidebar .sidebar__label,
-.sidebar .sidebar__search input,
-.sidebar .sidebar__section-title,
-.sidebar .sidebar__session-source {
-  display: var(--sidebar-rail) none;
+.sidebar[data-collapsed="true"] .sidebar__session {
+  align-items: center;
+  display: flex;
 }
 
-.sidebar .sidebar__nav-item,
-.sidebar .sidebar__brand,
-.sidebar .sidebar__search,
-.sidebar .sidebar__project,
-.sidebar .sidebar__session {
-  justify-content: var(--sidebar-rail) center;
-  padding-inline: var(--sidebar-rail) 0;
+.sidebar[data-collapsed="true"] .sidebar__session-delete,
+.sidebar[data-collapsed="true"] .sidebar__session-confirm {
+  display: none;
 }
 
-.sidebar .sidebar__session {
-  align-items: var(--sidebar-rail) center;
-  display: var(--sidebar-rail) flex;
+.sidebar[data-collapsed="true"] .sidebar__session-title,
+.sidebar[data-collapsed="true"] .sidebar__project .sidebar__label {
+  background: var(--surface-hover);
+  border-radius: var(--radius-sm);
+  box-sizing: border-box;
+  color: transparent;
+  display: block;
+  height: 24px;
+  line-height: 24px;
+  padding-inline: 7px;
+  text-overflow: clip;
+  width: 24px;
 }
 
-.sidebar .sidebar__session-title {
-  background: var(--sidebar-rail) var(--surface-hover);
-  border-radius: var(--sidebar-rail) var(--radius-sm);
-  box-sizing: var(--sidebar-rail) border-box;
-  color: var(--sidebar-rail) transparent;
-  display: var(--sidebar-rail) block;
-  height: var(--sidebar-rail) 24px;
-  line-height: var(--sidebar-rail) 24px;
-  padding-inline: var(--sidebar-rail) 7px;
-  text-overflow: var(--sidebar-rail) clip;
-  width: var(--sidebar-rail) 24px;
+.sidebar[data-collapsed="true"] .sidebar__project .sidebar__label {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  flex: 0 0 24px;
+  line-height: 22px;
 }
 
-.sidebar .sidebar__project .sidebar__label {
-  background: var(--sidebar-rail) var(--surface-raised);
-  border: var(--sidebar-rail) 1px solid var(--border-subtle);
-  border-radius: var(--sidebar-rail) var(--radius-sm);
-  box-sizing: var(--sidebar-rail) border-box;
-  color: var(--sidebar-rail) transparent;
-  display: var(--sidebar-rail) block;
-  flex: var(--sidebar-rail) 0 0 24px;
-  height: var(--sidebar-rail) 24px;
-  line-height: var(--sidebar-rail) 22px;
-  padding-inline: var(--sidebar-rail) 7px;
-  text-overflow: var(--sidebar-rail) clip;
-  width: var(--sidebar-rail) 24px;
+.sidebar[data-collapsed="true"] .sidebar__session-title::first-letter,
+.sidebar[data-collapsed="true"] .sidebar__project .sidebar__label::first-letter {
+  color: var(--text-primary);
 }
 
-.sidebar .sidebar__project > svg {
-  display: var(--sidebar-rail) none;
-}
-
-.sidebar .sidebar__session-title::first-letter,
-.sidebar .sidebar__project .sidebar__label::first-letter {
-  color: var(--sidebar-rail) var(--text-primary);
-}
+/* Sohbet satırı: seçim düğmesi + silme. Silme İKİ adımdır (sohbet geri
+   getirilemez) ve yalnız satırın üstüne gelince ya da odaklanınca görünür —
+   liste sürekli çarpı işaretiyle dolu görünmesin. */
+.sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) auto; }
+.sidebar__session-delete { background: transparent; border: 0; border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 16px; line-height: 1; opacity: 0; padding: 6px 8px; }
+.sidebar__session-row:hover .sidebar__session-delete,
+.sidebar__session-delete:focus-visible { opacity: 1; }
+.sidebar__session-delete:hover { background: var(--surface-hover); color: var(--text-danger); }
+.sidebar__session-delete:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.sidebar__session-confirm { display: flex; gap: 4px; }
+.sidebar__session-confirm button { background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); padding: 4px 8px; }
+.sidebar__session-confirm button:first-child { border-color: var(--text-danger); color: var(--text-danger); }
+.sidebar__session-confirm button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }

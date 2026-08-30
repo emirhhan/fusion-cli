@@ -137,3 +137,38 @@ describe("Sidebar", () => {
     expect(getComputedStyle(project.querySelector(".sidebar__label")!).display).not.toBe("none");
   });
 });
+
+describe("Sidebar — sohbet silme ve projeye gruplama", () => {
+  const gruplu = [
+    { session_id: "1", source: "fusion", title: "oyun", project: "voltiva" },
+    { session_id: "2", source: "claude", title: "site", project: "voltiva" },
+    { session_id: "3", source: "fusion", title: "serbest" },
+  ];
+
+  it("sohbetleri projesine göre gruplar; projesizler sonda toplanır", () => {
+    render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    expect(screen.getByRole("region", { name: "voltiva" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Sohbetler" })).toBeTruthy();
+  });
+
+  it("silme tek tıkla olmaz; önce onay ister", () => {
+    const sil = vi.fn();
+    render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "oyun sohbetini sil" }));
+    expect(sil).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "oyun sohbetini kalıcı olarak sil" }));
+    expect(sil).toHaveBeenCalledWith("1");
+  });
+
+  it("vazgeçince silmez", () => {
+    const sil = vi.fn();
+    render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "serbest sohbetini sil" }));
+    fireEvent.click(screen.getByRole("button", { name: "Silmekten vazgeç" }));
+    expect(sil).not.toHaveBeenCalled();
+  });
+});

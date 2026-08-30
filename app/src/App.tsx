@@ -423,6 +423,7 @@ export function SessionUygulama({
           collapsed={layout.sidebarCollapsed}
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
+          onSil={(id) => void controller.remove(id)}
           onNavigate={(destination) => {
             if (destination === "skills") {
               setPage("skills");

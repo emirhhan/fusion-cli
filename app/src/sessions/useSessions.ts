@@ -287,6 +287,17 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [transport],
   );
 
+  /** Sohbeti KALICI olarak sil: çekirdek süreci kapat, kaydı listeden çıkar. */
+  const remove = useCallback(
+    async (id: string) => {
+      // Süreç zaten çökmüş olabilir; kapatma hatası silmeyi engellememeli,
+      // yoksa kullanıcı bozuk bir kaydı hiç temizleyemez.
+      await close(id).catch(() => undefined);
+      dispatch({ type: "removed", id });
+    },
+    [close],
+  );
+
   const activeSession = state.activeId ? state.sessions[state.activeId] ?? null : null;
   const sessions = useMemo(
     () => state.order.map((id) => state.sessions[id]).filter(Boolean),
@@ -315,6 +326,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     select: (id: string) => dispatch({ type: "selected", id }),
     resume,
     recentProjects,
+    remove,
     send,
     sessions,
     state,
