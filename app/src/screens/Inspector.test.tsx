@@ -54,6 +54,18 @@ describe("Inspector", () => {
     fireEvent.pointerUp(window);
   });
 
+  it("sürükleme dinleyicilerini unmount sırasında temizler", () => {
+    const onWidthChange = vi.fn();
+    const view = render(<Inspector onWidthChange={onWidthChange} width={420} />);
+    fireEvent.pointerDown(
+      screen.getByRole("separator", { name: "Çalışma panelini yeniden boyutlandır" }),
+      { button: 0, clientX: 800 },
+    );
+    view.unmount();
+    fireEvent.pointerMove(window, { clientX: 700 });
+    expect(onWidthChange).not.toHaveBeenCalled();
+  });
+
   it("daraltıldığında araç şeridini korur ve yeniden açılabilir", () => {
     const onCollapsedChange = vi.fn();
     const { container } = render(<Inspector collapsed onCollapsedChange={onCollapsedChange} />);
@@ -70,5 +82,24 @@ describe("Inspector", () => {
     expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Önizleme" }));
     expect(onActiveTabChange).toHaveBeenCalledWith("preview");
+  });
+
+  it("istenen sekmeyi yalnız bir kez uygular ve kullanıcı seçimini kilitlemez", () => {
+    const onActiveTabChange = vi.fn();
+    const view = render(
+      <Inspector activeTab="files" onActiveTabChange={onActiveTabChange} requestedTab="files" />,
+    );
+    expect(onActiveTabChange).toHaveBeenCalledWith("files");
+    onActiveTabChange.mockClear();
+    view.rerender(
+      <Inspector activeTab="terminal" onActiveTabChange={onActiveTabChange} requestedTab="files" />,
+    );
+    expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
+    expect(onActiveTabChange).not.toHaveBeenCalled();
+  });
+
+  it("daraltılmış araç şeridinde olmayan panellere aria-controls vermez", () => {
+    render(<Inspector collapsed />);
+    expect(screen.getByRole("tab", { name: "Dosyalar" }).hasAttribute("aria-controls")).toBe(false);
   });
 });

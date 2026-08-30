@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
@@ -59,16 +60,27 @@ export function Inspector({
   width = INSPECTOR_DEFAULT_WIDTH,
 }: InspectorProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<InspectorTabId>("files");
+  const appliedRequestedTab = useRef<InspectorTabId | null>(null);
+  const resizeCleanup = useRef<() => void>(() => undefined);
   const activeTab = controlledActiveTab ?? internalActiveTab;
   const setActiveTab = (tab: InspectorTabId) => {
     if (controlledActiveTab === undefined) setInternalActiveTab(tab);
     onActiveTabChange?.(tab);
   };
   useEffect(() => {
-    if (!requestedTab) return;
+    if (!requestedTab) {
+      appliedRequestedTab.current = null;
+      return;
+    }
+    if (appliedRequestedTab.current === requestedTab) return;
+    appliedRequestedTab.current = requestedTab;
     if (controlledActiveTab === undefined) setInternalActiveTab(requestedTab);
     onActiveTabChange?.(requestedTab);
   }, [controlledActiveTab, onActiveTabChange, requestedTab]);
+  useEffect(() => () => resizeCleanup.current(), []);
+  useEffect(() => {
+    if (collapsed) resizeCleanup.current();
+  }, [collapsed]);
   const activeIndex = tabs.findIndex((tab) => tab.id === activeTab);
   const selectAt = (index: number) => {
     const tab = tabs[(index + tabs.length) % tabs.length];
@@ -106,6 +118,7 @@ export function Inspector({
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onWidthChange || event.button !== 0) return;
     event.preventDefault();
+    resizeCleanup.current();
     const startX = event.clientX;
     const startWidth = safeWidth;
     const move = (nextEvent: PointerEvent) => {
@@ -115,7 +128,9 @@ export function Inspector({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
+      resizeCleanup.current = () => undefined;
     };
+    resizeCleanup.current = stop;
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop, { once: true });
     window.addEventListener("pointercancel", stop, { once: true });
@@ -141,7 +156,7 @@ export function Inspector({
         <div aria-label="Denetçi araçları" className="inspector__tabs" role="tablist">
           {tabs.map((tab) => (
             <button
-              aria-controls={`inspector-panel-${tab.id}`}
+              aria-controls={collapsed ? undefined : `inspector-panel-${tab.id}`}
               aria-selected={activeTab === tab.id}
               id={`inspector-tab-${tab.id}`}
               key={tab.id}

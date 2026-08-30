@@ -366,4 +366,23 @@ describe("Shell", () => {
     expect(container.querySelector<HTMLElement>(".app-shell")?.style.getPropertyValue("--inspector-width")).toBe("56px");
     expect(screen.queryByRole("button", { name: "Denetçiyi kapat" })).toBeNull();
   });
+
+  it("daraltılmış mobil araç şeridini modal Tab tuzağına dönüştürmez", () => {
+    setNarrowViewport(true);
+    render(
+      <Shell
+        content={<button type="button">Çalışma alanı</button>}
+        inspector={<button type="button">Panel eylemi</button>}
+        inspectorCollapsed
+        inspectorOpen
+        sidebar="Gezinme"
+      />,
+    );
+    const workspace = screen.getByRole("button", { name: "Çalışma alanı" });
+    workspace.focus();
+    const tab = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" });
+    window.dispatchEvent(tab);
+    expect(tab.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(workspace);
+  });
 });

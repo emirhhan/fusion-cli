@@ -95,7 +95,7 @@ export function Shell({
         onInspectorClose();
         return;
       }
-      if (!inspectorOverlay || event.key !== "Tab") return;
+      if (!inspectorModal || event.key !== "Tab") return;
       const container = inspectorRef.current;
       if (!container) return;
       const controls = getTabbableControls(container);
@@ -120,7 +120,7 @@ export function Shell({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [inspectorOpen, inspectorOverlay, onInspectorClose]);
+  }, [inspectorModal, inspectorOpen, onInspectorClose]);
 
   useEffect(() => {
     if (inspectorModal && !overlayOwnsFocus.current) {
