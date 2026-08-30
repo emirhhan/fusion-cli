@@ -1,7 +1,11 @@
-.preview-panel { display: grid; gap: 14px; min-height: 0; height: 100%; }
-.preview-panel form { display: grid; gap: 6px; }
+.preview-panel { display: grid; gap: 14px; min-height: 0; min-width: 0; height: 100%; }
+.preview-panel form { display: grid; gap: 6px; min-width: 0; }
 .preview-panel form label { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
-.preview-panel form div { align-items: center; display: flex; gap: 8px; }
+/* Adres ve düğme dar panelde ALT ALTA geçer: yan yana zorlamak düğmeyi
+   panelin dışına taşırıyordu. */
+.preview-panel form div { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.preview-panel form div input { flex: 1 1 160px; }
+.preview-panel form div button { flex: 0 0 auto; }
 .preview-panel input { background: var(--surface-subtle); border: 1px solid var(--border-default); border-radius: 9px; color: var(--text-primary); flex: 1; min-width: 0; padding: 8px 10px; }
 .preview-panel button { align-self: center; background: var(--text-primary); border: 0; border-radius: 9px; color: var(--text-inverse); cursor: pointer; min-height: 36px; padding: 8px 11px; white-space: nowrap; }
 .preview-panel__error { color: var(--status-error, #b42318); font-size: 13px; margin: 0; }

@@ -65,6 +65,10 @@
 
 .inspector__panel {
   min-height: 0;
+  /* `min-width: 0` OLMADAN grid öğesi kendi içeriği kadar genişler ve dar
+     panelde düğmeler panelin dışına taşıyordu (ölçüldü: "Adresi aç" düğmesi
+     pencerenin sağına çıkıyordu). Yatay taşma panelin İÇİNDE kaydırılır. */
+  min-width: 0;
   overflow: auto;
   padding: var(--space-4);
 }
