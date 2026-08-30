@@ -3,6 +3,11 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a7] — 2026-08-30
+
+- Windows Rust kalite kapısında hedefe göre kullanılmayan test yardımcı
+  parametresinin uyarı-as-error üretmesi düzeltildi.
+
 ## [0.3.0a6] — 2026-08-30
 
 - Rust çalışma zamanı testleri Windows hedefi, `.exe` giriş noktası ve Windows

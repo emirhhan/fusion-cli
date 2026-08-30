@@ -545,13 +545,13 @@ mod tests {
     const TEST_ENTRYPOINT: &str = "fusion.exe";
     const PAKET_SURUMU: &str = "0.3.0a1";
 
-    fn make_executable(path: &Path) {
+    fn make_executable(_path: &Path) {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut izinler = std::fs::metadata(path).unwrap().permissions();
+            let mut izinler = std::fs::metadata(_path).unwrap().permissions();
             izinler.set_mode(0o755);
-            std::fs::set_permissions(path, izinler).unwrap();
+            std::fs::set_permissions(_path, izinler).unwrap();
         }
     }
 

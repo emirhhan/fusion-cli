@@ -2,7 +2,7 @@
 
 Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
 
-> **Durum: 0.3.0a6 (alpha).** Değişiklikler: [CHANGELOG.md](CHANGELOG.md). Çekirdek akış çalışır durumda ve test kapsamı geniştir;
+> **Durum: 0.3.0a7 (alpha).** Değişiklikler: [CHANGELOG.md](CHANGELOG.md). Çekirdek akış çalışır durumda ve test kapsamı geniştir;
 > arayüzde ve model davranışında bilinen kısıtlar vardır. Açık başlıklar için
 > [docs/BACKLOG.md](docs/BACKLOG.md).
 
