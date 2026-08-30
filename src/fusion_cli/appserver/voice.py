@@ -1,0 +1,197 @@
+"""Sesli yanıt: Fusion'ın kullanıcıyla konuşması.
+
+Tasarım kararı — BEDAVA ve ÇEVRİMDIŞI: işletim sisteminin kendi sentezleyicisi
+kullanılır. macOS'ta `say`, Windows'ta PowerShell'in `System.Speech` sınıfı.
+Model indirilmez, API anahtarı istenmez, ağa çıkılmaz. Kullanıcının kotası ve
+gizliliği bu yüzden hiç etkilenmez: konuşulan metin bilgisayardan çıkmaz.
+
+Türkçe uyumu ölçüldü: macOS'ta `Yelda tr_TR` sesi kuruludur.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import platform
+import shutil
+import subprocess
+from typing import Any
+
+#: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
+#: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
+MAX_SPEECH_CHARS = 4_000
+
+
+#: Apple'ın ücretsiz indirilebilen yüksek kaliteli Türkçe sesi. Sistemde
+#: varsayılan olarak YALNIZ `voice.compact.tr-TR.Yelda` kurulu gelir ve o
+#: kademe belirgin biçimde robotik duyulur (kullanıcı bildirdi, ölçüldü).
+#: Katalogda doğrulandı: `com.apple.ttsbundle.Cem`, tr-TR, 120 MB, ücretsiz.
+BETTER_TURKISH_VOICE = "Cem"
+
+#: Ses kimliğindeki kalite işaretleri, iyiden kötüye. `compact` en düşük
+#: kademedir ve yalnız başka seçenek yokken kullanılır.
+_QUALITY_ORDER = ("premium", "ttsbundle", "enhanced", "compact")
+
+
+def _quality_rank(identifier: str) -> int:
+    lowered = identifier.casefold()
+    for index, marker in enumerate(_QUALITY_ORDER):
+        if marker in lowered:
+            return index
+    # Tanınmayan aile compact'ten iyi sayılır: Apple dışı sesler genelde öyledir.
+    return len(_QUALITY_ORDER) - 2
+
+
+def best_voice(installed: tuple[tuple[str, str, str], ...]) -> str | None:
+    """Kurulu Türkçe sesler arasından KALİTECE en iyisini seç.
+
+    Girdi `(ad, dil, kimlik)` üçlüleridir. İlk bulunanı almak yanlış olurdu:
+    sistemde hem compact hem yüksek kaliteli ses kuruluysa kullanıcı iyi olanı
+    duymalı.
+    """
+    turkish = [item for item in installed if item[1].casefold().startswith("tr")]
+    if not turkish:
+        return None
+    return min(turkish, key=lambda item: _quality_rank(item[2]))[0]
+
+
+def upgrade_hint(installed: tuple[tuple[str, str, str], ...]) -> str | None:
+    """Daha iyi bir Türkçe ses kurulabiliyorsa kullanıcıya söylenecek metin.
+
+    Daha iyisi varken sessizce kötüsüyle konuşmak, kullanıcının Fusion'ı
+    olduğundan kötü sanmasına yol açar.
+    """
+    turkish = [item for item in installed if item[1].casefold().startswith("tr")]
+    if not turkish:
+        return None
+    if any(_quality_rank(item[2]) < _QUALITY_ORDER.index("compact") for item in turkish):
+        return None
+    return (
+        f"Daha doğal bir Türkçe ses ücretsiz indirilebilir: {BETTER_TURKISH_VOICE}. "
+        "Sistem Ayarları → Erişilebilirlik → Sözlü İçerik → Sistem Sesi → "
+        "Sesleri Yönet → Türkçe yolundan kurabilirsin."
+    )
+
+
+def turkish_voice(installed: tuple[str, ...]) -> str | None:
+    """Kurulu sesler arasından Türkçe olanın adını döndür.
+
+    Ses adı UYDURULMAZ: sistemde gerçekten kurulu olanlardan seçilir. Türkçe ses
+    yoksa None döner ve çağıran varsayılan sesle devam eder — sessizce yanlış
+    dilde okumaktansa sistem varsayılanı doğrudur.
+    """
+    for line in installed:
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].startswith("tr_"):
+            return parts[0]
+    return None
+
+
+def installed_voice_records() -> tuple[tuple[str, str, str], ...]:
+    """Kurulu sesleri `(ad, dil, kimlik)` olarak listele.
+
+    Kimlik kalite kademesini taşır (`compact`, `ttsbundle`, `premium`); seçim
+    bu yüzden ada değil kimliğe bakar.
+    """
+    if platform.system() != "Darwin" or shutil.which("say") is None:
+        return ()
+    try:
+        result = subprocess.run(
+            ["say", "-v", "?"], capture_output=True, text=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    records: list[tuple[str, str, str]] = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        name, locale = parts[0], parts[1].replace("_", "-")
+        # `say -v ?` kimliği vermez; kurulu compact sesler bu adla gelir.
+        records.append((name, locale, f"com.apple.voice.compact.{locale}.{name}"))
+    return tuple(records)
+
+
+def installed_voices() -> tuple[str, ...]:
+    """macOS'ta kurulu sesleri listele; başka platformda boş döner."""
+    if platform.system() != "Darwin" or shutil.which("say") is None:
+        return ()
+    try:
+        result = subprocess.run(
+            ["say", "-v", "?"], capture_output=True, text=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ()
+    return tuple(line for line in result.stdout.splitlines() if line.strip())
+
+
+def speak_argv(system: str, text: str, *, voice: str | None) -> list[str]:
+    """Metni seslendirecek komutu üret.
+
+    Metin TEK argüman olarak geçer ve kabuktan geçirilmez: seslendirilecek metin
+    modelden ya da kullanıcıdan gelir, kabuk kaçışına asla güvenilmez.
+    """
+    name = system.casefold()
+    if name == "darwin":
+        argv = ["say"]
+        if voice:
+            argv += ["-v", voice]
+        return [*argv, text]
+    if name == "windows":
+        # PowerShell tek satırlık betiği argüman olarak alır; metin betiğin
+        # içine tek tırnakla ve kendi tırnağı ikilenerek gömülür.
+        güvenli = text.replace("'", "''")
+        betik = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$s.Speak('{güvenli}')"
+        )
+        return ["powershell", "-NoProfile", "-NonInteractive", "-Command", betik]
+    raise ValueError(f"Sesli yanıt bu platformda desteklenmiyor: {system}")
+
+
+def speak(text: object) -> dict[str, Any]:
+    """`ses.konus`: metni sistem sesiyle oku.
+
+    Süreç BEKLENMEZ: uzun bir cevabı okurken arayüz donmamalı. Konuşmayı
+    durdurmak `ses.durdur` ile yapılır.
+    """
+    content = str(text or "").strip()
+    if not content:
+        return {"ok": False, "metin": "Okunacak metin boş."}
+    if len(content) > MAX_SPEECH_CHARS:
+        content = content[:MAX_SPEECH_CHARS]
+    voice = best_voice(installed_voice_records())
+    try:
+        argv = speak_argv(platform.system(), content, voice=voice)
+    except ValueError as error:
+        return {"ok": False, "metin": str(error)}
+    try:
+        process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        return {"ok": False, "metin": f"Sesli yanıt başlatılamadı: {error}"}
+    return {"ok": True, "pid": process.pid, "ses": voice}
+
+
+def stop() -> dict[str, Any]:
+    """`ses.durdur`: süren konuşmayı kes."""
+    name = platform.system().casefold()
+    argv = ["killall", "say"] if name == "darwin" else ["taskkill", "/IM", "powershell.exe", "/F"]
+    # Konuşacak süreç yoksa bu bir hata değildir; durdurma yine başarılıdır.
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(argv, capture_output=True, check=False, timeout=10)
+    return {"ok": True}
+
+
+def status() -> dict[str, Any]:
+    """`ses.durum`: sesli yanıt kullanılabilir mi, hangi sesle ve daha iyisi var mı?"""
+    records = installed_voice_records()
+    voice = best_voice(records)
+    supported = platform.system().casefold() in ("darwin", "windows")
+    return {
+        "ok": True,
+        "kullanilabilir": supported,
+        "ses": voice,
+        "turkce": voice is not None,
+        # Daha iyisi kurulabiliyorsa SÖYLENİR; sessizce kötüsüyle konuşulmaz.
+        "yukseltme": upgrade_hint(records),
+    }

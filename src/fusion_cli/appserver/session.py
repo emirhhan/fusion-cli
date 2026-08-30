@@ -52,6 +52,9 @@ from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_result
+from .voice import speak as voice_speak
+from .voice import status as voice_status
+from .voice import stop as voice_stop
 from .workspace import (
     WorkspaceJournal,
     list_changes,
@@ -243,6 +246,12 @@ class AppSession:
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":
             return await self._stop_gateway()
+        if request.name == "ses.durum":
+            return voice_status()
+        if request.name == "ses.konus":
+            return voice_speak(request.data.get("metin"))
+        if request.name == "ses.durdur":
+            return voice_stop()
         if request.name == "web.saglayicilar":
             return web_provider_cards(self._state.config)
         if request.name == "web.giris":
@@ -452,9 +461,7 @@ class AppSession:
         capability_context = self._take_capability_context()
         inherited_context = self._state.take_pending_digest()
         extra_system = "\n\n".join(
-            part
-            for part in (inherited_context, capability_context, attachment_context)
-            if part
+            part for part in (inherited_context, capability_context, attachment_context) if part
         )
         self._turn = asyncio.ensure_future(
             run_agent_task(
