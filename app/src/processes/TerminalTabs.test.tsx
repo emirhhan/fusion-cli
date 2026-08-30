@@ -16,7 +16,7 @@ function controller(overrides: Partial<ProcessController> = {}): ProcessControll
       {
         baslangic: 1,
         cikis_kodu: null,
-        cikti: "\u001b]0;gizli terminal başlığı\u0007\u001b[32mdev sunucusu hazır\u001b[0m",
+        cikti: "\u001b]0;gizli terminal başlığı\u0007\u009d0;c1 başlığı\u0007\u001b[32mdev sunucusu hazır\u001b[0m\u001b]0;yarım başlık",
         cwd: "/Projects/fusion-cli",
         durum: "calisiyor",
         komut: "npm run dev",
@@ -35,7 +35,7 @@ function controller(overrides: Partial<ProcessController> = {}): ProcessControll
       },
     ],
     refresh: vi.fn(async () => undefined),
-    start: vi.fn(async () => undefined),
+    start: vi.fn(async () => true),
     stop: vi.fn(async () => undefined),
     ...overrides,
   } as ProcessController;
@@ -51,6 +51,8 @@ describe("TerminalTabs", () => {
     expect(screen.getByText("dev sunucusu hazır")).toBeTruthy();
     expect(document.body.textContent).not.toContain("\u001b[32m");
     expect(document.body.textContent).not.toContain("gizli terminal başlığı");
+    expect(document.body.textContent).not.toContain("c1 başlığı");
+    expect(document.body.textContent).not.toContain("yarım başlık");
   });
 
   it("başlatma sonrası gelen yeni süreç sekmesini otomatik etkinleştirir", () => {
@@ -103,5 +105,30 @@ describe("TerminalTabs", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("299 tests passed"));
     fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
     expect(screen.queryByText("299 tests passed")).toBeNull();
+  });
+
+  it("dönen backend tamponunda temizleme sonrasındaki yeni son eki gösterir", () => {
+    const process = { ...controller().processes[0], cikti: "abcdef" };
+    const view = render(<TerminalTabs controller={controller({ processes: [process] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
+    view.rerender(
+      <TerminalTabs controller={controller({ processes: [{ ...process, cikti: "cdefgh" }] })} />,
+    );
+    expect(screen.getByText("gh")).toBeTruthy();
+  });
+
+  it("başlatma başarısızsa komutu korur; bitmiş süreci cwd ile yeniden çalıştırır", async () => {
+    const failed = controller({ processes: [], start: vi.fn(async () => false) });
+    const view = render(<TerminalTabs controller={failed} />);
+    const input = screen.getByRole("textbox", { name: "Terminal komutu" });
+    fireEvent.change(input, { target: { value: "npm run broken" } });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+    await waitFor(() => expect(failed.start).toHaveBeenCalled());
+    expect((screen.getByRole("textbox", { name: "Terminal komutu" }) as HTMLInputElement).value).toBe("npm run broken");
+
+    const completed = controller();
+    view.rerender(<TerminalTabs controller={completed} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden çalıştır" }));
+    expect(completed.start).toHaveBeenCalledWith("npm test", "/Projects/fusion-cli/app");
   });
 });

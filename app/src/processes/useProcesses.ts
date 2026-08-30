@@ -52,8 +52,10 @@ export function useProcesses(client: ProtocolClient) {
       const result = await client.request("surec.baslat", { komut: command, cwd });
       if (result.ok !== true) throw new Error(String(result.metin ?? "Süreç başlatılamadı."));
       await refresh();
+      return true;
     } catch (reason) {
       setError(String(reason));
+      return false;
     } finally {
       setBusy(false);
     }

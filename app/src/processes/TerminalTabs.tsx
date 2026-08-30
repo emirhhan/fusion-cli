@@ -12,9 +12,32 @@ const statusLabels: Record<ProcessStatus, string> = {
 
 export function stripAnsi(value: string): string {
   return value
-    .replace(/\u001B\][^\u0007]*(?:\u0007|\u001B\\)/g, "")
+    .replace(/(?:\u001B\]|\u009D)[\s\S]*?(?:\u0007|\u001B\\|$)/g, "")
     .replace(/(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\u001B[@-_]/g, "");
+}
+
+export function outputAfterClear(clearedSnapshot: string | undefined, current: string): string {
+  if (clearedSnapshot === undefined) return current;
+  if (current.startsWith(clearedSnapshot)) return current.slice(clearedSnapshot.length);
+  if (!current || !clearedSnapshot) return current;
+
+  // Backend çıktıyı sabit boyutlu dönen tamponda tutar. Tampon dolunca uzunluk
+  // değişmez; eski snapshot'ın sonu ile yeni snapshot'ın başındaki en uzun
+  // örtüşmeyi KMP ile O(n) bulup yalnız yeni son eki gösteririz.
+  const prefix = new Array<number>(current.length).fill(0);
+  for (let index = 1, matched = 0; index < current.length; index += 1) {
+    while (matched > 0 && current[index] !== current[matched]) matched = prefix[matched - 1];
+    if (current[index] === current[matched]) matched += 1;
+    prefix[index] = matched;
+  }
+  let overlap = 0;
+  for (let index = 0; index < clearedSnapshot.length; index += 1) {
+    while (overlap > 0 && clearedSnapshot[index] !== current[overlap]) overlap = prefix[overlap - 1];
+    if (clearedSnapshot[index] === current[overlap]) overlap += 1;
+    if (overlap === current.length && index < clearedSnapshot.length - 1) overlap = prefix[overlap - 1];
+  }
+  return current.slice(overlap);
 }
 
 function latestProcess(processes: ProjectProcess[]): ProjectProcess | null {
@@ -27,10 +50,10 @@ function latestProcess(processes: ProjectProcess[]): ProjectProcess | null {
 export function TerminalTabs({ controller }: { controller: ProcessController }) {
   const [activeId, setActiveId] = useState(() => latestProcess(controller.processes)?.surec_id ?? null);
   const [closedIds, setClosedIds] = useState<Set<string>>(() => new Set());
-  const [clearedAt, setClearedAt] = useState<Record<string, number>>({});
-  const [commandComposerOpen, setCommandComposerOpen] = useState(controller.processes.length === 0);
+  const [clearedSnapshots, setClearedSnapshots] = useState<Record<string, string>>({});
   const [command, setCommand] = useState("");
   const [copyError, setCopyError] = useState<string | null>(null);
+  const commandInputRef = useRef<HTMLInputElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
   const knownIds = useRef(new Set(controller.processes.map((process) => process.surec_id)));
 
@@ -42,7 +65,7 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
     ?? latestProcess(visibleProcesses);
   const rawOutput = active?.cikti ?? "";
   const output = active
-    ? stripAnsi(rawOutput.slice(Math.min(clearedAt[active.surec_id] ?? 0, rawOutput.length)))
+    ? stripAnsi(outputAfterClear(clearedSnapshots[active.surec_id], rawOutput))
     : "";
 
   useEffect(() => {
@@ -76,7 +99,7 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
   };
   const clearActive = () => {
     if (!active) return;
-    setClearedAt((current) => ({ ...current, [active.surec_id]: active.cikti.length }));
+    setClearedSnapshots((current) => ({ ...current, [active.surec_id]: active.cikti }));
   };
   const copyActive = async () => {
     if (!active) return;
@@ -104,7 +127,7 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
         <div aria-label="Terminal oturumları" className="terminal-tabs__list" role="tablist">
           {visibleProcesses.map((process, index) => (
             <button
-              aria-controls="active-terminal-panel"
+              aria-controls={active?.surec_id === process.surec_id ? "active-terminal-panel" : undefined}
               aria-label={`${process.komut} terminali`}
               aria-selected={active?.surec_id === process.surec_id}
               className="terminal-tabs__tab"
@@ -139,42 +162,13 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
         <button
           aria-label="Yeni terminal"
           className="terminal-tabs__new"
-          onClick={() => setCommandComposerOpen(true)}
+          onClick={() => commandInputRef.current?.focus()}
           title="Yeni terminal"
           type="button"
         >
           <Icon name="new" size={16} />
         </button>
       </div>
-
-      {commandComposerOpen && (
-        <form
-          className="terminal-tabs__composer"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const next = command.trim();
-            if (!next) return;
-            void controller.start(next).then(() => {
-              setCommand("");
-              setCommandComposerOpen(false);
-            });
-          }}
-        >
-          <span aria-hidden="true">$</span>
-          <input
-            aria-label="Terminal komutu"
-            autoCapitalize="off"
-            autoComplete="off"
-            autoFocus
-            onChange={(event) => setCommand(event.target.value)}
-            placeholder="npm test"
-            spellCheck={false}
-            value={command}
-          />
-          <button disabled={controller.busy || !command.trim()} type="submit">Çalıştır</button>
-          <button aria-label="Komut satırını kapat" onClick={() => setCommandComposerOpen(false)} type="button">×</button>
-        </form>
-      )}
 
       {controller.error && <p className="process-error" role="alert">{controller.error}</p>}
       {copyError && <p className="process-error" role="alert">{copyError}</p>}
@@ -201,7 +195,10 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
               {active.durum === "calisiyor" ? (
                 <button aria-label="Süreci durdur" onClick={() => void controller.stop(active.surec_id)} title="Durdur" type="button"><Icon name="stop" size={15} /></button>
               ) : (
-                <button aria-label="Terminal sekmesini kapat" onClick={closeActive} title="Kapat" type="button">×</button>
+                <>
+                  <button aria-label="Yeniden çalıştır" onClick={() => void controller.start(active.komut, active.cwd)} title="Yeniden çalıştır" type="button">↻</button>
+                  <button aria-label="Terminal sekmesini kapat" onClick={closeActive} title="Kapat" type="button">×</button>
+                </>
               )}
             </div>
           </header>
@@ -219,9 +216,34 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
         <div className="terminal-tabs__empty">
           <Icon name="terminal" size={24} />
           <p>Bu görevde henüz terminal açılmadı.</p>
-          <button onClick={() => setCommandComposerOpen(true)} type="button">İlk terminali aç</button>
+          <button onClick={() => commandInputRef.current?.focus()} type="button">İlk terminali aç</button>
         </div>
       )}
+
+      <form
+        className="terminal-tabs__composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const next = command.trim();
+          if (!next) return;
+          void controller.start(next).then((started) => {
+            if (started) setCommand("");
+          });
+        }}
+      >
+        <span aria-hidden="true">$</span>
+        <input
+          aria-label="Terminal komutu"
+          autoCapitalize="off"
+          autoComplete="off"
+          onChange={(event) => setCommand(event.target.value)}
+          placeholder="npm test"
+          ref={commandInputRef}
+          spellCheck={false}
+          value={command}
+        />
+        <button disabled={controller.busy || !command.trim()} type="submit">Çalıştır</button>
+      </form>
     </div>
   );
 }
