@@ -160,4 +160,21 @@ describe("PreviewPanel", () => {
     await waitFor(() => expect(address.value).toBe("http://localhost:4173"));
     expect(screen.queryByTitle("Yerel geliştirme önizlemesi")).toBeNull();
   });
+
+  it("geciken başarısız doğrulama yeni adrese eski hata ve dışarıda aç eylemi yazmaz", async () => {
+    let resolveValidation: ((payload: Record<string, unknown>) => void) | null = null;
+    const client = {
+      request: vi.fn(() => new Promise<Record<string, unknown>>((resolve) => { resolveValidation = resolve; })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath={null} />);
+    const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
+    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.change(address, { target: { value: "http://localhost:4173" } });
+    resolveValidation?.({ ok: false, metin: "Eski adres açılamadı" });
+
+    await waitFor(() => expect(address.value).toBe("http://localhost:4173"));
+    expect(screen.queryByText("Eski adres açılamadı")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dışarıda aç" })?.hasAttribute("disabled")).toBe(true);
+  });
 });
