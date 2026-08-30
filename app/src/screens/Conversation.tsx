@@ -1,7 +1,7 @@
 import { Button } from "../ui/Button";
 import "./Conversation.css";
 
-import type { OlayAdimi } from "../protocol/olayMetni";
+import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
 import { assetUrl } from "../platform/assetUrl";
 
 export interface MesajEki {
@@ -61,25 +61,25 @@ function AssistantMessage({ text }: { text: string }) {
   );
 }
 
-type ActivityState = "running" | "failed" | "complete";
+type ActivityState = "running" | OlaySonucu;
 
-function activityState(adimlar: OlayAdimi[], metin: string): ActivityState {
+function activityState(adimlar: OlayAdimi[]): ActivityState {
   const sonuncu = adimlar[adimlar.length - 1];
-  const baslik = sonuncu?.metin ?? metin;
-  if (/başarısız|hata/i.test(baslik)) return "failed";
-  return sonuncu?.sonuc ? "complete" : "running";
+  return sonuncu?.sonuc ?? "running";
 }
 
 const activityLabels: Record<ActivityState, string> = {
   running: "Çalışıyor",
   failed: "Başarısız",
-  complete: "Tamamlandı",
+  partial: "Kısmi",
+  completed: "Tamamlandı",
 };
 
 const activityIcons: Record<ActivityState, string> = {
   running: "…",
   failed: "!",
-  complete: "✓",
+  partial: "~",
+  completed: "✓",
 };
 
 /**
@@ -94,7 +94,7 @@ function ActivityBlock({ adimlar, metin }: { adimlar: OlayAdimi[]; metin: string
   const sonuncu = adimlar[adimlar.length - 1];
   const baslik = sonuncu?.metin ?? metin;
   const sayi = adimlar.length;
-  const durum = activityState(adimlar, metin);
+  const durum = activityState(adimlar);
   const rowLead = (
     <span className="conversation__event-lead">
       <span aria-label={`${activityLabels[durum]} simgesi`} className="conversation__event-icon" role="img">
@@ -146,7 +146,7 @@ function ActivityBlock({ adimlar, metin }: { adimlar: OlayAdimi[]; metin: string
 
 export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
-  const sonOlayDurumu = sonOlay ? activityState(sonOlay.adimlar ?? [], sonOlay.metin) : null;
+  const sonOlayDurumu = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   return (
     <div className="conversation">
       <div className="conversation__stream">

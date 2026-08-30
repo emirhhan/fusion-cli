@@ -37,20 +37,40 @@ describe("Conversation", () => {
     expect(screen.getByRole("status").textContent).toBe("Çalışıyor");
   });
 
-  it("çalışma ve başarısızlık durumlarını ikonla ve metinle ayırt eder", () => {
+  it("çalışan durumu ikonla ve metinle ayırt eder", () => {
     const { container } = render(
       <Conversation
-        mesajlar={[
-          { rol: "olay", metin: "dosya yazıyor", adimlar: [{ metin: "dosya yazıyor" }] },
-          { rol: "olay", metin: "görev başarısız", adimlar: [{ metin: "görev başarısız", sonuc: true }] },
-        ]}
+        mesajlar={[{ rol: "olay", metin: "dosya yazıyor", adimlar: [{ metin: "dosya yazıyor" }] }]}
       />,
     );
-    expect(screen.getAllByText("Çalışma")).toHaveLength(2);
+    expect(screen.getByText("Çalışma")).toBeTruthy();
     expect(container.querySelector('[data-state="running"]')?.textContent).toContain("Çalışıyor");
-    expect(container.querySelector('[data-state="failed"]')?.textContent).toContain("Başarısız");
     expect(screen.getByLabelText("Çalışıyor simgesi")).toBeTruthy();
-    expect(screen.getByLabelText("Başarısız simgesi")).toBeTruthy();
+  });
+
+  it.each([
+    ["completed", "Tamamlandı", "Tamamlandı simgesi"],
+    ["partial", "Kısmi", "Kısmi simgesi"],
+    ["failed", "Başarısız", "Başarısız simgesi"],
+  ] as const)("%s tur sonucunu typed durumdan dürüstçe gösterir ve duyurur", (sonuc, etiket, simge) => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "yerelleştirilmiş sonuç metni",
+          adimlar: [{ metin: "yerelleştirilmiş sonuç metni", sonuc }],
+        }]}
+      />,
+    );
+    const outcomeRow = container.querySelector(`[data-state="${sonuc}"]`);
+    expect(outcomeRow).not.toBeNull();
+    expect(outcomeRow?.textContent ?? "").toContain(etiket);
+    expect(screen.getByLabelText(simge)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(etiket);
+    if (sonuc === "partial") {
+      expect(container.querySelector('[data-state="partial"]')?.textContent).not.toContain("Tamamlandı");
+      expect(screen.getByRole("status").textContent).not.toContain("Tamamlandı");
+    }
   });
 
   it("ayrıntılı çalışma adımını açılabilir kutuda sunar", () => {

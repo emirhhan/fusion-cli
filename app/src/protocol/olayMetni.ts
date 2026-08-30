@@ -10,6 +10,8 @@
  * olduğunu gizliyordu.
  */
 
+export type OlaySonucu = "completed" | "partial" | "failed";
+
 export interface OlayAdimi {
   /** Kısa başlık: "düşünüyor", "dosya yazdı"… */
   metin: string;
@@ -18,7 +20,7 @@ export interface OlayAdimi {
   /** Varsa gidilen adres; arayüz bunu kaynak olarak gösterir. */
   kaynak?: string;
   /** Turun sonucu gibi kendi başına duran adımlar akışta ayrı satır olur. */
-  sonuc?: boolean;
+  sonuc?: OlaySonucu;
 }
 
 /** Araç argümanlarından okunabilir tek satır çıkar. */
@@ -68,9 +70,9 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     }
     case "TurnOutcome": {
       const durum = String(veri.status ?? "");
-      if (durum === "completed") return { metin: "görev tamamlandı", sonuc: true };
-      if (durum === "partial") return { metin: "görev kısmi kaldı", sonuc: true };
-      return { metin: "görev başarısız", sonuc: true };
+      if (durum === "completed") return { metin: "görev tamamlandı", sonuc: "completed" };
+      if (durum === "partial") return { metin: "görev kısmi kaldı", sonuc: "partial" };
+      return { metin: "görev başarısız", sonuc: "failed" };
     }
     default:
       return null;

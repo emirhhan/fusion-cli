@@ -118,3 +118,93 @@ cd app && npm run build
 ## Endişeler
 
 Yok. Görsel snapshot onayı istenmediği için permanent snapshot alınmadı.
+
+## Fix round 1 — Typed TurnOutcome
+
+### Finding ve çözüm
+
+`TurnOutcome` artık boolean terminal işareti yerine `OlaySonucu = "completed" | "partial" | "failed"` taşır. `Conversation` görünür satır ve ayrı canlı bölge durumunu bu typed alandan doğrudan üretir; yerelleştirilmiş `metin` üzerinde eşleme yapmaz. Partial sonucu `Kısmi` etiketi, `~` simgesi ve warning durumu ile gösterilir; success semantiği kullanılmaz.
+
+### RED
+
+Komut:
+
+```text
+cd app && npm test -- olayMetni.test.ts Conversation.test.tsx
+```
+
+Çıktı (exit 1):
+
+```text
+Test Files  2 failed (2)
+Tests  6 failed | 14 passed (20)
+Protocol completed: expected sonuc "completed", received true
+Protocol partial: expected sonuc "partial", received true
+Protocol failed: expected sonuc "failed", received true
+Conversation completed/partial/failed: expected typed data-state row, received null
+Duration  777ms
+```
+
+Bu RED, protocolün üç outcome'u boolean'a düşürdüğünü ve UI'ın typed state üretmediğini doğruladı.
+
+### GREEN ve doğrulama
+
+Nihai focused komut:
+
+```text
+cd app && npm test -- olayMetni.test.ts Conversation.test.tsx EmptyState.test.tsx Conversation.perf.test.tsx
+```
+
+Çıktı (exit 0):
+
+```text
+Test Files  4 passed (4)
+Tests  25 passed (25)
+Duration  1.06s
+```
+
+Tam suite:
+
+```text
+cd app && npm test
+```
+
+Çıktı (exit 0):
+
+```text
+Test Files  53 passed (53)
+Tests  280 passed (280)
+Duration  9.24s
+```
+
+Build:
+
+```text
+cd app && npm run build
+```
+
+Çıktı (exit 0):
+
+```text
+> tsc && vite build
+✓ 140 modules transformed.
+✓ built in 678ms
+```
+
+### Fix dosyaları
+
+- `app/src/protocol/olayMetni.ts`
+- `app/src/protocol/olayMetni.test.ts`
+- `app/src/screens/Conversation.tsx`
+- `app/src/screens/Conversation.css`
+- `app/src/screens/Conversation.test.tsx`
+- `.superpowers/sdd/2026-08-30-karakter-sohbet-composer/task-2-report.md`
+
+### Self-review ve endişeler
+
+- Completed, partial ve failed protocol eşlemelerinin her biri literal beklentiyle test edildi.
+- UI test girdisinin metni kasıtlı olarak outcome belirtmez; böylece davranışın yerelleştirilmiş metinden çıkarılmadığı kanıtlanır.
+- Partial için hem görünür satırın hem canlı bölgenin `Tamamlandı` içermediği doğrulandı.
+- `olayAkisi` terminal ayrımı typed string'in truthy olmasıyla mevcut semantiğini korur.
+- Snapshot, Composer, pixel asset, `:memory:.ses` ve kök `index.html` değiştirilmedi.
+- Açık endişe yok.

@@ -131,8 +131,11 @@
 .conversation__event-row[data-state="failed"] .conversation__event-icon,
 .conversation__event-row[data-state="failed"] .conversation__event-state { color: var(--text-danger); }
 
-.conversation__event-row[data-state="complete"] .conversation__event-icon,
-.conversation__event-row[data-state="complete"] .conversation__event-state { color: var(--text-success); }
+.conversation__event-row[data-state="partial"] .conversation__event-icon,
+.conversation__event-row[data-state="partial"] .conversation__event-state { color: var(--text-warning); }
+
+.conversation__event-row[data-state="completed"] .conversation__event-icon,
+.conversation__event-row[data-state="completed"] .conversation__event-state { color: var(--text-success); }
 
 .conversation__event-title { min-width: 0; overflow-wrap: anywhere; }
 

@@ -29,8 +29,15 @@ describe("olayAdimi", () => {
     expect(adim?.kaynak).toBeUndefined();
   });
 
-  it("tur sonucu kendi başına duran bir adımdır", () => {
-    expect(olayAdimi({ olay: "TurnOutcome", status: "completed" })?.sonuc).toBe(true);
+  it.each([
+    ["completed", "görev tamamlandı"],
+    ["partial", "görev kısmi kaldı"],
+    ["failed", "görev başarısız"],
+  ] as const)("%s tur sonucunu typed durumuyla taşır", (status, metin) => {
+    expect(olayAdimi({ olay: "TurnOutcome", status })).toEqual({
+      metin,
+      sonuc: status,
+    });
   });
 
   it("tanınmayan olay hiç gösterilmez", () => {
