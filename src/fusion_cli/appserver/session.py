@@ -19,6 +19,7 @@ import asyncio
 import json
 import shlex
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .commands import command_choices, list_commands, run_command
+from .connectors import add_connector, list_connectors, remove_connector
 from .control import (
     delete_secret,
     provider_catalog_rows,
@@ -49,6 +51,7 @@ from .control import (
     web_provider_cards,
 )
 from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
+from .instructions import get_instructions, instruction_block, save_instructions
 from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
@@ -257,6 +260,16 @@ class AppSession:
             return voice_download_model(
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
             )
+        if request.name == "ayar.talimat":
+            return get_instructions()
+        if request.name == "ayar.talimat_kaydet":
+            return save_instructions(request.data.get("metin"))
+        if request.name == "baglanti.listele":
+            return list_connectors(self._state.config)
+        if request.name == "baglanti.ekle":
+            return self._change_connectors(add_connector, request.data)
+        if request.name == "baglanti.sil":
+            return self._change_connectors(remove_connector, request.data)
         if request.name == "ses.ayar":
             return voice_settings(request.data)
         if request.name == "ses.durdur":
@@ -341,6 +354,22 @@ class AppSession:
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
         return None
+
+    def _change_connectors(
+        self,
+        action: Callable[[Config, object], tuple[Config | None, dict[str, Any]]],
+        data: object,
+    ) -> dict[str, Any]:
+        """Bağlantı ekle/sil ve BAŞARILIYSA oturumun yapılandırmasını güncelle.
+
+        Yazma başarısızsa bellekteki yapılandırma da değişmez; aksi hâlde
+        kaydedilmemiş bir bağlantı bu oturumda çalışır, sonraki açılışta yok
+        olurdu.
+        """
+        yeni, sonuc = action(self._state.config, data)
+        if yeni is not None:
+            self._state.config = yeni
+        return sonuc
 
     def _apply_workspace_mode(self, value: object) -> dict[str, Any] | None:
         """`kip`: "sohbet" ya da "kod".
@@ -471,8 +500,17 @@ class AppSession:
             )
         capability_context = self._take_capability_context()
         inherited_context = self._state.take_pending_digest()
+        # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
+        # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
         extra_system = "\n\n".join(
-            part for part in (inherited_context, capability_context, attachment_context) if part
+            part
+            for part in (
+                inherited_context,
+                capability_context,
+                attachment_context,
+                instruction_block(),
+            )
+            if part
         )
         self._turn = asyncio.ensure_future(
             run_agent_task(
