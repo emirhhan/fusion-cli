@@ -6,6 +6,8 @@
   min-width: 0;
 }
 
+.preview-panel [hidden] { display: none !important; }
+
 .preview-panel__modes {
   border-bottom: 1px solid var(--border-subtle);
   display: flex;

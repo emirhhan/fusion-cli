@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import "./PreviewPanel.css";
 
@@ -41,7 +41,6 @@ function bytesFromBase64(value: string): Uint8Array<ArrayBuffer> {
 
 export interface PreviewPanelProps {
   client: ProtocolClient;
-  loadTimeoutMs?: number;
   openExternal?: (url: string) => Promise<void>;
   selectedPath: string | null;
 }
@@ -54,7 +53,7 @@ async function openWithSystem(url: string): Promise<void> {
 type PreviewMode = "file" | "web";
 type PreviewViewport = "desktop" | "tablet" | "mobile";
 
-export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = openWithSystem, selectedPath }: PreviewPanelProps) {
+export function PreviewPanel({ client, openExternal = openWithSystem, selectedPath }: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [assetLoading, setAssetLoading] = useState(false);
@@ -64,10 +63,13 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [addressError, setAddressError] = useState<string | null>(null);
   const [frameError, setFrameError] = useState<string | null>(null);
-  const [frameLoaded, setFrameLoaded] = useState(false);
+  const [frameErrorUrl, setFrameErrorUrl] = useState<string | null>(null);
+  const [frameChecking, setFrameChecking] = useState(false);
   const [frameRevision, setFrameRevision] = useState(0);
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [objectUrl, setObjectUrl] = useState("");
+  const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
+  const validationRun = useRef(0);
   const localUrl = historyIndex >= 0 ? history[historyIndex] ?? null : null;
 
   useEffect(() => {
@@ -99,52 +101,91 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
     return () => URL.revokeObjectURL(url);
   }, [asset]);
 
-  useEffect(() => {
-    if (!localUrl || frameLoaded || frameError) return;
-    const timer = window.setTimeout(() => {
-      setFrameError("Sunucu zamanında yanıt vermedi veya bu sayfa uygulama içinde görüntülenemiyor.");
-    }, loadTimeoutMs);
-    return () => window.clearTimeout(timer);
-  }, [frameError, frameLoaded, frameRevision, loadTimeoutMs, localUrl]);
-
-  const openLocal = () => {
+  const validateAddress = async (value: string): Promise<string | null> => {
+    const run = ++validationRun.current;
+    setFrameChecking(true);
+    setFrameError(null);
+    setFrameErrorUrl(null);
+    try {
+      const result = await client.request("web.onizleme_dogrula", { url: value });
+      if (run !== validationRun.current) return null;
+      if (result.ok !== true || typeof result.url !== "string" || !isLocalPreviewUrl(result.url)) {
+        setFrameError(typeof result.metin === "string" ? result.metin : "Yerel önizleme doğrulanamadı.");
+        setFrameErrorUrl(value);
+        return null;
+      }
+      return result.url;
+    } catch (reason) {
+      if (run !== validationRun.current) return null;
+      setFrameError(reason instanceof Error ? reason.message : "Yerel önizleme doğrulanamadı.");
+      setFrameErrorUrl(value);
+      return null;
+    } finally {
+      if (run === validationRun.current) setFrameChecking(false);
+    }
+  };
+  const openLocal = async () => {
     const value = input.trim();
     if (!isLocalPreviewUrl(value)) {
+      validationRun.current += 1;
+      setFrameChecking(false);
       setAddressError("Güvenlik için uygulama içine yalnız localhost adresleri açılabilir.");
       return;
     }
+    setAddressError(null);
+    const verified = await validateAddress(value);
+    if (!verified) return;
     const next = history.slice(0, historyIndex + 1);
-    if (next[next.length - 1] !== value) next.push(value);
+    if (next[next.length - 1] !== verified) next.push(verified);
     setHistory(next);
     setHistoryIndex(next.length - 1);
-    setAddressError(null);
     setFrameError(null);
-    setFrameLoaded(false);
+    setFrameErrorUrl(null);
+    setInput(verified);
     setFrameRevision((current) => current + 1);
   };
-  const moveHistory = (nextIndex: number) => {
+  const moveHistory = async (nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= history.length) return;
+    const verified = await validateAddress(history[nextIndex]);
+    if (!verified) return;
+    const nextHistory = [...history];
+    nextHistory[nextIndex] = verified;
+    setHistory(nextHistory);
     setHistoryIndex(nextIndex);
-    setInput(history[nextIndex]);
+    setInput(verified);
     setAddressError(null);
     setFrameError(null);
-    setFrameLoaded(false);
+    setFrameErrorUrl(null);
     setFrameRevision((current) => current + 1);
   };
-  const refreshFrame = () => {
+  const refreshFrame = async () => {
     if (!localUrl) return;
+    if (!await validateAddress(localUrl)) return;
     setFrameError(null);
-    setFrameLoaded(false);
+    setFrameErrorUrl(null);
     setFrameRevision((current) => current + 1);
   };
-  const launchExternal = async () => {
-    if (!localUrl) return;
+  const launchExternal = async (url = localUrl) => {
+    if (!url) return;
     try {
-      await openExternal(localUrl);
-      setFrameError(null);
+      await openExternal(url);
     } catch {
       setFrameError("Önizleme sistem tarayıcısında açılamadı.");
+      setFrameErrorUrl(url);
     }
+  };
+  const moveModeFocus = (current: PreviewMode, key: string) => {
+    const modes: PreviewMode[] = ["file", "web"];
+    const currentIndex = modes.indexOf(current);
+    const next = key === "Home" ? modes[0]
+      : key === "End" ? modes[modes.length - 1]
+        : key === "ArrowLeft" ? modes[(currentIndex - 1 + modes.length) % modes.length]
+          : key === "ArrowRight" ? modes[(currentIndex + 1) % modes.length]
+            : null;
+    if (!next) return false;
+    setMode(next);
+    window.requestAnimationFrame(() => modeRefs.current[next]?.focus());
+    return true;
   };
 
   return (
@@ -152,11 +193,16 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
       <div aria-label="Önizleme türü" className="preview-panel__modes" role="tablist">
         {(["file", "web"] as const).map((item) => (
           <button
-            aria-controls={mode === item ? `preview-${item}-panel` : undefined}
+            aria-controls={`preview-${item}-panel`}
             aria-selected={mode === item}
             key={item}
             onClick={() => setMode(item)}
+            onKeyDown={(event) => {
+              if (moveModeFocus(item, event.key)) event.preventDefault();
+            }}
+            ref={(node) => { modeRefs.current[item] = node; }}
             role="tab"
+            tabIndex={mode === item ? 0 : -1}
             type="button"
           >
             {item === "file" ? "Dosya" : "Web"}
@@ -164,19 +210,18 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
         ))}
       </div>
 
-      {mode === "web" ? (
-        <section aria-label="Web önizlemesi" className="preview-panel__web" id="preview-web-panel" role="tabpanel">
+      <section aria-label="Web önizlemesi" className="preview-panel__web" hidden={mode !== "web"} id="preview-web-panel" role="tabpanel">
           <div className="preview-panel__chrome">
             <div className="preview-panel__toolbar">
               <div className="preview-panel__navigation">
-                <button aria-label="Geri" disabled={historyIndex <= 0} onClick={() => moveHistory(historyIndex - 1)} title="Geri" type="button">‹</button>
-                <button aria-label="İleri" disabled={historyIndex < 0 || historyIndex >= history.length - 1} onClick={() => moveHistory(historyIndex + 1)} title="İleri" type="button">›</button>
-                <button aria-label="Yenile" disabled={!localUrl} onClick={refreshFrame} title="Yenile" type="button">↻</button>
+                <button aria-label="Geri" disabled={frameChecking || historyIndex <= 0} onClick={() => void moveHistory(historyIndex - 1)} title="Geri" type="button">‹</button>
+                <button aria-label="İleri" disabled={frameChecking || historyIndex < 0 || historyIndex >= history.length - 1} onClick={() => void moveHistory(historyIndex + 1)} title="İleri" type="button">›</button>
+                <button aria-label="Yenile" disabled={frameChecking || !localUrl} onClick={() => void refreshFrame()} title="Yenile" type="button">↻</button>
               </div>
-              <form onSubmit={(event) => { event.preventDefault(); openLocal(); }}>
+              <form onSubmit={(event) => { event.preventDefault(); void openLocal(); }}>
                 <label className="preview-panel__sr-only" htmlFor="local-preview-url">Yerel önizleme adresi</label>
                 <input id="local-preview-url" onChange={(event) => { setInput(event.target.value); setAddressError(null); }} placeholder="http://localhost:5173" value={input} />
-                <button aria-label="Adrese git" type="submit">Git</button>
+                <button aria-label="Adrese git" disabled={frameChecking} type="submit">Git</button>
               </form>
               <select
                 aria-label="Önizleme boyutu"
@@ -192,11 +237,16 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
             {addressError && <p className="preview-panel__address-error" role="alert">{addressError}</p>}
           </div>
 
-          {frameError ? (
+          {frameChecking ? (
+            <div className="preview-panel__empty" role="status">
+              <strong>Yerel sunucu doğrulanıyor…</strong>
+              <p>Adres, yönlendirmeler ve gömme izinleri kontrol ediliyor.</p>
+            </div>
+          ) : frameError ? (
             <div className="preview-panel__frame-error" role="alert">
               <strong>Yerel önizleme yüklenemedi.</strong>
               <p>{frameError}</p>
-              {localUrl && <button onClick={() => void launchExternal()} type="button">Dışarıda aç</button>}
+              {frameErrorUrl && <button onClick={() => void launchExternal(frameErrorUrl)} type="button">Dışarıda aç</button>}
             </div>
           ) : localUrl ? (
             <div className="preview-panel__viewport" data-testid="web-preview-viewport" data-viewport={viewport}>
@@ -204,8 +254,6 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
                 className="preview-panel__frame"
                 data-revision={frameRevision}
                 key={`${localUrl}-${frameRevision}`}
-                onError={() => setFrameError("Sunucu yanıt vermedi veya bu sayfa uygulama içinde görüntülenemiyor.")}
-                onLoad={() => setFrameLoaded(true)}
                 sandbox="allow-forms allow-modals allow-pointer-lock allow-same-origin allow-scripts"
                 src={localUrl}
                 title="Yerel geliştirme önizlemesi"
@@ -217,9 +265,8 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
               <p>Çalışan localhost adresini üstteki çubuğa yaz.</p>
             </div>
           )}
-        </section>
-      ) : (
-        <section aria-label="Dosya önizlemesi" className="preview-panel__file" id="preview-file-panel" role="tabpanel">
+      </section>
+      <section aria-label="Dosya önizlemesi" className="preview-panel__file" hidden={mode !== "file"} id="preview-file-panel" role="tabpanel">
           {assetError && <p className="preview-panel__error" role="alert">{assetError}</p>}
           {assetLoading ? (
             <p className="preview-panel__empty">Önizleme hazırlanıyor…</p>
@@ -239,8 +286,7 @@ export function PreviewPanel({ client, loadTimeoutMs = 8_000, openExternal = ope
               <p>Dosyalar sekmesinden metin, görsel, ses, video veya PDF aç.</p>
             </div>
           ) : null}
-        </section>
-      )}
+      </section>
     </div>
   );
 }

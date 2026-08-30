@@ -61,34 +61,41 @@ describe("PreviewPanel", () => {
 
   it("yerel web geçmişinde geri, ileri, yenile ve harici aç eylemlerini yönetir", async () => {
     const openExternal = vi.fn(async () => undefined);
-    const client = { request: vi.fn() } as unknown as ProtocolClient;
+    const client = {
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200 }
+        : { ok: true }),
+    } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} openExternal={openExternal} selectedPath={null} />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Web" }));
     const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" });
     fireEvent.change(address, { target: { value: "http://localhost:3000" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    await screen.findByTitle("Yerel geliştirme önizlemesi");
     fireEvent.change(address, { target: { value: "http://localhost:4173" } });
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
-    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173");
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
 
     fireEvent.click(screen.getByRole("button", { name: "Geri" }));
-    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3000");
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:3000"));
     fireEvent.click(screen.getByRole("button", { name: "İleri" }));
-    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173");
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("src")).toBe("http://localhost:4173"));
     const before = screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision");
     fireEvent.click(screen.getByRole("button", { name: "Yenile" }));
-    expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision")).not.toBe(before);
+    await waitFor(() => expect(screen.getByTitle("Yerel geliştirme önizlemesi").getAttribute("data-revision")).not.toBe(before));
     fireEvent.click(screen.getByRole("button", { name: "Dışarıda aç" }));
     await waitFor(() => expect(openExternal).toHaveBeenCalledWith("http://localhost:4173"));
   });
 
   it("metin dosyasını dosya modunda ve seçilen viewport ölçüsünü web modunda gösterir", async () => {
     const client = {
-      request: vi.fn(async () => ({
-        ok: true, yol: "README.md", tur: "text", mime: "text/markdown",
-        boyut: 13, base64: "IyBGdXNpb24gQXBw",
-      })),
+      request: vi.fn(async (name: string, data: Record<string, unknown>) => name === "web.onizleme_dogrula"
+        ? { ok: true, url: data.url, durum: 200 }
+        : {
+            ok: true, yol: "README.md", tur: "text", mime: "text/markdown",
+            boyut: 13, base64: "IyBGdXNpb24gQXBw",
+          }),
     } as unknown as ProtocolClient;
     render(<PreviewPanel client={client} selectedPath="README.md" />);
     expect(await screen.findByText("# Fusion App")).toBeTruthy();
@@ -101,12 +108,15 @@ describe("PreviewPanel", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Önizleme boyutu" }), {
       target: { value: "mobile" },
     });
-    expect(screen.getByTestId("web-preview-viewport").getAttribute("data-viewport")).toBe("mobile");
+    await waitFor(() => expect(screen.getByTestId("web-preview-viewport").getAttribute("data-viewport")).toBe("mobile"));
   });
 
   it("iframe yüklenemediğinde boş alan yerine açıklama ve harici açma sunar", async () => {
-    const client = { request: vi.fn() } as unknown as ProtocolClient;
-    render(<PreviewPanel client={client} loadTimeoutMs={1} selectedPath={null} />);
+    const openExternal = vi.fn(async () => undefined);
+    const client = {
+      request: vi.fn(async () => ({ ok: false, metin: "Yerel sunucuya bağlanılamadı." })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} openExternal={openExternal} selectedPath={null} />);
     fireEvent.click(screen.getByRole("tab", { name: "Web" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Yerel önizleme adresi" }), {
       target: { value: "http://localhost:9000" },
@@ -114,6 +124,24 @@ describe("PreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("önizleme yüklenemedi");
-    expect(alert.querySelector("button")?.textContent).toBe("Dışarıda aç");
+    const external = alert.querySelector("button");
+    expect(external?.textContent).toBe("Dışarıda aç");
+    fireEvent.click(external as HTMLButtonElement);
+    await waitFor(() => expect(openExternal).toHaveBeenCalledWith("http://localhost:9000"));
+    expect(screen.getByRole("alert")).toBeTruthy();
+  });
+
+  it("Dosya ve Web sekmelerini ok tuşlarıyla roving focus modelinde değiştirir", () => {
+    const client = { request: vi.fn() } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath={null} />);
+    const web = screen.getByRole("tab", { name: "Web" });
+    const file = screen.getByRole("tab", { name: "Dosya" });
+
+    expect(web.getAttribute("tabindex")).toBe("0");
+    expect(file.getAttribute("tabindex")).toBe("-1");
+    fireEvent.keyDown(web, { key: "ArrowLeft" });
+    expect(file.getAttribute("aria-selected")).toBe("true");
+    expect(file.getAttribute("tabindex")).toBe("0");
+    expect(file.getAttribute("aria-controls")).toBe("preview-file-panel");
   });
 });
