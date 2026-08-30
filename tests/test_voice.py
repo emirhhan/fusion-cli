@@ -212,3 +212,74 @@ def test_durum_yanlis_yukseltme_onermez(tmp_path, monkeypatch):
     assert durum["motor"] == "piper"
     # Piper devredeyken sistem sesi önerisi anlamsızdır.
     assert durum["yukseltme"] is None
+
+
+def test_ses_ayarlari_hizi_ve_robotikligi_degistirir(tmp_path, monkeypatch):
+    """Kullanıcı hızı ve robotikliği kendi ayarlayabilmeli.
+
+    Piper'da hız `length_scale` ile TERS orantılıdır: küçük değer hızlı okur.
+    Robotiklik ise hece süresi değişkenliğidir (`noise_w_scale`); küçüldükçe
+    ses mekanikleşir.
+    """
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+
+    sonuc = voice.save_settings({"hiz": 1.4, "robotik": 0.8})
+
+    assert sonuc["ok"] is True
+    ayarlar = voice.load_settings()
+    assert ayarlar["length_scale"] < voice.PIPER_DEFAULTS["length_scale"]
+    assert ayarlar["noise_w_scale"] < voice.PIPER_DEFAULTS["noise_w_scale"]
+
+
+def test_ses_ayarlari_araligin_disina_cikamaz(tmp_path, monkeypatch):
+    """Uç değerler sesi anlaşılmaz yapar; aralık kırpılır."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+
+    voice.save_settings({"hiz": 99.0, "robotik": -5.0})
+    ayarlar = voice.load_settings()
+
+    assert voice.HIZ_ARALIGI[0] <= ayarlar["hiz"] <= voice.HIZ_ARALIGI[1]
+    assert 0.0 <= ayarlar["robotik"] <= 1.0
+
+
+def test_kendi_ses_modeli_dosyasi_kullanilabilir(tmp_path, monkeypatch):
+    """Kullanıcı kendi Piper modelini gösterebilmeli."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    kendi = tmp_path / "kendi-ses.onnx"
+    kendi.write_bytes(b"onnx")
+
+    sonuc = voice.save_settings({"model": str(kendi)})
+
+    assert sonuc["ok"] is True
+    assert voice.active_model_path() == kendi
+
+
+def test_olmayan_ses_modeli_kabul_edilmez(tmp_path, monkeypatch):
+    """Var olmayan dosyayı kaydetmek, konuşmayı sessizce bozardı."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+
+    sonuc = voice.save_settings({"model": str(tmp_path / "yok.onnx")})
+
+    assert sonuc["ok"] is False
+    assert "bulunamadı" in sonuc["metin"]
+
+
+def test_ayarlar_bozuksa_varsayilana_dusulur(tmp_path, monkeypatch):
+    """Elle bozulmuş ayar dosyası konuşmayı engellememelidir."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    voice.settings_path().parent.mkdir(parents=True, exist_ok=True)
+    voice.settings_path().write_text("{bozuk", encoding="utf-8")
+
+    ayarlar = voice.load_settings()
+
+    assert ayarlar["length_scale"] == voice.PIPER_DEFAULTS["length_scale"]

@@ -54,6 +54,7 @@ from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
 from .voice import download_piper_model as voice_download_model
+from .voice import save_settings as voice_settings
 from .voice import speak as voice_speak
 from .voice import status as voice_status
 from .voice import stop as voice_stop
@@ -256,6 +257,8 @@ class AppSession:
             return voice_download_model(
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
             )
+        if request.name == "ses.ayar":
+            return voice_settings(request.data)
         if request.name == "ses.durdur":
             return voice_stop()
         if request.name == "saglayici.katalog":

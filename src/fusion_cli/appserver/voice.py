@@ -11,6 +11,7 @@ Türkçe uyumu ölçüldü: macOS'ta `Yelda tr_TR` sesi kuruludur.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import platform
 import shutil
@@ -117,6 +118,102 @@ def piper_model_path() -> Path:
     silinir. Kullanıcı veri dizini güncellemeden etkilenmez.
     """
     return _data_home() / "voices" / f"{PIPER_TURKISH_MODEL}.onnx"
+
+
+#: Konuşma hızı çarpanı için kabul edilen aralık. Alt sınırın altında sesler
+#: anlaşılmaz hızlanır, üst sınırın üstünde ağır çeker; ikisi de dinlenerek
+#: bulundu.
+HIZ_ARALIGI: tuple[float, float] = (0.6, 1.6)
+
+
+def settings_path() -> Path:
+    """Kullanıcının ses tercihleri. Model dosyasıyla aynı kökte durur."""
+    return _data_home() / "voice-settings.json"
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def load_settings() -> dict[str, Any]:
+    """Kayıtlı tercihleri, uygulanacak sentez parametreleriyle birlikte döndür.
+
+    Dosya yoksa ya da BOZUKSA varsayılana düşülür: elle düzenlenmiş bozuk bir
+    JSON yüzünden konuşmanın tamamen susması kabul edilemez.
+    """
+    hiz = 1.0
+    robotik = 0.5
+    model: str | None = None
+    try:
+        ham = json.loads(settings_path().read_text(encoding="utf-8"))
+        if isinstance(ham, dict):
+            hiz = _clamp(float(ham.get("hiz", 1.0)), *HIZ_ARALIGI)
+            robotik = _clamp(float(ham.get("robotik", 0.5)), 0.0, 1.0)
+            aday = ham.get("model")
+            model = str(aday) if isinstance(aday, str) and aday else None
+    except (OSError, ValueError, TypeError):
+        hiz, robotik, model = 1.0, 0.5, None
+
+    # Hız ile `length_scale` TERS orantılıdır: hızlı okumak süreyi kısaltır.
+    # Robotiklik de terstir: hece süresi değişkenliği (`noise_w_scale`)
+    # AZALDIKÇA ses mekanikleşir. Çarpan 0,5'te 1,0 olacak biçimde kuruldu,
+    # yani varsayılan tercih ölçülmüş değerleri aynen korur.
+    return {
+        "hiz": hiz,
+        "robotik": robotik,
+        "model": model,
+        "length_scale": PIPER_DEFAULTS["length_scale"] / hiz,
+        "noise_w_scale": PIPER_DEFAULTS["noise_w_scale"] * (1.6 - robotik * 1.2),
+        "sentence_silence": PIPER_DEFAULTS["sentence_silence"],
+    }
+
+
+def save_settings(data: object) -> dict[str, Any]:
+    """`ses.ayar`: hız, robotiklik ve kendi ses modelini kaydet."""
+    if not isinstance(data, dict):
+        return {"ok": False, "metin": "Geçersiz ayar."}
+    mevcut = load_settings()
+    yeni: dict[str, Any] = {
+        "hiz": mevcut["hiz"],
+        "robotik": mevcut["robotik"],
+        "model": mevcut["model"],
+    }
+    if "hiz" in data:
+        try:
+            yeni["hiz"] = _clamp(float(data["hiz"]), *HIZ_ARALIGI)
+        except (TypeError, ValueError):
+            return {"ok": False, "metin": "Hız bir sayı olmalı."}
+    if "robotik" in data:
+        try:
+            yeni["robotik"] = _clamp(float(data["robotik"]), 0.0, 1.0)
+        except (TypeError, ValueError):
+            return {"ok": False, "metin": "Robotiklik bir sayı olmalı."}
+    if "model" in data:
+        ham = data["model"]
+        if ham in (None, ""):
+            yeni["model"] = None
+        else:
+            yol = Path(str(ham)).expanduser()
+            if not yol.is_file():
+                return {"ok": False, "metin": f"Ses modeli bulunamadı: {yol}"}
+            yeni["model"] = str(yol)
+
+    try:
+        settings_path().parent.mkdir(parents=True, exist_ok=True)
+        settings_path().write_text(json.dumps(yeni, ensure_ascii=False), encoding="utf-8")
+    except OSError as error:
+        return {"ok": False, "metin": f"Ayar kaydedilemedi: {error}"}
+    return {"ok": True, **yeni}
+
+
+def active_model_path() -> Path:
+    """Konuşurken kullanılacak model. Kullanıcının kendi dosyası öncelenir."""
+    kendi = load_settings()["model"]
+    if kendi:
+        yol = Path(str(kendi))
+        if yol.is_file():
+            return yol
+    return piper_model_path()
 
 
 def piper_download_urls() -> tuple[str, str]:
@@ -302,6 +399,9 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as gecici:
         cikti = Path(gecici.name)
+    # Parametreler kullanıcının kaydettiği hız/robotiklik tercihinden gelir;
+    # tercih yoksa ölçülmüş varsayılanlar aynen uygulanır.
+    ayar = load_settings()
     argv = [
         sys.executable,
         "-m",
@@ -311,11 +411,11 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
         "-f",
         str(cikti),
         "--length-scale",
-        str(PIPER_DEFAULTS["length_scale"]),
+        str(round(ayar["length_scale"], 3)),
         "--noise-w-scale",
-        str(PIPER_DEFAULTS["noise_w_scale"]),
+        str(round(ayar["noise_w_scale"], 3)),
         "--sentence-silence",
-        str(PIPER_DEFAULTS["sentence_silence"]),
+        str(ayar["sentence_silence"]),
     ]
     if getattr(sys, "frozen", False):
         # Paketlenmiş ikilide `-m` yoktur; kendi alt komutu kullanılır.
@@ -359,7 +459,7 @@ def speak(text: object) -> dict[str, Any]:
         return {"ok": False, "metin": "Okunacak metin boş."}
     # Piper modeli indirilmişse o tercih edilir: sistem sesleri Türkçe'de
     # compact kademede kalıyor ve Windows'ta Türkçe ses hiç yok.
-    model = piper_model_path()
+    model = active_model_path()
     if model.is_file():
         return _speak_with_piper(content, model)
 
@@ -394,7 +494,8 @@ def status() -> dict[str, Any]:
     """
     records = installed_voice_records()
     system_voice = best_voice(records)
-    model = piper_model_path()
+    ayar = load_settings()
+    model = active_model_path()
     piper_ready = model.is_file()
     supported = piper_ready or platform.system().casefold() in ("darwin", "windows")
 
@@ -417,4 +518,5 @@ def status() -> dict[str, Any]:
         "turkce": piper_ready or system_voice is not None,
         "model_kurulu": piper_ready,
         "yukseltme": hint,
+        "ayar": {"hiz": ayar["hiz"], "robotik": ayar["robotik"], "model": ayar["model"]},
     }

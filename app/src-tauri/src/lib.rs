@@ -149,6 +149,38 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Konuşma penceresinin boyutunu değiştir.
+///
+/// İki ölçü vardır: `dar` yalnız karakter ve mikrofon (masaüstünün köşesinde
+/// durur), `genis` dökümü ve ayarları da gösterir. Boyut Rust tarafında
+/// uygulanır çünkü pencere çerçevesizdir ve web tarafı kendi kabuğunu
+/// büyütemez.
+#[tauri::command]
+fn ses_penceresi_boyut(app: tauri::AppHandle, genis: bool) -> Result<(), String> {
+    let Some(pencere) = app.get_webview_window(SES_PENCERESI) else {
+        return Err("konuşma penceresi açık değil".to_string());
+    };
+    let (en, boy) = if genis {
+        (420.0, 620.0)
+    } else {
+        (300.0, 360.0)
+    };
+    pencere
+        .set_size(tauri::LogicalSize::new(en, boy))
+        .map_err(|error| error.to_string())
+}
+
+/// Konuşma penceresi hep üstte kalsın mı?
+#[tauri::command]
+fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String> {
+    let Some(pencere) = app.get_webview_window(SES_PENCERESI) else {
+        return Err("konuşma penceresi açık değil".to_string());
+    };
+    pencere
+        .set_always_on_top(ustte)
+        .map_err(|error| error.to_string())
+}
+
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
 #[tauri::command]
 fn kapatmayi_onayla(app: tauri::AppHandle) {
@@ -322,6 +354,8 @@ pub fn run() {
             oturumlari_listele,
             ses_penceresi_ac,
             ses_penceresi_kapat,
+            ses_penceresi_boyut,
+            ses_penceresi_ustte,
             tanima_baslat,
             kapatmayi_onayla,
             runtime_durum,
