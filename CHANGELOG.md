@@ -3,6 +3,13 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a8] — 2026-08-30
+
+- Windows çalışma zamanı paketi başarıyla üretildikten sonra CP1252 konsoluna
+  Türkçe günlük etiketi yazarken yayın işinin çökmesi engellendi.
+- Büyük konuşma performans kapısına paylaşımlı Intel CI çalıştırıcısının
+  zamanlayıcı yükünü kapsayan, gerileme yakalama özelliğini koruyan pay eklendi.
+
 ## [0.3.0a7] — 2026-08-30
 
 - Windows Rust kalite kapısında hedefe göre kullanılmayan test yardımcı

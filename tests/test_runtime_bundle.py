@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from pathlib import Path
 
 import pytest
@@ -111,3 +112,20 @@ def test_desteklenmeyen_platform_sessizce_gecilmez():
         platform_target("Linux", "x86_64")
     with pytest.raises(ValueError):
         platform_target("Windows", "itanium")
+
+
+def test_runtime_cli_basari_mesaji_windows_konsolunda_yazilabilir(
+    tmp_path: Path, monkeypatch, capsys
+):
+    """Başarılı paketleme, Windows'un CP1252 konsolunda son satırda çökmemeli."""
+    archive = tmp_path / "fusion-runtime.tar.gz"
+    manifest = tmp_path / "runtime-manifest.json"
+    monkeypatch.setattr(runtime_builder, "build_runtime", lambda *_args: (archive, manifest))
+    monkeypatch.setattr(sys, "argv", ["build_runtime.py", "--output", str(tmp_path)])
+
+    runtime_builder.main()
+
+    output = capsys.readouterr().out
+    assert str(archive) in output
+    assert str(manifest) in output
+    output.encode("cp1252")

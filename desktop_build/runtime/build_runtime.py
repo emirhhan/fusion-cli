@@ -196,7 +196,10 @@ def main() -> None:
     args = parser.parse_args()
 
     archive_path, manifest_path = build_runtime(args.output.resolve(), args.work_dir.resolve())
-    print(f"Arşiv: {archive_path}")
+    # GitHub'ın Windows çalıştırıcısı Python stdout'u CP1252 ile açabiliyor.
+    # Paket başarıyla üretildikten sonra yalnızca günlük etiketi yüzünden süreci
+    # başarısız saymamak için yayın betiğinin başarı çıktısını ASCII tutuyoruz.
+    print(f"Archive: {archive_path}")
     print(f"Manifest: {manifest_path}")
 
 
