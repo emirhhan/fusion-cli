@@ -405,3 +405,61 @@ describe("SessionUygulama", () => {
     expect(await screen.findByRole("button", { name: "Eski oyun konuşması" })).toBeTruthy();
   });
 });
+
+describe("Sohbetten çalışma klasörü", () => {
+  it("/klasor komutu klasör seçiciyi açar ve seçilen kökte çalışır", async () => {
+    const transport: SessionTransport = {
+      create: vi.fn(async (id: string, root?: string) => ({
+        oturum_id: id,
+        kok: root ?? "/Users/test",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async () => () => undefined),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    const selectFolder = vi.fn().mockResolvedValue("/Users/test/Desktop/Fusion");
+    render(<SessionUygulama selectFolder={selectFolder} transport={transport} />);
+
+    const alan = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(alan, { target: { value: "/klasor" } });
+    // İlk Enter paletten komutu seçer, ikincisi gönderir.
+    fireEvent.keyDown(alan, { key: "Enter" });
+    fireEvent.keyDown(alan, { key: "Enter" });
+
+    await waitFor(() => expect(selectFolder).toHaveBeenCalled());
+    await waitFor(() => expect(vi.mocked(transport.create).mock.calls.at(-1)?.[1]).toBe(
+      "/Users/test/Desktop/Fusion",
+    ));
+    // Klasör değiştirme çekirdeğe komut olarak GİTMEZ: uygulama tarafı iştir.
+    const gonderilenler = vi.mocked(transport.send).mock.calls.map(([, line]) => line);
+    expect(gonderilenler.some((line) => line.includes("/klasor"))).toBe(false);
+  });
+
+  it("/klasor komut listesinde görünür", async () => {
+    const transport: SessionTransport = {
+      create: vi.fn(async (id: string, root?: string) => ({
+        oturum_id: id,
+        kok: root ?? "/Users/test",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async () => () => undefined),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+    render(<SessionUygulama selectFolder={vi.fn()} transport={transport} />);
+
+    const alan = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(alan, { target: { value: "/klas" } });
+    expect(await screen.findByRole("option", { name: /klasor/ })).toBeTruthy();
+  });
+});
+

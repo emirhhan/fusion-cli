@@ -56,6 +56,15 @@ import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboard
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
 import { listenForFileDrops } from "./platform/drop";
 
+/** Sohbetin içinden çalışma klasörünü değiştiren komut. */
+const FOLDER_COMMAND = {
+  ad: "klasor",
+  aciklama: "Çalışma klasörünü değiştir",
+  destekleniyor: true,
+  grup: "Çalışma alanı",
+  kullanim: "/klasor",
+};
+
 function attachmentFromPath(path: string): ComposerAttachment {
   return {
     kind: /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(path) ? "image" : "file",
@@ -349,6 +358,7 @@ export function SessionUygulama({
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
   const composerCommands = useMemo<ComposerCommand[]>(() => [
+    FOLDER_COMMAND,
     ...commands.filter((command) => !command.ad.toLocaleLowerCase("tr").startsWith("resume")),
     ...history.sources.map((source) => ({
       ad: `resume${source.ad}`,
@@ -501,6 +511,10 @@ export function SessionUygulama({
     if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
       setHistoryOpen(true);
       void history.openSource(resumeSource);
+    } else if (task.trim().toLocaleLowerCase("tr") === `/${FOLDER_COMMAND.ad}`) {
+      // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
+      // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
+      void chooseTaskFolder();
     } else if (task.startsWith("/")) void executeCommand(task);
     else {
       controller.send(active.id, task, activeAttachments);
