@@ -20,9 +20,11 @@
 .lessons-step h3 { font-size: 18px; margin: 0; }
 .lessons-step p { color: var(--text-secondary); font-size: 14px; margin: 0; max-width: 62ch; text-wrap: pretty; }
 .lessons-actions { display: flex; flex-wrap: wrap; gap: 10px; }
-.lessons-try, .lessons-next { border-radius: 9px; cursor: pointer; font: inherit; font-size: 14px; min-height: 44px; padding: 11px 18px; }
+.lessons-try, .lessons-next, .lessons-show { border-radius: 9px; cursor: pointer; font: inherit; font-size: 14px; min-height: 44px; padding: 11px 18px; }
 .lessons-try { background: var(--text-primary); border: 0; color: var(--text-inverse); }
 .lessons-next { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); }
+/* "Ekranda göster": adımın anlattığı öğeyi gerçek arayüzde işaretler. */
+.lessons-show { background: var(--surface-hover); border: 1px solid var(--border-subtle); color: var(--text-primary); }
 .lessons-try:hover, .lessons-next:hover { opacity: .88; }
 .lessons-try:focus-visible, .lessons-next:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .lessons-note { color: var(--text-secondary); font-size: 12px; }

@@ -33,6 +33,8 @@ interface SidebarProps {
 }
 
 interface NavItemProps {
+  /** Ders ışığının yakalayacağı nişan; yalnız derslerde adı geçen öğelerde. */
+  ders?: string;
   icon: IconName;
   label: string;
   onClick?: () => void;
@@ -54,9 +56,15 @@ function useDarEkran(): boolean {
   return dar;
 }
 
-function NavItem({ icon, label, onClick }: NavItemProps) {
+function NavItem({ ders, icon, label, onClick }: NavItemProps) {
   return (
-    <button aria-label={label} className="sidebar__nav-item" onClick={onClick} type="button">
+    <button
+      aria-label={label}
+      className="sidebar__nav-item"
+      data-ders={ders}
+      onClick={onClick}
+      type="button"
+    >
       <Icon name={icon} size={18} />
       <span className="sidebar__label">{label}</span>
     </button>
@@ -202,8 +210,8 @@ export function Sidebar({
           <Logo size={24} />
           <span className="sidebar__label fusion-wordmark">Fusion</span>
         </div>
-        <NavItem icon="new" label="Yeni görev" onClick={onYeni} />
-        <label className="sidebar__search">
+        <NavItem ders="yeni-gorev" icon="new" label="Yeni görev" onClick={onYeni} />
+        <label className="sidebar__search" data-ders="arama">
           <Icon name="search" size={17} />
           <span className="sidebar__sr-only">Konuşma ve proje ara</span>
           <input
@@ -225,6 +233,7 @@ export function Sidebar({
               aria-expanded={historyExpanded}
               aria-label={historyExpanded ? "Geçmişi daralt" : "Geçmişi genişlet"}
               className="sidebar__history-toggle"
+              data-ders="gecmis"
               onClick={toggleHistory}
               type="button"
             >
@@ -275,9 +284,14 @@ export function Sidebar({
 
       <div className="sidebar__bottom">
         <NavItem icon="skills" label="Beceriler ve Ajanlar" onClick={() => onNavigate("skills")} />
-        <NavItem icon="lessons" label="Dersler" onClick={() => onNavigate("lessons")} />
-        <NavItem icon="panel" label="Kontrol Paneli" onClick={() => onNavigate("control-panel")} />
-        <NavItem icon="settings" label="Ayarlar" onClick={() => onNavigate("settings")} />
+        <NavItem ders="dersler" icon="lessons" label="Dersler" onClick={() => onNavigate("lessons")} />
+        <NavItem
+          ders="kontrol-paneli"
+          icon="panel"
+          label="Kontrol Paneli"
+          onClick={() => onNavigate("control-panel")}
+        />
+        <NavItem ders="ayarlar" icon="settings" label="Ayarlar" onClick={() => onNavigate("settings")} />
       </div>
     </nav>
   );

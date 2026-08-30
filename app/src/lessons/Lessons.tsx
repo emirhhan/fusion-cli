@@ -33,6 +33,8 @@ interface LessonStep {
   /** Kullanıcı denemeden ÖNCE ne olacağını gösteren metin. */
   onizleme: string;
   eylem: LessonAction;
+  /** Arayüzde ışıkla gösterilecek nokta; boşsa "Ekranda göster" çizilmez. */
+  isaret?: string;
 }
 
 interface LessonDetail {
@@ -82,10 +84,12 @@ interface LessonsProps {
   client: ProtocolClient;
   onClose: () => void;
   onOpenTab: (hedef: string) => void;
+  /** Arayüzdeki noktayı ışıkla göster. */
+  onShowMark?: (isaret: string, metin: string) => void;
   onUseComposer: (gorev: string) => void;
 }
 
-export function Lessons({ client, onClose, onOpenTab, onUseComposer }: LessonsProps) {
+export function Lessons({ client, onClose, onOpenTab, onShowMark, onUseComposer }: LessonsProps) {
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [detail, setDetail] = useState<LessonDetail | null>(null);
   const [progress, setProgress] = useState<LessonProgress>(() => readProgress());
@@ -176,6 +180,15 @@ export function Lessons({ client, onClose, onOpenTab, onUseComposer }: LessonsPr
             >
               Bunu dene
             </button>
+            {step.isaret && onShowMark && (
+              <button
+                className="lessons-show"
+                onClick={() => onShowMark(step.isaret as string, step.aciklama)}
+                type="button"
+              >
+                Ekranda göster
+              </button>
+            )}
             {!finished && (
               <button className="lessons-next" onClick={complete} type="button">
                 Adımı tamamla

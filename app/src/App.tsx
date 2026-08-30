@@ -46,6 +46,7 @@ import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
+import { Spotlight } from "./lessons/Spotlight";
 import { Settings } from "./settings/Settings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -361,6 +362,7 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [modeBusy, setModeBusy] = useState(false);
+  const [spotlight, setSpotlight] = useState<{ isaret: string; metin: string } | null>(null);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
@@ -632,6 +634,11 @@ export function SessionUygulama({
             client={active.client}
             onClose={() => setPage("chat")}
             onOpenTab={openLessonTarget}
+            onShowMark={(isaret, metin) => {
+              // Işık gerçek arayüzün üstüne düşer; ders ekranı kapanır.
+              setPage("chat");
+              setSpotlight({ isaret, metin });
+            }}
             onUseComposer={(gorev) => {
               setPage("chat");
               setDraft(gorev);
@@ -739,6 +746,13 @@ export function SessionUygulama({
       content={
         <>
           {content}
+          {spotlight && (
+            <Spotlight
+              isaret={spotlight.isaret}
+              metin={spotlight.metin}
+              onClose={() => setSpotlight(null)}
+            />
+          )}
           {closeAsked && (
             <CloseConfirm
               onCancel={() => setCloseAsked(false)}

@@ -1,0 +1,71 @@
+/* Ders ışığı: gerçek arayüz öğesinin üstünü karartılmış katmandan keser. */
+
+.spotlight {
+  inset: 0;
+  position: fixed;
+  z-index: var(--z-dialog, 90);
+}
+
+/* Delik, dev bir kutu gölgesiyle açılır: `clip-path` yerine bu yol her
+   tarayıcıda aynı çalışır ve kenarı yumuşatmayı kolaylaştırır. */
+.spotlight__hole {
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 9999px rgb(0 0 0 / 46%),
+    0 0 0 2px var(--accent, #4f8cff);
+  pointer-events: none;
+  position: fixed;
+  transition: all var(--duration-normal, 300ms) var(--ease-standard, ease);
+}
+
+.spotlight__bubble {
+  background: var(--surface-raised, #fff);
+  border: 1px solid var(--border-subtle, rgb(0 0 0 / 12%));
+  border-radius: 14px;
+  box-shadow: 0 18px 46px rgb(0 0 0 / 28%);
+  display: grid;
+  gap: 10px;
+  max-width: 288px;
+  padding: 14px 16px;
+  position: fixed;
+}
+
+.spotlight__bubble p {
+  color: var(--text-primary, #111);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  text-wrap: pretty;
+}
+
+.spotlight__bubble button {
+  background: var(--accent, #4f8cff);
+  border: 0;
+  border-radius: 9px;
+  color: var(--accent-on, #fff);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  justify-self: start;
+  padding: 6px 14px;
+}
+
+/* Ok: balonun hangi yönden geldiğini gösterir. */
+.spotlight__bubble::before {
+  background: inherit;
+  border-left: 1px solid var(--border-subtle, rgb(0 0 0 / 12%));
+  border-top: 1px solid var(--border-subtle, rgb(0 0 0 / 12%));
+  content: "";
+  height: 12px;
+  left: 22px;
+  position: absolute;
+  transform: rotate(45deg);
+  width: 12px;
+}
+
+.spotlight__bubble[data-yon="alt"]::before { top: -7px; }
+.spotlight__bubble[data-yon="ust"]::before { bottom: -7px; transform: rotate(225deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spotlight__hole { transition: none; }
+}
