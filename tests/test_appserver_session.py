@@ -47,6 +47,27 @@ async def test_durum_istegi_kok_dizini_bildirir(tmp_path):
     assert veri["kok"] == str(tmp_path)
 
 
+async def test_sesli_yanit_bekle_istenirse_surec_bitmeden_sonuc_donmez(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    beklenen: list[int] = []
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.voice_speak",
+        lambda _text: {"ok": True, "pid": 77},
+    )
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.voice_wait",
+        lambda pid: beklenen.append(pid) or True,
+    )
+
+    await oturum.handle(
+        Request(id="ses-1", name="ses.konus", data={"metin": "Merhaba", "bekle": True})
+    )
+
+    assert beklenen == [77]
+    assert _sonuc(satirlar, "ses-1")["tamamlandi"] is True
+
+
 async def test_komut_listesi_doner(tmp_path):
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)

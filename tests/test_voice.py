@@ -46,6 +46,45 @@ def test_metin_kabuga_kacis_karakteri_sizdirmaz():
     assert len(argv) == 4
 
 
+def test_yalniz_fusionun_baslattigi_ses_sureci_beklenir_ve_durdurulur(monkeypatch):
+    """Talk mikrofonu ancak gerçek TTS bittiğinde yeniden açabilmeli."""
+    from fusion_cli.appserver import voice
+
+    class FakeProcess:
+        pid = 4242
+
+        def __init__(self):
+            self.waited = False
+            self.terminated = False
+
+        def wait(self, timeout=None):
+            self.waited = True
+            return 0
+
+        def poll(self):
+            return None if not self.terminated else 0
+
+        def terminate(self):
+            self.terminated = True
+
+        def kill(self):
+            self.terminated = True
+
+    process = FakeProcess()
+    monkeypatch.setattr(voice, "active_model_path", lambda: voice.Path("/olmayan/model.onnx"))
+    monkeypatch.setattr(voice, "installed_voice_records", lambda: ())
+    monkeypatch.setattr(voice.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: process)
+
+    result = voice.speak("Merhaba")
+    assert voice.wait_for_speech(result["pid"]) is True
+    assert process.waited is True
+
+    # Tamamlanmış/başkasına ait PID için sistemdeki genel `say` süreçleri
+    # öldürülmez; Fusion yalnız kendi sahip olduğu süreci yönetir.
+    assert voice.wait_for_speech(9999) is False
+
+
 def test_turkce_ses_secimi_kurulu_olanlardan_yapilir():
     """Ses adı uydurulmaz: sistemde kurulu Türkçe seslerden seçilir."""
     assert turkish_voice(("Yelda tr_TR", "Alex en_US")) == "Yelda"

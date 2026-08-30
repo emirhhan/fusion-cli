@@ -17,6 +17,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,45 @@ from typing import Any
 #: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
 #: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
 MAX_SPEECH_CHARS = 4_000
+
+# Yalnız Fusion'ın başlattığı TTS süreçleri yönetilir. Sistem genelinde
+# `killall say` çalıştırmak başka bir uygulamanın erişilebilirlik sesini de
+# kesebiliyordu. PID kaydı aynı zamanda Talk penceresinin gerçek bitiş anını
+# beklemesini sağlar.
+_SPEECH_LOCK = threading.RLock()
+_SPEECH_PROCESSES: dict[int, tuple[subprocess.Popen[Any], Path | None]] = {}
+
+
+def _register_speech_process(
+    process: subprocess.Popen[Any], cleanup: Path | None = None
+) -> None:
+    with _SPEECH_LOCK:
+        _SPEECH_PROCESSES[process.pid] = (process, cleanup)
+
+
+def wait_for_speech(pid: object) -> bool:
+    """Fusion'a ait TTS sürecini bitene kadar bekle; yabancı PID'yi reddet."""
+    if not isinstance(pid, (int, str)):
+        return False
+    try:
+        numeric_pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    with _SPEECH_LOCK:
+        owned = _SPEECH_PROCESSES.get(numeric_pid)
+    if owned is None:
+        return False
+    process, cleanup = owned
+    try:
+        process.wait()
+    finally:
+        with _SPEECH_LOCK:
+            current = _SPEECH_PROCESSES.get(numeric_pid)
+            if current is owned:
+                _SPEECH_PROCESSES.pop(numeric_pid, None)
+        if cleanup is not None:
+            cleanup.unlink(missing_ok=True)
+    return True
 
 
 #: Apple'ın ücretsiz indirilebilen yüksek kaliteli Türkçe sesi. Sistemde
@@ -458,7 +498,9 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
     try:
         process = subprocess.Popen(calar, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
+        cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
+    _register_speech_process(process, cikti)
     return {"ok": True, "pid": process.pid, "motor": "piper"}
 
 
@@ -491,16 +533,26 @@ def speak(text: object) -> dict[str, Any]:
         process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         return {"ok": False, "metin": f"Sesli yanıt başlatılamadı: {error}"}
+    _register_speech_process(process)
     return {"ok": True, "pid": process.pid, "ses": voice}
 
 
 def stop() -> dict[str, Any]:
     """`ses.durdur`: süren konuşmayı kes."""
-    name = platform.system().casefold()
-    argv = ["killall", "say"] if name == "darwin" else ["taskkill", "/IM", "powershell.exe", "/F"]
-    # Konuşacak süreç yoksa bu bir hata değildir; durdurma yine başarılıdır.
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run(argv, capture_output=True, check=False, timeout=10)
+    with _SPEECH_LOCK:
+        owned = list(_SPEECH_PROCESSES.items())
+        _SPEECH_PROCESSES.clear()
+    for _pid, (process, cleanup) in owned:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+        if cleanup is not None:
+            cleanup.unlink(missing_ok=True)
     return {"ok": True}
 
 

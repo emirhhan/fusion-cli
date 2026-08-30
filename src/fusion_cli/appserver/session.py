@@ -66,6 +66,7 @@ from .voice import save_settings as voice_settings
 from .voice import speak as voice_speak
 from .voice import status as voice_status
 from .voice import stop as voice_stop
+from .voice import wait_for_speech as voice_wait
 from .workspace import (
     WorkspaceJournal,
     list_changes,
@@ -329,7 +330,11 @@ class AppSession:
         if request.name == "ses.durum":
             return voice_status()
         if request.name == "ses.konus":
-            return voice_speak(request.data.get("metin"))
+            result = voice_speak(request.data.get("metin"))
+            if request.data.get("bekle") is True and result.get("ok") is True:
+                completed = await asyncio.to_thread(voice_wait, result.get("pid"))
+                return {**result, "tamamlandi": completed}
+            return result
         if request.name == "ses.model_indir":
             return voice_download_model(
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))

@@ -105,7 +105,7 @@ export function VoiceMode({
       </header>
 
       <div className="voice-panel__stage">
-        <FusionAvatar scale={wide ? 1.42 : 0.48} state={AVATAR[state]} />
+        <FusionAvatar scale={wide ? (state === "approval" ? 1.08 : 1.42) : 0.48} state={AVATAR[state]} />
         <div className="voice-panel__content">
           <Waveform active={hearing} />
           {ask && onAnswer && (
@@ -120,7 +120,7 @@ export function VoiceMode({
               </div>
             </div>
           )}
-          <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>
+          {!ask && <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>}
           {wide && transcript && <p className="voice-panel__transcript">{transcript}</p>}
         </div>
       </div>

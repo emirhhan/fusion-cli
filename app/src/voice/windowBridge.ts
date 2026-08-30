@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 /**
  * Konuşma penceresi köprüsü.
@@ -43,9 +44,41 @@ export interface VoiceWindowGeometry {
   onTop: boolean;
 }
 
+export interface VoiceWindowSnapshot {
+  height: number;
+  width: number;
+  x: number;
+  y: number;
+}
+
 /** localStorage'dan okunan Talk geometrisini tek native işlemde geri uygular. */
 export async function applyVoiceWindowGeometry(geometry: VoiceWindowGeometry): Promise<void> {
   await invoke("ses_penceresi_geometri_uygula", { geometry });
+}
+
+/** Taşınma/boyutlanmayı retina fiziksel pikselinden mantıksal piksele çevirir. */
+export async function onVoiceWindowGeometryChanged(
+  handler: (snapshot: VoiceWindowSnapshot) => void,
+): Promise<() => void> {
+  const current = getCurrentWindow();
+  const publish = async () => {
+    const [position, size, scale] = await Promise.all([
+      current.outerPosition(),
+      current.innerSize(),
+      current.scaleFactor(),
+    ]);
+    handler({
+      height: size.height / scale,
+      width: size.width / scale,
+      x: position.x / scale,
+      y: position.y / scale,
+    });
+  };
+  const [removeMoved, removeResized] = await Promise.all([
+    current.onMoved(() => { void publish(); }),
+    current.onResized(() => { void publish(); }),
+  ]);
+  return () => { removeMoved(); removeResized(); };
 }
 
 /** Panel ölçüsü: dar yalnız karakter, geniş döküm ve ayarlar. */

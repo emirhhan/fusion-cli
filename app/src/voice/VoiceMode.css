@@ -1,5 +1,4 @@
 .voice-panel {
-  --talk-green: #9cff28;
   background:
     radial-gradient(circle at 50% -18%, rgb(156 255 40 / 22%), transparent 42%),
     linear-gradient(145deg, rgb(255 255 255 / 96%), rgb(235 239 231 / 94%) 62%, rgb(27 31 27 / 92%));
@@ -16,6 +15,13 @@
   overflow: hidden;
   position: relative;
   width: 100%;
+}
+
+.voice-preview {
+  background: transparent;
+  height: 100vh;
+  padding: 0;
+  width: 100vw;
 }
 
 :root[data-theme="dark"] .voice-panel {
@@ -72,6 +78,7 @@
 
 .voice-panel__stage { align-content: center; display: grid; justify-items: center; min-height: 0; }
 .voice-panel[data-mode="normal"] .voice-panel__stage { grid-template-rows: minmax(0, auto) minmax(0, 1fr); }
+.voice-panel[data-state="approval"] .voice-wave { display: none; }
 .voice-panel__content { align-content: start; display: grid; justify-items: center; min-height: 0; width: 100%; }
 .voice-panel__status { font-size: 13px; font-weight: 650; margin: 4px 0 0; text-align: center; }
 .voice-panel__transcript {
@@ -122,7 +129,7 @@
 .voice-wave { align-items: center; display: flex; gap: 3px; height: 28px; opacity: .32; transition: opacity 180ms cubic-bezier(.4, 0, .2, 1); }
 .voice-wave[data-active="true"] { opacity: 1; }
 .voice-wave__bar {
-  background: var(--talk-green);
+  background: var(--brand-signal);
   border-radius: 2px;
   display: block;
   height: 24px;

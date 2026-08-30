@@ -58,9 +58,11 @@ import {
   onVoicePrefsRequest,
   publishVoiceAsk,
   publishVoicePrefs,
+  publishVoiceRuntimeState,
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
+import { findVoiceAnswer, speakVoiceAnswer } from "./voice/voiceTurn";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
@@ -411,6 +413,11 @@ export function SessionUygulama({
   const [spotlight, setSpotlight] = useState<{ isaret: string; metin: string } | null>(null);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
+  const voiceTurn = useRef<{
+    afterIndex: number;
+    sawRunning: boolean;
+    sessionId: string;
+  } | null>(null);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
   const composerCommands = useMemo<ComposerCommand[]>(() => [
@@ -522,10 +529,43 @@ export function SessionUygulama({
   useEffect(() => {
     if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
-      if (mesaj.kaynak === "kullanici") controller.send(active.id, mesaj.metin, []);
+      if (mesaj.kaynak !== "kullanici") return;
+      voiceTurn.current = {
+        afterIndex: active.messages.length,
+        sawRunning: false,
+        sessionId: active.id,
+      };
+      void publishVoiceRuntimeState({ durum: "thinking" });
+      controller.send(active.id, mesaj.metin, []);
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active, controller]);
+
+  // Yalnız Talk'tan başlayan turun nihai cevabı seslendirilir. Kullanıcının
+  // normal yazışmaları sessiz kalır; sohbet değişse bile istek başladığı
+  // oturumun kendi çekirdeği kullanılır. `ses.konus(bekle=true)` gerçek TTS
+  // süreci bitmeden dönmez, dolayısıyla mikrofon zaman tahminiyle açılmaz.
+  useEffect(() => {
+    const pending = voiceTurn.current;
+    if (!pending) return;
+    const session = controller.state.sessions[pending.sessionId];
+    if (!session) {
+      voiceTurn.current = null;
+      return;
+    }
+    if (session.running) {
+      pending.sawRunning = true;
+      return;
+    }
+    if (!pending.sawRunning) return;
+    voiceTurn.current = null;
+    const answer = findVoiceAnswer(session.messages, pending.afterIndex);
+    if (!answer) {
+      void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
+      return;
+    }
+    void speakVoiceAnswer(session.client, answer, publishVoiceRuntimeState);
+  }, [controller.state.sessions]);
 
   // Ses tercihleri konuşma penceresinden gelir ama YAZMA yolu tektir: burada,
   // ana pencerenin çekirdek bağlantısı üzerinden. Pencerenin kendi bağlantısını
