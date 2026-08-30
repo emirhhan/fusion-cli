@@ -143,6 +143,7 @@ async def run_agent_task(
     background: BackgroundTasks | None = None,
     tool_context: ToolContext | None = None,
     capabilities: CapabilityRegistry | None = None,
+    system_prompt: str | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -198,6 +199,7 @@ async def run_agent_task(
             history=history,
             mode=mode,
             extra_system=extra_system,
+            system_prompt=system_prompt,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -239,6 +241,7 @@ async def _run_agent_with_mcp(
     history: list[Message] | None,
     mode: ApprovalMode,
     extra_system: str,
+    system_prompt: str | None = None,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -252,25 +255,45 @@ async def _run_agent_with_mcp(
     plan_mode = mode is ApprovalMode.PLAN
     if not config.mcp_servers:
         return await run_agent(
-            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            extra_system=extra_system,
+            system_prompt=system_prompt,
         )
     try:
         from ..mcp_bridge.client import McpClient
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
         return await run_agent(
-            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            extra_system=extra_system,
+            system_prompt=system_prompt,
         )
     try:
         async with McpClient(config.mcp_servers) as client:
             await client.register_into(deps.base_registry)
             return await run_agent(
-                task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+                task,
+                deps,
+                history=history,
+                plan_mode=plan_mode,
+                extra_system=extra_system,
+                system_prompt=system_prompt,
             )
     except Exception as error:
         bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
         return await run_agent(
-            task, deps, history=history, plan_mode=plan_mode, extra_system=extra_system
+            task,
+            deps,
+            history=history,
+            plan_mode=plan_mode,
+            extra_system=extra_system,
+            system_prompt=system_prompt,
         )
 
 

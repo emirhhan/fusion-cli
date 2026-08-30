@@ -86,8 +86,8 @@ async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
 
     gorulen_registry: list[object] = []
 
-    async def fake_run_agent(_task, deps, *, history=None, plan_mode=False, extra_system=None):
-        del history, plan_mode, extra_system
+    async def fake_run_agent(_task, deps, **kwargs):
+        del kwargs
         gorulen_registry.append(deps.base_registry)
         return AgentOutcome(final_text="tamam", messages=[Message("user", "görev")], ok=True)
 

@@ -71,15 +71,8 @@ async def test_agent_session_surfaces_non_rate_failure(
     monkeypatch,
     tmp_path,
 ) -> None:
-    async def fake_run_agent(
-        _task,
-        _deps,
-        *,
-        history=None,
-        plan_mode=False,
-        extra_system=None,
-    ):
-        del history, plan_mode, extra_system
+    async def fake_run_agent(_task, _deps, **kwargs):
+        del kwargs
         return AgentOutcome(
             final_text="İşlem tamamlanmadı: gerekli araç kanıtı yok.",
             messages=[Message("user", "görev")],

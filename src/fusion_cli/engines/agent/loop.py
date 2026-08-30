@@ -82,6 +82,9 @@ from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
 SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
+#: Sohbet kipinin kimliği. Aynı motor ve aynı tek model kullanılır; fark, Fusion'ın
+#: kendiliğinden çalışma dizinini taramamasıdır. Kod kipi `SYSTEM_PROMPT` ile kalır.
+CHAT_SYSTEM_PROMPT = (_PROMPTS / "system_chat.md").read_text(encoding="utf-8")
 PLAN_MODE_PROMPT = (_PROMPTS / "plan_mode.md").read_text(encoding="utf-8")
 
 #: Yarım kalan turda en fazla kaç kez "devam et" enjekte edilir.

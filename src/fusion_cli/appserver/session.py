@@ -31,6 +31,7 @@ from ..config.models import Config
 from ..config.paths import credentials_file
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
+from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
 from ..memory.factory import build_memory
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
@@ -95,6 +96,9 @@ class AppSession:
             home=home,
             health=_build_health(config),
         )
+        #: "sohbet" ya da "kod". Varsayılan SOHBET: kullanıcı boş bir pencerede
+        #: "merhaba" yazdığında Fusion proje taramasıyla başlamamalı.
+        self._workspace_mode = "sohbet"
         self._workspace_journal = WorkspaceJournal()
         self._processes = ProcessManager(self._state.root, writer)
         self._gateway_process_id: str | None = None
@@ -246,6 +250,9 @@ class AppSession:
         mode_error = self._apply_mode(data.get("mod"))
         if mode_error is not None:
             return mode_error
+        calisma_error = self._apply_workspace_mode(data.get("kip"))
+        if calisma_error is not None:
+            return calisma_error
         engine_error = self._apply_engine(data.get("motor"))
         if engine_error is not None:
             return engine_error
@@ -262,6 +269,20 @@ class AppSession:
                 "ok": False,
                 "metin": messages.RUN_UNKNOWN_MODE.format(given=value, valid=valid),
             }
+        return None
+
+    def _apply_workspace_mode(self, value: object) -> dict[str, Any] | None:
+        """`kip`: "sohbet" ya da "kod".
+
+        Sohbet kipi kendiliğinden çalışma dizinini taramaz; kod kipi eski
+        davranışı sürdürür. Onay sözleşmesi İKİSİNDE DE aynıdır.
+        """
+        if value is None:
+            return None
+        text = str(value).strip().casefold()
+        if text not in ("sohbet", "kod"):
+            return {"ok": False, "metin": "Geçersiz kip. Seçenekler: sohbet, kod."}
+        self._workspace_mode = text
         return None
 
     def _apply_engine(self, value: str | None) -> dict[str, Any] | None:
@@ -282,6 +303,7 @@ class AppSession:
             "ok": True,
             "kok": str(self._state.root),
             "model": self._state.config.agent.model,
+            "kip": self._workspace_mode,
             "mod": self._state.approval.value,
             "motor": self._state.engine.value,
         }
@@ -390,6 +412,7 @@ class AppSession:
                 home=self._state.home,
                 history=self._state.history,
                 extra_system=extra_system,
+                system_prompt=(None if self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT),
                 interactive=True,
                 capabilities=self._state.capabilities,
             )

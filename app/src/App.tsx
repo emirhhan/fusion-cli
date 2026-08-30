@@ -10,7 +10,7 @@ import type { RuntimeTransport } from "./runtime/types";
 import { useSessions } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
-import { Composer } from "./screens/Composer";
+import { Composer, type WorkspaceMode } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import { EmptyState } from "./screens/EmptyState";
 import { Inspector, type InspectorTabId } from "./screens/Inspector";
@@ -284,6 +284,9 @@ export function SessionUygulama({
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
   const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
+  // Varsayılan SOHBET: boş bir pencerede "merhaba" yazmak proje taraması
+  // başlatmamalı. Kod kipine geçiş kullanıcının açık kararıdır.
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("sohbet");
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
@@ -364,6 +367,11 @@ export function SessionUygulama({
     <Shell
       composer={page === "chat" ? (
         <Composer
+          mode={workspaceMode}
+          onModeChange={(next) => {
+            setWorkspaceMode(next);
+            void active.client.request("oturum.baslat", { kip: next });
+          }}
           onSend={send}
           onStop={() => controller.stop(active.id)}
           onValueChange={setDraft}

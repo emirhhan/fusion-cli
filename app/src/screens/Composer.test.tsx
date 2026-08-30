@@ -43,3 +43,23 @@ describe("Composer", () => {
     expect(onCommand).toHaveBeenCalledOnce();
   });
 });
+
+describe("Composer — çalışma kipi", () => {
+  it("sohbet ve kod arasında geçiş yapar; varsayılan sohbettir", () => {
+    const secilen: string[] = [];
+    render(<Composer onModeChange={(m) => secilen.push(m)} onSend={() => undefined} />);
+
+    const sohbet = screen.getByRole("button", { name: "Sohbet" });
+    const kod = screen.getByRole("button", { name: "Kod" });
+    expect(sohbet.getAttribute("aria-pressed")).toBe("true");
+    expect(kod.getAttribute("aria-pressed")).toBe("false");
+
+    fireEvent.click(kod);
+    expect(secilen).toEqual(["kod"]);
+  });
+
+  it("kip değiştirici verilmediğinde hiç çizilmez", () => {
+    render(<Composer onSend={() => undefined} />);
+    expect(screen.queryByRole("group", { name: "Çalışma kipi" })).toBeNull();
+  });
+});
