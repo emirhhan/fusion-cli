@@ -259,6 +259,7 @@ function Preview() {
   const lessons = state === "lessons" || state === "lessons-step";
   const settings = state === "settings";
   const voice = state.startsWith("voice-");
+  const voiceMini = params.get("voiceMode") === "mini";
   const composerValue = state === "composer-menu"
     ? "/m"
     : state === "composer-attachment"
@@ -270,6 +271,38 @@ function Preview() {
     sources={[{ kind: "claude", status: "found", itemCount: 18 }, { kind: "codex", status: "found", itemCount: 24 }, { kind: "hermes", status: "not-found" }]}
     providers={[{ id: "openrouter", name: "OpenRouter", secretConfigured: true, status: "ready" }, { id: "nvidia", name: "NVIDIA NIM", secretConfigured: true, status: "ready" }]}
     projects={[{ id: "/Projects/fusion-cli", name: "fusion-cli", description: "Aktif çalışma alanı", path: "/Projects/fusion-cli" }]} />;
+  if (voice) {
+    const phase = state.replace("voice-", "") as VoiceState;
+    const ask = phase === "approval" ? {
+      acik: true,
+      arac: "write_file",
+      metin: "app.ts dosyasındaki değişiklikler uygulansın mı?",
+      secenekler: [
+        { deger: "evet", etiket: "Onayla" },
+        { deger: "hayir", etiket: "Reddet" },
+      ],
+    } : null;
+    return (
+      <main className="voice-preview">
+        <VoiceMode
+          ask={ask}
+          onAnswer={() => undefined}
+          onClose={() => undefined}
+          onToggleListen={() => undefined}
+          onWideChange={() => undefined}
+          state={phase}
+          transcript={
+            phase === "listening" || phase === "transcribing"
+              ? "Fusion, bu projede neler var?"
+              : phase === "talking"
+                ? "Üç dosyada değişiklik yaptım, testlerin hepsi geçti."
+                : ""
+          }
+          wide={!voiceMini}
+        />
+      </main>
+    );
+  }
   return (
     <>
       <Shell
@@ -294,20 +327,6 @@ function Preview() {
         inspectorWidth={inspectorWidth}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
-      {voice && (
-        <VoiceMode
-          onClose={() => undefined}
-          onToggleListen={() => undefined}
-          state={state.replace("voice-", "") as VoiceState}
-          transcript={
-            state === "voice-listening"
-              ? "Fusion, bu projede neler var?"
-              : state === "voice-talking"
-                ? "Üç dosyada değişiklik yaptım, testlerin hepsi geçti."
-                : ""
-          }
-        />
-      )}
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
       {state.startsWith("history-") && (
         <HistoryPicker
