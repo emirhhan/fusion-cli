@@ -69,6 +69,12 @@ export function onVoiceMessage(
 
 export const VOICE_PREFS_REQUEST = "fusion://ses-ayar";
 export const VOICE_PREFS_STATE = "fusion://ses-ayar-durum";
+export const VOICE_RUNTIME_STATE = "fusion://ses-runtime-durum";
+
+export interface VoiceRuntimeState {
+  durum: "idle" | "listening" | "transcribing" | "thinking" | "talking" | "approval" | "error";
+  metin?: string;
+}
 
 export interface VoicePrefsPayload {
   hiz: number;
@@ -117,6 +123,25 @@ export function onVoicePrefsState(
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
   return dinle(VOICE_PREFS_STATE, handler, transport);
+}
+
+/** Ana sohbet ve Talk penceresi arasında TTS/STT yaşam döngüsü. */
+export async function publishVoiceRuntimeState(
+  state: VoiceRuntimeState,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  const payload: VoiceRuntimeState = state.metin === undefined
+    ? { durum: state.durum }
+    : { durum: state.durum, metin: state.metin };
+  await transport.emit(VOICE_RUNTIME_STATE, payload);
+}
+
+export function onVoiceRuntimeState(
+  handler: (state: VoiceRuntimeState) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_RUNTIME_STATE, handler, transport);
 }
 
 /**
