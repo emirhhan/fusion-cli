@@ -3,6 +3,15 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a3] — 2026-08-30
+
+- macOS ve Windows masaüstü paketleme ortamlarına Piper ses motoru bağımlılığı
+  eklendi; temiz CI makinesinde çalışma zamanı üretimi artık eksik paket bilgisiyle
+  durmuyor.
+- Ses sürgüsü testi gerçek tarayıcı `input` olayına geçirildi; macOS Intel ve
+  Windows ortamlarındaki sahte olay zamanlaması farkı giderildi.
+- Masaüstü CI bağımlılık sözleşmesi regresyon testine alındı.
+
 ## [0.3.0a2] — 2026-08-30
 
 - Masaüstü Ayarlar ekranına oturumluk token, tahmini maliyet ve ölçülmüş model

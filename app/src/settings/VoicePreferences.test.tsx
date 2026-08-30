@@ -53,7 +53,9 @@ describe("VoicePreferences", () => {
     render(<VoicePreferences client={client} />);
     const speed = await screen.findByLabelText("Hız");
 
-    fireEvent.change(speed, { target: { value: "1.35" } });
+    // `range` gerçek tarayıcıda `input` üretir; `change` jsdom/WebKit mimarisine
+    // göre farklı zamanlanabildiği için CI'da yanlış bir platform hatası veriyordu.
+    fireEvent.input(speed, { target: { value: "1.35" } });
     fireEvent.mouseUp(speed);
 
     await waitFor(() =>

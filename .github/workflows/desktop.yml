@@ -34,7 +34,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Python bağımlılıklarını kur
-        run: python -m pip install -e '.[dev,desktop,mcp,gateway]'
+        run: python -m pip install -e '.[dev,desktop,mcp,gateway,voice]'
       - name: Ön yüz bağımlılıklarını kur
         working-directory: app
         run: npm ci
@@ -82,7 +82,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Python bağımlılıklarını kur
-        run: python -m pip install -e ".[dev,desktop,mcp,gateway]"
+        run: python -m pip install -e ".[dev,desktop,mcp,gateway,voice]"
       - name: Ön yüz bağımlılıklarını kur
         working-directory: app
         run: npm ci

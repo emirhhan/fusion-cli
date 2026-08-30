@@ -19,3 +19,13 @@ def test_bundle_config_runtime_manifestini_ve_arsivini_ekler():
     resources = config["bundle"]["resources"]
     assert resources["resources/runtime/runtime-manifest.json"] == "runtime/runtime-manifest.json"
     assert resources["resources/runtime/fusion-runtime.tar.gz"] == "runtime/fusion-runtime.tar.gz"
+
+
+def test_masaustu_ci_ses_motorunu_paketleme_ortamina_kurar():
+    """PyInstaller, spec'te Piper'ı topluyorsa CI da `voice` extrasını kurmalı."""
+    root = Path(__file__).resolve().parents[1]
+    workflow = (root / ".github/workflows/desktop.yml").read_text(encoding="utf-8")
+
+    install_lines = [line for line in workflow.splitlines() if "pip install -e" in line]
+    assert len(install_lines) == 2
+    assert all("voice" in line for line in install_lines)
