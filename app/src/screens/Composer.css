@@ -75,8 +75,12 @@
 /* Çalışma kipi seçici. Sohbet kipi kendiliğinden proje taramaz; kod kipi
    proje köküne bağlı çalışır. Ayrım kullanıcıya GÖRÜNÜR olmalı. */
 .composer__mode { background: var(--surface-hover); border-radius: var(--radius-pill); display: inline-flex; padding: 2px; }
-.composer__mode-item { background: transparent; border: 0; border-radius: var(--radius-pill); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); min-height: 28px; padding: 4px 12px; }
-.composer__mode-item[aria-pressed="true"] { background: var(--surface-canvas); color: var(--text-primary); font-weight: 600; }
+.composer__mode-item { align-items: center; background: transparent; border: 0; border-radius: var(--radius-pill); color: var(--text-secondary); cursor: pointer; display: inline-flex; font: inherit; font-size: var(--text-xs); gap: 6px; min-height: 28px; padding: 4px 12px; transition: background var(--duration-fast, 150ms) ease, color var(--duration-fast, 150ms) ease; }
+.composer__mode-item:hover:not(:disabled) { color: var(--text-primary); }
+.composer__mode-item[aria-pressed="true"] { background: var(--surface-canvas); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); color: var(--text-primary); font-weight: 600; }
+/* Kod kipi bir KARARDIR: seçiliyken kenar rengiyle ayrıca işaretlenir. */
+.composer__mode[data-mode="kod"] .composer__mode-item[aria-pressed="true"] { box-shadow: 0 1px 2px rgb(0 0 0 / 12%), inset 0 0 0 1px var(--accent-strong, var(--focus-ring)); }
+.composer__mode-item:disabled { cursor: progress; opacity: 0.6; }
 .composer__mode-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 .composer__palette {

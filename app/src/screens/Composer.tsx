@@ -1,8 +1,25 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "../ui/Button";
+import { Icon } from "../ui/Icon";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
+
+/** Kipler tek yerde tanımlanır: etiket, simge ve ne yaptığı birlikte durur. */
+const MODES = [
+  {
+    aciklama: "Kendiliğinden dosya taraması yapmaz; soru sorup konuşursun.",
+    etiket: "Sohbet",
+    id: "sohbet",
+    simge: "chat",
+  },
+  {
+    aciklama: "Proje köküne bağlanır; dosyaları okur, yazar ve komut çalıştırır.",
+    etiket: "Kod",
+    id: "kod",
+    simge: "files",
+  },
+] as const;
 
 /** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
 export type WorkspaceMode = "sohbet" | "kod";
@@ -49,6 +66,8 @@ interface ComposerProps {
   attachmentError?: string | null;
   commands?: ComposerCommand[];
   mode?: WorkspaceMode;
+  /** Kip isteği sürerken düğmeler kilitlenir; çift tıklama iki istek yollardı. */
+  modeBusy?: boolean;
   onAttach?: () => void;
   onDropFiles?: (files: File[]) => void;
   onModeChange?: (mode: WorkspaceMode) => void;
@@ -68,6 +87,7 @@ export function Composer({
   attachmentError = null,
   commands = [],
   mode = "sohbet",
+  modeBusy = false,
   onApprovalChange,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
@@ -190,16 +210,27 @@ export function Composer({
         <div className="composer__toolbar">
           <div className="composer__tools">
             {onModeChange && (
-              <div aria-label="Çalışma kipi" className="composer__mode" role="group">
-                {(["sohbet", "kod"] as const).map((item) => (
+              <div
+                aria-label="Çalışma kipi"
+                className="composer__mode"
+                data-mode={mode}
+                role="group"
+              >
+                {MODES.map((item) => (
                   <button
-                    aria-pressed={mode === item}
+                    aria-pressed={mode === item.id}
                     className="composer__mode-item"
-                    key={item}
-                    onClick={() => onModeChange(item)}
+                    disabled={modeBusy}
+                    key={item.id}
+                    onClick={() => {
+                      if (modeBusy) return;
+                      onModeChange(item.id);
+                    }}
+                    title={item.aciklama}
                     type="button"
                   >
-                    {item === "sohbet" ? "Sohbet" : "Kod"}
+                    <Icon name={item.simge} size={15} />
+                    {item.etiket}
                   </button>
                 ))}
               </div>

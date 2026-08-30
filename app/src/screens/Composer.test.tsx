@@ -56,6 +56,27 @@ describe("Composer — çalışma kipi", () => {
     expect(secilen).toEqual(["kod"]);
   });
 
+  it("her kip ne yaptığını anlatır ve etkin kip gruptan okunur", () => {
+    // Kullanıcı iki düz düğmeyi "kırılgan" buldu: hangi kipin ne yaptığı
+    // yazmıyordu ve seçili olan yeterince belli değildi.
+    render(<Composer mode="kod" onModeChange={() => undefined} onSend={() => undefined} />);
+    const grup = screen.getByRole("group", { name: "Çalışma kipi" });
+
+    expect(grup.getAttribute("data-mode")).toBe("kod");
+    expect(screen.getByRole("button", { name: "Sohbet" }).getAttribute("title")).toMatch(/tarama/i);
+    expect(screen.getByRole("button", { name: "Kod" }).getAttribute("title")).toMatch(/proje/i);
+  });
+
+  it("kip değişimi sürerken düğmeler kilitlenir", () => {
+    const onModeChange = vi.fn();
+    render(<Composer modeBusy mode="sohbet" onModeChange={onModeChange} onSend={() => undefined} />);
+    const kod = screen.getByRole("button", { name: "Kod" }) as HTMLButtonElement;
+
+    expect(kod.disabled).toBe(true);
+    fireEvent.click(kod);
+    expect(onModeChange).not.toHaveBeenCalled();
+  });
+
   it("kip değiştirici verilmediğinde hiç çizilmez", () => {
     render(<Composer onSend={() => undefined} />);
     expect(screen.queryByRole("group", { name: "Çalışma kipi" })).toBeNull();

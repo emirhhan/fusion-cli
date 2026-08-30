@@ -3,6 +3,7 @@ import type { ReactNode, SVGProps } from "react";
 export type IconName =
   | "attach"
   | "changes"
+  | "chat"
   | "chevron"
   | "copy"
   | "files"
@@ -22,6 +23,7 @@ export type IconName =
 const paths: Record<IconName, ReactNode> = {
   attach: <path d="m20.5 11.5-8.9 8.9a5 5 0 0 1-7.1-7.1l9.6-9.6a3.5 3.5 0 0 1 5 5l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9" />,
   changes: <><path d="M5 7h10" /><path d="m12 4 3 3-3 3" /><path d="M19 17H9" /><path d="m12 14-3 3 3 3" /></>,
+  chat: <path d="M20 12a7 7 0 0 1-7 7H8l-4 3v-4.6A7 7 0 0 1 6 5h7a7 7 0 0 1 7 7Z" />,
   chevron: <path d="m9 18 6-6-6-6" />,
   copy: <><rect width="13" height="13" x="8" y="8" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
   files: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4" /></>,

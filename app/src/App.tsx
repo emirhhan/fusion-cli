@@ -353,6 +353,7 @@ export function SessionUygulama({
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [approval, setApproval] = useState<ApprovalMode>("auto");
+  const [modeBusy, setModeBusy] = useState(false);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
@@ -639,9 +640,28 @@ export function SessionUygulama({
             });
             setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
           }}
+          modeBusy={modeBusy}
           onModeChange={(next) => {
+            const onceki = workspaceMode;
+            if (next === onceki) return;
+            // Kip ÖNCE iyimser değişir (tıklama anında görünür), çekirdek
+            // reddederse geri alınır. Sessizce eski kipte kalmak, kullanıcının
+            // kod kipinde sandığı bir sohbeti sürdürmesine yol açıyordu.
             setWorkspaceMode(next);
-            void active.client.request("oturum.baslat", { kip: next });
+            setModeBusy(true);
+            setCommandError(null);
+            void active.client
+              .request("oturum.baslat", { kip: next })
+              .then((sonuc) => {
+                if (sonuc.ok === true) return;
+                setWorkspaceMode(onceki);
+                setCommandError(String(sonuc.metin ?? "Kip değiştirilemedi."));
+              })
+              .catch(() => {
+                setWorkspaceMode(onceki);
+                setCommandError("Kip değiştirilemedi. Bağlantıyı kontrol et.");
+              })
+              .finally(() => setModeBusy(false));
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}

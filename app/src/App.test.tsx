@@ -463,3 +463,56 @@ describe("Sohbetten çalışma klasörü", () => {
   });
 });
 
+describe("Çalışma kipi", () => {
+  function modeTransport(fail: boolean): SessionTransport {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+    return {
+      create: vi.fn(async (id: string, root?: string) => ({
+        oturum_id: id,
+        kok: root ?? "/Users/test",
+        pid: 41,
+        durum: "calisiyor",
+        kapanis_nedeni: null,
+      })),
+      send: vi.fn(async (id: string, line: string) => {
+        const request = JSON.parse(line);
+        const veri = request.ad === "oturum.baslat" && fail
+          ? { ok: false, metin: "Kip değiştirilemedi." }
+          : { ok: true };
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri }),
+        }));
+      }),
+      close: vi.fn(async () => undefined),
+      list: vi.fn(async () => []),
+      onLine: vi.fn(async (handler) => {
+        lineHandler = handler;
+        return () => undefined;
+      }),
+      onClosed: vi.fn(async () => () => undefined),
+    };
+  }
+
+  it("çekirdek kipi reddederse arayüz eski kipte kalır ve bunu söyler", async () => {
+    render(<SessionUygulama transport={modeTransport(true)} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Kod" }));
+
+    await waitFor(() => expect(screen.getByText(/Kip değiştirilemedi/)).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Sohbet" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("çekirdek kabul ederse kod kipine geçer", async () => {
+    render(<SessionUygulama transport={modeTransport(false)} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Kod" }));
+
+    await waitFor(() => expect(
+      screen.getByRole("button", { name: "Kod" }).getAttribute("aria-pressed"),
+    ).toBe("true"));
+  });
+});
+
