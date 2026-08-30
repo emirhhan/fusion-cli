@@ -149,6 +149,50 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Konuşma tanımayı başlat.
+///
+/// Yardımcı UYGULAMANIN ÇOCUĞU olarak çalıştırılır; bu şart. macOS izni çağıran
+/// sürecin kimliğine bağlar: yardımcı terminalden çalıştırıldığında izin
+/// penceresi HİÇ açılmaz ve `authorizationStatus()` sessizce `notDetermined`
+/// kalır (ölçüldü). Uygulamadan doğrulduğunda `Info.plist` açıklamaları
+/// devreye girer ve kullanıcı izni görür.
+///
+/// Yardımcının her satırı olduğu gibi `ses://tanima` olayıyla yayılır; ayrıştırma
+/// arayüz tarafındadır.
+#[tauri::command]
+async fn tanima_baslat(app: tauri::AppHandle) -> Result<(), String> {
+    use std::io::{BufRead, BufReader};
+
+    let helper = app
+        .path()
+        .resolve("fusion-listen", tauri::path::BaseDirectory::Resource)
+        .map_err(|error| format!("tanıma yardımcısı bulunamadı: {error}"))?;
+    if !helper.is_file() {
+        return Err("Bu pakette konuşma tanıma yardımcısı yok.".into());
+    }
+
+    let mut child = std::process::Command::new(&helper)
+        .arg("tr-TR")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|error| format!("tanıma başlatılamadı: {error}"))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "tanıma çıktısı okunamadı".to_string())?;
+
+    // Okuma ayrı bir iş parçacığında: arayüz bloklanmamalı.
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            let _ = app.emit("ses://tanima", line);
+        }
+        let _ = child.wait();
+    });
+    Ok(())
+}
+
 /// Konuşma kipini kapat: konuşma penceresini gizle, ana pencereyi geri getir.
 #[tauri::command]
 async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
@@ -270,6 +314,7 @@ pub fn run() {
             oturumlari_listele,
             ses_penceresi_ac,
             ses_penceresi_kapat,
+            tanima_baslat,
             runtime_durum,
             runtime_hazirla,
             runtime_onar
