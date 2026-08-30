@@ -1,4 +1,5 @@
 import "./EmptyState.css";
+import { FusionPixel } from "../brand/FusionPixel";
 
 const suggestions = [
   "Yeni bir web projesi oluştur",
@@ -12,7 +13,7 @@ export function EmptyState({ onSelectPrompt = () => undefined }: {
   return (
     <section className="empty-state">
       <div className="empty-state__content">
-        <div aria-hidden="true" className="empty-state__mark">F</div>
+        <div className="empty-state__character"><FusionPixel /></div>
         <h2>Bugün ne üzerinde çalışıyoruz?</h2>
         <p>Bir proje üret, mevcut kodu geliştir veya kaldığın konuşmayı sürdür.</p>
         <div aria-label="Başlangıç önerileri" className="empty-state__suggestions">

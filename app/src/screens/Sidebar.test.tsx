@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "./Sidebar";
 
 const sidebarStyles = readFileSync(resolve(process.cwd(), "src/screens/Sidebar.css"), "utf8");
@@ -15,6 +15,8 @@ afterEach(() => {
   cleanup();
   document.querySelector("[data-test-sidebar-styles]")?.remove();
 });
+
+beforeEach(() => localStorage.clear());
 
 describe("Sidebar", () => {
   it("oturumları kaynak etiketiyle listeler", () => {
@@ -133,7 +135,7 @@ describe("Sidebar", () => {
     const project = screen.getByRole("button", { name: "Fusion projesini aç" });
     expect(getComputedStyle(session).display).not.toBe("none");
     expect(getComputedStyle(project).display).not.toBe("none");
-    expect(getComputedStyle(session.querySelector(".sidebar__session-title")!).display).not.toBe("none");
+    expect(getComputedStyle(session.querySelector(".source-icon")!).display).not.toBe("none");
     expect(getComputedStyle(project.querySelector(".sidebar__label")!).display).not.toBe("none");
   });
 });
@@ -150,6 +152,20 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
 
     expect(screen.getByRole("region", { name: "voltiva" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Sohbetler" })).toBeTruthy();
+  });
+
+  it("geçmişi varsayılan açık gösterir, daraltır ve tercihi saklar", () => {
+    const { unmount } = render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Geçmişi daralt" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("oyun")).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.queryByText("oyun")).toBeNull();
+    expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
+    unmount();
+
+    render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onYeni={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Geçmişi genişlet" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   it("silme tek tıkla olmaz; önce onay ister", () => {

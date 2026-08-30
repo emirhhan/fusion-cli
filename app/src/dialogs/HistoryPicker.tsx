@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { HistorySessionRef, HistorySourceName } from "../history/types";
 import type { HistoryController } from "../history/useHistory";
+import { SourceIcon } from "../brand/SourceIcon";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import "./HistoryPicker.css";
@@ -118,9 +119,7 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
                 onClick={() => void history.openSource(source.ad)}
                 type="button"
               >
-                <span className="history-picker__source-mark" aria-hidden="true">
-                  {SOURCE_LABELS[source.ad][0]}
-                </span>
+                <span className="history-picker__source-mark"><SourceIcon size={20} source={source.ad} /></span>
                 <span>
                   <strong>{SOURCE_LABELS[source.ad]}</strong>
                   <small>{source.komut}</small>

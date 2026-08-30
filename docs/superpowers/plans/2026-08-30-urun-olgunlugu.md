@@ -139,8 +139,8 @@ bir pixel karakter olur. Claude, Codex, Hermes ve web sağlayıcı satırları m
 olduklarında kendi tanınabilir ikonlarını kullanır; bilinmeyen kaynak güvenli
 Fusion yedeğine düşer.
 
-- [ ] Pixel karakter için açık/koyu ve azaltılmış hareket durumlarını görsel testle sabitle.
-- [ ] Kaynak ikon eşlemesini bileşen testiyle sabitle; dekoratif ikonların erişilebilirlik ağacını kirletmediğini doğrula.
+- [x] Pixel karakter için açık/koyu ve azaltılmış hareket durumlarını görsel testle sabitle.
+- [x] Kaynak ikon eşlemesini bileşen testiyle sabitle; dekoratif ikonların erişilebilirlik ağacını kirletmediğini doğrula.
 
 ### Görev 14: Açık ve daraltılabilir geçmiş ağacı
 
@@ -148,8 +148,8 @@ Geçmiş konuşmalar bölümü ilk açılışta açıktır, proje başlıkları 
 gruplanır ve kullanıcı tarafından daraltılabilir. Tercih kalıcıdır. Sohbet silme
 eylemi satır menüsündedir ve geri alınamazlık onayı ister.
 
-- [ ] Varsayılan açık, daraltma tercihi ve proje gruplamasını testle sabitle.
-- [ ] Silme onayı ve etkin konuşma silinince güvenli seçim davranışını testle sabitle.
+- [x] Varsayılan açık, daraltma tercihi ve proje gruplamasını testle sabitle.
+- [x] Silme onayı ve etkin konuşma silinince güvenli seçim davranışını testle sabitle.
 
 ## Çıkış Kriterleri
 

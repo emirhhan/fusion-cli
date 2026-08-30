@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
+import { SourceIcon } from "../brand/SourceIcon";
 import "./Sidebar.css";
 
 export interface OturumSatiri {
@@ -79,9 +80,10 @@ function SessionButton({ session, active, onSelect, onDelete }: {
         onClick={onSelect}
         type="button"
       >
+        <SourceIcon size={16} source={session.source} />
         <span className="sidebar__session-title">{session.title}</span>
         <span className="sidebar__session-source">
-          [{session.source}]{session.project ? ` · ${session.project}` : ""}
+          {session.source}{session.project ? ` · ${session.project}` : ""}
         </span>
       </button>
       {onDelete && (
@@ -126,6 +128,9 @@ export function Sidebar({
   // temel `display`/`padding` değerlerini de siliyordu (ölçüldü).
   const darEkran = useDarEkran();
   const [query, setQuery] = useState("");
+  const [historyExpanded, setHistoryExpanded] = useState(() =>
+    typeof localStorage === "undefined" || localStorage.getItem("fusion.sidebar.history-open.v1") !== "false",
+  );
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
     if (!normalized) return oturumlar;
@@ -165,6 +170,12 @@ export function Sidebar({
 
   const pinnedProjects = filteredProjects.filter((project) => project.pinned);
   const recentProjects = filteredProjects.filter((project) => !project.pinned);
+  const hasHistory = sessionGroups.length > 0 || availableSources.length > 0;
+  const toggleHistory = () => setHistoryExpanded((current) => {
+    const next = !current;
+    localStorage.setItem("fusion.sidebar.history-open.v1", String(next));
+    return next;
+  });
 
   const projectSection = (title: string, projects: ProjeSatiri[]) => projects.length > 0 && (
     <section aria-label={title} className="sidebar__section">
@@ -208,32 +219,56 @@ export function Sidebar({
       <div className="sidebar__scroll">
         {projectSection("Sabit projeler", pinnedProjects)}
         {projectSection("Yakın projeler", recentProjects)}
-        {sessionGroups.map(([projectName, groupSessions]) => (
-          <section aria-label={projectName} className="sidebar__section" key={projectName}>
-            <h2 className="sidebar__section-title">{projectName}</h2>
-            {groupSessions.map((session) => (
-              <SessionButton
-                active={session.session_id === etkin}
-                key={session.session_id}
-                onDelete={onSil ? () => onSil(session.session_id) : undefined}
-                onSelect={() => onSec(session.session_id)}
-                session={session}
-              />
-            ))}
-          </section>
-        ))}
-
-        {availableSources.length > 0 && (
-          <section aria-labelledby="history-sources-title" className="sidebar__section">
-            <h2 id="history-sources-title" className="sidebar__section-title">Geçmiş kaynakları</h2>
-            {availableSources.map((source) => (
-              <NavItem
-                icon="changes"
-                key={source}
-                label={`${source[0].toLocaleUpperCase("tr")}${source.slice(1)} geçmişi`}
-                onClick={() => onNavigate(`resume:${source}`)}
-              />
-            ))}
+        {hasHistory && (
+          <section aria-label="Geçmiş" className="sidebar__history">
+            <button
+              aria-expanded={historyExpanded}
+              aria-label={historyExpanded ? "Geçmişi daralt" : "Geçmişi genişlet"}
+              className="sidebar__history-toggle"
+              onClick={toggleHistory}
+              type="button"
+            >
+              <span className="sidebar__label">Geçmiş</span>
+              <Icon name="chevron" size={15} />
+            </button>
+            {historyExpanded && (
+              <div className="sidebar__history-body">
+                {sessionGroups.map(([projectName, groupSessions]) => (
+                  <section aria-label={projectName} className="sidebar__section" key={projectName}>
+                    <h2 className="sidebar__section-title">{projectName}</h2>
+                    {groupSessions.map((session) => (
+                      <SessionButton
+                        active={session.session_id === etkin}
+                        key={session.session_id}
+                        onDelete={onSil ? () => onSil(session.session_id) : undefined}
+                        onSelect={() => onSec(session.session_id)}
+                        session={session}
+                      />
+                    ))}
+                  </section>
+                ))}
+                {availableSources.length > 0 && (
+                  <section aria-labelledby="history-sources-title" className="sidebar__section">
+                    <h2 id="history-sources-title" className="sidebar__section-title">Devam et</h2>
+                    {availableSources.map((source) => {
+                      const label = `${source[0].toLocaleUpperCase("tr")}${source.slice(1)} geçmişi`;
+                      return (
+                        <button
+                          aria-label={label}
+                          className="sidebar__nav-item"
+                          key={source}
+                          onClick={() => onNavigate(`resume:${source}`)}
+                          type="button"
+                        >
+                          <SourceIcon source={source} />
+                          <span className="sidebar__label">{label}</span>
+                        </button>
+                      );
+                    })}
+                  </section>
+                )}
+              </div>
+            )}
           </section>
         )}
       </div>

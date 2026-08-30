@@ -14,18 +14,12 @@
   width: 100%;
 }
 
-.empty-state__mark {
+.empty-state__character {
   align-items: center;
-  background: var(--control-primary);
-  border-radius: var(--radius-md);
-  color: var(--text-inverse);
   display: flex;
-  font-size: var(--text-sm);
-  font-weight: 600;
-  height: 40px;
+  height: 96px;
   justify-content: center;
-  margin: 0 auto var(--space-5);
-  width: 40px;
+  margin: 0 auto var(--space-4);
 }
 
 .empty-state h2 {

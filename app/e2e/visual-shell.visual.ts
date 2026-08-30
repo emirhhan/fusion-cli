@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 
 const cases = [
   { name: "empty-light", query: "state=empty&theme=light&inspector=0", width: 1440, height: 900 },
+  { name: "empty-dark", query: "state=empty&theme=dark&inspector=0", width: 1440, height: 900 },
   { name: "conversation-light", query: "state=conversation&theme=light", width: 1440, height: 900 },
   { name: "conversation-dark", query: "state=conversation&theme=dark", width: 1440, height: 900 },
   { name: "conversation-medium", query: "state=conversation&theme=light", width: 1100, height: 820 },
@@ -31,12 +32,8 @@ test("compact-rail-keyboard-activation", async ({ page }) => {
   await page.goto("/e2e/preview.html?state=conversation&theme=light&inspector=0");
   const session = page.getByRole("button", { name: "macOS uygulaması" });
   await expect(session).toBeVisible();
-  const identityColors = await session.locator(".sidebar__session-title").evaluate((label) => ({
-    full: getComputedStyle(label).color,
-    initial: getComputedStyle(label, "::first-letter").color,
-  }));
-  expect(identityColors.full).toBe("rgba(0, 0, 0, 0)");
-  expect(identityColors.initial).not.toBe(identityColors.full);
+  await expect(session.locator(".source-icon")).toBeVisible();
+  await expect(session.locator(".sidebar__session-title")).toBeHidden();
   await session.evaluate((button) => {
     button.addEventListener("click", () => {
       document.body.dataset.railKeyboardActivated = "true";
