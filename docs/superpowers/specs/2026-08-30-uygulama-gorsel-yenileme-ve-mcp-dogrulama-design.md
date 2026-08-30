@@ -180,7 +180,73 @@ ve paneli büyüt eylemlerini taşır. Localhost iframe mevcut güvenli sandbox
 sınırlarını korur. Dosya önizlemesi dosya adı, tür, boyut ve proje içi yolu
 gösterir.
 
-## 8. Sol kenar çubuğu ve yerel profil
+## 8. Talk modu: ayrı yardımcı pencere
+
+Talk modu ana sohbetin içindeki bir kart veya sağ denetçi sekmesi değildir.
+Mikrofon düğmesi, aktif sohbet oturumuna bağlı ikinci bir Tauri penceresi açar.
+Ana pencere Dock'a/görev çubuğuna küçültülebilir; Talk penceresi konuşmayı
+sürdürür ve büyüt düğmesi ana pencereyi aynı sohbette geri getirir.
+
+### 8.1 İki pencere boyutu
+
+Talk penceresi kullanıcının verdiği `fusiontalkingtype.png` referansındaki iki
+görünümü taşır:
+
+| Görünüm | Varsayılan ölçü | İçerik |
+|---|---:|---|
+| Normal | 380 × 460 px | büyük karakter, dalga, canlı metin, Fusion yanıtı, durdur ve ayarlar |
+| Mini | 360 × 112 px | küçük karakter, dalga, tek satır durum/metin, onay ve büyüt |
+
+Sağ üstteki küçült/büyüt eylemi iki görünüm arasında geçer; işletim sisteminin
+pencere küçültme düğmesinden farklıdır. Normal görünüm 340 × 400 ile 520 × 680
+arasında yeniden boyutlanabilir. Mini görünüm sabit oranını korur. Son görünüm,
+konum ve normal pencere ölçüsü yerel tercih olarak saklanır.
+
+Pencere varsayılan olarak üstte kalır; kullanıcı bunu ayarlardan kapatabilir.
+Karakter, dalga ve metin yeniden boyutlandırmada kırpılmaz. Mini görünümde uzun
+metin tek satırda kısalır; normal görünüm tam metni kaydırılabilir alanda gösterir.
+
+### 8.2 Konuşmayı yazıya çevirme
+
+Talk penceresi yalnız görsel bir ses oynatıcı değildir. Aktif mikrofon ve konuşma
+tanıma akışı şu sırayı izler:
+
+1. Pencere açılır; mikrofon ve konuşma tanıma izinleri doğrulanır.
+2. Kullanıcı konuşurken kısmi tanıma sonucu canlı olarak görünür.
+3. Tanıyıcı konuşmanın bittiğini belirlediğinde kesin metni aynı aktif sohbetin
+   composer girdisi gibi gönderir.
+4. Fusion çalışırken pencere `thinking` durumuna geçer.
+5. Fusion yanıtı seslendirilirken tanıyıcı duraklar; uygulama kendi hoparlörünü
+   kullanıcı konuşması sanmaz.
+6. Seslendirme bitince otomatik dinleme açıksa mikrofon yeniden dinlemeye başlar.
+
+Gönderilen metin ayrı bir “ses sohbeti” oluşturmaz. Ana penceredeki konuşma
+geçmişinde normal kullanıcı mesajı olarak görünür. Mini ve normal görünüm aynı
+taslak, yanıt ve izin durumunu paylaşır; boyut değiştirmek konuşmayı kesmez.
+
+macOS adaptörü paketli `fusion-listen` yardımcısı ve cihaz üstü
+`SFSpeechRecognizer` kullanır. Windows adaptörü yerel Windows konuşma tanıma
+API'sini aynı tipli köprü arayüzünün arkasından kullanır. Platform tanımayı
+desteklemiyorsa pencere açık bir hata, tekrar dene ve ana composer'a dön eylemi
+gösterir; sessizce çalışıyormuş gibi davranmaz.
+
+Varsayılan davranış ses kaydını diske yazmaz. Yalnız tanınan metin aktif sohbet
+geçmişine girer. Mikrofon kapatıldığında devam eden tanıma iptal edilir ve kısmi
+taslak kullanıcı açıkça göndermedikçe modele iletilmez.
+
+### 8.3 Durumlar ve onaylar
+
+Pencere `hazir`, `dinliyor`, `yaziya_ceviriyor`, `dusunuyor`, `konusuyor`,
+`onay_bekliyor` ve `hata` durumlarını taşır. Karakter ifadesi, dalga rengi ve
+durum metni aynı durum kaynağından türetilir.
+
+Agent bir işlem için onay istediğinde Talk penceresi soruyu hem yazar hem okur.
+Normal görünüm açıklama ile kabul/ret düğmelerini; mini görünüm kısa metin ile
+iki büyük ikon düğmesini gösterir. Kullanıcı “evet”, “hayır” veya “iptal” diyerek
+de yanıt verebilir. Düşük güvenli tanıma sonucu geri döndürülemez işlemi tek
+başına onaylamaz; ekrandaki düğme gerekir.
+
+## 9. Sol kenar çubuğu ve yerel profil
 
 Sol panel `#F9F9FA` tabanı üzerinde ince iç kenar ışığı, düşük opaklıklı yüzey
 katmanı ve gerekirse macOS bulanıklığı kullanır. Metin kontrastı ve seçili satır
@@ -207,9 +273,9 @@ Bu sürüm Fusion bulut hesabı, parola, e-posta doğrulama veya uzaktan eşitle
 sunmaz. Gerçek bir kimlik sunucusu kurulmadan “Fusion'a giriş yap” düğmesi
 gösterilmez. Sağlayıcı girişleri kendi gerçek akışlarını kullanır.
 
-## 9. MCP bağlantı sağlığı
+## 10. MCP bağlantı sağlığı
 
-### 9.1 Durum modeli
+### 10.1 Durum modeli
 
 Her MCP satırı şu durumlardan birini taşır:
 
@@ -222,7 +288,7 @@ Her MCP satırı şu durumlardan birini taşır:
 **Bağlı** etiketi yalnız gerçek `McpClient` bağlantısından sonra kullanılır.
 Profil klasörü, config satırı veya çalışan PID bağlantı kanıtı sayılmaz.
 
-### 9.2 Protokol
+### 10.2 Protokol
 
 Python uygulama protokolüne iki işlem eklenir:
 
@@ -241,13 +307,13 @@ Kullanıcı onayladıktan sonra config atomik yazılır ve ilk doğrulama başla
 Doğrulama başarısız olsa da kayıt korunur; kullanıcı komutu düzeltebilir veya
 kaldırabilir.
 
-### 9.3 Agent kullanımı
+### 10.3 Agent kullanımı
 
 Mevcut agent bağlantı yolu korunur. Regresyon testi, doğrulanan MCP aracının
 gerçek bir agent turunda araç kataloğuna girdiğini kanıtlar. Ayarlar ekranındaki
 yeşil durum ile agent'ın kullandığı sunucu aynı kanonik config kaydından gelir.
 
-## 10. Hata ve boş durumlar
+## 11. Hata ve boş durumlar
 
 - Karakter varlığı yüklenemezse düzen çökmez; Fusion logosu ve kısa hata metni
   görünür.
@@ -260,8 +326,11 @@ yeşil durum ile agent'ın kullandığı sunucu aynı kanonik config kaydından 
 - Sağ panel içeriği dar genişlikte yatay taşmaz; gerekli alan kendi içinde
   kaydırılır.
 - Profil ve bağlantı ekranı ağ yokken yerel tercihleri açmaya devam eder.
+- Mikrofon izni reddedilirse Talk penceresi izin durumunu açıklar; dinliyor
+  animasyonu göstermez.
+- Talk penceresi boyut değiştirirken tanıma oturumu ve kısmi metin korunur.
 
-## 11. Ekran görüntüsü ve kullanıcı inceleme kapısı
+## 12. Ekran görüntüsü ve kullanıcı inceleme kapısı
 
 Her görsel dilim şu sırayla ilerler:
 
@@ -279,9 +348,9 @@ Görsel dilimler:
 3. sağ panel kabuğu, terminal ve önizleme;
 4. glossy sol panel ile profil;
 5. MCP bağlantı yönetimi;
-6. ses penceresi.
+6. Talk penceresinin normal, mini, dinleme, konuşma ve onay durumları.
 
-## 12. Doğrulama
+## 13. Doğrulama
 
 ### React ve erişilebilirlik
 
@@ -302,14 +371,17 @@ Görsel dilimler:
 ### Native uygulama
 
 - Paketli macOS uygulamasında dosya seçme, sürükle-bırak, terminal, localhost
-  önizleme, panel yeniden boyutlandırma ve ses penceresi elle/otomasyonla
+  önizleme, panel yeniden boyutlandırma ve Talk penceresi elle/otomasyonla
+  doğrulanır.
+- Gerçek mikrofonla kısmi metin, kesin metnin aynı sohbete gönderilmesi,
+  seslendirme sırasında tanımanın durması ve boyut değişiminde oturumun korunması
   doğrulanır.
 - Windows WebView katmanı Playwright ile; NSIS kurulumu ve native çalışma zamanı
   temiz Windows CI makinesinde sınanır.
 - Apple Silicon, Intel macOS ve Windows paketleri mimari ve çalışma zamanı smoke
   testlerini geçer.
 
-## 13. Kapsam dışı
+## 14. Kapsam dışı
 
 - Fusion'a ait bulut kimlik sunucusu, e-posta/parola üyeliği ve cihazlar arası
   eşitleme;
@@ -319,11 +391,12 @@ Görsel dilimler:
   uygulama;
 - Apple Developer hesabı ve notarization.
 
-## 14. Yayın kapısı
+## 15. Yayın kapısı
 
 Yayın için aşağıdakilerin tümü gerekir:
 
 - kullanıcı altı görsel dilimi ekran görüntüsüyle onayladı;
+- Talk modu mini ve normal görünümde gerçek mikrofonla aynı sohbeti sürdürdü;
 - React, TypeScript, Rust, Python ve görsel regresyon kapıları geçti;
 - gerçek MCP doğrulama ve agent kullanım testleri geçti;
 - Apple Silicon DMG, Intel DMG ve Windows NSIS kurucusu temiz CI'da üretildi;
