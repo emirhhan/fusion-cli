@@ -196,6 +196,25 @@ def save_settings(data: object) -> dict[str, Any]:
             yol = Path(str(ham)).expanduser()
             if not yol.is_file():
                 return {"ok": False, "metin": f"Ses modeli bulunamadı: {yol}"}
+            # Kullanıcının KENDİ KONUŞMA KAYDI bir ses modeli değildir. Fusion
+            # ses klonlama yapmaz; kabul edilen tek şey Piper'ın `.onnx` modeli
+            # ve yanındaki yapılandırmasıdır. WAV/MP3 kabul etmek, klonlandı
+            # sanan kullanıcıya sonradan anlamsız bir Piper hatası verirdi.
+            if yol.suffix.casefold() != ".onnx":
+                return {
+                    "ok": False,
+                    "metin": (
+                        "Yalnız Piper ses modeli (.onnx) kullanılabilir. "
+                        "Kendi ses kaydından ses üretme desteklenmiyor."
+                    ),
+                }
+            if not yol.with_suffix(".onnx.json").is_file():
+                return {
+                    "ok": False,
+                    "metin": (
+                        f"Modelin yapılandırma dosyası eksik: {yol.name}.json aynı klasörde olmalı."
+                    ),
+                }
             yeni["model"] = str(yol)
 
     try:

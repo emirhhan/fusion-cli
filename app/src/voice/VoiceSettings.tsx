@@ -13,7 +13,7 @@ export interface VoicePrefs {
   hiz: number;
   /** 0 doğal, 1 mekanik. */
   robotik: number;
-  /** Kullanıcının kendi Piper modeli; yoksa null. */
+  /** Seçilmiş Piper `.onnx` modeli; yoksa null. */
   model: string | null;
 }
 
@@ -82,7 +82,10 @@ export function VoiceSettings({
 
       {onPickModel && (
         <div className="voice-settings__model">
-          <button onClick={onPickModel} type="button">Kendi ses dosyam</button>
+          {/* Ad AÇIK: Fusion ses klonlamaz. Kullanıcının konuşma kaydı bir ses
+              modeli değildir; "kendi ses dosyam" yazmak, WAV yükleyip ses
+              klonlandığını sanmaya yol açıyordu. */}
+          <button onClick={onPickModel} type="button">Piper ses modeli seç</button>
           <small>{dosyaAdi ?? "Fusion'ın Türkçe modeli kullanılıyor"}</small>
         </div>
       )}

@@ -34,7 +34,15 @@ describe("VoiceSettings", () => {
     expect(onTopChange).toHaveBeenCalledWith(true);
   });
 
-  it("kendi ses dosyası seçilince adını gösterir", () => {
+  it("düğme ses klonlama vaat etmez, Piper modeli ister", () => {
+    render(
+      <VoiceSettings onChange={vi.fn()} onPickModel={vi.fn()} onTop onTopChange={vi.fn()} prefs={PREFS} />,
+    );
+    expect(screen.getByRole("button", { name: "Piper ses modeli seç" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /kendi ses dosyam/i })).toBeNull();
+  });
+
+  it("seçilen model dosyasının adını gösterir", () => {
     render(
       <VoiceSettings
         onChange={vi.fn()}

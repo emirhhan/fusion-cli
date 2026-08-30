@@ -13,7 +13,7 @@ import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode, type VoiceState } from "./VoiceMode";
 import type { VoicePrefs } from "./VoiceSettings";
 import { closeVoiceWindow, setVoiceWindowOnTop, setVoiceWindowWide } from "./windowBridge";
-import { selectFiles } from "../platform/dialog";
+import { selectVoiceModel } from "../platform/dialog";
 
 /**
  * Konuşma penceresinin kökü.
@@ -105,10 +105,11 @@ export function VoiceWindow() {
       }}
       onClose={() => void closeVoiceWindow()}
       onPickModel={() => {
-        // Kendi ses dosyası: yol tercihlere yazılır, dosya KOPYALANMAZ.
-        // Kullanıcının dizinine dokunmak ve büyük bir modeli çoğaltmak gereksiz.
-        void selectFiles()
-          .then(([yol]) => {
+        // Piper modelinin YOLU tercihlere yazılır, dosya kopyalanmaz: büyük bir
+        // modeli çoğaltmak ve kullanıcının dizinine dokunmak gereksiz. Geçerlilik
+        // (uzantı ve yanındaki yapılandırma) çekirdekte denetlenir.
+        void selectVoiceModel()
+          .then((yol) => {
             if (!yol) return;
             const next = { ...prefs, model: yol };
             setPrefs(next);

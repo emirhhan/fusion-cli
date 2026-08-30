@@ -253,6 +253,8 @@ def test_kendi_ses_modeli_dosyasi_kullanilabilir(tmp_path, monkeypatch):
     monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
     kendi = tmp_path / "kendi-ses.onnx"
     kendi.write_bytes(b"onnx")
+    # Piper modeli yapılandırmasıyla birlikte geçerlidir.
+    (tmp_path / "kendi-ses.onnx.json").write_text("{}", encoding="utf-8")
 
     sonuc = voice.save_settings({"model": str(kendi)})
 
@@ -283,3 +285,50 @@ def test_ayarlar_bozuksa_varsayilana_dusulur(tmp_path, monkeypatch):
     ayarlar = voice.load_settings()
 
     assert ayarlar["length_scale"] == voice.PIPER_DEFAULTS["length_scale"]
+
+
+def test_ses_modeli_onnx_olmali(tmp_path, monkeypatch):
+    """Kullanıcının konuşma kaydı bir ses MODELİ değildir.
+
+    Arayüzde "kendi ses dosyam" yazıyordu ve dosya seçici her şeyi kabul
+    ediyordu; WAV yükleyen kullanıcı ses klonlandı sanıyor, Piper sonradan
+    hata veriyordu. Kabul edilen tek şey Piper'ın `.onnx` modelidir.
+    """
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    kayit = tmp_path / "sesim.wav"
+    kayit.write_bytes(b"RIFF")
+
+    sonuc = voice.save_settings({"model": str(kayit)})
+
+    assert sonuc["ok"] is False
+    assert ".onnx" in sonuc["metin"]
+
+
+def test_ses_modeli_yapilandirma_dosyasini_da_ister(tmp_path, monkeypatch):
+    """Piper modeli tek başına çalışmaz; yanındaki `.onnx.json` şarttır."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    model = tmp_path / "kendi.onnx"
+    model.write_bytes(b"onnx")
+
+    sonuc = voice.save_settings({"model": str(model)})
+
+    assert sonuc["ok"] is False
+    assert "yapılandırma" in sonuc["metin"]
+
+
+def test_yapilandirmasi_olan_model_kabul_edilir(tmp_path, monkeypatch):
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    model = tmp_path / "kendi.onnx"
+    model.write_bytes(b"onnx")
+    (tmp_path / "kendi.onnx.json").write_text("{}", encoding="utf-8")
+
+    sonuc = voice.save_settings({"model": str(model)})
+
+    assert sonuc["ok"] is True
+    assert voice.active_model_path() == model
