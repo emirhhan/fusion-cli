@@ -61,3 +61,37 @@ describe("ControlPanel", () => {
     await waitFor(() => expect(screen.getByText("Çalışıyor")).toBeTruthy());
   });
 });
+
+describe("ControlPanel — yönetim derinliği", () => {
+  it("model düzenini komut köprüsünden değiştirir; kendi uç noktasını uydurmaz", async () => {
+    const onCommand = vi.fn();
+    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
+    await screen.findByText("Model düzeni");
+
+    fireEvent.click(screen.getByRole("button", { name: "Ajan modelini değiştir" }));
+    expect(onCommand).toHaveBeenCalledWith("/model");
+
+    fireEvent.click(screen.getByRole("button", { name: "Düşünme düzeyini değiştir" }));
+    expect(onCommand).toHaveBeenCalledWith("/level");
+
+    fireEvent.click(screen.getByRole("button", { name: "Model profilini değiştir" }));
+    expect(onCommand).toHaveBeenCalledWith("/mode");
+  });
+
+  it("çalışma klasörünü gösterir ve değiştirmeyi çağırana devreder", async () => {
+    const onChangeRoot = vi.fn();
+    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} />);
+
+    expect(await screen.findByText("/Users/test/Fusion")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Çalışma klasörünü değiştir" }));
+    expect(onChangeRoot).toHaveBeenCalled();
+  });
+
+  it("değiştirme geri çağrıları verilmediğinde düğmeleri hiç çizmez", async () => {
+    render(<ControlPanel client={client()} onClose={() => undefined} />);
+    await screen.findByText("Model düzeni");
+
+    expect(screen.queryByRole("button", { name: "Ajan modelini değiştir" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Çalışma klasörünü değiştir" })).toBeNull();
+  });
+});

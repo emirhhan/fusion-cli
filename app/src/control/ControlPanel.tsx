@@ -31,7 +31,21 @@ function Definition({ label, value }: { label: string; value: string }) {
   return <div className="control-panel__definition"><dt>{label}</dt><dd>{value}</dd></div>;
 }
 
-export function ControlPanel({ client, onClose }: { client: ProtocolClient; onClose: () => void }) {
+interface ControlPanelProps {
+  client: ProtocolClient;
+  /** Çalışma klasörünü değiştir. Verilmezse düğme HİÇ çizilmez. */
+  onChangeRoot?: () => void;
+  onClose: () => void;
+  /**
+   * Bir slash komutunu çalıştır. Model düzeni buradan değişir: panel kendi
+   * uç noktasını UYDURMAZ, CLI'ın zaten testli olan `/model`, `/level`,
+   * `/mode` akışını kullanır. İki yerde ayrı mantık olsaydı biri düzeltilirken
+   * öteki eskirdi. Verilmezse değiştirme düğmeleri çizilmez.
+   */
+  onRunCommand?: (command: string) => void;
+}
+
+export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: ControlPanelProps) {
   const [state, setState] = useState<ControlState | null>(null);
   const [secrets, setSecrets] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -82,6 +96,19 @@ export function ControlPanel({ client, onClose }: { client: ProtocolClient; onCl
             <Definition label="Adaylar" value={state.model.adaylar.join(" · ") || "Yok"} />
             <Definition label="Yönlendirme" value={`${state.model.saglayici} · ${state.model.yogunluk}`} />
           </dl>
+          {onRunCommand && (
+            <div className="control-panel__actions">
+              <button onClick={() => onRunCommand("/model")} type="button">
+                Ajan modelini değiştir
+              </button>
+              <button onClick={() => onRunCommand("/level")} type="button">
+                Düşünme düzeyini değiştir
+              </button>
+              <button onClick={() => onRunCommand("/mode")} type="button">
+                Model profilini değiştir
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="control-panel__section">
@@ -91,6 +118,16 @@ export function ControlPanel({ client, onClose }: { client: ProtocolClient; onCl
             <Definition label="Dosya kapsamı" value={state.izin.kokle_sinirli ? "Yalnız proje kökü" : "Onayla genişletilebilir"} />
             <Definition label="Aktif proje" value={state.kok} />
           </dl>
+          {onChangeRoot && (
+            <div className="control-panel__actions">
+              <button onClick={onChangeRoot} type="button">
+                Çalışma klasörünü değiştir
+              </button>
+              <button onClick={() => onRunCommand?.("/security")} type="button">
+                İzin modunu değiştir
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="control-panel__section control-panel__section--wide">

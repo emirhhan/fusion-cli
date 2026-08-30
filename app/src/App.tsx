@@ -482,7 +482,19 @@ export function SessionUygulama({
   const content = page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
-      ? <ControlPanel client={active.client} onClose={() => setPage("chat")} />
+      ? (
+        <ControlPanel
+          client={active.client}
+          onChangeRoot={() => void chooseTaskFolder()}
+          onClose={() => setPage("chat")}
+          onRunCommand={(command) => {
+            // Panelden çalıştırılan komut sohbet ekranında seçiciyi açar;
+            // kullanıcı seçimini orada yapar ve sonuç aynı akıştan geçer.
+            setPage("chat");
+            void executeCommand(command, false);
+          }}
+        />
+      )
       : page === "settings"
         ? (
           <Settings
