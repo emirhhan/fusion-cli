@@ -15,6 +15,8 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -128,6 +130,49 @@ def piper_download_urls() -> tuple[str, str]:
         "tr/tr_TR/dfki/medium/tr_TR-dfki-medium"
     )
     return f"{taban}.onnx", f"{taban}.onnx.json"
+
+
+def _open_url(url: str) -> Any:  # noqa: ANN401 — urlopen'ın dönüşü tiplenmemiş
+    """Adresi aç. Testler bunu değiştirir; ağa gerçekten çıkılmaz."""
+    from urllib.request import urlopen
+
+    return urlopen(url, timeout=60)
+
+
+def download_piper_model(progress: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Türkçe Piper modelini indir.
+
+    İndirme SESSİZ olmaz: 60 MB'lık dosyada kullanıcı ilerlemeyi görmeli.
+    Yarım kalan dosya "kurulu" sanılırsa Piper her açılışta çöker; bu yüzden
+    önce geçici ada yazılır ve ancak tamamlanınca yerine taşınır.
+    """
+    hedef = piper_model_path()
+    if hedef.is_file():
+        return {"ok": True, "zaten": True, "yol": str(hedef)}
+    hedef.parent.mkdir(parents=True, exist_ok=True)
+    onnx_url, config_url = piper_download_urls()
+
+    gecici = hedef.with_suffix(".onnx.indiriliyor")
+    try:
+        with _open_url(onnx_url) as yanit:
+            toplam = int(yanit.headers.get("Content-Length") or 0)
+            inen = 0
+            with gecici.open("wb") as akis:
+                while True:
+                    parca = yanit.read(1024 * 256)
+                    if not parca:
+                        break
+                    akis.write(parca)
+                    inen += len(parca)
+                    progress({"inen": inen, "toplam": toplam or inen})
+        with _open_url(config_url) as yanit:
+            hedef.with_suffix(".onnx.json").write_bytes(yanit.read())
+    except Exception as error:  # ağ, disk, kesinti
+        gecici.unlink(missing_ok=True)
+        return {"ok": False, "metin": f"Ses modeli indirilemedi: {error}"}
+
+    gecici.replace(hedef)
+    return {"ok": True, "zaten": False, "yol": str(hedef)}
 
 
 def piper_argv(model: str, output: str, settings: dict[str, float]) -> list[str]:
@@ -246,6 +291,58 @@ def speak_argv(system: str, text: str, *, voice: str | None) -> list[str]:
     raise ValueError(f"Sesli yanıt bu platformda desteklenmiyor: {system}")
 
 
+def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
+    """Metni Piper ile seslendirip çal.
+
+    Piper ses dosyası üretir, çalmayı işletim sistemine bırakırız. İki adımı
+    tek boruya bağlamak yerine geçici dosya kullanılır: Piper'ın çıktısı WAV
+    başlığı taşır ve akış hâlinde çalmak platforma göre değişirdi.
+    """
+    import tempfile
+
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as gecici:
+        cikti = Path(gecici.name)
+    argv = [
+        sys.executable,
+        "-m",
+        "piper",
+        "-m",
+        str(model),
+        "-f",
+        str(cikti),
+        "--length-scale",
+        str(PIPER_DEFAULTS["length_scale"]),
+        "--noise-w-scale",
+        str(PIPER_DEFAULTS["noise_w_scale"]),
+        "--sentence-silence",
+        str(PIPER_DEFAULTS["sentence_silence"]),
+    ]
+    if getattr(sys, "frozen", False):
+        # Paketlenmiş ikilide `-m` yoktur; kendi alt komutu kullanılır.
+        argv = [sys.executable, "piper-say", str(model), str(cikti)]
+    try:
+        subprocess.run(argv, input=text, text=True, capture_output=True, timeout=120, check=True)
+    except (OSError, subprocess.SubprocessError) as error:
+        cikti.unlink(missing_ok=True)
+        return {"ok": False, "metin": f"Ses üretilemedi: {error}"}
+
+    calar = (
+        ["afplay", str(cikti)]
+        if platform.system() == "Darwin"
+        else [
+            "powershell",
+            "-NoProfile",
+            "-Command",
+            f"(New-Object Media.SoundPlayer '{cikti}').PlaySync()",
+        ]
+    )
+    try:
+        process = subprocess.Popen(calar, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError as error:
+        return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
+    return {"ok": True, "pid": process.pid, "motor": "piper"}
+
+
 def speak(text: object) -> dict[str, Any]:
     """`ses.konus`: metni sistem sesiyle oku.
 
@@ -260,6 +357,12 @@ def speak(text: object) -> dict[str, Any]:
     content = prepare_speech(str(text or ""))
     if not content:
         return {"ok": False, "metin": "Okunacak metin boş."}
+    # Piper modeli indirilmişse o tercih edilir: sistem sesleri Türkçe'de
+    # compact kademede kalıyor ve Windows'ta Türkçe ses hiç yok.
+    model = piper_model_path()
+    if model.is_file():
+        return _speak_with_piper(content, model)
+
     voice = best_voice(installed_voice_records())
     try:
         argv = speak_argv(platform.system(), content, voice=voice)
@@ -283,15 +386,35 @@ def stop() -> dict[str, Any]:
 
 
 def status() -> dict[str, Any]:
-    """`ses.durum`: sesli yanıt kullanılabilir mi, hangi sesle ve daha iyisi var mı?"""
+    """`ses.durum`: hangi motor, hangi ses ve gerçekten uygulanabilir bir öneri var mı?
+
+    Öneri KOŞULLUDUR. Daha önce burada bir hata vardı: Cem zaten kuruluyken ve
+    motor Piper'ken bile "Cem'i indir" deniyordu. Kurulu olanı önermek
+    kullanıcıyı yanıltır; öneri yalnız gerçekten işe yarayacaksa çıkar.
+    """
     records = installed_voice_records()
-    voice = best_voice(records)
-    supported = platform.system().casefold() in ("darwin", "windows")
+    system_voice = best_voice(records)
+    model = piper_model_path()
+    piper_ready = model.is_file()
+    supported = piper_ready or platform.system().casefold() in ("darwin", "windows")
+
+    if piper_ready:
+        # Piper devredeyken sistem sesi önerisi anlamsızdır.
+        hint: str | None = None
+    elif system_voice:
+        hint = upgrade_hint(records)
+    else:
+        hint = (
+            "Türkçe ses bulunamadı. Ayarlar'dan Fusion'ın kendi ses modelini "
+            "indirerek konuşmayı açabilirsin."
+        )
+
     return {
         "ok": True,
         "kullanilabilir": supported,
-        "ses": voice,
-        "turkce": voice is not None,
-        # Daha iyisi kurulabiliyorsa SÖYLENİR; sessizce kötüsüyle konuşulmaz.
-        "yukseltme": upgrade_hint(records),
+        "motor": "piper" if piper_ready else "sistem",
+        "ses": PIPER_TURKISH_MODEL if piper_ready else system_voice,
+        "turkce": piper_ready or system_voice is not None,
+        "model_kurulu": piper_ready,
+        "yukseltme": hint,
     }

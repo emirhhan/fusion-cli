@@ -48,6 +48,14 @@ mcp = ["mcp>=1.9,<2"]
 desktop = [
     "pyinstaller>=6.15,<7",
 ]
+# Sesli yanıt motoru. Sistem sesleri (macOS `say`) Türkçe'de compact kademede
+# kalıyor ve robotik duyuluyor; Windows'ta ise Türkçe ses HİÇ yok. Piper her iki
+# platformda da aynı sinir ağı modelini çalıştırır. MIT lisanslı, çevrimdışı.
+# Bedeli ölçüldü: onnxruntime 80 MB + piper 46 MB. Model (60 MB) pakete
+# GİRMEZ, ilk kullanımda kullanıcı verisine indirilir.
+voice = [
+    "piper-tts>=1.7,<2",
+]
 dev = [
     "pytest>=8.0,<9",
     "pytest-asyncio>=0.23,<2",

@@ -51,7 +51,8 @@ from .history import PreparedResume, list_sessions, list_sources, prepare_resume
 from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
-from .protocol import Reply, Request, encode_result
+from .protocol import Reply, Request, encode_event, encode_result
+from .voice import download_piper_model as voice_download_model
 from .voice import speak as voice_speak
 from .voice import status as voice_status
 from .voice import stop as voice_stop
@@ -250,6 +251,10 @@ class AppSession:
             return voice_status()
         if request.name == "ses.konus":
             return voice_speak(request.data.get("metin"))
+        if request.name == "ses.model_indir":
+            return voice_download_model(
+                lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
+            )
         if request.name == "ses.durdur":
             return voice_stop()
         if request.name == "web.saglayicilar":

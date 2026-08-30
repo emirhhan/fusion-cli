@@ -19,7 +19,7 @@ venv:
 # satırlarını yazsaydı (eskiden öyleydi: `.[desktop,mcp,gateway]`), `make install`
 # ile kurulan ortam `make app-package` ile kurulandan sessizce ayrışırdı —
 # kapılar bir ortamda geçip ötekinde patlardı.
-EXTRAS := dev,desktop,mcp,gateway
+EXTRAS := dev,desktop,mcp,gateway,voice
 
 install:
 	$(PY) -m pip install --quiet --upgrade pip

@@ -7,6 +7,8 @@ indirme, API anahtarı ve ağ erişimi YOKTUR.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from fusion_cli.appserver.voice import speak_argv, turkish_voice
@@ -141,3 +143,72 @@ def test_model_indirme_adresi_bilinen_depodan_gelir():
         assert "tr/tr_TR/dfki" in adres
     assert onnx.endswith(".onnx")
     assert config.endswith(".onnx.json")
+
+
+def test_model_indirme_ilerlemeyi_bildirir(tmp_path, monkeypatch):
+    """İndirme sessiz olmaz: 60 MB'lık dosyada kullanıcı ilerlemeyi görmeli."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+
+    class SahteYanit:
+        headers: ClassVar[dict[str, str]] = {"Content-Length": "8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def read(self, _n=None):
+            # Yapılandırma dosyası `read()` ile argümansız okunur; sahte de
+            # ikisini birden karşılamalı.
+            veri = getattr(self, "_kalan", b"12345678")
+            self._kalan = b""
+            return veri
+
+    monkeypatch.setattr(voice, "_open_url", lambda _u: SahteYanit())
+    olaylar: list[dict] = []
+
+    sonuc = voice.download_piper_model(olaylar.append)
+
+    assert sonuc["ok"] is True
+    assert voice.piper_model_path().is_file()
+    assert olaylar, "ilerleme hiç bildirilmedi"
+    assert olaylar[-1]["toplam"] > 0
+
+
+def test_model_yarim_inerse_bozuk_dosya_birakilmaz(tmp_path, monkeypatch):
+    """Yarım dosya "kurulu" sanılırsa Piper her açılışta çöker."""
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+
+    def patlayan(_url):
+        raise OSError("ağ koptu")
+
+    monkeypatch.setattr(voice, "_open_url", patlayan)
+    sonuc = voice.download_piper_model(lambda _e: None)
+
+    assert sonuc["ok"] is False
+    assert not voice.piper_model_path().exists()
+
+
+def test_durum_yanlis_yukseltme_onermez(tmp_path, monkeypatch):
+    """Kurulu olan sesi "indir" demek kullanıcıyı yanıltır.
+
+    Ölçüldü: Cem kuruluyken ve motor Piper'ken durum yine "Cem'i indir" diyordu.
+    Öneri yalnız GERÇEKTEN uygulanabilir olduğunda çıkar.
+    """
+    from fusion_cli.appserver import voice
+
+    monkeypatch.setattr(voice, "_data_home", lambda: tmp_path)
+    model = voice.piper_model_path()
+    model.parent.mkdir(parents=True, exist_ok=True)
+    model.write_bytes(b"sahte model")
+
+    durum = voice.status()
+
+    assert durum["motor"] == "piper"
+    # Piper devredeyken sistem sesi önerisi anlamsızdır.
+    assert durum["yukseltme"] is None

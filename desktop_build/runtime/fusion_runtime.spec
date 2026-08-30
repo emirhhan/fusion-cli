@@ -21,12 +21,12 @@ _repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 datas = []
 binaries = []
 hiddenimports = []
-for package in ("fusion_cli", "litellm", "chromadb", "keyring", "httpx", "mcp"):
+for package in ("fusion_cli", "litellm", "chromadb", "keyring", "httpx", "mcp", "piper", "onnxruntime"):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden
-for distribution in ("fusion-cli", "litellm", "chromadb", "keyring", "httpx"):
+for distribution in ("fusion-cli", "litellm", "chromadb", "keyring", "httpx", "piper-tts", "onnxruntime"):
     datas += copy_metadata(distribution)
 
 a = Analysis(

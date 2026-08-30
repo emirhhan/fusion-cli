@@ -404,6 +404,32 @@ def web_login(provider: str, account: str = "main") -> None:
     asyncio.run(open_login_browser(provider, account))
 
 
+@app.command(name="piper-say", hidden=True)
+def piper_say(model: str, output: str) -> None:
+    """Standart girdideki metni Piper ile seslendirip WAV'a yaz.
+
+    Paketlenmiş ikilide `python -m piper` ÇALIŞMAZ (`-m` bayrağı yoktur); ses
+    motoru bu alt komut üzerinden çağrılır.
+    """
+    import sys as _sys
+    import wave
+
+    from piper import PiperVoice, SynthesisConfig
+
+    from ..appserver.voice import PIPER_DEFAULTS
+
+    metin = _sys.stdin.read()
+    ses = PiperVoice.load(model)
+    # `sentence_silence` yalnız Piper'ın CLI'ında var, kitaplık yapılandırmasında
+    # yok; cümle araları zaten `voice_text.split_sentences` ile ayrılıyor.
+    ayar = SynthesisConfig(
+        length_scale=PIPER_DEFAULTS["length_scale"],
+        noise_w_scale=PIPER_DEFAULTS["noise_w_scale"],
+    )
+    with wave.open(output, "wb") as akis:
+        ses.synthesize_wav(metin, akis, syn_config=ayar)
+
+
 @app.command(name="runtime-health", hidden=True)
 def runtime_health(as_json: bool = typer.Option(False, "--json")) -> None:
     """Paketli masaüstü çalışma zamanının bütünlüğünü doğrula."""
