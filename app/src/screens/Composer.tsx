@@ -1,5 +1,6 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "../ui/Button";
+import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 
 /** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
@@ -27,6 +28,8 @@ interface ComposerProps {
   onAttach?: () => void;
   onDropFiles?: (files: File[]) => void;
   onModeChange?: (mode: WorkspaceMode) => void;
+  /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
+  onVoice?: () => void;
   onRemoveAttachment?: (path: string) => void;
   onSend: (task: string) => void;
   onStop?: () => void;
@@ -43,6 +46,7 @@ export function Composer({
   onAttach = () => undefined,
   onDropFiles = () => undefined,
   onModeChange,
+  onVoice,
   onRemoveAttachment = () => undefined,
   onSend,
   onStop = () => undefined,
@@ -175,7 +179,19 @@ export function Composer({
           {running ? (
             <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />
           ) : (
-            <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={send} variant="primary" />
+            <span className="composer__actions">
+              {onVoice && (
+                <button
+                  aria-label="Konuşarak anlat"
+                  className="composer__voice"
+                  onClick={onVoice}
+                  type="button"
+                >
+                  <MicIcon size={18} />
+                </button>
+              )}
+              <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={send} variant="primary" />
+            </span>
           )}
         </div>
       </div>

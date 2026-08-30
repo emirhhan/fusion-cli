@@ -1,0 +1,72 @@
+/* Konuşma paneli.
+ *
+ * TAM EKRAN DEĞİL: uygulama arkada durmaya devam eder ve kararır. Kullanıcı
+ * nerede olduğunu kaybetmesin diye panel küçük ve ortadadır. */
+/* Ayrı pencerede çizildiğinde arka plan saydam kalır: pencerenin kendisi
+   paneldir, uygulama zaten simge durumuna küçülmüştür. */
+.voice-backdrop {
+  align-items: center;
+  backdrop-filter: blur(3px);
+  background: var(--surface-overlay);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: var(--z-dialog);
+}
+
+/* Glossy yüzey: üstte ince parlama, altta yumuşak gölge, kenarda iç ışık.
+   Tek düz renk yerine katmanlı bir yüzey markanın kimliğine yakışıyor. */
+.voice-panel {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 7%) 0%, transparent 42%),
+    var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: 26px;
+  box-shadow:
+    0 24px 70px rgb(0 0 0 / 34%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
+  display: grid;
+  gap: 18px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-width: calc(100vw - 48px);
+  padding: 16px 22px 24px;
+  width: 380px;
+}
+
+.voice-panel__head { align-items: center; display: flex; justify-content: space-between; }
+.voice-panel__title { color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .03em; }
+.voice-panel__close {
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary);
+  cursor: pointer; font: inherit; font-size: 15px; height: 32px; line-height: 1; width: 32px;
+}
+.voice-panel__close:hover { background: var(--surface-hover); color: var(--text-primary); }
+.voice-panel__close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.voice-panel__stage { align-content: center; display: grid; gap: 14px; justify-items: center; }
+.voice-panel__status { color: var(--text-secondary); font-size: 13px; margin: 0; }
+.voice-panel__transcript {
+  color: var(--text-primary); font-size: 15px; line-height: var(--line-body); margin: 0;
+  max-width: 32ch; text-align: center; text-wrap: pretty;
+}
+
+.voice-panel__foot { display: grid; gap: 10px; justify-items: center; }
+.voice-panel__hint { color: var(--text-secondary); font-size: 11px; margin: 0; }
+
+/* Mikrofon: paneldeki tek asıl eylem, o yüzden büyük ve yuvarlak. */
+.voice-panel__mic {
+  align-items: center; background: var(--accent); border: 0; border-radius: 50%;
+  cursor: pointer; display: flex; height: 64px; justify-content: center; width: 64px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.voice-panel__mic:hover { transform: scale(1.05); }
+.voice-panel__mic:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
+.voice-panel__mic[aria-pressed="true"] { background: var(--text-danger); }
+
+/* Simge rengi düğmeden gelir: dinlerken kırmızı zeminde beyaz olur. */
+.voice-panel__mic { color: var(--accent-on); }
+.voice-panel__mic[aria-pressed="true"] { color: var(--brand-soft-white); }
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-panel__mic { transition: none; }
+}

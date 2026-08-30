@@ -13,7 +13,7 @@ use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
 use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
-use tauri::{Emitter, Manager};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// Bu makinenin çalışma zamanı paketiyle eşleşmesi gereken hedef üçlü.
 ///
@@ -109,6 +109,58 @@ fn oturuma_yaz(
     sessions: tauri::State<SessionManager>,
 ) -> Result<(), String> {
     sessions.send(&oturum_id, satir)
+}
+
+/// Konuşma penceresinin kimliği. Ana pencereden AYRI bir penceredir.
+const SES_PENCERESI: &str = "ses";
+
+/// Konuşma kipini aç: ana pencereyi simge durumuna küçült, küçük konuşma
+/// penceresini göster.
+///
+/// Kullanıcının istediği davranış tam olarak budur: mikrofona basınca ana
+/// pencere sarı düğmedeki gibi çekilir, konuşma için küçük bir pencere kalır ve
+/// istenildiğinde ana pencere geri açılır. Bunu uygulama İÇİNDE bir katmanla
+/// yapmak aynı şey değildir — pencere yöneticisi devreye girmez.
+#[tauri::command]
+async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(mevcut) = app.get_webview_window(SES_PENCERESI) {
+        mevcut.show().map_err(|e| e.to_string())?;
+        mevcut.set_focus().map_err(|e| e.to_string())?;
+    } else {
+        WebviewWindowBuilder::new(
+            &app,
+            SES_PENCERESI,
+            WebviewUrl::App("index.html?pencere=ses".into()),
+        )
+        .title("Fusion ile konuş")
+        .inner_size(380.0, 460.0)
+        .resizable(false)
+        .always_on_top(true)
+        .decorations(false)
+        .center()
+        .build()
+        .map_err(|error| format!("konuşma penceresi açılamadı: {error}"))?;
+    }
+    // Ana pencere simge durumuna küçülür; kapanmaz. Kapatmak, çalışan turu ve
+    // oturumları da sonlandırırdı.
+    if let Some(ana) = app.get_webview_window("main") {
+        ana.minimize().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Konuşma kipini kapat: konuşma penceresini gizle, ana pencereyi geri getir.
+#[tauri::command]
+async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
+        ses.close().map_err(|error| error.to_string())?;
+    }
+    if let Some(ana) = app.get_webview_window("main") {
+        ana.unminimize().map_err(|error| error.to_string())?;
+        ana.show().map_err(|error| error.to_string())?;
+        ana.set_focus().map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -216,6 +268,8 @@ pub fn run() {
             oturuma_yaz,
             oturum_kapat,
             oturumlari_listele,
+            ses_penceresi_ac,
+            ses_penceresi_kapat,
             runtime_durum,
             runtime_hazirla,
             runtime_onar

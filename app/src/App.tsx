@@ -45,6 +45,7 @@ import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Settings } from "./settings/Settings";
+import { openVoiceWindow } from "./voice/windowBridge";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
@@ -579,6 +580,7 @@ export function SessionUygulama({
             void active.client.request("oturum.baslat", { kip: next });
           }}
           onSend={send}
+          onVoice={() => void openVoiceWindow()}
           onRemoveAttachment={(path) => setAttachments((current) => ({
             ...current,
             [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),

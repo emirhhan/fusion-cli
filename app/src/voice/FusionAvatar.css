@@ -1,0 +1,55 @@
+/* Pixel karakterin yerleşimi ve hareketi.
+ *
+ * Yalnız `transform` ve `opacity` animasyonlanır: bunlar derleyici katmanında
+ * çalışır ve yerleşim hesabı tetiklemez. `width/height/top` animasyonlamak
+ * kullanıcının "kasıyor gibi" dediği takılmayı üretir. */
+/* Karakter ZEMİNSİZ durur: kullanılan kare gerçekten şeffaf. */
+.fusion-avatar {
+  animation: fusion-hover 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+
+.fusion-avatar__frame {
+  grid-area: 1 / 1;
+  /* Kareler parıltının ÜSTÜNDE durur; altında kalınca yüz soluklaşıyordu. */
+  z-index: 1;
+  height: 100%;
+  /* Pixel art bulanıklaşmamalı; ara değerde ölçekleme yok. */
+  image-rendering: pixelated;
+  width: 100%;
+}
+
+/* Süzülme her durumda var; hız duruma göre değişir. Yay eğrisi kullanılır ki
+   iniş çıkış yumuşak olsun, testere dişi gibi değil. */
+.fusion-avatar[data-state="thinking"] { animation-duration: 2.4s; }
+.fusion-avatar[data-state="talking"] { animation-duration: 1.4s; }
+.fusion-avatar[data-state="happy"] { animation-duration: 1s; }
+
+@keyframes fusion-hover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6%); }
+}
+
+/* Dinlerken nabız: mikrofonun açık olduğunu söyler. */
+.fusion-avatar__glow {
+  background: radial-gradient(circle, var(--accent) 0%, transparent 62%);
+  grid-area: 1 / 1;
+  height: 140%;
+  opacity: 0;
+  pointer-events: none;
+  width: 140%;
+}
+.fusion-avatar[data-state="listening"] .fusion-avatar__glow { animation: fusion-pulse 1.6s ease-in-out infinite; }
+
+@keyframes fusion-pulse {
+  0%, 100% { opacity: .10; transform: scale(.92); }
+  50% { opacity: .26; transform: scale(1.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fusion-avatar,
+  .fusion-avatar__frame,
+  .fusion-avatar__glow { animation: none; }
+}

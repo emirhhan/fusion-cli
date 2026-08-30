@@ -25,6 +25,7 @@ import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 import { ControlPanel } from "../src/control/ControlPanel";
 import { Lessons } from "../src/lessons/Lessons";
 import { Settings } from "../src/settings/Settings";
+import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 
 const params = new URLSearchParams(location.search);
@@ -173,6 +174,7 @@ function Preview() {
   const onboarding = state === "onboarding";
   const lessons = state === "lessons" || state === "lessons-step";
   const settings = state === "settings";
+  const voice = state.startsWith("voice-");
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
   if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
     runtime={{ status: "ready", version: "0.3.0a1" }}
@@ -189,6 +191,20 @@ function Preview() {
         inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
+      {voice && (
+        <VoiceMode
+          onClose={() => undefined}
+          onToggleListen={() => undefined}
+          state={state.replace("voice-", "") as VoiceState}
+          transcript={
+            state === "voice-listening"
+              ? "Fusion, bu projede neler var?"
+              : state === "voice-talking"
+                ? "Üç dosyada değişiklik yaptım, testlerin hepsi geçti."
+                : ""
+          }
+        />
+      )}
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
       {state.startsWith("history-") && (
         <HistoryPicker
