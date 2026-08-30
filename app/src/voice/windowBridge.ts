@@ -22,6 +22,32 @@ export async function closeVoiceWindow(): Promise<void> {
   await invoke("ses_penceresi_kapat");
 }
 
+export async function startSpeechRecognition(): Promise<void> {
+  await invoke("tanima_baslat");
+}
+
+export async function stopSpeechRecognition(): Promise<void> {
+  await invoke("tanima_durdur");
+}
+
+export async function getSpeechRecognitionStatus(): Promise<boolean> {
+  return invoke<boolean>("tanima_durum");
+}
+
+export interface VoiceWindowGeometry {
+  x: number | null;
+  y: number | null;
+  normalWidth: number;
+  normalHeight: number;
+  wide: boolean;
+  onTop: boolean;
+}
+
+/** localStorage'dan okunan Talk geometrisini tek native işlemde geri uygular. */
+export async function applyVoiceWindowGeometry(geometry: VoiceWindowGeometry): Promise<void> {
+  await invoke("ses_penceresi_geometri_uygula", { geometry });
+}
+
 /** Panel ölçüsü: dar yalnız karakter, geniş döküm ve ayarlar. */
 export async function setVoiceWindowWide(genis: boolean): Promise<void> {
   await invoke("ses_penceresi_boyut", { genis });
