@@ -82,6 +82,12 @@ function attachmentFromPath(path: string): ComposerAttachment {
   };
 }
 
+function attachmentsFromPaths(paths: string[]): ComposerAttachment[] {
+  return paths
+    .filter((path) => typeof path === "string" && path.trim().length > 0)
+    .map(attachmentFromPath);
+}
+
 function commandSelectorFrom(value: unknown): CommandSelectorPayload | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
@@ -385,15 +391,23 @@ export function SessionUygulama({
     let unlisten: (() => void) | null = null;
     void listenForFileDrops((paths) => {
       if (!alive) return;
+      const additions = attachmentsFromPaths(paths);
+      if (additions.length === 0) {
+        setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+        return;
+      }
+      setAttachmentError(null);
       setAttachments((current) => ({
         ...current,
-        [active.id]: [...(current[active.id] ?? []), ...paths.map(attachmentFromPath)]
+        [active.id]: [...(current[active.id] ?? []), ...additions]
           .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
       }));
     }).then((stop) => {
       if (alive) unlisten = stop;
       else stop();
-    }).catch(() => undefined);
+    }).catch(() => {
+      if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
+    });
     return () => { alive = false; unlisten?.(); };
   }, [active?.id]);
 
@@ -422,7 +436,7 @@ export function SessionUygulama({
         .flatMap((raw) => {
           if (!raw || typeof raw !== "object") return [];
           const row = raw as Record<string, unknown>;
-          if (typeof row.ad !== "string" || row.etkin === false) return [];
+          if (typeof row.ad !== "string" || row.etkin !== true) return [];
           return [{
             ad: `mcp ${row.ad}`,
             aciklama: String(row.aciklama ?? `${row.ad} MCP sunucusu`),
@@ -693,7 +707,11 @@ export function SessionUygulama({
           onAttach={() => {
             setAttachmentError(null);
             void selectFiles(active.root).then((paths) => {
-              const additions = paths.map(attachmentFromPath);
+              const additions = attachmentsFromPaths(paths);
+              if (paths.length > 0 && additions.length === 0) {
+                setAttachmentError("Seçimde geçerli bir dosya yolu bulunamadı.");
+                return;
+              }
               setAttachments((current) => ({
                 ...current,
                 [active.id]: [...(current[active.id] ?? []), ...additions]
@@ -702,10 +720,16 @@ export function SessionUygulama({
             }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
           }}
           onDropFiles={(files) => {
-            const additions = files.map((file): ComposerAttachment => {
+            setAttachmentError(null);
+            const additions = files.flatMap((file): ComposerAttachment[] => {
               const localPath = (file as File & { path?: string }).path || file.webkitRelativePath || file.name;
-              return { kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath };
+              if (!localPath.trim()) return [];
+              return [{ kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath }];
             });
+            if (files.length > 0 && additions.length === 0) {
+              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+              return;
+            }
             setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
           }}
           modeBusy={modeBusy}

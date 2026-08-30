@@ -26,6 +26,25 @@ describe("Composer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("IME composition sürerken Enter mesajı ya da slash komutunu göndermez", () => {
+    const onSend = vi.fn();
+    render(<Composer commands={[{
+      ad: "mcp github",
+      aciklama: "GitHub MCP sunucusu",
+      grup: "MCP",
+      kullanim: "",
+      destekleniyor: true,
+    }]} onSend={onSend} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+
+    fireEvent.change(textbox, { target: { value: "/mcp github" } });
+    const defaultAllowed = fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox).toHaveProperty("value", "/mcp github");
+    expect(defaultAllowed).toBe(true);
+  });
+
   it("çalışan görevde gönder yerine durdur eylemi sunar", () => {
     const onStop = vi.fn();
     render(<Composer onSend={vi.fn()} onStop={onStop} running />);
@@ -95,6 +114,16 @@ describe("Composer — çalışma kipi", () => {
 
     expect(fireEvent.keyDown(textbox, { key: "Tab" })).toBe(true);
   });
+
+  it("IME composition sürerken Shift+Tab izin modunu değiştirmez", () => {
+    const onApprovalChange = vi.fn();
+    render(<Composer approval="auto" onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+
+    const defaultAllowed = fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true, isComposing: true });
+    expect(onApprovalChange).not.toHaveBeenCalled();
+    expect(defaultAllowed).toBe(true);
+  });
 });
 
 describe("Composer — slash paleti ve ekler", () => {
@@ -105,13 +134,15 @@ describe("Composer — slash paleti ve ekler", () => {
   ];
 
   it("/m yazınca eşleşmeleri gösterir; tıklama komutu inputa taşır", () => {
-    render(<Composer commands={commands} onSend={vi.fn()} />);
+    const onSend = vi.fn();
+    render(<Composer commands={commands} onSend={onSend} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
     fireEvent.change(textbox, { target: { value: "/m" } });
 
     expect(screen.getByRole("listbox", { name: "Komut önerileri" })).toBeTruthy();
     fireEvent.click(screen.getByRole("option", { name: /GitHub MCP sunucusu/i }));
     expect(textbox).toHaveProperty("value", "/mcp github");
+    expect(onSend).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Komutlar" })).toBeNull();
   });
 

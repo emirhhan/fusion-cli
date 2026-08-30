@@ -1,8 +1,20 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionUygulama, Uygulama } from "./App";
 import { ProtocolClient } from "./protocol/client";
 import type { SessionTransport } from "./sessions/types";
+
+const nativeDrops = vi.hoisted(() => {
+  const state: { handler: ((paths: string[]) => void) | null } = { handler: null };
+  const unlisten = vi.fn();
+  const listen = vi.fn(async (handler: (paths: string[]) => void) => {
+    state.handler = handler;
+    return unlisten;
+  });
+  return { listen, state, unlisten };
+});
+
+vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
 
 function fakeClient() {
   let listener: ((line: string) => void) | null = null;
@@ -16,10 +28,44 @@ function fakeClient() {
   return { client, written, receive: (line: string) => listener?.(line) };
 }
 
+function composerTransport(responses: Record<string, Record<string, unknown>> = {}) {
+  let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
+  const requests: Array<{ ad: string; id: string; veri: Record<string, unknown> }> = [];
+  const transport: SessionTransport = {
+    create: vi.fn(async (id) => ({
+      oturum_id: id,
+      kok: "/proje",
+      pid: 41,
+      durum: "calisiyor",
+      kapanis_nedeni: null,
+    })),
+    send: vi.fn(async (id, line) => {
+      const request = JSON.parse(line) as { ad: string; id: string; veri: Record<string, unknown> };
+      requests.push(request);
+      queueMicrotask(() => lineHandler?.({
+        oturum_id: id,
+        satir: JSON.stringify({
+          tip: "sonuc",
+          id: request.id,
+          veri: responses[request.ad] ?? { ok: true },
+        }),
+      }));
+    }),
+    close: vi.fn(async () => undefined),
+    list: vi.fn(async () => []),
+    onLine: vi.fn(async (handler) => { lineHandler = handler; return () => undefined; }),
+    onClosed: vi.fn(async () => () => undefined),
+  };
+  return { requests, transport };
+}
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
   delete document.documentElement.dataset.theme;
+  nativeDrops.state.handler = null;
+  nativeDrops.listen.mockClear();
+  nativeDrops.unlisten.mockClear();
 });
 
 describe("Uygulama", () => {
@@ -94,6 +140,118 @@ describe("Uygulama", () => {
 });
 
 describe("SessionUygulama", () => {
+  it("yalnız etkin MCP satırını önerir; tıklama inputu doldurur, Enter komutu yürütür", async () => {
+    const fake = composerTransport({
+      "gecmis.kaynaklar": { ok: true, kaynaklar: [] },
+      "komut.listele": {
+        ok: true,
+        komutlar: [{ ad: "resumehermes", aciklama: "Ham resume", grup: "Geçmiş" }],
+      },
+      "yetenek.katalog": {
+        ok: true,
+        mcp: [
+          { ad: "github", aciklama: "GitHub araçları", etkin: true },
+          { ad: "kapali", aciklama: "Kapalı araç", etkin: false },
+          { ad: "belirsiz", aciklama: "Etkinliği belirsiz araç" },
+        ],
+      },
+      "komut.calistir": { ok: true, metin: "MCP hazır" },
+    });
+    render(<SessionUygulama transport={fake.transport} />);
+
+    const textbox = await screen.findByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "/mcp" } });
+    const github = await screen.findByRole("option", { name: /mcp github.*GitHub araçları/i });
+    expect(screen.queryByRole("option", { name: /mcp kapali/i })).toBeNull();
+    expect(screen.queryByRole("option", { name: /mcp belirsiz/i })).toBeNull();
+    expect(screen.queryByRole("option", { name: /resumehermes/i })).toBeNull();
+
+    fireEvent.click(github);
+    expect(textbox).toHaveProperty("value", "/mcp github");
+    expect(fake.requests.some((request) => request.ad === "komut.calistir")).toBe(false);
+
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "komut.calistir" && request.veri.ad === "mcp" && request.veri.arguman === "github",
+    )).toBe(true));
+  });
+
+  it("ataç seçicisinin keyfi proje dosyasını ve görseli chip olarak gönderir", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const selectFiles = vi.fn().mockResolvedValue([
+      "/proje/model.weights-custom",
+      "/proje/referans.png",
+    ]);
+    render(<SessionUygulama selectFiles={selectFiles} transport={fake.transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Dosya veya klasör ekle" }));
+    expect(await screen.findByText("model.weights-custom")).toBeTruthy();
+    expect(await screen.findByText("referans.png")).toBeTruthy();
+    expect(selectFiles).toHaveBeenCalledWith("/proje");
+
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "Bu dosyaları incele" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "tur.calistir" && JSON.stringify(request.veri.ekler) === JSON.stringify([
+        { kind: "file", name: "model.weights-custom", path: "/proje/model.weights-custom" },
+        { kind: "image", name: "referans.png", path: "/proje/referans.png" },
+      ]),
+    )).toBe(true));
+  });
+
+  it("native ve browser drop yollarını aynı ek chiplerinde gösterir", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const { container } = render(<SessionUygulama transport={fake.transport} />);
+    await screen.findByRole("textbox", { name: "Mesaj" });
+    await waitFor(() => expect(nativeDrops.state.handler).not.toBeNull());
+
+    act(() => nativeDrops.state.handler?.(["/proje/native.data"]));
+    expect(await screen.findByText("native.data")).toBeTruthy();
+
+    const image = new File(["png"], "browser.png", { type: "image/png" });
+    Object.defineProperty(image, "path", { value: "/proje/browser.png" });
+    fireEvent.drop(container.querySelector(".composer")!, { dataTransfer: { files: [image] } });
+    expect(await screen.findByText("browser.png")).toBeTruthy();
+
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "Drop dosyalarını incele" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
+    await waitFor(() => expect(fake.requests.some((request) =>
+      request.ad === "tur.calistir" && JSON.stringify(request.veri.ekler) === JSON.stringify([
+        { kind: "file", name: "native.data", path: "/proje/native.data" },
+        { kind: "image", name: "browser.png", path: "/proje/browser.png" },
+      ]),
+    )).toBe(true));
+  });
+
+  it("dosya seçici hatasını ek alanında gösterir", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const selectFiles = vi.fn().mockRejectedValue(new Error("selector kapalı"));
+    render(<SessionUygulama selectFiles={selectFiles} transport={fake.transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Dosya veya klasör ekle" }));
+    expect(await screen.findByText(/dosya seçici açılamadı/i)).toBeTruthy();
+  });
+
+  it("native drop kurulumu hatasını ek alanında gösterir", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    nativeDrops.listen.mockRejectedValueOnce(new Error("drop listener kapalı"));
+    render(<SessionUygulama transport={fake.transport} />);
+
+    expect(await screen.findByText(/sürükle.*dinleyicisi.*başlatılamadı/i)).toBeTruthy();
+  });
+
+  it("seçicinin boş path sonucunu ek alanında gösterir", async () => {
+    const fake = composerTransport({ "gecmis.kaynaklar": { ok: true, kaynaklar: [] } });
+    const selectFiles = vi.fn().mockResolvedValue(["", "   "]);
+    render(<SessionUygulama selectFiles={selectFiles} transport={fake.transport} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Dosya veya klasör ekle" }));
+    expect(await screen.findByText(/geçerli bir dosya yolu/i)).toBeTruthy();
+    expect(screen.queryByLabelText("Ekler")).toBeNull();
+  });
+
   it("yerel seçiciden alınan klasörde kod görevi açar; iptalde oturum oluşturmaz", async () => {
     const transport: SessionTransport = {
       create: vi.fn(async (id, root) => ({
@@ -515,4 +673,3 @@ describe("Çalışma kipi", () => {
     ).toBe("true"));
   });
 });
-

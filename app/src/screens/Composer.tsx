@@ -129,6 +129,9 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // IME adayını onaylayan Enter ve composition sırasında basılan diğer
+    // kısayollar, Fusion komutu veya izin modu eylemi değildir.
+    if (event.nativeEvent.isComposing) return;
     // Shift+Tab İZİN MODUNU döndürür — terminaldeki davranışın aynısı.
     // Sohbet/Kod ayrımı ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
     // kullanıcının beklediği terminal alışkanlığını bozuyordu.
