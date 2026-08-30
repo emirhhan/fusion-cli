@@ -62,19 +62,28 @@ export function FusionAvatar({ scale = 2, state = "idle" }: { scale?: number; st
   useEffect(() => {
     setBlinking(false);
     if (reducedMotion || (state !== "idle" && state !== "listening" && state !== "happy")) return;
-    let timer: number;
+    let cancelled = false;
+    let blinkTimer: number | undefined;
+    let resetTimer: number | undefined;
     const schedule = () => {
+      if (cancelled) return;
       const delay = BLINK_MIN_MS + Math.random() * (BLINK_MAX_MS - BLINK_MIN_MS);
-      timer = window.setTimeout(() => {
+      blinkTimer = window.setTimeout(() => {
+        if (cancelled) return;
         setBlinking(true);
-        window.setTimeout(() => {
+        resetTimer = window.setTimeout(() => {
+          if (cancelled) return;
           setBlinking(false);
           schedule();
         }, BLINK_DURATION_MS);
       }, delay);
     };
     schedule();
-    return () => window.clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      if (blinkTimer !== undefined) window.clearTimeout(blinkTimer);
+      if (resetTimer !== undefined) window.clearTimeout(resetTimer);
+    };
   }, [reducedMotion, state]);
 
   useEffect(() => {

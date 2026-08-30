@@ -47,6 +47,31 @@ describe("FusionAvatar", () => {
     expect(kare().src).toContain("/brand/character/blink.png");
   });
 
+  it("aktif göz kırpma sırasında hareket azaltılınca eski zamanlayıcı yeniden başlamaz", () => {
+    const listeners = new Set<() => void>();
+    const media = {
+      matches: false,
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_type: string, listener: () => void) => listeners.delete(listener),
+    };
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue(media));
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    render(<FusionAvatar state="listening" />);
+
+    act(() => vi.advanceTimersByTime(2_800));
+    expect(kare().src).toContain("/brand/character/blink.png");
+
+    act(() => {
+      media.matches = true;
+      listeners.forEach((listener) => listener());
+    });
+    expect(kare().src).toContain("/brand/character/idle.png");
+
+    act(() => vi.advanceTimersByTime(2_930));
+    expect(kare().src).toContain("/brand/character/idle.png");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("konuşurken iki konuşma karesi arasında geçer", () => {
     render(<FusionAvatar state="talking" />);
 
