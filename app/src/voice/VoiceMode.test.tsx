@@ -22,6 +22,8 @@ describe("VoiceMode", () => {
     );
     expect(screen.queryByText("merhaba")).toBeNull();
     expect(screen.queryByLabelText("Hız")).toBeNull();
+    expect(screen.getByRole("region", { name: "Fusion Talk" }).getAttribute("data-mode")).toBe("mini");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("geniş kipte döküm ve ayarlar görünür", () => {
@@ -38,7 +40,9 @@ describe("VoiceMode", () => {
       />,
     );
     expect(screen.getByText("merhaba")).toBeTruthy();
-    expect(screen.getByLabelText("Hız")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ses ayarları" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Dinlemeyi durdur" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Fusion Talk" }).getAttribute("data-mode")).toBe("normal");
   });
 
   it("boyut düğmesi iki ölçü arasında gidip gelir", () => {
@@ -57,6 +61,9 @@ describe("VoiceMode", () => {
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("false");
 
     rerender(<VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} state="listening" />);
+    expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("true");
+
+    rerender(<VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} state="transcribing" />);
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("true");
   });
 });
@@ -81,6 +88,16 @@ describe("VoiceMode — onay", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Reddet" }));
     expect(onAnswer).toHaveBeenCalledWith("hayir");
+  });
+
+  it("mini kipte de onayı erişilebilir kabul ve ret düğmeleriyle gösterir", () => {
+    render(
+      <VoiceMode ask={ASK} onAnswer={vi.fn()} onClose={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="approval" wide={false} />,
+    );
+    expect(screen.getByRole("group", { name: "Onay" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Onayla" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Reddet" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Paneli büyüt" })).toBeTruthy();
   });
 
   it("onay yokken hiçbir şey çizmez", () => {

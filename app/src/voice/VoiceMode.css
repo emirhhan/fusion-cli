@@ -1,120 +1,128 @@
-/* Konuşma paneli.
- *
- * TAM EKRAN DEĞİL: uygulama arkada durmaya devam eder ve kararır. Kullanıcı
- * nerede olduğunu kaybetmesin diye panel küçük ve ortadadır. */
-/* Ayrı pencerede çizildiğinde arka plan saydam kalır: pencerenin kendisi
-   paneldir, uygulama zaten simge durumuna küçülmüştür. */
-.voice-backdrop {
-  align-items: center;
-  backdrop-filter: blur(3px);
-  background: var(--surface-overlay);
-  display: flex;
-  inset: 0;
-  justify-content: center;
-  position: absolute;
-  z-index: var(--z-dialog);
-}
-
-/* Glossy yüzey: üstte ince parlama, altta yumuşak gölge, kenarda iç ışık.
-   Tek düz renk yerine katmanlı bir yüzey markanın kimliğine yakışıyor. */
 .voice-panel {
+  --talk-green: #9cff28;
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 7%) 0%, transparent 42%),
-    var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: 26px;
+    radial-gradient(circle at 50% -18%, rgb(156 255 40 / 22%), transparent 42%),
+    linear-gradient(145deg, rgb(255 255 255 / 96%), rgb(235 239 231 / 94%) 62%, rgb(27 31 27 / 92%));
+  border: 1px solid rgb(255 255 255 / 78%);
+  border-radius: 30px;
   box-shadow:
-    0 24px 70px rgb(0 0 0 / 34%),
-    inset 0 1px 0 rgb(255 255 255 / 10%);
+    0 28px 64px rgb(0 0 0 / 30%),
+    0 0 0 1px rgb(26 31 26 / 16%),
+    inset 0 1px 0 rgb(255 255 255 / 90%);
+  color: #111512;
   display: grid;
-  gap: 18px;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  max-width: calc(100vw - 48px);
-  padding: 16px 22px 24px;
-  width: 380px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
 }
 
-.voice-panel__head { align-items: center; display: flex; justify-content: space-between; }
-.voice-panel__title { color: var(--text-secondary); font-size: 12px; font-weight: 600; letter-spacing: .03em; }
-.voice-panel__close {
-  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary);
-  cursor: pointer; font: inherit; font-size: 15px; height: 32px; line-height: 1; width: 32px;
-}
-.voice-panel__close:hover { background: var(--surface-hover); color: var(--text-primary); }
-.voice-panel__close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-
-.voice-panel__stage { align-content: center; display: grid; gap: 14px; justify-items: center; }
-.voice-panel__status { color: var(--text-secondary); font-size: 13px; margin: 0; }
-.voice-panel__transcript {
-  color: var(--text-primary); font-size: 15px; line-height: var(--line-body); margin: 0;
-  max-width: 32ch; text-align: center; text-wrap: pretty;
+:root[data-theme="dark"] .voice-panel {
+  background:
+    radial-gradient(circle at 50% -18%, rgb(156 255 40 / 18%), transparent 42%),
+    linear-gradient(145deg, rgb(39 43 39 / 98%), rgb(18 21 18 / 98%) 70%, rgb(6 8 7 / 98%));
+  border-color: rgb(255 255 255 / 12%);
+  color: #f7f9f5;
 }
 
-.voice-panel__foot { display: grid; gap: 10px; justify-items: center; }
-.voice-panel__hint { color: var(--text-secondary); font-size: 11px; margin: 0; }
-
-/* Mikrofon: paneldeki tek asıl eylem, o yüzden büyük ve yuvarlak. */
-.voice-panel__mic {
-  align-items: center; background: var(--accent); border: 0; border-radius: 50%;
-  cursor: pointer; display: flex; height: 64px; justify-content: center; width: 64px;
-  transition: transform var(--duration-fast) var(--ease-standard);
-}
-.voice-panel__mic:hover { transform: scale(1.05); }
-.voice-panel__mic:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 4px; }
-.voice-panel__mic[aria-pressed="true"] { background: var(--text-danger); }
-
-/* Simge rengi düğmeden gelir: dinlerken kırmızı zeminde beyaz olur. */
-.voice-panel__mic { color: var(--accent-on); }
-.voice-panel__mic[aria-pressed="true"] { color: var(--brand-soft-white); }
-
-@media (prefers-reduced-motion: reduce) {
-  .voice-panel__mic { transition: none; }
+.voice-panel[data-mode="normal"] {
+  gap: 8px;
+  grid-template-rows: 42px minmax(0, 1fr) 64px;
+  padding: 8px 16px 14px;
 }
 
-/* Panelin yaylı süzülüşü.
- *
- * Açılış tek bir yumuşak yaydır: panel hafifçe aşağıdan gelir ve yerine
- * oturur. Sonrasında SÜREKLİ bir salınım yoktur — sürekli oynayan bir kutu
- * birkaç saniye sonra rahatsız eder ve içeriği okumayı zorlaştırır. Karakterin
- * kendi hareketi canlılığı zaten taşıyor. */
-@keyframes voice-panel-in {
-  0% { opacity: 0; transform: translateY(18px) scale(0.94); }
-  62% { opacity: 1; transform: translateY(-4px) scale(1.012); }
-  100% { opacity: 1; transform: translateY(0) scale(1); }
+.voice-panel[data-mode="mini"] {
+  gap: 8px;
+  grid-template-columns: 74px minmax(0, 1fr) auto;
+  grid-template-rows: 1fr;
+  padding: 8px 10px;
 }
 
-.voice-panel {
-  animation: voice-panel-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  transition: width var(--duration-normal, 300ms) var(--ease-standard);
-}
+.voice-panel__head { align-items: center; display: flex; min-width: 0; user-select: none; }
+.voice-panel__traffic { display: flex; gap: 5px; }
+.voice-panel__traffic i { background: #ff605c; border-radius: 50%; height: 9px; width: 9px; }
+.voice-panel__traffic i:nth-child(2) { background: #ffbd44; }
+.voice-panel__traffic i:nth-child(3) { background: #00ca4e; }
+.voice-panel__title { font-size: 12px; margin-left: 10px; opacity: .72; }
+.voice-panel__window-actions { display: flex; gap: 2px; margin-left: auto; }
 
-/* Dar kip: masaüstünün köşesinde duran küçük bir yüzey. */
-.voice-panel[data-wide="false"] {
-  gap: 12px;
-  padding: 12px 14px 16px;
-  width: 260px;
-}
-
-.voice-panel__size {
-  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary);
-  cursor: pointer; font: inherit; font-size: 14px; height: 28px; margin-left: auto; margin-right: 4px; width: 28px;
-}
-.voice-panel__size:hover { background: var(--surface-hover); color: var(--text-primary); }
-.voice-panel__size:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-
-/* Dalga formu: gerçek mikrofon seviyesinden beslenir. */
-.voice-wave {
+.voice-panel__size,
+.voice-panel__close,
+.voice-panel__settings-toggle {
   align-items: center;
-  display: flex;
-  gap: 3px;
-  height: 26px;
-  opacity: 0.35;
-  transition: opacity var(--duration-fast) var(--ease-standard);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: currentColor;
+  display: inline-flex;
+  font: inherit;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 40px;
+  opacity: .7;
+  transition: background-color 160ms cubic-bezier(.4, 0, .2, 1), opacity 160ms cubic-bezier(.4, 0, .2, 1), transform 160ms cubic-bezier(.4, 0, .2, 1);
 }
-.voice-wave[data-active="true"] { opacity: 1; }
+.voice-panel__size:hover,
+.voice-panel__close:hover,
+.voice-panel__settings-toggle:hover { background: rgb(127 127 127 / 12%); opacity: 1; }
+.voice-panel__size:active,
+.voice-panel__close:active,
+.voice-panel__settings-toggle:active { transform: scale(.94); }
 
+.voice-panel__stage { align-content: center; display: grid; justify-items: center; min-height: 0; }
+.voice-panel[data-mode="normal"] .voice-panel__stage { grid-template-rows: minmax(0, auto) minmax(0, 1fr); }
+.voice-panel__content { align-content: start; display: grid; justify-items: center; min-height: 0; width: 100%; }
+.voice-panel__status { font-size: 13px; font-weight: 650; margin: 4px 0 0; text-align: center; }
+.voice-panel__transcript {
+  display: -webkit-box;
+  font-size: 14px;
+  line-height: 1.45;
+  margin: 7px 0 0;
+  max-width: 31ch;
+  overflow: hidden;
+  text-align: center;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.voice-panel__foot { align-items: center; display: grid; gap: 8px; grid-template-columns: 48px minmax(0, 1fr) 40px; }
+.voice-panel__hint { font-size: 11px; margin: 0; opacity: .58; text-align: center; }
+.voice-panel__mic {
+  align-items: center;
+  background: #171b18;
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  display: flex;
+  height: 44px;
+  justify-content: center;
+  transition: background-color 160ms cubic-bezier(.4, 0, .2, 1), transform 160ms cubic-bezier(.4, 0, .2, 1);
+  width: 44px;
+}
+.voice-panel__mic:hover { transform: scale(1.04); }
+.voice-panel__mic:active { transform: scale(.94); }
+.voice-panel__mic[aria-pressed="true"] { background: #b4232e; }
+
+.voice-panel__settings-popover {
+  background: rgb(250 252 248 / 97%);
+  border: 1px solid rgb(30 35 30 / 12%);
+  border-radius: 16px;
+  bottom: 72px;
+  box-shadow: 0 16px 40px rgb(0 0 0 / 20%);
+  left: 14px;
+  padding: 12px;
+  position: absolute;
+  right: 14px;
+  z-index: 2;
+}
+:root[data-theme="dark"] .voice-panel__settings-popover { background: rgb(24 27 24 / 98%); }
+
+.voice-wave { align-items: center; display: flex; gap: 3px; height: 28px; opacity: .32; transition: opacity 180ms cubic-bezier(.4, 0, .2, 1); }
+.voice-wave[data-active="true"] { opacity: 1; }
 .voice-wave__bar {
-  background: var(--accent);
+  background: var(--talk-green);
   border-radius: 2px;
   display: block;
   height: 24px;
@@ -123,74 +131,73 @@
   width: 3px;
 }
 
-/* Panel içi ayarlar. */
-.voice-settings {
-  border-top: 1px solid var(--border-subtle);
+.voice-ask {
+  align-items: center;
+  background: rgb(255 255 255 / 64%);
+  border: 1px solid rgb(26 31 26 / 12%);
+  border-radius: 16px;
   display: grid;
   gap: 8px;
-  padding-top: 12px;
-  width: 100%;
+  margin: 4px 0;
+  padding: 10px 12px;
+  width: min(100%, 330px);
 }
+:root[data-theme="dark"] .voice-ask { background: rgb(255 255 255 / 7%); border-color: rgb(255 255 255 / 12%); }
+.voice-ask__text { font-size: 12px; line-height: 1.35; margin: 0; text-align: center; text-wrap: pretty; }
+.voice-ask__buttons { display: flex; gap: 8px; justify-content: center; }
+.voice-ask__buttons button {
+  background: #171b18;
+  border: 0;
+  border-radius: 12px;
+  color: white;
+  font: inherit;
+  font-size: 12px;
+  min-height: 40px;
+  padding: 0 14px;
+}
+.voice-ask__buttons button:first-child { background: #477e18; }
 
-.voice-settings__row {
-  align-items: center;
-  color: var(--text-secondary);
-  display: grid;
-  font-size: 11px;
-  gap: 8px;
-  grid-template-columns: 52px 1fr 42px;
+.voice-panel[data-mode="mini"] .voice-panel__head { display: contents; }
+.voice-panel[data-mode="mini"] .voice-panel__traffic,
+.voice-panel[data-mode="mini"] .voice-panel__title { display: none; }
+.voice-panel[data-mode="mini"] .voice-panel__window-actions { align-self: center; grid-column: 3; grid-row: 1; margin: 0; }
+.voice-panel[data-mode="mini"] .voice-panel__stage { align-items: center; display: contents; }
+.voice-panel[data-mode="mini"] .fusion-avatar { align-self: center; grid-column: 1; grid-row: 1; }
+.voice-panel[data-mode="mini"] .voice-panel__content {
+  align-content: center;
+  grid-column: 2;
+  grid-row: 1;
+  justify-items: start;
+  min-width: 0;
 }
+.voice-panel[data-mode="mini"] .voice-wave { height: 20px; }
+.voice-panel[data-mode="mini"] .voice-panel__status {
+  font-size: 12px;
+  margin: 2px 0 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-panel[data-mode="mini"] .voice-ask { background: transparent; border: 0; gap: 3px; margin: 0; padding: 0; width: 100%; }
+.voice-panel[data-mode="mini"] .voice-ask__text { overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.voice-panel[data-mode="mini"] .voice-ask__buttons { justify-content: flex-start; }
+.voice-panel[data-mode="mini"] .voice-ask__buttons button { min-height: 32px; padding: 0 10px; }
+.voice-settings { border: 0; padding: 0; }
 
-.voice-settings__row input { width: 100%; }
-.voice-settings__row output { text-align: right; }
-
-.voice-settings__toggle {
-  align-items: center;
-  color: var(--text-secondary);
-  display: flex;
-  font-size: 11px;
-  gap: 7px;
+@keyframes talk-enter {
+  from { opacity: 0; transform: translateY(10px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
-
-.voice-settings__model { align-items: center; display: flex; gap: 8px; }
-.voice-settings__model button {
-  background: var(--surface-hover); border: 0; border-radius: var(--radius-sm); color: var(--text-primary);
-  cursor: pointer; font: inherit; font-size: 11px; padding: 5px 10px;
-}
-.voice-settings__model small {
-  color: var(--text-secondary); font-size: 10px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
-}
+.voice-panel { animation: talk-enter 320ms cubic-bezier(.22, 1, .36, 1) both; }
 
 @media (prefers-reduced-motion: reduce) {
   .voice-panel { animation: none; }
+  .voice-panel__mic,
+  .voice-panel__size,
+  .voice-panel__close,
+  .voice-panel__settings-toggle,
+  .voice-wave,
   .voice-wave__bar { transition: none; }
 }
-
-/* Panel içi onay: konuşurken ana pencereye dönmek gerekmesin. */
-.voice-ask {
-  background: var(--surface-hover);
-  border: 1px solid var(--border-subtle);
-  border-radius: 14px;
-  display: grid;
-  gap: 10px;
-  padding: 12px 14px;
-  width: 100%;
-}
-
-.voice-ask__text {
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: var(--line-body);
-  margin: 0;
-  text-wrap: pretty;
-}
-
-.voice-ask__buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.voice-ask__buttons button {
-  background: var(--surface-raised); border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer;
-  font: inherit; font-size: 12px; padding: 6px 12px;
-}
-.voice-ask__buttons button:hover { background: var(--accent); color: var(--accent-on); }
-.voice-ask__buttons button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
