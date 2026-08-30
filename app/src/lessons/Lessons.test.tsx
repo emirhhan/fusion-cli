@@ -14,8 +14,8 @@ const DERSLER = [
 ];
 
 const ADIMLAR = [
-  { id: "proje-sec", baslik: "Çalışma klasörünü tanı", aciklama: "Proje sekmesini aç.", eylem: { tur: "sekme", hedef: "proje" } },
-  { id: "ilk-gorev", baslik: "İlk görevini ver", aciklama: "Composer'a metin konur.", eylem: { tur: "composer", gorev: "Bu projede neler var?" } },
+  { id: "proje-sec", baslik: "Çalışma klasörünü tanı", aciklama: "Proje sekmesini aç.", onizleme: "Dosya ağacını göreceksin.", eylem: { tur: "sekme", hedef: "proje" } },
+  { id: "ilk-gorev", baslik: "İlk görevini ver", aciklama: "Composer'a metin konur.", onizleme: "Bu projede neler var?", eylem: { tur: "composer", gorev: "Bu projede neler var?" } },
 ];
 
 function client() {

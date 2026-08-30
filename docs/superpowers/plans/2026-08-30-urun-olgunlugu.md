@@ -21,7 +21,7 @@ gerektirmez — mevcut sözleşmeler genişletilir.
 
 ---
 
-### Görev 1: Web sağlayıcı bağlantısı (ANA TAŞ)
+### Görev 1: Web sağlayıcı bağlantısı (ANA TAŞ) ✅
 
 Kontrol panelinde dört web sağlayıcısı (ChatGPT, Claude, Gemini, Copilot) kendi
 logosuyla ve kontrol merkezindekiyle AYNI akışla yer alır. Düz "API gir, kaydet"
@@ -42,10 +42,10 @@ kutusu KOYULMAZ — bu sağlayıcılar anahtar kullanmaz.
 - `web.olcum` → taklit araç yeteneğini ölç (dosya değiştirme kapısı)
 - `web.kaldir` → oturumu ve profili sil
 
-- [ ] Uçların sözleşmesini kırmızı testle yaz: bilinmeyen sağlayıcı çökertmez, sır sızmaz.
-- [ ] Protokolü uygula; `gateway/app.py`'deki mantığı KOPYALAMA, ortak yere çıkar.
-- [ ] Dört sağlayıcının logosunu SVG bileşen olarak ekle.
-- [ ] Paneli bağla: kart + durum + "Giriş yap" + otomatik doğrulama + ölçüm kapısı.
+- [x] Uçların sözleşmesini kırmızı testle yaz: bilinmeyen sağlayıcı çökertmez, sır sızmaz.
+- [x] Protokolü uygula; `gateway/app.py`'deki mantığı KOPYALAMA, ortak yere çıkar.
+- [x] Dört sağlayıcının logosunu SVG bileşen olarak ekle.
+- [x] Paneli bağla: kart + durum + "Giriş yap" + otomatik doğrulama + ölçüm kapısı.
 
 ### Görev 2: Sohbet ve Kod ayrımı
 
@@ -73,11 +73,11 @@ Kullanıcının istediği ayrım motor değil ÇALIŞMA KİPİDİR:
 - [x] Sohbet silme (onaylı, geri alınamaz olduğu söylenir).
 - [x] Sohbetleri projeye göre gruplama; proje altında sohbet açma.
 
-### Görev 5: Gerçek Ayarlar ekranı
+### Görev 5: Gerçek Ayarlar ekranı ✅
 
 Kontrol Paneli'nden AYRI: tema, bağlayıcılar, kullanım durumu, sağlık, hesap.
 
-### Görev 6: Kontrol paneli derinliği
+### Görev 6: Kontrol paneli derinliği ✅
 
 Web panelindeki ayrıntı düzeyine çıkar: ana model değiştirme, kök ayarlama,
 sağlayıcı görünümü.
@@ -86,7 +86,7 @@ sağlayıcı görünümü.
 
 - [x] Daraltma/genişletmede kaybolan butonları bul ve düzelt; görsel senaryo ekle.
 
-### Görev 8: Dersler
+### Görev 8: Dersler ✅
 
 Altı-yedi sayfalık, önizlemeli, gerçekten öğreten içerik.
 
@@ -153,15 +153,15 @@ eylemi satır menüsündedir ve geri alınamazlık onayı ister.
 
 ## Çıkış Kriterleri
 
-- [ ] Web sağlayıcılar panelden anahtar sorulmadan bağlanır ve bu akış hatasız çalışır.
-- [ ] Boş sohbette "merhaba" dosya taraması başlatmaz.
-- [ ] Hiçbir sohbet `/` dizininde açılmaz.
-- [ ] Sohbet silinebilir ve projeye bağlanabilir.
-- [ ] Ayarlar ve Kontrol Paneli ayrı, ikisi de gerçek veriye bağlı.
-- [ ] Dar ve geniş ekranda hiçbir kontrol kaybolmaz.
-- [ ] Kullanıcı herhangi bir yerel klasörde yeni görev açabilir.
-- [ ] `/` paleti komutları ve mevcut MCP girdilerini filtreleyip çalıştırır.
-- [ ] Ataç ve sürükle-bırak ile dosya/görsel eklenir.
-- [ ] Shift+Tab çalışma kipini değiştirir; normal Tab erişilebilirliği korunur.
-- [ ] Boş ekranda Fusion pixel karakteri, kaynaklarda gerçek ikonlar görünür.
-- [ ] Geçmiş ilk açılışta açık, projeye göre gruplu ve daraltılabilirdir.
+- [x] Web sağlayıcılar panelden anahtar sorulmadan bağlanır ve bu akış hatasız çalışır.
+- [x] Boş sohbette "merhaba" dosya taraması başlatmaz.
+- [x] Hiçbir sohbet `/` dizininde açılmaz.
+- [x] Sohbet silinebilir ve projeye bağlanabilir.
+- [x] Ayarlar ve Kontrol Paneli ayrı, ikisi de gerçek veriye bağlı.
+- [x] Dar ve geniş ekranda hiçbir kontrol kaybolmaz.
+- [x] Kullanıcı herhangi bir yerel klasörde yeni görev açabilir.
+- [x] `/` paleti komutları ve mevcut MCP girdilerini filtreleyip çalıştırır.
+- [x] Ataç ve sürükle-bırak ile dosya/görsel eklenir.
+- [x] Shift+Tab çalışma kipini değiştirir; normal Tab erişilebilirliği korunur.
+- [x] Boş ekranda Fusion pixel karakteri, kaynaklarda gerçek ikonlar görünür.
+- [x] Geçmiş ilk açılışta açık, projeye göre gruplu ve daraltılabilirdir.

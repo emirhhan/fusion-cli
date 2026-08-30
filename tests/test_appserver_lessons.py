@@ -85,7 +85,7 @@ async def test_ders_getir_protokol_uzerinden_adimlari_ve_guvenli_eylemi_dondurur
     assert result["id"] == "ilk-proje"
     assert len(result["adimlar"]) > 0
     for step in result["adimlar"]:
-        assert step.keys() == {"id", "baslik", "aciklama", "eylem"}
+        assert step.keys() == {"id", "baslik", "aciklama", "onizleme", "eylem"}
         _assert_action_is_safe(step["eylem"])
 
 
@@ -99,3 +99,26 @@ async def test_ders_getir_protokol_uzerinden_bilinmeyen_kimlikte_sureci_cokertme
     await session.close()
 
     assert result == {"ok": False, "metin": "Ders bulunamadı: yok-boyle-bir-ders"}
+
+
+def test_her_ders_alti_yedi_adim_tasir():
+    """Ders "bahsetme" değil, gerçekten öğreten bir akış olmalı.
+
+    Kullanıcı denedi ve "sadece bahsetmeler var, 6-7 sayfadan oluşsun" dedi.
+    Adım sayısı bu yüzden sözleşmenin parçasıdır: içerik sığlaşırsa test düşer.
+    """
+    for lesson in BUILTIN_LESSONS:
+        assert 6 <= len(lesson.adimlar) <= 7, f"{lesson.id}: {len(lesson.adimlar)} adım"
+
+
+def test_her_adim_onizleme_tasir():
+    """Kullanıcı denemeden ÖNCE ne olacağını görmeli.
+
+    Composer eyleminde önizleme gönderilecek metnin tam hali, sekme eyleminde
+    o sekmede ne göreceğinin kısa tarifidir.
+    """
+    for lesson in BUILTIN_LESSONS:
+        for step in lesson.adimlar:
+            payload = step.to_payload()
+            assert payload["onizleme"].strip(), f"{lesson.id}/{step.id} önizlemesiz"
+            assert len(payload["aciklama"]) > 40, f"{lesson.id}/{step.id} açıklaması sığ"

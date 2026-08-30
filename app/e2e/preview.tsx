@@ -54,19 +54,19 @@ const processController = {
 const workspaceClient = {
   request: async (name: string, data: Record<string, unknown>) => {
     if (name === "ders.listele") return { ok: true, dersler: [
-      { id: "ilk-proje", baslik: "İlk proje", ozet: "Boş bir klasörden gerçek bir projeye ilk adımı at.", adim_sayisi: 2 },
-      { id: "basit-oyun-veya-site", baslik: "Basit oyun veya web sitesi", ozet: "Tek dosyalık küçük bir oyun ya da sayfa üret ve sonucu izle.", adim_sayisi: 2 },
-      { id: "varlik-ekleme-onizleme", baslik: "Asset ekleme ve önizleme", ozet: "Bir görsel veya ikon ekle ve sonucu önizlemede gör.", adim_sayisi: 2 },
-      { id: "model-ve-dusunme-duzeyi", baslik: "Model ve düşünme düzeyi", ozet: "Hangi modelin, hakemin ve düşünme düzeyinin kullanıldığını gör.", adim_sayisi: 2 },
-      { id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Küçük zararsız bir değişiklik yap, sonra geri al.", adim_sayisi: 3 },
-      { id: "gecmis-surdurme", baslik: "Geçmiş sürdürme", ozet: "Önceki bir oturumu bul ve kaldığın yerden devam et.", adim_sayisi: 2 },
-      { id: "beceri-ve-ajan-kullanma", baslik: "Beceri ve ajan kullanma", ozet: "Katalogdaki bir beceriyi veya ajanı gör ve dene.", adim_sayisi: 2 },
-      { id: "test-paketleme-paylasma", baslik: "Test etme, paketleme ve paylaşma", ozet: "Testleri çalıştır, paketleme adımlarını öğren ve paylaşmaya hazırlan.", adim_sayisi: 2 },
+      { id: "ilk-proje", baslik: "İlk proje", ozet: "Fusion'ın nerede çalıştığını anla ve ilk görevini ver.", adim_sayisi: 6 },
+      { id: "basit-oyun-veya-site", baslik: "Basit oyun veya web sitesi", ozet: "Tek dosyalık küçük bir şey üret, çalıştır ve düzelt.", adim_sayisi: 6 },
+      { id: "varlik-ekleme-onizleme", baslik: "Görsel ve dosya ekleme", ozet: "Kendi dosyanı Fusion'a ver ve sonucu önizle.", adim_sayisi: 6 },
+      { id: "model-ve-dusunme-duzeyi", baslik: "Model ve düşünme düzeyi", ozet: "Hangi yapay zekânın çalıştığını gör ve değiştir.", adim_sayisi: 6 },
+      { id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Fusion'ın neye dokunabildiğini sen belirle.", adim_sayisi: 6 },
+      { id: "gecmis-surdurme", baslik: "Geçmiş sürdürme", ozet: "Claude ve Codex'te kaldığın yerden devam et.", adim_sayisi: 6 },
+      { id: "beceri-ve-ajan-kullanma", baslik: "Beceri ve ajan kullanma", ozet: "Bilgisayarındaki hazır uzmanlıkları Fusion'a bağla.", adim_sayisi: 6 },
+      { id: "test-paketleme-paylasma", baslik: "Test etme, paketleme ve paylaşma", ozet: "Yaptığın şeyi doğrula ve başkasına ver.", adim_sayisi: 6 },
     ] };
     if (name === "ders.getir") return { ok: true, id: "izinler-ve-geri-alma", baslik: "İzinler ve geri alma", ozet: "Küçük zararsız bir değişiklik yap, sonra geri al.", adimlar: [
-      { id: "onay-modu", baslik: "Onay modunu tanı", aciklama: "Kontrol panelinden mevcut izin/onay modunu gör.", eylem: { tur: "sekme", hedef: "kontrol" } },
-      { id: "degisiklik-yap", baslik: "Küçük bir değişiklik yap", aciklama: "Zararsız, geri alınabilir küçük bir dosya değişikliği iste.", eylem: { tur: "composer", gorev: "Proje klasörüne test.txt adında zararsız, boş bir dosya ekle." } },
-      { id: "geri-al", baslik: "Değişikliği geri al", aciklama: "Proje sekmesindeki değişiklikler listesinden son adımı geri al.", eylem: { tur: "sekme", hedef: "proje" } },
+      { id: "onay-modu", baslik: "Onay modunu tanı", aciklama: "Kontrol panelinden mevcut izin/onay modunu gör.", onizleme: "İzinler kartını göreceksin.", eylem: { tur: "sekme", hedef: "kontrol" } },
+      { id: "degisiklik-yap", baslik: "Küçük bir değişiklik yap", aciklama: "Zararsız, geri alınabilir küçük bir dosya değişikliği iste.", onizleme: "test.txt eklenecek.", eylem: { tur: "composer", gorev: "Proje klasörüne test.txt adında zararsız, boş bir dosya ekle." } },
+      { id: "geri-al", baslik: "Değişikliği geri al", aciklama: "Proje sekmesindeki değişiklikler listesinden son adımı geri al.", onizleme: "Geri alma seçeneğini göreceksin.", eylem: { tur: "sekme", hedef: "proje" } },
     ] };
     if (name === "proje.durum") return { ok: true, kok: "/Projects/fusion-cli", git: true, okunabilir: true, yazilabilir: true };
     if (name === "proje.listele") {

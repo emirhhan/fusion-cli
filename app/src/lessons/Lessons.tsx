@@ -30,6 +30,8 @@ interface LessonStep {
   id: string;
   baslik: string;
   aciklama: string;
+  /** Kullanıcı denemeden ÖNCE ne olacağını gösteren metin. */
+  onizleme: string;
   eylem: LessonAction;
 }
 
@@ -151,8 +153,17 @@ export function Lessons({ client, onClose, onOpenTab, onUseComposer }: LessonsPr
           </p>
         </header>
         <article className="lessons-step">
+          <div aria-hidden="true" className="lessons-progress-bar">
+            <span style={{ width: `${((index + 1) / detail.adimlar.length) * 100}%` }} />
+          </div>
           <h3>{step.baslik}</h3>
           <p>{step.aciklama}</p>
+          <div className="lessons-preview">
+            <span className="lessons-preview__label">
+              {step.eylem.tur === "composer" ? "Gönderilecek metin" : "Ne göreceksin"}
+            </span>
+            <p className="lessons-preview__body">{step.onizleme}</p>
+          </div>
           <div className="lessons-actions">
             <button
               className="lessons-try"
