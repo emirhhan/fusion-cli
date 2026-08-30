@@ -2,6 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ProjectProcess } from "./types";
 
+const OUTPUT_STREAM_LIMIT = 256 * 1024;
+
+export interface ProcessOutputStream {
+  text: string;
+  total: number;
+}
+
 function decode(payload: Record<string, unknown>): ProjectProcess[] {
   if (payload.ok !== true || !Array.isArray(payload.surecler)) {
     throw new Error(typeof payload.metin === "string" ? payload.metin : "Süreçler alınamadı.");
@@ -22,6 +29,7 @@ function decode(payload: Record<string, unknown>): ProjectProcess[] {
 
 export function useProcesses(client: ProtocolClient) {
   const [processes, setProcesses] = useState<ProjectProcess[]>([]);
+  const [outputStreams, setOutputStreams] = useState<Record<string, ProcessOutputStream>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -37,7 +45,25 @@ export function useProcesses(client: ProtocolClient) {
   useEffect(() => {
     void refresh();
     const unlisten = client.onEvent((event) => {
-      if (event.olay === "ProcessOutput" || event.olay === "ProcessStatus") void refresh();
+      if (event.olay === "ProcessOutput") {
+        const processId = event.surec_id;
+        const text = event.metin;
+        if (typeof processId === "string" && typeof text === "string" && text) {
+          setOutputStreams((current) => {
+            const stream = current[processId] ?? { text: "", total: 0 };
+            return {
+              ...current,
+              [processId]: {
+                text: (stream.text + text).slice(-OUTPUT_STREAM_LIMIT),
+                total: stream.total + text.length,
+              },
+            };
+          });
+        }
+        void refresh();
+      } else if (event.olay === "ProcessStatus") {
+        void refresh();
+      }
     });
     const timer = window.setInterval(() => void refresh(), 1000);
     return () => {
@@ -71,7 +97,7 @@ export function useProcesses(client: ProtocolClient) {
     }
   }, [client, refresh]);
 
-  return { busy, error, processes, refresh, start, stop };
+  return { busy, error, outputStreams, processes, refresh, start, stop };
 }
 
 export type ProcessController = ReturnType<typeof useProcesses>;

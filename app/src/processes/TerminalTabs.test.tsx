@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProcessController } from "./useProcesses";
-import { TerminalTabs } from "./TerminalTabs";
+import { stripAnsi, TerminalTabs } from "./TerminalTabs";
 
 afterEach(() => {
   cleanup();
@@ -34,6 +34,7 @@ function controller(overrides: Partial<ProcessController> = {}): ProcessControll
         surec_id: "tests",
       },
     ],
+    outputStreams: {},
     refresh: vi.fn(async () => undefined),
     start: vi.fn(async () => true),
     stop: vi.fn(async () => undefined),
@@ -115,6 +116,24 @@ describe("TerminalTabs", () => {
       <TerminalTabs controller={controller({ processes: [{ ...process, cikti: "cdefgh" }] })} />,
     );
     expect(screen.getByText("gh")).toBeTruthy();
+  });
+
+  it("aynı içerikli dönen tamponda yeni olay parçalarını temizleme sonrasında gösterir", () => {
+    const repeated = "x".repeat(256 * 1024);
+    const process = { ...controller().processes[0], cikti: repeated };
+    const view = render(<TerminalTabs controller={controller({ processes: [process] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
+
+    view.rerender(<TerminalTabs controller={controller({
+      outputStreams: { dev: { text: "x".repeat(4096), total: 4096 } },
+      processes: [{ ...process, cikti: repeated }],
+    })} />);
+
+    expect(screen.getByRole("log", { name: "Terminal çıktısı" }).textContent).toBe("x".repeat(4096));
+  });
+
+  it("C1 OSC dizisini C1 ST sonlandırıcısında kesip sonraki metni korur", () => {
+    expect(stripAnsi("before\u009d0;başlık\u009cafter")).toBe("beforeafter");
   });
 
   it("başlatma başarısızsa komutu korur; bitmiş süreci cwd ile yeniden çalıştırır", async () => {

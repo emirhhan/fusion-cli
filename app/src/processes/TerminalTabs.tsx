@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
 import type { ProjectProcess, ProcessStatus } from "./types";
-import type { ProcessController } from "./useProcesses";
+import type { ProcessController, ProcessOutputStream } from "./useProcesses";
 
 const statusLabels: Record<ProcessStatus, string> = {
   bitti: "Bitti",
@@ -12,9 +12,23 @@ const statusLabels: Record<ProcessStatus, string> = {
 
 export function stripAnsi(value: string): string {
   return value
-    .replace(/(?:\u001B\]|\u009D)[\s\S]*?(?:\u0007|\u001B\\|$)/g, "")
+    .replace(/(?:\u001B\]|\u009D)[\s\S]*?(?:\u0007|\u001B\\|\u009C|$)/g, "")
     .replace(/(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g, "")
     .replace(/\u001B[@-_]/g, "");
+}
+
+interface ClearMarker {
+  snapshot: string;
+  streamTotal: number;
+}
+
+function outputSinceClear(marker: ClearMarker | undefined, current: string, stream: ProcessOutputStream | undefined): string {
+  if (!marker) return current;
+  if (stream && stream.total > marker.streamTotal) {
+    const added = stream.total - marker.streamTotal;
+    return stream.text.slice(-Math.min(added, stream.text.length));
+  }
+  return outputAfterClear(marker.snapshot, current);
 }
 
 export function outputAfterClear(clearedSnapshot: string | undefined, current: string): string {
@@ -50,7 +64,7 @@ function latestProcess(processes: ProjectProcess[]): ProjectProcess | null {
 export function TerminalTabs({ controller }: { controller: ProcessController }) {
   const [activeId, setActiveId] = useState(() => latestProcess(controller.processes)?.surec_id ?? null);
   const [closedIds, setClosedIds] = useState<Set<string>>(() => new Set());
-  const [clearedSnapshots, setClearedSnapshots] = useState<Record<string, string>>({});
+  const [clearMarkers, setClearMarkers] = useState<Record<string, ClearMarker>>({});
   const [command, setCommand] = useState("");
   const [copyError, setCopyError] = useState<string | null>(null);
   const commandInputRef = useRef<HTMLInputElement>(null);
@@ -65,7 +79,7 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
     ?? latestProcess(visibleProcesses);
   const rawOutput = active?.cikti ?? "";
   const output = active
-    ? stripAnsi(outputAfterClear(clearedSnapshots[active.surec_id], rawOutput))
+    ? stripAnsi(outputSinceClear(clearMarkers[active.surec_id], rawOutput, controller.outputStreams?.[active.surec_id]))
     : "";
 
   useEffect(() => {
@@ -99,7 +113,13 @@ export function TerminalTabs({ controller }: { controller: ProcessController }) 
   };
   const clearActive = () => {
     if (!active) return;
-    setClearedSnapshots((current) => ({ ...current, [active.surec_id]: active.cikti }));
+    setClearMarkers((current) => ({
+      ...current,
+      [active.surec_id]: {
+        snapshot: active.cikti,
+        streamTotal: controller.outputStreams?.[active.surec_id]?.total ?? 0,
+      },
+    }));
   };
   const copyActive = async () => {
     if (!active) return;
