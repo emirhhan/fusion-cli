@@ -52,13 +52,21 @@ const composerAttachments = [
   { kind: "file" as const, name: "arayuz-notlari.md", path: "/Projects/fusion-cli/docs/arayuz-notlari.md" },
 ];
 
-const workspaceProcesses = [{
-  surec_id: "visual-tests", komut: "npm test", cwd: ".", pid: 4312,
-  durum: state === "workspace-error" ? "hata" as const : "bitti" as const,
-  cikis_kodu: state === "workspace-error" ? 1 : 0,
-  cikti: state === "workspace-error" ? "FAIL src/App.test.tsx\n1 test failed" : "100 tests passed\n✓ production build ready",
-  baslangic: 1_788_000_000,
-}];
+const workspaceProcesses = [
+  {
+    surec_id: "dev-server", komut: "npm run dev", cwd: ".", pid: 4311,
+    durum: "calisiyor" as const, cikis_kodu: null,
+    cikti: "VITE ready in 412 ms\n➜ Local: http://127.0.0.1:4174/",
+    baslangic: 1_787_999_900,
+  },
+  {
+    surec_id: "visual-tests", komut: "npm test", cwd: ".", pid: 4312,
+    durum: state === "workspace-error" ? "hata" as const : "bitti" as const,
+    cikis_kodu: state === "workspace-error" ? 1 : 0,
+    cikti: state === "workspace-error" ? "FAIL src/App.test.tsx\n1 test failed" : "100 tests passed\n✓ production build ready",
+    baslangic: 1_788_000_000,
+  },
+];
 const processController = {
   busy: false, error: null, processes: workspaceProcesses,
   refresh: async () => undefined, start: async () => undefined, stop: async () => undefined,

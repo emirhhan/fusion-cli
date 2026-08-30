@@ -46,13 +46,15 @@ test("workspace-image-preview", async ({ page }) => {
 });
 
 for (const candidate of [
-  { name: "inspector-terminal-normal-1440x900", query: "state=workspace-error&theme=light&inspectorWidth=420", anchor: ".terminal-panel" },
-  { name: "inspector-collapsed-1440x900", query: "state=workspace-ready&theme=light&inspectorLayout=collapsed", anchor: '[aria-label="Çalışma panelini genişlet"]' },
+  { name: "inspector-terminal-normal-1440x900", query: "state=workspace-error&theme=light&inspectorWidth=420", anchor: ".terminal-tabs__panel", openComposer: false },
+  { name: "inspector-terminal-command-1440x900", query: "state=workspace-error&theme=light&inspectorWidth=420", anchor: '[aria-label="Terminal komutu"]', openComposer: true },
+  { name: "inspector-collapsed-1440x900", query: "state=workspace-ready&theme=light&inspectorLayout=collapsed", anchor: '[aria-label="Çalışma panelini genişlet"]', openComposer: false },
 ] as const) {
   test(`review-candidate-${candidate.name}`, async ({ page }) => {
     test.skip(!workspaceCandidateDir, "FUSION_WORKSPACE_CANDIDATE_DIR yalnız inceleme adayı üretirken verilir");
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/e2e/preview.html?${candidate.query}`);
+    if (candidate.openComposer) await page.getByRole("button", { name: "Yeni terminal" }).click();
     await expect(page.locator(candidate.anchor)).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     await page.screenshot({

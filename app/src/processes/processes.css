@@ -1,24 +1,219 @@
-.terminal-panel { display: grid; gap: var(--space-3); }
+.terminal-tabs {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 360px;
+}
 
-.terminal-panel form {
+.terminal-tabs__strip {
   align-items: center;
-  border: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  min-width: 0;
+}
+
+.terminal-tabs__list {
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 var(--space-1);
+  scrollbar-width: thin;
+}
+
+.terminal-tabs__tab {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  display: flex;
+  flex: 0 1 168px;
+  font-size: var(--text-xs);
+  gap: 6px;
+  height: 40px;
+  min-width: 96px;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, border-color, color;
+  transition-timing-function: var(--ease-standard);
+}
+
+.terminal-tabs__tab > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tabs__tab:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__tab[aria-selected="true"] {
+  border-bottom-color: var(--accent-text);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__dot {
+  background: var(--text-secondary);
+  border-radius: 50%;
+  flex: 0 0 7px;
+  height: 7px;
+  width: 7px;
+}
+
+.terminal-tabs__dot--calisiyor { background: var(--text-warning); }
+.terminal-tabs__dot--bitti { background: var(--text-success); }
+.terminal-tabs__dot--hata { background: var(--text-danger); }
+
+.terminal-tabs__new,
+.terminal-tabs__actions button,
+.terminal-tabs__composer button {
+  align-items: center;
+  background: transparent;
+  border: 0;
   border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: inline-flex;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 40px;
+  transition-duration: var(--duration-fast);
+  transition-property: background-color, color, transform;
+  transition-timing-function: var(--ease-standard);
+}
+
+.terminal-tabs__new:hover,
+.terminal-tabs__actions button:hover,
+.terminal-tabs__composer button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.terminal-tabs__new:active,
+.terminal-tabs__actions button:active,
+.terminal-tabs__composer button:active {
+  transform: scale(0.96);
+}
+
+.terminal-tabs__composer {
+  align-items: center;
+  border-bottom: 1px solid var(--border-subtle);
   display: grid;
   gap: var(--space-2);
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   padding: var(--space-2);
 }
 
-.terminal-panel input {
-  background: transparent;
-  border: 0;
+.terminal-tabs__composer input {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   font: 12px var(--font-mono);
+  min-height: 36px;
   min-width: 0;
-  outline: 0;
+  padding: 0 var(--space-3);
 }
 
-.terminal-panel button,
+.terminal-tabs__composer button[type="submit"] {
+  background: var(--control-primary);
+  color: var(--text-inverse);
+  padding: 0 var(--space-3);
+}
+
+.terminal-tabs__composer button:disabled { opacity: 0.45; }
+
+.terminal-tabs__panel {
+  background: #0f1115;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: var(--radius-md);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  margin-top: var(--space-3);
+  min-height: 280px;
+  overflow: hidden;
+}
+
+.terminal-tabs__toolbar {
+  align-items: center;
+  background: #171a20;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+  color: #f1f3f5;
+  display: grid;
+  gap: var(--space-2);
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  min-height: 48px;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+}
+
+.terminal-tabs__toolbar > div:first-child {
+  display: grid;
+  min-width: 0;
+}
+
+.terminal-tabs__toolbar strong,
+.terminal-tabs__toolbar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-tabs__toolbar strong { font: 600 11px/1.4 var(--font-mono); }
+.terminal-tabs__toolbar > div:first-child span { color: #9ca3af; font: 10px/1.4 var(--font-mono); }
+
+.terminal-tabs__status {
+  color: #c4c9d0;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.terminal-tabs__status--calisiyor { color: #f4c66e; }
+.terminal-tabs__status--bitti { color: #69d3ac; }
+.terminal-tabs__status--hata { color: #ff9b95; }
+
+.terminal-tabs__actions { display: flex; }
+.terminal-tabs__actions button { color: #aeb5bf; font-size: 10px; }
+
+.terminal-tabs__output {
+  color: #e5e7eb;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3);
+}
+
+.terminal-tabs__output pre {
+  font: 11px/1.6 var(--font-mono);
+  margin: 0;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.terminal-tabs__empty {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: column;
+  font-size: var(--text-xs);
+  justify-content: center;
+  min-height: 260px;
+  text-align: center;
+}
+
+.terminal-tabs__empty button {
+  background: var(--control-primary);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-inverse);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+}
+
+.process-empty { color: var(--text-secondary); font-size: var(--text-xs); }
+.process-error { color: var(--text-danger); font-size: var(--text-xs); }
+
 .process-list button {
   background: var(--control-primary);
   border: 0;
@@ -27,26 +222,6 @@
   min-height: 32px;
   padding: 4px var(--space-3);
 }
-
-.terminal-panel button:disabled { opacity: 0.45; }
-
-.terminal-panel__output {
-  background: #111;
-  border-radius: var(--radius-sm);
-  color: #e8e8e8;
-  min-height: 220px;
-  overflow: auto;
-  padding: var(--space-3);
-}
-
-.terminal-panel__output header { display: grid; gap: 2px; }
-.terminal-panel__output header span,
-.terminal-panel__output pre { font: 11px/1.55 var(--font-mono); }
-.terminal-panel__output small { color: #aaa; }
-.terminal-panel__output pre { margin: var(--space-3) 0 0; white-space: pre-wrap; }
-.terminal-panel__output p,
-.process-empty { color: var(--text-secondary); font-size: var(--text-xs); }
-.process-error { color: var(--text-danger); font-size: var(--text-xs); }
 
 .process-list { display: grid; gap: var(--space-2); }
 .process-list article {
