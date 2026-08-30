@@ -78,7 +78,7 @@ def launch_clean(app: Path) -> None:
 def _assert_repairs_corrupted_runtime(app: Path, home: Path, runtime: Path, marker: Path) -> None:
     """Kurulu çalışma zamanını BOZ; uygulama açılışta bunu görüp onarmalı.
 
-    Kullanıcının Apple Developer hesabı yok ve uygulama imzasız dağıtılıyor;
+    Kullanıcının Apple Developer hesabı yok ve uygulama ad-hoc imzalı dağıtılıyor;
     bozulan bir kurulumu komut satırından elle onaracak kullanıcı yok. Bu yüzden
     onarım iddiası laf değil, paketlenmiş uygulama üzerinde ölçülür.
     """

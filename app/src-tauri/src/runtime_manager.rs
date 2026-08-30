@@ -1,7 +1,7 @@
 //! Çalışma zamanının sağlığını denetler, etkin sürümü tutar, onarır ve
 //! gerektiğinde bilinen sağlıklı bir önceki sürüme geri döner.
 //!
-//! Kullanıcıda Apple Developer imzası yok; uygulama imzasız dağıtılıyor.
+//! Kullanıcıda Apple Developer imzası yok; uygulama ad-hoc imzalı dağıtılıyor.
 //! Kurulum bozulursa kullanıcı komut satırına inip elle onarım yapamaz —
 //! bu modül bozulmayı KENDİSİ görmeli, mümkünse onarmalı, olmuyorsa
 //! `active-runtime.json` içindeki bilinen çalışan sürüme dönmelidir.

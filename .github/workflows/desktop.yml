@@ -154,7 +154,8 @@ jobs:
             Mac'inin hangisi olduğunu bilmiyorsan:  → Bu Mac Hakkında.
             "Çip: Apple ..." yazıyorsa Apple Silicon, "İşlemci: Intel" yazıyorsa Intel.
 
-            **Uygulama imzasız.** İlk açılışta işletim sistemi uyarı gösterir:
+            **macOS paketi ad-hoc imzalıdır; noter onaylı değildir. Windows paketi
+            sertifika imzalı değildir.** İlk açılışta işletim sistemi uyarı gösterir:
 
             - **macOS:** Uygulamalar klasöründe Fusion'a sağ tıkla → **Aç** → tekrar **Aç**.
             - **Windows:** "Windows bilgisayarınızı korudu" ekranında

@@ -21,6 +21,13 @@ def test_bundle_config_runtime_manifestini_ve_arsivini_ekler():
     assert resources["resources/runtime/fusion-runtime.tar.gz"] == "runtime/fusion-runtime.tar.gz"
 
 
+def test_macos_paketi_apple_hesabi_olmadan_ad_hoc_imzalanir():
+    root = Path(__file__).resolve().parents[1]
+    config = json.loads((root / "app/src-tauri/tauri.bundle.conf.json").read_text(encoding="utf-8"))
+
+    assert config["bundle"]["macOS"]["signingIdentity"] == "-"
+
+
 def test_masaustu_ci_ses_motorunu_paketleme_ortamina_kurar():
     """PyInstaller, spec'te Piper'ı topluyorsa CI da `voice` extrasını kurmalı."""
     root = Path(__file__).resolve().parents[1]
