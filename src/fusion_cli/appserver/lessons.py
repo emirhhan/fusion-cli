@@ -23,6 +23,23 @@ from typing import Any, Literal
 #: bir tür asla eklenmez.
 ActionKind = Literal["composer", "sekme"]
 
+#: Arayüzde ışıkla gösterilebilecek noktalar. Uygulama bu adları `data-ders`
+#: özniteliğiyle taşır; buradaki liste ile arayüz birbirine bağlıdır ve
+#: uydurma bir ad kullanıcıya olmayan bir düğmeyi arattırırdı.
+KNOWN_MARKS = (
+    "gorev-kutusu",
+    "kip",
+    "ek",
+    "izin",
+    "mikrofon",
+    "yeni-gorev",
+    "arama",
+    "gecmis",
+    "kontrol-paneli",
+    "dersler",
+    "ayarlar",
+)
+
 #: `eylem.hedef` yalnız bu bilinen sekme adlarından biri olabilir — hepsi
 #: protokolde zaten var olan istek ön ekleridir (bkz. `session.py::_dispatch`).
 KNOWN_TABS = ("proje", "surec", "yetenek", "kontrol", "gecmis")
@@ -75,6 +92,15 @@ class LessonStep:
     aciklama: str
     onizleme: str
     eylem: LessonAction
+    #: Arayüzde ışıkla gösterilecek nokta (`KNOWN_MARKS`). Ekran görüntüsü
+    #: TUTULMAZ: resim her arayüz değişiminde eskir ve kullanıcı bakmakta
+    #: olduğu ekrandan farklı bir şey görür. Bunun yerine gerçek arayüz
+    #: öğesinin üstü işaretlenir.
+    isaret: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.isaret is not None and self.isaret not in KNOWN_MARKS:
+            raise ValueError(f"Bilinmeyen işaret: {self.isaret}")
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -83,6 +109,7 @@ class LessonStep:
             "aciklama": self.aciklama,
             "onizleme": self.onizleme,
             "eylem": self.eylem.to_payload(),
+            "isaret": self.isaret or "",
         }
 
 
@@ -133,6 +160,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Görev kutusunun altında Sohbet ve Kod düğmelerini göreceksin.",
                 eylem=_composer("Sohbet kipi ile kod kipi arasındaki farkı bana kısaca anlat."),
+                isaret="kip",
             ),
             LessonStep(
                 id="klasor",
@@ -146,6 +174,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                     "Yeni görev → Klasörde kod görevi, işletim sisteminin klasör seçicisini açar."
                 ),
                 eylem=_sekme("proje"),
+                isaret="kip",
             ),
             LessonStep(
                 id="icerik",
@@ -168,6 +197,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Bu projede neler var, kısaca özetle.",
                 eylem=_composer("Bu projede neler var, kısaca özetle."),
+                isaret="gorev-kutusu",
             ),
             LessonStep(
                 id="olaylar",
@@ -214,6 +244,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                     "Tek dosyalık basit bir tarayıcı oyunu için önce kısa bir plan çıkar, "
                     "kodu yazmadan önce onayımı bekle."
                 ),
+                isaret="gorev-kutusu",
             ),
             LessonStep(
                 id="onay",
@@ -225,6 +256,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Dosya değişikliğinden önce üç seçenekli onay penceresi açılır.",
                 eylem=_composer("Şimdi planı uygula ve dosyayı oluştur."),
+                isaret="izin",
             ),
             LessonStep(
                 id="dosyayi-gor",
@@ -285,6 +317,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Ataç düğmesi çoklu seçime izin veren dosya seçicisini açar.",
                 eylem=_composer("Eklediğim dosyada ne olduğunu anlat."),
+                isaret="ek",
             ),
             LessonStep(
                 id="surukle",
@@ -295,6 +328,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Sürüklediğin dosya kutunun üstünde etiket olarak belirir.",
                 eylem=_sekme("proje"),
+                isaret="ek",
             ),
             LessonStep(
                 id="gorsel-iste",
@@ -305,6 +339,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Sayfaya küçük bir görsel ya da ikon ekle.",
                 eylem=_composer("Sayfaya küçük bir görsel ya da ikon ekle."),
+                isaret="ek",
             ),
             LessonStep(
                 id="onizlemede-gor",
@@ -336,6 +371,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Ayarlar ekranındaki Gizlilik kartı bu davranışı özetler.",
                 eylem=_sekme("kontrol"),
+                isaret="ayarlar",
             ),
         ),
     ),
@@ -356,6 +392,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                     "Kontrol Paneli'nde ajan, hakem, adaylar ve yönlendirme satırlarını görürsün."
                 ),
                 eylem=_sekme("kontrol"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="degistir",
@@ -366,6 +403,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Ajan modelini değiştir düğmesi model seçicisini açar.",
                 eylem=_sekme("kontrol"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="duzey",
@@ -376,6 +414,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Düşünme düzeyini değiştir düğmesi kademe seçicisini açar.",
                 eylem=_sekme("kontrol"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="web",
@@ -389,6 +428,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                     "Kontrol Paneli'ndeki Web sağlayıcıları kartında dört sağlayıcı listelenir."
                 ),
                 eylem=_sekme("kontrol"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="kota",
@@ -429,6 +469,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Kontrol Paneli'ndeki İzinler kartında çalışma modu yazar.",
                 eylem=_sekme("kontrol"),
+                isaret="izin",
             ),
             LessonStep(
                 id="kapsam",
@@ -439,6 +480,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="İzinler kartında dosya kapsamı satırı bu sınırı gösterir.",
                 eylem=_sekme("kontrol"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="degisiklik-yap",
@@ -449,6 +491,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Proje klasörüne test.txt adında zararsız, boş bir dosya ekle.",
                 eylem=_composer("Proje klasörüne test.txt adında zararsız, boş bir dosya ekle."),
+                isaret="gorev-kutusu",
             ),
             LessonStep(
                 id="degisikligi-gor",
@@ -497,6 +540,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Kenar çubuğunda yalnız kurulu geçmiş kaynakları listelenir.",
                 eylem=_sekme("gecmis"),
+                isaret="gecmis",
             ),
             LessonStep(
                 id="listele",
@@ -507,6 +551,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Seçtiğin kaynağın konuşma listesi tarih sırasıyla açılır.",
                 eylem=_sekme("gecmis"),
+                isaret="gecmis",
             ),
             LessonStep(
                 id="onizle",
@@ -537,6 +582,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Devralma yeni bir sohbet açar ve özeti oraya taşır.",
                 eylem=_sekme("gecmis"),
+                isaret="gecmis",
             ),
             LessonStep(
                 id="dogrula",
@@ -567,6 +613,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                     "Katalogda beceriler, ajanlar, proje talimatları ve MCP sunucuları listelenir."
                 ),
                 eylem=_sekme("yetenek"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="detay",
@@ -609,6 +656,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 eylem=_composer(
                     "Katalogdaki uygun bir beceriyi kullanarak bu projeyi kısaca değerlendir."
                 ),
+                isaret="gorev-kutusu",
             ),
             LessonStep(
                 id="mcp",
@@ -619,6 +667,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Katalogda MCP başlığı altında kurulu sunucular listelenir.",
                 eylem=_sekme("yetenek"),
+                isaret="ayarlar",
             ),
         ),
     ),
@@ -637,6 +686,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 ),
                 onizleme="Testler sekmesinde önerilen komutlar düğme olarak listelenir.",
                 eylem=_sekme("surec"),
+                isaret="kontrol-paneli",
             ),
             LessonStep(
                 id="calistir",
@@ -659,6 +709,7 @@ BUILTIN_LESSONS: tuple[Lesson, ...] = (
                 eylem=_composer(
                     "Testler başarısız oldu, çıktıyı inceleyip nedenini açıkla ve düzelt."
                 ),
+                isaret="gorev-kutusu",
             ),
             LessonStep(
                 id="git",

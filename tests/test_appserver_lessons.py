@@ -85,7 +85,7 @@ async def test_ders_getir_protokol_uzerinden_adimlari_ve_guvenli_eylemi_dondurur
     assert result["id"] == "ilk-proje"
     assert len(result["adimlar"]) > 0
     for step in result["adimlar"]:
-        assert step.keys() == {"id", "baslik", "aciklama", "onizleme", "eylem"}
+        assert step.keys() == {"id", "baslik", "aciklama", "onizleme", "eylem", "isaret"}
         _assert_action_is_safe(step["eylem"])
 
 
