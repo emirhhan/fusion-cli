@@ -9,6 +9,9 @@ for (const visualCase of [
   { name: "lessons-light", state: "lessons", theme: "light", width: 1440 },
   { name: "lessons-dark", state: "lessons", theme: "dark", width: 1440 },
   { name: "lessons-compact", state: "lessons", theme: "light", width: 920 },
+  { name: "settings-light", state: "settings", theme: "light", width: 1440 },
+  { name: "settings-dark", state: "settings", theme: "dark", width: 1440 },
+  { name: "settings-compact", state: "settings", theme: "light", width: 920 },
 ]) {
   test(visualCase.name, async ({ page }) => {
     await page.setViewportSize({ width: visualCase.width, height: 900 });
@@ -17,7 +20,9 @@ for (const visualCase of [
       ? ".control-panel"
       : visualCase.state === "lessons"
         ? ".lessons"
-        : ".onboarding";
+        : visualCase.state === "settings"
+          ? ".settings"
+          : ".onboarding";
     await expect(page.locator(anchor)).toBeVisible();
     await expect(page).toHaveScreenshot(`${visualCase.name}.png`, { fullPage: true });
   });

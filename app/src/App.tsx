@@ -44,6 +44,7 @@ import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
+import { Settings } from "./settings/Settings";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
@@ -327,7 +328,7 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons" | "settings">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -482,6 +483,15 @@ export function SessionUygulama({
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
       ? <ControlPanel client={active.client} onClose={() => setPage("chat")} />
+      : page === "settings"
+        ? (
+          <Settings
+            client={active.client}
+            onClose={() => setPage("chat")}
+            onThemeChange={changeTheme}
+            themePreference={themePreference}
+          />
+        )
       : page === "lessons"
         ? (
           <Lessons
@@ -627,7 +637,7 @@ export function SessionUygulama({
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
           themePreference={themePreference}
-          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : active.title}
+          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : page === "settings" ? "Ayarlar" : active.title}
         />
       }
       inspector={page === "chat" ? <ProjectInspector client={active.client} key={active.id} requestedTab={requestedTab} root={active.root} /> : undefined}
@@ -644,8 +654,10 @@ export function SessionUygulama({
               setPage("skills");
             } else if (destination === "lessons") {
               setPage("lessons");
-            } else if (destination === "control-panel" || destination === "settings") {
-              setControlTitle(destination === "settings" ? "Ayarlar" : "Kontrol Paneli");
+            } else if (destination === "settings") {
+              setPage("settings");
+            } else if (destination === "control-panel") {
+              setControlTitle("Kontrol Paneli");
               setPage("control");
             } else if (destination.startsWith("resume:")) {
               setPage("chat");

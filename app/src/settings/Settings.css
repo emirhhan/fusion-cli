@@ -1,0 +1,32 @@
+.settings { background: var(--surface-canvas); color: var(--text-primary); display: grid; gap: 20px; grid-template-rows: auto minmax(0, 1fr); height: 100%; overflow: hidden; padding: 28px 32px; }
+.settings__head { align-items: start; display: flex; gap: 16px; justify-content: space-between; }
+.settings__head span { color: var(--text-secondary); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.settings__head h2 { font-size: 24px; margin: 4px 0 2px; }
+.settings__head p { color: var(--text-secondary); font-size: 13px; margin: 0; max-width: 60ch; text-wrap: pretty; }
+.settings__close { background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 13px; min-height: 44px; padding: 10px 16px; }
+.settings__close:hover { background: var(--surface-hover); color: var(--text-primary); }
+.settings__close:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.settings__error { color: var(--text-warning); font-size: 13px; margin: 0; }
+
+.settings__grid { align-content: start; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); min-height: 0; overflow: auto; padding: 2px; }
+.settings__card { background: var(--surface-sidebar); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: grid; gap: 12px; padding: 20px; }
+.settings__card h3 { font-size: 15px; margin: 0; }
+
+.settings__row { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.settings__row > span { color: var(--text-secondary); font-size: 13px; }
+.settings__row select { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; font-size: 13px; min-height: 40px; padding: 0 10px; }
+.settings__row--check { justify-content: start; }
+.settings__row select:focus-visible,
+.settings__row input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.settings__pairs { display: grid; gap: 6px 14px; grid-template-columns: auto minmax(0, 1fr); margin: 0; }
+.settings__pairs dt { color: var(--text-secondary); font-size: 12px; }
+.settings__pairs dd { font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+
+.settings__stat { font-size: 20px; font-variant-numeric: tabular-nums; margin: 0; }
+.settings__hint { color: var(--text-secondary); font-size: 12px; margin: 0; text-wrap: pretty; }
+
+@media (max-width: 920px) {
+  .settings { padding: 20px; }
+  .settings__grid { grid-template-columns: 1fr; }
+}

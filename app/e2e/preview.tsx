@@ -24,6 +24,7 @@ import type { ProtocolClient } from "../src/protocol/client";
 import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 import { ControlPanel } from "../src/control/ControlPanel";
 import { Lessons } from "../src/lessons/Lessons";
+import { Settings } from "../src/settings/Settings";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 
 const params = new URLSearchParams(location.search);
@@ -171,6 +172,7 @@ function Preview() {
   const control = state === "control";
   const onboarding = state === "onboarding";
   const lessons = state === "lessons" || state === "lessons-step";
+  const settings = state === "settings";
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
   if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
     runtime={{ status: "ready", version: "0.3.0a1" }}
@@ -180,11 +182,11 @@ function Preview() {
   return (
     <>
       <Shell
-        composer={capabilities || control || lessons ? undefined : <Composer onSend={() => undefined} />}
-        content={lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
-        header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
-        inspector={capabilities || control || lessons ? undefined : inspector}
-        inspectorOpen={!capabilities && !control && !lessons && inspectorOpen}
+        composer={capabilities || control || lessons || settings ? undefined : <Composer onSend={() => undefined} />}
+        content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
+        header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={settings ? "Ayarlar" : lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control || lessons || settings ? undefined : inspector}
+        inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
       {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
