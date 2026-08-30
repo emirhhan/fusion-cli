@@ -200,6 +200,14 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
 
       {notice && <p className="provider-list__notice" role="status">{notice}</p>}
 
+      {filtered.length === 0 && (
+        <p className="provider-list__empty">
+          {rows.length === 0
+            ? "Sağlayıcı listesi boş. Bağlantı kurulamadıysa Fusion'ı yeniden başlat."
+            : `"${query.trim()}" ile eşleşen sağlayıcı yok.`}
+        </p>
+      )}
+
       <ul className="provider-list__rows">
         {filtered.map((row) => (
           <li key={row.id}>

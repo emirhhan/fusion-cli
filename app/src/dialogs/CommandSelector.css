@@ -56,7 +56,7 @@
 
 .command-selector form { display: flex; gap: var(--space-2); }
 .command-selector form input {
-  background: var(--surface-base);
+  background: var(--surface-canvas);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   color: var(--text-primary);
@@ -70,7 +70,7 @@
   border-radius: var(--radius-md);
   padding: var(--space-3) var(--space-4);
 }
-.command-selector form button { background: var(--accent-primary); color: var(--text-on-accent); }
+.command-selector form button { background: var(--accent); color: var(--accent-on); }
 .command-selector footer { align-items: center; display: flex; justify-content: space-between; margin-top: var(--space-4); }
 .command-selector footer button { background: transparent; color: var(--text-secondary); }
 .command-selector__error { color: var(--text-danger); font-size: var(--text-sm); }

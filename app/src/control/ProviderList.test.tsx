@@ -58,6 +58,13 @@ describe("ProviderList", () => {
     expect(screen.getAllByText("bağlı").length).toBe(2);
   });
 
+  it("liste boşsa sessiz kalmaz", async () => {
+    // Boş bir kutu, bağlantı hatasıyla "hiç sağlayıcı yok" durumunu ayırt
+    // edilemez kılıyordu.
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: [] } })} />);
+    expect(await screen.findByText(/Sağlayıcı listesi boş/)).toBeTruthy();
+  });
+
   it("arama ile süzülür", async () => {
     render(<ProviderList client={client()} />);
     await screen.findByText("OpenRouter");

@@ -10,7 +10,7 @@
 .control-panel__section--wide { grid-column: 1 / -1; }
 .control-panel__section-heading { align-items: start; display: flex; justify-content: space-between; margin-bottom: 14px; }
 .control-panel__section-heading h3 { font-size: 16px; margin: 2px 0; }
-.control-panel__section-heading i { background: var(--surface-subtle, var(--surface-hover)); border-radius: 999px; color: var(--text-secondary); font-size: 11px; font-style: normal; padding: 4px 8px; }
+.control-panel__section-heading i { background: var(--surface-hover, var(--surface-hover)); border-radius: 999px; color: var(--text-secondary); font-size: 11px; font-style: normal; padding: 4px 8px; }
 .control-panel__section-heading i[data-online="true"] { background: color-mix(in srgb, var(--text-success) 13%, transparent); color: var(--text-success); }
 .control-panel dl { margin: 0; }
 .control-panel__definition { align-items: baseline; border-top: 1px solid var(--border-subtle); display: grid; gap: 18px; grid-template-columns: 104px minmax(0, 1fr); padding: 9px 0; }
@@ -52,9 +52,9 @@
 .control-panel__search {
   width: 190px;
   padding: 8px 11px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--surface-canvas);
   color: inherit;
   font: inherit;
   font-size: 13px;
@@ -64,16 +64,16 @@
   grid-column: 1 / -1;
   margin: 0;
   padding: 22px;
-  border: 1px dashed var(--hairline);
+  border: 1px dashed var(--border-subtle);
   border-radius: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-align: center;
 }
 
 .control-panel__candidates {
   margin-top: 14px;
   padding-top: 14px;
-  border-top: 1px solid var(--hairline);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .control-panel__candidates h4 {
@@ -85,7 +85,7 @@
 .control-panel__candidates small {
   display: block;
   margin-top: 8px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 11px;
 }
 
@@ -104,7 +104,7 @@
   gap: 10px;
   padding: 6px 9px;
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--surface-canvas);
 }
 
 .control-panel__candidate-list code {
@@ -114,7 +114,7 @@
 .control-panel__candidate-list button,
 .control-panel__candidate-form button {
   padding: 5px 11px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--surface-raised);
   color: inherit;
@@ -132,14 +132,14 @@
 
 .control-panel__candidate-form label {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .control-panel__candidate-form input {
   padding: 7px 10px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--surface-canvas);
   color: inherit;
   font: inherit;
   font-size: 13px;

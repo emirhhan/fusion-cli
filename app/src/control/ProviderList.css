@@ -1,10 +1,9 @@
 /* Sağlayıcı listesi: kısa satırlar, ayrıntı tıklayınca açılır. */
 
+/* Kart çerçevesini SARMALAYAN bölüm çizer; burada ikinci bir çerçeve
+   iç içe iki kutu gösteriyordu (ekran görüntüsünde ölçüldü). */
 .provider-list {
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-lg, 14px);
-  background: var(--surface-raised);
-  padding: 18px;
+  display: block;
 }
 
 .provider-list__head {
@@ -18,7 +17,7 @@
 .provider-list__head span {
   font-size: 11px;
   letter-spacing: 0.12em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__head h3 {
@@ -29,9 +28,9 @@
 .provider-list__search {
   width: 160px;
   padding: 7px 10px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 9px;
-  background: var(--surface);
+  background: var(--surface-canvas);
   color: inherit;
   font-size: 13px;
 }
@@ -39,7 +38,7 @@
 .provider-list__notice {
   margin: 0 0 10px;
   font-size: 13px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__rows {
@@ -71,12 +70,12 @@
 .provider-list__row:hover,
 .provider-list__row:focus-visible {
   background: var(--surface-hover, rgba(127, 127, 127, 0.08));
-  border-color: var(--hairline);
+  border-color: var(--border-subtle);
 }
 
 .provider-list__row[aria-expanded="true"] {
   background: var(--surface-hover, rgba(127, 127, 127, 0.08));
-  border-color: var(--hairline);
+  border-color: var(--border-subtle);
 }
 
 .provider-list__mark {
@@ -85,10 +84,10 @@
   width: 22px;
   height: 22px;
   border-radius: 7px;
-  background: var(--surface);
+  background: var(--surface-canvas);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__name {
@@ -97,11 +96,11 @@
 
 .provider-list__state {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__row[data-bagli="true"] .provider-list__state {
-  color: var(--accent-positive, #2f9e6d);
+  color: var(--text-success);
 }
 
 .provider-list__detail {
@@ -109,26 +108,26 @@
   gap: 8px;
   margin: 2px 0 8px 32px;
   padding: 12px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
-  background: var(--surface);
+  background: var(--surface-canvas);
 }
 
 .provider-list__detail p,
 .provider-list__detail small {
   margin: 0;
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__detail label {
   font-size: 12px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
 }
 
 .provider-list__detail input {
   padding: 8px 10px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 9px;
   background: var(--surface-raised);
   color: inherit;
@@ -138,7 +137,7 @@
 .provider-list__action {
   justify-self: start;
   padding: 7px 14px;
-  border: 1px solid var(--hairline);
+  border: 1px solid var(--border-subtle);
   border-radius: 9px;
   background: var(--surface-raised);
   color: inherit;
@@ -160,4 +159,12 @@
   color: var(--text-danger, #b42318);
   font-size: 12px;
   margin: 0;
+}
+
+.provider-list__empty {
+  color: var(--text-secondary);
+  font-size: 13px;
+  margin: 0;
+  padding: 18px 4px;
+  text-align: center;
 }

@@ -79,7 +79,7 @@
 .composer__mode-item:hover:not(:disabled) { color: var(--text-primary); }
 .composer__mode-item[aria-pressed="true"] { background: var(--surface-canvas); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); color: var(--text-primary); font-weight: 600; }
 /* Kod kipi bir KARARDIR: seçiliyken kenar rengiyle ayrıca işaretlenir. */
-.composer__mode[data-mode="kod"] .composer__mode-item[aria-pressed="true"] { box-shadow: 0 1px 2px rgb(0 0 0 / 12%), inset 0 0 0 1px var(--accent-strong, var(--focus-ring)); }
+.composer__mode[data-mode="kod"] .composer__mode-item[aria-pressed="true"] { box-shadow: 0 1px 2px rgb(0 0 0 / 12%), inset 0 0 0 1px var(--focus-ring); }
 .composer__mode-item:disabled { cursor: progress; opacity: 0.6; }
 .composer__mode-item:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
