@@ -19,6 +19,38 @@ describe("Conversation", () => {
     expect(container.querySelector(".conversation__message--assistant")?.className).not.toContain(
       "conversation__bubble",
     );
+    expect(screen.getByText("Siz")).toBeTruthy();
+    expect(screen.getByText("Fusion")).toBeTruthy();
+  });
+
+  it("mesaj geçmişini canlı bölge yapmaz; işlem durumunu ayrı canlı bölgede sunar", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "düşünüyor",
+          adimlar: [{ metin: "düşünüyor", ayrinti: "agent · model" }],
+        }]}
+      />,
+    );
+    expect(container.querySelector(".conversation__stream")?.hasAttribute("aria-live")).toBe(false);
+    expect(screen.getByRole("status").textContent).toBe("Çalışıyor");
+  });
+
+  it("çalışma ve başarısızlık durumlarını ikonla ve metinle ayırt eder", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[
+          { rol: "olay", metin: "dosya yazıyor", adimlar: [{ metin: "dosya yazıyor" }] },
+          { rol: "olay", metin: "görev başarısız", adimlar: [{ metin: "görev başarısız", sonuc: true }] },
+        ]}
+      />,
+    );
+    expect(screen.getAllByText("Çalışma")).toHaveLength(2);
+    expect(container.querySelector('[data-state="running"]')?.textContent).toContain("Çalışıyor");
+    expect(container.querySelector('[data-state="failed"]')?.textContent).toContain("Başarısız");
+    expect(screen.getByLabelText("Çalışıyor simgesi")).toBeTruthy();
+    expect(screen.getByLabelText("Başarısız simgesi")).toBeTruthy();
   });
 
   it("ayrıntılı çalışma adımını açılabilir kutuda sunar", () => {
@@ -85,4 +117,3 @@ describe("Conversation — gönderilen ekler", () => {
     expect(screen.queryByLabelText("Gönderilen ekler")).toBeNull();
   });
 });
-

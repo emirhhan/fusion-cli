@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { EmptyState } from "./EmptyState";
 
 afterEach(cleanup);
@@ -18,7 +18,19 @@ describe("EmptyState", () => {
   });
 
   it("önerileri gösterir", () => {
+    const onSelectPrompt = vi.fn();
+    render(<EmptyState onSelectPrompt={onSelectPrompt} />);
+    const prompts = screen.getAllByRole("button");
+    expect(prompts).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni bir web projesi oluştur" }));
+    expect(onSelectPrompt).toHaveBeenCalledWith("Yeni bir web projesi oluştur");
+  });
+
+  it("yüksek çözünürlüklü karakteri kırpmayan kapsayıcıda gösterir", () => {
     render(<EmptyState />);
-    expect(screen.getByRole("button", { name: "Yeni bir web projesi oluştur" })).toBeTruthy();
+    expect(
+      screen.getByRole("img", { name: "Fusion bekliyor" }).parentElement?.parentElement?.classList
+        .contains("empty-state__character--uncropped"),
+    ).toBe(true);
   });
 });

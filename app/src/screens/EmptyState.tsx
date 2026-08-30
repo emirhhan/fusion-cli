@@ -24,8 +24,8 @@ export function EmptyState({
   return (
     <section className="empty-state">
       <div className="empty-state__content">
-        <div className="empty-state__character">
-          <FusionAvatar scale={0.7} state={durum} />
+        <div className="empty-state__character empty-state__character--uncropped">
+          <FusionAvatar scale={1.35} state={durum} />
         </div>
         <h2>Bugün ne üzerinde çalışıyoruz?</h2>
         <p>Bir proje üret, mevcut kodu geliştir veya kaldığın konuşmayı sürdür.</p>

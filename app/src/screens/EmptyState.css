@@ -9,7 +9,7 @@
 }
 
 .empty-state__content {
-  max-width: 560px;
+  max-width: 620px;
   text-align: center;
   width: 100%;
 }
@@ -17,10 +17,14 @@
 .empty-state__character {
   align-items: center;
   display: flex;
-  /* Karakter 168 piksellik kareden ölçeklenir; kutu ona göre açılır. */
-  height: 118px;
+  height: 250px;
   justify-content: center;
   margin: 0 auto var(--space-4);
+}
+
+.empty-state__character--uncropped {
+  overflow: visible;
+  padding: var(--space-3) 0;
 }
 
 .empty-state h2 {
@@ -52,6 +56,11 @@
   transition:
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard);
+}
+
+@container conversation-workspace (max-width: 640px) {
+  .empty-state { padding: var(--space-6) 14px; }
+  .empty-state__character { height: 210px; }
 }
 
 .empty-state__suggestions button:hover {

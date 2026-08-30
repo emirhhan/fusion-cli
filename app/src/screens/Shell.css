@@ -41,6 +41,8 @@
 }
 
 .app-shell__main {
+  container-name: conversation-workspace;
+  container-type: inline-size;
   display: flex;
   min-height: 0;
   min-width: 0;

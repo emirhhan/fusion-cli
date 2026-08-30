@@ -9,9 +9,7 @@
 
 .conversation__stream {
   margin: 0 auto;
-  max-width: var(--icerik-en-fazla);
-  padding: 0 var(--space-4);
-  width: 100%;
+  width: min(760px, calc(100% - 48px));
 }
 
 .conversation__message {
@@ -37,7 +35,7 @@
 
 .conversation__bubble {
   background: var(--surface-message-user);
-  border-radius: var(--radius-lg);
+  border-radius: 18px;
   max-width: 82%;
   overflow-wrap: anywhere;
   padding: 10px var(--space-4);
@@ -54,6 +52,7 @@
 
 .conversation__text {
   line-height: var(--line-body);
+  max-width: 72ch;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
@@ -71,10 +70,19 @@
 }
 
 .conversation__event {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
   width: 100%;
 }
+
+.conversation__event-row {
+  align-items: center;
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+  min-height: 28px;
+  width: 100%;
+}
+
+.conversation__event-row:not(details) { display: flex; }
 
 .conversation__event summary {
   align-items: center;
@@ -85,6 +93,46 @@
   list-style: none;
   padding: var(--space-1) 0;
 }
+
+.conversation__event-lead {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.conversation__event-icon {
+  align-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 700;
+  height: 16px;
+  justify-content: center;
+  line-height: 1;
+  width: 16px;
+}
+
+.conversation__role {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.conversation__message--user .conversation__role { text-align: right; }
+
+.conversation__event-state {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.conversation__event-row[data-state="failed"] .conversation__event-icon,
+.conversation__event-row[data-state="failed"] .conversation__event-state { color: var(--text-danger); }
+
+.conversation__event-row[data-state="complete"] .conversation__event-icon,
+.conversation__event-row[data-state="complete"] .conversation__event-state { color: var(--text-success); }
 
 .conversation__event-title { min-width: 0; overflow-wrap: anywhere; }
 
@@ -106,6 +154,18 @@
   display: inline-block;
   margin-right: var(--space-2);
   transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.conversation__live-status {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .conversation__event[open] summary::before {
@@ -178,3 +238,8 @@
 }
 
 .conversation__sent .conversation__bubble { max-width: 100%; }
+
+@container conversation-workspace (max-width: 640px) {
+  .conversation__stream { width: calc(100% - 28px); }
+  .conversation__bubble { max-width: 92%; }
+}

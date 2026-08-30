@@ -52,6 +52,7 @@ function AssistantMessage({ text }: { text: string }) {
   };
   return (
     <article aria-label="Fusion yanıtı" className="conversation__article">
+      <div className="conversation__role">Fusion</div>
       <div className="conversation__text">{text}</div>
       <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
@@ -59,6 +60,27 @@ function AssistantMessage({ text }: { text: string }) {
     </article>
   );
 }
+
+type ActivityState = "running" | "failed" | "complete";
+
+function activityState(adimlar: OlayAdimi[], metin: string): ActivityState {
+  const sonuncu = adimlar[adimlar.length - 1];
+  const baslik = sonuncu?.metin ?? metin;
+  if (/başarısız|hata/i.test(baslik)) return "failed";
+  return sonuncu?.sonuc ? "complete" : "running";
+}
+
+const activityLabels: Record<ActivityState, string> = {
+  running: "Çalışıyor",
+  failed: "Başarısız",
+  complete: "Tamamlandı",
+};
+
+const activityIcons: Record<ActivityState, string> = {
+  running: "…",
+  failed: "!",
+  complete: "✓",
+};
 
 /**
  * Çalışma bloğu.
@@ -72,14 +94,30 @@ function ActivityBlock({ adimlar, metin }: { adimlar: OlayAdimi[]; metin: string
   const sonuncu = adimlar[adimlar.length - 1];
   const baslik = sonuncu?.metin ?? metin;
   const sayi = adimlar.length;
+  const durum = activityState(adimlar, metin);
+  const rowLead = (
+    <span className="conversation__event-lead">
+      <span aria-label={`${activityLabels[durum]} simgesi`} className="conversation__event-icon" role="img">
+        {activityIcons[durum]}
+      </span>
+      <span className="conversation__role">Çalışma</span>
+      <span className="conversation__event-state">{activityLabels[durum]}</span>
+    </span>
+  );
   // Tek adımlı ve ayrıntısız blokta açılır kapanır bir kutu boş yere yer kaplar
   // ve aynı cümleyi iki kez gösterirdi; düz satır yeterli.
   if (sayi <= 1 && !sonuncu?.ayrinti && !sonuncu?.kaynak) {
-    return <span className="conversation__event-title">{baslik}</span>;
+    return (
+      <div className="conversation__event-row" data-state={durum}>
+        {rowLead}
+        <span className="conversation__event-title">{baslik}</span>
+      </div>
+    );
   }
   return (
-    <details className="conversation__event">
+    <details className="conversation__event conversation__event-row" data-state={durum}>
       <summary>
+        {rowLead}
         <span className="conversation__event-title">{baslik}</span>
         {sayi > 1 && <span className="conversation__event-count">{sayi} adım</span>}
       </summary>
@@ -107,14 +145,17 @@ function ActivityBlock({ adimlar, metin }: { adimlar: OlayAdimi[]; metin: string
 }
 
 export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
+  const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
+  const sonOlayDurumu = sonOlay ? activityState(sonOlay.adimlar ?? [], sonOlay.metin) : null;
   return (
     <div className="conversation">
-      <div aria-live="polite" className="conversation__stream">
+      <div className="conversation__stream">
         {mesajlar.map((message, index) => {
           if (message.rol === "kullanici") {
             return (
               <div className="conversation__message conversation__message--user" key={index}>
                 <div className="conversation__sent">
+                  <div className="conversation__role">Siz</div>
                   {message.ekler && message.ekler.length > 0 && (
                     <SentAttachments ekler={message.ekler} />
                   )}
@@ -136,6 +177,9 @@ export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
             </div>
           );
         })}
+      </div>
+      <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
+        {sonOlayDurumu ? activityLabels[sonOlayDurumu] : ""}
       </div>
     </div>
   );
