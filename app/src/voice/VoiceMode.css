@@ -70,3 +70,99 @@
 @media (prefers-reduced-motion: reduce) {
   .voice-panel__mic { transition: none; }
 }
+
+/* Panelin yaylı süzülüşü.
+ *
+ * Açılış tek bir yumuşak yaydır: panel hafifçe aşağıdan gelir ve yerine
+ * oturur. Sonrasında SÜREKLİ bir salınım yoktur — sürekli oynayan bir kutu
+ * birkaç saniye sonra rahatsız eder ve içeriği okumayı zorlaştırır. Karakterin
+ * kendi hareketi canlılığı zaten taşıyor. */
+@keyframes voice-panel-in {
+  0% { opacity: 0; transform: translateY(18px) scale(0.94); }
+  62% { opacity: 1; transform: translateY(-4px) scale(1.012); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.voice-panel {
+  animation: voice-panel-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: width var(--duration-normal, 300ms) var(--ease-standard);
+}
+
+/* Dar kip: masaüstünün köşesinde duran küçük bir yüzey. */
+.voice-panel[data-wide="false"] {
+  gap: 12px;
+  padding: 12px 14px 16px;
+  width: 260px;
+}
+
+.voice-panel__size {
+  background: transparent; border: 0; border-radius: var(--radius-sm); color: var(--text-secondary);
+  cursor: pointer; font: inherit; font-size: 14px; height: 28px; margin-left: auto; margin-right: 4px; width: 28px;
+}
+.voice-panel__size:hover { background: var(--surface-hover); color: var(--text-primary); }
+.voice-panel__size:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Dalga formu: gerçek mikrofon seviyesinden beslenir. */
+.voice-wave {
+  align-items: center;
+  display: flex;
+  gap: 3px;
+  height: 26px;
+  opacity: 0.35;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.voice-wave[data-active="true"] { opacity: 1; }
+
+.voice-wave__bar {
+  background: var(--accent);
+  border-radius: 2px;
+  display: block;
+  height: 24px;
+  transform-origin: center;
+  transition: transform 90ms linear;
+  width: 3px;
+}
+
+/* Panel içi ayarlar. */
+.voice-settings {
+  border-top: 1px solid var(--border-subtle);
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  width: 100%;
+}
+
+.voice-settings__row {
+  align-items: center;
+  color: var(--text-secondary);
+  display: grid;
+  font-size: 11px;
+  gap: 8px;
+  grid-template-columns: 52px 1fr 42px;
+}
+
+.voice-settings__row input { width: 100%; }
+.voice-settings__row output { text-align: right; }
+
+.voice-settings__toggle {
+  align-items: center;
+  color: var(--text-secondary);
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+}
+
+.voice-settings__model { align-items: center; display: flex; gap: 8px; }
+.voice-settings__model button {
+  background: var(--surface-hover); border: 0; border-radius: var(--radius-sm); color: var(--text-primary);
+  cursor: pointer; font: inherit; font-size: 11px; padding: 5px 10px;
+}
+.voice-settings__model small {
+  color: var(--text-secondary); font-size: 10px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-panel { animation: none; }
+  .voice-wave__bar { transition: none; }
+}

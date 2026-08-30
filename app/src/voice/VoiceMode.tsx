@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { FusionAvatar, type AvatarState } from "./FusionAvatar";
 import { MicIcon } from "./MicIcon";
+import { VoiceSettings, type VoicePrefs } from "./VoiceSettings";
+import { Waveform } from "./Waveform";
 import "./VoiceMode.css";
 
 /**
@@ -33,14 +35,39 @@ const AVATAR: Record<VoiceState, AvatarState> = {
 interface VoiceModeProps {
   /** Kipi kapat. Sohbet olduğu gibi kalır. */
   onClose: () => void;
+  /** Ayar değişimi; verilmezse ayar bölümü hiç çizilmez. */
+  onPrefsChange?: (next: VoicePrefs) => void;
+  /** Kendi ses dosyasını seç. */
+  onPickModel?: () => void;
   /** Dinlemeyi başlat/durdur. */
   onToggleListen: () => void;
+  /** Hep üstte kalma tercihi. */
+  onTop?: boolean;
+  onTopChange?: (next: boolean) => void;
+  prefs?: VoicePrefs;
   /** O anda duyulan/üretilen metin; boşsa gösterilmez. */
   transcript?: string;
   state: VoiceState;
+  /** Geniş kip: döküm ve ayarlar görünür. Dar kip yalnız karakter ve mikrofon. */
+  wide?: boolean;
+  onWideChange?: (next: boolean) => void;
 }
 
-export function VoiceMode({ onClose, onToggleListen, state, transcript }: VoiceModeProps) {
+const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
+
+export function VoiceMode({
+  onClose,
+  onPickModel,
+  onPrefsChange,
+  onToggleListen,
+  onTop = true,
+  onTopChange,
+  onWideChange,
+  prefs = VARSAYILAN_TERCIH,
+  state,
+  transcript,
+  wide = true,
+}: VoiceModeProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
 
   // Escape kipi kapatır: tam ekran bir yüzeyden çıkışın klavye yolu olmalı.
@@ -62,11 +89,24 @@ export function VoiceMode({ onClose, onToggleListen, state, transcript }: VoiceM
         aria-label="Konuşma kipi"
         aria-modal="true"
         className="voice-panel"
+        data-state={state}
+        data-wide={wide}
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <header className="voice-panel__head">
           <span className="voice-panel__title">Fusion ile konuş</span>
+          {onWideChange && (
+            <button
+              aria-label={wide ? "Paneli küçült" : "Paneli büyüt"}
+              aria-pressed={wide}
+              className="voice-panel__size"
+              onClick={() => onWideChange(!wide)}
+              type="button"
+            >
+              {wide ? "⤡" : "⤢"}
+            </button>
+          )}
           <button
             aria-label="Konuşma kipini kapat"
             className="voice-panel__close"
@@ -79,9 +119,10 @@ export function VoiceMode({ onClose, onToggleListen, state, transcript }: VoiceM
         </header>
 
         <div className="voice-panel__stage">
-          <FusionAvatar scale={2} state={AVATAR[state]} />
+          <FusionAvatar scale={wide ? 2 : 1.2} state={AVATAR[state]} />
+          <Waveform active={state === "listening"} />
           <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>
-          {transcript && <p className="voice-panel__transcript">{transcript}</p>}
+          {wide && transcript && <p className="voice-panel__transcript">{transcript}</p>}
         </div>
 
         <footer className="voice-panel__foot">
@@ -94,7 +135,16 @@ export function VoiceMode({ onClose, onToggleListen, state, transcript }: VoiceM
           >
             <MicIcon size={26} />
           </button>
-          <p className="voice-panel__hint">Konuştukların sohbete yazılır.</p>
+          {wide && <p className="voice-panel__hint">Konuştukların sohbete yazılır.</p>}
+          {wide && onPrefsChange && onTopChange && (
+            <VoiceSettings
+              onChange={onPrefsChange}
+              onPickModel={onPickModel}
+              onTop={onTop}
+              onTopChange={onTopChange}
+              prefs={prefs}
+            />
+          )}
         </footer>
       </section>
     </div>

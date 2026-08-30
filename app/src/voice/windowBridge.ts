@@ -21,3 +21,13 @@ export async function openVoiceWindow(): Promise<void> {
 export async function closeVoiceWindow(): Promise<void> {
   await invoke("ses_penceresi_kapat");
 }
+
+/** Panel ölçüsü: dar yalnız karakter, geniş döküm ve ayarlar. */
+export async function setVoiceWindowWide(genis: boolean): Promise<void> {
+  await invoke("ses_penceresi_boyut", { genis });
+}
+
+/** Panel hep üstte mi kalsın? */
+export async function setVoiceWindowOnTop(ustte: boolean): Promise<void> {
+  await invoke("ses_penceresi_ustte", { ustte });
+}

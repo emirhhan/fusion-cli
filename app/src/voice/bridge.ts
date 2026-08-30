@@ -57,3 +57,64 @@ export function onVoiceMessage(
   }
   return transport.listen(VOICE_EVENT, (event) => handler(event.payload as VoiceMessage));
 }
+
+/**
+ * Ses tercihleri köprüsü.
+ *
+ * Konuşma penceresinin kendi çekirdek bağlantısı YOKTUR: pencere hafif ve tek
+ * amaçlı kalsın diye ayarlar ana pencere üzerinden uygulanır. Pencere ne
+ * istediğini söyler, ana pencere `ses.ayar`/`ses.durum` çağırır ve sonucu geri
+ * yayar. Böylece ayarın tek bir yazma yolu olur.
+ */
+
+export const VOICE_PREFS_REQUEST = "fusion://ses-ayar";
+export const VOICE_PREFS_STATE = "fusion://ses-ayar-durum";
+
+export interface VoicePrefsPayload {
+  hiz: number;
+  model: string | null;
+  robotik: number;
+}
+
+/** Pencereden ana pencereye: bu tercihleri uygula (null ise yalnız oku). */
+export async function requestVoicePrefs(
+  prefs: VoicePrefsPayload | null,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_PREFS_REQUEST, prefs);
+}
+
+/** Ana pencereden pencereye: geçerli tercihler. */
+export async function publishVoicePrefs(
+  prefs: VoicePrefsPayload,
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_PREFS_STATE, prefs);
+}
+
+function dinle<T>(
+  event: string,
+  handler: (payload: T) => void,
+  transport: Listener,
+): Promise<() => void> {
+  if (transport.listen === (tauriListen as Listener["listen"]) && !kabukVar()) {
+    return Promise.resolve(() => undefined);
+  }
+  return transport.listen(event, (received) => handler(received.payload as T));
+}
+
+export function onVoicePrefsRequest(
+  handler: (prefs: VoicePrefsPayload | null) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_PREFS_REQUEST, handler, transport);
+}
+
+export function onVoicePrefsState(
+  handler: (prefs: VoicePrefsPayload) => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_PREFS_STATE, handler, transport);
+}

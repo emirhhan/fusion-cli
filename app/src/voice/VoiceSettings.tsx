@@ -1,0 +1,91 @@
+import { useEffect, useState } from "react";
+
+/**
+ * Panel içi ses ayarları.
+ *
+ * Ayarlar için ana pencereye dönmek gerekmez: konuşurken duyduğun şeyi
+ * konuşurken düzeltmek istersin. Değerler yalnız BIRAKINCA gönderilir;
+ * sürgüyü sürüklerken her adımda çekirdeğe istek yollamak gereksiz.
+ */
+
+export interface VoicePrefs {
+  /** 0,6–1,6 arası konuşma hızı çarpanı. */
+  hiz: number;
+  /** 0 doğal, 1 mekanik. */
+  robotik: number;
+  /** Kullanıcının kendi Piper modeli; yoksa null. */
+  model: string | null;
+}
+
+export function VoiceSettings({
+  onChange,
+  onPickModel,
+  onTopChange,
+  prefs,
+  onTop,
+}: {
+  onChange: (next: VoicePrefs) => void;
+  onPickModel?: () => void;
+  onTop: boolean;
+  onTopChange: (next: boolean) => void;
+  prefs: VoicePrefs;
+}) {
+  const [taslak, setTaslak] = useState(prefs);
+  useEffect(() => setTaslak(prefs), [prefs]);
+
+  const dosyaAdi = taslak.model?.split(/[\\/]/).filter(Boolean).slice(-1)[0];
+
+  return (
+    <div className="voice-settings">
+      <label className="voice-settings__row" htmlFor="ses-hiz">
+        <span>Hız</span>
+        <input
+          id="ses-hiz"
+          max={1.6}
+          min={0.6}
+          onChange={(event) => setTaslak({ ...taslak, hiz: Number(event.target.value) })}
+          onMouseUp={() => onChange(taslak)}
+          onKeyUp={() => onChange(taslak)}
+          onTouchEnd={() => onChange(taslak)}
+          step={0.05}
+          type="range"
+          value={taslak.hiz}
+        />
+        <output>{taslak.hiz.toFixed(2)}×</output>
+      </label>
+
+      <label className="voice-settings__row" htmlFor="ses-robotik">
+        <span>Robotik</span>
+        <input
+          id="ses-robotik"
+          max={1}
+          min={0}
+          onChange={(event) => setTaslak({ ...taslak, robotik: Number(event.target.value) })}
+          onMouseUp={() => onChange(taslak)}
+          onKeyUp={() => onChange(taslak)}
+          onTouchEnd={() => onChange(taslak)}
+          step={0.05}
+          type="range"
+          value={taslak.robotik}
+        />
+        <output>{Math.round(taslak.robotik * 100)}%</output>
+      </label>
+
+      <label className="voice-settings__toggle">
+        <input
+          checked={onTop}
+          onChange={(event) => onTopChange(event.target.checked)}
+          type="checkbox"
+        />
+        <span>Hep üstte kal</span>
+      </label>
+
+      {onPickModel && (
+        <div className="voice-settings__model">
+          <button onClick={onPickModel} type="button">Kendi ses dosyam</button>
+          <small>{dosyaAdi ?? "Fusion'ın Türkçe modeli kullanılıyor"}</small>
+        </div>
+      )}
+    </div>
+  );
+}

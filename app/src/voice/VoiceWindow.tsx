@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { emitVoiceMessage } from "./bridge";
+import { emitVoiceMessage, onVoicePrefsState, requestVoicePrefs } from "./bridge";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode, type VoiceState } from "./VoiceMode";
-import { closeVoiceWindow } from "./windowBridge";
+import type { VoicePrefs } from "./VoiceSettings";
+import { closeVoiceWindow, setVoiceWindowOnTop, setVoiceWindowWide } from "./windowBridge";
+import { selectFiles } from "../platform/dialog";
 
 /**
  * Konuşma penceresinin kökü.
@@ -22,6 +24,27 @@ export function VoiceWindow() {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [wide, setWide] = useState(true);
+  const [onTop, setOnTop] = useState(true);
+  const [prefs, setPrefs] = useState<VoicePrefs>({ hiz: 1, model: null, robotik: 0.5 });
+
+  // Dinleme KENDİLİĞİNDEN başlar: kullanıcı mikrofona basarak paneli zaten
+  // açtı, bir kez daha basmasını istemek fazladan adımdı.
+  useEffect(() => {
+    setState("listening");
+    if (cuesEnabled()) playCue("listen-start");
+    void invoke("tanima_baslat").catch((reason) => {
+      setError(String(reason));
+      setState("idle");
+    });
+  }, []);
+
+  // Geçerli tercihleri ana pencereden iste ve gelenleri izle.
+  useEffect(() => {
+    const cikar = onVoicePrefsState((gelen) => setPrefs(gelen));
+    void requestVoicePrefs(null);
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, []);
 
   // Tanıma satırları tek yerden karşılanır. Kısmi sonuç ekranda gösterilir ama
   // sohbete YAZILMAZ: yalnız kesinleşen söz mesaj olur, yoksa yarım cümleler
@@ -62,6 +85,32 @@ export function VoiceWindow() {
   return (
     <VoiceMode
       onClose={() => void closeVoiceWindow()}
+      onPickModel={() => {
+        // Kendi ses dosyası: yol tercihlere yazılır, dosya KOPYALANMAZ.
+        // Kullanıcının dizinine dokunmak ve büyük bir modeli çoğaltmak gereksiz.
+        void selectFiles()
+          .then(([yol]) => {
+            if (!yol) return;
+            const next = { ...prefs, model: yol };
+            setPrefs(next);
+            return requestVoicePrefs(next);
+          })
+          .catch(() => undefined);
+      }}
+      onPrefsChange={(next) => {
+        setPrefs(next);
+        void requestVoicePrefs(next);
+      }}
+      onTop={onTop}
+      onTopChange={(next) => {
+        setOnTop(next);
+        void setVoiceWindowOnTop(next).catch(() => undefined);
+      }}
+      onWideChange={(next) => {
+        setWide(next);
+        void setVoiceWindowWide(next).catch(() => undefined);
+      }}
+      prefs={prefs}
       onToggleListen={() => {
         const next = state === "listening" ? "idle" : "listening";
         if (cuesEnabled()) playCue(next === "listening" ? "listen-start" : "listen-stop");
@@ -78,6 +127,7 @@ export function VoiceWindow() {
       }}
       state={state}
       transcript={error ?? transcript}
+      wide={wide}
     />
   );
 }

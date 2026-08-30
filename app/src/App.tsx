@@ -49,7 +49,13 @@ import { Lessons } from "./lessons/Lessons";
 import { Settings } from "./settings/Settings";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { kabukVar, onVoiceMessage } from "./voice/bridge";
+import {
+  kabukVar,
+  onVoiceMessage,
+  onVoicePrefsRequest,
+  publishVoicePrefs,
+  type VoicePrefsPayload,
+} from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
@@ -463,6 +469,28 @@ export function SessionUygulama({
     });
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active, controller]);
+
+  // Ses tercihleri konuşma penceresinden gelir ama YAZMA yolu tektir: burada,
+  // ana pencerenin çekirdek bağlantısı üzerinden. Pencerenin kendi bağlantısını
+  // açmak, iki ayrı yazıcı ve iki ayrı hata yolu demek olurdu.
+  useEffect(() => {
+    if (!active) return;
+    const client = active.client;
+    const yayinla = async (istek: VoicePrefsPayload | null) => {
+      const sonuc = istek
+        ? await client.request("ses.ayar", { ...istek })
+        : await client.request("ses.durum", {});
+      const kaynak = (istek ? sonuc : (sonuc.ayar as Record<string, unknown> | undefined)) ?? {};
+      const satir = kaynak as Record<string, unknown>;
+      await publishVoicePrefs({
+        hiz: typeof satir.hiz === "number" ? satir.hiz : 1,
+        model: typeof satir.model === "string" ? satir.model : null,
+        robotik: typeof satir.robotik === "number" ? satir.robotik : 0.5,
+      });
+    };
+    const cikar = onVoicePrefsRequest((istek) => void yayinla(istek).catch(() => undefined));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active]);
 
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
