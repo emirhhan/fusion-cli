@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "frame-src 'self' blob: data: http://localhost:* http://127.0.0.1:* http://[::1]:*",
       "assetProtocol": {
         "enable": true,
         "scope": [

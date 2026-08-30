@@ -144,4 +144,20 @@ describe("PreviewPanel", () => {
     expect(file.getAttribute("tabindex")).toBe("0");
     expect(file.getAttribute("aria-controls")).toBe("preview-file-panel");
   });
+
+  it("geciken doğrulama kullanıcının yazdığı yeni adresi açmaz veya ezmez", async () => {
+    let resolveValidation: ((payload: Record<string, unknown>) => void) | null = null;
+    const client = {
+      request: vi.fn(() => new Promise<Record<string, unknown>>((resolve) => { resolveValidation = resolve; })),
+    } as unknown as ProtocolClient;
+    render(<PreviewPanel client={client} selectedPath={null} />);
+    const address = screen.getByRole("textbox", { name: "Yerel önizleme adresi" }) as HTMLInputElement;
+    fireEvent.change(address, { target: { value: "http://localhost:3000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adrese git" }));
+    fireEvent.change(address, { target: { value: "http://localhost:4173" } });
+    resolveValidation?.({ ok: true, url: "http://localhost:3000", durum: 200 });
+
+    await waitFor(() => expect(address.value).toBe("http://localhost:4173"));
+    expect(screen.queryByTitle("Yerel geliştirme önizlemesi")).toBeNull();
+  });
 });

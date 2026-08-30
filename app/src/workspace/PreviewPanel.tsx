@@ -68,6 +68,7 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
   const [frameRevision, setFrameRevision] = useState(0);
   const [viewport, setViewport] = useState<PreviewViewport>("desktop");
   const [objectUrl, setObjectUrl] = useState("");
+  const inputValueRef = useRef("");
   const modeRefs = useRef<Record<PreviewMode, HTMLButtonElement | null>>({ file: null, web: null });
   const validationRun = useRef(0);
   const localUrl = historyIndex >= 0 ? history[historyIndex] ?? null : null;
@@ -134,7 +135,7 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
     }
     setAddressError(null);
     const verified = await validateAddress(value);
-    if (!verified) return;
+    if (!verified || inputValueRef.current.trim() !== value) return;
     const next = history.slice(0, historyIndex + 1);
     if (next[next.length - 1] !== verified) next.push(verified);
     setHistory(next);
@@ -142,6 +143,7 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
     setFrameError(null);
     setFrameErrorUrl(null);
     setInput(verified);
+    inputValueRef.current = verified;
     setFrameRevision((current) => current + 1);
   };
   const moveHistory = async (nextIndex: number) => {
@@ -153,6 +155,7 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
     setHistory(nextHistory);
     setHistoryIndex(nextIndex);
     setInput(verified);
+    inputValueRef.current = verified;
     setAddressError(null);
     setFrameError(null);
     setFrameErrorUrl(null);
@@ -220,7 +223,7 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
               </div>
               <form onSubmit={(event) => { event.preventDefault(); void openLocal(); }}>
                 <label className="preview-panel__sr-only" htmlFor="local-preview-url">Yerel önizleme adresi</label>
-                <input id="local-preview-url" onChange={(event) => { setInput(event.target.value); setAddressError(null); }} placeholder="http://localhost:5173" value={input} />
+                <input id="local-preview-url" onChange={(event) => { inputValueRef.current = event.target.value; setInput(event.target.value); setAddressError(null); }} placeholder="http://localhost:5173" value={input} />
                 <button aria-label="Adrese git" disabled={frameChecking} type="submit">Git</button>
               </form>
               <select

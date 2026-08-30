@@ -59,17 +59,17 @@ def _embedding_error(headers: HTTPMessage) -> str | None:
     if x_frame_options and x_frame_options != "allowall":
         return "Yerel sunucu uygulama içine gömülmeyi engelliyor (X-Frame-Options)."
 
-    csp = str(headers.get("Content-Security-Policy", ""))
-    for directive in csp.split(";"):
-        name, _, value = directive.strip().partition(" ")
-        if name.casefold() != "frame-ancestors":
-            continue
-        allowed = value.casefold().split()
-        if "*" not in allowed and not any(
-            origin in allowed
-            for origin in ("tauri:", "http://tauri.localhost", "https://tauri.localhost")
-        ):
-            return "Yerel sunucu uygulama içine gömülmeyi engelliyor (CSP frame-ancestors)."
+    for csp in headers.get_all("Content-Security-Policy", []):
+        for directive in csp.split(";"):
+            name, _, value = directive.strip().partition(" ")
+            if name.casefold() != "frame-ancestors":
+                continue
+            allowed = value.casefold().split()
+            if "*" not in allowed and not any(
+                origin in allowed
+                for origin in ("tauri:", "http://tauri.localhost", "https://tauri.localhost")
+            ):
+                return "Yerel sunucu uygulama içine gömülmeyi engelliyor (CSP frame-ancestors)."
     return None
 
 
@@ -106,6 +106,8 @@ def validate_web_preview(
         finally:
             response.close()
     except HTTPError as response:
+        if 300 <= response.code < 400:
+            return {"ok": False, "metin": "Yerel sunucunun yönlendirmesi tamamlanamadı."}
         # 4xx/5xx yanıtları da tarayıcıda anlamlı bir sayfa olabilir; güvenlik
         # başlıklarını ve nihai adresi yine denetleyerek önizlemeye izin ver.
         return _result_from_response(cast(_Response, response))

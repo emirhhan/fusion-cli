@@ -1,15 +1,23 @@
 from __future__ import annotations
 
 from email.message import Message
+from urllib.error import HTTPError
 
 from fusion_cli.appserver.web_preview import validate_web_preview
 
 
 class _Response:
-    def __init__(self, url: str, *, headers: dict[str, str] | None = None, status: int = 200):
+    def __init__(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | list[tuple[str, str]] | None = None,
+        status: int = 200,
+    ):
         self._url = url
         self.headers = Message()
-        for name, value in (headers or {}).items():
+        records = headers.items() if isinstance(headers, dict) else headers or []
+        for name, value in records:
             self.headers[name] = value
         self.status = status
 
@@ -24,11 +32,13 @@ class _Response:
 
 
 class _Opener:
-    def __init__(self, response: _Response):
+    def __init__(self, response: _Response | Exception):
         self.response = response
 
     def open(self, _request, *, timeout: float):
         assert timeout <= 5
+        if isinstance(self.response, Exception):
+            raise self.response
         return self.response
 
 
@@ -71,3 +81,35 @@ def test_web_preview_erisebilen_yerel_sunucuyu_dogrular():
     )
 
     assert result == {"ok": True, "url": "http://localhost:5173/game", "durum": 204}
+
+
+def test_web_preview_redirect_dongusunu_http_sayfasi_gibi_kabul_etmez():
+    error = HTTPError(
+        "http://localhost:5173/loop",
+        302,
+        "redirect loop",
+        Message(),
+        None,
+    )
+    result = validate_web_preview(
+        {"url": "http://localhost:5173/loop"},
+        opener=_Opener(error),
+    )
+    assert result == {"ok": False, "metin": "Yerel sunucunun yönlendirmesi tamamlanamadı."}
+
+
+def test_web_preview_birden_fazla_csp_basliginin_tumunu_uygular():
+    result = validate_web_preview(
+        {"url": "http://localhost:5173"},
+        opener=_Opener(
+            _Response(
+                "http://localhost:5173",
+                headers=[
+                    ("Content-Security-Policy", "frame-ancestors *"),
+                    ("Content-Security-Policy", "frame-ancestors 'none'"),
+                ],
+            )
+        ),
+    )
+    assert result["ok"] is False
+    assert "CSP frame-ancestors" in result["metin"]
