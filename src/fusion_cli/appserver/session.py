@@ -31,6 +31,7 @@ from ..config.keys import secret_key
 from ..config.loader import load_config
 from ..config.models import Config
 from ..config.paths import credentials_file
+from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
@@ -59,6 +60,7 @@ from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .usage import UsageMeter, usage_status
 from .voice import download_piper_model as voice_download_model
 from .voice import save_settings as voice_settings
 from .voice import speak as voice_speak
@@ -183,6 +185,22 @@ def _attachment_context(value: object) -> tuple[str, str | None]:
     )
 
 
+class _MeteredSink:
+    """Olayları yazan sink'i sarar ve tüketimi sayar.
+
+    Sarmalama, sayacın olay akışının TAM ÜSTÜNDE durmasını sağlar: yeni bir
+    çağrı yolu eklendiğinde sayaç kendiliğinden görür.
+    """
+
+    def __init__(self, inner: ProtocolSink, meter: UsageMeter) -> None:
+        self._inner = inner
+        self._meter = meter
+
+    def handle(self, event: Event) -> None:
+        self._meter.observe(event)
+        self._inner.handle(event)
+
+
 class AppSession:
     """Uygulamanın sürdüğü tek oturum."""
 
@@ -219,6 +237,7 @@ class AppSession:
         self._disabled_mcp: set[str] = set()
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
+        self._usage = UsageMeter()
         self._turn: asyncio.Task[Any] | None = None
 
     async def handle(self, request: Request) -> None:
@@ -311,6 +330,8 @@ class AppSession:
             return voice_download_model(
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
             )
+        if request.name == "kullanim.durum":
+            return usage_status(self._usage, self._state.health)
         if request.name == "ayar.talimat":
             return get_instructions()
         if request.name == "ayar.talimat_kaydet":
@@ -569,7 +590,9 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import run_agent_task
 
-        sink = ProtocolSink(self._writer)
+        # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
+        # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
+        sink = _MeteredSink(ProtocolSink(self._writer), self._usage)
         prompter = ProtocolPrompter(self._writer, self.pending)
         config = self._state.config
         if self._disabled_mcp:

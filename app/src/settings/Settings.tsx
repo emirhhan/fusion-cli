@@ -3,6 +3,8 @@ import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Connectors } from "./Connectors";
 import { Instructions } from "./Instructions";
+import { UsagePanel } from "./UsagePanel";
+import { VoicePreferences } from "./VoicePreferences";
 import "./Settings.css";
 
 /**
@@ -147,6 +149,10 @@ export function Settings({ client, onClose, onThemeChange, themePreference }: Se
         <Instructions client={client} />
 
         <Connectors client={client} />
+
+        <UsagePanel client={client} />
+
+        <VoicePreferences client={client} />
 
         <article className="settings__card">
           <h3>Gizlilik</h3>

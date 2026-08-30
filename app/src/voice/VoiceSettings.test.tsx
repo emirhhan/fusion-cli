@@ -34,6 +34,37 @@ describe("VoiceSettings", () => {
     expect(onTopChange).toHaveBeenCalledWith(true);
   });
 
+  it("ana Ayarlar ekranında pencereye özel hep üstte seçeneğini gizler", () => {
+    render(
+      <VoiceSettings
+        onChange={vi.fn()}
+        onTop={false}
+        onTopChange={vi.fn()}
+        prefs={PREFS}
+        showOnTop={false}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Hep üstte kal")).toBeNull();
+  });
+
+  it("kayıt sürerken çakışan tercih değişikliklerini engeller", () => {
+    render(
+      <VoiceSettings
+        disabled
+        onChange={vi.fn()}
+        onPickModel={vi.fn()}
+        onTop
+        onTopChange={vi.fn()}
+        prefs={PREFS}
+      />,
+    );
+
+    expect((screen.getByLabelText("Hız") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText("Robotik") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Piper ses modeli seç" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("düğme ses klonlama vaat etmez, Piper modeli ister", () => {
     render(
       <VoiceSettings onChange={vi.fn()} onPickModel={vi.fn()} onTop onTopChange={vi.fn()} prefs={PREFS} />,

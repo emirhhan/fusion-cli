@@ -18,17 +18,22 @@ export interface VoicePrefs {
 }
 
 export function VoiceSettings({
+  disabled = false,
   onChange,
   onPickModel,
   onTopChange,
   prefs,
   onTop,
+  showOnTop = true,
 }: {
+  disabled?: boolean;
   onChange: (next: VoicePrefs) => void;
   onPickModel?: () => void;
   onTop: boolean;
   onTopChange: (next: boolean) => void;
   prefs: VoicePrefs;
+  /** Ayrı ses penceresine özgü seçeneği ana Ayarlar kartında gösterme. */
+  showOnTop?: boolean;
 }) {
   const [taslak, setTaslak] = useState(prefs);
   useEffect(() => setTaslak(prefs), [prefs]);
@@ -40,6 +45,7 @@ export function VoiceSettings({
       <label className="voice-settings__row" htmlFor="ses-hiz">
         <span>Hız</span>
         <input
+          disabled={disabled}
           id="ses-hiz"
           max={1.6}
           min={0.6}
@@ -57,6 +63,7 @@ export function VoiceSettings({
       <label className="voice-settings__row" htmlFor="ses-robotik">
         <span>Robotik</span>
         <input
+          disabled={disabled}
           id="ses-robotik"
           max={1}
           min={0}
@@ -71,21 +78,24 @@ export function VoiceSettings({
         <output>{Math.round(taslak.robotik * 100)}%</output>
       </label>
 
-      <label className="voice-settings__toggle">
-        <input
-          checked={onTop}
-          onChange={(event) => onTopChange(event.target.checked)}
-          type="checkbox"
-        />
-        <span>Hep üstte kal</span>
-      </label>
+      {showOnTop && (
+        <label className="voice-settings__toggle">
+          <input
+            checked={onTop}
+            disabled={disabled}
+            onChange={(event) => onTopChange(event.target.checked)}
+            type="checkbox"
+          />
+          <span>Hep üstte kal</span>
+        </label>
+      )}
 
       {onPickModel && (
         <div className="voice-settings__model">
           {/* Ad AÇIK: Fusion ses klonlamaz. Kullanıcının konuşma kaydı bir ses
               modeli değildir; "kendi ses dosyam" yazmak, WAV yükleyip ses
               klonlandığını sanmaya yol açıyordu. */}
-          <button onClick={onPickModel} type="button">Piper ses modeli seç</button>
+          <button disabled={disabled} onClick={onPickModel} type="button">Piper ses modeli seç</button>
           <small>{dosyaAdi ?? "Fusion'ın Türkçe modeli kullanılıyor"}</small>
         </div>
       )}

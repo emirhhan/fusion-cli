@@ -1,9 +1,9 @@
 """Sesli yanıt: Fusion'ın kullanıcıyla konuşması.
 
-Tasarım kararı — BEDAVA ve ÇEVRİMDIŞI: işletim sisteminin kendi sentezleyicisi
-kullanılır. macOS'ta `say`, Windows'ta PowerShell'in `System.Speech` sınıfı.
-Model indirilmez, API anahtarı istenmez, ağa çıkılmaz. Kullanıcının kotası ve
-gizliliği bu yüzden hiç etkilenmez: konuşulan metin bilgisayardan çıkmaz.
+Tasarım kararı — BEDAVA ve ÇEVRİMDIŞI: Piper modeli kuruluysa o, değilse
+işletim sisteminin kendi sentezleyicisi kullanılır. Model yalnız kullanıcı
+uygulama içinden açıkça istediğinde indirilir; konuşma sırasında API anahtarı
+istenmez ve metin ağa çıkmaz. Kullanıcının kotası ve gizliliği etkilenmez.
 
 Türkçe uyumu ölçüldü: macOS'ta `Yelda tr_TR` sesi kuruludur.
 """

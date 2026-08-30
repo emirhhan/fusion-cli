@@ -11,6 +11,11 @@
 .settings__grid { align-content: start; display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); min-height: 0; overflow: auto; padding: 2px; }
 .settings__card { background: var(--surface-sidebar); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: grid; gap: 12px; padding: 20px; }
 .settings__card h3 { font-size: 15px; margin: 0; }
+.settings__card-head { align-items: start; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; }
+.settings__card-head > div { display: grid; gap: 5px; }
+.settings__badge { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: 999px; color: var(--text-secondary); font-size: 11px; padding: 5px 9px; }
+.settings__section-title { border-top: 1px solid var(--border-subtle); margin-top: 4px !important; padding-top: 16px; }
+.settings__inline-error { align-items: center; color: var(--text-warning); display: flex; flex-wrap: wrap; font-size: 12px; gap: 10px; justify-content: space-between; }
 
 .settings__row { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
 .settings__row > span { color: var(--text-secondary); font-size: 13px; }
@@ -73,6 +78,7 @@
   align-items: center; background: var(--surface-canvas); border-radius: var(--radius-sm);
   display: grid; gap: 10px; grid-template-columns: auto 1fr auto; padding: 7px 10px;
 }
+.settings__list strong { min-width: 0; overflow-wrap: anywhere; }
 .settings__list code { color: var(--text-secondary); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .settings__form {

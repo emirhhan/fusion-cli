@@ -106,6 +106,50 @@ const workspaceClient = {
       ],
       sir_deposu_hazir: true, gateway: { durum: "calisiyor", adres: "http://127.0.0.1:8787/v1", pid: 4821 },
     };
+    if (name === "ayar.talimat") return {
+      ok: true,
+      metin: "Türkçe yaz. Değişikliklerden sonra testleri çalıştır.",
+      sinir: 4000,
+    };
+    if (name === "baglanti.listele") return {
+      ok: true,
+      sunucular: [
+        { ad: "figma", komut: "npx", argumanlar: ["-y", "figma-developer-mcp"] },
+        { ad: "github", komut: "docker", argumanlar: ["run", "github-mcp"] },
+      ],
+    };
+    if (name === "web.saglayicilar") return {
+      ok: true,
+      saglayicilar: [{ id: "claude_web", ad: "Claude Web", bagli: true }],
+    };
+    if (name === "kullanim.durum") return {
+      ok: true,
+      kullanim: {
+        cagri: 7,
+        girdi_token: 18_420,
+        cikti_token: 3_180,
+        toplam_token: 21_600,
+        maliyet_usd: 0.0284,
+        modeller: [
+          { model: "openrouter/qwen3-coder", toplam_token: 17_900, maliyet_usd: 0.0201 },
+          { model: "nvidia_nim/llama-3.3-70b", toplam_token: 3_700, maliyet_usd: 0.0083 },
+        ],
+      },
+      saglik: [
+        { model: "openrouter/qwen3-coder", durum: "sağlıklı", skor: 0.98, ornek: 5, gecikme_ms: 842 },
+        { model: "nvidia_nim/llama-3.3-70b", durum: "sağlıklı", skor: 0.94, ornek: 2, gecikme_ms: 1_126 },
+      ],
+    };
+    if (name === "ses.durum") return {
+      ok: true,
+      ayar: { hiz: 1.1, model: null, robotik: 0.35 },
+      kullanilabilir: true,
+      model_kurulu: false,
+      motor: "sistem",
+      ses: "Cem",
+      turkce: true,
+      yukseltme: null,
+    };
     return { ok: true };
   },
 } as unknown as ProtocolClient;

@@ -256,6 +256,50 @@ async def test_history_run_agent_task_a_gecirilir(tmp_path, monkeypatch):
     assert gorulen_gecmisler[1] is ilk_turun_ciktisi
 
 
+async def test_model_olayi_oturum_kullanimina_yansir(tmp_path, monkeypatch):
+    """Gerçek tur yolu sink'i kullanır; sayaç yalnız birim testinde kalmamalı."""
+    from fusion_cli.core.events import ModelCallFinished
+    from fusion_cli.core.types import ModelResult, TokenUsage
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    def _sahte(*_args, **kwargs):
+        kwargs["sinks"][0].handle(
+            ModelCallFinished(
+                role="agent",
+                result=ModelResult(
+                    name="agent",
+                    model="test/model",
+                    text="bitti",
+                    latency_ms=25,
+                    ok=True,
+                    usage=TokenUsage(
+                        prompt_tokens=40,
+                        completion_tokens=10,
+                        cost_usd=0.002,
+                    ),
+                ),
+            )
+        )
+
+        async def _calistir():
+            return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+        return _calistir()
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _sahte)
+
+    await oturum.handle(Request(id="tur", name="tur.calistir", data={"gorev": "iş"}))
+    await oturum.handle(Request(id="kullanim", name="kullanim.durum", data={}))
+
+    kullanim = _sonuc(satirlar, "kullanim")["kullanim"]
+    assert kullanim["cagri"] == 1
+    assert kullanim["toplam_token"] == 50
+    assert kullanim["maliyet_usd"] == 0.002
+    assert kullanim["modeller"][0]["model"] == "test/model"
+
+
 async def test_devralinan_kunye_yalniz_sonraki_tura_extra_system_olarak_gecer(
     tmp_path, monkeypatch
 ):

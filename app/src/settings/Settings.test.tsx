@@ -22,6 +22,28 @@ function client() {
         ok: true,
         saglayicilar: [{ id: "claude_web", ad: "Claude Web", bagli: true }],
       };
+      if (name === "kullanim.durum") return {
+        ok: true,
+        kullanim: {
+          cagri: 0,
+          girdi_token: 0,
+          cikti_token: 0,
+          toplam_token: 0,
+          maliyet_usd: 0,
+          modeller: [],
+        },
+        saglik: [],
+      };
+      if (name === "ses.durum") return {
+        ok: true,
+        ayar: { hiz: 1, model: null, robotik: 0.5 },
+        kullanilabilir: true,
+        model_kurulu: false,
+        motor: "sistem",
+        ses: "Cem",
+        turkce: true,
+        yukseltme: null,
+      };
       return { ok: true };
     }),
   } as unknown as ProtocolClient;
@@ -52,6 +74,7 @@ describe("Settings", () => {
     await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
     expect(screen.getByText("2 bağlı bağlantı")).toBeTruthy();
     expect(screen.getByText("Gateway çalışıyor")).toBeTruthy();
+    expect(await screen.findByText("Sistem · Cem")).toBeTruthy();
     expect(screen.getByText(/verileriniz bu cihazda/i)).toBeTruthy();
   });
 });
@@ -105,4 +128,3 @@ describe("Settings — derinlik", () => {
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.sil", { ad: "github" }));
   });
 });
-
