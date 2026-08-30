@@ -3,4 +3,4 @@
 #: Paketin TEK sürüm kaynağı. `pyproject.toml` bunu `dynamic` olarak okur; iki
 #: yerde elle tutulan sürüm zamanla ayrışır ve hata raporlarında yanlış sürüm
 #: görünür (ölçüldü: paket 0.3.0a1 iken `fusion version` 0.2.0.dev0 basıyordu).
-__version__ = "0.3.0a3"
+__version__ = "0.3.0a4"

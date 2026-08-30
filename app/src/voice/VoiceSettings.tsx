@@ -37,7 +37,13 @@ export function VoiceSettings({
 }) {
   const [taslak, setTaslak] = useState(prefs);
   const taslakRef = useRef(prefs);
+  const sonPropsRef = useRef(prefs);
   useEffect(() => {
+    // İlk mount'ta state zaten `prefs` ile kuruldu. Aynı değeri pasif effect'te
+    // yeniden yazmak, hızlı bir ilk sürüklemenin hemen ardından çalışıp kullanıcı
+    // taslağını eski değere döndürebiliyordu (özellikle yavaş CI/WebView'da).
+    if (sonPropsRef.current === prefs) return;
+    sonPropsRef.current = prefs;
     taslakRef.current = prefs;
     setTaslak(prefs);
   }, [prefs]);

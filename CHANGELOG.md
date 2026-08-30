@@ -3,6 +3,12 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a4] — 2026-08-30
+
+- Ses ayarları ilk açıldığında geciken bir eşitlemenin kullanıcının hızlı sürgü
+  hareketini eski değerle ezebilmesi düzeltildi.
+- Sürgü kaydetme yarışı tekrarlı regresyon koşusuyla doğrulandı.
+
 ## [0.3.0a3] — 2026-08-30
 
 - macOS ve Windows masaüstü paketleme ortamlarına Piper ses motoru bağımlılığı
