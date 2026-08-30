@@ -149,6 +149,14 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
+#[tauri::command]
+fn kapatmayi_onayla(app: tauri::AppHandle) {
+    let sessions = app.state::<SessionManager>();
+    sessions.stop_all();
+    app.exit(0);
+}
+
 /// Konuşma tanımayı başlat.
 ///
 /// Yardımcı UYGULAMANIN ÇOCUĞU olarak çalıştırılır; bu şart. macOS izni çağıran
@@ -315,12 +323,22 @@ pub fn run() {
             ses_penceresi_ac,
             ses_penceresi_kapat,
             tanima_baslat,
+            kapatmayi_onayla,
             runtime_durum,
             runtime_hazirla,
             runtime_onar
         ])
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Kapatma ONAYSIZ yapılmaz: çalışan tur ve açık sohbetler
+                // kaybolur. Yanlışlıkla kapatmak (Cmd+Q, Alt+F4, kırmızı düğme)
+                // iş kaybettiriyordu. Karar arayüzde sorulur; onaylanırsa
+                // arayüz `kapatmayi_onayla` çağırır.
+                if window.label() == "main" {
+                    api.prevent_close();
+                    let _ = window.emit("uygulama://kapatma-istegi", ());
+                    return;
+                }
                 let sessions = window.state::<SessionManager>();
                 sessions.stop_all();
             }

@@ -1,0 +1,19 @@
+.close-confirm {
+  align-items: center; backdrop-filter: blur(3px); background: var(--surface-overlay);
+  display: flex; inset: 0; justify-content: center; position: absolute; z-index: var(--z-dialog);
+}
+.close-confirm__panel {
+  background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
+  box-shadow: 0 24px 70px rgb(0 0 0 / 34%); display: grid; gap: 12px; max-width: 380px; padding: 24px;
+}
+.close-confirm__panel h2 { font-size: 17px; margin: 0; }
+.close-confirm__panel p { color: var(--text-secondary); font-size: 14px; margin: 0; text-wrap: pretty; }
+.close-confirm__actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px; }
+.close-confirm__actions button {
+  border-radius: var(--radius-sm); cursor: pointer; font: inherit; font-size: 14px;
+  min-height: 44px; padding: 11px 20px;
+}
+.close-confirm__cancel { background: transparent; border: 1px solid var(--border-subtle); color: var(--text-primary); }
+.close-confirm__cancel:hover { background: var(--surface-hover); }
+.close-confirm__confirm { background: var(--text-danger); border: 0; color: var(--brand-soft-white); }
+.close-confirm__actions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }

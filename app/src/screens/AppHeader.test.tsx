@@ -40,22 +40,18 @@ describe("AppHeader", () => {
     );
   });
 
-  it("tema tercihini erişilebilir seçiciden bildirir", () => {
-    const onThemeChange = vi.fn();
+  it("tema seçicisini BAŞLIKTA çizmez", () => {
+    // Tema bir tercihtir ve yeri Ayarlar'dır. Başlıkta durması gereksiz yer
+    // kaplıyor ve günlük kullanımda yanlışlıkla değiştirilmesine yol açıyordu.
     render(
       <AppHeader
         inspectorOpen
-        onThemeChange={onThemeChange}
         onToggleInspector={vi.fn()}
         onToggleSidebar={vi.fn()}
         sidebarCollapsed={false}
-        themePreference="system"
         title="Yeni görev"
       />,
     );
-    fireEvent.change(screen.getByRole("combobox", { name: "Tema" }), {
-      target: { value: "dark" },
-    });
-    expect(onThemeChange).toHaveBeenCalledWith("dark");
+    expect(screen.queryByRole("combobox", { name: "Tema" })).toBeNull();
   });
 });

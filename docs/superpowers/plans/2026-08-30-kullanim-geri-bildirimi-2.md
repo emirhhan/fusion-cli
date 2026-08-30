@@ -7,15 +7,15 @@ Sıralama "ürünü bozuk hissettiren" maddelerden başlar; güzelleştirme sonr
 
 ## A — Bozuk hissettirenler
 
-- [ ] **A1. Sohbet silme çok yavaş.** Sil'e basınca tüm ekranı kaplayan
+- [x] **A1. Sohbet silme çok yavaş.** Sil'e basınca tüm ekranı kaplayan
       "bağlanıyor…" çıkıyor. Silme anında olmalı; çekirdek kapanışı arkada.
-- [ ] **A2. İzin modu arayüze yansımıyor.** Security'ye geçtim, görev kutusunun
+- [x] **A2. İzin modu arayüze yansımıyor.** Security'ye geçtim, görev kutusunun
       altındaki durum değişmedi.
-- [ ] **A3. Mod geçişi hiç çalışmıyor.** auto / plan / security arasında ne
+- [x] **A3. Mod geçişi hiç çalışmıyor.** auto / plan / security arasında ne
       tıklayarak ne Shift+Tab ile geçilebiliyor; terminalde olduğu gibi olmalı.
 - [ ] **A4. Anlamsız "/" girdisi.** "Yakın projeler" altındaki dosya ikonu ve
       "/" her tıklamada yeni görev açıyor; ne işe yaradığı anlaşılmıyor.
-- [ ] **A5. Kapatma onayı yok.** Pencere kapatılırken, Cmd+Q ve Alt+F4 dahil,
+- [x] **A5. Kapatma onayı yok.** Pencere kapatılırken, Cmd+Q ve Alt+F4 dahil,
       "emin misin?" sorulmalı — yanlışlıkla kapatma iş kaybettiriyor.
 
 ## B — Eksik yetenekler
@@ -35,7 +35,7 @@ Sıralama "ürünü bozuk hissettiren" maddelerden başlar; güzelleştirme sonr
       (düşünme vb.) göre ifadesi değişsin.
 - [ ] **C2. Sohbet/Kod geçişi çok basit ve kırılgan duruyor**; referans olarak
       verilen Claude ekranındaki gibi olmalı.
-- [ ] **C3. Ana ekrandaki tema değiştirici KALDIRILSIN** — tema yalnız
+- [x] **C3. Ana ekrandaki tema değiştirici KALDIRILSIN** — tema yalnız
       Ayarlar'dan değişmeli.
 - [ ] **C4. Dersler işe yaramıyor**: yalnız "gönderilecek metin" yazıyor.
       Gerçek ekran görüntüleri, üzerine ok işaretleri ve "şunu şuradan yaparsın"

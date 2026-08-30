@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
+import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
@@ -17,6 +18,7 @@ import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
 import {
   Composer,
+  type ApprovalMode,
   type ComposerAttachment,
   type ComposerCommand,
   type WorkspaceMode,
@@ -45,6 +47,8 @@ import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Settings } from "./settings/Settings";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { onVoiceMessage } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
 import { Onboarding, type OnboardingValue } from "./onboarding";
@@ -177,7 +181,8 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const conversation = useConversation(istemci);
   const layout = useLayout();
   const [draft, setDraft] = useState("");
-  const { changeTheme, themePreference } = useAppTheme();
+  // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
+  useAppTheme();
   const clear = () => {
     setDraft("");
     conversation.clear();
@@ -210,12 +215,10 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
       header={
         <AppHeader
           inspectorOpen={layout.inspectorOpen}
-          onThemeChange={changeTheme}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
           sidebarCollapsed={layout.sidebarCollapsed}
           status={conversation.running ? "Çalışıyor" : "Hazır"}
-          themePreference={themePreference}
           title="Yeni görev"
         />
       }
@@ -338,6 +341,10 @@ export function SessionUygulama({
   // Varsayılan SOHBET: boş bir pencerede "merhaba" yazmak proje taraması
   // başlatmamalı. Kod kipine geçiş kullanıcının açık kararıdır.
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("sohbet");
+  // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
+  // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
+  const [approval, setApproval] = useState<ApprovalMode>("auto");
+  const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
@@ -409,6 +416,32 @@ export function SessionUygulama({
     return () => { alive = false; };
   }, [active?.client, active?.id]);
 
+  // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
+  useEffect(() => {
+    const cikar = listen("uygulama://kapatma-istegi", () => setCloseAsked(true));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, []);
+
+  // Hiç oturum kalmadıysa (ör. sonuncusu silindi) yenisi açılır. Eskiden burada
+  // tüm ekranı kaplayan "Bağlanıyor…" kalıyordu ve silme donmuş görünüyordu.
+  // Yaratma RENDER'da değil burada yapılır; render'da yan etki çift oturum üretti.
+  // Koşul dar tutulur: uygulama açılışta zaten kendi oturumunu yaratıyor.
+  // "Hiç oturum yok" durumunu körlemesine doldurmak o yaratımla yarışıp ÇİFT
+  // oturum üretiyordu (testler yakaladı). Bu yüzden yalnız daha önce oturum
+  // GÖRMÜŞSEK ve şimdi hiç kalmadıysa yenisi açılır.
+  const oturumSayisi = controller.state.order.length;
+  const oturumGorulduMu = useRef(false);
+  useEffect(() => {
+    if (oturumSayisi > 0) {
+      oturumGorulduMu.current = true;
+      return;
+    }
+    if (oturumGorulduMu.current && !controller.state.connectionError) {
+      oturumGorulduMu.current = false;
+      void controller.create({});
+    }
+  }, [controller, oturumSayisi]);
+
   // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
   // kullanıcı yazışmış gibi tam dökümü görür.
   useEffect(() => {
@@ -422,7 +455,7 @@ export function SessionUygulama({
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
   }
-  if (!active) return <div className="app-status-screen">Bağlanıyor…</div>;
+  if (!active) return <div className="app-status-screen">Hazırlanıyor…</div>;
 
   if (showOnboarding) {
     const projects: SampleProject[] = [
@@ -564,6 +597,11 @@ export function SessionUygulama({
     <Shell
       composer={page === "chat" ? (
         <Composer
+          approval={approval}
+          onApprovalChange={(next) => {
+            setApproval(next);
+            void active.client.request("oturum.baslat", { mod: next });
+          }}
           attachments={activeAttachments}
           attachmentError={attachmentError ?? commandError}
           commands={composerCommands}
@@ -605,6 +643,13 @@ export function SessionUygulama({
       content={
         <>
           {content}
+          {closeAsked && (
+            <CloseConfirm
+              onCancel={() => setCloseAsked(false)}
+              onConfirm={() => void invoke("kapatmayi_onayla")}
+              running={active.running}
+            />
+          )}
           {active.question && (
             <Approval
               onCevap={(answer) => controller.answer(active.id, answer)}
@@ -656,12 +701,10 @@ export function SessionUygulama({
       header={
         <AppHeader
           inspectorOpen={layout.inspectorOpen}
-          onThemeChange={changeTheme}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
-          themePreference={themePreference}
           title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : page === "settings" ? "Ayarlar" : active.title}
         />
       }

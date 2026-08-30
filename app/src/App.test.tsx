@@ -72,14 +72,14 @@ describe("Uygulama", () => {
     expect(screen.getByRole("textbox", { name: "Mesaj" })).toBeTruthy();
   });
 
-  it("tema seçimini belgeye uygular ve saklar", () => {
+  it("kayıtlı temayı belgeye uygular ve ana ekranda seçici çizmez", () => {
+    // Tema değiştirme Ayarlar ekranına taşındı; ana ekranda yalnız UYGULANIR.
+    localStorage.setItem("fusion.theme", "dark");
     const fake = fakeClient();
     render(<Uygulama istemci={fake.client} />);
-    fireEvent.change(screen.getByRole("combobox", { name: "Tema" }), {
-      target: { value: "dark" },
-    });
+
     expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(localStorage.getItem("fusion.theme")).toBe("dark");
+    expect(screen.queryByRole("combobox", { name: "Tema" })).toBeNull();
   });
 
   it("başlangıç önerisini görev girişine taşır", () => {

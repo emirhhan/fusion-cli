@@ -6,6 +6,24 @@ import "./Composer.css";
 /** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
 export type WorkspaceMode = "sohbet" | "kod";
 
+/** İzin modu — çekirdekteki `ApprovalMode` ile aynı değerler. */
+export type ApprovalMode = "auto" | "plan" | "security";
+
+/** Sıra, Shift+Tab'ın döneceği sıradır: terminaldeki davranışın aynısı. */
+const APPROVAL_ORDER: ApprovalMode[] = ["auto", "plan", "security"];
+
+const APPROVAL_LABEL: Record<ApprovalMode, string> = {
+  auto: "Otomatik",
+  plan: "Yalnız plan",
+  security: "Güvenli mod",
+};
+
+const APPROVAL_HINT: Record<ApprovalMode, string> = {
+  auto: "Fusion kendi ilerler, yıkıcı işlemde sorar.",
+  plan: "Yalnız planlar; hiçbir şeyi değiştirmez.",
+  security: "Her işlem için ayrı ayrı onay ister.",
+};
+
 export interface ComposerCommand {
   ad: string;
   aciklama: string;
@@ -21,6 +39,11 @@ export interface ComposerAttachment {
 }
 
 interface ComposerProps {
+  /** Seçili izin modu. Sabit metin BASILMAZ: kullanıcı security'ye geçtiğinde
+   *  görev kutusunun altı da değişmeli — eskiden hep "Otomatik" yazıyordu. */
+  approval?: ApprovalMode;
+  /** Verilmezse mod salt okunur gösterilir. */
+  onApprovalChange?: (mode: ApprovalMode) => void;
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
   commands?: ComposerCommand[];
@@ -39,10 +62,12 @@ interface ComposerProps {
 }
 
 export function Composer({
+  approval = "auto",
   attachments = [],
   attachmentError = null,
   commands = [],
   mode = "sohbet",
+  onApprovalChange,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
   onModeChange,
@@ -76,10 +101,19 @@ export function Composer({
     setDraft("");
     onSend(task);
   };
+  /** Sıradaki izin modu. Terminaldeki Shift+Tab döngüsüyle aynı sıra. */
+  const nextApproval = (): ApprovalMode => {
+    const index = APPROVAL_ORDER.indexOf(approval);
+    return APPROVAL_ORDER[(index + 1) % APPROVAL_ORDER.length];
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Tab" && event.shiftKey && onModeChange) {
+    // Shift+Tab İZİN MODUNU döndürür — terminaldeki davranışın aynısı.
+    // Sohbet/Kod ayrımı ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
+    // kullanıcının beklediği terminal alışkanlığını bozuyordu.
+    if (event.key === "Tab" && event.shiftKey && onApprovalChange) {
       event.preventDefault();
-      onModeChange(mode === "sohbet" ? "kod" : "sohbet");
+      onApprovalChange(nextApproval());
       return;
     }
     if (paletteOpen && event.key === "ArrowDown") {
@@ -174,7 +208,20 @@ export function Composer({
               </div>
             )}
             <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
-            <span className="composer__agent">Agent · Otomatik</span>
+            {onApprovalChange ? (
+              <button
+                aria-label={`İzin modu: ${APPROVAL_LABEL[approval]}. Değiştirmek için tıkla ya da Shift+Tab.`}
+                className="composer__approval"
+                data-mode={approval}
+                onClick={() => onApprovalChange(nextApproval())}
+                title={APPROVAL_HINT[approval]}
+                type="button"
+              >
+                {APPROVAL_LABEL[approval]}
+              </button>
+            ) : (
+              <span className="composer__agent">{APPROVAL_LABEL[approval]}</span>
+            )}
           </div>
           {running ? (
             <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />

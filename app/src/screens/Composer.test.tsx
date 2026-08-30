@@ -61,13 +61,16 @@ describe("Composer — çalışma kipi", () => {
     expect(screen.queryByRole("group", { name: "Çalışma kipi" })).toBeNull();
   });
 
-  it("Shift+Tab ile kipi değiştirir, normal Tab dolaşımını engellemez", () => {
-    const onModeChange = vi.fn();
-    render(<Composer mode="sohbet" onModeChange={onModeChange} onSend={vi.fn()} />);
+  it("Shift+Tab İZİN modunu döndürür, normal Tab dolaşımını engellemez", () => {
+    // Kullanıcı terminaldeki davranışı bekliyor: Shift+Tab izin modunu döndürür.
+    // Çalışma kipi (Sohbet/Kod) ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
+    // alışkanlığı bozuyordu.
+    const onApprovalChange = vi.fn();
+    render(<Composer approval="auto" onApprovalChange={onApprovalChange} onSend={vi.fn()} />);
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
 
     expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(false);
-    expect(onModeChange).toHaveBeenCalledWith("kod");
+    expect(onApprovalChange).toHaveBeenCalledWith("plan");
 
     expect(fireEvent.keyDown(textbox, { key: "Tab" })).toBe(true);
   });
@@ -118,5 +121,33 @@ describe("Composer — slash paleti ve ekler", () => {
     const file = new File(["x"], "suruklenen.txt", { type: "text/plain" });
     fireEvent.drop(container.querySelector(".composer")!, { dataTransfer: { files: [file] } });
     expect(onDropFiles).toHaveBeenCalledWith([file]);
+  });
+});
+
+describe("Composer — izin modu", () => {
+  it("seçili izin modunu gösterir; sabit metin basmaz", () => {
+    render(<Composer approval="security" onSend={() => undefined} />);
+    expect(screen.getByText(/Güvenli/i)).toBeTruthy();
+    expect(screen.queryByText("Agent · Otomatik")).toBeNull();
+  });
+
+  it("Shift+Tab izin modunu sırayla değiştirir", () => {
+    const secilen: string[] = [];
+    render(
+      <Composer approval="auto" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
+    );
+    const kutu = screen.getByLabelText("Mesaj");
+
+    fireEvent.keyDown(kutu, { key: "Tab", shiftKey: true });
+    expect(secilen).toEqual(["plan"]);
+  });
+
+  it("tıklayarak da mod değiştirilebilir", () => {
+    const secilen: string[] = [];
+    render(
+      <Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Yalnız plan/ }));
+    expect(secilen).toEqual(["security"]);
   });
 });

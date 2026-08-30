@@ -316,13 +316,18 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [transport],
   );
 
-  /** Sohbeti KALICI olarak sil: çekirdek süreci kapat, kaydı listeden çıkar. */
+  /** Sohbeti KALICI olarak sil.
+   *
+   * Kayıt ÖNCE listeden çıkar, çekirdek kapanışı arkada sürer. Eskiden tersiydi
+   * ve kullanıcı sil'e bastığında saniyelerce tüm ekranı kaplayan
+   * "Bağlanıyor…" görüyordu — silme anında hissedilmeli.
+   */
   const remove = useCallback(
     async (id: string) => {
-      // Süreç zaten çökmüş olabilir; kapatma hatası silmeyi engellememeli,
+      dispatch({ type: "removed", id });
+      // Süreç zaten çökmüş olabilir; kapatma hatası silmeyi geri almamalı,
       // yoksa kullanıcı bozuk bir kaydı hiç temizleyemez.
       await close(id).catch(() => undefined);
-      dispatch({ type: "removed", id });
     },
     [close],
   );

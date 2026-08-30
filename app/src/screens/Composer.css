@@ -142,3 +142,19 @@
 
 @media (prefers-reduced-motion: reduce) { .composer__voice { transition: none; } }
 .composer__actions { align-items: center; display: flex; gap: 8px; }
+
+/* İzin modu göstergesi. Sabit metin değil, seçili modu gösterir ve tıklanınca
+   sıradakine geçer; Shift+Tab ile aynı döngü. Renk moda göre değişir ki
+   kullanıcı güvenli modda olduğunu bir bakışta görsün. */
+.composer__approval {
+  background: var(--surface-hover); border: 1px solid transparent; border-radius: var(--radius-pill);
+  color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs);
+  min-height: 28px; padding: 4px 12px;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+.composer__approval:hover { background: var(--surface-selected); color: var(--text-primary); }
+.composer__approval:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__approval[data-mode="plan"] { border-color: var(--border-strong); color: var(--text-primary); }
+.composer__approval[data-mode="security"] { background: var(--surface-accent-subtle); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) { .composer__approval { transition: none; } }
