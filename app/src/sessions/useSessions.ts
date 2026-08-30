@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
-import { olayMetni } from "../protocol/olayMetni";
 import type { Soru } from "../protocol/types";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
@@ -72,12 +71,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         },
         (handler) => lineHandlers.current.set(id, handler),
       );
-      client.onEvent((event) => {
-        const text = olayMetni(event);
-        if (text) {
-          dispatch({ type: "messageAdded", id, message: { rol: "olay", metin: text } });
-        }
-      });
+      client.onEvent((event) => dispatch({ type: "eventReceived", id, event }));
       client.onQuestion((questionId, data) => {
         if (data.tur === "onay") {
           dispatch({

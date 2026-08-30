@@ -9,7 +9,7 @@ import {
 } from "./dialogs/CommandSelector";
 import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
-import { olayMetni } from "./protocol/olayMetni";
+import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
 import { useRuntime } from "./runtime/useRuntime";
 import type { RuntimeTransport } from "./runtime/types";
@@ -104,8 +104,7 @@ function useConversation(client: ProtocolClient) {
   useEffect(() => {
     void client.request("oturum.durum", {}).catch(() => undefined);
     client.onEvent((event) => {
-      const text = olayMetni(event);
-      if (text) setMessages((current) => [...current, { rol: "olay", metin: text }]);
+      setMessages((current) => olayEkle(current, event));
     });
     client.onQuestion((id, data) => {
       if (data.tur === "onay") setQuestion({ id, data: data as unknown as Soru });

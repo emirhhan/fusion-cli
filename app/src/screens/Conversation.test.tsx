@@ -21,9 +21,40 @@ describe("Conversation", () => {
     );
   });
 
-  it("çalışma olayını açılabilir ayrıntı olarak sunar", () => {
-    render(<Conversation mesajlar={[{ rol: "olay", metin: "Dosya yazıldı: index.html" }]} />);
-    expect(screen.getByText("Dosya yazıldı: index.html").closest("details")).toBeTruthy();
+  it("ayrıntılı çalışma adımını açılabilir kutuda sunar", () => {
+    render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "araç çalıştı: write_file",
+          adimlar: [{ metin: "araç çalıştı: write_file", ayrinti: "index.html" }],
+        }]}
+      />,
+    );
+    expect(screen.getByText("index.html").closest("details")).toBeTruthy();
+  });
+
+  it("tek ve ayrıntısız adımda açılır kutu açmaz; aynı cümleyi iki kez yazmaz", () => {
+    render(<Conversation mesajlar={[{ rol: "olay", metin: "düşünüyor", adimlar: [{ metin: "düşünüyor" }] }]} />);
+    expect(screen.getAllByText("düşünüyor")).toHaveLength(1);
+    expect(screen.queryByRole("group")).toBeNull();
+  });
+
+  it("ardışık adımlar tek blokta ve sayısıyla görünür", () => {
+    render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "düşünüyor",
+          adimlar: [
+            { metin: "düşünüyor", ayrinti: "agent · openrouter/x" },
+            { metin: "araç çalıştı: web_fetch", kaynak: "https://ornek.com" },
+          ],
+        }]}
+      />,
+    );
+    expect(screen.getByText("2 adım")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "https://ornek.com" })).toBeTruthy();
   });
 
   it("uzun ve satır sonlu metni güvenli metin akışında korur", () => {

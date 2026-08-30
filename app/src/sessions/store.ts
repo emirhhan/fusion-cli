@@ -2,6 +2,7 @@ import type { ProtocolClient } from "../protocol/client";
 import type { Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
+import { olayEkle } from "../protocol/olayAkisi";
 
 export const initialSessionState: SessionState = {
   activeId: null,
@@ -24,6 +25,7 @@ export type SessionAction =
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
+  | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
@@ -74,6 +76,12 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         messages: [...session.messages, action.message],
+      }));
+    case "eventReceived":
+      // Olaylar akışa BİRLEŞTİRİLEREK girer; birleştirme kuralı `olayEkle`de.
+      return updateSession(state, action.id, (session) => ({
+        ...session,
+        messages: olayEkle(session.messages, action.event),
       }));
     case "runningChanged":
       return updateSession(state, action.id, (session) => ({
