@@ -102,3 +102,59 @@ describe("ControlPanel — yönetim derinliği", () => {
     expect(screen.queryByRole("button", { name: "Çalışma klasörünü değiştir" })).toBeNull();
   });
 });
+
+describe("ControlPanel — arama ve model ekleme", () => {
+  it("arama, eşleşmeyen bölümleri gizler", async () => {
+    render(<ControlPanel client={client()} onClose={() => undefined} />);
+    await screen.findByText("Model düzeni");
+    fireEvent.change(screen.getByRole("searchbox", { name: /panelde ara/i }), {
+      target: { value: "gateway" },
+    });
+
+    expect(screen.getByText("Yerel Gateway")).toBeTruthy();
+    expect(screen.queryByText("MCP sunucuları")).toBeNull();
+  });
+
+  it("eşleşme yoksa bunu söyler", async () => {
+    render(<ControlPanel client={client()} onClose={() => undefined} />);
+    await screen.findByText("Model düzeni");
+    fireEvent.change(screen.getByRole("searchbox", { name: /panelde ara/i }), {
+      target: { value: "kkkk" },
+    });
+    expect(screen.getByText(/eşleşen bölüm yok/i)).toBeTruthy();
+  });
+
+  it("yeni adayı komut köprüsünden ekler; kendi uç noktasını uydurmaz", async () => {
+    const onCommand = vi.fn();
+    const fake = client();
+    render(<ControlPanel client={fake} onClose={() => undefined} onRunCommand={onCommand} />);
+    await screen.findByText("Model düzeni");
+
+    fireEvent.change(screen.getByLabelText("Aday adı"), { target: { value: "hizli" } });
+    fireEvent.change(screen.getByLabelText("Model kimliği"), { target: { value: "ollama/q:7b" } });
+    fireEvent.click(screen.getByRole("button", { name: "Adayı ekle" }));
+
+    expect(onCommand).toHaveBeenCalledWith("/model add hizli ollama/q:7b");
+    // Panel model havuzunu KENDİ yazmaz: protokole doğrudan yazma isteği gitmez.
+    expect(fake.request).not.toHaveBeenCalledWith("kontrol.model_ekle", expect.anything());
+  });
+
+  it("iki alan da dolmadan ekleme düğmesi çalışmaz", async () => {
+    const onCommand = vi.fn();
+    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
+    await screen.findByText("Model düzeni");
+    fireEvent.change(screen.getByLabelText("Aday adı"), { target: { value: "hizli" } });
+
+    expect((screen.getByRole("button", { name: "Adayı ekle" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Adayı ekle" }));
+    expect(onCommand).not.toHaveBeenCalled();
+  });
+
+  it("adayı komut köprüsünden çıkarır", async () => {
+    const onCommand = vi.fn();
+    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
+    await screen.findByText("Model düzeni");
+    fireEvent.click(screen.getByRole("button", { name: "model/a adayını çıkar" }));
+    expect(onCommand).toHaveBeenCalledWith("/model rm model/a");
+  });
+});

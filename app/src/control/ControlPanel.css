@@ -40,3 +40,117 @@
 .control-panel__actions button { background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer; font: inherit; font-size: 13px; min-height: 40px; padding: 9px 14px; }
 .control-panel__actions button:hover { background: var(--surface-hover); }
 .control-panel__actions button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Panel araması ve aday havuzu. */
+
+.control-panel__header-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.control-panel__search {
+  width: 190px;
+  padding: 8px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.control-panel__empty {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 22px;
+  border: 1px dashed var(--hairline);
+  border-radius: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.control-panel__candidates {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.control-panel__candidates h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.control-panel__candidates small {
+  display: block;
+  margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.control-panel__candidate-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.control-panel__candidate-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.control-panel__candidate-list code {
+  font-size: 12px;
+}
+
+.control-panel__candidate-list button,
+.control-panel__candidate-form button {
+  padding: 5px 11px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.control-panel__candidate-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.control-panel__candidate-form label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.control-panel__candidate-form input {
+  padding: 7px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.control-panel__candidate-form button {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.control-panel__candidate-form button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
