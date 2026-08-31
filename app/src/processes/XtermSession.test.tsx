@@ -26,6 +26,7 @@ function setup() {
   const session: TerminalSession = {
     snapshot: { terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 },
     write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
+    clearRetention: vi.fn(),
     onOutput: vi.fn((handler) => { outputHandler = handler; return vi.fn(); }),
     onClosed: vi.fn(() => vi.fn()), dispose: vi.fn(),
   };
@@ -129,6 +130,7 @@ describe("XtermSession", () => {
     fireEvent.click(view.getByRole("button", { name: "Panodan yapıştır" }));
     await waitFor(() => expect(value.adapter.paste).toHaveBeenCalledWith("panodan"));
     expect(value.adapter.clear).toHaveBeenCalledOnce();
+    expect(value.session.clearRetention).toHaveBeenCalledOnce();
     expect(writeText).toHaveBeenCalledWith("seçim");
     expect(view.getByRole("status").textContent).toContain("shell exited");
   });

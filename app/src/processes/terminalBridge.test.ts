@@ -13,6 +13,74 @@ beforeEach(() => {
 });
 
 describe("terminalBridge", () => {
+  it("overflow'da split UTF-8 unit'i retention'a almaz; live akışı eksiksiz sürdürür", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const live: Uint8Array[] = [];
+    session.onOutput((data) => live.push(data));
+    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    emit([36, 32]);
+    emit(new Array<number>(256 * 1024 - 2).fill(97));
+    emit([226, 130]);
+    emit([172]);
+    const replay: Uint8Array[] = [];
+    session.onOutput((data) => replay.push(data));
+
+    expect(Array.from(replay[0])).toEqual([36, 32]);
+    expect(replay.reduce((total, data) => total + data.byteLength, 0)).toBe(256 * 1024);
+    expect(Array.from(replay.at(-1)!.slice(-3))).toEqual([97, 97, 97]);
+    expect(Array.from(live.at(-2)!)).toEqual([226, 130]);
+    expect(Array.from(live.at(-1)!)).toEqual([172]);
+  });
+
+  it("overflow'da split ANSI unit'i retention'a almaz; replay yarım escape ile başlamaz", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const live: Uint8Array[] = [];
+    session.onOutput((data) => live.push(data));
+    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    emit([36, 32]);
+    emit(new Array<number>(256 * 1024 - 2).fill(97));
+    emit([27, 91, 51, 49]);
+    emit([109]);
+    const replay: Uint8Array[] = [];
+    session.onOutput((data) => replay.push(data));
+
+    expect(Array.from(replay[0])).toEqual([36, 32]);
+    expect(replay.reduce((total, data) => total + data.byteLength, 0)).toBe(256 * 1024);
+    expect(replay.every((data) => !data.includes(27))).toBe(true);
+    expect(Array.from(live.at(-2)!)).toEqual([27, 91, 51, 49]);
+    expect(Array.from(live.at(-1)!)).toEqual([109]);
+  });
+
+  it("clearRetention eski replay epoch'unu siler ve sonraki güvenli output ile yenisini başlatır", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    emit([111, 108, 100]);
+    session.clearRetention();
+    emit([110, 101, 119]);
+    const replay: number[] = [];
+    session.onOutput((data) => replay.push(...data));
+
+    expect(replay).toEqual([110, 101, 119]);
+  });
+
   it("eşzamanlı close çağrılarını tek terminal_kapat promise'ında birleştirir", async () => {
     listen.mockResolvedValue(vi.fn());
     let finishClose!: () => void;
@@ -66,7 +134,7 @@ describe("terminalBridge", () => {
     expect(listen.mock.invocationCallOrder[1]).toBeLessThan(invoke.mock.invocationCallOrder[0]);
   });
 
-  it("retained transcript'i 256 KiB ile sınırlar ve yeni subscriber'a yalnız kuyruğun sonunu replay eder", async () => {
+  it("retained transcript'i 256 KiB ile sınırlar ve güvenli akış başlangıcını korur", async () => {
     const handlers = new Map<string, (event: { payload: unknown }) => void>();
     listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
       handlers.set(name, handler);
@@ -75,15 +143,15 @@ describe("terminalBridge", () => {
     invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
     const session = await createTerminalRuntime().openSession("/repo", 80, 24);
     for (let index = 0; index < 257; index += 1) {
-      const data = new Array<number>(1024).fill(index % 251);
+      const data = new Array<number>(1024).fill(97);
       handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
     }
     const replayed: Uint8Array[] = [];
     session.onOutput((data) => replayed.push(data));
 
     expect(replayed).toHaveLength(256);
-    expect(replayed[0][0]).toBe(1);
-    expect(replayed[255][0]).toBe(256 % 251);
+    expect(replayed[0][0]).toBe(97);
+    expect(replayed[255][0]).toBe(97);
   });
 
   it("terminal_ac sırasında senkron gelen hızlı kapanmayı buffer'lar ve close'u idempotent yapar", async () => {

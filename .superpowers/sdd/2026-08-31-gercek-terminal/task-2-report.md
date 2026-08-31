@@ -63,3 +63,16 @@
 2. Eşzamanlı close testi RED'de 2 `terminal_kapat` gördü; shared close promise sonrası tam 1 çağrı gördü.
 3. Partial listener testi RED'de ilk unlisten için 0 çağrı gördü; sıralı install/rollback sonrası tam 1 çağrı gördü ve `terminal_ac` hiç çağrılmadı.
 4. Bounded transcript ve Clear davranışı ayrı regresyon testleriyle kilitlendi.
+
+## Review fix round 3
+
+- Retention artık byte tail kırpmıyor. Replay, epoch başlangıcından itibaren yalnız tamamlanmış ASCII span, UTF-8 codepoint ve ANSI kontrol dizisi unit'leri içeriyor.
+- 256 KiB sınırına sığmayan ilk güvenli unit'te retention donuyor; eski baş drop/slice edilmiyor. Live subscriber'lar donmadan bağımsız olarak bütün raw output chunk'larını almaya devam ediyor.
+- Split UTF-8 ve split CSI overflow sınırlarında yeni subscriber prompt ile başlayan güvenli prefix'i alıyor; continuation byte veya yarım escape dizisi replay başlangıcı olamıyor.
+- Clear, xterm ekranıyla birlikte retained epoch'u sıfırlıyor. Önceki epoch'tan yarım kalmış unit varsa tamamlanınca retention'a alınmadan atlanıyor; sonraki güvenli output yeni epoch'u başlatıyor.
+
+### Round 3 TDD kanıtı
+
+1. Split UTF-8 overflow testi RED'de replay'in `[E2 82]` ile başladığını gösterdi; güvenli-unit retention sonrası prompt ile başladı ve taşan `€` yalnız live akışta kaldı.
+2. Split ANSI overflow testi RED'de replay'in `ESC [` ile başladığını gösterdi; güvenli-unit retention sonrası prompt korundu ve taşan CSI yalnız live akışta kaldı.
+3. Clear epoch testleri RED'de `clearRetention` eksikliği ve UI'dan 0 çağrı gördü; session API/UI bağlantısı sonrası eski epoch replay edilmedi.

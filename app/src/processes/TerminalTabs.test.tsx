@@ -25,6 +25,7 @@ function runtime(): TerminalRuntime & { sessions: Array<TerminalSession & { emit
       const session: TerminalSession & { emitClosed(reason: string): void } = {
         snapshot: { terminalId, cwd, cols, rows, pid: 100 + id },
         write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
+        clearRetention: vi.fn(),
         onOutput: vi.fn(() => vi.fn()),
         onClosed: vi.fn((handler) => { closedHandlers.add(handler); return () => closedHandlers.delete(handler); }),
         dispose: vi.fn(),

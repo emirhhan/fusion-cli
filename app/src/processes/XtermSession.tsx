@@ -111,7 +111,14 @@ export function XtermSession({
   return (
     <div className="xterm-session" hidden={!active}>
       <div className="xterm-session__actions">
-        <button aria-label="Terminali temizle" onClick={() => adapterRef.current?.clear()} type="button">Temizle</button>
+        <button
+          aria-label="Terminali temizle"
+          onClick={() => {
+            adapterRef.current?.clear();
+            session.clearRetention();
+          }}
+          type="button"
+        >Temizle</button>
         <button aria-label="Seçimi kopyala" onClick={() => void copy()} type="button">Kopyala</button>
         <button aria-label="Panodan yapıştır" onClick={() => void paste()} type="button">Yapıştır</button>
       </div>
