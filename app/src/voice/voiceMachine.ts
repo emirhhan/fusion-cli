@@ -16,13 +16,14 @@ export interface VoiceMachineState {
   partial: string;
   phase: VoicePhase;
   phaseBeforeAsk: VoicePhase | null;
+  session: number;
   transcript: string;
 }
 
 export type VoiceMachineEvent =
-  | { type: "START_LISTENING" }
-  | { type: "PARTIAL"; text: string }
-  | { type: "FINAL"; text: string }
+  | { type: "START_LISTENING"; session?: number }
+  | { type: "PARTIAL"; session?: number; text: string }
+  | { type: "FINAL"; session?: number; text: string }
   | { type: "ASSISTANT_STARTED"; text?: string }
   | { type: "ASSISTANT_FINISHED" }
   | { type: "ASK_OPENED" }
@@ -39,6 +40,7 @@ export const initialVoiceMachine: VoiceMachineState = {
   partial: "",
   phase: "idle",
   phaseBeforeAsk: null,
+  session: 0,
   transcript: "",
 };
 
@@ -52,13 +54,16 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         lastFinal: null,
         partial: "",
         phase: "listening",
+        session: event.session ?? state.session + 1,
       };
     case "PARTIAL": {
+      if (event.session !== undefined && event.session !== state.session) return state;
       const text = event.text.trim();
       if (!text) return state;
       return { ...state, error: null, partial: text, phase: "transcribing", transcript: text };
     }
     case "FINAL": {
+      if (event.session !== undefined && event.session !== state.session) return state;
       const text = event.text.trim();
       if (!text || text === state.lastFinal) return state;
       return {

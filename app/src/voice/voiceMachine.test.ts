@@ -46,4 +46,26 @@ describe("voiceMachine", () => {
       phase: "error",
     });
   });
+
+  it("eski oturumun kısmi ve final metnini reddeder", () => {
+    const first = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 1 });
+    const second = voiceMachine(first, { type: "START_LISTENING", session: 2 });
+
+    expect(voiceMachine(second, { type: "PARTIAL", session: 1, text: "eski" })).toBe(second);
+    expect(voiceMachine(second, { type: "FINAL", session: 1, text: "eski final" })).toBe(second);
+    expect(voiceMachine(second, { type: "FINAL", session: 2, text: "yeni final" })).toMatchObject({
+      finalRevision: 1,
+      finalText: "yeni final",
+      session: 2,
+    });
+  });
+
+  it("aynı oturum finalini yalnız bir revizyona çevirir", () => {
+    const listening = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 7 });
+    const final = voiceMachine(listening, { type: "FINAL", session: 7, text: "tek mesaj" });
+    const duplicate = voiceMachine(final, { type: "FINAL", session: 7, text: "tek mesaj" });
+
+    expect(final.finalRevision).toBe(1);
+    expect(duplicate).toBe(final);
+  });
 });

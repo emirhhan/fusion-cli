@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import {
   answerVoiceAsk,
   emitVoiceMessage,
@@ -22,7 +23,6 @@ import {
   closeVoiceWindow,
   minimizeVoiceWindow,
   onVoiceWindowGeometryChanged,
-  startSpeechRecognition,
   stopSpeechRecognition,
   type VoiceWindowGeometry,
   type VoiceWindowSnapshot,
@@ -35,6 +35,8 @@ interface RecognitionLine {
 }
 
 type Unlisten = () => void;
+interface RecognitionPayload { session: number; line: string; }
+interface RecognitionEndedPayload { session: number; reason: string | null; }
 
 export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;
@@ -43,13 +45,15 @@ export interface VoiceWindowRuntime {
   emitMessage(message: VoiceMessage): Promise<void>;
   onAsk(handler: (ask: VoiceAsk | null) => void): Promise<Unlisten>;
   onPrefs(handler: (prefs: VoicePrefsPayload) => void): Promise<Unlisten>;
-  onRecognition(handler: (payload: string) => void): Promise<Unlisten>;
-  onRecognitionEnded(handler: (reason: string | null) => void): Promise<Unlisten>;
+  onRecognition(handler: (payload: RecognitionPayload) => void): Promise<Unlisten>;
+  onRecognitionEnded(handler: (payload: RecognitionEndedPayload) => void): Promise<Unlisten>;
   onRuntimeState(handler: (state: VoiceRuntimeState) => void): Promise<Unlisten>;
   onWindowGeometry(handler: (snapshot: VoiceWindowSnapshot) => void): Promise<Unlisten>;
   pickModel(): Promise<string | null>;
+  /** PermissionCenter için dar, enjekte edilebilir ön denetim noktası. */
+  preflightRecognition(): Promise<boolean>;
   requestPrefs(prefs: VoicePrefsPayload | null): Promise<void>;
-  startRecognition(): Promise<void>;
+  startRecognition(): Promise<number | void>;
   stopRecognition(): Promise<void>;
 }
 
@@ -60,16 +64,17 @@ const DEFAULT_RUNTIME: VoiceWindowRuntime = {
   emitMessage: emitVoiceMessage,
   onAsk: onVoiceAsk,
   onPrefs: onVoicePrefsState,
-  onRecognition: (handler) => listen<string>("ses://tanima", (event) => handler(event.payload)),
-  onRecognitionEnded: (handler) => listen<{ stderr_summary?: { message?: string } | null }>(
+  onRecognition: (handler) => listen<RecognitionPayload>("ses://tanima", (event) => handler(event.payload)),
+  onRecognitionEnded: (handler) => listen<{ session: number; stderr_summary?: { message?: string } | null }>(
     "ses://tanima-sonlandi",
-    (event) => handler(event.payload.stderr_summary?.message ?? null),
+    (event) => handler({ session: event.payload.session, reason: event.payload.stderr_summary?.message ?? null }),
   ),
   onRuntimeState: onVoiceRuntimeState,
   onWindowGeometry: onVoiceWindowGeometryChanged,
   pickModel: selectVoiceModel,
+  preflightRecognition: async () => true,
   requestPrefs: requestVoicePrefs,
-  startRecognition: startSpeechRecognition,
+  startRecognition: () => invoke<number>("tanima_baslat"),
   stopRecognition: stopSpeechRecognition,
 };
 
@@ -121,37 +126,51 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   const machineRef = useRef(machine);
   const askRef = useRef(ask);
   const sentRevision = useRef(0);
-  const expectedRecognitionEnd = useRef(false);
+  const activeSession = useRef(0);
+  const nextSession = useRef(0);
+  const expectedRecognitionEnd = useRef<number | null>(null);
   const restartAfterRecognitionEnd = useRef(false);
   const recognitionQueue = useRef<Promise<void>>(Promise.resolve());
   machineRef.current = machine;
   askRef.current = ask;
 
-  const queueRecognition = useCallback((operation: () => Promise<void>) => {
+  const queueRecognition = useCallback(<T,>(operation: () => Promise<T>) => {
     const queued = recognitionQueue.current.then(operation, operation);
-    recognitionQueue.current = queued.catch(() => undefined);
+    recognitionQueue.current = queued.then(() => undefined, () => undefined);
     return queued;
   }, []);
 
   const startListening = useCallback(async () => {
-    dispatch({ type: "START_LISTENING" });
-    if (cuesEnabled()) playCue("listen-start");
-    expectedRecognitionEnd.current = false;
     try {
-      await queueRecognition(() => runtime.startRecognition());
+      const permitted = await runtime.preflightRecognition();
+      if (!permitted) {
+        dispatch({ type: "FAILED", text: "Mikrofon izni verilmedi. İzin verdikten sonra yeniden deneyin." });
+        return;
+      }
+      const requestedSession = nextSession.current + 1;
+      const session = await queueRecognition(async () => {
+        const started = await runtime.startRecognition();
+        return typeof started === "number" ? started : requestedSession;
+      });
+      nextSession.current = Math.max(nextSession.current, session);
+      activeSession.current = session;
+      expectedRecognitionEnd.current = null;
+      dispatch({ type: "START_LISTENING", session });
+      if (cuesEnabled()) playCue("listen-start");
     } catch (reason) {
-      dispatch({ type: "FAILED", text: String(reason) });
+      dispatch({ type: "FAILED", text: `Konuşma tanıma başlatılamadı: ${String(reason)}` });
     }
   }, [queueRecognition, runtime]);
 
   const stopListening = useCallback(async () => {
     dispatch({ type: "STOPPED" });
     if (cuesEnabled()) playCue("listen-stop");
-    expectedRecognitionEnd.current = true;
+    expectedRecognitionEnd.current = activeSession.current || null;
+    activeSession.current = 0;
     try {
       await queueRecognition(() => runtime.stopRecognition());
     } catch (reason) {
-      dispatch({ type: "FAILED", text: String(reason) });
+      dispatch({ type: "FAILED", text: `Konuşma tanıma durdurulamadı: ${String(reason)}` });
     }
   }, [queueRecognition, runtime]);
 
@@ -169,11 +188,8 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
       const open = incoming?.acik === true ? incoming : null;
       setAsk(open);
       dispatch({ type: open ? "ASK_OPENED" : "ASK_CLOSED" });
-      if (open) {
-        expectedRecognitionEnd.current = false;
-        void queueRecognition(() => runtime.startRecognition()).catch((reason) => {
-          dispatch({ type: "FAILED", text: String(reason) });
-        });
+      if (open && activeSession.current === 0) {
+        void startListening();
       }
     });
     return () => { void remove.then((unlisten) => unlisten()).catch(() => undefined); };
@@ -189,20 +205,21 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
     let alive = true;
     let removeRecognition: Unlisten | null = null;
     let removeEnded: Unlisten | null = null;
-    const handleRecognition = (payload: string) => {
+    const handleRecognition = (payload: RecognitionPayload) => {
+      if (payload.session !== activeSession.current) return;
       let line: RecognitionLine;
       try {
-        line = JSON.parse(payload) as RecognitionLine;
+        line = JSON.parse(payload.line) as RecognitionLine;
       } catch {
         return;
       }
       if (line.tur === "hata") {
-        expectedRecognitionEnd.current = true;
+        expectedRecognitionEnd.current = payload.session;
         dispatch({ type: "FAILED", text: line.metin });
       } else if (line.tur === "kismi") {
         if (!askRef.current) dispatch({ type: "PARTIAL", text: line.metin });
       } else if (line.tur === "son") {
-        expectedRecognitionEnd.current = true;
+        expectedRecognitionEnd.current = payload.session;
         const openAsk = askRef.current;
         const answer = openAsk ? matchSpokenAnswer(line.metin, openAsk) : null;
         if (answer) {
@@ -218,19 +235,21 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
         }
       }
     };
-    const handleEnded = (reason: string | null) => {
+    const handleEnded = ({ session, reason }: RecognitionEndedPayload) => {
+      if (session !== activeSession.current) return;
       if (restartAfterRecognitionEnd.current) {
         restartAfterRecognitionEnd.current = false;
-        expectedRecognitionEnd.current = false;
-        void queueRecognition(() => runtime.startRecognition()).catch((error) => {
-          dispatch({ type: "FAILED", text: String(error) });
-        });
+        activeSession.current = 0;
+        expectedRecognitionEnd.current = null;
+        void startListening();
         return;
       }
-      if (expectedRecognitionEnd.current) {
-        expectedRecognitionEnd.current = false;
+      if (expectedRecognitionEnd.current === session) {
+        expectedRecognitionEnd.current = null;
+        activeSession.current = 0;
         return;
       }
+      activeSession.current = 0;
       dispatch({
         type: "FAILED",
         text: reason || "Konuşma tanıma beklenmedik şekilde kapandı.",
@@ -255,7 +274,8 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
       alive = false;
       removeRecognition?.();
       removeEnded?.();
-      expectedRecognitionEnd.current = true;
+      expectedRecognitionEnd.current = activeSession.current || null;
+      activeSession.current = 0;
       void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
     };
   }, [queueRecognition, runtime, startListening]);
@@ -270,7 +290,8 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   useEffect(() => {
     const remove = runtime.onRuntimeState((incoming) => {
       if (incoming.durum === "talking") {
-        expectedRecognitionEnd.current = true;
+        expectedRecognitionEnd.current = activeSession.current || null;
+        activeSession.current = 0;
         void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
         dispatch({ type: "ASSISTANT_STARTED", text: incoming.metin });
         return;

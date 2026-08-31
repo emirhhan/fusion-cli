@@ -376,7 +376,7 @@ fn speech_helper_resource_name(target_os: &str) -> &'static str {
 fn tanima_baslat(
     app: tauri::AppHandle,
     manager: tauri::State<SpeechManager>,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let helper = app
         .path()
         .resolve(

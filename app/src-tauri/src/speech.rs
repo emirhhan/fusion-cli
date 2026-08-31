@@ -1,34 +1,48 @@
 use serde::Serialize;
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Mutex,
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub(crate) const STDERR_LIMIT: usize = 2 * 1024;
 
-pub(crate) struct SpeechManager(Mutex<Option<Child>>);
+struct OwnedChild {
+    child: Child,
+    session: u64,
+}
+
+pub(crate) struct SpeechManager {
+    child: Mutex<Option<OwnedChild>>,
+    next_session: AtomicU64,
+}
 
 impl SpeechManager {
     pub(crate) fn new() -> Self {
-        Self(Mutex::new(None))
+        Self {
+            child: Mutex::new(None),
+            next_session: AtomicU64::new(0),
+        }
     }
 
     fn start(&self, command: &mut Command) -> Result<SpeechStart, String> {
         let mut child_slot = self
-            .0
+            .child
             .lock()
             .map_err(|_| "tanıma süreç kilidi kullanılamıyor".to_string())?;
 
-        if let Some(child) = child_slot.as_mut() {
-            match child.try_wait() {
-                Ok(None) => return Ok(SpeechStart::reused(child.id())),
+        if let Some(owned) = child_slot.as_mut() {
+            match owned.child.try_wait() {
+                Ok(None) => return Ok(SpeechStart::reused(owned.child.id(), owned.session)),
                 Ok(Some(_)) => {
                     child_slot.take();
                 }
                 Err(_) => {
                     if let Some(mut stale) = child_slot.take() {
-                        let _ = stale.kill();
-                        let _ = stale.wait();
+                        let _ = stale.child.kill();
+                        let _ = stale.child.wait();
                     }
                 }
             }
@@ -55,50 +69,53 @@ impl SpeechManager {
                 return Err("tanıma hata çıktısı okunamadı".into());
             }
         };
-        *child_slot = Some(child);
-        Ok(SpeechStart::started(pid, stdout, stderr))
+        let session = self.next_session.fetch_add(1, Ordering::Relaxed) + 1;
+        *child_slot = Some(OwnedChild { child, session });
+        Ok(SpeechStart::started(pid, session, stdout, stderr))
     }
 
     pub(crate) fn stop(&self) -> Result<(), String> {
         let child = self
-            .0
+            .child
             .lock()
             .map_err(|_| "tanıma süreç kilidi kullanılamıyor".to_string())?
             .take();
-        if let Some(child) = child {
-            terminate(child);
+        if let Some(owned) = child {
+            terminate(owned.child);
         }
         Ok(())
     }
 
     pub(crate) fn is_running(&self) -> bool {
-        let Ok(mut child_slot) = self.0.lock() else {
+        let Ok(mut child_slot) = self.child.lock() else {
             return false;
         };
         let running = child_slot
             .as_mut()
-            .is_some_and(|child| matches!(child.try_wait(), Ok(None)));
+            .is_some_and(|owned| matches!(owned.child.try_wait(), Ok(None)));
         if !running {
             child_slot.take();
         }
         running
     }
 
-    fn finish(&self, pid: u32) -> bool {
+    fn finish(&self, pid: u32, session: u64) -> bool {
         let child = {
-            let Ok(mut child_slot) = self.0.lock() else {
+            let Ok(mut child_slot) = self.child.lock() else {
                 return false;
             };
             match child_slot.as_ref() {
-                Some(child) if child.id() == pid => child_slot.take(),
+                Some(owned) if owned.child.id() == pid && owned.session == session => {
+                    child_slot.take()
+                }
                 Some(_) => return false,
                 // `stop()` child'ı yuvadan bilerek çıkardıysa eski stdout
                 // okuyucusu artık bir "beklenmedik son" olayı yayınlamamalı.
                 None => return false,
             }
         };
-        if let Some(child) = child {
-            terminate(child);
+        if let Some(owned) = child {
+            terminate(owned.child);
         }
         true
     }
@@ -113,24 +130,27 @@ fn terminate(mut child: Child) {
 
 struct SpeechStart {
     pid: u32,
+    session: u64,
     started: bool,
     stdout: Option<ChildStdout>,
     stderr: Option<ChildStderr>,
 }
 
 impl SpeechStart {
-    fn started(pid: u32, stdout: ChildStdout, stderr: ChildStderr) -> Self {
+    fn started(pid: u32, session: u64, stdout: ChildStdout, stderr: ChildStderr) -> Self {
         Self {
             pid,
+            session,
             started: true,
             stdout: Some(stdout),
             stderr: Some(stderr),
         }
     }
 
-    fn reused(pid: u32) -> Self {
+    fn reused(pid: u32, session: u64) -> Self {
         Self {
             pid,
+            session,
             started: false,
             stdout: None,
             stderr: None,
@@ -139,6 +159,10 @@ impl SpeechStart {
 
     fn pid(&self) -> u32 {
         self.pid
+    }
+
+    fn session(&self) -> u64 {
+        self.session
     }
 
     fn was_started(&self) -> bool {
@@ -155,6 +179,7 @@ struct StderrSummary {
 
 #[derive(Clone, Debug, Serialize)]
 struct SpeechEnded {
+    session: u64,
     stderr_summary: Option<StderrSummary>,
 }
 
@@ -162,13 +187,14 @@ pub(crate) fn start_recognition(
     app: AppHandle,
     manager: &SpeechManager,
     command: &mut Command,
-) -> Result<(), String> {
+) -> Result<u64, String> {
     let mut started = manager.start(command)?;
     if !started.was_started() {
-        return Ok(());
+        return Ok(started.session());
     }
 
     let pid = started.pid();
+    let session = started.session();
     let stdout = started
         .stdout
         .take()
@@ -181,15 +207,27 @@ pub(crate) fn start_recognition(
 
     std::thread::spawn(move || {
         forward_stdout(stdout, |line| {
-            let _ = app.emit("ses://tanima", line);
+            let _ = app.emit("ses://tanima", SpeechOutput { session, line });
         });
-        let is_current = app.state::<SpeechManager>().finish(pid);
+        let is_current = app.state::<SpeechManager>().finish(pid, session);
         let stderr_summary = stderr_reader.join().unwrap_or(None);
         if is_current {
-            let _ = app.emit("ses://tanima-sonlandi", SpeechEnded { stderr_summary });
+            let _ = app.emit(
+                "ses://tanima-sonlandi",
+                SpeechEnded {
+                    session,
+                    stderr_summary,
+                },
+            );
         }
     });
-    Ok(())
+    Ok(session)
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct SpeechOutput {
+    session: u64,
+    line: String,
 }
 
 pub(crate) fn cleanup_for_window(label: &str, manager: &SpeechManager) {
@@ -298,7 +336,7 @@ mod tests {
             .expect("ikinci child başlamalı")
             .pid();
 
-        assert!(!manager.finish(first_pid));
+        assert!(!manager.finish(first_pid, 1));
         assert!(manager.is_running());
         assert_ne!(first_pid, second_pid);
         manager.stop().expect("ikinci child temizlenmeli");
@@ -314,7 +352,37 @@ mod tests {
 
         manager.stop().expect("child temizlenmeli");
 
-        assert!(!manager.finish(pid));
+        assert!(!manager.finish(pid, 1));
+    }
+
+    #[test]
+    fn every_fresh_child_gets_a_monotonically_increasing_session_token() {
+        let manager = SpeechManager::new();
+        let first = manager
+            .start(&mut helper_command("sleep"))
+            .expect("ilk child başlamalı");
+        let first_session = first.session();
+        manager.stop().expect("ilk child durmalı");
+        let second = manager
+            .start(&mut helper_command("sleep"))
+            .expect("ikinci child başlamalı");
+
+        assert!(second.session() > first_session);
+        manager.stop().expect("ikinci child temizlenmeli");
+    }
+
+    #[test]
+    fn reused_child_keeps_its_session_token() {
+        let manager = SpeechManager::new();
+        let first = manager
+            .start(&mut helper_command("sleep"))
+            .expect("ilk child başlamalı");
+        let second = manager
+            .start(&mut helper_command("sleep"))
+            .expect("mevcut child kullanılmalı");
+
+        assert_eq!(second.session(), first.session());
+        manager.stop().expect("child temizlenmeli");
     }
 
     #[test]
