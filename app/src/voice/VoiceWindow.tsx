@@ -37,6 +37,9 @@ interface RecognitionLine {
 type Unlisten = () => void;
 interface RecognitionPayload { session: number; line: string; }
 interface RecognitionEndedPayload { session: number; reason: string | null; }
+type PendingRecognitionEvent =
+  | { type: "output"; payload: RecognitionPayload }
+  | { type: "ended"; payload: RecognitionEndedPayload };
 
 export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;
@@ -128,6 +131,11 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   const sentRevision = useRef(0);
   const activeSession = useRef(0);
   const nextSession = useRef(0);
+  const recognitionIntent = useRef(0);
+  const startingIntent = useRef<number | null>(null);
+  const pendingRecognitionEvents = useRef<PendingRecognitionEvent[]>([]);
+  const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
+  const finalizedSession = useRef<number | null>(null);
   const expectedRecognitionEnd = useRef<number | null>(null);
   const restartAfterRecognitionEnd = useRef(false);
   const recognitionQueue = useRef<Promise<void>>(Promise.resolve());
@@ -141,21 +149,35 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   }, []);
 
   const startListening = useCallback(async () => {
+    const intent = recognitionIntent.current + 1;
+    recognitionIntent.current = intent;
+    const requestedSession = nextSession.current + 1;
+    dispatch({ type: "START_LISTENING", session: requestedSession });
     try {
       const permitted = await runtime.preflightRecognition();
+      if (recognitionIntent.current !== intent) return;
       if (!permitted) {
         dispatch({ type: "FAILED", text: "Mikrofon izni verilmedi. İzin verdikten sonra yeniden deneyin." });
         return;
       }
-      const requestedSession = nextSession.current + 1;
       const session = await queueRecognition(async () => {
+        if (recognitionIntent.current !== intent) return null;
+        startingIntent.current = intent;
         const started = await runtime.startRecognition();
         return typeof started === "number" ? started : requestedSession;
       });
+      if (startingIntent.current === intent) startingIntent.current = null;
+      if (session === null || recognitionIntent.current !== intent) return;
       nextSession.current = Math.max(nextSession.current, session);
       activeSession.current = session;
+      finalizedSession.current = null;
       expectedRecognitionEnd.current = null;
       dispatch({ type: "START_LISTENING", session });
+      const pending = pendingRecognitionEvents.current;
+      pendingRecognitionEvents.current = [];
+      pending.forEach((event) => {
+        if (event.payload.session === session) replayRecognitionEvent.current?.(event);
+      });
       if (cuesEnabled()) playCue("listen-start");
     } catch (reason) {
       dispatch({ type: "FAILED", text: `Konuşma tanıma başlatılamadı: ${String(reason)}` });
@@ -163,6 +185,9 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   }, [queueRecognition, runtime]);
 
   const stopListening = useCallback(async () => {
+    recognitionIntent.current += 1;
+    startingIntent.current = null;
+    pendingRecognitionEvents.current = [];
     dispatch({ type: "STOPPED" });
     if (cuesEnabled()) playCue("listen-stop");
     expectedRecognitionEnd.current = activeSession.current || null;
@@ -193,7 +218,7 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
       }
     });
     return () => { void remove.then((unlisten) => unlisten()).catch(() => undefined); };
-  }, [queueRecognition, runtime]);
+  }, [runtime, startListening]);
 
   useEffect(() => {
     const remove = runtime.onPrefs((incoming) => setPrefs(incoming));
@@ -206,7 +231,12 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
     let removeRecognition: Unlisten | null = null;
     let removeEnded: Unlisten | null = null;
     const handleRecognition = (payload: RecognitionPayload) => {
-      if (payload.session !== activeSession.current) return;
+      if (payload.session !== activeSession.current) {
+        if (activeSession.current === 0 && startingIntent.current !== null) {
+          pendingRecognitionEvents.current.push({ type: "output", payload });
+        }
+        return;
+      }
       let line: RecognitionLine;
       try {
         line = JSON.parse(payload.line) as RecognitionLine;
@@ -217,12 +247,15 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
         expectedRecognitionEnd.current = payload.session;
         dispatch({ type: "FAILED", text: line.metin });
       } else if (line.tur === "kismi") {
-        if (!askRef.current) dispatch({ type: "PARTIAL", text: line.metin });
+        if (!askRef.current) dispatch({ type: "PARTIAL", session: payload.session, text: line.metin });
       } else if (line.tur === "son") {
+        if (finalizedSession.current === payload.session) return;
+        finalizedSession.current = payload.session;
         expectedRecognitionEnd.current = payload.session;
         const openAsk = askRef.current;
         const answer = openAsk ? matchSpokenAnswer(line.metin, openAsk) : null;
         if (answer) {
+          askRef.current = null;
           setAsk(null);
           dispatch({ type: "ASK_CLOSED" });
           void runtime.answerAsk(answer);
@@ -231,12 +264,17 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
           // Yardımcı finalden sonra çıktığı için bitiş olayında yeniden dinle.
           restartAfterRecognitionEnd.current = true;
         } else {
-          dispatch({ type: "FINAL", text: line.metin });
+          dispatch({ type: "FINAL", session: payload.session, text: line.metin });
         }
       }
     };
     const handleEnded = ({ session, reason }: RecognitionEndedPayload) => {
-      if (session !== activeSession.current) return;
+      if (session !== activeSession.current) {
+        if (activeSession.current === 0 && startingIntent.current !== null) {
+          pendingRecognitionEvents.current.push({ type: "ended", payload: { session, reason } });
+        }
+        return;
+      }
       if (restartAfterRecognitionEnd.current) {
         restartAfterRecognitionEnd.current = false;
         activeSession.current = 0;
@@ -255,6 +293,10 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
         text: reason || "Konuşma tanıma beklenmedik şekilde kapandı.",
       });
     };
+    replayRecognitionEvent.current = (event) => {
+      if (event.type === "output") handleRecognition(event.payload);
+      else handleEnded(event.payload);
+    };
     void Promise.all([
       runtime.onRecognition(handleRecognition),
       runtime.onRecognitionEnded(handleEnded),
@@ -272,6 +314,10 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
     });
     return () => {
       alive = false;
+      recognitionIntent.current += 1;
+      startingIntent.current = null;
+      pendingRecognitionEvents.current = [];
+      replayRecognitionEvent.current = null;
       removeRecognition?.();
       removeEnded?.();
       expectedRecognitionEnd.current = activeSession.current || null;
@@ -290,6 +336,9 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   useEffect(() => {
     const remove = runtime.onRuntimeState((incoming) => {
       if (incoming.durum === "talking") {
+        recognitionIntent.current += 1;
+        startingIntent.current = null;
+        pendingRecognitionEvents.current = [];
         expectedRecognitionEnd.current = activeSession.current || null;
         activeSession.current = 0;
         void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);

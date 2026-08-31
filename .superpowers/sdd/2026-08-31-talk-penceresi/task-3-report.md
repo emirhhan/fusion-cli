@@ -24,3 +24,21 @@ Geçici revert kanıtı: `voiceMachine` içindeki stale-session koruması kaldı
 ## Kapsam notu
 
 PermissionCenter davranışı bu göreve kopyalanmadı. Varsayılan preflight seam'ı `true` döner; izin sistemi hazır olduğunda aynı runtime sınırından enjekte edilmelidir.
+
+## Fix round 1 — inceleme düzeltmeleri
+
+- Start tokenı dönmeden senkron gelen çıktı/bitiş olayları, start handshake'i boyunca tamponlanır ve kurulan token eşleşirse sırayla oynatılır.
+- Her dinleme isteği monotonik bir niyet nesli taşır. Stop, bekleyen preflight'ı geçersizleştirir; eski izin sonucu yardımcı süreci başlatamaz.
+- Final, hem reducer hem pencere katmanında oturum başına bir kez tüketilir. Farklı ikinci final de sohbet mesajı üretemez.
+- Sözlü onay eşleştiğinde `askRef` React render'ını beklemeden boşaltılır; aynı turdaki ikinci final tekrar onaylayamaz. Kısmi/final reducer olayları gerçek oturum tokenını iletir.
+
+### Kırmızı-yeşil kanıtı
+
+Yeni deterministik testler eklendiğinde React hedefi 24 testten 5'ini başarısız kıldı: hızlı start olayı, bekleyen preflight sonrası stop, farklı ikinci final, çift onay ve reducer'ın oturum-başına final koruması. Düzeltmeden sonra aynı hedef 24/24 geçti.
+
+### Fix round 1 doğrulaması
+
+- `npm test -- --run src/voice/voiceMachine.test.ts src/voice/VoiceWindow.test.tsx` — 24/24 geçti.
+- `npm run build` — TypeScript ve Vite üretim derlemesi geçti.
+- `cargo test speech::tests --lib` — 9 geçti, 1 bilinçli olarak ignore edildi.
+- `cargo fmt --check && cargo clippy --all-targets -- -D warnings` — geçti.

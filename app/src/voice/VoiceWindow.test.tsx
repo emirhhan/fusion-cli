@@ -103,6 +103,49 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(order.indexOf("listener")).toBeLessThan(order.indexOf("start"));
   });
 
+  it("start tokenı dönmeden gelen hızlı final ve bitişi işler", async () => {
+    const fake = fakeRuntime();
+    vi.mocked(fake.runtime.startRecognition).mockImplementation(async () => {
+      fake.recognition({ tur: "son", metin: "anında tamam" }, 9);
+      fake.recognitionEnded(null, 9);
+      return 9;
+    });
+    render(<VoiceWindow runtime={fake.runtime} />);
+
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
+      kaynak: "kullanici",
+      metin: "anında tamam",
+    }));
+  });
+
+  it("bekleyen izin denetimi durdurulunca eski start isteğini başlatmaz", async () => {
+    const fake = fakeRuntime();
+    let resolvePreflight: ((granted: boolean) => void) | null = null;
+    vi.mocked(fake.runtime.preflightRecognition).mockImplementation(() => new Promise<boolean>((resolve) => {
+      resolvePreflight = resolve;
+    }));
+    render(<VoiceWindow runtime={fake.runtime} />);
+
+    await waitFor(() => expect(fake.runtime.preflightRecognition).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Dinlemeyi durdur" }));
+    resolvePreflight?.(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fake.runtime.startRecognition).not.toHaveBeenCalled();
+  });
+
+  it("aynı oturumun farklı ikinci finalini sohbete ikinci kez yollamaz", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.recognition({ tur: "son", metin: "ilk" });
+    fake.recognition({ tur: "son", metin: "ikinci" });
+
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledOnce());
+    expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "ilk" });
+  });
+
   it("eski oturum çıktısını ve bitişini yeni oturuma karıştırmaz", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);
@@ -203,6 +246,21 @@ describe("VoiceWindow — sesli onay", () => {
 
     fake.recognition({ tur: "son", metin: "onayla" });
     await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet"));
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+  });
+
+  it("aynı turdaki ikinci finalin onayı iki kez çalıştırmasını engeller", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    fake.ask(ASK);
+    await screen.findByRole("group", { name: "Onay" });
+
+    fake.recognition({ tur: "son", metin: "onayla" });
+    fake.recognition({ tur: "son", metin: "onayla" });
+
+    await waitFor(() => expect(fake.runtime.answerAsk).toHaveBeenCalledOnce());
+    expect(fake.runtime.answerAsk).toHaveBeenCalledWith("evet");
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
   });
 

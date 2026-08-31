@@ -68,4 +68,11 @@ describe("voiceMachine", () => {
     expect(final.finalRevision).toBe(1);
     expect(duplicate).toBe(final);
   });
+
+  it("aynı oturumdaki farklı ikinci finali de reddeder", () => {
+    const listening = voiceMachine(initialVoiceMachine, { type: "START_LISTENING", session: 7 });
+    const first = voiceMachine(listening, { type: "FINAL", session: 7, text: "ilk mesaj" });
+
+    expect(voiceMachine(first, { type: "FINAL", session: 7, text: "farklı ikinci mesaj" })).toBe(first);
+  });
 });

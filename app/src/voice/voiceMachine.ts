@@ -10,6 +10,7 @@ export type VoicePhase =
 export interface VoiceMachineState {
   autoListen: boolean;
   error: string | null;
+  finalizedSession: number | null;
   finalRevision: number;
   finalText: string | null;
   lastFinal: string | null;
@@ -34,6 +35,7 @@ export type VoiceMachineEvent =
 export const initialVoiceMachine: VoiceMachineState = {
   autoListen: false,
   error: null,
+  finalizedSession: null,
   finalRevision: 0,
   finalText: null,
   lastFinal: null,
@@ -51,6 +53,7 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
         ...state,
         autoListen: true,
         error: null,
+        finalizedSession: null,
         lastFinal: null,
         partial: "",
         phase: "listening",
@@ -65,10 +68,11 @@ export function voiceMachine(state: VoiceMachineState, event: VoiceMachineEvent)
     case "FINAL": {
       if (event.session !== undefined && event.session !== state.session) return state;
       const text = event.text.trim();
-      if (!text || text === state.lastFinal) return state;
+      if (!text || state.finalizedSession === state.session) return state;
       return {
         ...state,
         error: null,
+        finalizedSession: state.session,
         finalRevision: state.finalRevision + 1,
         finalText: text,
         lastFinal: text,
