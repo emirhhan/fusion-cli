@@ -38,6 +38,11 @@ _SPEECH_LIFECYCLE_LOCK = threading.RLock()
 _SPEECH_PROCESSES: dict[str, tuple[subprocess.Popen[Any], Path | None]] = {}
 _SPEECH_PID_TURNS: dict[int, str] = {}
 _ACTIVE_SPEECH_TURN: str | None = None
+_REAPING_SPEECH: tuple[subprocess.Popen[Any], Path | None] | None = None
+
+
+class SpeechPlayerBusyError(RuntimeError):
+    """Onceki oynaticinin cikisi henuz OS tarafindan dogrulanmadi."""
 
 
 def _register_speech_process(
@@ -62,36 +67,63 @@ def _spawn_speech_process(
 ) -> tuple[subprocess.Popen[Any], str]:
     """Etkin oynaticiyi kesip yenisini tek lifecycle gecisinde baslat."""
     with _SPEECH_LIFECYCLE_LOCK:
+        if _REAPING_SPEECH is not None:
+            raise SpeechPlayerBusyError
         stop()
+        if _REAPING_SPEECH is not None:
+            raise SpeechPlayerBusyError
         process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return process, _register_speech_process(process, cleanup)
 
 
-def _reap_speech_process(process: subprocess.Popen[Any]) -> None:
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
+def _cleanup_speech_file(cleanup: Path | None) -> None:
+    if cleanup is not None:
+        with contextlib.suppress(OSError):
+            cleanup.unlink(missing_ok=True)
+
+
+def _reap_speech_process(process: subprocess.Popen[Any], cleanup: Path | None) -> None:
+    global _REAPING_SPEECH
+    try:
         process.wait()
+    except (OSError, subprocess.SubprocessError):
+        # Cikis dogrulanmadi: fail-closed sentinel yeni spawn'i engellemeye
+        # devam eder. Sahipligi erken birakmak iki OS oynaticisini bindirirdi.
+        return
+    _cleanup_speech_file(cleanup)
+    with _SPEECH_LIFECYCLE_LOCK:
+        if (process, cleanup) == _REAPING_SPEECH:
+            _REAPING_SPEECH = None
 
 
-def _stop_process_with_deadline(process: subprocess.Popen[Any]) -> None:
+def _stop_process_with_deadline(process: subprocess.Popen[Any]) -> bool:
     """Terminate/kill icin toplam en fazla tek iptal butcesi kadar bekle."""
     deadline = time.monotonic() + CANCEL_TIMEOUT_SECONDS
     if process.poll() is not None:
-        return
+        return True
     process.terminate()
     remaining = max(0.0, deadline - time.monotonic())
     try:
         process.wait(timeout=remaining)
-        return
+        return True
     except subprocess.TimeoutExpired:
         process.kill()
     remaining = max(0.0, deadline - time.monotonic())
     if remaining > 0:
         try:
             process.wait(timeout=remaining)
-            return
+            return True
         except subprocess.TimeoutExpired:
             pass
-    threading.Thread(target=_reap_speech_process, args=(process,), daemon=True).start()
+    return False
+
+
+def _speech_busy_result() -> dict[str, Any]:
+    return {
+        "ok": False,
+        "mesgul": True,
+        "metin": "Önceki ses oynatıcısı hâlâ kapanıyor; kısa süre sonra yeniden deneyin.",
+    }
 
 
 def wait_for_speech(turn_or_pid: object) -> bool:
@@ -515,6 +547,10 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
     """
     import tempfile
 
+    with _SPEECH_LIFECYCLE_LOCK:
+        if _REAPING_SPEECH is not None:
+            return _speech_busy_result()
+
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as gecici:
         cikti = Path(gecici.name)
     # Parametreler kullanıcının kaydettiği hız/robotiklik tercihinden gelir;
@@ -556,6 +592,9 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
     )
     try:
         process, turn_id = _spawn_speech_process(calar, cikti)
+    except SpeechPlayerBusyError:
+        cikti.unlink(missing_ok=True)
+        return _speech_busy_result()
     except OSError as error:
         cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
@@ -576,6 +615,9 @@ def speak(text: object) -> dict[str, Any]:
     content = prepare_speech(str(text or ""))
     if not content:
         return {"ok": False, "metin": "Okunacak metin boş."}
+    with _SPEECH_LIFECYCLE_LOCK:
+        if _REAPING_SPEECH is not None:
+            return _speech_busy_result()
     # Piper modeli indirilmişse o tercih edilir: sistem sesleri Türkçe'de
     # compact kademede kalıyor ve Windows'ta Türkçe ses hiç yok.
     model = active_model_path()
@@ -589,6 +631,8 @@ def speak(text: object) -> dict[str, Any]:
         return {"ok": False, "metin": str(error)}
     try:
         process, turn_id = _spawn_speech_process(argv)
+    except SpeechPlayerBusyError:
+        return _speech_busy_result()
     except OSError as error:
         return {"ok": False, "metin": f"Sesli yanıt başlatılamadı: {error}"}
     return {"ok": True, "pid": process.pid, "tur_id": turn_id, "ses": voice}
@@ -596,7 +640,7 @@ def speak(text: object) -> dict[str, Any]:
 
 def stop(turn_id: object = None) -> dict[str, Any]:
     """`ses.durdur`: yalnız belirtilen konuşma turunu idempotent biçimde kes."""
-    global _ACTIVE_SPEECH_TURN
+    global _ACTIVE_SPEECH_TURN, _REAPING_SPEECH
     identifier = str(turn_id) if isinstance(turn_id, str) and turn_id else None
     with _SPEECH_LIFECYCLE_LOCK:
         with _SPEECH_LOCK:
@@ -612,9 +656,16 @@ def stop(turn_id: object = None) -> dict[str, Any]:
                     _ACTIVE_SPEECH_TURN = None
         for _owned_id, (process, cleanup) in targets:
             with contextlib.suppress(OSError, subprocess.SubprocessError):
-                _stop_process_with_deadline(process)
-            if cleanup is not None:
-                cleanup.unlink(missing_ok=True)
+                confirmed = _stop_process_with_deadline(process)
+                if confirmed:
+                    _cleanup_speech_file(cleanup)
+                else:
+                    _REAPING_SPEECH = (process, cleanup)
+                    threading.Thread(
+                        target=_reap_speech_process,
+                        args=(process, cleanup),
+                        daemon=True,
+                    ).start()
     return {"ok": True, "durduruldu": bool(targets), "tur_id": identifier}
 
 

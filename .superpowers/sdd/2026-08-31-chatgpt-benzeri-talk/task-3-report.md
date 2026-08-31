@@ -129,3 +129,62 @@ yeniden üretildi.
 - Recognition kabul eşikleri değiştirilmedi. Hata yolu eski oturumu tamamen
   kapatır; yalnız kullanıcı eylemiyle açılan taze oturum tekrar kabul edebilir.
 - Build yalnız daha önce mevcut olan Vite büyük chunk uyarısını verdi.
+
+---
+
+## Fix round 2
+
+### Bulgular ve düzeltmeler
+
+1. **Confirmed-exit sentinel:** 500 ms iptal deadline'ı sonunda kill edilmiş
+   oynatıcının çıkışı doğrulanmamışsa süreç ve cleanup artık
+   `_REAPING_SPEECH` sahipliğinde kalır. Yeni `speak()` lifecycle kilidi altında
+   bu sentinel'i `Popen` öncesi kontrol eder ve
+   `{ok: false, mesgul: true, metin: "…yeniden deneyin."}` sonucuyla hızlı
+   döner. Reaper `wait()` ile çıkışı doğrulayıp cleanup'ı yaptıktan sonra
+   sentinel'i bırakır; sonraki `speak()` ancak bundan sonra spawn edebilir.
+2. **Windows kilitli geçici dosya:** Deadline içinde çıkış doğrulanmadığında
+   geçici WAV hemen silinmez. Cleanup reaper sahipliğine taşınır ve confirmed
+   reap sonrasında çalışır. `PermissionError`/`OSError` stop ACK'ini bozmaz;
+   iptal sonucu her durumda başarıyla döner.
+3. **500 ms bütçe korundu:** Terminate ve kill hâlâ tek monoton deadline'ın
+   kalan bütçesini paylaşır. Sentinel beklemek API çağrısını bloklamaz; yeni
+   konuşma hızlı ve eyleme dönük busy sonucu alır.
+
+### RED kanıtı
+
+- `.venv/bin/pytest tests/test_voice.py -q`: **2 failure**
+  - Stubborn süreç daemon reaper'da beklerken ikinci `speak()` yanlışlıkla
+    `ok:true` döndü ve ikinci `Popen` açtı; beklenen fail-fast busy sahipliği
+    yoktu.
+  - Windows-benzeri kilitli cleanup, `stop("turn-locked")` içinde doğrudan
+    `PermissionError` yükseltti; iptal ACK'i kullanıcıya dönemedi.
+
+İlk RED denemesinde test ekleme konumu eski eşzamanlı test gövdesini bölerek
+ek bir `NameError` üretmişti. Bu ürün davranışı RED'i sayılmadı; test dosyası
+önce eski yapısına getirildi ve yukarıdaki iki temiz davranışsal failure yeniden
+üretildi.
+
+### GREEN kanıtı
+
+- `.venv/bin/pytest tests/test_voice.py tests/test_appserver_session.py -q`:
+  **58 test PASS**
+- `.venv/bin/pytest -q`: **2697 test, %100 PASS, exit code 0**
+- `.venv/bin/ruff check src/fusion_cli/appserver/voice.py \
+  src/fusion_cli/appserver/session.py tests/test_voice.py \
+  tests/test_appserver_session.py`: **PASS**
+- `git diff --check`: **PASS**
+
+### Fix round 2 self-review
+
+- Stubborn süreç testinde terminate ve kill sonrasında `poll()` çıkış
+  bildirmedi; reaper serbest bırakılana kadar ikinci `Popen` sayısı 1'de ve
+  canlı oynatıcı tepe sayısı 1'de kaldı. Confirmed reap sonrası konuşma başarıyla
+  yeniden başladı.
+- Locked cleanup testi, reap öncesi `unlink` çağrısında `PermissionError`
+  üreten gerçek cleanup davranışını kullandı; stop ACK'i başarılı kaldı ve
+  dosya temizliği reap sonrası tamamlandı.
+- Protokol ve React arayüzü değişmedi. Fix round 1 cancellation-failure recovery
+  testleri tam regresyon içinde geçti; React yeniden çalıştırılmadı.
+- Süreç sahipliği, sentinel, deadline ve cleanup gerçek üretim koduyla test
+  edildi; yalnız OS oynatıcı oluşturma sınırı `subprocess.Popen` sahteleştirildi.

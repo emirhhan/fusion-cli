@@ -225,7 +225,11 @@ def test_ses_iptali_terminate_ve_kill_icin_tek_500_ms_butce_kullanir(tmp_path, m
     assert result == {"ok": True, "durduruldu": True, "tur_id": "turn-deadline"}
     assert process.killed is True
     assert process.reaped.wait(1), "zorla kapatilan cocuk surec reap edilmedi"
-    assert not temporary.exists()
+    for _ in range(100):
+        if not temporary.exists():
+            break
+        time.sleep(0.001)
+    assert not temporary.exists(), "gecici dosya confirmed reap sonrasinda temizlenmedi"
 
 
 def test_ardisik_speak_onceki_oynaticiyi_yenisini_spawn_etmeden_durdurur(monkeypatch):
@@ -326,6 +330,165 @@ def test_eszamanli_speak_cagrilari_tek_canli_oynaticida_serilestirilir(monkeypat
     assert len(voice._SPEECH_PROCESSES) == 1
     assert next(iter(voice._SPEECH_PROCESSES)) in {result["tur_id"] for result in results}
     voice.stop()
+
+
+def test_reaper_cikisi_dogrulayana_kadar_yeni_oynatici_spawn_edilmez(monkeypatch):
+    from fusion_cli.appserver import voice
+
+    release_reaper = threading.Event()
+    reaped = threading.Event()
+    popen_count = 0
+    live = 0
+    max_live = 0
+
+    class StubbornPlayer:
+        pid = 5201
+
+        def __init__(self):
+            nonlocal live, max_live
+            live += 1
+            max_live = max(max_live, live)
+
+        def poll(self):
+            return 0 if reaped.is_set() else None
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            return None
+
+        def wait(self, timeout=None):
+            nonlocal live
+            if timeout is not None:
+                raise voice.subprocess.TimeoutExpired("player", timeout)
+            release_reaper.wait(1)
+            live -= 1
+            reaped.set()
+            return 0
+
+    class NextPlayer:
+        pid = 5202
+
+        def __init__(self):
+            nonlocal live, max_live
+            live += 1
+            max_live = max(max_live, live)
+            self.stopped = False
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def terminate(self):
+            nonlocal live
+            self.stopped = True
+            live -= 1
+
+        def wait(self, timeout=None):
+            return 0
+
+    stubborn = StubbornPlayer()
+
+    def popen(*_args, **_kwargs):
+        nonlocal popen_count
+        popen_count += 1
+        return stubborn if popen_count == 1 else NextPlayer()
+
+    clock = iter((200.0, 200.0, 200.5, 200.5))
+    monkeypatch.setattr(
+        voice,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock, 200.5)),
+    )
+    monkeypatch.setattr(voice, "active_model_path", lambda: voice.Path("/olmayan/model.onnx"))
+    monkeypatch.setattr(voice, "installed_voice_records", lambda: ())
+    monkeypatch.setattr(voice.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(voice.subprocess, "Popen", popen)
+    voice.stop()
+
+    first = voice.speak("birinci")
+    assert first["ok"] is True
+    assert voice.stop(first["tur_id"])["ok"] is True
+
+    busy = voice.speak("ikinci")
+
+    assert busy["ok"] is False
+    assert busy["mesgul"] is True
+    assert "yeniden deneyin" in str(busy["metin"])
+    assert popen_count == 1
+    assert max_live == 1
+
+    release_reaper.set()
+    assert reaped.wait(1)
+    for _ in range(100):
+        resumed = voice.speak("ucuncu")
+        if resumed.get("ok") is True:
+            break
+        time.sleep(0.001)
+    else:
+        raise AssertionError("reaper sonrasi TTS sahipligi serbest birakilmadi")
+
+    assert popen_count == 2
+    assert max_live == 1
+    voice.stop()
+
+
+def test_kilitli_gecici_ses_dosyasi_reap_sonrasina_ertelenir(monkeypatch):
+    from fusion_cli.appserver import voice
+
+    release_reaper = threading.Event()
+    reaped = threading.Event()
+
+    class LockedCleanup:
+        def __init__(self):
+            self.deleted = threading.Event()
+            self.attempts = 0
+
+        def unlink(self, *, missing_ok=False):
+            self.attempts += 1
+            if not reaped.is_set():
+                raise PermissionError("dosya oynatici tarafindan kilitli")
+            self.deleted.set()
+
+    class LockedPlayer:
+        pid = 5301
+
+        def poll(self):
+            return 0 if reaped.is_set() else None
+
+        def terminate(self):
+            return None
+
+        def kill(self):
+            return None
+
+        def wait(self, timeout=None):
+            if timeout is not None:
+                raise voice.subprocess.TimeoutExpired("player", timeout)
+            release_reaper.wait(1)
+            reaped.set()
+            return 0
+
+    clock = iter((300.0, 300.0, 300.5, 300.5))
+    monkeypatch.setattr(
+        voice,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock, 300.5)),
+    )
+    cleanup = LockedCleanup()
+    voice.stop()
+    voice._register_speech_process(  # type: ignore[arg-type]
+        LockedPlayer(), cleanup, turn_id="turn-locked"
+    )
+
+    result = voice.stop("turn-locked")
+
+    assert result == {"ok": True, "durduruldu": True, "tur_id": "turn-locked"}
+    assert not cleanup.deleted.is_set()
+    release_reaper.set()
+    assert reaped.wait(1)
+    assert cleanup.deleted.wait(1), "kilitli gecici dosya reap sonrasinda silinmedi"
+    assert cleanup.attempts >= 1
 
 
 def test_basarisiz_ses_sureci_tamamlanmis_sayilmaz(monkeypatch):
