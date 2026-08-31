@@ -35,3 +35,17 @@
 - `npm run build`
 
 Üç komut da commit öncesi taze olarak exit 0 ile tamamlandı.
+
+## Review fix round 1
+
+- `openSession`, output/closed Tauri listener'larını `terminal_ac` çağrısından önce kuruyor. Handshake sırasında gelen olaylar terminal kimliği dönene kadar buffer'lanıp doğru session'a aktarılıyor.
+- Xterm adapter artık effect mount başına üretiliyor. React StrictMode çift effect döngüsünde dispose edilmiş adapter yeniden kullanılmıyor.
+- Doğal backend kapanışı sekme owner'ına taşındı; sekme noktası ve “Kapandı” durumu güncelleniyor. Bilinen kapalı terminal yerel state'ten backend close gerektirmeden kaldırılıyor ve session close idempotent davranıyor.
+- TerminalTabs açtığı PTY'lerin sahibi. Panel unmount'ında çalışan terminaller tam bir kez kapatılıyor, event kanalları dispose ediliyor; open handshake sonrasında geç dönen PTY de sahipsiz bırakılmıyor.
+
+### Round 1 TDD kanıtı
+
+1. Senkron output/close handshake testleri `openSession is not a function` ile RED verdi; listener-before-open buffer sonrası 4/4 bridge testi GREEN oldu.
+2. StrictMode testi dispose edilmiş adapter'ın yeniden kullanılmasını yakalayıp RED verdi; effect-mount başına fresh adapter sonrası 6/6 XtermSession testi GREEN oldu.
+3. Natural close/idempotent local remove ve multi-PTY owner unmount testleri eski owner modeliyle RED verdi; session sahipliği sonrası TerminalTabs testleri GREEN oldu.
+4. Deferred open sırasında unmount testi sahipsiz geç PTY'yi yakalayıp RED verdi; mounted-owner guard sonrası App + TerminalTabs 39/39 GREEN oldu.

@@ -22,8 +22,11 @@ const nativeInvoke = vi.hoisted(() => vi.fn(async (command: string) => {
 
 vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: nativeInvoke }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
 vi.mock("./processes/XtermSession", () => ({
-  XtermSession: ({ terminalId }: { terminalId: string }) => <div>PTY {terminalId}</div>,
+  XtermSession: ({ session }: { session: { snapshot: { terminalId: string } } }) => (
+    <div>PTY {session.snapshot.terminalId}</div>
+  ),
 }));
 
 function fakeClient() {

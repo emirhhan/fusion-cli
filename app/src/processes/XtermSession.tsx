@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalRuntime } from "./terminalBridge";
+import type { TerminalSession } from "./terminalBridge";
 
 export interface XtermAdapter {
   open(element: HTMLElement): void;
@@ -46,61 +46,61 @@ export function createXtermAdapter(): XtermAdapter {
 }
 
 export function XtermSession({
-  terminalId,
-  runtime,
+  session,
   active,
+  closedReason = null,
   adapter: providedAdapter,
+  createAdapter,
 }: {
-  terminalId: string;
-  runtime: TerminalRuntime;
+  session: TerminalSession;
   active: boolean;
+  closedReason?: string | null;
   adapter?: XtermAdapter;
+  createAdapter?: () => XtermAdapter;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const adapterRef = useRef<XtermAdapter | null>(null);
-  const [closedReason, setClosedReason] = useState<string | null>(null);
-
-  if (!adapterRef.current) adapterRef.current = providedAdapter ?? createXtermAdapter();
+  const decoderRef = useRef<TextDecoder | null>(null);
 
   useEffect(() => {
-    const adapter = adapterRef.current!;
+    const adapter = createAdapter?.() ?? providedAdapter ?? createXtermAdapter();
+    adapterRef.current = adapter;
     const host = hostRef.current!;
     const decoder = new TextDecoder();
+    decoderRef.current = decoder;
     const encoder = new TextEncoder();
-    let disposed = false;
-    let stopOutput: (() => void) | undefined;
-    let stopClosed: (() => void) | undefined;
     adapter.open(host);
-    const stopData = adapter.onData((data) => { void runtime.write(terminalId, encoder.encode(data)); });
+    const stopData = adapter.onData((data) => { void session.write(encoder.encode(data)); });
     const fit = () => {
       const { cols, rows } = adapter.fit();
-      if (cols > 0 && rows > 0) void runtime.resize(terminalId, cols, rows);
+      if (cols > 0 && rows > 0) void session.resize(cols, rows);
     };
     fit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(host);
-    void runtime.onOutput(terminalId, (bytes) => {
+    const stopOutput = session.onOutput((bytes) => {
       const text = decoder.decode(bytes, { stream: true });
       if (text) adapter.write(text);
-    }).then((unlisten) => disposed ? unlisten() : stopOutput = unlisten);
-    void runtime.onClosed(terminalId, (reason) => {
-      const tail = decoder.decode();
-      if (tail) adapter.write(tail);
-      setClosedReason(reason);
-    }).then((unlisten) => disposed ? unlisten() : stopClosed = unlisten);
+    });
     return () => {
-      disposed = true;
       observer?.disconnect();
       stopData();
-      stopOutput?.();
-      stopClosed?.();
+      stopOutput();
       adapter.dispose();
+      if (adapterRef.current === adapter) adapterRef.current = null;
+      if (decoderRef.current === decoder) decoderRef.current = null;
     };
-  }, [runtime, terminalId]);
+  }, [createAdapter, providedAdapter, session]);
 
   useEffect(() => {
     if (active) adapterRef.current?.focus();
   }, [active]);
+
+  useEffect(() => {
+    if (!closedReason) return;
+    const tail = decoderRef.current?.decode() ?? "";
+    if (tail) adapterRef.current?.write(tail);
+  }, [closedReason]);
 
   const copy = async () => {
     const selection = adapterRef.current?.getSelection() ?? "";

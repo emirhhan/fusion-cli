@@ -46,6 +46,12 @@
   white-space: nowrap;
 }
 
+.terminal-tabs__state {
+  color: var(--text-secondary);
+  font-size: 9px;
+  margin-left: auto;
+}
+
 .terminal-tabs__tab:hover {
   background: var(--surface-hover);
   color: var(--text-primary);

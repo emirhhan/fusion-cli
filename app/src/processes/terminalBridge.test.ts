@@ -13,6 +13,49 @@ beforeEach(() => {
 });
 
 describe("terminalBridge", () => {
+  it("terminal_ac sırasında senkron gelen ilk çıktıyı listener-before-open buffer'ından teslim eder", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "terminal_ac") {
+        handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-fast", data: [36, 32] } });
+        return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
+      }
+    });
+
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const output = vi.fn();
+    session.onOutput(output);
+
+    expect(output).toHaveBeenCalledWith(new Uint8Array([36, 32]));
+    expect(listen.mock.invocationCallOrder[1]).toBeLessThan(invoke.mock.invocationCallOrder[0]);
+  });
+
+  it("terminal_ac sırasında senkron gelen hızlı kapanmayı buffer'lar ve close'u idempotent yapar", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockImplementation(async (command: string) => {
+      if (command === "terminal_ac") {
+        handlers.get("terminal://kapandi")?.({ payload: { terminalId: "terminal-fast", reason: "shell exited" } });
+        return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
+      }
+    });
+
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const closed = vi.fn();
+    session.onClosed(closed);
+    await session.close();
+
+    expect(closed).toHaveBeenCalledWith("shell exited");
+    expect(invoke.mock.calls).toEqual([["terminal_ac", { cwd: "/repo", cols: 80, rows: 24 }]]);
+  });
+
   it("Tauri terminal komutlarını kesin ad ve payload ile çağırır", async () => {
     invoke.mockResolvedValueOnce({ terminalId: "terminal-7", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
     const runtime = createTerminalRuntime();
