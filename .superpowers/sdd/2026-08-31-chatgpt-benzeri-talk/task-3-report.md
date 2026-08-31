@@ -70,3 +70,62 @@ yeniden üretildi.
 - Hoparlör yankı benzerliği filtresi Task 1/platform VAD sorumluluğunda;
   bu görev yalnız gerçek `ses-basladi` olayından sonraki sahiplik ve sıralamayı
   uygular.
+
+---
+
+## Fix round 1
+
+### Bulgular ve düzeltmeler
+
+1. **Tek 500 ms iptal bütçesi:** `terminate` ve `kill` artık aynı
+   `time.monotonic()` deadline'ını paylaşır. İlk bekleme bütçeyi tüketirse
+   kill sonrası ikinci bir 500 ms bloklama yapılmaz; çocuk daemon reaper ile
+   güvenli biçimde toplanır. Sahiplik kaydı ve geçici dosya temizliği ACK'ten
+   önce deterministik tamamlanır.
+2. **Gerçek tek-oynatıcı garantisi:** TTS replacement, ayrı bir reentrant
+   lifecycle kilidi altında `önce stop → sonra Popen → sonra register` sırasıyla
+   serileştirilir. Ardışık ve eşzamanlı `speak()` çağrılarında canlı oynatıcı
+   tepe sayısı 1'i aşmaz ve registry'de yalnız son tur kalır.
+3. **İptal hatasında fail-closed recovery:** `ses.durdur` hatası runtime
+   `error` olarak geldiğinde barge-in tamponları atılır, eski recognition
+   oturumu geçersizleştirilip durdurulur ve görünür hata korunur. Kullanıcının
+   “Konuşmaya başla” eylemi yeni oturum açar; eski tampon gönderilmez, taze söz
+   normal güven kapısından kabul edilir.
+
+### RED kanıtı
+
+- `.venv/bin/pytest tests/test_voice.py -q`: **3 failure**
+  - Tek deadline testi iki adet `0.5` bekleme gördü; toplam istenen bloklama
+    `1.0 > 0.5` idi.
+  - Ardışık replacement testinde ikinci `Popen`, ilk oynatıcı durmadan oluştu;
+    `max_live == 2` idi.
+  - Eşzamanlı `speak()` testinde iki spawn üst üste bindi;
+    `max_live == 2` idi.
+- `cd app && npm test -- VoiceWindow.test.tsx voiceTurn.test.ts`:
+  **1 failure**
+  - İptal hatasından sonra `stopRecognition` hiç çağrılmadı; barge-in pending
+    sahipliği ve tamponları wedged kaldı.
+
+### GREEN kanıtı
+
+- `.venv/bin/pytest tests/test_voice.py tests/test_appserver_session.py -q`:
+  **56 test PASS**
+- `cd app && npm test -- VoiceWindow.test.tsx voiceTurn.test.ts`:
+  **2 dosya, 33 test PASS**
+- `cd app && npm test`: **65 dosya, 428 test PASS**
+- `cd app && npm run build`: **PASS** (`tsc && vite build`)
+- `.venv/bin/ruff check src/fusion_cli/appserver/voice.py \
+  src/fusion_cli/appserver/session.py tests/test_voice.py \
+  tests/test_appserver_session.py`: **PASS**
+- `git diff --check`: **PASS**
+
+### Fix round 1 self-review
+
+- Protokol şekli değişmedi; mevcut `ses.durdur {tur_id}` ve `ses.bekle`
+  dispatch testleri regresyon kümesinde geçti.
+- OS sınırında yalnız `subprocess.Popen` sahteleştirildi; süreç sahipliği,
+  replacement kilidi, deadline hesabı, registry ve cleanup gerçek kodla
+  çalıştırıldı.
+- Recognition kabul eşikleri değiştirilmedi. Hata yolu eski oturumu tamamen
+  kapatır; yalnız kullanıcı eylemiyle açılan taze oturum tekrar kabul edebilir.
+- Build yalnız daha önce mevcut olan Vite büyük chunk uyarısını verdi.

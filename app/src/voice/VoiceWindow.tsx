@@ -502,6 +502,17 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         dispatch({ type: "ASSISTANT_FINISHED" });
         if (shouldResume && activeSession.current === 0) void startListening();
       } else if (incoming.durum === "error") {
+        if (bargeInPending.current) {
+          bargeInPending.current = false;
+          bargeInEvents.current = [];
+          recognitionIntent.current += 1;
+          startingIntent.current = null;
+          pendingRecognitionEvents.current = [];
+          expectedRecognitionEnd.current = activeSession.current || null;
+          activeSession.current = 0;
+          setRecognitionOwned(false);
+          void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
+        }
         dispatch({ type: "FAILED", text: incoming.metin ?? "Sesli yanıt tamamlanamadı." });
       }
     });

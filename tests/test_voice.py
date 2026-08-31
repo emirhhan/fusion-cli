@@ -7,6 +7,9 @@ indirme, API anahtarı ve ağ erişimi YOKTUR.
 
 from __future__ import annotations
 
+import threading
+import time
+from types import SimpleNamespace
 from typing import ClassVar
 
 import pytest
@@ -171,8 +174,158 @@ def test_ses_oynaticisi_500_msde_durmazsa_zorla_kapatilir(monkeypatch):
     voice._register_speech_process(process, turn_id="turn-slow")
 
     assert voice.stop("turn-slow")["ok"] is True
-    assert process.timeouts[0] == 0.5
+    assert 0 < process.timeouts[0] <= 0.5
     assert process.killed is True
+
+
+def test_ses_iptali_terminate_ve_kill_icin_tek_500_ms_butce_kullanir(tmp_path, monkeypatch):
+    """Kill sonrasi ikinci 500 ms bekleme toplam iptal suresini ikiye katlamamali."""
+    from fusion_cli.appserver import voice
+
+    class DeadlineProcess:
+        pid = 4848
+
+        def __init__(self):
+            self.wait_timeouts: list[float | None] = []
+            self.killed = False
+            self.reaped = threading.Event()
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            self.wait_timeouts.append(timeout)
+            if not self.killed:
+                raise voice.subprocess.TimeoutExpired("player", timeout)
+            self.reaped.set()
+            return 0
+
+        def kill(self):
+            self.killed = True
+
+    clock = iter((100.0, 100.0, 100.5, 100.5))
+    monkeypatch.setattr(
+        voice,
+        "time",
+        SimpleNamespace(monotonic=lambda: next(clock, 100.5)),
+        raising=False,
+    )
+    process = DeadlineProcess()
+    temporary = tmp_path / "deadline.wav"
+    temporary.write_bytes(b"audio")
+    voice._register_speech_process(process, temporary, turn_id="turn-deadline")
+
+    result = voice.stop("turn-deadline")
+
+    requested = [value for value in process.wait_timeouts if value is not None]
+    assert sum(requested) <= 0.5
+    assert result == {"ok": True, "durduruldu": True, "tur_id": "turn-deadline"}
+    assert process.killed is True
+    assert process.reaped.wait(1), "zorla kapatilan cocuk surec reap edilmedi"
+    assert not temporary.exists()
+
+
+def test_ardisik_speak_onceki_oynaticiyi_yenisini_spawn_etmeden_durdurur(monkeypatch):
+    from fusion_cli.appserver import voice
+
+    live = 0
+    max_live = 0
+    next_pid = 5000
+
+    class Player:
+        def __init__(self):
+            nonlocal live, max_live, next_pid
+            next_pid += 1
+            self.pid = next_pid
+            self.stopped = False
+            live += 1
+            max_live = max(max_live, live)
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def terminate(self):
+            nonlocal live
+            self.stopped = True
+            live -= 1
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(voice, "active_model_path", lambda: voice.Path("/olmayan/model.onnx"))
+    monkeypatch.setattr(voice, "installed_voice_records", lambda: ())
+    monkeypatch.setattr(voice.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: Player())
+    voice.stop()
+
+    first = voice.speak("birinci")
+    second = voice.speak("ikinci")
+
+    assert first["tur_id"] != second["tur_id"]
+    assert max_live <= 1
+    assert list(voice._SPEECH_PROCESSES) == [second["tur_id"]]
+    voice.stop()
+
+
+def test_eszamanli_speak_cagrilari_tek_canli_oynaticida_serilestirilir(monkeypatch):
+    from fusion_cli.appserver import voice
+
+    state_lock = threading.Lock()
+    start = threading.Barrier(3)
+    live = 0
+    max_live = 0
+    next_pid = 5100
+
+    class Player:
+        def __init__(self):
+            nonlocal live, max_live, next_pid
+            with state_lock:
+                next_pid += 1
+                self.pid = next_pid
+                self.stopped = False
+                live += 1
+                max_live = max(max_live, live)
+            time.sleep(0.03)
+
+        def poll(self):
+            return 0 if self.stopped else None
+
+        def terminate(self):
+            nonlocal live
+            with state_lock:
+                if not self.stopped:
+                    self.stopped = True
+                    live -= 1
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(voice, "active_model_path", lambda: voice.Path("/olmayan/model.onnx"))
+    monkeypatch.setattr(voice, "installed_voice_records", lambda: ())
+    monkeypatch.setattr(voice.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: Player())
+    voice.stop()
+    results: list[dict] = []
+
+    def worker(text: str):
+        start.wait()
+        results.append(voice.speak(text))
+
+    threads = [threading.Thread(target=worker, args=(text,)) for text in ("bir", "iki")]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    for thread in threads:
+        thread.join()
+
+    assert len(results) == 2
+    assert max_live <= 1
+    assert len(voice._SPEECH_PROCESSES) == 1
+    assert next(iter(voice._SPEECH_PROCESSES)) in {result["tur_id"] for result in results}
+    voice.stop()
 
 
 def test_basarisiz_ses_sureci_tamamlanmis_sayilmaz(monkeypatch):

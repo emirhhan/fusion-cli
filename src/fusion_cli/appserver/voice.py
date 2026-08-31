@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
@@ -33,6 +34,7 @@ CANCEL_TIMEOUT_SECONDS = 0.5
 # kesebiliyordu. PID kaydı aynı zamanda Talk penceresinin gerçek bitiş anını
 # beklemesini sağlar.
 _SPEECH_LOCK = threading.RLock()
+_SPEECH_LIFECYCLE_LOCK = threading.RLock()
 _SPEECH_PROCESSES: dict[str, tuple[subprocess.Popen[Any], Path | None]] = {}
 _SPEECH_PID_TURNS: dict[int, str] = {}
 _ACTIVE_SPEECH_TURN: str | None = None
@@ -43,16 +45,53 @@ def _register_speech_process(
 ) -> str:
     global _ACTIVE_SPEECH_TURN
     identifier = turn_id or uuid.uuid4().hex
-    previous: str | None
-    with _SPEECH_LOCK:
-        previous = _ACTIVE_SPEECH_TURN
-    if previous is not None and previous != identifier:
-        stop(previous)
-    with _SPEECH_LOCK:
-        _SPEECH_PROCESSES[identifier] = (process, cleanup)
-        _SPEECH_PID_TURNS[process.pid] = identifier
-        _ACTIVE_SPEECH_TURN = identifier
+    with _SPEECH_LIFECYCLE_LOCK:
+        with _SPEECH_LOCK:
+            previous = _ACTIVE_SPEECH_TURN
+        if previous is not None and previous != identifier:
+            stop(previous)
+        with _SPEECH_LOCK:
+            _SPEECH_PROCESSES[identifier] = (process, cleanup)
+            _SPEECH_PID_TURNS[process.pid] = identifier
+            _ACTIVE_SPEECH_TURN = identifier
     return identifier
+
+
+def _spawn_speech_process(
+    argv: list[str], cleanup: Path | None = None
+) -> tuple[subprocess.Popen[Any], str]:
+    """Etkin oynaticiyi kesip yenisini tek lifecycle gecisinde baslat."""
+    with _SPEECH_LIFECYCLE_LOCK:
+        stop()
+        process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return process, _register_speech_process(process, cleanup)
+
+
+def _reap_speech_process(process: subprocess.Popen[Any]) -> None:
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        process.wait()
+
+
+def _stop_process_with_deadline(process: subprocess.Popen[Any]) -> None:
+    """Terminate/kill icin toplam en fazla tek iptal butcesi kadar bekle."""
+    deadline = time.monotonic() + CANCEL_TIMEOUT_SECONDS
+    if process.poll() is not None:
+        return
+    process.terminate()
+    remaining = max(0.0, deadline - time.monotonic())
+    try:
+        process.wait(timeout=remaining)
+        return
+    except subprocess.TimeoutExpired:
+        process.kill()
+    remaining = max(0.0, deadline - time.monotonic())
+    if remaining > 0:
+        try:
+            process.wait(timeout=remaining)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+    threading.Thread(target=_reap_speech_process, args=(process,), daemon=True).start()
 
 
 def wait_for_speech(turn_or_pid: object) -> bool:
@@ -516,11 +555,10 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
         ]
     )
     try:
-        process = subprocess.Popen(calar, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process, turn_id = _spawn_speech_process(calar, cikti)
     except OSError as error:
         cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
-    turn_id = _register_speech_process(process, cikti)
     return {"ok": True, "pid": process.pid, "tur_id": turn_id, "motor": "piper"}
 
 
@@ -550,10 +588,9 @@ def speak(text: object) -> dict[str, Any]:
     except ValueError as error:
         return {"ok": False, "metin": str(error)}
     try:
-        process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process, turn_id = _spawn_speech_process(argv)
     except OSError as error:
         return {"ok": False, "metin": f"Sesli yanıt başlatılamadı: {error}"}
-    turn_id = _register_speech_process(process)
     return {"ok": True, "pid": process.pid, "tur_id": turn_id, "ses": voice}
 
 
@@ -561,28 +598,23 @@ def stop(turn_id: object = None) -> dict[str, Any]:
     """`ses.durdur`: yalnız belirtilen konuşma turunu idempotent biçimde kes."""
     global _ACTIVE_SPEECH_TURN
     identifier = str(turn_id) if isinstance(turn_id, str) and turn_id else None
-    with _SPEECH_LOCK:
-        targets = (
-            [(identifier, _SPEECH_PROCESSES[identifier])]
-            if identifier is not None and identifier in _SPEECH_PROCESSES
-            else list(_SPEECH_PROCESSES.items()) if identifier is None else []
-        )
-        for owned_id, (process, _cleanup) in targets:
-            _SPEECH_PROCESSES.pop(owned_id, None)
-            _SPEECH_PID_TURNS.pop(process.pid, None)
-            if owned_id == _ACTIVE_SPEECH_TURN:
-                _ACTIVE_SPEECH_TURN = None
-    for _owned_id, (process, cleanup) in targets:
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=CANCEL_TIMEOUT_SECONDS)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=CANCEL_TIMEOUT_SECONDS)
-        if cleanup is not None:
-            cleanup.unlink(missing_ok=True)
+    with _SPEECH_LIFECYCLE_LOCK:
+        with _SPEECH_LOCK:
+            targets = (
+                [(identifier, _SPEECH_PROCESSES[identifier])]
+                if identifier is not None and identifier in _SPEECH_PROCESSES
+                else list(_SPEECH_PROCESSES.items()) if identifier is None else []
+            )
+            for owned_id, (process, _cleanup) in targets:
+                _SPEECH_PROCESSES.pop(owned_id, None)
+                _SPEECH_PID_TURNS.pop(process.pid, None)
+                if owned_id == _ACTIVE_SPEECH_TURN:
+                    _ACTIVE_SPEECH_TURN = None
+        for _owned_id, (process, cleanup) in targets:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                _stop_process_with_deadline(process)
+            if cleanup is not None:
+                cleanup.unlink(missing_ok=True)
     return {"ok": True, "durduruldu": bool(targets), "tur_id": identifier}
 
 

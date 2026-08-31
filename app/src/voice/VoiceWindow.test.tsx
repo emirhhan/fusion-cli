@@ -206,6 +206,36 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     }));
   });
 
+  it("TTS iptali basarisizsa eski tamponu atar ve taze retry konusmasini kabul eder", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.runtimeState({ durum: "talking", metin: "Uzun yanit" });
+    await screen.findByText("Konuşuyorum");
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    fake.recognition({ tur: "son", metin: "eski tampon", guven: 0.95, speech_ms: 600 });
+    fake.runtimeState({ durum: "error", metin: "Ses kesilemedi. Tekrar deneyin." });
+
+    expect(await screen.findByText("Ses kesilemedi. Tekrar deneyin.")).toBeTruthy();
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalledOnce());
+
+    fireEvent.click(screen.getByRole("button", { name: "Konuşmaya başla" }));
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 }, 2);
+    fake.recognition({ tur: "son", metin: "taze soz", guven: 0.94, speech_ms: 520 }, 2);
+
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
+      kaynak: "kullanici",
+      metin: "taze soz",
+    }));
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalledWith({
+      kaynak: "kullanici",
+      metin: "eski tampon",
+    });
+  });
+
   it("mikrofon düğmesi dinlemeyi gerçekten durdurur", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);
