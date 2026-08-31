@@ -18,6 +18,8 @@ Round 1: `fix(app): pty eszamanlilik ve olay sirasini duzelt`
 
 Round 2: `fix(app): terminal close claim ve ansi pty testini duzelt`
 
+Round 3: `test(app): terminal helper secimini saglamlastir`
+
 ## Test ve doğrulama
 
 - TDD RED: `cargo test terminal -- --nocapture` eksik `TerminalManager`, `TerminalOutput`, `TerminalClosed` nedeniyle exit 101 ile başarısız oldu.
@@ -50,6 +52,16 @@ Round 2: `fix(app): terminal close claim ve ansi pty testini duzelt`
 - `cargo clippy --all-targets -- -D warnings`: exit 0.
 - `cargo test terminal -- --nocapture`: exit 0; 8 geçti, 0 başarısız.
 - `cargo test --all-targets`: exit 0; 64 geçti, 0 başarısız, 1 ignored.
+
+### Review round 3
+
+- Helper discovery saf `select_helper_candidate` fonksiyonuna ayrıldı. Windows yalnız `.exe`, Unix yalnız uzantısız `terminal_test_helper-*` executable kabul ediyor; `.pdb`, `.d` ve `.rcgu` artifact'leri seçilemiyor.
+- Pure selection testi aynı literal artifact listesinde Windows ve Unix için doğru executable yolunu ayrı ayrı doğruluyor.
+- TDD RED: selector mevcut olmadığı için unresolved import ile exit 101.
+- TDD GREEN: saf selector testi, gerçek PTY ANSI helper testi ve terminal hedef paketi geçti; hedef paket 9 geçti, 0 başarısız.
+- `cargo fmt --check`: exit 0.
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test terminal -- --nocapture`: exit 0; 9 geçti, 0 başarısız.
 
 ## Kalan kaygı
 

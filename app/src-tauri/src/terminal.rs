@@ -351,14 +351,37 @@ fn shell_candidates() -> Vec<String> {
 }
 
 #[cfg(test)]
+fn select_helper_candidate<'a>(
+    paths: impl IntoIterator<Item = &'a std::path::PathBuf>,
+    windows: bool,
+) -> Option<std::path::PathBuf> {
+    paths
+        .into_iter()
+        .find(|path| {
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                return false;
+            };
+            if !name.starts_with("terminal_test_helper-") || name.contains(".rcgu.") {
+                return false;
+            }
+            match path.extension().and_then(|extension| extension.to_str()) {
+                Some(extension) => windows && extension.eq_ignore_ascii_case("exe"),
+                None => !windows,
+            }
+        })
+        .cloned()
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
-        claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
-        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
+        claim_explicit_terminal, event_worker, forward_output, queue_closed_once,
+        select_helper_candidate, wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager,
+        TerminalMap, TerminalOutput,
     };
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Write;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
@@ -466,22 +489,16 @@ mod tests {
             .parent()
             .unwrap()
             .to_path_buf();
-        let helper_prefix = "terminal_test_helper-";
-        let helper = std::fs::read_dir(&deps)
+        let mut artifacts: Vec<_> = std::fs::read_dir(&deps)
             .unwrap()
             .filter_map(Result::ok)
             .map(|entry| entry.path())
             .filter(|path| path.is_file())
-            .filter(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(|name| {
-                        name.starts_with(helper_prefix)
-                            && !name.ends_with(".d")
-                            && !name.contains(".rcgu.")
-                    })
-            })
-            .max_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok())
+            .collect();
+        artifacts.sort_by_key(|path| {
+            std::cmp::Reverse(path.metadata().and_then(|meta| meta.modified()).ok())
+        });
+        let helper = select_helper_candidate(&artifacts, cfg!(windows))
             .unwrap_or_else(|| deps.join("terminal_test_helper-missing"));
         assert!(
             helper.is_file(),
@@ -521,6 +538,26 @@ mod tests {
         forward_output("raw-byte-helper".into(), reader, terminals, terminal);
 
         wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+    }
+
+    #[test]
+    fn helper_selection_accepts_only_the_platform_executable_artifact() {
+        let artifacts = [
+            PathBuf::from("terminal_test_helper-a1b2c3.pdb"),
+            PathBuf::from("terminal_test_helper-a1b2c3.d"),
+            PathBuf::from("terminal_test_helper-a1b2c3.rcgu.o"),
+            PathBuf::from("terminal_test_helper-a1b2c3.exe"),
+            PathBuf::from("terminal_test_helper-a1b2c3"),
+        ];
+
+        assert_eq!(
+            select_helper_candidate(artifacts.iter(), true),
+            Some(PathBuf::from("terminal_test_helper-a1b2c3.exe"))
+        );
+        assert_eq!(
+            select_helper_candidate(artifacts.iter(), false),
+            Some(PathBuf::from("terminal_test_helper-a1b2c3"))
+        );
     }
 
     #[test]
