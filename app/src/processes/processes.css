@@ -71,6 +71,7 @@
 }
 
 .terminal-tabs__dot--calisiyor { background: var(--text-warning); }
+.terminal-tabs__dot--durduruldu { background: var(--text-secondary); }
 .terminal-tabs__dot--bitti { background: var(--text-success); }
 .terminal-tabs__dot--hata { background: var(--text-danger); }
 

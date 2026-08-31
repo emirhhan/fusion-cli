@@ -12,30 +12,30 @@ import { TerminalTabs } from "./TerminalTabs";
 
 afterEach(cleanup);
 
-function runtime(): TerminalRuntime & { sessions: Array<TerminalSession & { emitClosed(reason: string): void }> } {
+function runtime(): TerminalRuntime & { sessions: Array<TerminalSession & { emitClosed(event: { reason: string; exitCode: number | null }): void }> } {
   let id = 0;
-  const sessions: Array<TerminalSession & { emitClosed(reason: string): void }> = [];
+  const sessions: Array<TerminalSession & { emitClosed(event: { reason: string; exitCode: number | null }): void }> = [];
   const value = {
     open: vi.fn(async (cwd, cols, rows) => ({ terminalId: `terminal-${++id}`, cwd, cols, rows, pid: 100 + id })),
     write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
     onOutput: vi.fn(async () => vi.fn()), onClosed: vi.fn(async () => vi.fn()),
     openSession: vi.fn(async (cwd: string, cols: number, rows: number) => {
       const terminalId = `terminal-${++id}`;
-      const closedHandlers = new Set<(reason: string) => void>();
-      const session: TerminalSession & { emitClosed(reason: string): void } = {
+      const closedHandlers = new Set<(event: { reason: string; exitCode: number | null }) => void>();
+      const session: TerminalSession & { emitClosed(event: { reason: string; exitCode: number | null }): void } = {
         snapshot: { terminalId, cwd, cols, rows, pid: 100 + id },
         write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
         clearRetention: vi.fn(),
         onOutput: vi.fn(() => vi.fn()),
         onClosed: vi.fn((handler) => { closedHandlers.add(handler); return () => closedHandlers.delete(handler); }),
         dispose: vi.fn(),
-        emitClosed: (reason) => closedHandlers.forEach((handler) => handler(reason)),
+        emitClosed: (event) => closedHandlers.forEach((handler) => handler(event)),
       };
       sessions.push(session);
       return session;
     }),
     sessions,
-  } as TerminalRuntime & { sessions: Array<TerminalSession & { emitClosed(reason: string): void }> };
+  } as TerminalRuntime & { sessions: Array<TerminalSession & { emitClosed(event: { reason: string; exitCode: number | null }): void }> };
   return value;
 }
 
@@ -92,13 +92,37 @@ describe("TerminalTabs", () => {
     render(<TerminalTabs cwd="/repo" runtime={value} />);
     fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
     const tab = await screen.findByRole("tab", { name: "Terminal 1" });
-    value.sessions[0].emitClosed("shell exited");
-    await waitFor(() => expect(tab.textContent).toContain("Kapandı"));
+    value.sessions[0].emitClosed({ reason: "shell exited", exitCode: 0 });
+    await waitFor(() => expect(tab.textContent).toContain("Bitti"));
 
     fireEvent.click(screen.getByRole("button", { name: "Aktif terminali kapat" }));
     await waitFor(() => expect(screen.queryByRole("tab", { name: "Terminal 1" })).toBeNull());
     expect(value.sessions[0].close).not.toHaveBeenCalled();
     expect(value.sessions[0].dispose).toHaveBeenCalledOnce();
+  });
+
+  it("başarısız doğal kapanışı kırmızı hata koduyla gösterir", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
+    const tab = await screen.findByRole("tab", { name: "Terminal 1" });
+
+    value.sessions[0].emitClosed({ reason: "süreç kapandı", exitCode: 1 });
+
+    await waitFor(() => expect(tab.textContent).toContain("Hata (1)"));
+    expect(tab.querySelector(".terminal-tabs__dot--hata")).not.toBeNull();
+  });
+
+  it("kullanıcı kapatmasını nötr durduruldu durumu olarak gösterir", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
+    const tab = await screen.findByRole("tab", { name: "Terminal 1" });
+
+    value.sessions[0].emitClosed({ reason: "kullanıcı kapattı", exitCode: null });
+
+    await waitFor(() => expect(tab.textContent).toContain("Durduruldu"));
+    expect(tab.querySelector(".terminal-tabs__dot--durduruldu")).not.toBeNull();
   });
 
   it("owner unmount sırasında çalışan bütün PTY'leri tam birer kez kapatır", async () => {

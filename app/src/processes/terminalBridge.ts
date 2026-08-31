@@ -9,13 +9,18 @@ export interface TerminalSnapshot {
   pid: number | null;
 }
 
+export interface TerminalClosedEvent {
+  reason: string;
+  exitCode: number | null;
+}
+
 export interface TerminalRuntime {
   open(cwd: string, cols: number, rows: number): Promise<TerminalSnapshot>;
   write(terminalId: string, data: Uint8Array): Promise<void>;
   resize(terminalId: string, cols: number, rows: number): Promise<void>;
   close(terminalId: string): Promise<void>;
   onOutput(terminalId: string, handler: (data: Uint8Array) => void): Promise<UnlistenFn>;
-  onClosed(terminalId: string, handler: (reason: string) => void): Promise<UnlistenFn>;
+  onClosed(terminalId: string, handler: (event: TerminalClosedEvent) => void): Promise<UnlistenFn>;
   openSession(cwd: string, cols: number, rows: number): Promise<TerminalSession>;
 }
 
@@ -26,12 +31,12 @@ export interface TerminalSession {
   close(): Promise<void>;
   clearRetention(): void;
   onOutput(handler: (data: Uint8Array) => void): UnlistenFn;
-  onClosed(handler: (reason: string) => void): UnlistenFn;
+  onClosed(handler: (event: TerminalClosedEvent) => void): UnlistenFn;
   dispose(): void;
 }
 
 interface OutputPayload { terminalId: string; data: number[] }
-interface ClosedPayload { terminalId: string; reason: string }
+interface ClosedPayload { terminalId: string; reason: string; exitCode: number | null }
 const TRANSCRIPT_LIMIT_BYTES = 256 * 1024;
 
 class SafeReplayRetention {
@@ -149,17 +154,17 @@ export function createTerminalRuntime(): TerminalRuntime {
       if (payload.terminalId === terminalId) handler(Uint8Array.from(payload.data));
     }),
     onClosed: (terminalId, handler) => listen<ClosedPayload>("terminal://kapandi", ({ payload }) => {
-      if (payload.terminalId === terminalId) handler(payload.reason);
+      if (payload.terminalId === terminalId) handler({ reason: payload.reason, exitCode: payload.exitCode });
     }),
     openSession: async (cwd, cols, rows) => {
       let terminalId: string | undefined;
-      let closedReason: string | undefined;
+      let closed: TerminalClosedEvent | undefined;
       let closeFinished = false;
       let closingPromise: Promise<void> | undefined;
       let disposed = false;
       const transcript = new SafeReplayRetention();
       const outputHandlers = new Set<(data: Uint8Array) => void>();
-      const closedHandlers = new Set<(reason: string) => void>();
+      const closedHandlers = new Set<(event: TerminalClosedEvent) => void>();
       const pendingOutput: OutputPayload[] = [];
       const pendingClosed: ClosedPayload[] = [];
       const routeOutput = (payload: OutputPayload) => {
@@ -172,8 +177,8 @@ export function createTerminalRuntime(): TerminalRuntime {
       const routeClosed = (payload: ClosedPayload) => {
         if (!terminalId) { pendingClosed.push(payload); return; }
         if (payload.terminalId !== terminalId) return;
-        closedReason = payload.reason;
-        closedHandlers.forEach((handler) => handler(payload.reason));
+        closed = { reason: payload.reason, exitCode: payload.exitCode };
+        closedHandlers.forEach((handler) => handler(closed!));
       };
       let stopOutput: UnlistenFn | undefined;
       let stopClosed: UnlistenFn | undefined;
@@ -201,12 +206,12 @@ export function createTerminalRuntime(): TerminalRuntime {
         write: (data) => runtime.write(snapshot.terminalId, data),
         resize: (nextCols, nextRows) => runtime.resize(snapshot.terminalId, nextCols, nextRows),
         close: () => {
-          if (closedReason !== undefined || closeFinished) return Promise.resolve();
+          if (closed !== undefined || closeFinished) return Promise.resolve();
           if (closingPromise) return closingPromise;
           closingPromise = runtime.close(snapshot.terminalId)
             .then(() => { closeFinished = true; })
             .catch((error) => {
-              if (closedReason !== undefined) { closeFinished = true; return; }
+              if (closed !== undefined) { closeFinished = true; return; }
               throw error;
             })
             .finally(() => {
@@ -222,7 +227,7 @@ export function createTerminalRuntime(): TerminalRuntime {
         },
         onClosed: (handler) => {
           closedHandlers.add(handler);
-          if (closedReason !== undefined) handler(closedReason);
+          if (closed !== undefined) handler(closed);
           return () => closedHandlers.delete(handler);
         },
         dispose: () => {

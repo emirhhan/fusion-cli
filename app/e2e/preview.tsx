@@ -79,7 +79,7 @@ function terminalFixture(terminalState: string): TerminalRuntime {
     : terminalState === "closed"
       ? "python3 -c 'raise SystemExit(1)'\r\n"
       : "Fusion çalışma alanı\r\nfusion@workspace % ";
-  const closedReason = terminalState === "closed" ? "shell exited (1)" : null;
+  const closed = terminalState === "closed" ? { reason: "shell exited", exitCode: 1 } : null;
   const runtime = {
     open: async (cwd: string, cols: number, rows: number) => ({ terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 }),
     write: async () => undefined,
@@ -89,7 +89,7 @@ function terminalFixture(terminalState: string): TerminalRuntime {
     onClosed: async () => () => undefined,
     openSession: async (cwd: string, cols: number, rows: number) => {
       const outputHandlers = new Set<(data: Uint8Array) => void>();
-      const closedHandlers = new Set<(reason: string) => void>();
+      const closedHandlers = new Set<(event: { reason: string; exitCode: number | null }) => void>();
       const session: TerminalSession = {
         snapshot: { terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 },
         write: async () => undefined,
@@ -103,7 +103,7 @@ function terminalFixture(terminalState: string): TerminalRuntime {
         },
         onClosed: (handler) => {
           closedHandlers.add(handler);
-          if (closedReason) queueMicrotask(() => handler(closedReason));
+          if (closed) queueMicrotask(() => handler(closed));
           return () => closedHandlers.delete(handler);
         },
         dispose: () => {

@@ -30,6 +30,7 @@ pub(crate) struct TerminalOutput {
 pub(crate) struct TerminalClosed {
     pub(crate) terminal_id: String,
     pub(crate) reason: String,
+    pub(crate) exit_code: Option<u32>,
 }
 
 type OutputSink = Arc<dyn Fn(TerminalOutput) + Send + Sync>;
@@ -49,7 +50,10 @@ type TerminalMap = Arc<Mutex<HashMap<String, Arc<ManagedTerminal>>>>;
 
 enum TerminalEvent {
     Output(Vec<u8>),
-    Closed(String),
+    Closed {
+        reason: String,
+        exit_code: Option<u32>,
+    },
 }
 
 pub(crate) struct TerminalManager {
@@ -217,17 +221,18 @@ fn close_terminal(terminal: Arc<ManagedTerminal>) {
     wait_for_close_delivery(&terminal);
 }
 
-fn wait_for_child(terminal: &ManagedTerminal, kill: bool) {
+fn wait_for_child(terminal: &ManagedTerminal, kill: bool) -> Option<u32> {
     let child = terminal.child.lock().unwrap().take();
     if let Some(mut child) = child {
         if kill {
             let _ = child.kill();
         }
-        let _ = child.wait();
+        return child.wait().ok().map(|status| status.exit_code());
     }
+    None
 }
 
-fn queue_closed_once(terminal: &ManagedTerminal) {
+fn queue_closed_once(terminal: &ManagedTerminal, exit_code: Option<u32>) {
     if terminal.close_queued.swap(true, Ordering::AcqRel) {
         return;
     }
@@ -237,7 +242,9 @@ fn queue_closed_once(terminal: &ManagedTerminal) {
         .unwrap()
         .take()
         .unwrap_or_else(|| "süreç kapandı".into());
-    let _ = terminal.events.send(TerminalEvent::Closed(reason));
+    let _ = terminal
+        .events
+        .send(TerminalEvent::Closed { reason, exit_code });
 }
 
 fn wait_for_close_delivery(terminal: &ManagedTerminal) {
@@ -262,10 +269,11 @@ fn event_worker(
                     terminal_id: id.clone(),
                     data,
                 }),
-                TerminalEvent::Closed(reason) => {
+                TerminalEvent::Closed { reason, exit_code } => {
                     closed_sink(TerminalClosed {
                         terminal_id: id,
                         reason,
+                        exit_code,
                     });
                     let (delivered, wake) = &*close_delivered;
                     *delivered.lock().unwrap() = true;
@@ -302,11 +310,13 @@ fn forward_output(
         }
         let removed = terminals.lock().unwrap().remove(&id);
         if removed.is_some() {
-            wait_for_child(&terminal, false);
+            let exit_code = wait_for_child(&terminal, false);
             terminal.writer.lock().unwrap().take();
             terminal.master.lock().unwrap().take();
+            queue_closed_once(&terminal, exit_code);
+        } else {
+            queue_closed_once(&terminal, None);
         }
-        queue_closed_once(&terminal);
     });
 }
 
@@ -422,6 +432,26 @@ mod tests {
             assert!(
                 Instant::now() < deadline,
                 "PTY output did not contain {needle:?}; got {bytes:?}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn wait_for_closed(closed: &ClosedLog, id: &str) -> TerminalClosed {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(event) = closed
+                .lock()
+                .unwrap()
+                .iter()
+                .find(|event| event.terminal_id == id)
+                .cloned()
+            {
+                return event;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "PTY close event was not delivered"
             );
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -579,7 +609,7 @@ mod tests {
             .unwrap()
             .contains_key(&snapshot.terminal_id));
 
-        queue_closed_once(&terminal);
+        queue_closed_once(&terminal, None);
         let deadline = Instant::now() + Duration::from_secs(1);
         loop {
             let reasons: Vec<_> = closed
@@ -602,6 +632,44 @@ mod tests {
         wait_for_child(&terminal, true);
         terminal.writer.lock().unwrap().take();
         terminal.master.lock().unwrap().take();
+    }
+
+    #[test]
+    fn natural_shell_exit_reports_its_portable_pty_exit_code() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let (manager, _, closed) = manager();
+        let snapshot = manager
+            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+
+        #[cfg(unix)]
+        manager
+            .write(&snapshot.terminal_id, b"exit 1\n".to_vec())
+            .unwrap();
+        #[cfg(windows)]
+        manager
+            .write(&snapshot.terminal_id, b"exit 1\r\n".to_vec())
+            .unwrap();
+
+        let event = wait_for_closed(&closed, &snapshot.terminal_id);
+        assert_eq!(event.exit_code, Some(1));
+    }
+
+    #[test]
+    fn explicit_close_does_not_report_a_process_exit_code() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let (manager, _, closed) = manager();
+        let snapshot = manager
+            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+
+        manager.close(&snapshot.terminal_id).unwrap();
+
+        let event = wait_for_closed(&closed, &snapshot.terminal_id);
+        assert_eq!(event.reason, "kullanıcı kapattı");
+        assert_eq!(event.exit_code, None);
     }
 
     struct BlockingWriter {

@@ -124,7 +124,7 @@ describe("XtermSession", () => {
     const writeText = vi.fn(async () => undefined);
     const readText = vi.fn(async () => "panodan");
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { readText, writeText } });
-    const view = render(<XtermSession active adapter={value.adapter} closedReason="shell exited" session={value.session} />);
+    const view = render(<XtermSession active adapter={value.adapter} closed={{ reason: "shell exited", exitCode: 1 }} session={value.session} />);
     fireEvent.click(view.getByRole("button", { name: "Terminali temizle" }));
     fireEvent.click(view.getByRole("button", { name: "Seçimi kopyala" }));
     fireEvent.click(view.getByRole("button", { name: "Panodan yapıştır" }));
@@ -132,7 +132,7 @@ describe("XtermSession", () => {
     expect(value.adapter.clear).toHaveBeenCalledOnce();
     expect(value.session.clearRetention).toHaveBeenCalledOnce();
     expect(writeText).toHaveBeenCalledWith("seçim");
-    expect(view.getByRole("status").textContent).toContain("shell exited");
+    expect(view.getByRole("status").textContent).toContain("çıkış kodu: 1");
   });
 
   it("temizle yalnız mevcut xterm ekranını siler ve transcript'i kendiliğinden replay etmez", () => {

@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
 import { XtermSession } from "./XtermSession";
-import { terminalRuntime, type TerminalRuntime, type TerminalSession } from "./terminalBridge";
+import { terminalRuntime, type TerminalClosedEvent, type TerminalRuntime, type TerminalSession } from "./terminalBridge";
 
 interface TerminalTab {
   title: string;
   session: TerminalSession;
-  closedReason: string | null;
+  closed: TerminalClosedEvent | null;
   stopClosed: () => void;
+}
+
+function closedStatus(closed: TerminalClosedEvent | null) {
+  if (!closed) return { label: "Çalışıyor", tone: "calisiyor" };
+  if (closed.exitCode === null) return { label: "Durduruldu", tone: "durduruldu" };
+  if (closed.exitCode === 0) return { label: "Bitti", tone: "bitti" };
+  return { label: `Hata (${closed.exitCode})`, tone: "hata" };
 }
 
 export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; runtime?: TerminalRuntime }) {
@@ -27,7 +34,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
       tabsRef.current = [];
       owned.forEach((tab) => {
         tab.stopClosed();
-        if (tab.closedReason === null) void tab.session.close().finally(() => tab.session.dispose());
+        if (tab.closed === null) void tab.session.close().finally(() => tab.session.dispose());
         else tab.session.dispose();
       });
     };
@@ -46,12 +53,12 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
       const tab: TerminalTab = {
         session,
         title: `Terminal ${nextNumber.current++}`,
-        closedReason: null,
+        closed: null,
         stopClosed: () => undefined,
       };
-      tab.stopClosed = session.onClosed((reason) => {
-        tab.closedReason = reason;
-        setTabs((current) => current.map((item) => item === tab ? { ...item, closedReason: reason } : item));
+      tab.stopClosed = session.onClosed((closed) => {
+        tab.closed = closed;
+        setTabs((current) => current.map((item) => item === tab ? { ...item, closed } : item));
       });
       tabsRef.current = [...tabsRef.current, tab];
       setTabs((current) => [...current, tab]);
@@ -69,7 +76,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
     const tab = tabs[closingIndex];
     if (!tab) return;
     try {
-      if (tab.closedReason === null) await tab.session.close();
+      if (tab.closed === null) await tab.session.close();
       const remaining = tabs.filter((item) => item !== tab);
       tabsRef.current = tabsRef.current.filter((item) => item !== tab);
       tab.stopClosed();
@@ -96,6 +103,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
         <div aria-label="Terminal oturumları" className="terminal-tabs__list" role="tablist">
           {tabs.map((tab, index) => {
             const { terminalId, cwd: terminalCwd, pid } = tab.session.snapshot;
+            const status = closedStatus(tab.closed);
             return (
               <button
                 aria-controls={`terminal-panel-${terminalId}`}
@@ -113,12 +121,12 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
                 }}
                 role="tab"
                 tabIndex={activeId === terminalId ? 0 : -1}
-                title={`${terminalCwd} · ${tab.closedReason ? `Kapandı: ${tab.closedReason}` : `PID ${pid ?? "—"}`}`}
+                title={`${terminalCwd} · ${tab.closed ? `${status.label}: ${tab.closed.reason}` : `PID ${pid ?? "—"}`}`}
                 type="button"
               >
-                <span className={`terminal-tabs__dot terminal-tabs__dot--${tab.closedReason ? "bitti" : "calisiyor"}`} />
+                <span className={`terminal-tabs__dot terminal-tabs__dot--${status.tone}`} />
                 <span>{tab.title}</span>
-                {tab.closedReason && <span className="terminal-tabs__state">Kapandı</span>}
+                {tab.closed && <span className="terminal-tabs__state">{status.label}</span>}
               </button>
             );
           })}
@@ -134,7 +142,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
         const terminalId = tab.session.snapshot.terminalId;
         return (
           <section aria-label={`${tab.title} ekranı`} hidden={activeId !== terminalId} id={`terminal-panel-${terminalId}`} key={terminalId} role="tabpanel">
-            <XtermSession active={activeId === terminalId} closedReason={tab.closedReason} session={tab.session} />
+            <XtermSession active={activeId === terminalId} closed={tab.closed} session={tab.session} />
           </section>
         );
       }) : (

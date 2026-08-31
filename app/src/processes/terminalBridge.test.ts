@@ -238,7 +238,7 @@ describe("terminalBridge", () => {
     });
     invoke.mockImplementation(async (command: string) => {
       if (command === "terminal_ac") {
-        handlers.get("terminal://kapandi")?.({ payload: { terminalId: "terminal-fast", reason: "shell exited" } });
+        handlers.get("terminal://kapandi")?.({ payload: { terminalId: "terminal-fast", reason: "shell exited", exitCode: 1 } });
         return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
       }
     });
@@ -248,7 +248,7 @@ describe("terminalBridge", () => {
     session.onClosed(closed);
     await session.close();
 
-    expect(closed).toHaveBeenCalledWith("shell exited");
+    expect(closed).toHaveBeenCalledWith({ reason: "shell exited", exitCode: 1 });
     expect(invoke.mock.calls).toEqual([["terminal_ac", { cwd: "/repo", cols: 80, rows: 24 }]]);
   });
 
@@ -279,7 +279,7 @@ describe("terminalBridge", () => {
         handler({ payload: { terminalId: "terminal-2", data: [226, 130] } });
         return outputUnlisten;
       }
-      handler({ payload: { terminalId: "terminal-2", reason: "çıktı" } });
+      handler({ payload: { terminalId: "terminal-2", reason: "çıktı", exitCode: 0 } });
       return closedUnlisten;
     });
     const runtime = createTerminalRuntime();
@@ -293,8 +293,24 @@ describe("terminalBridge", () => {
 
     expect(listen.mock.calls.map(([name]) => name)).toEqual(["terminal://cikti", "terminal://kapandi"]);
     expect(onOutput).toHaveBeenCalledWith(new Uint8Array([226, 130]));
-    expect(onClosed).toHaveBeenCalledWith("çıktı");
+    expect(onClosed).toHaveBeenCalledWith({ reason: "çıktı", exitCode: 0 });
     expect(outputUnlisten).toHaveBeenCalledOnce();
     expect(closedUnlisten).toHaveBeenCalledOnce();
+  });
+
+  it("kapanma olayında exit code'u session abonelerine taşır", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const closed = vi.fn();
+    session.onClosed(closed);
+
+    handlers.get("terminal://kapandi")?.({ payload: { terminalId: "terminal-1", reason: "süreç kapandı", exitCode: 1 } });
+
+    expect(closed).toHaveBeenCalledWith({ reason: "süreç kapandı", exitCode: 1 });
   });
 });

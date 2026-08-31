@@ -1,5 +1,17 @@
 # Task 3 — Gerçek terminal kabul kapısı raporu
 
+## Round 1 düzeltmesi — 2026-08-31
+
+`TerminalClosed` artık doğal PTY kapanışında `exit_code: Option<u32>` taşır.
+`exit 0` yeşil **Bitti**, sıfır-dışı çıkış kırmızı **Hata (kod)**, açık kullanıcı
+kapatması `null` kodla nötr **Durduruldu** gösterilir. Tek-seferlik, sıralı close
+teslimi korunmuştur. Kanonik görsel kabul dosyası `app/e2e/terminal.visual.ts`'dir;
+kapalı-hata sözleşmesi hata metnini ve kırmızı noktayı doğrular.
+
+Round 1 kanıtı: terminal Rust 11/11, hedef React/köprü 32/32, tam `npm run check`
+408 Vitest ve 67 Rust test, `terminal.visual.ts` 4/4 geçti. Ayrıntılı izlenebilir
+rapor: `docs/superpowers/reports/2026-08-31-gercek-terminal-kabul.md`.
+
 Tarih: 2026-08-31
 
 ## Uygulanan kabul sözleşmesi

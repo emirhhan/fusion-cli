@@ -22,7 +22,8 @@ for (const terminalCase of terminalCases) {
       await expect(page.getByRole("tab", { name: "Terminal 1" })).toBeVisible();
       await expect(page.locator(".xterm-screen")).toBeVisible();
       if (terminalCase.state === "closed") {
-        await expect(page.locator(".xterm-session__status")).toHaveText("Terminal kapandı: shell exited (1)");
+        await expect(page.locator(".xterm-session__status")).toHaveText("Terminal hata ile kapandı (çıkış kodu: 1)");
+        await expect(page.locator(".terminal-tabs__dot--hata")).toBeVisible();
       }
     }
 

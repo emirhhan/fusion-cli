@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import type { TerminalSession } from "./terminalBridge";
+import type { TerminalClosedEvent, TerminalSession } from "./terminalBridge";
 
 export interface XtermAdapter {
   open(element: HTMLElement): void;
@@ -48,13 +48,13 @@ export function createXtermAdapter(): XtermAdapter {
 export function XtermSession({
   session,
   active,
-  closedReason = null,
+  closed = null,
   adapter: providedAdapter,
   createAdapter,
 }: {
   session: TerminalSession;
   active: boolean;
-  closedReason?: string | null;
+  closed?: TerminalClosedEvent | null;
   adapter?: XtermAdapter;
   createAdapter?: () => XtermAdapter;
 }) {
@@ -97,10 +97,10 @@ export function XtermSession({
   }, [active]);
 
   useEffect(() => {
-    if (!closedReason) return;
+    if (!closed) return;
     const tail = decoderRef.current?.decode() ?? "";
     if (tail) adapterRef.current?.write(tail);
-  }, [closedReason]);
+  }, [closed]);
 
   const copy = async () => {
     const selection = adapterRef.current?.getSelection() ?? "";
@@ -124,7 +124,10 @@ export function XtermSession({
       </div>
       <div aria-label="Terminal ekranı" className="xterm-session__host" ref={hostRef} />
       <span className="xterm-session__status" role="status">
-        {closedReason ? `Terminal kapandı: ${closedReason}` : "Terminal çalışıyor"}
+        {closed === null ? "Terminal çalışıyor"
+          : closed.exitCode === null ? "Terminal durduruldu"
+            : closed.exitCode === 0 ? "Terminal bitti"
+              : `Terminal hata ile kapandı (çıkış kodu: ${closed.exitCode})`}
       </span>
     </div>
   );
