@@ -45,6 +45,7 @@ export function usePermissions(
   const [state, setState] = useState<PermissionStates>(UNKNOWN_STATES);
   const [activeKind, setActiveKind] = useState<PermissionKind | null>(null);
   const [phase, setPhase] = useState<PermissionPromptPhase>("preflight");
+  const [hasQueuedPermission, setHasQueuedPermission] = useState(false);
   const states = useRef<PermissionStates>(UNKNOWN_STATES);
   const explanations = useRef(readExplanationSeen(storage));
   const pending = useRef(new Map<PermissionKind, {
@@ -63,6 +64,17 @@ export function usePermissions(
     if (explanations.current[kind]) void requestPermission.current?.(kind);
   }, []);
 
+  const beginNext = useCallback(() => {
+    const following = queued.current.shift();
+    setHasQueuedPermission(queued.current.length > 0);
+    if (following) {
+      begin(following);
+      return;
+    }
+    active.current = null;
+    setActiveKind(null);
+  }, [begin]);
+
   const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
     if (states.current[kind] === "granted") return Promise.resolve(true);
     const existing = pending.current.get(kind);
@@ -72,7 +84,10 @@ export function usePermissions(
     const promise = new Promise<boolean>((next) => { resolve = next; });
     pending.current.set(kind, { kind, promise, resolve });
     if (active.current === null) begin(kind);
-    else queued.current.push(kind);
+    else {
+      queued.current.push(kind);
+      setHasQueuedPermission(true);
+    }
     return promise;
   }, [begin]);
 
@@ -89,20 +104,14 @@ export function usePermissions(
     pending.current.delete(kind);
     waiting?.resolve(next === "granted");
 
-    const following = queued.current.shift();
-    if (following) {
-      begin(following);
-      return;
-    }
     if (next === "granted") {
-      active.current = null;
-      setActiveKind(null);
+      beginNext();
       return;
     }
     active.current = kind;
     setActiveKind(kind);
     setPhase(next === "restricted" ? "restricted" : "denied");
-  }, [begin, bridge]);
+  }, [beginNext, bridge]);
 
   requestPermission.current = request;
 
@@ -117,6 +126,11 @@ export function usePermissions(
     if (activeKind) await request(activeKind);
   }, [activeKind, request]);
 
+  const continueToNext = useCallback(() => {
+    if (!activeKind || !hasQueuedPermission) return;
+    beginNext();
+  }, [activeKind, beginNext, hasQueuedPermission]);
+
   const openSettings = useCallback(async (kind: PermissionKind) => {
     await bridge.openSettings(kind);
   }, [bridge]);
@@ -128,6 +142,8 @@ export function usePermissions(
     ensure,
     continue: continuePermission,
     retry,
+    continueToNext,
+    hasQueuedPermission,
     openSettings,
   };
 }

@@ -18,16 +18,19 @@ describe("PermissionPrompt", () => {
   it("ret durumunda yeniden deneme ve Sistem Ayarları eylemlerini sunar", () => {
     const onRetry = vi.fn();
     const onOpenSettings = vi.fn();
+    const onContinueToNext = vi.fn();
     render(
-      <PermissionPrompt kind="speech" phase="denied" onContinue={vi.fn()} onOpenSettings={onOpenSettings} onRetry={onRetry} />,
+      <PermissionPrompt kind="speech" phase="denied" onContinue={vi.fn()} onContinueToNext={onContinueToNext} onOpenSettings={onOpenSettings} onRetry={onRetry} />,
     );
 
     expect(screen.getByText(/konuşma tanıma erişimi izni verilmedi/i)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
     fireEvent.click(screen.getByRole("button", { name: "Sistem Ayarlarını Aç" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sonraki izne geç" }));
 
     expect(onRetry).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
+    expect(onContinueToNext).toHaveBeenCalledOnce();
   });
 
   it("Tab odağını eylemlerinde döndürür ve kapanınca önceki odağı geri verir", () => {

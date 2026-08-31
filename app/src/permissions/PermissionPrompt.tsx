@@ -7,6 +7,7 @@ interface PermissionPromptProps {
   kind: PermissionKind;
   phase: PermissionPromptPhase;
   onContinue: () => void;
+  onContinueToNext?: () => void;
   onRetry: () => void;
   onOpenSettings: () => void;
 }
@@ -30,7 +31,7 @@ const COPY: Record<PermissionKind, { title: string; explanation: string }> = {
   },
 };
 
-export function PermissionPrompt({ kind, phase, onContinue, onRetry, onOpenSettings }: PermissionPromptProps) {
+export function PermissionPrompt({ kind, phase, onContinue, onContinueToNext, onRetry, onOpenSettings }: PermissionPromptProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -86,6 +87,7 @@ export function PermissionPrompt({ kind, phase, onContinue, onRetry, onOpenSetti
             <>
               <Button onClick={onRetry} variant="primary">Yeniden dene</Button>
               <Button onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>
+              {onContinueToNext && <Button onClick={onContinueToNext} variant="ghost">Sonraki izne geç</Button>}
             </>
           ) : <Button onClick={onContinue} variant="primary">Devam et</Button>}
         </div>

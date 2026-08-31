@@ -73,6 +73,32 @@ describe("usePermissions", () => {
     expect(bridge.request).toHaveBeenNthCalledWith(2, "microphone");
   });
 
+  it.each(["denied", "restricted"] as const)("kuyruktaki sonraki izni, %s sonucu görünür kaldıktan sonra açıkça ilerletir", async (firstResult) => {
+    const bridge = fakeBridge();
+    bridge.request.mockResolvedValueOnce(firstResult).mockResolvedValueOnce("granted");
+    const { result } = renderHook(() => usePermissions(bridge));
+    let workspace: Promise<boolean> | undefined;
+    let microphone: Promise<boolean> | undefined;
+
+    act(() => {
+      workspace = result.current.ensure("workspace");
+      microphone = result.current.ensure("microphone");
+    });
+    await act(async () => result.current.continue());
+
+    await expect(workspace).resolves.toBe(false);
+    expect(result.current.activeKind).toBe("workspace");
+    expect(result.current.phase).toBe(firstResult);
+    expect(bridge.request).toHaveBeenCalledTimes(1);
+
+    act(() => result.current.continueToNext());
+    expect(result.current.activeKind).toBe("microphone");
+    expect(result.current.phase).toBe("preflight");
+
+    await act(async () => result.current.continue());
+    await expect(microphone).resolves.toBe(true);
+  });
+
   it("saklanmış açıklamadan sonra native gerçeği sorgular, ret varsaymaz", async () => {
     localStorage.setItem(EXPLANATION_SEEN_KEY, '{"speech":true}');
     const bridge = fakeBridge("granted");
