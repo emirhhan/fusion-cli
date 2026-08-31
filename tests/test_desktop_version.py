@@ -66,3 +66,15 @@ def test_tauri_paketleme_uygulama_binarysini_acikca_secer():
         cargo = tomllib.load(stream)
 
     assert cargo["package"]["default-run"] == "fusion-desktop"
+
+
+def test_terminal_test_yardimcisi_release_binarysi_degil():
+    """PTY test yardımcısı son kullanıcı `.app` paketine girmemeli."""
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "app/src-tauri/Cargo.toml").open("rb") as stream:
+        cargo = tomllib.load(stream)
+
+    assert all(item.get("name") != "terminal_test_helper" for item in cargo.get("bin", []))
+    assert not (root / "app/src-tauri/src/bin/terminal_test_helper.rs").exists()

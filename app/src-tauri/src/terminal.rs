@@ -361,37 +361,14 @@ fn shell_candidates() -> Vec<String> {
 }
 
 #[cfg(test)]
-fn select_helper_candidate<'a>(
-    paths: impl IntoIterator<Item = &'a std::path::PathBuf>,
-    windows: bool,
-) -> Option<std::path::PathBuf> {
-    paths
-        .into_iter()
-        .find(|path| {
-            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-                return false;
-            };
-            if !name.starts_with("terminal_test_helper-") || name.contains(".rcgu.") {
-                return false;
-            }
-            match path.extension().and_then(|extension| extension.to_str()) {
-                Some(extension) => windows && extension.eq_ignore_ascii_case("exe"),
-                None => !windows,
-            }
-        })
-        .cloned()
-}
-
-#[cfg(test)]
 mod tests {
     use super::{
-        claim_explicit_terminal, event_worker, forward_output, queue_closed_once,
-        select_helper_candidate, wait_for_child, ManagedTerminal, TerminalClosed, TerminalManager,
-        TerminalMap, TerminalOutput,
+        claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
+        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
     };
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Write;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
@@ -514,32 +491,15 @@ mod tests {
     #[test]
     fn forwards_terminal_output_without_stripping_ansi_bytes() {
         let _guard = pty_test_guard();
-        let deps = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .to_path_buf();
-        let mut artifacts: Vec<_> = std::fs::read_dir(&deps)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .filter(|path| path.is_file())
-            .collect();
-        artifacts.sort_by_key(|path| {
-            std::cmp::Reverse(path.metadata().and_then(|meta| meta.modified()).ok())
-        });
-        let helper = select_helper_candidate(&artifacts, cfg!(windows))
-            .unwrap_or_else(|| deps.join("terminal_test_helper-missing"));
-        assert!(
-            helper.is_file(),
-            "terminal test helper is missing: {}",
-            helper.display()
-        );
         let pair = native_pty_system().openpty(PtySize::default()).unwrap();
-        let child = pair
-            .slave
-            .spawn_command(CommandBuilder::new(helper))
-            .unwrap();
+        let mut command = CommandBuilder::new(std::env::current_exe().unwrap());
+        command.args([
+            "--exact",
+            "terminal::tests::terminal_test_helper",
+            "--ignored",
+            "--nocapture",
+        ]);
+        let child = pair.slave.spawn_command(command).unwrap();
         let reader = pair.master.try_clone_reader().unwrap();
         let writer = pair.master.take_writer().unwrap();
         let outputs = OutputLog::default();
@@ -571,23 +531,12 @@ mod tests {
     }
 
     #[test]
-    fn helper_selection_accepts_only_the_platform_executable_artifact() {
-        let artifacts = [
-            PathBuf::from("terminal_test_helper-a1b2c3.pdb"),
-            PathBuf::from("terminal_test_helper-a1b2c3.d"),
-            PathBuf::from("terminal_test_helper-a1b2c3.rcgu.o"),
-            PathBuf::from("terminal_test_helper-a1b2c3.exe"),
-            PathBuf::from("terminal_test_helper-a1b2c3"),
-        ];
-
-        assert_eq!(
-            select_helper_candidate(artifacts.iter(), true),
-            Some(PathBuf::from("terminal_test_helper-a1b2c3.exe"))
-        );
-        assert_eq!(
-            select_helper_candidate(artifacts.iter(), false),
-            Some(PathBuf::from("terminal_test_helper-a1b2c3"))
-        );
+    #[ignore]
+    fn terminal_test_helper() {
+        std::io::stdout()
+            .write_all(b"\x1b[31mfusion-pty-ok\x1b[0m")
+            .unwrap();
+        std::io::stdout().flush().unwrap();
     }
 
     #[test]
