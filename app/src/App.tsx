@@ -224,7 +224,7 @@ function ProjectInspector({
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
-        terminal: <TerminalPanel controller={processes} />,
+        terminal: <TerminalPanel cwd={root} />,
         processes: <ProcessesPanel controller={processes} />,
         tests: <TestsPanel client={client} processes={processes} />,
         preview: <PreviewPanel client={client} selectedPath={selectedPath} />,

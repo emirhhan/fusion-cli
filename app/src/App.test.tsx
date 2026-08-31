@@ -14,12 +14,16 @@ const nativeDrops = vi.hoisted(() => {
   });
   return { listen, state, unlisten };
 });
+const nativeInvoke = vi.hoisted(() => vi.fn(async (command: string) => {
+  if (command.startsWith("izin_")) return { state: "granted", supported: true };
+  if (command === "terminal_ac") return { terminalId: "terminal-1", cwd: "/proje", cols: 80, rows: 24, pid: 77 };
+  return undefined;
+}));
 
 vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (command: string) => command.startsWith("izin_")
-    ? { state: "granted", supported: true }
-    : undefined),
+vi.mock("@tauri-apps/api/core", () => ({ invoke: nativeInvoke }));
+vi.mock("./processes/XtermSession", () => ({
+  XtermSession: ({ terminalId }: { terminalId: string }) => <div>PTY {terminalId}</div>,
 }));
 
 function fakeClient() {
@@ -442,19 +446,19 @@ describe("SessionUygulama", () => {
     expect(await screen.findByText("+print('Fusion App')")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Terminal" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Terminal komutu" }), {
-      target: { value: "npm test" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
-    expect(await screen.findByText("testler geçti")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Süreçler" }));
-    expect(await screen.findByText("npm test")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Yeni terminal" }));
+    await waitFor(() => expect(nativeInvoke).toHaveBeenCalledWith("terminal_ac", {
+      cwd: "/proje", cols: 80, rows: 24,
+    }));
+    expect(await screen.findByText("PTY terminal-1")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("tab", { name: "Testler" }));
     expect(await screen.findByText("main")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Testleri çalıştır" }));
     expect(await screen.findByText("testler geçti")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Süreçler" }));
+    expect(await screen.findByText("npm test")).toBeTruthy();
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {

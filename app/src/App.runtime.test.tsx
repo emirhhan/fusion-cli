@@ -21,6 +21,7 @@ const tauri = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
+vi.mock("./processes/XtermSession", () => ({ XtermSession: () => null }));
 
 afterEach(() => {
   cleanup();

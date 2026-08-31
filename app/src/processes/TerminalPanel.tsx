@@ -1,7 +1,6 @@
-import type { ProcessController } from "./useProcesses";
 import { TerminalTabs } from "./TerminalTabs";
 import "./processes.css";
 
-export function TerminalPanel({ controller }: { controller: ProcessController }) {
-  return <TerminalTabs controller={controller} />;
+export function TerminalPanel({ cwd }: { cwd: string }) {
+  return <TerminalTabs cwd={cwd} />;
 }

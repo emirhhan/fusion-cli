@@ -69,6 +69,7 @@
 .terminal-tabs__dot--hata { background: var(--text-danger); }
 
 .terminal-tabs__new,
+.terminal-tabs__close,
 .terminal-tabs__actions button,
 .terminal-tabs__composer button {
   align-items: center;
@@ -86,6 +87,7 @@
 }
 
 .terminal-tabs__new:hover,
+.terminal-tabs__close:hover,
 .terminal-tabs__actions button:hover,
 .terminal-tabs__composer button:hover {
   background: var(--surface-hover);
@@ -93,6 +95,7 @@
 }
 
 .terminal-tabs__new:active,
+.terminal-tabs__close:active,
 .terminal-tabs__actions button:active,
 .terminal-tabs__composer button:active {
   transform: scale(0.96);
@@ -211,6 +214,60 @@
   color: var(--text-inverse);
   min-height: 40px;
   padding: 0 var(--space-3);
+}
+
+.terminal-tabs > [role="tabpanel"] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.xterm-session {
+  background: #0f1115;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: var(--radius-md);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  margin-top: var(--space-3);
+  min-height: 300px;
+  overflow: hidden;
+}
+
+.xterm-session__actions {
+  background: #171a20;
+  border-bottom: 1px solid rgb(255 255 255 / 9%);
+  display: flex;
+  justify-content: flex-end;
+  min-height: 36px;
+}
+
+.xterm-session__actions button {
+  background: transparent;
+  border: 0;
+  color: #aeb5bf;
+  font-size: 10px;
+  padding: 0 var(--space-2);
+}
+
+.xterm-session__actions button:hover {
+  background: rgb(255 255 255 / 7%);
+  color: #f1f3f5;
+}
+
+.xterm-session__host {
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-2);
+}
+
+.xterm-session__host .xterm { height: 100%; }
+
+.xterm-session__status {
+  background: #171a20;
+  color: #9ca3af;
+  font: 10px/1.5 var(--font-mono);
+  min-height: 20px;
+  padding: 2px var(--space-2);
 }
 
 .process-empty { color: var(--text-secondary); font-size: var(--text-xs); }

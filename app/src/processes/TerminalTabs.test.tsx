@@ -1,153 +1,71 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ProcessController } from "./useProcesses";
-import { stripAnsi, TerminalTabs } from "./TerminalTabs";
+import type { TerminalRuntime } from "./terminalBridge";
 
-afterEach(() => {
-  cleanup();
-  vi.restoreAllMocks();
-});
+vi.mock("./XtermSession", () => ({
+  XtermSession: ({ terminalId, active }: { terminalId: string; active: boolean }) => (
+    <div data-active={String(active)}>xterm {terminalId}</div>
+  ),
+}));
 
-function controller(overrides: Partial<ProcessController> = {}): ProcessController {
+import { TerminalTabs } from "./TerminalTabs";
+
+afterEach(cleanup);
+
+function runtime(): TerminalRuntime {
+  let id = 0;
   return {
-    busy: false,
-    error: null,
-    processes: [
-      {
-        baslangic: 1,
-        cikis_kodu: null,
-        cikti: "\u001b]0;gizli terminal başlığı\u0007\u009d0;c1 başlığı\u0007\u001b[32mdev sunucusu hazır\u001b[0m\u001b]0;yarım başlık",
-        cwd: "/Projects/fusion-cli",
-        durum: "calisiyor",
-        komut: "npm run dev",
-        pid: 100,
-        surec_id: "dev",
-      },
-      {
-        baslangic: 2,
-        cikis_kodu: 0,
-        cikti: "299 tests passed",
-        cwd: "/Projects/fusion-cli/app",
-        durum: "bitti",
-        komut: "npm test",
-        pid: 101,
-        surec_id: "tests",
-      },
-    ],
-    outputStreams: {},
-    refresh: vi.fn(async () => undefined),
-    start: vi.fn(async () => true),
-    stop: vi.fn(async () => undefined),
-    ...overrides,
-  } as ProcessController;
+    open: vi.fn(async (cwd, cols, rows) => ({ terminalId: `terminal-${++id}`, cwd, cols, rows, pid: 100 + id })),
+    write: vi.fn(async () => undefined), resize: vi.fn(async () => undefined), close: vi.fn(async () => undefined),
+    onOutput: vi.fn(async () => vi.fn()), onClosed: vi.fn(async () => vi.fn()),
+  };
 }
 
 describe("TerminalTabs", () => {
-  it("süreçleri kayıpsız sekmeler olarak seçer ve ANSI kodlarını çizmez", () => {
-    render(<TerminalTabs controller={controller()} />);
-    expect(screen.getByText("299 tests passed")).toBeTruthy();
-    const tests = screen.getByRole("tab", { name: "npm test terminali" });
-    fireEvent.keyDown(tests, { key: "ArrowLeft" });
-    expect(screen.getByRole("tab", { name: "npm run dev terminali" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("dev sunucusu hazır")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("\u001b[32m");
-    expect(document.body.textContent).not.toContain("gizli terminal başlığı");
-    expect(document.body.textContent).not.toContain("c1 başlığı");
-    expect(document.body.textContent).not.toContain("yarım başlık");
-  });
-
-  it("başlatma sonrası gelen yeni süreç sekmesini otomatik etkinleştirir", () => {
-    const initial = controller({ processes: [] });
-    const view = render(<TerminalTabs controller={initial} />);
-    const next = controller({ processes: [controller().processes[0]] });
-    view.rerender(<TerminalTabs controller={next} />);
-    expect(screen.getByRole("tab", { name: "npm run dev terminali" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByText("dev sunucusu hazır")).toBeTruthy();
-  });
-
-  it("çalışan süreci durdurur, bitmiş sekmeyi yalnız görünümden kapatır", () => {
-    const value = controller();
-    render(<TerminalTabs controller={value} />);
-    fireEvent.click(screen.getByRole("tab", { name: "npm run dev terminali" }));
-    fireEvent.click(screen.getByRole("button", { name: "Süreci durdur" }));
-    expect(value.stop).toHaveBeenCalledWith("dev");
-
-    fireEvent.click(screen.getByRole("tab", { name: "npm test terminali" }));
-    fireEvent.click(screen.getByRole("button", { name: "Terminal sekmesini kapat" }));
-    expect(screen.queryByRole("tab", { name: "npm test terminali" })).toBeNull();
-    expect(value.stop).toHaveBeenCalledTimes(1);
-  });
-
-  it("artı düğmesiyle komut composer'ını açar ve mevcut start sözleşmesini kullanır", async () => {
-    const value = controller({ processes: [] });
-    render(<TerminalTabs controller={value} />);
+  it("Yeni terminal ile kullanıcı shell'ini etkin workspace cwd'sinde açar", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/Projects/fusion-cli" runtime={value} />);
     fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "Terminal komutu" }), {
-      target: { value: "npm run build" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
-    await waitFor(() => expect(value.start).toHaveBeenCalledWith("npm run build"));
+    await waitFor(() => expect(value.open).toHaveBeenCalledWith("/Projects/fusion-cli", 80, 24));
+    expect(screen.getByRole("tab", { name: "Terminal 1" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("xterm terminal-1").getAttribute("data-active")).toBe("true");
+    expect(screen.queryByRole("textbox", { name: "Terminal komutu" })).toBeNull();
   });
 
-  it("çıktıyı temizler, panoya kopyalar ve yeni satırda sona kaydırır", async () => {
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-      configurable: true,
-      get: () => 640,
-    });
-    const writeText = vi.fn(async () => undefined);
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: { writeText },
-    });
-    render(<TerminalTabs controller={controller()} />);
-    const output = screen.getByRole("log", { name: "Terminal çıktısı" });
-    expect(output.scrollTop).toBe(640);
-    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı kopyala" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("299 tests passed"));
-    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
-    expect(screen.queryByText("299 tests passed")).toBeNull();
+  it("birden çok terminali korur ve ok/Home/End ile erişilebilir biçimde seçer", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    const create = screen.getByRole("button", { name: "Yeni terminal" });
+    fireEvent.click(create);
+    await screen.findByRole("tab", { name: "Terminal 1" });
+    fireEvent.click(create);
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    const second = screen.getByRole("tab", { name: "Terminal 2" });
+    fireEvent.keyDown(second, { key: "ArrowLeft" });
+    expect(screen.getByRole("tab", { name: "Terminal 1" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Terminal 1" }), { key: "End" });
+    expect(second.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("dönen backend tamponunda temizleme sonrasındaki yeni son eki gösterir", () => {
-    const process = { ...controller().processes[0], cikti: "abcdef" };
-    const view = render(<TerminalTabs controller={controller({ processes: [process] })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
-    view.rerender(
-      <TerminalTabs controller={controller({ processes: [{ ...process, cikti: "cdefgh" }] })} />,
-    );
-    expect(screen.getByText("gh")).toBeTruthy();
+  it("aktif sekmeyi runtime üzerinden kapatıp komşu terminale geçer", async () => {
+    const value = runtime();
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    const create = screen.getByRole("button", { name: "Yeni terminal" });
+    fireEvent.click(create);
+    await screen.findByRole("tab", { name: "Terminal 1" });
+    fireEvent.click(create);
+    await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Aktif terminali kapat" }));
+    await waitFor(() => expect(value.close).toHaveBeenCalledWith("terminal-2"));
+    expect(screen.queryByRole("tab", { name: "Terminal 2" })).toBeNull();
+    expect(screen.getByRole("tab", { name: "Terminal 1" }).getAttribute("aria-selected")).toBe("true");
   });
 
-  it("aynı içerikli dönen tamponda yeni olay parçalarını temizleme sonrasında gösterir", () => {
-    const repeated = "x".repeat(256 * 1024);
-    const process = { ...controller().processes[0], cikti: repeated };
-    const view = render(<TerminalTabs controller={controller({ processes: [process] })} />);
-    fireEvent.click(screen.getByRole("button", { name: "Çıktıyı temizle" }));
-
-    view.rerender(<TerminalTabs controller={controller({
-      outputStreams: { dev: { text: "x".repeat(4096), total: 4096 } },
-      processes: [{ ...process, cikti: repeated }],
-    })} />);
-
-    expect(screen.getByRole("log", { name: "Terminal çıktısı" }).textContent).toBe("x".repeat(4096));
-  });
-
-  it("C1 OSC dizisini C1 ST sonlandırıcısında kesip sonraki metni korur", () => {
-    expect(stripAnsi("before\u009d0;başlık\u009cafter")).toBe("beforeafter");
-  });
-
-  it("başlatma başarısızsa komutu korur; bitmiş süreci cwd ile yeniden çalıştırır", async () => {
-    const failed = controller({ processes: [], start: vi.fn(async () => false) });
-    const view = render(<TerminalTabs controller={failed} />);
-    const input = screen.getByRole("textbox", { name: "Terminal komutu" });
-    fireEvent.change(input, { target: { value: "npm run broken" } });
-    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
-    await waitFor(() => expect(failed.start).toHaveBeenCalled());
-    expect((screen.getByRole("textbox", { name: "Terminal komutu" }) as HTMLInputElement).value).toBe("npm run broken");
-
-    const completed = controller();
-    view.rerender(<TerminalTabs controller={completed} />);
-    fireEvent.click(screen.getByRole("button", { name: "Yeniden çalıştır" }));
-    expect(completed.start).toHaveBeenCalledWith("npm test", "/Projects/fusion-cli/app");
+  it("terminal açma hatasını alert olarak gösterir", async () => {
+    const value = runtime();
+    vi.mocked(value.open).mockRejectedValueOnce(new Error("pty açılamadı"));
+    render(<TerminalTabs cwd="/repo" runtime={value} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yeni terminal" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("pty açılamadı");
   });
 });
