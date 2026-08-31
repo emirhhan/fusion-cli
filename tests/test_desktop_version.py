@@ -55,3 +55,14 @@ def test_macos_paket_komutu_dinleme_yardimcisini_kaynaktan_uretir():
     assert (root / "desktop_build/listen/main.swift").is_file()
     assert "build_adapter.py --platform macos" in app["scripts"]["listen:build:mac"]
     assert "npm run listen:build:mac" in app["scripts"]["bundle:mac"]
+
+
+def test_tauri_paketleme_uygulama_binarysini_acikca_secer():
+    """Test helper binary'si eklenince Tauri ana binary'yi tahmin edemez."""
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    with (root / "app/src-tauri/Cargo.toml").open("rb") as stream:
+        cargo = tomllib.load(stream)
+
+    assert cargo["package"]["default-run"] == "fusion-desktop"

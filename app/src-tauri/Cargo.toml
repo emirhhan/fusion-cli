@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Fusion yapay zekâ çalışma alanı"
 authors = ["Fusion"]
 edition = "2021"
+default-run = "fusion-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
