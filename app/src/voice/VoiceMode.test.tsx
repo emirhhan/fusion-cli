@@ -58,6 +58,7 @@ describe("VoiceMode", () => {
     render(
       <VoiceMode
         onClose={vi.fn()}
+        onMinimize={vi.fn()}
         onPrefsChange={vi.fn()}
         onToggleListen={vi.fn()}
         onTopChange={vi.fn()}
@@ -77,6 +78,7 @@ describe("VoiceMode", () => {
     render(
       <VoiceMode
         onClose={vi.fn()}
+        onMinimize={vi.fn()}
         onPrefsChange={vi.fn()}
         onToggleListen={vi.fn()}
         onTopChange={vi.fn()}
@@ -95,7 +97,7 @@ describe("VoiceMode", () => {
   it("boyut düğmesi iki ölçü arasında gidip gelir", () => {
     const onWideChange = vi.fn();
     render(
-      <VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} onWideChange={onWideChange} state="idle" wide />,
+      <VoiceMode onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} onWideChange={onWideChange} state="idle" wide />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Paneli küçült" }));
     expect(onWideChange).toHaveBeenCalledWith(false);
@@ -103,14 +105,14 @@ describe("VoiceMode", () => {
 
   it("dalga formu yalnız dinlerken etkindir", () => {
     const { container, rerender } = render(
-      <VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} state="idle" />,
+      <VoiceMode onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} state="idle" />,
     );
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("false");
 
-    rerender(<VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} state="listening" />);
+    rerender(<VoiceMode onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} state="listening" />);
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("true");
 
-    rerender(<VoiceMode onClose={vi.fn()} onToggleListen={vi.fn()} state="transcribing" />);
+    rerender(<VoiceMode onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} state="transcribing" />);
     expect(container.querySelector(".voice-wave")?.getAttribute("data-active")).toBe("true");
   });
 });
@@ -129,7 +131,7 @@ describe("VoiceMode — onay", () => {
   it("açık onayı panelde gösterir ve seçimi geri verir", () => {
     const onAnswer = vi.fn();
     render(
-      <VoiceMode ask={ASK} onAnswer={onAnswer} onClose={vi.fn()} onToggleListen={vi.fn()} state="thinking" />,
+      <VoiceMode ask={ASK} onAnswer={onAnswer} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} state="thinking" />,
     );
     expect(screen.getByText("app.py dosyası yazılsın mı?")).toBeTruthy();
 
@@ -139,7 +141,7 @@ describe("VoiceMode — onay", () => {
 
   it("mini kipte de onayı erişilebilir kabul ve ret düğmeleriyle gösterir", () => {
     render(
-      <VoiceMode ask={ASK} onAnswer={vi.fn()} onClose={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="approval" wide={false} />,
+      <VoiceMode ask={ASK} onAnswer={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="approval" wide={false} />,
     );
     expect(screen.getByRole("group", { name: "Onay" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Onayla" })).toBeTruthy();
@@ -148,7 +150,7 @@ describe("VoiceMode — onay", () => {
   });
 
   it("onay yokken hiçbir şey çizmez", () => {
-    render(<VoiceMode ask={null} onAnswer={vi.fn()} onClose={vi.fn()} onToggleListen={vi.fn()} state="idle" />);
+    render(<VoiceMode ask={null} onAnswer={vi.fn()} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} state="idle" />);
     expect(screen.queryByRole("group", { name: "Onay" })).toBeNull();
   });
 });
