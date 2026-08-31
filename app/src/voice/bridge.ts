@@ -70,9 +70,10 @@ export function onVoiceMessage(
 export const VOICE_PREFS_REQUEST = "fusion://ses-ayar";
 export const VOICE_PREFS_STATE = "fusion://ses-ayar-durum";
 export const VOICE_RUNTIME_STATE = "fusion://ses-runtime-durum";
+export const VOICE_BARGE_IN = "fusion://ses-barge-in";
 
 export interface VoiceRuntimeState {
-  durum: "idle" | "listening" | "transcribing" | "thinking" | "talking" | "approval" | "error";
+  durum: "idle" | "listening" | "transcribing" | "thinking" | "talking" | "interrupted" | "approval" | "error";
   metin?: string;
 }
 
@@ -142,6 +143,20 @@ export function onVoiceRuntimeState(
   transport: Listener = { listen: tauriListen as Listener["listen"] },
 ): Promise<() => void> {
   return dinle(VOICE_RUNTIME_STATE, handler, transport);
+}
+
+export async function interruptVoiceSpeech(
+  transport: Emitter = { emit: tauriEmit },
+): Promise<void> {
+  if (transport.emit === tauriEmit && !kabukVar()) return;
+  await transport.emit(VOICE_BARGE_IN, {});
+}
+
+export function onVoiceBargeIn(
+  handler: () => void,
+  transport: Listener = { listen: tauriListen as Listener["listen"] },
+): Promise<() => void> {
+  return dinle(VOICE_BARGE_IN, handler, transport);
 }
 
 /**

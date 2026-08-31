@@ -7,6 +7,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   answerVoiceAsk,
   emitVoiceMessage,
+  interruptVoiceSpeech,
   onVoiceAsk,
   onVoicePrefsState,
   onVoiceRuntimeState,
@@ -51,6 +52,7 @@ export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;
   answerAsk(answer: string): Promise<void>;
   close(): Promise<void>;
+  interruptSpeech(): Promise<void>;
   emitMessage(message: VoiceMessage): Promise<void>;
   onAsk(handler: (ask: VoiceAsk | null) => void): Promise<Unlisten>;
   onPrefs(handler: (prefs: VoicePrefsPayload) => void): Promise<Unlisten>;
@@ -70,6 +72,7 @@ const DEFAULT_RUNTIME: VoiceWindowRuntime = {
   applyGeometry: applyVoiceWindowGeometry,
   answerAsk: answerVoiceAsk,
   close: closeVoiceWindow,
+  interruptSpeech: interruptVoiceSpeech,
   emitMessage: emitVoiceMessage,
   onAsk: onVoiceAsk,
   onPrefs: onVoicePrefsState,
@@ -160,6 +163,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const recognitionIntent = useRef(0);
   const startingIntent = useRef<number | null>(null);
   const pendingRecognitionEvents = useRef<PendingRecognitionEvent[]>([]);
+  const bargeInPending = useRef(false);
+  const bargeInEvents = useRef<RecognitionPayload[]>([]);
   const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
   const finalizedSession = useRef<number | null>(null);
   const expectedRecognitionEnd = useRef<number | null>(null);
@@ -237,6 +242,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     recognitionIntent.current += 1;
     startingIntent.current = null;
     pendingRecognitionEvents.current = [];
+    bargeInPending.current = false;
+    bargeInEvents.current = [];
     dispatch({ type: "STOPPED" });
     if (cuesEnabled()) playCue("listen-stop");
     expectedRecognitionEnd.current = activeSession.current || null;
@@ -296,6 +303,16 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
       if (!line || typeof line.metin !== "string" || typeof line.speech_ms !== "number"
         || typeof line.segment !== "number" || (line.guven !== null && typeof line.guven !== "number")) return;
+      if (line.tur === "ses-basladi" && machineRef.current.phase === "talking") {
+        bargeInPending.current = true;
+        bargeInEvents.current.push(payload);
+        void runtime.interruptSpeech();
+        return;
+      }
+      if (bargeInPending.current) {
+        bargeInEvents.current.push(payload);
+        return;
+      }
       if (line.tur === "hata") {
         expectedRecognitionEnd.current = payload.session;
         dispatch({ type: "FAILED", text: line.metin });
@@ -440,6 +457,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       recognitionIntent.current += 1;
       startingIntent.current = null;
       pendingRecognitionEvents.current = [];
+      bargeInPending.current = false;
+      bargeInEvents.current = [];
       clearPartialFinalTimer();
       syntheticRestartSession.current = null;
       restartAfterRecognitionEndSession.current = null;
@@ -463,21 +482,25 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   useEffect(() => {
     const remove = runtime.onRuntimeState((incoming) => {
       if (incoming.durum === "talking") {
-        recognitionIntent.current += 1;
-        startingIntent.current = null;
-        pendingRecognitionEvents.current = [];
-        expectedRecognitionEnd.current = activeSession.current || null;
-        activeSession.current = 0;
-        restartAfterRecognitionEndSession.current = null;
-        setRecognitionOwned(false);
-        void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
+        bargeInPending.current = false;
+        bargeInEvents.current = [];
         dispatch({ type: "ASSISTANT_STARTED", text: incoming.metin });
+        return;
+      }
+      if (incoming.durum === "interrupted") {
+        const buffered = bargeInEvents.current;
+        bargeInEvents.current = [];
+        bargeInPending.current = false;
+        dispatch({ type: "ASSISTANT_FINISHED" });
+        setTimeout(() => buffered.forEach((payload) => {
+          replayRecognitionEvent.current?.({ type: "output", payload });
+        }), 0);
         return;
       }
       if (incoming.durum === "listening" || incoming.durum === "idle") {
         const shouldResume = machineRef.current.autoListen;
         dispatch({ type: "ASSISTANT_FINISHED" });
-        if (shouldResume) void startListening();
+        if (shouldResume && activeSession.current === 0) void startListening();
       } else if (incoming.durum === "error") {
         dispatch({ type: "FAILED", text: incoming.metin ?? "Sesli yanıt tamamlanamadı." });
       }

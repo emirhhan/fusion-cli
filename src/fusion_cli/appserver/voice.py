@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import uuid
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,30 +26,48 @@ from typing import Any
 #: Sentezleyiciye verilecek metnin üst sınırı. Uzun cevabın tamamını okumak
 #: kullanıcıyı bekletir; arayüz gerekiyorsa parça parça gönderir.
 MAX_SPEECH_CHARS = 4_000
+CANCEL_TIMEOUT_SECONDS = 0.5
 
 # Yalnız Fusion'ın başlattığı TTS süreçleri yönetilir. Sistem genelinde
 # `killall say` çalıştırmak başka bir uygulamanın erişilebilirlik sesini de
 # kesebiliyordu. PID kaydı aynı zamanda Talk penceresinin gerçek bitiş anını
 # beklemesini sağlar.
 _SPEECH_LOCK = threading.RLock()
-_SPEECH_PROCESSES: dict[int, tuple[subprocess.Popen[Any], Path | None]] = {}
+_SPEECH_PROCESSES: dict[str, tuple[subprocess.Popen[Any], Path | None]] = {}
+_SPEECH_PID_TURNS: dict[int, str] = {}
+_ACTIVE_SPEECH_TURN: str | None = None
 
 
-def _register_speech_process(process: subprocess.Popen[Any], cleanup: Path | None = None) -> None:
+def _register_speech_process(
+    process: subprocess.Popen[Any], cleanup: Path | None = None, *, turn_id: str | None = None
+) -> str:
+    global _ACTIVE_SPEECH_TURN
+    identifier = turn_id or uuid.uuid4().hex
+    previous: str | None
     with _SPEECH_LOCK:
-        _SPEECH_PROCESSES[process.pid] = (process, cleanup)
+        previous = _ACTIVE_SPEECH_TURN
+    if previous is not None and previous != identifier:
+        stop(previous)
+    with _SPEECH_LOCK:
+        _SPEECH_PROCESSES[identifier] = (process, cleanup)
+        _SPEECH_PID_TURNS[process.pid] = identifier
+        _ACTIVE_SPEECH_TURN = identifier
+    return identifier
 
 
-def wait_for_speech(pid: object) -> bool:
-    """Fusion'a ait TTS sürecini bitene kadar bekle; yabancı PID'yi reddet."""
-    if not isinstance(pid, (int, str)):
-        return False
-    try:
-        numeric_pid = int(pid)
-    except (TypeError, ValueError):
+def wait_for_speech(turn_or_pid: object) -> bool:
+    """Fusion'a ait TTS turunu bitene kadar bekle; yabancı sahibi reddet."""
+    global _ACTIVE_SPEECH_TURN
+    if not isinstance(turn_or_pid, (int, str)):
         return False
     with _SPEECH_LOCK:
-        owned = _SPEECH_PROCESSES.get(numeric_pid)
+        identifier = str(turn_or_pid)
+        if identifier not in _SPEECH_PROCESSES:
+            try:
+                identifier = _SPEECH_PID_TURNS.get(int(turn_or_pid), "")
+            except (TypeError, ValueError):
+                identifier = ""
+        owned = _SPEECH_PROCESSES.get(identifier)
     if owned is None:
         return False
     process, cleanup = owned
@@ -56,9 +75,12 @@ def wait_for_speech(pid: object) -> bool:
         return_code = process.wait()
     finally:
         with _SPEECH_LOCK:
-            current = _SPEECH_PROCESSES.get(numeric_pid)
+            current = _SPEECH_PROCESSES.get(identifier)
             if current is owned:
-                _SPEECH_PROCESSES.pop(numeric_pid, None)
+                _SPEECH_PROCESSES.pop(identifier, None)
+                _SPEECH_PID_TURNS.pop(process.pid, None)
+                if identifier == _ACTIVE_SPEECH_TURN:
+                    _ACTIVE_SPEECH_TURN = None
         if cleanup is not None:
             cleanup.unlink(missing_ok=True)
     return return_code == 0
@@ -498,8 +520,8 @@ def _speak_with_piper(text: str, model: Path) -> dict[str, Any]:
     except OSError as error:
         cikti.unlink(missing_ok=True)
         return {"ok": False, "metin": f"Ses çalınamadı: {error}"}
-    _register_speech_process(process, cikti)
-    return {"ok": True, "pid": process.pid, "motor": "piper"}
+    turn_id = _register_speech_process(process, cikti)
+    return {"ok": True, "pid": process.pid, "tur_id": turn_id, "motor": "piper"}
 
 
 def speak(text: object) -> dict[str, Any]:
@@ -531,27 +553,37 @@ def speak(text: object) -> dict[str, Any]:
         process = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         return {"ok": False, "metin": f"Sesli yanıt başlatılamadı: {error}"}
-    _register_speech_process(process)
-    return {"ok": True, "pid": process.pid, "ses": voice}
+    turn_id = _register_speech_process(process)
+    return {"ok": True, "pid": process.pid, "tur_id": turn_id, "ses": voice}
 
 
-def stop() -> dict[str, Any]:
-    """`ses.durdur`: süren konuşmayı kes."""
+def stop(turn_id: object = None) -> dict[str, Any]:
+    """`ses.durdur`: yalnız belirtilen konuşma turunu idempotent biçimde kes."""
+    global _ACTIVE_SPEECH_TURN
+    identifier = str(turn_id) if isinstance(turn_id, str) and turn_id else None
     with _SPEECH_LOCK:
-        owned = list(_SPEECH_PROCESSES.items())
-        _SPEECH_PROCESSES.clear()
-    for _pid, (process, cleanup) in owned:
+        targets = (
+            [(identifier, _SPEECH_PROCESSES[identifier])]
+            if identifier is not None and identifier in _SPEECH_PROCESSES
+            else list(_SPEECH_PROCESSES.items()) if identifier is None else []
+        )
+        for owned_id, (process, _cleanup) in targets:
+            _SPEECH_PROCESSES.pop(owned_id, None)
+            _SPEECH_PID_TURNS.pop(process.pid, None)
+            if owned_id == _ACTIVE_SPEECH_TURN:
+                _ACTIVE_SPEECH_TURN = None
+    for _owned_id, (process, cleanup) in targets:
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             if process.poll() is None:
                 process.terminate()
                 try:
-                    process.wait(timeout=2)
+                    process.wait(timeout=CANCEL_TIMEOUT_SECONDS)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                    process.wait(timeout=2)
+                    process.wait(timeout=CANCEL_TIMEOUT_SECONDS)
         if cleanup is not None:
             cleanup.unlink(missing_ok=True)
-    return {"ok": True}
+    return {"ok": True, "durduruldu": bool(targets), "tur_id": identifier}
 
 
 def status() -> dict[str, Any]:

@@ -26,6 +26,7 @@ vi.mock("./processes/XtermSession", () => ({ XtermSession: () => null }));
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 });
 
 function deferred<T>() {
@@ -38,6 +39,7 @@ function deferred<T>() {
 
 describe("App runtime kapısı", () => {
   it("runtime hazır olmadan çekirdeği başlatmaz", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
     const prepared = deferred<RuntimeBackendStatus>();
     const transport: RuntimeTransport = {
       status: vi.fn().mockResolvedValue({
@@ -66,5 +68,6 @@ describe("App runtime kapısı", () => {
         kok: null,
       }),
     );
+    expect(tauri.listen).toHaveBeenCalledWith("fusion://ses-barge-in", expect.any(Function));
   });
 });

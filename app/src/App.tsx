@@ -53,6 +53,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   kabukVar,
+  onVoiceBargeIn,
   onVoiceMessage,
   onVoiceAnswer,
   onVoicePrefsRequest,
@@ -62,7 +63,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { findVoiceAnswer, speakVoiceAnswer } from "./voice/voiceTurn";
+import { findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
@@ -420,11 +421,13 @@ export function SessionUygulama({
   const [spotlight, setSpotlight] = useState<{ isaret: string; metin: string } | null>(null);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
-  const voiceTurn = useRef<{
+  const voiceRequest = useRef<{
     afterIndex: number;
     sawRunning: boolean;
     sessionId: string;
   } | null>(null);
+  const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
+  const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
   const history = useHistory(active?.client ?? null);
   const composerCommands = useMemo<ComposerCommand[]>(() => [
@@ -545,7 +548,7 @@ export function SessionUygulama({
         });
         return;
       }
-      voiceTurn.current = {
+      voiceRequest.current = {
         afterIndex: active.messages.length,
         sawRunning: false,
         sessionId: active.id,
@@ -555,16 +558,28 @@ export function SessionUygulama({
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active, controller]);
 
+  useEffect(() => {
+    const remove = onVoiceBargeIn(() => {
+      pendingBargeIn.current = true;
+      const turn = activeVoiceTurn.current;
+      if (turn) void turn.cancel().catch(() => undefined);
+    });
+    return () => {
+      void remove.then((unlisten) => unlisten()).catch(() => undefined);
+      void activeVoiceTurn.current?.cancel().catch(() => undefined);
+    };
+  }, []);
+
   // Yalnız Talk'tan başlayan turun nihai cevabı seslendirilir. Kullanıcının
   // normal yazışmaları sessiz kalır; sohbet değişse bile istek başladığı
-  // oturumun kendi çekirdeği kullanılır. `ses.konus(bekle=true)` gerçek TTS
-  // süreci bitmeden dönmez, dolayısıyla mikrofon zaman tahminiyle açılmaz.
+  // oturumun kendi çekirdeği kullanılır. Tur kimliği hemen alınır; gerçek
+  // bitiş ayrı `ses.bekle` isteğiyle izlenir ve zaman tahmini kullanılmaz.
   useEffect(() => {
-    const pending = voiceTurn.current;
+    const pending = voiceRequest.current;
     if (!pending) return;
     const session = controller.state.sessions[pending.sessionId];
     if (!session) {
-      voiceTurn.current = null;
+      voiceRequest.current = null;
       return;
     }
     if (session.running) {
@@ -572,13 +587,22 @@ export function SessionUygulama({
       return;
     }
     if (!pending.sawRunning) return;
-    voiceTurn.current = null;
+    voiceRequest.current = null;
     const answer = findVoiceAnswer(session.messages, pending.afterIndex);
     if (!answer) {
       void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
       return;
     }
-    void speakVoiceAnswer(session.client, answer, publishVoiceRuntimeState);
+    pendingBargeIn.current = false;
+    void speakVoiceAnswer(session.client, answer, publishVoiceRuntimeState)
+      .then((turn) => {
+        activeVoiceTurn.current = turn;
+        if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
+        void turn.finished.finally(() => {
+          if (activeVoiceTurn.current === turn) activeVoiceTurn.current = null;
+        }).catch(() => undefined);
+      })
+      .catch(() => undefined);
   }, [controller.state.sessions]);
 
   // Ses tercihleri konuşma penceresinden gelir ama YAZMA yolu tektir: burada,

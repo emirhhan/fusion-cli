@@ -68,6 +68,49 @@ async def test_sesli_yanit_bekle_istenirse_surec_bitmeden_sonuc_donmez(tmp_path,
     assert _sonuc(satirlar, "ses-1")["tamamlandi"] is True
 
 
+async def test_ses_durdur_yalniz_istenen_tur_kimligini_iletir(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    gorulen: list[object] = []
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.voice_stop",
+        lambda turn_id: gorulen.append(turn_id)
+        or {"ok": True, "durduruldu": True, "tur_id": turn_id},
+    )
+
+    await oturum.handle(
+        Request(id="ses-stop", name="ses.durdur", data={"tur_id": "turn-42"})
+    )
+
+    assert gorulen == ["turn-42"]
+    assert _sonuc(satirlar, "ses-stop") == {
+        "ok": True,
+        "durduruldu": True,
+        "tur_id": "turn-42",
+    }
+
+
+async def test_ses_bekle_tur_kimligiyle_gercek_bitisi_bildirir(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    gorulen: list[object] = []
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.voice_wait",
+        lambda turn_id: gorulen.append(turn_id) or True,
+    )
+
+    await oturum.handle(
+        Request(id="ses-wait", name="ses.bekle", data={"tur_id": "turn-43"})
+    )
+
+    assert gorulen == ["turn-43"]
+    assert _sonuc(satirlar, "ses-wait") == {
+        "ok": True,
+        "tamamlandi": True,
+        "tur_id": "turn-43",
+    }
+
+
 async def test_komut_listesi_doner(tmp_path):
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)

@@ -28,6 +28,7 @@ function fakeRuntime() {
     applyGeometry: vi.fn(async () => undefined),
     answerAsk: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
+    interruptSpeech: vi.fn(async () => undefined),
     emitMessage: vi.fn(async () => undefined),
     onAsk: vi.fn(async (handler) => { ask = handler; return () => undefined; }),
     onPrefs: vi.fn(async (handler) => { prefs = handler; return () => undefined; }),
@@ -167,18 +168,42 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     }));
   });
 
-  it("Fusion konuşurken mikrofonu kapatır, bitince yeniden dinler", async () => {
+  it("Fusion konuşurken VAD'i korur ve ses-basladi olayinda barge-in bildirir", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1));
 
     fake.runtimeState({ durum: "talking", metin: "Merhaba" });
-    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("Konuşuyorum")).toBeTruthy();
+    await screen.findByText("Konuşuyorum");
+    expect(fake.runtime.stopRecognition).not.toHaveBeenCalled();
 
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+
+    fake.runtimeState({ durum: "interrupted" });
     fake.runtimeState({ durum: "listening" });
-    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Ortamı dinliyorum…")).toBeTruthy();
+    expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(1);
+    await screen.findByText("Seni duyuyorum…");
+  });
+
+  it("barge-in tamponlarini TTS iptal onayindan once kabul etmez", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.runtimeState({ durum: "talking", metin: "Uzun yanit" });
+    await screen.findByText("Konuşuyorum");
+    fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 });
+    await waitFor(() => expect(fake.runtime.interruptSpeech).toHaveBeenCalledOnce());
+    fake.recognition({ tur: "son", metin: "araya girdim", guven: 0.92, speech_ms: 520 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
+
+    fake.runtimeState({ durum: "interrupted" });
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
+      kaynak: "kullanici",
+      metin: "araya girdim",
+    }));
   });
 
   it("mikrofon düğmesi dinlemeyi gerçekten durdurur", async () => {
@@ -310,21 +335,16 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(screen.getByText("Bir sorun oluştu")).toBeTruthy();
   });
 
-  it("TTS bitişindeki start, geciken stop tamamlanmadan çalışmaz", async () => {
+  it("normal TTS bitisinde dusuk gecikmeli VAD oturumunu yeniden baslatmaz", async () => {
     const fake = fakeRuntime();
-    let finishStop: (() => void) | null = null;
-    vi.mocked(fake.runtime.stopRecognition).mockImplementation(() => new Promise<void>((resolve) => {
-      finishStop = resolve;
-    }));
     render(<VoiceWindow runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
     fake.runtimeState({ durum: "talking", metin: "Yanıt" });
-    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalledOnce());
+    await screen.findByText("Konuşuyorum");
     fake.runtimeState({ durum: "listening" });
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await screen.findByText("Dinliyorum…");
     expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
-    finishStop?.();
-    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+    expect(fake.runtime.stopRecognition).not.toHaveBeenCalled();
   });
 });
 

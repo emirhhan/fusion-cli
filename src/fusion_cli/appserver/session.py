@@ -332,9 +332,15 @@ class AppSession:
         if request.name == "ses.konus":
             result = voice_speak(request.data.get("metin"))
             if request.data.get("bekle") is True and result.get("ok") is True:
-                completed = await asyncio.to_thread(voice_wait, result.get("pid"))
+                completed = await asyncio.to_thread(
+                    voice_wait, result.get("tur_id", result.get("pid"))
+                )
                 return {**result, "tamamlandi": completed}
             return result
+        if request.name == "ses.bekle":
+            turn_id = request.data.get("tur_id")
+            completed = await asyncio.to_thread(voice_wait, turn_id)
+            return {"ok": True, "tamamlandi": completed, "tur_id": turn_id}
         if request.name == "ses.model_indir":
             return voice_download_model(
                 lambda olay: self._writer(encode_event({"olay": "SesModeliIlerleme", **olay}))
@@ -354,7 +360,7 @@ class AppSession:
         if request.name == "ses.ayar":
             return voice_settings(request.data)
         if request.name == "ses.durdur":
-            return voice_stop()
+            return voice_stop(request.data.get("tur_id"))
         if request.name == "saglayici.katalog":
             return provider_catalog_rows(self._state.config, self._secret_store)
         if request.name == "web.saglayicilar":
@@ -726,4 +732,5 @@ class AppSession:
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         await self._processes.close()
+        voice_stop()
         self.pending.cancel_all()

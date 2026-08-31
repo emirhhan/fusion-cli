@@ -85,6 +85,96 @@ def test_yalniz_fusionun_baslattigi_ses_sureci_beklenir_ve_durdurulur(monkeypatc
     assert voice.wait_for_speech(9999) is False
 
 
+def test_ses_turu_kaydedilir_beklenir_ve_gecici_dosyasi_temizlenir(tmp_path, monkeypatch):
+    """Tur sahibi normal bitiste kaydi ve Piper'in gecici WAV dosyasini birakir."""
+    from fusion_cli.appserver import voice
+
+    class FakeProcess:
+        pid = 4545
+
+        def wait(self, timeout=None):
+            return 0
+
+    temporary = tmp_path / "turn.wav"
+    temporary.write_bytes(b"audio")
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: FakeProcess())
+
+    voice._register_speech_process(FakeProcess(), temporary, turn_id="turn-normal")
+
+    assert voice.wait_for_speech("turn-normal") is True
+    assert not temporary.exists()
+    assert voice.stop("turn-normal") == {"ok": True, "durduruldu": False, "tur_id": "turn-normal"}
+
+
+def test_ses_turu_iki_kez_durduruldugunda_oynatici_yalniz_bir_kez_kesilir(tmp_path, monkeypatch):
+    """Idempotent iptal ayni oyuncuya ikinci terminate gondermez."""
+    from fusion_cli.appserver import voice
+
+    class FakeProcess:
+        pid = 4646
+
+        def __init__(self):
+            self.terminate_count = 0
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            self.terminate_count += 1
+
+        def wait(self, timeout=None):
+            return 0
+
+    process = FakeProcess()
+    temporary = tmp_path / "interrupted.wav"
+    temporary.write_bytes(b"audio")
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: process)
+    voice._register_speech_process(process, temporary, turn_id="turn-interrupted")
+
+    first = voice.stop("turn-interrupted")
+    second = voice.stop("turn-interrupted")
+
+    assert first == {"ok": True, "durduruldu": True, "tur_id": "turn-interrupted"}
+    assert second == {"ok": True, "durduruldu": False, "tur_id": "turn-interrupted"}
+    assert process.terminate_count == 1
+    assert not temporary.exists()
+
+
+def test_ses_oynaticisi_500_msde_durmazsa_zorla_kapatilir(monkeypatch):
+    """Barge-in iptal onayi urun sozlesmesindeki 500 ms ust sinirini asmaz."""
+    from fusion_cli.appserver import voice
+
+    class SlowProcess:
+        pid = 4747
+
+        def __init__(self):
+            self.timeouts: list[float | None] = []
+            self.killed = False
+
+        def poll(self):
+            return None
+
+        def terminate(self):
+            return None
+
+        def wait(self, timeout=None):
+            self.timeouts.append(timeout)
+            if not self.killed:
+                raise voice.subprocess.TimeoutExpired("player", timeout)
+            return 0
+
+        def kill(self):
+            self.killed = True
+
+    process = SlowProcess()
+    monkeypatch.setattr(voice.subprocess, "Popen", lambda *_a, **_kw: process)
+    voice._register_speech_process(process, turn_id="turn-slow")
+
+    assert voice.stop("turn-slow")["ok"] is True
+    assert process.timeouts[0] == 0.5
+    assert process.killed is True
+
+
 def test_basarisiz_ses_sureci_tamamlanmis_sayilmaz(monkeypatch):
     from fusion_cli.appserver import voice
 
