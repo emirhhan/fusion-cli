@@ -246,6 +246,45 @@ impl SessionManager {
             let _ = self.stop(&id);
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn start_test_child(&self, session_id: &str) -> Result<u32, String> {
+        let mut child = Command::new(
+            std::env::current_exe().map_err(|error| format!("test ikilisi bulunamadı: {error}"))?,
+        )
+        .args([
+            "--exact",
+            "session_manager::testler::session_test_helper",
+            "--ignored",
+            "--nocapture",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|error| format!("test session child başlatılamadı: {error}"))?;
+        let stdin = child.stdin.take().ok_or("test session stdin alınamadı")?;
+        let pid = child.id();
+        self.sessions.lock().unwrap().insert(
+            session_id.into(),
+            ManagedSession {
+                snapshot: SessionSnapshot::running(session_id, Path::new("/test"), pid),
+                child: Some(child),
+                stdin: Some(stdin),
+            },
+        );
+        Ok(pid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_is_running(&self, session_id: &str) -> bool {
+        self.sessions
+            .lock()
+            .unwrap()
+            .get_mut(session_id)
+            .and_then(|session| session.child.as_mut())
+            .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
+    }
 }
 
 /// Kök verilmediğinde kullanılacak dizin.
@@ -301,7 +340,15 @@ impl SessionRegistry {
 #[cfg(test)]
 mod testler {
     use super::*;
+    use std::io::Read;
     use std::path::{Path, PathBuf};
+
+    #[test]
+    #[ignore]
+    fn session_test_helper() {
+        let mut input = Vec::new();
+        std::io::stdin().read_to_end(&mut input).unwrap();
+    }
 
     #[test]
     fn oturum_komutu_koku_calisma_dizini_olarak_kullanir() {

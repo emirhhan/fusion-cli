@@ -87,5 +87,47 @@
 
 ### Endişeler
 
-- Tauri event nesneleri birim testte doğrudan kurulmadığı için event davranışı production’ın kullandığı route-to-scope saf fonksiyonu üzerinden doğrulandı.
+- Tauri event nesneleri birim testte doğrudan kurulmadığı için event davranışı production'ın kullandığı route-to-scope saf fonksiyonu üzerinden doğrulandı.
 - Paketli GUI kabul testi hâlâ bu otomatik fix-round kapsamının dışında.
+
+## Fix round 2 — gerçek manager sahipliği ve bounded harness
+
+### Uygulama
+
+- Lifecycle testleri artık `cleanup_scope` ve ayrı route mapping testleri kullanmıyor; doğrudan production `cleanup_route` girişini çağırıyor.
+- `AppCleanupOwners`, Tauri handle yerine concrete `SpeechManager`, `SessionManager` ve `TerminalManager` referanslarını tutuyor. `cleanup_route_from_app` yalnız Tauri state çözümleyen ince production adaptörü olarak kaldı.
+- Speech test factory’si gerçek `SpeechManager::start` sahipliğini ve deterministic helper child’ı kullanıyor; helper pipe’ları drain edilerek child’ın test harness çıktısında erken kapanması önlendi.
+- Session test factory’si gerçek `ManagedSession` kaydına stdin bekleyen deterministic child yerleştiriyor; kapanış normal `SessionManager::stop_all` → stdin bırakma → bounded `stop_child` yolunu çalıştırıyor.
+- Terminal testi gerçek `TerminalManager::open` ile gerçek PTY shell child açıyor ve normal `close_all` sahiplik yolunu çalıştırıyor.
+- Test fixture Drop’u speech/session/terminal manager’larını her sonuçta temizliyor.
+- Production route cleanup çağrıları testte worker/channel üzerinden iki saniye deadline ile gözleniyor. Timeout harness’ı timeout’ta worker’a join yapmadan dönüyor.
+
+### RED kanıtı
+
+- İlk `cargo test cleanup -- --nocapture`:
+  - RED derleme: concrete manager test factory’leri, `AppCleanupOwners::from_managers`, `CleanupStep` ve manager yaşam sorguları henüz yoktu.
+- Factory’ler eklendikten sonraki focused koşu:
+  - RED davranış: gerçek SpeechManager helper pipe’ı erken kapandığı için cleanup öncesi `speech.is_running()` false oldu. Test gevşetilmedi; helper stdout/stderr güvenli drain edilerek gerçek child yaşamı düzeltildi.
+
+### GREEN ve kalite kanıtı
+
+- `cargo test cleanup -- --nocapture`: 3 passed.
+- `cargo test shutdown -- --nocapture`: 3 passed.
+- `tests/test_appserver_session.py tests/test_voice.py`: 59 passed.
+- Ruff: PASS.
+- `cargo fmt --check`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test`: 68 passed, 3 ignored; doc tests PASS.
+
+### Davranış kanıtı ve öz-inceleme
+
+- `TalkClose` ve `TalkDestroyed`, production `cleanup_route` üzerinden gerçek SpeechManager child’ını bitiriyor; gerçek SessionManager ve TerminalManager child’ları çalışmaya devam ediyor.
+- `ConfirmedMainClose`, `ExitRequested` ve `Exit`, aynı production girişinden speech → session → terminal sırasında bütün gerçek manager child’larını bitiriyor.
+- Her route aynı fixture’da iki kez çağrılıyor; tekrar çağrılar gerçek manager stop/close kodunda idempotent kalıyor.
+- `shutdown_scope_for_route` çağrısı bypass edilirse route testleri yanlış gerçek child yaşam durumunda başarısız oluyor; mapping ve davranış artık ayrı testler değil.
+- Deterministic blocking cleanup testi 50 ms timeout’tan bir saniyeden kısa sürede dönüyor, join yapmıyor; kontrollü release sonrası detached worker’ın bir saniye içinde çıktığını ayrıca doğruluyor.
+
+### Endişeler
+
+- Tauri event değerleri framework tarafından doğrudan construct edilemediği için event callback’in seçtiği enum route production kodunda, route’un gerçek kaynak etkisi ise concrete manager lifecycle testinde doğrulanıyor.
+- Paketli GUI kabul testi bu fix round’da çalıştırılmadı.

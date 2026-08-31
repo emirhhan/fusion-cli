@@ -199,6 +199,15 @@ impl TerminalManager {
             .cloned()
             .ok_or_else(|| "terminal bulunamadı".into())
     }
+
+    #[cfg(test)]
+    pub(crate) fn test_is_running(&self, id: &str) -> bool {
+        self.terminals
+            .lock()
+            .unwrap()
+            .get(id)
+            .is_some_and(|terminal| terminal.child.lock().unwrap().is_some())
+    }
 }
 
 fn claim_explicit_terminal(

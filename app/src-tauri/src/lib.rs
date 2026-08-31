@@ -352,10 +352,7 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
 #[tauri::command]
 fn kapatmayi_onayla(app: tauri::AppHandle) {
-    cleanup_route(
-        ShutdownRoute::ConfirmedMainClose,
-        &AppCleanupOwners { app: &app },
-    );
+    cleanup_route_from_app(ShutdownRoute::ConfirmedMainClose, &app);
     app.exit(0);
 }
 
@@ -383,13 +380,14 @@ fn shutdown_scope_for_route(route: ShutdownRoute) -> ShutdownScope {
     }
 }
 
-trait CleanupOwners {
-    fn stop_speech(&self);
-    fn stop_sessions(&self);
-    fn close_terminals(&self);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CleanupStep {
+    Speech,
+    Session,
+    Terminal,
 }
 
-fn cleanup_scope(scope: ShutdownScope, owners: &impl CleanupOwners) {
+fn cleanup_scope(scope: ShutdownScope, owners: &AppCleanupOwners<'_>) {
     owners.stop_speech();
     if matches!(scope, ShutdownScope::Application) {
         owners.stop_sessions();
@@ -397,26 +395,61 @@ fn cleanup_scope(scope: ShutdownScope, owners: &impl CleanupOwners) {
     }
 }
 
-fn cleanup_route(route: ShutdownRoute, owners: &impl CleanupOwners) {
+fn cleanup_route(route: ShutdownRoute, owners: &AppCleanupOwners<'_>) {
     cleanup_scope(shutdown_scope_for_route(route), owners);
 }
 
 struct AppCleanupOwners<'a> {
-    app: &'a tauri::AppHandle,
+    speech: &'a SpeechManager,
+    sessions: &'a SessionManager,
+    terminals: &'a TerminalManager,
+    order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
 }
 
-impl CleanupOwners for AppCleanupOwners<'_> {
+impl<'a> AppCleanupOwners<'a> {
+    fn from_managers(
+        speech: &'a SpeechManager,
+        sessions: &'a SessionManager,
+        terminals: &'a TerminalManager,
+        order: Option<&'a std::sync::Mutex<Vec<CleanupStep>>>,
+    ) -> Self {
+        Self {
+            speech,
+            sessions,
+            terminals,
+            order,
+        }
+    }
+
+    fn record(&self, step: CleanupStep) {
+        if let Some(order) = self.order {
+            order.lock().expect("cleanup order kilidi").push(step);
+        }
+    }
+
     fn stop_speech(&self) {
-        let _ = self.app.state::<SpeechManager>().stop();
+        self.record(CleanupStep::Speech);
+        let _ = self.speech.stop();
     }
 
     fn stop_sessions(&self) {
-        self.app.state::<SessionManager>().stop_all();
+        self.record(CleanupStep::Session);
+        self.sessions.stop_all();
     }
 
     fn close_terminals(&self) {
-        self.app.state::<TerminalManager>().close_all();
+        self.record(CleanupStep::Terminal);
+        self.terminals.close_all();
     }
+}
+
+fn cleanup_route_from_app(route: ShutdownRoute, app: &tauri::AppHandle) {
+    let speech = app.state::<SpeechManager>();
+    let sessions = app.state::<SessionManager>();
+    let terminals = app.state::<TerminalManager>();
+    let owners =
+        AppCleanupOwners::from_managers(speech.inner(), sessions.inner(), terminals.inner(), None);
+    cleanup_route(route, &owners);
 }
 
 /// Konuşma tanımayı başlat.
@@ -472,7 +505,7 @@ fn tanima_durum(manager: tauri::State<SpeechManager>) -> bool {
 async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
     let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Close);
     if plan.stop_recognition {
-        cleanup_route(ShutdownRoute::TalkClose, &AppCleanupOwners { app: &app });
+        cleanup_route_from_app(ShutdownRoute::TalkClose, &app);
     }
     if plan.close_voice {
         if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
@@ -675,12 +708,7 @@ pub fn run() {
                     return;
                 }
                 if window.label() == SES_PENCERESI {
-                    cleanup_route(
-                        ShutdownRoute::TalkClose,
-                        &AppCleanupOwners {
-                            app: window.app_handle(),
-                        },
-                    );
+                    cleanup_route_from_app(ShutdownRoute::TalkClose, window.app_handle());
                     return;
                 }
                 let sessions = window.state::<SessionManager>();
@@ -688,12 +716,7 @@ pub fn run() {
             } else if matches!(event, tauri::WindowEvent::Destroyed)
                 && window.label() == SES_PENCERESI
             {
-                cleanup_route(
-                    ShutdownRoute::TalkDestroyed,
-                    &AppCleanupOwners {
-                        app: window.app_handle(),
-                    },
-                );
+                cleanup_route_from_app(ShutdownRoute::TalkDestroyed, window.app_handle());
             }
         })
         .build(tauri::generate_context!())
@@ -705,7 +728,7 @@ pub fn run() {
             _ => None,
         };
         if let Some(route) = route {
-            cleanup_route(route, &AppCleanupOwners { app });
+            cleanup_route_from_app(route, app);
         }
     });
 }
@@ -802,28 +825,151 @@ mod voice_geometry_tests {
 #[cfg(test)]
 mod shutdown_tests {
     use super::*;
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    struct LifecycleFixture {
+        speech: Arc<SpeechManager>,
+        sessions: Arc<SessionManager>,
+        terminals: Arc<TerminalManager>,
+        terminal_id: String,
+        _cwd: tempfile::TempDir,
+    }
+
+    impl LifecycleFixture {
+        fn new() -> Self {
+            let speech = Arc::new(SpeechManager::new());
+            speech.start_test_child().expect("speech child başlamalı");
+            let sessions = Arc::new(SessionManager::new());
+            sessions
+                .start_test_child("shutdown-session")
+                .expect("session child başlamalı");
+            let terminals = Arc::new(TerminalManager::new(|_| {}, |_| {}));
+            let cwd = tempfile::tempdir().expect("terminal cwd oluşmalı");
+            let terminal = terminals
+                .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+                .expect("terminal child başlamalı");
+            Self {
+                speech,
+                sessions,
+                terminals,
+                terminal_id: terminal.terminal_id,
+                _cwd: cwd,
+            }
+        }
+
+        fn cleanup_route_with_deadline(
+            &self,
+            route: ShutdownRoute,
+            order: Arc<Mutex<Vec<CleanupStep>>>,
+        ) {
+            let speech = self.speech.clone();
+            let sessions = self.sessions.clone();
+            let terminals = self.terminals.clone();
+            run_with_deadline(Duration::from_secs(2), move || {
+                let owners =
+                    AppCleanupOwners::from_managers(&speech, &sessions, &terminals, Some(&order));
+                cleanup_route(route, &owners);
+            })
+            .expect("production cleanup route iki saniye içinde dönmeli");
+        }
+
+        fn assert_all_running(&self) {
+            assert!(self.speech.is_running());
+            assert!(self.sessions.test_is_running("shutdown-session"));
+            assert!(self.terminals.test_is_running(&self.terminal_id));
+        }
+    }
+
+    impl Drop for LifecycleFixture {
+        fn drop(&mut self) {
+            let _ = self.speech.stop();
+            self.sessions.stop_all();
+            self.terminals.close_all();
+        }
+    }
+
+    fn run_with_deadline(
+        timeout: Duration,
+        cleanup: impl FnOnce() + Send + 'static,
+    ) -> Result<(), mpsc::RecvTimeoutError> {
+        let (done_tx, done_rx) = mpsc::sync_channel(1);
+        std::thread::spawn(move || {
+            cleanup();
+            let _ = done_tx.send(());
+        });
+        done_rx.recv_timeout(timeout)
+    }
 
     #[test]
-    fn application_routes_map_to_full_cleanup() {
+    fn cleanup_route_for_every_application_event_stops_actual_managers_in_order() {
         for route in [
             ShutdownRoute::ConfirmedMainClose,
             ShutdownRoute::ExitRequested,
             ShutdownRoute::Exit,
         ] {
-            assert!(matches!(
-                shutdown_scope_for_route(route),
-                ShutdownScope::Application
-            ));
+            let fixture = LifecycleFixture::new();
+            fixture.assert_all_running();
+            let order = Arc::new(Mutex::new(Vec::new()));
+
+            fixture.cleanup_route_with_deadline(route, order.clone());
+            fixture.cleanup_route_with_deadline(route, order.clone());
+
+            assert!(!fixture.speech.is_running());
+            assert!(!fixture.sessions.test_is_running("shutdown-session"));
+            assert!(!fixture.terminals.test_is_running(&fixture.terminal_id));
+            assert_eq!(
+                *order.lock().expect("cleanup order kilidi"),
+                [
+                    CleanupStep::Speech,
+                    CleanupStep::Session,
+                    CleanupStep::Terminal,
+                    CleanupStep::Speech,
+                    CleanupStep::Session,
+                    CleanupStep::Terminal,
+                ]
+            );
         }
     }
 
     #[test]
-    fn talk_routes_map_to_talk_only_cleanup() {
+    fn cleanup_route_for_every_talk_event_stops_only_actual_speech_manager() {
         for route in [ShutdownRoute::TalkClose, ShutdownRoute::TalkDestroyed] {
-            assert!(matches!(
-                shutdown_scope_for_route(route),
-                ShutdownScope::Talk
-            ));
+            let fixture = LifecycleFixture::new();
+            fixture.assert_all_running();
+            let order = Arc::new(Mutex::new(Vec::new()));
+
+            fixture.cleanup_route_with_deadline(route, order.clone());
+            fixture.cleanup_route_with_deadline(route, order.clone());
+
+            assert!(!fixture.speech.is_running());
+            assert!(fixture.sessions.test_is_running("shutdown-session"));
+            assert!(fixture.terminals.test_is_running(&fixture.terminal_id));
+            assert_eq!(
+                *order.lock().expect("cleanup order kilidi"),
+                [CleanupStep::Speech, CleanupStep::Speech]
+            );
         }
+    }
+
+    #[test]
+    fn cleanup_timeout_returns_without_joining_a_blocked_worker() {
+        let (release_tx, release_rx) = mpsc::sync_channel(1);
+        let (worker_done_tx, worker_done_rx) = mpsc::sync_channel(1);
+        let started = Instant::now();
+
+        let result = run_with_deadline(Duration::from_millis(50), move || {
+            let _ = release_rx.recv();
+            let _ = worker_done_tx.send(());
+        });
+
+        assert!(result.is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release_tx
+            .send(())
+            .expect("blocked worker serbest bırakılmalı");
+        worker_done_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("detached worker kalıcı olmamalı");
     }
 }

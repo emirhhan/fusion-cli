@@ -119,6 +119,33 @@ impl SpeechManager {
         }
         true
     }
+
+    #[cfg(test)]
+    pub(crate) fn start_test_child(&self) -> Result<u32, String> {
+        let mut command = Command::new(
+            std::env::current_exe().map_err(|error| format!("test ikilisi bulunamadı: {error}"))?,
+        );
+        command
+            .args([
+                "--exact",
+                "speech::tests::speech_test_helper",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("FUSION_SPEECH_TEST_MODE", "sleep");
+        let mut started = self.start(&mut command)?;
+        if let Some(mut stdout) = started.stdout.take() {
+            std::thread::spawn(move || {
+                let _ = std::io::copy(&mut stdout, &mut std::io::sink());
+            });
+        }
+        if let Some(mut stderr) = started.stderr.take() {
+            std::thread::spawn(move || {
+                let _ = std::io::copy(&mut stderr, &mut std::io::sink());
+            });
+        }
+        Ok(started.pid())
+    }
 }
 
 fn terminate(mut child: Child) {
@@ -262,7 +289,6 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use std::process::Command;
-    use std::sync::{mpsc, Arc};
     use std::thread;
     use std::time::{Duration, Instant};
 
@@ -285,93 +311,6 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         assert!(!manager.is_running(), "tanıma child süreci sonlanmadı");
-    }
-
-    struct RealChildOwner {
-        child: Mutex<Option<Child>>,
-        name: &'static str,
-        order: Arc<Mutex<Vec<&'static str>>>,
-    }
-
-    impl RealChildOwner {
-        fn new(name: &'static str, order: Arc<Mutex<Vec<&'static str>>>) -> Self {
-            let child = helper_command("sleep")
-                .spawn()
-                .expect("helper child başlamalı");
-            Self {
-                child: Mutex::new(Some(child)),
-                name,
-                order,
-            }
-        }
-
-        fn stop(&self) {
-            self.order.lock().expect("order kilidi").push(self.name);
-            let child = self.child.lock().expect("child kilidi").take();
-            if let Some(child) = child {
-                terminate(child);
-            }
-        }
-
-        fn is_running(&self) -> bool {
-            self.child
-                .lock()
-                .expect("child kilidi")
-                .as_mut()
-                .is_some_and(|child| matches!(child.try_wait(), Ok(None)))
-        }
-    }
-
-    struct RealCleanupOwners {
-        speech: RealChildOwner,
-        session: RealChildOwner,
-        terminal: RealChildOwner,
-    }
-
-    impl RealCleanupOwners {
-        fn new() -> (Arc<Self>, Arc<Mutex<Vec<&'static str>>>) {
-            let order = Arc::new(Mutex::new(Vec::new()));
-            (
-                Arc::new(Self {
-                    speech: RealChildOwner::new("speech", order.clone()),
-                    session: RealChildOwner::new("session", order.clone()),
-                    terminal: RealChildOwner::new("terminal", order.clone()),
-                }),
-                order,
-            )
-        }
-    }
-
-    impl crate::CleanupOwners for RealCleanupOwners {
-        fn stop_speech(&self) {
-            self.speech.stop();
-        }
-
-        fn stop_sessions(&self) {
-            self.session.stop();
-        }
-
-        fn close_terminals(&self) {
-            self.terminal.stop();
-        }
-    }
-
-    fn cleanup_with_deadline(scope: crate::ShutdownScope, owners: Arc<RealCleanupOwners>) {
-        let (sent, received) = mpsc::sync_channel(1);
-        let worker_owners = owners.clone();
-        let worker = thread::spawn(move || {
-            crate::cleanup_scope(scope, worker_owners.as_ref());
-            let _ = sent.send(());
-        });
-        if received.recv_timeout(Duration::from_secs(2)).is_err() {
-            owners.speech.stop();
-            owners.session.stop();
-            owners.terminal.stop();
-            let _ = received.recv_timeout(Duration::from_secs(2));
-            worker.join().expect("timeout sonrası worker temizlenmeli");
-            panic!("cleanup iki saniye içinde dönmedi");
-        }
-        worker.join().expect("cleanup worker tamamlanmalı");
     }
 
     #[test]
@@ -465,37 +404,6 @@ mod tests {
 
         assert_eq!(second.session(), first.session());
         manager.stop().expect("child temizlenmeli");
-    }
-
-    #[test]
-    fn talk_cleanup_kills_only_the_real_speech_child_and_is_idempotent() {
-        let (owners, order) = RealCleanupOwners::new();
-
-        cleanup_with_deadline(crate::ShutdownScope::Talk, owners.clone());
-        cleanup_with_deadline(crate::ShutdownScope::Talk, owners.clone());
-
-        assert!(!owners.speech.is_running());
-        assert!(owners.session.is_running());
-        assert!(owners.terminal.is_running());
-        assert_eq!(*order.lock().expect("order kilidi"), ["speech", "speech"]);
-        owners.session.stop();
-        owners.terminal.stop();
-    }
-
-    #[test]
-    fn full_cleanup_kills_every_real_child_in_required_order_and_is_idempotent() {
-        let (owners, order) = RealCleanupOwners::new();
-
-        cleanup_with_deadline(crate::ShutdownScope::Application, owners.clone());
-        cleanup_with_deadline(crate::ShutdownScope::Application, owners.clone());
-
-        assert!(!owners.speech.is_running());
-        assert!(!owners.session.is_running());
-        assert!(!owners.terminal.is_running());
-        assert_eq!(
-            *order.lock().expect("order kilidi"),
-            ["speech", "session", "terminal", "speech", "session", "terminal"]
-        );
     }
 
     #[test]
