@@ -6,10 +6,18 @@ Windows Speech Recognition ile sağlar. Uygulama adaptörü alt süreç olarak
 çalıştırır ve satır başına bir JSON okur:
 
 ```
-{"tur":"hazir","metin":"tr-TR"}
-{"tur":"kismi","metin":"bu projede"}
-{"tur":"son","metin":"bu projede neler var"}
+{"tur":"hazir","metin":"tr-TR","guven":null,"speech_ms":0,"segment":0}
+{"tur":"ses-basladi","metin":"","guven":null,"speech_ms":80,"segment":1}
+{"tur":"kismi","metin":"bu projede","guven":0.74,"speech_ms":310,"segment":1}
+{"tur":"son","metin":"bu projede neler var","guven":0.89,"speech_ms":920,"segment":1}
+{"tur":"ses-bitti","metin":"","guven":null,"speech_ms":920,"segment":1}
 ```
+
+Olay türleri `hazir`, `ses-basladi`, `kismi`, `son`, `ses-bitti` ve `hata`dır.
+Her olay beş alanı da taşır; platformda bulunmayan güven değeri `null` yazılır.
+Oturum kimliği yardımcı tarafından üretilmez, süreç düzeyindeki oturumun sahibi Rust'tır.
+macOS yardımcısı ilk 300 ms'de ortam gürültüsünü ölçer, RMS tabanlı başlangıç/bitiş
+histerezisi uygular ve 250 ms'den kısa ses aralıklarında final metin yayınlamaz.
 
 ## Neden Swift, neden Rust değil
 

@@ -44,10 +44,23 @@ namespace FusionListen
             return result.ToString();
         }
 
-        private static void WriteEvent(string kind, string text)
+        private static void WriteEvent(
+            string kind,
+            string text,
+            double? confidence = null,
+            int speechMs = 0,
+            int segment = 0
+        )
         {
+            string confidenceJson = confidence.HasValue
+                ? confidence.Value.ToString("R", CultureInfo.InvariantCulture)
+                : "null";
             Console.WriteLine(
-                "{\"tur\":\"" + JsonEscape(kind) + "\",\"metin\":\"" + JsonEscape(text) + "\"}"
+                "{\"tur\":\"" + JsonEscape(kind) +
+                "\",\"metin\":\"" + JsonEscape(text) +
+                "\",\"guven\":" + confidenceJson +
+                ",\"speech_ms\":" + speechMs.ToString(CultureInfo.InvariantCulture) +
+                ",\"segment\":" + segment.ToString(CultureInfo.InvariantCulture) + "}"
             );
             Console.Out.Flush();
         }
@@ -94,7 +107,7 @@ namespace FusionListen
                 recognizer.SpeechHypothesized += (_, eventArgs) =>
                 {
                     string text = eventArgs.Result?.Text ?? string.Empty;
-                    if (text.Length > 0) WriteEvent("kismi", text);
+                    if (text.Length > 0) WriteEvent("kismi", text, eventArgs.Result.Confidence);
                 };
                 recognizer.SpeechRecognized += (_, eventArgs) =>
                 {
@@ -105,7 +118,7 @@ namespace FusionListen
                         Finish(5);
                         return;
                     }
-                    WriteEvent("son", text);
+                    WriteEvent("son", text, eventArgs.Result.Confidence);
                     Finish(0);
                 };
                 recognizer.SpeechRecognitionRejected += (_, __) =>

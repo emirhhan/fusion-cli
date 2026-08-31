@@ -21,6 +21,37 @@ from desktop_build.runtime.build_runtime import (
 LISTEN_BUILD_SCRIPT = Path("desktop_build/listen/build_adapter.py")
 
 
+def run_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedProcess[str]:
+    output = tmp_path / "fusion-listen"
+    build = subprocess.run(
+        [
+            sys.executable,
+            str(LISTEN_BUILD_SCRIPT),
+            "--platform",
+            "macos",
+            "--arch",
+            "arm64",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert build.returncode == 0, build.stderr
+
+    env = os.environ.copy()
+    env["FUSION_LISTEN_TEST_FIXTURE"] = fixture
+    return subprocess.run(
+        [str(output), "tr-TR"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+
+
 def _fake_listen_compiler(tmp_path: Path) -> Path:
     compiler_py = tmp_path / "fake_listen_compiler.py"
     compiler_py.write_text(
@@ -133,6 +164,57 @@ def test_listen_adapter_compile_failure_is_not_silent(tmp_path: Path):
 
 @pytest.mark.skipif(
     sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS Swift VAD sözleşme testi",
+)
+def test_macos_listen_silence_never_emits_transcript(tmp_path: Path):
+    result = run_listen_fixture(tmp_path, fixture="silence")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+
+    assert result.returncode == 0, result.stderr
+    assert events[0]["tur"] == "hazir"
+    assert not any(event["tur"] in {"kismi", "son"} for event in events)
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS Swift VAD sözleşme testi",
+)
+def test_macos_listen_voiced_wraps_numeric_transcript_metadata_with_vad_events(
+    tmp_path: Path,
+):
+    result = run_listen_fixture(tmp_path, fixture="voiced")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    kinds = [event["tur"] for event in events]
+    text_events = [event for event in events if event["tur"] in {"kismi", "son"}]
+
+    assert result.returncode == 0, result.stderr
+    assert kinds[0] == "hazir"
+    assert kinds.index("ses-basladi") < min(kinds.index("kismi"), kinds.index("son"))
+    assert kinds.index("ses-bitti") > max(kinds.index("kismi"), kinds.index("son"))
+    assert text_events
+    assert all(isinstance(event["guven"], (int, float)) for event in text_events)
+    assert all(isinstance(event["speech_ms"], int) for event in text_events)
+    assert all(isinstance(event["segment"], int) for event in text_events)
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS Swift güven kapısı testi",
+)
+def test_macos_listen_low_confidence_never_emits_final_transcript(tmp_path: Path):
+    result = run_listen_fixture(tmp_path, fixture="low-confidence")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    kinds = [event["tur"] for event in events]
+
+    assert result.returncode == 0, result.stderr
+    assert "ses-basladi" in kinds
+    assert "son" not in kinds
+    assert "hata" in kinds
+    assert kinds[-1] == "ses-bitti"
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
     reason="macOS Swift signal cleanup testi",
 )
 def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
@@ -166,7 +248,13 @@ def test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly(tmp_path: Path):
         assert helper.stdout is not None
         ready, _, _ = select.select([helper.stdout], [], [], 3)
         assert ready, "helper signal smoke için hazır olmadı"
-        assert json.loads(helper.stdout.readline()) == {"tur": "hazir", "metin": "tr-TR"}
+        assert json.loads(helper.stdout.readline()) == {
+            "tur": "hazir",
+            "metin": "tr-TR",
+            "guven": None,
+            "speech_ms": 0,
+            "segment": 0,
+        }
         helper.terminate()
         assert helper.wait(timeout=3) == 0
     finally:

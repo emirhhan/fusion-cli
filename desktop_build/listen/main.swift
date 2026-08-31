@@ -3,20 +3,88 @@ import Speech
 import AVFoundation
 import Darwin
 
-// Fusion konuşma tanıma yardımcısı.
-// Çıktı: satır başına bir JSON. {"tur":"kismi|son|hata|hazir","metin":"..."}
-// Cihaz üstü tanıma zorunlu kılınır: ses buluta GİTMEZ.
+// Fusion konuşma tanıma yardımcısı. Ses tamponları yalnız cihazda işlenir.
+struct TanimaOlayi: Codable {
+    let tur: String
+    let metin: String
+    let guven: Float?
+    let speech_ms: Int
+    let segment: Int
 
-func yaz(_ tur: String, _ metin: String) {
-    let nesne: [String: Any] = ["tur": tur, "metin": metin]
-    if let d = try? JSONSerialization.data(withJSONObject: nesne),
-       let s = String(data: d, encoding: .utf8) {
-        print(s); fflush(stdout)
+    enum CodingKeys: String, CodingKey { case tur, metin, guven, speech_ms, segment }
+
+    func encode(to encoder: Encoder) throws {
+        var kutu = encoder.container(keyedBy: CodingKeys.self)
+        try kutu.encode(tur, forKey: .tur)
+        try kutu.encode(metin, forKey: .metin)
+        if let guven = guven { try kutu.encode(guven, forKey: .guven) }
+        else { try kutu.encodeNil(forKey: .guven) }
+        try kutu.encode(speech_ms, forKey: .speech_ms)
+        try kutu.encode(segment, forKey: .segment)
+    }
+}
+
+func yaz(_ tur: String, _ metin: String = "", guven: Float? = nil, speechMs: Int = 0, segment: Int = 0) {
+    let olay = TanimaOlayi(tur: tur, metin: metin, guven: guven, speech_ms: speechMs, segment: segment)
+    if let veri = try? JSONEncoder().encode(olay), let satır = String(data: veri, encoding: .utf8) {
+        print(satır); fflush(stdout)
+    }
+}
+
+final class SesEtkinligiKapisi {
+    private let kalibrasyonMs = 300
+    private let enAzKonusmaMs = 250
+    private let baslangicDogrulamaMs = 80
+    private let bitisDogrulamaMs = 350
+    private var gecenMs = 0
+    private var kalibrasyonToplami: Float = 0
+    private var kalibrasyonOrnegi = 0
+    private var yuksekMs = 0
+    private var sessizMs = 0
+    private(set) var konusmaMs = 0
+    private(set) var etkin = false
+    private(set) var segment = 0
+
+    var finalIcinYeterli: Bool { konusmaMs >= enAzKonusmaMs }
+
+    func isle(rms: Float, sureMs: Int) -> String? {
+        if gecenMs < kalibrasyonMs {
+            kalibrasyonToplami += rms
+            kalibrasyonOrnegi += 1
+            gecenMs += sureMs
+            return nil
+        }
+        let gurultu = kalibrasyonOrnegi == 0 ? 0 : kalibrasyonToplami / Float(kalibrasyonOrnegi)
+        let baslangicEsigi = max(0.012, gurultu * 3.0)
+        let bitisEsigi = max(0.006, gurultu * 1.8)
+
+        if !etkin {
+            yuksekMs = rms >= baslangicEsigi ? yuksekMs + sureMs : 0
+            if yuksekMs >= baslangicDogrulamaMs {
+                etkin = true
+                segment += 1
+                konusmaMs = yuksekMs
+                sessizMs = 0
+                return "ses-basladi"
+            }
+        } else if rms >= bitisEsigi {
+            konusmaMs += sureMs
+            sessizMs = 0
+        } else {
+            sessizMs += sureMs
+            if sessizMs >= bitisDogrulamaMs {
+                etkin = false
+                yuksekMs = 0
+                return "ses-bitti"
+            }
+        }
+        return nil
     }
 }
 
 let dil = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "tr-TR"
 let motor = AVAudioEngine()
+let kapı = SesEtkinligiKapisi()
 var istek: SFSpeechAudioBufferRecognitionRequest?
 var görev: SFSpeechRecognitionTask?
 var tapKurulu = false
@@ -24,25 +92,15 @@ var bitiyor = false
 var sinyalKaynakları: [DispatchSourceSignal] = []
 
 func temizle() {
-    görev?.cancel()
-    görev = nil
-    istek?.endAudio()
-    istek = nil
+    görev?.cancel(); görev = nil
+    istek?.endAudio(); istek = nil
     if motor.isRunning { motor.stop() }
-    if tapKurulu {
-        motor.inputNode.removeTap(onBus: 0)
-        tapKurulu = false
-    }
+    if tapKurulu { motor.inputNode.removeTap(onBus: 0); tapKurulu = false }
 }
 
 func bitir(_ kod: Int32) -> Never {
-    if !bitiyor {
-        bitiyor = true
-        temizle()
-    }
-    fflush(stdout)
-    fflush(stderr)
-    exit(kod)
+    if !bitiyor { bitiyor = true; temizle() }
+    fflush(stdout); fflush(stderr); exit(kod)
 }
 
 func sinyalleriKur() {
@@ -55,9 +113,50 @@ func sinyalleriKur() {
     }
 }
 
+func rms(_ tampon: AVAudioPCMBuffer) -> Float {
+    guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
+    let kanal = kanallar[0]
+    var kareToplami: Float = 0
+    for indis in 0..<Int(tampon.frameLength) { kareToplami += kanal[indis] * kanal[indis] }
+    return sqrt(kareToplami / Float(tampon.frameLength))
+}
+
+func guven(_ sonuc: SFSpeechRecognitionResult) -> Float {
+    sonuc.bestTranscription.segments.map(\.confidence).max() ?? 0
+}
+
+func sentetikFixture(_ ad: String) -> Never {
+    yaz("hazir", dil)
+    for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+    if ad == "voiced" || ad == "low-confidence" {
+        for _ in 0..<30 {
+            if let olay = kapı.isle(rms: 0.08, sureMs: 10) {
+                yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+            }
+        }
+        if kapı.etkin && ad == "voiced" {
+            yaz("kismi", "merhaba", guven: 0.82, speechMs: kapı.konusmaMs, segment: kapı.segment)
+        }
+        if kapı.finalIcinYeterli && ad == "voiced" {
+            yaz("son", "merhaba", guven: 0.91, speechMs: kapı.konusmaMs, segment: kapı.segment)
+        } else if kapı.finalIcinYeterli {
+            yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs, segment: kapı.segment)
+        }
+        for _ in 0..<35 {
+            if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
+                yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+            }
+        }
+    }
+    bitir(0)
+}
+
 sinyalleriKur()
 
-// Mikrofon izni gerektirmeden signal cleanup yolunu derleme/smoke testinde ölçer.
+if let fixture = ProcessInfo.processInfo.environment["FUSION_LISTEN_TEST_FIXTURE"] {
+    sentetikFixture(fixture)
+}
+
 if ProcessInfo.processInfo.environment["FUSION_LISTEN_SIGNAL_SMOKE"] == "1" {
     yaz("hazir", dil)
     RunLoop.main.run()
@@ -74,14 +173,19 @@ func başlat() {
     }
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
-    // Ses buluta gitmesin: cihaz üstü zorunlu.
     r.requiresOnDeviceRecognition = true
     istek = r
 
     let girdi = motor.inputNode
     let biçim = girdi.outputFormat(forBus: 0)
     girdi.installTap(onBus: 0, bufferSize: 1024, format: biçim) { tampon, _ in
-        r.append(tampon)
+        let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
+        let olay = kapı.isle(rms: rms(tampon), sureMs: sureMs)
+        if kapı.etkin { r.append(tampon) }
+        if let olay = olay {
+            if olay == "ses-bitti" { r.endAudio() }
+            else { yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment) }
+        }
     }
     tapKurulu = true
     motor.prepare()
@@ -91,14 +195,23 @@ func başlat() {
     yaz("hazir", dil)
 
     görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
-        if let sonuç = sonuç {
+        if let sonuç = sonuç, kapı.segment > 0 {
             let metin = sonuç.bestTranscription.formattedString
-            yaz(sonuç.isFinal ? "son" : "kismi", metin)
-            if sonuç.isFinal { bitir(0) }
+            let puan = guven(sonuç)
+            if sonuç.isFinal {
+                if !metin.isEmpty && kapı.finalIcinYeterli && puan >= 0.2 {
+                    yaz("son", metin, guven: puan, speechMs: kapı.konusmaMs, segment: kapı.segment)
+                } else {
+                    yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs,
+                        segment: kapı.segment)
+                }
+                yaz("ses-bitti", speechMs: kapı.konusmaMs, segment: kapı.segment)
+                bitir(0)
+            } else if !metin.isEmpty {
+                yaz("kismi", metin, guven: puan, speechMs: kapı.konusmaMs, segment: kapı.segment)
+            }
         }
-        if let hata = hata {
-            yaz("hata", hata.localizedDescription); bitir(5)
-        }
+        if let hata = hata { yaz("hata", hata.localizedDescription); bitir(5) }
     }
 }
 
