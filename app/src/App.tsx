@@ -920,6 +920,7 @@ export function SessionUygulama({
             <PermissionPrompt
               canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
               error={permissions.error}
+              isRequesting={permissions.isRequesting}
               kind={permissions.activeKind}
               phase={permissions.phase}
               onContinue={() => void permissions.continue()}

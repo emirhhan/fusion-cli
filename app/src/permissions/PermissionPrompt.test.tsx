@@ -5,6 +5,15 @@ import { PermissionPrompt } from "./PermissionPrompt";
 afterEach(cleanup);
 
 describe("PermissionPrompt", () => {
+  it("native izin isteği sürerken tüm eylemleri devre dışı bırakır", () => {
+    render(
+      <PermissionPrompt canOpenSettings isRequesting kind="microphone" phase="preflight" onContinue={vi.fn()} onDismiss={vi.fn()} onOpenSettings={vi.fn()} onRetry={vi.fn()} />,
+    );
+
+    expect((screen.getByRole("button", { name: "Devam et" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Şimdi değil" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("ilk kullanımda Türkçe açıklamayı erişilebilir bir iletişim kutusunda gösterir", () => {
     render(
       <PermissionPrompt canOpenSettings kind="microphone" phase="preflight" onContinue={vi.fn()} onOpenSettings={vi.fn()} onRetry={vi.fn()} />,

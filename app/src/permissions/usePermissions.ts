@@ -47,6 +47,7 @@ export function usePermissions(
   const [phase, setPhase] = useState<PermissionPromptPhase>("preflight");
   const [error, setError] = useState<string | null>(null);
   const [hasQueuedPermission, setHasQueuedPermission] = useState(false);
+  const [isRequesting, setIsRequesting] = useState(false);
   const states = useRef<PermissionStates>(UNKNOWN_STATES);
   const explanations = useRef(readExplanationSeen(storage));
   const pending = useRef(new Map<PermissionKind, {
@@ -56,9 +57,12 @@ export function usePermissions(
   }>());
   const queued = useRef<PermissionKind[]>([]);
   const active = useRef<PermissionKind | null>(null);
+  const activeGeneration = useRef(0);
+  const inFlight = useRef(new Map<PermissionKind, Promise<void>>());
   const requestPermission = useRef<((kind: PermissionKind) => Promise<void>) | null>(null);
 
   const begin = useCallback((kind: PermissionKind) => {
+    activeGeneration.current += 1;
     active.current = kind;
     setActiveKind(kind);
     setPhase("preflight");
@@ -93,31 +97,42 @@ export function usePermissions(
     return promise;
   }, [begin]);
 
-  const request = useCallback(async (kind: PermissionKind) => {
-    setError(null);
-    let next: PermissionState;
-    try {
-      next = await bridge.request(kind);
-    } catch {
-      active.current = kind;
-      setActiveKind(kind);
-      setPhase("error");
-      setError("İzin durumu alınamadı. Bağlantıyı kontrol edip yeniden deneyin.");
-      return;
-    }
-    states.current = { ...states.current, [kind]: next };
-    setState(states.current);
+  const request = useCallback((kind: PermissionKind): Promise<void> => {
+    const existing = inFlight.current.get(kind);
+    if (existing) return existing;
 
-    if (next === "granted") {
-      const waiting = pending.current.get(kind);
-      pending.current.delete(kind);
-      waiting?.resolve(true);
-      beginNext();
-      return;
-    }
-    active.current = kind;
-    setActiveKind(kind);
-    setPhase(next === "restricted" ? "restricted" : "denied");
+    const generation = activeGeneration.current;
+    setError(null);
+    setIsRequesting(true);
+    const operation = (async () => {
+      let next: PermissionState;
+      try {
+        next = await bridge.request(kind);
+      } catch {
+        if (active.current !== kind || activeGeneration.current !== generation) return;
+        setPhase("error");
+        setError("İzin durumu alınamadı. Bağlantıyı kontrol edip yeniden deneyin.");
+        return;
+      }
+      if (active.current !== kind || activeGeneration.current !== generation) return;
+      states.current = { ...states.current, [kind]: next };
+      setState(states.current);
+
+      if (next === "granted") {
+        const waiting = pending.current.get(kind);
+        pending.current.delete(kind);
+        waiting?.resolve(true);
+        beginNext();
+        return;
+      }
+      setPhase(next === "restricted" ? "restricted" : "denied");
+    })().finally(() => {
+      if (inFlight.current.get(kind) === operation) inFlight.current.delete(kind);
+      if (active.current === kind && activeGeneration.current === generation) setIsRequesting(false);
+      else if (inFlight.current.size === 0) setIsRequesting(false);
+    });
+    inFlight.current.set(kind, operation);
+    return operation;
   }, [beginNext, bridge]);
 
   requestPermission.current = request;
@@ -170,6 +185,7 @@ export function usePermissions(
     continueToNext,
     dismiss,
     hasQueuedPermission,
+    isRequesting,
     openSettings,
   };
 }

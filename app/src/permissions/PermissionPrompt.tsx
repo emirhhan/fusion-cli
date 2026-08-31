@@ -6,6 +6,7 @@ import "./permissions.css";
 interface PermissionPromptProps {
   canOpenSettings: boolean;
   error?: string | null;
+  isRequesting?: boolean;
   kind: PermissionKind;
   phase: PermissionPromptPhase;
   onContinue: () => void;
@@ -34,7 +35,7 @@ const COPY: Record<PermissionKind, { title: string; explanation: string }> = {
   },
 };
 
-export function PermissionPrompt({ canOpenSettings, error, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
+export function PermissionPrompt({ canOpenSettings, error, isRequesting = false, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -93,14 +94,14 @@ export function PermissionPrompt({ canOpenSettings, error, kind, phase, onContin
         <div className="permission-prompt__actions" ref={actionsRef}>
           {denied ? (
             <>
-              <Button onClick={onRetry} variant="primary">Yeniden dene</Button>
-              {canOpenSettings && <Button onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>}
-              {onContinueToNext && <Button onClick={onContinueToNext} variant="ghost">Sonraki izne geç</Button>}
-              {onDismiss && <Button onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
+              <Button disabled={isRequesting} onClick={onRetry} variant="primary">Yeniden dene</Button>
+              {canOpenSettings && <Button disabled={isRequesting} onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>}
+              {onContinueToNext && <Button disabled={isRequesting} onClick={onContinueToNext} variant="ghost">Sonraki izne geç</Button>}
+              {onDismiss && <Button disabled={isRequesting} onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
             </>
           ) : <>
-            <Button onClick={onContinue} variant="primary">Devam et</Button>
-            {onDismiss && <Button onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
+            <Button disabled={isRequesting} onClick={onContinue} variant="primary">Devam et</Button>
+            {onDismiss && <Button disabled={isRequesting} onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
           </>}
         </div>
       </section>

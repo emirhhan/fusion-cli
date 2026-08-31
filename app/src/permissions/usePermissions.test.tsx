@@ -19,6 +19,38 @@ function fakeBridge(state: PermissionState = "unknown"): PermissionBridge & {
 }
 
 describe("usePermissions", () => {
+  it("aynı izin isteğini çift tıklamada yalnız bir kez çalıştırır ve kuyruğu atlamaz", async () => {
+    let release!: (state: PermissionState) => void;
+    const bridge = fakeBridge();
+    bridge.request.mockImplementationOnce(() => new Promise<PermissionState>((resolve) => { release = resolve; }));
+    const { result } = renderHook(() => usePermissions(bridge));
+    let microphone: Promise<boolean> | undefined;
+    let speech: Promise<boolean> | undefined;
+
+    act(() => {
+      microphone = result.current.ensure("microphone");
+      speech = result.current.ensure("speech");
+    });
+    let first!: Promise<void>;
+    let duplicate!: Promise<void>;
+    act(() => {
+      first = result.current.continue();
+      duplicate = result.current.continue();
+    });
+
+    expect(result.current.isRequesting).toBe(true);
+    expect(bridge.request).toHaveBeenCalledTimes(1);
+    await act(async () => release("granted"));
+    await Promise.all([first, duplicate]);
+    await expect(microphone).resolves.toBe(true);
+    expect(result.current.activeKind).toBe("speech");
+    expect(result.current.phase).toBe("preflight");
+    expect(result.current.isRequesting).toBe(false);
+
+    act(() => result.current.dismiss());
+    await expect(speech).resolves.toBe(false);
+  });
+
   it("kurulurken işletim sisteminden izin istemez", () => {
     const bridge = fakeBridge();
 

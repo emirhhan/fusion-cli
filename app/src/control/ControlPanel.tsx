@@ -269,6 +269,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
         <PermissionPrompt
           canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
           error={permissions.error}
+          isRequesting={permissions.isRequesting}
           kind={permissions.activeKind}
           phase={permissions.phase}
           onContinue={() => void permissions.continue()}
