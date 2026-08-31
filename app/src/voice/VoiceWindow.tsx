@@ -431,10 +431,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     />
     {permissions.activeKind && (
       <PermissionPrompt
+        error={permissions.error}
         kind={permissions.activeKind}
         phase={permissions.phase}
         onContinue={() => void permissions.continue()}
         onContinueToNext={permissions.continueToNext}
+        onDismiss={permissions.dismiss}
         onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
         onRetry={() => void permissions.retry()}
       />

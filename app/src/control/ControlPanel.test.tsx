@@ -107,14 +107,11 @@ describe("ControlPanel — yönetim derinliği", () => {
 
   it("çalışma klasörünü gösterir ve değiştirmeyi çağırana devreder", async () => {
     const onChangeRoot = vi.fn();
-    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
-    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} permissionBridge={bridge} />);
+    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} />);
 
     expect(await screen.findByText("/Users/test/Fusion")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Çalışma klasörünü değiştir" }));
-    expect(onChangeRoot).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
-    await waitFor(() => expect(onChangeRoot).toHaveBeenCalledOnce());
+    expect(onChangeRoot).toHaveBeenCalledOnce();
   });
 
   it("değiştirme geri çağrıları verilmediğinde düğmeleri hiç çizmez", async () => {

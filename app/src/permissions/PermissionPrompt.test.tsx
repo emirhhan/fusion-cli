@@ -33,6 +33,17 @@ describe("PermissionPrompt", () => {
     expect(onContinueToNext).toHaveBeenCalledOnce();
   });
 
+  it("bekleyen özellik niyetini açıkça kapatmak için Şimdi değil sunar ve güvenli hatayı gösterir", () => {
+    const onDismiss = vi.fn();
+    render(
+      <PermissionPrompt error="Sistem ayarı açılamadı; elle açıp yeniden deneyin." kind="keychain" onContinue={vi.fn()} onDismiss={onDismiss} onOpenSettings={vi.fn()} onRetry={vi.fn()} phase="error" />,
+    );
+
+    expect(screen.getByRole("alert").textContent).toMatch(/elle açıp yeniden deneyin/i);
+    fireEvent.click(screen.getByRole("button", { name: "Şimdi değil" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
   it("Tab odağını eylemlerinde döndürür ve kapanınca önceki odağı geri verir", () => {
     const priorFocus = document.createElement("button");
     document.body.append(priorFocus);

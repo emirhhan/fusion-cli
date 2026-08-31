@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionUygulama, Uygulama } from "./App";
 import { ProtocolClient } from "./protocol/client";
 import type { SessionTransport } from "./sessions/types";
+import type { PermissionBridge } from "./permissions/types";
 
 const nativeDrops = vi.hoisted(() => {
   const state: { handler: ((paths: string[]) => void) | null } = { handler: null };
@@ -587,7 +588,11 @@ describe("Sohbetten çalışma klasörü", () => {
       onClosed: vi.fn(async () => () => undefined),
     };
     const selectFolder = vi.fn().mockResolvedValue("/Users/test/Desktop/Fusion");
-    render(<SessionUygulama selectFolder={selectFolder} transport={transport} />);
+    const permissionBridge: PermissionBridge = {
+      request: vi.fn().mockResolvedValueOnce("denied").mockResolvedValueOnce("granted"),
+      openSettings: vi.fn(),
+    };
+    render(<SessionUygulama permissionBridge={permissionBridge} selectFolder={selectFolder} transport={transport} />);
 
     const alan = await screen.findByRole("textbox", { name: "Mesaj" });
     fireEvent.change(alan, { target: { value: "/klasor" } });
@@ -595,7 +600,12 @@ describe("Sohbetten çalışma klasörü", () => {
     fireEvent.keyDown(alan, { key: "Enter" });
     fireEvent.keyDown(alan, { key: "Enter" });
 
-    await waitFor(() => expect(selectFolder).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Devam et" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Yeniden dene" })).toBeTruthy());
+    expect(selectFolder).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+
+    await waitFor(() => expect(selectFolder).toHaveBeenCalledOnce());
     await waitFor(() => expect(vi.mocked(transport.create).mock.calls.at(-1)?.[1]).toBe(
       "/Users/test/Desktop/Fusion",
     ));

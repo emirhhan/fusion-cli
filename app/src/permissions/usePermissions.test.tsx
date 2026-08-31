@@ -86,12 +86,12 @@ describe("usePermissions", () => {
     });
     await act(async () => result.current.continue());
 
-    await expect(workspace).resolves.toBe(false);
     expect(result.current.activeKind).toBe("workspace");
     expect(result.current.phase).toBe(firstResult);
     expect(bridge.request).toHaveBeenCalledTimes(1);
 
     act(() => result.current.continueToNext());
+    await expect(workspace).resolves.toBe(false);
     expect(result.current.activeKind).toBe("microphone");
     expect(result.current.phase).toBe("preflight");
 
@@ -121,12 +121,13 @@ describe("usePermissions", () => {
     act(() => { ensured = result.current.ensure("speech"); });
     await act(async () => result.current.continue());
 
-    await expect(ensured).resolves.toBe(false);
     await waitFor(() => expect(result.current.state.speech).toBe("denied"));
     expect(result.current.activeKind).toBe("speech");
     expect(result.current.phase).toBe("denied");
     expect(localStorage.getItem(EXPLANATION_SEEN_KEY)).toBe('{"speech":true}');
     expect(localStorage.getItem("fusion.permissions.speech")).toBeNull();
+    act(() => result.current.dismiss());
+    await expect(ensured).resolves.toBe(false);
   });
 
   it("verilen bir izin için sonraki ensure çağrısında iletişim kutusu veya istek açmaz", async () => {
@@ -150,10 +151,10 @@ describe("usePermissions", () => {
     let ensured: Promise<boolean> | undefined;
     act(() => { ensured = result.current.ensure("workspace"); });
     await act(async () => result.current.continue());
-    await expect(ensured).resolves.toBe(false);
 
     bridge.request.mockResolvedValueOnce("granted");
     await act(async () => result.current.retry());
+    await expect(ensured).resolves.toBe(true);
     await act(async () => result.current.openSettings("workspace"));
 
     expect(result.current.state.workspace).toBe("granted");
@@ -162,18 +163,60 @@ describe("usePermissions", () => {
     expect(bridge.openSettings).toHaveBeenCalledWith("workspace");
   });
 
-  it("köprü isteği hata verdiğinde bekleyeni reddedilmiş ve yeniden denenebilir durumda bırakır", async () => {
+  it("köprü isteği hata verdiğinde güvenli hata gösterir ve retry özgün bekleyeni tamamlar", async () => {
     const bridge = fakeBridge();
-    bridge.request.mockRejectedValueOnce(new Error("TCC kullanılamıyor"));
+    bridge.request.mockRejectedValueOnce(new Error("secret-token TCC kullanılamıyor"));
+    bridge.request.mockResolvedValueOnce("granted");
     const { result } = renderHook(() => usePermissions(bridge));
     let ensured: Promise<boolean> | undefined;
+    let settled = false;
 
     act(() => { ensured = result.current.ensure("keychain"); });
+    void ensured!.finally(() => { settled = true; });
     await expect(act(async () => result.current.continue())).resolves.toBeUndefined();
 
-    await expect(ensured).resolves.toBe(false);
-    expect(result.current.state.keychain).toBe("denied");
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(result.current.state.keychain).toBe("unknown");
     expect(result.current.activeKind).toBe("keychain");
-    expect(result.current.phase).toBe("denied");
+    expect(result.current.phase).toBe("error");
+    expect(result.current.error).toMatch(/yeniden deneyin/i);
+    expect(result.current.error).not.toContain("secret-token");
+
+    await act(async () => result.current.retry());
+    await expect(ensured).resolves.toBe(true);
+  });
+
+  it("Sistem Ayarları açılamazsa reddi yutmak yerine eyleme dönük güvenli hata gösterir", async () => {
+    const bridge = fakeBridge("denied");
+    bridge.openSettings.mockRejectedValueOnce(new Error("/Users/private secret-token"));
+    const { result } = renderHook(() => usePermissions(bridge));
+
+    act(() => { void result.current.ensure("microphone"); });
+    await act(async () => result.current.continue());
+    await expect(act(async () => result.current.openSettings("microphone"))).resolves.toBeUndefined();
+
+    expect(result.current.error).toMatch(/elle açıp yeniden deneyin/i);
+    expect(result.current.error).not.toContain("secret-token");
+  });
+
+  it("Şimdi değil özgün bekleyeni false tamamlar ve kuyruktaki izne ilerler", async () => {
+    const bridge = fakeBridge("denied");
+    const { result } = renderHook(() => usePermissions(bridge));
+    let workspace: Promise<boolean> | undefined;
+    let microphone: Promise<boolean> | undefined;
+
+    act(() => {
+      workspace = result.current.ensure("workspace");
+      microphone = result.current.ensure("microphone");
+    });
+    await act(async () => result.current.continue());
+    act(() => result.current.dismiss());
+
+    await expect(workspace).resolves.toBe(false);
+    expect(result.current.activeKind).toBe("microphone");
+    act(() => result.current.dismiss());
+    await expect(microphone).resolves.toBe(false);
+    expect(result.current.activeKind).toBeNull();
   });
 });

@@ -4,10 +4,12 @@ import type { PermissionKind, PermissionPromptPhase } from "./types";
 import "./permissions.css";
 
 interface PermissionPromptProps {
+  error?: string | null;
   kind: PermissionKind;
   phase: PermissionPromptPhase;
   onContinue: () => void;
   onContinueToNext?: () => void;
+  onDismiss?: () => void;
   onRetry: () => void;
   onOpenSettings: () => void;
 }
@@ -31,13 +33,17 @@ const COPY: Record<PermissionKind, { title: string; explanation: string }> = {
   },
 };
 
-export function PermissionPrompt({ kind, phase, onContinue, onContinueToNext, onRetry, onOpenSettings }: PermissionPromptProps) {
+export function PermissionPrompt({ error, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const copy = COPY[kind];
   const denied = phase !== "preflight";
-  const status = phase === "restricted" ? "Bu erişim bu Mac'te kısıtlanmış." : `${copy.title} izni verilmedi.`;
+  const status = phase === "restricted"
+    ? "Bu erişim bu Mac'te kısıtlanmış."
+    : phase === "error"
+      ? "İzin durumu doğrulanamadı."
+      : `${copy.title} izni verilmedi.`;
 
   useEffect(() => {
     restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -82,14 +88,19 @@ export function PermissionPrompt({ kind, phase, onContinue, onContinueToNext, on
         <h2 id="permission-prompt-title">{copy.title}</h2>
         <p id="permission-prompt-description">{copy.explanation}</p>
         {denied && <p className="permission-prompt__status" role="status">{status}</p>}
+        {error && <p className="permission-prompt__status" role="alert">{error}</p>}
         <div className="permission-prompt__actions" ref={actionsRef}>
           {denied ? (
             <>
               <Button onClick={onRetry} variant="primary">Yeniden dene</Button>
               <Button onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>
               {onContinueToNext && <Button onClick={onContinueToNext} variant="ghost">Sonraki izne geç</Button>}
+              {onDismiss && <Button onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
             </>
-          ) : <Button onClick={onContinue} variant="primary">Devam et</Button>}
+          ) : <>
+            <Button onClick={onContinue} variant="primary">Devam et</Button>
+            {onDismiss && <Button onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
+          </>}
         </div>
       </section>
     </div>

@@ -94,11 +94,21 @@ fn macos_status(kind: PermissionKind) -> PermissionCapability {
 
 #[cfg(not(target_os = "macos"))]
 fn platform_status(kind: PermissionKind) -> PermissionCapability {
-    match kind {
-        PermissionKind::Workspace | PermissionKind::Keychain => {
+    platform_status_for(kind, std::env::consts::OS)
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+fn platform_status_for(kind: PermissionKind, platform: &str) -> PermissionCapability {
+    match (platform, kind) {
+        ("windows", PermissionKind::Workspace | PermissionKind::Keychain) => {
+            // supported bir TCC istemi var demek değil, özelliğin bu hedefte
+            // mevcut olduğu demektir (folder picker / Credential Manager).
             PermissionCapability::supported(PermissionState::Unknown)
         }
-        PermissionKind::Microphone | PermissionKind::Speech => unsupported_capability(),
+        (_, PermissionKind::Workspace | PermissionKind::Keychain) if platform == "macos" => {
+            PermissionCapability::supported(PermissionState::Unknown)
+        }
+        _ => unsupported_capability(),
     }
 }
 
@@ -243,5 +253,21 @@ mod tests {
     #[test]
     fn unsupported_platform_has_no_settings_deep_link() {
         assert_eq!(settings_url(PermissionKind::Microphone, "linux"), None);
+    }
+
+    #[test]
+    fn windows_workspace_and_credential_vault_are_supported_without_tcc() {
+        assert_eq!(
+            platform_status_for(PermissionKind::Workspace, "windows"),
+            PermissionCapability::supported(PermissionState::Unknown)
+        );
+        assert_eq!(
+            platform_status_for(PermissionKind::Keychain, "windows"),
+            PermissionCapability::supported(PermissionState::Unknown)
+        );
+        assert_eq!(
+            platform_status_for(PermissionKind::Microphone, "windows"),
+            unsupported_capability()
+        );
     }
 }

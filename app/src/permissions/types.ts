@@ -8,4 +8,4 @@ export interface PermissionBridge {
   openSettings(kind: PermissionKind): Promise<void>;
 }
 
-export type PermissionPromptPhase = "preflight" | "denied" | "restricted";
+export type PermissionPromptPhase = "preflight" | "denied" | "restricted" | "error";

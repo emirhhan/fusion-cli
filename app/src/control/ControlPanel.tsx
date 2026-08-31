@@ -221,11 +221,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
           </dl>
           {onChangeRoot && (
             <div className="control-panel__actions">
-              <button onClick={() => {
-                void permissions.ensure("workspace").then((granted) => {
-                  if (granted) onChangeRoot();
-                });
-              }} type="button">
+              <button onClick={onChangeRoot} type="button">
                 Çalışma klasörünü değiştir
               </button>
               <button onClick={() => onRunCommand?.("/security")} type="button">
@@ -271,10 +267,12 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
       </div>
       {permissions.activeKind && (
         <PermissionPrompt
+          error={permissions.error}
           kind={permissions.activeKind}
           phase={permissions.phase}
           onContinue={() => void permissions.continue()}
           onContinueToNext={permissions.continueToNext}
+          onDismiss={permissions.dismiss}
           onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
           onRetry={() => void permissions.retry()}
         />

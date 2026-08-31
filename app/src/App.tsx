@@ -66,6 +66,10 @@ import { findVoiceAnswer, speakVoiceAnswer } from "./voice/voiceTurn";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { PermissionPrompt } from "./permissions/PermissionPrompt";
+import { usePermissions } from "./permissions/usePermissions";
+import type { PermissionBridge } from "./permissions/types";
+import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
@@ -375,6 +379,7 @@ export function SessionUygulama({
   onOnboardingComplete = () => undefined,
   selectFolder = selectDirectory,
   selectFiles = selectLocalFiles,
+  permissionBridge = nativePermissionBridge,
 }: {
   transport?: SessionTransport;
   onboarding?: boolean;
@@ -382,7 +387,9 @@ export function SessionUygulama({
   onOnboardingComplete?: () => void;
   selectFolder?: (defaultPath?: string) => Promise<string | null>;
   selectFiles?: (defaultPath?: string) => Promise<string[]>;
+  permissionBridge?: PermissionBridge;
 }) {
+  const permissions = usePermissions(permissionBridge);
   const controller = useSessions(transport);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
@@ -679,7 +686,7 @@ export function SessionUygulama({
     } else if (task.trim().toLocaleLowerCase("tr") === `/${FOLDER_COMMAND.ad}`) {
       // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
       // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
-      void chooseTaskFolder();
+      void requestTaskFolder();
     } else if (task.startsWith("/")) void executeCommand(task);
     else {
       controller.send(active.id, task, activeAttachments);
@@ -710,7 +717,7 @@ export function SessionUygulama({
       ? (
         <ControlPanel
           client={active.client}
-          onChangeRoot={() => void chooseTaskFolder()}
+          onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
           onRunCommand={(command) => {
             // Panelden çalıştırılan komut sohbet ekranında seçiciyi açar;
@@ -777,6 +784,11 @@ export function SessionUygulama({
       setNewTaskBusy(false);
     }
   };
+  function requestTaskFolder() {
+    void permissions.ensure("workspace").then((granted) => {
+      if (granted) void chooseTaskFolder();
+    });
+  }
 
   return (
     <Shell
@@ -901,9 +913,21 @@ export function SessionUygulama({
               setWorkspaceMode("sohbet");
               void controller.create();
             }}
-            onFolder={() => void chooseTaskFolder()}
+            onFolder={requestTaskFolder}
             open={newTaskOpen}
           />
+          {permissions.activeKind && (
+            <PermissionPrompt
+              error={permissions.error}
+              kind={permissions.activeKind}
+              phase={permissions.phase}
+              onContinue={() => void permissions.continue()}
+              onContinueToNext={permissions.continueToNext}
+              onDismiss={permissions.dismiss}
+              onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
+              onRetry={() => void permissions.retry()}
+            />
+          )}
           {commandSelector && (
             <CommandSelector
               busy={commandBusy}

@@ -59,4 +59,32 @@ Otomatik test, build ve statik analiz kaygısı yok. macOS sistem istemlerinin g
 
 ## Commit
 
-Commit bu raporla birlikte `fix(app): macOS izin istemlerini gerekli ana ertele` mesajıyla oluşturulacaktır.
+İlk Task 2 uygulaması `5f57caa fix(app): macOS izin istemlerini gerekli ana ertele` commit'idir.
+
+## Fix round 1
+
+Controller review'deki üç madde ayrı TDD turuyla uygulandı:
+
+- Bütün klasör girişleri App düzeyindeki tek `requestTaskFolder` aksiyonuna taşındı. Yeni görev düğmesi, Kontrol Paneli ve `/klasor` aynı workspace `ensure` Promise'ini kullanıyor.
+- Native/IPC request hataları artık OS `denied` durumuna çevrilmiyor. Güvenli, sabit ve eyleme dönük hata metni gösteriliyor; ham exception, yol, token veya hassas payload UI'a taşınmıyor. Sistem Ayarları açma reddi de görünür hata durumuna dönüşüyor.
+- Denied/restricted/error pending intent'i silmiyor. Retry granted olduğunda özgün klasör/Talk/key-save Promise'i ikinci özellik tıklaması olmadan devam ediyor. “Şimdi değil” pending intent'i `false` çözüyor ve varsa kuyruğu ilerletiyor.
+- Platform support ruling korundu: Windows workspace ve credential vault `supported:true`; bunun TCC istemi değil özellik mevcudiyeti anlamına geldiği kod yorumu ve Rust testiyle sabitlendi. Adapter'sız Windows microphone/speech `supported:false`; Linux shipping hedefi sayılmadı.
+- Açılışta sıfır permission request, macOS AVFoundation/Speech adapterları ve Full Disk Access/otomasyon yasağı değişmedi.
+
+Fix round 1 RED kanıtları:
+
+- Frontend hedef koşuda pending/error/dismiss/merkezi `/klasor` davranışlarını kapsayan 5 test başarısız oldu.
+- Windows platform semantic Rust testi eksik helper nedeniyle exit 101 verdi.
+
+Fix round 1 final kanıtları:
+
+- Hedef entegrasyonlar: 7 dosya, 75/75 geçti.
+- Hedef Rust izin testleri: 5/5 geçti.
+- `npm test`: 63 dosya, 382/382 geçti.
+- `npm run build`: TypeScript + Vite exit 0; 151 modül dönüştürüldü.
+- `cargo fmt --check`: exit 0.
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test`: 56 geçti, 0 başarısız, 1 mevcut helper ignored; doc testler exit 0.
+- `git diff --check`: exit 0.
+
+Fix round 1 kalan kaygısı yalnız gerçek paket üzerinde macOS sistem istemlerinin manuel ilk-kullanım smoke kontrolüdür; sistem UI otomasyonu bilinçli olarak eklenmedi.
