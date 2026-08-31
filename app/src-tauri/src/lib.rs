@@ -7,6 +7,7 @@ mod runtime_paths;
 mod runtime_smoke;
 mod session_manager;
 mod speech;
+mod terminal;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,6 +19,7 @@ use runtime_paths::RuntimePaths;
 use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
 use speech::{cleanup_for_window, start_recognition, SpeechManager};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
+use terminal::{TerminalManager, TerminalSnapshot};
 
 /// Bu makinenin çalışma zamanı paketiyle eşleşmesi gereken hedef üçlü.
 ///
@@ -351,6 +353,7 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 #[tauri::command]
 fn kapatmayi_onayla(app: tauri::AppHandle) {
     let _ = app.state::<SpeechManager>().stop();
+    app.state::<TerminalManager>().close_all();
     let sessions = app.state::<SessionManager>();
     sessions.stop_all();
     app.exit(0);
@@ -439,6 +442,43 @@ fn oturumlari_listele(sessions: tauri::State<SessionManager>) -> Vec<SessionSnap
     sessions.list()
 }
 
+#[tauri::command]
+fn terminal_ac(
+    cwd: String,
+    cols: u16,
+    rows: u16,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<TerminalSnapshot, String> {
+    terminals.open(cwd, cols, rows)
+}
+
+#[tauri::command]
+fn terminal_yaz(
+    terminal_id: String,
+    data: Vec<u8>,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<(), String> {
+    terminals.write(&terminal_id, data)
+}
+
+#[tauri::command]
+fn terminal_boyutla(
+    terminal_id: String,
+    cols: u16,
+    rows: u16,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<(), String> {
+    terminals.resize(&terminal_id, cols, rows)
+}
+
+#[tauri::command]
+fn terminal_kapat(
+    terminal_id: String,
+    terminals: tauri::State<TerminalManager>,
+) -> Result<(), String> {
+    terminals.close(&terminal_id)
+}
+
 /// Arayüzün gösterebileceği güncel çalışma zamanı durumunu döner.
 ///
 /// Ağ çağrısı yapmaz, dosya değiştirmez; yalnızca en son `prepare`/`repair`
@@ -516,6 +556,16 @@ pub fn run() {
         .manage(SessionManager::new())
         .manage(SpeechManager::new())
         .setup(|app| {
+            let output_app = app.handle().clone();
+            let closed_app = app.handle().clone();
+            app.manage(TerminalManager::new(
+                move |event| {
+                    let _ = output_app.emit("terminal://cikti", event);
+                },
+                move |event| {
+                    let _ = closed_app.emit("terminal://kapandi", event);
+                },
+            ));
             let resources = RuntimeResources::from_app(app.handle())?;
             let ev_dizini = app.path().home_dir()?;
             let paths = RuntimePaths::for_home(&ev_dizini);
@@ -535,6 +585,10 @@ pub fn run() {
             oturuma_yaz,
             oturum_kapat,
             oturumlari_listele,
+            terminal_ac,
+            terminal_yaz,
+            terminal_boyutla,
+            terminal_kapat,
             ses_penceresi_ac,
             ses_penceresi_simge_durumu,
             ses_penceresi_kapat,
@@ -580,6 +634,7 @@ pub fn run() {
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
             let _ = app.state::<SpeechManager>().stop();
+            app.state::<TerminalManager>().close_all();
         }
     });
 }
