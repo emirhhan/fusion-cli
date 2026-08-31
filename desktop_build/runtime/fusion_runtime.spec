@@ -21,7 +21,21 @@ _repo_root = os.path.dirname(os.path.dirname(SPECPATH))  # noqa: F821
 datas = []
 binaries = []
 hiddenimports = []
-for package in ("fusion_cli", "litellm", "chromadb", "keyring", "httpx", "mcp", "piper", "onnxruntime"):
+# `tiktoken_ext` bir namespace plugin paketidir. PyInstaller yalnız `tiktoken`
+# modülünü görürse cl100k_base gibi gerçek encoding kayıtları pakete girmez ve
+# LiteLLM ilk uzun görevde "Plugins found: []" ile çöker.
+for package in (
+    "fusion_cli",
+    "litellm",
+    "tiktoken",
+    "tiktoken_ext",
+    "chromadb",
+    "keyring",
+    "httpx",
+    "mcp",
+    "piper",
+    "onnxruntime",
+):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries

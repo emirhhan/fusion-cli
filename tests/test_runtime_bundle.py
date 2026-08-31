@@ -192,6 +192,14 @@ def test_desktop_bundle_scripts_build_platform_listen_adapters():
     assert scripts["bundle:win"].startswith("npm run listen:build:win &&")
 
 
+def test_runtime_spec_tiktoken_encoding_pluginsini_toplar():
+    """LiteLLM'in cl100k_base kodlaması namespace plugin olmadan çalışmaz."""
+    spec = Path("desktop_build/runtime/fusion_runtime.spec").read_text(encoding="utf-8")
+
+    assert '"tiktoken"' in spec
+    assert '"tiktoken_ext"' in spec
+
+
 def test_windows_tauri_bundle_maps_listen_exe_as_resource():
     config = json.loads(
         Path("app/src-tauri/tauri.windows.bundle.conf.json").read_text(encoding="utf-8")

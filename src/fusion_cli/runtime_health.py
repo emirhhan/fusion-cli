@@ -19,6 +19,16 @@ _REQUIRED_RESOURCES = (
 )
 
 
+def _tokenizer_plugins_ok() -> bool:
+    """LiteLLM'in paket dışı namespace encoding eklentisini doğrula."""
+    try:
+        import tiktoken
+
+        return tiktoken.get_encoding("cl100k_base").name == "cl100k_base"
+    except (ImportError, ValueError):
+        return False
+
+
 @dataclass(frozen=True)
 class RuntimeHealth:
     """Paketlenmiş çalışma zamanının bütünlük anlık görüntüsü."""
@@ -36,7 +46,7 @@ class RuntimeHealth:
 def collect_runtime_health() -> RuntimeHealth:
     """Ağ ya da model çağırmadan paket sürümünü ve zorunlu kaynakları doğrula."""
     root = files("fusion_cli")
-    resources_ok = all(
+    resources_ok = _tokenizer_plugins_ok() and all(
         root.joinpath(*relative.split("/")).is_file() for relative in _REQUIRED_RESOURCES
     )
     return RuntimeHealth(
