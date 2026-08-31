@@ -18,7 +18,6 @@ from desktop_build.runtime.build_runtime import (
     write_archive,
 )
 
-
 LISTEN_BUILD_SCRIPT = Path("desktop_build/listen/build_adapter.py")
 
 
@@ -49,8 +48,10 @@ output.write_bytes(b"compiled-listen-adapter")
         wrapper.write_text(f'@"{sys.executable}" "{compiler_py}" %*\r\n', encoding="utf-8")
     else:
         wrapper = tmp_path / "fake-listen-compiler"
+        source = str(compiler_py)
         wrapper.write_text(
-            f"#!{sys.executable}\nexec(compile(open({str(compiler_py)!r}, 'rb').read(), {str(compiler_py)!r}, 'exec'))\n",
+            f"#!{sys.executable}\n"
+            f"exec(compile(open({source!r}, 'rb').read(), {source!r}, 'exec'))\n",
             encoding="utf-8",
         )
         wrapper.chmod(0o755)

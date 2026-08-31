@@ -34,9 +34,7 @@ _SPEECH_LOCK = threading.RLock()
 _SPEECH_PROCESSES: dict[int, tuple[subprocess.Popen[Any], Path | None]] = {}
 
 
-def _register_speech_process(
-    process: subprocess.Popen[Any], cleanup: Path | None = None
-) -> None:
+def _register_speech_process(process: subprocess.Popen[Any], cleanup: Path | None = None) -> None:
     with _SPEECH_LOCK:
         _SPEECH_PROCESSES[process.pid] = (process, cleanup)
 

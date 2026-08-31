@@ -11,7 +11,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-
 MACOS_SOURCE = Path(__file__).resolve().parent / "main.swift"
 WINDOWS_PROJECT = Path(__file__).resolve().parent / "windows" / "FusionListen.csproj"
 
@@ -45,11 +44,12 @@ CONTRACTS = {
 
 
 def host_platform() -> str:
-    if sys.platform == "darwin":
+    system = platform.system()
+    if system == "Darwin":
         return "macos"
-    if sys.platform == "win32":
+    if system == "Windows":
         return "windows"
-    raise BuildError(f"Konuşma adaptörü bu platformda desteklenmiyor: {sys.platform}")
+    raise BuildError(f"Konuşma adaptörü bu platformda desteklenmiyor: {system}")
 
 
 def contract_for(platform_name: str, architecture: str) -> AdapterContract:
