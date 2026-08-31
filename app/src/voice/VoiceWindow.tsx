@@ -151,6 +151,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const [onTop, setOnTop] = useState(initialGeometry.current.onTop);
   const [prefs, setPrefs] = useState<VoicePrefs>({ hiz: 1, model: null, robotik: 0.5 });
   const [ask, setAsk] = useState<VoiceAsk | null>(null);
+  const [recognitionOwned, setRecognitionOwned] = useState(false);
   const machineRef = useRef(machine);
   const askRef = useRef(ask);
   const sentRevision = useRef(0);
@@ -162,7 +163,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
   const finalizedSession = useRef<number | null>(null);
   const expectedRecognitionEnd = useRef<number | null>(null);
-  const restartAfterRecognitionEnd = useRef(false);
+  const restartAfterRecognitionEndSession = useRef<number | null>(null);
   const syntheticRestartSession = useRef<number | null>(null);
   const partialFinalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionQueue = useRef<Promise<void>>(Promise.resolve());
@@ -183,6 +184,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const startListening = useCallback(async () => {
     clearPartialFinalTimer();
     syntheticRestartSession.current = null;
+    restartAfterRecognitionEndSession.current = null;
+    setRecognitionOwned(true);
     const previousSession = activeSession.current;
     activeSession.current = 0;
     finalizedSession.current = null;
@@ -195,6 +198,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       const permitted = await runtime.preflightRecognition();
       if (recognitionIntent.current !== intent) return;
       if (!permitted) {
+        setRecognitionOwned(false);
         dispatch({ type: "FAILED", text: "Mikrofon izni verilmedi. İzin verdikten sonra yeniden deneyin." });
         return;
       }
@@ -220,6 +224,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       });
       if (cuesEnabled()) playCue("listen-start");
     } catch (reason) {
+      setRecognitionOwned(false);
       dispatch({ type: "FAILED", text: `Konuşma tanıma başlatılamadı: ${String(reason)}` });
     }
   }, [clearPartialFinalTimer, queueRecognition, runtime]);
@@ -227,6 +232,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const stopListening = useCallback(async () => {
     clearPartialFinalTimer();
     syntheticRestartSession.current = null;
+    restartAfterRecognitionEndSession.current = null;
+    setRecognitionOwned(false);
     recognitionIntent.current += 1;
     startingIntent.current = null;
     pendingRecognitionEvents.current = [];
@@ -320,7 +327,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
             dispatch({ type: "ASK_CLOSED" });
             void runtime.answerAsk(answer);
           } else if (openAsk) {
-            restartAfterRecognitionEnd.current = false;
+            restartAfterRecognitionEndSession.current = null;
             syntheticRestartSession.current = payload.session;
           } else {
             dispatch({ type: "EVALUATE_TIMEOUT", session: payload.session, candidateRevision });
@@ -365,7 +372,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         } else if (openAsk) {
           // Fail-closed: belirsiz söz ne onaydır ne de yeni sohbet turu.
           // Yardımcı finalden sonra çıktığı için bitiş olayında yeniden dinle.
-          restartAfterRecognitionEnd.current = true;
+          restartAfterRecognitionEndSession.current = payload.session;
         } else {
           dispatch({ type: "RECOGNITION", session: payload.session, event: line });
         }
@@ -388,8 +395,9 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         void startListening();
         return;
       }
-      if (restartAfterRecognitionEnd.current) {
-        restartAfterRecognitionEnd.current = false;
+      if (restartAfterRecognitionEndSession.current === session) {
+        restartAfterRecognitionEndSession.current = null;
+        setRecognitionOwned(false);
         activeSession.current = 0;
         expectedRecognitionEnd.current = null;
         void startListening();
@@ -397,10 +405,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
       if (expectedRecognitionEnd.current === session) {
         expectedRecognitionEnd.current = null;
+        setRecognitionOwned(false);
         activeSession.current = 0;
         return;
       }
       activeSession.current = 0;
+      setRecognitionOwned(false);
       dispatch({
         type: "FAILED",
         text: reason || "Konuşma tanıma beklenmedik şekilde kapandı.",
@@ -432,11 +442,13 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       pendingRecognitionEvents.current = [];
       clearPartialFinalTimer();
       syntheticRestartSession.current = null;
+      restartAfterRecognitionEndSession.current = null;
       replayRecognitionEvent.current = null;
       removeRecognition?.();
       removeEnded?.();
       expectedRecognitionEnd.current = activeSession.current || null;
       activeSession.current = 0;
+      setRecognitionOwned(false);
       void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
     };
   }, [clearPartialFinalTimer, queueRecognition, runtime, startListening]);
@@ -456,6 +468,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         pendingRecognitionEvents.current = [];
         expectedRecognitionEnd.current = activeSession.current || null;
         activeSession.current = 0;
+        restartAfterRecognitionEndSession.current = null;
+        setRecognitionOwned(false);
         void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
         dispatch({ type: "ASSISTANT_STARTED", text: incoming.metin });
         return;
@@ -477,12 +491,11 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   }, []);
 
   const visibleTranscript = machine.error ?? machine.transcript;
-  const hearing = ["calibrating", "listening", "hearing", "transcribing"].includes(machine.phase);
-
   return (
     <>
     <VoiceMode
       ask={ask}
+      listening={recognitionOwned}
       onAnswer={(answer) => {
         setAsk(null);
         dispatch({ type: "ASK_CLOSED" });
@@ -516,7 +529,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         void runtime.applyGeometry(geometryRef.current).catch(() => undefined);
       }}
       prefs={prefs}
-      onToggleListen={() => void (hearing ? stopListening() : startListening())}
+      onToggleListen={() => void (recognitionOwned ? stopListening() : startListening())}
       state={machine.phase}
       transcript={visibleTranscript}
       wide={wide}

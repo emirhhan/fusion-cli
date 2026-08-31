@@ -86,7 +86,8 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
       fake.recognition({ tur: "ses-basladi", metin: "", guven: null, speech_ms: 80 }, session);
       fake.recognition({ tur: "son", metin: texts[index] }, session);
       await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledTimes(index + 1));
-      fireEvent.click(screen.getByRole("button", { name: "Konuşmaya başla" }));
+      fake.recognitionEnded(null, session);
+      fireEvent.click(await screen.findByRole("button", { name: "Konuşmaya başla" }));
       await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(index + 2));
     }
 
@@ -105,6 +106,19 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
 
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
     expect(screen.queryByText("Evet")).toBeNull();
+  });
+
+  it("reddedilen final sırasında etkin recognition sahipliğini durdurma eylemiyle gösterir", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.recognition({ tur: "son", metin: "belirsiz", guven: 0.1, speech_ms: 420 });
+    await waitFor(() => expect(screen.getByRole("region", { name: "Fusion Talk" }).getAttribute("data-state")).toBe("interrupted"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Dinlemeyi durdur" }));
+    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalledOnce());
+    expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();
   });
   it("kısmiyi yalnız gösterir, kesin sonucu bir kez sohbete yollar", async () => {
     const fake = fakeRuntime();
@@ -359,6 +373,25 @@ describe("VoiceWindow — sesli onay", () => {
     expect(fake.runtime.answerAsk).not.toHaveBeenCalled();
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
     expect(screen.getByRole("group", { name: "Onay" })).toBeTruthy();
+  });
+
+  it("eski belirsiz onayın yeniden başlatma niyetini yeni oturum sonuna taşımaz", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+    fake.ask(ASK);
+
+    fake.recognition({ tur: "son", metin: "olabilir ama emin değilim" }, 1);
+    fireEvent.click(screen.getByRole("button", { name: "Dinlemeyi durdur" }));
+    await waitFor(() => expect(fake.runtime.stopRecognition).toHaveBeenCalledOnce());
+    fireEvent.click(await screen.findByRole("button", { name: "Konuşmaya başla" }));
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2));
+
+    fake.recognitionEnded(null, 1);
+    fake.recognitionEnded("yeni oturum kapandı", 2);
+
+    expect(await screen.findByText("yeni oturum kapandı")).toBeTruthy();
+    expect(fake.runtime.startRecognition).toHaveBeenCalledTimes(2);
   });
 
   it("kısmi belirsiz onayı göndermeden yeni dinleme oturumu açar", async () => {

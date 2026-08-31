@@ -72,3 +72,83 @@ Sonuç: exit code `0`; `3 passed` test dosyası, `43 passed` test ve başarılı
 
 - Vite build başarılı olmakla birlikte mevcut `500 kB` üstü chunk uyarısını vermeye devam ediyor; bu Task 2 davranışıyla ilgili değil.
 - Zaman aşımındaki kısmi tek sözcükler bilinçli olarak bekletiliyor; yardımcı güvenilir `son` üretirse tek sözcük kabul ediliyor. Bu güvenlik/erken-sonlandırma dengesi saha konuşma örnekleriyle izlenmeli.
+
+## Fix Round 1
+
+### Uygulama
+
+- Global `restartAfterRecognitionEnd` boolean'ı kaldırıldı. Belirsiz onay finalinin yeniden başlatma niyeti artık `restartAfterRecognitionEndSession: number | null` ile yalnız kaynak session'a bağlı; sadece aynı session'ın `ended` olayı niyeti tüketebiliyor.
+- Session bağlı restart niyeti fresh start, manual stop, TTS başlangıcı ve unmount sınırlarında açıkça temizleniyor. Eski session bitişi yeni session'ın bitiş davranışını değiştiremiyor.
+- Recognition sahipliği sunum fazından ayrıldı. `VoiceWindow` gerçek start/stop/end yaşam döngüsünden `recognitionOwned` tutuyor ve `VoiceMode`'a zorunlu `listening` boolean'ı veriyor.
+- `VoiceMode` dalga formu, `aria-label`, `aria-pressed` ve mikrofon eylemi görünümünü yalnız açık `listening` prop'undan alıyor. `interrupted` artık kendiliğinden listening sayılmıyor.
+- Mevcut çoklu-session testi gerçek native yaşam döngüsünü yansıtacak şekilde her kabul edilen finalden sonra ilgili `recognitionEnded` olayını yayınlıyor.
+
+### Test dosyaları
+
+- `app/src/voice/VoiceWindow.test.tsx`
+  - Eski belirsiz onay finali → manual stop/fresh start → eski session end → yeni session end regresyonu.
+  - `interrupted` sırasında etkin recognition sahipliğinin “Dinlemeyi durdur” etiketi ve stop eylemiyle tutarlı olması.
+- `app/src/voice/VoiceMode.test.tsx`
+  - `state="interrupted"`, `listening={false}` birleşiminin “Konuşmaya başla”, `aria-pressed=false` ve doğru toggle callback'i üretmesi.
+
+### RED
+
+Komutlar:
+
+```text
+cd app && npm test -- VoiceWindow.test.tsx
+cd app && npm test -- VoiceMode.test.tsx
+```
+
+Üretim değişikliğinden önceki tam sonuç özetleri:
+
+```text
+FAIL  src/voice/VoiceWindow.test.tsx > VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü > reddedilen final sırasında etkin recognition sahipliğini durdurma eylemiyle gösterir
+AssertionError: expected "vi.fn()" to be called once, but got 2 times
+
+FAIL  src/voice/VoiceWindow.test.tsx > VoiceWindow — sesli onay > eski belirsiz onayın yeniden başlatma niyetini yeni oturum sonuna taşımaz
+TestingLibraryElementError: Unable to find an element with the text: yeni oturum kapandı.
+
+Test Files  1 failed (1)
+Tests       2 failed | 25 passed (27)
+exit code 1
+```
+
+```text
+FAIL  src/voice/VoiceMode.test.tsx > VoiceMode > interrupted sunumunda mikrofon eylemini açık recognition sahipliğinden alır
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Konuşmaya başla"
+
+Test Files  1 failed (1)
+Tests       1 failed | 9 passed (10)
+exit code 1
+```
+
+### GREEN ve build
+
+Komut:
+
+```text
+cd app && npm test -- VoiceWindow.test.tsx VoiceMode.test.tsx voiceMachine.test.ts windowBridge.test.ts && npm run build
+```
+
+Tam sonuç özeti:
+
+```text
+Test Files  4 passed (4)
+Tests       55 passed (55)
+
+> app@0.1.0 build
+> tsc && vite build
+
+✓ 156 modules transformed.
+✓ built in 967ms
+exit code 0
+```
+
+### Öz-inceleme ve kaygılar
+
+- Session eşitlik kontrolü kaldırılırsa yeni lifecycle regresyonu eski niyetin yeni session sonunu tükettiğini yakalar.
+- `VoiceMode` tekrar fazdan ownership türetirse `interrupted + listening=false` birim testi yanlış label/ARIA değerini yakalar.
+- `VoiceWindow` toggle kararı tekrar fazdan türetilirse interrupted entegrasyon testi ikinci start çağrısını yakalar.
+- Start niyeti devam ederken düğme stop olarak kalır; permission reddi/start hatası, manual stop, expected/unexpected end, TTS ve cleanup ownership'i false yapar.
+- Build başarılıdır; önceki `500 kB` üstü Vite chunk uyarısı değişmeden sürüyor ve bu fix round kapsamı dışındadır.

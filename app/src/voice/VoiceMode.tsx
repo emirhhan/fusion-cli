@@ -37,6 +37,7 @@ const AVATAR: Record<VoiceState, AvatarState> = {
 
 interface VoiceModeProps {
   ask?: VoiceAsk | null;
+  listening: boolean;
   onAnswer?: (answer: string) => void;
   onClose: () => void;
   onMinimize: () => void;
@@ -56,6 +57,7 @@ const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
 
 export function VoiceMode({
   ask = null,
+  listening,
   onAnswer,
   onClose,
   onMinimize,
@@ -71,7 +73,6 @@ export function VoiceMode({
   wide = true,
 }: VoiceModeProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const hearing = ["calibrating", "listening", "hearing", "transcribing", "interrupted"].includes(state);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -115,7 +116,7 @@ export function VoiceMode({
       <div className="voice-panel__stage">
         <FusionAvatar scale={wide ? (state === "approval" ? 1.08 : 1.42) : 0.48} state={AVATAR[state]} />
         <div className="voice-panel__content">
-          <Waveform active={hearing} />
+          <Waveform active={listening} />
           {ask && onAnswer && (
             <div aria-label="Onay" className="voice-ask" role="group">
               <p className="voice-ask__text">{ask.metin}</p>
@@ -135,8 +136,8 @@ export function VoiceMode({
 
       <footer className="voice-panel__foot">
         <button
-          aria-label={hearing ? "Dinlemeyi durdur" : "Konuşmaya başla"}
-          aria-pressed={hearing}
+          aria-label={listening ? "Dinlemeyi durdur" : "Konuşmaya başla"}
+          aria-pressed={listening}
           className="voice-panel__mic"
           onClick={onToggleListen}
           type="button"
