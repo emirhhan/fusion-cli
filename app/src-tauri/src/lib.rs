@@ -141,6 +141,37 @@ struct VoiceGeometryPlan {
     on_top: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum VoiceWindowLifecycle {
+    Minimize,
+    Close,
+}
+
+#[derive(Debug, PartialEq)]
+struct VoiceWindowLifecyclePlan {
+    minimize_voice: bool,
+    close_voice: bool,
+    restore_main: bool,
+    stop_recognition: bool,
+}
+
+fn voice_window_lifecycle_plan(lifecycle: VoiceWindowLifecycle) -> VoiceWindowLifecyclePlan {
+    match lifecycle {
+        VoiceWindowLifecycle::Minimize => VoiceWindowLifecyclePlan {
+            minimize_voice: true,
+            close_voice: false,
+            restore_main: false,
+            stop_recognition: false,
+        },
+        VoiceWindowLifecycle::Close => VoiceWindowLifecyclePlan {
+            minimize_voice: false,
+            close_voice: true,
+            restore_main: true,
+            stop_recognition: true,
+        },
+    }
+}
+
 fn voice_geometry_plan(geometry: &VoiceWindowGeometry) -> VoiceGeometryPlan {
     let position = geometry.x.zip(geometry.y);
     if geometry.wide {
@@ -252,6 +283,7 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
         .resizable(true)
         .always_on_top(true)
         .decorations(false)
+        .shadow(false)
         .center()
         .build()
         .map_err(|error| format!("konuşma penceresi açılamadı: {error}"))?;
@@ -260,6 +292,19 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
     // oturumları da sonlandırırdı.
     if let Some(ana) = app.get_webview_window("main") {
         ana.minimize().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+/// Konuşma penceresini kapatmadan sistemin simge durumuna küçültür.
+/// Tanıma sürer; pencere geri açıldığında aynı tur görünür.
+#[tauri::command]
+fn ses_penceresi_simge_durumu(app: tauri::AppHandle) -> Result<(), String> {
+    let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Minimize);
+    if plan.minimize_voice {
+        if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
+            ses.minimize().map_err(|error| error.to_string())?;
+        }
     }
     Ok(())
 }
@@ -363,14 +408,21 @@ async fn ses_penceresi_kapat(
     app: tauri::AppHandle,
     manager: tauri::State<'_, SpeechManager>,
 ) -> Result<(), String> {
-    manager.stop()?;
-    if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
-        ses.close().map_err(|error| error.to_string())?;
+    let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Close);
+    if plan.stop_recognition {
+        manager.stop()?;
     }
-    if let Some(ana) = app.get_webview_window("main") {
-        ana.unminimize().map_err(|error| error.to_string())?;
-        ana.show().map_err(|error| error.to_string())?;
-        ana.set_focus().map_err(|error| error.to_string())?;
+    if plan.close_voice {
+        if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
+            ses.close().map_err(|error| error.to_string())?;
+        }
+    }
+    if plan.restore_main {
+        if let Some(ana) = app.get_webview_window("main") {
+            ana.unminimize().map_err(|error| error.to_string())?;
+            ana.show().map_err(|error| error.to_string())?;
+            ana.set_focus().map_err(|error| error.to_string())?;
+        }
     }
     Ok(())
 }
@@ -482,6 +534,7 @@ pub fn run() {
             oturum_kapat,
             oturumlari_listele,
             ses_penceresi_ac,
+            ses_penceresi_simge_durumu,
             ses_penceresi_kapat,
             ses_penceresi_boyut,
             ses_penceresi_geometri_uygula,
@@ -529,6 +582,26 @@ pub fn run() {
 #[cfg(test)]
 mod voice_geometry_tests {
     use super::*;
+
+    #[test]
+    fn minimizing_the_voice_window_keeps_recognition_running() {
+        let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Minimize);
+
+        assert!(plan.minimize_voice);
+        assert!(!plan.close_voice);
+        assert!(!plan.restore_main);
+        assert!(!plan.stop_recognition);
+    }
+
+    #[test]
+    fn closing_the_voice_window_stops_recognition_and_restores_main_window() {
+        let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Close);
+
+        assert!(!plan.minimize_voice);
+        assert!(plan.close_voice);
+        assert!(plan.restore_main);
+        assert!(plan.stop_recognition);
+    }
 
     #[test]
     fn normal_mode_uses_the_required_default_and_resize_limits() {

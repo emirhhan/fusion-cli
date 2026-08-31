@@ -23,6 +23,10 @@ export async function closeVoiceWindow(): Promise<void> {
   await invoke("ses_penceresi_kapat");
 }
 
+export async function minimizeVoiceWindow(): Promise<void> {
+  await invoke("ses_penceresi_simge_durumu");
+}
+
 export async function startSpeechRecognition(): Promise<void> {
   await invoke("tanima_baslat");
 }

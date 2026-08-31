@@ -3,6 +3,7 @@ import {
   applyVoiceWindowGeometry,
   getSpeechRecognitionStatus,
   isVoiceWindow,
+  minimizeVoiceWindow,
   startSpeechRecognition,
   stopSpeechRecognition,
 } from "./windowBridge";
@@ -61,5 +62,14 @@ describe("konuşma penceresi", () => {
     await applyVoiceWindowGeometry(geometry);
 
     expect(tauri.invoke).toHaveBeenCalledWith("ses_penceresi_geometri_uygula", { geometry });
+  });
+
+  it("Talk penceresini tanımayı kapatmadan yerel olarak simge durumuna küçültür", async () => {
+    tauri.invoke.mockResolvedValueOnce(undefined);
+
+    await minimizeVoiceWindow();
+
+    expect(tauri.invoke).toHaveBeenCalledWith("ses_penceresi_simge_durumu");
+    expect(tauri.invoke).not.toHaveBeenCalledWith("tanima_durdur");
   });
 });
