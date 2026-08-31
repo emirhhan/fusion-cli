@@ -6,11 +6,15 @@ Task 1 tamamlandı. `portable-pty` tabanlı `TerminalManager`; etkileşimli kabu
 
 Unix'te doğrudan `$SHELL` (geçersiz/yoksa `/bin/sh`), Windows'ta doğrudan `powershell.exe` ve ardından `cmd.exe` fallback kullanılıyor. Etkileşimli terminal hiçbir yerde `shell -lc` komut çalıştırıcısı olarak başlatılmıyor.
 
-Tauri komutları `terminal_ac`, `terminal_yaz`, `terminal_boyutla`, `terminal_kapat`; olaylar `terminal://cikti` ve `terminal://kapandi` olarak bağlandı. Çıktı, 8 KiB parçalar ve 128 öğelik bounded kanal üzerinden byte dizisi olarak aktarılıyor.
+Tauri komutları `terminal_ac`, `terminal_yaz`, `terminal_boyutla`, `terminal_kapat`; olaylar `terminal://cikti` ve `terminal://kapandi` olarak bağlandı. Çıktı, 8 KiB parçalar ve terminal başına 128 öğelik tek ordered/bounded event kanalı üzerinden byte dizisi olarak aktarılıyor. `terminal://kapandi`, o terminalin bütün queued output olayları teslim edildikten sonra tam bir kez yayınlanıyor.
+
+Review round 1 ile global terminal map mutex'i yalnız `Arc` handle bulma/çıkarma için kullanılacak şekilde daraltıldı. Blocking `write_all`, `flush`, resize, kill ve wait işlemleri terminal-scope mutex'lerinde ve global map kilidi dışında çalışıyor. Doğal reader kapanışı da map kaydını kaldırdıktan ve kilidi bıraktıktan sonra child wait yapıyor.
 
 ## Commit
 
 `feat(app): gercek pty terminal altyapisini ekle`
+
+Round 1: `fix(app): pty eszamanlilik ve olay sirasini duzelt`
 
 ## Test ve doğrulama
 
@@ -20,6 +24,16 @@ Tauri komutları `terminal_ac`, `terminal_yaz`, `terminal_boyutla`, `terminal_ka
 - `cargo clippy --all-targets -- -D warnings`: exit 0.
 - `cargo test terminal -- --nocapture`: exit 0; 5 geçti, 0 başarısız.
 - `git diff --check`: exit 0.
+
+### Review round 1
+
+- TDD RED concurrency/order: event testi deterministik olarak `["closed:süreç kapandı", "output"]` gözledi; beklenen `["output", "closed:kullanıcı kapattı"]`. Global mutex altında doğal `wait` nedeniyle test paketi askıda kaldı ve süreç exit 130 ile sonlandırıldı.
+- TDD GREEN: 7 terminal testi geçti; yeni testler bir terminalde kontrollü biçimde bloke edilen write'ın ikinci terminal resize'ını engellemediğini ve explicit close'un final output'tan sonra, `kullanıcı kapattı` nedeniyle, tam bir kez teslim edildiğini doğruluyor.
+- Windows ANSI testi PowerShell 6 `` `e `` sözdizimi ve seçili shell varsayımından çıkarıldı; ham ANSI byte dizisi platform bağımsız event helper üzerinden doğrulanıyor.
+- `cargo fmt --check`: exit 0.
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test terminal -- --nocapture`: exit 0; 7 geçti, 0 başarısız.
+- `cargo test --all-targets`: exit 0; 63 geçti, 0 başarısız, 1 ignored.
 
 ## Kalan kaygı
 

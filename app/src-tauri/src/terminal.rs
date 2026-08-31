@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Condvar, Mutex};
 
 const OUTPUT_CHUNK_BYTES: usize = 8 * 1024;
 const OUTPUT_QUEUE_CAPACITY: usize = 128;
@@ -36,13 +36,21 @@ type OutputSink = Arc<dyn Fn(TerminalOutput) + Send + Sync>;
 type ClosedSink = Arc<dyn Fn(TerminalClosed) + Send + Sync>;
 
 struct ManagedTerminal {
-    master: Box<dyn MasterPty + Send>,
-    writer: Box<dyn Write + Send>,
-    child: Box<dyn Child + Send + Sync>,
-    closed: Arc<AtomicBool>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
+    writer: Mutex<Option<Box<dyn Write + Send>>>,
+    child: Mutex<Option<Box<dyn Child + Send + Sync>>>,
+    close_reason: Mutex<Option<String>>,
+    close_queued: AtomicBool,
+    events: mpsc::SyncSender<TerminalEvent>,
+    close_delivered: Arc<(Mutex<bool>, Condvar)>,
 }
 
-type TerminalMap = Arc<Mutex<HashMap<String, ManagedTerminal>>>;
+type TerminalMap = Arc<Mutex<HashMap<String, Arc<ManagedTerminal>>>>;
+
+enum TerminalEvent {
+    Output(Vec<u8>),
+    Closed(String),
+}
 
 pub(crate) struct TerminalManager {
     terminals: TerminalMap,
@@ -95,24 +103,31 @@ impl TerminalManager {
             .take_writer()
             .map_err(|error| format!("terminal girdisi alınamadı: {error}"))?;
         let terminal_id = format!("terminal-{}", self.next_id.fetch_add(1, Ordering::Relaxed));
-        let closed = Arc::new(AtomicBool::new(false));
-
-        self.terminals.lock().unwrap().insert(
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
             terminal_id.clone(),
-            ManagedTerminal {
-                master: pair.master,
-                writer,
-                child,
-                closed: Arc::clone(&closed),
-            },
+            Arc::clone(&self.output_sink),
+            Arc::clone(&self.closed_sink),
+            Arc::clone(&close_delivered),
         );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(Some(pair.master)),
+            writer: Mutex::new(Some(writer)),
+            child: Mutex::new(Some(child)),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        self.terminals
+            .lock()
+            .unwrap()
+            .insert(terminal_id.clone(), Arc::clone(&terminal));
         forward_output(
             terminal_id.clone(),
             reader,
-            Arc::clone(&self.output_sink),
-            Arc::clone(&self.closed_sink),
-            closed,
             Arc::clone(&self.terminals),
+            terminal,
         );
 
         Ok(TerminalSnapshot {
@@ -125,12 +140,12 @@ impl TerminalManager {
     }
 
     pub(crate) fn write(&self, id: &str, data: Vec<u8>) -> Result<(), String> {
-        let mut terminals = self.terminals.lock().unwrap();
-        let terminal = terminals.get_mut(id).ok_or("terminal bulunamadı")?;
-        terminal
-            .writer
+        let terminal = self.terminal(id)?;
+        let mut writer = terminal.writer.lock().unwrap();
+        let writer = writer.as_mut().ok_or("terminal bulunamadı")?;
+        writer
             .write_all(&data)
-            .and_then(|_| terminal.writer.flush())
+            .and_then(|_| writer.flush())
             .map_err(|error| format!("terminale yazılamadı: {error}"))
     }
 
@@ -138,10 +153,11 @@ impl TerminalManager {
         if cols == 0 || rows == 0 {
             return Err("terminal boyutu sıfır olamaz".into());
         }
-        let terminals = self.terminals.lock().unwrap();
-        let terminal = terminals.get(id).ok_or("terminal bulunamadı")?;
-        terminal
-            .master
+        let terminal = self.terminal(id)?;
+        let master = terminal.master.lock().unwrap();
+        master
+            .as_ref()
+            .ok_or("terminal bulunamadı")?
             .resize(PtySize {
                 rows,
                 cols,
@@ -158,67 +174,125 @@ impl TerminalManager {
             .unwrap()
             .remove(id)
             .ok_or("terminal bulunamadı")?;
-        close_terminal(id, terminal, &self.closed_sink);
+        close_terminal(terminal, "kullanıcı kapattı");
         Ok(())
     }
 
     pub(crate) fn close_all(&self) {
         let terminals: Vec<_> = self.terminals.lock().unwrap().drain().collect();
-        for (id, terminal) in terminals {
-            close_terminal(&id, terminal, &self.closed_sink);
+        for (_, terminal) in terminals {
+            close_terminal(terminal, "kullanıcı kapattı");
         }
     }
-}
 
-fn close_terminal(id: &str, mut terminal: ManagedTerminal, sink: &ClosedSink) {
-    let _ = terminal.child.kill();
-    let _ = terminal.child.wait();
-    emit_closed_once(id, "kullanıcı kapattı", &terminal.closed, sink);
-}
-
-fn emit_closed_once(id: &str, reason: &str, closed: &AtomicBool, sink: &ClosedSink) {
-    if !closed.swap(true, Ordering::AcqRel) {
-        sink(TerminalClosed {
-            terminal_id: id.to_string(),
-            reason: reason.to_string(),
-        });
+    fn terminal(&self, id: &str) -> Result<Arc<ManagedTerminal>, String> {
+        self.terminals
+            .lock()
+            .unwrap()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| "terminal bulunamadı".into())
     }
+}
+
+fn close_terminal(terminal: Arc<ManagedTerminal>, reason: &str) {
+    *terminal.close_reason.lock().unwrap() = Some(reason.to_string());
+    wait_for_child(&terminal, true);
+    terminal.writer.lock().unwrap().take();
+    terminal.master.lock().unwrap().take();
+    wait_for_close_delivery(&terminal);
+}
+
+fn wait_for_child(terminal: &ManagedTerminal, kill: bool) {
+    let child = terminal.child.lock().unwrap().take();
+    if let Some(mut child) = child {
+        if kill {
+            let _ = child.kill();
+        }
+        let _ = child.wait();
+    }
+}
+
+fn queue_closed_once(terminal: &ManagedTerminal) {
+    if terminal.close_queued.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let reason = terminal
+        .close_reason
+        .lock()
+        .unwrap()
+        .take()
+        .unwrap_or_else(|| "süreç kapandı".into());
+    let _ = terminal.events.send(TerminalEvent::Closed(reason));
+}
+
+fn wait_for_close_delivery(terminal: &ManagedTerminal) {
+    let (delivered, wake) = &*terminal.close_delivered;
+    let mut delivered = delivered.lock().unwrap();
+    while !*delivered {
+        delivered = wake.wait(delivered).unwrap();
+    }
+}
+
+fn event_worker(
+    id: String,
+    output_sink: OutputSink,
+    closed_sink: ClosedSink,
+    close_delivered: Arc<(Mutex<bool>, Condvar)>,
+) -> mpsc::SyncSender<TerminalEvent> {
+    let (sender, receiver) = mpsc::sync_channel(OUTPUT_QUEUE_CAPACITY);
+    std::thread::spawn(move || {
+        while let Ok(event) = receiver.recv() {
+            match event {
+                TerminalEvent::Output(data) => output_sink(TerminalOutput {
+                    terminal_id: id.clone(),
+                    data,
+                }),
+                TerminalEvent::Closed(reason) => {
+                    closed_sink(TerminalClosed {
+                        terminal_id: id,
+                        reason,
+                    });
+                    let (delivered, wake) = &*close_delivered;
+                    *delivered.lock().unwrap() = true;
+                    wake.notify_all();
+                    break;
+                }
+            }
+        }
+    });
+    sender
 }
 
 fn forward_output(
     id: String,
     mut reader: Box<dyn std::io::Read + Send>,
-    output_sink: OutputSink,
-    closed_sink: ClosedSink,
-    closed: Arc<AtomicBool>,
     terminals: TerminalMap,
+    terminal: Arc<ManagedTerminal>,
 ) {
-    let (sender, receiver) = mpsc::sync_channel::<Vec<u8>>(OUTPUT_QUEUE_CAPACITY);
-    let output_id = id.clone();
-    std::thread::spawn(move || {
-        while let Ok(data) = receiver.recv() {
-            output_sink(TerminalOutput {
-                terminal_id: output_id.clone(),
-                data,
-            });
-        }
-    });
     std::thread::spawn(move || {
         let mut buffer = vec![0; OUTPUT_CHUNK_BYTES];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) | Err(_) => break,
                 Ok(count) => {
-                    if sender.send(buffer[..count].to_vec()).is_err() {
+                    if terminal
+                        .events
+                        .send(TerminalEvent::Output(buffer[..count].to_vec()))
+                        .is_err()
+                    {
                         break;
                     }
                 }
             }
         }
-        if let Some(mut terminal) = terminals.lock().unwrap().remove(&id) {
-            let _ = terminal.child.wait();
+        let removed = terminals.lock().unwrap().remove(&id);
+        if removed.is_some() {
+            wait_for_child(&terminal, false);
+            terminal.writer.lock().unwrap().take();
+            terminal.master.lock().unwrap().take();
         }
-        emit_closed_once(&id, "süreç kapandı", &closed, &closed_sink);
+        queue_closed_once(&terminal);
     });
 }
 
@@ -264,9 +338,10 @@ fn shell_candidates() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{TerminalClosed, TerminalManager, TerminalOutput};
+    use super::{event_worker, TerminalClosed, TerminalEvent, TerminalManager, TerminalOutput};
+    use std::io::Write;
     use std::path::Path;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{mpsc, Arc, Condvar, Mutex};
     use std::time::{Duration, Instant};
 
     type OutputLog = Arc<Mutex<Vec<TerminalOutput>>>;
@@ -345,33 +420,155 @@ mod tests {
 
     #[test]
     fn forwards_terminal_output_without_stripping_ansi_bytes() {
+        let outputs = OutputLog::default();
+        let output_log = Arc::clone(&outputs);
+        let sender = event_worker(
+            "raw-byte-helper".into(),
+            Arc::new(move |event| output_log.lock().unwrap().push(event)),
+            Arc::new(|_| {}),
+            Arc::new((Mutex::new(false), Condvar::new())),
+        );
+        sender
+            .send(TerminalEvent::Output(
+                b"\x1b[31mfusion-pty-ok\x1b[0m".to_vec(),
+            ))
+            .unwrap();
+
+        wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+    }
+
+    struct BlockingWriter {
+        entered: mpsc::SyncSender<()>,
+        release: mpsc::Receiver<()>,
+        inner: Box<dyn Write + Send>,
+    }
+
+    impl Write for BlockingWriter {
+        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+            self.entered.send(()).unwrap();
+            self.release.recv().unwrap();
+            self.inner.write(buffer)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.inner.flush()
+        }
+    }
+
+    #[test]
+    fn blocked_write_on_one_terminal_does_not_block_another_terminal_resize() {
+        let first_cwd = tempfile::tempdir().unwrap();
+        let second_cwd = tempfile::tempdir().unwrap();
+        let (manager, _, _) = manager();
+        let manager = Arc::new(manager);
+        let first = manager
+            .open(first_cwd.path().to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+        let second = manager
+            .open(second_cwd.path().to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+        let (entered_tx, entered_rx) = mpsc::sync_channel(0);
+        let (release_tx, release_rx) = mpsc::sync_channel(0);
+        let first_terminal = manager
+            .terminals
+            .lock()
+            .unwrap()
+            .get(&first.terminal_id)
+            .unwrap()
+            .clone();
+        let mut first_writer = first_terminal.writer.lock().unwrap();
+        let inner = first_writer.take().unwrap();
+        first_writer.replace(Box::new(BlockingWriter {
+            entered: entered_tx,
+            release: release_rx,
+            inner,
+        }));
+        drop(first_writer);
+
+        let writing_manager = Arc::clone(&manager);
+        let first_id = first.terminal_id.clone();
+        let write_thread =
+            std::thread::spawn(move || writing_manager.write(&first_id, b"blocked".to_vec()));
+        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let resizing_manager = Arc::clone(&manager);
+        let second_id = second.terminal_id.clone();
+        let (resized_tx, resized_rx) = mpsc::sync_channel(0);
+        let resize_thread = std::thread::spawn(move || {
+            let result = resizing_manager.resize(&second_id, 100, 40);
+            resized_tx.send(result).unwrap();
+        });
+        let resize_was_independent = resized_rx.recv_timeout(Duration::from_millis(200));
+
+        release_tx.send(()).unwrap();
+        write_thread.join().unwrap().unwrap();
+        resize_thread.join().unwrap();
+        manager.close_all();
+        assert!(
+            matches!(resize_was_independent, Ok(Ok(()))),
+            "second terminal resize was blocked by first terminal write"
+        );
+    }
+
+    #[test]
+    fn explicit_close_is_emitted_once_after_the_terminal_final_output() {
         let cwd = tempfile::tempdir().unwrap();
-        let (manager, outputs, _) = manager();
+        let ordered = Arc::new(Mutex::new(Vec::<String>::new()));
+        let output_log = Arc::clone(&ordered);
+        let closed_log = Arc::clone(&ordered);
+        let (output_entered_tx, output_entered_rx) = mpsc::sync_channel(0);
+        let (release_output_tx, release_output_rx) = mpsc::sync_channel(0);
+        let release_output_rx = Mutex::new(release_output_rx);
+        let manager = Arc::new(TerminalManager::new(
+            move |event| {
+                if event.data.windows(12).any(|bytes| bytes == b"final-output") {
+                    output_entered_tx.send(()).unwrap();
+                    release_output_rx.lock().unwrap().recv().unwrap();
+                    output_log.lock().unwrap().push("output".into());
+                }
+            },
+            move |event| {
+                closed_log
+                    .lock()
+                    .unwrap()
+                    .push(format!("closed:{}", event.reason))
+            },
+        ));
         let snapshot = manager
             .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
             .unwrap();
-
-        #[cfg(unix)]
         manager
-            .write(
-                &snapshot.terminal_id,
-                b"printf '\\x1b[31mfusion-pty-ok\\x1b[0m\\n'\n".to_vec(),
-            )
+            .write(&snapshot.terminal_id, print_command("final-output"))
             .unwrap();
-        #[cfg(windows)]
-        manager
-            .write(
-                &snapshot.terminal_id,
-                b"Write-Output \"`e[31mfusion-pty-ok`e[0m\"\r\n".to_vec(),
-            )
+        output_entered_rx
+            .recv_timeout(Duration::from_secs(1))
             .unwrap();
 
-        wait_for_output(
-            &outputs,
-            &snapshot.terminal_id,
-            b"\x1b[31mfusion-pty-ok\x1b[0m",
-        );
-        manager.close_all();
+        let closing_manager = Arc::clone(&manager);
+        let terminal_id = snapshot.terminal_id.clone();
+        let close_thread = std::thread::spawn(move || closing_manager.close(&terminal_id));
+        std::thread::sleep(Duration::from_millis(100));
+        let close_overtook_output = !ordered.lock().unwrap().is_empty();
+        release_output_tx.send(()).unwrap();
+        close_thread.join().unwrap().unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let events = ordered.lock().unwrap().clone();
+            if events.len() >= 2 {
+                assert!(
+                    !close_overtook_output,
+                    "close was emitted while final output was blocked"
+                );
+                assert_eq!(events, ["output", "closed:kullanıcı kapattı"]);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "ordered events did not finish: {events:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
