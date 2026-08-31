@@ -129,5 +129,44 @@
 
 ### Endişeler
 
-- Tauri event değerleri framework tarafından doğrudan construct edilemediği için event callback’in seçtiği enum route production kodunda, route’un gerçek kaynak etkisi ise concrete manager lifecycle testinde doğrulanıyor.
+- Tauri event değerleri framework tarafından doğrudan construct edilemediği için event callback'in seçtiği enum route production kodunda, route'un gerçek kaynak etkisi ise concrete manager lifecycle testinde doğrulanıyor.
+- Paketli GUI kabul testi bu fix round'da çalıştırılmadı.
+
+## Fix round 3 — gerçek PTY child liveness
+
+### Uygulama
+
+- `TerminalManager::test_is_running`, kayıt içindeki `child: Some` varlığını kontrol etmek yerine production-owned portable-pty `Child::try_wait()` sonucunu kullanıyor.
+- Test-only terminal exit kaydı, gerçek child PID’sini `close_terminal` blocking wait’inden önce alıp wait döndükten sonra exited olarak işaretliyor. Bu alan ve sorgu `cfg(test)` altında; production davranışı değişmedi.
+- Lifecycle fixture gerçek terminal PID’sini saklıyor. Full route testleri PID’nin iki saniye içinde gerçek wait-sonrası exit kaydına girdiğini; Talk route testleri aynı PID’nin gerçekten canlı kaldığını doğruluyor.
+- Her fixture sonunda explicit cleanup bütün manager’ları kapatıyor ve speech/session/terminal child kalmadığını doğruluyor; Drop panic/timeout yedeği olarak korunuyor.
+
+### RED kanıtı
+
+- `cargo test cleanup_liveness_is_false -- --nocapture`
+  - RED davranış: doğal olarak çıkmış gerçek PTY child map’te kayıtlı tutulduğunda eski Option-presence kontrolü iki saniye boyunca yanlış `true` döndürdü.
+- `cargo test cleanup_route_for_every -- --nocapture`
+  - RED derleme: full-route testinin istediği wait-sonrası gerçek PID exit gözlemi (`test_has_exited`) henüz yoktu.
+
+### GREEN ve kalite kanıtı
+
+- Negatif registered-but-exited characterization: 1 passed.
+- `cargo test cleanup -- --nocapture`: 4 passed.
+- `cargo test shutdown -- --nocapture`: 3 passed.
+- `cargo fmt --check`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test`: 69 passed, 3 ignored; doc tests PASS.
+- Focused ve full Cargo testlerini iki ayrı process olarak eşzamanlı başlatan ilk kalite denemesi process-local PTY guard’ı paylaşamadığı için terminal test çakışması üretti; full fmt/clippy/test zinciri tek başına taze çalıştırıldığında 69/69 geçti.
+
+### Davranış kanıtı ve öz-inceleme
+
+- Liveness sorgusu artık aynı kayıt için hem canlı (`try_wait → None`) hem doğal çıkmış (`try_wait → Some`) durumlarını ayırt ediyor.
+- Negatif test map kaydını bilinçli koruyor; bu nedenle registry removal testin yanlışlıkla geçmesini sağlayamıyor.
+- `TalkClose` ve `TalkDestroyed` sonrasında gerçek PTY child hem kayıtlı hem `try_wait` açısından canlı; exited PID kaydı oluşmuyor.
+- `ConfirmedMainClose`, `ExitRequested` ve `Exit` sonrasında cleanup route dönmeden `close_terminal` child’ı kill+wait ediyor; test bounded olarak gerçek PID exit kaydını gözlüyor.
+- Option-presence kontrolüne geri dönüş negatif testi; registration-only full cleanup sonucu ise PID exit assertions’ını düşürür.
+
+### Endişeler
+
+- Doğal çıkış characterization’ı Unix’te `/usr/bin/true`, Windows’ta deterministic `cmd /C exit 0` child kullanıyor; liveness ölçümü her iki durumda da shell taraması değil portable-pty `try_wait()` üzerinden yapılıyor.
 - Paketli GUI kabul testi bu fix round’da çalıştırılmadı.

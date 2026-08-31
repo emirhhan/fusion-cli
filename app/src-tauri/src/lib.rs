@@ -833,6 +833,7 @@ mod shutdown_tests {
         sessions: Arc<SessionManager>,
         terminals: Arc<TerminalManager>,
         terminal_id: String,
+        terminal_pid: u32,
         _cwd: tempfile::TempDir,
     }
 
@@ -854,6 +855,7 @@ mod shutdown_tests {
                 sessions,
                 terminals,
                 terminal_id: terminal.terminal_id,
+                terminal_pid: terminal.pid.expect("PTY child PID sağlamalı"),
                 _cwd: cwd,
             }
         }
@@ -878,6 +880,29 @@ mod shutdown_tests {
             assert!(self.speech.is_running());
             assert!(self.sessions.test_is_running("shutdown-session"));
             assert!(self.terminals.test_is_running(&self.terminal_id));
+            assert!(!self.terminals.test_has_exited(self.terminal_pid));
+        }
+
+        fn assert_terminal_exited_within(&self, timeout: Duration) {
+            let deadline = Instant::now() + timeout;
+            while !self.terminals.test_has_exited(self.terminal_pid) && Instant::now() < deadline {
+                std::thread::yield_now();
+            }
+            assert!(
+                self.terminals.test_has_exited(self.terminal_pid),
+                "PTY child PID {} gerçekten çıkmadı",
+                self.terminal_pid
+            );
+        }
+
+        fn cleanup_and_assert_no_children(&self) {
+            let _ = self.speech.stop();
+            self.sessions.stop_all();
+            self.terminals.close_all();
+            self.assert_terminal_exited_within(Duration::from_secs(2));
+            assert!(!self.speech.is_running());
+            assert!(!self.sessions.test_is_running("shutdown-session"));
+            assert!(!self.terminals.test_is_running(&self.terminal_id));
         }
     }
 
@@ -918,6 +943,7 @@ mod shutdown_tests {
             assert!(!fixture.speech.is_running());
             assert!(!fixture.sessions.test_is_running("shutdown-session"));
             assert!(!fixture.terminals.test_is_running(&fixture.terminal_id));
+            fixture.assert_terminal_exited_within(Duration::from_secs(2));
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [
@@ -929,6 +955,7 @@ mod shutdown_tests {
                     CleanupStep::Terminal,
                 ]
             );
+            fixture.cleanup_and_assert_no_children();
         }
     }
 
@@ -945,10 +972,12 @@ mod shutdown_tests {
             assert!(!fixture.speech.is_running());
             assert!(fixture.sessions.test_is_running("shutdown-session"));
             assert!(fixture.terminals.test_is_running(&fixture.terminal_id));
+            assert!(!fixture.terminals.test_has_exited(fixture.terminal_pid));
             assert_eq!(
                 *order.lock().expect("cleanup order kilidi"),
                 [CleanupStep::Speech, CleanupStep::Speech]
             );
+            fixture.cleanup_and_assert_no_children();
         }
     }
 

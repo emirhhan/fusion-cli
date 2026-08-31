@@ -1,6 +1,8 @@
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
@@ -61,6 +63,8 @@ pub(crate) struct TerminalManager {
     next_id: AtomicU64,
     output_sink: OutputSink,
     closed_sink: ClosedSink,
+    #[cfg(test)]
+    exited_test_pids: Mutex<HashSet<u32>>,
 }
 
 impl TerminalManager {
@@ -73,6 +77,8 @@ impl TerminalManager {
             next_id: AtomicU64::new(1),
             output_sink: Arc::new(output),
             closed_sink: Arc::new(closed),
+            #[cfg(test)]
+            exited_test_pids: Mutex::new(HashSet::new()),
         }
     }
 
@@ -174,7 +180,18 @@ impl TerminalManager {
     pub(crate) fn close(&self, id: &str) -> Result<(), String> {
         let terminal = claim_explicit_terminal(&mut self.terminals.lock().unwrap(), id)
             .ok_or("terminal bulunamadı")?;
+        #[cfg(test)]
+        let pid = terminal
+            .child
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|child| child.process_id());
         close_terminal(terminal);
+        #[cfg(test)]
+        if let Some(pid) = pid {
+            self.exited_test_pids.lock().unwrap().insert(pid);
+        }
         Ok(())
     }
 
@@ -187,7 +204,18 @@ impl TerminalManager {
             terminals.drain().collect()
         };
         for (_, terminal) in terminals {
+            #[cfg(test)]
+            let pid = terminal
+                .child
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|child| child.process_id());
             close_terminal(terminal);
+            #[cfg(test)]
+            if let Some(pid) = pid {
+                self.exited_test_pids.lock().unwrap().insert(pid);
+            }
         }
     }
 
@@ -206,7 +234,18 @@ impl TerminalManager {
             .lock()
             .unwrap()
             .get(id)
-            .is_some_and(|terminal| terminal.child.lock().unwrap().is_some())
+            .and_then(|terminal| {
+                let mut child = terminal.child.lock().unwrap();
+                child
+                    .as_mut()
+                    .map(|child| matches!(child.try_wait(), Ok(None)))
+            })
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_has_exited(&self, pid: u32) -> bool {
+        self.exited_test_pids.lock().unwrap().contains(&pid)
     }
 }
 
@@ -537,6 +576,53 @@ mod tests {
         forward_output("raw-byte-helper".into(), reader, terminals, terminal);
 
         wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+    }
+
+    #[test]
+    fn cleanup_liveness_is_false_for_a_naturally_exited_but_registered_child() {
+        let _guard = pty_test_guard();
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        #[cfg(unix)]
+        let command = CommandBuilder::new("/usr/bin/true");
+        #[cfg(windows)]
+        let command = {
+            let mut command = CommandBuilder::new("cmd.exe");
+            command.args(["/C", "exit", "0"]);
+            command
+        };
+        let child = pair.slave.spawn_command(command).unwrap();
+        let writer = pair.master.take_writer().unwrap();
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            "exited-still-registered".into(),
+            Arc::new(|_| {}),
+            Arc::new(|_| {}),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(Some(pair.master)),
+            writer: Mutex::new(Some(writer)),
+            child: Mutex::new(Some(child)),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        let manager = TerminalManager::new(|_| {}, |_| {});
+        manager
+            .terminals
+            .lock()
+            .unwrap()
+            .insert("exited-still-registered".into(), Arc::clone(&terminal));
+        let deadline = Instant::now() + Duration::from_secs(2);
+
+        while manager.test_is_running("exited-still-registered") && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+
+        assert!(!manager.test_is_running("exited-still-registered"));
+        manager.terminals.lock().unwrap().clear();
+        terminal.child.lock().unwrap().take();
     }
 
     #[test]
