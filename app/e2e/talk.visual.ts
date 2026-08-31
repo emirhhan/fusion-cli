@@ -17,6 +17,14 @@ for (const visual of cases) {
     await expect(page.getByRole("region", { name: "Fusion Talk" })).toBeVisible();
     await expect(page.getByRole("region", { name: "Fusion Talk" })).toHaveCSS("border-radius", "0px");
     await expect(page.getByRole("region", { name: "Fusion Talk" })).toHaveCSS("box-shadow", "none");
+    if (visual.query.includes("voiceMode=mini") && visual.query.includes("voice-listening")) {
+      const microphone = page.getByRole("button", { name: "Dinlemeyi durdur" });
+      await expect(microphone).toBeVisible();
+      const box = await microphone.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(visual.width);
+    }
     await page.evaluate(() => document.fonts.ready);
     await expect(page).toHaveScreenshot(`${visual.name}.png`, { fullPage: true });
   });
@@ -31,3 +39,14 @@ for (const visual of cases) {
     await page.screenshot({ animations: "disabled", path: `${candidateDir}/${visual.name}.png` });
   });
 }
+
+test("talk-mini-error-keeps-retry-microphone-visible", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 112 });
+  await page.goto("/e2e/preview.html?state=voice-error&voiceMode=mini&theme=light");
+  const microphone = page.getByRole("button", { name: "Konuşmaya başla" });
+  await expect(microphone).toBeVisible();
+  const box = await microphone.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.x).toBeGreaterThanOrEqual(0);
+  expect(box!.x + box!.width).toBeLessThanOrEqual(360);
+});

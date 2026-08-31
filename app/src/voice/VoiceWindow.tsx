@@ -45,6 +45,8 @@ type PendingRecognitionEvent =
   | { type: "output"; payload: RecognitionPayload }
   | { type: "ended"; payload: RecognitionEndedPayload };
 
+const PARTIAL_FINAL_DELAY_MS = 1_400;
+
 export interface VoiceWindowRuntime {
   applyGeometry(geometry: VoiceWindowGeometry): Promise<void>;
   answerAsk(answer: string): Promise<void>;
@@ -161,6 +163,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const finalizedSession = useRef<number | null>(null);
   const expectedRecognitionEnd = useRef<number | null>(null);
   const restartAfterRecognitionEnd = useRef(false);
+  const syntheticRestartSession = useRef<number | null>(null);
+  const partialFinalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionQueue = useRef<Promise<void>>(Promise.resolve());
   machineRef.current = machine;
   askRef.current = ask;
@@ -171,7 +175,14 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     return queued;
   }, []);
 
+  const clearPartialFinalTimer = useCallback(() => {
+    if (partialFinalTimer.current !== null) clearTimeout(partialFinalTimer.current);
+    partialFinalTimer.current = null;
+  }, []);
+
   const startListening = useCallback(async () => {
+    clearPartialFinalTimer();
+    syntheticRestartSession.current = null;
     const intent = recognitionIntent.current + 1;
     recognitionIntent.current = intent;
     const requestedSession = nextSession.current + 1;
@@ -205,9 +216,11 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     } catch (reason) {
       dispatch({ type: "FAILED", text: `Konuşma tanıma başlatılamadı: ${String(reason)}` });
     }
-  }, [queueRecognition, runtime]);
+  }, [clearPartialFinalTimer, queueRecognition, runtime]);
 
   const stopListening = useCallback(async () => {
+    clearPartialFinalTimer();
+    syntheticRestartSession.current = null;
     recognitionIntent.current += 1;
     startingIntent.current = null;
     pendingRecognitionEvents.current = [];
@@ -220,7 +233,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     } catch (reason) {
       dispatch({ type: "FAILED", text: `Konuşma tanıma durdurulamadı: ${String(reason)}` });
     }
-  }, [queueRecognition, runtime]);
+  }, [clearPartialFinalTimer, queueRecognition, runtime]);
 
   useEffect(() => {
     void runtime.applyGeometry(geometryRef.current).catch(() => undefined);
@@ -233,7 +246,9 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
 
   useEffect(() => {
     const remove = runtime.onAsk((incoming) => {
+      clearPartialFinalTimer();
       const open = incoming?.acik === true ? incoming : null;
+      askRef.current = open;
       setAsk(open);
       dispatch({ type: open ? "ASK_OPENED" : "ASK_CLOSED" });
       if (open && activeSession.current === 0) {
@@ -241,7 +256,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
     });
     return () => { void remove.then((unlisten) => unlisten()).catch(() => undefined); };
-  }, [runtime, startListening]);
+  }, [clearPartialFinalTimer, runtime, startListening]);
 
   useEffect(() => {
     const remove = runtime.onPrefs((incoming) => setPrefs(incoming));
@@ -271,7 +286,42 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         dispatch({ type: "FAILED", text: line.metin });
       } else if (line.tur === "kismi") {
         if (!askRef.current) dispatch({ type: "PARTIAL", session: payload.session, text: line.metin });
+        clearPartialFinalTimer();
+        const text = line.metin;
+        const askAtPartial = askRef.current;
+        partialFinalTimer.current = setTimeout(() => {
+          partialFinalTimer.current = null;
+          if (payload.session !== activeSession.current || finalizedSession.current === payload.session) return;
+          if (askRef.current !== askAtPartial) return;
+          finalizedSession.current = payload.session;
+          expectedRecognitionEnd.current = payload.session;
+          const openAsk = askAtPartial;
+          const answer = openAsk ? matchSpokenAnswer(text, openAsk) : null;
+          if (answer) {
+            askRef.current = null;
+            setAsk(null);
+            dispatch({ type: "ASK_CLOSED" });
+            void runtime.answerAsk(answer);
+          } else if (openAsk) {
+            restartAfterRecognitionEnd.current = false;
+            syntheticRestartSession.current = payload.session;
+          } else {
+            dispatch({ type: "FINAL", session: payload.session, text });
+          }
+          void queueRecognition(() => runtime.stopRecognition())
+            .then(() => {
+              if (syntheticRestartSession.current !== payload.session) return;
+              syntheticRestartSession.current = null;
+              activeSession.current = 0;
+              expectedRecognitionEnd.current = null;
+              void startListening();
+            })
+            .catch((reason) => {
+              dispatch({ type: "FAILED", text: `Konuşma tanıma durdurulamadı: ${String(reason)}` });
+            });
+        }, PARTIAL_FINAL_DELAY_MS);
       } else if (line.tur === "son") {
+        clearPartialFinalTimer();
         if (finalizedSession.current === payload.session) return;
         finalizedSession.current = payload.session;
         expectedRecognitionEnd.current = payload.session;
@@ -296,6 +346,14 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         if (activeSession.current === 0 && startingIntent.current !== null) {
           pendingRecognitionEvents.current.push({ type: "ended", payload: { session, reason } });
         }
+        return;
+      }
+      clearPartialFinalTimer();
+      if (syntheticRestartSession.current === session) {
+        syntheticRestartSession.current = null;
+        activeSession.current = 0;
+        expectedRecognitionEnd.current = null;
+        void startListening();
         return;
       }
       if (restartAfterRecognitionEnd.current) {
@@ -340,6 +398,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       recognitionIntent.current += 1;
       startingIntent.current = null;
       pendingRecognitionEvents.current = [];
+      clearPartialFinalTimer();
+      syntheticRestartSession.current = null;
       replayRecognitionEvent.current = null;
       removeRecognition?.();
       removeEnded?.();
@@ -347,7 +407,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       activeSession.current = 0;
       void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
     };
-  }, [queueRecognition, runtime, startListening]);
+  }, [clearPartialFinalTimer, queueRecognition, runtime, startListening]);
 
   useEffect(() => {
     if (machine.finalRevision <= sentRevision.current || !machine.finalText) return;
