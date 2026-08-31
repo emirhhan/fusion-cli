@@ -169,4 +169,47 @@
 ### Endişeler
 
 - Doğal çıkış characterization’ı Unix’te `/usr/bin/true`, Windows’ta deterministic `cmd /C exit 0` child kullanıyor; liveness ölçümü her iki durumda da shell taraması değil portable-pty `try_wait()` üzerinden yapılıyor.
-- Paketli GUI kabul testi bu fix round’da çalıştırılmadı.
+- Paketli GUI kabul testi bu fix round'da çalıştırılmadı.
+
+## Fix round 4 — doğrulanmış PTY kill/wait sonucu
+
+### Uygulama
+
+- `wait_for_child()` artık `Child::kill()` ve `Child::wait()` hatalarını `.ok()` ile kaybetmek yerine `io::Result` olarak koruyor. Kill başarısız olsa bile child'ı reap etmeyi denemek için `wait()` çağrısı yine yapılıyor; iki işlemden herhangi biri başarısızsa cleanup sonucu hata kalıyor.
+- `close_terminal()` gerçek wait sonucunu çağırana döndürüyor. `close()` ve `close_all()` altındaki test gözlemi PID'yi yalnız bu sonuç `Ok` ise başarılı exit olarak kaydediyor; fonksiyonun dönmesi tek başına artık başarı işareti değil.
+- Full-application route testinin mevcut iki saniyelik gerçek PTY PID doğrulaması böylece doğrudan başarılı production `Child::wait()` sonucuna bağlı. Talk route aynı gerçek child'ın canlı kaldığını ve exit sonucu oluşmadığını doğrulamaya devam ediyor.
+- Deterministic `portable_pty::Child` karakterizasyonları hem kill hatasının hem wait hatasının başarılı exit olarak kaydedilmediğini kanıtlıyor. Test child'ı yalnız hata enjeksiyonu içindir; başarı kararı ayrı bir test bayrağından değil production wait sonucundan gelir.
+
+### RED kanıtı
+
+- `cargo test failed_child_wait_is_not_recorded_as_a_successful_exit -- --nocapture`
+  - RED davranış: eski `wait_for_child().ok()` sonucu hatayı attı ve `close_all()` PID `424242`'yi koşulsuz exit setine ekledi.
+  - Çıktı: `assertion failed: !manager.test_has_exited(424_242)`; 0 passed, 1 failed; exit 101.
+
+### GREEN ve kalite kanıtı
+
+- `cargo test failed_child_ -- --nocapture`: 2 passed; kill ve wait negatif karakterizasyonları PASS.
+- `cargo test cleanup -- --nocapture`: 4 passed; full-app gerçek PTY, Talk actual-liveness ve bounded timeout kapsamı PASS.
+- `cargo test shutdown -- --nocapture`: 3 passed.
+- `.venv/bin/pytest -q tests/test_appserver_session.py tests/test_voice.py`: 59 test PASS.
+- `cargo fmt --check`: PASS.
+- `cargo clippy --all-targets -- -D warnings`: PASS.
+- `cargo test`: 71 passed, 3 ignored; main ve doc tests PASS.
+
+### Değişen dosyalar
+
+- `app/src-tauri/src/terminal.rs`
+- `.superpowers/sdd/2026-08-31-chatgpt-benzeri-talk/task-4-report.md`
+
+### Öz-inceleme
+
+- Full-app success marker artık yalnız gerçek `kill + wait` sonucundan türetiliyor; `close_terminal()` dönüşü, map removal veya bağımsız bir synthetic boolean başarı üretemiyor.
+- Wait hatası testi round 3'ün eski kodunda davranışsal olarak RED oldu. Ayrı kill hatası testi, wait başarılı görünse dahi kill başarısızlığının başarıya çevrilmediğini doğruluyor.
+- Hatalı kill sonrasında da `wait()` çağrıldığı için child handle'ını mümkün olduğunca reap etme davranışı korunuyor. Writer/master bırakma ve close-event delivery sırası değişmedi.
+- Natural-exit reader yolu mevcut kullanıcıya görünür exit-code sözleşmesini koruyor; yalnız explicit cleanup'ın kanıt sonucu sıkılaştırıldı.
+- İlgisiz untracked `:memory:.ses`, `app/.superpowers/`, `dagitim/` ve `index.html` dosyalarına dokunulmadı.
+
+### Endişeler
+
+- Production `close_all()` arayüzü tarihsel olarak `()` döndürüyor; bu round dış API'yi değiştirmeden iç kill/wait sonucunu doğru test kanıtına bağladı. Runtime hata raporlama ayrı bir ürün kararı gerektirir.
+- Paketli GUI kabul testi çalıştırılmadı; event-route davranışı concrete manager lifecycle testleri ve tam Rust suite ile doğrulandı.

@@ -187,11 +187,14 @@ impl TerminalManager {
             .unwrap()
             .as_ref()
             .and_then(|child| child.process_id());
-        close_terminal(terminal);
+        let close_result = close_terminal(terminal);
         #[cfg(test)]
-        if let Some(pid) = pid {
-            self.exited_test_pids.lock().unwrap().insert(pid);
+        if close_result.is_ok() {
+            if let Some(pid) = pid {
+                self.exited_test_pids.lock().unwrap().insert(pid);
+            }
         }
+        let _ = close_result;
         Ok(())
     }
 
@@ -211,11 +214,14 @@ impl TerminalManager {
                 .unwrap()
                 .as_ref()
                 .and_then(|child| child.process_id());
-            close_terminal(terminal);
+            let close_result = close_terminal(terminal);
             #[cfg(test)]
-            if let Some(pid) = pid {
-                self.exited_test_pids.lock().unwrap().insert(pid);
+            if close_result.is_ok() {
+                if let Some(pid) = pid {
+                    self.exited_test_pids.lock().unwrap().insert(pid);
+                }
             }
+            let _ = close_result;
         }
     }
 
@@ -262,22 +268,25 @@ fn claim_explicit_reason(terminal: &ManagedTerminal) {
     *terminal.close_reason.lock().unwrap() = Some("kullanıcı kapattı".into());
 }
 
-fn close_terminal(terminal: Arc<ManagedTerminal>) {
-    wait_for_child(&terminal, true);
+fn close_terminal(terminal: Arc<ManagedTerminal>) -> std::io::Result<Option<u32>> {
+    let wait_result = wait_for_child(&terminal, true);
     terminal.writer.lock().unwrap().take();
     terminal.master.lock().unwrap().take();
     wait_for_close_delivery(&terminal);
+    wait_result
 }
 
-fn wait_for_child(terminal: &ManagedTerminal, kill: bool) -> Option<u32> {
+fn wait_for_child(terminal: &ManagedTerminal, kill: bool) -> std::io::Result<Option<u32>> {
     let child = terminal.child.lock().unwrap().take();
     if let Some(mut child) = child {
-        if kill {
-            let _ = child.kill();
+        let kill_error = kill.then(|| child.kill()).and_then(Result::err);
+        let wait_result = child.wait().map(|status| Some(status.exit_code()));
+        if let Some(error) = kill_error {
+            return Err(error);
         }
-        return child.wait().ok().map(|status| status.exit_code());
+        return wait_result;
     }
-    None
+    Ok(None)
 }
 
 fn queue_closed_once(terminal: &ManagedTerminal, exit_code: Option<u32>) {
@@ -358,7 +367,7 @@ fn forward_output(
         }
         let removed = terminals.lock().unwrap().remove(&id);
         if removed.is_some() {
-            let exit_code = wait_for_child(&terminal, false);
+            let exit_code = wait_for_child(&terminal, false).ok().flatten();
             terminal.writer.lock().unwrap().take();
             terminal.master.lock().unwrap().take();
             queue_closed_once(&terminal, exit_code);
@@ -414,7 +423,10 @@ mod tests {
         claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
         ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
     };
-    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+    use portable_pty::{
+        native_pty_system, Child, ChildKiller, CommandBuilder, ExitStatus, PtySize,
+    };
+    use std::io;
     use std::io::Write;
     use std::path::Path;
     use std::sync::atomic::AtomicBool;
@@ -625,6 +637,103 @@ mod tests {
         terminal.child.lock().unwrap().take();
     }
 
+    #[derive(Debug)]
+    struct FailedChild {
+        pid: u32,
+        kill_fails: bool,
+        wait_fails: bool,
+    }
+
+    impl ChildKiller for FailedChild {
+        fn kill(&mut self) -> io::Result<()> {
+            if self.kill_fails {
+                Err(io::Error::other("deterministic kill failure"))
+            } else {
+                Ok(())
+            }
+        }
+
+        fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+            Box::new(Self {
+                pid: self.pid,
+                kill_fails: self.kill_fails,
+                wait_fails: self.wait_fails,
+            })
+        }
+    }
+
+    impl Child for FailedChild {
+        fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
+            Ok(None)
+        }
+
+        fn wait(&mut self) -> io::Result<ExitStatus> {
+            if self.wait_fails {
+                Err(io::Error::other("deterministic wait failure"))
+            } else {
+                Ok(ExitStatus::with_exit_code(0))
+            }
+        }
+
+        fn process_id(&self) -> Option<u32> {
+            Some(self.pid)
+        }
+
+        #[cfg(windows)]
+        fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+            None
+        }
+    }
+
+    fn assert_failed_cleanup_is_not_recorded(child: FailedChild) {
+        let (manager, _, _) = manager();
+        let pid = child.pid;
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
+            "failed-wait".into(),
+            Arc::new(|_| {}),
+            Arc::new(|_| {}),
+            Arc::clone(&close_delivered),
+        );
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(None),
+            writer: Mutex::new(None),
+            child: Mutex::new(Some(Box::new(child))),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        manager
+            .terminals
+            .lock()
+            .unwrap()
+            .insert("failed-wait".into(), Arc::clone(&terminal));
+        queue_closed_once(&terminal, None);
+
+        manager.close_all();
+
+        assert!(!manager.test_has_exited(pid));
+    }
+
+    #[test]
+    fn failed_child_wait_is_not_recorded_as_a_successful_exit() {
+        assert_failed_cleanup_is_not_recorded(FailedChild {
+            pid: 424_242,
+            kill_fails: false,
+            wait_fails: true,
+        });
+    }
+
+    #[test]
+    fn failed_child_kill_is_not_recorded_as_a_successful_exit() {
+        assert_failed_cleanup_is_not_recorded(FailedChild {
+            pid: 424_243,
+            kill_fails: true,
+            wait_fails: false,
+        });
+    }
+
     #[test]
     #[ignore]
     fn terminal_test_helper() {
@@ -673,7 +782,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
 
-        wait_for_child(&terminal, true);
+        let _ = wait_for_child(&terminal, true);
         terminal.writer.lock().unwrap().take();
         terminal.master.lock().unwrap().take();
     }
