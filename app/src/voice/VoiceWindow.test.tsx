@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PermissionBridge } from "../permissions/types";
 import { VoiceWindow, matchSpokenAnswer, type VoiceWindowRuntime } from "./VoiceWindow";
 import type { VoiceAsk, VoicePrefsPayload, VoiceRuntimeState } from "./bridge";
 
@@ -51,6 +52,25 @@ function fakeRuntime() {
 }
 
 describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
+  it("first Talk activation gates microphone and speech through preflightRecognition", async () => {
+    const fake = fakeRuntime();
+    const requested: string[] = [];
+    const permissionBridge: PermissionBridge = {
+      request: vi.fn(async (kind) => { requested.push(kind); return "granted"; }),
+      openSettings: vi.fn(),
+    };
+    render(<VoiceWindow permissionBridge={permissionBridge} runtime={fake.runtime} />);
+
+    expect(requested).toEqual([]);
+    expect(fake.runtime.startRecognition).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: /Devam et/i }));
+    await waitFor(() => expect(requested).toEqual(["microphone"]));
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
+
+    await waitFor(() => expect(requested).toEqual(["microphone", "speech"]));
+    expect(fake.runtime.preflightRecognition).toHaveBeenCalledOnce();
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+  });
   it("kısmiyi yalnız gösterir, kesin sonucu bir kez sohbete yollar", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);

@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { PermissionPrompt } from "../permissions/PermissionPrompt";
+import { usePermissions } from "../permissions/usePermissions";
+import type { PermissionBridge } from "../permissions/types";
+import { nativePermissionBridge } from "../platform/permissions";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { ProviderList } from "./ProviderList";
@@ -45,6 +49,7 @@ interface ControlPanelProps {
   /** Çalışma klasörünü değiştir. Verilmezse düğme HİÇ çizilmez. */
   onChangeRoot?: () => void;
   onClose: () => void;
+  permissionBridge?: PermissionBridge;
   /**
    * Bir slash komutunu çalıştır. Model düzeni buradan değişir: panel kendi
    * uç noktasını UYDURMAZ, CLI'ın zaten testli olan `/model`, `/level`,
@@ -54,7 +59,8 @@ interface ControlPanelProps {
   onRunCommand?: (command: string) => void;
 }
 
-export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: ControlPanelProps) {
+export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge }: ControlPanelProps) {
+  const permissions = usePermissions(permissionBridge);
   const [state, setState] = useState<ControlState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
@@ -93,6 +99,20 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: Co
     !aranan || anahtarlar.toLocaleLowerCase("tr").includes(aranan);
   const bolumler = SECTION_KEYS.filter(eslesir);
   const canAddCandidate = Boolean(newCandidate.ad.trim() && newCandidate.model.trim());
+  const gatedClient = useMemo(() => new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === "request") {
+        return async (name: string, data: Record<string, unknown>) => {
+          if (name === "kontrol.anahtar_kaydet" && !(await permissions.ensure("keychain"))) {
+            return { ok: false, metin: "Anahtarlık izni verilmedi." };
+          }
+          return target.request(name, data);
+        };
+      }
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }), [client, permissions.ensure]);
 
   if (!state) return <main className="control-panel"><p>{error ?? "Kontrol paneli yükleniyor…"}</p></main>;
   const gatewayRunning = state.gateway.durum === "calisiyor";
@@ -201,7 +221,11 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: Co
           </dl>
           {onChangeRoot && (
             <div className="control-panel__actions">
-              <button onClick={onChangeRoot} type="button">
+              <button onClick={() => {
+                void permissions.ensure("workspace").then((granted) => {
+                  if (granted) onChangeRoot();
+                });
+              }} type="button">
                 Çalışma klasörünü değiştir
               </button>
               <button onClick={() => onRunCommand?.("/security")} type="button">
@@ -217,7 +241,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: Co
           {state.sir_deposu_hatasi && (
             <p className="control-panel__warning" role="status">{state.sir_deposu_hatasi}</p>
           )}
-          <ProviderList client={client} />
+          <ProviderList client={gatedClient} />
         </section>
         )}
 
@@ -245,6 +269,16 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand }: Co
           <p className="control-panel__empty">"{query.trim()}" için eşleşen bölüm yok.</p>
         )}
       </div>
+      {permissions.activeKind && (
+        <PermissionPrompt
+          kind={permissions.activeKind}
+          phase={permissions.phase}
+          onContinue={() => void permissions.continue()}
+          onContinueToNext={permissions.continueToNext}
+          onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
+          onRetry={() => void permissions.retry()}
+        />
+      )}
     </main>
   );
 }

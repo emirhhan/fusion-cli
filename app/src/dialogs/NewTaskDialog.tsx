@@ -1,4 +1,8 @@
 import { useEffect, useRef } from "react";
+import { PermissionPrompt } from "../permissions/PermissionPrompt";
+import { usePermissions } from "../permissions/usePermissions";
+import type { PermissionBridge } from "../permissions/types";
+import { nativePermissionBridge } from "../platform/permissions";
 import { Icon } from "../ui/Icon";
 import "./NewTaskDialog.css";
 
@@ -9,6 +13,7 @@ interface NewTaskDialogProps {
   onChat: () => void;
   onFolder: () => void;
   open: boolean;
+  permissionBridge?: PermissionBridge;
 }
 
 export function NewTaskDialog({
@@ -18,7 +23,9 @@ export function NewTaskDialog({
   onChat,
   onFolder,
   open,
+  permissionBridge = nativePermissionBridge,
 }: NewTaskDialogProps) {
+  const permissions = usePermissions(permissionBridge);
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef(onCancel);
   const busyRef = useRef(busy);
@@ -83,7 +90,11 @@ export function NewTaskDialog({
             <Icon name="new" size={20} />
             <span><strong>Sohbet başlat</strong><small>Dosya sistemine odaklanmadan tek yapay zekâyla konuş.</small></span>
           </button>
-          <button aria-label="Klasörde kod görevi" disabled={busy} onClick={onFolder} type="button">
+          <button aria-label="Klasörde kod görevi" disabled={busy} onClick={() => {
+            void permissions.ensure("workspace").then((granted) => {
+              if (granted) onFolder();
+            });
+          }} type="button">
             <Icon name="files" size={20} />
             <span><strong>Klasörde kod görevi</strong><small>Masaüstü veya bilgisayarındaki herhangi bir proje klasörünü aç.</small></span>
           </button>
@@ -94,6 +105,16 @@ export function NewTaskDialog({
           {busy && <span aria-live="polite">Klasör seçiliyor…</span>}
         </footer>
       </div>
+      {permissions.activeKind && (
+        <PermissionPrompt
+          kind={permissions.activeKind}
+          phase={permissions.phase}
+          onContinue={() => void permissions.continue()}
+          onContinueToNext={permissions.continueToNext}
+          onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
+          onRetry={() => void permissions.retry()}
+        />
+      )}
     </div>
   );
 }

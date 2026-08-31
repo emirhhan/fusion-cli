@@ -15,6 +15,11 @@ const nativeDrops = vi.hoisted(() => {
 });
 
 vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(async (command: string) => command.startsWith("izin_")
+    ? { state: "granted", supported: true }
+    : undefined),
+}));
 
 function fakeClient() {
   let listener: ((line: string) => void) | null = null;
@@ -276,6 +281,7 @@ describe("SessionUygulama", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Klasörde kod görevi" }));
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
     expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop/Oyun");
     expect(localStorage.getItem("fusion.last-project-root")).toBe("/Users/test/Desktop/Oyun");

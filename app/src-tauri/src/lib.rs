@@ -1,4 +1,5 @@
 mod core_process;
+mod permissions;
 mod runtime_installer;
 mod runtime_manager;
 mod runtime_manifest;
@@ -10,6 +11,7 @@ mod speech;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use permissions::{izin_ayarlari_ac, izin_durumu, izin_iste};
 use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
@@ -545,7 +547,10 @@ pub fn run() {
             kapatmayi_onayla,
             runtime_durum,
             runtime_hazirla,
-            runtime_onar
+            runtime_onar,
+            izin_durumu,
+            izin_iste,
+            izin_ayarlari_ac
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

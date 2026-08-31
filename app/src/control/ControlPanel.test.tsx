@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PermissionBridge } from "../permissions/types";
 import type { ProtocolClient } from "../protocol/client";
 import { ControlPanel } from "./ControlPanel";
 
@@ -37,6 +38,23 @@ function client() {
 }
 
 describe("ControlPanel", () => {
+  it("requests Keychain only when an API key is saved", async () => {
+    const fake = client();
+    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
+    render(<ControlPanel client={fake} onClose={() => undefined} permissionBridge={bridge} />);
+    expect(bridge.request).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
+    fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
+
+    await waitFor(() => expect(bridge.request).toHaveBeenCalledWith("keychain"));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
+      saglayici: "openrouter",
+      deger: "sk-secret",
+    }));
+  });
   it("model, izin, MCP ve gateway durumunu tek native görünümde gösterir", async () => {
     render(<ControlPanel client={client()} onClose={() => undefined} />);
     expect(await screen.findByText("openrouter/agent")).toBeTruthy();
@@ -47,12 +65,14 @@ describe("ControlPanel", () => {
 
   it("sağlayıcı satırına tıklayınca anahtarı parola alanından kaydeder, değeri ekrana yansıtmaz", async () => {
     const fake = client();
-    render(<ControlPanel client={fake} onClose={() => undefined} />);
+    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
+    render(<ControlPanel client={fake} onClose={() => undefined} permissionBridge={bridge} />);
     // Anahtar alanı artık listede AÇIK durmuyor; satıra tıklayınca açılıyor.
     fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/ }));
     const input = (await screen.findByLabelText(/API anahtarı/i)) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "sk-gizli-test-degeri" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
       saglayici: "openrouter", deger: "sk-gizli-test-degeri",
     }));
@@ -87,11 +107,14 @@ describe("ControlPanel — yönetim derinliği", () => {
 
   it("çalışma klasörünü gösterir ve değiştirmeyi çağırana devreder", async () => {
     const onChangeRoot = vi.fn();
-    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} />);
+    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
+    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} permissionBridge={bridge} />);
 
     expect(await screen.findByText("/Users/test/Fusion")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Çalışma klasörünü değiştir" }));
-    expect(onChangeRoot).toHaveBeenCalled();
+    expect(onChangeRoot).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
+    await waitFor(() => expect(onChangeRoot).toHaveBeenCalledOnce());
   });
 
   it("değiştirme geri çağrıları verilmediğinde düğmeleri hiç çizmez", async () => {

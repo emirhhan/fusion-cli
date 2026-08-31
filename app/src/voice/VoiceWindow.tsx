@@ -1,4 +1,8 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { PermissionPrompt } from "../permissions/PermissionPrompt";
+import { usePermissions } from "../permissions/usePermissions";
+import type { PermissionBridge } from "../permissions/types";
+import { nativePermissionBridge } from "../platform/permissions";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -114,11 +118,30 @@ export function matchSpokenAnswer(text: string, ask: VoiceAsk): string | null {
 }
 
 interface VoiceWindowProps {
+  permissionBridge?: PermissionBridge;
   runtime?: VoiceWindowRuntime;
 }
 
+const INJECTED_RUNTIME_PERMISSION_BRIDGE: PermissionBridge = {
+  request: async () => "granted",
+  openSettings: async () => undefined,
+};
+
 /** Ayrı, hafif Talk penceresi; ana pencerenin aynı aktif sohbetini kullanır. */
-export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}) {
+export function VoiceWindow(props: VoiceWindowProps = {}) {
+  const baseRuntime = props.runtime ?? DEFAULT_RUNTIME;
+  const permissionBridge = props.permissionBridge
+    ?? (props.runtime ? INJECTED_RUNTIME_PERMISSION_BRIDGE : nativePermissionBridge);
+  const permissions = usePermissions(permissionBridge);
+  const permissionAwareRuntime = useMemo<VoiceWindowRuntime>(() => ({
+    ...baseRuntime,
+    preflightRecognition: async () => {
+      if (!(await permissions.ensure("microphone"))) return false;
+      if (!(await permissions.ensure("speech"))) return false;
+      return baseRuntime.preflightRecognition();
+    },
+  }), [baseRuntime, permissions.ensure]);
+  const runtime = permissionAwareRuntime;
   const [machine, dispatch] = useReducer(voiceMachine, initialVoiceMachine);
   const initialGeometry = useRef(readVoiceGeometry(window.localStorage));
   const geometryRef = useRef(initialGeometry.current);
@@ -365,6 +388,7 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
   const hearing = machine.phase === "listening" || machine.phase === "transcribing";
 
   return (
+    <>
     <VoiceMode
       ask={ask}
       onAnswer={(answer) => {
@@ -405,5 +429,16 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
       transcript={visibleTranscript}
       wide={wide}
     />
+    {permissions.activeKind && (
+      <PermissionPrompt
+        kind={permissions.activeKind}
+        phase={permissions.phase}
+        onContinue={() => void permissions.continue()}
+        onContinueToNext={permissions.continueToNext}
+        onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
+        onRetry={() => void permissions.retry()}
+      />
+    )}
+    </>
   );
 }
