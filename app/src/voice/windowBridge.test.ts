@@ -26,9 +26,9 @@ describe("konuşma penceresi", () => {
   });
 
   it("tanımayı backend'de tek sahipli komutla başlatır", async () => {
-    tauri.invoke.mockResolvedValueOnce(undefined);
+    tauri.invoke.mockResolvedValueOnce(42);
 
-    await startSpeechRecognition();
+    await expect(startSpeechRecognition()).resolves.toBe(42);
 
     expect(tauri.invoke).toHaveBeenCalledWith("tanima_baslat");
   });

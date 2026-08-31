@@ -11,8 +11,11 @@ export type VoiceState = VoicePhase;
 
 const DURUM_METNI: Record<VoiceState, string> = {
   approval: "Onayın bekleniyor",
+  calibrating: "Ortamı dinliyorum…",
   error: "Bir sorun oluştu",
+  hearing: "Seni duyuyorum…",
   idle: "Konuşmak için dokun",
+  interrupted: "Anlayamadım, tekrar söyle",
   listening: "Dinliyorum…",
   talking: "Konuşuyorum",
   thinking: "Düşünüyorum…",
@@ -21,8 +24,11 @@ const DURUM_METNI: Record<VoiceState, string> = {
 
 const AVATAR: Record<VoiceState, AvatarState> = {
   approval: "approval",
+  calibrating: "listening",
   error: "idle",
+  hearing: "listening",
   idle: "idle",
+  interrupted: "listening",
   listening: "listening",
   talking: "talking",
   thinking: "thinking",
@@ -65,7 +71,7 @@ export function VoiceMode({
   wide = true,
 }: VoiceModeProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const hearing = state === "listening" || state === "transcribing";
+  const hearing = ["calibrating", "listening", "hearing", "transcribing", "interrupted"].includes(state);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
