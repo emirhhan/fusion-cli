@@ -39,31 +39,33 @@ class SafeReplayRetention {
   private frozen = false;
   private pending: number[] = [];
   private retained: Uint8Array[] = [];
-  private skipNextUnit = false;
 
   push(data: Uint8Array) {
-    for (const byte of data) this.pending.push(byte);
+    if (this.frozen) return;
+    const available = TRANSCRIPT_LIMIT_BYTES - this.bytes - this.pending.length;
+    const accepted = Math.min(available, data.byteLength);
+    const overflowed = accepted < data.byteLength;
+    for (let index = 0; index < accepted; index += 1) this.pending.push(data[index]);
     while (this.pending.length) {
       const length = safeUnitLength(this.pending);
-      if (length === null) return;
+      if (length === null) {
+        if (overflowed) this.freeze();
+        return;
+      }
       if (length === 0) {
         this.pending.shift();
         continue;
       }
       const unit = Uint8Array.from(this.pending.slice(0, length));
       this.pending.splice(0, length);
-      if (this.skipNextUnit) {
-        this.skipNextUnit = false;
-        continue;
-      }
-      if (this.frozen) continue;
       if (this.bytes + unit.byteLength > TRANSCRIPT_LIMIT_BYTES) {
-        this.frozen = true;
-        continue;
+        this.freeze();
+        return;
       }
       this.retained.push(unit);
       this.bytes += unit.byteLength;
     }
+    if (overflowed) this.freeze();
   }
 
   replay(handler: (data: Uint8Array) => void) {
@@ -73,8 +75,13 @@ class SafeReplayRetention {
   clear() {
     this.bytes = 0;
     this.frozen = false;
+    this.pending = [];
     this.retained = [];
-    this.skipNextUnit = this.pending.length > 0;
+  }
+
+  private freeze() {
+    this.frozen = true;
+    this.pending = [];
   }
 }
 

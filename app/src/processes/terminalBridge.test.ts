@@ -13,6 +13,82 @@ beforeEach(() => {
 });
 
 describe("terminalBridge", () => {
+  async function openOutputHarness() {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const emit = (data: number[]) => handlers.get("terminal://cikti")?.({
+      payload: { terminalId: "terminal-1", data },
+    });
+    return { emit, session };
+  }
+
+  it("limit üstü unterminated OSC retention'ı dondurur; clear yeni epoch'u temiz parser ile açar", async () => {
+    const { emit, session } = await openOutputHarness();
+    let liveBytes = 0;
+    let lastLive: number[] = [];
+    session.onOutput((data) => {
+      liveBytes += data.byteLength;
+      lastLive = Array.from(data);
+    });
+
+    emit([112, 114, 111, 109, 112, 116, 32]);
+    emit([27, 93, ...new Array<number>(256 * 1024).fill(97)]);
+    emit([108, 105, 118, 101]);
+    const frozenReplay: number[] = [];
+    session.onOutput((data) => frozenReplay.push(...data));
+    expect(frozenReplay).toEqual([112, 114, 111, 109, 112, 116, 32]);
+    expect(liveBytes).toBe(7 + 2 + 256 * 1024 + 4);
+    expect(lastLive).toEqual([108, 105, 118, 101]);
+    session.clearRetention();
+    emit([110, 101, 119]);
+    const clearedReplay: number[] = [];
+    session.onOutput((data) => clearedReplay.push(...data));
+
+    expect(clearedReplay).toEqual([110, 101, 119]);
+  });
+
+  it("limit üstü unterminated DCS retention'ı dondurur; clear parser state'ini tamamen sıfırlar", async () => {
+    const { emit, session } = await openOutputHarness();
+
+    emit([36, 32]);
+    emit([27, 80, ...new Array<number>(256 * 1024).fill(113)]);
+    session.clearRetention();
+    emit([111, 107]);
+    const replay: number[] = [];
+    session.onOutput((data) => replay.push(...data));
+
+    expect(replay).toEqual([111, 107]);
+  });
+
+  it("clear yarım UTF-8 unit'ini atar ve sonraki ASCII'yi yeni epoch'un başı yapar", async () => {
+    const { emit, session } = await openOutputHarness();
+
+    emit([226, 130]);
+    session.clearRetention();
+    emit([36, 32]);
+    const replay: number[] = [];
+    session.onOutput((data) => replay.push(...data));
+
+    expect(replay).toEqual([36, 32]);
+  });
+
+  it("clear pending ANSI unit'ini ve frozen/parser state'ini atıp bağımsız epoch açar", async () => {
+    const { emit, session } = await openOutputHarness();
+
+    emit([27, 91, 51, 49]);
+    session.clearRetention();
+    emit([109, 114, 101, 97, 100, 121]);
+    const replay: number[] = [];
+    session.onOutput((data) => replay.push(...data));
+
+    expect(replay).toEqual([109, 114, 101, 97, 100, 121]);
+  });
+
   it("overflow'da split UTF-8 unit'i retention'a almaz; live akışı eksiksiz sürdürür", async () => {
     const handlers = new Map<string, (event: { payload: unknown }) => void>();
     listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
