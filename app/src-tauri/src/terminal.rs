@@ -168,20 +168,22 @@ impl TerminalManager {
     }
 
     pub(crate) fn close(&self, id: &str) -> Result<(), String> {
-        let terminal = self
-            .terminals
-            .lock()
-            .unwrap()
-            .remove(id)
+        let terminal = claim_explicit_terminal(&mut self.terminals.lock().unwrap(), id)
             .ok_or("terminal bulunamadı")?;
-        close_terminal(terminal, "kullanıcı kapattı");
+        close_terminal(terminal);
         Ok(())
     }
 
     pub(crate) fn close_all(&self) {
-        let terminals: Vec<_> = self.terminals.lock().unwrap().drain().collect();
+        let terminals: Vec<_> = {
+            let mut terminals = self.terminals.lock().unwrap();
+            for terminal in terminals.values() {
+                claim_explicit_reason(terminal);
+            }
+            terminals.drain().collect()
+        };
         for (_, terminal) in terminals {
-            close_terminal(terminal, "kullanıcı kapattı");
+            close_terminal(terminal);
         }
     }
 
@@ -195,8 +197,20 @@ impl TerminalManager {
     }
 }
 
-fn close_terminal(terminal: Arc<ManagedTerminal>, reason: &str) {
-    *terminal.close_reason.lock().unwrap() = Some(reason.to_string());
+fn claim_explicit_terminal(
+    terminals: &mut HashMap<String, Arc<ManagedTerminal>>,
+    id: &str,
+) -> Option<Arc<ManagedTerminal>> {
+    let terminal = terminals.get(id)?.clone();
+    claim_explicit_reason(&terminal);
+    terminals.remove(id)
+}
+
+fn claim_explicit_reason(terminal: &ManagedTerminal) {
+    *terminal.close_reason.lock().unwrap() = Some("kullanıcı kapattı".into());
+}
+
+fn close_terminal(terminal: Arc<ManagedTerminal>) {
     wait_for_child(&terminal, true);
     terminal.writer.lock().unwrap().take();
     terminal.master.lock().unwrap().take();
@@ -338,14 +352,24 @@ fn shell_candidates() -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{event_worker, TerminalClosed, TerminalEvent, TerminalManager, TerminalOutput};
+    use super::{
+        claim_explicit_terminal, event_worker, forward_output, queue_closed_once, wait_for_child,
+        ManagedTerminal, TerminalClosed, TerminalManager, TerminalMap, TerminalOutput,
+    };
+    use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Write;
     use std::path::Path;
-    use std::sync::{mpsc, Arc, Condvar, Mutex};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
 
     type OutputLog = Arc<Mutex<Vec<TerminalOutput>>>;
     type ClosedLog = Arc<Mutex<Vec<TerminalClosed>>>;
+
+    fn pty_test_guard() -> MutexGuard<'static, ()> {
+        static PTY_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        PTY_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     fn manager() -> (TerminalManager, OutputLog, ClosedLog) {
         let outputs = OutputLog::default();
@@ -392,6 +416,7 @@ mod tests {
 
     #[test]
     fn opens_an_interactive_pty_in_the_requested_working_directory() {
+        let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let marker = cwd.path().join("fusion-cwd-marker");
         std::fs::write(&marker, b"").unwrap();
@@ -400,14 +425,29 @@ mod tests {
         let snapshot = manager
             .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
             .unwrap();
-        #[cfg(unix)]
-        manager
-            .write(&snapshot.terminal_id, b"pwd\n".to_vec())
-            .unwrap();
-        #[cfg(windows)]
-        manager
-            .write(&snapshot.terminal_id, b"Get-Location\r\n".to_vec())
-            .unwrap();
+        for _ in 0..25 {
+            #[cfg(unix)]
+            manager
+                .write(&snapshot.terminal_id, b"pwd\n".to_vec())
+                .unwrap();
+            #[cfg(windows)]
+            manager
+                .write(&snapshot.terminal_id, b"Get-Location\r\n".to_vec())
+                .unwrap();
+            let has_cwd = outputs
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| event.terminal_id == snapshot.terminal_id)
+                .flat_map(|event| event.data.iter().copied())
+                .collect::<Vec<_>>()
+                .windows(cwd.path().to_string_lossy().len())
+                .any(|window| window == cwd.path().to_string_lossy().as_bytes());
+            if has_cwd {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
 
         wait_for_output(
             &outputs,
@@ -420,21 +460,111 @@ mod tests {
 
     #[test]
     fn forwards_terminal_output_without_stripping_ansi_bytes() {
+        let _guard = pty_test_guard();
+        let deps = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        let helper_prefix = "terminal_test_helper-";
+        let helper = std::fs::read_dir(&deps)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file())
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| {
+                        name.starts_with(helper_prefix)
+                            && !name.ends_with(".d")
+                            && !name.contains(".rcgu.")
+                    })
+            })
+            .max_by_key(|path| path.metadata().and_then(|meta| meta.modified()).ok())
+            .unwrap_or_else(|| deps.join("terminal_test_helper-missing"));
+        assert!(
+            helper.is_file(),
+            "terminal test helper is missing: {}",
+            helper.display()
+        );
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let child = pair
+            .slave
+            .spawn_command(CommandBuilder::new(helper))
+            .unwrap();
+        let reader = pair.master.try_clone_reader().unwrap();
+        let writer = pair.master.take_writer().unwrap();
         let outputs = OutputLog::default();
         let output_log = Arc::clone(&outputs);
-        let sender = event_worker(
+        let close_delivered = Arc::new((Mutex::new(false), Condvar::new()));
+        let events = event_worker(
             "raw-byte-helper".into(),
             Arc::new(move |event| output_log.lock().unwrap().push(event)),
             Arc::new(|_| {}),
-            Arc::new((Mutex::new(false), Condvar::new())),
+            Arc::clone(&close_delivered),
         );
-        sender
-            .send(TerminalEvent::Output(
-                b"\x1b[31mfusion-pty-ok\x1b[0m".to_vec(),
-            ))
-            .unwrap();
+        let terminal = Arc::new(ManagedTerminal {
+            master: Mutex::new(Some(pair.master)),
+            writer: Mutex::new(Some(writer)),
+            child: Mutex::new(Some(child)),
+            close_reason: Mutex::new(None),
+            close_queued: AtomicBool::new(false),
+            events,
+            close_delivered,
+        });
+        let terminals = TerminalMap::default();
+        terminals
+            .lock()
+            .unwrap()
+            .insert("raw-byte-helper".into(), Arc::clone(&terminal));
+        forward_output("raw-byte-helper".into(), reader, terminals, terminal);
 
         wait_for_output(&outputs, "raw-byte-helper", b"\x1b[31mfusion-pty-ok\x1b[0m");
+    }
+
+    #[test]
+    fn explicit_reason_is_claimed_before_reader_can_observe_map_removal() {
+        let _guard = pty_test_guard();
+        let cwd = tempfile::tempdir().unwrap();
+        let (manager, _, closed) = manager();
+        let snapshot = manager
+            .open(cwd.path().to_string_lossy().into_owned(), 80, 24)
+            .unwrap();
+
+        let terminal = {
+            let mut terminals = manager.terminals.lock().unwrap();
+            claim_explicit_terminal(&mut terminals, &snapshot.terminal_id).unwrap()
+        };
+        assert!(!manager
+            .terminals
+            .lock()
+            .unwrap()
+            .contains_key(&snapshot.terminal_id));
+
+        queue_closed_once(&terminal);
+        let deadline = Instant::now() + Duration::from_secs(1);
+        loop {
+            let reasons: Vec<_> = closed
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|event| event.reason.clone())
+                .collect();
+            if !reasons.is_empty() {
+                assert_eq!(reasons, ["kullanıcı kapattı"]);
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "reader-side close event was not delivered"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        wait_for_child(&terminal, true);
+        terminal.writer.lock().unwrap().take();
+        terminal.master.lock().unwrap().take();
     }
 
     struct BlockingWriter {
@@ -457,6 +587,7 @@ mod tests {
 
     #[test]
     fn blocked_write_on_one_terminal_does_not_block_another_terminal_resize() {
+        let _guard = pty_test_guard();
         let first_cwd = tempfile::tempdir().unwrap();
         let second_cwd = tempfile::tempdir().unwrap();
         let (manager, _, _) = manager();
@@ -512,6 +643,7 @@ mod tests {
 
     #[test]
     fn explicit_close_is_emitted_once_after_the_terminal_final_output() {
+        let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let ordered = Arc::new(Mutex::new(Vec::<String>::new()));
         let output_log = Arc::clone(&ordered);
@@ -573,6 +705,7 @@ mod tests {
 
     #[test]
     fn resizes_an_open_pty_and_keeps_it_writable() {
+        let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let (manager, outputs, _) = manager();
         let snapshot = manager
@@ -590,6 +723,7 @@ mod tests {
 
     #[test]
     fn ctrl_c_interrupts_the_foreground_command_without_closing_the_shell() {
+        let _guard = pty_test_guard();
         let cwd = tempfile::tempdir().unwrap();
         let (manager, outputs, _) = manager();
         let snapshot = manager
@@ -622,6 +756,7 @@ mod tests {
 
     #[test]
     fn close_all_terminates_every_child_and_rejects_more_input() {
+        let _guard = pty_test_guard();
         let first_cwd = tempfile::tempdir().unwrap();
         let second_cwd = tempfile::tempdir().unwrap();
         let (manager, _, closed) = manager();

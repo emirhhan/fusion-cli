@@ -16,6 +16,8 @@ Review round 1 ile global terminal map mutex'i yalnız `Arc` handle bulma/çıka
 
 Round 1: `fix(app): pty eszamanlilik ve olay sirasini duzelt`
 
+Round 2: `fix(app): terminal close claim ve ansi pty testini duzelt`
+
 ## Test ve doğrulama
 
 - TDD RED: `cargo test terminal -- --nocapture` eksik `TerminalManager`, `TerminalOutput`, `TerminalClosed` nedeniyle exit 101 ile başarısız oldu.
@@ -34,6 +36,20 @@ Round 1: `fix(app): pty eszamanlilik ve olay sirasini duzelt`
 - `cargo clippy --all-targets -- -D warnings`: exit 0.
 - `cargo test terminal -- --nocapture`: exit 0; 7 geçti, 0 başarısız.
 - `cargo test --all-targets`: exit 0; 63 geçti, 0 başarısız, 1 ignored.
+
+### Review round 2
+
+- Tek terminal explicit close, `kullanıcı kapattı` reason'ını global map kilidi altında claim ediyor ve terminali ancak bundan sonra map'ten çıkarıyor. Reader EOF map removal'ı gözlediğinde explicit reason artık görünür durumda.
+- `close_all`, map kilidi altında önce bütün entry'lerin explicit reason'ını claim ediyor; ardından topluca drain ediyor ve kilidi bıraktıktan sonra kill/wait yapıyor.
+- Deterministik race testi map removal sonrasında reader-side `queue_closed_once` çalıştırarak close event reason'ının `kullanıcı kapattı` kaldığını doğruluyor.
+- ANSI testi event worker'a doğrudan veri yazmıyor. Platform bağımsız Rust helper executable gerçek PTY slave üzerinde ESC byte'ları üretiyor; test production reader → `forward_output` → bounded ordered worker hattının çıktısını doğruluyor.
+- TDD RED 1: eksik atomic claim primitive'i nedeniyle `claim_explicit_terminal` unresolved import ile exit 101.
+- TDD RED 2: claim GREEN olduktan sonra PTY helper bulunamadığı için ANSI testi başarısız; 7 test geçti, 1 test başarısız.
+- Gerçek kullanıcı shell başlangıçlarının paralel PTY testlerinde komut tüketmesini önlemek için PTY entegrasyon testleri test-only guard ile seri çalışıyor; iki-terminal concurrency testi kendi içinde eşzamanlı kalıyor.
+- `cargo fmt --check`: exit 0.
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test terminal -- --nocapture`: exit 0; 8 geçti, 0 başarısız.
+- `cargo test --all-targets`: exit 0; 64 geçti, 0 başarısız, 1 ignored.
 
 ## Kalan kaygı
 
