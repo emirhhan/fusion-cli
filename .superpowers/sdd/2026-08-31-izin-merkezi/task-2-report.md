@@ -88,3 +88,28 @@ Fix round 1 final kanıtları:
 - `git diff --check`: exit 0.
 
 Fix round 1 kalan kaygısı yalnız gerçek paket üzerinde macOS sistem istemlerinin manuel ilk-kullanım smoke kontrolüdür; sistem UI otomasyonu bilinçli olarak eklenmedi.
+
+## Fix round 2
+
+Kalan iki UI bulgusu TDD ile kapatıldı:
+
+- `PermissionPrompt` artık zorunlu `canOpenSettings` capability prop'u taşıyor. App, ControlPanel ve VoiceWindow bu değeri yalnız `microphone`/`speech` için true veriyor. Workspace/keychain retlerinde başarısız Sistem Ayarları düğmesi yok; uygulanabilir “Yeniden dene” ve “Şimdi değil” eylemleri kalıyor.
+- App, ControlPanel ve VoiceWindow `onContinueToNext` callback'ini yalnız `hasQueuedPermission === true` iken geçiriyor. Boş kuyrukta “Sonraki izne geç” çizilmiyor.
+
+Fix round 2 RED kanıtı:
+
+- Capability unit testleri ile gerçek Keychain caller testi toplam 3 başarısız test üretti; workspace/keychain'de Sistem Ayarları düğmesi görünüyordu ve caller queue callback'ini koşulsuz geçiriyordu.
+
+Fix round 2 final kanıtları:
+
+- Dar RED→GREEN hedefi: 2 dosya, 3/3 geçti.
+- Geniş hedef entegrasyon: 5 dosya, 71/71 geçti.
+- `npm test`: 63 dosya, 385/385 geçti.
+- `npm run build`: TypeScript + Vite exit 0; 151 modül dönüştürüldü.
+- İlgili Rust izin testleri: 5/5 geçti.
+- `cargo fmt --check`: exit 0.
+- `cargo clippy --all-targets -- -D warnings`: exit 0.
+- `cargo test`: 56 geçti, 0 başarısız, 1 mevcut helper ignored; doc testler exit 0.
+- `git diff --check`: exit 0.
+
+Yeni otomatik test/build kaygısı yoktur; macOS sistem UI'ı için manuel paket smoke kontrolü önceki turdaki tek kalan kaygı olarak devam eder.

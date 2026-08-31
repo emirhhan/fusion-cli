@@ -4,6 +4,7 @@ import type { PermissionKind, PermissionPromptPhase } from "./types";
 import "./permissions.css";
 
 interface PermissionPromptProps {
+  canOpenSettings: boolean;
   error?: string | null;
   kind: PermissionKind;
   phase: PermissionPromptPhase;
@@ -33,7 +34,7 @@ const COPY: Record<PermissionKind, { title: string; explanation: string }> = {
   },
 };
 
-export function PermissionPrompt({ error, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
+export function PermissionPrompt({ canOpenSettings, error, kind, phase, onContinue, onContinueToNext, onDismiss, onRetry, onOpenSettings }: PermissionPromptProps) {
   const dialogRef = useRef<HTMLElement>(null);
   const actionsRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -93,7 +94,7 @@ export function PermissionPrompt({ error, kind, phase, onContinue, onContinueToN
           {denied ? (
             <>
               <Button onClick={onRetry} variant="primary">Yeniden dene</Button>
-              <Button onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>
+              {canOpenSettings && <Button onClick={onOpenSettings}>Sistem Ayarlarını Aç</Button>}
               {onContinueToNext && <Button onClick={onContinueToNext} variant="ghost">Sonraki izne geç</Button>}
               {onDismiss && <Button onClick={onDismiss} variant="ghost">Şimdi değil</Button>}
             </>

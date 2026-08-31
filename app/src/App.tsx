@@ -918,11 +918,12 @@ export function SessionUygulama({
           />
           {permissions.activeKind && (
             <PermissionPrompt
+              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
               error={permissions.error}
               kind={permissions.activeKind}
               phase={permissions.phase}
               onContinue={() => void permissions.continue()}
-              onContinueToNext={permissions.continueToNext}
+              onContinueToNext={permissions.hasQueuedPermission ? permissions.continueToNext : undefined}
               onDismiss={permissions.dismiss}
               onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
               onRetry={() => void permissions.retry()}

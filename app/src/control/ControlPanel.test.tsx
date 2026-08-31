@@ -38,6 +38,20 @@ function client() {
 }
 
 describe("ControlPanel", () => {
+  it("boş Keychain kuyruğunda uygulanamaz ayarlar ve sonraki izin eylemlerini göstermez", async () => {
+    const bridge: PermissionBridge = { request: vi.fn(async () => "denied"), openSettings: vi.fn() };
+    render(<ControlPanel client={client()} onClose={() => undefined} permissionBridge={bridge} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
+    fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
+    await screen.findByRole("button", { name: "Yeniden dene" });
+
+    expect(screen.queryByRole("button", { name: "Sistem Ayarlarını Aç" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sonraki izne geç" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Şimdi değil" })).toBeTruthy();
+  });
   it("requests Keychain only when an API key is saved", async () => {
     const fake = client();
     const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
