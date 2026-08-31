@@ -233,6 +233,43 @@ Bundan sonra ajan turlarında bu dış aletler otomatik kullanılabilir (onayın
 
 ---
 
+## 13) Uygulama içindeki gerçek terminal
+
+Masaüstü uygulamasında sağdaki çalışma panelinden **Terminal** sekmesini aç ve
+**Yeni terminal** düğmesine bas. Yeni sekme, seçili çalışma alanının içinde senin
+varsayılan kabuğunu açar; burada yazdığın komutlar Fusion ajanından bağımsızdır.
+
+- Terminal ANSI renklerini ve etkileşimli programları korur; çıktıyı otomatik olarak
+  sohbete ya da bir sağlayıcıya göndermez.
+- `+` ile birden fazla terminal sekmesi açabilirsin. Sekmeleri ok tuşlarıyla,
+  `Home` ve `End` ile klavyeden seçebilirsin.
+- `×` yalnız etkin terminali kapatır. Kabuğun doğal olarak kapanması sekmede
+  **Kapandı** olarak görünür.
+- **Temizle** sadece ekrandaki birikmiş çıktıyı temizler; çalışan komutu durdurmaz.
+  **Kopyala** seçili metni, **Yapıştır** ise panodaki metni terminale yollar.
+
+### Paketli macOS duman kontrolü
+
+Paketlenmiş uygulamada aşağıdaki dört kısa kontrolü yap. Her komut bitince kabuk
+isteminin (`%` veya `$`) geri geldiğini doğrula:
+
+1. Yeni bir terminalde `python3` yaz. Ardından `print("fusion-pty-ok")` ve
+   `exit()` yaz; `fusion-pty-ok` görünmeli ve kabuk açık kalmalı.
+2. `python3 -c 'import time; time.sleep(30)'` çalıştır, sonra **Ctrl+C** gönder.
+   İşlem kesilmeli; terminal sekmesi kapanmamalı ve kabuk istemi yeniden görünmeli.
+3. `vim /tmp/fusion-terminal-smoke.txt` aç, `:q!` yazıp Enter'a bas. Vim kapanmalı
+   ve kabuk kullanılabilir durumda kalmalı. Vim kurulu değilse bunu paketin hatası
+   olarak değil, makinedeki eksik araç olarak kaydet.
+4. Uzun bir komut çalıştır (`python3 -c 'print("x" * 200)'` yeterlidir), ardından
+   uygulamanın sağ çalışma panelini daraltıp genişlet. Satırlar yeniden sığmalı ve
+   terminal yeni ölçülerde yazmaya devam etmelidir.
+
+Bu kontroller kullanıcı girdisi, gerçek PTY ve macOS pencere yeniden boyutlandırması
+gerektirdiği için tarayıcı görsel testinin yerine geçmez; paketli uygulamada elle
+yapılır.
+
+---
+
 ## Komut kopya kâğıdı
 
 | Yaz | Ne yapar |

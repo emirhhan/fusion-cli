@@ -19,6 +19,7 @@ import { ChangesPanel } from "../src/workspace/ChangesPanel";
 import { PreviewPanel } from "../src/workspace/PreviewPanel";
 import { TestsPanel } from "../src/workspace/TestsPanel";
 import { TerminalPanel } from "../src/processes/TerminalPanel";
+import type { TerminalRuntime, TerminalSession } from "../src/processes/terminalBridge";
 import { ProcessesPanel } from "../src/processes/ProcessesPanel";
 import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
@@ -71,6 +72,50 @@ const processController = {
   busy: false, error: null, processes: workspaceProcesses,
   refresh: async () => undefined, start: async () => undefined, stop: async () => undefined,
 } as ProcessController;
+
+function terminalFixture(terminalState: string): TerminalRuntime {
+  const output = terminalState === "ansi"
+    ? "\u001b[38;2;104;211;145myeşil çıktı\u001b[0m\r\nANSI renkleri korundu\r\nfusion@workspace % "
+    : terminalState === "closed"
+      ? "python3 -c 'raise SystemExit(1)'\r\n"
+      : "Fusion çalışma alanı\r\nfusion@workspace % ";
+  const closedReason = terminalState === "closed" ? "shell exited (1)" : null;
+  const runtime = {
+    open: async (cwd: string, cols: number, rows: number) => ({ terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 }),
+    write: async () => undefined,
+    resize: async () => undefined,
+    close: async () => undefined,
+    onOutput: async () => () => undefined,
+    onClosed: async () => () => undefined,
+    openSession: async (cwd: string, cols: number, rows: number) => {
+      const outputHandlers = new Set<(data: Uint8Array) => void>();
+      const closedHandlers = new Set<(reason: string) => void>();
+      const session: TerminalSession = {
+        snapshot: { terminalId: "terminal-preview-1", cwd, cols, rows, pid: 4242 },
+        write: async () => undefined,
+        resize: async () => undefined,
+        close: async () => undefined,
+        clearRetention: () => undefined,
+        onOutput: (handler) => {
+          outputHandlers.add(handler);
+          handler(new TextEncoder().encode(output));
+          return () => outputHandlers.delete(handler);
+        },
+        onClosed: (handler) => {
+          closedHandlers.add(handler);
+          if (closedReason) queueMicrotask(() => handler(closedReason));
+          return () => closedHandlers.delete(handler);
+        },
+        dispose: () => {
+          outputHandlers.clear();
+          closedHandlers.clear();
+        },
+      };
+      return session;
+    },
+  } satisfies TerminalRuntime;
+  return runtime;
+}
 
 const workspaceClient = {
   request: async (name: string, data: Record<string, unknown>) => {
@@ -175,7 +220,7 @@ const workspaceClient = {
   },
 } as unknown as ProtocolClient;
 
-function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, width = 420 }) {
+function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, terminalState = "active", width = 420 }) {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<React.ComponentProps<typeof Inspector>["activeTab"]>(initialTab);
   return (
@@ -185,7 +230,7 @@ function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, 
       content={{
         files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
         changes: <ChangesPanel client={workspaceClient} revision={0} />,
-        terminal: <TerminalPanel controller={processController} />,
+        terminal: <TerminalPanel cwd="/Projects/fusion-cli" runtime={terminalFixture(terminalState)} />,
         processes: <ProcessesPanel controller={processController} />,
         tests: <TestsPanel client={workspaceClient} processes={processController} />,
         preview: <PreviewPanel client={workspaceClient} selectedPath={selected} />,
@@ -249,9 +294,9 @@ function Preview() {
   const requestedInspectorTab = params.get("inspectorTab");
   const inspectorTab = requestedInspectorTab === "preview" || requestedInspectorTab === "terminal"
     ? requestedInspectorTab
-    : state === "workspace-error" ? "terminal" : "files";
+    : state === "workspace-error" || state === "workspace-terminal" ? "terminal" : "files";
   const inspector = state.startsWith("workspace-")
-    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} width={inspectorWidth} />
+    ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
     : <Inspector collapsed={inspectorCollapsed} width={inspectorWidth} />;
   const capabilities = state === "capabilities";
   const control = state === "control";

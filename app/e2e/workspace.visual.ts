@@ -25,7 +25,8 @@ test("workspace-diff-dark", async ({ page }) => {
 test("workspace-terminal-error", async ({ page }) => {
   await open(page, "workspace-error");
   await page.getByRole("tab", { name: "Terminal", exact: true }).click();
-  await expect(page.getByText("FAIL src/App.test.tsx")).toBeVisible();
+  await page.getByRole("button", { name: "Yeni terminal" }).click();
+  await expect(page.locator(".xterm-session__status")).toHaveText("Terminal kapandı: shell exited (1)");
   await expect(page).toHaveScreenshot("workspace-terminal-error.png", { fullPage: true });
 });
 
