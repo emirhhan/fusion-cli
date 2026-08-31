@@ -125,26 +125,48 @@ func guven(_ sonuc: SFSpeechRecognitionResult) -> Float {
     sonuc.bestTranscription.segments.map(\.confidence).max() ?? 0
 }
 
+private let enAzGuven: Float = 0.2
+
+@discardableResult
+func metinYaz(
+    final: Bool, metin: String, guven puan: Float, callbackSegment: Int
+) -> Bool {
+    guard !metin.isEmpty, callbackSegment == kapı.segment, puan >= enAzGuven else { return false }
+    guard final ? kapı.finalIcinYeterli : kapı.etkin else { return false }
+    yaz(final ? "son" : "kismi", metin, guven: puan,
+        speechMs: kapı.konusmaMs, segment: callbackSegment)
+    return true
+}
+
 func sentetikFixture(_ ad: String) -> Never {
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
-    if ad == "voiced" || ad == "low-confidence" {
+    if ["voiced", "low-confidence", "low-confidence-partial", "delayed-partial"].contains(ad) {
+        var fixtureSegment = 0
         for _ in 0..<30 {
             if let olay = kapı.isle(rms: 0.08, sureMs: 10) {
+                fixtureSegment = kapı.segment
                 yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
             }
         }
-        if kapı.etkin && ad == "voiced" {
-            yaz("kismi", "merhaba", guven: 0.82, speechMs: kapı.konusmaMs, segment: kapı.segment)
-        }
-        if kapı.finalIcinYeterli && ad == "voiced" {
-            yaz("son", "merhaba", guven: 0.91, speechMs: kapı.konusmaMs, segment: kapı.segment)
-        } else if kapı.finalIcinYeterli {
+        if ad == "voiced" {
+            metinYaz(final: false, metin: "merhaba", guven: 0.82, callbackSegment: fixtureSegment)
+            metinYaz(final: true, metin: "merhaba", guven: 0.91, callbackSegment: fixtureSegment)
+        } else if ad == "delayed-partial" {
+            metinYaz(final: false, metin: "zamaninda", guven: 0.82, callbackSegment: fixtureSegment)
+        } else {
+            _ = metinYaz(final: false, metin: "supheli", guven: 0.1, callbackSegment: fixtureSegment)
             yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs, segment: kapı.segment)
         }
         for _ in 0..<35 {
             if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
-                yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+                if ad == "delayed-partial" {
+                    _ = metinYaz(final: false, metin: "gecikmis", guven: 0.92,
+                        callbackSegment: fixtureSegment)
+                    metinYaz(final: true, metin: "zamaninda", guven: 0.91,
+                        callbackSegment: fixtureSegment)
+                }
+                yaz(olay, speechMs: kapı.konusmaMs, segment: fixtureSegment)
             }
         }
     }
@@ -172,6 +194,7 @@ func başlat() {
         yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
     }
     let r = SFSpeechAudioBufferRecognitionRequest()
+    let tanimaSegmenti = kapı.segment + 1
     r.shouldReportPartialResults = true
     r.requiresOnDeviceRecognition = true
     istek = r
@@ -184,7 +207,9 @@ func başlat() {
         if kapı.etkin { r.append(tampon) }
         if let olay = olay {
             if olay == "ses-bitti" { r.endAudio() }
-            else { yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment) }
+            else {
+                yaz(olay, speechMs: kapı.konusmaMs, segment: tanimaSegmenti)
+            }
         }
     }
     tapKurulu = true
@@ -195,20 +220,20 @@ func başlat() {
     yaz("hazir", dil)
 
     görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
-        if let sonuç = sonuç, kapı.segment > 0 {
+        if let sonuç = sonuç, tanimaSegmenti > 0 {
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
             if sonuç.isFinal {
-                if !metin.isEmpty && kapı.finalIcinYeterli && puan >= 0.2 {
-                    yaz("son", metin, guven: puan, speechMs: kapı.konusmaMs, segment: kapı.segment)
-                } else {
+                if !metinYaz(final: true, metin: metin, guven: puan,
+                    callbackSegment: tanimaSegmenti) {
                     yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs,
-                        segment: kapı.segment)
+                        segment: tanimaSegmenti)
                 }
-                yaz("ses-bitti", speechMs: kapı.konusmaMs, segment: kapı.segment)
+                yaz("ses-bitti", speechMs: kapı.konusmaMs, segment: tanimaSegmenti)
                 bitir(0)
-            } else if !metin.isEmpty {
-                yaz("kismi", metin, guven: puan, speechMs: kapı.konusmaMs, segment: kapı.segment)
+            } else {
+                metinYaz(final: false, metin: metin, guven: puan,
+                    callbackSegment: tanimaSegmenti)
             }
         }
         if let hata = hata { yaz("hata", hata.localizedDescription); bitir(5) }

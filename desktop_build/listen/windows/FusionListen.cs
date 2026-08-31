@@ -3,16 +3,22 @@ using System.Globalization;
 using System.Speech.Recognition;
 using System.Text;
 using System.Threading;
+using System.Diagnostics;
 
 namespace FusionListen
 {
     internal static class Program
     {
+        private const double MinimumConfidence = 0.2;
+        private const int MinimumSpeechMs = 250;
         private static readonly ManualResetEvent Done = new ManualResetEvent(false);
         private static readonly object Gate = new object();
+        private static readonly Stopwatch SpeechClock = new Stopwatch();
         private static SpeechRecognitionEngine recognizer;
         private static bool stopping;
         private static int exitCode;
+        private static bool speechActive;
+        private static int segment;
 
         private static string JsonEscape(string value)
         {
@@ -81,10 +87,59 @@ namespace FusionListen
             lock (Gate) return stopping;
         }
 
+        private static void StartSpeech()
+        {
+            if (speechActive) return;
+            speechActive = true;
+            segment += 1;
+            SpeechClock.Restart();
+            WriteEvent("ses-basladi", string.Empty, null, 0, segment);
+        }
+
+        private static bool Qualified(string text, double confidence, int speechMs)
+        {
+            return speechActive && text.Length > 0 && confidence >= MinimumConfidence
+                && speechMs >= MinimumSpeechMs;
+        }
+
+        private static void EndSpeech(int speechMs)
+        {
+            if (!speechActive) return;
+            speechActive = false;
+            SpeechClock.Stop();
+            WriteEvent("ses-bitti", string.Empty, null, speechMs, segment);
+        }
+
+        private static int RunFixture(string locale, string fixture)
+        {
+            WriteEvent("hazir", locale);
+            if (fixture == "silence") return 0;
+
+            StartSpeech();
+            int speechMs = fixture == "too-short" ? 120 : 320;
+            double confidence = fixture == "low-confidence" ? 0.1 : 0.82;
+            string text = "merhaba";
+            if (Qualified(text, confidence, speechMs))
+            {
+                WriteEvent("kismi", text, confidence, speechMs, segment);
+                WriteEvent("son", text, confidence, speechMs, segment);
+            }
+            else
+            {
+                WriteEvent("hata", "Güvenilir konuşma tanınamadı.", null, speechMs, segment);
+            }
+            EndSpeech(speechMs);
+            return 0;
+        }
+
         private static int Main(string[] args)
         {
             Console.OutputEncoding = new UTF8Encoding(false);
             string locale = args.Length > 0 ? args[0] : "tr-TR";
+            if (args.Length > 2 && args[1] == "--fixture")
+            {
+                return RunFixture(locale, args[2]);
+            }
             try
             {
                 recognizer = new SpeechRecognitionEngine(new CultureInfo(locale));
@@ -104,27 +159,40 @@ namespace FusionListen
             try
             {
                 recognizer.LoadGrammar(new DictationGrammar());
+                recognizer.SpeechDetected += (_, __) => StartSpeech();
                 recognizer.SpeechHypothesized += (_, eventArgs) =>
                 {
                     string text = eventArgs.Result?.Text ?? string.Empty;
-                    if (text.Length > 0) WriteEvent("kismi", text, eventArgs.Result.Confidence);
+                    int speechMs = (int)SpeechClock.ElapsedMilliseconds;
+                    if (Qualified(text, eventArgs.Result.Confidence, speechMs))
+                    {
+                        WriteEvent("kismi", text, eventArgs.Result.Confidence, speechMs, segment);
+                    }
                 };
                 recognizer.SpeechRecognized += (_, eventArgs) =>
                 {
                     string text = eventArgs.Result?.Text ?? string.Empty;
-                    if (text.Length == 0)
+                    int speechMs = Math.Max(
+                        (int)SpeechClock.ElapsedMilliseconds,
+                        eventArgs.Result.Audio == null ? 0 : (int)eventArgs.Result.Audio.Duration.TotalMilliseconds
+                    );
+                    if (!Qualified(text, eventArgs.Result.Confidence, speechMs))
                     {
-                        WriteEvent("hata", "Konuşma anlaşılamadı.");
-                        Finish(5);
+                        WriteEvent("hata", "Güvenilir konuşma tanınamadı.", null, speechMs, segment);
+                        EndSpeech(speechMs);
+                        Finish(0);
                         return;
                     }
-                    WriteEvent("son", text, eventArgs.Result.Confidence);
+                    WriteEvent("son", text, eventArgs.Result.Confidence, speechMs, segment);
+                    EndSpeech(speechMs);
                     Finish(0);
                 };
                 recognizer.SpeechRecognitionRejected += (_, __) =>
                 {
-                    WriteEvent("hata", "Konuşma anlaşılamadı.");
-                    Finish(5);
+                    int speechMs = (int)SpeechClock.ElapsedMilliseconds;
+                    WriteEvent("hata", "Konuşma anlaşılamadı.", null, speechMs, segment);
+                    EndSpeech(speechMs);
+                    Finish(0);
                 };
                 recognizer.RecognizeCompleted += (_, eventArgs) =>
                 {

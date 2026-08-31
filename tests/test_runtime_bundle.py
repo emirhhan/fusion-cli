@@ -19,6 +19,8 @@ from desktop_build.runtime.build_runtime import (
 )
 
 LISTEN_BUILD_SCRIPT = Path("desktop_build/listen/build_adapter.py")
+WINDOWS_LISTEN_SOURCE = Path("desktop_build/listen/windows/FusionListen.cs")
+CROSSOVER_ROOT = Path("/Applications/CrossOver.app/Contents/SharedSupport/CrossOver")
 
 
 def run_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedProcess[str]:
@@ -49,6 +51,80 @@ def run_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedP
         text=True,
         check=False,
         timeout=5,
+    )
+
+
+def run_windows_listen_fixture(
+    tmp_path: Path, *, fixture: str
+) -> subprocess.CompletedProcess[str]:
+    output = tmp_path / "FusionListen.exe"
+    if os.name == "nt" and shutil.which("csc"):
+        build = subprocess.run(
+            [
+                "csc",
+                "-nologo",
+                "-target:exe",
+                "-out:" + str(output),
+                "-reference:System.Speech.dll",
+                str(WINDOWS_LISTEN_SOURCE),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert build.returncode == 0, build.stdout + build.stderr
+        return subprocess.run(
+            [str(output), "tr-TR", "--fixture", fixture],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+
+    wine = CROSSOVER_ROOT / "lib/wine/x86_64-unix/wine"
+    csc = CROSSOVER_ROOT / "share/wine/mono/wine-mono-10.4.1/lib/mono/4.5/csc.exe"
+    speech = (
+        CROSSOVER_ROOT
+        / "share/wine/mono/wine-mono-10.4.1/lib/mono/gac/System.Speech"
+        / "4.0.0.0__31bf3856ad364e35/System.Speech.dll"
+    )
+    if not all(path.exists() for path in (wine, csc, speech)):
+        pytest.skip("Windows helper davranış testi için C# runtime bulunamadı")
+
+    prefix = tmp_path / "wine-prefix"
+    env = os.environ.copy()
+    env["WINEPREFIX"] = str(prefix)
+    env["WINEDLLPATH"] = str(CROSSOVER_ROOT / "lib/wine")
+    env["CX_ROOT"] = str(CROSSOVER_ROOT)
+
+    def wine_path(path: Path) -> str:
+        return "Z:" + str(path.resolve()).replace("/", "\\")
+
+    build = subprocess.run(
+        [
+            str(wine),
+            wine_path(csc),
+            "-nologo",
+            "-target:exe",
+            "-out:" + wine_path(output),
+            "-reference:" + wine_path(speech),
+            wine_path(WINDOWS_LISTEN_SOURCE),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    return subprocess.run(
+        [str(wine), wine_path(output), "tr-TR", "--fixture", fixture],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
     )
 
 
@@ -202,15 +278,58 @@ def test_macos_listen_voiced_wraps_numeric_transcript_metadata_with_vad_events(
     reason="macOS Swift güven kapısı testi",
 )
 def test_macos_listen_low_confidence_never_emits_final_transcript(tmp_path: Path):
-    result = run_listen_fixture(tmp_path, fixture="low-confidence")
+    result = run_listen_fixture(tmp_path, fixture="low-confidence-partial")
     events = [json.loads(line) for line in result.stdout.splitlines()]
     kinds = [event["tur"] for event in events]
 
     assert result.returncode == 0, result.stderr
     assert "ses-basladi" in kinds
+    assert "kismi" not in kinds
     assert "son" not in kinds
     assert "hata" in kinds
     assert kinds[-1] == "ses-bitti"
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS Swift eski callback kapısı testi",
+)
+def test_macos_listen_drops_partial_callback_after_speech_ends(tmp_path: Path):
+    result = run_listen_fixture(tmp_path, fixture="delayed-partial")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    kinds = [event["tur"] for event in events]
+
+    assert result.returncode == 0, result.stderr
+    assert kinds == ["hazir", "ses-basladi", "kismi", "son", "ses-bitti"]
+    assert [event["metin"] for event in events if event["tur"] == "kismi"] == [
+        "zamaninda"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("fixture", "expected_kinds"),
+    [
+        ("silence", ["hazir"]),
+        (
+            "voiced",
+            ["hazir", "ses-basladi", "kismi", "son", "ses-bitti"],
+        ),
+        (
+            "low-confidence",
+            ["hazir", "ses-basladi", "hata", "ses-bitti"],
+        ),
+        ("too-short", ["hazir", "ses-basladi", "hata", "ses-bitti"]),
+    ],
+)
+def test_windows_listen_enforces_shared_vad_and_confidence_contract(
+    tmp_path: Path, fixture: str, expected_kinds: list[str]
+):
+    result = run_windows_listen_fixture(tmp_path, fixture=fixture)
+    events = [json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")]
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [event["tur"] for event in events] == expected_kinds
+    assert all(set(event) == {"tur", "metin", "guven", "speech_ms", "segment"} for event in events)
 
 
 @pytest.mark.skipif(

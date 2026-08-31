@@ -18,6 +18,8 @@ Her olay beş alanı da taşır; platformda bulunmayan güven değeri `null` yaz
 Oturum kimliği yardımcı tarafından üretilmez, süreç düzeyindeki oturumun sahibi Rust'tır.
 macOS yardımcısı ilk 300 ms'de ortam gürültüsünü ölçer, RMS tabanlı başlangıç/bitiş
 histerezisi uygular ve 250 ms'den kısa ses aralıklarında final metin yayınlamaz.
+Windows yardımcısı `SpeechDetected` ile aynı başlangıç/bitiş olaylarını bağlar; kısmi
+ve final metinleri en az 250 ms konuşma ve `0.2` güven eşiğiyle sınırlar.
 
 ## Neden Swift, neden Rust değil
 

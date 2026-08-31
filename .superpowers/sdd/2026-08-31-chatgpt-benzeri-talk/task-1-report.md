@@ -74,3 +74,93 @@ Son tam doğrulama da `20 passed` ve exit code `0` verdi.
 
 - RMS taban eşikleri (`0.012` başlangıç tabanı, `0.006` bitiş tabanı; gürültü katsayıları `3.0`/`1.8`) deterministik testlerde doğrulandı ancak farklı mikrofon ve oda koşullarında saha kalibrasyonu gerektirebilir.
 - Bu makinede `dotnet`, `csc` veya `mcs` bulunmadığından Windows C# yardımcısı yerel olarak derlenemedi; Windows değişikliği mevcut build adapter sözleşmesi ve kaynak incelemesiyle doğrulandı.
+
+## Fix Round 1
+
+### Kapatılan inceleme bulguları
+
+1. macOS `kismi` olayları artık final ile aynı `0.2` güven eşiğini uygular. Düşük güvenli partial metin JSONL'ye çıkmaz.
+2. macOS partial callback'i yalnız VAD hâlâ etkinken ve callback'in yakalanan segmenti güncel segmentle aynıyken kabul edilir. `endAudio()` sonrasındaki gecikmiş non-final callback düşürülür; doğrulanmış final kapanıştan sonra alınmaya devam eder.
+3. Windows helper `SpeechDetected` ile `ses-basladi` üretir; metni en az 250 ms konuşma ve `0.2` güven ile sınırlar; başarılı, düşük güvenli, kısa veya reddedilmiş konuşmayı `ses-bitti` ile kapatır. Sessizlik metin üretmez.
+
+Önceki “C# yerelde derlenemedi” kaygısı bu turda giderildi: CrossOver paketindeki gerçek Roslyn `csc.exe`, `System.Speech.dll` ve Wine runtime ile `FusionListen.cs` derlenip dört fixture için çalıştırıldı. Test helper'ı Windows CI'da yerel `csc` çalıştırmayı da destekler.
+
+### Kapsayan test dosyaları
+
+- `tests/test_runtime_bundle.py`
+  - `test_macos_listen_low_confidence_never_emits_final_transcript`
+  - `test_macos_listen_drops_partial_callback_after_speech_ends`
+  - `test_windows_listen_enforces_shared_vad_and_confidence_contract` (`silence`, `voiced`, `low-confidence`, `too-short`)
+  - mevcut `test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly` regresyonu
+
+### RED
+
+Komut:
+
+```text
+.venv/bin/pytest tests/test_runtime_bundle.py -k 'low_confidence or drops_partial or windows_listen_enforces' -q
+```
+
+Tam terminal özeti:
+
+```text
+FFF
+F
+FF                                                                   [100%]
+FAILED tests/test_runtime_bundle.py::test_macos_listen_low_confidence_never_emits_final_transcript
+FAILED tests/test_runtime_bundle.py::test_macos_listen_drops_partial_callback_after_speech_ends
+FAILED tests/test_runtime_bundle.py::test_windows_listen_enforces_shared_vad_and_confidence_contract[silence-expected_kinds0]
+FAILED tests/test_runtime_bundle.py::test_windows_listen_enforces_shared_vad_and_confidence_contract[voiced-expected_kinds1]
+FAILED tests/test_runtime_bundle.py::test_windows_listen_enforces_shared_vad_and_confidence_contract[low-confidence-expected_kinds2]
+FAILED tests/test_runtime_bundle.py::test_windows_listen_enforces_shared_vad_and_confidence_contract[too-short-expected_kinds3]
+```
+
+macOS assertion çıktıları fixture'ların yalnız `['hazir']` ürettiğini gösterdi. Windows assertion çıktısı dört durumda da fixture işlenmeden recognizer oluşturulduğunu ve şu olayı/exit kodunu gösterdi:
+
+```text
+{"tur":"hata","metin":"Bu dil için Windows konuşma tanıyıcısı bulunamadı: tr-TR","guven":null,"speech_ms":0,"segment":0}
+assert 2 == 0
+```
+
+### GREEN
+
+Odak komutu:
+
+```text
+.venv/bin/pytest tests/test_runtime_bundle.py -k 'low_confidence or drops_partial or windows_listen_enforces' -q
+```
+
+Tam çıktı:
+
+```text
+......                                                                   [100%]
+```
+
+Son tam doğrulama komutu:
+
+```text
+.venv/bin/pytest tests/test_runtime_bundle.py -q && .venv/bin/pytest tests/test_runtime_bundle.py -k 'macos_listen_sigterm' -q && git diff --check
+```
+
+Tam çıktı ve exit code:
+
+```text
+.........................                                                [100%]
+.                                                                        [100%]
+exit code 0
+```
+
+### Değişen dosyalar
+
+- `desktop_build/listen/main.swift`
+- `desktop_build/listen/windows/FusionListen.cs`
+- `desktop_build/listen/README.md`
+- `tests/test_runtime_bundle.py`
+- `.superpowers/sdd/2026-08-31-chatgpt-benzeri-talk/task-1-report.md`
+
+### Öz-inceleme ve kaygılar
+
+- Düşük güven eşiğini kaldırmak hem macOS low-confidence partial testini hem Windows low-confidence fixture'ını bozar.
+- VAD etkinlik kontrolünü kaldırmak macOS delayed-partial testinde ikinci `kismi` olayı üretir.
+- Windows süre kapısını kaldırmak `too-short`; güven kapısını kaldırmak `low-confidence`; konuşma olaylarını kaldırmak `voiced` fixture testini bozar.
+- Windows gerçek mikrofon davranışı bu macOS ortamında ölçülemedi; ancak aynı üretim karar sınıfını kullanan derlenmiş C# fixture'ları ve gerçek `System.Speech` tip bağları çalıştırıldı.
