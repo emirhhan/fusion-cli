@@ -20,6 +20,7 @@ import { mergeVoiceSnapshot, readVoiceGeometry, saveVoiceGeometry } from "./geom
 import {
   applyVoiceWindowGeometry,
   closeVoiceWindow,
+  minimizeVoiceWindow,
   onVoiceWindowGeometryChanged,
   startSpeechRecognition,
   stopSpeechRecognition,
@@ -302,6 +303,7 @@ export function VoiceWindow({ runtime = DEFAULT_RUNTIME }: VoiceWindowProps = {}
         void runtime.answerAsk(answer);
       }}
       onClose={() => void runtime.close()}
+      onMinimize={() => void minimizeVoiceWindow()}
       onPickModel={() => {
         void runtime.pickModel().then((path) => {
           if (!path) return;

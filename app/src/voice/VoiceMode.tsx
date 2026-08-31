@@ -33,6 +33,7 @@ interface VoiceModeProps {
   ask?: VoiceAsk | null;
   onAnswer?: (answer: string) => void;
   onClose: () => void;
+  onMinimize: () => void;
   onPickModel?: () => void;
   onPrefsChange?: (next: VoicePrefs) => void;
   onToggleListen: () => void;
@@ -51,6 +52,7 @@ export function VoiceMode({
   ask = null,
   onAnswer,
   onClose,
+  onMinimize,
   onPickModel,
   onPrefsChange,
   onToggleListen,
@@ -86,9 +88,9 @@ export function VoiceMode({
       role="region"
     >
       <header className="voice-panel__head" data-tauri-drag-region>
-        <span aria-hidden="true" className="voice-panel__traffic"><i /><i /><i /></span>
-        <strong className="voice-panel__title">Fusion Talk</strong>
-        <span className="voice-panel__window-actions">
+        <span aria-label="Pencere denetimleri" className="voice-panel__window-controls">
+          <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button">×</button>
+          <button aria-label="Pencereyi simge durumuna küçült" className="voice-panel__minimize" onClick={onMinimize} type="button">−</button>
           {onWideChange && (
             <button
               aria-label={wide ? "Paneli küçült" : "Paneli büyüt"}
@@ -100,8 +102,8 @@ export function VoiceMode({
               {wide ? "↙" : "↗"}
             </button>
           )}
-          <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button">×</button>
         </span>
+        <strong className="voice-panel__title">Fusion Talk</strong>
       </header>
 
       <div className="voice-panel__stage">
@@ -125,17 +127,17 @@ export function VoiceMode({
         </div>
       </div>
 
-      {wide && (
-        <footer className="voice-panel__foot">
-          <button
-            aria-label={hearing ? "Dinlemeyi durdur" : "Konuşmaya başla"}
-            aria-pressed={hearing}
-            className="voice-panel__mic"
-            onClick={onToggleListen}
-            type="button"
-          >
-            <MicIcon size={22} />
-          </button>
+      <footer className="voice-panel__foot">
+        <button
+          aria-label={hearing ? "Dinlemeyi durdur" : "Konuşmaya başla"}
+          aria-pressed={hearing}
+          className="voice-panel__mic"
+          onClick={onToggleListen}
+          type="button"
+        >
+          <MicIcon size={wide ? 22 : 18} />
+        </button>
+        {wide && <>
           <p className="voice-panel__hint">Konuştukların aynı sohbete yazılır.</p>
           {onPrefsChange && onTopChange && (
             <button
@@ -148,8 +150,8 @@ export function VoiceMode({
               ⚙
             </button>
           )}
-        </footer>
-      )}
+        </>}
+      </footer>
 
       {wide && settingsOpen && onPrefsChange && onTopChange && (
         <div className="voice-panel__settings-popover">

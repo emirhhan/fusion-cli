@@ -288,6 +288,7 @@ function Preview() {
           ask={ask}
           onAnswer={() => undefined}
           onClose={() => undefined}
+          onMinimize={() => undefined}
           onToggleListen={() => undefined}
           onWideChange={() => undefined}
           state={phase}

@@ -7,6 +7,53 @@ vi.mock("./level", () => ({ startLevelMeter: vi.fn(async () => null) }));
 afterEach(cleanup);
 
 describe("VoiceMode", () => {
+  it("pencere denetimlerini gerçek eylemlerine bağlar", () => {
+    const onClose = vi.fn();
+    const onMinimize = vi.fn();
+    const onWideChange = vi.fn();
+    render(
+      <VoiceMode
+        onClose={onClose}
+        onMinimize={onMinimize}
+        onToggleListen={vi.fn()}
+        onWideChange={onWideChange}
+        state="idle"
+        wide
+      />,
+    );
+
+    const header = screen.getByRole("banner");
+    const controls = screen.getByLabelText("Pencere denetimleri");
+    expect(header.getAttribute("data-tauri-drag-region")).toBe("true");
+    expect(controls.hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(screen.queryByTestId("right-side-window-actions")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Konuşma kipini kapat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pencereyi simge durumuna küçült" }));
+    fireEvent.click(screen.getByRole("button", { name: "Paneli küçült" }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onMinimize).toHaveBeenCalledOnce();
+    expect(onWideChange).toHaveBeenCalledWith(false);
+  });
+
+  it("mini kipte aynı mikrofon eylemi görünür ve kullanılabilir", () => {
+    const onToggleListen = vi.fn();
+    render(
+      <VoiceMode
+        onClose={vi.fn()}
+        onMinimize={vi.fn()}
+        onToggleListen={onToggleListen}
+        onWideChange={vi.fn()}
+        state="idle"
+        wide={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Konuşmaya başla" }));
+    expect(onToggleListen).toHaveBeenCalledOnce();
+  });
+
   it("dar kipte döküm ve ayarlar gizlenir", () => {
     render(
       <VoiceMode
