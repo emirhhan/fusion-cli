@@ -19,6 +19,12 @@ pub(crate) struct SpeechManager {
     next_session: AtomicU64,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum SpeechCleanupScope {
+    Talk,
+    Application,
+}
+
 impl SpeechManager {
     pub(crate) fn new() -> Self {
         Self {
@@ -230,10 +236,8 @@ struct SpeechOutput {
     line: String,
 }
 
-pub(crate) fn cleanup_for_window(label: &str, manager: &SpeechManager) {
-    if label == "ses" {
-        let _ = manager.stop();
-    }
+pub(crate) fn cleanup_for_scope(_scope: SpeechCleanupScope, manager: &SpeechManager) {
+    let _ = manager.stop();
 }
 
 fn forward_stdout(reader: impl Read, mut emit: impl FnMut(String)) {
@@ -392,7 +396,19 @@ mod tests {
             .start(&mut helper_command("sleep"))
             .expect("child başlamalı");
 
-        cleanup_for_window("ses", &manager);
+        cleanup_for_scope(SpeechCleanupScope::Talk, &manager);
+
+        wait_until_stopped(&manager);
+    }
+
+    #[test]
+    fn full_application_shutdown_cleans_up_the_speech_child() {
+        let manager = SpeechManager::new();
+        manager
+            .start(&mut helper_command("sleep"))
+            .expect("child başlamalı");
+
+        cleanup_for_scope(SpeechCleanupScope::Application, &manager);
 
         wait_until_stopped(&manager);
     }

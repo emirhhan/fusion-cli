@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 from fusion_cli.appserver.protocol import Request
@@ -140,6 +142,35 @@ async def test_kapanista_bekleyen_sorular_serbest_birakilir(tmp_path):
     await asyncio.sleep(0)
 
     assert gelecek.done()
+
+
+async def test_kapanis_tts_childini_diger_surecleri_beklemeden_durdurur(tmp_path):
+    """AppSession.close TTS sahipliğini kapanış zincirinin başında bırakmalı."""
+    from fusion_cli.appserver import voice
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    yonetilen_surecler_serbest = asyncio.Event()
+
+    async def _bloklanan_surec_kapanisi():
+        await yonetilen_surecler_serbest.wait()
+
+    oturum._processes.close = _bloklanan_surec_kapanisi
+    child = await asyncio.to_thread(
+        subprocess.Popen, [sys.executable, "-c", "import time; time.sleep(30)"]
+    )
+    voice._register_speech_process(child, turn_id="session-close-real-child")
+
+    kapanis = asyncio.create_task(oturum.close())
+    try:
+        await asyncio.wait_for(asyncio.to_thread(child.wait), timeout=2.0)
+        assert child.poll() is not None, f"TTS child PID {child.pid} kapanmadı"
+    finally:
+        yonetilen_surecler_serbest.set()
+        await kapanis
+        if child.poll() is None:
+            child.kill()
+        await asyncio.to_thread(child.wait, timeout=2)
 
 
 def _sahte_gorev(olay: asyncio.Event, yakalanan: dict, *, mesajlar=None, **kwargs):

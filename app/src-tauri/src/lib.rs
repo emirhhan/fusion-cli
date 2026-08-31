@@ -17,7 +17,7 @@ use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
 use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
-use speech::{cleanup_for_window, start_recognition, SpeechManager};
+use speech::{cleanup_for_scope, start_recognition, SpeechCleanupScope, SpeechManager};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use terminal::{TerminalManager, TerminalSnapshot};
 
@@ -352,11 +352,63 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
 #[tauri::command]
 fn kapatmayi_onayla(app: tauri::AppHandle) {
-    let _ = app.state::<SpeechManager>().stop();
-    app.state::<TerminalManager>().close_all();
-    let sessions = app.state::<SessionManager>();
-    sessions.stop_all();
-    app.exit(0);
+    shutdown_application_resources(&app);
+    if shutdown_plan(ShutdownScope::Application).exit_application {
+        app.exit(0);
+    }
+}
+
+#[derive(Clone, Copy)]
+enum ShutdownScope {
+    Talk,
+    Application,
+}
+
+struct ShutdownPlan {
+    stop_speech: bool,
+    stop_sessions: bool,
+    close_terminals: bool,
+    exit_application: bool,
+}
+
+fn shutdown_plan(scope: ShutdownScope) -> ShutdownPlan {
+    match scope {
+        ShutdownScope::Talk => ShutdownPlan {
+            stop_speech: true,
+            stop_sessions: false,
+            close_terminals: false,
+            exit_application: false,
+        },
+        ShutdownScope::Application => ShutdownPlan {
+            stop_speech: true,
+            stop_sessions: true,
+            close_terminals: true,
+            exit_application: true,
+        },
+    }
+}
+
+fn shutdown_application_resources(app: &tauri::AppHandle) {
+    let plan = shutdown_plan(ShutdownScope::Application);
+    if plan.stop_speech {
+        cleanup_for_scope(
+            SpeechCleanupScope::Application,
+            app.state::<SpeechManager>().inner(),
+        );
+    }
+    if plan.stop_sessions {
+        app.state::<SessionManager>().stop_all();
+    }
+    if plan.close_terminals {
+        app.state::<TerminalManager>().close_all();
+    }
+}
+
+fn shutdown_talk_resources(manager: &SpeechManager) {
+    let plan = shutdown_plan(ShutdownScope::Talk);
+    if plan.stop_speech {
+        cleanup_for_scope(SpeechCleanupScope::Talk, manager);
+    }
 }
 
 /// Konuşma tanımayı başlat.
@@ -415,7 +467,7 @@ async fn ses_penceresi_kapat(
 ) -> Result<(), String> {
     let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Close);
     if plan.stop_recognition {
-        manager.stop()?;
+        shutdown_talk_resources(manager.inner());
     }
     if plan.close_voice {
         if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
@@ -619,11 +671,16 @@ pub fn run() {
                 }
                 if window.label() == SES_PENCERESI {
                     let manager = window.state::<SpeechManager>();
-                    cleanup_for_window(window.label(), manager.inner());
+                    shutdown_talk_resources(manager.inner());
                     return;
                 }
                 let sessions = window.state::<SessionManager>();
                 sessions.stop_all();
+            } else if matches!(event, tauri::WindowEvent::Destroyed)
+                && window.label() == SES_PENCERESI
+            {
+                let manager = window.state::<SpeechManager>();
+                shutdown_talk_resources(manager.inner());
             }
         })
         .build(tauri::generate_context!())
@@ -633,8 +690,7 @@ pub fn run() {
             event,
             tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
         ) {
-            let _ = app.state::<SpeechManager>().stop();
-            app.state::<TerminalManager>().close_all();
+            shutdown_application_resources(app);
         }
     });
 }
@@ -725,5 +781,30 @@ mod voice_geometry_tests {
     fn speech_helper_resource_name_matches_each_packaged_platform() {
         assert_eq!(speech_helper_resource_name("macos"), "fusion-listen");
         assert_eq!(speech_helper_resource_name("windows"), "fusion-listen.exe");
+    }
+}
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    #[test]
+    fn talk_close_only_cleans_talk_resources() {
+        let plan = shutdown_plan(ShutdownScope::Talk);
+
+        assert!(plan.stop_speech);
+        assert!(!plan.stop_sessions);
+        assert!(!plan.close_terminals);
+        assert!(!plan.exit_application);
+    }
+
+    #[test]
+    fn application_shutdown_cleans_every_owned_resource_before_exit() {
+        let plan = shutdown_plan(ShutdownScope::Application);
+
+        assert!(plan.stop_speech);
+        assert!(plan.stop_sessions);
+        assert!(plan.close_terminals);
+        assert!(plan.exit_application);
     }
 }

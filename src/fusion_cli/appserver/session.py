@@ -728,9 +728,9 @@ class AppSession:
         return self.pending.resolve(reply.id, reply.data)
 
     async def close(self) -> None:
-        """Çalışan turu iptal et, bekleyen soruları serbest bırak."""
+        """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
-        await self._processes.close()
         voice_stop()
+        await self._processes.close()
         self.pending.cancel_all()
