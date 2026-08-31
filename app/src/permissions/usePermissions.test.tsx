@@ -50,6 +50,43 @@ describe("usePermissions", () => {
     expect(bridge.request).toHaveBeenCalledWith("microphone");
   });
 
+  it("farklı özelliklerin eşzamanlı ensure çağrılarını sırayla tamamlar", async () => {
+    const bridge = fakeBridge("granted");
+    const { result } = renderHook(() => usePermissions(bridge));
+    let workspace: Promise<boolean> | undefined;
+    let microphone: Promise<boolean> | undefined;
+
+    act(() => {
+      workspace = result.current.ensure("workspace");
+      microphone = result.current.ensure("microphone");
+    });
+    expect(result.current.activeKind).toBe("workspace");
+
+    await act(async () => result.current.continue());
+    await expect(workspace).resolves.toBe(true);
+    expect(result.current.activeKind).toBe("microphone");
+    expect(result.current.phase).toBe("preflight");
+
+    await act(async () => result.current.continue());
+    await expect(microphone).resolves.toBe(true);
+    expect(bridge.request).toHaveBeenNthCalledWith(1, "workspace");
+    expect(bridge.request).toHaveBeenNthCalledWith(2, "microphone");
+  });
+
+  it("saklanmış açıklamadan sonra native gerçeği sorgular, ret varsaymaz", async () => {
+    localStorage.setItem(EXPLANATION_SEEN_KEY, '{"speech":true}');
+    const bridge = fakeBridge("granted");
+    const { result } = renderHook(() => usePermissions(bridge));
+    let ensured: Promise<boolean> | undefined;
+
+    act(() => { ensured = result.current.ensure("speech"); });
+
+    expect(result.current.state.speech).toBe("unknown");
+    await waitFor(() => expect(bridge.request).toHaveBeenCalledWith("speech"));
+    await expect(ensured).resolves.toBe(true);
+    await waitFor(() => expect(result.current.state.speech).toBe("granted"));
+  });
+
   it("reddedilen izni görünür tutar ve yalnız açıklamanın görüldüğünü saklar", async () => {
     const bridge = fakeBridge("denied");
     const { result } = renderHook(() => usePermissions(bridge));
@@ -97,5 +134,20 @@ describe("usePermissions", () => {
     expect(result.current.activeKind).toBeNull();
     expect(bridge.request).toHaveBeenCalledTimes(2);
     expect(bridge.openSettings).toHaveBeenCalledWith("workspace");
+  });
+
+  it("köprü isteği hata verdiğinde bekleyeni reddedilmiş ve yeniden denenebilir durumda bırakır", async () => {
+    const bridge = fakeBridge();
+    bridge.request.mockRejectedValueOnce(new Error("TCC kullanılamıyor"));
+    const { result } = renderHook(() => usePermissions(bridge));
+    let ensured: Promise<boolean> | undefined;
+
+    act(() => { ensured = result.current.ensure("keychain"); });
+    await expect(act(async () => result.current.continue())).resolves.toBeUndefined();
+
+    await expect(ensured).resolves.toBe(false);
+    expect(result.current.state.keychain).toBe("denied");
+    expect(result.current.activeKind).toBe("keychain");
+    expect(result.current.phase).toBe("denied");
   });
 });

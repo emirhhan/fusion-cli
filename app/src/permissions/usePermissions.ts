@@ -45,43 +45,66 @@ export function usePermissions(
   const [state, setState] = useState<PermissionStates>(UNKNOWN_STATES);
   const [activeKind, setActiveKind] = useState<PermissionKind | null>(null);
   const [phase, setPhase] = useState<PermissionPromptPhase>("preflight");
+  const states = useRef<PermissionStates>(UNKNOWN_STATES);
   const explanations = useRef(readExplanationSeen(storage));
-  const pending = useRef<{
+  const pending = useRef(new Map<PermissionKind, {
     kind: PermissionKind;
     promise: Promise<boolean>;
     resolve: (granted: boolean) => void;
-  } | null>(null);
+  }>());
+  const queued = useRef<PermissionKind[]>([]);
+  const active = useRef<PermissionKind | null>(null);
+  const requestPermission = useRef<((kind: PermissionKind) => Promise<void>) | null>(null);
 
-  const resolvePending = useCallback((kind: PermissionKind, granted: boolean) => {
-    if (pending.current?.kind !== kind) return;
-    pending.current.resolve(granted);
-    pending.current = null;
+  const begin = useCallback((kind: PermissionKind) => {
+    active.current = kind;
+    setActiveKind(kind);
+    setPhase("preflight");
+    if (explanations.current[kind]) void requestPermission.current?.(kind);
   }, []);
 
   const ensure = useCallback((kind: PermissionKind): Promise<boolean> => {
-    if (state[kind] === "granted") return Promise.resolve(true);
-    if (pending.current?.kind === kind) return pending.current.promise;
+    if (states.current[kind] === "granted") return Promise.resolve(true);
+    const existing = pending.current.get(kind);
+    if (existing) return existing.promise;
 
     let resolve!: (granted: boolean) => void;
     const promise = new Promise<boolean>((next) => { resolve = next; });
-    pending.current = { kind, promise, resolve };
-    setActiveKind(kind);
-    setPhase(explanations.current[kind] ? state[kind] === "restricted" ? "restricted" : "denied" : "preflight");
+    pending.current.set(kind, { kind, promise, resolve });
+    if (active.current === null) begin(kind);
+    else queued.current.push(kind);
     return promise;
-  }, [state]);
+  }, [begin]);
 
   const request = useCallback(async (kind: PermissionKind) => {
-    const next = await bridge.request(kind);
-    setState((current) => ({ ...current, [kind]: next }));
-    if (next === "granted") {
-      setActiveKind(null);
-      resolvePending(kind, true);
+    let next: PermissionState;
+    try {
+      next = await bridge.request(kind);
+    } catch {
+      next = "denied";
+    }
+    states.current = { ...states.current, [kind]: next };
+    setState(states.current);
+    const waiting = pending.current.get(kind);
+    pending.current.delete(kind);
+    waiting?.resolve(next === "granted");
+
+    const following = queued.current.shift();
+    if (following) {
+      begin(following);
       return;
     }
+    if (next === "granted") {
+      active.current = null;
+      setActiveKind(null);
+      return;
+    }
+    active.current = kind;
     setActiveKind(kind);
     setPhase(next === "restricted" ? "restricted" : "denied");
-    resolvePending(kind, false);
-  }, [bridge, resolvePending]);
+  }, [begin, bridge]);
+
+  requestPermission.current = request;
 
   const continuePermission = useCallback(async () => {
     if (!activeKind) return;

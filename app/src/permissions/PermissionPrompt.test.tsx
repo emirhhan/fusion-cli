@@ -29,4 +29,26 @@ describe("PermissionPrompt", () => {
     expect(onRetry).toHaveBeenCalledOnce();
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
+
+  it("Tab odağını eylemlerinde döndürür ve kapanınca önceki odağı geri verir", () => {
+    const priorFocus = document.createElement("button");
+    document.body.append(priorFocus);
+    priorFocus.focus();
+
+    const { unmount } = render(
+      <PermissionPrompt kind="workspace" phase="denied" onContinue={vi.fn()} onOpenSettings={vi.fn()} onRetry={vi.fn()} />,
+    );
+    const retry = screen.getByRole("button", { name: "Yeniden dene" });
+    const settings = screen.getByRole("button", { name: "Sistem Ayarlarını Aç" });
+
+    retry.focus();
+    fireEvent.keyDown(retry, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(settings);
+    fireEvent.keyDown(settings, { key: "Tab" });
+    expect(document.activeElement).toBe(retry);
+
+    unmount();
+    expect(document.activeElement).toBe(priorFocus);
+    priorFocus.remove();
+  });
 });
