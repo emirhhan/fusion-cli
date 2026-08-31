@@ -17,7 +17,7 @@ use runtime_installer::RuntimeResources;
 use runtime_manager::{CommandHealthProbe, RuntimeManager, RuntimeStatus};
 use runtime_paths::RuntimePaths;
 use session_manager::{SessionManager, SessionSnapshot, VARSAYILAN_OTURUM};
-use speech::{cleanup_for_scope, start_recognition, SpeechCleanupScope, SpeechManager};
+use speech::{start_recognition, SpeechManager};
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use terminal::{TerminalManager, TerminalSnapshot};
 
@@ -352,62 +352,70 @@ fn ses_penceresi_ustte(app: tauri::AppHandle, ustte: bool) -> Result<(), String>
 /// Kapatma onaylandı: oturumları durdur ve uygulamadan çık.
 #[tauri::command]
 fn kapatmayi_onayla(app: tauri::AppHandle) {
-    shutdown_application_resources(&app);
-    if shutdown_plan(ShutdownScope::Application).exit_application {
-        app.exit(0);
-    }
+    cleanup_route(
+        ShutdownRoute::ConfirmedMainClose,
+        &AppCleanupOwners { app: &app },
+    );
+    app.exit(0);
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum ShutdownScope {
     Talk,
     Application,
 }
 
-struct ShutdownPlan {
-    stop_speech: bool,
-    stop_sessions: bool,
-    close_terminals: bool,
-    exit_application: bool,
+#[derive(Clone, Copy)]
+enum ShutdownRoute {
+    ConfirmedMainClose,
+    ExitRequested,
+    Exit,
+    TalkClose,
+    TalkDestroyed,
 }
 
-fn shutdown_plan(scope: ShutdownScope) -> ShutdownPlan {
-    match scope {
-        ShutdownScope::Talk => ShutdownPlan {
-            stop_speech: true,
-            stop_sessions: false,
-            close_terminals: false,
-            exit_application: false,
-        },
-        ShutdownScope::Application => ShutdownPlan {
-            stop_speech: true,
-            stop_sessions: true,
-            close_terminals: true,
-            exit_application: true,
-        },
+fn shutdown_scope_for_route(route: ShutdownRoute) -> ShutdownScope {
+    match route {
+        ShutdownRoute::ConfirmedMainClose | ShutdownRoute::ExitRequested | ShutdownRoute::Exit => {
+            ShutdownScope::Application
+        }
+        ShutdownRoute::TalkClose | ShutdownRoute::TalkDestroyed => ShutdownScope::Talk,
     }
 }
 
-fn shutdown_application_resources(app: &tauri::AppHandle) {
-    let plan = shutdown_plan(ShutdownScope::Application);
-    if plan.stop_speech {
-        cleanup_for_scope(
-            SpeechCleanupScope::Application,
-            app.state::<SpeechManager>().inner(),
-        );
-    }
-    if plan.stop_sessions {
-        app.state::<SessionManager>().stop_all();
-    }
-    if plan.close_terminals {
-        app.state::<TerminalManager>().close_all();
+trait CleanupOwners {
+    fn stop_speech(&self);
+    fn stop_sessions(&self);
+    fn close_terminals(&self);
+}
+
+fn cleanup_scope(scope: ShutdownScope, owners: &impl CleanupOwners) {
+    owners.stop_speech();
+    if matches!(scope, ShutdownScope::Application) {
+        owners.stop_sessions();
+        owners.close_terminals();
     }
 }
 
-fn shutdown_talk_resources(manager: &SpeechManager) {
-    let plan = shutdown_plan(ShutdownScope::Talk);
-    if plan.stop_speech {
-        cleanup_for_scope(SpeechCleanupScope::Talk, manager);
+fn cleanup_route(route: ShutdownRoute, owners: &impl CleanupOwners) {
+    cleanup_scope(shutdown_scope_for_route(route), owners);
+}
+
+struct AppCleanupOwners<'a> {
+    app: &'a tauri::AppHandle,
+}
+
+impl CleanupOwners for AppCleanupOwners<'_> {
+    fn stop_speech(&self) {
+        let _ = self.app.state::<SpeechManager>().stop();
+    }
+
+    fn stop_sessions(&self) {
+        self.app.state::<SessionManager>().stop_all();
+    }
+
+    fn close_terminals(&self) {
+        self.app.state::<TerminalManager>().close_all();
     }
 }
 
@@ -461,13 +469,10 @@ fn tanima_durum(manager: tauri::State<SpeechManager>) -> bool {
 
 /// Konuşma kipini kapat: konuşma penceresini gizle, ana pencereyi geri getir.
 #[tauri::command]
-async fn ses_penceresi_kapat(
-    app: tauri::AppHandle,
-    manager: tauri::State<'_, SpeechManager>,
-) -> Result<(), String> {
+async fn ses_penceresi_kapat(app: tauri::AppHandle) -> Result<(), String> {
     let plan = voice_window_lifecycle_plan(VoiceWindowLifecycle::Close);
     if plan.stop_recognition {
-        shutdown_talk_resources(manager.inner());
+        cleanup_route(ShutdownRoute::TalkClose, &AppCleanupOwners { app: &app });
     }
     if plan.close_voice {
         if let Some(ses) = app.get_webview_window(SES_PENCERESI) {
@@ -670,8 +675,12 @@ pub fn run() {
                     return;
                 }
                 if window.label() == SES_PENCERESI {
-                    let manager = window.state::<SpeechManager>();
-                    shutdown_talk_resources(manager.inner());
+                    cleanup_route(
+                        ShutdownRoute::TalkClose,
+                        &AppCleanupOwners {
+                            app: window.app_handle(),
+                        },
+                    );
                     return;
                 }
                 let sessions = window.state::<SessionManager>();
@@ -679,18 +688,24 @@ pub fn run() {
             } else if matches!(event, tauri::WindowEvent::Destroyed)
                 && window.label() == SES_PENCERESI
             {
-                let manager = window.state::<SpeechManager>();
-                shutdown_talk_resources(manager.inner());
+                cleanup_route(
+                    ShutdownRoute::TalkDestroyed,
+                    &AppCleanupOwners {
+                        app: window.app_handle(),
+                    },
+                );
             }
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
     app.run(|app, event| {
-        if matches!(
-            event,
-            tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
-        ) {
-            shutdown_application_resources(app);
+        let route = match event {
+            tauri::RunEvent::ExitRequested { .. } => Some(ShutdownRoute::ExitRequested),
+            tauri::RunEvent::Exit => Some(ShutdownRoute::Exit),
+            _ => None,
+        };
+        if let Some(route) = route {
+            cleanup_route(route, &AppCleanupOwners { app });
         }
     });
 }
@@ -789,22 +804,26 @@ mod shutdown_tests {
     use super::*;
 
     #[test]
-    fn talk_close_only_cleans_talk_resources() {
-        let plan = shutdown_plan(ShutdownScope::Talk);
-
-        assert!(plan.stop_speech);
-        assert!(!plan.stop_sessions);
-        assert!(!plan.close_terminals);
-        assert!(!plan.exit_application);
+    fn application_routes_map_to_full_cleanup() {
+        for route in [
+            ShutdownRoute::ConfirmedMainClose,
+            ShutdownRoute::ExitRequested,
+            ShutdownRoute::Exit,
+        ] {
+            assert!(matches!(
+                shutdown_scope_for_route(route),
+                ShutdownScope::Application
+            ));
+        }
     }
 
     #[test]
-    fn application_shutdown_cleans_every_owned_resource_before_exit() {
-        let plan = shutdown_plan(ShutdownScope::Application);
-
-        assert!(plan.stop_speech);
-        assert!(plan.stop_sessions);
-        assert!(plan.close_terminals);
-        assert!(plan.exit_application);
+    fn talk_routes_map_to_talk_only_cleanup() {
+        for route in [ShutdownRoute::TalkClose, ShutdownRoute::TalkDestroyed] {
+            assert!(matches!(
+                shutdown_scope_for_route(route),
+                ShutdownScope::Talk
+            ));
+        }
     }
 }
