@@ -13,6 +13,38 @@ beforeEach(() => {
 });
 
 describe("terminalBridge", () => {
+  it("eşzamanlı close çağrılarını tek terminal_kapat promise'ında birleştirir", async () => {
+    listen.mockResolvedValue(vi.fn());
+    let finishClose!: () => void;
+    invoke.mockImplementation((command: string) => {
+      if (command === "terminal_ac") {
+        return Promise.resolve({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+      }
+      if (command === "terminal_kapat") return new Promise<void>((resolve) => { finishClose = resolve; });
+      return Promise.resolve();
+    });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+
+    const first = session.close();
+    const second = session.close();
+    expect(invoke.mock.calls.filter(([command]) => command === "terminal_kapat")).toHaveLength(1);
+    finishClose();
+    await Promise.all([first, second]);
+  });
+
+  it("ikinci listener kurulamazsa daha önce kurulan listener'ı rollback eder", async () => {
+    const stopOutput = vi.fn();
+    listen
+      .mockResolvedValueOnce(stopOutput)
+      .mockRejectedValueOnce(new Error("closed listener kurulamadı"));
+
+    await expect(createTerminalRuntime().openSession("/repo", 80, 24))
+      .rejects.toThrow("closed listener kurulamadı");
+
+    expect(stopOutput).toHaveBeenCalledOnce();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("terminal_ac sırasında senkron gelen ilk çıktıyı listener-before-open buffer'ından teslim eder", async () => {
     const handlers = new Map<string, (event: { payload: unknown }) => void>();
     listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
@@ -32,6 +64,26 @@ describe("terminalBridge", () => {
 
     expect(output).toHaveBeenCalledWith(new Uint8Array([36, 32]));
     expect(listen.mock.invocationCallOrder[1]).toBeLessThan(invoke.mock.invocationCallOrder[0]);
+  });
+
+  it("retained transcript'i 256 KiB ile sınırlar ve yeni subscriber'a yalnız kuyruğun sonunu replay eder", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    listen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    invoke.mockResolvedValue({ terminalId: "terminal-1", cwd: "/repo", cols: 80, rows: 24, pid: 42 });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    for (let index = 0; index < 257; index += 1) {
+      const data = new Array<number>(1024).fill(index % 251);
+      handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-1", data } });
+    }
+    const replayed: Uint8Array[] = [];
+    session.onOutput((data) => replayed.push(data));
+
+    expect(replayed).toHaveLength(256);
+    expect(replayed[0][0]).toBe(1);
+    expect(replayed[255][0]).toBe(256 % 251);
   });
 
   it("terminal_ac sırasında senkron gelen hızlı kapanmayı buffer'lar ve close'u idempotent yapar", async () => {

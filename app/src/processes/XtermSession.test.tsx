@@ -1,7 +1,12 @@
 import { StrictMode } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TerminalSession } from "./terminalBridge";
+const { bridgeInvoke, bridgeListen } = vi.hoisted(() => ({ bridgeInvoke: vi.fn(), bridgeListen: vi.fn() }));
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: bridgeInvoke }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: bridgeListen }));
+
+import { createTerminalRuntime, type TerminalSession } from "./terminalBridge";
 
 vi.mock("@xterm/xterm", () => ({ Terminal: vi.fn() }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: vi.fn() }));
@@ -28,6 +33,29 @@ function setup() {
 }
 
 describe("XtermSession", () => {
+  it("handshake-buffered ilk prompt'u StrictMode ikinci fresh adapter'ına da replay eder", async () => {
+    const handlers = new Map<string, (event: { payload: unknown }) => void>();
+    bridgeListen.mockImplementation(async (name: string, handler: (event: { payload: unknown }) => void) => {
+      handlers.set(name, handler);
+      return vi.fn();
+    });
+    bridgeInvoke.mockImplementation(async (command: string) => {
+      if (command === "terminal_ac") {
+        handlers.get("terminal://cikti")?.({ payload: { terminalId: "terminal-fast", data: [36, 32] } });
+        return { terminalId: "terminal-fast", cwd: "/repo", cols: 80, rows: 24, pid: 42 };
+      }
+    });
+    const session = await createTerminalRuntime().openSession("/repo", 80, 24);
+    const adapters = [setup().adapter, setup().adapter];
+    const createAdapter = vi.fn(() => adapters.shift()!);
+
+    render(<StrictMode><XtermSession active createAdapter={createAdapter} session={session} /></StrictMode>);
+
+    await waitFor(() => expect(createAdapter).toHaveBeenCalledTimes(2));
+    expect(createAdapter.mock.results[0].value.write).toHaveBeenCalledWith("$ ");
+    expect(createAdapter.mock.results[1].value.write).toHaveBeenCalledWith("$ ");
+  });
+
   it("StrictMode çift effect döngüsünde fresh adapter ile input ve output'u sürdürür", async () => {
     const value = setup();
     const adapters = [setup().adapter, setup().adapter];
@@ -103,5 +131,15 @@ describe("XtermSession", () => {
     expect(value.adapter.clear).toHaveBeenCalledOnce();
     expect(writeText).toHaveBeenCalledWith("seçim");
     expect(view.getByRole("status").textContent).toContain("shell exited");
+  });
+
+  it("temizle yalnız mevcut xterm ekranını siler ve transcript'i kendiliğinden replay etmez", () => {
+    const value = setup();
+    const view = render(<XtermSession active adapter={value.adapter} session={value.session} />);
+    value.output([36, 32]);
+    expect(value.adapter.write).toHaveBeenCalledTimes(1);
+    fireEvent.click(view.getByRole("button", { name: "Terminali temizle" }));
+    expect(value.adapter.clear).toHaveBeenCalledOnce();
+    expect(value.adapter.write).toHaveBeenCalledTimes(1);
   });
 });

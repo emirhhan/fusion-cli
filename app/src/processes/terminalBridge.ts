@@ -31,6 +31,7 @@ export interface TerminalSession {
 
 interface OutputPayload { terminalId: string; data: number[] }
 interface ClosedPayload { terminalId: string; reason: string }
+const TRANSCRIPT_LIMIT_BYTES = 256 * 1024;
 
 export function createTerminalRuntime(): TerminalRuntime {
   const runtime: TerminalRuntime = {
@@ -47,9 +48,11 @@ export function createTerminalRuntime(): TerminalRuntime {
     openSession: async (cwd, cols, rows) => {
       let terminalId: string | undefined;
       let closedReason: string | undefined;
+      let closeFinished = false;
+      let closingPromise: Promise<void> | undefined;
       let disposed = false;
-      const outputBuffer: Uint8Array[] = [];
-      const closedBuffer: string[] = [];
+      const transcript: Uint8Array[] = [];
+      let transcriptBytes = 0;
       const outputHandlers = new Set<(data: Uint8Array) => void>();
       const closedHandlers = new Set<(reason: string) => void>();
       const pendingOutput: OutputPayload[] = [];
@@ -58,20 +61,34 @@ export function createTerminalRuntime(): TerminalRuntime {
         if (!terminalId) { pendingOutput.push(payload); return; }
         if (payload.terminalId !== terminalId) return;
         const data = Uint8Array.from(payload.data);
-        if (outputHandlers.size) outputHandlers.forEach((handler) => handler(data));
-        else outputBuffer.push(data);
+        transcript.push(data);
+        transcriptBytes += data.byteLength;
+        while (transcriptBytes > TRANSCRIPT_LIMIT_BYTES && transcript.length > 1) {
+          transcriptBytes -= transcript.shift()!.byteLength;
+        }
+        if (transcriptBytes > TRANSCRIPT_LIMIT_BYTES) {
+          const tail = transcript[0].slice(-TRANSCRIPT_LIMIT_BYTES);
+          transcript[0] = tail;
+          transcriptBytes = tail.byteLength;
+        }
+        outputHandlers.forEach((handler) => handler(data));
       };
       const routeClosed = (payload: ClosedPayload) => {
         if (!terminalId) { pendingClosed.push(payload); return; }
         if (payload.terminalId !== terminalId) return;
         closedReason = payload.reason;
-        if (closedHandlers.size) closedHandlers.forEach((handler) => handler(payload.reason));
-        else closedBuffer.push(payload.reason);
+        closedHandlers.forEach((handler) => handler(payload.reason));
       };
-      const [stopOutput, stopClosed] = await Promise.all([
-        listen<OutputPayload>("terminal://cikti", ({ payload }) => routeOutput(payload)),
-        listen<ClosedPayload>("terminal://kapandi", ({ payload }) => routeClosed(payload)),
-      ]);
+      let stopOutput: UnlistenFn | undefined;
+      let stopClosed: UnlistenFn | undefined;
+      try {
+        stopOutput = await listen<OutputPayload>("terminal://cikti", ({ payload }) => routeOutput(payload));
+        stopClosed = await listen<ClosedPayload>("terminal://kapandi", ({ payload }) => routeClosed(payload));
+      } catch (error) {
+        stopClosed?.();
+        stopOutput?.();
+        throw error;
+      }
       let snapshot: TerminalSnapshot;
       try {
         snapshot = await runtime.open(cwd, cols, rows);
@@ -87,23 +104,28 @@ export function createTerminalRuntime(): TerminalRuntime {
         snapshot,
         write: (data) => runtime.write(snapshot.terminalId, data),
         resize: (nextCols, nextRows) => runtime.resize(snapshot.terminalId, nextCols, nextRows),
-        close: async () => {
-          if (closedReason !== undefined) return;
-          try {
-            await runtime.close(snapshot.terminalId);
-          } catch (error) {
-            if (closedReason !== undefined) return;
-            throw error;
-          }
+        close: () => {
+          if (closedReason !== undefined || closeFinished) return Promise.resolve();
+          if (closingPromise) return closingPromise;
+          closingPromise = runtime.close(snapshot.terminalId)
+            .then(() => { closeFinished = true; })
+            .catch((error) => {
+              if (closedReason !== undefined) { closeFinished = true; return; }
+              throw error;
+            })
+            .finally(() => {
+              if (!closeFinished) closingPromise = undefined;
+            });
+          return closingPromise;
         },
         onOutput: (handler) => {
           outputHandlers.add(handler);
-          outputBuffer.splice(0).forEach((data) => handler(data));
+          transcript.forEach((data) => handler(data));
           return () => outputHandlers.delete(handler);
         },
         onClosed: (handler) => {
           closedHandlers.add(handler);
-          closedBuffer.splice(0).forEach((reason) => handler(reason));
+          if (closedReason !== undefined) handler(closedReason);
           return () => closedHandlers.delete(handler);
         },
         dispose: () => {

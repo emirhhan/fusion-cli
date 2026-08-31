@@ -49,3 +49,17 @@
 2. StrictMode testi dispose edilmiş adapter'ın yeniden kullanılmasını yakalayıp RED verdi; effect-mount başına fresh adapter sonrası 6/6 XtermSession testi GREEN oldu.
 3. Natural close/idempotent local remove ve multi-PTY owner unmount testleri eski owner modeliyle RED verdi; session sahipliği sonrası TerminalTabs testleri GREEN oldu.
 4. Deferred open sırasında unmount testi sahipsiz geç PTY'yi yakalayıp RED verdi; mounted-owner guard sonrası App + TerminalTabs 39/39 GREEN oldu.
+
+## Review fix round 2
+
+- Session output buffer'ı, ilk subscriber'ın tükettiği kuyruk yerine 256 KiB ile sınırlı retained transcript oldu. Her yeni subscriber kendi replay'ini alıyor; StrictMode'un ikinci fresh adapter'ı handshake sırasında gelen ilk prompt'u yeniden görüyor.
+- Clear yalnız mevcut xterm ekranını temizliyor. Subscription yenilenmediği için retained transcript Clear sonrasında kendiliğinden tekrar yazılmıyor.
+- `TerminalSession.close`, eşzamanlı çağrılar için tek shared closing promise/state kullanıyor. User close ile owner unmount yarışı tek `terminal_kapat` çağrısı üretiyor; bilinen doğal kapanma ve kapanma sırasında gelen not-found sonucu idempotent başarı.
+- Output ve closed listener kurulumları sıralı ve rollback güvenli. İkinci listener veya `terminal_ac` başarısızsa daha önce kurulmuş bütün listener'lar kaldırılıyor.
+
+### Round 2 TDD kanıtı
+
+1. Handshake prompt + StrictMode testi RED'de ikinci adapter için 0 write gördü; per-subscriber retained replay sonrası iki fresh adapter da prompt'u aldı.
+2. Eşzamanlı close testi RED'de 2 `terminal_kapat` gördü; shared close promise sonrası tam 1 çağrı gördü.
+3. Partial listener testi RED'de ilk unlisten için 0 çağrı gördü; sıralı install/rollback sonrası tam 1 çağrı gördü ve `terminal_ac` hiç çağrılmadı.
+4. Bounded transcript ve Clear davranışı ayrı regresyon testleriyle kilitlendi.
