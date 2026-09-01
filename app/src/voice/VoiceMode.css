@@ -8,14 +8,24 @@ body,
 }
 
 .voice-panel {
-  background: rgb(248 250 245 / 90%);
+  backdrop-filter: blur(24px) saturate(1.12);
+  background: rgb(248 250 245 / 92%);
   border: 0;
-  border-radius: 0;
-  box-shadow: none;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px rgb(25 33 25 / 10%);
+  box-sizing: border-box;
   color: #111512;
   display: grid;
   overflow: hidden;
   position: relative;
+}
+
+html[data-talk-surface="true"],
+body[data-talk-surface="true"],
+#root[data-talk-surface="true"] {
+  background: transparent !important;
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .voice-preview {
@@ -26,7 +36,8 @@ body,
 }
 
 :root[data-theme="dark"] .voice-panel {
-  background: rgb(18 21 18 / 90%);
+  background: rgb(18 21 18 / 92%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
   color: #f7f9f5;
 }
 
@@ -43,9 +54,13 @@ body,
   padding: 8px 10px;
 }
 
-.voice-panel__head { align-items: center; display: flex; min-width: 0; user-select: none; }
-.voice-panel__window-controls { display: flex; gap: 7px; }
-.voice-panel__title { font-size: 12px; margin-left: 10px; opacity: .72; }
+.voice-panel__head { align-items: center; display: grid; grid-template-columns: 66px minmax(0, 1fr) auto minmax(0, 1fr); min-width: 0; position: relative; user-select: none; }
+.voice-panel__window-controls { align-items: center; display: flex; gap: 8px; position: relative; z-index: 1; }
+.voice-panel__drag { align-self: stretch; min-width: 0; }
+.voice-panel__drag--left { grid-column: 2; }
+.voice-panel__drag--center { align-items: center; display: flex; justify-content: center; left: 50%; position: absolute; top: 0; transform: translateX(-50%); }
+.voice-panel__drag--right { grid-column: 3 / 5; }
+.voice-panel__title { font-size: 12px; opacity: .72; white-space: nowrap; }
 
 .voice-panel__size,
 .voice-panel__close,
@@ -55,21 +70,22 @@ body,
   background: transparent;
   border: 0;
   border-radius: 50%;
-  color: currentColor;
+  color: rgb(36 20 18 / 72%);
   display: inline-flex;
   font: inherit;
   justify-content: center;
-  height: 14px;
-  min-height: 14px;
-  min-width: 14px;
+  height: 12px;
+  min-height: 12px;
+  min-width: 12px;
   opacity: 1;
   padding: 0;
-  transition: background-color 160ms cubic-bezier(.4, 0, .2, 1), opacity 160ms cubic-bezier(.4, 0, .2, 1), transform 160ms cubic-bezier(.4, 0, .2, 1);
+  transition: filter 120ms ease, transform 120ms ease;
+  width: 12px;
 }
 .voice-panel__size:hover,
 .voice-panel__close:hover,
 .voice-panel__minimize:hover,
-.voice-panel__settings-toggle:hover { background: rgb(127 127 127 / 12%); opacity: 1; }
+.voice-panel__settings-toggle:hover { filter: brightness(.94); opacity: 1; }
 .voice-panel__size:active,
 .voice-panel__close:active,
 .voice-panel__minimize:active,
@@ -77,7 +93,21 @@ body,
 .voice-panel__close { background: #ff605c; color: #6a1412; }
 .voice-panel__minimize { background: #ffbd44; color: #704907; }
 .voice-panel__size { background: #00ca4e; color: #075b28; }
-.voice-panel__settings-toggle { border-radius: 10px; height: auto; min-height: 40px; min-width: 40px; padding: initial; }
+.voice-panel__traffic-glyph {
+  fill: none;
+  height: 8px;
+  opacity: 0;
+  pointer-events: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+  transition: opacity 100ms ease;
+  width: 8px;
+}
+.voice-panel__window-controls:hover .voice-panel__traffic-glyph,
+.voice-panel__window-controls button:focus-visible .voice-panel__traffic-glyph { opacity: 1; }
+.voice-panel__settings-toggle { border-radius: 10px; height: auto; min-height: 40px; min-width: 40px; padding: initial; width: auto; }
 .voice-panel__close:focus-visible,
 .voice-panel__minimize:focus-visible,
 .voice-panel__size:focus-visible,
@@ -172,8 +202,9 @@ body,
 }
 .voice-ask__buttons button:first-child { background: #477e18; }
 
-.voice-panel[data-mode="mini"] .voice-panel__head { display: contents; }
-.voice-panel[data-mode="mini"] .voice-panel__window-controls { align-self: center; grid-column: 4; grid-row: 1; }
+.voice-panel[data-mode="mini"] .voice-panel__head { inset: 0; pointer-events: none; position: absolute; }
+.voice-panel[data-mode="mini"] .voice-panel__window-controls { align-self: center; grid-column: 4; pointer-events: auto; }
+.voice-panel[data-mode="mini"] .voice-panel__drag { pointer-events: auto; }
 .voice-panel[data-mode="mini"] .voice-panel__title { display: none; }
 .voice-panel[data-mode="mini"] .voice-panel__stage { align-items: center; display: contents; }
 .voice-panel[data-mode="mini"] .fusion-avatar { align-self: center; grid-column: 1; grid-row: 1; }

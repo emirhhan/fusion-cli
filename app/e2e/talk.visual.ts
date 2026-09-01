@@ -14,17 +14,43 @@ for (const visual of cases) {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: visual.width, height: visual.height });
     await page.goto(`/e2e/preview.html?${visual.query}`);
-    await expect(page.getByRole("region", { name: "Fusion Talk" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Fusion Talk" })).toHaveCSS("border-radius", "0px");
-    await expect(page.getByRole("region", { name: "Fusion Talk" })).toHaveCSS("box-shadow", "none");
-    if (visual.query.includes("voiceMode=mini") && visual.query.includes("voice-listening")) {
-      const microphone = page.getByRole("button", { name: "Dinlemeyi durdur" });
-      await expect(microphone).toBeVisible();
-      const box = await microphone.boundingBox();
-      expect(box).not.toBeNull();
-      expect(box!.x).toBeGreaterThanOrEqual(0);
-      expect(box!.x + box!.width).toBeLessThanOrEqual(visual.width);
-    }
+    const panel = page.getByRole("region", { name: "Fusion Talk" });
+    await expect(panel).toBeVisible();
+    await expect(page.locator("body")).toHaveAttribute("data-talk-surface", "true");
+    await expect(panel).toHaveCSS("border-radius", "16px");
+    await expect(panel).toHaveCSS("overflow", "hidden");
+    const contract = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(".voice-panel")!;
+      const title = document.querySelector<HTMLElement>(".voice-panel__title");
+      const controls = [...document.querySelectorAll<HTMLElement>(".voice-panel__window-controls button")];
+      const interactive = [...document.querySelectorAll<HTMLElement>("button")];
+      const panelRect = panel.getBoundingClientRect();
+      const titleRect = title?.getBoundingClientRect() ?? null;
+      return {
+        bodyBackground: getComputedStyle(document.body).backgroundColor,
+        controls: controls.map((control) => {
+          const rect = control.getBoundingClientRect();
+          return { height: rect.height, width: rect.width };
+        }),
+        cornerIsPanel: document.elementFromPoint(0, 0) === panel,
+        interactiveInsideViewport: interactive.every((element) => {
+          const rect = element.getBoundingClientRect();
+          return rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight;
+        }),
+        panelRect: { height: panelRect.height, width: panelRect.width },
+        rootBackground: getComputedStyle(document.documentElement).backgroundColor,
+        titleCenterOffset: titleRect ? Math.abs(titleRect.left + titleRect.width / 2 - innerWidth / 2) : 0,
+      };
+    });
+    expect(contract.bodyBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(contract.rootBackground).toBe("rgba(0, 0, 0, 0)");
+    expect(contract.cornerIsPanel).toBe(false);
+    expect(contract.panelRect).toEqual({ width: visual.width, height: visual.height });
+    expect(contract.interactiveInsideViewport).toBe(true);
+    for (const control of contract.controls) expect(control).toEqual({ width: 12, height: 12 });
+    if (!visual.query.includes("voiceMode=mini")) expect(contract.titleCenterOffset).toBeLessThanOrEqual(1);
+    const microphone = page.getByRole("button", { name: /Dinlemeyi durdur|Konuşmaya başla/ });
+    await expect(microphone).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     await expect(page).toHaveScreenshot(`${visual.name}.png`, { fullPage: true });
   });

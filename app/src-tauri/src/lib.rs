@@ -287,7 +287,8 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
         .resizable(true)
         .always_on_top(true)
         .decorations(false)
-        .shadow(false)
+        .transparent(true)
+        .shadow(true)
         .center()
         .build()
         .map_err(|error| format!("konuşma penceresi açılamadı: {error}"))?;

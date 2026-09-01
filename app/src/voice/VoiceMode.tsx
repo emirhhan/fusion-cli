@@ -55,6 +55,16 @@ interface VoiceModeProps {
 
 const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
 
+function TrafficGlyph({ kind }: { kind: "close" | "minimize" | "size" }) {
+  return (
+    <svg aria-hidden="true" className="voice-panel__traffic-glyph" viewBox="0 0 8 8">
+      {kind === "close" && <path d="M1.4 1.4 6.6 6.6M6.6 1.4 1.4 6.6" />}
+      {kind === "minimize" && <path d="M1.2 4h5.6" />}
+      {kind === "size" && <path d="M1.25 3.25v-2h2M6.75 4.75v2h-2M3.25 1.25l-2 2M4.75 6.75l2-2" />}
+    </svg>
+  );
+}
+
 export function VoiceMode({
   ask = null,
   listening,
@@ -86,6 +96,18 @@ export function VoiceMode({
     if (!wide) setSettingsOpen(false);
   }, [wide]);
 
+  useEffect(() => {
+    const root = document.getElementById("root");
+    document.documentElement.dataset.talkSurface = "true";
+    document.body.dataset.talkSurface = "true";
+    if (root) root.dataset.talkSurface = "true";
+    return () => {
+      delete document.documentElement.dataset.talkSurface;
+      delete document.body.dataset.talkSurface;
+      if (root) delete root.dataset.talkSurface;
+    };
+  }, []);
+
   return (
     <section
       aria-label="Fusion Talk"
@@ -94,10 +116,10 @@ export function VoiceMode({
       data-state={state}
       role="region"
     >
-      <header className="voice-panel__head" data-tauri-drag-region>
+      <header className="voice-panel__head">
         <span aria-label="Pencere denetimleri" className="voice-panel__window-controls">
-          <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button">×</button>
-          <button aria-label="Pencereyi simge durumuna küçült" className="voice-panel__minimize" onClick={onMinimize} type="button">−</button>
+          <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button"><TrafficGlyph kind="close" /></button>
+          <button aria-label="Pencereyi simge durumuna küçült" className="voice-panel__minimize" onClick={onMinimize} type="button"><TrafficGlyph kind="minimize" /></button>
           {onWideChange && (
             <button
               aria-label={wide ? "Paneli küçült" : "Paneli büyüt"}
@@ -106,11 +128,15 @@ export function VoiceMode({
               onClick={() => onWideChange(!wide)}
               type="button"
             >
-              {wide ? "↙" : "↗"}
+              <TrafficGlyph kind="size" />
             </button>
           )}
         </span>
-        <strong className="voice-panel__title">Fusion Talk</strong>
+        <span className="voice-panel__drag voice-panel__drag--left" data-tauri-drag-region />
+        <span className="voice-panel__drag voice-panel__drag--center" data-tauri-drag-region>
+          <strong className="voice-panel__title" data-tauri-drag-region>Fusion Talk</strong>
+        </span>
+        <span className="voice-panel__drag voice-panel__drag--right" data-tauri-drag-region />
       </header>
 
       <div className="voice-panel__stage">

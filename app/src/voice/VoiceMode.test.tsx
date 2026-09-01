@@ -25,8 +25,16 @@ describe("VoiceMode", () => {
 
     const header = screen.getByRole("banner");
     const controls = screen.getByLabelText("Pencere denetimleri");
-    expect(header.getAttribute("data-tauri-drag-region")).toBe("true");
+    expect(header.hasAttribute("data-tauri-drag-region")).toBe(false);
     expect(controls.hasAttribute("data-tauri-drag-region")).toBe(false);
+    expect(Array.from(header.children).map((child) => child.className)).toEqual([
+      "voice-panel__window-controls",
+      "voice-panel__drag voice-panel__drag--left",
+      "voice-panel__drag voice-panel__drag--center",
+      "voice-panel__drag voice-panel__drag--right",
+    ]);
+    expect(header.querySelectorAll("[data-tauri-drag-region]")).toHaveLength(4);
+    expect(controls.querySelector("[data-tauri-drag-region]")).toBeNull();
     expect(screen.queryByTestId("right-side-window-actions")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Konuşma kipini kapat" }));
@@ -36,6 +44,22 @@ describe("VoiceMode", () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(onMinimize).toHaveBeenCalledOnce();
     expect(onWideChange).toHaveBeenCalledWith(false);
+  });
+
+  it("trafik ışıklarını macOS sırasıyla ve hover sırasında çizilecek sabit gliflerle sunar", () => {
+    render(
+      <VoiceMode listening={false} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="idle" wide />,
+    );
+
+    const controls = screen.getByLabelText("Pencere denetimleri");
+    expect(Array.from(controls.querySelectorAll("button")).map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Konuşma kipini kapat",
+      "Pencereyi simge durumuna küçült",
+      "Paneli küçült",
+    ]);
+    expect(controls.textContent).toBe("");
+    expect(controls.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(3);
+    expect(controls.querySelectorAll(".voice-panel__traffic-glyph")).toHaveLength(3);
   });
 
   it("mini kipte aynı mikrofon eylemi görünür ve kullanılabilir", () => {
