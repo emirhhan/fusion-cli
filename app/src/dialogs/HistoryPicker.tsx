@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { HistorySessionRef, HistorySourceName } from "../history/types";
+import { useEffect, useRef, useState } from "react";
+import type { HistorySearchMatch, HistorySessionRef, HistorySourceName } from "../history/types";
 import type { HistoryController } from "../history/useHistory";
 import { SourceIcon } from "../brand/SourceIcon";
 import { Button } from "../ui/Button";
 import { Icon } from "../ui/Icon";
 import "./HistoryPicker.css";
+
+/** Yazma ile arama arasındaki bekleme. Her tuşta kaynağı taramak yazmayı takar. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 const SOURCE_LABELS: Record<HistorySourceName, string> = {
   claude: "Claude",
@@ -61,13 +64,20 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, open]);
 
-  const sessions = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase("tr");
-    if (!normalized) return history.sessions;
-    return history.sessions.filter((session) =>
-      session.baslik.toLocaleLowerCase("tr").includes(normalized),
-    );
-  }, [history.sessions, query]);
+  // Arama çekirdeğe gider: seçicinin elindeki liste kaynağın yalnızca indirilmiş
+  // sayfalarıdır ve Claude oturumlarının çoğunda başlık kaydı yoktur — yerel
+  // başlık filtresi eski bir konuşmayı asla bulamazdı.
+  const { searchSessions } = history;
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(() => void searchSessions(query), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, query, searchSessions]);
+
+  const aramaAcik = history.searchQuery.trim().length > 0;
+  const sessions: (HistorySessionRef | HistorySearchMatch)[] = aramaAcik
+    ? history.searchResults
+    : history.sessions;
 
   if (!open) return null;
 
@@ -141,8 +151,15 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
             </label>
             <div className="history-picker__session-list">
               {!history.source && <p className="history-picker__empty">Önce bir kaynak seçin.</p>}
-              {history.source && sessions.length === 0 && !history.loading && (
-                <p className="history-picker__empty">Bu kaynakta gösterilecek konuşma bulunamadı.</p>
+              {history.searchPartial && history.searchNotice && (
+                <p className="history-picker__notice" role="status">{history.searchNotice}</p>
+              )}
+              {history.source && sessions.length === 0 && !history.loading && !history.searching && (
+                <p className="history-picker__empty">
+                  {aramaAcik
+                    ? `“${history.searchQuery}” ile eşleşen konuşma bulunamadı.`
+                    : "Bu kaynakta gösterilecek konuşma bulunamadı."}
+                </p>
               )}
               {sessions.map((session) => (
                 <button
@@ -154,13 +171,16 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
                   type="button"
                 >
                   <strong>{session.baslik}</strong>
+                  {"parca" in session && !session.baslikta && (
+                    <em className="history-picker__snippet">{session.parca}</em>
+                  )}
                   <span>
                     <time>{formatDate(session.guncellendi)}</time>
                     {session.tur_sayisi !== null && <span>{session.tur_sayisi} tur</span>}
                   </span>
                 </button>
               ))}
-              {history.sessionCursor !== null && (
+              {!aramaAcik && history.sessionCursor !== null && (
                 <Button loading={history.loading} onClick={() => void history.loadMoreSessions()}>
                   Daha fazla konuşma
                 </Button>

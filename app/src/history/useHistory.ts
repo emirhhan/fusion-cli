@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type {
+  HistorySearchMatch,
   HistorySessionRef,
   HistorySourceName,
   HistorySourceRef,
@@ -8,6 +9,15 @@ import type {
 } from "./types";
 
 const PAGE_SIZE = 30;
+
+/**
+ * Arama neden sunucuda?
+ *
+ * Seçicinin elindeki liste kaynağın tamamı değil, indirilmiş sayfalarıdır; yerel
+ * filtre eski bir konuşmayı hiçbir zaman göremez. Üstelik Claude oturumlarının
+ * çoğunda başlık kaydı yoktur ve başlık tarih/boyut yedeğine düşer — başlığa
+ * bakan bir arama pratikte hiçbir şey bulamaz. Bu yüzden sorgu çekirdeğe gider.
+ */
 
 function messageFrom(result: Record<string, unknown>, fallback: string): string {
   return typeof result.metin === "string" ? result.metin : fallback;
@@ -23,6 +33,19 @@ export function useHistory(client: ProtocolClient | null) {
   const [turnCursor, setTurnCursor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<HistorySearchMatch[]>([]);
+  const [searchPartial, setSearchPartial] = useState(false);
+  const [searchNotice, setSearchNotice] = useState("");
+  const [searching, setSearching] = useState(false);
+
+  const resetSearch = useCallback(() => {
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchPartial(false);
+    setSearchNotice("");
+    setSearching(false);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -35,6 +58,7 @@ export function useHistory(client: ProtocolClient | null) {
     setTurnCursor(null);
     setError(null);
     setLoading(false);
+    resetSearch();
     if (!client) return;
     void client
       .request("gecmis.kaynaklar", {})
@@ -51,7 +75,38 @@ export function useHistory(client: ProtocolClient | null) {
     return () => {
       active = false;
     };
-  }, [client]);
+  }, [client, resetSearch]);
+
+  const searchSessions = useCallback(
+    async (query: string) => {
+      const trimmed = query.trim();
+      if (!client || !source) return;
+      if (!trimmed) {
+        resetSearch();
+        return;
+      }
+      setSearchQuery(trimmed);
+      setSearching(true);
+      setError(null);
+      try {
+        const result = await client.request("gecmis.ara", { kaynak: source, sorgu: trimmed });
+        if (result.ok !== true || !Array.isArray(result.oturumlar)) {
+          throw new Error(messageFrom(result, "Konuşmalarda arama yapılamadı."));
+        }
+        setSearchResults(result.oturumlar as HistorySearchMatch[]);
+        setSearchPartial(result.kismi === true);
+        setSearchNotice(typeof result.metin === "string" ? result.metin : "");
+      } catch (reason) {
+        setSearchResults([]);
+        setSearchPartial(false);
+        setSearchNotice("");
+        setError(String(reason));
+      } finally {
+        setSearching(false);
+      }
+    },
+    [client, resetSearch, source],
+  );
 
   const openSource = useCallback(
     async (name: HistorySourceName) => {
@@ -64,6 +119,7 @@ export function useHistory(client: ProtocolClient | null) {
       setSelected(null);
       setTurns([]);
       setTurnCursor(null);
+      resetSearch();
       try {
         const result = await client.request("gecmis.oturumlar", {
           kaynak: name,
@@ -81,7 +137,7 @@ export function useHistory(client: ProtocolClient | null) {
         setLoading(false);
       }
     },
-    [client],
+    [client, resetSearch],
   );
 
   const loadMoreSessions = useCallback(async () => {
@@ -170,6 +226,12 @@ export function useHistory(client: ProtocolClient | null) {
     sessions,
     source,
     sources,
+    searchNotice,
+    searchPartial,
+    searchQuery,
+    searchResults,
+    searchSessions,
+    searching,
     turnCursor,
     turns,
   };

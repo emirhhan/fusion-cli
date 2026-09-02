@@ -66,3 +66,42 @@ CrossOver/Mono ortamı gerektiriyor.
   across appserver history, memory-store, runtime-bundle, and TUI tests.
 - A post-fix full-suite rerun was intentionally not performed after the requested
   stop; the saved pre-fix telemetry run remains the source for the 2-failure count.
+
+## 2026-09-02 geçmiş araması ve ağ kapısı
+
+### Kabuldeki `game` blocker'ının kök nedeni
+
+Kabul raporundaki "eski `game` konuşması bulunamadı" maddesi veri kaybı DEĞİLDİ;
+üç ayrı eksik üst üste binmişti:
+
+1. Seçicinin arama kutusu istemci tarafındaydı ve yalnızca o ana kadar İNDİRİLMİŞ
+   sayfalarda çalışıyordu (`HistoryPicker.tsx`, `useHistory.ts` `PAGE_SIZE = 30`).
+   Kullanıcı "daha fazla" düğmesine basmadıysa eski oturum kapsamda hiç değildi.
+2. Filtre yalnızca `session.baslik` içinde arıyordu, konuşma içeriğinde değil.
+3. Bu makinedeki Claude deposundaki 30 oturumun HİÇBİRİNDE `ai-title` kaydı yok;
+   hepsi `claude_source.py` içindeki `first_user`/`fallback_title` yedeğine düşüyor.
+   Yani başlığa dayalı arama pratikte hiçbir zaman tutmuyordu.
+
+`game` kelimesi gerçekten depoda duruyor; seçici onu bulamıyordu.
+
+### Düzeltme
+
+- Yeni `history/search.py`: kaynağın tamamında sınırlı içerik araması. Önce başlık
+  (dosya açmadan), tutmazsa oturum içeriği sayfa sayfa. Türkçe `I/ı` — `İ/i`
+  ayrımı korunur; arayüzün `toLocaleLowerCase("tr")` davranışıyla eşleşir.
+- Sınırlar `tools/search.py` sözleşmesiyle aynı: 200 oturum, oturum başına 200 tur,
+  3 sn kooperatif süre bütçesi, 30 sonuç. Kesilen tarama `partial` + neden ile
+  bildirilir; sessizce "sonuç yok" görünmez.
+- Parça (`snippet`) kesilmeden ÖNCE redaksiyondan geçer; yarısı kırpılmış bir
+  anahtar desene uymadığı için maskesiz kalamaz.
+- Yeni protokol komutu `gecmis.ara`; `asyncio.to_thread` üzerinde çalışır.
+- Arayüz yerel filtreyi bıraktı: 250 ms debounce ile çekirdeğe sorar, eşleşmenin
+  geçtiği parçayı gösterir, kısmi taramayı ve aramaya özgü boş durumu bildirir.
+
+### Ağ bağımlı paketleme testi
+
+`test_temiz_wheel_ortaminda_cli_calisir`, temiz sanal ortama gerçek bağımlılıkları
+kurduğu için ağ ister ve `pypi.org` erişilemediğinde tam suite'te ürün hatası gibi
+görünüyordu. RULES.md "Testler ağ erişimi yapmaz" kuralı burada CrossOver'daki
+aynı desenle bir yetenek kapısına çevrildi: ağ yoksa test açık nedenle ATLANIR,
+`FUSION_SKIP_NETWORK_TESTS=1` ile kapatılabilir, ağ varken gerçekten çalışır.

@@ -16,6 +16,14 @@ export interface HistorySessionRef {
   boyut: number;
 }
 
+/** Arama sonucu: künyenin üstüne eşleşmenin nerede bulunduğu ve kanıtı. */
+export interface HistorySearchMatch extends HistorySessionRef {
+  /** Eşleşme başlıkta mı bulundu? Değilse konuşma içeriğinde bulunmuştur. */
+  baslikta: boolean;
+  /** Eşleşmenin geçtiği yerin maskelenmiş, kısaltılmış parçası. */
+  parca: string;
+}
+
 export interface HistoryTurn {
   rol: "user" | "assistant" | "system" | "tool";
   metin: string;

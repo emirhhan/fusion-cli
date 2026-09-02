@@ -18,6 +18,12 @@ function controller(overrides: Partial<HistoryController> = {}): HistoryControll
     sessions: [],
     source: null,
     sources: [{ ad: "claude", komut: "/resumeclaude" }],
+    searchNotice: "",
+    searchPartial: false,
+    searchQuery: "",
+    searchResults: [],
+    searchSessions: vi.fn(async () => undefined),
+    searching: false,
     turnCursor: null,
     turns: [],
     ...overrides,
@@ -73,5 +79,59 @@ describe("HistoryPicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Bu konuşmayı devral" }));
     await waitFor(() => expect(onResume).toHaveBeenCalledWith(session));
     expect(await screen.findByText(/2 hassas değer/i)).toBeTruthy();
+  });
+
+  it("arama kutusu çekirdeğe sorar; yerelde filtrelemez", async () => {
+    const history = controller({ source: "claude" });
+    render(<HistoryPicker history={history} onClose={vi.fn()} onResume={vi.fn()} open />);
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Geçmiş konuşmalarda ara" }), {
+      target: { value: "game" },
+    });
+
+    await waitFor(() => expect(history.searchSessions).toHaveBeenCalledWith("game"));
+  });
+
+  it("arama sonucunda eşleşmenin geçtiği parçayı gösterir", () => {
+    const history = controller({
+      source: "claude",
+      searchQuery: "game",
+      searchResults: [
+        {
+          kaynak: "claude" as const,
+          oturum_id: "eski",
+          baslik: "2026-01-01 · 40 bayt",
+          guncellendi: 100,
+          tur_sayisi: 4,
+          boyut: 40,
+          baslikta: false,
+          parca: "…tabii, game loop kuruyorum",
+        },
+      ],
+    });
+    render(<HistoryPicker history={history} onClose={vi.fn()} onResume={vi.fn()} open />);
+
+    expect(screen.getByText("…tabii, game loop kuruyorum")).toBeTruthy();
+    expect(screen.queryByText("Bu kaynakta gösterilecek konuşma bulunamadı.")).toBeNull();
+  });
+
+  it("kesilen aramayı bildirir; sessizce sonuç yok demez", () => {
+    const history = controller({
+      source: "claude",
+      searchQuery: "game",
+      searchResults: [],
+      searchPartial: true,
+      searchNotice: "Arama süre bütçesi doldu; tarama yarıda kesildi.",
+    });
+    render(<HistoryPicker history={history} onClose={vi.fn()} onResume={vi.fn()} open />);
+
+    expect(screen.getByText("Arama süre bütçesi doldu; tarama yarıda kesildi.")).toBeTruthy();
+  });
+
+  it("arama sonucu boşsa aramaya özgü mesaj gösterir", () => {
+    const history = controller({ source: "claude", searchQuery: "yokböylesi", searchResults: [] });
+    render(<HistoryPicker history={history} onClose={vi.fn()} onResume={vi.fn()} open />);
+
+    expect(screen.getByText("“yokböylesi” ile eşleşen konuşma bulunamadı.")).toBeTruthy();
   });
 });

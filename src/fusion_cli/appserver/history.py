@@ -14,10 +14,17 @@ from ..core.types import Message
 from ..history import available_sources, build_digest, source_by_name
 from ..history.models import HistorySource, SessionRef, Turn
 from ..history.sanitize import sanitize_title, sanitize_turns
+from ..history.search import SessionMatch
+from ..history.search import search_sessions as _search_sessions
 
 DEFAULT_LIMIT = 30
 MAX_LIMIT = 100
 MAX_CURSOR = 10_000
+
+#: Arama sonucu tek sayfada döner; seçici bunu ayrıca sayfalamaz.
+SEARCH_LIMIT = 30
+
+_EMPTY_QUERY = "Arama için en az bir karakter yazın."
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +58,31 @@ def list_sessions(home: Path, root: Path, data: dict[str, Any]) -> dict[str, Any
         "oturumlar": [_serialize_ref(ref) for ref in page],
         "next_cursor": cursor + len(page) if has_more else None,
         "has_more": has_more,
+    }
+
+
+def search_sessions(home: Path, root: Path, data: dict[str, Any]) -> dict[str, Any]:
+    """Kaynağın TAMAMINDA ara; seçicinin elindeki sayfada değil.
+
+    `list_sessions` ile aynı künye şemasını döndürür, üstüne eşleşmenin nerede
+    bulunduğunu (`baslikta`) ve maskelenmiş kanıtını (`parca`) ekler. Tarama
+    sınıra takılırsa `kismi` ile bildirilir; kesilmiş bir arama sessizce
+    "sonuç yok" gibi görünmemelidir.
+    """
+    source = _source(home, data)
+    if source is None:
+        return _missing_source(data)
+    query = data.get("sorgu")
+    if not isinstance(query, str) or not query.strip():
+        return {"ok": False, "metin": _EMPTY_QUERY}
+    sonuc = _search_sessions(source, query, root, limit=SEARCH_LIMIT)
+    return {
+        "ok": True,
+        "kaynak": source.name,
+        "oturumlar": [_serialize_match(match) for match in sonuc.matches],
+        "taranan": sonuc.scanned,
+        "kismi": sonuc.partial,
+        "metin": sonuc.reason,
     }
 
 
@@ -143,6 +175,11 @@ def _serialize_ref(ref: SessionRef) -> dict[str, Any]:
         "tur_sayisi": ref.turn_count,
         "boyut": ref.size_bytes,
     }
+
+
+def _serialize_match(match: SessionMatch) -> dict[str, Any]:
+    """Künye + eşleşme kanıtı. Parça `search` içinde zaten maskelenmiştir."""
+    return {**_serialize_ref(match.ref), "baslikta": match.in_title, "parca": match.snippet}
 
 
 def _serialize_turn(turn: Turn) -> dict[str, Any]:

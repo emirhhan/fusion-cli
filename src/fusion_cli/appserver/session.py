@@ -56,7 +56,14 @@ from .control import (
     web_login_state,
     web_provider_cards,
 )
-from .history import PreparedResume, list_sessions, list_sources, prepare_resume, preview_session
+from .history import (
+    PreparedResume,
+    list_sessions,
+    list_sources,
+    prepare_resume,
+    preview_session,
+    search_sessions,
+)
 from .instructions import get_instructions, instruction_block, save_instructions
 from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
@@ -274,6 +281,10 @@ class AppSession:
             return list_sources(self._home)
         if request.name == "gecmis.oturumlar":
             return list_sessions(self._home, self._state.root, request.data)
+        if request.name == "gecmis.ara":
+            return await asyncio.to_thread(
+                search_sessions, self._home, self._state.root, request.data
+            )
         if request.name == "gecmis.onizle":
             return preview_session(self._home, request.data)
         if request.name == "gecmis.surdur":
@@ -440,9 +451,7 @@ class AppSession:
             self._state.history = load_transcript_messages(
                 self._state.config.memory_dir, self._root
             )
-            self._transcript_store = TranscriptStore(
-                self._state.config.memory_dir, self._root
-            )
+            self._transcript_store = TranscriptStore(self._state.config.memory_dir, self._root)
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)

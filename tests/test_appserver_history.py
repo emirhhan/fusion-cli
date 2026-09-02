@@ -169,3 +169,71 @@ async def test_kurulu_olmayan_kaynak_anlasilir_hata_doner(tmp_path, monkeypatch)
     result = _result(lines, "5")
     assert result["ok"] is False
     assert "bulunamadı" in result["metin"]
+
+
+async def test_gecmis_ara_baslikta_olmayan_kelimeyi_icerikte_bulur(tmp_path, monkeypatch):
+    """Seçicinin arama kutusu kaynağın TAMAMINA sorar, yüklenmiş sayfaya değil."""
+    source = _FakeSource()
+    _patch_source(monkeypatch, source)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(Request("a1", "gecmis.ara", {"kaynak": "claude", "sorgu": "oyun"}))
+
+    veri = _result(lines, "a1")
+    assert veri["ok"] is True
+    assert [o["oturum_id"] for o in veri["oturumlar"]] == ["s1", "s2"]
+    assert veri["kismi"] is False
+    assert all("parca" in o for o in veri["oturumlar"])
+
+
+async def test_gecmis_ara_baslikta_gecmeyen_kelime_icin_okuma_yapar(tmp_path, monkeypatch):
+    """`oyun` hiçbir başlıkta yok; eşleşme yalnızca içerik okunursa bulunabilir."""
+    source = _FakeSource()
+    _patch_source(monkeypatch, source)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(Request("a5", "gecmis.ara", {"kaynak": "claude", "sorgu": "oyun"}))
+
+    veri = _result(lines, "a5")
+    assert veri["oturumlar"]
+    assert all(o["baslikta"] is False for o in veri["oturumlar"])
+
+
+async def test_gecmis_ara_snippet_sirlari_maskeler(tmp_path, monkeypatch):
+    source = _FakeSource()
+    _patch_source(monkeypatch, source)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(
+        Request("a2", "gecmis.ara", {"kaynak": "claude", "sorgu": "OPENAI_API_KEY"})
+    )
+
+    veri = _result(lines, "a2")
+    assert veri["oturumlar"]
+    for oturum in veri["oturumlar"]:
+        assert "12345678901234567890" not in oturum["parca"]
+
+
+async def test_gecmis_ara_bos_sorguda_hata_dondurur(tmp_path, monkeypatch):
+    _patch_source(monkeypatch, _FakeSource())
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(Request("a3", "gecmis.ara", {"kaynak": "claude", "sorgu": "  "}))
+
+    veri = _result(lines, "a3")
+    assert veri["ok"] is False
+    assert veri["metin"]
+
+
+async def test_gecmis_ara_kurulu_olmayan_kaynakta_hata_dondurur(tmp_path, monkeypatch):
+    _patch_source(monkeypatch, _FakeSource())
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(Request("a4", "gecmis.ara", {"kaynak": "yok", "sorgu": "oyun"}))
+
+    assert _result(lines, "a4")["ok"] is False

@@ -11,6 +11,7 @@ onu kapsayan bir package-data girdisi olmalı.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from pathlib import Path
 
@@ -21,6 +22,9 @@ _SRC = _KOK / "src" / "fusion_cli"
 #: Pakete girmesi gerekmeyen dosyalar (derleme çıktısı ve işletim sistemi çöpü).
 _YOKSAY = {".pyc", ".pyo"}
 _YOKSAY_AD = {".DS_Store"}
+#: PyPI erişim yoklaması için bekleme. Kısa tutulur: burada amaç indirme değil,
+#: ağın var olup olmadığını hızlıca anlamaktır.
+_PYPI_PROBE_TIMEOUT_S = 5.0
 
 
 def _veri_dosyalari() -> list[Path]:
@@ -151,6 +155,27 @@ def test_macos_kurulumu_cli_ve_python_onkosulu_istemez():
 # --- Wheel smoke testi ------------------------------------------------------- #
 
 
+def _pypi_capability() -> tuple[bool, str]:
+    """Bu makine wheel bağımlılıklarını indirebiliyor mu?
+
+    Wheel smoke testi kaçınılmaz olarak ağ ister: temiz bir sanal ortama gerçek
+    bağımlılıkları kurmadan "wheel'den kurulan sürüm çalışıyor" denemez. RULES.md
+    "Testler ağ erişimi yapmaz" kuralı bu yüzden burada bir YETENEK KAPISINA
+    çevrilir: ağ yoksa test ATLANIR, ağ hatasını ürün regresyonu gibi RAPORLAMAZ.
+    Kapı `FUSION_SKIP_NETWORK_TESTS=1` ile kapatılabilir; CI'da ağ olduğu için
+    test orada gerçekten çalışmaya devam eder.
+    """
+    import socket
+
+    if os.environ.get("FUSION_SKIP_NETWORK_TESTS") == "1":
+        return False, "ağ testleri FUSION_SKIP_NETWORK_TESTS ile kapatıldı"
+    try:
+        with socket.create_connection(("pypi.org", 443), timeout=_PYPI_PROBE_TIMEOUT_S):
+            return True, ""
+    except OSError as hata:
+        return False, f"pypi.org erişilemiyor: {hata}"
+
+
 @pytest.mark.slow
 def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
     """Wheel'den kurulan sürüm ilk komutta çalışmalı.
@@ -163,6 +188,10 @@ def test_temiz_wheel_ortaminda_cli_calisir(tmp_path):
     import sys
     import venv
     from pathlib import Path
+
+    yeterli, neden = _pypi_capability()
+    if not yeterli:
+        pytest.skip(neden)
 
     kok = Path(__file__).resolve().parents[1]
     tekerlek_dizini = tmp_path / "wheel"
