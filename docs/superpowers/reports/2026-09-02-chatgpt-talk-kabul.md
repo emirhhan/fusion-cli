@@ -105,3 +105,64 @@ kurduğu için ağ ister ve `pypi.org` erişilemediğinde tam suite'te ürün ha
 görünüyordu. RULES.md "Testler ağ erişimi yapmaz" kuralı burada CrossOver'daki
 aynı desenle bir yetenek kapısına çevrildi: ağ yoksa test açık nedenle ATLANIR,
 `FUSION_SKIP_NETWORK_TESTS=1` ile kapatılabilir, ağ varken gerçekten çalışır.
+
+## 2026-09-02 paketli teslim turu
+
+HEAD: `77156e7`
+
+### Kapılar
+
+| Kapı | Sonuç |
+|------|-------|
+| Tam Python suite | **2740 collected / 2736 passed / 4 skipped / 0 failed** |
+| `ruff check` (src, tests, evals, prompt_opt, desktop_build) | PASS |
+| `mypy` | PASS, 257 kaynak dosya |
+| `npm test` | 65 dosya, **441/441** PASS |
+| `npm run build` | PASS (mevcut chunk-size uyarısı sürüyor) |
+| `npm run test:visual` | **58 passed / 14 skipped**, önceki taban çizgisiyle aynı |
+| `cargo fmt --check` + `clippy -D warnings` + `cargo test` | PASS, **71 passed / 0 failed / 3 ignored** |
+
+Tam Python suite bu depoda ilk kez 0 failure ile tamamlandı. Önceki turdaki iki
+host-isolation hatası (Swift SIGTERM, TUI) Chroma client kapatma düzeltmesinden
+sonra tekrarlamadı; kalan tek hata olan wheel smoke testi ise ağ kapısına bağlandı
+ve ağ döndüğünde gerçekten çalıştığı ayrıca doğrulandı.
+
+### Paket
+
+- `npm run bundle:mac`: PASS. Taze Swift dinleme yardımcısı, runtime arşivi ve
+  smoke, Tauri release derlemesi, `Fusion.app` ve DMG üretildi.
+- Kararlı imza: PASS. App, DMG payload'ı ve kurulu app için deep/strict doğrulama
+  geçti; designated requirement tam olarak `identifier "com.fusion.desktop"`.
+- Kurulum: PASS. `/Applications/Fusion.app` bu HEAD'den yeniden kuruldu ve
+  kurulu hâli ayrıca deep/strict + stable identity ile doğrulandı.
+- Notarize edilmemiştir; paket ad-hoc doğrudan indirme içindir.
+- DMG: `app/src-tauri/target/release/bundle/dmg/Fusion_0.3.0-alpha.8_aarch64.dmg`
+- SHA-256: `7be8f8979e1205a6c27b7e7cd515726f005f462234ed289be01878a8ed8208fa`
+
+### Kabul: eski `game` konuşması — **PASS**
+
+Kaynak koda değil PAKETE soruldu. `/Applications/Fusion.app` içindeki runtime
+arşivi çıkarılıp gerçek `app` stdio protokolü üzerinden sürüldü:
+
+- `gecmis.kaynaklar` → claude, codex, hermes.
+- `gecmis.ara {"kaynak":"claude","sorgu":"game"}` → **4 eşleşme / 29 taranan / kısmi=False**
+- `gecmis.ara {"kaynak":"codex","sorgu":"game"}` → **1 eşleşme / 85 taranan / kısmi=False**
+
+Eşleşmelerin tamamı `baslikta=false`, yani yalnızca içerik araması sayesinde
+bulundular — eski davranışta hiçbiri görünemezdi. Bu, önceki kabul raporundaki
+"eski `game` konuşması BLOCKED" maddesini kapatır.
+
+Test süreci sonlandırıldı; koşudan artakalan Fusion child process'i kalmadı.
+
+### Hâlâ açık — insan doğrulaması bekliyor
+
+1. **Fiziksel mikrofonla Talk kabulü.** `say` ile hoparlörden verilen ses
+   mikrofona geri dönmediği için transcript üretmiyor. Türkçe konuşma metni,
+   confidence, speech duration, sessizlik davranışı ve barge-in gecikmesi
+   kullanıcı gerçekten konuşmadan ölçülemez.
+2. **Pointer displacement.** Normal ve mini Talk penceresinde native drag denendi;
+   erişilebilirlik ağacı stabil kaldı ama pencere yer değiştirmesi bu otomasyon
+   koşulunda kanıtlanamadı.
+
+Bu ikisi kapanmadan DMG `dagitim/` içine kopyalanmadı ve "doğrulanmış sürüm"
+olarak sunulmuyor.
