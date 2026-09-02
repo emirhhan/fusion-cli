@@ -12,6 +12,7 @@ function fakeTransport(
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;
   let closedHandler: ((event: SessionClosedEvent) => void) | null = null;
   const sent: { id: string; line: string }[] = [];
+  const basladi: { oturum: string; sohbet: string }[] = [];
   const unlistenLine = vi.fn();
   const unlistenClosed = vi.fn();
   const transport: SessionTransport = {
@@ -23,7 +24,15 @@ function fakeTransport(
       kapanis_nedeni: null,
     })),
     send: vi.fn(async (id, line) => {
-      const request = JSON.parse(line) as { id: string; ad: string };
+      const request = JSON.parse(line) as { id: string; ad: string; veri?: Record<string, unknown> };
+      if (request.ad === "oturum.baslat") {
+        basladi.push({ oturum: id, sohbet: String(request.veri?.sohbet_id ?? "") });
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true } }),
+        }));
+        return;
+      }
       if (request.ad === "oturum.gecmis") {
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
@@ -51,6 +60,7 @@ function fakeTransport(
   return {
     transport,
     sent,
+    basladi,
     emitLine: (event: SessionLineEvent) => lineHandler?.(event),
     emitResult: (sessionId: string, requestId: string, veri: Record<string, unknown>) => lineHandler?.({
       oturum_id: sessionId,
@@ -298,5 +308,27 @@ describe("useSessions", () => {
       metin: "Model bulunamadı.",
     });
     expect(result.current.activeSession?.messages.at(-1)?.metin).not.toBe("Komut tamamlandı.");
+  });
+  it("her sekmeyi kendi sohbet kimliğiyle çekirdeğe tanıtır", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    await act(async () => {
+      await result.current.create({ id: "ikinci" });
+    });
+
+    await waitFor(() => expect(fake.basladi).toHaveLength(2));
+    expect(fake.basladi.map((k) => k.sohbet)).toEqual(["varsayilan", "ikinci"]);
+  });
+
+  it("ilk mesajdan kısa başlık üretir, tüm mesajı kesmez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    act(() => result.current.send("varsayilan", "bana bir tarayıcı oyunu yaz lütfen"));
+
+    expect(result.current.state.sessions.varsayilan.title).toBe("bana bir tarayıcı oyunu");
   });
 });

@@ -71,9 +71,7 @@ async def test_canli_fusion_gecmisi_de_sirli_mesaji_redakte_eder(tmp_path):
     assert "normal oyun geçmişi" in metin
 
 
-async def test_yerel_fusion_gecmisi_ayni_proje_icin_devam_baglamina_yuklenir(
-    tmp_path, monkeypatch
-):
+async def test_yerel_fusion_gecmisi_ayni_proje_icin_devam_baglamina_yuklenir(tmp_path, monkeypatch):
     from fusion_cli.config.loader import load_config
 
     project = tmp_path / "game"
@@ -137,9 +135,7 @@ async def test_yerel_gecmis_yuklenirken_sirlar_maskelenir(tmp_path, monkeypatch)
     assert oturum._state.history[0].content == "[gizlendi]"
 
 
-async def test_masaustu_turu_ayni_projenin_fusion_gecmisine_kalici_eklenir(
-    tmp_path, monkeypatch
-):
+async def test_masaustu_turu_ayni_projenin_fusion_gecmisine_kalici_eklenir(tmp_path, monkeypatch):
     from fusion_cli.config.loader import load_config
     from fusion_cli.core.types import Message
 
@@ -202,13 +198,12 @@ async def test_ses_durdur_yalniz_istenen_tur_kimligini_iletir(tmp_path, monkeypa
     gorulen: list[object] = []
     monkeypatch.setattr(
         "fusion_cli.appserver.session.voice_stop",
-        lambda turn_id: gorulen.append(turn_id)
-        or {"ok": True, "durduruldu": True, "tur_id": turn_id},
+        lambda turn_id: (
+            gorulen.append(turn_id) or {"ok": True, "durduruldu": True, "tur_id": turn_id}
+        ),
     )
 
-    await oturum.handle(
-        Request(id="ses-stop", name="ses.durdur", data={"tur_id": "turn-42"})
-    )
+    await oturum.handle(Request(id="ses-stop", name="ses.durdur", data={"tur_id": "turn-42"}))
 
     assert gorulen == ["turn-42"]
     assert _sonuc(satirlar, "ses-stop") == {
@@ -227,9 +222,7 @@ async def test_ses_bekle_tur_kimligiyle_gercek_bitisi_bildirir(tmp_path, monkeyp
         lambda turn_id: gorulen.append(turn_id) or True,
     )
 
-    await oturum.handle(
-        Request(id="ses-wait", name="ses.bekle", data={"tur_id": "turn-43"})
-    )
+    await oturum.handle(Request(id="ses-wait", name="ses.bekle", data={"tur_id": "turn-43"}))
 
     assert gorulen == ["turn-43"]
     assert _sonuc(satirlar, "ses-wait") == {
@@ -798,3 +791,24 @@ async def test_web_dogrula_kayitsiz_saglayiciyi_reddeder(tmp_path):
 
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is False
+
+
+async def test_oturum_baslat_sohbet_kimligiyle_o_sekmenin_gecmisini_yukler(tmp_path, monkeypatch):
+    """Sekmeye tıklamak yeni sohbet açmamalı; kaldığı yerden sürmeli.
+
+    Gerçek hata: transcript yalnız proje köküne göre anahtarlıydı, bu yüzden bir
+    sekmenin geçmişi ile projedeki başka bir konuşma ayırt edilemiyordu.
+    """
+    from fusion_cli.cli.repl.transcript_store import TranscriptStore
+
+    lines: list[str] = []
+    session = _session(tmp_path, lines)
+    memory_dir = session._state.config.memory_dir
+    TranscriptStore(memory_dir, tmp_path, conversation_id="sekme-a").record_user("oyun yaz")
+    TranscriptStore(memory_dir, tmp_path, conversation_id="sekme-b").record_user("fatura")
+
+    await session.handle(Request("1", "oturum.baslat", {"sohbet_id": "sekme-a"}))
+    await session.handle(Request("2", "oturum.gecmis", {}))
+
+    veri = _sonuc(lines, "2")
+    assert [m["metin"] for m in veri["mesajlar"]] == ["oyun yaz"]

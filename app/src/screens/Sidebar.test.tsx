@@ -187,4 +187,21 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     fireEvent.click(screen.getByRole("button", { name: "Silmekten vazgeç" }));
     expect(sil).not.toHaveBeenCalled();
   });
+  it("Fusion sohbetlerinde marka logosu basmaz, içe aktarılanda basar", () => {
+    const { container } = render(
+      <Sidebar
+        oturumlar={[
+          { session_id: "a", title: "oyun yaz", source: "fusion", project: "fusion-cli" },
+          { session_id: "b", title: "eski sohbet", source: "claude", project: "fusion-cli" },
+        ]}
+        etkin={null}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+      />,
+    );
+
+    const rozetler = container.querySelectorAll(".source-icon");
+    expect(rozetler).toHaveLength(1);
+    expect(rozetler[0].getAttribute("data-source")).toBe("claude");
+  });
 });

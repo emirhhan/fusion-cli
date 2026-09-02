@@ -88,10 +88,14 @@ function SessionButton({ session, active, onSelect, onDelete }: {
         onClick={onSelect}
         type="button"
       >
-        <SourceIcon size={16} source={session.source} />
+        {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
+            araçtan geldiğini söyler. Fusion'ın kendi sohbetlerinde her satıra
+            aynı logoyu basmak bilgi taşımaz, listeyi gürültüye çevirir. */}
+        {session.source !== "fusion" && <SourceIcon size={16} source={session.source} />}
         <span className="sidebar__session-title">{session.title}</span>
         <span className="sidebar__session-source">
-          {session.source}{session.project ? ` · ${session.project}` : ""}
+          {session.source === "fusion" ? "" : session.source}
+          {session.project ? (session.source === "fusion" ? "" : " · ") + session.project : ""}
         </span>
       </button>
       {onDelete && (

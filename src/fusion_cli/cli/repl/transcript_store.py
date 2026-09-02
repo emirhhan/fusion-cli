@@ -26,9 +26,17 @@ _MAX_EVENTS_BYTES = 8_000_000
 _MAX_HISTORY_MESSAGES = 100
 
 
-def load_transcript_messages(base_dir: Path, root: Path) -> list[Message]:
-    """Load resumable user/final-answer messages for one workspace without writing."""
-    digest = hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+def load_transcript_messages(
+    base_dir: Path, root: Path, *, conversation_id: str | None = None
+) -> list[Message]:
+    """Bir workspace'in sürdürülebilir kullanıcı/cevap mesajlarını yaz-madan oku.
+
+    `conversation_id` verilirse YALNIZ o konuşmanın satırları döner. Uygulamada
+    aynı proje kökünde birden çok sekme açılabilir; kimlik olmadan hepsi tek bir
+    geçmişte birikir ve bir sekmeye tıklayan kullanıcı başka bir sekmenin
+    konuşmasını görür. TUI kimlik vermez ve proje genelini okumaya devam eder.
+    """
+    digest = _workspace_digest(root)
     path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
     messages: list[Message] = []
     try:
@@ -40,7 +48,11 @@ def load_transcript_messages(base_dir: Path, root: Path) -> list[Message]:
             event = json.loads(line)
         except (json.JSONDecodeError, TypeError):
             continue
-        text = event.get("text") if isinstance(event, dict) else None
+        if not isinstance(event, dict):
+            continue
+        if conversation_id is not None and event.get("session_id") != conversation_id:
+            continue
+        text = event.get("text")
         if not isinstance(text, str) or not text.strip():
             continue
         safe_text = redact(text)
@@ -51,11 +63,16 @@ def load_transcript_messages(base_dir: Path, root: Path) -> list[Message]:
     return messages[-_MAX_HISTORY_MESSAGES:]
 
 
+def _workspace_digest(root: Path) -> str:
+    """Workspace kökünün depo dizin adı. Tek yerde durur ki okuma ve yazma ayrışmasın."""
+    return hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+
+
 class TranscriptStore:
     """Bir workspace için son transcript ve denetlenebilir olay günlüğü."""
 
-    def __init__(self, base_dir: Path, root: Path) -> None:
-        digest = hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+    def __init__(self, base_dir: Path, root: Path, *, conversation_id: str | None = None) -> None:
+        digest = _workspace_digest(root)
         self.base_dir = base_dir.expanduser().resolve() / "transcripts" / digest
         self.base_dir.mkdir(parents=True, exist_ok=True)
         # İzin daraltma bir sıkılaştırmadır, ön koşul değil: chmod desteklemeyen
@@ -65,7 +82,10 @@ class TranscriptStore:
             self.base_dir.chmod(0o700)
         self.snapshot_path = self.base_dir / "latest.ansi"
         self.events_path = self.base_dir / "events.jsonl"
-        self.session_id = f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+        # Kimlik dışarıdan geldiğinde ONA yazılır: uygulamanın sekmesi kapanıp
+        # yeniden açıldığında aynı kimlikle bağlanır ve konuşma kaldığı yerden
+        # sürer. Kimlik verilmezse (TUI) her koşu kendi kimliğini üretir.
+        self.session_id = conversation_id or f"session-{int(time.time())}-{uuid.uuid4().hex[:8]}"
 
     def load_snapshot(self) -> str:
         try:

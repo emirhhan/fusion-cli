@@ -229,6 +229,9 @@ class AppSession:
             home=home,
             health=_build_health(config),
         )
+        #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
+        #: ile gelir; TUI ve testler vermez, o zaman proje geneli okunur.
+        self._conversation_id: str | None = None
         self._state.history = load_transcript_messages(config.memory_dir, root)
         self._transcript_store = TranscriptStore(config.memory_dir, root)
         #: "sohbet" ya da "kod". Varsayılan SOHBET: kullanıcı boş bir pencerede
@@ -432,6 +435,19 @@ class AppSession:
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
 
+    def _rebind_transcript(self) -> None:
+        """Transcript deposunu güncel kök ve konuşma kimliğine bağla.
+
+        Okuma ve yazma TEK yerden bağlanır; ayrı ayrı bağlanırsa biri kimliği
+        alıp öteki almadığında sekme yazdığını geri okuyamaz.
+        """
+        self._state.history = load_transcript_messages(
+            self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
+        )
+        self._transcript_store = TranscriptStore(
+            self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
+        )
+
     def _start_session(self, data: dict[str, Any]) -> dict[str, Any]:
         """`oturum.baslat`: kök dizin, ev dizini, onay modu ve motoru kurar.
 
@@ -442,16 +458,23 @@ class AppSession:
         """
         root_value = data.get("kok")
         capability_roots_changed = False
+        # Sohbet kimliği kökten ÖNCE okunur: kök de değişiyorsa transcript yeniden
+        # bağlanırken doğru kimliğe bağlanmalı, yoksa sekme bir tur boyunca proje
+        # genelini gösterir.
+        sohbet_value = data.get("sohbet_id")
+        conversation_changed = False
+        if isinstance(sohbet_value, str) and sohbet_value.strip():
+            yeni_kimlik = sohbet_value.strip()
+            conversation_changed = yeni_kimlik != self._conversation_id
+            self._conversation_id = yeni_kimlik
         if isinstance(root_value, str) and root_value:
             self._root = Path(root_value)
             self._state.root = self._root
             self._workspace_journal.clear()
             self._processes.update_root(self._root)
             capability_roots_changed = True
-            self._state.history = load_transcript_messages(
-                self._state.config.memory_dir, self._root
-            )
-            self._transcript_store = TranscriptStore(self._state.config.memory_dir, self._root)
+        if capability_roots_changed or conversation_changed:
+            self._rebind_transcript()
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)

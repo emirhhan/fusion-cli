@@ -7,6 +7,7 @@ import type { Mesaj } from "../screens/Conversation";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
+import { DEFAULT_TITLE, titleFromTask } from "./title";
 import type {
   BackendSessionSnapshot,
   NewSession,
@@ -89,26 +90,33 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           type: "created",
           session: {
             id,
-            title: input.title ?? "Yeni görev",
+            title: input.title ?? DEFAULT_TITLE,
             source: input.source ?? "fusion",
             root: snapshot.kok,
             pid: snapshot.pid,
             client,
           },
         });
-        void client.request("oturum.gecmis", {}).then((result) => {
-          if (!Array.isArray(result.mesajlar)) return;
-          const messages: Mesaj[] = result.mesajlar.flatMap((item) => {
-            if (!item || typeof item !== "object") return [];
-            const row = item as Record<string, unknown>;
-            if (
-              (row.rol !== "kullanici" && row.rol !== "asistan") ||
-              typeof row.metin !== "string"
-            ) return [];
-            return [{ rol: row.rol, metin: row.metin }];
-          });
-          dispatch({ type: "historyLoaded", id, messages });
-        }).catch(() => undefined);
+        // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
+        // sorulursa proje genelindeki başka bir konuşma yüklenir.
+        void client
+          .request("oturum.baslat", { sohbet_id: id })
+          .catch(() => undefined)
+          .then(() => client.request("oturum.gecmis", {}))
+          .then((result) => {
+            if (!Array.isArray(result.mesajlar)) return;
+            const messages: Mesaj[] = result.mesajlar.flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const row = item as Record<string, unknown>;
+              if (
+                (row.rol !== "kullanici" && row.rol !== "asistan") ||
+                typeof row.metin !== "string"
+              ) return [];
+              return [{ rol: row.rol, metin: row.metin }];
+            });
+            dispatch({ type: "historyLoaded", id, messages });
+          })
+          .catch(() => undefined);
       }
       return { id, client, snapshot };
     },
@@ -260,8 +268,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           ...(attachments.length > 0 ? { ekler: attachments } : {}),
         },
       });
-      if (session.title === "Yeni görev") {
-        dispatch({ type: "titleChanged", id, title: task.trim().slice(0, 64) });
+      if (session.title === DEFAULT_TITLE) {
+        dispatch({ type: "titleChanged", id, title: titleFromTask(task) });
       }
       void session.client
         .request("tur.calistir", { gorev: task, ekler: attachments })
