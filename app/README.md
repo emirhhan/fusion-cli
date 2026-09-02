@@ -35,3 +35,13 @@ npm run bundle:mac  # paketli runtime + imzasız Fusion.app ve DMG
 
 Üretilen dosyalar `src-tauri/target/release/bundle/` altındadır. Apple Developer
 hesabı kullanılmadığı için imzalama ve notarization yapılmaz.
+
+## Desteklenen macOS dağıtımı
+
+Fusion'ın macOS masaüstü sürümü yalnız doğrudan indirilen, imzasız/noterlenmemiş
+`.app` ve DMG olarak desteklenir. Talk yardımcı penceresinin tek, saydam ve
+yuvarlatılmış yüzeyi Tauri'nin `macOSPrivateApi` seçeneğini gerektirir. Bu seçenek
+Mac App Store kurallarıyla uyumlu değildir; dolayısıyla Mac App Store dağıtımı bu
+ürünün desteklenen kanalları arasında değildir. Apple Developer hesabı edinilse
+bile App Store hedeflenirse önce Talk saydamlığı özel API kullanmadan yeniden
+tasarlanmalı ve `macOSPrivateApi` kaldırılmalıdır.

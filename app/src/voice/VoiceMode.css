@@ -44,18 +44,18 @@ body[data-talk-surface="true"],
 .voice-panel[data-mode="normal"] {
   gap: 8px;
   grid-template-rows: 42px minmax(0, 1fr) 64px;
-  padding: 8px 16px 14px;
+  padding: 0 16px 14px;
 }
 
 .voice-panel[data-mode="mini"] {
   gap: 8px;
-  grid-template-columns: 74px minmax(0, 1fr) 40px auto;
+  grid-template-columns: 62px minmax(0, 1fr) 40px;
   grid-template-rows: 1fr;
-  padding: 8px 10px;
+  padding: 40px 14px 8px;
 }
 
 .voice-panel__head { align-items: center; display: grid; grid-template-columns: 66px minmax(0, 1fr) auto minmax(0, 1fr); min-width: 0; position: relative; user-select: none; }
-.voice-panel__window-controls { align-items: center; display: flex; gap: 8px; position: relative; z-index: 1; }
+.voice-panel__window-controls { align-items: center; display: flex; gap: 8px; left: 0; position: absolute; top: 14px; z-index: 3; }
 .voice-panel__drag { align-self: stretch; min-width: 0; }
 .voice-panel__drag--left { grid-column: 2; }
 .voice-panel__drag--center { align-items: center; display: flex; justify-content: center; left: 50%; position: absolute; top: 0; transform: translateX(-50%); }
@@ -64,12 +64,13 @@ body[data-talk-surface="true"],
 
 .voice-panel__size,
 .voice-panel__close,
-.voice-panel__minimize,
-.voice-panel__settings-toggle {
+.voice-panel__minimize {
   align-items: center;
   background: transparent;
-  border: 0;
+  border: .5px solid rgb(0 0 0 / 18%);
   border-radius: 50%;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 24%), inset 0 -1px 0 rgb(0 0 0 / 7%), 0 .5px 1px rgb(0 0 0 / 16%);
+  box-sizing: border-box;
   color: rgb(36 20 18 / 72%);
   display: inline-flex;
   font: inherit;
@@ -84,30 +85,46 @@ body[data-talk-surface="true"],
 }
 .voice-panel__size:hover,
 .voice-panel__close:hover,
-.voice-panel__minimize:hover,
-.voice-panel__settings-toggle:hover { filter: brightness(.94); opacity: 1; }
+.voice-panel__minimize:hover { filter: brightness(.94); opacity: 1; }
 .voice-panel__size:active,
 .voice-panel__close:active,
 .voice-panel__minimize:active,
 .voice-panel__settings-toggle:active { transform: scale(.94); }
-.voice-panel__close { background: #ff605c; color: #6a1412; }
-.voice-panel__minimize { background: #ffbd44; color: #704907; }
-.voice-panel__size { background: #00ca4e; color: #075b28; }
+.voice-panel__close { background: #ff5f57; color: #4d0000; }
+.voice-panel__minimize { background: #febc2e; color: #5a3600; }
+.voice-panel__size { background: #28c840; color: #064d18; }
 .voice-panel__traffic-glyph {
   fill: none;
-  height: 8px;
+  height: 7px;
   opacity: 0;
   pointer-events: none;
   stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.35;
+  stroke-width: 1.15;
   transition: opacity 100ms ease;
-  width: 8px;
+  width: 7px;
 }
+.voice-panel__traffic-glyph[data-glyph="zoom"] { fill: currentColor; stroke: none; }
 .voice-panel__window-controls:hover .voice-panel__traffic-glyph,
 .voice-panel__window-controls button:focus-visible .voice-panel__traffic-glyph { opacity: 1; }
-.voice-panel__settings-toggle { border-radius: 10px; height: auto; min-height: 40px; min-width: 40px; padding: initial; width: auto; }
+.voice-panel__settings-toggle {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  color: currentColor;
+  display: inline-flex;
+  font: inherit;
+  height: auto;
+  justify-content: center;
+  min-height: 40px;
+  min-width: 40px;
+  padding: initial;
+  transition: filter 120ms ease, transform 120ms ease;
+  width: auto;
+}
+.voice-panel__settings-toggle:hover { filter: brightness(.94); }
 .voice-panel__close:focus-visible,
 .voice-panel__minimize:focus-visible,
 .voice-panel__size:focus-visible,
@@ -202,8 +219,8 @@ body[data-talk-surface="true"],
 }
 .voice-ask__buttons button:first-child { background: #477e18; }
 
-.voice-panel[data-mode="mini"] .voice-panel__head { inset: 0; pointer-events: none; position: absolute; }
-.voice-panel[data-mode="mini"] .voice-panel__window-controls { align-self: center; grid-column: 4; pointer-events: auto; }
+.voice-panel[data-mode="mini"] .voice-panel__head { height: 40px; inset: 0 0 auto; pointer-events: none; position: absolute; }
+.voice-panel[data-mode="mini"] .voice-panel__window-controls { left: 14px; pointer-events: auto; top: 14px; }
 .voice-panel[data-mode="mini"] .voice-panel__drag { pointer-events: auto; }
 .voice-panel[data-mode="mini"] .voice-panel__title { display: none; }
 .voice-panel[data-mode="mini"] .voice-panel__stage { align-items: center; display: contents; }

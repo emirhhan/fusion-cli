@@ -3,8 +3,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { VoiceMode } from "./VoiceMode";
 
 vi.mock("./level", () => ({ startLevelMeter: vi.fn(async () => null) }));
+const startDragging = vi.fn(async () => undefined);
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: () => ({ startDragging }) }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  startDragging.mockClear();
+});
 
 describe("VoiceMode", () => {
   it("pencere denetimlerini gerçek eylemlerine bağlar", () => {
@@ -46,6 +51,19 @@ describe("VoiceMode", () => {
     expect(onWideChange).toHaveBeenCalledWith(false);
   });
 
+  it("yalnız sol orta ve sağ boş başlık alanları yerel pencere sürüklemeyi başlatır", () => {
+    render(
+      <VoiceMode listening={false} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="idle" wide />,
+    );
+
+    const panel = screen.getByRole("region", { name: "Fusion Talk" });
+    const dragRegions = panel.querySelectorAll<HTMLElement>(".voice-panel__drag");
+    for (const region of dragRegions) fireEvent.pointerDown(region, { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Konuşma kipini kapat" }), { button: 0 });
+
+    expect(startDragging).toHaveBeenCalledTimes(3);
+  });
+
   it("trafik ışıklarını macOS sırasıyla ve hover sırasında çizilecek sabit gliflerle sunar", () => {
     render(
       <VoiceMode listening={false} onClose={vi.fn()} onMinimize={vi.fn()} onToggleListen={vi.fn()} onWideChange={vi.fn()} state="idle" wide />,
@@ -60,6 +78,11 @@ describe("VoiceMode", () => {
     expect(controls.textContent).toBe("");
     expect(controls.querySelectorAll("svg[aria-hidden='true']")).toHaveLength(3);
     expect(controls.querySelectorAll(".voice-panel__traffic-glyph")).toHaveLength(3);
+    expect(Array.from(controls.querySelectorAll(".voice-panel__traffic-glyph")).map((glyph) => glyph.getAttribute("data-glyph"))).toEqual([
+      "close",
+      "minimize",
+      "zoom",
+    ]);
   });
 
   it("mini kipte aynı mikrofon eylemi görünür ve kullanılabilir", () => {

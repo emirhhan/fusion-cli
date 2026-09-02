@@ -5,6 +5,7 @@
   "windows": ["main", "ses"],
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
     "dialog:allow-open",
     "opener:default"
   ]

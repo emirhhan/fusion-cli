@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { type PointerEvent, useEffect, useState } from "react";
 import { FusionAvatar, type AvatarState } from "./FusionAvatar";
 import { MicIcon } from "./MicIcon";
 import type { VoiceAsk } from "./bridge";
@@ -57,10 +58,10 @@ const VARSAYILAN_TERCIH: VoicePrefs = { hiz: 1, model: null, robotik: 0.5 };
 
 function TrafficGlyph({ kind }: { kind: "close" | "minimize" | "size" }) {
   return (
-    <svg aria-hidden="true" className="voice-panel__traffic-glyph" viewBox="0 0 8 8">
-      {kind === "close" && <path d="M1.4 1.4 6.6 6.6M6.6 1.4 1.4 6.6" />}
-      {kind === "minimize" && <path d="M1.2 4h5.6" />}
-      {kind === "size" && <path d="M1.25 3.25v-2h2M6.75 4.75v2h-2M3.25 1.25l-2 2M4.75 6.75l2-2" />}
+    <svg aria-hidden="true" className="voice-panel__traffic-glyph" data-glyph={kind === "size" ? "zoom" : kind} viewBox="0 0 8 8">
+      {kind === "close" && <path d="M1.75 1.75 6.25 6.25M6.25 1.75 1.75 6.25" />}
+      {kind === "minimize" && <path d="M1.5 4h5" />}
+      {kind === "size" && <path d="M1.25 3.5V1.25H3.5L1.25 3.5Zm5.5 1v2.25H4.5L6.75 4.5Z" />}
     </svg>
   );
 }
@@ -83,6 +84,11 @@ export function VoiceMode({
   wide = true,
 }: VoiceModeProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const startWindowDrag = (event: PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    void getCurrentWindow().startDragging().catch(() => undefined);
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -132,11 +138,11 @@ export function VoiceMode({
             </button>
           )}
         </span>
-        <span className="voice-panel__drag voice-panel__drag--left" data-tauri-drag-region />
-        <span className="voice-panel__drag voice-panel__drag--center" data-tauri-drag-region>
+        <span className="voice-panel__drag voice-panel__drag--left" data-tauri-drag-region onPointerDown={startWindowDrag} />
+        <span className="voice-panel__drag voice-panel__drag--center" data-tauri-drag-region onPointerDown={startWindowDrag}>
           <strong className="voice-panel__title" data-tauri-drag-region>Fusion Talk</strong>
         </span>
-        <span className="voice-panel__drag voice-panel__drag--right" data-tauri-drag-region />
+        <span className="voice-panel__drag voice-panel__drag--right" data-tauri-drag-region onPointerDown={startWindowDrag} />
       </header>
 
       <div className="voice-panel__stage">

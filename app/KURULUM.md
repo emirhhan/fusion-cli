@@ -7,6 +7,11 @@ Uygulama imzasız dağıtılmaktadır (Apple Developer hesabı ve Windows kod im
 sertifikası yok). Bu yüzden her iki işletim sistemi de İLK açılışta bir güvenlik
 uyarısı gösterir. Uyarıyı geçme adımları aşağıda; yalnız ilk açılışta gerekir.
 
+macOS'ta desteklenen kanal doğrudan indirilen DMG'dir. Fusion Mac App Store'da
+sunulmaz: Talk penceresinin saydam yerel yüzeyi `macOSPrivateApi` gerektirir ve bu
+özel API App Store dağıtımıyla uyumlu değildir. Bu, Apple Developer hesabı olmayan
+mevcut doğrudan indirme modeline verilmiş açık bir ürün kararıdır.
+
 ## Hangi dosyayı indirmeliyim?
 
 | Bilgisayarın | Dosya |

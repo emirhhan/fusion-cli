@@ -4,7 +4,7 @@
 
 **Goal:** Yenilenen Fusion uygulamasını kullanıcı onaylı görseller, tam test kanıtı ve macOS Apple Silicon/Intel + Windows indirilebilir paketleriyle yayınlanabilir hâle getirmek.
 
-**Architecture:** Bu plan önceki dört planın entegrasyon kapısıdır; yeni ürün davranışı eklemez. Tek commit SHA tüm platform paketlerinin kaynağı olur. Apple Developer hesabı olmadığı için macOS paketleri imzasız/noterlenmemiş olarak açıkça etiketlenir.
+**Architecture:** Bu plan önceki dört planın entegrasyon kapısıdır; yeni ürün davranışı eklemez. Tek commit SHA tüm platform paketlerinin kaynağı olur. Apple Developer hesabı olmadığı için macOS paketleri imzasız/noterlenmemiş olarak açıkça etiketlenir. Talk saydamlığı `macOSPrivateApi` gerektirdiğinden desteklenen macOS kanalı doğrudan indirilen DMG'dir; Mac App Store dağıtımı bilinçli olarak desteklenmez. App Store hedefi eklenirse önce özel API bağımlılığı kaldırılarak Talk penceresi yeniden tasarlanır.
 
 **Tech Stack:** Vitest, Playwright, pytest, cargo, GitHub Actions, Tauri bundler, PyInstaller runtime.
 
