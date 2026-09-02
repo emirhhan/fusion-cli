@@ -685,3 +685,8 @@ GATEWAY_FOREIGN_ORIGIN = (
 
 RUNTIME_HEALTH_OK = "Fusion runtime {version}: hazır"
 RUNTIME_HEALTH_BROKEN = "Fusion runtime {version}: bozuk"
+
+#: Kendi çıktısını basan komutun metni arayüz sınırını aştığında eklenir.
+APP_COMMAND_TRUNCATED = (
+    "[Çıktı görüntüleme sınırına ulaştı ve kesildi; tamamı için terminalde aynı komutu çalıştır.]"
+)

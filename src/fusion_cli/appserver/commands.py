@@ -25,13 +25,17 @@ reddedilir; `list_commands` bunları `destekleniyor: False` ile işaretler.
 
 from __future__ import annotations
 
+import io
 from collections.abc import Callable, Sequence
 from typing import Any, Literal, TypedDict
+
+from rich.console import Console
 
 from ..cli.repl import model_flows, profiles_flow, provider_flow
 from ..cli.repl.commands import CommandRegistry
 from ..cli.repl.state import ReplState
 from ..config.credentials import FernetSecretStore
+from ..core.constants import MAX_OUTPUT_CHARS
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 from ..ui import messages
 from ..ui.picker import Choice
@@ -102,6 +106,52 @@ def list_commands(registry: CommandRegistry) -> list[dict[str, Any]]:
         }
         for command in registry.all()
     ]
+
+
+#: Metne çevirirken kullanılacak sanal konsol genişliği. Terminal genişliğine
+#: bağlanmaz: masaüstünde terminal yoktur ve çıktı her makinede aynı olmalıdır.
+RENDER_WIDTH = 100
+
+
+async def render_command_text(registry: CommandRegistry, state: ReplState, name: str) -> str:
+    """Kendi çıktısını basan komutu METİN olarak üret.
+
+    `RENDERED_COMMANDS` kümesindeki komutlar (tips, help, models, cost, …)
+    sonuç döndürmez; çıktılarını doğrudan konsola basar ve işleyicileri boş dize
+    döner. Masaüstü yalnız işleyicinin dönüşünü gönderdiği için bu komutlar
+    "çalıştırıldı" deyip hiçbir şey göstermiyordu.
+
+    İçerik KOPYALANMAZ: TUI'nin kullandığı `help_view.render` aynen çağrılır,
+    yalnız hedefi kayıt yapan bir konsoldur. Böylece iki yüzey ayrışamaz — biri
+    güncellenip öteki eskide kalamaz.
+    """
+    from ..cli.repl import help_view
+
+    console = Console(
+        file=io.StringIO(),
+        force_terminal=False,
+        no_color=True,
+        record=True,
+        width=RENDER_WIDTH,
+    )
+    await help_view.render(name, state, registry, console)
+    return _bounded(console.export_text().strip())
+
+
+def _bounded(text: str) -> str:
+    """Çıktıyı arayüzün taşıyabileceği boyuta indir; kesildiğini SÖYLE.
+
+    Ölçüldü: `/lessons` 86 KB üretebiliyor. Sessizce kesmek kullanıcıya eksik
+    listeyi tam sanmasına yol açardı; sınır aşılırsa satır sınırında kesilir ve
+    nedeni yazılır.
+    """
+    if len(text) <= MAX_OUTPUT_CHARS:
+        return text
+    kesilmis = text[:MAX_OUTPUT_CHARS]
+    son_satir = kesilmis.rfind("\n")
+    if son_satir > 0:
+        kesilmis = kesilmis[:son_satir]
+    return f"{kesilmis}\n\n{messages.APP_COMMAND_TRUNCATED}"
 
 
 def run_command(

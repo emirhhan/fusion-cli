@@ -24,7 +24,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from ..cli.repl.commands import build_registry
+from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import TranscriptStore, load_transcript_messages
 from ..config.credentials import FernetSecretStore
@@ -42,7 +42,12 @@ from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_ski
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
-from .commands import command_choices, list_commands, run_command
+from .commands import (
+    command_choices,
+    list_commands,
+    render_command_text,
+    run_command,
+)
 from .connectors import add_connector, list_connectors, remove_connector
 from .control import (
     connect_web_session,
@@ -425,7 +430,7 @@ class AppSession:
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":
-            return self._run_command(request.data)
+            return await self._run_command(request.data)
         if request.name == "komut.secenekler":
             return self._command_options(request.data)
         if request.name == "tur.calistir":
@@ -630,10 +635,21 @@ class AppSession:
             return {"ok": True, "durum": result.get("durum", "durduruldu")}
         return result
 
-    def _run_command(self, data: dict[str, Any]) -> dict[str, Any]:
-        """`run_command` sonucu tel-hazır — olduğu gibi geri gönder."""
+    async def _run_command(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`run_command` sonucu tel-hazır — olduğu gibi geri gönder.
+
+        Tek istisna kendi çıktısını BASAN komutlardır: işleyicileri boş dize
+        döndürdüğü için masaüstünde "çalıştırıldı" deyip hiçbir şey
+        göstermiyorlardı. Onlar TUI'nin kullandığı renderer'dan metne çevrilir.
+        """
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
+        command = self._registry.get(name)
+        if command is not None and command.name in RENDERED_COMMANDS:
+            return {
+                "ok": True,
+                "metin": await render_command_text(self._registry, self._state, command.name),
+            }
         return run_command(
             self._registry, self._state, name, argument, secret_store=self._secret_store
         )
