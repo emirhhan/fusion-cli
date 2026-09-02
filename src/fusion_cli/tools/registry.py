@@ -10,6 +10,8 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import Iterable, Iterator
+from dataclasses import replace
+from threading import Event
 
 from ..core.errors import FusionError, PathAccessError
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
@@ -93,7 +95,15 @@ class ToolRegistry:
                 outcome = tool.run(args, context)
                 return await outcome  # type: ignore[no-any-return]  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
-            return await asyncio.to_thread(_run_sync, tool.run, args, context)
+            # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i
+            # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
+            # `replace` diğer paylaşılan değişiklik/todo/tarayıcı durumunu korur.
+            invocation_context = replace(context, cancelled=Event())
+            try:
+                return await asyncio.to_thread(_run_sync, tool.run, args, invocation_context)
+            except asyncio.CancelledError:
+                invocation_context.cancelled.set()
+                raise
         except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu

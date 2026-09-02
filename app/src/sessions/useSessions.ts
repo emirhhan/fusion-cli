@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
 import type { Soru } from "../protocol/types";
+import type { Mesaj } from "../screens/Conversation";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
@@ -95,6 +96,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             client,
           },
         });
+        void client.request("oturum.gecmis", {}).then((result) => {
+          if (!Array.isArray(result.mesajlar)) return;
+          const messages: Mesaj[] = result.mesajlar.flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const row = item as Record<string, unknown>;
+            if (
+              (row.rol !== "kullanici" && row.rol !== "asistan") ||
+              typeof row.metin !== "string"
+            ) return [];
+            return [{ rol: row.rol, metin: row.metin }];
+          });
+          dispatch({ type: "historyLoaded", id, messages });
+        }).catch(() => undefined);
       }
       return { id, client, snapshot };
     },
@@ -138,6 +152,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             client: connection.client,
           },
         });
+        void connection.client.request("oturum.gecmis", {}).then((history) => {
+          if (!Array.isArray(history.mesajlar)) return;
+          const messages: Mesaj[] = history.mesajlar.flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const row = item as Record<string, unknown>;
+            if (
+              (row.rol !== "kullanici" && row.rol !== "asistan") ||
+              typeof row.metin !== "string"
+            ) return [];
+            return [{ rol: row.rol, metin: row.metin }];
+          });
+          dispatch({ type: "historyLoaded", id: connection.id, messages });
+        }).catch(() => undefined);
         return {
           id: connection.id,
           secretCount: typeof result.sir_sayisi === "number" ? result.sir_sayisi : 0,
@@ -280,7 +307,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         dispatch({
           type: "messageAdded",
           id,
-          message: { rol: "asistan", metin: text || "Komut tamamlandı." },
+          message: {
+            rol: "asistan",
+            metin: text || (result.ok === false ? "Komut başarısız." : "Komut tamamlandı."),
+          },
         });
       }
       return result;

@@ -26,6 +26,7 @@ from typing import Any
 
 from ..cli.repl.commands import build_registry
 from ..cli.repl.state import Engine, ReplState
+from ..cli.repl.transcript_store import TranscriptStore, load_transcript_messages
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
@@ -220,6 +221,8 @@ class AppSession:
             home=home,
             health=_build_health(config),
         )
+        self._state.history = load_transcript_messages(config.memory_dir, root)
+        self._transcript_store = TranscriptStore(config.memory_dir, root)
         #: "sohbet" ya da "kod". Varsayılan SOHBET: kullanıcı boş bir pencerede
         #: "merhaba" yazdığında Fusion proje taramasıyla başlamamalı.
         self._workspace_mode = "sohbet"
@@ -254,6 +257,18 @@ class AppSession:
             return self._start_session(request.data)
         if request.name == "oturum.durum":
             return self._status()
+        if request.name == "oturum.gecmis":
+            return {
+                "ok": True,
+                "mesajlar": [
+                    {
+                        "rol": "kullanici" if message.role == "user" else "asistan",
+                        "metin": message.content,
+                    }
+                    for message in self._state.history
+                    if message.role in {"user", "assistant"}
+                ],
+            }
         if request.name == "gecmis.kaynaklar":
             return list_sources(self._home)
         if request.name == "gecmis.oturumlar":
@@ -420,6 +435,12 @@ class AppSession:
             self._workspace_journal.clear()
             self._processes.update_root(self._root)
             capability_roots_changed = True
+            self._state.history = load_transcript_messages(
+                self._state.config.memory_dir, self._root
+            )
+            self._transcript_store = TranscriptStore(
+                self._state.config.memory_dir, self._root
+            )
         home_value = data.get("ev")
         if isinstance(home_value, str) and home_value:
             self._home = Path(home_value)
@@ -605,6 +626,8 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import run_agent_task
 
+        self._transcript_store.record_user(task)
+
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         sink = _MeteredSink(ProtocolSink(self._writer), self._usage)
@@ -658,6 +681,8 @@ class AppSession:
         # Çok-turlu sohbet: bu turun ürettiği geçmiş bir SONRAKİ `tur.calistir`e
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         self._state.history = outcome.messages
+        if outcome.ok and outcome.final_text.strip():
+            self._transcript_store.record_assistant(outcome.final_text)
         return {"ok": outcome.ok, "metin": outcome.final_text}
 
     def _refresh_capabilities(self) -> None:

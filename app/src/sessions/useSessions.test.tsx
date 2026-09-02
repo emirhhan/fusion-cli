@@ -5,7 +5,7 @@ import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./t
 
 afterEach(() => localStorage.clear());
 
-function fakeTransport() {
+function fakeTransport(initialHistory: { rol: "kullanici" | "asistan"; metin: string }[] = []) {
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;
   let closedHandler: ((event: SessionClosedEvent) => void) | null = null;
   const sent: { id: string; line: string }[] = [];
@@ -20,6 +20,18 @@ function fakeTransport() {
       kapanis_nedeni: null,
     })),
     send: vi.fn(async (id, line) => {
+      const request = JSON.parse(line) as { id: string; ad: string };
+      if (request.ad === "oturum.gecmis") {
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({
+            tip: "sonuc",
+            id: request.id,
+            veri: { ok: true, mesajlar: initialHistory },
+          }),
+        }));
+        return;
+      }
       sent.push({ id, line });
     }),
     close: vi.fn(async () => undefined),
@@ -37,6 +49,10 @@ function fakeTransport() {
     transport,
     sent,
     emitLine: (event: SessionLineEvent) => lineHandler?.(event),
+    emitResult: (sessionId: string, requestId: string, veri: Record<string, unknown>) => lineHandler?.({
+      oturum_id: sessionId,
+      satir: JSON.stringify({ tip: "sonuc", id: requestId, veri }),
+    }),
     emitClosed: (event: SessionClosedEvent) => closedHandler?.(event),
     unlistenLine,
     unlistenClosed,
@@ -44,6 +60,19 @@ function fakeTransport() {
 }
 
 describe("useSessions", () => {
+  it("proje Fusion geçmişini varsayılan masaüstü konuşmasına yükler", async () => {
+    const fake = fakeTransport([
+      { rol: "kullanici", metin: "Eski oyun sorusu" },
+      { rol: "asistan", metin: "Eski oyun yanıtı" },
+    ]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+
+    await waitFor(() => expect(result.current.activeSession?.messages).toEqual([
+      { rol: "kullanici", metin: "Eski oyun sorusu" },
+      { rol: "asistan", metin: "Eski oyun yanıtı" },
+    ]));
+  });
+
   it("aynı oturum çalışırken ikinci turu çekirdeğe ve mesaja eklemez", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
@@ -198,5 +227,73 @@ describe("useSessions", () => {
     });
     expect(result.current.state.sessions[sent.id].source).toBe("claude");
     expect(result.current.state.sessions[sent.id].title).toBe("[claude] Oyun konuşması");
+  });
+
+  it("devralınan geçmişi aynı çekirdek kimliğinde tutar ve model değişiminden sonra korur", async () => {
+    const fake = fakeTransport([
+      { rol: "kullanici", metin: "Eski oyun sorusu" },
+      { rol: "asistan", metin: "Eski oyun yanıtı" },
+    ]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    let resumePromise!: Promise<{ id: string; secretCount: number }>;
+    act(() => {
+      resumePromise = result.current.resume({
+        source: "claude",
+        sessionId: "claude-game",
+        title: "Oyun konuşması",
+      });
+    });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const resumedId = fake.sent[0].id;
+    const request = JSON.parse(fake.sent[0].line) as { id: string; ad: string };
+    act(() => {
+      fake.emitLine({
+        oturum_id: resumedId,
+        satir: JSON.stringify({
+          tip: "sonuc",
+          id: request.id,
+          veri: { ok: true, kaynak: "claude", baslik: "Oyun konuşması", sir_sayisi: 0 },
+        }),
+      });
+    });
+    await act(async () => {
+      await expect(resumePromise).resolves.toEqual({ id: resumedId, secretCount: 0 });
+    });
+    await waitFor(() => expect(result.current.state.sessions[resumedId].messages).toEqual([
+      { rol: "kullanici", metin: "Eski oyun sorusu" },
+      { rol: "asistan", metin: "Eski oyun yanıtı" },
+    ]));
+
+    const command = result.current.runCommand(resumedId, "/model agent ikinci-model");
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    const commandRequest = JSON.parse(fake.sent[1].line) as { id: string };
+    act(() => fake.emitResult(resumedId, commandRequest.id, { ok: true, metin: "model değiştirildi" }));
+    await act(async () => { await command; });
+    expect(result.current.activeSession?.id).toBe(resumedId);
+    expect(result.current.state.sessions[resumedId].messages).toEqual([
+      { rol: "kullanici", metin: "Eski oyun sorusu" },
+      { rol: "asistan", metin: "Eski oyun yanıtı" },
+      { rol: "kullanici", metin: "/model agent ikinci-model" },
+      { rol: "asistan", metin: "model değiştirildi" },
+    ]);
+  });
+
+  it("başarısız model değişimini başarı gibi göstermez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const command = result.current.runCommand("varsayilan", "/model agent yok");
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string };
+    act(() => fake.emitResult("varsayilan", request.id, { ok: false, metin: "Model bulunamadı." }));
+    await act(async () => { await command; });
+
+    expect(result.current.activeSession?.messages.at(-1)).toEqual({
+      rol: "asistan",
+      metin: "Model bulunamadı.",
+    });
+    expect(result.current.activeSession?.messages.at(-1)?.metin).not.toBe("Komut tamamlandı.");
   });
 });

@@ -19,9 +19,36 @@ from typing import Any
 
 from ...core.events import Event
 from ...core.redaction import redact
+from ...core.types import Message
 
 _MAX_SNAPSHOT_BYTES = 1_500_000
 _MAX_EVENTS_BYTES = 8_000_000
+_MAX_HISTORY_MESSAGES = 100
+
+
+def load_transcript_messages(base_dir: Path, root: Path) -> list[Message]:
+    """Load resumable user/final-answer messages for one workspace without writing."""
+    digest = hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
+    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    messages: list[Message] = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return messages
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        text = event.get("text") if isinstance(event, dict) else None
+        if not isinstance(text, str) or not text.strip():
+            continue
+        safe_text = redact(text)
+        if event.get("event") == "UserMessage":
+            messages.append(Message("user", safe_text))
+        elif event.get("event") == "TurnAnswered":
+            messages.append(Message("assistant", safe_text))
+    return messages[-_MAX_HISTORY_MESSAGES:]
 
 
 class TranscriptStore:
@@ -68,6 +95,9 @@ class TranscriptStore:
 
     def record_user(self, text: str) -> None:
         self._append({"event": "UserMessage", "text": text})
+
+    def record_assistant(self, text: str) -> None:
+        self._append({"event": "TurnAnswered", "channel": "text", "text": text})
 
     def handle(self, event: Event) -> None:
         # JSONL sınırı: alan değerleri olay tipine göre değişir ve `_jsonable`

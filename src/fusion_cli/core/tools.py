@@ -19,6 +19,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
+from threading import Event
 from typing import Protocol
 
 from .browser_session import BrowserSession
@@ -159,6 +160,8 @@ class ToolContext:
     #: Bir kapı değil, dar bir penceredir: yalnızca burada YAZAN dizinlerin altı
     #: açılır, kardeşleri açılmaz ve symlink ile aşılamaz (yol `resolve` edilir).
     extra_roots: tuple[Path, ...] = ()
+    #: İptal edilen turdaki thread tabanlı araçların yürümeye devam etmesini önler.
+    cancelled: Event = field(default_factory=Event)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

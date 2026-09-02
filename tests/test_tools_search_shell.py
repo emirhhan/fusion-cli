@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import subprocess
+import threading
 
 import pytest
 
-from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.tools import Tool, ToolContext
 from fusion_cli.tools import build_registry
+from fusion_cli.tools import search as search_tools
 
 
 @pytest.fixture
@@ -41,6 +43,142 @@ async def test_search_code_gurultu_dizinlerini_atlar(registry, context, tmp_path
     cikti = (await _calistir(registry, context, "search_code", pattern="hedef")).output
 
     assert "kod.py" in cikti and "node_modules" not in cikti
+
+
+async def test_search_code_sistem_cache_ve_vendor_koklerini_daha_taramadan_budar(
+    registry, context, tmp_path
+):
+    noisy = tmp_path / "Library/Application Support/Google/Chrome/Cache"
+    noisy.mkdir(parents=True)
+    (noisy / "runaway.log").write_text("hedef", encoding="utf-8")
+    vendor = tmp_path / "vendor/package"
+    vendor.mkdir(parents=True)
+    (vendor / "dependency.py").write_text("hedef", encoding="utf-8")
+    (tmp_path / "project.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "project.py" in sonuc.output
+    assert "runaway.log" not in sonuc.output
+    assert "dependency.py" not in sonuc.output
+
+
+async def test_search_code_projedeki_library_kaynak_dizinini_gizlemez(
+    registry, context, tmp_path
+):
+    source = tmp_path / "Library"
+    source.mkdir()
+    (source / "source.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "Library/source.py" in sonuc.output
+
+
+async def test_search_code_aday_sinirinda_kismi_sonuc_ve_daraltma_yolu_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    for index in range(5):
+        (tmp_path / f"{index}.txt").write_text(
+            "hedef" if index == 0 else "başka", encoding="utf-8"
+        )
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_CANDIDATES", 2)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok
+    assert "0.txt:1: hedef" in sonuc.output
+    assert "2 dosya" in sonuc.output
+    assert "'path' alanını" in sonuc.output
+
+
+async def test_search_code_sure_sinirinda_opaque_timeout_yerine_kismi_hata_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    (tmp_path / "a.txt").write_text("hedef", encoding="utf-8")
+    monkeypatch.setattr(search_tools, "SEARCH_DEADLINE_S", 0.0)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok
+    assert "süre sınırına" in sonuc.output
+    assert "'path' alanını" in sonuc.output
+
+
+async def test_search_code_env_ve_sir_satirlarini_disari_vermez(registry, context, tmp_path):
+    (tmp_path / ".env").write_text("API_TOKEN=sk-12345678901234567890\n", encoding="utf-8")
+    (tmp_path / "config.py").write_text(
+        "API_TOKEN=sk-12345678901234567890\nhedef\n", encoding="utf-8"
+    )
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef|TOKEN")
+
+    assert sonuc.ok
+    assert ".env" not in sonuc.output
+    assert "sk-12345678901234567890" not in sonuc.output
+    assert "[gizlendi]" in sonuc.output
+
+
+async def test_iptal_edilen_sync_arac_isci_threadine_iptal_sinyali_verir(registry, context):
+    started = threading.Event()
+    stopped = threading.Event()
+
+    def cancellable_search(_args, tool_context):
+        started.set()
+        while not tool_context.cancelled.wait(0.01):
+            pass
+        stopped.set()
+        return search_tools.ToolResult("iptal edildi", ok=False)
+
+    registry.register(
+        Tool(
+            name="cancellable_search",
+            description="test",
+            parameters={"type": "object", "properties": {}},
+            run=cancellable_search,
+        )
+    )
+    task = asyncio.create_task(_calistir(registry, context, "cancellable_search"))
+    assert await asyncio.to_thread(started.wait, 1.0)
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert await asyncio.to_thread(stopped.wait, 1.0)
+
+
+async def test_iptal_sinyali_sonraki_arac_cagrisini_zehirlemez(
+    registry, context, tmp_path
+):
+    started = threading.Event()
+
+    def cancellable_search(_args, tool_context):
+        started.set()
+        tool_context.cancelled.wait(1.0)
+        return search_tools.ToolResult("iptal edildi", ok=False)
+
+    registry.register(
+        Tool(
+            name="cancellable_search_once",
+            description="test",
+            parameters={"type": "object", "properties": {}},
+            run=cancellable_search,
+        )
+    )
+    task = asyncio.create_task(_calistir(registry, context, "cancellable_search_once"))
+    assert await asyncio.to_thread(started.wait, 1.0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    (tmp_path / "sonraki.txt").write_text("hedef", encoding="utf-8")
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "sonraki.txt" in sonuc.output
 
 
 async def test_gecersiz_regex_anlasilir_hata_verir(registry, context):

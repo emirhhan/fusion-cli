@@ -22,6 +22,7 @@ interface SessionSeed {
 
 export type SessionAction =
   | { type: "created"; session: SessionSeed }
+  | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
@@ -68,6 +69,11 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         connectionError: null,
       };
     }
+    case "historyLoaded":
+      return updateSession(state, action.id, (session) => ({
+        ...session,
+        messages: session.messages.length === 0 ? action.messages : session.messages,
+      }));
     case "selected":
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
     case "titleChanged":

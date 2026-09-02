@@ -15,7 +15,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def izole_kullanici_yapilandirmasi(monkeypatch):
+def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     """Yalnızca pakete gömülü `defaults.yaml` kullanılsın.
 
     Ortam değişkenleriyle gelen override'lar da temizlenir: geliştiricinin
@@ -26,6 +26,9 @@ def izole_kullanici_yapilandirmasi(monkeypatch):
     monkeypatch.setattr(loader, "user_config_candidates", tuple)
     for degisken in ("FUSION_CONFIG", "FUSION_HOME"):
         monkeypatch.delenv(degisken, raising=False)
+    # AppSession konuşma dökümünü kalıcı belleğe yazar. Test turları gerçek
+    # ~/.local/share/fusion-cli/memory geçmişine karışmamalıdır.
+    monkeypatch.setenv("FUSION_MEMORY_DIR", str(tmp_path / "fusion-memory"))
 
 
 @pytest.fixture(autouse=True)

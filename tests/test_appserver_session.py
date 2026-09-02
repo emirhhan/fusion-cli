@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from types import SimpleNamespace
 
 from fusion_cli.appserver.protocol import Request
@@ -47,6 +49,110 @@ async def test_durum_istegi_kok_dizini_bildirir(tmp_path):
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is True
     assert veri["kok"] == str(tmp_path)
+
+
+async def test_yerel_fusion_gecmisi_ayni_proje_icin_devam_baglamina_yuklenir(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.config.loader import load_config
+
+    project = tmp_path / "game"
+    project.mkdir()
+    memory_dir = tmp_path / "memory"
+    digest = hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
+    transcript = memory_dir / "transcripts" / digest / "events.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps({"event": "UserMessage", "text": "Oyunun durumu nedir?"}),
+                json.dumps({"event": "ToolExecuted", "name": "read_file"}),
+                json.dumps({"event": "TurnAnswered", "text": "Oyun çalışıyor."}),
+                "bozuk-json",
+                json.dumps({"event": "UserMessage", "text": "Kısa devam"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    config = replace(load_config(), memory_dir=memory_dir)
+    monkeypatch.setattr("fusion_cli.appserver.session.load_config", lambda: config)
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=project, home=tmp_path / "ev")
+
+    await oturum.handle(Request(id="history", name="oturum.gecmis", data={}))
+
+    assert _sonuc(satirlar, "history") == {
+        "ok": True,
+        "mesajlar": [
+            {"rol": "kullanici", "metin": "Oyunun durumu nedir?"},
+            {"rol": "asistan", "metin": "Oyun çalışıyor."},
+            {"rol": "kullanici", "metin": "Kısa devam"},
+        ],
+    }
+    assert [(message.role, message.content) for message in oturum._state.history] == [
+        ("user", "Oyunun durumu nedir?"),
+        ("assistant", "Oyun çalışıyor."),
+        ("user", "Kısa devam"),
+    ]
+
+
+async def test_yerel_gecmis_yuklenirken_sirlar_maskelenir(tmp_path, monkeypatch):
+    from fusion_cli.config.loader import load_config
+
+    project = tmp_path / "game"
+    project.mkdir()
+    memory_dir = tmp_path / "memory"
+    digest = hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
+    transcript = memory_dir / "transcripts" / digest / "events.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text(
+        json.dumps({"event": "UserMessage", "text": "TOKEN=secret-value"}) + "\n",
+        encoding="utf-8",
+    )
+    config = replace(load_config(), memory_dir=memory_dir)
+    monkeypatch.setattr("fusion_cli.appserver.session.load_config", lambda: config)
+    oturum = AppSession(lambda _line: None, root=project, home=tmp_path / "ev")
+
+    assert oturum._state.history[0].content == "[gizlendi]"
+
+
+async def test_masaustu_turu_ayni_projenin_fusion_gecmisine_kalici_eklenir(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.core.types import Message
+
+    project = tmp_path / "game"
+    project.mkdir()
+    memory_dir = tmp_path / "memory"
+    config = replace(load_config(), memory_dir=memory_dir)
+    monkeypatch.setattr("fusion_cli.appserver.session.load_config", lambda: config)
+
+    async def fake_run(*_args, **_kwargs):
+        return SimpleNamespace(
+            ok=True,
+            final_text="Devam kaydedildi.",
+            messages=[
+                Message("user", "Zararsız devam"),
+                Message("assistant", "Devam kaydedildi."),
+            ],
+        )
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", fake_run)
+    oturum = AppSession(lambda _line: None, root=project, home=tmp_path / "ev")
+
+    await oturum.handle(
+        Request(id="follow-up", name="tur.calistir", data={"gorev": "Zararsız devam"})
+    )
+
+    digest = hashlib.sha256(str(project.resolve()).encode()).hexdigest()[:16]
+    events_path = memory_dir / "transcripts" / digest / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text(encoding="utf-8").splitlines()]
+    assert [(event["event"], event["text"]) for event in events] == [
+        ("UserMessage", "Zararsız devam"),
+        ("TurnAnswered", "Devam kaydedildi."),
+    ]
 
 
 async def test_sesli_yanit_bekle_istenirse_surec_bitmeden_sonuc_donmez(tmp_path, monkeypatch):
