@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from ..core.redaction import redact
+from ..core.types import Message
 from .models import Turn
 
 
@@ -21,3 +22,8 @@ def sanitize_turns(turns: Iterable[Turn]) -> tuple[Turn, ...]:
 def sanitize_title(title: str) -> str:
     """Oturum listesi başlığını da transcript metni gibi güvenli hale getir."""
     return redact(title)
+
+
+def sanitize_message(message: Message) -> Message:
+    """Canlı Fusion transcript mesajını aynı redaction kapısından geçir."""
+    return Message(role=message.role, content=redact(message.content))

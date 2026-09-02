@@ -51,6 +51,26 @@ async def test_durum_istegi_kok_dizini_bildirir(tmp_path):
     assert veri["kok"] == str(tmp_path)
 
 
+async def test_canli_fusion_gecmisi_de_sirli_mesaji_redakte_eder(tmp_path):
+    from fusion_cli.core.types import Message
+
+    oturum = _session(tmp_path, [])
+    oturum._state.history = [
+        Message("user", "normal oyun geçmişi"),
+        Message("assistant", "AUTH_TOKEN=live-secret-value"),
+    ]
+    satirlar: list[str] = []
+    oturum._writer = satirlar.append
+
+    await oturum.handle(Request(id="live-history", name="oturum.gecmis", data={}))
+
+    veri = _sonuc(satirlar, "live-history")
+    metin = json.dumps(veri, ensure_ascii=False)
+    assert "live-secret-value" not in metin
+    assert "AUTH_TOKEN" not in metin
+    assert "normal oyun geçmişi" in metin
+
+
 async def test_yerel_fusion_gecmisi_ayni_proje_icin_devam_baglamina_yuklenir(
     tmp_path, monkeypatch
 ):

@@ -159,6 +159,38 @@ async def test_search_code_symlink_dosya_kok_disina_cikmaz(registry, context, tm
     assert sonuc.ok and "outside-secret" not in sonuc.output
 
 
+async def test_search_code_acik_symlink_kokunu_kok_disina_tasmaz(registry, context, tmp_path):
+    outside = tmp_path.parent / "outside-root"
+    outside.mkdir()
+    (outside / "leak.txt").write_text("hedef", encoding="utf-8")
+    link = tmp_path / "requested-root"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink oluşturulamıyor")
+
+    sonuc = await _calistir(
+        registry, context, "search_code", path="requested-root", pattern="hedef"
+    )
+
+    assert not sonuc.ok
+    assert "dışına" in sonuc.output or "erişilemez" in sonuc.output
+
+
+async def test_glob_sonuc_sinirinda_kismi_ve_tekrar_denenebilir_hata_doner(
+    registry, context, tmp_path, monkeypatch
+):
+    for index in range(3):
+        (tmp_path / f"{index}.py").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_GLOB_MATCHES", 2)
+
+    sonuc = await _calistir(registry, context, "glob", pattern="*.py")
+
+    assert not sonuc.ok
+    assert "glob sonucu sınırına" in sonuc.output
+    assert "tekrar denenebilir" in sonuc.output
+
+
 async def test_search_code_buyuk_hassas_dizinlerin_buyuk_harflerini_de_atlar(
     registry, context, tmp_path
 ):
@@ -217,7 +249,7 @@ async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri
             return super().is_set()
 
     context = replace(context, cancelled=CancelDuringMatching())
-    sonuc = await asyncio.to_thread(search_tools.search_code, {"pattern": "hedef"}, context)
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
 
     assert not sonuc.ok and "iptal edildi" in sonuc.output
     context = replace(context, cancelled=threading.Event())

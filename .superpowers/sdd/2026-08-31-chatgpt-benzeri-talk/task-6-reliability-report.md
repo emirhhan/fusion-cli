@@ -136,3 +136,48 @@ All checks passed!
 - The cancellation regression invokes the real `search_code` implementation in a worker with an event that cancels during matching, then invokes a fresh search and verifies the cancellation state does not poison it.
 - The resumed-history transport regression supplies different default and resumed histories, proving the resumed source transcript is what reaches the resumed stable Fusion session.
 - Reports contain no token values or credential contents. The only references are non-secret pattern names and redaction behavior.
+
+## Fix round 3 — latest review
+
+### Findings addressed
+
+- Live `oturum.gecmis` messages now pass through the same centralized sanitizer used by resume, preview, and `read_session`; a regression inserts a newly entered in-memory secret and verifies neither its value nor key is returned.
+- Secret-file exclusion is deny-by-default for dotenv, credential/auth/token/secret/settings variants, package-manager credentials, SSH key extensions/names, and common auth/config roots. Redaction handles short JSON/YAML/key-value/Bearer/API-key values while preserving ordinary history text.
+- Explicit roots are resolved before traversal; restricted roots reject outside symlink targets, directory traversal prunes case-insensitively, and symlink files are skipped.
+- Search reads bounded encoded bytes and bounded lines, checks cancellation/deadline at file and line boundaries, applies a conservative quantified-group regex policy, and reports recoverable partial failures. Glob caps are explicit partial failures rather than successful-looking output.
+- Cancellation coverage now runs through the production registry and real `search_code`; an event cancels during matching and a fresh invocation remains usable.
+- Existing external resume, stable Fusion session identity, and model-switch history tests remain in the focused suite.
+
+### RED/GREEN evidence
+
+The review-specific regressions were added for each open finding before final validation. They encode the prior failures (raw live history, finite filename coverage, symlink/root escape, successful glob cap, and non-production cancellation). The final GREEN run below is the authoritative execution evidence; no secret values were copied into this report.
+
+```text
+.venv/bin/pytest tests/test_appserver_session.py tests/test_appserver_history.py tests/test_history_tool.py tests/test_history_digest.py tests/test_redaction.py tests/test_tools_search_shell.py -ra
+........................................................................ [ 72%]
+............................                                             [100%]
+100 passed in 2.53s
+
+npm test -- src/sessions src/history src/protocol src/App.test.tsx
+Test Files  9 passed (9)
+Tests  64 passed (64)
+
+.venv/bin/ruff check src/fusion_cli/core/redaction.py src/fusion_cli/history/sanitize.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/tools/registry.py src/fusion_cli/tools/search.py tests/test_appserver_session.py tests/test_appserver_history.py tests/test_history_tool.py tests/test_history_digest.py tests/test_tools_search_shell.py
+All checks passed!
+
+.venv/bin/mypy src/fusion_cli/core/redaction.py src/fusion_cli/history/sanitize.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/tools/registry.py src/fusion_cli/tools/search.py
+Success: no issues found in 8 source files
+
+npm run build
+✓ built in 1.16s
+
+git diff --check
+All checks passed!
+```
+
+### Self-review and concerns
+
+- The sanitizer is centralized for all source/session transcript outputs and sanitizes titles as well as message bodies. It is conservative and may mask benign fields whose names look credential-like.
+- Search’s byte and line limits are real input limits, and unsafe regex shapes are rejected before matching. Python filesystem reads and accepted regex execution remain cooperative rather than hard wall-clock interruptible; this is intentionally not claimed as a hard deadline.
+- The registry combines per-call cancellation with the caller event, while a fresh per-call event prevents one cancelled invocation from poisoning the next.
+- No packaging, signing, installation, or native Talk validation was run. No token values, credential contents, or token fragments were added to this report.

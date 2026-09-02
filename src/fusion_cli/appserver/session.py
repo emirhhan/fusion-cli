@@ -36,6 +36,7 @@ from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
+from ..history.sanitize import sanitize_message
 from ..memory.factory import build_memory
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
@@ -263,7 +264,7 @@ class AppSession:
                 "mesajlar": [
                     {
                         "rol": "kullanici" if message.role == "user" else "asistan",
-                        "metin": message.content,
+                        "metin": sanitize_message(message).content,
                     }
                     for message in self._state.history
                     if message.role in {"user", "assistant"}

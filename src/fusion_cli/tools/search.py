@@ -138,7 +138,7 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
             continue
         matches.append(display_path(context, path))
         if len(matches) >= MAX_GLOB_MATCHES:
-            matches.append(f"… ({MAX_GLOB_MATCHES}+ dosya, deseni daraltın)")
+            scan.stopped = f"{MAX_GLOB_MATCHES} glob sonucu sınırına ulaştı"
             break
     return _bounded_result(matches, scan, "(eşleşen dosya yok)")
 
@@ -161,7 +161,14 @@ def _is_skipped_directory_name(name: str) -> bool:
 def _is_secret_file(path: Path) -> bool:
     """Arama çıktısına dotenv ve açık sır dosyalarını hiç sokma."""
     name = path.name.casefold()
-    return name == ".env" or name.startswith(".env.") or name in _SECRET_FILE_NAMES
+    return (
+        name == ".env"
+        or name.startswith((".env.", "credentials.", "credentials-", "auth-", "auth."))
+        or name.startswith(("token-", "token.", "tokens.", "secret-", "secret."))
+        or name.startswith(("secrets.", "settings.", "settings-"))
+        or name in _SECRET_FILE_NAMES
+        or path.suffix.casefold() in {".pem", ".key"}
+    )
 
 
 def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:

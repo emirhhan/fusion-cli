@@ -18,6 +18,17 @@ from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
 from .args import ArgumentError
 
 
+class _CancellationEvent(Event):
+    """Per-call cancellation combined with a caller-owned cancellation signal."""
+
+    def __init__(self, parent: Event) -> None:
+        super().__init__()
+        self._parent = parent
+
+    def is_set(self) -> bool:
+        return super().is_set() or self._parent.is_set()
+
+
 def _run_sync(run: ToolExecutor, args: ToolArgs, context: ToolContext) -> ToolResult:
     """Senkron executor'ı thread içinde çağırıp `ToolResult` döndür.
 
@@ -98,7 +109,7 @@ class ToolRegistry:
             # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i
             # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
             # `replace` diğer paylaşılan değişiklik/todo/tarayıcı durumunu korur.
-            invocation_context = replace(context, cancelled=Event())
+            invocation_context = replace(context, cancelled=_CancellationEvent(context.cancelled))
             try:
                 return await asyncio.to_thread(_run_sync, tool.run, args, invocation_context)
             except asyncio.CancelledError:
