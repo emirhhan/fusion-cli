@@ -270,6 +270,32 @@ yapılır.
 
 ---
 
+## 14) macOS'ta Fusion Talk ve doğrudan dağıtım
+
+Fusion'ın doğrudan indirilen macOS paketi App Store için değil, geliştirici hesabı
+gerektirmeyen ad-hoc dağıtım için hazırlanır. Uygulama ve DMG içindeki uygulama her
+yeniden derlemede aynı `com.fusion.desktop` kimliğini taşır; mikrofon ve konuşma
+tanıma izinleri bu kimlikle ilişkilendirilir.
+
+DMG'yi aç, **Fusion**'ı **Applications** kısayoluna sürükle ve uygulamayı
+`/Applications/Fusion.app` konumundan başlat. Talk'ı ilk açışta Fusion önce neden
+mikrofon ve konuşma tanıma izni istediğini açıklar; devam ettiğinde macOS izinleri
+sırayla sorabilir. İzin reddedilirse Talk mesaj uydurmaz, Sistem Ayarları'na giden
+yeniden deneme yolunu gösterir.
+
+Talk kullanırken:
+
+- **Dinliyorum** görünmeden konuşma kaydedilmez.
+- Sessizlik veya düşük güvenli ses sohbete mesaj olarak gönderilmez.
+- Fusion konuşurken söze girmek seslendirmeyi kesip dinlemeyi yeniden başlatır.
+- Yeşil pencere düğmesi mini/normal görünümü değiştirir; kırmızı düğme yalnız Talk'ı
+  kapatır. Fusion'dan çıkmak mikrofon, tanıma ve seslendirme yardımcılarını da kapatır.
+
+Ad-hoc paket Apple tarafından notarize edilmez. macOS ilk açılışı engellerse Finder'da
+Fusion'a Control-tıkla, **Aç**'ı seç ve gösterilen yerel uygulamayı açtığını doğrula.
+
+---
+
 ## Komut kopya kâğıdı
 
 | Yaz | Ne yapar |

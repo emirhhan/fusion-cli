@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import plistlib
 import select
 import shutil
 import subprocess
@@ -19,6 +20,7 @@ from desktop_build.runtime.build_runtime import (
 )
 
 LISTEN_BUILD_SCRIPT = Path("desktop_build/listen/build_adapter.py")
+STABLE_SIGN_SCRIPT = Path("desktop_build/macos/stable_sign_bundle.py")
 WINDOWS_LISTEN_SOURCE = Path("desktop_build/listen/windows/FusionListen.cs")
 CROSSOVER_ROOT = Path("/Applications/CrossOver.app/Contents/SharedSupport/CrossOver")
 
@@ -396,7 +398,120 @@ def test_desktop_bundle_scripts_build_platform_listen_adapters():
     assert "build_adapter.py --platform macos" in scripts["listen:build:mac"]
     assert "build_adapter.py --platform windows" in scripts["listen:build:win"]
     assert scripts["bundle:mac"].startswith("npm run listen:build:mac &&")
+    assert "stable_sign_bundle.py --bundle-root" in scripts["bundle:mac"]
     assert scripts["bundle:win"].startswith("npm run listen:build:win &&")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS codesign/DMG sözleşme testi")
+def test_stable_signing_preserves_designated_requirement_in_app_and_dmg(tmp_path: Path):
+    bundle_root = tmp_path / "bundle"
+    app = bundle_root / "macos/Fusion.app"
+    executable = app / "Contents/MacOS/Fusion"
+    executable.parent.mkdir(parents=True)
+    shutil.copyfile("/usr/bin/true", executable)
+    executable.chmod(0o755)
+    (app / "Contents/Info.plist").write_bytes(
+        plistlib.dumps(
+            {
+                "CFBundleExecutable": "Fusion",
+                "CFBundleIdentifier": "com.fusion.desktop",
+                "CFBundleName": "Fusion",
+                "CFBundlePackageType": "APPL",
+                "CFBundleShortVersionString": "0.1.0",
+            }
+        )
+    )
+
+    dmg_source = tmp_path / "dmg-source"
+    dmg_source.mkdir()
+    shutil.copytree(app, dmg_source / app.name)
+    dmg = bundle_root / "dmg/Fusion_0.1.0_aarch64.dmg"
+    dmg.parent.mkdir(parents=True)
+    create = subprocess.run(
+        [
+            "hdiutil",
+            "create",
+            "-quiet",
+            "-format",
+            "UDZO",
+            "-srcfolder",
+            str(dmg_source),
+            "-volname",
+            "Fusion Test",
+            str(dmg),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert create.returncode == 0, create.stderr
+
+    sign = subprocess.run(
+        [
+            sys.executable,
+            str(STABLE_SIGN_SCRIPT),
+            "--bundle-root",
+            str(bundle_root),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert sign.returncode == 0, sign.stdout + sign.stderr
+
+    requirement = subprocess.run(
+        ["codesign", "-dr", "-", str(app)],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert requirement.returncode == 0, requirement.stderr
+    assert 'designated => identifier "com.fusion.desktop"' in (
+        requirement.stdout + requirement.stderr
+    )
+
+    mountpoint = tmp_path / "mounted"
+    mountpoint.mkdir()
+    attach = subprocess.run(
+        [
+            "hdiutil",
+            "attach",
+            "-readonly",
+            "-nobrowse",
+            "-mountpoint",
+            str(mountpoint),
+            str(dmg),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert attach.returncode == 0, attach.stderr
+    try:
+        payload_requirement = subprocess.run(
+            ["codesign", "-dr", "-", str(mountpoint / app.name)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert payload_requirement.returncode == 0, payload_requirement.stderr
+        assert (
+            'designated => identifier "com.fusion.desktop"'
+            in payload_requirement.stdout + payload_requirement.stderr
+        )
+    finally:
+        subprocess.run(
+            ["hdiutil", "detach", str(mountpoint)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
 
 
 def test_runtime_spec_tiktoken_encoding_pluginsini_toplar():
