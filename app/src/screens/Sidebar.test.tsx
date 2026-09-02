@@ -204,4 +204,17 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(rozetler).toHaveLength(1);
     expect(rozetler[0].getAttribute("data-source")).toBe("claude");
   });
+  it("rozetsiz satirda basligi dar rozet sutununa dusurmez", () => {
+    const { container } = render(
+      <Sidebar
+        oturumlar={[{ session_id: "a", title: "oyun yaz", source: "fusion", project: "p" }]}
+        etkin={null}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+      />,
+    );
+
+    const satir = container.querySelector(".sidebar__session");
+    expect(satir?.getAttribute("data-rozetsiz")).toBe("true");
+  });
 });

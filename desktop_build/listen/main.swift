@@ -125,14 +125,36 @@ func guven(_ sonuc: SFSpeechRecognitionResult) -> Float {
     sonuc.bestTranscription.segments.map(\.confidence).max() ?? 0
 }
 
+/// Bir konuşma şu an açık mı? Gerçek akışta `konusmaAc`/`konusmaKapat` yönetir,
+/// sentetik fixture'larda ise ses motoru olmadan aynı durum kurulur.
+var konusmaAcik = false
+
 private let enAzGuven: Float = 0.2
+
+/// Güven puanı yalnızca BİLDİRİLDİĞİNDE kapı olur.
+///
+/// Ölçüldü ve Apple geliştirici forumlarında da bildiriliyor: ABD dışı bölge
+/// ayarlarında `SFTranscriptionSegment.confidence` 0.0 dönebiliyor ve kısmi
+/// sonuçlarda zaten rutin olarak 0'dır. Koşulsuz eşik bu makinede (bölge
+/// `tr_TR`) TÜM metni sessizce düşürüyordu — kullanıcı konuşuyor, dalga
+/// oynuyor, ekranda hiçbir şey çıkmıyordu.
+///
+/// Bu yüzden eşik yalnız puan GERÇEKTEN raporlandığında (sıfırdan büyük)
+/// uygulanır: gerçekten düşük güvenli tanıma hâlâ reddedilir, raporlanmayan
+/// puan ise reddetme gerekçesi sayılmaz.
+func guvenYeterli(_ puan: Float) -> Bool {
+    puan <= 0 || puan >= enAzGuven
+}
 
 @discardableResult
 func metinYaz(
     final: Bool, metin: String, guven puan: Float, callbackSegment: Int
 ) -> Bool {
-    guard !metin.isEmpty, callbackSegment == kapı.segment, puan >= enAzGuven else { return false }
-    guard final ? kapı.finalIcinYeterli : kapı.etkin else { return false }
+    guard !metin.isEmpty, guvenYeterli(puan) else { return false }
+    // Kısmi sonuç yalnız KENDİ konuşması hâlâ açıkken anlamlıdır; kapanmış bir
+    // konuşmadan geç gelen kısmi, kullanıcı susmuşken ekrana yazı düşürürdü.
+    guard final ? kapı.finalIcinYeterli : callbackSegment == kapı.segment && konusmaAcik
+    else { return false }
     yaz(final ? "son" : "kismi", metin, guven: puan,
         speechMs: kapı.konusmaMs, segment: callbackSegment)
     return true
@@ -141,6 +163,29 @@ func metinYaz(
 func sentetikFixture(_ ad: String) -> Never {
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+    if ad == "iki-konusma" {
+        // Yardımcı TEK konuşmalık değildir: ilk konuşma bittikten sonra ikinci
+        // konuşma da tanınmalı. Eskiden `isFinal` gelince süreç kapanıyordu.
+        for tur in 1...2 {
+            var segment = 0
+            for _ in 0..<30 {
+                if let olay = kapı.isle(rms: 0.08, sureMs: 10) {
+                    segment = kapı.segment
+                    konusmaAcik = true
+                    yaz(olay, speechMs: kapı.konusmaMs, segment: segment)
+                }
+            }
+            metinYaz(final: false, metin: "kismi-\(tur)", guven: 0.0, callbackSegment: segment)
+            for _ in 0..<45 {
+                if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
+                    konusmaAcik = false
+                    metinYaz(final: true, metin: "son-\(tur)", guven: 0.0, callbackSegment: segment)
+                    yaz(olay, speechMs: kapı.konusmaMs, segment: segment)
+                }
+            }
+        }
+        bitir(0)
+    }
     if ["voiced", "low-confidence", "low-confidence-partial", "delayed-partial"].contains(ad) {
         var fixtureSegment = 0
         for _ in 0..<30 {
@@ -149,6 +194,7 @@ func sentetikFixture(_ ad: String) -> Never {
                 yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
             }
         }
+        konusmaAcik = true
         if ad == "voiced" {
             metinYaz(final: false, metin: "merhaba", guven: 0.82, callbackSegment: fixtureSegment)
             metinYaz(final: true, metin: "merhaba", guven: 0.91, callbackSegment: fixtureSegment)
@@ -160,6 +206,8 @@ func sentetikFixture(_ ad: String) -> Never {
         }
         for _ in 0..<35 {
             if let olay = kapı.isle(rms: 0.001, sureMs: 10) {
+                // Konuşma bitti: bu andan sonra gelen KISMİ sonuç düşürülmeli.
+                konusmaAcik = false
                 if ad == "delayed-partial" {
                     _ = metinYaz(final: false, metin: "gecikmis", guven: 0.92,
                         callbackSegment: fixtureSegment)
@@ -188,28 +236,106 @@ guard let tanıyıcı = SFSpeechRecognizer(locale: Locale(identifier: dil)) else
     yaz("hata", "Bu dil için tanıyıcı yok: \(dil)"); bitir(2)
 }
 
+/// Konuşma başlangıcından ÖNCEKİ tamponların tutulduğu halka.
+///
+/// Kapı, sesi ancak `baslangicDogrulamaMs` kadar sürdükten sonra "başladı"
+/// sayar. O ana kadarki tamponlar atılırsa ilk hece tanıyıcıya hiç ulaşmaz ve
+/// "merhaba" → "aba" olur. Bu halka o pencereyi saklar ve konuşma açılınca
+/// tanıyıcıya ÖNCE onu verir.
+final class OnTampon {
+    private var tamponlar: [AVAudioPCMBuffer] = []
+    private let kapasite: Int
+
+    init(kapasite: Int) { self.kapasite = kapasite }
+
+    func ekle(_ tampon: AVAudioPCMBuffer) {
+        tamponlar.append(tampon)
+        if tamponlar.count > kapasite { tamponlar.removeFirst(tamponlar.count - kapasite) }
+    }
+
+    func bosalt() -> [AVAudioPCMBuffer] {
+        let hepsi = tamponlar
+        tamponlar.removeAll(keepingCapacity: true)
+        return hepsi
+    }
+}
+
+//: 1024 örneklik tamponlarda ~48 kHz'de her tampon ~21 ms; 16 tampon ≈ 340 ms.
+//: Kapının 80 ms'lik doğrulama penceresini rahatça kapsar.
+let onTampon = OnTampon(kapasite: 16)
+
+/// O anda dinlenen konuşmanın isteği.
+var acikIstek: SFSpeechAudioBufferRecognitionRequest?
+
+/// Konuşma başlat: bu konuşmaya ÖZEL taze bir istek ve görev kur.
+///
+/// Neden konuşma başına: tek bir istek/görevle çalışmak yardımcıyı TEK
+/// konuşmalık yapıyordu — ilk sessizlikte `endAudio()` çağrılıp `isFinal`
+/// gelince süreç kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
+/// hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
+func konusmaAc(segment: Int) {
+    konusmaKapat()
+    let r = SFSpeechAudioBufferRecognitionRequest()
+    r.shouldReportPartialResults = true
+    r.requiresOnDeviceRecognition = true
+    acikIstek = r
+    istek = r
+    konusmaAcik = true
+    for tampon in onTampon.bosalt() { r.append(tampon) }
+
+    görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
+        if let sonuç = sonuç {
+            let metin = sonuç.bestTranscription.formattedString
+            let puan = guven(sonuç)
+            if sonuç.isFinal {
+                if !metinYaz(final: true, metin: metin, guven: puan, callbackSegment: segment) {
+                    yaz("hata", "Güvenilir konuşma tanınamadı.",
+                        speechMs: kapı.konusmaMs, segment: segment)
+                }
+            } else {
+                metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
+            }
+        }
+        // Hata konuşmayı bitirir ama SÜRECİ bitirmez: kullanıcı yeniden
+        // konuşabilmelidir. Süreci kapatmak dinlemeyi tek denemeye indirirdi.
+        if let hata = hata {
+            yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+        }
+    }
+}
+
+/// Açık konuşmayı kapat; tanıyıcı kalan sesi işleyip `isFinal` üretir.
+func konusmaKapat() {
+    acikIstek?.endAudio()
+    acikIstek = nil
+    konusmaAcik = false
+}
+
 func başlat() {
     guard tanıyıcı.isAvailable else { yaz("hata", "Tanıyıcı şu an kullanılamıyor."); bitir(3) }
     guard tanıyıcı.supportsOnDeviceRecognition else {
         yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
     }
-    let r = SFSpeechAudioBufferRecognitionRequest()
-    let tanimaSegmenti = kapı.segment + 1
-    r.shouldReportPartialResults = true
-    r.requiresOnDeviceRecognition = true
-    istek = r
 
     let girdi = motor.inputNode
     let biçim = girdi.outputFormat(forBus: 0)
     girdi.installTap(onBus: 0, bufferSize: 1024, format: biçim) { tampon, _ in
         let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
         let olay = kapı.isle(rms: rms(tampon), sureMs: sureMs)
-        if kapı.etkin { r.append(tampon) }
-        if let olay = olay {
-            if olay == "ses-bitti" { r.endAudio() }
-            else {
-                yaz(olay, speechMs: kapı.konusmaMs, segment: tanimaSegmenti)
-            }
+        if let acik = acikIstek {
+            acik.append(tampon)
+        } else {
+            onTampon.ekle(tampon)
+        }
+        guard let olay = olay else { return }
+        if olay == "ses-basladi" {
+            konusmaAc(segment: kapı.segment)
+            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+        } else if olay == "ses-bitti" {
+            konusmaKapat()
+            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+        } else {
+            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
         }
     }
     tapKurulu = true
@@ -218,26 +344,6 @@ func başlat() {
         yaz("hata", "Ses motoru başlatılamadı: \(error.localizedDescription)"); bitir(4)
     }
     yaz("hazir", dil)
-
-    görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
-        if let sonuç = sonuç, tanimaSegmenti > 0 {
-            let metin = sonuç.bestTranscription.formattedString
-            let puan = guven(sonuç)
-            if sonuç.isFinal {
-                if !metinYaz(final: true, metin: metin, guven: puan,
-                    callbackSegment: tanimaSegmenti) {
-                    yaz("hata", "Güvenilir konuşma tanınamadı.", speechMs: kapı.konusmaMs,
-                        segment: tanimaSegmenti)
-                }
-                yaz("ses-bitti", speechMs: kapı.konusmaMs, segment: tanimaSegmenti)
-                bitir(0)
-            } else {
-                metinYaz(final: false, metin: metin, guven: puan,
-                    callbackSegment: tanimaSegmenti)
-            }
-        }
-        if let hata = hata { yaz("hata", hata.localizedDescription); bitir(5) }
-    }
 }
 
 SFSpeechRecognizer.requestAuthorization { durum in

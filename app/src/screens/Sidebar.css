@@ -163,6 +163,16 @@
   text-align: left;
 }
 
+/* Rozet çizilmeyen (Fusion'ın kendi) sohbetlerde başlık 18 piksellik rozet
+   sütununa düşüyor ve tek harfe kırpılıyordu. Rozet yoksa sütun da yoktur. */
+.sidebar__session[data-rozetsiz="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sidebar__session[data-rozetsiz="true"] .sidebar__session-source {
+  grid-column: 1;
+}
+
 .sidebar__session[data-etkin="true"] {
   background: var(--surface-selected);
 }

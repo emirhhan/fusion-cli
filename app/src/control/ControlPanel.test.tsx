@@ -191,4 +191,15 @@ describe("ControlPanel — arama ve model ekleme", () => {
     fireEvent.click(screen.getByRole("button", { name: "model/a adayını çıkar" }));
     expect(onCommand).toHaveBeenCalledWith("/model rm model/a");
   });
+  it("bagli saglayicilarin model katalogunu getiren komutu calistirir", async () => {
+    const onRunCommand = vi.fn();
+    render(<ControlPanel client={client()} onClose={vi.fn()} onRunCommand={onRunCommand} />);
+
+    const dugme = await screen.findByRole("button", {
+      name: "Bağlı sağlayıcıların modellerini getir",
+    });
+    fireEvent.click(dugme);
+
+    expect(onRunCommand).toHaveBeenCalledWith("/development");
+  });
 });

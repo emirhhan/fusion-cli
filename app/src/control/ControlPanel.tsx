@@ -147,6 +147,9 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
           </dl>
           {onRunCommand && (
             <div className="control-panel__actions">
+              <button onClick={() => onRunCommand("/development")} type="button">
+                Bağlı sağlayıcıların modellerini getir
+              </button>
               <button onClick={() => onRunCommand("/model")} type="button">
                 Ajan modelini değiştir
               </button>

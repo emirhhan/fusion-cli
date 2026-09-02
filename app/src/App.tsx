@@ -786,9 +786,10 @@ export function SessionUygulama({
           onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
           onRunCommand={(command) => {
-            // Panelden çalıştırılan komut sohbet ekranında seçiciyi açar;
-            // kullanıcı seçimini orada yapar ve sonuç aynı akıştan geçer.
-            setPage("chat");
+            // Seçici panelin ÜSTÜNDE açılır; sayfa değişmez. Eskiden burada
+            // `setPage("chat")` vardı ve kullanıcı model seçmeye basar basmaz
+            // sohbet ekranına atılıyordu — seçimini yaptıktan sonra panele
+            // dönmek için elle geri gitmesi gerekiyordu.
             void executeCommand(command, false);
           }}
         />

@@ -85,6 +85,7 @@ function SessionButton({ session, active, onSelect, onDelete }: {
         aria-label={session.title}
         className="sidebar__session"
         data-etkin={active}
+        data-rozetsiz={session.source === "fusion"}
         onClick={onSelect}
         type="button"
       >

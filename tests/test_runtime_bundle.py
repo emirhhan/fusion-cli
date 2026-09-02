@@ -659,3 +659,37 @@ def test_runtime_cli_basari_mesaji_windows_konsolunda_yazilabilir(
     assert str(archive) in output
     assert str(manifest) in output
     output.encode("cp1252")
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
+)
+def test_macos_listen_ilk_konusmadan_sonra_dinlemeye_devam_eder(tmp_path: Path):
+    """Yardımcı TEK konuşmalık olmamalı.
+
+    Gerçek hata: ilk sessizlikte `endAudio()` çağrılıp `isFinal` gelince süreç
+    `bitir(0)` ile kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
+    hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
+    """
+    result = run_listen_fixture(tmp_path, fixture="iki-konusma")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+
+    assert result.returncode == 0, result.stderr
+    finaller = [event["metin"] for event in events if event["tur"] == "son"]
+    assert finaller == ["son-1", "son-2"], events
+    assert [event["tur"] for event in events].count("ses-basladi") == 2
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
+)
+def test_macos_listen_raporlanmayan_guven_metni_dusurmez(tmp_path: Path):
+    """Bölge `tr_TR` iken confidence 0.0 dönebiliyor; bu reddetme gerekçesi değildir."""
+    result = run_listen_fixture(tmp_path, fixture="iki-konusma")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+
+    metinli = [event for event in events if event["tur"] in {"kismi", "son"}]
+    assert metinli, "sıfır güvenli metin sessizce düşürülmemeli"
+    assert all(event["guven"] == 0 for event in metinli)
