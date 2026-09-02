@@ -127,7 +127,8 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
 ):
     for name in (
         ".npmrc", ".git-credentials", ".pypirc", "credentials.json",
-        "credentials.yaml", "token.json", "config.json",
+        "credentials.yaml", "token.json", "config.json", "config.yaml", "config.yml",
+        "service-account.json",
     ):
         (tmp_path / name).write_text(
             '{"access_token":"abcdefghijklmnopqrstuvwxyz123456","hedef":true}',
@@ -140,16 +141,20 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     assert sonuc.ok and "source.py" in sonuc.output
     assert all(
         name not in sonuc.output
-        for name in (".npmrc", ".git-credentials", ".pypirc", "credentials.json", "token.json")
+        for name in (
+            ".npmrc", ".git-credentials", ".pypirc", "credentials.json",
+            "credentials.yaml", "token.json", "config.json", "config.yaml", "config.yml",
+            "service-account.json",
+        )
     )
     assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
 
 
 async def test_search_code_yapisal_olasi_sir_dosyalarini_atlar(registry, context, tmp_path):
     names = (
-        "config.toml", "firebase.json", "auth-prod.yaml", "credentials.toml",
+        "auth-prod.yaml", "credentials.toml", "config.toml", "firebase.json",
         "token-prod.json", "secrets-prod.yml", "private.key", "id_ecdsa",
-        "certificate.p12", "server.crt",
+        "certificate.p12", "server.crt", "private.p12",
     )
     for name in names:
         (tmp_path / name).write_text(

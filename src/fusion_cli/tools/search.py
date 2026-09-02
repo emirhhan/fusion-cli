@@ -32,7 +32,8 @@ MAX_REGEX_PATTERN_CHARS = 500
 _UNSAFE_REGEX = re.compile(r"\([^()\n]{0,200}\)(?:[+*]|\{\d)")
 _SECRET_FILE_NAMES = frozenset({
     ".npmrc", ".netrc", ".git-credentials", ".pypirc", "firebase.json",
-    "config.toml", "id_rsa", "id_ed25519", "id_ecdsa",
+    "config.json", "config.yaml", "config.yml", "config.toml", "service-account.json",
+    "id_rsa", "id_ed25519", "id_ecdsa",
 })
 _SECRET_FILE_STEM_RE = re.compile(
     r"(?:^|[._-])(credential|credentials|auth|token|tokens|secret|secrets|private)"

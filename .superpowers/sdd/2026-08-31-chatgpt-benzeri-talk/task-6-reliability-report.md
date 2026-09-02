@@ -226,3 +226,42 @@ The initial repository-root `npm run build` attempt correctly failed because the
 - The byte bound is an actual encoded-input/output bound and never emits invalid UTF-8. The deadline remains cooperative around bounded reads, lines, and regex calls; Python cannot force-interrupt a currently executing filesystem or regex operation without isolation, so this is not claimed as a hard wall-clock guarantee.
 - Stable resume/model-switch identity behavior, centralized transcript sanitization, live history behavior, explicit partial glob/line/file/deadline results, and cancellation recovery remain covered by the focused regression suite.
 - No packaging, signing, installation, or native Talk validation was run. This report contains no token values, credential contents, or token fragments.
+
+## Fix round 5 — final Important finding
+
+### Fix
+
+- Structural search exclusion now explicitly denies `config.json`, `config.yaml`, `config.yml`, and `service-account.json` alongside the existing credential-bearing variants.
+- Regression assertions now require exclusion of those four names plus `auth-prod.yaml`, `credentials.toml`, `id_ecdsa`, `private.p12`, and `firebase.json`; ordinary source coverage remains present.
+- Existing UTF-8 byte bounds, symlink containment, bounded partial outcomes, production cancellation, and centralized history/live sanitization were not weakened or changed.
+
+### RED/GREEN evidence
+
+The strengthened search regression was run before the policy change and failed as intended because the newly asserted config/service-account names were returned:
+
+```text
+./.venv/bin/pytest -q tests/test_tools_search_shell.py -k 'common_auth_files or yapisal_olasi_sir_dosyalarini'
+F.                                                                       [100%]
+1 failed, 1 passed
+```
+
+After adding the deny-list entries, the focused GREEN and verification commands passed:
+
+```text
+./.venv/bin/pytest tests/test_appserver_session.py tests/test_appserver_history.py tests/test_appserver_serialize.py tests/test_history_tool.py tests/test_history_claude.py tests/test_history_codex.py tests/test_history_hermes.py tests/test_history_models.py tests/test_history_registry.py tests/test_history_continuity.py tests/test_history_digest.py tests/test_transcript_store.py tests/test_redaction.py tests/test_tools_search_shell.py -ra
+173 passed in 2.99s
+
+./.venv/bin/ruff check src/fusion_cli/core/redaction.py src/fusion_cli/history/sanitize.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/tools/registry.py src/fusion_cli/tools/search.py src/fusion_cli/tools/files.py tests/test_appserver_session.py tests/test_appserver_history.py tests/test_history_tool.py tests/test_history_digest.py tests/test_redaction.py tests/test_tools_search_shell.py
+All checks passed!
+
+./.venv/bin/mypy src/fusion_cli/appserver/session.py src/fusion_cli/appserver/history.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/history/sanitize.py src/fusion_cli/core/redaction.py src/fusion_cli/tools/search.py src/fusion_cli/tools/registry.py src/fusion_cli/tools/files.py
+Success: no issues found in 8 source files
+
+npm run build
+✓ built in 0.97s
+
+git diff --check
+All checks passed!
+```
+
+No secret values, credential contents, or token fragments were printed or added. No packaging, signing, installation, or install validation was run.
