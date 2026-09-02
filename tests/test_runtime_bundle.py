@@ -25,6 +25,21 @@ WINDOWS_LISTEN_SOURCE = Path("desktop_build/listen/windows/FusionListen.cs")
 CROSSOVER_ROOT = Path("/Applications/CrossOver.app/Contents/SharedSupport/CrossOver")
 
 
+def _windows_listen_capability() -> tuple[bool, str]:
+    """Return whether this host can execute the Windows adapter contract."""
+    if os.name == "nt" and shutil.which("csc"):
+        return True, ""
+    # CrossOver is a useful manual verification tool, but it is not a native
+    # Windows runtime contract. Require an explicit opt-in so a macOS full-suite
+    # run cannot create large Wine prefixes or turn an adapter test into a
+    # host-dependent timeout.
+    if os.environ.get("FUSION_RUN_CROSSOVER_TESTS") != "1":
+        return False, "Windows adapter requires native Windows csc; CrossOver is opt-in"
+    if not CROSSOVER_ROOT.is_dir():
+        return False, "CrossOver Windows adapter capability is unavailable"
+    return True, ""
+
+
 def run_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedProcess[str]:
     output = tmp_path / "fusion-listen"
     build = subprocess.run(
@@ -56,10 +71,11 @@ def run_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedP
     )
 
 
-def run_windows_listen_fixture(
-    tmp_path: Path, *, fixture: str
-) -> subprocess.CompletedProcess[str]:
+def run_windows_listen_fixture(tmp_path: Path, *, fixture: str) -> subprocess.CompletedProcess[str]:
     output = tmp_path / "FusionListen.exe"
+    capable, reason = _windows_listen_capability()
+    if not capable:
+        pytest.skip(reason)
     if os.name == "nt" and shutil.which("csc"):
         build = subprocess.run(
             [
@@ -303,9 +319,7 @@ def test_macos_listen_drops_partial_callback_after_speech_ends(tmp_path: Path):
 
     assert result.returncode == 0, result.stderr
     assert kinds == ["hazir", "ses-basladi", "kismi", "son", "ses-bitti"]
-    assert [event["metin"] for event in events if event["tur"] == "kismi"] == [
-        "zamaninda"
-    ]
+    assert [event["metin"] for event in events if event["tur"] == "kismi"] == ["zamaninda"]
 
 
 @pytest.mark.parametrize(

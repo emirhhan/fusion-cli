@@ -12,6 +12,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import sys
+from collections.abc import Mapping
 from enum import Enum
 from typing import TextIO
 
@@ -31,9 +32,12 @@ class JsonRenderer:
         self._stream = stream or sys.stdout
 
     def handle(self, event: Event) -> None:
-        payload = {"event": type(event).__name__, **_fields(event)}
+        # Redact values before JSON encoding. Redacting the complete JSON line
+        # would mistake keys such as ``prompt_tokens`` for ``token=...`` and
+        # remove them, leaving invalid JSON for downstream consumers.
+        payload = _redact_value({"event": type(event).__name__, **_fields(event)})
         line = json.dumps(payload, ensure_ascii=False, default=_encode)
-        self._stream.write(redact(line) + "\n")
+        self._stream.write(line + "\n")
         self._stream.flush()
 
 
@@ -51,4 +55,22 @@ def _encode(value: object) -> object:
         return value.value
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {field.name: getattr(value, field.name) for field in dataclasses.fields(value)}
-    return str(value)
+    return redact(str(value))
+
+
+def _redact_value(value: object) -> object:
+    """Recursively redact string values without changing JSON object keys."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, Enum):
+        return _redact_value(value.value)
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {
+            field.name: _redact_value(getattr(value, field.name))
+            for field in dataclasses.fields(value)
+        }
+    if isinstance(value, Mapping):
+        return {key: _redact_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_value(item) for item in value]
+    return value

@@ -28,7 +28,14 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
         monkeypatch.delenv(degisken, raising=False)
     # AppSession konuşma dökümünü kalıcı belleğe yazar. Test turları gerçek
     # ~/.local/share/fusion-cli/memory geçmişine karışmamalıdır.
-    monkeypatch.setenv("FUSION_MEMORY_DIR", str(tmp_path / "fusion-memory"))
+    # Keep the persistent-memory fixture outside the workspace root. Appserver
+    # workspace tests intentionally inspect the complete project tree; placing
+    # Chroma's files below ``tmp_path`` makes that host-only test dependency
+    # look like user project content and also pollutes Git status.
+    monkeypatch.setenv(
+        "FUSION_MEMORY_DIR",
+        str(tmp_path.parent / f".{tmp_path.name}-fusion-memory"),
+    )
 
 
 @pytest.fixture(autouse=True)
