@@ -11,7 +11,20 @@ biçimidir: CI'da yeşil, geliştiricide kırmızı (ya da tersi).
 
 from __future__ import annotations
 
+import gc
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def izole_kalici_bellek():
+    """Testler arasında Chroma istemcilerinin dosya tanıtıcılarını bırak."""
+    yield
+
+    from fusion_cli.memory.store import reset_clients
+
+    reset_clients()
+    gc.collect()
 
 
 @pytest.fixture(autouse=True)

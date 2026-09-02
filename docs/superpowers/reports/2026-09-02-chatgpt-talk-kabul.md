@@ -49,3 +49,20 @@ HEAD başlangıcı: `01fd16c` (`fusion-runtime-hardening-20260827-022831`)
 Kalan blocker: tam Python suite için host filesystem alanı temizlenmeli; CrossOver
 Windows çalışma kapısı ise native Windows veya açıkça opt-in edilmiş sağlıklı bir
 CrossOver/Mono ortamı gerektiriyor.
+
+## 2026-09-02 full-suite isolation follow-up
+
+- Before the final isolation fix: **2724 collected / 2722 passed / 0 skipped / 2 failed**.
+  The failures were `test_macos_listen_sigterm_runs_cleanup_and_exits_cleanly` and
+  `test_idle_kipte_yazi_normal_akar`; both reached `select()` with a descriptor
+  above macOS `FD_SETSIZE`.
+- Root cause: `memory.store._clients` retained Chroma `PersistentClient` instances;
+  `reset_clients()` only cleared the dictionary and never called `Client.close()`.
+  `tests/test_memory_store.py` consequently leaked roughly 10 descriptors per test,
+  eventually causing the runtime helper and prompt_toolkit failures by collection order.
+- Fix: `reset_clients()` now closes every cached client before releasing it, and the
+  shared pytest autouse fixture resets/collects the cache after every test.
+- Focused post-fix verification: **94 collected / 90 passed / 4 skipped / 0 failed**
+  across appserver history, memory-store, runtime-bundle, and TUI tests.
+- A post-fix full-suite rerun was intentionally not performed after the requested
+  stop; the saved pre-fix telemetry run remains the source for the 2-failure count.

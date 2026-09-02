@@ -44,3 +44,17 @@ Koyu moddaki iki dosya önceki captures olarak bırakıldı; final packaged HEAD
 `bundle:mac` stable signer'a bağlandı; stable signer external command timeout'larıyla sınırlandı; signing fixture canlı `/Applications` symlink'ini takip etmeyen disposable DMG kaynağı kullanıyor ve hdiutil/codesign çağrıları bounded.
 
 Sonuç: paketleme otomasyonu ve identity kanıtı teslim edilebilir durumda; gerçek geçmiş/mikrofon kabulü ve tam Python gate tamamlanmadan Task 6 **complete** değildir.
+
+## Full-suite isolation follow-up — 2026-09-02
+
+- Before fix: **2724 collected / 2722 passed / 0 skipped / 2 failed** in the
+  remaining-isolation run. Failures: packaged macOS SIGTERM cleanup helper and
+  idle TUI text input.
+- Exact leak: Chroma `PersistentClient` objects accumulated in the process-global
+  `_clients` cache. `reset_clients()` dropped references but did not call the
+  clients' `close()` method, leaving descriptors for later `select()` users.
+- After fix, focused regression set: **94 collected / 90 passed / 4 skipped / 0 failed**.
+  Covered `test_appserver_history.py`, `test_memory_store.py`,
+  `test_runtime_bundle.py`, and `test_tui.py`.
+- No post-fix full-suite rerun was performed after the requested stop; full-suite
+  post-fix status remains unclaimed.

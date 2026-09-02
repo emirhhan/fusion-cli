@@ -97,6 +97,11 @@ def get_collection(directory: Path, name: str, *, embedding_function: Any = None
 
 
 def reset_clients() -> None:
-    """Önbelleklenmiş istemcileri bırak (testler arası izolasyon için)."""
+    """Önbelleklenmiş istemcileri kapatıp bırak (testler arası izolasyon için)."""
     with _lock:
+        clients = tuple(_clients.values())
         _clients.clear()
+    for client in clients:
+        close = getattr(client, "close", None)
+        if callable(close):
+            close()
