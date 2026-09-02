@@ -166,3 +166,61 @@ Test süreci sonlandırıldı; koşudan artakalan Fusion child process'i kalmad�
 
 Bu ikisi kapanmadan DMG `dagitim/` içine kopyalanmadı ve "doğrulanmış sürüm"
 olarak sunulmuyor.
+
+## 2026-09-03 uygulama turu
+
+### Kritik: uygulama eski calisma zamanini calistiriyordu
+
+Kullanicinin "bariz eski surum" ve "komut calistirildi deyip hicbir sey
+yapmiyor" gozlemlerinin altinda iki ayri sorun vardi.
+
+1. **Eski debug paketi.** `app/src-tauri/target/debug/bundle/macos/` altinda
+   `Fusion Task5 Native.app` (bundle id `com.fusion.desktop.task5`) duruyordu ve
+   CALISIYORDU; Spotlight/Launchpad kullaniciyi ona goturuyordu. Surec
+   kapatildi, paket silindi, LaunchServices kaydi dusuruldu. Ayrica olu
+   kimliklerin (`com.fusion.desktop.task5`, `fusion-desktop`) WebKit verileri
+   temizlendi.
+2. **Runtime onbellegi surume gore anahtarliydi.** `runtime_manager.rs` yeniden
+   kullanim karari yalniz surum dizesine bakiyordu; alpha boyunca surum sabit
+   kaldigi icin ilk kurulumdan sonraki hicbir yeni Python kodu uygulamaya
+   ulasmiyordu. Olculdu: uygulamanin calistirdigi ikili `2e57a33a`, pakette
+   gelen `65aa71d4`. Manifest zaten `archive_sha256` tasiyordu ama karar ona
+   bakmiyordu; artik etkin kayit arsiv ozetini de tutuyor.
+
+Onceki turdaki "paketli kabul PASS" bu yuzden YANILTICIYDI: arsivi elle cikarip
+calistirdim, uygulamanin kendi kurulum yolunu degil. Duzeltildi.
+
+### Bu turda kapatilanlar
+
+- Sekmeler kendi konusmasina baglandi: transcript deposu yalniz proje kokune
+  gore anahtarliydi, ayni kokteki her sekme tek gecmise yaziyordu.
+- Baslik ilk birkac kelimeden uretiliyor, ilk mesajin 64 karaktere kesilmis
+  hali degil.
+- Kenar cubugundaki Fusion sohbetlerinde marka logosu basilmiyor.
+- Dusunme duzeyi cubugu composer'a eklendi; NVIDIA disi saglayicida kilitli.
+- Kendi ciktisini basan sekiz komut (tips, help, models, cost, stats, lessons,
+  clear, compact) masaustunde de metin uretiyor; onceden hepsi sessizce bos
+  donuyordu.
+- Terminal: `fontFamily` olarak CSS degiskeni veriliyordu ve xterm karakter
+  genisligini canvas'ta olctugu icin cozulmuyordu — kaymalarin kok nedeni buydu.
+  WebGL renderer eklendi, resize cerceve basina tek olcume baglandi.
+
+### Kapilar
+
+Tam Python suite **2756 collected / 2752 passed / 4 skipped / 0 failed**;
+`npm test` **460 passed**; `npm run build` PASS; cargo fmt/clippy/test
+**74 passed / 0 failed / 3 ignored**; ruff ve mypy (258 dosya) temiz.
+
+DMG SHA-256: `859873ca0e876e29bbf7accd362632320699f22764b5ba2e39850e63784d8142`
+
+### Zaten var oldugu icin yapilmayanlar
+
+Plandaki kontrol paneli ve "saglik/kullanim Ayarlar'da" maddeleri kodda ZATEN
+uygulanmis durumda: `control/ControlPanel.tsx` bas modeli, hakemi, aday havuzunu
+ve yonlendirmeyi gosteriyor; `settings/UsagePanel.tsx` kullanim ve model
+sagligini baslıklar altinda veriyor. Ikinci bir yol acilmadi.
+
+### Hala acik
+
+Fiziksel mikrofonla Talk kabulu ve pointer displacement, kullanici
+dogrulamasi bekliyor.
