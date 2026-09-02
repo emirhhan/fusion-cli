@@ -152,6 +152,20 @@ def test_bozuk_kaynak_istisnasi_aramayi_dusurmez():
     assert sonuc.scanned == 2
 
 
+def test_listelenemeyen_kaynak_bos_sonuc_verir():
+    """Adapter sınırındaki ikinci yakalama da davranışla sabitlenir."""
+
+    class _ListesiBozukSource(_FakeSource):
+        def list(self, root=None, limit=None):
+            raise OSError("depo okunamadı")
+
+    sonuc = search_sessions(_ListesiBozukSource(), "game")
+
+    assert sonuc.matches == ()
+    assert sonuc.scanned == 0
+    assert sonuc.partial is False
+
+
 @pytest.mark.parametrize("gecersiz", [0, -1])
 def test_gecersiz_limit_reddedilir(gecersiz):
     with pytest.raises(ValueError):

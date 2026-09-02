@@ -864,3 +864,22 @@ geride DERLENMEYEN kod kalabiliyor. Küçük projelerde görülmeyen tek yeni ri
 Ölçüm düzeneği notu: kopyada `.venv` orijinal repoya sembolik bağ olduğu için
 `build_registry()` ile yapılan doğrulama YANLIŞ repoya bakıyordu; sonuçlar dosya
 içeriğinden teyit edildi. Orijinal repo hiçbir koşuda değişmedi.
+
+## `app/e2e/` tip denetiminin dışında
+
+`app/tsconfig.json` yalnız `src`'i kapsıyor. Bu yüzden `e2e/preview.tsx` içindeki
+görsel harness, `HistoryController` gibi paylaşılan sözleşmeleri eksik uygulasa
+bile `npm run build` temiz geçiyor; hata ancak Playwright çalışma anında
+görünüyor. Nitekim geçmiş araması eklenirken fixture'a yeni alanlar eklenmediği
+için 6 görsel test kırıldı ve bunu tip denetimi değil, testin kendisi yakaladı.
+
+`"include": ["src", "e2e"]` yapılınca ortaya çıkan, bu değişiklikle ilgisiz
+mevcut hatalar:
+
+- `preview.tsx`: `ProcessController` cast'i `outputStreams` alanını gizliyor.
+- `preview.tsx`: `VoiceMode` için `listening`, `AppHeader` için `themePreference`
+  propları güncel imzayla ayrışmış; workspace paneline geçersiz sekme değeri veriliyor.
+- `*.visual.ts`: `process` global'i için `@types/node` kurulu değil.
+- `workspace.visual.ts:78`: `string | undefined` doğrulanmadan kullanılıyor.
+
+Bunlar ayrı bir işte toplanıp `e2e` kalıcı olarak tip kapısına alınmalı.

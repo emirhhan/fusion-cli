@@ -267,6 +267,12 @@ function historyFixture(): HistoryController {
     openSource: async () => undefined,
     selected,
     selectSession: async () => undefined,
+    searchNotice: "",
+    searchPartial: false,
+    searchQuery: "",
+    searchResults: [],
+    searchSessions: async () => undefined,
+    searching: false,
     sessionCursor: state === "history-preview" ? 30 : null,
     sessions: state === "history-empty" ? [] : [
       historySession,
