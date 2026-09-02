@@ -135,6 +135,17 @@ pub struct ActiveRecord {
     pub schema: u32,
     pub active: String,
     pub previous: Option<String>,
+    /// Etkin sürümü ÜRETEN arşivin sha256'sı.
+    ///
+    /// Sürüm dizesi tek başına yeterli DEĞİLDİR: alpha boyunca her derleme
+    /// aynı sürümü söyler, dolayısıyla yalnız sürüme bakan bir yeniden
+    /// kullanım kararı yeni paketi kurup eski çalışma zamanını çalıştırmaya
+    /// devam eder. Özet bu yüzden kaydın parçasıdır.
+    ///
+    /// Bu alandan önce yazılmış kayıtlarda `None`'dır; içeriğin doğruluğu
+    /// kanıtlanamadığı için o durumda yeniden kurulum yapılır.
+    #[serde(default)]
+    pub archive_sha256: Option<String>,
 }
 
 impl ActiveRecord {
@@ -143,6 +154,15 @@ impl ActiveRecord {
             schema: 1,
             active: active.into(),
             previous: previous.map(str::to_owned),
+            archive_sha256: None,
+        }
+    }
+
+    /// Kurulan arşivin özetini taşıyan kayıt.
+    fn with_archive(active: &str, previous: Option<&str>, archive_sha256: &str) -> Self {
+        Self {
+            archive_sha256: Some(archive_sha256.to_owned()),
+            ..Self::new(active, previous)
         }
     }
 }
@@ -341,13 +361,18 @@ impl RuntimeManager {
         progress: impl FnMut(RuntimeProgress),
     ) -> Result<RuntimeReady, RuntimeError> {
         let record = self.read_active()?;
-        let packaged_version =
-            RuntimeManifest::read(&self.resources.manifest_path)?.runtime_version;
+        let manifest = RuntimeManifest::read(&self.resources.manifest_path)?;
+        let packaged_version = manifest.runtime_version;
+        let packaged_archive = manifest.archive_sha256;
 
-        if record
-            .as_ref()
-            .is_some_and(|item| item.active == packaged_version)
-        {
+        // Yeniden kullanım için sürüm EŞİTLİĞİ yetmez, arşiv ÖZETİ de eşleşmeli:
+        // alpha boyunca sürüm sabit kalırken içerik her derlemede değişir.
+        // Özeti olmayan eski kayıt da kuruluma zorlar; içerik kanıtlanamıyorsa
+        // eski çalışma zamanını çalıştırmaya devam etmek sessiz bir yalandır.
+        if record.as_ref().is_some_and(|item| {
+            item.active == packaged_version
+                && item.archive_sha256.as_deref() == Some(packaged_archive.as_str())
+        }) {
             if let Ok(active) = self.healthy_version(&packaged_version) {
                 self.remember(active.clone());
                 return Ok(active);
@@ -369,7 +394,11 @@ impl RuntimeManager {
                         item.previous.as_deref()
                     }
                 });
-                self.write_active_atomic(&ActiveRecord::new(&installed.version, previous))?;
+                self.write_active_atomic(&ActiveRecord::with_archive(
+                    &installed.version,
+                    previous,
+                    &packaged_archive,
+                ))?;
                 let ready = RuntimeReady {
                     version: installed.version,
                     executable: installed.executable,
@@ -405,7 +434,12 @@ impl RuntimeManager {
                 item.previous.as_deref()
             }
         });
-        self.write_active_atomic(&ActiveRecord::new(&installed.version, previous))?;
+        let packaged_archive = RuntimeManifest::read(&self.resources.manifest_path)?.archive_sha256;
+        self.write_active_atomic(&ActiveRecord::with_archive(
+            &installed.version,
+            previous,
+            &packaged_archive,
+        ))?;
         let ready = RuntimeReady {
             version: installed.version,
             executable: installed.executable,
@@ -719,6 +753,27 @@ mod tests {
             .unwrap();
         }
 
+        fn write_active_record_with_digest(
+            &self,
+            active: &str,
+            previous: Option<&str>,
+            digest: Option<&str>,
+        ) {
+            let mut record = ActiveRecord::new(active, previous);
+            record.archive_sha256 = digest.map(str::to_owned);
+            std::fs::write(
+                &self.paths.active_record,
+                serde_json::to_vec_pretty(&record).unwrap(),
+            )
+            .unwrap();
+        }
+
+        fn packaged_archive_digest(&self) -> String {
+            RuntimeManifest::read(&self.manager.resources.manifest_path)
+                .unwrap()
+                .archive_sha256
+        }
+
         fn active_record(&self) -> ActiveRecord {
             let icerik = std::fs::read_to_string(&self.paths.active_record).unwrap();
             serde_json::from_str(&icerik).unwrap()
@@ -773,6 +828,76 @@ mod tests {
         hex::encode(hasher.finalize())
     }
 
+    /// Sürüm dizesi aynı kalırken paketin İÇERİĞİ değişebilir: alpha sürümü
+    /// boyunca her derleme `0.3.0a8` der. Yeniden kullanım kararı yalnız
+    /// sürüme bakarsa, kullanıcı yeni paketi kurar ama uygulama eski Python
+    /// çalışma zamanını çalıştırmaya devam eder — ölçüldü, gerçek oldu.
+    #[test]
+    fn ayni_surumde_arsiv_degistiyse_runtime_yeniden_kurulur() {
+        let fixture = ManagerFixture::new();
+        fixture.install_existing_version(PAKET_SURUMU);
+        fixture.write_active_record_with_digest(PAKET_SURUMU, None, Some("eski-arsiv-ozeti"));
+        fixture.probe.pass(PAKET_SURUMU);
+
+        let ready = fixture.manager.prepare(|_| {}).unwrap();
+
+        let kurulan = std::fs::read_to_string(&ready.executable).unwrap();
+        assert!(
+            kurulan.contains(PAKET_SURUMU),
+            "paketteki arşiv yeniden kurulmalıydı"
+        );
+        assert_eq!(
+            fixture.active_record().archive_sha256.as_deref(),
+            Some(fixture.packaged_archive_digest().as_str()),
+            "kayıt kurulan arşivin özetini taşımalı"
+        );
+    }
+
+    /// Özet eşleşiyorsa yeniden kurulum yapılmaz: her açılışta 200 MB
+    /// çıkarmak uygulamayı saniyelerce bekletirdi.
+    #[test]
+    fn arsiv_ozeti_ayniysa_yeniden_kurulum_yapilmaz() {
+        let fixture = ManagerFixture::new();
+        fixture.install_existing_version(PAKET_SURUMU);
+        let ozet = fixture.packaged_archive_digest();
+        fixture.write_active_record_with_digest(PAKET_SURUMU, None, Some(&ozet));
+        fixture.probe.pass(PAKET_SURUMU);
+
+        let mut asamalar = Vec::new();
+        let ready = fixture
+            .manager
+            .prepare(|ilerleme| asamalar.push(ilerleme.stage))
+            .unwrap();
+
+        assert_eq!(ready.version, PAKET_SURUMU);
+        assert!(
+            asamalar.is_empty(),
+            "kurulum adımı çalışmamalıydı: {asamalar:?}"
+        );
+    }
+
+    /// Özet alanı olmayan ESKİ kayıt (bu düzeltmeden önce yazılmış) yeniden
+    /// kuruluma zorlar: içeriğin doğru olduğu kanıtlanamaz.
+    #[test]
+    fn ozetsiz_eski_kayit_yeniden_kuruluma_zorlar() {
+        let fixture = ManagerFixture::new();
+        fixture.install_existing_version(PAKET_SURUMU);
+        fixture.write_active_record_with_digest(PAKET_SURUMU, None, None);
+        fixture.probe.pass(PAKET_SURUMU);
+
+        let mut asamalar = Vec::new();
+        fixture
+            .manager
+            .prepare(|ilerleme| asamalar.push(ilerleme.stage))
+            .unwrap();
+
+        assert!(!asamalar.is_empty(), "özetsiz kayıt yeniden kurulmalıydı");
+        assert_eq!(
+            fixture.active_record().archive_sha256.as_deref(),
+            Some(fixture.packaged_archive_digest().as_str())
+        );
+    }
+
     #[test]
     fn yeni_surum_saglikliysa_etkin_previous_eski_surum_olur() {
         let fixture = ManagerFixture::with_active("0.2.9");
@@ -781,7 +906,11 @@ mod tests {
         assert_eq!(ready.version, "0.3.0a1");
         assert_eq!(
             fixture.active_record(),
-            ActiveRecord::new("0.3.0a1", Some("0.2.9"))
+            ActiveRecord::with_archive(
+                "0.3.0a1",
+                Some("0.2.9"),
+                &fixture.packaged_archive_digest()
+            )
         );
     }
 
