@@ -181,3 +181,48 @@ All checks passed!
 - Search’s byte and line limits are real input limits, and unsafe regex shapes are rejected before matching. Python filesystem reads and accepted regex execution remain cooperative rather than hard wall-clock interruptible; this is intentionally not claimed as a hard deadline.
 - The registry combines per-call cancellation with the caller event, while a fresh per-call event prevents one cancelled invocation from poisoning the next.
 - No packaging, signing, installation, or native Talk validation was run. No token values, credential contents, or token fragments were added to this report.
+
+## Fix round 4 — remaining Important findings
+
+### Scope and fixes
+
+- Search now uses a structural deny predicate for likely credential-bearing filenames: dotenv/auth/credential/token/secret/private stems, settings files, sensitive certificate/key extensions, SSH key names, `firebase.json`, and credential-like `config.toml`. Ordinary names such as `keyboard.py` and `author: bob` remain searchable/unchanged.
+- Search rendering and line matching use the same UTF-8 byte truncator. Truncation cuts only at valid character boundaries, stays within the advertised byte cap, and marks the search result partial/recoverable when a line bound is hit.
+- Central redaction masks short JSON/YAML/key-value and Bearer values before any generic authorization-field processing, without adding secret values to this report.
+
+### RED/GREEN evidence
+
+The round-specific regressions were added before implementation for structural secret-file variants, Turkish multibyte byte accounting, short-value redaction, and preservation of ordinary source text. The focused RED run failed as expected on the unimplemented byte/policy behavior; after implementation the focused GREEN run passed.
+
+```text
+./.venv/bin/pytest -q tests/test_redaction.py tests/test_tools_search_shell.py
+...............................................                          [100%]
+
+./.venv/bin/pytest tests/test_appserver_session.py tests/test_appserver_history.py tests/test_appserver_serialize.py tests/test_history_tool.py tests/test_history_claude.py tests/test_history_codex.py tests/test_history_hermes.py tests/test_history_models.py tests/test_history_registry.py tests/test_history_continuity.py tests/test_history_digest.py tests/test_transcript_store.py tests/test_redaction.py tests/test_tools_search_shell.py -ra
+........................................................................ [ 41%]
+........................................................................ [ 83%]
+.............................                                            [100%]
+173 passed in 2.64s
+
+npm test -- src/sessions src/history src/protocol src/App.test.tsx
+Test Files  9 passed (9)
+Tests  64 passed (64)
+
+./.venv/bin/ruff check src/fusion_cli/core/redaction.py src/fusion_cli/tools/search.py tests/test_redaction.py tests/test_tools_search_shell.py
+All checks passed!
+
+./.venv/bin/mypy src/fusion_cli/appserver/session.py src/fusion_cli/appserver/history.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/history/sanitize.py src/fusion_cli/core/redaction.py src/fusion_cli/tools/search.py src/fusion_cli/tools/registry.py src/fusion_cli/tools/files.py
+Success: no issues found in 8 source files
+
+npm run build
+✓ built in 0.93s
+```
+
+The initial repository-root `npm run build` attempt correctly failed because the root has no package manifest; the authoritative build above was run from `app/` and passed. No package configuration was changed.
+
+### Self-review and concerns
+
+- The filename policy is intentionally conservative: some credential-like configuration files may be omitted even when benign, while ordinary project source remains visible. Sensitive content is never printed by search or transcript redaction paths.
+- The byte bound is an actual encoded-input/output bound and never emits invalid UTF-8. The deadline remains cooperative around bounded reads, lines, and regex calls; Python cannot force-interrupt a currently executing filesystem or regex operation without isolation, so this is not claimed as a hard wall-clock guarantee.
+- Stable resume/model-switch identity behavior, centralized transcript sanitization, live history behavior, explicit partial glob/line/file/deadline results, and cancellation recovery remain covered by the focused regression suite.
+- No packaging, signing, installation, or native Talk validation was run. This report contains no token values, credential contents, or token fragments.

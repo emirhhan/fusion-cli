@@ -14,11 +14,19 @@ import re
 
 #: Sır/kişisel veri işaret eden desenler. Sıra önemsizdir; ilk eşleşme yeter.
 _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Bearer'ı generic Authorization alanından önce maskele; kısa test değerleri
+    # de dahil olmak üzere değerin kendisi hiçbir ara aşamada görünür kalmasın.
+    re.compile(r"\bBearer\s+[A-Za-z0-9._-]+\b", re.IGNORECASE),
+    re.compile(
+        r'((?:["\']?)(?:auth|authorization|private[_-]key)(?:["\']?)\s*[:=]\s*["\']?)'
+        r'([^"\'\s,}]+)(["\']?)',
+        re.IGNORECASE,
+    ),
     # Generic env/JSON auth keys, including vendor-prefixed names such as
     # ANTHROPIC_API_KEY and nested JSON config fields.
     re.compile(
         r'((?:["\']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
-        r'id[_-]?token|auth[_-]?token|client[_-]?secret|token|secret|password)'
+        r'id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password)'
         r'[A-Za-z0-9_.-]*(?:["\']?)\s*[:=]\s*["\']?)([^"\'\s,}]+)(["\']?)',
         re.IGNORECASE,
     ),
@@ -31,11 +39,9 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),  # Google API anahtarı
     # PEM özel anahtar başlığı
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
-    # Bearer token / Authorization
-    re.compile(r"\bBearer\s+[A-Za-z0-9._-]{12,}\b", re.IGNORECASE),
     # anahtar=değer biçiminde açıkça sır adı geçen atamalar
     re.compile(
-        r"\b(api[_-]?key|secret|password|passwd|token|access[_-]?key)\b\s*[:=]\s*\S{6,}",
+        r"\b(api[_-]?key|secret|password|passwd|token|access[_-]?key|credential|auth|private)\b\s*[:=]\s*\S+",
         re.IGNORECASE,
     ),
     # e-posta adresi (kişisel veri)
@@ -62,7 +68,10 @@ def redact(text: str) -> str:
     lowered = text.casefold()
     if not any(
         marker in lowered
-        for marker in ("token", "secret", "password", "api", "bearer", "sk-", "gh", "xox", "akia")
+        for marker in (
+            "token", "secret", "password", "api", "bearer", "auth", "credential",
+            "private", "sk-", "gh", "xox", "akia",
+        )
     ):
         return text
     redacted = text

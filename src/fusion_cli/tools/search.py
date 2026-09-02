@@ -15,7 +15,6 @@ from pathlib import Path
 
 from ..core.constants import (
     MAX_GLOB_MATCHES,
-    MAX_MATCH_LINE_CHARS,
     MAX_SEARCH_HITS,
     MAX_SEARCHABLE_FILE_BYTES,
     SKIP_DIRECTORIES,
@@ -31,14 +30,16 @@ MAX_SEARCH_SCAN_BYTES = 256 * 1024
 MAX_SEARCH_LINE_BYTES = 16 * 1024
 MAX_REGEX_PATTERN_CHARS = 500
 _UNSAFE_REGEX = re.compile(r"\([^()\n]{0,200}\)(?:[+*]|\{\d)")
-_SECRET_FILE_NAMES = frozenset(
-    {
-        ".npmrc", ".netrc", ".git-credentials", ".pypirc", "credentials",
-        "credentials.json", "credentials.yaml", "credentials.yml", "token.json",
-        "tokens.json", "auth.json", "secrets.json", "secret.json", "config.json",
-        "config.yaml", "config.yml", "id_rsa", "id_ed25519",
-    }
+_SECRET_FILE_NAMES = frozenset({
+    ".npmrc", ".netrc", ".git-credentials", ".pypirc", "firebase.json",
+    "config.toml", "id_rsa", "id_ed25519", "id_ecdsa",
+})
+_SECRET_FILE_STEM_RE = re.compile(
+    r"(?:^|[._-])(credential|credentials|auth|token|tokens|secret|secrets|private)"
+    r"(?:$|[._-])",
+    re.IGNORECASE,
 )
+_SECRET_FILE_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".der", ".crt", ".cer"})
 _SECRET_DIRECTORY_NAMES = frozenset(
     {
         ".aws", ".azure", ".claude", "claude", ".config", ".gnupg", ".ssh", "chrome",
@@ -100,7 +101,7 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
         for number, line in _matching_lines(path, regex, scan):
             hits.append(
                 f"{display_path(context, path)}:{number}: "
-                f"{redact(line.strip())[:MAX_MATCH_LINE_CHARS]}"
+                f"{_truncate_utf8(redact(line.strip()), MAX_SEARCH_LINE_BYTES)}"
             )
             if len(hits) >= MAX_SEARCH_HITS:
                 return ToolResult.failure(
@@ -159,16 +160,26 @@ def _is_skipped_directory_name(name: str) -> bool:
 
 
 def _is_secret_file(path: Path) -> bool:
-    """Arama çıktısına dotenv ve açık sır dosyalarını hiç sokma."""
+    """Arama çıktısına olası kimlik bilgisi dosyalarını hiç sokma."""
     name = path.name.casefold()
     return (
         name == ".env"
-        or name.startswith((".env.", "credentials.", "credentials-", "auth-", "auth."))
-        or name.startswith(("token-", "token.", "tokens.", "secret-", "secret."))
-        or name.startswith(("secrets.", "settings.", "settings-"))
+        or name.startswith(".env.")
         or name in _SECRET_FILE_NAMES
-        or path.suffix.casefold() in {".pem", ".key"}
+        or name == "settings"
+        or name.startswith("settings.")
+        or name.startswith("settings-")
+        or _SECRET_FILE_STEM_RE.search(path.name) is not None
+        or path.suffix.casefold() in _SECRET_FILE_EXTENSIONS
     )
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    """UTF-8 çıktıyı byte sınırında, geçerli karakter sınırında kes."""
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
 
 
 def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
@@ -214,6 +225,6 @@ def _matching_lines(
             return
         if len(line.encode("utf-8")) > MAX_SEARCH_LINE_BYTES:
             scan.stopped = f"tek satır {MAX_SEARCH_LINE_BYTES} bayt eşleme sınırına ulaştı"
-            line = line[:MAX_SEARCH_LINE_BYTES]
+            line = _truncate_utf8(line, MAX_SEARCH_LINE_BYTES)
         if regex.search(line):
             yield number, line

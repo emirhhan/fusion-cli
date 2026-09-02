@@ -145,6 +145,25 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
 
 
+async def test_search_code_yapisal_olasi_sir_dosyalarini_atlar(registry, context, tmp_path):
+    names = (
+        "config.toml", "firebase.json", "auth-prod.yaml", "credentials.toml",
+        "token-prod.json", "secrets-prod.yml", "private.key", "id_ecdsa",
+        "certificate.p12", "server.crt",
+    )
+    for name in names:
+        (tmp_path / name).write_text(
+            'access_token: "short-secret-value"\nhedef\n', encoding="utf-8"
+        )
+    (tmp_path / "ordinary_source.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "ordinary_source.py" in sonuc.output
+    assert all(name not in sonuc.output for name in names)
+    assert "short-secret-value" not in sonuc.output
+
+
 async def test_search_code_symlink_dosya_kok_disina_cikmaz(registry, context, tmp_path):
     outside = tmp_path.parent / "outside-secret.txt"
     outside.write_text("hedef dışarıda", encoding="utf-8")
@@ -233,6 +252,22 @@ async def test_search_code_buyuk_dosyayi_bounded_okuyup_kismi_sonuc_doner(
     assert not sonuc.ok
     assert "tek dosya" in sonuc.output
     assert "tekrar denenebilir" in sonuc.output
+
+
+async def test_search_code_turkce_satiri_byte_sinirinda_gecerli_utf8_ile_kirpar(
+    registry, context, tmp_path, monkeypatch
+):
+    path = tmp_path / "turkce.txt"
+    path.write_text("hedef " + "ç" * 100, encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_LINE_BYTES", 17)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef", path="turkce.txt")
+
+    assert not sonuc.ok
+    assert "kısmi" in sonuc.output
+    rendered = sonuc.output.split("\n", 1)[0].split(": ", 1)[1]
+    assert len(rendered.encode("utf-8")) <= search_tools.MAX_SEARCH_LINE_BYTES
+    rendered.encode("utf-8").decode("utf-8")
 
 
 async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(
