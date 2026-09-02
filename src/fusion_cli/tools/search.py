@@ -28,17 +28,25 @@ from .files import display_path, resolve_path
 SEARCH_DEADLINE_S = 8.0
 MAX_SEARCH_CANDIDATES = 50_000
 MAX_SEARCH_SCAN_BYTES = 256 * 1024
+MAX_SEARCH_LINE_BYTES = 16 * 1024
 MAX_REGEX_PATTERN_CHARS = 500
-_UNSAFE_REGEX = re.compile(r"\((?:[^()\\]|\\.)*[+*][^()]*\)[+*]")
+_UNSAFE_REGEX = re.compile(r"\([^()\n]{0,200}\)(?:[+*]|\{\d)")
 _SECRET_FILE_NAMES = frozenset(
     {
-        ".npmrc", ".netrc", "credentials", "credentials.json", "token.json",
-        "tokens.json", "auth.json", "secrets.json", "config.json", "id_rsa",
-        "id_ed25519",
+        ".npmrc", ".netrc", ".git-credentials", ".pypirc", "credentials",
+        "credentials.json", "credentials.yaml", "credentials.yml", "token.json",
+        "tokens.json", "auth.json", "secrets.json", "secret.json", "config.json",
+        "config.yaml", "config.yml", "id_rsa", "id_ed25519",
     }
 )
 _SECRET_DIRECTORY_NAMES = frozenset(
-    {".aws", ".azure", ".claude", "claude", ".config", ".gnupg", ".ssh", "chrome"}
+    {
+        ".aws", ".azure", ".claude", "claude", ".config", ".gnupg", ".ssh", "chrome",
+        "application support", "cache", "caches", "vendor",
+    }
+)
+_SKIP_DIRECTORY_NAMES = frozenset(
+    name.casefold() for name in (*SKIP_DIRECTORIES, *_SECRET_DIRECTORY_NAMES)
 )
 
 
@@ -72,7 +80,7 @@ def _bounded_result(lines: list[str], scan: _SearchScan, empty: str) -> ToolResu
 
 def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
     pattern = require_str(args, "pattern")
-    root = resolve_path(context, optional_str(args, "path", "."))
+    root = resolve_path(context, optional_str(args, "path", ".")).resolve()
 
     if not root.exists():
         return ToolResult.failure(f"Yol yok: {root}")
@@ -104,7 +112,7 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
     pattern = require_str(args, "pattern")
-    root = resolve_path(context, optional_str(args, "path", "."))
+    root = resolve_path(context, optional_str(args, "path", ".")).resolve()
 
     if not root.exists():
         return ToolResult.failure(f"Yol yok: {root}")
@@ -139,13 +147,15 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 
 def _is_skipped(path: Path) -> bool:
-    skipped_directories = {part.casefold() for part in SKIP_DIRECTORIES}
     return (
-        any(part.casefold() in skipped_directories for part in path.parts)
-        or any(part.casefold() in _SECRET_DIRECTORY_NAMES for part in path.parts)
+        any(_is_skipped_directory_name(part) for part in path.parts)
         or _is_secret_file(path)
         or path.is_symlink()
     )
+
+
+def _is_skipped_directory_name(name: str) -> bool:
+    return name.casefold() in _SKIP_DIRECTORY_NAMES
 
 
 def _is_secret_file(path: Path) -> bool:
@@ -161,7 +171,7 @@ def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
         def walk() -> Iterator[Path]:
             for current, directories, files in os.walk(root, followlinks=False):
                 directories[:] = sorted(
-                    name for name in directories if name not in SKIP_DIRECTORIES
+                    name for name in directories if not _is_skipped_directory_name(name)
                 )
                 for name in sorted(files):
                     yield Path(current) / name
@@ -185,7 +195,8 @@ def _matching_lines(
     path: Path, regex: re.Pattern[str], scan: _SearchScan
 ) -> Iterator[tuple[int, str]]:
     try:
-        data = path.read_bytes()
+        with path.open("rb") as handle:
+            data = handle.read(MAX_SEARCH_SCAN_BYTES + 1)
     except OSError:
         return
     if len(data) > MAX_SEARCH_SCAN_BYTES:
@@ -194,5 +205,8 @@ def _matching_lines(
     for number, line in enumerate(text.splitlines(), 1):
         if scan.should_stop():
             return
+        if len(line.encode("utf-8")) > MAX_SEARCH_LINE_BYTES:
+            scan.stopped = f"tek satır {MAX_SEARCH_LINE_BYTES} bayt eşleme sınırına ulaştı"
+            line = line[:MAX_SEARCH_LINE_BYTES]
         if regex.search(line):
             yield number, line

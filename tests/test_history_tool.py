@@ -63,13 +63,22 @@ def _claude_kur(home, mesajlar):
 
 
 async def test_arac_turlari_dondurur(tmp_path):
-    _claude_kur(tmp_path, ["birinci", "ikinci"])
+    _claude_kur(
+        tmp_path,
+        [
+            "birinci",
+            "ikinci",
+            'credentials.json: {"access_token":"abcdefghijklmnopqrstuvwxyz123456"}',
+        ],
+    )
     tool = build_history_tool(tmp_path)
 
     sonuc = await tool.run({"source": "claude", "session_id": "s1"}, ToolContext(root=tmp_path))
 
     assert "birinci" in sonuc.output
     assert "ikinci" in sonuc.output
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
+    assert "[gizlendi]" in sonuc.output
 
 
 async def test_bilinmeyen_kaynak_hata_dondurur(tmp_path):

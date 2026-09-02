@@ -94,3 +94,45 @@ npm run build
 - Search reads at most 256 KiB per file, checks the deadline/cancellation between lines, rejects oversized/pathological regexes, caps candidates/results, and reports recoverable partial output.
 - External resume now copies only bounded `user`/`assistant` source turns through central redaction into the selected Fusion session’s history before `oturum.gecmis` is served. The transport regression returns different histories for the default and resumed IDs, so unconditional initial-history behavior would fail.
 - The remaining limitation is intentionally documented: cancellation is cooperative at Python/regex boundaries. Catastrophic regexes are rejected before matching; filesystem calls already in progress cannot be safely force-killed.
+
+## Fix round 2 — re-review findings
+
+### Scope and RED
+
+No packaging, signing, installation, `app/package.json`, `desktop_build`, `dagitim`, or native Talk files were touched. New RED regressions covered raw history preview and `read_session`, common credential filenames and formats, case-insensitive auth/cache pruning, symlink files, large-file bounded reads, and cancellation through the production `search_code` path. The initial round-2 focused run failed 6 intended assertions before implementation.
+
+### GREEN commands and exact output
+
+```text
+.venv/bin/pytest tests/test_appserver_history.py tests/test_history_commands.py tests/test_history_digest.py tests/test_history_registry.py tests/test_history_claude.py tests/test_history_codex.py tests/test_history_hermes.py tests/test_history_startup.py tests/test_history_continuity.py tests/test_history_memory_files.py tests/test_history_tool.py tests/test_redaction.py tests/test_appserver_session.py tests/test_tools_search_shell.py -ra
+........................................................................ [ 39%]
+........................................................................ [ 78%]
+.......................................                                  [100%]
+183 passed in 8.98s
+
+npm test -- src/sessions src/history src/protocol src/App.test.tsx
+Test Files  9 passed (9)
+Tests  64 passed (64)
+
+.venv/bin/ruff check src/fusion_cli/core/redaction.py src/fusion_cli/history/sanitize.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/tools/search.py tests/test_appserver_history.py tests/test_history_digest.py tests/test_history_tool.py tests/test_tools_search_shell.py
+All checks passed!
+
+.venv/bin/mypy src/fusion_cli/core/redaction.py src/fusion_cli/history/sanitize.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/engines/agent/engine_tools.py src/fusion_cli/tools/search.py
+Success: no issues found in 7 source files
+
+npm run build
+✓ built in 1.67s
+
+git diff --check
+All checks passed!
+```
+
+### Fixes and self-review
+
+- `sanitize_turns` is the single source/session transcript sanitizer. It is used by resume, desktop preview, and `read_session`; titles are sanitized too. Ordinary roles, text, and timestamps remain intact.
+- Central redaction now handles vendor-prefixed key/value assignments, quoted/unquoted JSON auth fields, YAML-style values, and Bearer/API-key forms without preserving token contents.
+- Search prunes directories case-insensitively during `os.walk` itself. It excludes cache/vendor/auth roots and credential/config filenames, rejects symlink files, and resolves the requested root before traversal.
+- Search reads at most 256 KiB per file and 16 KiB per line, checks deadline/cancellation between lines, rejects quantified-group backtracking patterns and overlong regexes, and returns an explicit partial/retryable failure when a bound is reached.
+- The cancellation regression invokes the real `search_code` implementation in a worker with an event that cancels during matching, then invokes a fresh search and verifies the cancellation state does not poison it.
+- The resumed-history transport regression supplies different default and resumed histories, proving the resumed source transcript is what reaches the resumed stable Fusion session.
+- Reports contain no token values or credential contents. The only references are non-secret pattern names and redaction behavior.

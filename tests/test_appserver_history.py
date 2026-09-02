@@ -104,6 +104,22 @@ async def test_gecmis_onizle_turlari_sayfali_dondurur(tmp_path, monkeypatch):
     assert result["has_more"] is True
 
 
+async def test_gecmis_onizle_sirli_ve_auth_dosyasi_icerigini_redakte_eder(tmp_path, monkeypatch):
+    _patch_source(monkeypatch, _FakeSource())
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(
+        Request("preview", "gecmis.onizle", {"kaynak": "claude", "oturum_id": "s1"})
+    )
+
+    result = _result(lines, "preview")
+    body = json.dumps(result, ensure_ascii=False)
+    assert "12345678901234567890" not in body
+    assert "OPENAI_API_KEY" not in body
+    assert "oyun yap" in body
+
+
 async def test_gecmis_surdur_kunyeyi_bekletir_ve_sir_sayisini_dondurur(tmp_path, monkeypatch):
     _patch_source(monkeypatch, _FakeSource())
     lines: list[str] = []

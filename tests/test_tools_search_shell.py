@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -124,7 +125,10 @@ async def test_search_code_env_ve_sir_satirlarini_disari_vermez(registry, contex
 async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     registry, context, tmp_path
 ):
-    for name in (".npmrc", "credentials.json", "token.json", "config.json"):
+    for name in (
+        ".npmrc", ".git-credentials", ".pypirc", "credentials.json",
+        "credentials.yaml", "token.json", "config.json",
+    ):
         (tmp_path / name).write_text(
             '{"access_token":"abcdefghijklmnopqrstuvwxyz123456","hedef":true}',
             encoding="utf-8",
@@ -134,7 +138,10 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
 
     assert sonuc.ok and "source.py" in sonuc.output
-    assert all(name not in sonuc.output for name in (".npmrc", "credentials.json", "token.json"))
+    assert all(
+        name not in sonuc.output
+        for name in (".npmrc", ".git-credentials", ".pypirc", "credentials.json", "token.json")
+    )
     assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
 
 
@@ -152,6 +159,26 @@ async def test_search_code_symlink_dosya_kok_disina_cikmaz(registry, context, tm
     assert sonuc.ok and "outside-secret" not in sonuc.output
 
 
+async def test_search_code_buyuk_hassas_dizinlerin_buyuk_harflerini_de_atlar(
+    registry, context, tmp_path
+):
+    for directory in (
+        ".CLAUDE", "Claude", "CHROME", "Application Support", "CACHE", "CACHES", "VENDOR"
+    ):
+        target = tmp_path / directory
+        target.mkdir()
+        (target / "leak.txt").write_text("hedef", encoding="utf-8")
+    (tmp_path / "safe.py").write_text("hedef", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "safe.py" in sonuc.output
+    assert all(
+        directory not in sonuc.output
+        for directory in ("CLAUDE", "Claude", "CHROME", "CACHE", "VENDOR")
+    )
+
+
 async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(
     registry, context, tmp_path
 ):
@@ -163,22 +190,37 @@ async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(
     assert "güvenli" in sonuc.output or "karmaşık" in sonuc.output
 
 
-async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(
+async def test_search_code_buyuk_dosyayi_bounded_okuyup_kismi_sonuc_doner(
     registry, context, tmp_path, monkeypatch
 ):
+    (tmp_path / "huge.txt").write_text("başlangıç\n" + "x" * 500_000, encoding="utf-8")
+    monkeypatch.setattr(search_tools, "MAX_SEARCH_SCAN_BYTES", 1024)
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="başlangıç|yok")
+
+    assert not sonuc.ok
+    assert "tek dosya" in sonuc.output
+    assert "tekrar denenebilir" in sonuc.output
+
+
+async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(
+    registry, context, tmp_path
+):
     (tmp_path / "many.txt").write_text("hedef\n" + "başka\n" * 1000, encoding="utf-8")
-    original = search_tools._matching_lines
+    class CancelDuringMatching(threading.Event):
+        checks = 0
 
-    def cancel_after_first(path, regex, scan):
-        for hit in original(path, regex, scan):
-            yield hit
-            scan.context.cancelled.set()
+        def is_set(self):
+            self.checks += 1
+            if self.checks > 4:
+                self.set()
+            return super().is_set()
 
-    monkeypatch.setattr(search_tools, "_matching_lines", cancel_after_first)
-    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+    context = replace(context, cancelled=CancelDuringMatching())
+    sonuc = await asyncio.to_thread(search_tools.search_code, {"pattern": "hedef"}, context)
 
     assert not sonuc.ok and "iptal edildi" in sonuc.output
-    monkeypatch.undo()
+    context = replace(context, cancelled=threading.Event())
     (tmp_path / "next.txt").write_text("hedef\n", encoding="utf-8")
     sonraki = await _calistir(registry, context, "search_code", pattern="hedef")
     assert sonraki.ok and "next.txt" in sonraki.output

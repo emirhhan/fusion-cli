@@ -459,6 +459,7 @@ def build_history_tool(home: Path) -> Tool:
 
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
         from ...history import source_by_name
+        from ...history.sanitize import sanitize_turns
 
         source_name = args.get("source")
         session_id = args.get("session_id")
@@ -477,13 +478,14 @@ def build_history_tool(home: Path) -> Tool:
             maximum=_READ_SESSION_MAX_LIMIT,
         )
         text_cursor = _bounded_int(args.get("text_cursor"), default=0, minimum=0)
-        turns = source.read(
+        turns = sanitize_turns(source.read(
             session_id,
             cursor=cursor,
             limit=limit + 1,
-        )
+        ))
         if not turns:
             return ToolResult.failure(messages.READ_SESSION_EMPTY.format(session_id=session_id))
+        turns = sanitize_turns(turns)
         if text_cursor > len(turns[0].text):
             return ToolResult.failure(
                 messages.READ_SESSION_INVALID_TEXT_CURSOR.format(cursor=text_cursor)

@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..core.redaction import redact
 from ..core.types import Message
 from ..history import available_sources, build_digest, source_by_name
 from ..history.models import HistorySource, SessionRef, Turn
+from ..history.sanitize import sanitize_title, sanitize_turns
 
 DEFAULT_LIMIT = 30
 MAX_LIMIT = 100
@@ -62,7 +62,7 @@ def preview_session(home: Path, data: dict[str, Any]) -> dict[str, Any]:
     if not session_id:
         return {"ok": False, "metin": "Oturum kimliği zorunludur."}
     cursor, limit = _pagination(data)
-    turns = source.read(session_id, cursor=cursor, limit=limit + 1)
+    turns = sanitize_turns(source.read(session_id, cursor=cursor, limit=limit + 1))
     page = turns[:limit]
     has_more = len(turns) > len(page)
     return {
@@ -93,13 +93,13 @@ def prepare_resume(home: Path, root: Path, data: dict[str, Any]) -> PreparedResu
             "ok": True,
             "kaynak": source.name,
             "oturum_id": ref.session_id,
-            "baslik": ref.title,
+            "baslik": sanitize_title(ref.title),
             "sir_sayisi": digest.secret_count,
         },
         digest=digest.text,
         messages=tuple(
-            Message(turn.role, redact(turn.text))
-            for turn in source.read(ref.session_id, cursor=0, limit=100)
+            Message(turn.role, turn.text)
+            for turn in sanitize_turns(source.read(ref.session_id, cursor=0, limit=100))
             if turn.role in {"user", "assistant"} and turn.text.strip()
         ),
     )
@@ -138,7 +138,7 @@ def _serialize_ref(ref: SessionRef) -> dict[str, Any]:
     return {
         "kaynak": ref.source,
         "oturum_id": ref.session_id,
-        "baslik": ref.title,
+        "baslik": sanitize_title(ref.title),
         "guncellendi": ref.updated_at,
         "tur_sayisi": ref.turn_count,
         "boyut": ref.size_bytes,
@@ -146,4 +146,5 @@ def _serialize_ref(ref: SessionRef) -> dict[str, Any]:
 
 
 def _serialize_turn(turn: Turn) -> dict[str, Any]:
-    return {"rol": turn.role, "metin": turn.text, "zaman": turn.timestamp}
+    safe = sanitize_turns((turn,))[0]
+    return {"rol": safe.role, "metin": safe.text, "zaman": safe.timestamp}

@@ -59,6 +59,12 @@ def redact(text: str) -> str:
     `contains_sensitive` ile aynı desen listesini kullanır: log, trace ve JSONL
     çıktısı gibi sırların sızabileceği çıkış noktaları bu tek fonksiyondan geçer.
     """
+    lowered = text.casefold()
+    if not any(
+        marker in lowered
+        for marker in ("token", "secret", "password", "api", "bearer", "sk-", "gh", "xox", "akia")
+    ):
+        return text
     redacted = text
     for pattern in _SENSITIVE_PATTERNS:
         redacted = pattern.sub(REDACTED_MARK, redacted)

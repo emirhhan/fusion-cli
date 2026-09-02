@@ -72,7 +72,7 @@ def build_digest(source: HistorySource, ref: SessionRef, max_lines: int = MAX_LI
 
     lines = [
         f'<devralinan_oturum kaynak="{ref.source}" kimlik="{ref.session_id}">',
-        f"başlık: {ref.title}",
+        f"başlık: {redact(ref.title)}",
         f"tarih: {_date_of(ref.updated_at)}",
         f"tur sayısı: {scan.turn_count}",
         "dokunulan dosyalar: güvenilir üstveri yok",
