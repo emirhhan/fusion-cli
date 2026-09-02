@@ -10,6 +10,7 @@ import { createTerminalRuntime, type TerminalSession } from "./terminalBridge";
 
 vi.mock("@xterm/xterm", () => ({ Terminal: vi.fn() }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: vi.fn() }));
+vi.mock("@xterm/addon-webgl", () => ({ WebglAddon: vi.fn() }));
 
 import { XtermSession, type XtermAdapter } from "./XtermSession";
 
@@ -143,5 +144,28 @@ describe("XtermSession", () => {
     fireEvent.click(view.getByRole("button", { name: "Terminali temizle" }));
     expect(value.adapter.clear).toHaveBeenCalledOnce();
     expect(value.adapter.write).toHaveBeenCalledTimes(1);
+  });
+  it("aynı boyut için çekirdeğe tekrar resize göndermez", async () => {
+    const { adapter, session } = setup();
+    render(<XtermSession active session={session} adapter={adapter} />);
+
+    await waitFor(() => expect(session.resize).toHaveBeenCalledWith(111, 33));
+    const ilk = (session.resize as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    // Aynı ölçüm yeniden gelirse IPC tekrarlanmamalı: pencere sürüklenirken
+    // saniyede onlarca kez tetiklenip terminali takıyordu.
+    (adapter.fit as ReturnType<typeof vi.fn>).mockReturnValue({ cols: 111, rows: 33 });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect((session.resize as ReturnType<typeof vi.fn>).mock.calls.length).toBe(ilk);
+  });
+
+  it("sıfır ölçümde çekirdeğe boyut bildirmez", async () => {
+    const { adapter, session } = setup();
+    (adapter.fit as ReturnType<typeof vi.fn>).mockReturnValue({ cols: 0, rows: 0 });
+
+    render(<XtermSession active session={session} adapter={adapter} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(session.resize).not.toHaveBeenCalled();
   });
 });

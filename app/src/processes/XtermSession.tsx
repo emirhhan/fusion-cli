@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { SCROLLBACK_LINES, resolveMonoFont } from "./terminalTheme";
 import type { TerminalClosedEvent, TerminalSession } from "./terminalBridge";
 
 export interface XtermAdapter {
@@ -20,14 +22,29 @@ export function createXtermAdapter(): XtermAdapter {
   const terminal = new Terminal({
     cursorBlink: true,
     convertEol: false,
-    fontFamily: "var(--font-mono)",
+    // GERÇEK yazı tipi yığını verilir. xterm karakter genişliğini canvas'a
+    // yazarak ölçer ve `var(--font-mono)` orada çözülmez; yanlış ölçüm yanlış
+    // sütun/satır sayısına, o da yazdıkça kayan bir ekrana yol açıyordu.
+    fontFamily: resolveMonoFont(),
     fontSize: 12,
+    scrollback: SCROLLBACK_LINES,
     theme: { background: "#0f1115" },
   });
   const fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
   return {
-    open: (element) => terminal.open(element),
+    open: (element) => {
+      terminal.open(element);
+      // WebGL çizimi DOM renderer'ından belirgin biçimde hızlıdır ama her
+      // ortamda yoktur (yazılım render, bağlam kaybı). Yüklenemezse xterm
+      // kendi varsayılanıyla çalışmaya devam eder — terminal açılmamazlık
+      // etmez.
+      try {
+        terminal.loadAddon(new WebglAddon());
+      } catch {
+        // WebGL yok; varsayılan renderer yeterlidir.
+      }
+    },
     onData: (handler) => {
       const disposable = terminal.onData(handler);
       return () => disposable.dispose();
@@ -71,12 +88,31 @@ export function XtermSession({
     const encoder = new TextEncoder();
     adapter.open(host);
     const stopData = adapter.onData((data) => { void session.write(encoder.encode(data)); });
-    const fit = () => {
+    // Yeniden boyutlandırma, çerçeve başına EN FAZLA bir kez ölçülür ve boyut
+    // gerçekten değiştiyse çekirdeğe bildirilir. Eskiden her ResizeObserver
+    // tetiklemesi senkron ölçüm + IPC yapıyordu; pencere sürüklenirken bu
+    // saniyede onlarca kez olup terminali takıyordu.
+    let son = { cols: 0, rows: 0 };
+    let bekleyen = 0;
+    const olc = () => {
+      bekleyen = 0;
       const { cols, rows } = adapter.fit();
-      if (cols > 0 && rows > 0) void session.resize(cols, rows);
+      if (cols <= 0 || rows <= 0) return;
+      if (cols === son.cols && rows === son.rows) return;
+      son = { cols, rows };
+      void session.resize(cols, rows);
     };
-    fit();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    const planla = () => {
+      if (bekleyen) return;
+      bekleyen =
+        typeof requestAnimationFrame === "function"
+          ? requestAnimationFrame(olc)
+          : (setTimeout(olc, 0) as unknown as number);
+    };
+    // İlk ölçüm de ertelenir: `open` hemen ardından ölçmek, yerleşim ve yazı
+    // tipi oturmadan yanlış sütun sayısı üretebiliyordu.
+    planla();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(planla);
     observer?.observe(host);
     const stopOutput = session.onOutput((bytes) => {
       const text = decoder.decode(bytes, { stream: true });
@@ -84,6 +120,7 @@ export function XtermSession({
     });
     return () => {
       observer?.disconnect();
+      if (bekleyen && typeof cancelAnimationFrame === "function") cancelAnimationFrame(bekleyen);
       stopData();
       stopOutput();
       adapter.dispose();
