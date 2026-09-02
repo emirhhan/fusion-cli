@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Tier } from "./screens/TierBar";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
@@ -402,6 +403,10 @@ export function SessionUygulama({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
+  const [tiers, setTiers] = useState<Tier[]>([]);
+  const [activeTier, setActiveTier] = useState("");
+  const [tierEditable, setTierEditable] = useState(true);
+  const [tierReason, setTierReason] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
@@ -467,6 +472,43 @@ export function SessionUygulama({
     });
     return () => { alive = false; unlisten?.(); };
   }, [active?.id]);
+
+  // Kademe listesi oturuma bağlıdır: sağlayıcı tercihi ve etkin model oturumun
+  // yapılandırmasından gelir, bu yüzden istemcide önbelleğe alınmaz.
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    void active.client
+      .request("kademe.listele", {})
+      .then((payload) => {
+        if (!alive || payload.ok !== true || !Array.isArray(payload.kademeler)) return;
+        setTiers(payload.kademeler as Tier[]);
+        setActiveTier(typeof payload.etkin === "string" ? payload.etkin : "");
+        setTierEditable(payload.duzenlenebilir !== false);
+        setTierReason(typeof payload.metin === "string" ? payload.metin : "");
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+
+  const changeTier = useCallback(
+    async (ad: string) => {
+      if (!active) return;
+      const onceki = activeTier;
+      // İyimser güncelleme: bar anında tepki verir, çekirdek reddederse geri alınır.
+      setActiveTier(ad);
+      const sonuc = await active.client.request("kademe.sec", { ad }).catch(() => null);
+      if (!sonuc || sonuc.ok !== true) {
+        setActiveTier(onceki);
+        if (sonuc && typeof sonuc.metin === "string") setTierReason(sonuc.metin);
+        return;
+      }
+      if (typeof sonuc.etkin === "string") setActiveTier(sonuc.etkin);
+    },
+    [active, activeTier],
+  );
 
   useEffect(() => {
     if (!active) return;
@@ -818,6 +860,11 @@ export function SessionUygulama({
     <Shell
       composer={page === "chat" ? (
         <Composer
+          activeTier={activeTier}
+          tiers={tiers}
+          tierEditable={tierEditable}
+          tierReason={tierReason}
+          onTierChange={(ad) => void changeTier(ad)}
           approval={approval}
           onApprovalChange={(next) => {
             setApproval(next);

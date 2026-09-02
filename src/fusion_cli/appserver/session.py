@@ -69,6 +69,7 @@ from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
+from .tiers import list_tiers, select_tier
 from .usage import UsageMeter, usage_status
 from .voice import download_piper_model as voice_download_model
 from .voice import save_settings as voice_settings
@@ -280,6 +281,11 @@ class AppSession:
                     if message.role in {"user", "assistant"}
                 ],
             }
+        if request.name == "kademe.listele":
+            return list_tiers(self._state.config)
+        if request.name == "kademe.sec":
+            self._state.config, sonuc = select_tier(self._state.config, request.data)
+            return sonuc
         if request.name == "gecmis.kaynaklar":
             return list_sources(self._home)
         if request.name == "gecmis.oturumlar":
