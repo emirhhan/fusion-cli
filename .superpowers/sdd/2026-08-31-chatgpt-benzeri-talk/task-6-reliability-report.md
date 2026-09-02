@@ -57,3 +57,40 @@ An initial system-Python pytest attempt failed at collection because `fusion_cli
 Changed reliability files: `app/src/sessions/store.ts`, `app/src/sessions/useSessions.ts`, `app/src/sessions/useSessions.test.tsx`, `src/fusion_cli/appserver/session.py`, `src/fusion_cli/cli/repl/transcript_store.py`, `src/fusion_cli/core/constants.py`, `src/fusion_cli/core/tools.py`, `src/fusion_cli/tools/registry.py`, `src/fusion_cli/tools/search.py`, `tests/conftest.py`, `tests/test_appserver_session.py`, and `tests/test_tools_search_shell.py`.
 
 The search deadline is cooperative: a synchronous tool already inside an uninterruptible filesystem syscall cannot be force-killed safely, but traversal checks cancellation/deadline between candidates and the registry signals cancellation to worker tools. Full packaging/Talk acceptance and the unrelated pre-existing dirty files were not run or changed.
+
+## Fix round 1 — review findings
+
+### RED
+
+Added regressions first for source-session transcript loading, vendor-prefixed/JSON secret redaction, auth/config filename exclusion, symlink escape, pathological regex, and cancellation during real search matching. The initial focused run failed 6 tests: source history was empty, digest leaked `sk-ant-...`, JSON auth tokens were unrecognized, auth files were returned, `(a+)+$` was accepted, and the scan-aware matching hook was absent.
+
+### GREEN commands and exact output
+
+```text
+.venv/bin/pytest tests/test_appserver_history.py tests/test_history_commands.py tests/test_history_digest.py tests/test_history_registry.py tests/test_history_claude.py tests/test_history_codex.py tests/test_history_hermes.py tests/test_history_startup.py tests/test_history_continuity.py tests/test_history_memory_files.py tests/test_appserver_session.py tests/test_tools_search_shell.py -ra
+........................................................................ [ 43%]
+........................................................................ [ 86%]
+......................                                                   [100%]
+166 passed in 5.38s
+
+npm test -- src/sessions src/history src/protocol src/App.test.tsx
+Test Files  9 passed (9)
+Tests  64 passed (64)
+
+.venv/bin/ruff check src/fusion_cli/core/redaction.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/tools/search.py tests/test_appserver_history.py tests/test_history_digest.py tests/test_tools_search_shell.py
+All checks passed!
+
+.venv/bin/mypy src/fusion_cli/core/redaction.py src/fusion_cli/history/digest.py src/fusion_cli/appserver/history.py src/fusion_cli/appserver/session.py src/fusion_cli/tools/search.py
+Success: no issues found in 5 source files
+
+npm run build
+✓ built in 1.06s
+```
+
+### Self-review
+
+- Secret-bearing filenames are excluded conservatively (`.env*`, `.npmrc`, `.netrc`, credentials/auth/token/secret/config JSON, SSH key names) and sensitive directory names are skipped case-insensitively, including `.claude`, `Claude`, `Chrome`, `.ssh`, and cloud credential directories.
+- Traversal does not follow directory symlinks and rejects symlink files; restricted path resolution still prevents an explicitly requested root from escaping its allowed root.
+- Search reads at most 256 KiB per file, checks the deadline/cancellation between lines, rejects oversized/pathological regexes, caps candidates/results, and reports recoverable partial output.
+- External resume now copies only bounded `user`/`assistant` source turns through central redaction into the selected Fusion session’s history before `oturum.gecmis` is served. The transport regression returns different histories for the default and resumed IDs, so unconditional initial-history behavior would fail.
+- The remaining limitation is intentionally documented: cancellation is cooperative at Python/regex boundaries. Catastrophic regexes are rejected before matching; filesystem calls already in progress cannot be safely force-killed.

@@ -5,7 +5,10 @@ import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./t
 
 afterEach(() => localStorage.clear());
 
-function fakeTransport(initialHistory: { rol: "kullanici" | "asistan"; metin: string }[] = []) {
+function fakeTransport(
+  initialHistory: { rol: "kullanici" | "asistan"; metin: string }[] = [],
+  resumedHistory = initialHistory,
+) {
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;
   let closedHandler: ((event: SessionClosedEvent) => void) | null = null;
   const sent: { id: string; line: string }[] = [];
@@ -27,7 +30,7 @@ function fakeTransport(initialHistory: { rol: "kullanici" | "asistan"; metin: st
           satir: JSON.stringify({
             tip: "sonuc",
             id: request.id,
-            veri: { ok: true, mesajlar: initialHistory },
+            veri: { ok: true, mesajlar: id === "varsayilan" ? initialHistory : resumedHistory },
           }),
         }));
         return;
@@ -230,7 +233,7 @@ describe("useSessions", () => {
   });
 
   it("devralınan geçmişi aynı çekirdek kimliğinde tutar ve model değişiminden sonra korur", async () => {
-    const fake = fakeTransport([
+    const fake = fakeTransport([], [
       { rol: "kullanici", metin: "Eski oyun sorusu" },
       { rol: "asistan", metin: "Eski oyun yanıtı" },
     ]);

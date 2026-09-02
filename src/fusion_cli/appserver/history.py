@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..core.redaction import redact
+from ..core.types import Message
 from ..history import available_sources, build_digest, source_by_name
 from ..history.models import HistorySource, SessionRef, Turn
 
@@ -22,6 +24,7 @@ MAX_CURSOR = 10_000
 class PreparedResume:
     payload: dict[str, Any]
     digest: str
+    messages: tuple[Message, ...]
 
 
 def list_sources(home: Path) -> dict[str, Any]:
@@ -94,6 +97,11 @@ def prepare_resume(home: Path, root: Path, data: dict[str, Any]) -> PreparedResu
             "sir_sayisi": digest.secret_count,
         },
         digest=digest.text,
+        messages=tuple(
+            Message(turn.role, redact(turn.text))
+            for turn in source.read(ref.session_id, cursor=0, limit=100)
+            if turn.role in {"user", "assistant"} and turn.text.strip()
+        ),
     )
 
 

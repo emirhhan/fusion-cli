@@ -121,6 +121,69 @@ async def test_search_code_env_ve_sir_satirlarini_disari_vermez(registry, contex
     assert "[gizlendi]" in sonuc.output
 
 
+async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
+    registry, context, tmp_path
+):
+    for name in (".npmrc", "credentials.json", "token.json", "config.json"):
+        (tmp_path / name).write_text(
+            '{"access_token":"abcdefghijklmnopqrstuvwxyz123456","hedef":true}',
+            encoding="utf-8",
+        )
+    (tmp_path / "source.py").write_text("hedef\n", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "source.py" in sonuc.output
+    assert all(name not in sonuc.output for name in (".npmrc", "credentials.json", "token.json"))
+    assert "abcdefghijklmnopqrstuvwxyz123456" not in sonuc.output
+
+
+async def test_search_code_symlink_dosya_kok_disina_cikmaz(registry, context, tmp_path):
+    outside = tmp_path.parent / "outside-secret.txt"
+    outside.write_text("hedef dışarıda", encoding="utf-8")
+    link = tmp_path / "link.txt"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink oluşturulamıyor")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok and "outside-secret" not in sonuc.output
+
+
+async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(
+    registry, context, tmp_path
+):
+    (tmp_path / "large.txt").write_text("a" * 100_000, encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="(a+)+$")
+
+    assert not sonuc.ok
+    assert "güvenli" in sonuc.output or "karmaşık" in sonuc.output
+
+
+async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(
+    registry, context, tmp_path, monkeypatch
+):
+    (tmp_path / "many.txt").write_text("hedef\n" + "başka\n" * 1000, encoding="utf-8")
+    original = search_tools._matching_lines
+
+    def cancel_after_first(path, regex, scan):
+        for hit in original(path, regex, scan):
+            yield hit
+            scan.context.cancelled.set()
+
+    monkeypatch.setattr(search_tools, "_matching_lines", cancel_after_first)
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert not sonuc.ok and "iptal edildi" in sonuc.output
+    monkeypatch.undo()
+    (tmp_path / "next.txt").write_text("hedef\n", encoding="utf-8")
+    sonraki = await _calistir(registry, context, "search_code", pattern="hedef")
+    assert sonraki.ok and "next.txt" in sonraki.output
+
+
 async def test_iptal_edilen_sync_arac_isci_threadine_iptal_sinyali_verir(registry, context):
     started = threading.Event()
     stopped = threading.Event()

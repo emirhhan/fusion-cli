@@ -14,6 +14,16 @@ import re
 
 #: Sır/kişisel veri işaret eden desenler. Sıra önemsizdir; ilk eşleşme yeter.
 _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # Generic env/JSON auth keys, including vendor-prefixed names such as
+    # ANTHROPIC_API_KEY and nested JSON config fields.
+    re.compile(
+        r'((?:["\']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
+        r'id[_-]?token|auth[_-]?token|client[_-]?secret|token|secret|password)'
+        r'[A-Za-z0-9_.-]*(?:["\']?)\s*[:=]\s*["\']?)([^"\'\s,}]+)(["\']?)',
+        re.IGNORECASE,
+    ),
+    # Common JSON auth/config fields. Keep the key, replace only the value so
+    # diagnostics remain useful without exposing bearer/access/refresh tokens.
     # OpenAI/benzeri anahtarlar: sk-... , anahtar önekleri
     re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
     re.compile(r"\b(gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{10,}\b"),

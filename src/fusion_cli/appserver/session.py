@@ -279,6 +279,7 @@ class AppSession:
             prepared = prepare_resume(self._home, self._state.root, request.data)
             if isinstance(prepared, PreparedResume):
                 self._state.pending_digest = prepared.digest
+                self._state.history = list(prepared.messages)
                 return prepared.payload
             return prepared
         if request.name == "proje.durum":

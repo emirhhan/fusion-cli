@@ -53,13 +53,14 @@ def test_digest_is_deterministic():
     assert build_digest(source, _ref()).text == build_digest(source, _ref()).text
 
 
-def test_secret_is_counted_without_masking():
+def test_secret_is_counted_and_masked():
     source = _FakeSource([Turn("user", "ANTHROPIC_API_KEY=sk-ant-0123456789abcdefghij")])
 
     digest = build_digest(source, _ref())
 
     assert digest.secret_count >= 1
-    assert "sk-ant-0123456789abcdefghij" in digest.text
+    assert "sk-ant-0123456789abcdefghij" not in digest.text
+    assert "[gizlendi]" in digest.text
 
 
 def test_secret_count_is_zero_for_plain_text():
@@ -69,6 +70,11 @@ def test_secret_count_is_zero_for_plain_text():
 def test_known_secret_patterns_are_counted():
     assert count_secrets("Bearer abcdefghijklmnopqrstuvwx") >= 1
     assert count_secrets("DB_PASSWORD=cokgizli123") >= 1
+
+
+def test_common_json_auth_token_formats_are_counted():
+    assert count_secrets('{"access_token":"abcdefghijklmnopqrstuvwxyz123456"}') >= 1
+    assert count_secrets('{"refreshToken":"abcdefghijklmnopqrstuvwxyz123456"}') >= 1
 
 
 def test_digest_scans_secrets_after_first_page() -> None:

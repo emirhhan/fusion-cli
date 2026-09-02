@@ -27,6 +27,19 @@ from .files import display_path, resolve_path
 
 SEARCH_DEADLINE_S = 8.0
 MAX_SEARCH_CANDIDATES = 50_000
+MAX_SEARCH_SCAN_BYTES = 256 * 1024
+MAX_REGEX_PATTERN_CHARS = 500
+_UNSAFE_REGEX = re.compile(r"\((?:[^()\\]|\\.)*[+*][^()]*\)[+*]")
+_SECRET_FILE_NAMES = frozenset(
+    {
+        ".npmrc", ".netrc", "credentials", "credentials.json", "token.json",
+        "tokens.json", "auth.json", "secrets.json", "config.json", "id_rsa",
+        "id_ed25519",
+    }
+)
+_SECRET_DIRECTORY_NAMES = frozenset(
+    {".aws", ".azure", ".claude", "claude", ".config", ".gnupg", ".ssh", "chrome"}
+)
 
 
 @dataclass
@@ -63,6 +76,11 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not root.exists():
         return ToolResult.failure(f"Yol yok: {root}")
+    if len(pattern) > MAX_REGEX_PATTERN_CHARS or _UNSAFE_REGEX.search(pattern):
+        return ToolResult.failure(
+            "Regex deseni güvenli sınırı aşıyor veya patolojik geri izleme riski taşıyor; "
+            "daha kısa ve basit bir desen dene."
+        )
     try:
         regex = re.compile(pattern)
     except re.error as exc:
@@ -71,14 +89,15 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
     hits: list[str] = []
     scan = _SearchScan(context=context, started=time.monotonic())
     for path in _searchable_files(root, scan):
-        for number, line in _matching_lines(path, regex):
+        for number, line in _matching_lines(path, regex, scan):
             hits.append(
                 f"{display_path(context, path)}:{number}: "
                 f"{redact(line.strip())[:MAX_MATCH_LINE_CHARS]}"
             )
             if len(hits) >= MAX_SEARCH_HITS:
-                return ToolResult(
-                    "\n".join(hits) + f"\n… ({MAX_SEARCH_HITS}+ eşleşme, deseni daraltın)"
+                return ToolResult.failure(
+                    "\n".join(hits) + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, "
+                    "deseni daraltın)"
                 )
     return _bounded_result(hits, scan, "(eşleşme yok)")
 
@@ -120,13 +139,19 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
 
 
 def _is_skipped(path: Path) -> bool:
-    return any(part in SKIP_DIRECTORIES for part in path.parts) or _is_secret_file(path)
+    skipped_directories = {part.casefold() for part in SKIP_DIRECTORIES}
+    return (
+        any(part.casefold() in skipped_directories for part in path.parts)
+        or any(part.casefold() in _SECRET_DIRECTORY_NAMES for part in path.parts)
+        or _is_secret_file(path)
+        or path.is_symlink()
+    )
 
 
 def _is_secret_file(path: Path) -> bool:
     """Arama çıktısına dotenv ve açık sır dosyalarını hiç sokma."""
     name = path.name.casefold()
-    return name == ".env" or name.startswith(".env.")
+    return name == ".env" or name.startswith(".env.") or name in _SECRET_FILE_NAMES
 
 
 def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
@@ -156,11 +181,18 @@ def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
         yield path
 
 
-def _matching_lines(path: Path, regex: re.Pattern[str]) -> Iterator[tuple[int, str]]:
+def _matching_lines(
+    path: Path, regex: re.Pattern[str], scan: _SearchScan
+) -> Iterator[tuple[int, str]]:
     try:
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        data = path.read_bytes()
     except OSError:
         return
+    if len(data) > MAX_SEARCH_SCAN_BYTES:
+        scan.stopped = f"tek dosya {MAX_SEARCH_SCAN_BYTES} bayt okuma sınırına ulaştı"
+    text = data[:MAX_SEARCH_SCAN_BYTES].decode("utf-8", errors="ignore")
     for number, line in enumerate(text.splitlines(), 1):
+        if scan.should_stop():
+            return
         if regex.search(line):
             yield number, line

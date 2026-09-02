@@ -120,6 +120,29 @@ async def test_gecmis_surdur_kunyeyi_bekletir_ve_sir_sayisini_dondurur(tmp_path,
     assert "İlk sohbet" in session._state.pending_digest
 
 
+async def test_gecmis_surdur_secili_kaynagin_redakte_gecmisini_ayni_fusion_oturumuna_yukler(
+    tmp_path, monkeypatch
+):
+    source = _FakeSource()
+    _patch_source(monkeypatch, source)
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+
+    await session.handle(
+        Request("resume", "gecmis.surdur", {"kaynak": "claude", "oturum_id": "s1"})
+    )
+    await session.handle(Request("history", "oturum.gecmis", {}))
+
+    result = _result(lines, "history")
+    assert result["mesajlar"] == [
+        {"rol": "kullanici", "metin": "oyun yap"},
+        {"rol": "asistan", "metin": "hazırlıyorum"},
+        {"rol": "kullanici", "metin": "[gizlendi]"},
+    ]
+    assert session._state.history[0].content == "oyun yap"
+    assert "12345678901234567890" not in session._state.history[-1].content
+
+
 async def test_kurulu_olmayan_kaynak_anlasilir_hata_doner(tmp_path, monkeypatch):
     monkeypatch.setattr("fusion_cli.appserver.history.source_by_name", lambda *_args: None)
     lines: list[str] = []
