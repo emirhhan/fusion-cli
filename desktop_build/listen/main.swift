@@ -159,6 +159,15 @@ final class AkisTanisi {
     private var sonRapor = Date()
     private let aralik: TimeInterval = 1.0
 
+    private var monoEnYuksek: Float = 0
+    private var donusumHatasi = 0
+
+    /// Tanıyıcıya GİDEN sesin seviyesi. Girişte ses varken burada yoksa
+    /// dönüştürücü bozuktur; ikisini ayırmak için ayrı ölçülür.
+    func olcMono(rms: Float) { monoEnYuksek = max(monoEnYuksek, rms) }
+
+    func donusumBasarisiz() { donusumHatasi += 1 }
+
     func olc(rms: Float, biçim: AVAudioFormat) {
         tampon += 1
         enYuksek = max(enYuksek, rms)
@@ -166,12 +175,15 @@ final class AkisTanisi {
         guard Date().timeIntervalSince(sonRapor) >= aralik else { return }
         sonRapor = Date()
         taniYaz(
-            "akis tampon=\(tampon) enYuksekRms=\(String(format: "%.5f", enYuksek)) "
+            "akis tampon=\(tampon) girisRms=\(String(format: "%.5f", enYuksek)) "
+                + "monoRms=\(String(format: "%.5f", monoEnYuksek)) donusumHatasi=\(donusumHatasi) "
                 + "hz=\(Int(biçim.sampleRate)) kanal=\(biçim.channelCount)",
             uzunluk: tampon, guven: enYuksek, segment: 0
         )
         tampon = 0
         enYuksek = 0
+        monoEnYuksek = 0
+        donusumHatasi = 0
     }
 }
 
@@ -377,6 +389,39 @@ final class MonoDonusturucu {
 
 let monoDonusturucu = MonoDonusturucu()
 
+//: Tanıyıcıya verilecek hedef tepe seviyesi.
+//:
+//: Ölçüldü: bu makinede konuşma yalnızca ~0.01 RMS üretiyor (normal konuşma
+//: 0.05–0.2 aralığındadır). Tanıyıcıya bu kadar kısık ses vermek, ne söylenirse
+//: söylensin birkaç karakterlik kırıntı üretiyordu. Kazanç, sinyali tanıyıcının
+//: beklediği aralığa taşır.
+private let HEDEF_TEPE: Float = 0.25
+
+//: Kazanç tavanı. Sınırsız kazanç, sessizlikteki gürültüyü konuşma seviyesine
+//: yükseltip tanıyıcıya çöp verirdi.
+private let EN_YUKSEK_KAZANC: Float = 24.0
+
+//: Bu tepenin altındaki tampon gürültü sayılır ve YÜKSELTİLMEZ.
+private let GURULTU_TABANI: Float = 0.0015
+
+/// Tamponu tanıyıcının beklediği seviyeye taşı.
+///
+/// Kırpma yapılmaz: kazanç uygulandıktan sonra örnekler [-1, 1] aralığına
+/// sıkıştırılır, aksi halde yüksek sesli konuşma bozularak tanınamaz hâle gelir.
+func kazancUygula(_ tampon: AVAudioPCMBuffer) {
+    guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return }
+    let veri = kanallar[0]
+    let cerceve = Int(tampon.frameLength)
+    var tepe: Float = 0
+    for indis in 0..<cerceve { tepe = max(tepe, abs(veri[indis])) }
+    guard tepe > GURULTU_TABANI else { return }
+    let kazanc = min(HEDEF_TEPE / tepe, EN_YUKSEK_KAZANC)
+    guard kazanc > 1.0 else { return }
+    for indis in 0..<cerceve {
+        veri[indis] = max(-1.0, min(1.0, veri[indis] * kazanc))
+    }
+}
+
 /// Konuşma başlangıcından ÖNCEKİ tamponların tutulduğu halka.
 ///
 /// Kapı, sesi ancak `baslangicDogrulamaMs` kadar sürdükten sonra "başladı"
@@ -408,6 +453,23 @@ let onTampon = OnTampon(kapasite: 16)
 /// O anda dinlenen konuşmanın isteği.
 var acikIstek: SFSpeechAudioBufferRecognitionRequest?
 
+//: Bir turun açık kalabileceği en uzun süre.
+//:
+//: Ölçülen hata: kapı bir kez `ses-bitti` verip yeni tur açtıktan sonra
+//: kullanıcı başlangıç eşiğini bir daha aşmazsa tur HİÇ kapanmıyordu. İstek
+//: açık kaldığı için `isFinal` üretilmiyor ve arayüz "seni yazıya
+//: çeviriyorum…" adımında sonsuza kadar bekliyordu.
+private let enUzunTurSaniye = 12.0
+
+/// Açık turun kimliği; gözcü yalnız KENDİ turunu kapatır.
+var acikTurNo = 0
+
+/// Kullanıcıya hata olarak bildirilmeyecek tur numaraları.
+///
+/// Bir turu bilerek değiştirdiğimizde eski görev "iptal edildi" hatası verir.
+/// Bu beklenen bir sonlanmadır; kullanıcıya "bir sorun oluştu" demek yanlıştır.
+var terkEdilenTurlar: Set<Int> = []
+
 /// Konuşma başlat: bu konuşmaya ÖZEL taze bir istek ve görev kur.
 ///
 /// Neden konuşma başına: tek bir istek/görevle çalışmak yardımcıyı TEK
@@ -415,7 +477,18 @@ var acikIstek: SFSpeechAudioBufferRecognitionRequest?
 /// gelince süreç kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
 /// hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
 func konusmaAc(segment: Int) {
+    if acikIstek != nil { terkEdilenTurlar.insert(acikTurNo) }
     konusmaKapat()
+    acikTurNo += 1
+    let turNo = acikTurNo
+    DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye) {
+        guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
+        // Tur süresi doldu: tanıyıcı kalan sesi işleyip final üretsin, sonra
+        // sıradaki tur açılsın. Aksi halde arayüz beklemede kalır.
+        taniYaz("tur-suresi-doldu", uzunluk: 0, guven: 0, segment: turNo)
+        konusmaKapat()
+        konusmaAc(segment: kapı.segment + 1)
+    }
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
     r.requiresOnDeviceRecognition = true
@@ -446,7 +519,11 @@ func konusmaAc(segment: Int) {
         // konuşabilmelidir. Süreci kapatmak dinlemeyi tek denemeye indirirdi.
         if let hata = hata {
             taniYaz("ham-hata", uzunluk: 0, guven: 0, segment: segment)
-            yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+            // Bilerek değiştirdiğimiz turun hatası BEKLENEN sonlanmadır;
+            // kullanıcıya "bir sorun oluştu" demek yanlış olurdu.
+            if !terkEdilenTurlar.contains(turNo) {
+                yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+            }
         }
     }
 }
@@ -488,7 +565,11 @@ func başlat() {
         // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
         // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
         if let mono = monoDonusturucu?.donustur(tampon) {
+            kazancUygula(mono)
+            akisTanisi.olcMono(rms: rms(mono))
             acikIstek?.append(mono)
+        } else {
+            akisTanisi.donusumBasarisiz()
         }
         guard let olay = olay else { return }
         if olay == "ses-bitti" {
