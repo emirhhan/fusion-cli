@@ -90,13 +90,21 @@ let dil = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "tr-TR"
 let motor = AVAudioEngine()
 let kapı = SesEtkinligiKapisi()
 var istek: SFSpeechAudioBufferRecognitionRequest?
-var görev: SFSpeechRecognitionTask?
+/// Çalışan tanıma görevleri, tur numarasına göre.
+///
+/// Tek bir `görev` değişkeni YETMEZ: yeni tur açılırken değişkene atama yapmak
+/// eski görevi serbest bırakır ve tanıyıcı `endAudio()` çağrılmış olsa bile
+/// finali üretmeden İPTAL olur. Ölçüldü: kullanıcı konuşuyor, kısmi sonuç
+/// geliyor, sonra `ham-son` yerine `ham-hata` düşüyor ve metin kayboluyordu.
+/// Biten tur, finalini teslim edene kadar burada tutulur.
+var gorevler: [Int: SFSpeechRecognitionTask] = [:]
 var tapKurulu = false
 var bitiyor = false
 var sinyalKaynakları: [DispatchSourceSignal] = []
 
 func temizle() {
-    görev?.cancel(); görev = nil
+    for (_, gorev) in gorevler { gorev.cancel() }
+    gorevler.removeAll()
     istek?.endAudio(); istek = nil
     if motor.isRunning { motor.stop() }
     if tapKurulu { motor.inputNode.removeTap(onBus: 0); tapKurulu = false }
@@ -493,12 +501,6 @@ private let enUzunTurSaniye = 12.0
 /// Açık turun kimliği; gözcü yalnız KENDİ turunu kapatır.
 var acikTurNo = 0
 
-/// Kullanıcıya hata olarak bildirilmeyecek tur numaraları.
-///
-/// Bir turu bilerek değiştirdiğimizde eski görev "iptal edildi" hatası verir.
-/// Bu beklenen bir sonlanmadır; kullanıcıya "bir sorun oluştu" demek yanlıştır.
-var terkEdilenTurlar: Set<Int> = []
-
 /// Konuşma başlat: bu konuşmaya ÖZEL taze bir istek ve görev kur.
 ///
 /// Neden konuşma başına: tek bir istek/görevle çalışmak yardımcıyı TEK
@@ -506,7 +508,9 @@ var terkEdilenTurlar: Set<Int> = []
 /// gelince süreç kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
 /// hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
 func konusmaAc(segment: Int) {
-    if acikIstek != nil { terkEdilenTurlar.insert(acikTurNo) }
+    // Açık tur burada TERK EDİLMEZ; `konusmaKapat` ona `endAudio()` der ve
+    // finalini teslim etmesi beklenir. Terk etme yalnızca gerçekten iptal
+    // ettiğimiz turlar içindir.
     konusmaKapat()
     acikTurNo += 1
     let turNo = acikTurNo
@@ -527,7 +531,7 @@ func konusmaAc(segment: Int) {
     taniYaz("konusma-acildi", uzunluk: 0, guven: 0, segment: segment)
     for tampon in onTampon.bosalt() { r.append(tampon) }
 
-    görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
+    gorevler[turNo] = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
         if let sonuç = sonuç {
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
@@ -540,6 +544,8 @@ func konusmaAc(segment: Int) {
                     yaz("hata", "Güvenilir konuşma tanınamadı.",
                         speechMs: kapı.konusmaMs, segment: segment)
                 }
+                // Tur finalini teslim etti; artık tutulmasına gerek yok.
+                gorevler.removeValue(forKey: turNo)
             } else {
                 metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
             }
@@ -550,9 +556,8 @@ func konusmaAc(segment: Int) {
             taniYaz("ham-hata", uzunluk: 0, guven: 0, segment: segment)
             // Bilerek değiştirdiğimiz turun hatası BEKLENEN sonlanmadır;
             // kullanıcıya "bir sorun oluştu" demek yanlış olurdu.
-            if !terkEdilenTurlar.contains(turNo) {
-                yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
-            }
+            yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+            gorevler.removeValue(forKey: turNo)
         }
     }
 }
