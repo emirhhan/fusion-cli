@@ -107,6 +107,10 @@ final class Tur {
     /// diye en iyi kısmi saklanır ve final boşsa o teslim edilir.
     var sonKismi = ""
     var sonKismiGuven: Float = 0
+    /// Bu turda en son ne zaman bir işaret geldi (kısmi sonuç ya da konuşma
+    /// sesi). Gözcü buna bakar; sabit süreye bakmak konuşmanın ORTASINDA turu
+    /// kesiyordu ve kullanıcı Talk'ı kapatıp açmak zorunda kalıyordu.
+    var sonEtkinlik = Date()
 
     init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
 }
@@ -548,6 +552,29 @@ var acikTurNo = 0
 /// konuşmalık yapıyordu — ilk sessizlikte `endAudio()` çağrılıp `isFinal`
 /// gelince süreç kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
 /// hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
+/// Turu ETKİNLİKSİZ kaldığında kapatan gözcü.
+///
+/// Eskiden sabit 12 saniyede kapatıyordu ve kullanıcı hâlâ konuşurken turu
+/// kesebiliyordu; yarım kalan tur arayüzü bozuk bırakıyor, kullanıcı Talk'ı
+/// kapatıp açmak zorunda kalıyordu. Artık son işaretin (kısmi sonuç ya da
+/// konuşma sesi) üstünden geçen süreye bakılır.
+func turGozcusuKur(turNo: Int) {
+    DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye) {
+        durumla {
+            guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
+            guard let tur = turlar[turNo] else { return }
+            let bosGecen = Date().timeIntervalSince(tur.sonEtkinlik)
+            if bosGecen < enUzunTurSaniye {
+                // Tur hâlâ canlı: kesme, yeniden ölç.
+                turGozcusuKur(turNo: turNo)
+                return
+            }
+            taniYaz("tur-suresi-doldu", uzunluk: 0, guven: 0, segment: turNo)
+            konusmaKapat()
+        }
+    }
+}
+
 func konusmaAc(segment: Int) {
   durumla {
     // Açık tur burada TERK EDİLMEZ; `konusmaKapat` ona `endAudio()` der ve
@@ -555,13 +582,7 @@ func konusmaAc(segment: Int) {
     konusmaKapat()
     acikTurNo += 1
     let turNo = acikTurNo
-    DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye) {
-        durumla {
-            guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
-            taniYaz("tur-suresi-doldu", uzunluk: 0, guven: 0, segment: turNo)
-            konusmaKapat()
-        }
-    }
+    turGozcusuKur(turNo: turNo)
     // İKİNCİ gözcü: `endAudio()` sonrası tanıma geri çağrısı hiç gelmezse tur
     // sonsuza kadar sözlükte kalır ve yeni tur açılmaz — süreç sessizce sağır
     // olur. Bu gözcü o durumu görür, görevi iptal eder ve dinlemeyi sürdürür.
@@ -613,6 +634,7 @@ func konusmaAc(segment: Int) {
                 if !metin.isEmpty {
                     turlar[turNo]?.sonKismi = metin
                     turlar[turNo]?.sonKismiGuven = puan
+                    turlar[turNo]?.sonEtkinlik = Date()
                 }
                 metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
             }
@@ -709,7 +731,12 @@ func tapKur() {
             akisTanisi.olcMono(rms: rms(mono))
             // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
             // ikisi de aynı kilidi alır.
-            durumla { acikIstek?.append(mono) }
+            durumla {
+                acikIstek?.append(mono)
+                // Konuşma sesi de etkinliktir; gözcü konuşmanın ortasında
+                // turu kesmemeli.
+                if kapı.etkin { turlar[acikTurNo]?.sonEtkinlik = Date() }
+            }
         } else {
             akisTanisi.donusumBasarisiz()
         }
