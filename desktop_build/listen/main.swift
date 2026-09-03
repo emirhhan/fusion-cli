@@ -140,6 +140,39 @@ func taniYaz(_ etiket: String, uzunluk: Int, guven: Float, segment: Int) {
     }
 }
 
+/// Ses akışının GERÇEKTEN gelip gelmediğini ölçen sayaç.
+///
+/// `hazir` yazılması motorun başladığını söyler, ses geldiğini SÖYLEMEZ.
+/// macOS, mikrofon izni olmayan bir sürece hata vermek yerine sessizce SIFIR
+/// dolu tampon verir; bu durumda kapı hiç açılmaz ve kullanıcı "konuşuyorum
+/// ama hiçbir şey olmuyor" görür. Sayaç bu iki durumu ayırır.
+final class AkisTanisi {
+    /// Gürültü tabanının üstünde, gerçekten duyulur bir örnek görüldü mü?
+    /// Sıfır dolu tampon akışı bunu asla true yapmaz.
+    private(set) var duyulurOrnekYok = true
+    private var tampon = 0
+    private var enYuksek: Float = 0
+    private var sonRapor = Date()
+    private let aralik: TimeInterval = 1.0
+
+    func olc(rms: Float, biçim: AVAudioFormat) {
+        tampon += 1
+        enYuksek = max(enYuksek, rms)
+        if rms > 0.0005 { duyulurOrnekYok = false }
+        guard Date().timeIntervalSince(sonRapor) >= aralik else { return }
+        sonRapor = Date()
+        taniYaz(
+            "akis tampon=\(tampon) enYuksekRms=\(String(format: "%.5f", enYuksek)) "
+                + "hz=\(Int(biçim.sampleRate)) kanal=\(biçim.channelCount)",
+            uzunluk: tampon, guven: enYuksek, segment: 0
+        )
+        tampon = 0
+        enYuksek = 0
+    }
+}
+
+let akisTanisi = AkisTanisi()
+
 func rms(_ tampon: AVAudioPCMBuffer) -> Float {
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
     let kanal = kanallar[0]
@@ -351,10 +384,23 @@ func başlat() {
     }
 
     let girdi = motor.inputNode
-    let biçim = girdi.outputFormat(forBus: 0)
+    let biçim = girdi.inputFormat(forBus: 0)
+    // Geçersiz biçimle tap kurmak sessizce hiç veri getirmez. `outputFormat`
+    // motor başlamadan 0 Hz dönebiliyor; giriş biçimi doğru olandır.
+    guard biçim.sampleRate > 0, biçim.channelCount > 0 else {
+        taniYaz("biçim-gecersiz", uzunluk: 0, guven: 0, segment: 0)
+        yaz("hata", "Mikrofon giriş biçimi okunamadı. Ses giriş cihazını kontrol edin.")
+        bitir(10)
+    }
+    taniYaz(
+        "biçim hz=\(Int(biçim.sampleRate)) kanal=\(biçim.channelCount)",
+        uzunluk: 0, guven: 0, segment: 0
+    )
     girdi.installTap(onBus: 0, bufferSize: 1024, format: biçim) { tampon, _ in
         let sureMs = max(1, Int(Double(tampon.frameLength) / biçim.sampleRate * 1000))
-        let olay = kapı.isle(rms: rms(tampon), sureMs: sureMs)
+        let seviye = rms(tampon)
+        akisTanisi.olc(rms: seviye, biçim: biçim)
+        let olay = kapı.isle(rms: seviye, sureMs: sureMs)
         if let acik = acikIstek {
             acik.append(tampon)
         } else {
@@ -378,6 +424,32 @@ func başlat() {
     }
     taniYaz("hazir", uzunluk: 0, guven: 0, segment: 0)
     yaz("hazir", dil)
+    sessizAkisGozcusuKur()
+}
+
+//: Motor başladıktan sonra ses akışının kanıtlanması için tanınan süre.
+//: Kullanıcının düşünüp konuşmaya başlaması için yeterince uzun, "bozuk"
+//: demek için yeterince kısa.
+private let sessizAkisEsigiSaniye = 6.0
+
+/// Motor çalışıyor ama tek bir DUYULUR örnek gelmediyse bunu bildir.
+///
+/// macOS, mikrofon izni olmayan sürece hata vermek yerine sessizce sıfır dolu
+/// tampon verir. Eskiden bu durumda hiçbir şey olmuyordu: kullanıcı konuşuyor,
+/// ekranda hiçbir şey çıkmıyor, hiçbir hata da görünmüyordu. Sessiz başarısızlık
+/// yerine açık bir mesaj verilir.
+func sessizAkisGozcusuKur() {
+    DispatchQueue.main.asyncAfter(deadline: .now() + sessizAkisEsigiSaniye) {
+        guard !bitiyor else { return }
+        guard akisTanisi.duyulurOrnekYok else { return }
+        taniYaz("akis-sessiz", uzunluk: 0, guven: 0, segment: 0)
+        yaz(
+            "hata",
+            "Mikrofondan ses gelmiyor. Sistem Ayarları > Gizlilik ve Güvenlik > "
+                + "Mikrofon altında Fusion'a izin verildiğini ve doğru giriş cihazının "
+                + "seçili olduğunu kontrol edin."
+        )
+    }
 }
 
 SFSpeechRecognizer.requestAuthorization { durum in

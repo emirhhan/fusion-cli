@@ -34,6 +34,11 @@ def build() -> bool:
     if result.returncode != 0:
         print(f"Konuşma yardımcısı derlenemedi:\n{result.stderr}")
         return False
+    # İmza derleme adımının PARÇASIDIR; gerekçesi `build_adapter._sign_macos_adapter`
+    # docstring'inde. İmzasız yardımcı mikrofondan sessizlik alır.
+    from .build_adapter import _sign_macos_adapter
+
+    _sign_macos_adapter(_OUTPUT)
     print(f"Konuşma yardımcısı hazır: {_OUTPUT} ({_OUTPUT.stat().st_size // 1024} KB)")
     return True
 

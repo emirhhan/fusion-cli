@@ -72,6 +72,25 @@ def run_checked(command: list[str]) -> None:
         raise BuildError(f"Konuşma adaptörü derlenemedi: {error}") from error
 
 
+def _sign_macos_adapter(output: Path) -> None:
+    """Yardımcıyı ad-hoc ama GERÇEK bir imzayla imzala.
+
+    Derleyicinin otomatik koyduğu `linker-signed` imzayı AMFI reddediyor
+    ("has no CMS blob", "Unrecoverable CT signature issue"). TCC izin kaydı
+    imza kimliğine bağlı olduğu için imzasız sürece macOS hata VERMEZ; sessizce
+    sıfır dolu ses verir. Ölçülen sonuç: motor başlıyor, `hazir` yazılıyor, ama
+    tek bir ses örneği gelmiyor ve konuşma hiç tanınmıyor.
+
+    Uygulama paketini `codesign --deep` ile imzalamak bunu KURTARMAZ:
+    `Contents/Resources` altındaki Mach-O, iç içe kod değil kaynak olarak
+    mühürlenir ve linker imzası yerinde kalır. Bu yüzden imza burada, üretildiği
+    anda atılır — hangi paketleme yolu kullanılırsa kullanılsın taşınır.
+    """
+    if shutil.which("codesign") is None:
+        raise BuildError("codesign bulunamadı; imzasız yardımcı mikrofona erişemez")
+    run_checked(["codesign", "--force", "--sign", "-", "--timestamp=none", str(output)])
+
+
 def build(
     *,
     platform_name: str,
@@ -92,6 +111,7 @@ def build(
     output.unlink(missing_ok=True)
     if contract.platform_name == "macos":
         run_checked([compiler, "-O", "-o", str(output), str(MACOS_SOURCE)])
+        _sign_macos_adapter(output)
     else:
         with tempfile.TemporaryDirectory(prefix="fusion-listen-") as temporary:
             build_dir = Path(temporary)

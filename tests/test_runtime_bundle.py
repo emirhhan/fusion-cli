@@ -693,3 +693,45 @@ def test_macos_listen_raporlanmayan_guven_metni_dusurmez(tmp_path: Path):
     metinli = [event for event in events if event["tur"] in {"kismi", "son"}]
     assert metinli, "sıfır güvenli metin sessizce düşürülmemeli"
     assert all(event["guven"] == 0 for event in metinli)
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
+)
+def test_macos_listen_yardimcisi_gercek_imza_tasir(tmp_path: Path):
+    """Yardımcı ikili GERÇEKTEN imzalanmalı; `linker-signed` yetmez.
+
+    Ölçülen hata: derleyicinin otomatik koyduğu ad-hoc `linker-signed` imzayı
+    AMFI reddediyor ("has no CMS blob", "Unrecoverable CT signature issue").
+    TCC izin kaydı imza kimliğine bağlı olduğu için imzasız sürece macOS hata
+    vermez, sessizce SIFIR dolu ses verir: motor başlar, `hazir` yazılır, ama
+    tek bir örnek gelmez ve kullanıcı "konuşuyorum, hiçbir şey olmuyor" görür.
+    """
+    output = tmp_path / "fusion-listen"
+    build = subprocess.run(
+        [
+            sys.executable,
+            str(LISTEN_BUILD_SCRIPT),
+            "--platform",
+            "macos",
+            "--arch",
+            "arm64",
+            "--output",
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert build.returncode == 0, build.stderr
+
+    signature = subprocess.run(
+        ["codesign", "-dv", str(output)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    birlesik = signature.stdout + signature.stderr
+    assert "linker-signed" not in birlesik, birlesik
+    assert "Signature=adhoc" in birlesik, birlesik

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import plistlib
 import shutil
 import subprocess
@@ -34,10 +35,41 @@ def _verify(app: Path) -> None:
         raise RuntimeError(f"Kararlı designated requirement bulunamadı: {requirement.strip()}")
 
 
+def _nested_executables(app: Path) -> tuple[Path, ...]:
+    """`Contents/Resources` altındaki çalıştırılabilir Mach-O dosyaları."""
+    resources = app / "Contents/Resources"
+    if not resources.is_dir():
+        return ()
+    return tuple(
+        sorted(
+            yol
+            for yol in resources.iterdir()
+            if yol.is_file() and not yol.is_symlink() and os.access(yol, os.X_OK)
+        )
+    )
+
+
+def _verify_nested(app: Path) -> None:
+    """Nested yardımcılar GERÇEK imza taşımalı; `linker-signed` kabul edilmez."""
+    for nested in _nested_executables(app):
+        result = _run("codesign", "-dv", str(nested))
+        birlesik = f"{result.stdout}{result.stderr}"
+        if "linker-signed" in birlesik:
+            raise ValueError(f"Nested yardımcı gerçek imza taşımıyor: {nested}")
+
+
 def _sign_and_verify(app: Path) -> None:
     plist = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     if plist.get("CFBundleIdentifier") != IDENTIFIER:
         raise ValueError(f"Beklenmeyen bundle kimliği: {plist.get('CFBundleIdentifier')!r}")
+
+    # İÇTEN DIŞA imzalama: `Contents/Resources` altındaki Mach-O yardımcılar
+    # `--deep` ile güvenilir biçimde imzalanmaz (kod değil kaynak olarak
+    # mühürlenirler) ve derleyicinin `linker-signed` imzası yerinde kalır. AMFI
+    # bunu reddedince yardımcı mikrofondan sessizlik alır. Bu yüzden nested
+    # çalıştırılabilirler dış paketten ÖNCE tek tek imzalanır.
+    for nested in _nested_executables(app):
+        _run("codesign", "--force", "--sign", "-", "--timestamp=none", str(nested))
 
     _run(
         "codesign",
@@ -50,6 +82,7 @@ def _sign_and_verify(app: Path) -> None:
         str(app),
     )
     _verify(app)
+    _verify_nested(app)
 
 
 def _replace_dmg_payload(app: Path, dmg: Path) -> None:
