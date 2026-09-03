@@ -175,10 +175,17 @@ let akisTanisi = AkisTanisi()
 
 func rms(_ tampon: AVAudioPCMBuffer) -> Float {
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
-    let kanal = kanallar[0]
+    // TÜM kanallar ölçülür. Ölçüldü: bu makinede giriş 3 kanallı geliyor ve
+    // yalnız 0. kanala bakmak sessiz bir kanala denk geldiğinde konuşmayı
+    // görünmez kılıyordu.
+    let kanalSayisi = Int(tampon.format.channelCount)
+    let cerceve = Int(tampon.frameLength)
     var kareToplami: Float = 0
-    for indis in 0..<Int(tampon.frameLength) { kareToplami += kanal[indis] * kanal[indis] }
-    return sqrt(kareToplami / Float(tampon.frameLength))
+    for kanal in 0..<kanalSayisi {
+        let veri = kanallar[kanal]
+        for indis in 0..<cerceve { kareToplami += veri[indis] * veri[indis] }
+    }
+    return sqrt(kareToplami / Float(cerceve * max(kanalSayisi, 1)))
 }
 
 func guven(_ sonuc: SFSpeechRecognitionResult) -> Float {
@@ -296,6 +303,64 @@ guard let tanıyıcı = SFSpeechRecognizer(locale: Locale(identifier: dil)) else
     yaz("hata", "Bu dil için tanıyıcı yok: \(dil)"); bitir(2)
 }
 
+/// Tanıyıcıya verilecek biçim: 16 kHz, TEK kanal.
+///
+/// `SFSpeechAudioBufferRecognitionRequest` tek kanallı ses bekler. Ölçüldü: bu
+/// makinede giriş düğümü 3 KANALLI geliyor (48 kHz) ve ham hâliyle verildiğinde
+/// tanıyıcı konuşma ne olursa olsun 4 karakterlik bir kırıntı üretiyordu. Bu
+/// yüzden her tampon, tanıyıcıya verilmeden önce tek kanala indirilir.
+let TANIMA_ORNEKLEME = 16_000.0
+
+/// Giriş biçimini tanıma biçimine çeviren dönüştürücü. Biçim değişmediği
+/// sürece yeniden kurulmaz.
+final class MonoDonusturucu {
+    private var donusturucu: AVAudioConverter?
+    private var kaynakBicim: AVAudioFormat?
+    let hedef: AVAudioFormat
+
+    init?() {
+        guard
+            let hedef = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: TANIMA_ORNEKLEME,
+                channels: 1,
+                interleaved: false
+            )
+        else { return nil }
+        self.hedef = hedef
+    }
+
+    /// Tamponu tek kanala indir. Çevrilemezse `nil` döner ve çağıran ham
+    /// tamponu KULLANMAZ — bozuk ses vermek, hiç vermemekten kötüdür.
+    func donustur(_ tampon: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        if kaynakBicim != tampon.format {
+            donusturucu = AVAudioConverter(from: tampon.format, to: hedef)
+            kaynakBicim = tampon.format
+        }
+        guard let donusturucu = donusturucu else { return nil }
+        let oran = hedef.sampleRate / tampon.format.sampleRate
+        let kapasite = AVAudioFrameCount(Double(tampon.frameLength) * oran) + 1024
+        guard let cikti = AVAudioPCMBuffer(pcmFormat: hedef, frameCapacity: kapasite) else {
+            return nil
+        }
+        var verildi = false
+        var hata: NSError?
+        donusturucu.convert(to: cikti, error: &hata) { _, durum in
+            if verildi {
+                durum.pointee = .noDataNow
+                return nil
+            }
+            verildi = true
+            durum.pointee = .haveData
+            return tampon
+        }
+        if hata != nil || cikti.frameLength == 0 { return nil }
+        return cikti
+    }
+}
+
+let monoDonusturucu = MonoDonusturucu()
+
 /// Konuşma başlangıcından ÖNCEKİ tamponların tutulduğu halka.
 ///
 /// Kapı, sesi ancak `baslangicDogrulamaMs` kadar sürdükten sonra "başladı"
@@ -401,10 +466,13 @@ func başlat() {
         let seviye = rms(tampon)
         akisTanisi.olc(rms: seviye, biçim: biçim)
         let olay = kapı.isle(rms: seviye, sureMs: sureMs)
-        if let acik = acikIstek {
-            acik.append(tampon)
-        } else {
-            onTampon.ekle(tampon)
+        // Tanıyıcıya HAM çok kanallı tampon verilmez; tek kanala indirilir.
+        if let mono = monoDonusturucu?.donustur(tampon) {
+            if let acik = acikIstek {
+                acik.append(mono)
+            } else {
+                onTampon.ekle(mono)
+            }
         }
         guard let olay = olay else { return }
         if olay == "ses-basladi" {

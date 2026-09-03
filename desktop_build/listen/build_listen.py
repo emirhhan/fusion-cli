@@ -16,6 +16,23 @@ _SOURCE = Path(__file__).resolve().parent / "main.swift"
 _OUTPUT = _ROOT / "app" / "src-tauri" / "resources" / "fusion-listen"
 
 
+def _sign(path: Path) -> None:
+    """Yardımcıyı ad-hoc ama GERÇEK imzayla imzala.
+
+    Gerekçe `build_adapter._sign_macos_adapter` ile aynıdır: derleyicinin
+    `linker-signed` imzasını AMFI reddediyor ve TCC kaydı imza kimliğine bağlı
+    olduğu için imzasız süreç mikrofondan SESSİZLİK alıyor.
+    """
+    if shutil.which("codesign") is None:
+        raise RuntimeError("codesign bulunamadı; imzasız yardımcı mikrofona erişemez")
+    subprocess.run(
+        ["codesign", "--force", "--sign", "-", "--timestamp=none", str(path)],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
 def build() -> bool:
     """Yardımcıyı derle. Başarılıysa True döner."""
     if sys.platform != "darwin":
@@ -36,9 +53,7 @@ def build() -> bool:
         return False
     # İmza derleme adımının PARÇASIDIR; gerekçesi `build_adapter._sign_macos_adapter`
     # docstring'inde. İmzasız yardımcı mikrofondan sessizlik alır.
-    from .build_adapter import _sign_macos_adapter
-
-    _sign_macos_adapter(_OUTPUT)
+    _sign(_OUTPUT)
     print(f"Konuşma yardımcısı hazır: {_OUTPUT} ({_OUTPUT.stat().st_size // 1024} KB)")
     return True
 
