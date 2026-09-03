@@ -249,6 +249,32 @@ func metinYaz(
 func sentetikFixture(_ ad: String) -> Never {
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+    if ad == "indirgeme" {
+        // Çok kanallı girişin tek kanala GERÇEKTEN indiğini kanıtlar.
+        // Ölçülen hata: `AVAudioConverter` hata bildirmeden sessiz tampon
+        // üretiyordu ve tanıyıcıya saf sessizlik gidiyordu.
+        guard
+            let bicim = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: 48_000,
+                channels: 2,
+                interleaved: false
+            ),
+            let girdi = AVAudioPCMBuffer(pcmFormat: bicim, frameCapacity: 480),
+            let veri = girdi.floatChannelData
+        else { yaz("hata", "test tamponu kurulamadı"); bitir(11) }
+        girdi.frameLength = 480
+        // Sinyal YALNIZ 1. kanalda; 0. kanal sessiz. Gerçek makinedeki durum
+        // budur ve ortalama alan bir indirgeme sinyali yarıya düşürür.
+        for indis in 0..<480 {
+            veri[0][indis] = 0
+            veri[1][indis] = sin(Float(indis) * 0.1) * 0.5
+        }
+        let mono = monoIndirgerAl().indirge(girdi)
+        let seviye = mono.map { rms($0) } ?? 0
+        yaz("hazir", "indirgeme", guven: seviye, speechMs: Int(mono?.frameLength ?? 0), segment: 1)
+        bitir(0)
+    }
     if ad == "kapisiz" {
         // Kapı eşiğin altındaki sesle HİÇ açılmaz. Ses yine de tanıyıcıya
         // aktığı için kısmi sonuç üretilebilmelidir; eskiden bu durumda
@@ -331,63 +357,66 @@ guard let tanıyıcı = SFSpeechRecognizer(locale: Locale(identifier: dil)) else
     yaz("hata", "Bu dil için tanıyıcı yok: \(dil)"); bitir(2)
 }
 
-/// Tanıyıcıya verilecek biçim: 16 kHz, TEK kanal.
+/// Çok kanallı girişi TEK kanala indirger.
 ///
-/// `SFSpeechAudioBufferRecognitionRequest` tek kanallı ses bekler. Ölçüldü: bu
-/// makinede giriş düğümü 3 KANALLI geliyor (48 kHz) ve ham hâliyle verildiğinde
-/// tanıyıcı konuşma ne olursa olsun 4 karakterlik bir kırıntı üretiyordu. Bu
-/// yüzden her tampon, tanıyıcıya verilmeden önce tek kanala indirilir.
-let TANIMA_ORNEKLEME = 16_000.0
-
-/// Giriş biçimini tanıma biçimine çeviren dönüştürücü. Biçim değişmediği
-/// sürece yeniden kurulmaz.
-final class MonoDonusturucu {
-    private var donusturucu: AVAudioConverter?
+/// `AVAudioConverter` KULLANILMAZ. Ölçüldü: 3 kanal → 1 kanal dönüşümünde
+/// dönüştürücü hata bildirmeden tamamen SESSİZ tampon üretiyordu
+/// (`girisRms=0.00778 monoRms=0.00000 donusumHatasi=0`), yani tanıyıcıya saf
+/// sessizlik gidiyor ve ne söylenirse söylensin aynı kırıntı çıkıyordu. Kanal
+/// sayısı için tanımlı bir eşleme olmadığında dönüştürücünün davranışı budur.
+///
+/// Örnekleme hızı da DEĞİŞTİRİLMEZ: `SFSpeechAudioBufferRecognitionRequest`
+/// girişin kendi hızını kabul eder ve yeniden örnekleme yeni bir hata yüzeyidir.
+final class MonoIndirger {
+    private var hedef: AVAudioFormat?
     private var kaynakBicim: AVAudioFormat?
-    let hedef: AVAudioFormat
 
-    init?() {
-        guard
-            let hedef = AVAudioFormat(
+    /// Tamponu tek kanala indir. İndirgeme, kanalların ORTALAMASI değil en
+    /// yüksek genlikli örneğidir: bu makinede kanalların ikisi sessiz ve
+    /// ortalama almak konuşmayı üçte bire düşürüyordu.
+    func indirge(_ tampon: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return nil }
+        if kaynakBicim != tampon.format {
+            hedef = AVAudioFormat(
                 commonFormat: .pcmFormatFloat32,
-                sampleRate: TANIMA_ORNEKLEME,
+                sampleRate: tampon.format.sampleRate,
                 channels: 1,
                 interleaved: false
             )
-        else { return nil }
-        self.hedef = hedef
-    }
-
-    /// Tamponu tek kanala indir. Çevrilemezse `nil` döner ve çağıran ham
-    /// tamponu KULLANMAZ — bozuk ses vermek, hiç vermemekten kötüdür.
-    func donustur(_ tampon: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        if kaynakBicim != tampon.format {
-            donusturucu = AVAudioConverter(from: tampon.format, to: hedef)
             kaynakBicim = tampon.format
         }
-        guard let donusturucu = donusturucu else { return nil }
-        let oran = hedef.sampleRate / tampon.format.sampleRate
-        let kapasite = AVAudioFrameCount(Double(tampon.frameLength) * oran) + 1024
-        guard let cikti = AVAudioPCMBuffer(pcmFormat: hedef, frameCapacity: kapasite) else {
-            return nil
-        }
-        var verildi = false
-        var hata: NSError?
-        donusturucu.convert(to: cikti, error: &hata) { _, durum in
-            if verildi {
-                durum.pointee = .noDataNow
-                return nil
+        guard
+            let hedef = hedef,
+            let cikti = AVAudioPCMBuffer(pcmFormat: hedef, frameCapacity: tampon.frameLength),
+            let hedefVeri = cikti.floatChannelData
+        else { return nil }
+
+        let kanalSayisi = Int(tampon.format.channelCount)
+        let cerceve = Int(tampon.frameLength)
+        let yaz = hedefVeri[0]
+        for indis in 0..<cerceve {
+            var enGenis: Float = 0
+            for kanal in 0..<kanalSayisi {
+                let ornek = kanallar[kanal][indis]
+                if abs(ornek) > abs(enGenis) { enGenis = ornek }
             }
-            verildi = true
-            durum.pointee = .haveData
-            return tampon
+            yaz[indis] = enGenis
         }
-        if hata != nil || cikti.frameLength == 0 { return nil }
+        cikti.frameLength = tampon.frameLength
         return cikti
     }
 }
 
-let monoDonusturucu = MonoDonusturucu()
+/// Ortak indirgeyici.
+///
+/// Düz bir global DEĞİLDİR: `main.swift` içindeki üst düzey kod sırayla
+/// çalışır ve sentetik fixture'lar dosyanın ÜST kısmından çağrılır. Düz global
+/// o noktada henüz kurulmamış olur ve erişim süreci çökertir (ölçüldü).
+/// Tip içindeki `static let` tembeldir, bu yüzden sıradan bağımsızdır.
+func monoIndirgerAl() -> MonoIndirger {
+    enum Depo { static let ortak = MonoIndirger() }
+    return Depo.ortak
+}
 
 //: Tanıyıcıya verilecek hedef tepe seviyesi.
 //:
@@ -564,7 +593,7 @@ func başlat() {
         // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
         // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
         // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
-        if let mono = monoDonusturucu?.donustur(tampon) {
+        if let mono = monoIndirgerAl().indirge(tampon) {
             kazancUygula(mono)
             akisTanisi.olcMono(rms: rms(mono))
             acikIstek?.append(mono)

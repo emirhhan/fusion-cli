@@ -757,3 +757,25 @@ def test_macos_listen_kapi_acilmasa_da_metin_uretilir(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert "ses-basladi" not in kinds, "bu senaryoda kapı açılmamalı"
     assert "kismi" in kinds, f"kapı açılmasa da metin üretilmeli: {events}"
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
+)
+def test_macos_listen_cok_kanalli_giris_sessiz_mono_uretmez(tmp_path: Path):
+    """Çok kanallı giriş tek kanala GERÇEKTEN indirgenmeli.
+
+    Ölçülen hata: `AVAudioConverter` 3 kanal → 1 kanal dönüşümünde hata
+    bildirmeden tamamen sessiz tampon üretiyordu (`girisRms=0.00778
+    monoRms=0.00000 donusumHatasi=0`). Tanıyıcıya saf sessizlik gittiği için
+    ne söylenirse söylensin aynı dört karakterlik kırıntı çıkıyordu.
+    """
+    result = run_listen_fixture(tmp_path, fixture="indirgeme")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+
+    assert result.returncode == 0, result.stderr
+    assert events, result.stdout
+    olay = events[-1]
+    assert olay["speech_ms"] == 480, f"çerçeve sayısı korunmalı: {olay}"
+    assert olay["guven"] > 0.1, f"indirgenmiş ses sessiz olmamalı: {olay}"
