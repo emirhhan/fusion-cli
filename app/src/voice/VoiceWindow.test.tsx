@@ -200,9 +200,26 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(fake.runtime.emitMessage).not.toHaveBeenCalled();
 
     fake.runtimeState({ durum: "interrupted" });
+    // Kesilen cevap BAĞLAM olarak gider: modele "sözüm burada kesildi" bilgisi
+    // gitmezse kullanıcının düzeltmesi bağlamsız kalır ve Fusion yeni bir soru
+    // almış gibi davranır.
     await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
       kaynak: "kullanici",
       metin: "araya girdim",
+      kesilen: "Uzun yanit",
+    }));
+  });
+
+  it("sozu kesilmeden gelen konusmaya kesilen baglami eklemez", async () => {
+    const fake = fakeRuntime();
+    render(<VoiceWindow runtime={fake.runtime} />);
+    await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
+
+    fake.recognition({ tur: "son", metin: "merhaba", guven: 0.95, speech_ms: 600 });
+
+    await waitFor(() => expect(fake.runtime.emitMessage).toHaveBeenCalledWith({
+      kaynak: "kullanici",
+      metin: "merhaba",
     }));
   });
 

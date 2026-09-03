@@ -164,6 +164,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const startingIntent = useRef<number | null>(null);
   const pendingRecognitionEvents = useRef<PendingRecognitionEvent[]>([]);
   const bargeInPending = useRef(false);
+  /** Kullanıcı sözü kestiğinde Fusion'ın o ana kadar söylediği metin. */
+  const kesilenCevap = useRef<string | null>(null);
   const bargeInEvents = useRef<RecognitionPayload[]>([]);
   const replayRecognitionEvent = useRef<((event: PendingRecognitionEvent) => void) | null>(null);
   const finalizedSession = useRef<number | null>(null);
@@ -305,6 +307,10 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         || typeof line.segment !== "number" || (line.guven !== null && typeof line.guven !== "number")) return;
       if (line.tur === "ses-basladi" && machineRef.current.phase === "talking") {
         bargeInPending.current = true;
+        // Fusion'ın yarım kalan cevabı SAKLANIR: modele "sözüm burada kesildi"
+        // bilgisi gitmezse kullanıcının düzeltmesi bağlamsız kalır.
+        // `talking` evresinde `transcript`, Fusion'ın seslendirdiği metindir.
+        kesilenCevap.current = machineRef.current.transcript?.trim() || null;
         bargeInEvents.current.push(payload);
         void runtime.interruptSpeech();
         return;
@@ -476,7 +482,13 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     if (machine.finalRevision <= sentRevision.current || !machine.finalText) return;
     sentRevision.current = machine.finalRevision;
     if (cuesEnabled()) playCue("thinking");
-    void runtime.emitMessage({ kaynak: "kullanici", metin: machine.finalText });
+    const kesilen = kesilenCevap.current;
+    kesilenCevap.current = null;
+    void runtime.emitMessage({
+      kaynak: "kullanici",
+      metin: machine.finalText,
+      ...(kesilen ? { kesilen } : {}),
+    });
   }, [machine.finalRevision, machine.finalText, runtime]);
 
   useEffect(() => {
@@ -503,8 +515,12 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         if (shouldResume && activeSession.current === 0) void startListening();
       } else if (incoming.durum === "error") {
         if (bargeInPending.current) {
+          // Tampon BİLEREK atılır: TTS iptali doğrulanmadan yakalanan ses
+          // Fusion'ın kendi sesini içerebilir ve onu kullanıcının sözü sanmak
+          // daha kötüdür. Kullanıcı tekrar konuşunca taze tur kabul edilir.
           bargeInPending.current = false;
           bargeInEvents.current = [];
+          kesilenCevap.current = null;
           recognitionIntent.current += 1;
           startingIntent.current = null;
           pendingRecognitionEvents.current = [];

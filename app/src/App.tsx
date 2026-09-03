@@ -583,7 +583,15 @@ export function SessionUygulama({
     if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
-      const accepted = controller.send(active.id, mesaj.metin, []);
+      // Sözü kesildiyse modele NE söylerken kesildiği de gider. Bu bağlam
+      // olmadan model yarım bıraktığı cevabı bilmez ve kullanıcının
+      // düzeltmesini yeni bir soru sanar.
+      const gorev = mesaj.kesilen
+        ? `${mesaj.metin}\n\n[Sesli konuşma: sen "${mesaj.kesilen}" derken sözün kesildi.`
+          + ` Yarım kalan cevabınla kullanıcının bu son sözünü birlikte değerlendir;`
+          + ` baştan tekrar etme.]`
+        : mesaj.metin;
+      const accepted = controller.send(active.id, gorev, []);
       if (!accepted) {
         void publishVoiceRuntimeState({
           durum: "error",

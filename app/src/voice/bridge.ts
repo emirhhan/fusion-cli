@@ -17,6 +17,14 @@ export interface VoiceMessage {
   /** "kullanici": konuşulan söz. "asistan": Fusion'ın sesli cevabı. */
   kaynak: "kullanici" | "asistan";
   metin: string;
+  /**
+   * Kullanıcı Fusion'ın sözünü kestiyse, kesildiği ana kadar SÖYLEDİĞİ metin.
+   *
+   * Bu bağlam olmadan model, yarım bıraktığı cevabı hiç bilmeden yeni bir soru
+   * almış gibi davranıyordu; kullanıcı "onu değil şunu" dediğinde neyin
+   * düzeltildiğini anlayamıyordu.
+   */
+  kesilen?: string;
 }
 
 interface Emitter {
