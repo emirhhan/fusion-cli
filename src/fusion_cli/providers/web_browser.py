@@ -1216,13 +1216,18 @@ async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int
 #:
 #: Temizlik METİN üzerinden değil DOM üzerinden yapılır: metin sezgisi modelin
 #: gerçekten yazdığı satırları da silebilirdi.
+#: Yalnızca KESİN olarak süs olan öğeler. Kapsayıcı eleman ASLA silinmez.
+#:
+#: İlk denemede `code-block-decoration` ve `[data-test-id]` de listedeydi;
+#: ölçüm bunun zararlı olduğunu gösterdi. O elemanlar kod bloğunun BAŞLIĞINI
+#: değil TAMAMINI sarıyor olabiliyor ve silinince kod gövdesi de gidiyor:
+#: tur `TOOL_CALL_PARSE_ERROR: kapanmamış veya geçersiz payload bloğu` ile
+#: düştü. Buradaki dört seçicinin hiçbiri metin gövdesi taşıyamaz.
 _KOD_BLOGU_SUSLERI: tuple[str, ...] = (
     "button",
     '[role="button"]',
     '[role="toolbar"]',
     "mat-icon",
-    "code-block-decoration",
-    "[data-test-id]",
 )
 
 #: Süsleri kopya bir düğümden silip metni okuyan tarayıcı betiği. Kopya
