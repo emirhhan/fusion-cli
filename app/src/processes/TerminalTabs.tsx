@@ -3,6 +3,17 @@ import { Icon } from "../ui/Icon";
 import { XtermSession } from "./XtermSession";
 import { terminalRuntime, type TerminalClosedEvent, type TerminalRuntime, type TerminalSession } from "./terminalBridge";
 
+/** Ölçüm yapılamazsa kullanılan güvenli varsayılan. */
+const VARSAYILAN_SUTUN = 80;
+const VARSAYILAN_SATIR = 24;
+
+/* Terminal yazı tipinin yaklaşık hücre boyutu. Kesin ölçüm xterm'in kendi
+   `fit` eklentisinden gelir ve açılıştan hemen sonra çekirdeğe bildirilir;
+   buradaki tahmin yalnız kabuğun İLK istemini doğru genişlikte çizmesi
+   içindir. */
+const HUCRE_GENISLIGI_PX = 8.4;
+const HUCRE_YUKSEKLIGI_PX = 18;
+
 interface TerminalTab {
   title: string;
   session: TerminalSession;
@@ -24,6 +35,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
   const nextNumber = useRef(1);
+  const hostRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
@@ -40,12 +52,28 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
     };
   }, []);
 
+  /** Panelin gerçek sütun/satır sayısı; ölçülemezse güvenli varsayılan. */
+  const olcVeyaVarsayilan = (): { cols: number; rows: number } => {
+    const host = hostRef.current;
+    if (!host) return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
+    const { width, height } = host.getBoundingClientRect();
+    if (width <= 0 || height <= 0) return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
+    const cols = Math.max(20, Math.floor(width / HUCRE_GENISLIGI_PX));
+    const rows = Math.max(5, Math.floor(height / HUCRE_YUKSEKLIGI_PX));
+    return { cols, rows };
+  };
+
   const openTerminal = async () => {
     if (opening) return;
     setOpening(true);
     setError(null);
     try {
-      const session = await runtime.openSession(cwd, 80, 24);
+      // Kabuk GERÇEK ölçüyle başlatılır. Sabit 80×24 ile açmak, kabuğun ilk
+      // istemini ve tamamlama listesini 80 sütuna göre çizmesine yol açıyordu;
+      // panel daha darsa satırlar yanlış yerde kayıyor ve tamamlama bozuk
+      // görünüyordu (ölçüldü: "Appl" sağda kalıp "ications/" alt satıra düştü).
+      const { cols, rows } = olcVeyaVarsayilan();
+      const session = await runtime.openSession(cwd, cols, rows);
       if (!mountedRef.current) {
         await session.close().finally(() => session.dispose());
         return;
@@ -98,7 +126,7 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
   };
 
   return (
-    <div className="terminal-tabs">
+    <div className="terminal-tabs" ref={hostRef}>
       <div className="terminal-tabs__strip">
         <div aria-label="Terminal oturumları" className="terminal-tabs__list" role="tablist">
           {tabs.map((tab, index) => {

@@ -156,4 +156,38 @@ describe("TerminalTabs", () => {
     await waitFor(() => expect(late.close).toHaveBeenCalledOnce());
     expect(late.dispose).toHaveBeenCalledOnce();
   });
+  it("kabugu sabit 80x24 ile degil GERCEK olcuyle acar", async () => {
+    // Sabit boyutla açmak kabuğun ilk istemini ve tamamlama listesini yanlış
+    // genişlikte çizdiriyordu; panel dar olduğunda satırlar bozuk kayıyordu.
+    const fake = runtime();
+    const { container } = render(<TerminalTabs cwd="/proje" runtime={fake} />);
+
+    const host = container.querySelector(".terminal-tabs") as HTMLElement;
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue({
+      width: 420, height: 360, top: 0, left: 0, right: 420, bottom: 360, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "İlk terminali aç" }));
+
+    await waitFor(() => expect(fake.openSession).toHaveBeenCalled());
+    const cagri = vi.mocked(fake.openSession).mock.calls[0];
+    expect(cagri[1]).toBeGreaterThan(20);
+    expect(cagri[1]).toBeLessThan(80);
+    expect(cagri[2]).toBeGreaterThan(5);
+  });
+
+  it("olcum yapilamazsa guvenli varsayilana duser", async () => {
+    const fake = runtime();
+    const { container } = render(<TerminalTabs cwd="/proje" runtime={fake} />);
+    const host = container.querySelector(".terminal-tabs") as HTMLElement;
+    vi.spyOn(host, "getBoundingClientRect").mockReturnValue({
+      width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0, x: 0, y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+
+    fireEvent.click(screen.getByRole("button", { name: "İlk terminali aç" }));
+
+    await waitFor(() => expect(fake.openSession).toHaveBeenCalledWith("/proje", 80, 24));
+  });
 });
