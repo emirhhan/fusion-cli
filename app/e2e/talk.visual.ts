@@ -80,8 +80,9 @@ for (const visual of cases) {
     if (visual.query.includes("voiceMode=mini")) expect(contract.miniTitleBarClearance).toBeGreaterThanOrEqual(8);
     if (!visual.query.includes("voiceMode=mini")) expect(contract.settingsBorderWidth).toBe("0px");
     if (!visual.query.includes("voiceMode=mini")) expect(contract.titleCenterOffset).toBeLessThanOrEqual(1);
-    const microphone = page.getByRole("button", { name: /Dinlemeyi durdur|Konuşmaya başla/ });
-    await expect(microphone).toBeVisible();
+    // Mikrofon artık tuş değil GÖSTERGE: dinleme sürekli açıktır.
+    const mikrofon = page.getByRole("status", { name: /Dinliyor|Dinleme hazırlanıyor/ });
+    await expect(mikrofon).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     await expect(page).toHaveScreenshot(`${visual.name}.png`, { fullPage: true });
   });
@@ -117,12 +118,14 @@ test("talk-traffic-glyphs-reveal-only-on-native-hover-or-keyboard-focus", async 
   await expect(glyphs.nth(2)).toHaveCSS("opacity", "0");
 });
 
-test("talk-mini-error-keeps-retry-microphone-visible", async ({ page }) => {
+test("talk-mini-error-keeps-microphone-indicator-visible", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 112 });
   await page.goto("/e2e/preview.html?state=voice-error&voiceMode=mini&theme=light");
-  const microphone = page.getByRole("button", { name: "Konuşmaya başla" });
-  await expect(microphone).toBeVisible();
-  const box = await microphone.boundingBox();
+  // Hata durumunda bile gösterge görünür kalır: kullanıcı dinlemenin kapalı
+  // olduğunu görmeli, ama toparlanma için basacağı bir tuş yoktur.
+  const mikrofon = page.getByRole("status", { name: /Dinliyor|Dinleme hazırlanıyor/ });
+  await expect(mikrofon).toBeVisible();
+  const box = await mikrofon.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(360);

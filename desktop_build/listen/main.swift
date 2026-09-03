@@ -469,6 +469,9 @@ private let GURULTU_TABANI: Float = 0.0015
 /// Kırpma yapılmaz: kazanç uygulandıktan sonra örnekler [-1, 1] aralığına
 /// sıkıştırılır, aksi halde yüksek sesli konuşma bozularak tanınamaz hâle gelir.
 func kazancUygula(_ tampon: AVAudioPCMBuffer) {
+    // VPIO kendi otomatik kazancını uygular; üstüne ikinci bir kazanç bindirmek
+    // sinyali bozar ve yankı gidermenin ölçümünü şaşırtır.
+    guard !yankiGidermeAcik else { return }
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return }
     let veri = kanallar[0]
     let cerceve = Int(tampon.frameLength)
@@ -702,8 +705,38 @@ func konusmaKapat() {
 
 /// Ses tapını güncel giriş biçimiyle kur. Kurulum TEK yerde durur ki
 /// yeniden kurulum ile ilk kurulum ayrışmasın.
+//: Ses işlemenin (yankı giderme) açık olup olmadığı. Kazanç kararı buna bakar.
+var yankiGidermeAcik = false
+
+/// macOS'un ses işleme motorunu (VPIO) aç: akustik yankı giderme, gürültü
+/// bastırma ve otomatik kazanç.
+///
+/// Sürekli dinlemede zorunludur: Fusion hoparlörden konuşurken mikrofon kendi
+/// sesini duyar ve tanıyıcı onu kullanıcının sözü sanar. VPIO, FaceTime'ın da
+/// kullandığı yoldur ve tap'e ULAŞAN sesi filtreler.
+///
+/// Başarısız olabilir (giriş ve çıkış farklı cihazlarsa macOS'ta bilinen bir
+/// kısıt). O durumda dinleme SÜRDÜRÜLÜR — yankı gidermesiz çalışmak, hiç
+/// çalışmamaktan iyidir; metin seviyesindeki ayıklama ikinci savunmadır.
+func yankiGidermeyiAc(_ girdi: AVAudioInputNode) {
+    do {
+        try girdi.setVoiceProcessingEnabled(true)
+        yankiGidermeAcik = true
+        taniYaz("yanki-giderme acik", uzunluk: 0, guven: 0, segment: 0)
+    } catch {
+        yankiGidermeAcik = false
+        taniYaz(
+            "yanki-giderme kapali neden=\(error.localizedDescription)",
+            uzunluk: 0, guven: 0, segment: 0
+        )
+    }
+}
+
 func tapKur() {
     let girdi = motor.inputNode
+    // Ses işleme tap kurulmadan ÖNCE açılır: biçimi değiştirir (genelde tek
+    // kanala indirir), sonradan açmak tap'i bayat biçimle bırakırdı.
+    yankiGidermeyiAc(girdi)
     let biçim = girdi.inputFormat(forBus: 0)
     // Geçersiz biçimle tap kurmak sessizce hiç veri getirmez. `outputFormat`
     // motor başlamadan 0 Hz dönebiliyor; giriş biçimi doğru olandır.

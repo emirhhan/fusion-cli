@@ -200,11 +200,15 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
       />,
     );
 
-    const rozetler = container.querySelectorAll(".source-icon");
-    expect(rozetler).toHaveLength(1);
-    expect(rozetler[0].getAttribute("data-source")).toBe("claude");
+    // Fusion satırı nötr işaret taşır, MARKA LOGOSU değil. Dar kipte başlık
+    // gizlendiği için satırın büsbütün boş kalmaması gerekir.
+    expect(container.querySelectorAll(".sidebar__session-dot")).toHaveLength(1);
+    expect(container.querySelectorAll('.source-icon[data-source="fusion"]')).toHaveLength(0);
+    expect(container.querySelectorAll('.source-icon[data-source="claude"]')).toHaveLength(1);
   });
-  it("rozetsiz satirda basligi dar rozet sutununa dusurmez", () => {
+  it("her satirda tek bir isaret sutunu tutar, baslik daralmaz", () => {
+    // Başlık bir kez 18 piksellik rozet sütununa düşüp tek harfe kırpılmıştı;
+    // işaret sütunu her satırda dolu kaldığı sürece bu tekrarlayamaz.
     const { container } = render(
       <Sidebar
         oturumlar={[{ session_id: "a", title: "oyun yaz", source: "fusion", project: "p" }]}
@@ -215,6 +219,7 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     );
 
     const satir = container.querySelector(".sidebar__session");
-    expect(satir?.getAttribute("data-rozetsiz")).toBe("true");
+    expect(satir?.querySelector(".sidebar__session-dot")).toBeTruthy();
+    expect(satir?.querySelector(".sidebar__session-title")?.textContent).toBe("oyun yaz");
   });
 });

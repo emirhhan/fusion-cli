@@ -44,7 +44,6 @@ interface VoiceModeProps {
   onMinimize: () => void;
   onPickModel?: () => void;
   onPrefsChange?: (next: VoicePrefs) => void;
-  onToggleListen: () => void;
   onTop?: boolean;
   onTopChange?: (next: boolean) => void;
   onWideChange?: (next: boolean) => void;
@@ -74,7 +73,6 @@ export function VoiceMode({
   onMinimize,
   onPickModel,
   onPrefsChange,
-  onToggleListen,
   onTop = true,
   onTopChange,
   onWideChange,
@@ -167,17 +165,18 @@ export function VoiceMode({
       </div>
 
       <footer className="voice-panel__foot">
-        <button
-          aria-label={listening ? "Dinlemeyi durdur" : "Konuşmaya başla"}
-          aria-pressed={listening}
+        {/* Tuş DEĞİL, gösterge. Dinleme Talk açıkken sürekli açıktır;
+            konuşmak için hiçbir şeye basılmaz. */}
+        <span
+          aria-label={listening ? "Dinliyor" : "Dinleme hazırlanıyor"}
           className="voice-panel__mic"
-          onClick={onToggleListen}
-          type="button"
+          data-dinliyor={listening}
+          role="status"
         >
           <MicIcon size={wide ? 22 : 18} />
-        </button>
+        </span>
         {wide && <>
-          <p className="voice-panel__hint">Konuştukların aynı sohbete yazılır.</p>
+          <p className="voice-panel__hint">Konuş; sözümü kesebilirsin.</p>
           {onPrefsChange && onTopChange && (
             <button
               aria-expanded={settingsOpen}

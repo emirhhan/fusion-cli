@@ -163,15 +163,25 @@
   text-align: left;
 }
 
-/* Rozet çizilmeyen (Fusion'ın kendi) sohbetlerde başlık 18 piksellik rozet
-   sütununa düşüyor ve tek harfe kırpılıyordu. Rozet yoksa sütun da yoktur. */
-.sidebar__session[data-rozetsiz="true"] {
-  grid-template-columns: minmax(0, 1fr);
+/* Fusion'ın kendi sohbetlerinde marka logosu yerine nötr bir işaret durur. */
+.sidebar__session-dot {
+  align-items: center;
+  display: inline-flex;
+  height: 18px;
+  justify-content: center;
+  width: 18px;
 }
 
-.sidebar__session[data-rozetsiz="true"] .sidebar__session-source {
-  grid-column: 1;
+.sidebar__session-dot::before {
+  border: 1.5px solid var(--text-secondary);
+  border-radius: 50%;
+  content: "";
+  height: 7px;
+  opacity: 0.55;
+  width: 7px;
 }
+
+.sidebar__session[data-etkin="true"] .sidebar__session-dot::before { opacity: 0.9; }
 
 .sidebar__session[data-etkin="true"] {
   background: var(--surface-selected);

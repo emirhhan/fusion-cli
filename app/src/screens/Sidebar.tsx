@@ -85,14 +85,17 @@ function SessionButton({ session, active, onSelect, onDelete }: {
         aria-label={session.title}
         className="sidebar__session"
         data-etkin={active}
-        data-rozetsiz={session.source === "fusion"}
         onClick={onSelect}
         type="button"
       >
         {/* Marka rozeti yalnız İÇE AKTARILMIŞ konuşmalarda anlamlıdır: hangi
             araçtan geldiğini söyler. Fusion'ın kendi sohbetlerinde her satıra
-            aynı logoyu basmak bilgi taşımaz, listeyi gürültüye çevirir. */}
-        {session.source !== "fusion" && <SourceIcon size={16} source={session.source} />}
+            aynı logoyu basmak bilgi taşımaz, listeyi gürültüye çevirir.
+            Yerine nötr bir işaret durur: dar kipte başlık gizlendiği için
+            satırın tamamen boş kalmaması gerekir. */}
+        {session.source === "fusion"
+          ? <span aria-hidden="true" className="source-icon sidebar__session-dot" />
+          : <SourceIcon size={16} source={session.source} />}
         <span className="sidebar__session-title">{session.title}</span>
         <span className="sidebar__session-source">
           {session.source === "fusion" ? "" : session.source}

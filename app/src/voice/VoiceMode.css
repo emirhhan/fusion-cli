@@ -163,9 +163,21 @@ body[data-talk-surface="true"],
   transition: background-color 160ms cubic-bezier(.4, 0, .2, 1), transform 160ms cubic-bezier(.4, 0, .2, 1);
   width: 44px;
 }
-.voice-panel__mic:hover { transform: scale(1.04); }
-.voice-panel__mic:active { transform: scale(.94); }
-.voice-panel__mic[aria-pressed="true"] { background: #b4232e; }
+/* Tuş değil GÖSTERGE: tıklanmaz, bu yüzden hover/active tepkisi de yoktur —
+   tıklanabilir görünmek kullanıcıyı yanıltırdı. Dinleme açıkken canlı renk
+   ve yumuşak nabız, mikrofonun sürekli açık olduğunu söyler. */
+.voice-panel__mic[data-dinliyor="true"] {
+  animation: voice-mic-nabiz 2.4s ease-in-out infinite;
+  background: #b4232e;
+}
+
+@keyframes voice-mic-nabiz {
+  50% { box-shadow: 0 0 0 6px rgb(180 35 46 / 18%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-panel__mic[data-dinliyor="true"] { animation: none; }
+}
 
 .voice-panel__settings-popover {
   background: rgb(250 252 248 / 97%);

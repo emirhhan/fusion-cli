@@ -17,6 +17,7 @@ import {
   type VoicePrefsPayload,
   type VoiceRuntimeState,
 } from "./bridge";
+import { yankiMi } from "./echo";
 import { cuesEnabled, playCue } from "./cues";
 import { VoiceMode } from "./VoiceMode";
 import {
@@ -89,6 +90,12 @@ const DEFAULT_RUNTIME: VoiceWindowRuntime = {
   startRecognition: startSpeechRecognition,
   stopRecognition: stopSpeechRecognition,
 };
+
+/** Beklenmedik çökme sonrası ilk yeniden deneme gecikmesi. */
+const YENIDEN_BASLATMA_TABANI_MS = 800;
+
+/** Geri çekilmenin tavanı; kullanıcı sonsuza kadar sessiz kalmamalı. */
+const YENIDEN_BASLATMA_TAVANI_MS = 8_000;
 
 const ACCEPT_WORDS = new Set(["evet", "onayla", "kabul", "tamam", "olur"]);
 const REJECT_WORDS = new Set(["hayir", "reddet", "ret", "iptal", "olmaz"]);
@@ -171,6 +178,13 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
   const finalizedSession = useRef<number | null>(null);
   const expectedRecognitionEnd = useRef<number | null>(null);
   const restartAfterRecognitionEndSession = useRef<number | null>(null);
+  /** Ard arda beklenmedik çökme sayısı; geri çekilme buna göre büyür. */
+  const ardArdaCokme = useRef(0);
+  /** Bu oturum bir final üretti mi? Geri çekilme kararı buna bakar. */
+  const oturumVerimliydi = useRef(false);
+  /** Talk kapanıyor mu? Kapanışta yeniden başlatma yapılmaz. */
+  const kapaniyor = useRef(false);
+  const yenidenBaslatmaZamani = useRef<number | null>(null);
   const syntheticRestartSession = useRef<number | null>(null);
   const partialFinalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recognitionQueue = useRef<Promise<void>>(Promise.resolve());
@@ -236,26 +250,31 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     }
   }, [clearPartialFinalTimer, queueRecognition, runtime]);
 
-  const stopListening = useCallback(async () => {
-    clearPartialFinalTimer();
-    syntheticRestartSession.current = null;
-    restartAfterRecognitionEndSession.current = null;
-    setRecognitionOwned(false);
-    recognitionIntent.current += 1;
-    startingIntent.current = null;
-    pendingRecognitionEvents.current = [];
-    bargeInPending.current = false;
-    bargeInEvents.current = [];
-    dispatch({ type: "STOPPED" });
-    if (cuesEnabled()) playCue("listen-stop");
-    expectedRecognitionEnd.current = activeSession.current || null;
-    activeSession.current = 0;
-    try {
-      await queueRecognition(() => runtime.stopRecognition());
-    } catch (reason) {
-      dispatch({ type: "FAILED", text: `Konuşma tanıma durdurulamadı: ${String(reason)}` });
-    }
-  }, [clearPartialFinalTimer, queueRecognition, runtime]);
+  /**
+   * Dinlemeyi yeniden başlat — TEK yol.
+   *
+   * Sürekli dinlemede her oturum bitişi yeniden başlatma gerektirir, ama bunu
+   * koşulsuz yapmak sıkı bir döngü üretir: süreç açılır açılmaz biterse
+   * uygulama sonsuza kadar yeniden başlatır (ölçüldü: testlerde bellek
+   * tükendi). Ard arda HIZLI bitişte gecikme büyür; sağlıklı bir oturumdan
+   * sonraki bitiş ise anında toparlanır.
+   */
+  const dinlemeyiSurdur = useCallback(() => {
+    if (kapaniyor.current) return;
+    // Geri çekilme SÜREYE değil VERİMLİLİĞE bakar. Final üretmiş bir oturum
+    // sağlıklıdır, milisaniyeler sürmüş olsa bile; onu "hızlı çöküş" saymak
+    // sağlıklı konuşma turlarını da geciktirirdi.
+    const verimliydi = oturumVerimliydi.current;
+    oturumVerimliydi.current = false;
+    ardArdaCokme.current = verimliydi ? 0 : ardArdaCokme.current + 1;
+    const gecikme = ardArdaCokme.current === 0
+      ? 0
+      : Math.min(YENIDEN_BASLATMA_TABANI_MS * ardArdaCokme.current, YENIDEN_BASLATMA_TAVANI_MS);
+    window.clearTimeout(yenidenBaslatmaZamani.current ?? undefined);
+    yenidenBaslatmaZamani.current = window.setTimeout(() => {
+      if (activeSession.current === 0 && !kapaniyor.current) void startListening();
+    }, gecikme);
+  }, [startListening]);
 
   useEffect(() => {
     void runtime.applyGeometry(geometryRef.current).catch(() => undefined);
@@ -317,6 +336,17 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       }
       if (bargeInPending.current) {
         bargeInEvents.current.push(payload);
+        return;
+      }
+      // Yankı ayıklama: mikrofon sürekli açık olduğu için Fusion konuşurken
+      // kendi sesini duyar. macOS'un ses işleme motoru büyük kısmını siler
+      // ama hoparlörün akustik kuyruğu geçebiliyor; seslendirilen metinle
+      // örtüşen söz kullanıcının sözü sayılmaz.
+      if (
+        (line.tur === "kismi" || line.tur === "son")
+        && machineRef.current.phase === "talking"
+        && yankiMi(line.metin, machineRef.current.transcript)
+      ) {
         return;
       }
       if (line.tur === "hata") {
@@ -430,6 +460,10 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         expectedRecognitionEnd.current = null;
         setRecognitionOwned(false);
         activeSession.current = 0;
+        // Beklenen bitiş de dinlemeyi SONLANDIRMAZ. Talk açıkken mikrofon
+        // sürekli açıktır; eskiden kullanıcı tuşa basarak yeniden başlatıyordu,
+        // tuş kaldırıldığı için bunu uygulama yapar.
+        dinlemeyiSurdur();
         return;
       }
       activeSession.current = 0;
@@ -438,6 +472,11 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         type: "FAILED",
         text: reason || "Konuşma tanıma beklenmedik şekilde kapandı.",
       });
+      // Mikrofon tuşu KALDIRILDI: kullanıcı elle yeniden başlatamaz. Beklenmedik
+      // çıkışta dinleme kendiliğinden toparlanmalı, yoksa Talk sessizce ölür.
+      // Ard arda çökmede geri çekilme uygulanır; sıkı döngü hem işlemciyi hem
+      // günlüğü boğardı.
+      dinlemeyiSurdur();
     };
     replayRecognitionEvent.current = (event) => {
       if (event.type === "output") handleRecognition(event.payload);
@@ -471,6 +510,8 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
       replayRecognitionEvent.current = null;
       removeRecognition?.();
       removeEnded?.();
+      kapaniyor.current = true;
+      window.clearTimeout(yenidenBaslatmaZamani.current ?? undefined);
       expectedRecognitionEnd.current = activeSession.current || null;
       activeSession.current = 0;
       setRecognitionOwned(false);
@@ -482,6 +523,7 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
     if (machine.finalRevision <= sentRevision.current || !machine.finalText) return;
     sentRevision.current = machine.finalRevision;
     if (cuesEnabled()) playCue("thinking");
+    oturumVerimliydi.current = true;
     const kesilen = kesilenCevap.current;
     kesilenCevap.current = null;
     void runtime.emitMessage({
@@ -527,7 +569,11 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
           expectedRecognitionEnd.current = activeSession.current || null;
           activeSession.current = 0;
           setRecognitionOwned(false);
-          void queueRecognition(() => runtime.stopRecognition()).catch(() => undefined);
+          void queueRecognition(() => runtime.stopRecognition())
+            // Bayat tampon atıldıktan sonra dinleme GERİ GELMELİ; sürekli
+            // dinlemede kullanıcının basacağı bir tuş yok.
+            .then(() => dinlemeyiSurdur())
+            .catch(() => undefined);
         }
         dispatch({ type: "FAILED", text: incoming.metin ?? "Sesli yanıt tamamlanamadı." });
       }
@@ -579,7 +625,6 @@ export function VoiceWindow(props: VoiceWindowProps = {}) {
         void runtime.applyGeometry(geometryRef.current).catch(() => undefined);
       }}
       prefs={prefs}
-      onToggleListen={() => void (recognitionOwned ? stopListening() : startListening())}
       state={machine.phase}
       transcript={visibleTranscript}
       wide={wide}
