@@ -57,9 +57,12 @@ interface ControlPanelProps {
    * öteki eskirdi. Verilmezse değiştirme düğmeleri çizilmez.
    */
   onRunCommand?: (command: string) => void;
+  /** Değeri değişince panel durumu yeniden okunur. Panelden çalıştırılan bir
+   *  komut modeli değiştirdiğinde ekranda eski değer kalıyordu. */
+  revision?: number;
 }
 
-export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge }: ControlPanelProps) {
+export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge, revision = 0 }: ControlPanelProps) {
   const permissions = usePermissions(permissionBridge);
   const [state, setState] = useState<ControlState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -75,7 +78,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
 
   useEffect(() => {
     void reload().catch((reason) => setError(String(reason)));
-  }, [reload]);
+  }, [reload, revision]);
 
   const perform = async (name: string, data: Record<string, unknown>, success: string) => {
     setBusy(name);

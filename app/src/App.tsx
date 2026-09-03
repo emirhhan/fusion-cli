@@ -400,6 +400,7 @@ export function SessionUygulama({
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
+  const [controlRevision, setControlRevision] = useState(0);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
@@ -737,6 +738,10 @@ export function SessionUygulama({
       const result = await controller.runCommand(active.id, input, recordInput);
       const next = commandSelectorFrom(result.secici);
       setCommandSelector(next);
+      // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
+      if (result.temizle === true) controller.clear(active.id);
+      // Komut yapılandırmayı değiştirmiş olabilir; panel eski değeri göstermesin.
+      if (next === null) setControlRevision((current) => current + 1);
       if (result.ok === false) setCommandError(String(result.metin ?? "Komut tamamlanamadı."));
     } catch {
       setCommandError("Komut çalıştırılamadı. Bağlantıyı kontrol edip yeniden dene.");
@@ -785,6 +790,7 @@ export function SessionUygulama({
           client={active.client}
           onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
+          revision={controlRevision}
           onRunCommand={(command) => {
             // Seçici panelin ÜSTÜNDE açılır; sayfa değişmez. Eskiden burada
             // `setPage("chat")` vardı ve kullanıcı model seçmeye basar basmaz

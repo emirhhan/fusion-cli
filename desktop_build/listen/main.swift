@@ -113,6 +113,33 @@ func sinyalleriKur() {
     }
 }
 
+/// Tanı günlüğü: tanıyıcıdan NE GELDİĞİNİ ölçer.
+///
+/// "Konuşuyorum ama yazmıyor" sınıfı bir hatada tek tek kapıları tahmin ederek
+/// aramak pahalıdır. Bu günlük, Apple'ın sonuç üretip üretmediğini kanıtlar.
+///
+/// Konuşulan METİN YAZILMAZ — yalnız olayın türü, karakter sayısı, güven puanı
+/// ve segment numarası. Kullanıcının ne söylediği diske düşmez.
+func taniYaz(_ etiket: String, uzunluk: Int, guven: Float, segment: Int) {
+    guard let kok = ProcessInfo.processInfo.environment["HOME"] else { return }
+    let dizin = URL(fileURLWithPath: kok)
+        .appendingPathComponent("Library/Logs/Fusion", isDirectory: true)
+    try? FileManager.default.createDirectory(at: dizin, withIntermediateDirectories: true)
+    let dosya = dizin.appendingPathComponent("listen.log")
+    let satır = String(
+        format: "%@\t%@\tkarakter=%d\tguven=%.3f\tsegment=%d\n",
+        ISO8601DateFormatter().string(from: Date()), etiket, uzunluk, guven, segment
+    )
+    guard let veri = satır.data(using: .utf8) else { return }
+    if let tutamac = try? FileHandle(forWritingTo: dosya) {
+        tutamac.seekToEndOfFile()
+        tutamac.write(veri)
+        try? tutamac.close()
+    } else {
+        try? veri.write(to: dosya)
+    }
+}
+
 func rms(_ tampon: AVAudioPCMBuffer) -> Float {
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
     let kanal = kanallar[0]
@@ -281,12 +308,17 @@ func konusmaAc(segment: Int) {
     acikIstek = r
     istek = r
     konusmaAcik = true
+    taniYaz("konusma-acildi", uzunluk: 0, guven: 0, segment: segment)
     for tampon in onTampon.bosalt() { r.append(tampon) }
 
     görev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
         if let sonuç = sonuç {
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
+            taniYaz(
+                sonuç.isFinal ? "ham-son" : "ham-kismi",
+                uzunluk: metin.count, guven: puan, segment: segment
+            )
             if sonuç.isFinal {
                 if !metinYaz(final: true, metin: metin, guven: puan, callbackSegment: segment) {
                     yaz("hata", "Güvenilir konuşma tanınamadı.",
@@ -299,6 +331,7 @@ func konusmaAc(segment: Int) {
         // Hata konuşmayı bitirir ama SÜRECİ bitirmez: kullanıcı yeniden
         // konuşabilmelidir. Süreci kapatmak dinlemeyi tek denemeye indirirdi.
         if let hata = hata {
+            taniYaz("ham-hata", uzunluk: 0, guven: 0, segment: segment)
             yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
         }
     }
@@ -343,6 +376,7 @@ func başlat() {
     do { try motor.start() } catch {
         yaz("hata", "Ses motoru başlatılamadı: \(error.localizedDescription)"); bitir(4)
     }
+    taniYaz("hazir", uzunluk: 0, guven: 0, segment: 0)
     yaz("hazir", dil)
 }
 

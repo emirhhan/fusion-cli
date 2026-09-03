@@ -645,6 +645,12 @@ class AppSession:
         name = str(data.get("ad", ""))
         argument = str(data.get("arguman", ""))
         command = self._registry.get(name)
+        if command is not None and command.name == "clear":
+            # `/clear` masaüstünde EKRAN temizler. TUI'de karşılama afişini
+            # yeniden basmak doğrudur çünkü terminal geçmişi yerinde kalır;
+            # uygulamada aynı şeyi yapmak sohbetin içine ASCII afiş düşürüyordu.
+            self._state.history.clear()
+            return {"ok": True, "metin": "", "temizle": True}
         if command is not None and command.name in RENDERED_COMMANDS:
             return {
                 "ok": True,

@@ -188,6 +188,8 @@ def command_choices(state: ReplState, name: str, argument: str = "") -> ChoicePa
     simple = _simple_choices(state, canonical) if not stripped else None
     if simple is not None:
         return simple
+    if canonical == "model":
+        return _model_step(state, stripped)
     if canonical == "development":
         return _development_choices(state, stripped)
     if canonical == "profiles":
@@ -202,7 +204,6 @@ def _simple_choices(state: ReplState, name: str) -> ChoicePayload | None:
         "level": ("kademe", messages.LEVEL_TITLE, model_flows.level_choices(state.config), ""),
         "mode": ("profil", messages.MODE_TITLE, model_flows.mode_choices(state.config), ""),
         "effort": ("yogunluk", messages.EFFORT_TITLE, model_flows.effort_choices(), ""),
-        "model": ("model_eylemi", messages.CMD_MODEL, _model_choices(state), ""),
         "provider": ("saglayici", _provider_title(state), _provider_choices(state), ""),
     }
     found = builders.get(name)
@@ -414,20 +415,75 @@ def _wire_choice(choice: Choice) -> WireChoice:
     }
 
 
-def _model_choices(state: ReplState) -> tuple[Choice, ...]:
-    role_choices = (
-        Choice(f"agent {state.config.agent.model}", "agent", state.config.agent.model),
-        Choice(f"judge {state.config.judge.model}", "hakem", state.config.judge.model),
-    )
-    candidates = tuple(
-        Choice(
-            f"cand {candidate.name} {candidate.model}",
-            f"aday {candidate.name}",
-            candidate.model,
+#: `/model` seçicisinde rolün ardından kaynak adımını açan anahtar sözcük.
+_MODEL_SOURCE_STEP = "kaynak"
+
+
+def _model_step(state: ReplState, argument: str) -> ChoicePayload | None:
+    """`/model` seçicisinin sıradaki adımı: rol → kaynak → model.
+
+    Eskiden tek adım vardı ve seçenek değerleri rolün MEVCUT model kimliğini
+    taşıyordu (`agent gemini_web/main/auto`). Seçim aynı modeli yeniden
+    uyguluyor, kullanıcı da yalnız zaten kullandığı modeli görüyordu; ikinci
+    adım ise seçenek üretmediği için "Bilinmeyen komut." dönüyordu.
+    """
+    words = argument.split()
+    if not words:
+        return _payload("rol", "secim", messages.CMD_MODEL, _model_role_choices(state), "model", "")
+
+    role = _model_role(words)
+    if role is None:
+        return None
+    kalan = words[len(role.split()) :]
+
+    if not kalan:
+        return _payload(
+            "kaynak",
+            "secim",
+            messages.DEV_SOURCE_TITLE,
+            model_flows.source_choices(state.config),
+            "model",
+            f"{role} {_MODEL_SOURCE_STEP} ",
         )
-        for candidate in state.config.candidates
+    if len(kalan) != 2 or kalan[0].casefold() != _MODEL_SOURCE_STEP:
+        return None
+
+    source = model_flows.source_by_key(state.config, kalan[1])
+    if source is None:
+        return None
+    prefix = f"{role} "
+    if source.fetcher is None:
+        return _text_payload("model", messages.DEV_CUSTOM_PROMPT, "model", prefix)
+    entries = source.fetcher()
+    choices = model_flows.entries_to_choices(entries, state.config.profile_eligibility)
+    title = (
+        messages.DEV_MODEL_TITLE.format(source=source.label)
+        if entries
+        else messages.DEV_EMPTY_CATALOG
     )
-    return (*role_choices, *candidates)
+    return _payload("model", "secim", title, choices, "model", prefix)
+
+
+def _model_role(words: list[str]) -> str | None:
+    """Argümanın başındaki rolü çöz: `agent`, `judge` ya da `cand <ad>`."""
+    head = words[0].casefold()
+    if head in {"agent", "judge"}:
+        return head
+    if head == "cand" and len(words) >= 2:
+        return f"cand {words[1]}"
+    return None
+
+
+def _model_role_choices(state: ReplState) -> tuple[Choice, ...]:
+    """Roller. Değer model kimliği TAŞIMAZ; taşısa seçim hiçbir şeyi değiştirmezdi."""
+    return (
+        Choice("agent", "agent", state.config.agent.model),
+        Choice("judge", "hakem", state.config.judge.model),
+        *(
+            Choice(f"cand {candidate.name}", f"aday {candidate.name}", candidate.model)
+            for candidate in state.config.candidates
+        ),
+    )
 
 
 def _provider_choices(state: ReplState) -> tuple[Choice, ...]:

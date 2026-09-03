@@ -77,7 +77,7 @@ def test_isleyici_istisnasi_ayrintisini_yansitmaz(state: ReplState) -> None:
         ("level", "", "kademe", "secim"),
         ("mode", "", "profil", "secim"),
         ("effort", "", "yogunluk", "secim"),
-        ("model", "", "model_eylemi", "secim"),
+        ("model", "", "rol", "secim"),
         ("provider", "", "saglayici", "secim"),
         ("development", "", "kaynak", "secim"),
         ("profiles", "edit", "profil", "secim"),
@@ -111,15 +111,20 @@ def test_secici_acmayan_komut_none_doner(state: ReplState) -> None:
 def test_model_secenekleri_isleyicinin_kabul_ettigi_guncel_eylemlerdir(
     state: ReplState,
 ) -> None:
+    # İlk adım ROLLERİ sunar. Değerler model kimliği taşımaz: taşıdığında seçim
+    # rolün ZATEN kullandığı modeli yeniden uyguluyor, kullanıcı da yalnız kendi
+    # modelini görüyordu.
     payload = command_choices(state, "model")
     assert payload is not None
     values = {choice["deger"] for choice in payload["secenekler"]}
-    assert f"agent {state.config.agent.model}" in values
-    assert f"judge {state.config.judge.model}" in values
-    assert all(
-        f"cand {candidate.name} {candidate.model}" in values
-        for candidate in state.config.candidates
-    )
+    assert "agent" in values
+    assert "judge" in values
+    assert all(f"cand {candidate.name}" in values for candidate in state.config.candidates)
+    assert all("/" not in value for value in values)
+
+    # Rol seçilince kaynak adımı gelir; işleyici tamamlanmış komutu kabul eder.
+    kaynaklar = command_choices(state, "model", "agent")
+    assert kaynaklar is not None and kaynaklar["secenekler"]
     result = run_command(build_registry(), state, "model", f"agent {state.config.agent.model}")
     assert result["ok"] is True
 

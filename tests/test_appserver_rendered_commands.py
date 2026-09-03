@@ -52,7 +52,7 @@ async def test_ciktisini_basan_komutlar_sessizce_bos_donmez(tmp_path):
     satirlar: list[str] = []
     oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
 
-    for ad in sorted(RENDERED_COMMANDS):
+    for ad in sorted(RENDERED_COMMANDS - {"clear"}):
         await oturum.handle(Request(ad, "komut.calistir", {"ad": ad, "arguman": ""}))
         veri = _sonuc(satirlar, ad)
         assert veri["ok"] is True, ad
@@ -84,3 +84,21 @@ async def test_cok_uzun_cikti_kesilir_ve_kesildigi_soylenir(tmp_path):
     assert len(metin) <= MAX_OUTPUT_CHARS + len(messages.APP_COMMAND_TRUNCATED) + 2
     if len(metin) > MAX_OUTPUT_CHARS - 1000:
         assert messages.APP_COMMAND_TRUNCATED in metin
+
+
+async def test_clear_masaustunde_afis_basmaz_ekran_temizler(tmp_path):
+    """`/clear` sohbetin içine ASCII afiş düşürüyordu; işi EKRAN temizlemektir."""
+    from fusion_cli.core.types import Message
+
+    satirlar: list[str] = []
+    oturum = AppSession(satirlar.append, root=tmp_path, home=tmp_path / "ev")
+    oturum._state.history = [Message("user", "merhaba")]
+
+    await oturum.handle(Request("6", "komut.calistir", {"ad": "clear", "arguman": ""}))
+
+    veri = _sonuc(satirlar, "6")
+    assert veri["ok"] is True
+    assert veri["temizle"] is True
+    assert veri["metin"] == ""
+    assert "╗" not in json.dumps(veri, ensure_ascii=False)
+    assert oturum._state.history == []
