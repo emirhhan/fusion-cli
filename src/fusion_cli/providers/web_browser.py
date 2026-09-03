@@ -1232,15 +1232,15 @@ _KOD_BLOGU_SUSLERI: tuple[str, ...] = (
 
 #: Süsleri kopya bir düğümden silip metni okuyan tarayıcı betiği. Kopya
 #: üzerinde çalışır; sayfanın kendisi DEĞİŞTİRİLMEZ.
-_SUSSUZ_METIN_BETIGI = """
-(nodes) => nodes.map((node) => {
+_SUSSUZ_METIN_BETIGI = f"""
+(nodes) => nodes.map((node) => {{
   const kopya = node.cloneNode(true);
-  for (const secici of %s) {
+  for (const secici of {list(_KOD_BLOGU_SUSLERI)}) {{
     for (const sus of kopya.querySelectorAll(secici)) sus.remove();
-  }
+  }}
   return kopya.innerText ?? '';
-})
-""" % list(_KOD_BLOGU_SUSLERI)
+}})
+"""
 
 
 async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:

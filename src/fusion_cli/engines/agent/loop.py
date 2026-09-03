@@ -1534,15 +1534,7 @@ async def _run_tools(
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
         if seen >= duplicate_limit:
-            output = (
-                "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve "
-                "çalışma alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion "
-                "çağrıyı çalıştırmadı — sonucu zaten elinde. Aynı şeyi yeniden isteme; "
-                "şunlardan BİRİNİ yap: yeni dosyada write_file, mevcut dosyada "
-                "replace_range ile değişikliği uygula, "
-                "farklı bir dosyayı read_file ile oku, eksik bilgi varsa ask_user ile "
-                "sor, ya da işi bitirip sonucu söyle."
-            )
+            output = _duplicate_call_message()
             deps.publisher.publish(
                 ToolExecuted(
                     name=call.name,
@@ -1676,6 +1668,35 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
     if not isinstance(parsed, dict):
         return {}, "arguments bir JSON nesnesi olmalı"
     return parsed, None
+
+
+def _duplicate_call_message() -> str:
+    """Tekrarlanan çağrıda modele verilen rehberlik.
+
+    Ölçülen hata: mesaj yalnız DOSYA araçlarını sayıyordu. MCP ya da başka bir
+    dış araçla çalışan model bu listeden hiçbirini uygulayamıyor ve engellenen
+    aracı tümden yasaklanmış sanıyordu. Gerçek bir Godot turunda `add_node`
+    yolu `res://` ekiyle reddedildi; doğru düzeltme AYNI aracı ek olmadan
+    çağırmaktı, ama mesaj argüman değiştirmeyi hiç önermiyordu.
+
+    Bu yüzden ilk öneri araç-bağımsızdır: ARGÜMANI değiştir. Dosya araçları
+    yalnızca örnek olarak kalır.
+    """
+    return (
+        "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve çalışma "
+        "alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion çağrıyı "
+        "çalıştırmadı — sonucu zaten elinde. Araç YASAK DEĞİL; yasak olan aynı "
+        "çağrıyı aynı argümanlarla tekrarlamak.\n"
+        "Şunlardan BİRİNİ yap:\n"
+        "1) Aynı aracı FARKLI ARGÜMANLARLA çağır. Önceki hata bir yol/biçim "
+        "sorunuysa yolu değiştir (ör. 'res://' ekini kaldır ya da ekle, göreli "
+        "yol yerine tam yol ver).\n"
+        "2) Aynı işi yapan BAŞKA bir aracı dene.\n"
+        "3) Dosya işi ise: yeni dosyada write_file, mevcut dosyada replace_range, "
+        "başka bir dosyayı read_file ile oku.\n"
+        "4) Eksik bilgi varsa ask_user ile sor.\n"
+        "5) İş bittiyse sonucu söyle."
+    )
 
 
 def _is_tool_contract_error(detail: str | None) -> bool:

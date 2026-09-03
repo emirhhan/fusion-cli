@@ -1945,3 +1945,25 @@ async def test_butce_durdurmasinda_cevap_hata_gibi_basilmaz(monkeypatch, tmp_pat
 
     assert sonuc.ok is False
     assert sonuc.budget_stopped is True
+
+
+def test_tekrar_engeli_arac_yerine_argumani_degistirmeyi_soyler():
+    """Tekrar rehberliği araç-bağımsız olmalı ve argüman değiştirmeyi önermeli.
+
+    Ölçülen hata: mesaj yalnız DOSYA araçlarını sayıyordu (`write_file`,
+    `replace_range`, `read_file`). MCP aracıyla çalışan model bu listeden hiçbir
+    şey uygulayamıyordu. Gerçek Godot turunda `godot__add_node` yolu `res://`
+    ekiyle reddedildi; doğru düzeltme AYNI aracı `res://` olmadan çağırmaktı ama
+    mesaj bunu hiç önermiyordu — model başka bir aracı tekrarlayıp tıkandı.
+    """
+    from fusion_cli.engines.agent.loop import _duplicate_call_message
+
+    mesaj = _duplicate_call_message()
+
+    # Not: `casefold` Türkçe `I`yı noktalı `i` yapar; karşılaştırma metnin
+    # kendi yazımı üzerinden yapılır.
+    assert "FARKLI ARGÜMANLARLA" in mesaj, mesaj
+    assert "res://" in mesaj, "yol/biçim düzeltmesi somut örnekle anlatılmalı"
+    # Dosya araçları ÖRNEK olabilir ama tek çare olarak sunulmamalı.
+    assert "write_file" in mesaj
+    assert mesaj.startswith("TOOL_CALL_DUPLICATE")
