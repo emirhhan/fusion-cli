@@ -89,23 +89,33 @@ final class SesEtkinligiKapisi {
 let dil = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "tr-TR"
 let motor = AVAudioEngine()
 let kapı = SesEtkinligiKapisi()
-var istek: SFSpeechAudioBufferRecognitionRequest?
-/// Çalışan tanıma görevleri, tur numarasına göre.
+/// Bir tanıma turu: isteği ve görevi BİRLİKTE yaşar.
 ///
-/// Tek bir `görev` değişkeni YETMEZ: yeni tur açılırken değişkene atama yapmak
-/// eski görevi serbest bırakır ve tanıyıcı `endAudio()` çağrılmış olsa bile
-/// finali üretmeden İPTAL olur. Ölçüldü: kullanıcı konuşuyor, kısmi sonuç
-/// geliyor, sonra `ham-son` yerine `ham-hata` düşüyor ve metin kayboluyordu.
-/// Biten tur, finalini teslim edene kadar burada tutulur.
-var gorevler: [Int: SFSpeechRecognitionTask] = [:]
+/// Üç ayrı global (`istek`, `görev`, `acikIstek`) tutmak aynı hatayı iki kez
+/// üretti: yeni tur açılırken globale atama yapmak bir öncekini serbest
+/// bırakıyor ve `endAudio()` çağrılmış olsa bile tanıyıcı finali üretmeden
+/// İPTAL oluyordu. Günlükte bu, kısmi sonucun hemen ardından `ham-son` yerine
+/// `ham-hata` olarak görünüyordu. Tur, ikisini bir arada tutar ve ancak
+/// finalini teslim edince bırakılır.
+final class Tur {
+    let istek: SFSpeechAudioBufferRecognitionRequest
+    var gorev: SFSpeechRecognitionTask?
+
+    init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
+}
+
+/// Yaşayan turlar, numaralarına göre.
+var turlar: [Int: Tur] = [:]
 var tapKurulu = false
 var bitiyor = false
 var sinyalKaynakları: [DispatchSourceSignal] = []
 
 func temizle() {
-    for (_, gorev) in gorevler { gorev.cancel() }
-    gorevler.removeAll()
-    istek?.endAudio(); istek = nil
+    for (_, tur) in turlar {
+        tur.gorev?.cancel()
+        tur.istek.endAudio()
+    }
+    turlar.removeAll()
     if motor.isRunning { motor.stop() }
     if tapKurulu { motor.inputNode.removeTap(onBus: 0); tapKurulu = false }
 }
@@ -525,13 +535,14 @@ func konusmaAc(segment: Int) {
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
     r.requiresOnDeviceRecognition = true
+    let tur = Tur(istek: r)
+    turlar[turNo] = tur
     acikIstek = r
-    istek = r
     konusmaAcik = true
     taniYaz("konusma-acildi", uzunluk: 0, guven: 0, segment: segment)
     for tampon in onTampon.bosalt() { r.append(tampon) }
 
-    gorevler[turNo] = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
+    tur.gorev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
         if let sonuç = sonuç {
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
@@ -545,7 +556,7 @@ func konusmaAc(segment: Int) {
                         speechMs: kapı.konusmaMs, segment: segment)
                 }
                 // Tur finalini teslim etti; artık tutulmasına gerek yok.
-                gorevler.removeValue(forKey: turNo)
+                turlar.removeValue(forKey: turNo)
             } else {
                 metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
             }
@@ -553,17 +564,25 @@ func konusmaAc(segment: Int) {
         // Hata konuşmayı bitirir ama SÜRECİ bitirmez: kullanıcı yeniden
         // konuşabilmelidir. Süreci kapatmak dinlemeyi tek denemeye indirirdi.
         if let hata = hata {
-            taniYaz("ham-hata", uzunluk: 0, guven: 0, segment: segment)
+            // Hata KODU ve alanı yazılır: "iptal edildi" ile "konuşma
+            // bulunamadı" ve gerçek arıza aynı görünmemeli. Sistem hata
+            // kodudur, kullanıcının konuştuğu metin DEĞİLDİR.
+            let ns = hata as NSError
+            taniYaz(
+                "ham-hata alan=\(ns.domain) kod=\(ns.code)",
+                uzunluk: 0, guven: 0, segment: segment
+            )
             // Bilerek değiştirdiğimiz turun hatası BEKLENEN sonlanmadır;
             // kullanıcıya "bir sorun oluştu" demek yanlış olurdu.
             yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
-            gorevler.removeValue(forKey: turNo)
+            turlar.removeValue(forKey: turNo)
         }
     }
 }
 
 /// Açık konuşmayı kapat; tanıyıcı kalan sesi işleyip `isFinal` üretir.
 func konusmaKapat() {
+    if acikIstek != nil { taniYaz("ses-sonu-bildirildi", uzunluk: 0, guven: 0, segment: acikTurNo) }
     acikIstek?.endAudio()
     acikIstek = nil
     konusmaAcik = false
