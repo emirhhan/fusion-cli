@@ -100,6 +100,13 @@ let kapı = SesEtkinligiKapisi()
 final class Tur {
     let istek: SFSpeechAudioBufferRecognitionRequest
     var gorev: SFSpeechRecognitionTask?
+    /// Bu turda görülen SON boş olmayan kısmi metin.
+    ///
+    /// `endAudio()` sonrası final BOŞ gelebiliyor (ölçüldü: kısmi sonuçta 13
+    /// karakter varken final 0 karakter). Kullanıcının söylediği kaybolmasın
+    /// diye en iyi kısmi saklanır ve final boşsa o teslim edilir.
+    var sonKismi = ""
+    var sonKismiGuven: Float = 0
 
     init(istek: SFSpeechAudioBufferRecognitionRequest) { self.istek = istek }
 }
@@ -111,11 +118,13 @@ var bitiyor = false
 var sinyalKaynakları: [DispatchSourceSignal] = []
 
 func temizle() {
-    for (_, tur) in turlar {
-        tur.gorev?.cancel()
-        tur.istek.endAudio()
+    durumla {
+        for (_, tur) in turlar {
+            tur.gorev?.cancel()
+            tur.istek.endAudio()
+        }
+        turlar.removeAll()
     }
-    turlar.removeAll()
     if motor.isRunning { motor.stop() }
     if tapKurulu { motor.inputNode.removeTap(onBus: 0); tapKurulu = false }
 }
@@ -497,6 +506,24 @@ final class OnTampon {
 //: Kapının 80 ms'lik doğrulama penceresini rahatça kapsar.
 let onTampon = OnTampon(kapasite: 16)
 
+/// Paylaşılan tur durumunu koruyan kilit.
+///
+/// Bu durum ÜÇ ayrı bağlamdan görülür: ses tapı (gerçek zamanlı ses iş
+/// parçacığı), tanıma geri çağrısı (Apple'ın kuyruğu) ve süre gözcüsü
+/// (`DispatchQueue.main`). Kilitsiz erişimde `append` ile `endAudio` aynı
+/// istek üzerinde yarışabiliyor, `turlar` sözlüğü iki iş parçacığından
+/// değiştirilebiliyordu — ikincisi tanımsız davranıştır.
+///
+/// Yinelemeli seçildi: `konusmaAc` içinden `konusmaKapat` çağrılır.
+let durumKilidi = NSRecursiveLock()
+
+/// Tur durumuna kilit altında eriş.
+func durumla<T>(_ islem: () -> T) -> T {
+    durumKilidi.lock()
+    defer { durumKilidi.unlock() }
+    return islem()
+}
+
 /// O anda dinlenen konuşmanın isteği.
 var acikIstek: SFSpeechAudioBufferRecognitionRequest?
 
@@ -508,6 +535,10 @@ var acikIstek: SFSpeechAudioBufferRecognitionRequest?
 //: çeviriyorum…" adımında sonsuza kadar bekliyordu.
 private let enUzunTurSaniye = 12.0
 
+//: `endAudio()` sonrası tanıma geri çağrısı için tanınan ek süre. Bu da
+//: gelmezse tur asılı kalmış demektir ve dinleme zorla sürdürülür.
+private let geriCagriBeklemeSaniye = 5.0
+
 /// Açık turun kimliği; gözcü yalnız KENDİ turunu kapatır.
 var acikTurNo = 0
 
@@ -518,19 +549,29 @@ var acikTurNo = 0
 /// gelince süreç kapanıyordu. Ortamdan gelen sahte bir tetik tek konuşma
 /// hakkını harcayınca kullanıcı konuşmaya başlamadan dinleme bitiyordu.
 func konusmaAc(segment: Int) {
+  durumla {
     // Açık tur burada TERK EDİLMEZ; `konusmaKapat` ona `endAudio()` der ve
-    // finalini teslim etmesi beklenir. Terk etme yalnızca gerçekten iptal
-    // ettiğimiz turlar içindir.
+    // finalini teslim etmesi beklenir.
     konusmaKapat()
     acikTurNo += 1
     let turNo = acikTurNo
     DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye) {
-        guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
-        // Tur süresi doldu: tanıyıcı kalan sesi işleyip final üretsin, sonra
-        // sıradaki tur açılsın. Aksi halde arayüz beklemede kalır.
-        taniYaz("tur-suresi-doldu", uzunluk: 0, guven: 0, segment: turNo)
-        konusmaKapat()
-        konusmaAc(segment: kapı.segment + 1)
+        durumla {
+            guard !bitiyor, acikTurNo == turNo, acikIstek != nil else { return }
+            taniYaz("tur-suresi-doldu", uzunluk: 0, guven: 0, segment: turNo)
+            konusmaKapat()
+        }
+    }
+    // İKİNCİ gözcü: `endAudio()` sonrası tanıma geri çağrısı hiç gelmezse tur
+    // sonsuza kadar sözlükte kalır ve yeni tur açılmaz — süreç sessizce sağır
+    // olur. Bu gözcü o durumu görür, görevi iptal eder ve dinlemeyi sürdürür.
+    DispatchQueue.main.asyncAfter(deadline: .now() + enUzunTurSaniye + geriCagriBeklemeSaniye) {
+        durumla {
+            guard !bitiyor, let asili = turlar[turNo] else { return }
+            taniYaz("tur-geri-cagri-gelmedi", uzunluk: 0, guven: 0, segment: turNo)
+            asili.gorev?.cancel()
+            turTamamlandi(turNo)
+        }
     }
     let r = SFSpeechAudioBufferRecognitionRequest()
     r.shouldReportPartialResults = true
@@ -543,7 +584,11 @@ func konusmaAc(segment: Int) {
     for tampon in onTampon.bosalt() { r.append(tampon) }
 
     tur.gorev = tanıyıcı.recognitionTask(with: r) { sonuç, hata in
-        if let sonuç = sonuç {
+      durumla {
+        // Sonuç ve hata AYNI çağrıda gelebiliyor. İki bağımsız `if let`
+        // kullanmak turu iki kez tamamlıyor ve başarılı finalin hemen ardından
+        // sahte bir hata yazıyordu; bu yüzden dallar birbirini dışlar.
+        if let sonuç = sonuç, sonuç.isFinal || hata == nil {
             let metin = sonuç.bestTranscription.formattedString
             let puan = guven(sonuç)
             taniYaz(
@@ -551,19 +596,27 @@ func konusmaAc(segment: Int) {
                 uzunluk: metin.count, guven: puan, segment: segment
             )
             if sonuç.isFinal {
-                if !metinYaz(final: true, metin: metin, guven: puan, callbackSegment: segment) {
+                // Final BOŞ gelebiliyor: ölçüldü, kısmi sonuçta 13 karakter
+                // varken final 0 karakter döndü. Kullanıcının söylediği
+                // kaybolmasın diye o turun en son kısmi metni teslim edilir.
+                let tur = turlar[turNo]
+                let teslim = metin.isEmpty ? (tur?.sonKismi ?? "") : metin
+                let teslimGuven = metin.isEmpty ? (tur?.sonKismiGuven ?? 0) : puan
+                if !metinYaz(
+                    final: true, metin: teslim, guven: teslimGuven, callbackSegment: segment
+                ) {
                     yaz("hata", "Güvenilir konuşma tanınamadı.",
                         speechMs: kapı.konusmaMs, segment: segment)
                 }
-                // Tur finalini teslim etti; artık tutulmasına gerek yok.
-                turlar.removeValue(forKey: turNo)
+                turTamamlandi(turNo)
             } else {
+                if !metin.isEmpty {
+                    turlar[turNo]?.sonKismi = metin
+                    turlar[turNo]?.sonKismiGuven = puan
+                }
                 metinYaz(final: false, metin: metin, guven: puan, callbackSegment: segment)
             }
-        }
-        // Hata konuşmayı bitirir ama SÜRECİ bitirmez: kullanıcı yeniden
-        // konuşabilmelidir. Süreci kapatmak dinlemeyi tek denemeye indirirdi.
-        if let hata = hata {
+        } else if let hata = hata {
             // Hata KODU ve alanı yazılır: "iptal edildi" ile "konuşma
             // bulunamadı" ve gerçek arıza aynı görünmemeli. Sistem hata
             // kodudur, kullanıcının konuştuğu metin DEĞİLDİR.
@@ -572,28 +625,62 @@ func konusmaAc(segment: Int) {
                 "ham-hata alan=\(ns.domain) kod=\(ns.code)",
                 uzunluk: 0, guven: 0, segment: segment
             )
-            // Bilerek değiştirdiğimiz turun hatası BEKLENEN sonlanmadır;
-            // kullanıcıya "bir sorun oluştu" demek yanlış olurdu.
-            yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
-            turlar.removeValue(forKey: turNo)
+            // İptal (`kLSRErrorDomain 301`) bizim `endAudio()` çağrımızın
+            // normal sonucudur; kullanıcıya "bir sorun oluştu" demek yanlıştır.
+            // Elde kalan kısmi metin varsa o teslim edilir.
+            let iptal = ns.domain == "kLSRErrorDomain" && ns.code == 301
+            let kalan = turlar[turNo]?.sonKismi ?? ""
+            if iptal, !kalan.isEmpty {
+                metinYaz(
+                    final: true,
+                    metin: kalan,
+                    guven: turlar[turNo]?.sonKismiGuven ?? 0,
+                    callbackSegment: segment
+                )
+            } else if !iptal {
+                yaz("hata", hata.localizedDescription, speechMs: kapı.konusmaMs, segment: segment)
+            }
+            turTamamlandi(turNo)
         }
+      }
     }
+  }
+}
+
+/// Tur bitti: kaydını bırak ve GEREKİYORSA sıradakini aç.
+///
+/// Sıradaki tur burada açılır, `ses-bitti` anında DEĞİL:
+/// `SFSpeechRecognizer` aynı anda tek görev destekler ve yeni görev başlatmak
+/// bir öncekini iptal eder (ölçüldü: `kLSRErrorDomain 301`, final boş dönüyordu).
+func turTamamlandi(_ turNo: Int) {
+  durumla {
+    turlar.removeValue(forKey: turNo)
+    // Koşul TUR KİMLİĞİDİR, `acikIstek == nil` DEĞİL.
+    //
+    // Tanıyıcı kendi iç sezgileriyle bizim kapımızdan ÖNCE final üretebiliyor.
+    // O durumda `acikIstek` hâlâ dolu olur; `acikIstek == nil` koşulu tutmaz ve
+    // yeni tur HİÇ açılmazdı. Ses ölmüş bir isteğe akmaya devam eder, kapı
+    // sonradan kapansa bile kimse yeni tur açmaz ve süreç sessizce KALICI
+    // olarak sağır kalırdı — düzeltmeye çalıştığımız hatanın ta kendisi.
+    guard !bitiyor, acikTurNo == turNo else { return }
+    konusmaKapat()
+    konusmaAc(segment: kapı.segment + 1)
+  }
 }
 
 /// Açık konuşmayı kapat; tanıyıcı kalan sesi işleyip `isFinal` üretir.
 func konusmaKapat() {
+  durumla {
     if acikIstek != nil { taniYaz("ses-sonu-bildirildi", uzunluk: 0, guven: 0, segment: acikTurNo) }
     acikIstek?.endAudio()
     acikIstek = nil
     konusmaAcik = false
+  }
 }
 
-func başlat() {
-    guard tanıyıcı.isAvailable else { yaz("hata", "Tanıyıcı şu an kullanılamıyor."); bitir(3) }
-    guard tanıyıcı.supportsOnDeviceRecognition else {
-        yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
-    }
-
+/// Ses tapını güncel giriş biçimiyle kur. Kurulum TEK yerde durur ki
+/// yeniden kurulum ile ilk kurulum ayrışmasın.
+func tapKur() {
     let girdi = motor.inputNode
     let biçim = girdi.inputFormat(forBus: 0)
     // Geçersiz biçimle tap kurmak sessizce hiç veri getirmez. `outputFormat`
@@ -620,25 +707,59 @@ func başlat() {
         if let mono = monoIndirgerAl().indirge(tampon) {
             kazancUygula(mono)
             akisTanisi.olcMono(rms: rms(mono))
-            acikIstek?.append(mono)
+            // `append` ile `endAudio` aynı istek üzerinde yarışabiliyordu;
+            // ikisi de aynı kilidi alır.
+            durumla { acikIstek?.append(mono) }
         } else {
             akisTanisi.donusumBasarisiz()
         }
         guard let olay = olay else { return }
         if olay == "ses-bitti" {
-            // Tur bitti: tanıyıcı kalan sesi işleyip `isFinal` üretsin, sonra
-            // sıradaki tur için taze bir istek açılsın.
+            // YALNIZCA kapatılır. Sıradaki tur, bir öncekinin finali gelince
+            // açılır: `SFSpeechRecognizer` aynı anda TEK görev destekler ve
+            // yeni görev başlatmak bir öncekini iptal eder (ölçüldü:
+            // `kLSRErrorDomain kod=301`, final boş dönüyordu).
             konusmaKapat()
             yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
-            konusmaAc(segment: kapı.segment + 1)
         } else {
             yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
         }
     }
     tapKurulu = true
+}
+
+/// Ses tapını güncel giriş biçimiyle yeniden kur.
+func tapYenidenKur() {
+    if tapKurulu { motor.inputNode.removeTap(onBus: 0); tapKurulu = false }
+    if motor.isRunning { motor.stop() }
+    tapKur()
+    motor.prepare()
+    do { try motor.start() } catch {
+        yaz("hata", "Ses motoru yeniden başlatılamadı: \(error.localizedDescription)")
+    }
+}
+
+func başlat() {
+    guard tanıyıcı.isAvailable else { yaz("hata", "Tanıyıcı şu an kullanılamıyor."); bitir(3) }
+    guard tanıyıcı.supportsOnDeviceRecognition else {
+        yaz("hata", "Bu cihaz Türkçe çevrimdışı konuşma tanımayı desteklemiyor."); bitir(9)
+    }
+
+    tapKur()
     motor.prepare()
     do { try motor.start() } catch {
         yaz("hata", "Ses motoru başlatılamadı: \(error.localizedDescription)"); bitir(4)
+    }
+    // Giriş cihazı çalışırken değişirse (Bluetooth/USB takma-çıkarma, hız
+    // değişimi) tap eski biçimle kalır ve sessizce sıfır dolu ya da yanlış
+    // hızda tampon üretir. Bu, hatasız görünen bir sağırlıktır; bu yüzden
+    // yapılandırma değişikliğinde tap yeniden kurulur.
+    NotificationCenter.default.addObserver(
+        forName: .AVAudioEngineConfigurationChange, object: motor, queue: .main
+    ) { _ in
+        guard !bitiyor else { return }
+        taniYaz("bicim-degisti", uzunluk: 0, guven: 0, segment: acikTurNo)
+        tapYenidenKur()
     }
     taniYaz("hazir", uzunluk: 0, guven: 0, segment: 0)
     yaz("hazir", dil)
