@@ -1207,6 +1207,37 @@ async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int
     return None
 
 
+#: Yanıt metnine karışan, MODELİN YAZMADIĞI sayfa süsleri.
+#:
+#: Ölçüldü (Gemini web): kod bloğunun başlık çubuğu dil etiketini ("Ini, TOML")
+#: ve "Kopyala" düğmesini taşıyor; `innerText` bunları da alıyor ve etiket
+#: dosya içeriğinin İLK SATIRI oluyor. Gerçek sonucu: yazılan `project.godot`
+#: bozuldu ve Godot "no main scene defined in the project" dedi.
+#:
+#: Temizlik METİN üzerinden değil DOM üzerinden yapılır: metin sezgisi modelin
+#: gerçekten yazdığı satırları da silebilirdi.
+_KOD_BLOGU_SUSLERI: tuple[str, ...] = (
+    "button",
+    '[role="button"]',
+    '[role="toolbar"]',
+    "mat-icon",
+    "code-block-decoration",
+    "[data-test-id]",
+)
+
+#: Süsleri kopya bir düğümden silip metni okuyan tarayıcı betiği. Kopya
+#: üzerinde çalışır; sayfanın kendisi DEĞİŞTİRİLMEZ.
+_SUSSUZ_METIN_BETIGI = """
+(nodes) => nodes.map((node) => {
+  const kopya = node.cloneNode(true);
+  for (const secici of %s) {
+    for (const sus of kopya.querySelectorAll(secici)) sus.remove();
+  }
+  return kopya.innerText ?? '';
+})
+""" % list(_KOD_BLOGU_SUSLERI)
+
+
 async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:
     """Sayfadaki yanıtları oku. Seçiciler BİRLİK değil TERCİH SIRASIDIR.
 
@@ -1226,10 +1257,16 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
     göre kayıyordu.
     """
     for selector in selectors:
+        locator = page.locator(selector)
         try:
-            values = await page.locator(selector).all_inner_texts()
+            values = await locator.evaluate_all(_SUSSUZ_METIN_BETIGI)
         except Exception:
-            continue
+            # Betik çalıştırılamıyorsa (eski Playwright, sahte sayfa) ham metne
+            # düşülür: süslü metin, hiç metin olmamasından iyidir.
+            try:
+                values = await locator.all_inner_texts()
+            except Exception:
+                continue
         texts = tuple(_clean_text(value) for value in values if _clean_text(value))
         if texts:
             return texts

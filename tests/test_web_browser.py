@@ -396,6 +396,11 @@ class _MetinLocator:
     async def all_inner_texts(self):
         return list(self._texts)
 
+    async def evaluate_all(self, _script):
+        """Gerçek sayfada kod bloğu süsleri DOM'dan çıkarılır; sahtede metin
+        zaten temiz kabul edilir."""
+        return list(self._texts)
+
 
 async def test_yanit_ilk_sonuc_veren_seciciden_okunur():
     from fusion_cli.providers.web_browser import _response_snapshot
@@ -426,3 +431,33 @@ async def test_hicbir_secici_eslesmezse_bos_doner():
     page = _SecicilerePageMock({})
 
     assert await _response_snapshot(page, ("dar", "genis")) == ()
+
+
+async def test_kod_blogu_dil_etiketi_cevaba_karismaz():
+    """Kod bloğunun başlık çubuğu yanıt metnine GİRMEZ.
+
+    Ölçüldü (Gemini web): `all_inner_texts` kod bloğunun başlığını da alıyor ve
+    dil etiketi ("Ini, TOML") dosya içeriğinin ilk satırı oluyordu. Gerçek
+    sonucu: yazılan `project.godot` bozuluyor ve Godot "no main scene defined"
+    diyordu. Süsler DOM'dan çıkarılır; metin tahminle temizlenmez.
+    """
+    from fusion_cli.providers.web_browser import _KOD_BLOGU_SUSLERI, _response_snapshot
+
+    class _SusluLocator(_MetinLocator):
+        async def evaluate_all(self, script):
+            # Betiğin süsleri gerçekten kaldırdığını, sahte DOM üzerinden
+            # taklit ederek doğrula.
+            assert "remove" in script
+            for secici in _KOD_BLOGU_SUSLERI:
+                assert secici in script
+            return ["[application]\nconfig/name=\"Oyun\""]
+
+    class _Page:
+        def locator(self, selector):
+            del selector
+            return _SusluLocator(["Ini, TOML\n[application]"])
+
+    snapshot = await _response_snapshot(_Page(), ("dar",))
+
+    assert snapshot == ('[application]\nconfig/name="Oyun"',)
+    assert "Ini, TOML" not in snapshot[0]
