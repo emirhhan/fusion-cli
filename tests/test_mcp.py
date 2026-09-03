@@ -8,6 +8,7 @@ Ağ yok; her şey yerel stdio.
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 
 from fusion_cli.config.models import McpServerConfig
 from fusion_cli.core.types import Message
@@ -49,9 +50,11 @@ async def test_ustten_uca_baglan_listele_cagir(tmp_path):
         assert "read_file" in adlar
         assert "write_file" not in adlar
 
-        # Uzak aracı gerçekten çağır.
-        cikti = await client.call("fusion", "list_dir", {"path": "."})
+        # Uzak aracı gerçekten çağır. `call` metnin YANINDA hata bayrağını da
+        # döndürür; bayrağı atmak uzak hataları başarı gibi gösteriyordu.
+        cikti, hatali = await client.call("fusion", "list_dir", {"path": "."})
         assert "ornek.txt" in cikti
+        assert hatali is False
 
 
 async def test_register_into_araclari_kayit_defterine_ekler(tmp_path):
@@ -113,3 +116,80 @@ async def test_fusion_agent_yapilandirilmis_mcp_araclarini_gorev_oncesi_baglar(
 
     assert len(gorulen_registry) == 1
     assert gorulen_registry[0].get("fusion__list_dir") is not None
+
+
+# --- uzak araç hatasının taşınması ----------------------------------------- #
+
+
+class _SahteBlok:
+    """MCP metin bloğu."""
+
+    type = "text"
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+class _SahteSonuc:
+    def __init__(self, metin: str, hata: bool) -> None:
+        self.content = [_SahteBlok(metin)]
+        self.isError = hata
+
+
+class _SahteArac:
+    def __init__(self, ad: str) -> None:
+        self.name = ad
+        self.description = "sahte"
+        self.inputSchema = {"type": "object", "properties": {}}
+
+
+class _SahteOturum:
+    """`call_tool` sözleşmesinin en dar hâli."""
+
+    def __init__(self, ad: str, metin: str, hata: bool) -> None:
+        self._arac = _SahteArac(ad)
+        self._metin = metin
+        self._hata = hata
+
+    async def list_tools(self):
+        return SimpleNamespace(tools=[self._arac])
+
+    async def call_tool(self, name, args):
+        del name, args
+        return _SahteSonuc(self._metin, self._hata)
+
+
+async def _sahte_calistir(ad: str, metin: str, hata: bool):
+    """Köprüyü sahte oturumla kur ve aracı bir kez çalıştır."""
+    from fusion_cli.tools import ToolRegistry
+
+    istemci = McpClient((McpServerConfig(name="godot", command="x"),))
+    istemci._sessions["godot"] = _SahteOturum(ad, metin, hata)
+    kayit = ToolRegistry()
+    await istemci.register_into(kayit)
+    arac = kayit.get(f"godot__{ad}")
+    assert arac is not None
+    return await arac.run({}, None)
+
+
+async def test_uzak_arac_hatasi_basari_sayilmaz():
+    """MCP'nin `isError` bayrağı `ToolResult`a taşınmalı.
+
+    Ölçülen hata: köprü yalnız metni alıp `isError`'ı ATIYORDU. Uzak araç
+    "Scene file does not exist" dediğinde Fusion bunu BAŞARI olarak modele
+    veriyordu; model düzeltemiyor, aynı çağrıyı tekrarlıyor, tekrar koruması
+    engelliyor ve tur yarım bitiyordu (gerçek koşuda 9 çağrının 3'ü böyleydi).
+    """
+    sonuc = await _sahte_calistir(
+        "save_scene", "Scene file does not exist: res://main.tscn", hata=True
+    )
+
+    assert sonuc.ok is False, "uzak araç hatası başarı sayılmamalı"
+    assert "does not exist" in sonuc.output
+
+
+async def test_uzak_arac_basarisi_basari_kalir():
+    sonuc = await _sahte_calistir("get_godot_version", "4.7.1", hata=False)
+
+    assert sonuc.ok is True
+    assert sonuc.output == "4.7.1"

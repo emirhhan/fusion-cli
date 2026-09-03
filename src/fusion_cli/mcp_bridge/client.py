@@ -74,15 +74,22 @@ class McpClient:
             for tool in result.tools
         ]
 
-    async def call(self, server: str, name: str, args: dict[str, object]) -> str:
-        """Uzak bir aracı çağır ve metin sonucunu döndür."""
+    async def call(self, server: str, name: str, args: dict[str, object]) -> tuple[str, bool]:
+        """Uzak aracı çağır; metni VE hata olup olmadığını döndür.
+
+        `isError` bayrağı ATILAMAZ. Eskiden yalnız metin dönüyordu ve uzak araç
+        "Scene file does not exist" dediğinde Fusion bunu BAŞARI sayıyordu.
+        Model düzeltemediği için aynı çağrıyı tekrarlıyor, tekrar koruması
+        engelliyor ve tur yarım bitiyordu — kullanıcı boş bir hata mesajıyla
+        "görev başarısız" görüyordu.
+        """
         result = await self._sessions[server].call_tool(name, args)
         parts = [
             getattr(block, "text", "")
             for block in result.content
             if getattr(block, "type", None) == "text"
         ]
-        return "".join(parts)
+        return "".join(parts), bool(getattr(result, "isError", False))
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.
@@ -109,9 +116,13 @@ class McpClient:
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
             try:
-                text = await self.call(server, tool, dict(args))
+                text, hatali = await self.call(server, tool, dict(args))
             except Exception as error:
                 return ToolResult.failure(f"MCP aracı hatası ({server}.{tool}): {error}")
+            if hatali:
+                # Modele DÜZELTME şansı veren hata: metin olduğu gibi taşınır,
+                # çünkü uzak sunucular genelde çözüm önerisini oraya yazar.
+                return ToolResult.failure(text or f"MCP aracı başarısız: {server}.{tool}")
             return ToolResult(output=text)
 
         return _run

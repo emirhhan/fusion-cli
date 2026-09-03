@@ -812,3 +812,27 @@ async def test_oturum_baslat_sohbet_kimligiyle_o_sekmenin_gecmisini_yukler(tmp_p
 
     veri = _sonuc(lines, "2")
     assert [m["metin"] for m in veri["mesajlar"]] == ["oyun yaz"]
+
+
+async def test_yarim_biten_tur_bos_mesaj_dondurmez(tmp_path, monkeypatch):
+    """Yarım biten tur kullanıcıya NEDEN bittiğini söylemeli.
+
+    Ölçülen hata: gerçek bir Godot turunda araçlar tıkanınca tur `partial`
+    bitti ve protokol `{"ok": false, "metin": ""}` döndürdü. Kullanıcı hiçbir
+    açıklama olmadan "görev başarısız" gördü.
+    """
+    from fusion_cli.engines.agent.loop import AgentOutcome
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    async def _yarim(*_args, **_kwargs):
+        return AgentOutcome(ok=False, final_text="", messages=())
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _yarim)
+
+    await oturum.handle(Request("t1", "tur.calistir", {"gorev": "bir sey yap"}))
+
+    veri = _sonuc(satirlar, "t1")
+    assert veri["ok"] is False
+    assert veri["metin"].strip(), "yarım tur boş mesajla bitmemeli"

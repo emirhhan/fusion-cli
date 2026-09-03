@@ -379,6 +379,15 @@ APP_UNDECODABLE_LINE = "çözülemeyen satır"
 APP_UNMATCHED_REPLY_ID = "eşleşmeyen cevap kimliği"
 APP_BACKGROUND_TASK_FAILED = "arka plan isteği başarısız"
 APP_TURN_CANCELLED = "Tur iptal edildi."
+
+#: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
+#:
+#: Ölçülen hata: araçlar tıkandığında protokol `{"ok": false, "metin": ""}`
+#: döndürüyordu; kullanıcı hiçbir açıklama olmadan "görev başarısız" görüyordu.
+APP_TURN_NO_ANSWER = (
+    "Tur tamamlanamadı ve model bir cevap üretmedi. "
+    "Araç çıktılarını Denetçi panelinden inceleyip görevi daraltarak yeniden dene."
+)
 APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: Bir olay JSON'a çevrilemediğinde (bkz. `serialize.py::_plain`) sessizce
 #: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.

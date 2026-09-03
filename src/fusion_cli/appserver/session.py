@@ -745,7 +745,11 @@ class AppSession:
         self._state.history = outcome.messages
         if outcome.ok and outcome.final_text.strip():
             self._transcript_store.record_assistant(outcome.final_text)
-        return {"ok": outcome.ok, "metin": outcome.final_text}
+        # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
+        metin = outcome.final_text
+        if not metin.strip() and not outcome.ok:
+            metin = messages.APP_TURN_NO_ANSWER
+        return {"ok": outcome.ok, "metin": metin}
 
     def _refresh_capabilities(self) -> None:
         self._state.capabilities = CapabilityRegistry(
