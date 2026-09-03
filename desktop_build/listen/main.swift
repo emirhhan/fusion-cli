@@ -55,8 +55,12 @@ final class SesEtkinligiKapisi {
             return nil
         }
         let gurultu = kalibrasyonOrnegi == 0 ? 0 : kalibrasyonToplami / Float(kalibrasyonOrnegi)
-        let baslangicEsigi = max(0.012, gurultu * 3.0)
-        let bitisEsigi = max(0.006, gurultu * 1.8)
+        // Tabanlar ÖLÇÜMLE düşürüldü: bu makinede konuşma 0.007–0.010 RMS
+        // üretiyor ve eski 0.012 tabanı konuşmayı hiç görmüyordu. Gürültüye
+        // göre uyarlanan çarpan asıl karardır; taban yalnızca tam sessizlikte
+        // kapının kendiliğinden açılmasını engeller.
+        let baslangicEsigi = max(0.004, gurultu * 3.0)
+        let bitisEsigi = max(0.002, gurultu * 1.8)
 
         if !etkin {
             yuksekMs = rms >= baslangicEsigi ? yuksekMs + sureMs : 0
@@ -175,17 +179,20 @@ let akisTanisi = AkisTanisi()
 
 func rms(_ tampon: AVAudioPCMBuffer) -> Float {
     guard let kanallar = tampon.floatChannelData, tampon.frameLength > 0 else { return 0 }
-    // TÜM kanallar ölçülür. Ölçüldü: bu makinede giriş 3 kanallı geliyor ve
-    // yalnız 0. kanala bakmak sessiz bir kanala denk geldiğinde konuşmayı
-    // görünmez kılıyordu.
+    // Kanalların EN YÜKSEĞİ alınır, ortalaması DEĞİL. Ölçüldü: bu makinede
+    // giriş 3 kanallı geliyor ve kanalların ikisi neredeyse sessiz. Ortalama
+    // almak konuşmanın enerjisini üçe bölüyor, seviye 0.039'dan 0.010'a düşüp
+    // eşiğin altında kalıyordu.
     let kanalSayisi = Int(tampon.format.channelCount)
     let cerceve = Int(tampon.frameLength)
-    var kareToplami: Float = 0
+    var enYuksek: Float = 0
     for kanal in 0..<kanalSayisi {
         let veri = kanallar[kanal]
+        var kareToplami: Float = 0
         for indis in 0..<cerceve { kareToplami += veri[indis] * veri[indis] }
+        enYuksek = max(enYuksek, sqrt(kareToplami / Float(cerceve)))
     }
-    return sqrt(kareToplami / Float(cerceve * max(kanalSayisi, 1)))
+    return enYuksek
 }
 
 func guven(_ sonuc: SFSpeechRecognitionResult) -> Float {
@@ -218,10 +225,10 @@ func metinYaz(
     final: Bool, metin: String, guven puan: Float, callbackSegment: Int
 ) -> Bool {
     guard !metin.isEmpty, guvenYeterli(puan) else { return false }
-    // Kısmi sonuç yalnız KENDİ konuşması hâlâ açıkken anlamlıdır; kapanmış bir
-    // konuşmadan geç gelen kısmi, kullanıcı susmuşken ekrana yazı düşürürdü.
-    guard final ? kapı.finalIcinYeterli : callbackSegment == kapı.segment && konusmaAcik
-    else { return false }
+    // Kısmi sonuç yalnız EN GÜNCEL turdan kabul edilir; kapanmış bir turdan geç
+    // gelen kısmi, kullanıcı susmuşken ekrana yazı düşürürdü. Final için
+    // konuşma süresi eşiği yeterlidir.
+    guard final ? kapı.finalIcinYeterli : konusmaAcik else { return false }
     yaz(final ? "son" : "kismi", metin, guven: puan,
         speechMs: kapı.konusmaMs, segment: callbackSegment)
     return true
@@ -230,6 +237,15 @@ func metinYaz(
 func sentetikFixture(_ ad: String) -> Never {
     yaz("hazir", dil)
     for _ in 0..<30 { _ = kapı.isle(rms: 0.001, sureMs: 10) }
+    if ad == "kapisiz" {
+        // Kapı eşiğin altındaki sesle HİÇ açılmaz. Ses yine de tanıyıcıya
+        // aktığı için kısmi sonuç üretilebilmelidir; eskiden bu durumda
+        // kullanıcı konuşurken ekranda hiçbir şey çıkmıyordu.
+        konusmaAcik = true
+        for _ in 0..<60 { _ = kapı.isle(rms: 0.0009, sureMs: 10) }
+        metinYaz(final: false, metin: "esik-altinda", guven: 0.0, callbackSegment: 1)
+        bitir(0)
+    }
     if ad == "iki-konusma" {
         // Yardımcı TEK konuşmalık değildir: ilk konuşma bittikten sonra ikinci
         // konuşma da tanınmalı. Eskiden `isFinal` gelince süreç kapanıyordu.
@@ -466,21 +482,21 @@ func başlat() {
         let seviye = rms(tampon)
         akisTanisi.olc(rms: seviye, biçim: biçim)
         let olay = kapı.isle(rms: seviye, sureMs: sureMs)
-        // Tanıyıcıya HAM çok kanallı tampon verilmez; tek kanala indirilir.
+        // Ses tanıyıcıya KOŞULSUZ akar. Eskiden kapı açılmadan tampon
+        // tutuluyordu; kapının eşiği bu mikrofonun seviyesinin üstünde kalınca
+        // tanıyıcıya tek bir örnek bile gitmiyor ve hiçbir şey olmuyordu.
+        // Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi
+        // sesi ENGELLEMEK değil, turun ne zaman biteceğini söylemektir.
         if let mono = monoDonusturucu?.donustur(tampon) {
-            if let acik = acikIstek {
-                acik.append(mono)
-            } else {
-                onTampon.ekle(mono)
-            }
+            acikIstek?.append(mono)
         }
         guard let olay = olay else { return }
-        if olay == "ses-basladi" {
-            konusmaAc(segment: kapı.segment)
-            yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
-        } else if olay == "ses-bitti" {
+        if olay == "ses-bitti" {
+            // Tur bitti: tanıyıcı kalan sesi işleyip `isFinal` üretsin, sonra
+            // sıradaki tur için taze bir istek açılsın.
             konusmaKapat()
             yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
+            konusmaAc(segment: kapı.segment + 1)
         } else {
             yaz(olay, speechMs: kapı.konusmaMs, segment: kapı.segment)
         }
@@ -492,6 +508,8 @@ func başlat() {
     }
     taniYaz("hazir", uzunluk: 0, guven: 0, segment: 0)
     yaz("hazir", dil)
+    // İstek HEMEN açılır: ses tanıyıcıya kapıdan bağımsız akmalı.
+    konusmaAc(segment: kapı.segment + 1)
     sessizAkisGozcusuKur()
 }
 

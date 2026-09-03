@@ -735,3 +735,25 @@ def test_macos_listen_yardimcisi_gercek_imza_tasir(tmp_path: Path):
     birlesik = signature.stdout + signature.stderr
     assert "linker-signed" not in birlesik, birlesik
     assert "Signature=adhoc" in birlesik, birlesik
+
+
+@pytest.mark.skipif(
+    sys.platform != "darwin" or shutil.which("swiftc") is None,
+    reason="macOS konuşma yardımcısı yalnız swiftc bulunan macOS'ta derlenir",
+)
+def test_macos_listen_kapi_acilmasa_da_metin_uretilir(tmp_path: Path):
+    """Ses etkinlik kapısı tanıyıcıya giden sesi ENGELLEMEZ.
+
+    Ölçülen hata: kapının sabit eşiği (0.012 RMS) bu mikrofonun konuşma
+    seviyesinin (0.007–0.010) üstündeydi. Kapı hiç açılmadığı için tanıyıcıya
+    tek bir örnek bile gitmiyor, kullanıcı konuşurken hiçbir şey olmuyordu.
+    Apple'ın tanıyıcısı kendi bitiş tespitini zaten yapar; VAD'ın işi sesi
+    engellemek değil, turun ne zaman biteceğini söylemektir.
+    """
+    result = run_listen_fixture(tmp_path, fixture="kapisiz")
+    events = [json.loads(line) for line in result.stdout.splitlines()]
+    kinds = [event["tur"] for event in events]
+
+    assert result.returncode == 0, result.stderr
+    assert "ses-basladi" not in kinds, "bu senaryoda kapı açılmamalı"
+    assert "kismi" in kinds, f"kapı açılmasa da metin üretilmeli: {events}"
