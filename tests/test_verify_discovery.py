@@ -6,7 +6,10 @@ gerçek proje iskeletleri kurar ve çıkan planı denetler.
 
 from __future__ import annotations
 
-from fusion_cli.engines.agent.verify_discovery import discover_commands
+from fusion_cli.engines.agent.verify_discovery import (
+    discover_auto_commands,
+    discover_commands,
+)
 
 
 def test_bos_dizinde_plan_uretilmez(tmp_path):
@@ -211,3 +214,34 @@ async def test_gercek_hata_hala_kapiyi_dusurur(tmp_path):
     dogrulayici = CommandVerifier(("sh -c 'exit 1'",), cwd=str(tmp_path), timeout_s=10.0)
 
     assert (await dogrulayici.verify()).ok is False
+
+
+def test_godot_projesi_kendi_kapisini_getirir(tmp_path):
+    """`project.godot` varsa kapı Godot'un KENDİSİNİ çalıştırır.
+
+    Ölçülen hata: model bozuk bir `project.godot` ve `main.tscn` üretti, tur
+    "tamamlandı" dedi, kullanıcı açılmayan bir proje aldı. Elle çalıştırdığımda
+    Godot iki saniyede söyledi: `no main scene defined in the project` ve
+    `Parse Error: Unrecognized file type 'node'`. Keşif sırasında Godot
+    olmadığı için kapı hiç kurulmuyordu.
+    """
+    (tmp_path / "project.godot").write_text('[application]\nconfig/name="X"\n')
+
+    plan = discover_commands(tmp_path)
+
+    assert plan, "Godot projesinde kapı boş kalmamalı"
+    assert any("godot" in komut for komut in plan), plan
+    assert any("--headless" in komut for komut in plan), plan
+
+
+def test_godot_disi_projede_godot_komutu_onerilmez(tmp_path):
+    (tmp_path / "go.mod").write_text("module x\n")
+
+    assert not any("godot" in komut for komut in discover_commands(tmp_path))
+
+
+def test_godot_kapisi_hizli_kapida_da_bulunur(tmp_path):
+    """Otomatik kapı "bozdum mu" sorusudur; proje açılmıyorsa cevabı evettir."""
+    (tmp_path / "project.godot").write_text('[application]\nconfig/name="X"\n')
+
+    assert any("godot" in komut for komut in discover_auto_commands(tmp_path))

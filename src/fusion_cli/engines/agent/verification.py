@@ -251,13 +251,37 @@ class CommandVerifier:
             detay = f"komut başlatılamadı: {command} ({exc})"
             return VerificationResult(ok=False, summary=detay, findings=(detay,))
 
+        # Çıktı BİRİKTİREREK okunur, `communicate()` ile toplu değil.
+        #
+        # Sebep ölçüldü: bozuk bir Godot projesinde `godot --headless --quit`
+        # gerçek sebebi basıyor ("Can't run project: no main scene defined in
+        # the project") ve SONRA asılı kalıyor. `communicate()` zaman aşımına
+        # uğradığında o çıktı kayboluyor ve kapı yalnızca "zaman aşımına uğradı"
+        # diyordu; model neyi düzelteceğini öğrenemiyordu. Asılmadan önce
+        # söylenen, kapının elindeki EN DEĞERLİ tanıdır.
+        tampon = bytearray()
+
+        async def _biriktir() -> None:
+            akis = process.stdout
+            if akis is None:
+                return
+            while parca := await akis.read(4096):
+                tampon.extend(parca)
+
+        okuyucu = asyncio.ensure_future(_biriktir())
         try:
-            ham, _ = await asyncio.wait_for(process.communicate(), timeout=self._timeout_s)
+            await asyncio.wait_for(process.wait(), timeout=self._timeout_s)
+            await okuyucu
         except TimeoutError:
             process.kill()
             await process.wait()
+            okuyucu.cancel()
             detay = f"komut zaman aşımına uğradı ({self._timeout_s}s): {command}"
+            onceki = _tail(bytes(tampon)).strip()
+            if onceki:
+                detay = f"{detay}\nAsılmadan önce şunu söyledi:\n{onceki}"
             return VerificationResult(ok=False, summary=detay, findings=(detay,))
+        ham = bytes(tampon)
 
         if process.returncode == 0:
             return VerificationResult(ok=True)

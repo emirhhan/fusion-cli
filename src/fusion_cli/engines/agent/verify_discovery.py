@@ -75,7 +75,7 @@ def discover_commands(
     Sıra MALİYETE göredir: lint → tip denetimi → test. Kapı ilk başarısız komutta
     durur; pahalı olan öne alınsaydı her kırık turda boşuna beklenirdi.
     """
-    for kesif in (_python, _node, _rust, _go, _make):
+    for kesif in (_python, _node, _godot, _rust, _go, _make):
         plan = kesif(root) if kesif is not _node else _node(root, node_scripts)
         if plan:
             return (
@@ -123,6 +123,23 @@ def _node(root: Path, scripts: tuple[str, ...] = _NODE_SCRIPTS) -> tuple[str, ..
         return ()
     yonetici = next((ad for dosya, ad in _NODE_LOCKS if (root / dosya).exists()), "npm")
     return tuple(f"{yonetici} run {ad}" for ad in scripts if ad in mevcut)
+
+
+def _godot(root: Path) -> tuple[str, ...]:
+    """Godot projesi: motorun KENDİSİ projeyi açabiliyor mu?
+
+    Ölçülen hata: model bozuk bir `project.godot` ve `main.tscn` üretti, tur
+    "tamamlandı" dedi ve kullanıcı açılmayan bir proje aldı. Godot elle
+    çalıştırıldığında iki saniyede söylüyordu: `no main scene defined in the
+    project`, `Parse Error: Unrecognized file type 'node'`. Keşif sırasında
+    Godot bulunmadığı için kapı hiç kurulmuyordu.
+
+    `--quit` açılışta çıkar: kapı "proje AÇILIYOR mu" sorusudur, oyunu
+    oynamak değildir. `--headless` ekran istemez, sunucuda da çalışır.
+    """
+    return (
+        ("godot --headless --path . --quit",) if (root / "project.godot").exists() else ()
+    )
 
 
 def _rust(root: Path) -> tuple[str, ...]:
