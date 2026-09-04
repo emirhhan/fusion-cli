@@ -30,6 +30,76 @@ from .changeset import ChangeSet
 ToolArgs = Mapping[str, object]
 
 
+class ToolFamily(Enum):
+    """Bir aracın ait olduğu iş ailesi.
+
+    İki ayrı yer aynı sözlüğü kullanır: plan şemasındaki `allowed_tool_families`
+    alanı ve hızlı turun "ikinci araç ailesi devreye girdi" yükseltme sinyali.
+    Sözlük tek yerde tutulmazsa bu iki taraf sessizce ayrışır.
+    """
+
+    FILES = "files"
+    SEARCH = "search"
+    SHELL = "shell"
+    VCS = "vcs"
+    BROWSER = "browser"
+    WEB = "web"
+    DELEGATION = "delegation"
+    #: MCP sunucuları ve tanımadığımız eklenti araçları.
+    EXTERNAL = "external"
+    #: Kendi başına iş üretmeyen yardımcılar: görev listesi, soru sorma, hatırlama.
+    #: Karmaşıklık kanıtı SAYILMAZ; yoksa "dosya oku + todo yaz" iki aile görünürdü.
+    META = "meta"
+
+
+_TOOL_FAMILIES: Mapping[str, ToolFamily] = {
+    "read_file": ToolFamily.FILES,
+    "view_file": ToolFamily.FILES,
+    "write_file": ToolFamily.FILES,
+    "edit_file": ToolFamily.FILES,
+    "multi_edit": ToolFamily.FILES,
+    "replace_range": ToolFamily.FILES,
+    "list_dir": ToolFamily.FILES,
+    "glob": ToolFamily.FILES,
+    "scaffold_web": ToolFamily.FILES,
+    "grep_search": ToolFamily.SEARCH,
+    "search_code": ToolFamily.SEARCH,
+    "search_codebase": ToolFamily.SEARCH,
+    "run_shell": ToolFamily.SHELL,
+    "git": ToolFamily.VCS,
+    "browser_open": ToolFamily.BROWSER,
+    "browser_read": ToolFamily.BROWSER,
+    "browser_click": ToolFamily.BROWSER,
+    "browser_type": ToolFamily.BROWSER,
+    "browser_screenshot": ToolFamily.BROWSER,
+    "browser_mirror": ToolFamily.BROWSER,
+    "browser_close": ToolFamily.BROWSER,
+    "web_search": ToolFamily.WEB,
+    "web_fetch": ToolFamily.WEB,
+    "read_url_content": ToolFamily.WEB,
+    "spawn_agent": ToolFamily.DELEGATION,
+    "invoke_subagent": ToolFamily.DELEGATION,
+    "invoke_agent": ToolFamily.DELEGATION,
+    "council": ToolFamily.DELEGATION,
+    "todo_write": ToolFamily.META,
+    "ask_user": ToolFamily.META,
+    "read_session": ToolFamily.META,
+    "find_skill": ToolFamily.META,
+    "read_skill": ToolFamily.META,
+    "find_agent": ToolFamily.META,
+}
+
+
+def tool_family(name: str) -> ToolFamily:
+    """Araç adını iş ailesine çevir.
+
+    Tanımadığımız ad yardımcı SAYILMAZ: MCP araçları `<sunucu>__<araç>` biçiminde
+    çalışma anında eklenir ve bir eklenti aracının karmaşıklık kanıtını gizlemesi,
+    hızlı turun büyüyen işi fark etmemesi demektir.
+    """
+    return _TOOL_FAMILIES.get(name, ToolFamily.EXTERNAL)
+
+
 @dataclass(frozen=True, slots=True)
 class ToolResult:
     """Bir araç çalıştırmasının sonucu."""

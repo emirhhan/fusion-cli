@@ -17,6 +17,7 @@ from fusion_cli.core.types import Message
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
+from fusion_cli.engines.agent.promotion import PromotionContext
 
 
 def _step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
@@ -190,3 +191,44 @@ async def test_plan_olaylari_kullaniciya_sirali_ilerleme_sunar(tmp_path):
         ExecutionStepVerified,
         ExecutionCompleted,
     )
+
+
+async def test_yukseltme_baglami_plan_uretimine_tasinir(tmp_path):
+    """Hızlı turun kanıtı plan üreten alt tura ulaşmalı; yoksa iş tekrar edilir."""
+    prompts: list[str] = []
+
+    async def plan_agent(task, deps, **kwargs):
+        del deps, kwargs
+        prompts.append(task)
+        return AgentOutcome(final_text="{bozuk", messages=[])
+
+    await run_execution_plan(
+        "şuna bir bak",
+        _FakeDeps(ToolContext(root=tmp_path)),
+        plan_agent,
+        promotion=PromotionContext(
+            task_summary="şuna bir bak",
+            reasons=("teşhis ve onarım gerektiren hata",),
+            touched_paths=("src/a.py",),
+            tool_evidence=("read_file: başarısız",),
+        ),
+    )
+
+    assert "YÜKSELTME BAĞLAMI" in prompts[0]
+    assert "teşhis ve onarım gerektiren hata" in prompts[0]
+    assert "src/a.py" in prompts[0]
+
+
+async def test_yukseltme_yoksa_plan_istemine_baglam_eklenmez(tmp_path):
+    prompts: list[str] = []
+
+    async def plan_agent(task, deps, **kwargs):
+        del deps, kwargs
+        prompts.append(task)
+        return AgentOutcome(final_text="{bozuk", messages=[])
+
+    await run_execution_plan(
+        "şuna bir bak", _FakeDeps(ToolContext(root=tmp_path)), plan_agent
+    )
+
+    assert "YÜKSELTME BAĞLAMI" not in prompts[0]

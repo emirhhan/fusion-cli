@@ -143,7 +143,7 @@ git commit -m "feat(yurutme): hibrit gorev rotasini ekle"
 - Produces: `should_promote(signals: ExecutionSignals) -> PromotionDecision`
 - Produces: `PromotionContext(task_summary, touched_paths, pending_todos, tool_evidence)`
 
-- [ ] **Step 1: Her yükseltme tetiği ve tek yönlülük için parametreli test yaz**
+- [x] **Step 1: Her yükseltme tetiği ve tek yönlülük için parametreli test yaz**
 
 ```python
 @pytest.mark.parametrize("signals", promotion_signal_fixtures())
@@ -151,15 +151,15 @@ def test_her_karmaşıklık_sinyali_workflowa_yukseltir(signals):
     assert should_promote(signals).should_promote is True
 ```
 
-- [ ] **Step 2: Testlerin eksik karar modülü nedeniyle kırıldığını doğrula**
+- [x] **Step 2: Testlerin eksik karar modülü nedeniyle kırıldığını doğrula**
 
 Run: `.venv/bin/pytest tests/test_execution_promotion.py -q`
 
-- [ ] **Step 3: Saf sinyal değerlendirmesini ve loop içindeki yükseltme çıkışını uygula**
+- [x] **Step 3: Saf sinyal değerlendirmesini ve loop içindeki yükseltme çıkışını uygula**
 
-- [ ] **Step 4: Loop entegrasyon testlerinde hızlı turun doğru bağlamla workflow'a devrettiğini kanıtla**
+- [x] **Step 4: Loop entegrasyon testlerinde hızlı turun doğru bağlamla workflow'a devrettiğini kanıtla**
 
-- [ ] **Step 5: İlgili kapıları çalıştır ve commit et**
+- [x] **Step 5: İlgili kapıları çalıştır ve commit et**
 
 Run: `.venv/bin/pytest tests/test_execution_promotion.py tests/test_agent_loop.py -q && .venv/bin/ruff check src tests && .venv/bin/mypy src`
 

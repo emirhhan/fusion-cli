@@ -7,6 +7,7 @@ import pytest
 from fusion_cli.core.events import (
     CapabilityActivated,
     ContextCompressed,
+    ExecutionPromoted,
     SelfReviewFinished,
     SelfReviewStarted,
     SubAgentFinished,
@@ -123,6 +124,80 @@ async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(
 
     assert sonuc.final_text == "planlı sonuç"
     assert seen == ["yeni özellik ekle"]
+
+
+class _PlanCasusu:
+    """`run_execution_plan` yerine geçip devredilen görev ve bağlamı kaydeder."""
+
+    def __init__(self):
+        self.cagrilar = []
+
+    async def __call__(self, task, deps, run_agent, *, plan=None, promotion=None):
+        del deps, run_agent, plan
+        self.cagrilar.append((task, promotion))
+        return AgentOutcome(final_text="planlı sonuç", messages=[])
+
+
+async def test_hizli_yol_yarim_kalinca_kanitla_planli_yola_yukselir(
+    monkeypatch, tmp_path, sink
+):
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("read_file", path="yok.txt"),)),
+                model_result("yarım kaldı", ok=False),
+            ]
+        ),
+    )
+    casus = _PlanCasusu()
+    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
+
+    sonuc = await run_agent("şuna bir bak", deps)
+
+    assert sonuc.final_text == "planlı sonuç"
+    gorev, baglam = casus.cagrilar[0]
+    assert gorev == "şuna bir bak"
+    assert "teşhis ve onarım gerektiren hata" in baglam.reasons
+    assert any("read_file" in kanit for kanit in baglam.tool_evidence)
+    assert baglam.task_summary == "şuna bir bak"
+    yukseltme = [e for e in sink.events if isinstance(e, ExecutionPromoted)]
+    assert yukseltme and "teşhis ve onarım gerektiren hata" in yukseltme[0].reasons
+
+
+async def test_temiz_biten_hizli_tur_yeniden_calistirilmaz(monkeypatch, tmp_path, sink):
+    """Tamamlanan basit iş, sinyal görünse bile ikinci kez yapılmaz."""
+    (tmp_path / "a.txt").write_text("içerik", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("read_file", path="a.txt"),)),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    casus = _PlanCasusu()
+    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
+
+    sonuc = await run_agent("şuna bir bak", deps)
+
+    assert casus.cagrilar == []
+    assert sonuc.final_text == TAM_CEVAP
+
+
+async def test_kanitsiz_yarim_tur_bos_yere_planlanmaz(monkeypatch, tmp_path, sink):
+    """Yarım kalmak tek başına yükseltme gerekçesi değildir; büyüme kanıtı gerekir."""
+    _kur(monkeypatch, ScriptedProvider([model_result("yarım", ok=False)]))
+    casus = _PlanCasusu()
+    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
+
+    await run_agent("şuna bir bak", deps)
+
+    assert casus.cagrilar == []
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):

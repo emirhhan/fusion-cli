@@ -39,6 +39,7 @@ from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
+    ExecutionPromoted,
     ExecutionRouteSelected,
     MutationUnavailable,
     SelfReviewFinished,
@@ -52,7 +53,7 @@ from ...core.events import (
 )
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
-from ...core.tools import ToolContext, ToolResult
+from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
     Message,
@@ -82,6 +83,13 @@ from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
+from .promotion import (
+    PromotionContext,
+    ToolUse,
+    TurnObservation,
+    should_promote,
+    signals_from_turn,
+)
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -212,6 +220,10 @@ class AgentOutcome:
     failed_tool_calls: int = 0
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
+    #: Turda DENENEN araç çağrıları, çalışma sırasıyla. Sayaçlar "kaç tane"
+    #: sorusuna cevap verir; yükseltme kararı "hangileri, hangi sırada" bilgisini
+    #: ister (bağımlılık zinciri ve araç ailesi bundan okunur).
+    tool_uses: tuple[ToolUse, ...] = ()
 
     #: Nihai cevap akış sırasında ekrana ulaştı mı? Ulaştıysa `TurnAnswered`
     #: yayınlanmaz; aynı metin iki kez basılmaz.
@@ -442,6 +454,8 @@ async def run_agent(
         )
         if route.route is ExecutionRoute.WORKFLOW:
             return await run_execution_plan(task, deps, run_agent)
+    else:
+        route = None
 
     outcome = await _drive(
         messages,
@@ -454,6 +468,12 @@ async def run_agent(
         internal=internal,
         require_local_mutation=require_local_mutation,
     )
+
+    if route is not None and route.route is ExecutionRoute.FAST_PROMOTABLE:
+        promoted = _promotion_context(task, outcome, deps, budget)
+        if promoted is not None:
+            deps.publisher.publish(ExecutionPromoted(reasons=promoted.reasons))
+            return await run_execution_plan(task, deps, run_agent, promotion=promoted)
 
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
@@ -629,6 +649,9 @@ class _State:
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
+    #: Denenen her araç çağrısı, SIRAYLA. Engellenen ve düşen çağrılar da girer:
+    #: yükseltme kararı "ne denendi" bilgisini "ne başardı" kadar önemser.
+    tool_uses: list[ToolUse] = field(default_factory=list)
     tool_rounds: int = 0
     tool_calls_last_turn: int = 0
     evidence_reprompts: int = 0
@@ -945,6 +968,67 @@ def _publish_budget_stop(deps: AgentDeps, budget: TurnBudget, state: _State) -> 
     )
 
 
+#: Yükseltme bağlamına taşınan görev özetinin üst sınırı. Plan istemi görevin
+#: TAMAMINI zaten ayrıca alır; buradaki özet yalnız bağlamı adlandırır.
+PROMOTION_SUMMARY_CHARS = 500
+
+
+def _promotion_context(
+    task: str,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    budget: TurnBudget,
+) -> PromotionContext | None:
+    """Hızlı tur büyüyerek yarım kaldıysa planlı yürütmenin başlangıç bağlamını üret.
+
+    İki kapı arka arkaya çalışır ve ikisi de gereklidir:
+
+    1. **Tur yarım kalmış olmalı.** Tamamlanmış bir hızlı turu plana devretmek aynı
+       işi ikinci kez yaptırır; ölçülen kazanç değil, yinelenen yan etkidir.
+    2. **Büyüme kanıtlanmış olmalı.** Yalnızca "model hata verdi" demek yeni bir
+       planı hak etmez; kanıtsız yükseltme her düşen turu planlama maliyetine sokar.
+
+    Yükseltme tek yönlüdür: dönen `run_execution_plan` çağrısı kök turu bitirir,
+    plan yolundan hızlı yola geri düşülmez.
+    """
+    interrupted = not outcome.ok or outcome.hit_step_limit or budget.stop is not None
+    if not interrupted:
+        return None
+    todos = deps.tool_context.todos
+    observation = TurnObservation(
+        tool_uses=outcome.tool_uses,
+        pending_todos=todos.pending_count,
+        # Sıralı ve tekrarsız: kanıt bloğu turdan tura aynı görünmelidir.
+        touched_paths=tuple(sorted({str(path) for path in deps.tool_context.touched})),
+        hit_step_limit=outcome.hit_step_limit,
+        budget_stopped=budget.stop is not None,
+    )
+    decision = should_promote(signals_from_turn(observation))
+    if not decision.should_promote:
+        return None
+    return PromotionContext(
+        task_summary=task[:PROMOTION_SUMMARY_CHARS],
+        reasons=decision.reasons,
+        touched_paths=observation.touched_paths,
+        pending_todos=tuple(
+            item.content
+            for item in todos.items
+            if item.status is not TodoStatus.COMPLETED
+        ),
+        tool_evidence=tuple(
+            f"{use.name}: {'başarılı' if use.ok else 'başarısız'}"
+            for use in observation.tool_uses
+        ),
+    )
+
+
+def _note_tool_use(state: _State, name: str, tool: Tool | None, *, ok: bool) -> None:
+    """Denenen araç çağrısını sırayla kaydet (yükseltme kanıtı)."""
+    state.tool_uses.append(
+        ToolUse(name=name, ok=ok, mutating=bool(tool is not None and tool.mutating))
+    )
+
+
 def _outcome(
     final_text: str,
     messages: list[Message],
@@ -964,6 +1048,7 @@ def _outcome(
         model_calls_made=state.model_calls_made,
         answer_streamed=state.answer_streamed,
         wrong_workspace=state.warned_wrong_workspace,
+        tool_uses=tuple(state.tool_uses),
     )
 
 
@@ -1534,6 +1619,7 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
+            _note_tool_use(state, call.name, tool, ok=False)
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
             #
@@ -1567,6 +1653,7 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
+            _note_tool_use(state, call.name, tool, ok=False)
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
             # turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar. Ölçüldü: model dört
@@ -1580,6 +1667,7 @@ async def _run_tools(
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry, execution=execution)
+        _note_tool_use(state, call.name, tool, ok=outcome is ToolOutcome.OK)
         if result.output.startswith(CAPABILITY_WALL_PREFIX):
             state.capability_wall = True
         if outcome is ToolOutcome.OK:

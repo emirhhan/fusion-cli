@@ -29,6 +29,7 @@ from ...core.failure import RecoveryAction
 from ...core.types import Message
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
 from .plan_parser import PlanParseError, parse_execution_plan
+from .promotion import PromotionContext
 from .recovery import choose_recovery, classify_failure
 from .step_verification import verify_plan_acceptance, verify_step
 
@@ -67,10 +68,19 @@ def _repair_prompt(task: str, invalid_output: str, error: PlanParseError) -> str
 
 
 async def _generate_plan(
-    task: str, deps: AgentDeps, run_agent: RunAgent
+    task: str,
+    deps: AgentDeps,
+    run_agent: RunAgent,
+    promotion: PromotionContext | None = None,
 ) -> tuple[ExecutionPlan, int]:
-    """Planı üret; biçim hatasında yalnızca bir onarım turu kullan."""
+    """Planı üret; biçim hatasında yalnızca bir onarım turu kullan.
+
+    Görev hızlı yoldan yükseltildiyse plan üreten alt tur o turun KANITINI da görür:
+    aksi halde zaten yapılmış işi baştan planlar ve yan etkiyi ikinci kez üretir.
+    """
     prompt = _PLAN_PROMPT.replace("{task}", task)
+    if promotion is not None:
+        prompt = f"{promotion.render()}\n\n{prompt}"
     outcome = await run_agent(
         prompt,
         deps,
@@ -205,12 +215,15 @@ async def run_execution_plan(
     run_agent: RunAgent,
     *,
     plan: ExecutionPlan | None = None,
-    promotion: str | None = None,
+    promotion: PromotionContext | None = None,
 ) -> AgentOutcome:
-    """Plan üretip hazır adımları sırayla temiz agent alt turlarında çalıştır."""
+    """Plan üretip hazır adımları sırayla temiz agent alt turlarında çalıştır.
+
+    `promotion` yalnız hızlı yoldan yükseltilen turlarda doludur ve plan üretimine
+    o turun tipli kanıtını taşır; ham mesaj geçmişi kopyalanmaz.
+    """
     from .loop import AgentOutcome
 
-    del promotion  # İlerleyen hızlı yolun gerekçesi için ayrılmış sözleşme alanı.
     runtime = getattr(getattr(deps, "config", None), "runtime", None)
     workflow_budget = WorkflowBudget(
         planning=getattr(runtime, "workflow_planning_calls", 2),
@@ -227,7 +240,7 @@ async def run_execution_plan(
     try:
         current = plan or (checkpoint.plan if checkpoint is not None else None)
         if current is None:
-            current, planning_calls = await _generate_plan(task, deps, run_agent)
+            current, planning_calls = await _generate_plan(task, deps, run_agent, promotion)
             if not ledger.charge(BudgetEnvelope.PLANNING, planning_calls).allowed:
                 text = "Workflow planlama bütçesi tükendi; görev güvenle duraklatıldı."
                 return AgentOutcome(

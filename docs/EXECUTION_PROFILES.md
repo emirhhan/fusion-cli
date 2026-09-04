@@ -20,6 +20,24 @@ Planlı yolda Fusion:
 uyumluluk/teşhis için hızlı yolu zorlar. Varsayılan `auto` değiştirilmese de tüm
 kullanıcılar profesyonel akışı gerektiren görevlerde otomatik olarak korumayı alır.
 
+### Çalışma sırasında yükseltme
+
+Başlangıç kararı her zaman doğru olmak zorunda değildir. Kapsamı baştan belli
+olmayan görevler `fast_promotable` yolunda başlar: hızlı çalışır, ama tur BÜYÜRSE
+planlı yürütmeye devredilir. Yükseltme için iki koşul birlikte aranır:
+
+1. Tur yarım kalmıştır (model hata verdi, adım sınırına dayandı ya da bütçe durdu).
+2. Büyüme kanıtlanmıştır: üç veya daha fazla bekleyen iş, ikinci dosya/bileşen,
+   ikinci araç ailesi, bir araç çıktısına bağlı sonraki iş, teşhis gerektiren
+   hata, ayrı doğrulama gerektiren dış etki veya tükenen hızlı yol bütçesi.
+
+Tamamlanmış bir hızlı tur ASLA yükseltilmez — aynı iş ikinci kez yapılmış olurdu.
+Yükseltme tek yönlüdür ve kullanıcıya gerekçesiyle bildirilir (terminalde durum
+satırı, masaüstünde ilerleme adımı). Plan üreten alt tur ham mesaj geçmişini
+almaz; yalnız görev özeti, yükseltme gerekçesi, dokunulan dosyalar, bekleyen
+işler ve araç kanıtından oluşan tipli bir bağlam alır — böylece zaten yapılmış iş
+tekrar planlanmaz.
+
 ## Mode (çalışma profili) — hangi model
 
 `/mode` komutu modeli/kademeyi seçer. Profil = mevcut kademe sistemi (RULES gereği

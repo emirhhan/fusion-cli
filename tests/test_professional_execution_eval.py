@@ -46,3 +46,20 @@ def test_bos_iz_sifir_metrik_uretir():
     metrics = score_professional_execution(ProfessionalExecutionTrace())
 
     assert metrics == ProfessionalExecutionMetrics()
+
+
+def test_tamamlanmis_hizli_turun_yukseltilmesi_israf_sayilir():
+    """Yükseltmenin kendi riski ölçülmeli: biten iş yeniden planlanmamalı."""
+    metrics = score_professional_execution(
+        ProfessionalExecutionTrace(promoted=True, fast_turn_completed=True)
+    )
+
+    assert metrics.wasted_promotions == 1
+
+
+def test_yarim_kalan_turdan_yukseltme_israf_sayilmaz():
+    metrics = score_professional_execution(
+        ProfessionalExecutionTrace(promoted=True, fast_turn_completed=False)
+    )
+
+    assert metrics.wasted_promotions == 0

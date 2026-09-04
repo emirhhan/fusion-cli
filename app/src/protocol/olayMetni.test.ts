@@ -61,4 +61,15 @@ describe("olayAdimi", () => {
       evidence: ["pytest geçti", "ruff geçti"],
     })).toEqual({ metin: "verify doğrulandı", ayrinti: "pytest geçti · ruff geçti" });
   });
+
+  it("hızlı turun yükseltilmesini gerekçesiyle gösterir", () => {
+    // Yükseltme sessiz olmamalı: kullanıcı işin neden planlı yola geçtiğini görür.
+    expect(olayAdimi({
+      olay: "ExecutionPromoted",
+      reasons: ["teşhis ve onarım gerektiren hata", "birden fazla araç ailesi"],
+    })).toEqual({
+      metin: "görev planlı yürütmeye yükseltildi",
+      ayrinti: "teşhis ve onarım gerektiren hata · birden fazla araç ailesi",
+    });
+  });
 });
