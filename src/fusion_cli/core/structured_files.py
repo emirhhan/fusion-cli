@@ -54,15 +54,46 @@ def _toml_denetle(content: str) -> str | None:
     return None
 
 
+def _dengesiz_tirnak(content: str) -> bool:
+    """Metin kaynağında kapanmamış bir tırnak var mı?
+
+    Godot metin biçiminde her değer tırnak çiftiyle yazılır; gömülü GDScript de
+    tek bir çok satırlı dizedir. Kaçışlı `\\"` sayılmaz. Tek sayıda tırnak, dosyanın
+    ortasında ya da sonunda kalan bir tırnak demektir ve Godot dosyayı hiç
+    yükleyemez.
+    """
+    sayac = 0
+    kacis = False
+    for karakter in content:
+        if kacis:
+            kacis = False
+            continue
+        if karakter == "\\":
+            kacis = True
+        elif karakter == '"':
+            sayac += 1
+    return sayac % 2 == 1
+
+
 def _godot_kaynak_denetle(content: str) -> str | None:
     """Godot metin kaynağı (`.tscn`, `.tres`).
 
-    İki kural ÖLÇÜLDÜ, uydurulmadı:
+    Üç kural ÖLÇÜLDÜ, uydurulmadı:
     1. Dosya `[gd_scene …]` ya da `[gd_resource …]` ile başlamalı; başlıksız
        dosyada Godot "Unrecognized file type" veriyor.
     2. `[ext_resource …]` blokları düğümlerden ÖNCE gelmeli; sonra yazıldığında
        sahne yüklenmiyor.
+    3. Tırnaklar dengeli olmalı; ölçülen vakada dosyanın sonunda fazladan tek bir
+       `"` kaldı ve Godot `Parse Error [res://main.tscn:98]` verip sahneyi hiç
+       yükleyemedi — oyun hazırdı ama açılmıyordu.
     """
+    if _dengesiz_tirnak(content):
+        return (
+            "Kapanmamış tırnak var: Godot metin kaynağında tırnaklar dengeli "
+            "olmalı. Dosyanın ortasında ya da sonunda tek başına kalan bir `\"` "
+            "Godot'un dosyayı hiç yükleyememesine yol açar: `Parse Error`. "
+            "Gömülü GDScript bloğunu kapatan tırnağı kontrol et."
+        )
     satirlar = _anlamli_satirlar(content)
     if not satirlar:
         return "Godot kaynak dosyası boş olamaz; `[gd_scene format=3]` ile başlamalı."
@@ -71,7 +102,9 @@ def _godot_kaynak_denetle(content: str) -> str | None:
         return (
             "Godot kaynak dosyası `[gd_scene format=3]` (sahne) ya da "
             "`[gd_resource …]` (kaynak) satırıyla BAŞLAMALI. Bu başlık olmadan "
-            "Godot dosyayı tanımaz: `Parse Error: Unrecognized file type`."
+            "Godot dosyayı tanımaz: `Parse Error: Unrecognized file type`. "
+            "Hedefli düzenleme yapıyorsan İLK SATIRI KAPSAMA: aralığı başlıktan "
+            "SONRA başlat, ya da yeni içeriğin başına aynı başlık satırını koy."
         )
     dugum_goruldu = False
     for satir in satirlar:

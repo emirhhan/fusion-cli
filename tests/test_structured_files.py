@@ -289,3 +289,59 @@ def test_edit_file_gecerli_hedefli_degisikligi_yazar(tmp_path):
 
     assert sonuc.ok is True, sonuc.output
     assert "CharacterBody2D" in sahne.read_text(encoding="utf-8")
+
+
+def test_basliksiz_sonuc_hedefli_duzenlemede_cikis_yolunu_gosterir():
+    """Ölçüldü (Godot koşusu): model `ext_resource` eklemek için 1-3. satırları
+    değiştirdi ve `[gd_scene]` başlığını sildi.
+
+    Kapı haklı olarak reddetti ama NE YAPACAĞINI söylemedi; model aynı çağrıyı
+    birebir tekrarladı ve tekrar kapısına takıldı. Yapısal biçimlerde ilk satır
+    korunmalıdır ve mesaj bunu söylemelidir.
+    """
+    sorun = validate_structured(
+        Path("main.tscn"),
+        '[ext_resource type="Script" path="res://a.gd" id="1"]\n'
+        '[node name="a" type="Node2D"]\n',
+        available_tools=_GODOT_ARACLARI,
+        authoring=False,
+    )
+
+    assert sorun is not None
+    assert "İLK SATIRI KAPSAMA" in sorun
+
+
+def test_kapanmamis_tirnak_reddedilir():
+    """Ölçüldü (Godot koşusu): sahne dosyasının sonunda fazladan tek bir `"` kaldı.
+
+    Godot `Parse Error [res://main.tscn:98]` verip sahneyi hiç yükleyemedi; oyun
+    çalışmadı. Dosya diske ULAŞMADAN yakalanmalıydı: metin kaynaklarında tırnaklar
+    dengeli olmak zorundadır ve bu, biçimden bağımsız kesin bir kuraldır.
+    """
+    bozuk = (
+        "[gd_scene format=3]\n\n"
+        '[node name="root" type="Node2D"]\n'
+        '[node name="Sound" type="AudioStreamPlayer" parent="."]\n'
+        '"\n'
+    )
+
+    sorun = validate_structured(Path("main.tscn"), bozuk, authoring=False)
+
+    assert sorun is not None
+    assert "tırnak" in sorun.lower()
+
+
+def test_gomulu_script_iceren_gecerli_sahne_kabul_edilir():
+    """Çok satırlı `script/source = "..."` bloğu geçerlidir; kural onu bozmamalı."""
+    gecerli = (
+        "[gd_scene format=3]\n\n"
+        '[sub_resource type="GDScript" id="g"]\n'
+        'script/source = "extends Node2D\n\n'
+        'func _ready():\n'
+        '\tprint(\\"merhaba\\")\n'
+        '"\n\n'
+        '[node name="root" type="Node2D"]\n'
+        'script = SubResource("g")\n'
+    )
+
+    assert validate_structured(Path("main.tscn"), gecerli, authoring=False) is None
