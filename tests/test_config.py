@@ -72,9 +72,28 @@ def test_workflow_butce_zarflari_profesyonel_varsayilanlarla_gelir():
     runtime = load_config().runtime
 
     assert runtime.workflow_planning_calls == 2
-    assert runtime.workflow_step_calls == 8
-    assert runtime.workflow_recovery_calls == 2
+    assert runtime.workflow_step_calls == 24
+    assert runtime.workflow_recovery_calls == 12
     assert runtime.workflow_final_verification_calls == 2
+
+
+def test_adim_zarflari_tek_alt_turun_harcamasini_karsilar():
+    """Zarflar MODEL ÇAĞRISI sayar ve bir adım tek bir alt-tur olarak çalışır.
+
+    Ölçüldü (Godot koşusu): `workflow_step_calls` 8 iken, 20 başarılı araç
+    çağrısıyla ilerleyen bir adımın alt-turu ~22 model çağrısı harcadı ve zarf
+    daha ilk faturada aşıldı. Zarf, alt-turun kendi tur sınırından küçükse gerçek
+    iş yapan HİÇBİR adım tamamlanamaz — bütçe kapısı, çalışan işi cezalandırır.
+    """
+    runtime = load_config().runtime
+
+    # Web sağlayıcıda karmaşık görev alt-turu en fazla bu kadar çağrı harcayabilir.
+    web_karmasik_tur_siniri = 28
+
+    assert runtime.workflow_step_calls <= web_karmasik_tur_siniri
+    assert runtime.workflow_step_calls >= web_karmasik_tur_siniri // 2
+    # Kurtarma da bir alt-turdur; iki çağrılık zarf ilk denemede taşardı.
+    assert runtime.workflow_recovery_calls >= runtime.workflow_step_calls // 4
 
 
 def test_workflow_mode_bilinmeyen_degeri_reddeder(tmp_path):

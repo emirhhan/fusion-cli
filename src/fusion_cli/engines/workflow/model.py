@@ -56,8 +56,8 @@ class WorkflowBudget:
     """Planlama, adım, kurtarma ve final kapısı için ayrı çağrı sınırları."""
 
     planning: int = 2
-    per_step: int = 8
-    recovery: int = 2
+    per_step: int = 24
+    recovery: int = 12
     final: int = 2
 
     def limit_for(self, envelope: BudgetEnvelope) -> int:

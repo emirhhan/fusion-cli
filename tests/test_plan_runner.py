@@ -63,10 +63,21 @@ class _Publisher:
         self.events.append(event)
 
 
+class _FakeBudget:
+    """Idle saatinin tazelenip tazelenmediğini sayan asgari bütçe."""
+
+    def __init__(self):
+        self.progress_calls = 0
+
+    def record_progress(self):
+        self.progress_calls += 1
+
+
 @dataclass
 class _FakeDeps:
     tool_context: ToolContext
     execution: object | None = None
+    budget: object | None = None
     verifier: object | None = None
     checkpoint_store: object | None = None
     conversation_id: str = ""
@@ -313,3 +324,55 @@ async def test_adim_kok_gorevin_etkisiyle_degil_kendi_etkisiyle_calisir(tmp_path
     assert gorulen == ["workspace_mutation", None]
     # Kök politika DEĞİŞTİRİLMEZ; adım kapsamı turun tamamına sızmamalı.
     assert kok_politika.required_effect == "shell_action"
+
+
+async def test_dogrulama_suresi_model_hareketsizligi_sayilmaz(tmp_path):
+    """Ölçüldü (Godot koşusu): tur `inactivity` ile öldü ama model yavaş değildi.
+
+    Model çağrıları 6-13 saniye sürüyordu; idle bütçesini tüketen şey Fusion'ın
+    KENDİ doğrulama komutuydu (`godot --headless ...`, 120 sn zaman aşımı). Kendi
+    işimizi modelin hareketsizliği saymak, uzun kapısı olan her projede turu
+    haksız yere öldürür. Hızlı yol bu dersi zaten uyguluyor (`loop.py`).
+    """
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    budget = _FakeBudget()
+    deps = _FakeDeps(ToolContext(root=tmp_path), budget=budget)
+
+    await run_execution_plan("iş", deps, _FakeAgent([]), plan=plan)
+
+    assert budget.progress_calls > 0
+
+
+async def test_adim_zarfi_alt_turun_hakkindan_kucuk_olamaz(tmp_path):
+    """Ölçüldü (Godot koşusu): adım zarfı 8 iken de 24 iken de duraklattı.
+
+    Zarf MODEL ÇAĞRISI sayar; bir adım tek alt-tur olarak çalışır ve o alt-tur
+    kendi politika sınırına kadar (web/karmaşık: 28) çağrı harcayabilir. Zarf
+    bundan küçük kalırsa fatura, iş DOĞRU giderken kesilir — 19 başarılı araç
+    çağrısı yapan adım hiç tamamlanamadan duraklatıldı. Zarfın işi, bir adımın
+    tüm planı yemesini önlemektir; alt-turu ikinci kez sınırlamak değil.
+    """
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(
+            workflow_planning_calls=2,
+            workflow_step_calls=2,
+            workflow_recovery_calls=1,
+            workflow_final_verification_calls=1,
+        )
+    )
+    deps = _FakeDeps(
+        ToolContext(root=tmp_path),
+        config=config,
+        execution=ExecutionPolicy(is_web=True, max_model_calls=10),
+    )
+
+    async def agent(task, agent_deps, **kwargs):
+        del task, agent_deps, kwargs
+        return AgentOutcome(
+            final_text="tamam", messages=[], model_calls_made=10, mutating_tool_calls_made=1
+        )
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert result.budget_stopped is False

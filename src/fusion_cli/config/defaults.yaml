@@ -216,8 +216,8 @@ runtime:
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.
   workflow_planning_calls: 2
-  workflow_step_calls: 8
-  workflow_recovery_calls: 2
+  workflow_step_calls: 24
+  workflow_recovery_calls: 12
   workflow_final_verification_calls: 2
 
 # ---------------------------------------------------------------------------

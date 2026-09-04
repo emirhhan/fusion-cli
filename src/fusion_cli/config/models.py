@@ -117,9 +117,17 @@ class RuntimeConfig:
     #: Tipli plan üretimi ve tek biçim-onarım çağrısı için zarf.
     workflow_planning_calls: int = 2
     #: Her plan adımının bağımsız model çağrısı zarfı.
-    workflow_step_calls: int = 8
+    #
+    # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına
+    # kadar (web/karmaşık: 28) model çağrısı harcayabilir. Zarf bundan küçükse
+    # fatura ilk adımda kesilir. Ölçüldü (Godot koşusu): 8 ile, 20 başarılı
+    # araç çağrısıyla ilerleyen adım hiç tamamlanamadan duraklatıldı.
+    workflow_step_calls: int = 24
     #: Bir plan adımının hata sınıflandırmasından sonra kullanabileceği kurtarma çağrısı.
-    workflow_recovery_calls: int = 2
+    #
+    # Kurtarma da bir alt-turdur; iki çağrılık zarf ilk denemede taşıyordu.
+    # Kör tekrarı bu sayaç değil hata sınıflandırması ve `retry_safety` engeller.
+    workflow_recovery_calls: int = 12
     #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
     workflow_final_verification_calls: int = 2
     #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token

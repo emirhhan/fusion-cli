@@ -183,6 +183,33 @@ def _invalidate_step_and_dependents(plan: ExecutionPlan, step_id: str) -> Execut
     )
 
 
+def _reopen_unfinished(plan: ExecutionPlan) -> ExecutionPlan:
+    """Tamamlanmamış adımları devam için yeniden `PENDING` yap.
+
+    Duraklamanın anlamı "sonra devam" olmalıdır, "bir daha asla" değil. Bütçe
+    tükendiğinde adım `BLOCKED`, tur ortasında kesildiğinde `RUNNING` kalır;
+    hazır adım seçicisi ise yalnız `PENDING` adımlara bakar. İkisi de yeniden
+    açılmazsa plan kendi checkpoint'inden ilerleyemez.
+
+    Ölçüldü (Godot koşusu): 22 başarılı araç çağrısından sonra adım bütçesi doldu,
+    adım `BLOCKED` bırakıldı ve checkpoint kaydedildi. Devam çalıştırıldığında plan
+    "tamamlanmamış adımların bağımlılıkları hazır değil" diyerek kilitlendi —
+    checkpoint'in tüm değeri kayboldu.
+
+    `COMPLETED` adımlara DOKUNULMAZ: onların post-condition'ı ayrıca yeniden
+    ölçülür ve hâlâ geçerliyse iş tekrarlanmaz.
+    """
+    return replace(
+        plan,
+        steps=tuple(
+            step
+            if step.status is StepStatus.COMPLETED
+            else replace(step, status=StepStatus.PENDING)
+            for step in plan.steps
+        ),
+    )
+
+
 async def _resume_plan(
     checkpoint: WorkflowCheckpoint,
     deps: AgentDeps,
@@ -190,7 +217,7 @@ async def _resume_plan(
     """Tamamlanmış checkpoint adımlarını yeniden ölçerek güvenli devam planı kur."""
     from .loop import AgentOutcome
 
-    plan = checkpoint.plan
+    plan = _reopen_unfinished(checkpoint.plan)
     evidence: dict[str, str] = {}
     for step in plan.steps:
         if step.status is not StepStatus.COMPLETED:
@@ -207,6 +234,22 @@ async def _resume_plan(
             break
         evidence[step.step_id] = " | ".join(verification.evidence)
     return replace(plan, status=PlanStatus.RUNNING), evidence
+
+
+def _note_gate_progress(deps: AgentDeps) -> None:
+    """Doğrulama kapısı çalıştı: idle saatini tazele.
+
+    Idle sınırı DURAN BİR MODELİ yakalamak içindir; Fusion'ın kendi doğrulama
+    komutunu beklemek hareketsizlik değildir.
+
+    Ölçüldü (Godot koşusu): model çağrıları 6-13 saniye sürerken tur `inactivity`
+    ile öldü. Idle bütçesini tüketen şey iki kez çalışan `godot --headless ...`
+    kapısıydı (her biri 120 sn). Hızlı yol bu tazelemeyi zaten yapıyor; planlı
+    yolda eksikti. Mutlak tur süresi (`total_timeout_s`) DEĞİŞMEZ.
+    """
+    budget = getattr(deps, "budget", None)
+    if budget is not None:
+        budget.record_progress()
 
 
 def _step_deps(deps: AgentDeps, step: PlanStep) -> AgentDeps:
@@ -252,10 +295,24 @@ async def run_execution_plan(
     from .loop import AgentOutcome
 
     runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    # Zarf, bir adımın alt-turuna TANINAN haktan küçük olamaz.
+    #
+    # Zarflar model çağrısı sayar ve bir adım tek bir alt-tur olarak çalışır; o
+    # alt-tur zaten kendi politika sınırıyla (tur başına model çağrısı, araç turu,
+    # süre) sınırlıdır. Zarf bundan küçükse fatura, iş DOĞRU giderken kesilir.
+    # Ölçüldü (Godot koşusu): 19-22 başarılı araç çağrısıyla ilerleyen adım, tek
+    # bir hata bile vermeden yalnızca zarf yüzünden duraklatıldı.
+    #
+    # Zarfın gerçek işi, BİR adımın tüm planın hakkını yemesini önlemektir; alt
+    # turu ikinci kez sınırlamak değil.
+    step_turn_calls = getattr(getattr(deps, "execution", None), "max_model_calls", None)
+    per_step = getattr(runtime, "workflow_step_calls", 24)
+    if isinstance(step_turn_calls, int) and step_turn_calls > per_step:
+        per_step = step_turn_calls
     workflow_budget = WorkflowBudget(
         planning=getattr(runtime, "workflow_planning_calls", 2),
-        per_step=getattr(runtime, "workflow_step_calls", 8),
-        recovery=getattr(runtime, "workflow_recovery_calls", 2),
+        per_step=per_step,
+        recovery=getattr(runtime, "workflow_recovery_calls", 12),
         final=getattr(runtime, "workflow_final_verification_calls", 2),
     )
     ledger = BudgetLedger(workflow_budget)
@@ -351,6 +408,7 @@ async def run_execution_plan(
                     budget_stopped=True,
                 )
             verification = await verify_step(running, outcome, deps)
+            _note_gate_progress(deps)
             deps.publisher.publish(
                 ExecutionStepVerified(
                     plan_id=current.plan_id,
@@ -411,6 +469,7 @@ async def run_execution_plan(
 
     current = replace(current, status=PlanStatus.COMPLETED)
     acceptance = await verify_plan_acceptance(current, deps)
+    _note_gate_progress(deps)
     if not acceptance.ok:
         detail = "; ".join(acceptance.findings) or acceptance.summary
         text = f"Planın final doğrulaması başarısız oldu: {detail}"
