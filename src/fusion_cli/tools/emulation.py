@@ -8,6 +8,7 @@ alanı çalıştırıp hata almak yerine modele ne yanlış olduğunu söylemek 
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 
 from ..core.tool_emulation import (
@@ -24,12 +25,69 @@ __all__ = [
     "CALL_CLOSE",
     "CALL_OPEN",
     "EmulatedParse",
+    "coerce_arguments",
     "parse_tool_calls",
     "render_call",
     "render_tool_example",
     "render_tool_instructions",
     "validate_arguments",
 ]
+
+
+#: Şemadaki tipe karşılık gelen Python tipi. Yalnız yapısal tipler taşınır: bir
+#: metin alanına gelen metni "çözmek" veri kaybıdır, düzeltme değil.
+_STRUCTURED_TYPES: Mapping[str, type] = {"array": list, "object": dict}
+
+
+def _parameters_of(function_schema: Mapping[str, object]) -> Mapping[str, object] | None:
+    """Fonksiyon şemasından parametre nesnesini çıkar."""
+    raw = function_schema.get("parameters")
+    if isinstance(raw, Mapping):
+        return raw
+    if function_schema.get("type") == "object":
+        return function_schema
+    return None
+
+
+def coerce_arguments(
+    function_schema: Mapping[str, object],
+    arguments: Mapping[str, object],
+) -> dict[str, object]:
+    """Şemanın dizi/nesne beklediği alanları, JSON METNİ olarak geldiyse çöz.
+
+    Ölçüldü (Gemini web, Godot koşusu): model `todo_write` çağrısında `todos`
+    alanını dizi yerine o dizinin JSON metni olarak gönderdi. İçerik kusursuzdu,
+    yalnız bir kez fazla kodlanmıştı; çağrı reddedildi ve adım bütçesinden bir
+    hak boşa gitti. Bu, tüm sağlayıcılarda görülen bir kodlama hatasıdır.
+
+    Dönüşüm DARDIR ve yalnız kanıt varken yapılır: alan şemada `array` ya da
+    `object` olmalı, gelen değer metin olmalı ve çözülen JSON tam olarak beklenen
+    tipe denk gelmelidir. Aksi hâlde değer olduğu gibi bırakılır ve doğrulama
+    hatası modele görünür kalır — sessiz bir tahmin, açık bir hatadan kötüdür.
+    """
+    parameters = _parameters_of(function_schema)
+    if parameters is None:
+        return dict(arguments)
+    properties = parameters.get("properties")
+    if not isinstance(properties, Mapping):
+        return dict(arguments)
+    coerced = dict(arguments)
+    for field, value in arguments.items():
+        if not isinstance(value, str):
+            continue
+        field_schema = properties.get(field)
+        if not isinstance(field_schema, Mapping):
+            continue
+        expected = _STRUCTURED_TYPES.get(str(field_schema.get("type")))
+        if expected is None:
+            continue
+        try:
+            decoded = json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(decoded, expected):
+            coerced[field] = decoded
+    return coerced
 
 
 def validate_arguments(

@@ -7,6 +7,7 @@ from fusion_cli.core.model_capability import ModelCapability, ToolSupport
 from fusion_cli.tools.emulation import (
     CALL_CLOSE,
     CALL_OPEN,
+    coerce_arguments,
     parse_tool_calls,
     render_call,
     render_tool_instructions,
@@ -143,3 +144,60 @@ def test_emulated_dogrulanmadan_mutation_yapamaz():
 def test_emulated_dogrulaninca_mutation_yapabilir():
     cap = ModelCapability(tool_support=ToolSupport.EMULATED)
     assert can_be_mutation_agent(cap, emulated_verified=True).ok is True
+
+
+_DIZI_SEMASI = {
+    "type": "function",
+    "function": {
+        "name": "todo_write",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "todos": {"type": "array", "items": {"type": "object"}},
+                "note": {"type": "string"},
+            },
+            "required": ["todos"],
+        },
+    },
+}
+
+
+def test_json_metni_olarak_gelen_dizi_argumani_cozulur():
+    """Ölçüldü (Godot koşusu): model `todos` alanını JSON METNİ olarak gönderdi.
+
+    İçerik kusursuzdu; yalnız bir kez fazla kodlanmıştı. Çağrı reddedildi, adım
+    bütçesinden bir hak gitti ve iş ilerlemedi.
+    """
+    coerced = coerce_arguments(
+        _DIZI_SEMASI["function"], {"todos": '[{"content": "a", "status": "pending"}]'}
+    )
+
+    assert coerced["todos"] == [{"content": "a", "status": "pending"}]
+    assert validate_arguments(_DIZI_SEMASI["function"], coerced) == ()
+
+
+def test_zaten_dogru_tipteki_arguman_degistirilmez():
+    args = {"todos": [{"content": "a"}], "note": "x"}
+
+    assert coerce_arguments(_DIZI_SEMASI["function"], args) == args
+
+
+def test_metin_bekleyen_alan_json_gibi_gorunse_de_cozulmez():
+    """`note` metin bekliyor; JSON'a benzeyen bir metni diziye çevirmek veri kaybıdır."""
+    args = {"todos": [], "note": "[1, 2]"}
+
+    assert coerce_arguments(_DIZI_SEMASI["function"], args) == args
+
+
+def test_yanlis_tipe_cozulen_metin_oldugu_gibi_birakilir():
+    """Şema dizi bekliyorsa, nesneye çözülen metin kabul edilmez; hata görünür kalır."""
+    args = {"todos": '{"content": "a"}'}
+
+    assert coerce_arguments(_DIZI_SEMASI["function"], args) == args
+    assert validate_arguments(_DIZI_SEMASI["function"], args) != ()
+
+
+def test_gecersiz_json_metni_oldugu_gibi_birakilir():
+    args = {"todos": "[bozuk"}
+
+    assert coerce_arguments(_DIZI_SEMASI["function"], args) == args

@@ -740,3 +740,31 @@ def test_sayiyla_baslayan_gercek_kod_bozulmaz(tmp_path):
     # "1 + 2;" dosyada İKİ kez geçiyor: benzersizlik kuralı devrede kalmalı.
     assert not sonuc.ok
     assert "benzersiz" in sonuc.output.lower() or "birden" in sonuc.output.lower()
+
+
+def test_bos_old_ile_edit_file_nasil_ekleneceğini_soyler(context, tmp_path):
+    """Ölçüldü (Godot koşusu): model `project.godot`'a yeni satır eklemek için
+    `edit_file`'ı boş `old` ile çağırdı.
+
+    Fusion yalnız "'old' boş olmayan bir metin olmalı" dedi; ne yapacağını
+    söylemedi. Model `write_file`'a savruldu, o da var olan dosyada engellendi ve
+    adım hiç ilerlemeden düştü.
+    """
+    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+
+    sonuc = files.edit_file(
+        {"path": "project.godot", "old": "", "new": 'run/main_scene="res://main.tscn"'},
+        context,
+    )
+
+    assert sonuc.ok is False
+    assert "read_file" in sonuc.output
+    assert "replace_range" in sonuc.output
+
+
+def test_old_alani_hic_gonderilmediginde_eksik_uyarisi_korunur(context, tmp_path):
+    """Boş `old` ile HİÇ gönderilmemiş `old` farklı hatalardır."""
+    (tmp_path / "a.txt").write_text("içerik", encoding="utf-8")
+
+    with pytest.raises(ArgumentError, match="eksik"):
+        files.edit_file({"path": "a.txt", "new": "x"}, context)

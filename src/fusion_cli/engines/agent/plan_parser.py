@@ -31,6 +31,33 @@ def _strip_code_fence(raw: str) -> str:
     return text
 
 
+def _decode_plan_object(raw: str) -> object:
+    """Model çıktısındaki plan nesnesini ayıkla ve çöz.
+
+    Metnin TAMAMI JSON olmak zorunda değildir; ilk `{` karakterinden itibaren tek
+    bir nesne okunur ve sarmalayan metin yok sayılır.
+
+    Ölçüldü (Gemini web, Godot koşusu): kod bloğunun başlık çubuğundaki dil
+    etiketi gövdeye yapışıp çıktı `JSON{...}` hâline geldi. Plan kusursuzdu ama
+    ayrıştırılamadı; tek onarım hakkı da AYNI etiketle geri gelip harcandı ve
+    görev hiç başlamadan düştü. Sayfa süsünü DOM'da eksiksiz ayıklamak daha önce
+    ölçülerek riskli bulundu (kapsayıcı silinince kod gövdesi de gidiyordu), bu
+    yüzden dayanıklılık burada kurulur ve tüm sağlayıcılar için geçerlidir.
+
+    Tolerans yalnız SARMALAYICI metne aittir: ayıklanan nesne yine şema, tip ve
+    DAG kapılarından geçer; geçersiz bir plan bu yolla geçerli hâle GELMEZ.
+    """
+    text = _strip_code_fence(raw)
+    start = text.find("{")
+    if start == -1:
+        raise PlanParseError("Plan JSON olarak ayrıştırılamadı: nesne bulunamadı")
+    try:
+        decoded, _ = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError as exc:
+        raise PlanParseError(f"Plan JSON olarak ayrıştırılamadı: {exc.msg}") from exc
+    return cast("object", decoded)
+
+
 def _require_mapping(value: object, field: str) -> dict[str, object]:
     if not isinstance(value, dict):
         raise PlanParseError(f"'{field}' nesne olmalıdır.")
@@ -98,12 +125,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
 
 def parse_execution_plan(raw: str) -> ExecutionPlan:
     """JSON plan metnini ayrıştır, türle ve DAG kurallarına göre doğrula."""
-    try:
-        decoded = cast("object", json.loads(_strip_code_fence(raw)))
-    except json.JSONDecodeError as exc:
-        raise PlanParseError(f"Plan JSON olarak ayrıştırılamadı: {exc.msg}") from exc
-
-    data = _require_mapping(decoded, "plan")
+    data = _require_mapping(_decode_plan_object(raw), "plan")
     steps_value = data.get("steps")
     if not isinstance(steps_value, list):
         raise PlanParseError("Eksik veya geçersiz plan alanı: steps")

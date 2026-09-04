@@ -209,6 +209,33 @@ async def _resume_plan(
     return replace(plan, status=PlanStatus.RUNNING), evidence
 
 
+def _step_deps(deps: AgentDeps, step: PlanStep) -> AgentDeps:
+    """Adımı KÖK görevin değil KENDİ beklenen etkisinin sözleşmesiyle çalıştır.
+
+    `deps.execution` tur başında bir kez kurulur ve iç içe çağrılara devredilir;
+    öz-denetim ve doğrulama düzeltmesi için doğru olan budur — onlar AYNI görevi
+    sürdürür. Plan adımı ise ayrı ve dar bir görevdir.
+
+    Ölçüldü (Godot koşusu): kök görev "godot ... komutunu ÇALIŞTIR" dediği için
+    turun zorunlu etkisi `shell_action` oldu ve yalnız proje dosyalarını oluşturan
+    ilk adım "komut çalıştırılmadı" diye BAŞARISIZ sayıldı. Kurtarma bütçesi bu
+    sahte hataya harcandı ve plan ilk adımda duraklatıldı.
+
+    Beklenen etki planda zaten tipli olarak duruyor; kapı onu okur. Etkisi
+    bildirilmemiş adım (inceleme, karar) hiçbir kanıt zorunluluğu almaz.
+    """
+    policy = getattr(deps, "execution", None)
+    if policy is None:
+        return deps
+    effect = step.expected_effects[0] if step.expected_effects else None
+    return replace(
+        deps,
+        execution=replace(
+            policy, required_effect=effect, requires_tool_evidence=effect is not None
+        ),
+    )
+
+
 async def run_execution_plan(
     task: str,
     deps: AgentDeps,
@@ -294,7 +321,7 @@ async def run_execution_plan(
                 prompt = f"{prompt}\n\nKURTARMA YÖNERGESİ:\n{guidance}"
             outcome = await run_agent(
                 prompt,
-                deps,
+                _step_deps(deps, running),
                 depth=1,
                 self_review=False,
                 verify=False,
@@ -303,7 +330,8 @@ async def run_execution_plan(
             outcomes.append(outcome)
             envelope = BudgetEnvelope.RECOVERY if recovering else BudgetEnvelope.PER_STEP
             calls = max(1, outcome.model_calls_made)
-            if not ledger.charge(envelope, calls).allowed:
+            # Adım zarfı ADIM BAŞINA sayılır; kurtarma zarfı plan genelinde toplamdır.
+            if not ledger.charge(envelope, calls, scope=step.step_id).allowed:
                 current = _replace_step(current, replace(running, status=StepStatus.BLOCKED))
                 current = replace(current, status=PlanStatus.PAUSED)
                 _save_checkpoint(current, deps)

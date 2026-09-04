@@ -15,17 +15,23 @@ from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
 from fusion_cli.core.verification import VerificationResult
+from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
 from fusion_cli.engines.agent.promotion import PromotionContext
 
 
-def _step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
+def _step(
+    step_id: str,
+    *,
+    depends_on: tuple[str, ...] = (),
+    expected_effects: tuple[str, ...] = (),
+) -> PlanStep:
     return PlanStep(
         step_id=step_id,
         goal=f"{step_id} işini yap",
         depends_on=depends_on,
-        expected_effects=(),
+        expected_effects=expected_effects,
         allowed_tool_families=("files",),
         success_criteria=(f"{step_id} kanıtlandı",),
         verification_hint="çıktıyı denetle",
@@ -60,6 +66,7 @@ class _Publisher:
 @dataclass
 class _FakeDeps:
     tool_context: ToolContext
+    execution: object | None = None
     verifier: object | None = None
     checkpoint_store: object | None = None
     conversation_id: str = ""
@@ -232,3 +239,77 @@ async def test_yukseltme_yoksa_plan_istemine_baglam_eklenmez(tmp_path):
     )
 
     assert "YÜKSELTME BAĞLAMI" not in prompts[0]
+
+
+async def test_her_adim_kendi_cagri_hakkini_alir(tmp_path):
+    """Ölçüldü (Godot koşusu): ilk adım tüm planın adım hakkını yiyordu.
+
+    Dört adımlık gerçek koşuda `setup-project` sekiz çağrının hepsini harcadı ve
+    kalan üç adım hiç başlamadan workflow duraklatıldı. Her adım kendi zarfını
+    almalı; plan uzadıkça adım başına düşen hak azalmamalı.
+    """
+    plan = ExecutionPlan(
+        plan_id="p",
+        task="iş",
+        steps=(_step("inspect"), _step("patch", depends_on=("inspect",))),
+    )
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(
+            workflow_planning_calls=2,
+            workflow_step_calls=2,
+            workflow_recovery_calls=1,
+            workflow_final_verification_calls=1,
+        )
+    )
+    deps = _FakeDeps(ToolContext(root=tmp_path), config=config)
+    calisan: list[str] = []
+
+    async def agent(task, agent_deps, **kwargs):
+        del agent_deps, kwargs
+        calisan.append("inspect" if "inspect işini" in task else "patch")
+        # Her adım kendi zarfının TAMAMINI harcar.
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=2)
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert calisan == ["inspect", "patch"]
+    assert result.budget_stopped is False
+
+
+async def test_adim_kok_gorevin_etkisiyle_degil_kendi_etkisiyle_calisir(tmp_path):
+    """Ölçüldü (Godot koşusu): kök görev metni "godot ... komutunu ÇALIŞTIR" diyordu.
+
+    Kökten çıkarılan `shell_action` zorunluluğu her alt tura miras kaldı ve yalnız
+    dosya oluşturan ilk adım "komut çalıştırılmadı" diye başarısız sayıldı; kurtarma
+    bütçesi bu sahte hataya harcanıp plan duraklatıldı. Her adımın beklenen etkisi
+    planda zaten tipli olarak duruyor.
+    """
+    plan = ExecutionPlan(
+        plan_id="p",
+        task="iş",
+        steps=(
+            _step("inspect", expected_effects=("workspace_mutation",)),
+            _step("patch", depends_on=("inspect",)),
+        ),
+    )
+    kok_politika = ExecutionPolicy(
+        is_web=False, required_effect="shell_action", requires_tool_evidence=True
+    )
+    deps = _FakeDeps(ToolContext(root=tmp_path), execution=kok_politika)
+    gorulen: list[object] = []
+
+    async def agent(task, agent_deps, **kwargs):
+        del task, kwargs
+        gorulen.append(agent_deps.execution.required_effect)
+        # Adım post-condition'ı gerçekten sağlanır; yoksa plan ilk adımda tekrar eder
+        # ve testin ölçtüğü şey ikinci ADIMA hiç ulaşmaz.
+        return AgentOutcome(
+            final_text="tamam", messages=[], model_calls_made=1, mutating_tool_calls_made=1
+        )
+
+    await run_execution_plan("iş", deps, agent, plan=plan)
+
+    # Birinci adım kendi etkisini, etkisiz ikinci adım hiçbir zorunluluk almaz.
+    assert gorulen == ["workspace_mutation", None]
+    # Kök politika DEĞİŞTİRİLMEZ; adım kapsamı turun tamamına sızmamalı.
+    assert kok_politika.required_effect == "shell_action"

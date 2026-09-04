@@ -118,7 +118,7 @@ class RuntimeConfig:
     workflow_planning_calls: int = 2
     #: Her plan adımının bağımsız model çağrısı zarfı.
     workflow_step_calls: int = 8
-    #: Hata sınıflandırmasından sonra kullanılabilecek toplam kurtarma çağrısı.
+    #: Bir plan adımının hata sınıflandırmasından sonra kullanabileceği kurtarma çağrısı.
     workflow_recovery_calls: int = 2
     #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
     workflow_final_verification_calls: int = 2

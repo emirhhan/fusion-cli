@@ -425,8 +425,29 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
     )
 
 
+#: `edit_file` boş `old` ile çağrıldığında modele verilen yol gösterici hata.
+#:
+#: Ölçüldü (Godot koşusu): model `project.godot`'a `run/main_scene` satırını
+#: EKLEMEK için `old` alanını boş bıraktı. Fusion yalnız "boş olmamalı" dedi;
+#: model ne yapacağını bilemeyip `write_file`'a savruldu ve o da var olan dosyada
+#: engellendi — adım hiç ilerlemeden düştü. Boş `old`'u sessizce "sona ekle"
+#: saymak bir TAHMİNDİR: model pekâlâ bir yeri değiştirmek istiyor olabilir.
+#: Doğru cevap, ne yapılacağını AÇIKÇA söylemektir.
+EMPTY_OLD_MESSAGE = (
+    "'old' boş. edit_file VAR OLAN bir metni değiştirir; dosyaya yeni satır EKLEMEZ. "
+    "Eklemek için: önce read_file ile ilgili bölümü gör, sonra replace_range ile o "
+    "satır aralığını yeni satırı da içerecek şekilde gönder. Kısa bir ekleme ise "
+    "edit_file'ı 'old' olarak eklemenin yapılacağı MEVCUT satırı, 'new' olarak o "
+    "satır + yeni satırı vererek çağır."
+)
+
+
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
+    # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
+    # ikincisi yanlış araç seçimidir ve farklı bir düzeltme gerektirir.
+    if isinstance(args.get("old"), str) and not str(args["old"]).strip():
+        return ToolResult.failure(EMPTY_OLD_MESSAGE)
     old = require_str(args, "old")
     new = require_text(args, "new")
     replace_all = args.get("replace_all") is True

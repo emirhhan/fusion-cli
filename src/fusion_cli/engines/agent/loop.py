@@ -70,7 +70,7 @@ from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
 from ...tools.capabilities import CapabilityRegistry
-from ...tools.emulation import render_tool_example, validate_arguments
+from ...tools.emulation import coerce_arguments, render_tool_example, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
@@ -1574,6 +1574,14 @@ async def _run_tools(
     for call in calls:
         args, parse_error = _parse_arguments_checked(call.arguments)
         tool = registry.get(call.name)
+        function_schema = tool.schema().get("function") if tool is not None else None
+        # Fazla kodlanmış yapısal argüman ONARILIR: bir dizi alanının JSON METNİ
+        # olarak gelmesi niyet hatası değil kodlama hatasıdır ve turu düşürmemeli.
+        #
+        # Onarım imzadan ÖNCE yapılır: aynı mantıksal çağrının kodlanmış ve çözülmüş
+        # hâlleri iki ayrı imza üretseydi tekrar kapısı bu çağrıyı hiç göremezdi.
+        if isinstance(function_schema, dict):
+            args = coerce_arguments(function_schema, args)
         # İmza TUR BOYUNCA paylaşılır: düzeltici turun ana turdaki çağrıyı birebir
         # tekrar etmesi, her tura ayrı ayrı bakıldığında görünmeyen bir döngüdür.
         signature = budget.signature(
@@ -1590,10 +1598,8 @@ async def _run_tools(
             contract_errors.append(
                 "bilinmeyen araç; kullanılabilir araçlar: " + ", ".join(registry.names())
             )
-        else:
-            function_schema = tool.schema().get("function")
-            if isinstance(function_schema, dict):
-                contract_errors.extend(validate_arguments(function_schema, args))
+        elif isinstance(function_schema, dict):
+            contract_errors.extend(validate_arguments(function_schema, args))
 
         if not contract_errors:
             contract_errors.extend(_targeted_edit_required(call.name, args, deps, execution, state))
@@ -1668,6 +1674,17 @@ async def _run_tools(
         pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry, execution=execution)
         _note_tool_use(state, call.name, tool, ok=outcome is ToolOutcome.OK)
+        if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
+            # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
+            # Tekrar kapısına kanıt olarak yazılırsa, koşullar düzelse bile aynı
+            # çağrı "bunu zaten yaptın ve o zamandan beri bir şey değişmedi"
+            # diyen bir engelle karşılaşır.
+            #
+            # Ölçüldü (Godot koşusu): doğrulama adımındaki
+            # `godot --headless --path . --quit` etkileşimsiz oturumda onay
+            # alamayıp `denied` döndü; ikinci deneme `TOOL_CALL_DUPLICATE` ile
+            # engellendi ve adım hiçbir zaman kanıt üretemedi.
+            budget.forget_call(signature)
         if result.output.startswith(CAPABILITY_WALL_PREFIX):
             state.capability_wall = True
         if outcome is ToolOutcome.OK:

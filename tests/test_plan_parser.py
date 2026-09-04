@@ -52,3 +52,33 @@ def test_yapisal_olarak_gecersiz_plan_reddedilir():
 
     with pytest.raises(PlanParseError, match="boş hedef"):
         parse_execution_plan(invalid)
+
+
+def test_kod_blogu_dil_etiketi_yapisik_gelen_plan_okunur():
+    """Ölçüldü (Gemini web): kod bloğu başlığındaki "JSON" etiketi gövdeye yapıştı.
+
+    Plan kusursuzdu; yalnız önüne bir kelime eklenmişti. Harness'ın kusuru yüzünden
+    tek onarım hakkı harcandı ve görev hiç başlamadan düştü.
+    """
+    plan = parse_execution_plan(f"JSON{VALID_PLAN}")
+
+    assert plan.plan_id == "plan-1"
+
+
+def test_plan_oncesi_ve_sonrasi_serbest_metin_ayiklanir():
+    plan = parse_execution_plan(f"İşte plan:\n{VALID_PLAN}\nUmarım uygundur.")
+
+    assert plan.plan_id == "plan-1"
+
+
+def test_json_nesnesi_hic_yoksa_acik_hata_verir():
+    with pytest.raises(PlanParseError, match="Plan JSON olarak ayrıştırılamadı"):
+        parse_execution_plan("plan üretemedim")
+
+
+def test_ayiklama_gecersiz_plani_gecerli_yapmaz():
+    """Tolerans yalnız SARMALAYICI metne aittir; şema kapısı zayıflamaz."""
+    invalid = VALID_PLAN.replace('"goal": "mevcut kodu incele"', '"goal": ""')
+
+    with pytest.raises(PlanParseError, match="boş hedef"):
+        parse_execution_plan(f"JSON{invalid}")

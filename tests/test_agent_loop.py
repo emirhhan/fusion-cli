@@ -2103,3 +2103,62 @@ def test_farkli_hatalar_yineleme_sayilmaz():
     assert _failure_signature("Scene file does not exist: res://a.tscn") != _failure_signature(
         "Scene file does not exist: res://b.tscn"
     )
+
+
+async def test_json_metni_olarak_gelen_dizi_argumani_araci_dusurmez(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (Godot koşusu): `todos` alanı dizi yerine o dizinin JSON metniydi.
+
+    Çağrı sözleşme hatasıyla düştü, adım bütçesinden bir hak gitti ve görev
+    ilerlemedi — oysa modelin niyeti ve içeriği doğruydu.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=(
+                        tool_call(
+                            "todo_write",
+                            todos='[{"content": "ilk iş", "status": "pending"}]',
+                        ),
+                    )
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink)
+
+    sonuc = await run_agent("görev", deps)
+
+    assert sonuc.failed_tool_calls == 0
+    assert [item.content for item in deps.tool_context.todos.items] == ["ilk iş"]
+
+
+async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_path, sink):
+    """Ölçüldü (Godot koşusu): `run_shell` onay alamadı ve `denied` döndü.
+
+    Sonraki denemede AYNI komut "bunu zaten yaptın ve o zamandan beri bir şey
+    değişmedi" diyen tekrar kapısına takıldı. Oysa komut hiç çalışmamıştı;
+    doğrulama adımı böylece hiçbir zaman kanıt üretemedi.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=(tool_call("run_shell", command="echo merhaba"),)),
+                model_result(tool_calls=(tool_call("run_shell", command="echo merhaba"),)),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, mode=ApprovalMode.SECURITY, prompter=AlwaysReject())
+
+    await run_agent("görev", deps)
+
+    sonuclar = [
+        olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)
+    ]
+    assert sonuclar == [ToolOutcome.DENIED, ToolOutcome.DENIED]

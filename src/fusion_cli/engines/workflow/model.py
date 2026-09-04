@@ -78,27 +78,51 @@ class BudgetDecision:
     remaining: int
 
 
+#: Adım kapsamında sayılan zarflar (bkz. `BudgetLedger._key`).
+_SCOPED_ENVELOPES = frozenset({BudgetEnvelope.PER_STEP, BudgetEnvelope.RECOVERY})
+
+
 class BudgetLedger:
     """Reddedilen harcamayı işlemeyen deterministik zarf sayacı."""
 
     def __init__(self, budget: WorkflowBudget) -> None:
         self._budget = budget
-        self._used = dict.fromkeys(BudgetEnvelope, 0)
+        self._used: dict[tuple[BudgetEnvelope, str], int] = {}
 
-    def charge(self, envelope: BudgetEnvelope, calls: int) -> BudgetDecision:
+    def _key(self, envelope: BudgetEnvelope, scope: str) -> tuple[BudgetEnvelope, str]:
+        """Zarfın sayaç anahtarını üret.
+
+        `PER_STEP` ve `RECOVERY` ADIM BAŞINA sayılır — tasarımın adlandırması da
+        budur ("adım yürütme", "adım kurtarma"). Ölçüldü (Godot koşusu): tek sayaç
+        kullanıldığında dört adımlık planın ilk adımı bütün hakkı harcadı ve kalan
+        üç adım hiç başlayamadan workflow duraklatıldı; üçüncü-parti bir MCP'nin
+        tek hatası da tüm planın onarım hakkını tüketti.
+
+        `PLANNING` ve `FINAL` plan başına TEK haktır ve kapsam almaz.
+
+        Kör tekrar bu sayaçla değil hata sınıflandırması ve `retry_safety` ile
+        engellenir; adım başına hak vermek o kapıyı zayıflatmaz.
+        """
+        return (envelope, scope if envelope in _SCOPED_ENVELOPES else "")
+
+    def charge(
+        self, envelope: BudgetEnvelope, calls: int, *, scope: str = ""
+    ) -> BudgetDecision:
         """Pozitif çağrı harcamasını zarf sığıyorsa işle."""
         if calls < 0:
             raise ValueError("Workflow çağrı harcaması negatif olamaz.")
         limit = self._budget.limit_for(envelope)
-        candidate = self._used[envelope] + calls
+        key = self._key(envelope, scope)
+        used = self._used.get(key, 0)
+        candidate = used + calls
         if candidate > limit:
-            return BudgetDecision(False, max(0, limit - self._used[envelope]))
-        self._used[envelope] = candidate
+            return BudgetDecision(False, max(0, limit - used))
+        self._used[key] = candidate
         return BudgetDecision(True, limit - candidate)
 
-    def used(self, envelope: BudgetEnvelope) -> int:
-        """Bir zarfta işlenmiş çağrı sayısını döndür."""
-        return self._used[envelope]
+    def used(self, envelope: BudgetEnvelope, *, scope: str = "") -> int:
+        """Bir zarfta (gerekirse belirtilen adım kapsamında) işlenmiş çağrı sayısı."""
+        return self._used.get(self._key(envelope, scope), 0)
 
 
 @dataclass(frozen=True, slots=True)
