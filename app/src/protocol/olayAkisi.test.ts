@@ -49,4 +49,15 @@ describe("olayEkle", () => {
     const mesajlar: Mesaj[] = [];
     expect(olayEkle(mesajlar, { olay: "Bilinmeyen" })).toBe(mesajlar);
   });
+
+  it("plan olaylarını tek açılabilir çalışma bloğunda toplar", () => {
+    let mesajlar = olayEkle([], { olay: "ExecutionPlanCreated", plan_id: "p", total_steps: 2 });
+    mesajlar = olayEkle(mesajlar, {
+      olay: "ExecutionStepStarted", index: 1, total_steps: 2, goal: "incele",
+    });
+
+    expect(mesajlar).toHaveLength(1);
+    expect(mesajlar[0].adimlar).toHaveLength(2);
+    expect(mesajlar[0].metin).toBe("adım 1/2 başladı");
+  });
 });

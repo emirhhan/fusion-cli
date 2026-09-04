@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import SimpleNamespace
 
+from fusion_cli.core.events import (
+    ExecutionCompleted,
+    ExecutionPlanCreated,
+    ExecutionStepStarted,
+    ExecutionStepVerified,
+)
 from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
@@ -42,6 +48,14 @@ class _FakeAgent:
         )
 
 
+class _Publisher:
+    def __init__(self):
+        self.events = []
+
+    def publish(self, event):
+        self.events.append(event)
+
+
 @dataclass
 class _FakeDeps:
     tool_context: ToolContext
@@ -49,6 +63,7 @@ class _FakeDeps:
     checkpoint_store: object | None = None
     conversation_id: str = ""
     config: object | None = None
+    publisher: object = field(default_factory=_Publisher)
 
 
 async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):
@@ -156,3 +171,22 @@ async def test_adim_butcesi_asildiginda_basari_uydurmadan_duraklar(tmp_path):
     assert result.ok is False
     assert result.budget_stopped is True
     assert "duraklatıldı" in result.final_text
+
+
+async def test_plan_olaylari_kullaniciya_sirali_ilerleme_sunar(tmp_path):
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    deps = _FakeDeps(ToolContext(root=tmp_path))
+
+    async def agent(task, agent_deps, **kwargs):
+        del task, agent_deps, kwargs
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    await run_execution_plan("iş", deps, agent, plan=plan)
+
+    event_types = tuple(type(event) for event in deps.publisher.events)
+    assert event_types == (
+        ExecutionPlanCreated,
+        ExecutionStepStarted,
+        ExecutionStepVerified,
+        ExecutionCompleted,
+    )

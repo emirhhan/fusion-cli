@@ -8,6 +8,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.checkpoint import WorkflowCheckpoint
+from ...core.events import (
+    ExecutionCheckpointSaved,
+    ExecutionCompleted,
+    ExecutionPaused,
+    ExecutionPlanCreated,
+    ExecutionRetryScheduled,
+    ExecutionStepStarted,
+    ExecutionStepVerified,
+)
 from ...core.execution_plan import (
     ExecutionPlan,
     PlanStatus,
@@ -133,6 +142,14 @@ def _save_checkpoint(plan: ExecutionPlan, deps: AgentDeps) -> None:
             updated_at=time.time(),
         )
     )
+    deps.publisher.publish(
+        ExecutionCheckpointSaved(
+            plan_id=plan.plan_id,
+            completed_steps=sum(
+                step.status is StepStatus.COMPLETED for step in plan.steps
+            ),
+        )
+    )
 
 
 def _invalidate_step_and_dependents(plan: ExecutionPlan, step_id: str) -> ExecutionPlan:
@@ -228,6 +245,10 @@ async def run_execution_plan(
         text = f"Yürütme planı geçersiz: {' '.join(validation.errors)}"
         return AgentOutcome(final_text=text, messages=[Message("assistant", text)], ok=False)
 
+    deps.publisher.publish(
+        ExecutionPlanCreated(plan_id=current.plan_id, total_steps=len(current.steps))
+    )
+
     if checkpoint is not None:
         current, evidence = await _resume_plan(checkpoint, deps)
     else:
@@ -237,6 +258,19 @@ async def run_execution_plan(
     outcomes: list[AgentOutcome] = []
     while ready := ready_steps(current):
         step = ready[0]
+        deps.publisher.publish(
+            ExecutionStepStarted(
+                plan_id=current.plan_id,
+                step_id=step.step_id,
+                index=next(
+                    index
+                    for index, candidate in enumerate(current.steps, start=1)
+                    if candidate.step_id == step.step_id
+                ),
+                total_steps=len(current.steps),
+                goal=step.goal,
+            )
+        )
         guidance = ""
         recovering = False
         while True:
@@ -264,6 +298,9 @@ async def run_execution_plan(
                     f"Workflow {envelope.value} bütçesi tükendi; "
                     f"'{step.step_id}' adımında checkpoint alınarak duraklatıldı."
                 )
+                deps.publisher.publish(
+                    ExecutionPaused(plan_id=current.plan_id, reason=text)
+                )
                 return AgentOutcome(
                     final_text=text,
                     messages=[Message("assistant", text)],
@@ -273,6 +310,15 @@ async def run_execution_plan(
                     budget_stopped=True,
                 )
             verification = await verify_step(running, outcome, deps)
+            deps.publisher.publish(
+                ExecutionStepVerified(
+                    plan_id=current.plan_id,
+                    step_id=step.step_id,
+                    ok=verification.ok,
+                    evidence=verification.evidence,
+                    findings=verification.findings,
+                )
+            )
             if verification.ok:
                 current = _replace_step(
                     current, replace(running, status=StepStatus.COMPLETED)
@@ -287,6 +333,9 @@ async def run_execution_plan(
                 current = _replace_step(current, replace(running, status=StepStatus.BLOCKED))
                 current = replace(current, status=PlanStatus.PAUSED)
                 _save_checkpoint(current, deps)
+                deps.publisher.publish(
+                    ExecutionPaused(plan_id=current.plan_id, reason=recovery.reason)
+                )
                 detail = "; ".join(verification.findings) or outcome.final_text
                 text = (
                     f"Plan adımı duraklatıldı: {step.step_id}. {recovery.reason} {detail}"
@@ -303,6 +352,14 @@ async def run_execution_plan(
                     ok=False,
                 )
             guidance = recovery.guidance
+            deps.publisher.publish(
+                ExecutionRetryScheduled(
+                    step_id=step.step_id,
+                    action=recovery.action.value,
+                    attempt=running.attempts + 1,
+                    reason=recovery.reason,
+                )
+            )
             recovering = True
             step = replace(running, status=StepStatus.PENDING)
             current = _replace_step(current, step)
@@ -328,6 +385,9 @@ async def run_execution_plan(
             ok=False,
         )
     _save_checkpoint(current, deps)
+    deps.publisher.publish(
+        ExecutionCompleted(plan_id=current.plan_id, total_steps=len(current.steps))
+    )
     text = outcomes[-1].final_text if outcomes else "Yürütme planı tamamlandı."
     return AgentOutcome(
         final_text=text,

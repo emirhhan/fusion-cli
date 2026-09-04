@@ -39,6 +39,7 @@ from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
+    ExecutionRouteSelected,
     MutationUnavailable,
     SelfReviewFinished,
     SelfReviewStarted,
@@ -435,6 +436,9 @@ async def run_agent(
             classification,
             execution,
             deps.config.runtime.workflow_mode,
+        )
+        deps.publisher.publish(
+            ExecutionRouteSelected(route=route.route.value, reasons=route.reasons)
         )
         if route.route is ExecutionRoute.WORKFLOW:
             return await run_execution_plan(task, deps, run_agent)

@@ -18,12 +18,18 @@ from fusion_cli.engines.agent.plan_runner import run_execution_plan
 from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
 
 
+class _Publisher:
+    def publish(self, event):
+        del event
+
+
 @dataclass
 class _Deps:
     tool_context: ToolContext
     checkpoint_store: JsonCheckpointStore
     conversation_id: str = "conv"
     verifier: object | None = None
+    publisher: object = _Publisher()
 
 
 def _plan() -> ExecutionPlan:

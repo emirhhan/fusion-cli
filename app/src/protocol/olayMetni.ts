@@ -63,6 +63,48 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         metin: `${String(veri.name ?? "uzmanlık")} seçildi`,
         ayrinti: `kaynak: ${String(veri.source ?? "fusion")}`,
       };
+    case "ExecutionRouteSelected":
+      return {
+        metin: String(veri.route ?? "") === "workflow" ? "planlı yürütme seçildi" : "hızlı yürütme seçildi",
+        ayrinti: Array.isArray(veri.reasons) ? veri.reasons.join(" · ") : undefined,
+      };
+    case "ExecutionPromoted":
+      return {
+        metin: "görev planlı yürütmeye yükseltildi",
+        ayrinti: Array.isArray(veri.reasons) ? veri.reasons.join(" · ") : undefined,
+      };
+    case "ExecutionPlanCreated":
+      return {
+        metin: `plan hazır: ${Number(veri.total_steps ?? 0)} adım`,
+        ayrinti: typeof veri.plan_id === "string" ? veri.plan_id : undefined,
+      };
+    case "ExecutionStepStarted":
+      return {
+        metin: `adım ${Number(veri.index ?? 0)}/${Number(veri.total_steps ?? 0)} başladı`,
+        ayrinti: typeof veri.goal === "string" ? veri.goal : undefined,
+      };
+    case "ExecutionStepVerified": {
+      const ok = veri.ok === true;
+      const details = ok ? veri.evidence : veri.findings;
+      return {
+        metin: `${String(veri.step_id ?? "adım")} ${ok ? "doğrulandı" : "doğrulanamadı"}`,
+        ayrinti: Array.isArray(details) ? details.join(" · ") : undefined,
+      };
+    }
+    case "ExecutionRetryScheduled":
+      return {
+        metin: `kurtarma: ${String(veri.action ?? "retry")}`,
+        ayrinti: typeof veri.reason === "string" ? veri.reason : undefined,
+      };
+    case "ExecutionCheckpointSaved":
+      return { metin: `checkpoint: ${Number(veri.completed_steps ?? 0)} adım tamam` };
+    case "ExecutionPaused":
+      return {
+        metin: "workflow duraklatıldı",
+        ayrinti: typeof veri.reason === "string" ? veri.reason : undefined,
+      };
+    case "ExecutionCompleted":
+      return { metin: `plan tamamlandı: ${Number(veri.total_steps ?? 0)} adım` };
     case "FilesChanged": {
       const paths = veri.paths;
       if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) return null;

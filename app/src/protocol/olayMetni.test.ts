@@ -43,4 +43,22 @@ describe("olayAdimi", () => {
   it("tanınmayan olay hiç gösterilmez", () => {
     expect(olayAdimi({ olay: "BilinmeyenSey" })).toBeNull();
   });
+
+  it("workflow adımını sıra ve hedefle gösterir", () => {
+    expect(olayAdimi({
+      olay: "ExecutionStepStarted",
+      index: 2,
+      total_steps: 4,
+      goal: "testleri çalıştır",
+    })).toEqual({ metin: "adım 2/4 başladı", ayrinti: "testleri çalıştır" });
+  });
+
+  it("doğrulama kanıtını ham JSON yerine okunabilir metne çevirir", () => {
+    expect(olayAdimi({
+      olay: "ExecutionStepVerified",
+      step_id: "verify",
+      ok: true,
+      evidence: ["pytest geçti", "ruff geçti"],
+    })).toEqual({ metin: "verify doğrulandı", ayrinti: "pytest geçti · ruff geçti" });
+  });
 });

@@ -285,6 +285,85 @@ class TurnBudgetExhausted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionRouteSelected(Event):
+    """Kök görev için hızlı ya da planlı yürütme yolu seçildi."""
+
+    route: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPromoted(Event):
+    """Hızlı başlayan görev çalışma sırasında planlı yola yükseltildi."""
+
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPlanCreated(Event):
+    """Doğrulanmış tipli plan yürütmeye hazır."""
+
+    plan_id: str
+    total_steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionStepStarted(Event):
+    """Planın tek bir adımı çalışmaya başladı."""
+
+    plan_id: str
+    step_id: str
+    index: int
+    total_steps: int
+    goal: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionStepVerified(Event):
+    """Plan adımının post-condition kanıtı değerlendirildi."""
+
+    plan_id: str
+    step_id: str
+    ok: bool
+    evidence: tuple[str, ...]
+    findings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRetryScheduled(Event):
+    """Sınıflandırılmış hata için sınırlı kurtarma turu açıldı."""
+
+    step_id: str
+    action: str
+    attempt: int
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCheckpointSaved(Event):
+    """Workflow durumu atomik olarak kaydedildi."""
+
+    plan_id: str
+    completed_steps: int
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPaused(Event):
+    """Workflow güvenli biçimde duraklatıldı."""
+
+    plan_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionCompleted(Event):
+    """Plan ve final kabul kapısı başarıyla tamamlandı."""
+
+    plan_id: str
+    total_steps: int
+
+
+@dataclass(frozen=True, slots=True)
 class EffectWorkflowStarted(Event):
     """Deterministik bir gerçek-etki workflow'u başladı."""
 

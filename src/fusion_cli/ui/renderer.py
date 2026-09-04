@@ -35,6 +35,14 @@ from ..core.events import (
     EffectWorkflowStarted,
     ErrorOccurred,
     Event,
+    ExecutionCheckpointSaved,
+    ExecutionCompleted,
+    ExecutionPaused,
+    ExecutionPlanCreated,
+    ExecutionRetryScheduled,
+    ExecutionRouteSelected,
+    ExecutionStepStarted,
+    ExecutionStepVerified,
     FilesChanged,
     FusionCompleted,
     JudgingStarted,
@@ -174,6 +182,29 @@ class ConsoleRenderer:
             self._status(event.message)
         elif isinstance(event, EffectWorkflowFinished):
             self._effect_workflow_finished(event)
+        elif isinstance(event, ExecutionRouteSelected):
+            yol = "planlı" if event.route == "workflow" else "hızlı"
+            self._status(f"Yürütme yolu: {yol} — {'; '.join(event.reasons)}")
+        elif isinstance(event, ExecutionPlanCreated):
+            self._status(f"Plan hazır: {event.total_steps} doğrulanabilir adım")
+        elif isinstance(event, ExecutionStepStarted):
+            self._status(
+                f"Adım {event.index}/{event.total_steps}: {event.goal}"
+            )
+        elif isinstance(event, ExecutionStepVerified):
+            durum = "doğrulandı" if event.ok else "doğrulanamadı"
+            ayrinti = event.evidence if event.ok else event.findings
+            self._status(f"{event.step_id} {durum}: {'; '.join(ayrinti)}")
+        elif isinstance(event, ExecutionRetryScheduled):
+            self._status(
+                f"Kurtarma {event.action} (deneme {event.attempt}): {event.reason}"
+            )
+        elif isinstance(event, ExecutionCheckpointSaved):
+            self._status(f"Checkpoint kaydedildi: {event.completed_steps} adım tamam")
+        elif isinstance(event, ExecutionPaused):
+            self._status(f"Workflow duraklatıldı: {event.reason}")
+        elif isinstance(event, ExecutionCompleted):
+            self._status(f"Plan tamamlandı: {event.total_steps} adım doğrulandı")
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)
