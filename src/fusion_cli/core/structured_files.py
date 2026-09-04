@@ -131,6 +131,16 @@ _DENETLEYICILER: dict[str, Callable[[str], str | None]] = {
 #:
 #: Yönlendirme yalnızca araçlar GERÇEKTEN varken yapılır: MCP bağlı değilken
 #: elle yazmayı engellemek işi imkânsız kılardı.
+#:
+#: Yönlendirme DOSYAYI BAŞTAN YAZMAYA aittir, hedefli düzenlemeye değil. Ölçüldü
+#: (Godot koşusu): sahip araçlar dosyayı ÜRETEBİLİYOR ama bir düğüme script
+#: BAĞLAYAMIYOR — Godot MCP'nin on dört aracının hiçbirinde bu yetenek yok.
+#: Yönlendirme her düzenlemeyi kapsayınca model her yolu denedi, hepsi kapalıydı
+#: ve oyun scriptleri hiçbir düğüme bağlanamadı: iş İMKÂNSIZ hâle geldi.
+#:
+#: Kural genelleşir: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez. Hedefli
+#: düzenleme açık kalır ve aşağıdaki yapı denetiminden geçer — ölçülmüş hasar
+#: (başlığın silinmesi, `ext_resource` bloklarının sona kayması) orada yakalanır.
 _SAHIPLI_BICIMLER: dict[str, tuple[tuple[str, ...], str]] = {
     ".tscn": (
         ("godot__add_node", "godot__save_scene"),
@@ -153,9 +163,11 @@ def _sahip_yonlendirmesi(path: Path, available_tools: frozenset[str]) -> str | N
         return None
     liste = ", ".join(f"`{ad}`" for ad in gerekli)
     return (
-        f"{gerekce} Bu dosyayı {liste} araçlarıyla düzenle — bu araçlar Godot'u "
-        "çalıştırır ve biçimi doğru üretir. Senin işin NE olacağına karar vermek "
-        "ve GDScript yazmak; sahne dosyasının ham metnini yazmak değil."
+        f"{gerekce} Dosyayı BAŞTAN yazmak yerine {liste} araçlarını kullan — bu "
+        "araçlar Godot'u çalıştırır ve biçimi doğru üretir. Bu araçların "
+        "yapamadığı bir değişiklik varsa (örneğin bir düğüme script bağlamak), "
+        "önce read_file ile oku, sonra replace_range ile YALNIZCA ilgili satırları "
+        "değiştir; sonuç yine yapı denetiminden geçer."
     )
 
 
@@ -166,7 +178,11 @@ _ADA_GORE: dict[str, Callable[[str], str | None]] = {
 
 
 def validate_structured(
-    path: Path, content: str, available_tools: frozenset[str] = frozenset()
+    path: Path,
+    content: str,
+    available_tools: frozenset[str] = frozenset(),
+    *,
+    authoring: bool = True,
 ) -> str | None:
     """İçerik bu biçim için geçerli mi? Sorun varsa AÇIKLAMASI, yoksa `None`.
 
@@ -174,9 +190,13 @@ def validate_structured(
     modeli yapamayacağı bir düzeltmeye zorlardı.
 
     `available_tools` verilirse, biçimi zaten doğru üreten bir araç ailesi varken
-    elle yazma o araçlara YÖNLENDİRİLİR.
+    dosyayı BAŞTAN YAZMA o araçlara YÖNLENDİRİLİR.
+
+    `authoring=False` hedefli düzenlemeyi işaretler: yönlendirme atlanır, yapı
+    denetimi çalışmaya devam eder. Sahip araçların yapamadığı bir değişikliği
+    yasaklamak işi imkânsız kılardı (bkz. `_SAHIPLI_BICIMLER`).
     """
-    yonlendirme = _sahip_yonlendirmesi(path, available_tools)
+    yonlendirme = _sahip_yonlendirmesi(path, available_tools) if authoring else None
     if yonlendirme is not None:
         return yonlendirme
     denetleyici = _ADA_GORE.get(path.name) or _DENETLEYICILER.get(path.suffix.casefold())

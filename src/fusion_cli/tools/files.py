@@ -399,8 +399,12 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     # Kapı BURADA da uygulanır: ölçülen vakada dosyayı asıl bozan `replace_range`
     # oldu — model sahne başlığını silen bir aralık değişikliği yaptı.
+    #
+    # Ama bu HEDEFLİ bir düzenlemedir: sahip araçlara yönlendirme yapılmaz, yalnız
+    # biçim denetlenir. Sahip araçların yapamadığı değişikliğin (ör. düğüme script
+    # bağlamak) tek yolu budur.
     yapi_sorunu = validate_structured(
-        path, updated, available_tools=frozenset(context.available_tools)
+        path, updated, available_tools=frozenset(context.available_tools), authoring=False
     )
     if yapi_sorunu is not None:
         return ToolResult.failure(
@@ -442,6 +446,22 @@ EMPTY_OLD_MESSAGE = (
 )
 
 
+def _yapi_engeli(path: Path, updated: str, context: ToolContext) -> ToolResult | None:
+    """Hedefli düzenlemenin sonucu biçimi bozuyorsa engelle.
+
+    Sahip araçlara YÖNLENDİRME yapılmaz (`authoring=False`): bu bir baştan yazma
+    değil, sahip araçların yapamayacağı hedefli bir değişiklik olabilir. Ama
+    ölçülmüş biçim hasarı (silinen başlık, kayan `ext_resource`) burada da
+    diske ulaşmaz.
+    """
+    sorun = validate_structured(
+        path, updated, available_tools=frozenset(context.available_tools), authoring=False
+    )
+    if sorun is None:
+        return None
+    return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{sorun}")
+
+
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
@@ -467,8 +487,12 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         count = text.count(old)
         if count == 0:
             return ToolResult.failure(_NOT_FOUND)
+        updated = text.replace(old, new)
+        engel = _yapi_engeli(path, updated, context)
+        if engel is not None:
+            return engel
         context.changes.record(path)
-        atomic_write(path, text.replace(old, new))
+        atomic_write(path, updated)
         context.touched.add(path)
         return ToolResult(f"düzenlendi: {display_path(context, path)} ({count} değişiklik)")
 
@@ -476,8 +500,12 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if problem is not None:
         return ToolResult.failure(problem)
 
+    updated = text.replace(old, new, 1)
+    engel = _yapi_engeli(path, updated, context)
+    if engel is not None:
+        return engel
     context.changes.record(path)
-    atomic_write(path, text.replace(old, new, 1))
+    atomic_write(path, updated)
     context.touched.add(path)
     return ToolResult(f"düzenlendi: {display_path(context, path)} (1 değişiklik)")
 

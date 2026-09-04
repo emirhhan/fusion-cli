@@ -171,3 +171,121 @@ def test_arac_varken_de_bozuk_yapi_bozuk_kalir():
     sorun = validate_structured(Path("main.tscn"), '[node name="a"]\n', available_tools=araclar)
 
     assert sorun is not None
+
+
+#: Godot araçlarının sunulduğu, gerçek koşudaki araç kümesi.
+_GODOT_ARACLARI = frozenset({"godot__add_node", "godot__save_scene"})
+
+#: Script'i düğüme bağlayan, biçimi geçerli sahne — Godot MCP'de bunu yapan
+#: hiçbir araç YOKTUR (14 aracın hiçbiri script eklemiyor).
+_SCRIPTLI_SAHNE = (
+    "[gd_scene format=3]\n\n"
+    '[ext_resource type="Script" path="res://player.gd" id="1_s"]\n\n'
+    '[node name="Player" type="CharacterBody2D"]\n'
+    'script = ExtResource("1_s")\n'
+)
+
+
+def test_hedefli_duzenleme_sahipli_bicimde_de_serbesttir():
+    """Ölçüldü (Godot koşusu): oyun scriptleri hiçbir düğüme bağlanamadı.
+
+    Godot MCP'nin 14 aracından hiçbiri script bağlayamıyor; Fusion da `.tscn`
+    düzenlemeyi o araçlara yönlendirip elle düzenlemeyi kapatıyordu. İki kapı
+    birlikte işi İMKÂNSIZ hâle getirdi: model her yolu denedi, hepsi kapalıydı.
+
+    Kural genelleşir: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez.
+    Yönlendirme dosyayı BAŞTAN YAZMAYA aittir; hedefli düzenleme açık kalır ve
+    yapı denetiminden geçer.
+    """
+    sorun = validate_structured(
+        Path("main.tscn"), _SCRIPTLI_SAHNE, available_tools=_GODOT_ARACLARI, authoring=False
+    )
+
+    assert sorun is None
+
+
+def test_dosyayi_bastan_yazma_hala_araclara_yonlendirilir():
+    sorun = validate_structured(
+        Path("main.tscn"), _SCRIPTLI_SAHNE, available_tools=_GODOT_ARACLARI, authoring=True
+    )
+
+    assert sorun is not None
+    assert "godot__add_node" in sorun
+
+
+def test_hedefli_duzenleme_bicimi_bozarsa_yine_reddedilir():
+    """Kapının ölçülmüş koruması aynen durur: başlıksız sahne kabul edilmez."""
+    sorun = validate_structured(
+        Path("main.tscn"),
+        '[node name="a" type="Node2D"]\n',
+        available_tools=_GODOT_ARACLARI,
+        authoring=False,
+    )
+
+    assert sorun is not None
+    assert "gd_scene" in sorun
+
+
+def test_replace_range_ile_script_baglanabilir(tmp_path):
+    """Uçtan uca: araçlar sunuluyorken bile hedefli düzenleme diske ulaşmalı."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import files
+
+    sahne = tmp_path / "main.tscn"
+    sahne.write_text(
+        "[gd_scene format=3]\n\n" '[node name="Player" type="CharacterBody2D"]\n',
+        encoding="utf-8",
+    )
+    context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
+    files.read_file({"path": "main.tscn"}, context)
+
+    sonuc = files.replace_range(
+        {"path": "main.tscn", "start_line": 1, "end_line": 3, "new": _SCRIPTLI_SAHNE.strip()},
+        context,
+    )
+
+    assert sonuc.ok is True, sonuc.output
+    assert "script = ExtResource" in sahne.read_text(encoding="utf-8")
+
+
+def test_edit_file_de_yapiyi_bozamaz(tmp_path):
+    """`edit_file` yapı denetiminden HİÇ geçmiyordu; aynı hasar oradan sızabilirdi."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import files
+
+    sahne = tmp_path / "main.tscn"
+    sahne.write_text(
+        "[gd_scene format=3]\n\n" '[node name="Player" type="Node2D"]\n', encoding="utf-8"
+    )
+    context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
+
+    sonuc = files.edit_file(
+        {"path": "main.tscn", "old": "[gd_scene format=3]\n", "new": ""}, context
+    )
+
+    assert sonuc.ok is False
+    assert "gd_scene" in sonuc.output
+    assert sahne.read_text(encoding="utf-8").startswith("[gd_scene")
+
+
+def test_edit_file_gecerli_hedefli_degisikligi_yazar(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.tools import files
+
+    sahne = tmp_path / "main.tscn"
+    sahne.write_text(
+        "[gd_scene format=3]\n\n" '[node name="Player" type="Node2D"]\n', encoding="utf-8"
+    )
+    context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
+
+    sonuc = files.edit_file(
+        {
+            "path": "main.tscn",
+            "old": '[node name="Player" type="Node2D"]',
+            "new": '[node name="Player" type="CharacterBody2D"]',
+        },
+        context,
+    )
+
+    assert sonuc.ok is True, sonuc.output
+    assert "CharacterBody2D" in sahne.read_text(encoding="utf-8")
