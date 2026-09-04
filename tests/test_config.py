@@ -11,6 +11,7 @@ from fusion_cli.config.loader import load_config
 from fusion_cli.config.models import RuntimeConfig
 from fusion_cli.config.paths import bundled_defaults
 from fusion_cli.core.errors import ConfigError
+from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.types import ModelSpec
 
 from .fakes import make_config
@@ -43,6 +44,35 @@ def test_kullanici_dosyasi_varsayilanin_uzerine_derin_birlestirilir(tmp_path):
     # Dokunulmayan alanlar varsayılandan gelir — bölüm tamamen değiştirilmez.
     assert config.runtime.temperature == 0.3
     assert config.source == path
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (False, ExecutionMode.AUTO),
+        (True, ExecutionMode.ALWAYS),
+        ("auto", ExecutionMode.AUTO),
+        ("always", ExecutionMode.ALWAYS),
+        ("off", ExecutionMode.OFF),
+    ],
+)
+def test_workflow_mode_eski_ve_yeni_degerleri_normalize_eder(tmp_path, raw, expected):
+    path = _yaz(tmp_path, {"runtime": {"workflow_mode": raw}})
+
+    config = load_config(path)
+
+    assert config.runtime.workflow_mode is expected
+
+
+def test_workflow_mode_varsayilan_olarak_otomatiktir():
+    assert load_config().runtime.workflow_mode is ExecutionMode.AUTO
+
+
+def test_workflow_mode_bilinmeyen_degeri_reddeder(tmp_path):
+    path = _yaz(tmp_path, {"runtime": {"workflow_mode": "rastgele"}})
+
+    with pytest.raises(ConfigError, match="İzin verilen: auto, always, off"):
+        load_config(path)
 
 
 def test_bilinmeyen_bolum_hata_verir(tmp_path):

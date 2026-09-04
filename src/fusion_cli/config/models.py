@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
@@ -108,9 +109,9 @@ class RuntimeConfig:
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False
-    #: Agent: zor görevlerde serbest döngü yerine aşamalı workflow (localize→plan→
-    #: patch→verify→review) çalışır. Varsayılan kapalı: mevcut davranış korunur.
-    workflow_mode: bool = False
+    #: Agent: basit işi hızlı, karmaşık işi planlı yürütür. Eski boolean değerler
+    #: AUTO/ALWAYS modlarına taşınır; temiz kurulum AUTO kullanır.
+    workflow_mode: ExecutionMode = ExecutionMode.AUTO
     #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
     workflow_max_model_calls: int = 12
     #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token

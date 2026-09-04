@@ -209,10 +209,9 @@ runtime:
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
   playbooks: false
-  # Zor görevlerde serbest döngü yerine aşamalı workflow (localize→plan→patch→verify→
-  # review) çalışır; tur başına SABİT model-çağrısı bütçesiyle maliyet öngörülebilir olur.
-  # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
-  workflow_mode: false
+  # Basit görevleri hızlı, karmaşık görevleri planlı ve doğrulanmış akışta yürütür.
+  # AUTO tüm kurulumlarda varsayılandır; kullanıcı ayrıca özellik açmaz.
+  workflow_mode: auto
   workflow_max_model_calls: 12
 
 # ---------------------------------------------------------------------------

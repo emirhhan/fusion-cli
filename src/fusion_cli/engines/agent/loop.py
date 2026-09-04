@@ -48,6 +48,7 @@ from ...core.events import (
     TurnBudgetExhausted,
     VerificationFailed,
 )
+from ...core.execution_mode import ExecutionMode
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
@@ -352,7 +353,11 @@ async def run_agent(
             model_calls_made=0,
         )
 
-    if not plan_mode and depth == 0 and deps.config.runtime.workflow_mode:
+    if (
+        not plan_mode
+        and depth == 0
+        and deps.config.runtime.workflow_mode is ExecutionMode.ALWAYS
+    ):
         return await run_workflow_stages(task, deps, run_agent)
 
     auto_context = skill_recall.should_auto_context(classification)
