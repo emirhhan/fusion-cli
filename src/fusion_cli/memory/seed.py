@@ -1041,6 +1041,74 @@ _WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
         "yalnız kullanıcının verdiği numarayı kullan, listeye gönderim yapma.",
         (),
     ),
+    # --- Sosyal medyada organik paylaşım (reklamdan AYRI risk) ------------- #
+    (
+        "instagram facebook pinterest x twitter linkedin sosyal medya paylaşımı",
+        _M,
+        "Sosyal medya gönderisi yayınlandığı anda HERKESE açıktır ve markanın adına "
+        "konuşur. Silmek geri almaz: bildirim gitmiş, ekran görüntüsü alınmış olur. "
+        "Metni ve görseli önce kullanıcıya göster, yayınlamayı onaylat.",
+        (),
+    ),
+    (
+        "reddit topluluk paylaşımı",
+        _M,
+        "Reddit'te her topluluğun kendi kuralları vardır ve kendi içeriğini tanıtmak "
+        "çoğunda yasaktır. Kural ihlali gönderiyi değil HESABI kaybettirir; "
+        "paylaşmadan önce topluluğun kurallarını oku.",
+        (),
+    ),
+    (
+        "instagram facebook gönderi düzenleme",
+        _M,
+        "Yayınlanmış gönderiyi düzenlemek bildirimi geri almaz ve bazı alanlar "
+        "(görsel, gönderi türü) hiç değiştirilemez. Yanlış yayın için düzenleme "
+        "değil, kullanıcıya durumu bildirmek doğrudur.",
+        (),
+    ),
+    # --- Ortak çalışma tuvalleri -------------------------------------------- #
+    (
+        "framer miro ortak tuval düzenleme",
+        _M,
+        "Ortak çalışma tuvalinde (Miro, Framer) yapılan değişiklik ANINDA herkese "
+        "görünür ve başkasının işinin üstüne yazabilir. Var olan içeriği taşımadan "
+        "ya da silmeden önce oku; kendi çalışman için ayrı bir alan/kopya aç.",
+        (),
+    ),
+    # --- Agent temel sunucuları --------------------------------------------- #
+    (
+        "filesystem dosya sunucusu kullanma",
+        _M,
+        "Dosya sunucusu üzerinden silme ve üzerine yazma geri alınamaz ve izin "
+        "verilen kökün dışına çıkma denemesi reddedilir. Yolu doğrula, silmeden "
+        "önce listele, üzerine yazmadan önce oku.",
+        (),
+    ),
+    (
+        "memory kalıcı bellek yazma",
+        _M,
+        "Kalıcı belleğe yazılan bilgi sonraki oturumlarda DOĞRU KABUL EDİLİR. "
+        "Doğrulanmamış varsayımı, geçici durumu ya da kişisel veriyi yazma; "
+        "yanlış bir kayıt sessizce uzun süre yanlış yönlendirir.",
+        (),
+    ),
+    (
+        "time zaman sunucusu kullanma",
+        _S,
+        "Tarih/saat hesabını kendin uydurma; zaman sunucusundan al ve hangi saat "
+        "diliminde çalıştığını açıkça yaz. 'Bugün' ve 'şimdi' kullanıcının "
+        "diliminde farklı bir güne düşebilir.",
+        (),
+    ),
+    # --- Kendi mağaza MCP'si ------------------------------------------------ #
+    (
+        "novamira wordpress woocommerce mağaza yönetimi",
+        _M,
+        "Kendi mağaza MCP'n üzerinden yapılan değişiklik CANLI mağazaya gider: "
+        "fiyat, stok ve yayın durumu anında müşteriye görünür. Önce tek ürün "
+        "üzerinde dene ve sonucu mağazadan okuyarak doğrula.",
+        (),
+    ),
 )
 
 MEASURED_LESSONS: tuple[Lesson, ...] = tuple(
