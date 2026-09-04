@@ -502,3 +502,27 @@ def test_aday_havuzu_bellek_buyudukce_yeterli_kalir(tmp_path, monkeypatch):
 
     assert istenen["n_results"] >= 40, "havuz bellek büyüdükçe dar kalmamalı"
     assert any("stripe" in d.text for d in hatirlanan)
+
+
+def test_prompt_gibi_uzun_gorev_etiketi_gomulmez(tmp_path):
+    """Ölçüldü: plan adımlarında öğrenilen dersler TÜM istemi görev etiketi olarak
+    sakladı ("ANA GÖREV:\\n... PLAN ADIMI [...]").
+
+    Görev etiketi gömülmeye başlayınca bu dersler kendi istemlerine birebir
+    eşleşip aday havuzunu doldurdu ve gerçek konu derslerini geriye itti.
+    Etiket bir ETİKETTİR; prompt değildir.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import _embed_source
+
+    prompt_gibi = Lesson(
+        text="ders metni",
+        kind=LessonKind.MISTAKE,
+        task="ANA GÖREV:\nuzun bir görev metni\n\nPLAN ADIMI [x]:\nbir şeyler yap",
+    )
+    etiket_gibi = Lesson(
+        text="ders metni", kind=LessonKind.MISTAKE, task="godot sahne düzenleme"
+    )
+
+    assert _embed_source(prompt_gibi) == "ders metni"
+    assert _embed_source(etiket_gibi) == "godot sahne düzenleme\nders metni"

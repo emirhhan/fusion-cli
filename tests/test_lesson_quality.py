@@ -385,3 +385,19 @@ def test_alaka_guveni_ezmez():
     secilen = select_lessons((uzak_ama_guvenli, yakin_ama_yeni), limit=4)
 
     assert secilen[0].text == "yakin"
+
+
+def test_kucuk_alaka_farki_guveni_ezmez():
+    """Alaka güveni ezmemeli AMA kıl payı alaka farkı da güveni ezmemeli.
+
+    Ölçüldü: alaka tek başına birincil ölçüt yapılınca, uzun ve genel derslerin
+    zayıf lexical eşleşmesi baskın hâle geldi ve Godot görevine tek bir Godot
+    dersi gelmedi. Alaka KABACA karar verir; benzer yakınlıktakiler arasında
+    güven seçer.
+    """
+    genel = Candidate(_lesson("genel", confidence=1.0), distance=0.34)
+    isabetli = Candidate(_lesson("isabetli", confidence=0.6), distance=0.30)
+
+    secilen = select_lessons((genel, isabetli), limit=4)
+
+    assert secilen[0].text == "genel", "kıl payı fark bandı değiştirmemeli"

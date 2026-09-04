@@ -243,7 +243,24 @@ def _embed_source(lesson: Lesson) -> str:
     ve belge metnin kendisidir (bkz. `_to_lesson`). Göç gerekmez.
     """
     gorev = lesson.task.strip()
-    return f"{gorev}\n{lesson.text}" if gorev else lesson.text
+    if not gorev or not _is_label(gorev):
+        return lesson.text
+    return f"{gorev}\n{lesson.text}"
+
+
+#: Görev etiketinin ETİKET sayılması için üst sınırlar.
+#:
+#: Ölçüldü: plan adımlarında öğrenilen dersler tüm istemi görev alanına yazıyordu
+#: ("ANA GÖREV:\n… PLAN ADIMI […]"). Etiket gömülmeye başlayınca bu dersler kendi
+#: istemlerine birebir eşleşip aday havuzunu doldurdu ve gerçek konu derslerini
+#: geriye itti. Etiket bir ETİKETTİR, prompt değildir.
+MAX_LABEL_CHARS = 120
+MAX_LABEL_LINES = 2
+
+
+def _is_label(task: str) -> bool:
+    """Görev alanı kısa bir etiket mi, yoksa kopyalanmış bir istem mi?"""
+    return len(task) <= MAX_LABEL_CHARS and task.count("\n") < MAX_LABEL_LINES
 
 
 def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
