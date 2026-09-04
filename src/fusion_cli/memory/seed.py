@@ -1109,6 +1109,24 @@ _WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
         "üzerinde dene ve sonucu mağazadan okuyarak doğrula.",
         (),
     ),
+    (
+        "MCP aracında yol ve kimlik biçimi",
+        _M,
+        "Dosya/kaynak üreten MCP araçlarında yol biçimi (res:// gibi protokol öneki, "
+        "göreli yol, mutlak yol) sunucudan sunucuya ve hatta AYNI sunucunun araçları "
+        "arasında değişir. Ölçüldü: Godot MCP'de create_scene 'res://main.tscn' "
+        "kabul ederken add_node aynı yolu 'dosya yok' diye reddetti. Hata alınca "
+        "yolun DİĞER biçimini dene; aynı biçimde ısrar etme.",
+        (),
+    ),
+    (
+        "MCP aracında yol ve kimlik biçimi",
+        _S,
+        "Bir MCP aracı yolu/kimliği reddettiğinde sorun çoğu zaman YETENEK değil "
+        "BİÇİMDİR. Aynı sunucuda işe yarayan başka bir çağrının kabul ettiği biçime "
+        "bak ve onu kullan; aracın yapamadığına hükmetmeden önce biçimi ele.",
+        (),
+    ),
 )
 
 MEASURED_LESSONS: tuple[Lesson, ...] = tuple(
