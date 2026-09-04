@@ -15,11 +15,17 @@ from fusion_cli.core.events import (
     ToolOutcome,
     TurnBudgetExhausted,
 )
+from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.loop import AgentDeps, _parse_arguments_checked, run_agent
+from fusion_cli.engines.agent.loop import (
+    AgentDeps,
+    AgentOutcome,
+    _parse_arguments_checked,
+    run_agent,
+)
 
 from .fakes import (
     AlwaysApprove,
@@ -98,6 +104,25 @@ async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
 
     assert sonuc.final_text == "iste cevap"
     assert sonuc.tool_calls_made == 0
+
+
+async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(
+    monkeypatch, tmp_path, sink
+):
+    seen: list[str] = []
+
+    async def fake_runner(task, deps, run_agent):
+        del deps, run_agent
+        seen.append(task)
+        return AgentOutcome(final_text="planlı sonuç", messages=[])
+
+    monkeypatch.setattr(agent_loop, "run_execution_plan", fake_runner)
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
+
+    sonuc = await run_agent("yeni özellik ekle", deps)
+
+    assert sonuc.final_text == "planlı sonuç"
+    assert seen == ["yeni özellik ekle"]
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):

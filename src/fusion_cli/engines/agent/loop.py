@@ -48,7 +48,6 @@ from ...core.events import (
     TurnBudgetExhausted,
     VerificationFailed,
 )
-from ...core.execution_mode import ExecutionMode
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.tools import ToolContext, ToolResult
@@ -77,7 +76,9 @@ from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
 from .classify import TaskClassification, TaskKind, classify_task_details, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
-from .playbook_stage import maybe_run_playbook, run_workflow_stages
+from .execution_route import ExecutionRoute, choose_execution_route
+from .plan_runner import run_execution_plan
+from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .workspace_hint import find_workspace_for
 
@@ -353,13 +354,6 @@ async def run_agent(
             model_calls_made=0,
         )
 
-    if (
-        not plan_mode
-        and depth == 0
-        and deps.config.runtime.workflow_mode is ExecutionMode.ALWAYS
-    ):
-        return await run_workflow_stages(task, deps, run_agent)
-
     auto_context = skill_recall.should_auto_context(classification)
     recalled = learning_steps.recall_lessons(
         task,
@@ -429,6 +423,16 @@ async def run_agent(
                 messages=[*(history or []), Message("user", task)],
                 ok=False,
             )
+
+    if not plan_mode and depth == 0:
+        route = choose_execution_route(
+            task,
+            classification,
+            execution,
+            deps.config.runtime.workflow_mode,
+        )
+        if route.route is ExecutionRoute.WORKFLOW:
+            return await run_execution_plan(task, deps, run_agent)
 
     outcome = await _drive(
         messages,

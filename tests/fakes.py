@@ -110,6 +110,7 @@ def make_config(**overrides):
     from pathlib import Path as _Path
 
     from fusion_cli.config.models import Config, RuntimeConfig
+    from fusion_cli.core.execution_mode import ExecutionMode
     from fusion_cli.core.reasoning import ReasoningEffort
     from fusion_cli.core.routing_strategy import RoutingStrategy
     from fusion_cli.core.types import ModelSpec
@@ -148,6 +149,9 @@ def make_config(**overrides):
         "self_review": False,
         "reflexion": True,
         "lessons": False,
+        # Agent döngüsünün dar bir davranışını ölçen testler profesyonel kök
+        # orkestrasyonu ayrıca istemedikçe eski doğrudan yolu izole eder.
+        "workflow_mode": ExecutionMode.OFF,
     }
     runtime.update(runtime_overrides)
 
