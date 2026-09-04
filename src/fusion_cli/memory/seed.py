@@ -1127,6 +1127,25 @@ _WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
         "bak ve onu kullan; aracın yapamadığına hükmetmeden önce biçimi ele.",
         (),
     ),
+    (
+        "godot ana sahne ayarlama",
+        _M,
+        "Godot'ta sahne dosyasını oluşturmak yetmez: proje ancak project.godot "
+        "içindeki [application] bölümüne run/main_scene yazıldığında çalışır. "
+        "Aksi hâlde motor 'Can't run project: no main scene defined' der ve oyun "
+        "hiç açılmaz. Sahneyi kurduktan sonra bu satırı EKLE ve doğrula.",
+        (),
+    ),
+    (
+        "anlamsız adlı asset klasöründen seçim",
+        _M,
+        "Asset dosyalarının adları anlamsızsa (tile_0000.png, tile_0001.png…) "
+        "hangisinin karakter, zemin, eşya ya da arka plan olduğunu ADINDAN "
+        "BİLEMEZSİN. Kullanmadan önce view_image ile birkaçına bak. Bakmadan "
+        "seçmek, farklı roller için AYNI görseli kullanmakla sonuçlanır "
+        "(ölçüldü: toplanabilir eşya oyuncuyla birebir aynı göründü).",
+        (),
+    ),
 )
 
 MEASURED_LESSONS: tuple[Lesson, ...] = tuple(
