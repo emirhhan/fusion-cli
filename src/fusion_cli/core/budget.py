@@ -80,6 +80,9 @@ class TurnBudget:
     #: Başarılı her değiştirici araçtan sonra artar; tekrar imzasını tazeler.
     mutation_epoch: int = 0
     seen_calls: dict[CallSignature, int] = field(default_factory=dict)
+    #: Bu turda DÜŞEN çağrıların imzaları. Başarılı bir değişiklikten sonra
+    #: unutulurlar: düşme sebebi ortadan kalkmış olabilir.
+    failed_signatures: set[CallSignature] = field(default_factory=set)
     #: Bu turda BAŞARIYLA çalışmış araçlar: (ad, argümanlar, değiştirici mi).
     #
     # Eylem-kanıtı kapısı buraya bakar ve kanıt TUR GENELİNDE birikmek zorundadır.
@@ -216,9 +219,46 @@ class TurnBudget:
         self.seen_calls[signature] = seen + 1
         return seen
 
+    def note_failed_call(self, signature: CallSignature) -> None:
+        """Düşen çağrıyı işaretle; BAŞARILI bir değişiklikten sonra unutulacak.
+
+        Hemen unutmak yanlış olurdu: arada hiçbir şey değişmeden aynı çağrıyı
+        yinelemek gerçekten tekrardır ve engellenmelidir. Ama çalışma alanı
+        gerçekten ilerlediyse aynı çağrı artık BAŞKA bir çağrıdır.
+        """
+        self.failed_signatures.add(signature)
+
+    def forget_call(self, signature: CallSignature) -> None:
+        """Bu çağrıyı YAPILMAMIŞ say.
+
+        Tekrar koruması "bunu ZATEN YAPTIN" demektir; DÜŞEN bir çağrı hiçbir şey
+        yapmamıştır. Ölçülen hata: `godot__create_scene` proje dosyası henüz
+        yokken düştü, model `project.godot`'u yazdı, engel kalktı — ama aynı
+        çağrı `TOOL_CALL_DUPLICATE` ile engellendi ve zincir öldü. Mesaj
+        "çalışma alanında ilgili bir değişiklik olmadı" diyordu, oysa olmuştu.
+
+        Değiştirici araçların imzası çağa DUYARSIZDIR (daima 0), bu yüzden
+        koşullar düzelse bile imza asla değişmez; unutmak tek çıkış yoludur.
+        Kalıcı olarak düşen bir çağrıyı "yinelenen hata" notu ve boşta-tur
+        bütçesi yakalar.
+        """
+        # Kayıt TÜMDEN silinir, azaltılmaz: bu imzanın kaydedilen her denemesi
+        # DÜŞTÜ. Bir azaltmak, iki kez denenmiş bir çağrıyı hâlâ engelli
+        # bırakırdı (değiştirici araçlarda sınır zaten 1'dir).
+        self.seen_calls.pop(signature, None)
+
     def record_mutation(self) -> None:
-        """Başarılı bir değiştirici araç çalıştı: çalışma alanı ilerledi."""
+        """Başarılı bir değiştirici araç çalıştı: çalışma alanı ilerledi.
+
+        Daha önce DÜŞEN çağrılar burada unutulur: engelleri kalkmış olabilir.
+        Ölçülen hata: `godot__create_scene` proje dosyası yokken düştü, model
+        `project.godot`'u yazdı, engel kalktı — ama aynı çağrı
+        `TOOL_CALL_DUPLICATE` ile engellendi ve zincir öldü.
+        """
         self.mutation_epoch += 1
+        for imza in self.failed_signatures:
+            self.forget_call(imza)
+        self.failed_signatures.clear()
 
     def record_failed_mutation(self) -> None:
         """Değiştirici bir çağrı DÜŞTÜ: modelin yeniden okumaya ihtiyacı var.

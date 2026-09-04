@@ -121,17 +121,63 @@ _DENETLEYICILER: dict[str, Callable[[str], str | None]] = {
     ".tres": _godot_kaynak_denetle,
 }
 
+#: Biçimi SAHİPLENEN araç aileleri: uzantı → (gerekli araçlar, gerekçe).
+#:
+#: Bazı biçimleri bir araç ZATEN doğru üretir; modelin elle yazması yalnızca
+#: bozar. Ölçüldü: model GDScript'i kusursuz yazıyor ama sahne formatını her
+#: denemede bozdu — başlığı sildi, `ext_resource` bloklarını sona koydu. Godot
+#: araçları dosyayı Godot'un kendisine yazdırdığı için biçim tanım gereği
+#: doğrudur.
+#:
+#: Yönlendirme yalnızca araçlar GERÇEKTEN varken yapılır: MCP bağlı değilken
+#: elle yazmayı engellemek işi imkânsız kılardı.
+_SAHIPLI_BICIMLER: dict[str, tuple[tuple[str, ...], str]] = {
+    ".tscn": (
+        ("godot__add_node", "godot__save_scene"),
+        "Godot sahne dosyaları elle yazılmaz; biçimi Godot üretir.",
+    ),
+    ".tres": (
+        ("godot__add_node", "godot__save_scene"),
+        "Godot kaynak dosyaları elle yazılmaz; biçimi Godot üretir.",
+    ),
+}
+
+
+def _sahip_yonlendirmesi(path: Path, available_tools: frozenset[str]) -> str | None:
+    """Bu biçimi üreten araçlar varsa modeli onlara yönlendir; yoksa `None`."""
+    kayit = _SAHIPLI_BICIMLER.get(path.suffix.casefold())
+    if kayit is None:
+        return None
+    gerekli, gerekce = kayit
+    if not all(ad in available_tools for ad in gerekli):
+        return None
+    liste = ", ".join(f"`{ad}`" for ad in gerekli)
+    return (
+        f"{gerekce} Bu dosyayı {liste} araçlarıyla düzenle — bu araçlar Godot'u "
+        "çalıştırır ve biçimi doğru üretir. Senin işin NE olacağına karar vermek "
+        "ve GDScript yazmak; sahne dosyasının ham metnini yazmak değil."
+    )
+
+
 #: Uzantısı değil ADI belirleyici olan dosyalar.
 _ADA_GORE: dict[str, Callable[[str], str | None]] = {
     "project.godot": _godot_proje_denetle,
 }
 
 
-def validate_structured(path: Path, content: str) -> str | None:
+def validate_structured(
+    path: Path, content: str, available_tools: frozenset[str] = frozenset()
+) -> str | None:
     """İçerik bu biçim için geçerli mi? Sorun varsa AÇIKLAMASI, yoksa `None`.
 
     Bilinmeyen biçimde `None` döner: denetlemediğimiz bir dosyayı reddetmek,
     modeli yapamayacağı bir düzeltmeye zorlardı.
+
+    `available_tools` verilirse, biçimi zaten doğru üreten bir araç ailesi varken
+    elle yazma o araçlara YÖNLENDİRİLİR.
     """
+    yonlendirme = _sahip_yonlendirmesi(path, available_tools)
+    if yonlendirme is not None:
+        return yonlendirme
     denetleyici = _ADA_GORE.get(path.name) or _DENETLEYICILER.get(path.suffix.casefold())
     return denetleyici(content) if denetleyici else None

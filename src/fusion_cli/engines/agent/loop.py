@@ -1593,6 +1593,10 @@ async def _run_tools(
                 # Düşen bir düzenlemeden sonra YENİDEN OKUMA serbest kalmalı:
                 # toparlanmanın tek yolu odur ve tekrar kapısı onu engelliyordu.
                 budget.record_failed_mutation()
+                # Düşen çağrı YAPILMAMIŞTIR. Hemen unutulmaz — arada hiçbir şey
+                # değişmeden yinelemek gerçek tekrardır — ama başarılı bir
+                # değişiklikten sonra unutulur: engeli kalkmış olabilir.
+                budget.note_failed_call(signature)
 
         diff = pending_diff if outcome is ToolOutcome.OK else None
         deps.publisher.publish(

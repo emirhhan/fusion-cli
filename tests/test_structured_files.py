@@ -134,3 +134,40 @@ def test_replace_range_sahne_basligini_silemez(tmp_path):
     assert sonuc.ok is False
     assert "gd_scene" in sonuc.output
     assert hedef.read_text() == saglam, "bozuk düzenleme diske ulaşmamalı"
+
+
+# --- biçimi sahiplenen araçlar ---------------------------------------------- #
+
+
+def test_sahne_dosyasi_arac_varken_elle_yazilamaz():
+    """`.tscn` formatını Godot araçları ÜRETİR; model elle yazmamalı.
+
+    Ölçüldü: model GDScript'i kusursuz yazıyor ama sahne formatını her seferinde
+    bozuyor (başlığı siliyor, `ext_resource` bloklarını sona koyuyor). Araçlar
+    Godot'un kendisini çalıştırdığı için dosyayı tanım gereği doğru üretiyor.
+    """
+    icerik = '[gd_scene format=3]\n\n[node name="a" type="Node2D"]\n'
+    araclar = frozenset({"godot__add_node", "godot__save_scene"})
+
+    sorun = validate_structured(Path("main.tscn"), icerik, available_tools=araclar)
+
+    assert sorun is not None, "araç varken elle yazma engellenmeli"
+    assert "godot__add_node" in sorun
+    assert "godot__save_scene" in sorun
+
+
+def test_arac_yoksa_elle_yazmaya_izin_verilir():
+    """MCP bağlı değilse tek yol elle yazmaktır; engellemek işi imkânsız kılardı."""
+    icerik = '[gd_scene format=3]\n\n[node name="a" type="Node2D"]\n'
+
+    assert validate_structured(Path("main.tscn"), icerik, available_tools=frozenset()) is None
+    assert validate_structured(Path("main.tscn"), icerik) is None
+
+
+def test_arac_varken_de_bozuk_yapi_bozuk_kalir():
+    """Yönlendirme, yapı denetiminin YERİNE geçmez."""
+    araclar = frozenset({"godot__add_node", "godot__save_scene"})
+
+    sorun = validate_structured(Path("main.tscn"), '[node name="a"]\n', available_tools=araclar)
+
+    assert sorun is not None

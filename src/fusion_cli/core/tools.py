@@ -162,6 +162,12 @@ class ToolContext:
     extra_roots: tuple[Path, ...] = ()
     #: İptal edilen turdaki thread tabanlı araçların yürümeye devam etmesini önler.
     cancelled: Event = field(default_factory=Event)
+    #: Bu turda kayıt defterinde bulunan araç adları.
+    #:
+    #: Yapı denetimi buna bakar: bir biçimi zaten doğru üreten araç varken
+    #: modelin o dosyayı elle yazması engellenip araca yönlendirilir. Araç yoksa
+    #: elle yazma tek yoldur ve serbest kalır.
+    available_tools: set[str] = field(default_factory=set)
 
 
 #: Bir aracın işini yapan fonksiyon. Saf tutulur; yan etkisi yalnızca dosya

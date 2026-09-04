@@ -281,7 +281,11 @@ async def _run_agent_with_mcp(
         )
     try:
         async with McpClient(config.mcp_servers) as client:
-            await client.register_into(deps.base_registry)
+            eklenen = await client.register_into(deps.base_registry)
+            # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi
+            # zaten doğru üreten araç varsa model elle yazmaya değil ona
+            # yönlendirilir.
+            deps.tool_context.available_tools.update(eklenen)
             return await run_agent(
                 task,
                 deps,
