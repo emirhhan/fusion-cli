@@ -642,6 +642,9 @@ class _State:
     edit_loop_pushes: int = 0
     #: Modele en son kaç değişiklik kaydı bildirildi.
     logged_changes: int = 0
+    #: (araç adı, hata imzası) → kaç kez. Aracın kendi önerisi işe yaramadığında
+    #: modele Fusion'ın notunu vermek için tutulur.
+    repeated_failures: dict[tuple[str, str], int] = field(default_factory=dict)
     #: "Dosya yok" ile düşen okumaların İSTENEN yolları (öneri araması için).
     missing_paths: list[str] = field(default_factory=list)
     #: Başarıyla okunan dosya sayısı. Yanlış-dizin hipotezi buna bakar.
@@ -1601,10 +1604,19 @@ async def _run_tools(
                 diff=diff,
             )
         )
+        govde = result.output
+        if outcome is ToolOutcome.FAILED:
+            imza = (call.name, _failure_signature(result.output))
+            state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
+            not_ = _repeated_failure_note(
+                call.name, result.output, state.repeated_failures[imza]
+            )
+            if not_ is not None:
+                govde = f"{govde}\n\n{not_}"
         messages.append(
             Message(
                 "tool",
-                result.output,
+                govde,
                 tool_call_id=call.id,
                 name=call.name,
                 ok=result.ok,
@@ -1668,6 +1680,46 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
     if not isinstance(parsed, dict):
         return {}, "arguments bir JSON nesnesi olmalı"
     return parsed, None
+
+
+#: Aynı hatanın kaç kez yinelenmesinden SONRA Fusion araya girer.
+#:
+#: 1 olsaydı ilk denemede araya girip modelin normal toparlanmasını bozardık;
+#: daha yükseği turu döngüde tutar. Ölçülen vakada hata üç kez yinelendi.
+_YINELENEN_HATA_ESIGI = 2
+
+
+def _failure_signature(output: str) -> str:
+    """Hata metnini karşılaştırılabilir bir imzaya indir.
+
+    İlk satır alınır: araçlar çözüm önerilerini sonraki satırlara yazar ve o
+    öneriler aynı hatada bile değişebilir. Yol/ad gibi ayrıntılar İMZANIN
+    PARÇASIDIR — farklı dosyada aynı hata farklı iştir, yinelenme sayılmaz.
+    """
+    return output.strip().splitlines()[0].strip() if output.strip() else ""
+
+
+def _repeated_failure_note(tool_name: str, output: str, count: int) -> str | None:
+    """Aynı araç aynı hatayı yineliyorsa modele Fusion'ın notu; yoksa `None`.
+
+    Ölçülen hata: `godot__add_node` üç kez "Scene file does not exist" verdi ve
+    her seferinde kendi önerisi olarak "Use create_scene first" dedi. Sahne
+    zaten vardı; öneri yanlıştı. Model itaatle o öneriyi uygulayıp döngüye
+    girdi — inatçı değildi, aracın SÖYLEDİĞİNİ yapıyordu.
+
+    Tekrar kapısı burada yardım etmez: çağrılar birbirinin aynısı değildir
+    (araçlar dönüşümlü çağrılıyor). Bu yüzden ölçüt çağrı imzası değil HATA
+    imzasıdır.
+    """
+    if count < _YINELENEN_HATA_ESIGI:
+        return None
+    return (
+        f"FUSION_NOT: `{tool_name}` aynı hatayı {count} kez verdi ve aracın kendi "
+        "önerisi işe yaramadı. Aynı yolu tekrar deneme; FARKLI ARGÜMANLARLA çağır. "
+        "Sık karşılaşılan sebep yol biçimidir: 'res://' ekini kaldırmayı ya da "
+        "eklemeyi, göreli yol yerine tam yol vermeyi dene. Bu da olmazsa başka bir "
+        "araçla aynı sonuca ulaşmayı dene."
+    )
 
 
 def _duplicate_call_message() -> str:

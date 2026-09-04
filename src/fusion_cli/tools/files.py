@@ -25,6 +25,7 @@ from ..core.constants import (
     VISIBLE_DOTFILES,
 )
 from ..core.errors import PathAccessError
+from ..core.structured_files import validate_structured
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import (
     ArgumentError,
@@ -237,6 +238,15 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             "görmediğin satırları siler. Kısmi değişiklik için replace_range kullan; "
             "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
         )
+    yapi_sorunu = validate_structured(path, content)
+    if yapi_sorunu is not None:
+        # Bozuk yapı DİSKE ULAŞMAZ. Yazıp sonra uyarmak kullanıcıyı bozuk
+        # dosyayla baş başa bırakırdı: ölçülen vakada tur "tamamlandı" derken
+        # Godot projesi hiç açılmıyordu. Reddetmek önceki iyi durumu korur ve
+        # modele düzeltme şansı verir.
+        return ToolResult.failure(
+            f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}"
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     context.changes.record(path)
     try:
@@ -384,6 +394,14 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if updated == text:
         return ToolResult.failure("Değişiklik yok; verilen yeni içerik mevcut aralıkla aynı.")
+
+    # Kapı BURADA da uygulanır: ölçülen vakada dosyayı asıl bozan `replace_range`
+    # oldu — model sahne başlığını silen bir aralık değişikliği yaptı.
+    yapi_sorunu = validate_structured(path, updated)
+    if yapi_sorunu is not None:
+        return ToolResult.failure(
+            f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}"
+        )
 
     context.changes.record(path)
     try:

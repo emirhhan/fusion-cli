@@ -1967,3 +1967,39 @@ def test_tekrar_engeli_arac_yerine_argumani_degistirmeyi_soyler():
     # Dosya araçları ÖRNEK olabilir ama tek çare olarak sunulmamalı.
     assert "write_file" in mesaj
     assert mesaj.startswith("TOOL_CALL_DUPLICATE")
+
+
+def test_ayni_arac_ayni_hatayi_yinelerse_fusion_uyarir():
+    """Aynı araç aynı hatayı yinelediğinde modele bunu FUSION söyler.
+
+    Ölçülen hata: `godot__add_node` üç kez "Scene file does not exist" verdi ve
+    her seferinde kendi önerisi olarak "Use create_scene to create a new scene
+    first" dedi. Sahne ZATEN vardı; öneri yanlıştı. Model itaatle `create_scene`
+    çağırıp durdu ve tur yarım bitti. Model inatçı değildi — aracın kendi
+    önerisine uyuyordu.
+
+    Tekrar kapısı burada yardım etmiyor: çağrılar birbirinin AYNISI değil
+    (araçlar dönüşümlü). Bu yüzden ölçüt çağrı imzası değil, HATA imzasıdır.
+    """
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn\nPossible solutions:\n- Use create_scene"
+
+    assert _repeated_failure_note("godot__add_node", hata, 1) is None, "ilk hatada susulur"
+
+    not_ = _repeated_failure_note("godot__add_node", hata, 2)
+    assert not_ is not None
+    assert "godot__add_node" in not_
+    assert "FARKLI ARGÜMANLARLA" in not_, not_
+    assert "res://" in not_, "yol biçimi somut örnekle anlatılmalı"
+
+
+def test_farkli_hatalar_yineleme_sayilmaz():
+    """Aynı araç FARKLI hatalar veriyorsa model ilerliyordur; uyarı verilmez."""
+    from fusion_cli.engines.agent.loop import _failure_signature
+
+    assert _failure_signature("dosya yok: a.txt") != _failure_signature("izin reddedildi")
+    # Aynı hata, değişen ayrıntı (yol) aynı imza sayılmaz: gerçekten farklı iştir.
+    assert _failure_signature("Scene file does not exist: res://a.tscn") != _failure_signature(
+        "Scene file does not exist: res://b.tscn"
+    )
