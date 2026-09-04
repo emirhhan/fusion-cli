@@ -220,6 +220,11 @@ class AgentOutcome:
     failed_tool_calls: int = 0
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
+    #: Aynı çağrı bu turda ZATEN yapıldığı için engellenen çağrı sayısı.
+    #:
+    #: "Hiçbir şey yapmadım" ile "iş zaten yapılmıştı" farklı sonuçlardır ve
+    #: sayaçlar bunları ayırt edemezse plan adımı geçilemez hâle gelir.
+    already_done_calls: int = 0
     #: Turda DENENEN araç çağrıları, çalışma sırasıyla. Sayaçlar "kaç tane"
     #: sorusuna cevap verir; yükseltme kararı "hangileri, hangi sırada" bilgisini
     #: ister (bağımlılık zinciri ve araç ailesi bundan okunur).
@@ -649,6 +654,8 @@ class _State:
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
+    #: Yinelenen olduğu için engellenen çağrı sayısı (bkz. AgentOutcome).
+    already_done_calls: int = 0
     #: Denenen her araç çağrısı, SIRAYLA. Engellenen ve düşen çağrılar da girer:
     #: yükseltme kararı "ne denendi" bilgisini "ne başardı" kadar önemser.
     tool_uses: list[ToolUse] = field(default_factory=list)
@@ -1049,6 +1056,7 @@ def _outcome(
         answer_streamed=state.answer_streamed,
         wrong_workspace=state.warned_wrong_workspace,
         tool_uses=tuple(state.tool_uses),
+        already_done_calls=state.already_done_calls,
     )
 
 
@@ -1647,6 +1655,9 @@ async def _run_tools(
         # Kapı artık TÜM sağlayıcılarda açık. Eskiden yalnızca web modelleri
         # denetleniyordu; API modelleri aynı çağrıyı sınırsız tekrar edebiliyordu.
         if seen >= duplicate_limit:
+            # Engellenen yineleme, işin ZATEN YAPILDIĞININ kanıtıdır: düşen
+            # çağrılar bu noktaya gelmeden unutulur (`forget_call`).
+            state.already_done_calls += 1
             output = _duplicate_call_message()
             deps.publisher.publish(
                 ToolExecuted(

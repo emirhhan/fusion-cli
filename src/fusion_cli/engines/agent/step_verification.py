@@ -55,10 +55,20 @@ async def verify_step(
             else:
                 evidence.append(f"beklenen dosya bulundu: {raw_path}")
         elif effect == "workspace_mutation":
-            if outcome.mutating_tool_calls_made <= 0:
-                findings.append("beklenen çalışma alanı değişikliği gözlenmedi")
-            else:
+            if outcome.mutating_tool_calls_made > 0:
                 evidence.append("çalışma alanı değişikliği araç kaydıyla doğrulandı")
+            elif outcome.already_done_calls > 0:
+                # Ölçüldü (Godot koşusu): birinci adım sahneyi baştan sona kurdu;
+                # aynı işi hedefleyen ikinci adımın her çağrısı yinelenen sayılıp
+                # engellendi ve adım GEÇİLEMEZ hâle geldi. Zaten yapılmış iş bir
+                # başarısızlık değildir; final kapısı çıktının hâlâ durduğunu
+                # ayrıca ölçer.
+                evidence.append(
+                    "beklenen değişiklik bu turda daha önce yapılmış "
+                    "(yinelenen çağrılar engellendi)"
+                )
+            else:
+                findings.append("beklenen çalışma alanı değişikliği gözlenmedi")
         elif effect in {"shell_action", "git_commit", "git_push"}:
             if outcome.tool_calls_made <= 0:
                 findings.append(f"beklenen araç etkisi gözlenmedi: {effect}")

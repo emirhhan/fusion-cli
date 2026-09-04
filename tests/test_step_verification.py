@@ -148,3 +148,45 @@ async def test_test_paketi_olan_proje_uyari_uretmez(tmp_path):
 
     assert sonuc.ok is True
     assert sonuc.warnings == ()
+
+
+def _mutation_step() -> PlanStep:
+    from dataclasses import replace as _replace
+
+    return _replace(_file_step("x"), expected_effects=("workspace_mutation",))
+
+
+async def test_isi_onceki_adim_yaptiysa_adim_basarisiz_sayilmaz(tmp_path):
+    """Ölçüldü (Godot koşusu): birinci adım sahneyi ve düğümleri baştan sona kurdu.
+
+    İkinci adımın hedefi aynı işti; her çağrısı `TOOL_CALL_DUPLICATE` ile
+    engellendi ve adım "beklenen çalışma alanı değişikliği gözlenmedi" diyerek
+    GEÇİLEMEZ hâle geldi — kurtarma hakkı bitti, plan duraklatıldı. Zaten yapılmış
+    iş bir başarısızlık değildir; tekrar yapılmaması doğrudur.
+    """
+    result = await verify_step(
+        _mutation_step(),
+        AgentOutcome(
+            final_text="iş zaten yapılmış",
+            messages=[],
+            ok=True,
+            mutating_tool_calls_made=0,
+            already_done_calls=2,
+        ),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is True
+    assert any("daha önce" in kanit for kanit in result.evidence)
+
+
+async def test_hicbir_sey_yapmayan_adim_hala_basarisizdir(tmp_path):
+    """Kanıt yoksa "zaten yapılmıştı" savunması geçerli değildir."""
+    result = await verify_step(
+        _mutation_step(),
+        AgentOutcome(final_text="bir şey yapmadım", messages=[], ok=True),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is False
+    assert "beklenen çalışma alanı değişikliği gözlenmedi" in result.findings
