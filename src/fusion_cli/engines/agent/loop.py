@@ -383,6 +383,7 @@ async def run_agent(
         deps,
         scope=recall_scope(kind),
         enabled=auto_context,
+        limit=learning_steps.recall_limit_for(complex_task=is_complex_kind(kind)),
     )
     remembered = as_prompt_block(recalled)
     expertise = _recall_skill(classification, deps, depth=depth)

@@ -113,13 +113,14 @@ class FakeLessons:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
 
-    def recall(self, task, limit=4, *, scope=None, workspace=None):
+    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
         self.calls.append(
             {
                 "task": task,
                 "limit": limit,
                 "scope": scope,
                 "workspace": workspace,
+                "tags": tags,
             }
         )
         return ()
@@ -137,7 +138,9 @@ def deps(tmp_path):
         config=SimpleNamespace(
             runtime=SimpleNamespace(lessons=True),
         ),
-        tool_context=SimpleNamespace(root=tmp_path),
+        # Gerçek `ToolContext` sözleşmesi: ders etiketleri bağlı MCP araçlarını
+        # de okur, sahte bağlam bu alanı taşımalı.
+        tool_context=SimpleNamespace(root=tmp_path, available_tools=set()),
         publisher=FakePublisher(),
     )
     return value, lessons

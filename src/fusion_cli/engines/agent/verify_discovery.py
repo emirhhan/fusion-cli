@@ -50,6 +50,32 @@ _AUTO_NODE_SCRIPTS = ("typecheck", "build")
 _MAKE_TARGETS = ("check", "test")
 
 
+#: Proje KİMLİĞİ: hangi işaret dosyası hangi teknolojiyi gösterir.
+#:
+#: `discover_commands` ile bilinçli olarak AYRI tutulur; oradaki soru "bu projede
+#: hangi komut çalışır", buradaki soru "bu ne tür bir proje". İlki ilk eşleşende
+#: durur (komut planı tek olmalı), ikincisi hepsini döndürür (bir depo hem Python
+#: hem Node olabilir). Aynı ayrım `_TEST_MARKERS` / `_BEHAVIORAL_MARKERS` ikilisinde
+#: de var.
+_KIND_MARKERS: tuple[tuple[str, str], ...] = (
+    ("godot", "project.godot"),
+    ("python", "pyproject.toml"),
+    ("node", "package.json"),
+    ("rust", "Cargo.toml"),
+    ("go", "go.mod"),
+)
+
+
+def project_kinds(root: Path) -> tuple[str, ...]:
+    """Kökteki işaret dosyalarından proje türlerini çıkar; alfabetik ve tekrarsız.
+
+    Ders belleği bunu kimlik olarak kullanır: "Godot MCP'de `res://` kullanma"
+    dersi öğrenildiği KLASÖRE değil, öğrenildiği TEKNOLOJİYE aittir ve bir sonraki
+    Godot projesinde de geçerlidir.
+    """
+    return tuple(sorted(ad for ad, dosya in _KIND_MARKERS if (root / dosya).exists()))
+
+
 def discover_auto_commands(root: Path) -> tuple[str, ...]:
     """OTOMATİK kapı için doğrulama planı: hızlı ve yalnızca "bozdum mu" sorusu.
 

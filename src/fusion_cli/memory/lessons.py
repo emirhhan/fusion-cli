@@ -71,6 +71,7 @@ class ChromaLessonMemory:
         *,
         scope: str | None = None,
         workspace: str | None = None,
+        tags: tuple[str, ...] = (),
     ) -> tuple[Lesson, ...]:
         total = self.count()
         if not total or not task.strip():
@@ -102,10 +103,17 @@ class ChromaLessonMemory:
         # Workspace süzgeci skorlamadan ÖNCE uygulanır: başka projenin dersi
         # aday havuzunda kalırsa iyi bir dersi sıralamada geriye itebilir.
         if workspace is not None:
+            # Üç katman: etiketsiz+workspace'siz ders GENEL, workspace eşleşmesi
+            # O PROJEYE ait ders, etiket kesişimi ise AYNI TEKNOLOJİDEKİ her
+            # projede geçerli ders. Ölçüldü: üçüncü katman yokken 38 Godot dersi
+            # yeni bir Godot projesinde hiç görünmüyordu.
+            istenen = set(tags)
             candidates = tuple(
                 item
                 for item in candidates
-                if not item.lesson.workspace or item.lesson.workspace == workspace
+                if not item.lesson.workspace
+                or item.lesson.workspace == workspace
+                or (item.lesson.tags and istenen.intersection(item.lesson.tags))
             )
         return select_lessons(candidates, limit=limit, scope=scope)
 
@@ -184,6 +192,8 @@ def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
         "scope": lesson.scope[:100],
         "trigger": lesson.trigger[:200],
         "workspace": lesson.workspace[:500],
+        # Chroma metadata yalnız skaler tutar; etiketler virgülle saklanır.
+        "tags": ",".join(sorted(lesson.tags))[:300],
         "timestamp": timestamp,
     }
 
@@ -202,6 +212,7 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
         scope=str(metadata.get("scope", "")),
         trigger=str(metadata.get("trigger", "")),
         workspace=str(metadata.get("workspace", "")),
+        tags=tuple(t for t in str(metadata.get("tags", "")).split(",") if t),
     )
 
 

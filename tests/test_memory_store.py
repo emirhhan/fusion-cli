@@ -322,3 +322,65 @@ def test_workspace_verilmezse_hepsi_gelir(tmp_path):
     bellek.add(Lesson(text="a projesi dersi", kind=LessonKind.SUCCESS, workspace="/a"))
 
     assert bellek.recall("proje dersi", limit=5)
+
+
+def test_teknoloji_dersi_ayni_turdeki_baska_projeye_tasinir(tmp_path):
+    """Ölçüldü: 20 koşuda 38 Godot dersi öğrenildi ama yeni bir Godot klasöründe
+    HİÇBİRİ hatırlanmadı; workspace süzgeci hepsini eliyordu.
+
+    "Godot MCP'de res:// kullanma" dersi öğrenildiği KLASÖRE değil öğrenildiği
+    TEKNOLOJİYE aittir. Aradaki katman eksikti: ders ya genel ya tek projeye
+    özeldi.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(
+            text="godot MCP araclarinda res protokol onekini kullanma",
+            kind=LessonKind.MISTAKE,
+            workspace="/eski/godot-projesi",
+            tags=("godot",),
+        )
+    )
+
+    hatirlanan = bellek.recall(
+        "godot sahnesine dugum ekle", limit=5, workspace="/yeni/oyun", tags=("godot",)
+    )
+
+    assert any("res protokol" in d.text for d in hatirlanan)
+
+
+def test_baska_teknolojinin_dersi_sizmaz(tmp_path):
+    """Etiket eşleşmiyorsa ders yine kendi projesine hapis kalır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(
+        Lesson(
+            text="godot sahne dosyasini elle yazma",
+            kind=LessonKind.MISTAKE,
+            workspace="/eski/godot",
+            tags=("godot",),
+        )
+    )
+
+    hatirlanan = bellek.recall(
+        "sahne dosyasi duzenle", limit=5, workspace="/yeni/web", tags=("node",)
+    )
+
+    assert not any("godot" in d.text for d in hatirlanan)
+
+
+def test_proje_dersi_etiketsiz_kalirsa_eski_davranis_korunur(tmp_path):
+    """Etiketi olmayan eski kayıtlar hâlâ yalnız kendi projesinde hatırlanır."""
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    bellek.add(Lesson(text="auth modulu src/auth altinda", kind=LessonKind.SUCCESS, workspace="/a"))
+
+    assert not bellek.recall("auth nerede", limit=5, workspace="/b", tags=("python",))
+    assert bellek.recall("auth nerede", limit=5, workspace="/a", tags=("python",))

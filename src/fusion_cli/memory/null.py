@@ -39,6 +39,7 @@ class NullLessonMemory:
         *,
         scope: str | None = None,
         workspace: str | None = None,
+        tags: tuple[str, ...] = (),
     ) -> tuple[Lesson, ...]:
         return ()
 

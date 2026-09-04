@@ -47,7 +47,9 @@ _NEGATION_MARKERS = frozenset(
 )
 
 
-def parse_lessons(text: str, task: str, workspace: str = "") -> tuple[Lesson, ...]:
+def parse_lessons(
+    text: str, task: str, workspace: str = "", tags: tuple[str, ...] = ()
+) -> tuple[Lesson, ...]:
     """Model çıktısındaki JSON diziyi derslere çevir. Bozuksa boş döner."""
     match = _JSON_ARRAY.search(text or "")
     if match is None:
@@ -61,7 +63,7 @@ def parse_lessons(text: str, task: str, workspace: str = "") -> tuple[Lesson, ..
 
     lessons: list[Lesson] = []
     for item in items:
-        lesson = _to_lesson(item, task, workspace)
+        lesson = _to_lesson(item, task, workspace, tags)
         if lesson is not None:
             lessons.append(lesson)
     return tuple(lessons[:MAX_LESSONS_PER_TURN])
@@ -74,6 +76,7 @@ async def extract_lessons(
     config: Config,
     publisher: EventPublisher | None = None,
     workspace: str = "",
+    tags: tuple[str, ...] = (),
 ) -> tuple[Lesson, ...]:
     """Oturumdan ders çıkar. Model erişilemezse ya da çıktı bozuksa boş döner."""
     trace = history.transcript(messages)
@@ -96,7 +99,7 @@ async def extract_lessons(
         web_sessions=web_registry_for(config),
     )
     result = await provider.complete(request)
-    return parse_lessons(result.text, task, workspace) if result.ok else ()
+    return parse_lessons(result.text, task, workspace, tags) if result.ok else ()
 
 
 def store_lessons(lessons: tuple[Lesson, ...], memory: LessonMemory) -> int:
@@ -196,7 +199,9 @@ def _is_negative(text: str) -> bool:
     return bool(_tokens(text) & _NEGATION_MARKERS)
 
 
-def _to_lesson(item: object, task: str, workspace: str = "") -> Lesson | None:
+def _to_lesson(
+    item: object, task: str, workspace: str = "", tags: tuple[str, ...] = ()
+) -> Lesson | None:
     if not isinstance(item, dict):
         return None
     text = str(item.get("lesson", "")).strip()
@@ -208,4 +213,14 @@ def _to_lesson(item: object, task: str, workspace: str = "") -> Lesson | None:
         return None
     # Ders ÖĞRENİLDİĞİ projeye etiketlenir: "auth src/auth altında" gibi bir gözlem
     # yalnızca orada doğrudur, başka projede modeli yanlış yere yönlendirir.
-    return Lesson(text=text, kind=kind, task=task, source=LessonSource.LEARNED, workspace=workspace)
+    #
+    # `tags` ise dersin TEKNOLOJİSİDİR (godot, python, mcp:godot…) ve aynı
+    # teknolojideki başka projelerde de geçerli olmasını sağlar.
+    return Lesson(
+        text=text,
+        kind=kind,
+        task=task,
+        source=LessonSource.LEARNED,
+        workspace=workspace,
+        tags=tags,
+    )

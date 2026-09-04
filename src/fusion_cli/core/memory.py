@@ -66,6 +66,18 @@ class Lesson:
     scope: str = ""
     #: İsteğe bağlı tetikleyici ipucu; boş = serbest.
     trigger: str = ""
+    #: Dersin ait olduğu TEKNOLOJİLER (godot, python, node…) ve MCP sunucuları.
+    #:
+    #: `workspace` ile arasındaki fark ölçülerek ortaya çıktı: 20 koşuda 38 Godot
+    #: dersi öğrenildi, ama yeni bir Godot klasöründe hiçbiri hatırlanmadı —
+    #: workspace süzgeci hepsini eledi. Oysa "Godot MCP'de `res://` kullanma"
+    #: dersi öğrenildiği KLASÖRE değil öğrenildiği TEKNOLOJİYE aittir.
+    #:
+    #: Üç katman olur: etiketsiz ve workspace'siz ders GENEL, workspace'li ders
+    #: O PROJEYE özel ("auth modülü src/auth altında"), etiketli ders ise aynı
+    #: teknolojideki HER projede geçerli. Alan taşınmadan önce yazılmış kayıtlar
+    #: boş okunur; göç gerekmez, eski davranış korunur.
+    tags: tuple[str, ...] = ()
     #: Dersin ait olduğu proje kökü. BOŞ = genel (her projede geçerli).
     #:
     #: "auth modülü src/auth altında" gibi bir gözlem yalnızca öğrenildiği projede
@@ -166,6 +178,7 @@ class LessonMemory(Protocol):
         *,
         scope: str | None = None,
         workspace: str | None = None,
+        tags: tuple[str, ...] = (),
     ) -> tuple[Lesson, ...]:
         """Göreve YETERİNCE BENZER ve güveni eşiğin üstünde dersleri getir.
 

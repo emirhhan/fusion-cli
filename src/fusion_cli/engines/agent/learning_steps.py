@@ -30,6 +30,19 @@ logger = logging.getLogger(__name__)
 #: bütçesini gereksiz büyütebilir. Agent loop en fazla iki geçmiş gözlem taşır.
 AUTO_RECALL_LIMIT = 2
 
+#: Karmaşık (çok adımlı, araç kullanan) görevlerde recall bütçesi.
+#:
+#: Ölçüldü: bellekte 320 ders, Godot görevinde 38'i alakalıyken tur başına yalnız
+#: 2'si enjekte ediliyordu — öğrenilen bilginin neredeyse tamamı israf oluyordu.
+#: Basit sohbette 2 doğru: orada dikkat bütçesi dar ve ders zaten az alakalı.
+#: Karmaşık görevde istem hâlihazırda uzun; birkaç ders daha oranı bozmaz.
+COMPLEX_RECALL_LIMIT = 6
+
+
+def recall_limit_for(*, complex_task: bool) -> int:
+    """Görevin karmaşıklığına göre recall bütçesi."""
+    return COMPLEX_RECALL_LIMIT if complex_task else AUTO_RECALL_LIMIT
+
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
@@ -41,6 +54,26 @@ def _workspace(deps: AgentDeps) -> str:
     (`.` ve `../fusion-cli`) iki ayrı workspace gibi görünmemeli.
     """
     return str(deps.tool_context.root.resolve()) if deps.tool_context is not None else ""
+
+
+def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
+    """Dersin ait olduğu TEKNOLOJİLER: proje türü + bağlı MCP sunucuları.
+
+    `workspace` dersi tek bir klasöre bağlar; bu doğru ama yetersizdi. Ölçüldü:
+    20 koşuda 38 Godot dersi öğrenildi, yeni bir Godot klasöründe hiçbiri
+    hatırlanmadı. "Godot MCP'de `res://` kullanma" dersi klasöre değil
+    teknolojiye aittir ve o teknolojinin kullanıldığı her projede geçerlidir.
+
+    MCP sunucusu ayrı bir etikettir: bir MCP aracının kuralı, projenin türünden
+    bağımsız olarak o sunucu bağlıyken geçerlidir.
+    """
+    from .verify_discovery import project_kinds
+
+    context = deps.tool_context
+    sunucular = {
+        ad.split("__", 1)[0] for ad in context.available_tools if "__" in ad
+    }
+    return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular)}))
 
 
 def recall_lessons(
@@ -65,6 +98,7 @@ def recall_lessons(
         limit=limit,
         scope=scope,
         workspace=_workspace(deps),
+        tags=lesson_tags(deps),
     )
     if recalled:
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
@@ -185,6 +219,7 @@ async def _extract_and_store(
         config=deps.config,
         publisher=deps.publisher,
         workspace=_workspace(deps),
+        tags=lesson_tags(deps),
     )
     # Yazım kapısı: yalnızca ölçülebilir kanıtı olan, sır içermeyen, mevcut derslerle
     # çakışmayan adaylar belleğe girer. Bellek çöple/zehirle dolmasın.

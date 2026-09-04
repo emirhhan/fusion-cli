@@ -10,6 +10,7 @@ from fusion_cli.engines.agent.verify_discovery import (
     behavioral_commands,
     discover_auto_commands,
     discover_commands,
+    project_kinds,
 )
 
 
@@ -277,3 +278,21 @@ def test_test_scripti_olan_node_projesi_davranis_kapisi_sunar(tmp_path):
     )
 
     assert behavioral_commands(tmp_path) == ("npm run test",)
+
+
+def test_proje_turu_isaret_dosyasindan_taninir(tmp_path):
+    """Ders taşınması için projenin TÜRÜ gerekir; komutu değil kimliği sorar."""
+    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+
+    assert project_kinds(tmp_path) == ("godot",)
+
+
+def test_birden_cok_tur_birlikte_donulur(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+
+    assert project_kinds(tmp_path) == ("node", "python")
+
+
+def test_taninmayan_dizin_bos_doner(tmp_path):
+    assert project_kinds(tmp_path) == ()
