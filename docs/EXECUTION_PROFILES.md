@@ -2,6 +2,24 @@
 
 Fusion'da iki ayrı eksen vardır ve **birbirinden bağımsızdır**:
 
+## Otomatik profesyonel yürütme — görevin nasıl işlendiği
+
+Yeni kurulumlarda `workflow_mode: auto` varsayılandır. Bu, model profilinden ve
+onay kipinden ayrıdır: basit sohbet/tek cevap görevleri hızlı yolda kalır; kod
+değişikliği, çok dosya, test, dış etki veya belirsiz araç kullanımı içeren görevler
+tipli plan, adım kanıtı, sınırlı kurtarma ve final kabul kapısına yönlenir.
+
+Planlı yolda Fusion:
+
+- her adımın bağımlılığını ve başarı koşulunu doğrular;
+- güvenli olmayan dış etkileri kör biçimde tekrar etmez;
+- bütçe aşımında checkpoint alıp başarı iddia etmeden duraklar;
+- sonraki çalıştırmada post-condition'ı yeniden ölçerek güvenle devam eder.
+
+`workflow_mode: always` tüm kök görevleri planlı yola alır; `off` yalnızca ileri
+uyumluluk/teşhis için hızlı yolu zorlar. Varsayılan `auto` değiştirilmese de tüm
+kullanıcılar profesyonel akışı gerektiren görevlerde otomatik olarak korumayı alır.
+
 ## Mode (çalışma profili) — hangi model
 
 `/mode` komutu modeli/kademeyi seçer. Profil = mevcut kademe sistemi (RULES gereği
