@@ -14,8 +14,10 @@ from ...core.execution_plan import (
     ready_steps,
     validate_plan,
 )
+from ...core.failure import RecoveryAction
 from ...core.types import Message
 from .plan_parser import PlanParseError, parse_execution_plan
+from .recovery import choose_recovery, classify_failure
 from .step_verification import verify_plan_acceptance, verify_step
 
 if TYPE_CHECKING:
@@ -138,36 +140,52 @@ async def run_execution_plan(
     outcomes: list[AgentOutcome] = []
     while ready := ready_steps(current):
         step = ready[0]
-        running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
-        current = _replace_step(current, running)
-        outcome = await run_agent(
-            _step_prompt(task, running, evidence),
-            deps,
-            depth=1,
-            self_review=False,
-            verify=False,
-            internal=True,
-        )
-        outcomes.append(outcome)
-        verification = await verify_step(running, outcome, deps)
-        succeeded = verification.ok
-        final_status = StepStatus.COMPLETED if succeeded else StepStatus.FAILED
-        current = _replace_step(current, replace(running, status=final_status))
-        if not succeeded:
-            detail = "; ".join(verification.findings) or outcome.final_text
-            text = f"Plan adımı başarısız oldu: {step.step_id}. {detail}"
-            return AgentOutcome(
-                final_text=text,
-                messages=[Message("assistant", text)],
-                tool_calls_made=sum(item.tool_calls_made for item in outcomes),
-                model_calls_made=sum(item.model_calls_made for item in outcomes),
-                failed_tool_calls=sum(item.failed_tool_calls for item in outcomes),
-                mutating_tool_calls_made=sum(
-                    item.mutating_tool_calls_made for item in outcomes
-                ),
-                ok=False,
+        guidance = ""
+        while True:
+            running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
+            current = _replace_step(current, running)
+            prompt = _step_prompt(task, running, evidence)
+            if guidance:
+                prompt = f"{prompt}\n\nKURTARMA YÖNERGESİ:\n{guidance}"
+            outcome = await run_agent(
+                prompt,
+                deps,
+                depth=1,
+                self_review=False,
+                verify=False,
+                internal=True,
             )
-        evidence[step.step_id] = " | ".join(verification.evidence)
+            outcomes.append(outcome)
+            verification = await verify_step(running, outcome, deps)
+            if verification.ok:
+                current = _replace_step(
+                    current, replace(running, status=StepStatus.COMPLETED)
+                )
+                evidence[step.step_id] = " | ".join(verification.evidence)
+                break
+
+            failure = classify_failure(outcome, verification)
+            recovery = choose_recovery(failure, running, running.attempts)
+            if recovery.action is RecoveryAction.PAUSE:
+                current = _replace_step(current, replace(running, status=StepStatus.BLOCKED))
+                detail = "; ".join(verification.findings) or outcome.final_text
+                text = (
+                    f"Plan adımı duraklatıldı: {step.step_id}. {recovery.reason} {detail}"
+                )
+                return AgentOutcome(
+                    final_text=text,
+                    messages=[Message("assistant", text)],
+                    tool_calls_made=sum(item.tool_calls_made for item in outcomes),
+                    model_calls_made=sum(item.model_calls_made for item in outcomes),
+                    failed_tool_calls=sum(item.failed_tool_calls for item in outcomes),
+                    mutating_tool_calls_made=sum(
+                        item.mutating_tool_calls_made for item in outcomes
+                    ),
+                    ok=False,
+                )
+            guidance = recovery.guidance
+            step = replace(running, status=StepStatus.PENDING)
+            current = _replace_step(current, step)
 
     if any(step.status is not StepStatus.COMPLETED for step in current.steps):
         text = "Yürütme planı ilerleyemedi: tamamlanmamış adımların bağımlılıkları hazır değil."

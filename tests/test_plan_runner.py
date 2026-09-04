@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
+from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
 
@@ -99,3 +100,32 @@ async def test_gecersiz_model_plani_yalniz_bir_kez_onarilir(tmp_path):
     assert result.ok is False
     assert len(calls) == 2
     assert "plan üretilemedi" in result.final_text.lower()
+
+
+async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_path):
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    prompts: list[str] = []
+
+    async def agent(task, deps, **kwargs):
+        del deps, kwargs
+        prompts.append(task)
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    class _Verifier:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            if self.calls == 1:
+                return VerificationResult(ok=False, findings=("pytest kırıldı",))
+            return VerificationResult(ok=True)
+
+    deps = _FakeDeps(ToolContext(root=tmp_path), verifier=_Verifier())
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert result.ok is True
+    assert len(prompts) == 2
+    assert "KURTARMA YÖNERGESİ" in prompts[1]
+    assert "pytest kırıldı" in prompts[1]
