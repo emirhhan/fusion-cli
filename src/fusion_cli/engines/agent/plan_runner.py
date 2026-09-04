@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ...core.checkpoint import WorkflowCheckpoint
 from ...core.execution_plan import (
     ExecutionPlan,
     PlanStatus,
@@ -112,6 +114,70 @@ def _replace_step(plan: ExecutionPlan, updated: PlanStep) -> ExecutionPlan:
     )
 
 
+def _save_checkpoint(plan: ExecutionPlan, deps: AgentDeps) -> None:
+    """Varsa checkpoint deposuna yalnızca gerekli plan durumunu yaz."""
+    if deps.checkpoint_store is None or not deps.conversation_id:
+        return
+    deps.checkpoint_store.save(
+        WorkflowCheckpoint(
+            plan=plan,
+            root=str(deps.tool_context.root.resolve()),
+            conversation_id=deps.conversation_id,
+            completed_step_ids=tuple(
+                step.step_id for step in plan.steps if step.status is StepStatus.COMPLETED
+            ),
+            updated_at=time.time(),
+        )
+    )
+
+
+def _invalidate_step_and_dependents(plan: ExecutionPlan, step_id: str) -> ExecutionPlan:
+    """Post-condition'ı bozulan adımı ve ona bağlı tamamlanmış adımları sıfırla."""
+    invalid = {step_id}
+    changed = True
+    while changed:
+        before = len(invalid)
+        invalid.update(
+            step.step_id for step in plan.steps if set(step.depends_on) & invalid
+        )
+        changed = len(invalid) != before
+    return replace(
+        plan,
+        steps=tuple(
+            replace(step, status=StepStatus.PENDING)
+            if step.step_id in invalid
+            else step
+            for step in plan.steps
+        ),
+    )
+
+
+async def _resume_plan(
+    checkpoint: WorkflowCheckpoint,
+    deps: AgentDeps,
+) -> tuple[ExecutionPlan, dict[str, str]]:
+    """Tamamlanmış checkpoint adımlarını yeniden ölçerek güvenli devam planı kur."""
+    from .loop import AgentOutcome
+
+    plan = checkpoint.plan
+    evidence: dict[str, str] = {}
+    for step in plan.steps:
+        if step.status is not StepStatus.COMPLETED:
+            continue
+        observed = AgentOutcome(
+            final_text="checkpoint post-condition yeniden denetimi",
+            messages=[],
+            tool_calls_made=1,
+            mutating_tool_calls_made=1,
+        )
+        verification = await verify_step(step, observed, deps)
+        if not verification.ok:
+            plan = _invalidate_step_and_dependents(plan, step.step_id)
+            break
+        evidence[step.step_id] = " | ".join(verification.evidence)
+    return replace(plan, status=PlanStatus.RUNNING), evidence
+
+
 async def run_execution_plan(
     task: str,
     deps: AgentDeps,
@@ -124,8 +190,15 @@ async def run_execution_plan(
     from .loop import AgentOutcome
 
     del promotion  # İlerleyen hızlı yolun gerekçesi için ayrılmış sözleşme alanı.
+    checkpoint = None
+    if plan is None and deps.checkpoint_store is not None and deps.conversation_id:
+        checkpoint = deps.checkpoint_store.find_resumable(
+            str(deps.tool_context.root.resolve()), deps.conversation_id
+        )
     try:
-        current = plan or await _generate_plan(task, deps, run_agent)
+        current = plan or (checkpoint.plan if checkpoint is not None else None)
+        if current is None:
+            current = await _generate_plan(task, deps, run_agent)
     except PlanParseError as exc:
         text = f"Plan üretilemedi: {exc}"
         return AgentOutcome(final_text=text, messages=[Message("assistant", text)], ok=False)
@@ -135,8 +208,12 @@ async def run_execution_plan(
         text = f"Yürütme planı geçersiz: {' '.join(validation.errors)}"
         return AgentOutcome(final_text=text, messages=[Message("assistant", text)], ok=False)
 
-    current = replace(current, status=PlanStatus.RUNNING)
-    evidence: dict[str, str] = {}
+    if checkpoint is not None:
+        current, evidence = await _resume_plan(checkpoint, deps)
+    else:
+        current = replace(current, status=PlanStatus.RUNNING)
+        evidence = {}
+    _save_checkpoint(current, deps)
     outcomes: list[AgentOutcome] = []
     while ready := ready_steps(current):
         step = ready[0]
@@ -162,12 +239,15 @@ async def run_execution_plan(
                     current, replace(running, status=StepStatus.COMPLETED)
                 )
                 evidence[step.step_id] = " | ".join(verification.evidence)
+                _save_checkpoint(current, deps)
                 break
 
             failure = classify_failure(outcome, verification)
             recovery = choose_recovery(failure, running, running.attempts)
             if recovery.action is RecoveryAction.PAUSE:
                 current = _replace_step(current, replace(running, status=StepStatus.BLOCKED))
+                current = replace(current, status=PlanStatus.PAUSED)
+                _save_checkpoint(current, deps)
                 detail = "; ".join(verification.findings) or outcome.final_text
                 text = (
                     f"Plan adımı duraklatıldı: {step.step_id}. {recovery.reason} {detail}"
@@ -207,6 +287,7 @@ async def run_execution_plan(
             ),
             ok=False,
         )
+    _save_checkpoint(current, deps)
     text = outcomes[-1].final_text if outcomes else "Yürütme planı tamamlandı."
     return AgentOutcome(
         final_text=text,

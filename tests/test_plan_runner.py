@@ -45,6 +45,8 @@ class _FakeAgent:
 class _FakeDeps:
     tool_context: ToolContext
     verifier: object | None = None
+    checkpoint_store: object | None = None
+    conversation_id: str = ""
 
 
 async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):

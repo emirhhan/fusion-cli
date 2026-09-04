@@ -732,6 +732,7 @@ class AppSession:
                 system_prompt=(None if self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT),
                 interactive=True,
                 capabilities=self._state.capabilities,
+                conversation_id=self._conversation_id or "app",
             )
         )
         try:

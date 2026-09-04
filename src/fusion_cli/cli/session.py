@@ -42,6 +42,7 @@ from ..engines.agent.approval import ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
+from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
@@ -145,6 +146,7 @@ async def run_agent_task(
     capabilities: CapabilityRegistry | None = None,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
+    conversation_id: str = "cli",
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -191,6 +193,8 @@ async def run_agent_task(
             verifier=build_verifier(config, root=tool_context.root, tool_context=tool_context),
             task_type=task_type,
             background=background,
+            checkpoint_store=JsonCheckpointStore(config.memory_dir / "workflow-checkpoints"),
+            conversation_id=conversation_id,
         )
         outcome = await _run_agent_with_mcp(
             task,

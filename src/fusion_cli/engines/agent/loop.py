@@ -30,6 +30,7 @@ from ...config.eligibility import effort_for_spec
 from ...config.model_select import select_agent_spec
 from ...config.models import Config
 from ...core.budget import BudgetStop, TurnBudget
+from ...core.checkpoint import CheckpointStore
 from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
 from ...core.constants import CAPABILITY_WALL_PREFIX, FILE_MISSING_PREFIX
@@ -278,6 +279,10 @@ class AgentDeps:
     #: türetiyordu. Asıl görev BUGFIX (12 araç turu) olsa bile düzeltme metni basit
     #: sohbet sanılıp 5 tura düşüyor ve iş yarıda kesiliyordu.
     execution: ExecutionPolicy | None = None
+    #: Profesyonel workflow'un kesintiden sonra devam edebilmesi için kalıcı depo.
+    checkpoint_store: CheckpointStore | None = None
+    #: Aynı kökteki farklı sohbetlerin checkpoint'lerini birbirinden ayırır.
+    conversation_id: str = ""
 
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.

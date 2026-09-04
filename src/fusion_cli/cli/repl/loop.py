@@ -392,6 +392,7 @@ async def _agent_turn(
     from ...engines.agent.approval import build_policy
     from ...engines.agent.loop import AgentDeps
     from ...engines.agent.verification import build_verifier
+    from ...memory.checkpoint_store import JsonCheckpointStore
 
     renderer = ConsoleRenderer(console, show_thinking=state.show_thinking)
     tracer = LangfuseTracer(task=line)
@@ -430,6 +431,10 @@ async def _agent_turn(
             # ve `task_model_map` REPL'de sessizce uygulanmıyordu.
             task_type=state.task_type,
             health=state.health,
+            checkpoint_store=JsonCheckpointStore(
+                state.config.memory_dir / "workflow-checkpoints"
+            ),
+            conversation_id="repl",
         )
         try:
             turn_extra_system = "\n\n".join(
