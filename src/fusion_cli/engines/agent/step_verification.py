@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.execution_plan import ExecutionPlan, PlanStep, StepStatus
 from ...core.verification import VerificationResult
+from .verify_discovery import behavioral_commands
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -82,17 +83,68 @@ async def verify_step(
     )
 
 
+#: Yalnızca yapısal kapısı olan projede kullanıcıya ve modele verilen uyarı.
+#:
+#: Ölçülen hata: dört adımlık bir Godot planı "tamamlandı" dedi ve kabul kapısı
+#: geçti; kapı `godot --headless --path . --quit` idi ve projenin AÇILDIĞINI
+#: kanıtlıyordu. Üretilen scriptler hiçbir düğüme bağlanmamıştı, oyun hiç
+#: çalışmıyordu. Kusur Godot'a özgü değildir: derleme, tip denetimi ve lint de
+#: çıktının İYİ BİÇİMLİ olduğunu kanıtlar, İSTENEN İŞİ yaptığını değil.
+#:
+#: İş kırılmaz — testi olmayan her projede plan hiç tamamlanamazdı. Ama Fusion
+#: kanıtlamadığı bir şeyi kanıtlanmış gibi SUNMAZ.
+UNPROVEN_BEHAVIOR_WARNING = (
+    "davranış kanıtlanmadı: bu projede kodu çalıştıran bir doğrulama komutu yok. "
+    "Mevcut kapı yalnızca çıktının iyi biçimli olduğunu (derlenir/açılır) gösterir. "
+    "Gerçek kanıt için projeye çalıştırılabilir bir test/kontrol komutu ekleyin."
+)
+
+
+def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
+    """Tamamlanmış adımların dosya post-condition'ları HÂLÂ duruyor mu?
+
+    Adım kanıtı üretildiği ANDA doğrudur; plan ilerledikçe sonraki bir adım o
+    çıktıyı silebilir ya da üzerine yazabilir. Final kapısı bunu sonda yeniden
+    ölçmezse, eski bir "doğrulandı" kaydı eksik teslimi örtbas eder.
+    """
+    findings: list[str] = []
+    for step in plan.steps:
+        for effect in step.expected_effects:
+            if not effect.startswith("file:"):
+                continue
+            raw_path = effect.removeprefix("file:").strip()
+            path = _safe_effect_path(root, raw_path)
+            if path is None or not path.is_file():
+                findings.append(
+                    f"adım çıktısı artık yok: {raw_path} ({step.step_id})"
+                )
+    return tuple(findings)
+
+
 async def verify_plan_acceptance(
     plan: ExecutionPlan,
     deps: AgentDeps,
 ) -> VerificationResult:
-    """Tamamlanan planı son proje kapısından geçir."""
+    """Tamamlanan planı son kapıdan geçir ve neyin KANITLANMADIĞINI da söyle."""
     incomplete = tuple(
         step.step_id for step in plan.steps if step.status is not StepStatus.COMPLETED
     )
     if incomplete:
         finding = f"tamamlanmamış plan adımları: {', '.join(incomplete)}"
         return VerificationResult(ok=False, summary=finding, findings=(finding,))
+
+    stale = _stale_step_effects(plan, deps.tool_context.root)
+    if stale:
+        return VerificationResult(ok=False, summary=stale[0], findings=stale)
+
+    warnings = (
+        () if behavioral_commands(deps.tool_context.root) else (UNPROVEN_BEHAVIOR_WARNING,)
+    )
     if deps.verifier is None:
-        return VerificationResult(ok=True, summary="tüm plan adımları doğrulandı")
-    return await deps.verifier.verify()
+        return VerificationResult(
+            ok=True, summary="tüm plan adımları doğrulandı", warnings=warnings
+        )
+    result = await deps.verifier.verify()
+    if not result.ok:
+        return result
+    return replace(result, warnings=result.warnings + warnings)

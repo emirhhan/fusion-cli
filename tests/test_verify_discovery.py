@@ -7,6 +7,7 @@ gerçek proje iskeletleri kurar ve çıkan planı denetler.
 from __future__ import annotations
 
 from fusion_cli.engines.agent.verify_discovery import (
+    behavioral_commands,
     discover_auto_commands,
     discover_commands,
 )
@@ -245,3 +246,34 @@ def test_godot_kapisi_hizli_kapida_da_bulunur(tmp_path):
     (tmp_path / "project.godot").write_text('[application]\nconfig/name="X"\n')
 
     assert any("godot" in komut for komut in discover_auto_commands(tmp_path))
+
+
+def test_godot_projesinde_davranis_kapisi_yoktur(tmp_path):
+    """Godot kapısı projeyi AÇAR; oyunu oynatmaz. Davranış kanıtı sayılmaz."""
+    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+
+    assert discover_commands(tmp_path) == ("godot --headless --path . --quit",)
+    assert behavioral_commands(tmp_path) == ()
+
+
+def test_test_paketi_olan_python_projesi_davranis_kapisi_sunar(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\npytest\n", encoding="utf-8")
+
+    assert behavioral_commands(tmp_path) == ("pytest -q",)
+
+
+def test_yalniz_derleyen_node_projesi_davranis_kapisi_saymaz(tmp_path):
+    """`build` kodun DERLENDİĞİNİ kanıtlar, ÇALIŞTIĞINI değil."""
+    (tmp_path / "package.json").write_text(
+        '{"scripts": {"build": "vite build"}}', encoding="utf-8"
+    )
+
+    assert behavioral_commands(tmp_path) == ()
+
+
+def test_test_scripti_olan_node_projesi_davranis_kapisi_sunar(tmp_path):
+    (tmp_path / "package.json").write_text(
+        '{"scripts": {"test": "vitest run"}}', encoding="utf-8"
+    )
+
+    assert behavioral_commands(tmp_path) == ("npm run test",)

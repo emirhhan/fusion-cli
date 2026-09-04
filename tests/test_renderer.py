@@ -9,6 +9,7 @@ from rich.console import Console
 from fusion_cli.core.events import (
     Channel,
     ErrorOccurred,
+    ExecutionCompleted,
     ExecutionPromoted,
     ModelCallFinished,
     ModelCallStarted,
@@ -1008,3 +1009,19 @@ def test_hizli_turun_yukseltilmesi_kullaniciya_gerekcesiyle_bildirilir():
     cikti = buffer.getvalue()
     assert "planlı yürütmeye yükseltildi" in cikti
     assert "teşhis ve onarım gerektiren hata" in cikti
+
+
+def test_plan_tamamlandiginda_kanitlanmayan_davranis_uyarisi_basilir():
+    """Uyarı terminalde de görünmeli; "tamamlandı" satırı tek başına kalmamalı."""
+    renderer, buffer = _renderer()
+
+    renderer.handle(
+        ExecutionCompleted(
+            plan_id="p", total_steps=3, warnings=("davranış kanıtlanmadı: test yok",)
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    cikti = buffer.getvalue()
+    assert "3 adım" in cikti
+    assert "davranış kanıtlanmadı" in cikti

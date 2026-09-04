@@ -62,6 +62,17 @@ describe("olayAdimi", () => {
     })).toEqual({ metin: "verify doğrulandı", ayrinti: "pytest geçti · ruff geçti" });
   });
 
+  it("plan tamamlandığında kanıtlanmayan davranışı ayrıntıya koyar", () => {
+    expect(olayAdimi({
+      olay: "ExecutionCompleted",
+      total_steps: 3,
+      warnings: ["davranış kanıtlanmadı: test yok"],
+    })).toEqual({
+      metin: "plan tamamlandı: 3 adım",
+      ayrinti: "davranış kanıtlanmadı: test yok",
+    });
+  });
+
   it("hızlı turun yükseltilmesini gerekçesiyle gösterir", () => {
     // Yükseltme sessiz olmamalı: kullanıcı işin neden planlı yola geçtiğini görür.
     expect(olayAdimi({

@@ -104,7 +104,14 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         ayrinti: typeof veri.reason === "string" ? veri.reason : undefined,
       };
     case "ExecutionCompleted":
-      return { metin: `plan tamamlandı: ${Number(veri.total_steps ?? 0)} adım` };
+      // Kabul kapısının KANITLAYAMADIĞI şey de görünmeli; "tamamlandı" tek
+      // başına işin doğrulandığı izlenimi verir.
+      return {
+        metin: `plan tamamlandı: ${Number(veri.total_steps ?? 0)} adım`,
+        ayrinti: Array.isArray(veri.warnings) && veri.warnings.length
+          ? veri.warnings.join(" · ")
+          : undefined,
+      };
     case "FilesChanged": {
       const paths = veri.paths;
       if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) return null;

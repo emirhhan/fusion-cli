@@ -486,9 +486,17 @@ async def run_execution_plan(
         )
     _save_checkpoint(current, deps)
     deps.publisher.publish(
-        ExecutionCompleted(plan_id=current.plan_id, total_steps=len(current.steps))
+        ExecutionCompleted(
+            plan_id=current.plan_id,
+            total_steps=len(current.steps),
+            warnings=acceptance.warnings,
+        )
     )
     text = outcomes[-1].final_text if outcomes else "Yürütme planı tamamlandı."
+    # Uyarı yalnız doğrulama nesnesinde kalırsa kimse görmez: kullanıcı
+    # "tamamlandı" cümlesini okur ve işin kanıtlandığını sanar.
+    if acceptance.warnings:
+        text = f"{text}\n\n" + "\n".join(f"UYARI: {not_}" for not_ in acceptance.warnings)
     return AgentOutcome(
         final_text=text,
         messages=[Message("assistant", text)],

@@ -210,6 +210,10 @@ class ConsoleRenderer:
             self._status(f"Workflow duraklatıldı: {event.reason}")
         elif isinstance(event, ExecutionCompleted):
             self._status(f"Plan tamamlandı: {event.total_steps} adım doğrulandı")
+            # Kanıtlanmayan şey SESSİZ kalmaz: "tamamlandı" satırı tek başına
+            # kullanıcıya işin kanıtlandığını düşündürür.
+            for uyari in event.warnings:
+                self._status(f"UYARI: {uyari}")
         elif isinstance(event, ToolExecuted):
             self._tool_executed(event)
             self._resume_work(messages.WORK_THINKING)

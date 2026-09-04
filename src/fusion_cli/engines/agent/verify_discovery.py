@@ -94,6 +94,32 @@ def _is_test_command(command: str) -> bool:
     return any(marker in command for marker in _TEST_MARKERS)
 
 
+#: Kodu GERÇEKTEN ÇALIŞTIRAN doğrulama komutları.
+#:
+#: Ayrım `_TEST_MARKERS` ile aynı değildir ve olmamalıdır: orada soru "bu komut
+#: pahalı/kırılgan mı, otomatik kapıda atlayayım mı"; burada soru "bu komut
+#: davranışı KANITLIYOR mu". `make test` ikincisine girer, birincisine girmez.
+_BEHAVIORAL_MARKERS = ("pytest", "cargo test", "go test", "run test", "make test")
+
+
+def behavioral_commands(root: Path) -> tuple[str, ...]:
+    """Projenin, kodu çalıştırarak DAVRANIŞI kanıtlayan komutlarını döndür.
+
+    Derleme, tip denetimi, lint ve "proje açılıyor mu" kapıları buraya GİRMEZ:
+    hepsi çıktının iyi biçimli olduğunu kanıtlar, istenen işi yaptığını değil.
+
+    Ölçülen hata: bir Godot görevi dört adımda "tamamlandı" dedi ve kabul kapısı
+    geçti; `godot --headless --path . --quit` projenin AÇILDIĞINI kanıtlıyordu.
+    Oysa üretilen scriptler hiçbir düğüme bağlanmamıştı ve oyun hiç çalışmıyordu.
+    Kapının kanıtladığı şeyle kullanıcıya söylenen şey aynı olmalıdır.
+    """
+    return tuple(
+        command
+        for command in discover_commands(root)
+        if any(marker in command for marker in _BEHAVIORAL_MARKERS)
+    )
+
+
 def _python(root: Path) -> tuple[str, ...]:
     metin = _read(root / "pyproject.toml")
     if metin is None:

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
-from fusion_cli.core.execution_plan import PlanStep, RetrySafety
+from fusion_cli.core.execution_plan import (
+    ExecutionPlan,
+    PlanStep,
+    RetrySafety,
+    StepStatus,
+)
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome
-from fusion_cli.engines.agent.step_verification import verify_step
+from fusion_cli.engines.agent.step_verification import (
+    verify_plan_acceptance,
+    verify_step,
+)
 
 from .fakes import AlwaysApprove, make_config
 
@@ -79,3 +87,64 @@ async def test_proje_dogrulayicisi_kirilirsa_adim_basarisizdir(tmp_path):
 
     assert result.ok is False
     assert "pytest kırıldı" in result.findings
+
+
+# --------------------------------------------------------------------------- #
+# Final kabul kapısı
+# --------------------------------------------------------------------------- #
+
+
+def _tamamlanmis_plan(*steps: PlanStep) -> ExecutionPlan:
+    return ExecutionPlan(
+        plan_id="p",
+        task="iş",
+        steps=tuple(replace_status(step) for step in steps),
+    )
+
+
+def replace_status(step: PlanStep) -> PlanStep:
+    from dataclasses import replace
+
+    return replace(step, status=StepStatus.COMPLETED)
+
+
+async def test_kabul_kapisi_adim_ciktisinin_hala_durdugunu_olcer(tmp_path):
+    """Final kapısı, her adımın post-condition'ını SONDA yeniden ölçmelidir.
+
+    Aksi hâlde dördüncü adımın sildiği/üzerine yazdığı bir dosyayı ikinci adımın
+    "doğrulandı" kaydı örtbas eder ve plan eksik çıktıyla tamamlanmış sayılır.
+    """
+    plan = _tamamlanmis_plan(_file_step("main.tscn"))
+
+    sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+
+    assert sonuc.ok is False
+    assert any("main.tscn" in bulgu for bulgu in sonuc.findings)
+
+
+async def test_yalniz_yapisal_kapisi_olan_proje_davranisi_kanitlanmadi_der(tmp_path):
+    """Ölçüldü: Godot planı "tamamlandı" dedi, oyun hiç çalışmıyordu.
+
+    `godot --headless --path . --quit` projenin AÇILDIĞINI kanıtlar. Kapının
+    kanıtladığı şeyle kullanıcıya söylenen şey aynı olmalıdır: iş kırılmaz ama
+    davranışın kanıtlanmadığı AÇIKÇA bildirilir.
+    """
+    (tmp_path / "main.tscn").write_text("[scene]", encoding="utf-8")
+    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+    plan = _tamamlanmis_plan(_file_step("main.tscn"))
+
+    sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+
+    assert sonuc.ok is True
+    assert any("davranış" in uyari.lower() for uyari in sonuc.warnings)
+
+
+async def test_test_paketi_olan_proje_uyari_uretmez(tmp_path):
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\npytest\n", encoding="utf-8")
+    plan = _tamamlanmis_plan(_file_step("main.py"))
+
+    sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+
+    assert sonuc.ok is True
+    assert sonuc.warnings == ()

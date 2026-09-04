@@ -361,6 +361,9 @@ class ExecutionCompleted(Event):
 
     plan_id: str
     total_steps: int
+    #: İşi kırmayan ama kullanıcının BİLMESİ gereken eksikler — örneğin kabul
+    #: kapısının davranışı değil yalnız biçimi kanıtlayabilmiş olması.
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

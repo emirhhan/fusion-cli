@@ -376,3 +376,22 @@ async def test_adim_zarfi_alt_turun_hakkindan_kucuk_olamaz(tmp_path):
     result = await run_execution_plan("iş", deps, agent, plan=plan)
 
     assert result.budget_stopped is False
+
+
+async def test_kanitlanmayan_davranis_kullaniciya_bildirilir(tmp_path):
+    """Uyarı yalnız doğrulama nesnesinde kalırsa hiçbir işe yaramaz.
+
+    Kullanıcı "tamamlandı" cümlesini okuyup işin kanıtlandığını sanar — ölçülen
+    hata tam olarak buydu.
+    """
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    deps = _FakeDeps(ToolContext(root=tmp_path))
+
+    result = await run_execution_plan("iş", deps, _FakeAgent([]), plan=plan)
+
+    assert result.ok is True
+    assert "davranış kanıtlanmadı" in result.final_text
+    tamamlandi = [
+        olay for olay in deps.publisher.events if isinstance(olay, ExecutionCompleted)
+    ]
+    assert tamamlandi and tamamlandi[0].warnings
