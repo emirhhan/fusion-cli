@@ -68,6 +68,15 @@ def test_workflow_mode_varsayilan_olarak_otomatiktir():
     assert load_config().runtime.workflow_mode is ExecutionMode.AUTO
 
 
+def test_workflow_butce_zarflari_profesyonel_varsayilanlarla_gelir():
+    runtime = load_config().runtime
+
+    assert runtime.workflow_planning_calls == 2
+    assert runtime.workflow_step_calls == 8
+    assert runtime.workflow_recovery_calls == 2
+    assert runtime.workflow_final_verification_calls == 2
+
+
 def test_workflow_mode_bilinmeyen_degeri_reddeder(tmp_path):
     path = _yaz(tmp_path, {"runtime": {"workflow_mode": "rastgele"}})
 

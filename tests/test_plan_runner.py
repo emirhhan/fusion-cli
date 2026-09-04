@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
 from fusion_cli.core.tools import ToolContext
@@ -47,6 +48,7 @@ class _FakeDeps:
     verifier: object | None = None
     checkpoint_store: object | None = None
     conversation_id: str = ""
+    config: object | None = None
 
 
 async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):
@@ -131,3 +133,26 @@ async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_pa
     assert len(prompts) == 2
     assert "KURTARMA YÖNERGESİ" in prompts[1]
     assert "pytest kırıldı" in prompts[1]
+
+
+async def test_adim_butcesi_asildiginda_basari_uydurmadan_duraklar(tmp_path):
+    plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
+    config = SimpleNamespace(
+        runtime=SimpleNamespace(
+            workflow_planning_calls=2,
+            workflow_step_calls=0,
+            workflow_recovery_calls=1,
+            workflow_final_verification_calls=1,
+        )
+    )
+    deps = _FakeDeps(ToolContext(root=tmp_path), config=config)
+
+    async def agent(task, agent_deps, **kwargs):
+        del task, agent_deps, kwargs
+        return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan("iş", deps, agent, plan=plan)
+
+    assert result.ok is False
+    assert result.budget_stopped is True
+    assert "duraklatıldı" in result.final_text

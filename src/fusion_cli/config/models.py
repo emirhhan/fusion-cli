@@ -114,6 +114,14 @@ class RuntimeConfig:
     workflow_mode: ExecutionMode = ExecutionMode.AUTO
     #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
     workflow_max_model_calls: int = 12
+    #: Tipli plan üretimi ve tek biçim-onarım çağrısı için zarf.
+    workflow_planning_calls: int = 2
+    #: Her plan adımının bağımsız model çağrısı zarfı.
+    workflow_step_calls: int = 8
+    #: Hata sınıflandırmasından sonra kullanılabilecek toplam kurtarma çağrısı.
+    workflow_recovery_calls: int = 2
+    #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
+    workflow_final_verification_calls: int = 2
     #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token
     #: tasarrufu). Yalnızca gateway'i etkiler; agent/fusion motorları etkilenmez.
     gateway_cache: bool = True

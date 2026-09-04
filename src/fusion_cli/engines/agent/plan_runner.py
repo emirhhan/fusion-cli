@@ -18,6 +18,7 @@ from ...core.execution_plan import (
 )
 from ...core.failure import RecoveryAction
 from ...core.types import Message
+from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
 from .plan_parser import PlanParseError, parse_execution_plan
 from .recovery import choose_recovery, classify_failure
 from .step_verification import verify_plan_acceptance, verify_step
@@ -56,7 +57,9 @@ def _repair_prompt(task: str, invalid_output: str, error: PlanParseError) -> str
     )
 
 
-async def _generate_plan(task: str, deps: AgentDeps, run_agent: RunAgent) -> ExecutionPlan:
+async def _generate_plan(
+    task: str, deps: AgentDeps, run_agent: RunAgent
+) -> tuple[ExecutionPlan, int]:
     """Planı üret; biçim hatasında yalnızca bir onarım turu kullan."""
     prompt = _PLAN_PROMPT.replace("{task}", task)
     outcome = await run_agent(
@@ -70,7 +73,7 @@ async def _generate_plan(task: str, deps: AgentDeps, run_agent: RunAgent) -> Exe
         allowed_tools=set(),
     )
     try:
-        return parse_execution_plan(outcome.final_text)
+        return parse_execution_plan(outcome.final_text), max(1, outcome.model_calls_made)
     except PlanParseError as first_error:
         repaired = await run_agent(
             _repair_prompt(task, outcome.final_text, first_error),
@@ -82,7 +85,8 @@ async def _generate_plan(task: str, deps: AgentDeps, run_agent: RunAgent) -> Exe
             internal=True,
             allowed_tools=set(),
         )
-        return parse_execution_plan(repaired.final_text)
+        calls = max(1, outcome.model_calls_made) + max(1, repaired.model_calls_made)
+        return parse_execution_plan(repaired.final_text), calls
 
 
 def _step_prompt(
@@ -190,6 +194,14 @@ async def run_execution_plan(
     from .loop import AgentOutcome
 
     del promotion  # İlerleyen hızlı yolun gerekçesi için ayrılmış sözleşme alanı.
+    runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    workflow_budget = WorkflowBudget(
+        planning=getattr(runtime, "workflow_planning_calls", 2),
+        per_step=getattr(runtime, "workflow_step_calls", 8),
+        recovery=getattr(runtime, "workflow_recovery_calls", 2),
+        final=getattr(runtime, "workflow_final_verification_calls", 2),
+    )
+    ledger = BudgetLedger(workflow_budget)
     checkpoint = None
     if plan is None and deps.checkpoint_store is not None and deps.conversation_id:
         checkpoint = deps.checkpoint_store.find_resumable(
@@ -198,7 +210,15 @@ async def run_execution_plan(
     try:
         current = plan or (checkpoint.plan if checkpoint is not None else None)
         if current is None:
-            current = await _generate_plan(task, deps, run_agent)
+            current, planning_calls = await _generate_plan(task, deps, run_agent)
+            if not ledger.charge(BudgetEnvelope.PLANNING, planning_calls).allowed:
+                text = "Workflow planlama bütçesi tükendi; görev güvenle duraklatıldı."
+                return AgentOutcome(
+                    final_text=text,
+                    messages=[Message("assistant", text)],
+                    ok=False,
+                    budget_stopped=True,
+                )
     except PlanParseError as exc:
         text = f"Plan üretilemedi: {exc}"
         return AgentOutcome(final_text=text, messages=[Message("assistant", text)], ok=False)
@@ -218,6 +238,7 @@ async def run_execution_plan(
     while ready := ready_steps(current):
         step = ready[0]
         guidance = ""
+        recovering = False
         while True:
             running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
             current = _replace_step(current, running)
@@ -233,6 +254,24 @@ async def run_execution_plan(
                 internal=True,
             )
             outcomes.append(outcome)
+            envelope = BudgetEnvelope.RECOVERY if recovering else BudgetEnvelope.PER_STEP
+            calls = max(1, outcome.model_calls_made)
+            if not ledger.charge(envelope, calls).allowed:
+                current = _replace_step(current, replace(running, status=StepStatus.BLOCKED))
+                current = replace(current, status=PlanStatus.PAUSED)
+                _save_checkpoint(current, deps)
+                text = (
+                    f"Workflow {envelope.value} bütçesi tükendi; "
+                    f"'{step.step_id}' adımında checkpoint alınarak duraklatıldı."
+                )
+                return AgentOutcome(
+                    final_text=text,
+                    messages=[Message("assistant", text)],
+                    tool_calls_made=sum(item.tool_calls_made for item in outcomes),
+                    model_calls_made=sum(item.model_calls_made for item in outcomes),
+                    ok=False,
+                    budget_stopped=True,
+                )
             verification = await verify_step(running, outcome, deps)
             if verification.ok:
                 current = _replace_step(
@@ -264,6 +303,7 @@ async def run_execution_plan(
                     ok=False,
                 )
             guidance = recovery.guidance
+            recovering = True
             step = replace(running, status=StepStatus.PENDING)
             current = _replace_step(current, step)
 
