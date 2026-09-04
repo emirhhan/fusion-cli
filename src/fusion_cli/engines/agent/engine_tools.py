@@ -26,8 +26,10 @@ from ...tools.capabilities import (
     map_tools,
     search,
 )
+from ...tools.files import display_path, resolve_path
 from ...tools.registry import ToolRegistry
 from ...ui import messages
+from .image_view import DEFAULT_QUESTION, describe_image
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
@@ -81,6 +83,8 @@ def build_agent_registry(
     extended.register(_council_tool(deps))
     if deps.capabilities is not None:
         _register_capability_tools(extended, deps, depth=depth, run_agent=run_agent)
+    if deps.config.vision is not None:
+        extended.register(_view_image_tool(deps))
     if deps.code_index is not None:
         extended.register(_search_codebase_tool(deps))
     if deps.asker is not None:
@@ -197,6 +201,39 @@ def _council_tool(deps: AgentDeps) -> Tool:
                 "question": {**_STRING, "description": "danışılacak zor soru ya da karar"}
             },
             "required": ["question"],
+        },
+        run=_run,
+    )
+
+
+def _view_image_tool(deps: AgentDeps) -> Tool:
+    """Diskteki bir görsele bakıp ne olduğunu öğrenmeyi sağlar."""
+
+    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        raw_path = args.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return ToolResult.failure("'path' alanı boş olmayan bir metin olmalı.")
+        soru = args.get("question")
+        question = soru.strip() if isinstance(soru, str) and soru.strip() else DEFAULT_QUESTION
+        path = resolve_path(context, raw_path)
+        aciklama, sorun = await describe_image(deps.config, path, question)
+        if sorun is not None:
+            return ToolResult.failure(f"{display_path(context, path)}: {sorun}")
+        return ToolResult(f"{display_path(context, path)} — {aciklama}")
+
+    return Tool(
+        name="view_image",
+        description="Yerel bir GÖRSELE bak ve içinde ne olduğunu öğren. Dosya ADI içeriği "
+        "anlatmaz: 'player.png' bir logo, 'arkaplan.jpg' bir ekran görüntüsü olabilir. "
+        "Bir asseti kullanmadan ÖNCE bununla bak; uygun olup olmadığına ancak o zaman "
+        "karar verebilirsin. İsteğe bağlı 'question' ile ne öğrenmek istediğini sor.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {**_STRING, "description": "görselin yolu (png/jpg/gif/webp/bmp)"},
+                "question": {**_STRING, "description": "görsel hakkında sorulacak soru"},
+            },
+            "required": ["path"],
         },
         run=_run,
     )
