@@ -176,3 +176,29 @@ async def test_gorsel_modeli_hatasi_yutulmaz(tmp_path, monkeypatch):
 
     assert sonuc.ok is False
     assert "410" in sonuc.output or "end of life" in sonuc.output
+
+
+def test_kucuk_modelin_tekrar_dongusu_ayiklanir():
+    """Ölçüldü: 11b görsel modeli aynı cümleyi sekiz kez tekrarladı.
+
+    Küçük modeller uzun/çok parçalı soruda döngüye giriyor. Tekrar, cevabın
+    bilgisini artırmaz ama isteme giren metni şişirir ve okunmasını zorlaştırır.
+    """
+    from fusion_cli.engines.agent.image_view import collapse_repeats
+
+    ham = (
+        "Görselde KENNEY StarterKit logosu var. Bir oyun logosu olarak kullanılabilir. "
+        "Bir oyun logosu olarak kullanılabilir. Bir oyun logosu olarak kullanılabilir."
+    )
+
+    assert collapse_repeats(ham) == (
+        "Görselde KENNEY StarterKit logosu var. Bir oyun logosu olarak kullanılabilir."
+    )
+
+
+def test_farkli_cumleler_korunur():
+    metin = "Bu bir sprite. Saydam arka planı var. Ana renk mavi."
+
+    from fusion_cli.engines.agent.image_view import collapse_repeats
+
+    assert collapse_repeats(metin) == metin

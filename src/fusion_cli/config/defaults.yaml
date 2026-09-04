@@ -252,13 +252,20 @@ judge:
     - openrouter/openai/gpt-oss-20b:free
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
 
-# Görme yetenekli model — görsel doğrulama kapısı için (visual_verification: true ise).
-# Ölçüm (2026-07-25): dar soru + kırpılmış bölge ile doğru cevap veriyor.
+# Görme yetenekli model — `view_image` aracı ve görsel doğrulama kapısı için.
+#
+# Ölçüm (2026-09-04): önceki varsayılan `nvidia/nemotron-nano-12b-v2-vl`
+# 2026-08-26'da EOL oldu ve 410 Gone dönüyor; yedeği de AYNI modelin başka
+# sağlayıcıdaki hâliydi, o da ölüydü. Yani görsel kapısı sessizce çalışmıyordu.
+# Yerine geçen model gerçek bir asset üzerinde denendi ve doğru cevap verdi
+# (bir uygulama ikonunu "logo ve metin ikonu" diye tanıdı).
+#
+# Yedek YAZILMADI: denenen OpenRouter görsel modellerinin hiçbiri erişilebilir
+# değildi ("No endpoints found") ve 90b sürümü 90 sn sınırında zaman aşımına
+# uğradı. Uydurulmuş bir yedek, kapıyı sessizce yeniden bozardı.
 vision:
   name: goz
-  model: nvidia_nim/nvidia/nemotron-nano-12b-v2-vl
-  fallback:
-    - openrouter/nvidia/nemotron-nano-12b-v2-vl:free
+  model: nvidia_nim/meta/llama-3.2-11b-vision-instruct
 
 # Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
 # tanınmayan ad sessizce `agent:` rolüne düşer.

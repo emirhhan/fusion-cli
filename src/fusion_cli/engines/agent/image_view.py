@@ -42,15 +42,36 @@ IMAGE_MIME: dict[str, str] = {
 #: olmadığına karar verebilmek. Bu yüzden tür, konu ve kullanım uygunluğu
 #: birlikte istenir.
 DEFAULT_QUESTION = (
-    "Bu görselde tam olarak ne var? Şunları söyle: (1) türü — logo/ikon mu, "
-    "karakter sprite'ı mı, doku/zemin mi, fotoğraf mı, ekran görüntüsü mü; "
-    "(2) ana konusu ve baskın renkleri; (3) saydam arka planı var mı; "
-    "(4) bir oyunda ya da arayüzde hangi amaçla kullanılabilir, hangi amaçla "
-    "kullanılmamalı. Kısa ve somut yaz."
+    "Bu görselde ne var? Türünü söyle (logo/ikon, karakter sprite'ı, doku/zemin, "
+    "fotoğraf ya da ekran görüntüsü) ve konusunu bir cümleyle anlat. "
+    "En fazla iki cümle yaz, tekrar etme."
 )
 
-VISION_MAX_TOKENS = 400
+#: Görsel modeli yanıt sınırı. Kısa tutulur: ölçüldü, 11b model uzun bütçede
+#: aynı cümleyi tekrarlayarak döngüye giriyor.
+VISION_MAX_TOKENS = 200
 VISION_TIMEOUT_S = 60.0
+
+
+def collapse_repeats(text: str) -> str:
+    """Aynı cümlenin tekrarlarını ayıkla.
+
+    Ölçüldü: 11b görsel modeli "Bir oyun logosu olarak kullanılabilir." cümlesini
+    sekiz kez üretti. Küçük modeller döngüye girebiliyor; tekrar bilgi katmaz ama
+    isteme giren metni şişirir. Sıra korunur, ilk görülen kalır.
+    """
+    gorulen: set[str] = set()
+    tutulan: list[str] = []
+    for parca in text.replace("\n", " ").split("."):
+        cumle = parca.strip()
+        if not cumle:
+            continue
+        anahtar = cumle.casefold()
+        if anahtar in gorulen:
+            continue
+        gorulen.add(anahtar)
+        tutulan.append(cumle)
+    return ". ".join(tutulan) + ("." if tutulan else "")
 
 
 def load_image_data_uri(path: Path) -> tuple[str, str | None]:
@@ -107,4 +128,4 @@ async def describe_image(config: Config, path: Path, question: str) -> tuple[str
         return "", f"Görsel modeli ({spec.model}) başarısız: {result.error or 'bilinmeyen hata'}"
     if not result.text.strip():
         return "", f"Görsel modeli ({spec.model}) boş yanıt döndürdü."
-    return result.text.strip(), None
+    return collapse_repeats(result.text.strip()), None
