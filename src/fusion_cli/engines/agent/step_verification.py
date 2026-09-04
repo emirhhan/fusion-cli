@@ -34,8 +34,19 @@ async def verify_step(
     step: PlanStep,
     outcome: AgentOutcome,
     deps: AgentDeps,
+    baseline: tuple[str, ...] = (),
 ) -> StepVerificationResult:
-    """Agent sonucunu, beklenen etkileri ve proje kapısını birlikte doğrula."""
+    """Agent sonucunu, beklenen etkileri ve proje kapısını birlikte doğrula.
+
+    `baseline`, plan BAŞLAMADAN önce proje kapısının verdiği bulgulardır. Onlar
+    adımın suçu değildir ve adımı düşürmez.
+
+    Ölçüldü: sıfırdan Godot projesi kuran plan HER adımda "no main scene defined"
+    ile düştü. Proje henüz kurulmadığı için kapı zaten düşüyordu; adım o hatayı
+    yaratmamıştı. Bu ayrım olmadan sıfırdan proje kurmak imkânsızdır. Kapının
+    adım başına sorusu "BOZDUM mu"dur; "her şey bitti mi" sorusunu final kabul
+    kapısı sorar ve orada tam temizlik aranır.
+    """
     evidence: list[str] = []
     findings: list[str] = []
 
@@ -90,9 +101,17 @@ async def verify_step(
         if verification.ok:
             evidence.append("proje doğrulama kapısı geçti")
         else:
-            findings.extend(verification.findings)
-            if not verification.findings and verification.summary:
-                findings.append(verification.summary)
+            onceden = set(baseline)
+            yeni = tuple(bulgu for bulgu in verification.findings if bulgu not in onceden)
+            if not yeni and verification.summary and verification.summary not in onceden:
+                yeni = (verification.summary,)
+            if yeni:
+                findings.extend(yeni)
+            else:
+                evidence.append(
+                    "proje kapısı bu adımdan ÖNCE de düşüyordu; adım yeni bir "
+                    "kırılma eklemedi"
+                )
 
     if outcome.final_text.strip():
         evidence.append(f"agent raporu: {outcome.final_text.strip()[:1200]}")

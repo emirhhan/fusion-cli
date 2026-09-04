@@ -252,6 +252,27 @@ def _note_gate_progress(deps: AgentDeps) -> None:
         budget.record_progress()
 
 
+async def _gate_baseline(deps: AgentDeps) -> tuple[str, ...]:
+    """Plan BAŞLAMADAN önce proje kapısının verdiği bulgular.
+
+    Bunlar planın suçu değildir: yarım kurulmuş ya da zaten kırık bir projede
+    kapı her adımda düşer ve hiçbir adım geçemez. Ölçüldü — sıfırdan Godot
+    projesi kuran plan, henüz ana sahne ayarlanmadığı için her adımda
+    "no main scene defined" ile düştü ve sıfırdan proje kurmak imkânsız oldu.
+
+    Bir kez çalışır: kapı pahalı olabilir (Godot açılışı saniyeler sürer) ve
+    adım başına iki kez çalıştırmak turu boşa harcar. Final kabul kapısı yine
+    TAM temizlik ister; bu tolerans yalnız adım başına uygulanır.
+    """
+    verifier = getattr(deps, "verifier", None)
+    if verifier is None:
+        return ()
+    sonuc = await verifier.verify()
+    if sonuc.ok:
+        return ()
+    return sonuc.findings or ((sonuc.summary,) if sonuc.summary else ())
+
+
 def _step_deps(deps: AgentDeps, step: PlanStep) -> AgentDeps:
     """Adımı KÖK görevin değil KENDİ beklenen etkisinin sözleşmesiyle çalıştır.
 
@@ -352,6 +373,8 @@ async def run_execution_plan(
         current = replace(current, status=PlanStatus.RUNNING)
         evidence = {}
     _save_checkpoint(current, deps)
+    baseline = await _gate_baseline(deps)
+    _note_gate_progress(deps)
     outcomes: list[AgentOutcome] = []
     while ready := ready_steps(current):
         step = ready[0]
@@ -407,7 +430,7 @@ async def run_execution_plan(
                     ok=False,
                     budget_stopped=True,
                 )
-            verification = await verify_step(running, outcome, deps)
+            verification = await verify_step(running, outcome, deps, baseline)
             _note_gate_progress(deps)
             deps.publisher.publish(
                 ExecutionStepVerified(

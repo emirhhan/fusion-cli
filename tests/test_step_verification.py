@@ -229,3 +229,58 @@ async def test_hic_calismayan_komut_adimi_yine_dusurur(tmp_path):
     )
 
     assert result.ok is False
+
+
+class _KirikVerifier:
+    """Her çağrıda AYNI bulguyu döndüren proje kapısı."""
+
+    def __init__(self, finding="Error: Can't run project: no main scene defined"):
+        self.finding = finding
+
+    async def verify(self):
+        from fusion_cli.core.verification import VerificationResult
+
+        return VerificationResult(ok=False, summary=self.finding, findings=(self.finding,))
+
+
+async def test_adimdan_once_de_dusen_kapi_adimi_suclamaz(tmp_path):
+    """Ölçüldü: sıfırdan Godot projesi kuran plan, HER adımda 'no main scene
+    defined' ile düştü.
+
+    Proje henüz kurulmadığı için kapı zaten düşüyordu; adım o hatayı YARATMADI.
+    Yarım kurulmuş bir projede her adımı suçlamak, sıfırdan proje kurmayı
+    imkânsız hâle getirir. Kapının sorusu 'bozdum mu' olmalı, 'her şey bitti mi'
+    değil — final kabul kapısı zaten tam temizlik ister.
+    """
+    from dataclasses import replace as _replace
+
+    deps = _deps(tmp_path)
+    deps.verifier = _KirikVerifier()
+    adim = _replace(_file_step("x"), expected_effects=())
+    (tmp_path / "x").write_text("var", encoding="utf-8")
+
+    sonuc = await verify_step(
+        adim,
+        AgentOutcome(final_text="kuruldu", messages=[], ok=True),
+        deps,
+        baseline=("Error: Can't run project: no main scene defined",),
+    )
+
+    assert sonuc.ok is True
+    assert any("ÖNCE de" in kanit for kanit in sonuc.evidence)
+
+
+async def test_adimin_yeni_bozdugu_sey_yine_adimi_dusurur(tmp_path):
+    """Temel bulgu görmezden gelinir; adımın EKLEDİĞİ bulgu görmezden gelinmez."""
+    deps = _deps(tmp_path)
+    deps.verifier = _KirikVerifier("Parse Error: main.tscn bozuldu")
+
+    sonuc = await verify_step(
+        _file_step("yok.txt"),
+        AgentOutcome(final_text="tamam", messages=[], ok=True),
+        deps,
+        baseline=("Error: Can't run project: no main scene defined",),
+    )
+
+    assert sonuc.ok is False
+    assert any("Parse Error" in b for b in sonuc.findings)

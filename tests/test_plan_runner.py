@@ -154,8 +154,10 @@ async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_pa
             self.calls = 0
 
         async def verify(self):
+            # 1. çağrı plan başındaki TEMEL ölçüm (proje sağlam), 2. çağrı adım
+            # sonrası: adımın BOZDUĞU şey kurtarmayı tetiklemeli.
             self.calls += 1
-            if self.calls == 1:
+            if self.calls == 2:
                 return VerificationResult(ok=False, findings=("pytest kırıldı",))
             return VerificationResult(ok=True)
 
