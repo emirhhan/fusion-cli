@@ -22,7 +22,12 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.memory import DEFAULT_LESSON_CONFIDENCE, Lesson, LessonKind, LessonSource
 from ..core.protocols import Clock
-from .hybrid import CANDIDATE_MULTIPLIER, bm25_scores, reciprocal_rank_fusion
+from .hybrid import (
+    CANDIDATE_MULTIPLIER,
+    MIN_CANDIDATE_POOL,
+    bm25_scores,
+    reciprocal_rank_fusion,
+)
 from .lesson_ranking import Candidate, select_lessons
 from .lesson_scoring import reinforced
 from .store import get_collection
@@ -59,7 +64,7 @@ class ChromaLessonMemory:
                 return False
             self._collection.add(
                 ids=[uuid.uuid4().hex],
-                documents=[text],
+                documents=[_embed_source(lesson)],
                 metadatas=[_to_metadata(lesson, self._clock.now())],
             )
             return True
@@ -79,9 +84,8 @@ class ChromaLessonMemory:
 
         # Geniş çek, sonra hibrit skorla ele: embedding'in ıskaladığı birebir terim
         # eşleşmesini lexical katman kurtarsın diye aday havuzunu bilerek geniş tutuyoruz.
-        result = self._collection.query(
-            query_texts=[task], n_results=min(limit * CANDIDATE_MULTIPLIER, total)
-        )
+        havuz = min(max(limit * CANDIDATE_MULTIPLIER, MIN_CANDIDATE_POOL), total)
+        result = self._collection.query(query_texts=[task], n_results=havuz)
         documents = (result.get("documents") or [[]])[0]
         metadatas = (result.get("metadatas") or [[]])[0]
         distances = [float(distance) for distance in (result.get("distances") or [[]])[0]] or [
@@ -129,9 +133,10 @@ class ChromaLessonMemory:
             metadatas = rows.get("metadatas") or []
             updated = 0
             for row_id, document, metadata in zip(ids, documents, metadatas, strict=False):
-                if document.strip().lower() not in wanted:
+                mevcut = _to_lesson(document, metadata)
+                if mevcut.text.strip().lower() not in wanted:
                     continue
-                lesson = reinforced(_to_lesson(document, metadata), success=success)
+                lesson = reinforced(mevcut, success=success)
                 self._collection.update(
                     ids=[row_id],
                     documents=[document],
@@ -188,10 +193,11 @@ class ChromaLessonMemory:
             rows = self._collection.get()
             ids = rows.get("ids") or []
             documents = rows.get("documents") or []
+            metadatas = rows.get("metadatas") or []
             silinecek = [
                 row_id
-                for row_id, document in zip(ids, documents, strict=False)
-                if document.strip().lower() in wanted
+                for row_id, document, metadata in zip(ids, documents, metadatas, strict=False)
+                if _to_lesson(document, metadata).text.strip().lower() in wanted
             ]
             if not silinecek:
                 return 0
@@ -214,14 +220,38 @@ class ChromaLessonMemory:
 
     def _exists(self, text: str) -> bool:
         """Kaba tekilleştirme: aynı ders defalarca birikmesin."""
-        normalized = text.lower()
-        existing = self._collection.get().get("documents") or []
-        return any(document.strip().lower() == normalized for document in existing)
+        normalized = text.strip().lower()
+        rows = self._collection.get()
+        documents = rows.get("documents") or []
+        metadatas = rows.get("metadatas") or []
+        return any(
+            _to_lesson(document, metadata).text.strip().lower() == normalized
+            for document, metadata in zip(documents, metadatas, strict=False)
+        )
+
+
+def _embed_source(lesson: Lesson) -> str:
+    """Anlamsal aramaya verilen metin: GÖREV BAĞLAMI + ders.
+
+    `Lesson.task` alanının açıklaması "anlamsal geri çağırmada kullanılır" diyordu
+    ama yalnız `text` gömülüyordu — belgelenen davranış uygulanmamıştı. Ölçüldü:
+    "postgres veritabanında eski kayıtları sil" sorgusu, tam bu durumu anlatan
+    dersi getirmiyordu çünkü ders metninde 'veritabanı' geçmiyor, yalnız görev
+    etiketinde geçiyordu.
+
+    Gerçek ders metni metadata'da ayrıca saklanır; eski kayıtlarda o alan yoktur
+    ve belge metnin kendisidir (bkz. `_to_lesson`). Göç gerekmez.
+    """
+    gorev = lesson.task.strip()
+    return f"{gorev}\n{lesson.text}" if gorev else lesson.text
 
 
 def _to_metadata(lesson: Lesson, timestamp: float) -> dict[str, Any]:
     """Dersi ChromaDB metadata'sına çevir. Güven/sayaç alanları burada kalıcılaşır."""
     return {
+        # Ders METNİ burada saklanır: belge alanı artık görev bağlamını da
+        # içerir ve doğrudan metin olarak okunamaz.
+        "text": lesson.text[:2000],
         "task": lesson.task[:500],
         "kind": lesson.kind.value,
         "source": lesson.source.value,
@@ -241,7 +271,7 @@ def _to_lesson(document: str, metadata: dict[str, Any]) -> Lesson:
     # Geriye dönük uyumluluk: güven/sayaç alanları taşınmadan önce yazılmış eski
     # kayıtlar bu alanları içermez; makul varsayılanlarla okunur.
     return Lesson(
-        text=document,
+        text=str(metadata.get("text") or document),
         kind=_enum(LessonKind, metadata.get("kind"), LessonKind.SUCCESS),
         task=str(metadata.get("task", "")),
         source=_enum(LessonSource, metadata.get("source"), LessonSource.LEARNED),

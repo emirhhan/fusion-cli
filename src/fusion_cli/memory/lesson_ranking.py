@@ -76,6 +76,12 @@ def _scope_matches(lesson_scope: str, wanted: str | None) -> bool:
 def _rank_key(candidate: Candidate) -> tuple[int, float, float, float]:
     lesson = candidate.lesson
     kind_rank = 0 if lesson.kind is LessonKind.MISTAKE else 1
-    # Hata öne; sonra güven; sonra füzyon skoru (yüksekten); en son uzaklık (yakından).
-    # Füzyon ve lexical devrede değilken (0.0) sıralama Faz 1'deki uzaklığa iner.
-    return (kind_rank, -lesson.confidence, -candidate.fused, candidate.distance)
+    # Hata öne (bir şeyi yanlış yapmamak kritiktir); sonra ALAKA (füzyon skoru
+    # yüksekten, uzaklık yakından); en son güven.
+    #
+    # Güven daha önce alakadan ÖNCE geliyordu. Ölçüldü: bellek 380 derse çıkınca
+    # "stripe ile iade yap" sorgusu, konuyla ilgisiz ama güveni 1.00 olan
+    # dosya-yazma derslerini getiriyor, tam isabetli 0.60 güvenli dersi hiç
+    # göstermiyordu. Güven, BENZER ÖLÇÜDE alakalı dersler arasında karar vermek
+    # içindir; alakanın yerine geçemez.
+    return (kind_rank, -candidate.fused, candidate.distance, -lesson.confidence)

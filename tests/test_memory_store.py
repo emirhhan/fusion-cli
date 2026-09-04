@@ -434,3 +434,71 @@ def test_retag_zaten_etiketli_dersi_bozmaz(tmp_path):
 
     assert bellek.retag_from_workspace() == 0
     assert bellek.all()[0].tags == ("mcp:godot",)
+
+
+def test_ders_gorev_baglamiyla_birlikte_gomulur(tmp_path):
+    """`Lesson.task` açıklaması "anlamsal geri çağırmada kullanılır" diyordu ama
+    yalnız `text` gömülüyordu.
+
+    Ölçüldü: "shopify magazasinda fiyat guncelle" sorgusu, tam bu durumu anlatan
+    dersi HİÇ getirmedi — ders METNİNDE 'shopify' geçmiyor, yalnız görev
+    etiketinde geçiyordu. Belgelenen davranış uygulanmıyordu.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    # Metinde 'shopify' YOK; yalnız görev etiketinde var.
+    bellek.add(
+        Lesson(
+            text="Once oku, tek kayitta dene, dogrula, ancak sonra topluya gec.",
+            kind=LessonKind.MISTAKE,
+            task="shopify magaza urun fiyati guncelleme",
+        )
+    )
+    for gurultu in (
+        "Kubernetes apply komutundan once namespace dogrula.",
+        "Video render uzun surer, once kisa aralik dene.",
+        "Zaman damgalari saat dilimi tasir, UTC ile karistirma.",
+        "Blender islemleri aktif secime uygulanir.",
+        "Force-push geri alinamaz ve baskalarinin isini bozar.",
+    ):
+        bellek.add(Lesson(text=gurultu, kind=LessonKind.SUCCESS, task="genel"))
+
+    hatirlanan = bellek.recall("shopify magazasinda urun fiyati guncelle", limit=3)
+
+    assert any("tek kayitta dene" in d.text for d in hatirlanan), [d.text for d in hatirlanan]
+
+
+def test_aday_havuzu_bellek_buyudukce_yeterli_kalir(tmp_path, monkeypatch):
+    """Ölçüldü: havuz `limit * 3` idi; 380 derslik bellekte 3 ders isteyince 9 aday
+    çekiliyordu.
+
+    Lexical katmanın görevi "embedding'in ıskaladığı birebir terim eşleşmesini
+    kurtarmak" ama kurtaracağı ders havuzda değilse hiçbir şey yapamaz. Havuz
+    dar kalınca ilgili ders hiç görünmüyordu.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    bellek = ChromaLessonMemory(tmp_path)
+    for i in range(60):
+        bellek.add(Lesson(text=f"alakasiz ders numara {i}", kind=LessonKind.SUCCESS))
+    bellek.add(
+        Lesson(text="stripe iadesi geri alinamaz, once test anahtariyla dene",
+               kind=LessonKind.MISTAKE)
+    )
+
+    istenen = {}
+
+    gercek_query = bellek._collection.query
+
+    def _casus(**kwargs):
+        istenen["n_results"] = kwargs.get("n_results")
+        return gercek_query(**kwargs)
+
+    monkeypatch.setattr(bellek._collection, "query", _casus)
+    hatirlanan = bellek.recall("stripe iadesi", limit=3)
+
+    assert istenen["n_results"] >= 40, "havuz bellek büyüdükçe dar kalmamalı"
+    assert any("stripe" in d.text for d in hatirlanan)

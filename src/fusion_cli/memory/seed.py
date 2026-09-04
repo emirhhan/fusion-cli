@@ -572,7 +572,476 @@ _MEASURED: tuple[tuple[str, LessonKind, str], ...] = (
 #: teknoloji/sunucu için geçerli olduğunu söyler (bkz. `lesson_tags`).
 UNMEASURED_CONFIDENCE = 0.6
 
-_WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = ()
+_WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
+    # --- Her MCP sunucusu için geçerli disiplin ---------------------------- #
+    (
+        "MCP aracı kullanma",
+        _M,
+        "MCP aracı hata döndürdüğünde AYNI çağrıyı aynı argümanlarla tekrarlama. "
+        "Dönen hatadaki yol/biçim ipucunu uygula (önek ekle ya da kaldır, göreli "
+        "yola geç). Aynı çağrı ikinci kez tekrar kapısına takılır ve tur ilerlemez.",
+        (),
+    ),
+    (
+        "MCP aracı kullanma",
+        _M,
+        "Bir MCP sunucusunun araç listesi SINIRLIDIR; listede olmayan bir işi o "
+        "sunucudan bekleme. Yapamadığı bir iş için dosya/kabuk araçlarına geç. "
+        "Israr etmek turu tüketir, yeteneği yaratmaz.",
+        (),
+    ),
+    (
+        "MCP aracı kullanma",
+        _M,
+        "MCP aracı 'başarılı' dediğinde işin gerçekten olduğunu VARSAYMA. Sonucu "
+        "ayrı bir okuma çağrısıyla ya da dosya/kayıt kontrolüyle doğrula; uzak "
+        "sunucular başarı raporlayıp hiçbir şey değiştirmemiş olabilir.",
+        (),
+    ),
+    (
+        "dış sistemde değişiklik",
+        _M,
+        "MCP ile dış sistemde değişiklik yapmadan ÖNCE mevcut durumu oku. "
+        "Körlemesine yazma var olan kaydı sessizce ezer ve geri alınamaz.",
+        (),
+    ),
+    (
+        "dış sistemde değişiklik",
+        _M,
+        "Yıkıcı ya da geri alınamaz MCP işlemlerinde (silme, yayınlama, gönderme, "
+        "ödeme) önce ask_user ile onay al. 'Muhtemelen bunu istiyordur' diye ilerleme.",
+        (),
+    ),
+    (
+        "MCP listeleme",
+        _M,
+        "Çok kayıt döndüren MCP listeleme araçlarında sayfa/limit ver. Sınırsız "
+        "çekmek bağlamı doldurur ve asıl işe yer kalmaz.",
+        (),
+    ),
+    (
+        "MCP kimlik doğrulama",
+        _M,
+        "401/403 dönen MCP çağrısını farklı argümanlarla tekrar deneme: sorun "
+        "yetki ya da token'dır ve kullanıcının müdahalesini gerektirir. Durumu "
+        "bildir, denemeye devam etme.",
+        (),
+    ),
+    (
+        "hız sınırı",
+        _M,
+        "429 (rate limit) dönen çağrıyı hemen tekrarlama. İstenen işi küçült ya da "
+        "bekle; peş peşe deneme sunucunun kilidini uzatır.",
+        (),
+    ),
+    # --- Oyun ve 3B motorları ---------------------------------------------- #
+    (
+        "godot unity unreal blender roblox oyun sahnesi düzenleme",
+        _M,
+        "Sahne/proje dosyalarının biçimini motorun KENDİSİ üretir (Godot .tscn, "
+        "Unity .unity/.prefab, Unreal .uasset, Blender .blend). Elle yazmak dosyayı "
+        "sessizce bozar. Motorun ya da MCP'sinin aracını kullan; araç o değişikliği "
+        "yapamıyorsa dosyayı BAŞTAN yazma, hedefli düzenle.",
+        (),
+    ),
+    (
+        "godot unity unreal blender roblox oyun sahnesi düzenleme",
+        _M,
+        "Yazılan oyun scripti bir düğüme/nesneye BAĞLANMADAN çalışmaz. Dosyayı "
+        "oluşturmak işi bitirmez; bağlantıyı kur ve sahnede göründüğünü doğrula.",
+        (),
+    ),
+    (
+        "godot unity unreal oyun asseti import etme",
+        _M,
+        "Assetler motora import edilmeden yüklenmez ('No loader found for resource' "
+        "gibi hatalar buradan gelir). Yeni asset ekledikten sonra projenin import "
+        "adımını çalıştır.",
+        (),
+    ),
+    (
+        "godot unity unreal oyun projesini çalıştırıp doğrulama",
+        _M,
+        "Motorun projeyi AÇABİLMESİ oyunun ÇALIŞTIĞI anlamına gelmez. Headless "
+        "açılış yalnız dosyaların iyi biçimli olduğunu gösterir; çıkış kodu 0 olsa "
+        "bile çıktıdaki ERROR satırlarını oku.",
+        (),
+    ),
+    (
+        "görsel asset seçme ve içeriğini görme",
+        _M,
+        "Dosya ADI içeriği anlatmaz: 'player.png' bir logo, 'arka.jpg' bir ekran "
+        "görüntüsü olabilir. Bir asseti kullanmadan önce view_image ile BAK.",
+        (),
+    ),
+    (
+        "blender freecad sketchup 3B modelleme",
+        _M,
+        "Blender ve benzeri araçlarda işlemler AKTİF SEÇİME uygulanır. Seçimi "
+        "doğrulamadan işlem çalıştırmak yanlış nesneyi değiştirir ve geri alınamaz.",
+        (),
+    ),
+    (
+        "three.js playcanvas tarayıcı 3B sahnesi",
+        _S,
+        "Three.js/PlayCanvas sahnesinde konsol temiz olsa da ekran boş olabilir: "
+        "kamera konumu, ışık ve nesne ölçeği ayrı ayrı kontrol edilmeli.",
+        (),
+    ),
+    # --- CAD ---------------------------------------------------------------- #
+    (
+        "freecad fusion 360 sketchup CAD modeli değiştirme",
+        _M,
+        "Parametrik CAD modelinde (FreeCAD, Fusion 360) bir ölçüyü değiştirmeden "
+        "önce kısıt ve bağımlılık zincirini oku. Tek ölçü, bağlı özelliklerin "
+        "tamamını bozabilir.",
+        (),
+    ),
+    (
+        "freecad fusion 360 sketchup CAD modeli değiştirme",
+        _M,
+        "Birim sistemini (mm/inch) baştan doğrula. Yanlış birim, model doğru "
+        "görünürken üretimde ölçek hatası olarak ortaya çıkar.",
+        (),
+    ),
+    # --- Web, CMS, e-ticaret ------------------------------------------------ #
+    (
+        "shopify woocommerce magento prestashop bigcommerce mağaza ürün fiyat ve stok güncelleme",
+        _M,
+        "Canlı mağazada fiyat/stok değişikliği anında müşteriye yansır ve geri "
+        "alınamaz. Önce mevcut değeri oku, tek kayıtta dene, sonucu doğrula; "
+        "ancak sonra toplu uygula.",
+        (),
+    ),
+    (
+        "shopify woocommerce toplu ürün ve kayıt güncelleme",
+        _M,
+        "Toplu güncellemeden önce KAÇ kaydın etkileneceğini say ve kullanıcıya "
+        "söyle. 'Hepsi' denen kümenin büyüklüğü çoğu zaman beklenenden farklıdır.",
+        (),
+    ),
+    (
+        "shopify woocommerce ürün eşleştirme ve SKU",
+        _M,
+        "Ürün/kayıt eşleştirmesini ADA göre değil KİMLİĞE (id, SKU, handle) göre "
+        "yap. Benzer adlar yanlış kaydı günceller ve hata geç fark edilir.",
+        (),
+    ),
+    (
+        "wordpress shopify webflow tema ve eklenti düzenleme",
+        _M,
+        "CMS tema ve eklenti dosyalarını doğrudan düzenleme: ilk güncelleme "
+        "değişikliği siler. Child theme, snippet ya da resmi genişletme noktasını "
+        "kullan.",
+        (),
+    ),
+    (
+        "wordpress webflow wix squarespace içerik yayınlama",
+        _M,
+        "Taslak ile yayınlanmış içerik ayrıdır. Değişikliği taslakta hazırla, "
+        "yayına almayı kullanıcıya onaylat.",
+        (),
+    ),
+    # --- Google ekosistemi -------------------------------------------------- #
+    (
+        "google sheets e-tablo hücre ve aralık güncelleme",
+        _M,
+        "Sheets'te bir aralığa yazmadan önce mevcut içeriği oku: yazma formülleri, "
+        "biçimlendirmeyi ve komşu sütunları sessizce ezebilir.",
+        (),
+    ),
+    (
+        "google drive docs dosya bulma ve kimlik",
+        _M,
+        "Drive/Docs'ta aynı adlı birden çok dosya olabilir. Adla değil dosya "
+        "KİMLİĞİYLE çalış; ad araması yanlış belgeyi düzenletir.",
+        (),
+    ),
+    (
+        "gmail e-posta yazma ve gönderme",
+        _M,
+        "E-postayı TASLAK olarak oluştur ve göndermeyi kullanıcıya bırak. "
+        "Gönderilen e-posta geri alınamaz ve alıcıya gerçek kişiler dahildir.",
+        (),
+    ),
+    (
+        "google calendar takvim etkinliği ve davetli",
+        _M,
+        "Takvim etkinliğine davetli eklemek onlara e-posta gönderir. Test veya "
+        "taslak etkinlik oluştururken davetli ekleme.",
+        (),
+    ),
+    (
+        "google analytics 4 search console analitik veri okuma",
+        _M,
+        "GA4 ve Search Console verisi gecikmelidir; son 24-48 saat eksik olabilir. "
+        "Taze aralığı kesin sonuç gibi raporlama, tarih aralığını açıkça yaz.",
+        (),
+    ),
+    (
+        "youtube video yükleme ve yayınlama",
+        _M,
+        "YouTube'a yükleme yaparken görünürlüğü önce 'unlisted/private' yap; "
+        "yayına almayı kullanıcı onaylasın. Yayınlanan video abonelere bildirilir.",
+        (),
+    ),
+    # --- Reklam platformları (PARA HARCAR) ---------------------------------- #
+    (
+        "meta ads google ads tiktok ads linkedin reklam kampanyası ve bütçe yönetme",
+        _M,
+        "Reklam API'lerinde kampanya, bütçe ve teklif değişiklikleri GERÇEK PARA "
+        "harcar. Hiçbir değişikliği onay almadan uygulama; ne kadar harcanacağını "
+        "açıkça söyle.",
+        (),
+    ),
+    (
+        "meta ads google ads tiktok ads linkedin reklam kampanyası ve bütçe yönetme",
+        _M,
+        "Yeni kampanyayı önce DURAKLATILMIŞ (paused) oluştur, yapısını ve hedef "
+        "kitlesini doğrula, aktifleştirmeyi ayrı bir adımda kullanıcıya onaylat.",
+        (),
+    ),
+    (
+        "meta ads google ads reklam bütçesi ve para birimi",
+        _M,
+        "Reklam API'lerinde bütçe çoğu zaman para biriminin KÜÇÜK biriminde "
+        "(kuruş/cent) verilir. Birimi karıştırmak 100 kat fazla harcamaya yol açar; "
+        "değeri yazmadan önce birimi doğrula.",
+        (),
+    ),
+    (
+        "meta ads google ads reklam metni ve görseli",
+        _M,
+        "Yayınlanacak reklam metnini ve görselini kullanıcıya GÖSTER. Yayınlanan "
+        "reklam markanın adına konuşur ve geri alınması yayından sonra olur.",
+        (),
+    ),
+    (
+        "meta pixel google ads dönüşüm ölçümü ve izleme",
+        _M,
+        "Piksel, dönüşüm olayı ve izleme ayarlarını değiştirmek geçmiş ölçümü "
+        "bozar ve optimizasyonu sıfırlar. Mevcut yapıyı oku, değişikliği ve "
+        "sonucunu açıkça bildir.",
+        (),
+    ),
+    # --- Tasarım, içerik, video --------------------------------------------- #
+    (
+        "figma canva photoshop illustrator tasarım dosyası düzenleme",
+        _M,
+        "Tasarım aracında bir bileşeni ya da stili değiştirmek TÜM örneklerini "
+        "değiştirir. Kapsamı ölç ve söyle; tek ekran sanıp kütüphaneyi bozma.",
+        (),
+    ),
+    (
+        "figma canva photoshop görsel dışa aktarma",
+        _M,
+        "Dışa aktarım ayarları (ölçek, format, renk profili, saydamlık) sonucu "
+        "belirler. Varsayılana güvenme; hedefe göre açıkça seç.",
+        (),
+    ),
+    (
+        "premiere after effects davinci capcut video düzenleme ve render",
+        _S,
+        "Video render uzun sürer ve yanlış ayar tüm süreyi çöpe atar. Önce kısa "
+        "bir aralığı düşük çözünürlükte render edip doğrula.",
+        (),
+    ),
+    # --- Agent temel araçları ----------------------------------------------- #
+    (
+        "fetch web sayfası içeriği okuma",
+        _M,
+        "Fetch ile alınan sayfa ham HTML olabilir ve içerik JavaScript ile "
+        "doluyorsa boş görünür. İçerik eksikse tarayıcı aracına geç, aynı adresi "
+        "tekrar çekme.",
+        (),
+    ),
+    (
+        "playwright puppeteer browserbase tarayıcı otomasyonu",
+        _M,
+        "CSS seçicileri kırılgandır. Metin ve rol tabanlı seçici tercih et; sabit "
+        "bekleme (sleep) yerine öğenin görünmesini bekle.",
+        (),
+    ),
+    (
+        "zaman damgası saat dilimi ve tarih",
+        _M,
+        "Zaman damgaları saat dilimi taşır. Yerel saat ile UTC karıştırmak "
+        "raporlarda bir günlük kaymaya yol açar; hangi dilimde çalıştığını yaz.",
+        (),
+    ),
+    (
+        "context7 kütüphane dokümanı ve sürüm",
+        _M,
+        "Doküman ararken kütüphanenin SÜRÜMÜNÜ belirt. Sürümsüz doküman kaldırılmış "
+        "ya da değişmiş API verir ve kod sessizce çalışmaz.",
+        (),
+    ),
+    (
+        "markitdown pdf office belge dönüştürme",
+        _M,
+        "Belge dönüştürme (PDF/Office to Markdown) biçim kaybeder: tablo, dipnot ve "
+        "sütun düzeni bozulabilir. Dönüşen içeriği kullanmadan önce kritik "
+        "bölümleri doğrula.",
+        (),
+    ),
+    # --- Git, bulut, DevOps ------------------------------------------------- #
+    (
+        "github gitlab git deposu dal ve geçmiş değiştirme",
+        _M,
+        "force-push, dal silme ve geçmiş yeniden yazma GERİ ALINAMAZ ve başkalarının "
+        "işini bozar. Bu işlemleri onay almadan yapma.",
+        (),
+    ),
+    (
+        "git commit hazırlama ve sır taraması",
+        _M,
+        "Commit'ten önce diff'i oku ve sır/anahtar taraması yap. Depoya giren bir "
+        "anahtar, silinse bile geçmişte kalır ve iptal edilmesi gerekir.",
+        (),
+    ),
+    (
+        "docker konteyner ve imaj etiketi",
+        _M,
+        "İmaj etiketini sabitle; 'latest' bugün çalışan kurulumu yarın sessizce "
+        "değiştirir ve hatayı üretimde bulursun.",
+        (),
+    ),
+    (
+        "kubernetes küme deployment ve namespace",
+        _M,
+        "Kubernetes'te apply/delete YANLIŞ context ya da namespace'te çalışırsa "
+        "üretimi düşürür. Komuttan önce hangi kümede ve hangi namespace'te "
+        "olduğunu doğrula.",
+        (),
+    ),
+    (
+        "aws google cloud azure bulut kaynağı silme",
+        _M,
+        "Bulut kaynağını silmek faturayı değil VERİYİ de siler ve çoğu geri "
+        "alınamaz. Önce listele, neyin gideceğini yaz, sonra onay al.",
+        (),
+    ),
+    (
+        "vercel cloudflare production dağıtım",
+        _M,
+        "Production dağıtımı anında canlıya çıkar. Önce preview/staging dağıt, "
+        "doğrula, production'ı ayrı bir adımda onaylat.",
+        (),
+    ),
+    (
+        "sentry hata kaydı takibi",
+        _M,
+        "Hata kaydını kapatmak hatayı ÇÖZMEZ. Kapatmadan önce düzeltmenin "
+        "dağıtıldığını ve yeni olay gelmediğini doğrula.",
+        (),
+    ),
+    # --- Veritabanı ---------------------------------------------------------- #
+    (
+        "postgresql mysql mongodb sqlite veritabanında kayıt güncelleme ve silme",
+        _M,
+        "UPDATE ve DELETE'i WHERE olmadan çalıştırma. Önce aynı koşulla SELECT "
+        "count(*) çalıştır, kaç satırın etkileneceğini gör ve söyle.",
+        (),
+    ),
+    (
+        "postgresql mysql veritabanı şema değişikliği ve migration",
+        _M,
+        "Üretimde şema değişikliği tabloyu kilitleyebilir ve uygulamayı durdurur. "
+        "Migration geri alınabilir olmalı ve büyük tabloda çevrimiçi yöntem "
+        "kullanılmalı.",
+        (),
+    ),
+    (
+        "redis önbellek yönetimi",
+        _M,
+        "Redis'te FLUSHALL ve KEYS üretimde yasaktır: biri tüm veriyi siler, "
+        "diğeri sunucuyu kilitler. Tarama gerekiyorsa SCAN kullan.",
+        (),
+    ),
+    (
+        "pinecone qdrant elasticsearch vektör index ve arama",
+        _M,
+        "Vektör index/collection silmek geri alınamaz ve yeniden gömme maliyetlidir. "
+        "Ayrıca boyut ya da uzaklık metriği uyuşmazlığı hata vermeden YANLIŞ sonuç "
+        "döndürür; ikisini de doğrula.",
+        (),
+    ),
+    (
+        "supabase firebase erişim kuralı ve RLS değiştirme",
+        _M,
+        "Satır düzeyi güvenlik (RLS) ya da veritabanı kurallarını gevşetmek veriyi "
+        "herkese açabilir. Kural değişikliğini onay almadan uygulama ve etkisini yaz.",
+        (),
+    ),
+    # --- İletişim ve proje yönetimi ----------------------------------------- #
+    (
+        "slack discord telegram whatsapp mesaj gönderme",
+        _M,
+        "Slack/Discord/Telegram/WhatsApp mesajı gönderildikten sonra geri alınamaz "
+        "ve gerçek kişilere ulaşır. Metni önce göster, göndermeyi onaylat.",
+        (),
+    ),
+    (
+        "slack discord telegram whatsapp mesaj gönderme",
+        _M,
+        "Kanal ve kişi kimliğini gönderimden önce doğrula. Benzer adlı kanala "
+        "gönderilen mesaj kurumsal bir hatadır ve silinse bile görülmüştür.",
+        (),
+    ),
+    (
+        "notion jira linear trello asana clickup monday görev yönetimi",
+        _M,
+        "Toplu durum/atama değişikliği herkese bildirim yağdırır. Kaç kaydı "
+        "etkileyeceğini söyle ve gerekiyorsa parçalara böl.",
+        (),
+    ),
+    (
+        "jira linear trello görev kapatma",
+        _M,
+        "Bir işi 'tamamlandı' yapmadan önce gerçekten çözüldüğünü doğrula. "
+        "Kapatılan kayıt gözden düşer ve sorun sessizce yaşamaya devam eder.",
+        (),
+    ),
+    # --- Otomasyon, CRM, satış ---------------------------------------------- #
+    (
+        "stripe ödeme iade ve abonelik işlemi",
+        _M,
+        "Ödeme, iade ve abonelik işlemleri GERÇEK PARADIR ve geri alınamaz. Test "
+        "anahtarıyla dene, gerçek işlemde açık onay al ve tekrarları önlemek için "
+        "idempotency anahtarı kullan.",
+        (),
+    ),
+    (
+        "n8n make zapier otomasyon senaryosu",
+        _M,
+        "Bir otomasyon senaryosunu aktifleştirmek gerçek dünyada iş yapar "
+        "(e-posta atar, kayıt oluşturur, ödeme başlatır). Önce tek seferlik "
+        "çalıştırma ile dene, sonucu gör, sonra aktifleştir.",
+        (),
+    ),
+    (
+        "hubspot salesforce pipedrive CRM kaydı düzenleme",
+        _M,
+        "CRM'de kayıt birleştirme geri alınamaz ve ilişkili geçmişi taşır. "
+        "Birleştirmeden önce iki kaydı da oku ve kullanıcıya doğrulat.",
+        (),
+    ),
+    (
+        "klaviyo mailchimp e-posta kampanyası gönderimi",
+        _M,
+        "Kampanya gönderimi geri alınamaz. Segment büyüklüğünü say, kime "
+        "gideceğini yaz ve gönderimi kullanıcıya onaylat; test gönderimini kendi "
+        "adresine yap.",
+        (),
+    ),
+    (
+        "twilio SMS ve sesli arama",
+        _M,
+        "SMS ve sesli arama ücretlidir ve gerçek numaralara ulaşır. Test ederken "
+        "yalnız kullanıcının verdiği numarayı kullan, listeye gönderim yapma.",
+        (),
+    ),
+)
 
 MEASURED_LESSONS: tuple[Lesson, ...] = tuple(
     Lesson(text=text, kind=kind, task=task, source=LessonSource.SEED)

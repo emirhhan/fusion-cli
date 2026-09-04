@@ -369,3 +369,19 @@ def test_forget_coklu_ders_siler(tmp_path):
 
     assert bellek.forget(("bir", "uc")) == 2
     assert [ders.text for ders in bellek.all()] == ["iki"]
+
+
+def test_alaka_guveni_ezmez():
+    """Ölçüldü: 380 derslik bellekte "stripe ile iade yap" sorgusu, konuyla
+    ilgisiz ama güveni 1.00 olan dosya-yazma derslerini getiriyordu.
+
+    Güven, benzer ölçüde alakalı dersler arasında karar vermek içindir; alakanın
+    YERİNE geçemez. Sıralama küçük bellekte sorun çıkarmıyordu, bellek büyüyünce
+    ilgili ders hiç görünmez oldu.
+    """
+    uzak_ama_guvenli = Candidate(_lesson("uzak", confidence=1.0), distance=0.60)
+    yakin_ama_yeni = Candidate(_lesson("yakin", confidence=0.60), distance=0.15)
+
+    secilen = select_lessons((uzak_ama_guvenli, yakin_ama_yeni), limit=4)
+
+    assert secilen[0].text == "yakin"

@@ -22,6 +22,18 @@ RRF_K = 60
 #: Aday havuzu, istenen limitin kaç katı geniş çekilir — lexical eşleşme elenmeden yakalansın.
 CANDIDATE_MULTIPLIER = 3
 
+#: Aday havuzunun ALT SINIRI.
+#:
+#: Ölçüldü: havuz yalnız `limit * CANDIDATE_MULTIPLIER` idi. 380 derslik bir
+#: bellekte 3 ders istendiğinde 9 aday çekiliyor ve ilgili ders hiç görünmüyordu
+#: ("shopify mağazasında fiyat güncelle" sorgusu hiçbir ders döndürmedi).
+#: Lexical katmanın işi "embedding'in ıskaladığı birebir terim eşleşmesini
+#: kurtarmak"tır; kurtaracağı ders havuzda değilse hiçbir şey yapamaz.
+#:
+#: Çarpan korunur: küçük bellekte havuzu şişirmek gereksiz iş yapar. Alt sınır
+#: yalnızca bellek büyüdükçe devreye girer.
+MIN_CANDIDATE_POOL = 40
+
 # BM25 parametreleri (literatürdeki yaygın varsayılanlar).
 _BM25_K1 = 1.5
 _BM25_B = 0.75
