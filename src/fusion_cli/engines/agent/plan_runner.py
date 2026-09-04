@@ -16,6 +16,7 @@ from ...core.execution_plan import (
 )
 from ...core.types import Message
 from .plan_parser import PlanParseError, parse_execution_plan
+from .step_verification import verify_plan_acceptance, verify_step
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -148,11 +149,13 @@ async def run_execution_plan(
             internal=True,
         )
         outcomes.append(outcome)
-        succeeded = outcome.ok and not outcome.hit_step_limit
+        verification = await verify_step(running, outcome, deps)
+        succeeded = verification.ok
         final_status = StepStatus.COMPLETED if succeeded else StepStatus.FAILED
         current = _replace_step(current, replace(running, status=final_status))
         if not succeeded:
-            text = f"Plan adımı başarısız oldu: {step.step_id}. {outcome.final_text}"
+            detail = "; ".join(verification.findings) or outcome.final_text
+            text = f"Plan adımı başarısız oldu: {step.step_id}. {detail}"
             return AgentOutcome(
                 final_text=text,
                 messages=[Message("assistant", text)],
@@ -164,13 +167,28 @@ async def run_execution_plan(
                 ),
                 ok=False,
             )
-        evidence[step.step_id] = outcome.final_text.strip()
+        evidence[step.step_id] = " | ".join(verification.evidence)
 
     if any(step.status is not StepStatus.COMPLETED for step in current.steps):
         text = "Yürütme planı ilerleyemedi: tamamlanmamış adımların bağımlılıkları hazır değil."
         return AgentOutcome(final_text=text, messages=[Message("assistant", text)], ok=False)
 
     current = replace(current, status=PlanStatus.COMPLETED)
+    acceptance = await verify_plan_acceptance(current, deps)
+    if not acceptance.ok:
+        detail = "; ".join(acceptance.findings) or acceptance.summary
+        text = f"Planın final doğrulaması başarısız oldu: {detail}"
+        return AgentOutcome(
+            final_text=text,
+            messages=[Message("assistant", text)],
+            tool_calls_made=sum(item.tool_calls_made for item in outcomes),
+            model_calls_made=sum(item.model_calls_made for item in outcomes),
+            failed_tool_calls=sum(item.failed_tool_calls for item in outcomes),
+            mutating_tool_calls_made=sum(
+                item.mutating_tool_calls_made for item in outcomes
+            ),
+            ok=False,
+        )
     text = outcomes[-1].final_text if outcomes else "Yürütme planı tamamlandı."
     return AgentOutcome(
         final_text=text,

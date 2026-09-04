@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
+from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.engines.agent.plan_runner import run_execution_plan
@@ -39,7 +40,13 @@ class _FakeAgent:
         )
 
 
-async def test_runner_bagimli_adimlari_sirayla_calistirir():
+@dataclass
+class _FakeDeps:
+    tool_context: ToolContext
+    verifier: object | None = None
+
+
+async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):
     plan = ExecutionPlan(
         plan_id="p",
         task="özellik ekle",
@@ -47,7 +54,9 @@ async def test_runner_bagimli_adimlari_sirayla_calistirir():
     )
     agent = _FakeAgent([])
 
-    result = await run_execution_plan("özellik ekle", object(), agent, plan=plan)
+    result = await run_execution_plan(
+        "özellik ekle", _FakeDeps(ToolContext(root=tmp_path)), agent, plan=plan
+    )
 
     assert result.ok is True
     assert len(agent.prompts) == 2
@@ -55,7 +64,7 @@ async def test_runner_bagimli_adimlari_sirayla_calistirir():
     assert "patch tamamlandı" in result.final_text
 
 
-async def test_runner_basarisiz_adimdan_sonra_bagimli_adimi_calistirmaz():
+async def test_runner_basarisiz_adimdan_sonra_bagimli_adimi_calistirmaz(tmp_path):
     plan = ExecutionPlan(
         plan_id="p",
         task="özellik ekle",
@@ -66,13 +75,15 @@ async def test_runner_basarisiz_adimdan_sonra_bagimli_adimi_calistirmaz():
         del task, deps, kwargs
         return AgentOutcome(final_text="başarısız", messages=[], ok=False)
 
-    result = await run_execution_plan("özellik ekle", object(), failing_agent, plan=plan)
+    result = await run_execution_plan(
+        "özellik ekle", _FakeDeps(ToolContext(root=tmp_path)), failing_agent, plan=plan
+    )
 
     assert result.ok is False
     assert "inspect" in result.final_text
 
 
-async def test_gecersiz_model_plani_yalniz_bir_kez_onarilir():
+async def test_gecersiz_model_plani_yalniz_bir_kez_onarilir(tmp_path):
     replies = iter(("{bozuk", "{hala bozuk"))
     calls: list[str] = []
 
@@ -81,7 +92,9 @@ async def test_gecersiz_model_plani_yalniz_bir_kez_onarilir():
         calls.append(task)
         return AgentOutcome(final_text=next(replies), messages=[])
 
-    result = await run_execution_plan("özellik ekle", object(), invalid_agent)
+    result = await run_execution_plan(
+        "özellik ekle", _FakeDeps(ToolContext(root=tmp_path)), invalid_agent
+    )
 
     assert result.ok is False
     assert len(calls) == 2
