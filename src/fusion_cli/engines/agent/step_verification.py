@@ -70,10 +70,20 @@ async def verify_step(
             else:
                 findings.append("beklenen çalışma alanı değişikliği gözlenmedi")
         elif effect in {"shell_action", "git_commit", "git_push"}:
-            if outcome.tool_calls_made <= 0:
-                findings.append(f"beklenen araç etkisi gözlenmedi: {effect}")
-            else:
+            if outcome.tool_calls_made > 0:
                 evidence.append(f"araç etkisi kaydı bulundu: {effect}")
+            elif outcome.already_done_calls > 0:
+                # `workspace_mutation` ile AYNI ilke: adım, işini önceki bir adım
+                # yaptığı için yeni bir çağrı üretemeyebilir. Ölçüldü (Godot
+                # koşusu): doğrulama komutu birinci adımda çıkış 0 ile çalıştı;
+                # üçüncü adım sonucu göremediği için tekrar istedi, yinelenen
+                # sayılıp engellendi ve kanıt üretemeden düştü.
+                evidence.append(
+                    f"beklenen etki bu turda daha önce gerçekleşti: {effect} "
+                    "(yinelenen çağrılar engellendi)"
+                )
+            else:
+                findings.append(f"beklenen araç etkisi gözlenmedi: {effect}")
 
     if deps.verifier is not None:
         verification = await deps.verifier.verify()

@@ -190,3 +190,42 @@ async def test_hicbir_sey_yapmayan_adim_hala_basarisizdir(tmp_path):
 
     assert result.ok is False
     assert "beklenen çalışma alanı değişikliği gözlenmedi" in result.findings
+
+
+def _shell_step() -> PlanStep:
+    from dataclasses import replace as _replace
+
+    return _replace(_file_step("x"), expected_effects=("shell_action",))
+
+
+async def test_komut_onceki_adimda_calistiysa_adim_basarisiz_sayilmaz(tmp_path):
+    """Ölçüldü (Godot koşusu): doğrulama komutu birinci adımda çalıştı (çıkış 0).
+
+    Üçüncü adım o sonucu göremediği için komutu tekrar istedi; çalışma alanı
+    değişmediği için `TOOL_CALL_DUPLICATE` ile engellendi ve adım kanıt
+    üretemeden düştü. Aynı ilke `workspace_mutation` için uygulanmıştı; dış etki
+    post-condition'ları da tutarlı olmalı.
+    """
+    result = await verify_step(
+        _shell_step(),
+        AgentOutcome(
+            final_text="komut zaten çalıştı",
+            messages=[],
+            ok=True,
+            tool_calls_made=0,
+            already_done_calls=1,
+        ),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is True
+
+
+async def test_hic_calismayan_komut_adimi_yine_dusurur(tmp_path):
+    result = await verify_step(
+        _shell_step(),
+        AgentOutcome(final_text="komutu atladım", messages=[], ok=True),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is False
