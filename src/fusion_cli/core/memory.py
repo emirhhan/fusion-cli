@@ -198,6 +198,10 @@ class LessonMemory(Protocol):
         """
         ...
 
+    def retag_from_workspace(self) -> int:
+        """Etiketsiz derslere, kayıtlı proje kökünden teknoloji etiketi ver."""
+        ...
+
     def forget(self, texts: tuple[str, ...]) -> int:
         """Verilen metinlere birebir uyan dersleri belleğe SİL; silinen sayısını döndür.
 

@@ -384,3 +384,53 @@ def test_proje_dersi_etiketsiz_kalirsa_eski_davranis_korunur(tmp_path):
 
     assert not bellek.recall("auth nerede", limit=5, workspace="/b", tags=("python",))
     assert bellek.recall("auth nerede", limit=5, workspace="/a", tags=("python",))
+
+
+def test_eski_dersler_workspace_turunden_etiketlenebilir(tmp_path):
+    """Etiket alanı taşınmadan önce yazılmış dersler geriye dönük etiketlenebilmeli.
+
+    Ölçüldü: bellekte 320 ders vardı, 221'i bir klasöre bağlıydı ve hiçbirinde
+    etiket yoktu. Bunlardan 51'i hâlâ diskte duran bir Godot projesine aitti;
+    etiketlenmeden yeni bir Godot projesine taşınamazlardı.
+    """
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    proje = tmp_path / "oyun"
+    proje.mkdir()
+    (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
+    bellek = ChromaLessonMemory(tmp_path / "db")
+    bellek.add(
+        Lesson(text="godot sahnesinde res oneki kullanma", kind=LessonKind.MISTAKE,
+               workspace=str(proje))
+    )
+    bellek.add(Lesson(text="genel bir ders", kind=LessonKind.SUCCESS))
+    bellek.add(
+        Lesson(text="silinmis projenin dersi", kind=LessonKind.SUCCESS,
+               workspace=str(tmp_path / "olmayan"))
+    )
+
+    guncellenen = bellek.retag_from_workspace()
+
+    assert guncellenen == 1
+    etiketli = {d.text: d.tags for d in bellek.all()}
+    assert etiketli["godot sahnesinde res oneki kullanma"] == ("godot",)
+    assert etiketli["genel bir ders"] == ()
+    assert etiketli["silinmis projenin dersi"] == ()
+
+
+def test_retag_zaten_etiketli_dersi_bozmaz(tmp_path):
+    from fusion_cli.core.memory import Lesson, LessonKind
+    from fusion_cli.memory.lessons import ChromaLessonMemory
+
+    proje = tmp_path / "oyun"
+    proje.mkdir()
+    (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
+    bellek = ChromaLessonMemory(tmp_path / "db")
+    bellek.add(
+        Lesson(text="elle verilmis etiket", kind=LessonKind.SUCCESS,
+               workspace=str(proje), tags=("mcp:godot",))
+    )
+
+    assert bellek.retag_from_workspace() == 0
+    assert bellek.all()[0].tags == ("mcp:godot",)

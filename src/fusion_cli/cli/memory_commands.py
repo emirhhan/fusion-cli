@@ -64,6 +64,14 @@ def seed_lessons() -> None:
     console.print(messages.MEMORY_SEEDED.format(count=added, total=len(SEED_LESSONS)))
 
 
+@app.command("retag")
+def retag() -> None:
+    """Eski dersleri proje türünden etiketle (tekrar çalıştırmak güvenlidir)."""
+    memory = _open()
+    updated = memory.lessons.retag_from_workspace()
+    console.print(messages.MEMORY_RETAGGED.format(count=updated))
+
+
 @app.command("reindex")
 def reindex() -> None:
     """Kod tabanını anlamsal olarak indeksle (artımlı)."""

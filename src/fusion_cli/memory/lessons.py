@@ -140,6 +140,45 @@ class ChromaLessonMemory:
                 updated += 1
             return updated
 
+    def retag_from_workspace(self) -> int:
+        """Etiketsiz derslere, kayıtlı proje kökünden teknoloji etiketi ver.
+
+        Etiket alanı taşınmadan önce yazılmış kayıtlar için geriye dönük göç.
+        Ölçüldü: bellekte 320 ders, 221'i bir klasöre bağlı ve HİÇBİRİ etiketsiz;
+        51'i hâlâ diskte duran bir Godot projesine aitti ve etiketlenmeden yeni
+        bir Godot projesine taşınamazdı.
+
+        Kökü artık DİSKTE OLMAYAN ders atlanır: türünü tahmin etmek, dersi yanlış
+        teknolojiye taşıma riskidir. Zaten etiketli ders de değiştirilmez.
+        """
+        from ..engines.agent.verify_discovery import project_kinds
+
+        with _write_lock:
+            rows = self._collection.get()
+            ids = rows.get("ids") or []
+            documents = rows.get("documents") or []
+            metadatas = rows.get("metadatas") or []
+            updated = 0
+            for row_id, document, metadata in zip(ids, documents, metadatas, strict=False):
+                lesson = _to_lesson(document, metadata)
+                if lesson.tags or not lesson.workspace:
+                    continue
+                kok = Path(lesson.workspace)
+                if not kok.is_dir():
+                    continue
+                etiketler = project_kinds(kok)
+                if not etiketler:
+                    continue
+                self._collection.update(
+                    ids=[row_id],
+                    documents=[document],
+                    metadatas=[
+                        _to_metadata(replace(lesson, tags=etiketler), self._clock.now())
+                    ],
+                )
+                updated += 1
+            return updated
+
     def forget(self, texts: tuple[str, ...]) -> int:
         """Metni eşleşen dersleri sil. `reinforce` ile AYNI eşleşme kuralını kullanır."""
         wanted = {text.strip().lower() for text in texts if text.strip()}

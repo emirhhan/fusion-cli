@@ -154,6 +154,10 @@ MEMORY_DISABLED = "bellek kapalı (--no-memory)"
 MEMORY_EMPTY_STATS = "Henüz performans kaydı yok. Önce birkaç `fusion run` çalıştır."
 MEMORY_EMPTY_LESSONS = "Henüz ders yok. `fusion memory seed` ile başlangıç derslerini yükle."
 MEMORY_SEEDED = "{count} yeni küratörlü ders yüklendi ({total} tanenin içinden)."
+MEMORY_RETAGGED = (
+    "{count} ders proje türünden etiketlendi; artık aynı türdeki başka projelerde de "
+    "hatırlanacaklar."
+)
 MEMORY_REINDEXED = (
     "{total} parça indekslendi (+{added} yeni, -{removed} eski, {unchanged} değişmemiş)."
 )
