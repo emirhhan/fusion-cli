@@ -386,7 +386,7 @@ async def run_agent(
         limit=learning_steps.recall_limit_for(complex_task=is_complex_kind(kind)),
     )
     remembered = as_prompt_block(recalled)
-    expertise = _recall_skill(classification, deps, depth=depth)
+    expertise = _recall_skill(task, classification, deps, depth=depth)
     proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
     messages = _initial_messages(
         task,
@@ -2065,6 +2065,7 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
 
 
 def _recall_skill(
+    task: str,
     classification: TaskClassification,
     deps: AgentDeps,
     *,
@@ -2081,7 +2082,7 @@ def _recall_skill(
     skills = deps.capabilities.skills() if deps.capabilities is not None else ()
 
     if skill_recall.should_auto_skill(classification):
-        selected = skill_recall.select_skill(skills, classification.primary)
+        selected = skill_recall.select_skill(skills, classification.primary, task)
         if selected is not None:
             from ...core.events import CapabilityActivated
 

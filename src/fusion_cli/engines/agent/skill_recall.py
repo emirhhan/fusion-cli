@@ -109,13 +109,27 @@ def skill_query(kind: TaskKind) -> str:
     return SKILL_QUERIES.get(kind, "")
 
 
-def select_skill(skills: tuple[Capability, ...], kind: TaskKind) -> Capability | None:
-    """Türe en uygun TEK skill'i seç; eşleşme yoksa None.
+def select_skill(
+    skills: tuple[Capability, ...], kind: TaskKind, task: str = ""
+) -> Capability | None:
+    """Göreve en uygun TEK skill'i seç; eşleşme yoksa None.
 
     Tek seçilir: birden çok uzmanlık metnini üst üste koymak bağlamı şişirir ve
     hangisine uyulacağı belirsizleşir.
+
+    Sorgu GÖREV METNİ + TÜR TERİMLERİ birleşimidir. İkisi de gereklidir:
+
+    - Tür terimleri, Türkçe görev metninin İngilizce skill açıklamasıyla
+      eşleşmediği durumu kurtarır (bu modülün kuruluş gerekçesi).
+    - Görev metni, türün ayırt edemediği durumu kurtarır. Ölçüldü: 306 skill
+      kuruluyken bir Godot görevine HİÇ skill gelmedi, çünkü `FEATURE` türünün
+      sorgusu BOŞTU — en yaygın görev tipinde seçim hiç çalışmıyordu. Godot
+      görevi ile WordPress görevi aynı türe düşer; ayrımı yapan tek şey metindir.
+
+    Özel adlar (godot, shopify, stripe, kubernetes) dilden bağımsızdır ve iki
+    tarafta da aynı yazılır; köprüyü asıl onlar kurar.
     """
-    query = skill_query(kind)
+    query = f"{task} {skill_query(kind)}".strip()
     if not query or not skills:
         return None
     matches = search(skills, query, limit=1)
@@ -172,6 +186,7 @@ def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:
 def auto_expertise_block(
     classification: TaskClassification,
     skills: tuple[Capability, ...] = (),
+    task: str = "",
 ) -> str:
     """Agent loop için confidence-gated, bütçeli expertise bloğu.
 
@@ -191,7 +206,7 @@ def auto_expertise_block(
             parts.append(reference)
 
     if should_auto_skill(classification) and skills:
-        selected = select_skill(skills, classification.primary)
+        selected = select_skill(skills, classification.primary, task)
         block = as_prompt_block(
             selected,
             budget=AUTO_SKILL_BUDGET,

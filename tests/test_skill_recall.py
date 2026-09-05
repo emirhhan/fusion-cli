@@ -106,3 +106,42 @@ def test_referans_kullanici_skilliyle_birlikte_verilir():
     assert secilen is not None
     assert reference_block(TaskKind.WEBSITE)
     assert as_prompt_block(secilen) or True  # dosya yok; blok boş olabilir
+
+
+def test_skill_gorev_metninden_secilir():
+    """Ölçüldü: 306 skill kuruluyken bir Godot görevine HİÇ skill gelmiyordu.
+
+    Seçim yalnızca görev TÜRÜNE bakıyordu ve `FEATURE` türünün sorgusu BOŞTU —
+    yani en yaygın görev tipinde hiçbir skill hiç seçilmiyordu. Bir Godot görevi
+    ile bir WordPress görevi aynı türe düşer; ayrımı yapan tek şey görev metnidir.
+    """
+    from fusion_cli.engines.agent.classify import TaskKind
+    from fusion_cli.engines.agent.skill_recall import select_skill
+
+    godot = _skill("godot", "Godot 4 ile oyun yapma, sahne tscn duzenleme")
+    wp = _skill("wordpress", "WordPress tema ve eklenti gelistirme")
+
+    secilen = select_skill((godot, wp), TaskKind.FEATURE, task="godot ile 2D oyun yap")
+
+    assert secilen is not None and secilen.name == "godot"
+
+
+def test_gorev_metni_eslesmezse_tur_terimleri_calisir():
+    """Metin eşleşmediğinde eski davranış korunur: tür terimleri seçer."""
+    from fusion_cli.engines.agent.classify import TaskKind
+    from fusion_cli.engines.agent.skill_recall import select_skill
+
+    hata = _skill("error-handling", "debugging error handling patterns")
+
+    secilen = select_skill((hata,), TaskKind.BUGFIX, task="şu tuhaf davranışı gider")
+
+    assert secilen is not None and secilen.name == "error-handling"
+
+
+def test_hicbiri_eslesmezse_none_doner():
+    from fusion_cli.engines.agent.classify import TaskKind
+    from fusion_cli.engines.agent.skill_recall import select_skill
+
+    alakasiz = _skill("kubernetes", "cluster namespace deployment")
+
+    assert select_skill((alakasiz,), TaskKind.FEATURE, task="godot oyunu yap") is None
