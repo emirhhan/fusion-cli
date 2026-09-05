@@ -261,3 +261,26 @@ async def test_tipli_kontrolsuz_adim_olculen_dosyayi_bagimliya_tasir(tmp_path):
     assert result.ok
     assert "üretilen dosya: a.txt" in prompts[1]
     assert "tamam" not in prompts[1].split("BAŞARI KOŞULLARI")[0].split("BAĞIMLILIK KANITLARI")[1]
+
+
+async def test_adim_kapsami_disindaki_arac_yapi_kapisini_yonlendiremez(tmp_path):
+    """Kapı, adımın ÇAĞIRAMAYACAĞI bir araca yönlendirirse iş imkânsız olur.
+
+    Ölçüldü (canlı Godot koşusu): plan `step-4-main-scene` adımını yalnız
+    `files` ailesiyle açtı; `godot__save_scene` bu adımda çağrılamıyordu ama
+    yapı kapısı hâlâ "sahneyi elle yazma, o araçları kullan" diyordu. Model üç
+    turda aynı duvara çarptı, adım bloklandı ve oyun teslim edilemedi.
+    """
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    context = ToolContext(root=tmp_path)
+    context.available_tools.update({"godot__add_node", "godot__save_scene", "read_file"})
+    deps = _deps(tmp_path)
+    deps.tool_context = context
+
+    dar = step_deps(deps, _step("sahne"), remaining=4, observe=False)
+
+    assert "godot__save_scene" not in dar.tool_context.available_tools
+    # Paylaşılan tur durumu KOPYALANMAZ: değişiklik kaydı aynı nesne kalmalı.
+    assert dar.tool_context.changes is context.changes

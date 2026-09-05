@@ -169,3 +169,24 @@ def test_satir_ici_kod_hala_onay_ister():
     """`-m` gevşetildi ama kod ENJEKSİYONU gevşetilmedi."""
     assert not is_unattended_safe("python3 -c \"import shutil; shutil.rmtree('.')\"")
     assert not is_unattended_safe("node -e 'process.exit(1)'")
+
+
+# --- Motorun kendi doğrulama komutu ------------------------------------------- #
+#
+# Ölçüldü (canlı Godot koşusu): plan son adımda `godot --headless --path . --quit`
+# çalıştırmak istedi; komut tanınmadığı için onay istendi ve etkileşimsiz oturumda
+# reddedildi. Aynı komutu proje kapısı (`verify_discovery._godot`) zaten HER turda
+# onaysız çalıştırıyor — yani onay yalnız agent yolunda anlam kaybediyor ve oyun
+# hiçbir zaman doğrulanamıyor.
+
+
+def test_headless_godot_dogrulamasi_onaysiz_calisir():
+    assert is_unattended_safe("godot --headless --path . --quit")
+    assert is_unattended_safe("godot --headless --path . --quit-after 180")
+
+
+def test_headless_olmayan_ya_da_yazan_godot_onay_ister():
+    """Gevşetme yalnız başsız DOĞRULAMA çağrısına aittir."""
+    assert not is_unattended_safe("godot --path . --quit")
+    assert not is_unattended_safe("godot --headless --path . --export-release mac oyun.dmg")
+    assert not is_unattended_safe("godot --headless --script sil.gd")

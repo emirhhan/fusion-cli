@@ -54,8 +54,17 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     if policy.allowed_tool_names is not None:
         allowed &= policy.allowed_tool_names
     effect = step.expected_effects[0] if step.expected_effects and not observe else None
+    # Yapı kapısı "bu biçimi üreten araç VAR" derken adımın ÇAĞIRABİLECEĞİ araca
+    # bakmalı. Ölçüldü (canlı Godot koşusu): plan sahne adımını yalnız `files`
+    # ailesiyle açtı, `godot__save_scene` bu adımda kapalıydı ama kapı hâlâ o
+    # araca yönlendirdi; model aynı duvara üç kez çarptı ve oyun teslim edilemedi.
+    # Kural depoda zaten yazılı: bir kapı, işi YAPAMAYAN bir yeteneğe yönlendiremez.
+    context = replace(
+        deps.tool_context, available_tools=set(deps.tool_context.available_tools) & allowed
+    )
     return replace(
         deps,
+        tool_context=context,
         execution=replace(
             policy,
             required_effect=effect,

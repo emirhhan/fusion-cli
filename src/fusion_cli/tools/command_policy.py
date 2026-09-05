@@ -88,6 +88,19 @@ _TOOLING_SUBCOMMANDS = frozenset(
     {"test", "check", "lint", "typecheck", "run", "fmt", "format", "build", "vet"}
 )
 
+#: Oyun motorunun BAŞSIZ doğrulama çağrısında onaysız geçen bayraklar.
+#:
+#: Ölçüldü (canlı Godot koşusu): plan son adımda `godot --headless --path . --quit`
+#: çalıştırmak istedi, komut tanınmadığı için onay istendi ve etkileşimsiz oturumda
+#: reddedildi — oyun hiçbir zaman doğrulanamadı. Aynı komutu proje kapısı
+#: (`verify_discovery._godot`) zaten her turda onaysız çalıştırıyor; gevşetme yeni
+#: bir yetki açmaz, iki yolu aynı güven seviyesine getirir.
+#:
+#: Sınır dar tutulur: `--headless` ZORUNLUDUR ve yalnız aşağıdaki bayraklar geçer.
+#: Dışa aktarma (`--export-*`), betik çalıştırma (`--script`) ya da başsız olmayan
+#: çağrı onay ister.
+_GODOT_VERIFY_FLAGS = frozenset({"--headless", "--path", "--quit", "--quit-after", "--verbose"})
+
 #: Onaysız geçilen git alt komutları — TEK KAYNAK.
 #:
 #: Git iki ayrı yoldan gelebilir (`git` aracı ve `run_shell`) ve ikisinde de aynı
@@ -163,11 +176,26 @@ def _segment_safe(segment: str) -> bool:
         return not any(argument in _FIND_UNSAFE for argument in arguments)
     if name in _PROJECT_TOOLING:
         return _tooling_safe(name, arguments)
+    if name == "godot":
+        return _godot_verify_safe(arguments)
     if name in _VERSION_ONLY:
         if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
             return True
         return name in _SCRIPT_RUNNERS and _script_safe(arguments)
     return name in _READ_ONLY
+
+
+def _godot_verify_safe(arguments: list[str]) -> bool:
+    """Godot çağrısı yalnız BAŞSIZ doğrulama mı yapıyor?
+
+    Bayrak dışı değerlere (`--path .`, `--quit-after 180`) izin verilir; tanınmayan
+    bir bayrak görüldüğü anda komut onaya düşer.
+    """
+    if "--headless" not in arguments:
+        return False
+    return all(
+        argument in _GODOT_VERIFY_FLAGS for argument in arguments if argument.startswith("-")
+    )
 
 
 def _script_safe(arguments: list[str]) -> bool:
