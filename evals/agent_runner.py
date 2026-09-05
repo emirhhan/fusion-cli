@@ -18,6 +18,7 @@ from evals.executor import AgentRunObservation
 from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
 from fusion_cli.core.events import Event, ModelCallFinished
+from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import is_rate_limit_error
 from fusion_cli.engines.agent import run_agent
@@ -150,7 +151,7 @@ class MinimalAgentRunner(FusionAgentRunner):
             browser_verification=False,
             visual_verification=False,
             playbooks=False,
-            workflow_mode=False,
+            workflow_mode=ExecutionMode.OFF,
         )
         super().__init__(replace(config, runtime=runtime))
 
