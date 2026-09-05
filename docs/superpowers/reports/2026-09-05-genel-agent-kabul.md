@@ -12,6 +12,7 @@ Tarih: 5 Eylül 2026. Plan: [genel-agent-guvenilirligi](../plans/2026-09-05-gene
 | `42881d0` | `evals/agent_runner.py` tip kapısı düzeltmesi |
 | `5a8412f` | Sıfır çıkış kodunda gizlenen hata; skill kırpmasının bildirilmesi |
 | `636628a` | Duyurulan skill ile enjekte edilen skill'in tek seçime bağlanması |
+| `add2c49` | Canlı koşuda çıkan iki tıkanma: kapsam dışı araca yönlendirme ve kendi doğrulama komutunun onaya takılması |
 
 ## Bu turda kapanan kusurlar
 
@@ -62,7 +63,9 @@ Koşu 1 ve 2'nin ortaya çıkardığı iki tıkanma `add2c49` ile kapatıldı.
 
 ## Kalan sınırlamalar
 
-- **Canlı kabul ölçümü yapılmadı.** Kod, MCP, tarayıcı ve Godot görevlerinin temiz dizinlerde gerçek sağlayıcıyla koşturulup provider/çağrı/kabul/artifact/insan-müdahalesi metriklerinin kaydedilmesi bekliyor. Bu yapılmadan "Fusion bu işi tek başına bitirir" denemez.
+- **Tam otonom teslim gösterilmedi.** Kod/kabuk setinde beş görev, Godot'ta üç koşunun üçü de insan müdahalesi olmadan bitmedi. "Fusion bu işi tek başına bitirir" bugünkü kanıtla söylenemez.
+- **MCP ve tarayıcı alanları canlı ölçülmedi.** Ölçüm kod/kabuk ve Godot alanlarıyla sınırlı kaldı; yapılandırılmış MCP sonucu ve tarayıcı kullanıcı akışı için ayrı sabit görevler gerekiyor.
+- **Tek koşu gürültülüdür.** Godot koşuları birbirinden belirgin biçimde ayrıştı; bir ayarın etkisini ölçmek için `--repeat 3-5` ile tekrar gerekir.
 - **Depoda önceden var olan biçim/tip borcu.** Güncel Ruff, bu turun dışındaki 27 dosyayı yeniden biçimlemek istiyor; bu değişikliklere karıştırılmadı.
 - **Notarization yok.** Paket yerel kararlı imzayla üretildi; Apple notarization ortam değişkenleri tanımlı değil.
 - **Kanıt maskeleme agresiftir.** Sır deseni eşleşen araç çıktısı checkpoint'te bütünüyle `[gizlendi]` olur; bu, sızma riskine karşı bilinçli bir değiş tokuştur.
