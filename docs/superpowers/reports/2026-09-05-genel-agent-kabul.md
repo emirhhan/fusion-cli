@@ -32,6 +32,34 @@ Tarih: 5 Eylül 2026. Plan: [genel-agent-guvenilirligi](../plans/2026-09-05-gene
 - Kimlik: yeni arşiv `41236498…`, önceki kurulu arşiv `a17ba6e0…`. Değişen dosyaların SHA-256'sı paket içinde bugünkü kaynakla eşleşti. Paketin `fusion-runtime.tar.gz` arşivinden çıkarılan modül çalıştırılarak kırpma/devam davranışı doğrudan pakette sınandı.
 - Kurulum: `/Applications/Fusion.app` güncellendi; önceki sürüm `/Applications/Fusion-yedek-2026-09-05.app` olarak duruyor. Kurulu paketin imzası doğrulandı.
 
+## Canlı kabul ölçümü (Gemini Web, `gemini_web/main/auto`)
+
+### Kod ve kabuk seti (`evals/suite/starter.yaml`, 24 görev, temiz dizinler)
+
+| Ölçüt | Değer |
+|---|---|
+| Başarı oranı | %79,2 (19/24) |
+| İlk denemede başarı | %79,2 |
+| Toplam yeniden deneme | 0 |
+| Ortalama model çağrısı | 7,1 |
+| Ortalama süre | 48,9 sn |
+
+Düşen beş görevin tamamı okuma-anlama-düzeltme sınıfındandır: `test-ciktisini-okuyup-duzelt`, `traceback-okuyup-duzelt`, `kullanicinin-degisikligini-koru`, `erisilemeyen-kaynagi-uydurma`, `cok-dosyali-modul-kur`. Dosya üretme ve tek adımlı görevlerin tamamı geçti.
+
+### Godot seti (üç koşu, her biri boş dizinde, elle müdahale yok)
+
+| Koşu | Durduğu yer | Ürün |
+|---|---|---|
+| 1 | Yapı kapısı, adımın çağıramadığı MCP aracına yönlendirdi | Sahne üretilemedi |
+| 2 | Son adımda `godot` komutu onaya takıldı (etkileşimsiz oturum) | Açılan, hatasız proje; 180 kare temiz |
+| 3 | `player.gd` ile sahne düğüm tipi tutarsız; adım bütçesi doldu | Proje açılıyor, script çalışmıyor |
+
+Üç koşunun hiçbiri tam otonom teslim değildir. Koşu 3'ün ürettiği proje `godot --headless --path . --quit` komutunu `0` çıkış koduyla bitirirken `SCRIPT ERROR: Parse Error` basıyor; bu turda eklenen kapı aynı projeye karşı `ok=False`, kanıt `failed` verdi — yani aynı çıktı artık başarı sayılamıyor.
+
+Koşu 1 ve 2'nin ortaya çıkardığı iki tıkanma `add2c49` ile kapatıldı.
+
+Ölçümün gösterdiği sınır artık araç ya da kanıt katmanı değil, modelin kendi ürettiği iki dosyayı tutarlı tutamamasıdır (sahne düğüm tipi ile script API'sinin uyuşmaması).
+
 ## Kalan sınırlamalar
 
 - **Canlı kabul ölçümü yapılmadı.** Kod, MCP, tarayıcı ve Godot görevlerinin temiz dizinlerde gerçek sağlayıcıyla koşturulup provider/çağrı/kabul/artifact/insan-müdahalesi metriklerinin kaydedilmesi bekliyor. Bu yapılmadan "Fusion bu işi tek başına bitirir" denemez.
