@@ -98,6 +98,7 @@ class WebSessionRegistry:
                     credential=credential,
                     transport=_missing_endpoint_transport,
                     tool_support=_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE),
+                    supports_images=True,
                     clock=clock,
                 )
             transport = transport_factory(session.endpoint)
@@ -106,6 +107,7 @@ class WebSessionRegistry:
             credential=credential,
             transport=transport,
             tool_support=_TOOL_SUPPORT.get(session.tool_support, ToolSupport.NONE),
+            supports_images=session.transport != "browser",
             clock=clock,
         )
 

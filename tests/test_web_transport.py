@@ -52,6 +52,63 @@ async def test_bearer_token_ve_model_gonderilir():
     assert capture["body"]["messages"] == [{"role": "user", "content": "selam"}]
 
 
+async def test_http_transport_gorselli_arac_sonucunu_gecerli_kullanici_mesaji_yapar():
+    capture: dict = {}
+    transport = build_http_transport(
+        "https://uc.example/v1/chat/completions", http_transport=_handler(capture)
+    )
+
+    await transport(
+        WebSessionCredential(),
+        (
+            Message(
+                "tool",
+                "ekran görüntüsü",
+                tool_call_id="call-1",
+                name="fixture__inspect",
+                images=("data:image/png;base64,aGVsbG8=",),
+            ),
+        ),
+        "m",
+    )
+
+    assert capture["body"]["messages"] == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "[Araç sonucu: fixture__inspect · call-1]\nekran görüntüsü",
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,aGVsbG8="},
+                },
+            ],
+        }
+    ]
+
+
+async def test_http_transport_metin_arac_mesajini_da_emule_edilmis_kullanici_mesaji_yapar():
+    capture: dict = {}
+    transport = build_http_transport(
+        "https://uc.example/v1/chat/completions", http_transport=_handler(capture)
+    )
+
+    await transport(
+        WebSessionCredential(),
+        (Message("tool", "çıktı", tool_call_id="call-2", name="read_file"),),
+        "m",
+    )
+
+    assert capture["body"]["messages"] == [
+        {
+            "role": "user",
+            "content": "[Araç sonucu: read_file · call-2]\nçıktı",
+        }
+    ]
+
+
 async def test_cookies_ve_ozel_basliklar_iletilir():
     capture: dict = {}
     transport = build_http_transport(

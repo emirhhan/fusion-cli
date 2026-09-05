@@ -75,6 +75,29 @@ async def test_arac_desteksiz_web_modeli_araclari_yoksayar():
     assert sonuc.text == "düz cevap"
 
 
+async def test_web_adapter_desteklenmeyen_gorseli_acikca_bildirir():
+    yakalanan = {}
+
+    async def _capture(credential, messages, model):
+        del credential, model
+        yakalanan["messages"] = messages
+        return WebTurn("tamam")
+
+    adapter = WebProviderAdapter(model="mock-web", credential=_cred(), transport=_capture)
+    request = CompletionRequest(
+        messages=(Message("tool", "inceleme", images=("data:image/png;base64,AAA",)),),
+        temperature=0.0,
+        max_tokens=64,
+        timeout_s=5.0,
+    )
+
+    await adapter.complete(request)
+
+    (message,) = yakalanan["messages"]
+    assert "görsel içeriği bu web taşımasında desteklenmiyor" in message.content.lower()
+    assert "incelendi" not in message.content.lower()
+
+
 def test_araçsiz_web_modeli_mutation_agent_olamaz():
     # Araçsız web modeli yalnızca sohbet/council rollerinde kullanılabilir.
     cap = ModelCapability(tool_support=ToolSupport.NONE)

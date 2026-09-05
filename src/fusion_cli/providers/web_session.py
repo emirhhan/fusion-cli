@@ -75,12 +75,14 @@ class WebProviderAdapter:
         credential: WebSessionCredential,
         transport: WebTransport,
         tool_support: ToolSupport = ToolSupport.NONE,
+        supports_images: bool = False,
         clock: Clock | None = None,
     ) -> None:
         self._model = model
         self._credential = credential
         self._transport = transport
         self._tool_support = tool_support
+        self._supports_images = supports_images
         self._clock = clock or SystemClock()
 
     @property
@@ -146,10 +148,30 @@ class WebProviderAdapter:
 
     def _prepared_messages(self, request: CompletionRequest) -> tuple[Message, ...]:
         """Emulated araç desteğinde araç talimatlarını sistem mesajına ekle."""
+        messages = tuple(self._prepare_images(message) for message in request.messages)
         if self._tool_support is not ToolSupport.EMULATED or not request.tools:
-            return request.messages
+            return messages
         instructions = render_tool_instructions(request.tools)
-        return (Message("system", instructions), *request.messages)
+        return (Message("system", instructions), *messages)
+
+    def _prepare_images(self, message: Message) -> Message:
+        """Native görsel taşımayan web yolunda kaybı açık bir gözleme dönüştür."""
+        if self._supports_images or not message.images:
+            return message
+        notice = (
+            f"[Bu mesajdaki {len(message.images)} görsel içeriği bu web taşımasında "
+            "desteklenmiyor; görsel incelenmedi.]"
+        )
+        content = "\n\n".join(part for part in (message.content, notice) if part)
+        return Message(
+            role=message.role,
+            content=content,
+            tool_calls=message.tool_calls,
+            tool_call_id=message.tool_call_id,
+            name=message.name,
+            ok=message.ok,
+            harness_note=message.harness_note,
+        )
 
     def _to_result(self, raw: str, latency_ms: int, *, served_by: str = "") -> ModelResult:
         """Ham yanıtı `ModelResult`'a çevir; emulated ise araç çağrılarını ayrıştır."""

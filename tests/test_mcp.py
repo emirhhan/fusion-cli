@@ -10,6 +10,17 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
+
 from fusion_cli.config.models import McpServerConfig
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import AgentOutcome
@@ -52,9 +63,9 @@ async def test_ustten_uca_baglan_listele_cagir(tmp_path):
 
         # Uzak aracı gerçekten çağır. `call` metnin YANINDA hata bayrağını da
         # döndürür; bayrağı atmak uzak hataları başarı gibi gösteriyordu.
-        cikti, hatali = await client.call("fusion", "list_dir", {"path": "."})
-        assert "ornek.txt" in cikti
-        assert hatali is False
+        sonuc = await client.call("fusion", "list_dir", {"path": "."})
+        assert "ornek.txt" in sonuc.output
+        assert sonuc.ok is True
 
 
 async def test_register_into_araclari_kayit_defterine_ekler(tmp_path):
@@ -157,6 +168,192 @@ class _SahteOturum:
     async def call_tool(self, name, args):
         del name, args
         return _SahteSonuc(self._metin, self._hata)
+
+
+class _SdkSonucOturumu:
+    """Gerçek MCP SDK sonuç nesnesini istemci sınırına verir."""
+
+    def __init__(self, result: CallToolResult) -> None:
+        self._result = result
+
+    async def call_tool(self, name, args):
+        del name, args
+        return self._result
+
+
+async def test_sdk_icerigi_kayipsiz_normalize_edilir():
+    result = CallToolResult(
+        content=[
+            TextContent(type="text", text="inceleme tamamlandı"),
+            ImageContent(type="image", data="aGVsbG8=", mimeType="image/png"),
+            AudioContent(type="audio", data="c2Vz", mimeType="audio/wav"),
+            ResourceLink(
+                type="resource_link",
+                name="rapor",
+                title="Denetim raporu",
+                uri="file:///tmp/rapor.json",
+                description="Kaynak ayrıntıları",
+                mimeType="application/json",
+                size=42,
+            ),
+            EmbeddedResource(
+                type="resource",
+                resource=TextResourceContents(
+                    uri="file:///tmp/not.txt", mimeType="text/plain", text="kaynak metni"
+                ),
+            ),
+            EmbeddedResource(
+                type="resource",
+                resource=BlobResourceContents(
+                    uri="file:///tmp/veri.bin",
+                    mimeType="application/octet-stream",
+                    blob="YmluYXJ5",
+                ),
+            ),
+        ],
+        structuredContent={"score": 5, "valid": True},
+        isError=False,
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = _SdkSonucOturumu(result)
+
+    sonuc = await client.call("fixture", "inspect", {})
+
+    assert sonuc.ok is True
+    assert sonuc.images == ("data:image/png;base64,aGVsbG8=",)
+    assert '"score": 5' in sonuc.output
+    assert "file:///tmp/rapor.json" in sonuc.output
+    assert "kaynak metni" in sonuc.output
+    assert "application/octet-stream" in sonuc.output
+    assert "YmluYXJ5" not in sonuc.output
+    assert "c2Vz" not in sonuc.output
+    assert {block.type.value for block in sonuc.content} >= {
+        "text",
+        "image",
+        "audio",
+        "resource_link",
+        "resource_text",
+        "resource_blob",
+    }
+
+
+async def test_yalniz_gorsel_sdk_sonucu_bos_basariya_donusmez():
+    result = CallToolResult(
+        content=[ImageContent(type="image", data="aGVsbG8=", mimeType="image/png")]
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = _SdkSonucOturumu(result)
+
+    sonuc = await client.call("fixture", "inspect", {})
+
+    assert sonuc.ok is True
+    assert sonuc.output
+    assert "Görsel" in sonuc.output
+    assert "aGVsbG8=" not in sonuc.output
+
+
+async def test_sdk_is_error_bayragi_icerikle_birlikte_korunur():
+    result = CallToolResult(
+        content=[TextContent(type="text", text="inceleme başarısız")],
+        structuredContent={"score": 0},
+        isError=True,
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = _SdkSonucOturumu(result)
+
+    sonuc = await client.call("fixture", "inspect", {})
+
+    assert sonuc.ok is False
+    assert "inceleme başarısız" in sonuc.output
+    assert '"score": 0' in sonuc.output
+
+
+async def test_uzun_metin_structured_ve_kaynak_ozetini_gizlemez():
+    result = CallToolResult(
+        content=[
+            TextContent(type="text", text="x" * 25_000),
+            ResourceLink(
+                type="resource_link",
+                name="kritik-rapor",
+                uri="file:///tmp/kritik.json",
+            ),
+        ],
+        structuredContent={"needle": "KORUNMALI"},
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = _SdkSonucOturumu(result)
+
+    sonuc = await client.call("fixture", "inspect", {})
+
+    assert '"needle": "KORUNMALI"' in sonuc.output
+    assert "file:///tmp/kritik.json" in sonuc.output
+    assert "KIRPILDI" in sonuc.output
+
+
+async def test_buyuk_structured_sonraki_kaynak_ozetini_gizlemez():
+    result = CallToolResult(
+        content=[
+            ResourceLink(
+                type="resource_link",
+                name="kritik-rapor",
+                uri="file:///tmp/critical",
+            )
+        ],
+        structuredContent={"huge": "x" * 25_000},
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = _SdkSonucOturumu(result)
+
+    sonuc = await client.call("fixture", "inspect", {})
+
+    assert "file:///tmp/critical" in sonuc.output
+    assert '"huge"' in sonuc.output
+    assert "KIRPILDI" in sonuc.output
+
+
+class _SayfaliOturum:
+    def __init__(self, pages: dict[str | None, object]) -> None:
+        self._pages = pages
+        self.cursors: list[str | None] = []
+
+    async def list_tools(self, cursor=None):
+        self.cursors.append(cursor)
+        return self._pages[cursor]
+
+
+async def test_arac_listesi_butun_sayfalari_kaydeder():
+    from fusion_cli.tools import ToolRegistry
+
+    session = _SayfaliOturum(
+        {
+            None: SimpleNamespace(tools=[_SahteArac("bir")], nextCursor="ikinci"),
+            "ikinci": SimpleNamespace(tools=[_SahteArac("iki")], nextCursor=None),
+        }
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = session
+    registry = ToolRegistry()
+
+    eklenen = await client.register_into(registry)
+
+    assert eklenen == ("fixture__bir", "fixture__iki")
+    assert session.cursors == [None, "ikinci"]
+
+
+async def test_yinelenen_cursor_sonsuz_dongu_olusturmaz():
+    session = _SayfaliOturum(
+        {
+            None: SimpleNamespace(tools=[_SahteArac("bir")], nextCursor="ikinci"),
+            "ikinci": SimpleNamespace(tools=[_SahteArac("iki")], nextCursor="ikinci"),
+        }
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = session
+
+    tools = await client.list_tools("fixture")
+
+    assert [tool.name for tool in tools] == ["bir", "iki"]
+    assert session.cursors == [None, "ikinci"]
 
 
 async def _sahte_calistir(ad: str, metin: str, hata: bool):

@@ -1019,13 +1019,10 @@ def _promotion_context(
         reasons=decision.reasons,
         touched_paths=observation.touched_paths,
         pending_todos=tuple(
-            item.content
-            for item in todos.items
-            if item.status is not TodoStatus.COMPLETED
+            item.content for item in todos.items if item.status is not TodoStatus.COMPLETED
         ),
         tool_evidence=tuple(
-            f"{use.name}: {'başarılı' if use.ok else 'başarısız'}"
-            for use in observation.tool_uses
+            f"{use.name}: {'başarılı' if use.ok else 'başarısız'}" for use in observation.tool_uses
         ),
     )
 
@@ -1747,9 +1744,7 @@ async def _run_tools(
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
-            not_ = _repeated_failure_note(
-                call.name, result.output, state.repeated_failures[imza]
-            )
+            not_ = _repeated_failure_note(call.name, result.output, state.repeated_failures[imza])
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"
         messages.append(
@@ -1759,6 +1754,7 @@ async def _run_tools(
                 tool_call_id=call.id,
                 name=call.name,
                 ok=result.ok,
+                images=result.images,
             )
         )
     return errored

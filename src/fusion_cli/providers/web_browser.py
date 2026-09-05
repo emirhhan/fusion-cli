@@ -485,7 +485,7 @@ def format_browser_prompt(
             label = f"ARAÇ SONUCU ({_tool_result_label(message, calls_by_id)})"
         else:
             label = "KULLANICI"
-        content = message.content.strip()
+        content = _browser_message_content(message)
         if message.tool_calls:
             call_lines = ["[Önceki araç çağrıları]"]
             for call in message.tool_calls:
@@ -623,11 +623,23 @@ def _format_continuation(
             baslik = "SİSTEM"
         else:
             baslik = "KULLANICI"
-        parcalar.append(f"### {ROLE_PREFIX}{baslik}\n{message.content.strip()}")
+        parcalar.append(f"### {ROLE_PREFIX}{baslik}\n{_browser_message_content(message)}")
     hatirlatma = _task_reminder(full_history if full_history is not None else messages)
     if hatirlatma:
         parcalar.append(hatirlatma)
     return "\n\n".join(parcalar)
+
+
+def _browser_message_content(message: Message) -> str:
+    """Tarayıcı promptunda taşınamayan görseli sessizce düşürme."""
+    content = message.content.strip()
+    if not message.images:
+        return content
+    notice = (
+        f"[Bu mesajdaki {len(message.images)} görsel içeriği bu web taşımasında "
+        "desteklenmiyor; görsel incelenmedi.]"
+    )
+    return "\n\n".join(part for part in (content, notice) if part)
 
 
 async def _launch_profile_context(

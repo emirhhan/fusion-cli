@@ -45,7 +45,7 @@ def build_http_transport(
         headers = _headers(credential)
         payload = {
             "model": model,
-            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "messages": [_message_payload(message) for message in messages],
         }
         async with httpx.AsyncClient(
             transport=http_transport, timeout=timeout_s, cookies=dict(credential.cookies)
@@ -55,6 +55,26 @@ def build_http_transport(
         return WebTurn(_extract_text(response))
 
     return _transport
+
+
+def _message_payload(message: Message) -> dict[str, object]:
+    """Emule edilmiş araç geçmişini geçerli OpenAI-uyumlu mesaja dönüştür."""
+    role = message.role
+    content = message.content
+    if message.role == "tool":
+        role = "user"
+        name = message.name or "araç"
+        call_id = f" · {message.tool_call_id}" if message.tool_call_id else ""
+        content = f"[Araç sonucu: {name}{call_id}]\n{content}"
+    elif message.images and message.role != "user":
+        role = "user"
+        content = f"[{message.role} mesajına ekli görsel]\n{content}"
+
+    if not message.images:
+        return {"role": role, "content": content}
+    parts: list[dict[str, object]] = [{"type": "text", "text": content}]
+    parts.extend({"type": "image_url", "image_url": {"url": image}} for image in message.images)
+    return {"role": role, "content": parts}
 
 
 def _headers(credential: WebSessionCredential) -> dict[str, str]:

@@ -24,6 +24,7 @@ from typing import Protocol
 
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
+from .tool_content import ToolContent, ToolContentType
 
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
@@ -106,11 +107,28 @@ class ToolResult:
 
     output: str
     ok: bool = True
+    content: tuple[ToolContent, ...] = ()
+    structured: Mapping[str, object] | None = None
+
+    @property
+    def images(self) -> tuple[str, ...]:
+        """Sağlayıcıya aktarılabilir görselleri data URI biçiminde döndür."""
+        return tuple(
+            block.data_uri
+            for block in self.content
+            if block.type is ToolContentType.IMAGE and block.data_uri
+        )
 
     @classmethod
-    def failure(cls, message: str) -> ToolResult:
+    def failure(
+        cls,
+        message: str,
+        *,
+        content: tuple[ToolContent, ...] = (),
+        structured: Mapping[str, object] | None = None,
+    ) -> ToolResult:
         """Aracın kendi tespit ettiği, modele düzeltme şansı veren hata."""
-        return cls(output=message, ok=False)
+        return cls(output=message, ok=False, content=content, structured=structured)
 
 
 class TodoStatus(Enum):

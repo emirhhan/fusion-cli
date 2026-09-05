@@ -185,6 +185,24 @@ def test_devam_promptu_arac_sonucunu_tasir():
     assert "çıktı" in yeni
 
 
+def test_tarayıcı_promptu_gorseli_sessizce_atmaz():
+    prompt = format_browser_prompt(
+        (
+            Message(
+                "tool",
+                "inceleme",
+                name="fixture__inspect",
+                ok=True,
+                images=("data:image/png;base64,AAA",),
+            ),
+        ),
+        continuation=True,
+    )
+
+    assert "görsel içeriği bu web taşımasında desteklenmiyor" in prompt.lower()
+    assert "AAA" not in prompt
+
+
 def test_ozet_rol_ve_icerigi_birlikte_kapsar():
     a = (Message("user", "x"),)
     b = (Message("assistant", "x"),)

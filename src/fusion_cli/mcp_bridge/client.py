@@ -24,6 +24,7 @@ from mcp.client.stdio import stdio_client
 from ..config.models import McpServerConfig
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ..tools import ToolRegistry
+from .content import normalize_call_result
 
 __all__ = ["McpClient", "McpServerConfig", "RemoteTool"]
 
@@ -50,12 +51,16 @@ class McpClient:
         self._sessions: dict[str, ClientSession] = {}
 
     async def __aenter__(self) -> McpClient:
-        for config in self._configs:
-            params = StdioServerParameters(command=config.command, args=list(config.args))
-            read, write = await self._stack.enter_async_context(stdio_client(params))
-            session = await self._stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
-            self._sessions[config.name] = session
+        try:
+            for config in self._configs:
+                params = StdioServerParameters(command=config.command, args=list(config.args))
+                read, write = await self._stack.enter_async_context(stdio_client(params))
+                session = await self._stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                self._sessions[config.name] = session
+        except Exception:
+            await self._stack.aclose()
+            raise
         return self
 
     async def __aexit__(self, *exc: object) -> None:
@@ -63,19 +68,31 @@ class McpClient:
 
     async def list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
-        result = await self._sessions[server].list_tools()
-        return [
-            RemoteTool(
-                server=server,
-                name=tool.name,
-                description=tool.description or "",
-                schema=dict(tool.inputSchema or {}),
+        remote: list[RemoteTool] = []
+        cursor: str | None = None
+        seen: set[str] = set()
+        while True:
+            if cursor is None:
+                result = await self._sessions[server].list_tools()
+            else:
+                result = await self._sessions[server].list_tools(cursor)
+            remote.extend(
+                RemoteTool(
+                    server=server,
+                    name=tool.name,
+                    description=tool.description or "",
+                    schema=dict(tool.inputSchema or {}),
+                )
+                for tool in result.tools
             )
-            for tool in result.tools
-        ]
+            next_cursor = getattr(result, "nextCursor", None)
+            if not next_cursor or next_cursor in seen:
+                return remote
+            seen.add(next_cursor)
+            cursor = next_cursor
 
-    async def call(self, server: str, name: str, args: dict[str, object]) -> tuple[str, bool]:
-        """Uzak aracı çağır; metni VE hata olup olmadığını döndür.
+    async def call(self, server: str, name: str, args: dict[str, object]) -> ToolResult:
+        """Uzak aracı çağır; bütün içeriği ve hata durumunu kanonik sonuca dönüştür.
 
         `isError` bayrağı ATILAMAZ. Eskiden yalnız metin dönüyordu ve uzak araç
         "Scene file does not exist" dediğinde Fusion bunu BAŞARI sayıyordu.
@@ -84,12 +101,7 @@ class McpClient:
         "görev başarısız" görüyordu.
         """
         result = await self._sessions[server].call_tool(name, args)
-        parts = [
-            getattr(block, "text", "")
-            for block in result.content
-            if getattr(block, "type", None) == "text"
-        ]
-        return "".join(parts), bool(getattr(result, "isError", False))
+        return normalize_call_result(result)
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
         """Tüm sunucuların araçlarını Fusion kayıt defterine ekle; eklenen adları döndür.
@@ -115,14 +127,19 @@ class McpClient:
 
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+            del context
             try:
-                text, hatali = await self.call(server, tool, dict(args))
+                result = await self.call(server, tool, dict(args))
             except Exception as error:
                 return ToolResult.failure(f"MCP aracı hatası ({server}.{tool}): {error}")
-            if hatali:
+            if not result.ok and not result.output:
                 # Modele DÜZELTME şansı veren hata: metin olduğu gibi taşınır,
                 # çünkü uzak sunucular genelde çözüm önerisini oraya yazar.
-                return ToolResult.failure(text or f"MCP aracı başarısız: {server}.{tool}")
-            return ToolResult(output=text)
+                return ToolResult.failure(
+                    f"MCP aracı başarısız: {server}.{tool}",
+                    content=result.content,
+                    structured=result.structured,
+                )
+            return result
 
         return _run
