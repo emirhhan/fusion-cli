@@ -145,3 +145,64 @@ def test_hicbiri_eslesmezse_none_doner():
     alakasiz = _skill("kubernetes", "cluster namespace deployment")
 
     assert select_skill((alakasiz,), TaskKind.FEATURE, task="godot oyunu yap") is None
+
+
+def test_feature_gorevinde_de_skill_enjekte_edilir():
+    """Ölçüldü: `godot` skill'i kurulu ve göreve tam uyuyorken HİÇ etkinleşmedi.
+
+    Kapı `classification.primary in SKILL_QUERIES` diyordu ve tabloda `feature`,
+    `explore`, `general` yoktu. Yani en yaygın görev tipleri skill enjeksiyonunu
+    baştan kapatıyordu. Kapı artık türe değil, ELDE UYGUN SKILL OLUP OLMADIĞINA
+    bakmalı; seçim zaten eşleşme bulamazsa `None` döner ve hiçbir şey enjekte
+    edilmez.
+    """
+    from fusion_cli.engines.agent.classify import TaskClassification, TaskKind
+    from fusion_cli.engines.agent.skill_recall import should_auto_skill
+
+    c = TaskClassification(primary=TaskKind.FEATURE, confidence=1.0)
+
+    assert should_auto_skill(c) is True
+
+
+def test_guven_dusukse_skill_yine_enjekte_edilmez():
+    """Güven kapısı korunur: kararsız sınıflandırmada enjeksiyon yapılmaz."""
+    from fusion_cli.engines.agent.classify import TaskClassification, TaskKind
+    from fusion_cli.engines.agent.skill_recall import should_auto_skill
+
+    c = TaskClassification(primary=TaskKind.FEATURE, confidence=0.0)
+
+    assert should_auto_skill(c) is False
+
+
+def test_skill_adi_gorevde_geciyorsa_tek_eslesme_yeter():
+    """Ölçüldü: "godot sahnesine script bagla" görevinde `godot` skill'i seçilmedi.
+
+    Skor 1'di (yalnız 'godot' tuttu) ve eşik 2'ydi. Ama bir skill'in KENDİ ADININ
+    görevde geçmesi, açıklamasından rastgele bir kelime tutmasıyla aynı kanıt
+    değildir — özel ad, en güçlü sinyaldir.
+    """
+    from fusion_cli.engines.agent.classify import TaskKind
+    from fusion_cli.engines.agent.skill_recall import MIN_AUTO_SKILL_SCORE, select_skill
+
+    godot = _skill("godot", "oyun sahne tscn gdscript")
+
+    secilen = select_skill(
+        (godot,), TaskKind.GENERAL, task="godot sahnesine script bagla",
+        min_score=MIN_AUTO_SKILL_SCORE,
+    )
+
+    assert secilen is not None and secilen.name == "godot"
+
+
+def test_adi_gecmeyen_zayif_eslesme_yine_elenir():
+    from fusion_cli.engines.agent.classify import TaskKind
+    from fusion_cli.engines.agent.skill_recall import MIN_AUTO_SKILL_SCORE, select_skill
+
+    fe = _skill("frontend-design", "css responsive layout design")
+
+    secilen = select_skill(
+        (fe,), TaskKind.FEATURE, task="kullaniciya design ekrani ekle",
+        min_score=MIN_AUTO_SKILL_SCORE,
+    )
+
+    assert secilen is None

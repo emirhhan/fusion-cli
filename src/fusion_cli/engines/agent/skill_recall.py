@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ...tools.capabilities import Capability, load_skill_text, search
+from ...tools.capabilities import Capability, load_skill_text, search_scored
 from .classify import TaskClassification, TaskKind
 
 #: Fusion'a ait, göreve göre eklenen referans metinleri.
@@ -93,9 +93,21 @@ def should_auto_context(classification: TaskClassification) -> bool:
 
 
 def should_auto_skill(classification: TaskClassification) -> bool:
-    """Primary tür için otomatik kullanıcı skill'i enjekte edilmeli mi?"""
+    """Otomatik kullanıcı skill'i enjekte edilmeli mi?
 
-    return should_auto_context(classification) and classification.primary in SKILL_QUERIES
+    Kapı yalnız GÜVENE bakar, türe değil. Eskiden `primary in SKILL_QUERIES`
+    şartı vardı ve tabloda `feature`, `explore`, `general` yoktu — yani en
+    yaygın görev tiplerinde skill enjeksiyonu baştan kapalıydı.
+
+    Ölçüldü: `godot` skill'i kurulu, göreve tam uyuyor ve `select_skill` onu
+    doğru seçiyorken bir Godot görevinde HİÇ etkinleşmedi; görev `feature`
+    türündeydi.
+
+    Türe göre elemeye gerek yok: `select_skill` eşleşme bulamazsa `None` döner
+    ve hiçbir şey enjekte edilmez. Seçici zaten kapı görevi görüyor.
+    """
+
+    return should_auto_context(classification)
 
 
 def should_auto_reference(classification: TaskClassification) -> bool:
@@ -109,8 +121,21 @@ def skill_query(kind: TaskKind) -> str:
     return SKILL_QUERIES.get(kind, "")
 
 
+#: Otomatik enjeksiyon için gereken ASGARİ eşleşme gücü (kaç arama terimi tuttu).
+#:
+#: Tek kelimelik örtüşme yetmez: 306 skill arasında herhangi bir görev metni
+#: neredeyse her zaman bir skill'le bir kelime paylaşır ("form", "test", "data").
+#: Sistem promptuna 2.500 karakterlik uzmanlık metni koymak için daha güçlü bir
+#: kanıt gerekir. Ölçüldü: eşiksiz haliyle FEATURE görevlerine alakasız skill
+#: zorlanıyordu — bu, tür tabanlı kapının kaldırılma gerekçesinin ta kendisiydi.
+MIN_AUTO_SKILL_SCORE = 2
+
+
 def select_skill(
-    skills: tuple[Capability, ...], kind: TaskKind, task: str = ""
+    skills: tuple[Capability, ...],
+    kind: TaskKind,
+    task: str = "",
+    min_score: int = 1,
 ) -> Capability | None:
     """Göreve en uygun TEK skill'i seç; eşleşme yoksa None.
 
@@ -132,8 +157,25 @@ def select_skill(
     query = f"{task} {skill_query(kind)}".strip()
     if not query or not skills:
         return None
-    matches = search(skills, query, limit=1)
-    return matches[0] if matches else None
+    matches = search_scored(skills, query, limit=1)
+    if not matches:
+        return None
+    skill, score = matches[0]
+    if score >= min_score or _name_in_task(skill, task):
+        return skill
+    return None
+
+
+def _name_in_task(skill: Capability, task: str) -> bool:
+    """Skill'in KENDİ ADI görevde kelime olarak geçiyor mu?
+
+    Özel ad en güçlü sinyaldir ve dilden bağımsızdır. Ölçüldü: "godot sahnesine
+    script bagla" görevinde skor 1'di (yalnız 'godot' tuttu) ve eşiğe takılıyordu
+    — oysa görevin hangi skill'i istediği apaçıktı.
+    """
+    kelimeler = set(re.split(r"[^a-z0-9]+", task.lower()))
+    parcalar = [p for p in re.split(r"[^a-z0-9]+", skill.name.lower()) if p]
+    return bool(parcalar) and all(p in kelimeler for p in parcalar)
 
 
 def as_prompt_block(
@@ -206,7 +248,9 @@ def auto_expertise_block(
             parts.append(reference)
 
     if should_auto_skill(classification) and skills:
-        selected = select_skill(skills, classification.primary, task)
+        selected = select_skill(
+            skills, classification.primary, task, min_score=MIN_AUTO_SKILL_SCORE
+        )
         block = as_prompt_block(
             selected,
             budget=AUTO_SKILL_BUDGET,

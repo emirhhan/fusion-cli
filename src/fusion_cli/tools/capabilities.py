@@ -102,10 +102,25 @@ def search(items: tuple[Capability, ...], query: str, limit: int = 6) -> tuple[C
     terms = [word for word in query.lower().split() if word]
     if not terms:
         return items[:limit]
+    return tuple(item for item, _ in search_scored(items, query, limit=limit))
+
+
+def search_scored(
+    items: tuple[Capability, ...], query: str, limit: int = 6
+) -> tuple[tuple[Capability, int], ...]:
+    """`search` ile aynı sıralama, ama eşleşme SKORUYLA birlikte.
+
+    Skor, otomatik enjeksiyon kararı için gereklidir: tek kelimelik zayıf bir
+    örtüşme aramada gösterilebilir ama sistem promptuna 2.500 karakter uzmanlık
+    metni koymayı haklı çıkarmaz.
+    """
+    terms = [word for word in query.lower().split() if word]
+    if not terms:
+        return tuple((item, 0) for item in items[:limit])
     scored = [(item, _score(item, terms)) for item in items]
     matching = [(item, score) for item, score in scored if score > 0]
     matching.sort(key=lambda pair: pair[1], reverse=True)
-    return tuple(item for item, _ in matching[:limit])
+    return tuple(matching[:limit])
 
 
 def load_skill_text(path: Path, budget: int = SKILL_TEXT_BUDGET) -> str:

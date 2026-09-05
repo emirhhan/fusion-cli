@@ -81,15 +81,39 @@ def test_general_ve_explore_asla_otomatik_context_almaz():
 
 
 def test_feature_icin_genel_frontend_skill_zorlanmaz():
+    """Niyet aynı, kapı değişti: FEATURE görevine alakasız skill zorlanmamalı.
+
+    Eskiden bu, TÜR tablosuyla sağlanıyordu (`feature` tabloda yoktu). O kapı
+    fazla genişti: `godot` skill'i göreve tam uyduğu hâlde de enjekte edilmiyordu
+    (ölçüldü). Artık kararı EŞLEŞME GÜCÜ veriyor — zayıf örtüşen skill seçilmez,
+    güçlü örtüşen seçilir.
+    """
+    from pathlib import Path as _Path
+
+    from fusion_cli.engines.agent.skill_recall import MIN_AUTO_SKILL_SCORE, select_skill
+    from fusion_cli.tools.capabilities import Capability
+
     result = classification(
         TaskKind.FEATURE,
         confidence=0.9,
         primary_score=10,
     )
-
     assert should_auto_context(result)
-    assert not should_auto_skill(result)
+    assert should_auto_skill(result)
     assert not should_auto_reference(result)
+
+    frontend = Capability(
+        name="frontend-design",
+        description="css responsive layout design tokens",
+        path=_Path("yok.md"),
+        source="global",
+    )
+    # Görevle yalnız TEK kelime paylaşıyor: enjekte edilmemeli.
+    zayif = select_skill(
+        (frontend,), TaskKind.FEATURE, task="kullaniciya design ekrani ekle",
+        min_score=MIN_AUTO_SKILL_SCORE,
+    )
+    assert zayif is None
 
 
 def test_website_skill_ve_reference_ancak_guvenli_classificationda_acilir():
