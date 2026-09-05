@@ -82,6 +82,10 @@ class ExecutionPolicy:
     allow_mutation: bool = True
     #: İzin yoksa kullanıcıya ve modele gösterilecek gerekçe.
     mutation_block_reason: str = ""
+    #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
+    allowed_tool_names: frozenset[str] | None = None
+    #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
+    observe_only: bool = False
 
 
 def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> ExecutionPolicy:

@@ -1,0 +1,85 @@
+"""Plan alt turlarının bütçe, araç ve istem sınırlarını kurar."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+from typing import TYPE_CHECKING
+
+from ...core.checkpoint import StepCheckpointEvidence
+from ...core.execution_plan import PlanStep
+from ...core.tools import tool_family
+from ...tools import build_registry
+from ..workflow.model import WorkflowBudget
+from .execution_policy import ExecutionPolicy
+from .plan_checkpoint import dependency_text
+
+if TYPE_CHECKING:
+    from .loop import AgentDeps
+
+
+def workflow_budget(deps: AgentDeps) -> WorkflowBudget:
+    """Mevcut yapılandırılmış zarfları alt turun sınırıyla birleştir.
+
+    Adım zarfı, bir adımın alt-turuna TANINAN haktan küçük olamaz: alt tur zaten
+    kendi politika sınırıyla kısıtlıdır, zarf bundan küçükse fatura iş DOĞRU
+    giderken kesilir. Ölçüldü (Godot koşusu): 19-22 başarılı araç çağrısıyla
+    ilerleyen adım tek bir hata vermeden yalnız zarf yüzünden duraklatıldı.
+    """
+    runtime = getattr(getattr(deps, "config", None), "runtime", None)
+    defaults = WorkflowBudget()
+    step_calls = getattr(getattr(deps, "execution", None), "max_model_calls", None)
+    per_step = getattr(runtime, "workflow_step_calls", defaults.per_step)
+    if isinstance(step_calls, int):
+        per_step = max(per_step, step_calls)
+    return WorkflowBudget(
+        planning=getattr(runtime, "workflow_planning_calls", defaults.planning),
+        per_step=per_step,
+        recovery=getattr(runtime, "workflow_recovery_calls", defaults.recovery),
+        final=getattr(runtime, "workflow_final_verification_calls", defaults.final),
+    )
+
+
+def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool) -> AgentDeps:
+    """Adım ailesini gerçek kayıt adlarına çevir; gözlem turunu salt-okunur kıl."""
+    policy = getattr(deps, "execution", None) or ExecutionPolicy(is_web=False)
+    registry = getattr(deps, "base_registry", None) or build_registry()
+    known = ((name, registry.get(name)) for name in registry.names())
+    allowed = frozenset(
+        name
+        for name, tool in known
+        if tool is not None
+        and tool_family(name).value in step.allowed_tool_families
+        and (not observe or not tool.mutating)
+    )
+    if policy.allowed_tool_names is not None:
+        allowed &= policy.allowed_tool_names
+    effect = step.expected_effects[0] if step.expected_effects and not observe else None
+    return replace(
+        deps,
+        execution=replace(
+            policy,
+            required_effect=effect,
+            requires_tool_evidence=effect is not None,
+            allow_mutation=policy.allow_mutation and not observe,
+            mutation_block_reason="Kurtarma yalnız mevcut durumu gözlemleyebilir."
+            if observe
+            else policy.mutation_block_reason,
+            observe_only=observe,
+            complex_task=policy.complex_task and not observe,
+            max_model_calls=min(policy.max_model_calls, remaining)
+            if policy.max_model_calls is not None
+            else remaining,
+            allowed_tool_names=allowed,
+        ),
+    )
+
+
+def step_prompt(task: str, step: PlanStep, evidence: dict[str, StepCheckpointEvidence]) -> str:
+    """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret."""
+    return (
+        f"ANA GÖREV:\n{task}\n\nPLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
+        f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
+        + "\n".join(f"- {criterion}" for criterion in step.success_criteria)
+        + f"\n\nDOĞRULAMA İPUCU:\n{step.verification_hint}\n\n"
+        "Yalnızca bu adımı tamamla. Sonuçta yaptığını ve gözlediğin kanıtı açıkça yaz."
+    )

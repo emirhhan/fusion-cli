@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, StrEnum
 
+from ...core.checkpoint import WorkflowBudgetUsage
+
 
 class Stage(Enum):
     """Workflow boru hattının aşamaları (sıralı)."""
@@ -105,9 +107,7 @@ class BudgetLedger:
         """
         return (envelope, scope if envelope in _SCOPED_ENVELOPES else "")
 
-    def charge(
-        self, envelope: BudgetEnvelope, calls: int, *, scope: str = ""
-    ) -> BudgetDecision:
+    def charge(self, envelope: BudgetEnvelope, calls: int, *, scope: str = "") -> BudgetDecision:
         """Pozitif çağrı harcamasını zarf sığıyorsa işle."""
         if calls < 0:
             raise ValueError("Workflow çağrı harcaması negatif olamaz.")
@@ -123,6 +123,14 @@ class BudgetLedger:
     def used(self, envelope: BudgetEnvelope, *, scope: str = "") -> int:
         """Bir zarfta (gerekirse belirtilen adım kapsamında) işlenmiş çağrı sayısı."""
         return self._used.get(self._key(envelope, scope), 0)
+
+    def restore(self, usage: tuple[WorkflowBudgetUsage, ...]) -> None:
+        """Önceki zarf harcamalarını sınırları yenilemeden geri yükle."""
+        for item in usage:
+            if item.calls < 0:
+                raise ValueError("Workflow çağrı harcaması negatif olamaz.")
+            key = self._key(BudgetEnvelope(item.envelope), item.scope)
+            self._used[key] = item.calls
 
 
 @dataclass(frozen=True, slots=True)

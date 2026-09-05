@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -28,4 +29,15 @@ class CriterionEvidence:
     summary: str
     artifact: str = ""
     command: str = ""
+    output: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ToolUse:
+    """Turda denenen tek araç çağrısı."""
+
+    name: str
+    ok: bool = True
+    mutating: bool = False
+    arguments: Mapping[str, object] = field(default_factory=dict)
     output: str = ""

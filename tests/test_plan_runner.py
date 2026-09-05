@@ -99,7 +99,8 @@ async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):
 
     assert result.ok is True
     assert len(agent.prompts) == 2
-    assert "inspect tamamlandı" in agent.prompts[1]
+    assert "inspect tamamlandı" not in agent.prompts[1]
+    assert "inspect: doğrulanmış koşul kanıtı yok" in agent.prompts[1]
     assert "patch tamamlandı" in result.final_text
 
 
@@ -247,9 +248,7 @@ async def test_yukseltme_yoksa_plan_istemine_baglam_eklenmez(tmp_path):
         prompts.append(task)
         return AgentOutcome(final_text="{bozuk", messages=[])
 
-    await run_execution_plan(
-        "şuna bir bak", _FakeDeps(ToolContext(root=tmp_path)), plan_agent
-    )
+    await run_execution_plan("şuna bir bak", _FakeDeps(ToolContext(root=tmp_path)), plan_agent)
 
     assert "YÜKSELTME BAĞLAMI" not in prompts[0]
 
@@ -393,7 +392,5 @@ async def test_kanitlanmayan_davranis_kullaniciya_bildirilir(tmp_path):
 
     assert result.ok is True
     assert "davranış kanıtlanmadı" in result.final_text
-    tamamlandi = [
-        olay for olay in deps.publisher.events if isinstance(olay, ExecutionCompleted)
-    ]
+    tamamlandi = [olay for olay in deps.publisher.events if isinstance(olay, ExecutionCompleted)]
     assert tamamlandi and tamamlandi[0].warnings

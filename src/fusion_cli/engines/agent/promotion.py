@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
+from ...core.evidence import ToolUse as ToolUse
 from ...core.tools import ToolFamily, tool_family
 
 
@@ -58,17 +58,6 @@ MAX_EVIDENCE_ITEMS = 12
 #: Ayrı kanıtla doğrulanması gereken etkiler. Kabuk komutu ve VCS işlemi dış dünyada
 #: gerçekleşir; modelin "çalıştı" demesi sonucun kanıtı değildir.
 _PROOF_FAMILIES = frozenset({ToolFamily.SHELL, ToolFamily.VCS})
-
-
-@dataclass(frozen=True, slots=True)
-class ToolUse:
-    """Turda denenen tek araç çağrısı."""
-
-    name: str
-    ok: bool = True
-    mutating: bool = False
-    arguments: Mapping[str, object] = field(default_factory=dict)
-    output: str = ""
 
 
 @dataclass(frozen=True, slots=True)

@@ -29,6 +29,7 @@ class _Deps:
     checkpoint_store: JsonCheckpointStore
     conversation_id: str = "conv"
     verifier: object | None = None
+    execution: object | None = None
     publisher: object = _Publisher()
 
 

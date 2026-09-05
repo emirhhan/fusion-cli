@@ -39,6 +39,13 @@ MAX_DIR_ENTRIES = 200
 MAX_SEARCHABLE_FILE_BYTES = 1_000_000
 #: Yeni dosya önizlemesinde gösterilecek en fazla satır.
 MAX_PREVIEW_LINES = 40
+#: Checkpoint'e yazılacak tek araç/komut çıktısının en fazla karakteri.
+#
+# Devam kaydı bir arşiv değildir: kanıt olarak komutun gerçekten çalıştığı ve ne
+# döndürdüğü yeterlidir. Sınır, doğrulayıcının bellekte tuttuğu kanıt kesitiyle
+# (8.000 karakter) aynıdır; büyütmek diskteki kaydı `read_file` çıktısı kadar
+# şişirir, küçültmek aynı kanıtın bellekte geçip diskte kaybolmasına yol açar.
+MAX_CHECKPOINT_OUTPUT_CHARS = 8_000
 
 #: Kabuk komutu için zaman aşımı (saniye).
 SHELL_TIMEOUT_S = 120.0

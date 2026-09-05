@@ -220,6 +220,9 @@ class AgentOutcome:
     failed_tool_calls: int = 0
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
+    #: Planlama çağrıları toplam model sayısına dahildir; final kapıları model değildir.
+    planning_calls_made: int = 0
+    final_verification_calls: int = 0
     #: Aynı çağrı bu turda ZATEN yapıldığı için engellenen çağrı sayısı.
     #:
     #: "Hiçbir şey yapmadım" ile "iş zaten yapılmıştı" farklı sonuçlardır ve
@@ -418,6 +421,9 @@ async def run_agent(
         # Bir kapı turu reddediyorsa dayandığı iddia O TURDA söylenmiş olmalı.
         deps.execution = policy_for(deps.config, selected_spec, kind, task)
     execution = deps.execution
+    if allowed_tools is not None:
+        names = frozenset(_permitted(allowed_tools, registry, execution) or ())
+        execution = replace(execution, allowed_tool_names=names)
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
@@ -435,7 +441,9 @@ async def run_agent(
         # desene uymuyordu, bu yüzden tur salt-okunur kipte beş çağrı harcayıp
         # hiçbir şey yapamadan bitti. BUGFIX/FEATURE gibi bir tür zaten doğası
         # gereği değişiklik ister; ayrıca metinden kanıt aramaya gerek yok.
-        blocking = execution.required_effect is not None or is_complex_kind(kind)
+        blocking = not execution.observe_only and (
+            execution.required_effect is not None or is_complex_kind(kind)
+        )
         deps.publisher.publish(
             MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
         )
@@ -1214,6 +1222,8 @@ def _permitted(
         if allowed_tools is None
         else ((allowed_tools | ALWAYS_ALLOWED) & set(registry.names()))
     )
+    if execution.allowed_tool_names is not None:
+        names &= execution.allowed_tool_names
     if not execution.allow_mutation:
         names = {
             name
@@ -1804,12 +1814,18 @@ async def _execute(
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     tool = registry.get(call.name)
+    if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
+        return ToolResult.failure(
+            "Araç bu adımın izin verilen kapsamında değil."
+        ), ToolOutcome.BLOCKED
     if tool is not None and tool.mutating and not execution.allow_mutation:
         # Yetenek kapısı onaydan ÖNCE gelir: kullanıcıya sormanın anlamı yok, bu
         # model bu işi güvenilir yapamıyor. Şema hiç sunulmadığı için buraya normalde
         # gelinmez; ikinci savunma hattıdır.
         return (
-            ToolResult(MUTATION_BLOCKED_MESSAGE.format(reason=execution.mutation_block_reason)),
+            ToolResult.failure(
+                MUTATION_BLOCKED_MESSAGE.format(reason=execution.mutation_block_reason)
+            ),
             ToolOutcome.BLOCKED,
         )
     if tool is not None and tool.mutating:
@@ -1817,7 +1833,7 @@ async def _execute(
         if decision is not Decision.ALLOW:
             # Reddetme ve engelleme HATA DEĞİLDİR: refleksiyon tetiklenmemeli,
             # model yalnızca farklı bir yol denemeli.
-            return ToolResult(_DECISION_MESSAGES[decision]), _DECISION_OUTCOMES[decision]
+            return ToolResult.failure(_DECISION_MESSAGES[decision]), _DECISION_OUTCOMES[decision]
 
     result = await registry.execute(call.name, args, deps.tool_context)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED

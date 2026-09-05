@@ -190,7 +190,7 @@ def _evaluate_check(
 ) -> CriterionEvidence:
     """Tek kontrolü yürüt; yeni komut başlatmadan yalnız mevcut kanıtı tüket."""
     if check.kind in {VerificationCheckKind.FILE_EXISTS, VerificationCheckKind.FILE_CONTAINS}:
-        return _evaluate_file_check(check, root)
+        return evaluate_file_check(check, root)
 
     if check.kind is VerificationCheckKind.COMMAND:
         found = _command_evidence(check.target, outcome, verification)
@@ -233,7 +233,7 @@ def _evaluate_check(
     )
 
 
-def _evaluate_file_check(check: VerificationCheck, root: Path) -> CriterionEvidence:
+def evaluate_file_check(check: VerificationCheck, root: Path) -> CriterionEvidence:
     """Dosya kontrolünü gerçek artifact üzerinde yeniden ölç."""
     path = _safe_effect_path(root, check.target)
     if path is None:
@@ -475,7 +475,7 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
                 VerificationCheckKind.FILE_CONTAINS,
             }:
                 continue
-            result = _evaluate_file_check(check, root)
+            result = evaluate_file_check(check, root)
             if result.status is not EvidenceStatus.PASSED:
                 findings.append(
                     f"başarı koşulu artık geçmiyor: {check.criterion_id} "
@@ -487,6 +487,8 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
 async def verify_plan_acceptance(
     plan: ExecutionPlan,
     deps: AgentDeps,
+    *,
+    evidence: tuple[CriterionEvidence, ...] = (),
 ) -> VerificationResult:
     """Tamamlanan planı son kapıdan geçir ve neyin KANITLANMADIĞINI da söyle."""
     incomplete = tuple(
@@ -500,13 +502,12 @@ async def verify_plan_acceptance(
     if stale:
         return VerificationResult(ok=False, summary=stale[0], findings=stale)
 
-    if deps.verifier is None:
-        return VerificationResult(
-            ok=True,
-            summary="tüm plan adımları doğrulandı",
-            warnings=(UNPROVEN_BEHAVIOR_WARNING,),
-        )
-    result = await deps.verifier.verify()
+    result = (
+        await deps.verifier.verify()
+        if deps.verifier is not None
+        else VerificationResult(ok=True, summary="tüm plan adımları doğrulandı")
+    )
+    result = replace(result, evidence=(*evidence, *result.evidence))
     if not result.ok:
         return result
     expected_behavior = set(behavioral_commands(deps.tool_context.root))
