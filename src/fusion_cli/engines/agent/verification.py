@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from ...config.models import Config
@@ -331,6 +332,24 @@ class CommandVerifier:
 
         if process.returncode == 0:
             output = _tail(ham)
+            bildirilen = _reported_failure(command, output)
+            if bildirilen:
+                ozet = f"komut sıfır döndü ama hata bildirdi ({bildirilen}): {command}"
+                return VerificationResult(
+                    ok=False,
+                    summary=ozet,
+                    findings=(ozet, output),
+                    evidence=(
+                        CriterionEvidence(
+                            criterion_id=command,
+                            kind=VerificationCheckKind.COMMAND,
+                            status=EvidenceStatus.FAILED,
+                            summary=ozet,
+                            command=command,
+                            output=output,
+                        ),
+                    ),
+                )
             return VerificationResult(
                 ok=True,
                 evidence=(
@@ -388,6 +407,33 @@ class CommandVerifier:
 
 #: Kabuk "komut bulunamadı" için bu çıkış kodunu verir (POSIX sözleşmesi).
 _COMMAND_NOT_FOUND = 127
+
+#: Sıfır çıkış koduna rağmen hatayı yalnız ÇIKTIYA basan araçlar.
+#
+# Ölçüldü: Godot hem bozuk script'te hem çalışma zamanı hatasında `0` döndürüyor;
+# çıkış koduna bakan kapı bunu "başarıyla çalıştı" sayıp kabul veriyordu. Tablo
+# araç adına göre genişletilir. İşaretler dar tutulur: yalnız motorun KENDİ hata
+# satırında geçen ifadeler yazılır, yoksa kapı gürültüye döner.
+_ZERO_EXIT_FAILURE_MARKERS: dict[str, tuple[str, ...]] = {
+    "godot": (
+        "script error",
+        "parse error",
+        "can't run project",
+        "failed to load script",
+    ),
+}
+
+
+def _reported_failure(command: str, output: str) -> str:
+    """Çıkış kodu sessiz kalsa da aracın kendi bildirdiği hatayı yakala."""
+    lowered = output.casefold()
+    for tool, markers in _ZERO_EXIT_FAILURE_MARKERS.items():
+        if not re.search(rf"\b{re.escape(tool)}\b", command):
+            continue
+        for marker in markers:
+            if marker in lowered:
+                return marker
+    return ""
 
 
 def _tail(raw: bytes) -> str:

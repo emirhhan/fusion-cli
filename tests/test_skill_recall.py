@@ -261,3 +261,28 @@ def test_enjeksiyon_tek_bolum_butceyi_asarsa_bos_donmez(tmp_path: Path):
     # Gövde başlar başlamaz gelir; araya YAML girmez.
     assert blok.splitlines()[1] == "## Tek"
     assert len(blok) <= 400
+
+
+def test_enjeksiyonda_dusen_bolumler_bildirilir(tmp_path: Path):
+    """Sığmayan bölüm hiç girmiyorsa model bunu BİLMELİ.
+
+    Ölçüldü: bütçeye sığmayan bölümler sessizce düşüyordu; model eldeki yarım
+    talimatı tam sanıp `read_skill` çağırmıyor ve atlanan zorunlu adımı hiç
+    uygulamıyordu. Kesilen çıktı, devamının nasıl alınacağını söylemeli.
+    """
+    govde = "## Bir\n\n" + "a" * 300 + "\n\n## Iki\n\n" + "b" * 300 + "\n"
+    beceri = _skill_dosyasi(tmp_path, govde)
+
+    blok = as_prompt_block(beceri, budget=400)
+
+    assert "## Iki" not in blok
+    assert "read_skill" in blok
+    assert beceri.name in blok
+
+
+def test_tamami_siğan_skill_devam_notu_almaz(tmp_path: Path):
+    beceri = _skill_dosyasi(tmp_path, "## Kural\n\nAna sahneyi ayarla.\n")
+
+    blok = as_prompt_block(beceri, budget=AUTO_SKILL_BUDGET)
+
+    assert "read_skill" not in blok

@@ -131,6 +131,31 @@ def load_skill_text(path: Path, budget: int = SKILL_TEXT_BUDGET) -> str:
         return f"HATA: skill okunamadı: {exc}"
 
 
+def load_skill_page(path: Path, *, offset: int = 0, budget: int = SKILL_TEXT_BUDGET) -> str:
+    """Skill talimatını sayfa sayfa ver; kesilen kısım AÇIKÇA bildirilir.
+
+    Ölçüldü: bütçeyi aşan talimatın gerisi hiçbir işaret bırakmadan düşüyordu.
+    Model eksik yönergeyi tam sanıp ilerliyor, atlanan bölümdeki zorunlu adım
+    (proje kurulumu, dosya biçimi) hiç uygulanmıyordu. `read_file` ile aynı
+    sözleşme: kesilen çıktı, devamının nasıl alınacağını da söyler.
+    """
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return f"HATA: skill okunamadı: {exc}"
+    start = max(0, offset)
+    if start >= len(text) and text:
+        return f"(skill {len(text)} karakter; offset={start} metnin sonundan sonra)"
+    page = text[start : start + budget]
+    remaining = len(text) - (start + len(page))
+    if remaining <= 0:
+        return page
+    return (
+        f"{page}\n\n[KIRPILDI: {remaining} karakter daha var. "
+        f"Devamı için read_skill(offset={start + len(page)}).]"
+    )
+
+
 def load_agent_prompt(path: Path) -> str:
     """Agent tanımının gövdesi (frontmatter sonrası)."""
     try:

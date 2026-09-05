@@ -233,10 +233,25 @@ def as_prompt_block(
     if skill is None:
         return ""
     ham = load_skill_text(skill.path, budget=SKILL_TEXT_BUDGET)
-    text = _budget_sections(_strip_frontmatter(ham).strip(), budget)
+    govde = _strip_frontmatter(ham).strip()
+    text = _budget_sections(govde, budget)
     if not text:
         return ""
-    return f"# Uzmanlık talimatı: {skill.name}\n{text}"
+    if len(text) == len(govde) and len(ham) < SKILL_TEXT_BUDGET:
+        return f"# Uzmanlık talimatı: {skill.name}\n{text}"
+    # Sığmayan bölüm sessizce düşerse model yarım talimatı TAM sanır ve devamını
+    # hiç istemez (ölçüldü). Enjeksiyon bir özettir; kalanın nasıl alınacağı da
+    # söylenmelidir. Not bütçenin İÇİNDEN yer alır: uyarı uğruna bütçe aşılmaz.
+    text = _budget_sections(govde, max(1, budget - len(_continuation_note(skill.name, budget))))
+    return f"# Uzmanlık talimatı: {skill.name}\n{text}{_continuation_note(skill.name, len(text))}"
+
+
+def _continuation_note(name: str, offset: int) -> str:
+    """Kırpılan enjeksiyonun devamı aynı sözleşmeyle istenir."""
+    return (
+        "\n\n[Bu talimatın tamamı verilmedi. Kalanı için: "
+        f'read_skill(name="{name}", offset={offset}).]'
+    )
 
 
 def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:

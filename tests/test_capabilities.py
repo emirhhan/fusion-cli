@@ -10,6 +10,7 @@ from fusion_cli.tools.capabilities import (
     Capability,
     CapabilityRegistry,
     load_agent_prompt,
+    load_skill_page,
     load_skill_text,
     map_tools,
     parse_frontmatter,
@@ -244,3 +245,67 @@ def test_bilesik_kelime_tam_eslesmeyle_bulunur():
     )
 
     assert search((item,), "react") == (item,)
+
+
+# --- Uzun skill'in devamı ----------------------------------------------------- #
+
+
+def test_uzun_skill_sessizce_kesilmez(tmp_path):
+    """Bütçeyi aşan skill, kalanı okunabilecek şekilde bildirilmeli.
+
+    Ölçüldü: 6.000 karakterlik sınır aşıldığında talimatın gerisi hiçbir işaret
+    bırakmadan düşüyordu; model eksik yönergeyi tam sanıp ilerliyordu.
+    """
+    path = tmp_path / "uzun.md"
+    path.write_text("A" * 200 + "SON-BOLUM", encoding="utf-8")
+
+    ilk = load_skill_page(path, budget=100)
+
+    assert ilk.startswith("A" * 100)
+    assert "SON-BOLUM" not in ilk
+    assert "offset=100" in ilk
+
+
+def test_skill_devami_kaldigi_yerden_okunur(tmp_path):
+    path = tmp_path / "uzun.md"
+    path.write_text("A" * 200 + "SON-BOLUM", encoding="utf-8")
+
+    devam = load_skill_page(path, offset=100, budget=1_000)
+
+    assert "SON-BOLUM" in devam
+    assert "offset=" not in devam
+
+
+def test_kisa_skill_devam_notu_almaz(tmp_path):
+    path = tmp_path / "kisa.md"
+    path.write_text("kısa talimat", encoding="utf-8")
+
+    assert load_skill_page(path, budget=100) == "kısa talimat"
+
+
+def test_read_skill_araci_devam_offsetini_kabul_eder(tmp_path):
+    """Model kırpılan talimatın devamını aynı araçla alabilmeli."""
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _read_skill_tool
+
+    skills = tmp_path / ".claude" / "skills" / "uzun"
+    skills.mkdir(parents=True)
+    (skills / "SKILL.md").write_text(
+        "---\nname: uzun\ndescription: uzun talimat\n---\n" + "A" * 12_000 + "SON-BOLUM",
+        encoding="utf-8",
+    )
+    library = CapabilityRegistry(tmp_path / "yok", tmp_path)
+    tool = _read_skill_tool(library)
+    context = ToolContext(root=tmp_path)
+
+    ilk = tool.run({"name": "uzun"}, context)
+    assert "KIRPILDI" in ilk.output and "SON-BOLUM" not in ilk.output
+
+    # Devam, aracın KENDİ bildirdiği offset ile alınır: sözleşme budur.
+    sayfalar = [ilk.output]
+    while "KIRPILDI" in sayfalar[-1]:
+        offset = int(sayfalar[-1].split("read_skill(offset=")[1].split(")")[0])
+        sayfalar.append(tool.run({"name": "uzun", "offset": offset}, context).output)
+
+    assert "SON-BOLUM" in sayfalar[-1]
+    assert not tool.run({"name": "uzun", "offset": -1}, context).ok

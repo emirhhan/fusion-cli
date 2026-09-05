@@ -22,7 +22,7 @@ from ...tools.capabilities import (
     Capability,
     CapabilityRegistry,
     load_agent_prompt,
-    load_skill_text,
+    load_skill_page,
     map_tools,
     search,
 )
@@ -382,14 +382,26 @@ def _read_skill_tool(library: CapabilityRegistry) -> Tool:
         skill = library.get_skill(name)
         if skill is None:
             return ToolResult.failure(f"'{name}' adlı skill yok. find_skill ile ara.")
-        return ToolResult(load_skill_text(skill.path))
+        offset = args.get("offset", 0)
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
+        return ToolResult(load_skill_page(skill.path, offset=offset))
 
     return Tool(
         name="read_skill",
-        description="Bir SKILL'in tam talimatını yükle (find_skill ile bulduğun ad).",
+        description=(
+            "Bir SKILL'in talimatını yükle (find_skill ile bulduğun ad). Çıktı "
+            "KIRPILDI diyorsa aynı adı bildirilen offset ile yeniden çağır."
+        ),
         parameters={
             "type": "object",
-            "properties": {"name": _STRING},
+            "properties": {
+                "name": _STRING,
+                "offset": {
+                    "type": "integer",
+                    "description": "Kaçıncı karakterden itibaren okunacağı.",
+                },
+            },
             "required": ["name"],
         },
         run=_run,
@@ -515,11 +527,13 @@ def build_history_tool(home: Path) -> Tool:
             maximum=_READ_SESSION_MAX_LIMIT,
         )
         text_cursor = _bounded_int(args.get("text_cursor"), default=0, minimum=0)
-        turns = sanitize_turns(source.read(
-            session_id,
-            cursor=cursor,
-            limit=limit + 1,
-        ))
+        turns = sanitize_turns(
+            source.read(
+                session_id,
+                cursor=cursor,
+                limit=limit + 1,
+            )
+        )
         if not turns:
             return ToolResult.failure(messages.READ_SESSION_EMPTY.format(session_id=session_id))
         turns = sanitize_turns(turns)
