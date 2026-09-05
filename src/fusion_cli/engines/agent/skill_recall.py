@@ -276,6 +276,23 @@ def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:
     return _budget_sections(metin, budget)
 
 
+def auto_skill(
+    classification: TaskClassification,
+    skills: tuple[Capability, ...],
+    task: str = "",
+) -> Capability | None:
+    """Otomatik enjekte edilecek skill; TEK seçim kaynağı.
+
+    Ölçüldü: etkinleşen skill'i duyuran olay görev METNİYLE, prompta giren blok
+    ise yalnız görev TÜRÜYLE seçiliyordu. Kullanıcı modele hiç verilmemiş bir
+    skill'in etkinleştiğini görüyor, metinden beslenen seçim de gerçek yolda
+    devre dışı kalıyordu. Duyuru ile enjeksiyon aynı fonksiyondan beslenir.
+    """
+    if not (should_auto_skill(classification) and skills):
+        return None
+    return select_skill(skills, classification.primary, task, min_score=MIN_AUTO_SKILL_SCORE)
+
+
 def auto_expertise_block(
     classification: TaskClassification,
     skills: tuple[Capability, ...] = (),
@@ -298,15 +315,11 @@ def auto_expertise_block(
         if reference:
             parts.append(reference)
 
-    if should_auto_skill(classification) and skills:
-        selected = select_skill(
-            skills, classification.primary, task, min_score=MIN_AUTO_SKILL_SCORE
-        )
-        block = as_prompt_block(
-            selected,
-            budget=AUTO_SKILL_BUDGET,
-        )
-        if block:
-            parts.append(block)
+    block = as_prompt_block(
+        auto_skill(classification, skills, task),
+        budget=AUTO_SKILL_BUDGET,
+    )
+    if block:
+        parts.append(block)
 
     return "\n\n".join(parts)

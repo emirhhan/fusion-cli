@@ -286,3 +286,48 @@ def test_tamami_siğan_skill_devam_notu_almaz(tmp_path: Path):
     blok = as_prompt_block(beceri, budget=AUTO_SKILL_BUDGET)
 
     assert "read_skill" not in blok
+
+
+def test_duyurulan_skill_ile_enjekte_edilen_skill_ayni_olur(tmp_path: Path):
+    """Olay bir skill'i "etkinleşti" derken prompta başkası girmemeli.
+
+    Ölçüldü: `_recall_skill` olayı görev METNİYLE seçiyor, enjeksiyonu ise
+    metni geçirmeden yalnız görev TÜRÜYLE seçiyordu. Görev metninden beslenen
+    seçim (bkz. skill seçimi düzeltmesi) gerçek yolda böylece devre dışı kalıyor
+    ve kullanıcı, modele hiç verilmemiş bir skill'in etkinleştiğini görüyordu.
+    """
+    from types import SimpleNamespace
+
+    from fusion_cli.core.events import CapabilityActivated
+    from fusion_cli.engines.agent.classify import TaskClassification
+    from fusion_cli.engines.agent.loop import _recall_skill
+
+    def _dosya(ad: str, aciklama: str, govde: str) -> Capability:
+        yol = tmp_path / f"{ad}.md"
+        yol.write_text(f"---\nname: {ad}\ndescription: {aciklama}\n---\n\n{govde}", "utf-8")
+        return Capability(name=ad, description=aciklama, path=yol, source="global")
+
+    havuz = (
+        _dosya(
+            "frontend-design-direction",
+            "frontend design direction for production ui",
+            "## A\n\naaa\n",
+        ),
+        _dosya(
+            "godot-game",
+            "godot game engine scene and gdscript setup",
+            "## B\n\nAna sahneyi ayarla.\n",
+        ),
+    )
+    olaylar: list[object] = []
+    deps = SimpleNamespace(
+        capabilities=SimpleNamespace(skills=lambda: havuz),
+        publisher=SimpleNamespace(publish=olaylar.append),
+    )
+    classification = TaskClassification(primary=TaskKind.WEBSITE, confidence=1.0)
+
+    blok = _recall_skill("godot game scene gdscript kur", classification, deps, depth=0)
+
+    duyurulan = [olay.name for olay in olaylar if isinstance(olay, CapabilityActivated)]
+    assert duyurulan, "etkinleşen skill duyurulmalı"
+    assert duyurulan[0] in blok

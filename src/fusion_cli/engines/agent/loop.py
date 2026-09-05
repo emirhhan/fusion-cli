@@ -2114,24 +2114,22 @@ def _recall_skill(
 
     skills = deps.capabilities.skills() if deps.capabilities is not None else ()
 
-    if skill_recall.should_auto_skill(classification):
-        selected = skill_recall.select_skill(skills, classification.primary, task)
-        if selected is not None:
-            from ...core.events import CapabilityActivated
+    # Duyurulan skill ile prompta giren skill AYNI seçimden gelir; ikisi ayrı
+    # seçilirse kullanıcı modele hiç verilmemiş bir uzmanlığı etkin sanır.
+    selected = skill_recall.auto_skill(classification, skills, task)
+    if selected is not None:
+        from ...core.events import CapabilityActivated
 
-            deps.publisher.publish(
-                CapabilityActivated(
-                    kind="beceri",
-                    name=selected.name,
-                    source=selected.source,
-                    automatic=True,
-                )
+        deps.publisher.publish(
+            CapabilityActivated(
+                kind="beceri",
+                name=selected.name,
+                source=selected.source,
+                automatic=True,
             )
+        )
 
-    return skill_recall.auto_expertise_block(
-        classification,
-        skills,
-    )
+    return skill_recall.auto_expertise_block(classification, skills, task)
 
 
 async def _verify(
