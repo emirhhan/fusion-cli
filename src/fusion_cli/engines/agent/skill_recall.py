@@ -19,7 +19,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ...tools.capabilities import Capability, load_skill_text, search_scored
+from ...tools.capabilities import (
+    SKILL_TEXT_BUDGET,
+    Capability,
+    load_skill_text,
+    search_scored,
+)
 from .classify import TaskClassification, TaskKind
 
 #: Fusion'a ait, göreve göre eklenen referans metinleri.
@@ -178,6 +183,47 @@ def _name_in_task(skill: Capability, task: str) -> bool:
     return bool(parcalar) and all(p in kelimeler for p in parcalar)
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Baştaki YAML bloğunu at.
+
+    Frontmatter modele bir kez daha söylenmez: adı zaten blok başlığında, açıklaması
+    ise skill'i SEÇMEK için var, uygulamak için değil. Ölçüldü: godot skill'inde
+    ~290 karakterlik YAML, 1.600'lük otomatik bütçenin %18'ini yiyordu.
+    """
+    if not text.startswith("---"):
+        return text
+    kapanis = re.search(r"(?m)^---\s*$", text[3:])
+    if kapanis is None:
+        return text
+    return text[3 + kapanis.end() :].lstrip("\n")
+
+
+def _budget_sections(text: str, budget: int) -> str:
+    """Metni `## ` sınırlarından bütçeye indir; bölüm ortasından kesme.
+
+    Gerekçesi `reference_block` ile aynı: yarım kalan bir bölüm modele yarım kural
+    bırakır ve yarım kural, kuralsızlıktan kötüdür. Ölçüldü: karakter kesmesi
+    godot talimatını '...18×18\\nass' diye cümlenin ortasında bitiriyordu.
+
+    Tek istisna: hiçbir bölüm sığmıyorsa boş dönmek yerine baş kısım verilir —
+    kısmi yön, hiç yönden iyidir ve bu durumda kesilecek ikinci bölüm yoktur.
+    """
+    if len(text) <= budget:
+        return text
+    secilen: list[str] = []
+    uzunluk = 0
+    for bolum in re.split(r"(?m)^(?=## )", text):
+        if not bolum.strip():
+            continue
+        if uzunluk + len(bolum) > budget:
+            break
+        secilen.append(bolum)
+        uzunluk += len(bolum)
+    if not secilen:
+        return text[:budget].strip()
+    return "".join(secilen).strip()
+
+
 def as_prompt_block(
     skill: Capability | None,
     *,
@@ -186,7 +232,8 @@ def as_prompt_block(
     """Seçilen skill'i sistem promptuna eklenecek bloğa çevir; yoksa boş metin."""
     if skill is None:
         return ""
-    text = load_skill_text(skill.path, budget=budget).strip()
+    ham = load_skill_text(skill.path, budget=SKILL_TEXT_BUDGET)
+    text = _budget_sections(_strip_frontmatter(ham).strip(), budget)
     if not text:
         return ""
     return f"# Uzmanlık talimatı: {skill.name}\n{text}"
@@ -211,18 +258,7 @@ def reference_block(kind: TaskKind, budget: int = REFERENCE_BUDGET) -> str:
     except OSError:
         # Referans okunamıyorsa tur devam eder; bu bir iyileştirmedir.
         return ""
-    if len(metin) <= budget:
-        return metin
-    secilen: list[str] = []
-    uzunluk = 0
-    for bolum in re.split(r"(?m)^(?=## )", metin):
-        if not bolum.strip():
-            continue
-        if uzunluk + len(bolum) > budget:
-            break
-        secilen.append(bolum)
-        uzunluk += len(bolum)
-    return "".join(secilen).strip()
+    return _budget_sections(metin, budget)
 
 
 def auto_expertise_block(

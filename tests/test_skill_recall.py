@@ -13,7 +13,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from fusion_cli.engines.agent.classify import TaskKind
-from fusion_cli.engines.agent.skill_recall import select_skill, skill_query
+from fusion_cli.engines.agent.skill_recall import (
+    AUTO_SKILL_BUDGET,
+    as_prompt_block,
+    select_skill,
+    skill_query,
+)
 from fusion_cli.tools.capabilities import Capability
 
 
@@ -187,7 +192,9 @@ def test_skill_adi_gorevde_geciyorsa_tek_eslesme_yeter():
     godot = _skill("godot", "oyun sahne tscn gdscript")
 
     secilen = select_skill(
-        (godot,), TaskKind.GENERAL, task="godot sahnesine script bagla",
+        (godot,),
+        TaskKind.GENERAL,
+        task="godot sahnesine script bagla",
         min_score=MIN_AUTO_SKILL_SCORE,
     )
 
@@ -201,8 +208,56 @@ def test_adi_gecmeyen_zayif_eslesme_yine_elenir():
     fe = _skill("frontend-design", "css responsive layout design")
 
     secilen = select_skill(
-        (fe,), TaskKind.FEATURE, task="kullaniciya design ekrani ekle",
+        (fe,),
+        TaskKind.FEATURE,
+        task="kullaniciya design ekrani ekle",
         min_score=MIN_AUTO_SKILL_SCORE,
     )
 
     assert secilen is None
+
+
+def _skill_dosyasi(tmp_path: Path, govde: str, *, ad: str = "godot") -> Capability:
+    yol = tmp_path / f"{ad}.md"
+    yol.write_text(
+        f"---\nname: {ad}\ndescription: {'d' * 200}\n---\n\n{govde}",
+        encoding="utf-8",
+    )
+    return Capability(name=ad, description="d", path=yol, source="global")
+
+
+def test_enjeksiyon_frontmatteri_butceden_yemez(tmp_path: Path):
+    """Frontmatter modele YENİDEN söylenmez: adı ve açıklaması zaten blok başlığında.
+
+    Ölçüldü: 7.885 karakterlik godot skill'inde ~290 karakterlik YAML, 1.600'lük
+    bütçenin %18'ini yiyordu ve talimatın o kadarı hiç ulaşmıyordu.
+    """
+    beceri = _skill_dosyasi(tmp_path, "## Kural\n\nAna sahneyi ayarla.\n")
+    blok = as_prompt_block(beceri, budget=AUTO_SKILL_BUDGET)
+    assert "description:" not in blok
+    assert "Ana sahneyi ayarla." in blok
+
+
+def test_enjeksiyon_bolum_ortasindan_kesmez(tmp_path: Path):
+    """Yarım kalan bölüm modele yarım kural bırakır; sığmayan bölüm hiç girmemeli.
+
+    `reference_block` bu disiplini zaten uyguluyordu; skill enjeksiyonu ham
+    karakter kesmesi yapıyordu. Ölçüldü: enjekte edilen blok cümle ortasında
+    ('...18×18\\nass') bitiyordu.
+    """
+    govde = "## Bir\n\n" + "a" * 300 + "\n\n## Iki\n\n" + "b" * 300 + "\n"
+    beceri = _skill_dosyasi(tmp_path, govde)
+    blok = as_prompt_block(beceri, budget=400)
+    # Sığan bölüm TAM girer: karakter kesmesi burayı yarıda bırakırdı.
+    assert "a" * 300 in blok
+    # Sığmayan bölüm hiç girmez.
+    assert "## Iki" not in blok
+
+
+def test_enjeksiyon_tek_bolum_butceyi_asarsa_bos_donmez(tmp_path: Path):
+    """Hiçbir bölüm sığmıyorsa boş blok, hiç yoktan da kötüdür: baş kısım verilir."""
+    beceri = _skill_dosyasi(tmp_path, "## Tek\n\n" + "a" * 5_000 + "\n")
+    blok = as_prompt_block(beceri, budget=300)
+    # Gövde başlar başlamaz gelir; araya YAML girmez.
+    assert blok.splitlines()[1] == "## Tek"
+    assert len(blok) <= 400
