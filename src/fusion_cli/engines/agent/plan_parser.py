@@ -12,6 +12,8 @@ from fusion_cli.core.execution_plan import (
     PlanStep,
     RetrySafety,
     StepStatus,
+    VerificationCheck,
+    VerificationCheckKind,
     validate_plan,
 )
 
@@ -80,6 +82,38 @@ def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
     return tuple(value)
 
 
+def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationCheck, ...]:
+    """İsteğe bağlı tipli kontrolleri ayrıştır; eski planlar boş listeyle yaşar."""
+    raw_checks = data.get("verification_checks", [])
+    if not isinstance(raw_checks, list):
+        raise PlanParseError(
+            f"Geçersiz doğrulama kontrolü alanı (steps[{index}]): liste olmalıdır."
+        )
+    checks: list[VerificationCheck] = []
+    for check_index, raw_check in enumerate(raw_checks):
+        check_data = _require_mapping(
+            raw_check, f"steps[{index}].verification_checks[{check_index}]"
+        )
+        try:
+            kind = VerificationCheckKind(_require_string(check_data, "kind"))
+        except ValueError as exc:
+            raise PlanParseError(
+                f"Geçersiz doğrulama kontrolü türü (steps[{index}]): {check_data.get('kind')}"
+            ) from exc
+        expected = check_data.get("expected", "")
+        if not isinstance(expected, str):
+            raise PlanParseError("Doğrulama kontrolü 'expected' metin olmalıdır.")
+        checks.append(
+            VerificationCheck(
+                criterion_id=_require_string(check_data, "criterion_id"),
+                kind=kind,
+                target=_require_string(check_data, "target"),
+                expected=expected,
+            )
+        )
+    return tuple(checks)
+
+
 def _parse_step(value: object, index: int) -> PlanStep:
     data = _require_mapping(value, f"steps[{index}]")
     required_fields = (
@@ -94,9 +128,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
     )
     missing_fields = tuple(field for field in required_fields if field not in data)
     if missing_fields:
-        raise PlanParseError(
-            f"Eksik plan alanları (steps[{index}]): {', '.join(missing_fields)}"
-        )
+        raise PlanParseError(f"Eksik plan alanları (steps[{index}]): {', '.join(missing_fields)}")
     step_id = _require_string(data, "step_id")
     goal = _require_string(data, "goal")
     depends_on = _require_strings(data, "depends_on")
@@ -120,6 +152,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
         verification_hint=verification_hint,
         retry_safety=retry_safety,
         status=StepStatus.PENDING,
+        verification_checks=_parse_checks(data, index),
     )
 
 

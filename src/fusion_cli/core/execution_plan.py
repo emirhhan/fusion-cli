@@ -34,6 +34,25 @@ class RetrySafety(StrEnum):
     NEVER = "never"
 
 
+class VerificationCheckKind(StrEnum):
+    """Güvenli ve makinece uygulanabilir kontrol türleri."""
+
+    FILE_EXISTS = "file_exists"
+    FILE_CONTAINS = "file_contains"
+    COMMAND = "command"
+    TOOL = "tool"
+
+
+@dataclass(frozen=True, slots=True)
+class VerificationCheck:
+    """Bir başarı koşulunu güvenli ve tipli bir gözleme bağlar."""
+
+    criterion_id: str
+    kind: VerificationCheckKind
+    target: str
+    expected: str = ""
+
+
 @dataclass(frozen=True)
 class PlanStep:
     """Araç sınırları ve başarı kanıtı tanımlanmış atomik iş adımı."""
@@ -48,6 +67,7 @@ class PlanStep:
     retry_safety: RetrySafety
     status: StepStatus = StepStatus.PENDING
     attempts: int = 0
+    verification_checks: tuple[VerificationCheck, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -110,16 +130,34 @@ def validate_plan(plan: ExecutionPlan) -> PlanValidation:
         if not step.goal.strip():
             errors.append(f"Plan adımı '{step.step_id}' boş hedef içeriyor.")
         if not step.success_criteria or any(not item.strip() for item in step.success_criteria):
-            errors.append(
-                f"Plan adımı '{step.step_id}' doğrulanabilir başarı koşulu içermiyor."
-            )
+            errors.append(f"Plan adımı '{step.step_id}' doğrulanabilir başarı koşulu içermiyor.")
+        criteria = set(step.success_criteria)
+        for check in step.verification_checks:
+            if check.criterion_id not in criteria:
+                errors.append(
+                    f"Plan adımı '{step.step_id}' bilinmeyen başarı koşuluna "
+                    f"kontrol bağlıyor: {check.criterion_id}"
+                )
+            if not check.target.strip():
+                errors.append(f"Plan adımı '{step.step_id}' boş doğrulama hedefi içeriyor.")
+            if (
+                check.kind
+                in {
+                    VerificationCheckKind.FILE_CONTAINS,
+                    VerificationCheckKind.TOOL,
+                }
+                and not check.expected
+            ):
+                errors.append(
+                    f"Plan adımı '{step.step_id}' doğrulama kontrolünde "
+                    "beklenen değeri belirtmiyor."
+                )
 
     for step in plan.steps:
         for dependency in step.depends_on:
             if dependency not in known_ids:
                 errors.append(
-                    f"Plan adımı '{step.step_id}' bilinmeyen bağımlılık içeriyor: "
-                    f"{dependency}"
+                    f"Plan adımı '{step.step_id}' bilinmeyen bağımlılık içeriyor: {dependency}"
                 )
 
     if not errors:
@@ -132,9 +170,7 @@ def validate_plan(plan: ExecutionPlan) -> PlanValidation:
 
 def ready_steps(plan: ExecutionPlan) -> tuple[PlanStep, ...]:
     """Bütün bağımlılıkları tamamlanmış bekleyen adımları plan sırasında döndür."""
-    completed = {
-        step.step_id for step in plan.steps if step.status is StepStatus.COMPLETED
-    }
+    completed = {step.step_id for step in plan.steps if step.status is StepStatus.COMPLETED}
     return tuple(
         step
         for step in plan.steps

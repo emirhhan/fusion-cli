@@ -1027,10 +1027,24 @@ def _promotion_context(
     )
 
 
-def _note_tool_use(state: _State, name: str, tool: Tool | None, *, ok: bool) -> None:
+def _note_tool_use(
+    state: _State,
+    name: str,
+    tool: Tool | None,
+    *,
+    ok: bool,
+    arguments: dict[str, object] | None = None,
+    output: str = "",
+) -> None:
     """Denenen araç çağrısını sırayla kaydet (yükseltme kanıtı)."""
     state.tool_uses.append(
-        ToolUse(name=name, ok=ok, mutating=bool(tool is not None and tool.mutating))
+        ToolUse(
+            name=name,
+            ok=ok,
+            mutating=bool(tool is not None and tool.mutating),
+            arguments=arguments or {},
+            output=output,
+        )
     )
 
 
@@ -1631,7 +1645,7 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
-            _note_tool_use(state, call.name, tool, ok=False)
+            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ — tekrar kapısıyla (aşağıda) aynı gerekçe.
             #
@@ -1668,7 +1682,7 @@ async def _run_tools(
             )
             messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
-            _note_tool_use(state, call.name, tool, ok=False)
+            _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
             errored = True
             # Tur BURADA ÖLDÜRÜLMEZ. Tekrarlanan bir çağrı zararsız bir verimsizliktir;
             # turu kesmek o ana kadarki TÜM ilerlemeyi çöpe atar. Ölçüldü: model dört
@@ -1682,7 +1696,14 @@ async def _run_tools(
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
         result, outcome = await _execute(call, args, deps, registry, execution=execution)
-        _note_tool_use(state, call.name, tool, ok=outcome is ToolOutcome.OK)
+        _note_tool_use(
+            state,
+            call.name,
+            tool,
+            ok=outcome is ToolOutcome.OK,
+            arguments=args,
+            output=result.output,
+        )
         if outcome in (ToolOutcome.DENIED, ToolOutcome.BLOCKED):
             # Onay verilmeyen ya da yetenek kapısına takılan çağrı HİÇ ÇALIŞMADI.
             # Tekrar kapısına kanıt olarak yazılırsa, koşullar düzelse bile aynı

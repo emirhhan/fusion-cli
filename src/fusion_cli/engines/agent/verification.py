@@ -21,6 +21,11 @@ from pathlib import Path
 
 from ...config.models import Config
 from ...core.constants import SHELL_TIMEOUT_S
+from ...core.evidence import (
+    CriterionEvidence,
+    EvidenceStatus,
+)
+from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import JavaScriptSyntaxChecker, VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
@@ -131,6 +136,7 @@ class CompositeVerifier:
         blocking: list[str] = []
         warnings: list[str] = []
         advisories: list[str] = []
+        evidence: list[CriterionEvidence] = []
         failed = False
 
         for verifier in self._verifiers:
@@ -138,6 +144,7 @@ class CompositeVerifier:
 
             warnings.extend(result.warnings)
             advisories.extend(result.advisories)
+            evidence.extend(result.evidence)
 
             if result.ok:
                 continue
@@ -147,7 +154,7 @@ class CompositeVerifier:
                 ozetler.append(result.summary)
             blocking.extend(result.findings)
 
-        if not failed and not warnings and not advisories:
+        if not failed and not warnings and not advisories and not evidence:
             return VerificationResult(ok=True)
 
         return VerificationResult(
@@ -156,6 +163,7 @@ class CompositeVerifier:
             findings=tuple(blocking),
             warnings=tuple(warnings),
             advisories=tuple(advisories),
+            evidence=tuple(evidence),
         )
 
 
@@ -233,11 +241,22 @@ class CommandVerifier:
         self._timeout_s = timeout_s
 
     async def verify(self) -> VerificationResult:
+        evidence: list[CriterionEvidence] = []
+        warnings: list[str] = []
         for command in self._commands:
             result = await self._run(command)
+            evidence.extend(result.evidence)
+            warnings.extend(result.warnings)
             if not result.ok:
-                return result
-        return VerificationResult(ok=True)
+                return VerificationResult(
+                    ok=False,
+                    summary=result.summary,
+                    findings=result.findings,
+                    warnings=tuple(warnings),
+                    advisories=result.advisories,
+                    evidence=tuple(evidence),
+                )
+        return VerificationResult(ok=True, warnings=tuple(warnings), evidence=tuple(evidence))
 
     async def _run(self, command: str) -> VerificationResult:
         try:
@@ -249,7 +268,20 @@ class CommandVerifier:
             )
         except OSError as exc:
             detay = f"komut başlatılamadı: {command} ({exc})"
-            return VerificationResult(ok=False, summary=detay, findings=(detay,))
+            return VerificationResult(
+                ok=False,
+                summary=detay,
+                findings=(detay,),
+                evidence=(
+                    CriterionEvidence(
+                        criterion_id=command,
+                        kind=VerificationCheckKind.COMMAND,
+                        status=EvidenceStatus.UNVERIFIED,
+                        summary=detay,
+                        command=command,
+                    ),
+                ),
+            )
 
         # Çıktı BİRİKTİREREK okunur, `communicate()` ile toplu değil.
         #
@@ -280,22 +312,78 @@ class CommandVerifier:
             onceki = _tail(bytes(tampon)).strip()
             if onceki:
                 detay = f"{detay}\nAsılmadan önce şunu söyledi:\n{onceki}"
-            return VerificationResult(ok=False, summary=detay, findings=(detay,))
+            return VerificationResult(
+                ok=False,
+                summary=detay,
+                findings=(detay,),
+                evidence=(
+                    CriterionEvidence(
+                        criterion_id=command,
+                        kind=VerificationCheckKind.COMMAND,
+                        status=EvidenceStatus.FAILED,
+                        summary="komut zaman aşımına uğradı",
+                        command=command,
+                        output=onceki,
+                    ),
+                ),
+            )
         ham = bytes(tampon)
 
         if process.returncode == 0:
-            return VerificationResult(ok=True)
+            output = _tail(ham)
+            return VerificationResult(
+                ok=True,
+                evidence=(
+                    CriterionEvidence(
+                        criterion_id=command,
+                        kind=VerificationCheckKind.COMMAND,
+                        status=EvidenceStatus.PASSED,
+                        summary="komut başarıyla çalıştı",
+                        command=command,
+                        output=output,
+                    ),
+                ),
+            )
         if process.returncode == _COMMAND_NOT_FOUND:
             # Araç KURULU DEĞİL — bu bir kod hatası değildir. Ölçüldü: keşfedilen
             # kapı `ruff check .` çalıştırdı, ruff yalnızca sanal ortamda kuruluydu
             # ve PATH'te yoktu; kapı "doğrulama geçmedi" dedi, oysa kullanıcının
             # kodunda hiçbir sorun yoktu. Eksik araç yüzünden turu düşürmek, kapıyı
             # gürültüye çevirir ve gerçek hatalara olan güveni yok eder.
-            logger.info("doğrulama komutu bulunamadı, atlandı: %s", command)
-            return VerificationResult(ok=True)
+            logger.info("doğrulama komutu bulunamadı, doğrulanamadı: %s", command)
+            detay = f"doğrulama komutu bulunamadı; sonuç doğrulanamadı: {command}"
+            return VerificationResult(
+                ok=True,
+                warnings=(detay,),
+                evidence=(
+                    CriterionEvidence(
+                        criterion_id=command,
+                        kind=VerificationCheckKind.COMMAND,
+                        status=EvidenceStatus.UNVERIFIED,
+                        summary=detay,
+                        command=command,
+                        output=_tail(ham),
+                    ),
+                ),
+            )
 
         ozet = f"komut başarısız (çıkış {process.returncode}): {command}"
-        return VerificationResult(ok=False, summary=ozet, findings=(ozet, _tail(ham)))
+        output = _tail(ham)
+        return VerificationResult(
+            ok=False,
+            summary=ozet,
+            findings=(ozet, output),
+            evidence=(
+                CriterionEvidence(
+                    criterion_id=command,
+                    kind=VerificationCheckKind.COMMAND,
+                    status=EvidenceStatus.FAILED,
+                    summary=ozet,
+                    command=command,
+                    output=output,
+                ),
+            ),
+        )
 
 
 #: Kabuk "komut bulunamadı" için bu çıkış kodunu verir (POSIX sözleşmesi).

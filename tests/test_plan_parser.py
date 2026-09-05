@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from fusion_cli.core.execution_plan import RetrySafety
+from fusion_cli.core.execution_plan import RetrySafety, VerificationCheckKind
 from fusion_cli.engines.agent.plan_parser import PlanParseError, parse_execution_plan
 
 VALID_PLAN = """{
@@ -29,6 +29,38 @@ def test_json_plan_tipli_nesneye_cevrilir():
     assert plan.plan_id == "plan-1"
     assert plan.steps[0].retry_safety is RetrySafety.SAFE
     assert plan.steps[0].success_criteria == ("hedef dosya bulundu",)
+    assert plan.steps[0].verification_checks == ()
+
+
+def test_tipli_dogrulama_kontrolleri_ayristirilir():
+    raw = VALID_PLAN.replace(
+        '"verification_hint": "dosya yolunu kanıtla",',
+        '"verification_hint": "dosya yolunu kanıtla",\n'
+        '    "verification_checks": [{'
+        '"criterion_id": "hedef dosya bulundu", '
+        '"kind": "file_contains", "target": "main.py", '
+        '"expected": "def main"}],',
+    )
+
+    plan = parse_execution_plan(raw)
+
+    check = plan.steps[0].verification_checks[0]
+    assert check.kind is VerificationCheckKind.FILE_CONTAINS
+    assert check.target == "main.py"
+    assert check.expected == "def main"
+
+
+def test_bilinmeyen_dogrulama_kontrolu_reddedilir():
+    raw = VALID_PLAN.replace(
+        '"verification_hint": "dosya yolunu kanıtla",',
+        '"verification_hint": "dosya yolunu kanıtla",\n'
+        '    "verification_checks": [{'
+        '"criterion_id": "hedef dosya bulundu", '
+        '"kind": "uydurma", "target": "main.py"}],',
+    )
+
+    with pytest.raises(PlanParseError, match="doğrulama kontrolü"):
+        parse_execution_plan(raw)
 
 
 def test_markdown_kod_citi_icerisindeki_plan_okunur():

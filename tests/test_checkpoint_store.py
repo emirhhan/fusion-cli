@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from fusion_cli.core.checkpoint import WorkflowCheckpoint
-from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
+from fusion_cli.core.execution_plan import (
+    ExecutionPlan,
+    PlanStep,
+    RetrySafety,
+    VerificationCheck,
+    VerificationCheckKind,
+)
 from fusion_cli.memory.checkpoint_store import JsonCheckpointStore
 
 
@@ -17,6 +23,13 @@ def _checkpoint(root) -> WorkflowCheckpoint:
         success_criteria=("kaynak bulundu",),
         verification_hint="dosyayı oku",
         retry_safety=RetrySafety.SAFE,
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="kaynak bulundu",
+                kind=VerificationCheckKind.COMMAND,
+                target="pytest -q",
+            ),
+        ),
     )
     return WorkflowCheckpoint(
         plan=ExecutionPlan(plan_id="plan-1", task="özellik ekle", steps=(step,)),

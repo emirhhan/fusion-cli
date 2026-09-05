@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from fusion_cli.core.evidence import EvidenceStatus
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
     PlanStep,
     RetrySafety,
     StepStatus,
+    VerificationCheck,
+    VerificationCheckKind,
 )
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome
+from fusion_cli.engines.agent.promotion import ToolUse
 from fusion_cli.engines.agent.step_verification import (
     verify_plan_acceptance,
     verify_step,
@@ -139,12 +143,59 @@ async def test_yalniz_yapisal_kapisi_olan_proje_davranisi_kanitlanmadi_der(tmp_p
     assert any("davranış" in uyari.lower() for uyari in sonuc.warnings)
 
 
-async def test_test_paketi_olan_proje_uyari_uretmez(tmp_path):
+async def test_tanimli_ama_calistirilmamis_test_davranis_uyarisini_kaldirmaz(tmp_path):
     (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
-    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\npytest\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
     plan = _tamamlanmis_plan(_file_step("main.py"))
 
     sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+
+    assert sonuc.ok is True
+    assert any("davranış" in uyari.lower() for uyari in sonuc.warnings)
+
+
+async def test_pytest_surumu_davranis_uyarisini_kaldirmaz(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.verifier = CommandVerifier(
+        ("pytest --version",),
+        cwd=str(tmp_path),
+        timeout_s=10.0,
+    )
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert sonuc.ok is True
+    assert any("davranış" in warning for warning in sonuc.warnings)
+    assert sonuc.evidence[0].status is EvidenceStatus.PASSED
+
+
+async def test_echo_pytest_davranis_uyarisini_kaldirmaz(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.verifier = CommandVerifier(("printf pytest",), cwd=str(tmp_path), timeout_s=10.0)
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert any("davranış" in warning for warning in sonuc.warnings)
+
+
+async def test_gercek_kesfedilmis_test_kaniti_davranis_uyarisini_kaldirir(tmp_path):
+    from fusion_cli.engines.agent.verification import CommandVerifier
+
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "test_main.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.verifier = CommandVerifier(("pytest -q",), cwd=str(tmp_path), timeout_s=10.0)
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
 
     assert sonuc.ok is True
     assert sonuc.warnings == ()
@@ -198,7 +249,7 @@ def _shell_step() -> PlanStep:
     return _replace(_file_step("x"), expected_effects=("shell_action",))
 
 
-async def test_komut_onceki_adimda_calistiysa_adim_basarisiz_sayilmaz(tmp_path):
+async def test_yalniz_yinelenen_sayisi_onceki_komutu_kanitlamaz(tmp_path):
     """Ölçüldü (Godot koşusu): doğrulama komutu birinci adımda çalıştı (çıkış 0).
 
     Üçüncü adım o sonucu göremediği için komutu tekrar istedi; çalışma alanı
@@ -218,7 +269,8 @@ async def test_komut_onceki_adimda_calistiysa_adim_basarisiz_sayilmaz(tmp_path):
         _deps(tmp_path),
     )
 
-    assert result.ok is True
+    assert result.ok is False
+    assert any("shell_action" in finding for finding in result.findings)
 
 
 async def test_hic_calismayan_komut_adimi_yine_dusurur(tmp_path):
@@ -229,6 +281,294 @@ async def test_hic_calismayan_komut_adimi_yine_dusurur(tmp_path):
     )
 
     assert result.ok is False
+
+
+async def test_genel_arac_sayisi_git_commit_kaniti_degildir(tmp_path):
+    from dataclasses import replace as _replace
+
+    step = _replace(_file_step("x"), expected_effects=("git_commit",))
+
+    result = await verify_step(
+        step,
+        AgentOutcome(final_text="tamam", messages=[], ok=True, tool_calls_made=3),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is False
+    assert result.unverified is True
+    assert any("git_commit" in bulgu for bulgu in result.findings)
+
+
+async def test_git_commit_gercek_arac_argumaniyla_kanitlanir(tmp_path):
+    from dataclasses import replace as _replace
+
+    step = _replace(
+        _file_step("x"),
+        success_criteria=("değişiklik commit edildi",),
+        expected_effects=("git_commit",),
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="değişiklik commit edildi",
+                kind=VerificationCheckKind.COMMAND,
+                target="git commit -m test",
+            ),
+        ),
+    )
+
+    result = await verify_step(
+        step,
+        AgentOutcome(
+            final_text="tamam",
+            messages=[],
+            ok=True,
+            tool_uses=(
+                ToolUse(
+                    "run_shell",
+                    arguments={"command": "git commit -m test"},
+                    output="[main abc123] test",
+                ),
+            ),
+        ),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is True
+    assert result.criteria[0].status is EvidenceStatus.PASSED
+    assert "abc123" in result.criteria[0].output
+
+
+async def test_git_commit_no_verify_kisa_seceneği_kaniti_engellemez(tmp_path):
+    from dataclasses import replace as _replace
+
+    for command in ("git commit -n -m test", "git commit -nm test"):
+        result = await verify_step(
+            _replace(_file_step("x"), expected_effects=("git_commit",)),
+            AgentOutcome(
+                final_text="tamam",
+                messages=[],
+                tool_uses=(
+                    ToolUse("run_shell", arguments={"command": command}, output="[main abc123]"),
+                ),
+            ),
+            _deps(tmp_path),
+        )
+
+        assert result.ok is True, command
+
+
+async def test_echo_git_push_dis_etki_kaniti_degildir(tmp_path):
+    from dataclasses import replace as _replace
+
+    step = _replace(_file_step("x"), expected_effects=("git_push",))
+
+    result = await verify_step(
+        step,
+        AgentOutcome(
+            final_text="tamam",
+            messages=[],
+            tool_uses=(
+                ToolUse(
+                    "run_shell",
+                    arguments={"command": "echo git push"},
+                    output="git push",
+                ),
+            ),
+        ),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is False
+    assert any("git_push" in finding for finding in result.findings)
+
+
+async def test_git_dry_run_yorum_ve_arama_dis_etki_kaniti_degildir(tmp_path):
+    from dataclasses import replace as _replace
+
+    for effect, command in (
+        ("git_push", "git push --dry-run origin main"),
+        ("git_push", "git push -vn origin main"),
+        ("git_push", "git push -nv origin main"),
+        ("git_push", "git status # push"),
+        ("git_push", "git status # ; git push"),
+        ("git_push", "git status # && git push"),
+        ("git_push", "true || git push"),
+        ("git_commit", "git log --grep=commit"),
+    ):
+        result = await verify_step(
+            _replace(_file_step("x"), expected_effects=(effect,)),
+            AgentOutcome(
+                final_text="tamam",
+                messages=[],
+                tool_uses=(ToolUse("run_shell", arguments={"command": command}, output="ok"),),
+            ),
+            _deps(tmp_path),
+        )
+
+        assert result.ok is False, command
+
+
+async def test_bos_dosya_hareket_kriterini_dogrulamaz(tmp_path):
+    (tmp_path / "player.gd").write_text("", encoding="utf-8")
+    step = PlanStep(
+        step_id="movement",
+        goal="oyuncu hareketini ekle",
+        depends_on=(),
+        expected_effects=("file:player.gd",),
+        allowed_tool_families=("files",),
+        success_criteria=("sağ tuş oyuncuyu hareket ettirir",),
+        verification_hint="oyuncu scriptini ve testi doğrula",
+        retry_safety=RetrySafety.SAFE,
+    )
+
+    result = await verify_step(
+        step,
+        AgentOutcome(final_text="hareket tamam", messages=[], ok=True),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is True
+    assert result.unverified is True
+    assert result.criteria[0].status is EvidenceStatus.UNVERIFIED
+    assert not any("hareket doğrulandı" in item for item in result.evidence)
+
+
+async def test_icerik_kontrolu_gercek_dosyayi_okur(tmp_path):
+    (tmp_path / "player.gd").write_text(
+        'if Input.is_action_pressed("move_right"):\n    velocity.x = 1\n',
+        encoding="utf-8",
+    )
+    step = PlanStep(
+        step_id="movement",
+        goal="oyuncu hareketini ekle",
+        depends_on=(),
+        expected_effects=("file:player.gd",),
+        allowed_tool_families=("files",),
+        success_criteria=("sağ tuş girdisi işlendi",),
+        verification_hint="script içeriğini doğrula",
+        retry_safety=RetrySafety.SAFE,
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="sağ tuş girdisi işlendi",
+                kind=VerificationCheckKind.FILE_CONTAINS,
+                target="player.gd",
+                expected='Input.is_action_pressed("move_right")',
+            ),
+        ),
+    )
+
+    result = await verify_step(
+        step,
+        AgentOutcome(final_text="tamam", messages=[], ok=True),
+        _deps(tmp_path),
+    )
+
+    assert result.ok is True
+    assert result.criteria[0].status is EvidenceStatus.PASSED
+    assert result.criteria[0].artifact == "player.gd"
+
+
+async def test_engellenmis_komut_kriter_icin_calistirilmaz(tmp_path):
+    marker = tmp_path / "calismadi.txt"
+    command = f"touch {marker}"
+    step = PlanStep(
+        step_id="blocked-command",
+        goal="önceden engellenmiş komutu doğrula",
+        depends_on=(),
+        expected_effects=(),
+        allowed_tool_families=("shell",),
+        success_criteria=("komut çalıştı",),
+        verification_hint="gerçek araç kaydını doğrula",
+        retry_safety=RetrySafety.SAFE,
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="komut çalıştı",
+                kind=VerificationCheckKind.COMMAND,
+                target=command,
+            ),
+        ),
+    )
+
+    result = await verify_step(
+        step,
+        AgentOutcome(
+            final_text="komut engellendi",
+            messages=[],
+            tool_uses=(
+                ToolUse(
+                    "run_shell",
+                    ok=False,
+                    arguments={"command": command},
+                    output="onay verilmedi",
+                ),
+            ),
+        ),
+        _deps(tmp_path),
+    )
+
+    assert marker.exists() is False
+    assert result.ok is True
+    assert result.unverified is True
+
+
+async def test_tool_kontrolu_beklenen_arguman_eslesmeden_gecmez(tmp_path):
+    step = PlanStep(
+        step_id="issue",
+        goal="issue aç",
+        depends_on=(),
+        expected_effects=(),
+        allowed_tool_families=("external",),
+        success_criteria=("repo A üzerinde issue açıldı",),
+        verification_hint="araç argümanını doğrula",
+        retry_safety=RetrySafety.NEVER,
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="repo A üzerinde issue açıldı",
+                kind=VerificationCheckKind.TOOL,
+                target="github_create_issue",
+                expected='{"repo": "A"}',
+            ),
+        ),
+    )
+    outcome = AgentOutcome(
+        final_text="tamam",
+        messages=[],
+        tool_uses=(ToolUse("github_create_issue", arguments={"repo": "B"}, output="issue-1"),),
+    )
+
+    result = await verify_step(step, outcome, _deps(tmp_path))
+
+    assert result.ok is True
+    assert result.unverified is True
+    assert result.criteria[0].status is EvidenceStatus.UNVERIFIED
+
+
+async def test_final_kabul_file_contains_kriterini_yeniden_olcer(tmp_path):
+    (tmp_path / "player.gd").write_text("", encoding="utf-8")
+    step = PlanStep(
+        step_id="movement",
+        goal="hareket ekle",
+        depends_on=(),
+        expected_effects=("file:player.gd",),
+        allowed_tool_families=("files",),
+        success_criteria=("hareket girdisi var",),
+        verification_hint="içeriği oku",
+        retry_safety=RetrySafety.SAFE,
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="hareket girdisi var",
+                kind=VerificationCheckKind.FILE_CONTAINS,
+                target="player.gd",
+                expected="move_right",
+            ),
+        ),
+    )
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(step), _deps(tmp_path))
+
+    assert sonuc.ok is False
+    assert any(
+        "move_right" in finding or "hareket girdisi" in finding for finding in sonuc.findings
+    )
 
 
 class _KirikVerifier:

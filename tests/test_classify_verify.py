@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from fusion_cli.core.evidence import EvidenceStatus
 from fusion_cli.core.verification import VerificationResult
 from fusion_cli.engines.agent.classify import (
     TaskKind,
@@ -91,6 +92,28 @@ async def test_verifier_tum_komutlar_gecerse_ok(tmp_path):
     verifier = CommandVerifier(("true", "true"), cwd=str(tmp_path), timeout_s=10.0)
     result = await verifier.verify()
     assert result.ok is True
+    assert len(result.evidence) == 2
+    assert all(item.status is EvidenceStatus.PASSED for item in result.evidence)
+
+
+async def test_verifier_basarili_komut_ciktisini_kanita_tasir(tmp_path):
+    verifier = CommandVerifier(("printf 'TESTLER_GECTI'",), cwd=str(tmp_path), timeout_s=10.0)
+
+    result = await verifier.verify()
+
+    assert result.ok is True
+    assert result.evidence[0].command == "printf 'TESTLER_GECTI'"
+    assert "TESTLER_GECTI" in result.evidence[0].output
+
+
+async def test_bulunamayan_komut_temiz_gecis_degil_dogrulanamadi(tmp_path):
+    verifier = CommandVerifier(("fusion-kesinlikle-yok-komut",), cwd=str(tmp_path), timeout_s=10.0)
+
+    result = await verifier.verify()
+
+    assert result.ok is True
+    assert result.evidence[0].status is EvidenceStatus.UNVERIFIED
+    assert any("bulunamadı" in warning for warning in result.warnings)
 
 
 async def test_verifier_ilk_basarisiz_komutta_durur(tmp_path):

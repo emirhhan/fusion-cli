@@ -15,6 +15,8 @@ from ..core.execution_plan import (
     PlanStep,
     RetrySafety,
     StepStatus,
+    VerificationCheck,
+    VerificationCheckKind,
 )
 
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -32,13 +34,22 @@ def _step_to_dict(step: PlanStep) -> dict[str, object]:
         "retry_safety": step.retry_safety.value,
         "status": step.status.value,
         "attempts": step.attempts,
+        "verification_checks": [
+            {
+                "criterion_id": check.criterion_id,
+                "kind": check.kind.value,
+                "target": check.target,
+                "expected": check.expected,
+            }
+            for check in step.verification_checks
+        ],
     }
 
 
 def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
     plan = checkpoint.plan
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan": {
             "plan_id": plan.plan_id,
             "task": plan.task,
@@ -79,6 +90,29 @@ def _integer(data: dict[str, object], key: str, default: int = 0) -> int:
     return value
 
 
+def _verification_checks(value: object) -> tuple[VerificationCheck, ...]:
+    """Yeni kontrolleri oku; eski checkpoint'lerde alan yoksa boş kabul et."""
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError("geçersiz verification_checks")
+    checks: list[VerificationCheck] = []
+    for item in value:
+        data = _mapping(item)
+        expected = data.get("expected", "")
+        if not isinstance(expected, str):
+            raise ValueError("geçersiz verification check expected")
+        checks.append(
+            VerificationCheck(
+                criterion_id=_text(data, "criterion_id"),
+                kind=VerificationCheckKind(_text(data, "kind")),
+                target=_text(data, "target"),
+                expected=expected,
+            )
+        )
+    return tuple(checks)
+
+
 def _from_dict(raw: object) -> WorkflowCheckpoint:
     data = _mapping(raw)
     plan_data = _mapping(data.get("plan"))
@@ -100,6 +134,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
                 retry_safety=RetrySafety(_text(step, "retry_safety")),
                 status=StepStatus(_text(step, "status")),
                 attempts=_integer(step, "attempts"),
+                verification_checks=_verification_checks(step.get("verification_checks")),
             )
         )
     updated_at = data.get("updated_at")

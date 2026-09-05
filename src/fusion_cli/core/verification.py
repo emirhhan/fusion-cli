@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
+from .evidence import CriterionEvidence
+
 
 @dataclass(frozen=True, slots=True)
 class VerificationResult:
@@ -31,6 +33,8 @@ class VerificationResult:
     warnings: tuple[str, ...] = ()
     #: Tercih/kalite seviyesindeki öneriler; correction agent açmaz.
     advisories: tuple[str, ...] = ()
+    #: Gerçekten çalıştırılmış kontrol ve sınırlı çıktısı.
+    evidence: tuple[CriterionEvidence, ...] = ()
 
     @property
     def has_notes(self) -> bool:
