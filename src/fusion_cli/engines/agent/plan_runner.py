@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
@@ -27,9 +28,12 @@ from ...core.execution_plan import (
     validate_plan,
 )
 from ...core.failure import RecoveryAction
+from ...core.rollback import StepRollback
 from ...core.types import Message
 from ...core.verification import VerificationResult
+from ...core.workspace import IsolatedWorkspace, isolate
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
+from .attempts import Attempt, choose_attempt
 from .plan_checkpoint import (
     artifact_changed,
     capture_evidence,
@@ -223,6 +227,78 @@ class _PlanRun:
             self.save()
         return result
 
+    def _attempt_slots(self, step: PlanStep) -> int:
+        """Bu adım için kaç aday koşturulacak.
+
+        Paralel deneme OPT-IN'dir: zarf sıfırsa davranış birebir eskisi gibidir.
+        Yinelenemez yan etkisi olan adımda (NEVER) aday çoğaltılmaz — aynı dış
+        etkiyi iki kez üretmek, kazanan seçmekten daha pahalıdır.
+        """
+        if step.retry_safety is RetrySafety.NEVER:
+            return 1
+        kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
+        return 2 if kalan >= 2 else 1
+
+    async def run_candidates(self, step: PlanStep, slots: int) -> AgentOutcome | None:
+        """Adımı izole kopyalarda birkaç kez dene, kazananı KANITLA seç.
+
+        Adaylar asıl projeyi görmez; yalnız kazananın değişikliği uygulanır. Hiçbir
+        aday doğrulanmış kanıt üretemezse kazanan yoktur ve akış normal (tek turlu)
+        yola düşer: yanlış adayı uygulamak, hiç denememekten kötüdür.
+        """
+        adaylar: list[tuple[Attempt, IsolatedWorkspace, AgentOutcome]] = []
+        with ExitStack() as stack:
+            for sira in range(slots):
+                if not self.charge(BudgetEnvelope.ATTEMPTS, 1):
+                    break
+                alan = stack.enter_context(
+                    isolate(self.deps.tool_context.root, name=f"{step.step_id}-{sira}")
+                )
+                aday_deps = replace(
+                    self.deps, tool_context=replace(self.deps.tool_context, root=alan.root)
+                )
+                running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
+                outcome = await self.agent(
+                    step_prompt(self.task, running, self.evidence),
+                    step_deps(
+                        aday_deps,
+                        running,
+                        self.remaining(BudgetEnvelope.PER_STEP, step.step_id),
+                        observe=False,
+                    ),
+                    depth=1,
+                    self_review=False,
+                    verify=False,
+                    internal=True,
+                )
+                checked = await verify_step(running, outcome, aday_deps, self.baseline)
+                adaylar.append(
+                    (
+                        Attempt(
+                            name=f"{step.step_id}-{sira}",
+                            ok=outcome.ok,
+                            criteria=checked.criteria,
+                            model_calls=outcome.model_calls_made,
+                        ),
+                        alan,
+                        outcome,
+                    )
+                )
+            kazanan = choose_attempt([aday for aday, _, _ in adaylar])
+            if kazanan is None:
+                return None
+            secilen = next(item for item in adaylar if item[0].name == kazanan.name)
+            secilen[1].apply()
+            self.outcomes.append(secilen[2])
+        tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+        self.current = replace_step(self.current, tamam)
+        checked = await verify_step(tamam, secilen[2], self.deps, self.baseline)
+        self.evidence[step.step_id] = await capture_evidence(
+            tamam, secilen[2], checked, self.deps.tool_context.root
+        )
+        self.save()
+        return None
+
     async def run_step(self, step: PlanStep) -> AgentOutcome | None:
         """Tek adımı ve mevcut sınırlı kurtarma kararını yürüt."""
         self.deps.publisher.publish(
@@ -238,6 +314,18 @@ class _PlanRun:
                 goal=step.goal,
             )
         )
+        slots = self._attempt_slots(step)
+        if slots > 1 and step.step_id not in self.repair_ids and not step.attempts:
+            secildi = await self.run_candidates(step, slots)
+            if (
+                secildi is None
+                and self.current.steps
+                and any(
+                    item.step_id == step.step_id and item.status is StepStatus.COMPLETED
+                    for item in self.current.steps
+                )
+            ):
+                return None
         recovering = step.step_id in self.repair_ids or step.attempts > 0
         observe = step.retry_safety is RetrySafety.OBSERVE_FIRST and recovering
         guidance = (
@@ -254,8 +342,14 @@ class _PlanRun:
                 )
             running, outcome = executed
             verification = await self.verify(running, outcome, observe=observe)
+            geri_alma = StepRollback(self.deps.tool_context.changes)
             if verification.ok:
+                # Doğrulanan adımın çıktısı kalıcıdır; geri alma kaydı kapanır.
+                geri_alma.keep()
                 return None
+            # Düşen deneme diske yarım durum bırakmamalı: sonraki deneme kendi
+            # hatasıyla değil öncekinin enkazıyla uğraşıyordu (ölçüldü, Godot koşusu).
+            geri_alma.discard()
             recovery = choose_recovery(
                 classify_failure(outcome, verification), running, running.attempts
             )

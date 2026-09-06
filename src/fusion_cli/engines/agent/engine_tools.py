@@ -27,6 +27,7 @@ from ...tools.capabilities import (
     search,
 )
 from ...tools.files import display_path, resolve_path
+from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
 from ...ui import messages
 from .image_view import DEFAULT_QUESTION, describe_image
@@ -91,7 +92,36 @@ def build_agent_registry(
         extended.register(_ask_user_tool(deps.asker, deps))
     if deps.home is not None:
         extended.register(build_history_tool(deps.home))
+    _register_forged_tools(extended, deps)
     return extended
+
+
+def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
+    """Araç üretme primitifini ve daha önce üretilmiş araçları defter'e ekle.
+
+    Denetlendi (6 Eylül): `tools/forge.py` yazılmış ama HİÇ kaydedilmemişti; model
+    `make_tool` diye bir araç göremiyor, üretilmiş araçlar da sonraki turlarda
+    çağrılamıyordu. Modülün var olması, Fusion'ın onu kullanabildiği anlamına gelmez.
+    """
+    registry.register(
+        Tool(
+            name="make_tool",
+            description=(
+                "Tekrar eden mekanik iş için kendine küçük bir Python aracı yaz. "
+                "Kaynak `def run(args)` tanımlamalı; araç sonraki adımlarda adıyla çağrılır."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {"name": _STRING, "source": _STRING},
+                "required": ["name", "source"],
+            },
+            run=forge_tool,
+            mutating=True,
+        )
+    )
+    for uretilmis in load_forged_tools(deps.tool_context.root):
+        if registry.get(uretilmis.name) is None:
+            registry.register(uretilmis)
 
 
 def _clone(registry: ToolRegistry) -> ToolRegistry:

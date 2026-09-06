@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import platform
 import sys
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,8 @@ from ..config.models import Config
 from ..config.paths import env_file_candidates, memory_dir, user_config_dir
 from ..config.readiness import Readiness, ReadinessReport, evaluate
 from ..core.errors import ConfigError
+from ..core.model_capability import ModelCapability, ToolSupport
+from ..engines.capability_probe import probe_from_samples
 
 #: Anahtarın kendisi yerine yazılan değer. Tanı çıktısı paylaşılır.
 KEY_PRESENT = "ayarlı"
@@ -264,6 +267,40 @@ def _live(config: Config) -> list[Check]:
         return list(await asyncio.gather(*[_dene(model) for model in modeller]))
 
     return asyncio.run(_hepsi())
+
+
+def capability_check(model: str, capability: ModelCapability) -> Check:
+    """Sondajdan çıkan yeteneği kurulum raporuna çevir.
+
+    Denetlendi (6 Eylül): sondaj modülü yazılmış ama hiçbir yerden çağrılmıyordu.
+    Rapor satırı, yeteneğin GÖZLENDİĞİNİ görünür kılar: elle yazılmış bir
+    yapılandırma değil, ölçülmüş davranış.
+    """
+    if capability.tool_support is ToolSupport.UNKNOWN:
+        return Check(
+            f"yetenek: {model}",
+            "sondaj yapılamadı; bilinmiyor",
+            ok=None,
+            remedy="`fusion doctor --live` ile sondajı çalıştır.",
+        )
+    kanitli = capability.tool_support is not ToolSupport.NONE
+    gorsel = "görsel var" if capability.vision else "görsel yok"
+    return Check(
+        f"yetenek: {model}",
+        f"araç çağrısı {capability.tool_support.value}, {gorsel}",
+        ok=kanitli,
+        remedy=(
+            "" if kanitli else "Bu model araç çağrısı üretemedi; değiştirici görevlerde kullanma."
+        ),
+    )
+
+
+async def probe_capability(model: str, ask: Callable[[str], Awaitable[str | None]]) -> Check:
+    """Modele küçük sondajlar sorup yeteneğini gözlemden çıkar."""
+    arac = await ask(
+        "Yalnızca sözleşmeye uygun TEK bir araç çağrısı üret: read_file ile app.py oku."
+    )
+    return capability_check(model, probe_from_samples(tool_call_text=arac, image_echo=None))
 
 
 def _short(error: str | None) -> str:

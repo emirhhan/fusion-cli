@@ -36,6 +36,7 @@ def workflow_budget(deps: AgentDeps) -> WorkflowBudget:
         per_step=per_step,
         recovery=getattr(runtime, "workflow_recovery_calls", defaults.recovery),
         final=getattr(runtime, "workflow_final_verification_calls", defaults.final),
+        attempts=getattr(runtime, "workflow_attempt_calls", defaults.attempts),
     )
 
 
