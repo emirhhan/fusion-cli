@@ -53,6 +53,7 @@ from ...core.events import (
 )
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
+from ...core.model_capability import EditFormat
 from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
@@ -1207,6 +1208,19 @@ async def _call_model(
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"})
 
 
+#: Düzenleme biçimine göre SUNULMAYAN araçlar.
+#
+# Ölçüldü (aider): aynı model, farklı düzenleme biçimiyle %20'den %61'e çıkıyor.
+# Örtüşen dört düzenleme aracını birlikte görmek zayıf modelde seçim hatası üretir;
+# bu yüzden bir turda TEK sözleşme sunulur. Yeni dosya yazmak her biçimde açıktır:
+# `write_file` olmadan sıfırdan dosya üretilemez.
+_EDIT_TOOLS_HIDDEN: dict[EditFormat, frozenset[str]] = {
+    EditFormat.SEARCH_REPLACE: frozenset({"replace_range"}),
+    EditFormat.LINE_RANGE: frozenset(),
+    EditFormat.WHOLE_FILE: frozenset({"replace_range", "edit_file", "multi_edit"}),
+}
+
+
 def _permitted(
     allowed_tools: set[str] | None,
     registry: ToolRegistry,
@@ -1216,6 +1230,8 @@ def _permitted(
 
     Mutation izni yoksa değiştirici araçların ŞEMASI hiç gönderilmez: modele
     yapamayacağı bir yeteneği göstermek, denemesine ve turu boşa harcamasına yol açar.
+    Aynı gerekçe düzenleme biçimi için de geçerlidir: örtüşen araçlar birlikte
+    sunulmaz.
     """
     names = (
         set(registry.names())
@@ -1224,6 +1240,7 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
+    names -= _EDIT_TOOLS_HIDDEN.get(execution.edit_format, frozenset())
     if not execution.allow_mutation:
         names = {
             name

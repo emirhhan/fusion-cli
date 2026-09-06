@@ -34,6 +34,26 @@ class ToolSupport(Enum):
     UNKNOWN = "unknown"
 
 
+class EditFormat(Enum):
+    """Modele sunulacak dosya düzenleme sözleşmesi.
+
+    Ölçüldü (aider): AYNI model, farklı düzenleme biçimiyle %20'den %61'e çıkıyor.
+    Search/replace blokları satır numarası ve hunk uzunluğu tutturmayı gerektirmez;
+    her değişiklik kendi başına durur ve birindeki hata ötekini geçersiz kılmaz.
+    Satır aralığı ise güçlü modelde daha ucuzdur: dosyanın tamamı yeniden yazılmaz.
+
+    Biçimler ÖRTÜŞTÜĞÜ için aynı anda sunulmazlar: dört benzer düzenleme aracını
+    birlikte gören zayıf model yanlış olanı seçip turu harcıyor.
+    """
+
+    #: `edit_file` / `multi_edit`: eski metin → yeni metin. Zayıf modelin varsayılanı.
+    SEARCH_REPLACE = "search_replace"
+    #: `replace_range`: satır aralığı ile hedefli değişiklik. Native araç çağıran model.
+    LINE_RANGE = "line_range"
+    #: Yalnız `write_file`: dosyanın tamamı yeniden yazılır. En dayanıklı, en pahalı.
+    WHOLE_FILE = "whole_file"
+
+
 @dataclass(frozen=True, slots=True)
 class ModelCapability:
     """Bir modelin uygunluk kararı için gereken normalize yeteneği.

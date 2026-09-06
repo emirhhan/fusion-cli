@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
+from ...core.model_capability import EditFormat
 from ...core.types import ModelSpec
 from ..effects.detect import required_effect_for
 from .classify import TaskKind
@@ -84,6 +85,8 @@ class ExecutionPolicy:
     mutation_block_reason: str = ""
     #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
     allowed_tool_names: frozenset[str] | None = None
+    #: Modele sunulacak düzenleme sözleşmesi; örtüşen araçlar birlikte sunulmaz.
+    edit_format: EditFormat = EditFormat.LINE_RANGE
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
     observe_only: bool = False
 
@@ -164,6 +167,11 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
         max_evidence_reprompts=0 if explicit_no_tools else 1,
+        # Web yolunda araç çağrısı METİNDEN ayrıştırılır: satır numarası ve hunk
+        # uzunluğu tutturmak zorunda olmayan search/replace sözleşmesi burada daha
+        # dayanıklıdır (aider ölçümü: aynı modelde %20 → %61). API sağlayıcıları
+        # yukarıdaki erken dönüşle satır aralığında kalır.
+        edit_format=EditFormat.SEARCH_REPLACE,
     )
 
 
