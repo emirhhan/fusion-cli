@@ -30,10 +30,9 @@ Kurallar:
 - Her başarı koşulunu en az bir `verification_checks` kaydına bağla. `command`
   kontrolü doğrulayıcı içinde yeni komut çalıştırmaz; yürütme sırasında aynı komutun
   güvenli araç yolundan gerçekten çalıştığını denetler.
-- HATA DÜZELTME görevlerinde `reproduction` kullan: `target` hatayı gösteren testi
-  çalıştıran komuttur ve o komut düzeltmeden ÖNCE (kırmızı) ve SONRA (yeşil) aynı
-  adımda çalıştırılmalıdır. Yalnız "şimdi geçiyor" kanıt sayılmaz: testin hatayı
-  gerçekten yakaladığı ancak önce kırmızı görülerek bilinir.
+- Hata düzeltmede `reproduction` kullan: `target` testi çalıştıran komuttur; komut
+  düzeltmeden önce (kırmızı) ve sonra (yeşil) aynı adımda çalışmalıdır.
+- Alanları ŞEMADAKİ gibi yaz: listeler liste, her adımda `retry_safety` olsun.
 - Dış dünyada yinelenmesi riskli işlemleri `never`, önce durum okunması gerekenleri
   `observe_first`, güvenle yinelenebilenleri `safe` olarak işaretle.
 - Kullanıcıdan yeni onay isteme; verilen görev kapsamındaki belirsizlikleri en güvenli

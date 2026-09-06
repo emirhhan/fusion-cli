@@ -76,10 +76,41 @@ def _require_string(data: dict[str, object], field: str) -> str:
 
 
 def _require_strings(data: dict[str, object], field: str) -> tuple[str, ...]:
+    """Dize listesi bekle; tek dize gelirse tek elemanlı liste say.
+
+    Ölçüldü (6 Eylül canlı koşusu): model `success_criteria` alanını liste yerine
+    tek string yazdı. Alan doluydu ve anlamı belliydi; ayrıştırıcı reddedince tur
+    HİÇ araç çağırmadan bitti ve daha önce geçen görevler düştü.
+
+    Tolerans UYDURMA DEĞİLDİR: boş dize ya da yanlış tip hâlâ reddedilir; yalnız
+    "tek değer" ile "tek elemanlı liste" arasındaki biçim farkı onarılır.
+    """
     value = data.get(field)
+    if isinstance(value, str):
+        if not value.strip():
+            raise PlanParseError(f"Eksik veya geçersiz plan alanı: {field}")
+        return (value,)
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise PlanParseError(f"Eksik veya geçersiz plan alanı: {field}")
     return tuple(value)
+
+
+def _parse_retry_safety(data: dict[str, object]) -> RetrySafety:
+    """Eksik politika ilk yürütmeyi engellemez; otomatik yinelemeye izin vermez.
+
+    Boş veya tanınmayan etki etiketi salt-okunurluk kanıtı değildir: adımın
+    araçları yine değişiklik yapabilir. Bu yüzden güvenliği modelin etki
+    metninden çıkarmayız. Açıkça verilmiş geçersiz değerler reddedilir.
+    """
+    if "retry_safety" not in data:
+        return RetrySafety.NEVER
+    value = data["retry_safety"]
+    if not isinstance(value, str):
+        raise PlanParseError("Eksik veya geçersiz plan alanı: retry_safety")
+    try:
+        return RetrySafety(value)
+    except ValueError as exc:
+        raise PlanParseError(f"Geçersiz retry_safety değeri: {value}") from exc
 
 
 def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationCheck, ...]:
@@ -124,7 +155,6 @@ def _parse_step(value: object, index: int) -> PlanStep:
         "allowed_tool_families",
         "success_criteria",
         "verification_hint",
-        "retry_safety",
     )
     missing_fields = tuple(field for field in required_fields if field not in data)
     if missing_fields:
@@ -136,11 +166,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
     allowed_tool_families = _require_strings(data, "allowed_tool_families")
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")
-    retry_value = _require_string(data, "retry_safety")
-    try:
-        retry_safety = RetrySafety(retry_value)
-    except ValueError as exc:
-        raise PlanParseError(f"Geçersiz retry_safety değeri: {retry_value}") from exc
+    retry_safety = _parse_retry_safety(data)
 
     return PlanStep(
         step_id=step_id,
