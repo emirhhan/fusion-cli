@@ -40,7 +40,14 @@ class CircuitBreakingProvider:
         if not self._health.allow():
             return self._skipped()
         result = await self._inner.complete(request)
-        self._health.record(ok=result.is_usable, latency_ms=result.latency_ms)
+        # Kota hatası sıradan arıza değildir: sağlayıcı "şimdi olmaz" diyor ve aynı
+        # soğumayla dönmek tur bütçesini yakar. Ayrımı burada yapmak, artan geri
+        # çekilmeyi bütün sağlayıcılar için tek yerde açar.
+        self._health.record(
+            ok=result.is_usable,
+            latency_ms=result.latency_ms,
+            rate_limited=result.is_rate_limited,
+        )
         return result
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
@@ -53,7 +60,11 @@ class CircuitBreakingProvider:
             if isinstance(item, TextChunk) and item.text:
                 produced = True
             elif isinstance(item, StreamDone):
-                self._health.record(ok=item.result.is_usable, latency_ms=item.result.latency_ms)
+                self._health.record(
+                    ok=item.result.is_usable,
+                    latency_ms=item.result.latency_ms,
+                    rate_limited=item.result.is_rate_limited,
+                )
                 recorded = True
             yield item
         # Protokol akışın tek `StreamDone` ile bitmesini garanti eder; yine de

@@ -35,6 +35,15 @@ class CircuitPhase(Enum):
     HALF_OPEN = "half_open"
 
 
+#: Kota hatasında soğumanın taban çarpanı ve üst sınırı.
+#
+# Taban 3'tür: sağlayıcı kotası saniyeler değil dakikalar ölçeğinde toparlanır,
+# ama ilk denemeyi de saatlerce ertelememek gerekir. Üst sınır 8'dir; ötesi,
+# oturum boyunca modeli fiilen dışlamak demektir.
+RATE_LIMIT_BASE_MULTIPLIER = 3.0
+RATE_LIMIT_MAX_MULTIPLIER = 8
+
+
 class ModelHealth:
     """Tek bir modelin devre durumu + güvenilirlik skoru.
 
@@ -57,6 +66,8 @@ class ModelHealth:
         self._clock = clock
         self._phase = CircuitPhase.CLOSED
         self._consecutive_failures = 0
+        #: Art arda gelen kota hatası sayısı; geri çekilmenin katsayısıdır.
+        self._rate_limit_streak = 0
         self._opened_at = 0.0
         #: Yeni model iyimser başlar: tek bir geçici arıza onu dışlamasın.
         self._score = initial_score
@@ -86,12 +97,25 @@ class ModelHealth:
         """Bu modele çağrı yapılabilir mi? Cooldown dolduysa yarı-açığa geçer."""
         if self._phase is not CircuitPhase.OPEN:
             return True
-        if self._clock.monotonic() - self._opened_at >= self._cooldown_s:
+        if self._clock.monotonic() - self._opened_at >= self._current_cooldown():
             self._phase = CircuitPhase.HALF_OPEN
             return True
         return False
 
-    def record(self, ok: bool, *, latency_ms: int = 0) -> None:
+    def _current_cooldown(self) -> float:
+        """Kota gerilimi varsa artan geri çekilme, yoksa normal soğuma.
+
+        Kota/hız sınırı geçici bir arıza değildir: sağlayıcı "şimdi olmaz" diyor ve
+        aynı soğumayla hemen dönmek turu yakar (ölçüldü, web koşuları). Artış
+        katlanarak ilerler ama ÜST SINIRI vardır: sınırsız bekleme, sağlayıcı
+        toparlansa bile modeli oturum boyunca dışlardı.
+        """
+        if not self._rate_limit_streak:
+            return self._cooldown_s
+        carpan = min(2 ** (self._rate_limit_streak - 1), RATE_LIMIT_MAX_MULTIPLIER)
+        return float(self._cooldown_s * RATE_LIMIT_BASE_MULTIPLIER * carpan)
+
+    def record(self, ok: bool, *, latency_ms: int = 0, rate_limited: bool = False) -> None:
         """Bir çağrının sonucunu işle: skoru + gecikmeyi güncelle, devreyi aç/kapat."""
         self._score = self._alpha * (1.0 if ok else 0.0) + (1.0 - self._alpha) * self._score
         self._samples += 1
@@ -101,9 +125,19 @@ class ModelHealth:
                 prev = self._avg_latency_ms or float(latency_ms)
                 self._avg_latency_ms = self._alpha * latency_ms + (1.0 - self._alpha) * prev
             self._consecutive_failures = 0
+            # Başarılı çağrı kota gerilimini de sıfırlar: sağlayıcı toparlandıysa
+            # onu eski cezasıyla bekletmek ölçülen duruma aykırıdır.
+            self._rate_limit_streak = 0
             self._phase = CircuitPhase.CLOSED
             return
         self._consecutive_failures += 1
+        if rate_limited:
+            # Eşik BEKLENMEZ: sağlayıcı zaten kapasitesi olmadığını söyledi. Aynı
+            # kapıya art arda çarpmak tur bütçesini yakar.
+            self._rate_limit_streak += 1
+            self._phase = CircuitPhase.OPEN
+            self._opened_at = self._clock.monotonic()
+            return
         # Yarı-açıkken bir başarısızlık devreyi hemen yeniden açar; kapalıyken ancak
         # eşik dolunca açılır.
         if self._phase is CircuitPhase.HALF_OPEN or self._consecutive_failures >= self._threshold:
