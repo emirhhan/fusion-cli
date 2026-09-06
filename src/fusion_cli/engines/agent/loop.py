@@ -55,6 +55,7 @@ from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.model_capability import EditFormat
 from ...core.progress import RoundSignals, progressed
+from ...core.steering import SteeringQueue
 from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
@@ -288,6 +289,8 @@ class AgentDeps:
     channel: Channel = Channel.MAIN
     #: Bu turda kaç kez bağlam özetlendi; plan yürütücüsü checkpoint'e taşır.
     condensations: int = 0
+    #: Kullanıcının koşan işe ilettiği yönergeler; her alt turdan önce boşaltılır.
+    steering: SteeringQueue | None = None
     #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
     #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
     task_type: str = "general"
@@ -755,6 +758,10 @@ async def _drive(
     local_calls = 0
 
     while True:
+        # Kullanıcının araya girdiği yönerge, sıradaki model çağrısından ÖNCE girer:
+        # tur bittikten sonra iletmek onu bir sonraki göreve, hiç iletmemek ise
+        # kullanıcıyı turu öldürmeye zorlardı.
+        apply_steering(messages, deps.steering)
         if budget.model_calls_exhausted:
             return _halt(final_text, messages, state, budget, BudgetStop.MODEL_CALLS, deps)
         if local_limit is not None and local_calls >= local_limit:
@@ -921,6 +928,20 @@ async def _drive(
             state.explore_pushes += 1
             state.read_only_rounds = 0
             messages.append(reflexion.enough_exploring_note(MAX_READ_ONLY_ROUNDS))
+
+
+def apply_steering(messages: list[Message], queue: SteeringQueue | None) -> int:
+    """Kullanıcının araya girdiği yönergeleri sıradaki çağrıdan ÖNCE mesajlara ekle.
+
+    Yönerge harness notudur: modelin kendi cevabına karışmaz, kullanıcının sözü
+    olarak taşınır. Kuyruk tek seferlik boşaltılır — bir kez söyleneni her turda
+    tekrar etmek, onu sonsuz bir talimata çevirirdi. Kuyruk yoksa akış değişmez.
+    """
+    if queue is None or not queue.pending:
+        return 0
+    notlar = queue.drain()
+    messages.extend(notlar)
+    return len(notlar)
 
 
 def _round_signals(
