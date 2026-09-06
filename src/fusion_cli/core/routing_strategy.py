@@ -34,6 +34,13 @@ class RoutingStrategy(Enum):
     ROUND_ROBIN = "round_robin"
     #: Rastgele sırala.
     RANDOM = "random"
+    #: Takılan adımda bir üst modele yükselt.
+    #:
+    #: Sektörde ölçülen desen: trafiğin büyük kısmı ucuz modelde çalışır, yalnız
+    #: takılan azınlık güçlüye yükseltilir. Fusion'da yedek zincir yalnız sağlayıcı
+    #: ARIZASINDA devreye giriyordu; modelin işi beceremediği durumda aynı model
+    #: tekrar deneniyordu (ölçüldü: başarısız görevlerde 0 yeniden deneme).
+    ESCALATE = "escalate"
 
 
 def order_models(
@@ -42,12 +49,22 @@ def order_models(
     strategy: RoutingStrategy,
     health: HealthRegistry | None = None,
     rotation: int = 0,
+    escalation: int = 0,
     rng: _random.Random | None = None,
 ) -> tuple[str, ...]:
-    """Modelleri stratejiye göre sırala. Girdi sırası hiçbir modeli DÜŞÜRMEZ."""
+    """Modelleri stratejiye göre sırala. Girdi sırası hiçbir modeli DÜŞÜRMEZ.
+
+    `escalation` yalnız `ESCALATE` stratejisinde okunur ve adımın kaçıncı denemede
+    olduğunu söyler: kanıta bağlı bir sayaçtır, görev zorluğu tahmini değil.
+    """
     items = list(models)
     if len(items) <= 1 or strategy is RoutingStrategy.PRIORITY:
         return tuple(items)
+    if strategy is RoutingStrategy.ESCALATE:
+        # Atlanan modeller DÜŞÜRÜLMEZ, sona alınır: yükseltilen turda güçlü model de
+        # arızalanabilir ve o an elde kalan tek yol ucuz model olur.
+        adim = min(escalation, len(items) - 1)
+        return tuple(items[adim:] + items[:adim])
     if strategy in (RoutingStrategy.FREE_FIRST, RoutingStrategy.COST_OPTIMIZED):
         # Kararlı: önce ':free' içerenler, sonra ötekiler; her grup içinde sıra korunur.
         # Maliyet-öncelikli de aynı proxy'yi kullanır: ücretsiz = en ucuz.

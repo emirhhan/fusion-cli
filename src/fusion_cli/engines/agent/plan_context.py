@@ -110,6 +110,9 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
             if observe
             else policy.mutation_block_reason,
             observe_only=observe,
+            # Adım kaçıncı kez deneniyorsa zincir o kadar yukarı kaydırılır: aynı
+            # modelle aynı duvara çarpmak yerine bir üst modele yükselinir.
+            escalation=step.attempts,
             complex_task=policy.complex_task and not observe,
             max_model_calls=min(policy.max_model_calls, remaining)
             if policy.max_model_calls is not None

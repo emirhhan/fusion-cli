@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ..core.errors import ConfigError
+from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import ModelSpec
 from .eligibility import capability_from_spec
 from .models import Config
@@ -197,3 +198,24 @@ def _validated(model_id: str) -> str:
             "(ör. openrouter/openai/gpt-oss-20b:free). Liste için: fusion models --fetch"
         )
     return cleaned
+
+
+def escalated_spec(spec: ModelSpec, escalation: int) -> ModelSpec:
+    """Takılan adım için zinciri bir üst modele kaydır.
+
+    Ölçüldü (5 Eylül starter koşusu): başarısız görevlerde yeniden deneme sayısı
+    sıfırdı — aynı model aynı duvara çarpıyor, yedek zincir yalnız sağlayıcı
+    ARIZASINDA devreye giriyordu. Yükseltme kanıta bağlıdır: adım kaçıncı kez
+    deneniyorsa zincir o kadar kaydırılır, görev zorluğu tahmin edilmez.
+
+    `strict` rolde (ör. `/development` tek-model akışı) yükseltme YAPILMAZ:
+    kullanıcının açık model seçimi harness kararıyla ezilemez.
+    """
+    if escalation <= 0 or spec.strict or not spec.fallback:
+        return spec
+    zincir = order_models(
+        (spec.model, *spec.fallback),
+        strategy=RoutingStrategy.ESCALATE,
+        escalation=escalation,
+    )
+    return replace(spec, model=zincir[0], fallback=zincir[1:])

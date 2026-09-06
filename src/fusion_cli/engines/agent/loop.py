@@ -27,7 +27,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ...config.eligibility import effort_for_spec
-from ...config.model_select import select_agent_spec
+from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
@@ -54,7 +54,6 @@ from ...core.events import (
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.model_capability import EditFormat
-from ...core.web_response import classify_response
 from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
@@ -67,6 +66,7 @@ from ...core.types import (
     is_permanent_error,
 )
 from ...core.verification import VerificationResult, Verifier
+from ...core.web_response import classify_response
 from ...memory.lessons import as_prompt_block
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
@@ -1165,7 +1165,9 @@ async def _call_model(
 ) -> ModelResult:
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
-    spec = select_agent_spec(deps.config, deps.task_type)
+    # Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
+    # zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
+    spec = escalated_spec(select_agent_spec(deps.config, deps.task_type), execution.escalation)
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,

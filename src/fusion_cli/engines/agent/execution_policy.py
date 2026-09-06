@@ -87,6 +87,8 @@ class ExecutionPolicy:
     allowed_tool_names: frozenset[str] | None = None
     #: Modele sunulacak düzenleme sözleşmesi; örtüşen araçlar birlikte sunulmaz.
     edit_format: EditFormat = EditFormat.LINE_RANGE
+    #: Bu adım kaçıncı kez deneniyor; yedek zinciri o kadar yukarı kaydırır.
+    escalation: int = 0
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
     observe_only: bool = False
 
