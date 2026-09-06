@@ -165,7 +165,8 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult("(boş dosya)")
 
     offset = require_positive_int(args, "offset", default=1)
-    limit = require_positive_int(args, "limit", default=MAX_READ_LINES)
+    ust_sinir = context.read_window or MAX_READ_LINES
+    limit = min(require_positive_int(args, "limit", default=ust_sinir), ust_sinir)
     if offset > len(lines):
         return ToolResult.failure(
             f"{display_path(context, path)} yalnızca {len(lines)} satır; offset={offset} "

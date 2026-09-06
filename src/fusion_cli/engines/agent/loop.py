@@ -425,6 +425,11 @@ async def run_agent(
     if allowed_tools is not None:
         names = frozenset(_permitted(allowed_tools, registry, execution) or ())
         execution = replace(execution, allowed_tool_names=names)
+    # Web taşımasında bağlam pahalıdır: uzun okuma hem gecikme hem context rot
+    # üretir. SWE-agent'ın ölçümü turda ~100 satırı en iyi pencere olarak veriyor;
+    # API yolunda mevcut ölçülmüş davranış (800 satır) korunur.
+    if execution.is_web and deps.tool_context.read_window is None:
+        deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()
@@ -1206,6 +1211,9 @@ async def _call_model(
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
 #: ya da belirsizliği gideremez.
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"})
+
+#: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
+WEB_READ_WINDOW = 100
 
 
 #: Düzenleme biçimine göre SUNULMAYAN araçlar.

@@ -250,6 +250,13 @@ class ToolContext:
     extra_roots: tuple[Path, ...] = ()
     #: İptal edilen turdaki thread tabanlı araçların yürümeye devam etmesini önler.
     cancelled: Event = field(default_factory=Event)
+    #: Bu turda bir okumada gösterilecek EN FAZLA satır; `None` ise varsayılan.
+    #:
+    #: SWE-agent'ın ölçümü: turda ~100 satır göstermek en iyi sonucu veriyor. Sınır
+    #: sabit değil TAŞIMAYA bağlıdır: web yolunda bağlam pahalıdır ve uzun okuma
+    #: hem gecikme hem context rot üretir; API yolunda mevcut ölçülmüş davranış
+    #: (800 satır) korunur. Model `limit` ile bu pencereyi AŞAMAZ; daraltabilir.
+    read_window: int | None = None
     #: Bu turda kayıt defterinde bulunan araç adları.
     #:
     #: Yapı denetimi buna bakar: bir biçimi zaten doğru üreten araç varken

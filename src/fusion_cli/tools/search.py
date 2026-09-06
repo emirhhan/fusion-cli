@@ -29,12 +29,31 @@ MAX_SEARCH_CANDIDATES = 50_000
 MAX_SEARCH_SCAN_BYTES = 256 * 1024
 MAX_SEARCH_LINE_BYTES = 16 * 1024
 MAX_REGEX_PATTERN_CHARS = 500
+#: Bu sayıyı aşan eşleşmede satır satır gösterim yerine dosya özeti verilir.
+#
+# SWE-agent'ın ACI ölçümü: her eşleşmeyi tek tek göstermek modeli şaşırtıyor;
+# dosya başına kısa liste daha iyi sonuç veriyor. 20 satırlık bir liste hâlâ
+# okunabilir, ötesi turu doldurur ve seçim yapmayı zorlaştırır.
+MAX_DETAILED_HITS = 20
+
 _UNSAFE_REGEX = re.compile(r"\([^()\n]{0,200}\)(?:[+*]|\{\d)")
-_SECRET_FILE_NAMES = frozenset({
-    ".npmrc", ".netrc", ".git-credentials", ".pypirc", "firebase.json",
-    "config.json", "config.yaml", "config.yml", "config.toml", "service-account.json",
-    "id_rsa", "id_ed25519", "id_ecdsa",
-})
+_SECRET_FILE_NAMES = frozenset(
+    {
+        ".npmrc",
+        ".netrc",
+        ".git-credentials",
+        ".pypirc",
+        "firebase.json",
+        "config.json",
+        "config.yaml",
+        "config.yml",
+        "config.toml",
+        "service-account.json",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+    }
+)
 _SECRET_FILE_STEM_RE = re.compile(
     r"(?:^|[._-])(credential|credentials|auth|token|tokens|secret|secrets|private)"
     r"(?:$|[._-])",
@@ -43,8 +62,18 @@ _SECRET_FILE_STEM_RE = re.compile(
 _SECRET_FILE_EXTENSIONS = frozenset({".pem", ".key", ".p12", ".pfx", ".der", ".crt", ".cer"})
 _SECRET_DIRECTORY_NAMES = frozenset(
     {
-        ".aws", ".azure", ".claude", "claude", ".config", ".gnupg", ".ssh", "chrome",
-        "application support", "cache", "caches", "vendor",
+        ".aws",
+        ".azure",
+        ".claude",
+        "claude",
+        ".config",
+        ".gnupg",
+        ".ssh",
+        "chrome",
+        "application support",
+        "cache",
+        "caches",
+        "vendor",
     }
 )
 _SKIP_DIRECTORY_NAMES = frozenset(
@@ -97,19 +126,35 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Geçersiz regex: {exc}")
 
     hits: list[str] = []
+    per_file: dict[str, tuple[int, str]] = {}
     scan = _SearchScan(context=context, started=time.monotonic())
     for path in _searchable_files(root, scan):
         for number, line in _matching_lines(path, regex, scan):
-            hits.append(
-                f"{display_path(context, path)}:{number}: "
-                f"{_truncate_utf8(redact(line.strip()), MAX_SEARCH_LINE_BYTES)}"
-            )
+            gosterim = display_path(context, path)
+            metin = _truncate_utf8(redact(line.strip()), MAX_SEARCH_LINE_BYTES)
+            hits.append(f"{gosterim}:{number}: {metin}")
+            sayac, ilk = per_file.get(gosterim, (0, f"{number}: {metin}"))
+            per_file[gosterim] = (sayac + 1, ilk)
             if len(hits) >= MAX_SEARCH_HITS:
                 return ToolResult.failure(
-                    "\n".join(hits) + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, "
-                    "deseni daraltın)"
+                    "\n".join(_summarize(per_file))
+                    + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, deseni daraltın)"
                 )
+    if len(hits) > MAX_DETAILED_HITS:
+        return _bounded_result(_summarize(per_file), scan, "(eşleşme yok)")
     return _bounded_result(hits, scan, "(eşleşme yok)")
+
+
+def _summarize(per_file: dict[str, tuple[int, str]]) -> list[str]:
+    """Çok eşleşmede dosya başına TEK satır.
+
+    SWE-agent'ın ölçümü: her eşleşmeyi ayrı ayrı göstermek modeli şaşırtıyor; hangi
+    dosyada kaç eşleşme olduğu ve ilk örnek, sonraki adımı seçmeye yeter. Ayrıntı
+    gerekiyorsa model dosyayı `read_file` ile açar.
+    """
+    return [
+        f"{path}: {sayac} eşleşme (ilk — {ilk})" for path, (sayac, ilk) in sorted(per_file.items())
+    ]
 
 
 def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -187,6 +232,7 @@ def _searchable_files(root: Path, scan: _SearchScan) -> Iterator[Path]:
     if root.is_file():
         candidates: Iterator[Path] = iter((root,))
     else:
+
         def walk() -> Iterator[Path]:
             for current, directories, files in os.walk(root, followlinks=False):
                 directories[:] = sorted(
