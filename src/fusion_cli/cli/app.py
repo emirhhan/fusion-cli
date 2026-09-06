@@ -126,7 +126,9 @@ def run(
     renderer = ConsoleRenderer(
         console, show_progress=not quiet, show_all_answers=show_all, show_call_details=True
     )
-    observers = build_observers(task, renderer=renderer, as_json=as_json)
+    observers = build_observers(
+        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+    )
     result = asyncio.run(
         _with_web_cleanup(
             run_task(
@@ -255,7 +257,9 @@ def agent(
     config = load_config()
     root = Path.cwd()
     renderer = ConsoleRenderer(console, show_progress=not quiet)
-    observers = build_observers(task, renderer=renderer, as_json=as_json)
+    observers = build_observers(
+        task, renderer=renderer, as_json=as_json, trace_dir=config.memory_dir / "traces"
+    )
 
     outcome = asyncio.run(
         _with_web_cleanup(
@@ -529,6 +533,22 @@ def mcp_add(
 def setup() -> None:
     """İlk kurulum: kullanıcı dizinine config.yaml ve .env şablonu bırak."""
     run_setup(console)
+
+
+@app.command()
+def trace(
+    run_id: str = typer.Argument("", help="Koşu kimliği; verilmezse sonuncusu."),
+    liste: bool = typer.Option(False, "--list", "-l", help="Kayıtlı koşuları listele."),
+) -> None:
+    """Bir koşunun teşhis özetini göster: hangi kayıp sınıfı, nerede duraklandı."""
+    from ..observability.trace_store import TraceStore
+    from .trace_command import list_runs, render_trace
+
+    store = TraceStore(load_config().memory_dir / "traces")
+    if liste:
+        list_runs(store)
+        return
+    render_trace(store, run_id or None)
 
 
 @app.command()

@@ -13,6 +13,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -47,6 +48,7 @@ from ..memory.factory import Memory, build_memory, null_memory
 from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
 from ..observability.json_sink import JsonRenderer
+from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
 from ..tools.capabilities import CapabilityRegistry
 from ..ui import messages
@@ -342,19 +344,30 @@ class Observers:
     sinks: tuple[EventSink, ...]
     cost: CostTracker
     tracer: LangfuseTracer
+    trace: TraceWriter | None = None
 
     def finish(self) -> None:
-        """Bekleyen izleme kayıtlarını gönder."""
+        """Bekleyen izleme kayıtlarını gönder ve izi kapat."""
         self.tracer.flush()
+        if self.trace is not None:
+            self.trace.close()
 
 
 def build_observers(
-    task: str, *, renderer: EventSink | None = None, as_json: bool = False
+    task: str,
+    *,
+    renderer: EventSink | None = None,
+    as_json: bool = False,
+    trace_dir: Path | None = None,
 ) -> Observers:
     """Turu izleyecek dinleyicileri kur.
 
     Sıra önemlidir: render önce gelir ki kullanıcı çıktıyı beklemesin. İzleme ve
     maliyet toplama sessizdir, ekrana bir şey basmaz.
+
+    `trace_dir` verilirse tur kendi JSONL izini bırakır. İz TEŞHİS içindir: bir
+    koşunun neden düştüğü sonradan `fusion trace` ile sorulabilsin diye tutulur.
+    Yazılamıyorsa tur devam eder; teşhis kaydı işin kendisini durdurmaz.
     """
     cost = CostTracker()
     tracer = LangfuseTracer(task=task)
@@ -364,4 +377,17 @@ def build_observers(
     elif renderer is not None:
         sinks.append(renderer)
     sinks.extend((cost, tracer))
-    return Observers(sinks=tuple(sinks), cost=cost, tracer=tracer)
+    trace = _open_trace(trace_dir)
+    if trace is not None:
+        sinks.append(trace)
+    return Observers(sinks=tuple(sinks), cost=cost, tracer=tracer, trace=trace)
+
+
+def _open_trace(trace_dir: Path | None) -> TraceWriter | None:
+    """Koşu izini aç; kimlik zaman damgasıdır, sıralama da bundan gelir."""
+    if trace_dir is None:
+        return None
+    try:
+        return TraceStore(trace_dir).writer(datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+    except OSError:
+        return None
