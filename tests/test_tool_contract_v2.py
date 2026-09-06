@@ -14,6 +14,7 @@ from fusion_cli.core.tool_emulation import (
     CALL_OPEN,
     parse_tool_calls,
     render_tool_instructions,
+    strip_call_fence,
 )
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message, ToolCall
@@ -76,7 +77,8 @@ def test_instructions_contain_only_valid_canonical_examples() -> None:
     blocks = re.findall(rf"{CALL_OPEN}\s*(.*?)\s*{CALL_CLOSE}", text, flags=re.DOTALL)
     assert blocks
     for block in blocks:
-        payload = json.loads(block)
+        # Gövde artık ```json çitiyle gider (bkz. test_call_block_fence.py).
+        payload = json.loads(strip_call_fence(block))
         assert isinstance(payload["name"], str)
         assert isinstance(payload["arguments"], dict)
 

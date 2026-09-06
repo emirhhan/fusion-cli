@@ -15,6 +15,7 @@ from fusion_cli.core.tool_emulation import (
     PAYLOAD_OPEN,
     parse_tool_calls,
     render_tool_instructions,
+    strip_call_fence,
 )
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
@@ -198,7 +199,8 @@ def test_instructions_include_raw_payload_protocol() -> None:
     )
     assert blocks
     for block in blocks:
-        json.loads(block)
+        # Gövde ```json çitiyle gider (bkz. test_call_block_fence.py).
+        json.loads(strip_call_fence(block))
 
 
 def test_repair_note_teaches_payload_protocol() -> None:

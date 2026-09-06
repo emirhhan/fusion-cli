@@ -177,7 +177,26 @@ def render_tool_example(function_schema: Mapping[str, object]) -> str:
 def render_call(payload: Mapping[str, object]) -> str:
     """Bir çağrıyı kanonik bloğa sar. Sınırlayıcılar KENDİ satırlarında durur."""
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    return f"{CALL_OPEN}\n{body}\n{CALL_CLOSE}"
+    return f"{CALL_OPEN}\n```json\n{body}\n```\n{CALL_CLOSE}"
+
+
+def strip_call_fence(body: str) -> str:
+    """Çağrı gövdesini saran Markdown kod bloğu çitini düş. Saftır.
+
+    Çit ZORUNLU hâle geldi çünkü çitsiz gövde web arayüzünde markdown olarak
+    RENDER ediliyor. Ölçüldü (6 Eylül canlı koşusu): model
+    `{"path":"hesap/__init__.py"}` üretti, sayfa `__init__` dizisini kalın metin
+    olarak çizdi ve geri okunan metinde alt çizgiler yoktu — Fusion `hesap/init.py`
+    yazdı, `cok-dosyali-modul-kur` görevi üst üste düştü. Payload gövdesi zaten kod
+    bloğundaydı ve bu yüzden bozulmuyordu; çağrı gövdesi dışarıda kalmıştı.
+
+    Çitsiz gövde de kabul edilir: eski yanıtlar ve çiti atlayan modeller
+    ayrıştırılmaya devam eder.
+    """
+    if not body.startswith("```"):
+        return body
+    fenced = re.fullmatch(r"```[^\r\n]*\r?\n(?P<body>.*?)\r?\n?```[ \t]*", body, flags=re.DOTALL)
+    return fenced.group("body").strip() if fenced else body
 
 
 #: Payload protokolünün TEK örneği ve TEK kural listesi.
@@ -280,6 +299,9 @@ PAYLOAD_RULES = (
 
 _GENERAL_RULES = (
     "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
+    "- Çağrı gövdesini ```json kod bloğunun İÇİNE yaz. Kod bloğu dışındaki metin "
+    "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
+    "çizgiler siliniyor.",
     "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
     "replace_range kullan; write_file DEĞİL.",
     "- replace_range ile yalnız YENİ içeriği gönder; Eski içeriği tekrar üretme.",
@@ -345,7 +367,7 @@ def render_tool_instructions(
         "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.",
         "",
         "Kısa değer çağrısı:",
-        f'{CALL_OPEN}{{"name":"read_file","arguments":{{"path":"src/app.py"}}}}{CALL_CLOSE}',
+        render_call({"name": "read_file", "arguments": {"path": "src/app.py"}}),
         "",
         "Kod / çok satırlı içerik payload örneği:",
         PAYLOAD_EXAMPLE,
@@ -665,7 +687,7 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         errors.append("kapanmamış veya geçersiz payload bloğu")
 
     for index, match in enumerate(_call_matches(without_payloads)):
-        raw = match.group("body").strip()
+        raw = strip_call_fence(match.group("body").strip())
         obj = _loads_tolerant(raw)
         if obj is None:
             errors.append(f"blok {index}: geçersiz JSON")
