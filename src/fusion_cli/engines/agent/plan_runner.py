@@ -412,10 +412,7 @@ class _PlanRun:
                 self.current = replace_step(
                     self.current, replace(running, status=StepStatus.BLOCKED)
                 )
-                return self.pause(
-                    f"Plan adımı duraklatıldı: {step.step_id}. {recovery.reason} "
-                    + ("; ".join(verification.findings) or outcome.final_text)
-                )
+                return self.pause(_pause_text(step.step_id, recovery.reason, verification, outcome))
             self.deps.publisher.publish(
                 ExecutionRetryScheduled(
                     step_id=step.step_id,
@@ -570,3 +567,31 @@ async def run_execution_plan(
             run.baseline = baseline.findings or ((baseline.summary,) if baseline.summary else ())
     run.progress()
     return await run.run()
+
+
+def _pause_text(
+    step_id: str,
+    reason: str,
+    verification: StepVerificationResult,
+    outcome: AgentOutcome,
+) -> str:
+    """Duraklatma mesajını kur: NEDEN duraklatıldığı + NE OLDUĞU birlikte.
+
+    Ölçüldü (6 Eylül canlı koşusu, `erisilemeyen-kaynagi-uydurma`): adım
+    doğrulamadan geçemedi ("beklenen çalışma alanı değişikliği gözlenmedi") ve
+    duraklatma mesajı modelin açıklamasının YERİNE geçti. Kullanıcı yalnızca
+    "adım duraklatıldı" gördü; adresin var olmadığını hiç öğrenemedi. Oysa
+    modelin açıklaması tam da eksik olan bilgiydi.
+
+    Bulgu ile açıklama farklı sorulara cevap verir ve biri diğerinin yerine
+    geçemez: bulgu kapının neden kapandığını, açıklama işin neden yapılamadığını
+    söyler.
+    """
+    bulgular = "; ".join(verification.findings)
+    parcalar = [f"Plan adımı duraklatıldı: {step_id}.", reason]
+    if bulgular:
+        parcalar.append(bulgular)
+    anlatim = outcome.final_text.strip()
+    if anlatim and anlatim not in bulgular:
+        parcalar.append(anlatim)
+    return " ".join(parca for parca in parcalar if parca)
