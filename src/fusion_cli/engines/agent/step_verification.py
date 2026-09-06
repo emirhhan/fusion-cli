@@ -17,6 +17,7 @@ from ...core.execution_plan import (
     VerificationCheckKind,
 )
 from ...core.verification import VerificationResult
+from .reproduction import evaluate_reproduction
 from .verify_discovery import behavioral_commands
 
 if TYPE_CHECKING:
@@ -191,6 +192,11 @@ def _evaluate_check(
     """Tek kontrolü yürüt; yeni komut başlatmadan yalnız mevcut kanıtı tüket."""
     if check.kind in {VerificationCheckKind.FILE_EXISTS, VerificationCheckKind.FILE_CONTAINS}:
         return evaluate_file_check(check, root)
+
+    if check.kind is VerificationCheckKind.REPRODUCTION:
+        # Hatayı gösteren test: kanıt İKİ parçalıdır (önce kırmızı, sonra yeşil).
+        # Yalnız son koşuya bakmak, testin hatayı hiç yakalamadığı durumu gizler.
+        return evaluate_reproduction(check, tool_uses=outcome.tool_uses)
 
     if check.kind is VerificationCheckKind.COMMAND:
         found = _command_evidence(check.target, outcome, verification)

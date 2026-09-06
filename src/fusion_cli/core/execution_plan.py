@@ -41,6 +41,11 @@ class VerificationCheckKind(StrEnum):
     FILE_CONTAINS = "file_contains"
     COMMAND = "command"
     TOOL = "tool"
+    #: Hatayı gösteren test: ÖNCE kırmızı, SONRA yeşil olmalı.
+    #:
+    #: Yalnız "şimdi geçiyor" demek, testin hatayı hiç yakalamadığı durumu gizler
+    #: (fail-to-fail) ve yanlış başarının en yaygın kaynağıdır.
+    REPRODUCTION = "reproduction"
 
 
 @dataclass(frozen=True, slots=True)
