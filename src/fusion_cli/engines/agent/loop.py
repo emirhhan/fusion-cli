@@ -54,6 +54,7 @@ from ...core.events import (
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.model_capability import EditFormat
+from ...core.web_response import classify_response
 from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
@@ -1279,10 +1280,13 @@ def _auto_continue_note(
     # zorlamak turu kullanıcının istemediği bir işe çevirir (ölçüldü).
     if state.warned_wrong_workspace:
         return None
-    # Gerçek çıktı bütçesi dolduysa sağlayıcıdan bağımsız olarak bir kez devam et.
-    # Bu, sağlayıcıdan gelen sert bir olgudur ve her teşhisin önündedir.
-    if truncated:
-        return _spend(deps, reflexion.auto_continue_note())
+    # Taşıma bütünlüğü her teşhisin önündedir: kesilmiş yanıt, kapanmamış blok ve
+    # boş yanıt farklı hamleler ister. Üçünü "işi yarım bıraktın" notuna bağlamak
+    # ya yapılan işi çöpe atıyor ya da modele yanlış şeyi düzelttiriyordu.
+    butunluk = classify_response(final_text, truncated=truncated, has_tool_calls=False)
+    tasima_notu = reflexion.integrity_note(butunluk)
+    if tasima_notu is not None:
+        return _spend(deps, tasima_notu)
     # ÖZGÜL TEŞHİS GENELDEN ÖNCE GELİR. "İş yapmadan soru sordu" turu çoğu zaman
     # kısa da olur ve `looks_unfinished` onu önce yakalayıp "işi yarım bıraktın"
     # notunu gönderiyordu. İki not da modeli çalıştırır ama yanlış olanı yanlış

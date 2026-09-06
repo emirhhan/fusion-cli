@@ -175,6 +175,34 @@ def auto_continue_note() -> Message:
     return Message("user", AUTO_CONTINUE_NOTE, harness_note=True)
 
 
+#: Yanıt bütünlüğü sınıfına göre gönderilecek not.
+#
+# Üç kayıp biçimi farklı hamle ister: kesilmiş yanıtta yapılan işi koruyup devam
+# etmek, kapanmamış blokta yalnız eksik bloğu tamamlatmak, boş yanıtta isteği
+# sadeleştirip tek adıma indirmek gerekir. Üçünü aynı nota bağlamak, ya yapılan işi
+# çöpe atıyor ya da modele yanlış şeyi düzelttiriyordu (ölçüldü, web koşuları).
+_INTEGRITY_NOTES: dict[str, str] = {
+    "truncated": (
+        "[taşıma] Yanıtın çıktı sınırında kesildi. Baştan başlama: kaldığın yerden "
+        "devam et ve yalnız eksik kalan kısmı üret."
+    ),
+    "unclosed_block": (
+        "[taşıma] Bir araç bloğu açıldı ama kapatılmadı; çağrı okunamadı. Açıklama "
+        "yazma, yalnız o bloğu sözleşmeye uygun biçimde TAM olarak yeniden üret."
+    ),
+    "empty": (
+        "[taşıma] Yanıt boş geldi. İsteği tek ve kısa bir adıma indir; uzun bir "
+        "plan yerine yalnız sıradaki tek araç çağrısını yaz."
+    ),
+}
+
+
+def integrity_note(integrity: object) -> Message | None:
+    """Bütünlük sınıfına ait notu üret; sağlam yanıtta `None`."""
+    metin = _INTEGRITY_NOTES.get(str(getattr(integrity, "value", integrity)))
+    return Message("user", metin, harness_note=True) if metin else None
+
+
 def never_acted_note() -> Message:
     """Hiç araç çağırmadan turu kapatan modele TEK bir somut adım attır."""
     return Message("user", NEVER_ACTED_NOTE, harness_note=True)
