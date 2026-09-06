@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.browser_session import BrowserSession
+from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
 from ...core.clock import SystemClock
 from ...core.events import (
@@ -29,6 +32,7 @@ from ...core.execution_plan import (
 )
 from ...core.failure import RecoveryAction
 from ...core.rollback import StepRollback
+from ...core.tools import PendingWrite, TodoList, ToolContext
 from ...core.types import Message
 from ...core.verification import VerificationResult
 from ...core.workspace import IsolatedWorkspace, isolate
@@ -53,6 +57,22 @@ if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
 
+def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext:
+    """Bir alt turun değişken araç durumunu diğer adımlardan ayır."""
+    return replace(
+        context,
+        root=root or context.root,
+        todos=TodoList(),
+        touched=set(),
+        fully_read=set(),
+        read_revisions={},
+        pending=PendingWrite(),
+        browser=BrowserSession(),
+        changes=ChangeSet(),
+        available_tools=set(context.available_tools),
+    )
+
+
 @dataclass
 class _PlanRun:
     """Bir plan çalıştırmasının tek durum ve sayaç otoritesi."""
@@ -71,6 +91,9 @@ class _PlanRun:
     condensations: int = 0
     planning_calls: int = 0
     final_calls: int = 0
+    #: İzole adayların tamamında gerçekten harcanan çağrılar. Yalnız kazanan
+    #: `outcomes` listesine girer; kaybedenlerin maliyeti yine de kaybolmamalıdır.
+    attempt_model_calls: int = 0
     repair_ids: set[str] = field(default_factory=set)
 
     def charge(self, envelope: BudgetEnvelope, calls: int, scope: str = "") -> bool:
@@ -138,6 +161,7 @@ class _PlanRun:
             ok=ok,
             tool_calls_made=sum(item.tool_calls_made for item in self.outcomes),
             model_calls_made=self.planning_calls
+            + self.attempt_model_calls
             + sum(item.model_calls_made for item in self.outcomes),
             planning_calls_made=self.planning_calls,
             final_verification_calls=self.final_calls,
@@ -157,7 +181,7 @@ class _PlanRun:
 
     async def execute(
         self, step: PlanStep, guidance: str, *, recovery: bool, observe: bool
-    ) -> tuple[PlanStep, AgentOutcome] | None:
+    ) -> tuple[PlanStep, AgentOutcome, AgentDeps] | None:
         """Çağrıdan önce zarfı sınırla; yürütme başlamadan checkpoint al."""
         envelope = BudgetEnvelope.RECOVERY if recovery else BudgetEnvelope.PER_STEP
         remaining = self.remaining(envelope, step.step_id)
@@ -166,30 +190,39 @@ class _PlanRun:
         running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
         self.current = replace_step(self.current, running)
         self.save()
-        deps = step_deps(self.deps, running, remaining, observe=observe)
+        turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
+        deps = step_deps(turn_deps, running, remaining, observe=observe)
         prompt = step_prompt(self.task, running, self.evidence)
         if guidance:
             prompt += f"\n\nKURTARMA YÖNERGESİ:\n{guidance}"
         allowed = deps.execution.allowed_tool_names if deps.execution else frozenset()
-        outcome = await self.agent(
-            prompt,
-            deps,
-            depth=1,
-            self_review=False,
-            verify=False,
-            internal=True,
-            plan_mode=observe,
-            allowed_tools=set(allowed or ()),
-        )
+        try:
+            outcome = await self.agent(
+                prompt,
+                deps,
+                depth=1,
+                self_review=False,
+                verify=False,
+                internal=True,
+                plan_mode=observe,
+                allowed_tools=set(allowed or ()),
+            )
+        except BaseException:
+            deps.tool_context.changes.restore()
+            raise
+        finally:
+            if deps.tool_context.browser.is_open:
+                await deps.tool_context.browser.close()
         self.outcomes.append(outcome)
         self.condensations += outcome.condensations
         if not self.charge(envelope, outcome.model_calls_made, step.step_id):
+            deps.tool_context.changes.restore()
             self.current = replace_step(self.current, replace(running, status=StepStatus.BLOCKED))
             return None
-        return running, outcome
+        return running, outcome, deps
 
     async def verify(
-        self, step: PlanStep, outcome: AgentOutcome, *, observe: bool
+        self, step: PlanStep, outcome: AgentOutcome, *, observe: bool, deps: AgentDeps | None = None
     ) -> StepVerificationResult:
         """Gözlem turunda dış etkiyi yeniden istemeden gerçek koşulları doğrula."""
         checked_step = (
@@ -202,7 +235,8 @@ class _PlanRun:
             if observe
             else step
         )
-        result = await verify_step(checked_step, outcome, self.deps, self.baseline)
+        active_deps = deps or self.deps
+        result = await verify_step(checked_step, outcome, active_deps, self.baseline)
         self.progress()
         if observe and result.unverified:
             result = replace(
@@ -222,7 +256,7 @@ class _PlanRun:
         if result.ok:
             self.current = replace_step(self.current, replace(step, status=StepStatus.COMPLETED))
             self.evidence[step.step_id] = await capture_evidence(
-                step, outcome, result, self.deps.tool_context.root
+                step, outcome, result, active_deps.tool_context.root
             )
             self.save()
         return result
@@ -234,7 +268,7 @@ class _PlanRun:
         Yinelenemez yan etkisi olan adımda (NEVER) aday çoğaltılmaz — aynı dış
         etkiyi iki kez üretmek, kazanan seçmekten daha pahalıdır.
         """
-        if step.retry_safety is RetrySafety.NEVER:
+        if step.retry_safety is RetrySafety.NEVER or self.deps.tool_context.extra_roots:
             return 1
         kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
         return 2 if kalan >= 2 else 1
@@ -249,28 +283,35 @@ class _PlanRun:
         adaylar: list[tuple[Attempt, IsolatedWorkspace, AgentOutcome]] = []
         with ExitStack() as stack:
             for sira in range(slots):
-                if not self.charge(BudgetEnvelope.ATTEMPTS, 1):
+                kalan = self.remaining(BudgetEnvelope.ATTEMPTS)
+                if kalan <= 0:
                     break
                 alan = stack.enter_context(
                     isolate(self.deps.tool_context.root, name=f"{step.step_id}-{sira}")
                 )
-                aday_deps = replace(
-                    self.deps, tool_context=replace(self.deps.tool_context, root=alan.root)
-                )
+                aday_baglam = _step_context(self.deps.tool_context, alan.root)
+                aday_deps = replace(self.deps, tool_context=aday_baglam)
                 running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
-                outcome = await self.agent(
-                    step_prompt(self.task, running, self.evidence),
-                    step_deps(
-                        aday_deps,
-                        running,
-                        self.remaining(BudgetEnvelope.PER_STEP, step.step_id),
-                        observe=False,
-                    ),
-                    depth=1,
-                    self_review=False,
-                    verify=False,
-                    internal=True,
-                )
+                try:
+                    outcome = await self.agent(
+                        step_prompt(self.task, running, self.evidence),
+                        step_deps(
+                            aday_deps,
+                            running,
+                            kalan,
+                            observe=False,
+                        ),
+                        depth=1,
+                        self_review=False,
+                        verify=False,
+                        internal=True,
+                    )
+                finally:
+                    if aday_baglam.browser.is_open:
+                        await aday_baglam.browser.close()
+                self.attempt_model_calls += outcome.model_calls_made
+                if not self.charge(BudgetEnvelope.ATTEMPTS, outcome.model_calls_made):
+                    break
                 checked = await verify_step(running, outcome, aday_deps, self.baseline)
                 adaylar.append(
                     (
@@ -288,11 +329,21 @@ class _PlanRun:
             if kazanan is None:
                 return None
             secilen = next(item for item in adaylar if item[0].name == kazanan.name)
-            secilen[1].apply()
-            self.outcomes.append(secilen[2])
-        tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+            terfi_kaydi = ChangeSet()
+            degisenler = secilen[1].apply(changes=terfi_kaydi)
+            uygulanan = {self.deps.tool_context.root / goreli for goreli in degisenler}
+            self.deps.tool_context.touched.update(uygulanan)
+            tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+            checked = await verify_step(tamam, secilen[2], self.deps, self.baseline)
+            if not checked.ok:
+                terfi_kaydi.restore()
+                self.deps.tool_context.touched.difference_update(uygulanan)
+                return None
+            self.deps.tool_context.changes.absorb(terfi_kaydi)
+            # Model çağrıları yukarıda bütün adaylar için ayrıca sayıldı. Kazananın
+            # araç ve mutasyon kanıtlarını korurken çağrısını iki kez sayma.
+            self.outcomes.append(replace(secilen[2], model_calls_made=0))
         self.current = replace_step(self.current, tamam)
-        checked = await verify_step(tamam, secilen[2], self.deps, self.baseline)
         self.evidence[step.step_id] = await capture_evidence(
             tamam, secilen[2], checked, self.deps.tool_context.root
         )
@@ -340,12 +391,16 @@ class _PlanRun:
                     f"Workflow bütçesi tükendi; '{step.step_id}' adımında duraklatıldı.",
                     budget=True,
                 )
-            running, outcome = executed
-            verification = await self.verify(running, outcome, observe=observe)
-            geri_alma = StepRollback(self.deps.tool_context.changes)
+            running, outcome, turn_deps = executed
+            geri_alma = StepRollback(turn_deps.tool_context.changes)
+            try:
+                verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)
+            except BaseException:
+                geri_alma.discard()
+                raise
             if verification.ok:
-                # Doğrulanan adımın çıktısı kalıcıdır; geri alma kaydı kapanır.
-                geri_alma.keep()
+                self.deps.tool_context.changes.absorb(turn_deps.tool_context.changes)
+                self.deps.tool_context.touched.update(turn_deps.tool_context.touched)
                 return None
             # Düşen deneme diske yarım durum bırakmamalı: sonraki deneme kendi
             # hatasıyla değil öncekinin enkazıyla uğraşıyordu (ölçüldü, Godot koşusu).

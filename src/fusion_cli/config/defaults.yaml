@@ -218,6 +218,8 @@ runtime:
   workflow_planning_calls: 2
   workflow_step_calls: 24
   workflow_recovery_calls: 12
+  # Paralel deneme ek çağrı hakkı; 0 = kapalı (opt-in).
+  workflow_attempt_calls: 0
   workflow_final_verification_calls: 2
 
 # ---------------------------------------------------------------------------

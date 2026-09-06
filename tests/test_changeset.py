@@ -32,6 +32,18 @@ def test_yeni_olusturulan_dosya_geri_alinca_silinir(tmp_path):
     assert not dosya.exists()
 
 
+def test_ikili_dosya_ilk_haline_doner(tmp_path):
+    dosya = tmp_path / "asset.bin"
+    dosya.write_bytes(b"\xff\xfe\x00")
+    kayit = ChangeSet()
+
+    kayit.record(dosya)
+    dosya.unlink()
+    kayit.restore()
+
+    assert dosya.read_bytes() == b"\xff\xfe\x00"
+
+
 def test_ayni_dosyanin_ilk_hali_saklanir(tmp_path):
     """Geri alma turun BAŞINA döner, bir önceki ara adıma değil."""
     dosya = tmp_path / "a.py"
@@ -76,6 +88,23 @@ def test_commit_sonrasi_geri_alinamaz(tmp_path):
     assert not kayit
 
 
+def test_alt_kayit_ana_kayda_ilk_hali_bozmadan_aktarilir(tmp_path):
+    dosya = tmp_path / "a.py"
+    dosya.write_text("ilk\n", encoding="utf-8")
+    ana = ChangeSet()
+    ana.record(dosya)
+    dosya.write_text("ara\n", encoding="utf-8")
+    alt = ChangeSet()
+    alt.record(dosya)
+    dosya.write_text("son\n", encoding="utf-8")
+
+    ana.absorb(alt)
+    ana.restore()
+
+    assert dosya.read_text(encoding="utf-8") == "ilk\n"
+    assert not alt
+
+
 def test_bir_dosya_geri_alinamasa_da_digerleri_alinir(tmp_path, monkeypatch):
     saglam = tmp_path / "saglam.py"
     sorunlu = tmp_path / "sorunlu.py"
@@ -88,14 +117,14 @@ def test_bir_dosya_geri_alinamasa_da_digerleri_alinir(tmp_path, monkeypatch):
 
     from pathlib import Path
 
-    gercek = Path.write_text
+    gercek = Path.write_bytes
 
     def _secici(self, *args, **kwargs):
         if self.name == "sorunlu.py":
             raise OSError("izin yok")
         return gercek(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "write_text", _secici)
+    monkeypatch.setattr(Path, "write_bytes", _secici)
 
     geri_alinan = kayit.restore()
 

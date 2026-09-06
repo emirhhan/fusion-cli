@@ -159,7 +159,7 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         # Görme opsiyoneldir: tanımlı değilse görsel kapı hiç kurulmaz.
         vision=_build(ModelSpec, merged["vision"], "vision") if merged.get("vision") else None,
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
-        runtime=_build(RuntimeConfig, merged["runtime"], "runtime"),
+        runtime=_build_runtime(merged["runtime"]),
         embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),
         memory_dir=memory_dir(),
         source=source,
@@ -168,6 +168,13 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         web_sessions=_build_web_sessions(merged.get("web_sessions")),
     )
+
+
+def _build_runtime(raw: object) -> RuntimeConfig:
+    runtime = _build(RuntimeConfig, raw, "runtime")
+    if runtime.workflow_attempt_calls < 0:
+        raise ConfigError("runtime.workflow_attempt_calls: negatif olamaz.")
+    return runtime
 
 
 def _build_web_sessions(raw: object) -> tuple[WebSessionConfig, ...]:

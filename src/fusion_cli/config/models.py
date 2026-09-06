@@ -130,6 +130,12 @@ class RuntimeConfig:
     workflow_recovery_calls: int = 12
     #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
     workflow_final_verification_calls: int = 2
+    #: Paralel deneme (test-time scaling) için EK çağrı hakkı.
+    #
+    # Varsayılan 0: özellik opt-in'dir ve yapılandırılmadan tek fazla çağrı
+    # harcanmaz. Açıldığında adım izole kopyalarda birkaç kez koşar ve kazanan
+    # kanıtla seçilir; maliyet artar, kazanç ölçülür.
+    workflow_attempt_calls: int = 0
     #: Gateway: aynı istek (model+mesajlar) tekrar gelirse önbellekten anında dön (token
     #: tasarrufu). Yalnızca gateway'i etkiler; agent/fusion motorları etkilenmez.
     gateway_cache: bool = True

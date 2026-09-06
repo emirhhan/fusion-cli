@@ -30,6 +30,10 @@ class PathAccessError(FusionError):
     """Kısıtlı kipte proje kökü dışına çıkan bir dosya yoluna erişilmek istendi."""
 
 
+class WorkspaceConflictError(FusionError):
+    """İzole aday çalışırken asıl proje aynı dosyada değişti."""
+
+
 class EvalError(FusionError):
     """Değerlendirme seti okunamadı, doğrulanamadı ya da geçersiz ölçüt içeriyor."""
 

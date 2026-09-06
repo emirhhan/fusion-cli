@@ -25,7 +25,7 @@ class Snapshot:
 
     path: Path
     #: Dosyanın önceki içeriği; dosya YOKTU ise None (geri alma = silme).
-    content: str | None
+    content: bytes | None
 
     @property
     def existed(self) -> bool:
@@ -42,19 +42,20 @@ class ChangeSet:
 
     _snapshots: dict[Path, Snapshot] = field(default_factory=dict)
 
-    def record(self, path: Path) -> None:
+    def record(self, path: Path) -> bool:
         """Yazmadan önce çağrılır. Aynı yol için ikinci çağrı yok sayılır."""
         if path in self._snapshots:
-            return
+            return True
         try:
-            content: str | None = path.read_text(encoding="utf-8")
+            content: bytes | None = path.read_bytes()
         except FileNotFoundError:
             content = None
-        except (OSError, UnicodeDecodeError):
-            # Okunamayan dosya (ikili içerik, izin) geri alınamaz. Kaydetmemek,
-            # yanlış içerikle geri yazmaktan iyidir; `restore` bunu atlar.
-            return
+        except OSError:
+            # İzin yüzünden okunamayan dosya geri alınamaz. Kaydetmemek, yanlış
+            # içerikle geri yazmaktan iyidir; `restore` bunu atlar.
+            return False
         self._snapshots[path] = Snapshot(path=path, content=content)
+        return True
 
     @property
     def paths(self) -> tuple[Path, ...]:
@@ -93,6 +94,12 @@ class ChangeSet:
         """Değişiklikleri kalıcı say: kayıt boşaltılır, geri alma imkânı biter."""
         self._snapshots.clear()
 
+    def absorb(self, other: ChangeSet) -> None:
+        """Alt işlemin kayıtlarını ilk hâli koruyarak bu tura aktar."""
+        for path, snapshot in other._snapshots.items():
+            self._snapshots.setdefault(path, snapshot)
+        other._snapshots.clear()
+
 
 def _restore_one(snapshot: Snapshot) -> bool:
     try:
@@ -101,7 +108,7 @@ def _restore_one(snapshot: Snapshot) -> bool:
             snapshot.path.unlink(missing_ok=True)
             return True
         snapshot.path.parent.mkdir(parents=True, exist_ok=True)
-        snapshot.path.write_text(snapshot.content, encoding="utf-8")
+        snapshot.path.write_bytes(snapshot.content)
     except OSError:
         return False
     return True

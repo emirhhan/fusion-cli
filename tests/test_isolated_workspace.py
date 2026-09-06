@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import subprocess
 
+import pytest
+
+from fusion_cli.core.errors import WorkspaceConflictError
 from fusion_cli.core.workspace import IsolatedWorkspace, isolate
 
 
@@ -41,12 +44,14 @@ def test_git_olmayan_projede_dizin_kopyalanir(tmp_path):
     assert (tmp_path / "kod.py").read_text(encoding="utf-8") == "deger = 1\n"
 
 
-def test_git_projesinde_worktree_kullanilir(tmp_path):
+def test_git_projesinde_bekleyen_degisiklik_adaya_tasinir(tmp_path):
     kok = _git_repo(tmp_path)
+    (kok / "kod.py").write_text("bekleyen = True\n", encoding="utf-8")
+    (kok / "izlenmeyen.py").write_text("yeni = True\n", encoding="utf-8")
 
     with isolate(kok, name="deneme-2") as alan:
-        assert alan.uses_worktree
-        assert (alan.root / "kod.py").is_file()
+        assert (alan.root / "kod.py").read_text(encoding="utf-8") == "bekleyen = True\n"
+        assert (alan.root / "izlenmeyen.py").read_text(encoding="utf-8") == "yeni = True\n"
         assert alan.root != kok
 
 
@@ -70,6 +75,45 @@ def test_kazanan_aday_asil_projeye_uygulanir(tmp_path):
     assert (tmp_path / "kod.py").read_text(encoding="utf-8") == "deger = 2\n"
     assert (tmp_path / "yeni.py").is_file()
     assert {yol.name for yol in degisenler} == {"kod.py", "yeni.py"}
+
+
+def test_kazanan_adayin_sildigi_dosya_asil_projedan_da_silinir(tmp_path):
+    (tmp_path / "eski.py").write_text("artik yok\n", encoding="utf-8")
+
+    with isolate(tmp_path, name="silen") as alan:
+        (alan.root / "eski.py").unlink()
+        degisenler = alan.apply()
+
+    assert not (tmp_path / "eski.py").exists()
+    assert tuple(yol.as_posix() for yol in degisenler) == ("eski.py",)
+
+
+def test_aday_kosarken_degisen_kullanici_dosyasi_ezilmez(tmp_path):
+    asil = tmp_path / "kod.py"
+    asil.write_text("ilk\n", encoding="utf-8")
+
+    with isolate(tmp_path, name="cakisma") as alan:
+        (alan.root / "kod.py").write_text("aday\n", encoding="utf-8")
+        asil.write_text("kullanici\n", encoding="utf-8")
+        with pytest.raises(WorkspaceConflictError, match=r"kod[.]py"):
+            alan.apply()
+
+    assert asil.read_text(encoding="utf-8") == "kullanici\n"
+
+
+def test_dizin_dosya_tur_degisiminde_kismi_uygulama_yapilmaz(tmp_path):
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "a.txt").write_text("ilk\n", encoding="utf-8")
+
+    with isolate(tmp_path, name="tur-degisimi") as alan:
+        (alan.root / "config" / "a.txt").unlink()
+        (alan.root / "config").rmdir()
+        (alan.root / "config").write_text("aday\n", encoding="utf-8")
+        with pytest.raises(WorkspaceConflictError, match="dosya/dizin"):
+            alan.apply()
+
+    assert (tmp_path / "config" / "a.txt").read_text(encoding="utf-8") == "ilk\n"
+    assert not (tmp_path / "config" / "config").exists()
 
 
 def test_alan_kapaninca_temizlenir(tmp_path):

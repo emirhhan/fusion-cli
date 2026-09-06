@@ -75,6 +75,20 @@ def test_workflow_butce_zarflari_profesyonel_varsayilanlarla_gelir():
     assert runtime.workflow_step_calls == 24
     assert runtime.workflow_recovery_calls == 12
     assert runtime.workflow_final_verification_calls == 2
+    assert runtime.workflow_attempt_calls == 0
+
+
+def test_deneme_cagrisi_zarfi_yapilandirilabilir(tmp_path):
+    path = _yaz(tmp_path, {"runtime": {"workflow_attempt_calls": 6}})
+
+    assert load_config(path).runtime.workflow_attempt_calls == 6
+
+
+def test_deneme_cagrisi_zarfi_negatif_olamaz(tmp_path):
+    path = _yaz(tmp_path, {"runtime": {"workflow_attempt_calls": -1}})
+
+    with pytest.raises(ConfigError, match=r"workflow_attempt_calls.*negatif"):
+        load_config(path)
 
 
 def test_adim_zarflari_tek_alt_turun_harcamasini_karsilar():
