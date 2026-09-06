@@ -364,8 +364,18 @@ _TOOLS: tuple[Tool, ...] = (
 )
 
 #: Bazı modeller bu adları tercih eder; farklı isimlendirme alışkanlığı hataya dönüşmesin.
+#
+# Ölçüldü (6 Eylül canlı koşusu, `mevcut-projeye-uy`): model üç koşunun ikisinde
+# `shell` çağırdı, "bilinmeyen araç" cevabını aldı ve o tur boşa gitti. Adın
+# doğrusunu bilmemek bir yetenek eksikliği değil, isimlendirme tercihidir; kayıt
+# defteri bunu kendi çözebiliyorken tura mal etmenin gerekçesi yok.
 _ALIASES = {
     "view_file": "read_file",
     "grep_search": "search_code",
     "read_url_content": "web_fetch",
+    "shell": "run_shell",
+    "bash": "run_shell",
+    "execute_command": "run_shell",
+    "list_files": "list_dir",
+    "create_file": "write_file",
 }
