@@ -249,10 +249,16 @@ def _web_execution():
     return ExecutionPolicy(is_web=True)
 
 
-def test_var_olan_dosyaya_toptan_yazma_normalde_engellenir(tmp_path):
-    from fusion_cli.engines.agent.loop import _targeted_edit_required
+def test_buyuk_dosyaya_toptan_yazma_normalde_engellenir(tmp_path):
+    """Kısıtın gerekçesi HACİMDİR: büyük dosyayı baştan üretmek hata yüzeyi açar.
+
+    Küçük dosyada o yüzey yoktur; oradaki davranış
+    `test_full_rewrite_guard.py` içinde ayrıca kilitlenir.
+    """
+    from fusion_cli.engines.agent.loop import MAX_LINES_FOR_FULL_REWRITE, _targeted_edit_required
 
     deps, _ = _deps_for(tmp_path, okundu=True)
+    (tmp_path / "cart.js").write_text("x = 1\n" * (MAX_LINES_FOR_FULL_REWRITE + 20), "utf-8")
 
     hatalar = _targeted_edit_required(
         "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(0)

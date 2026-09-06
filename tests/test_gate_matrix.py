@@ -328,19 +328,29 @@ async def test_okunmamis_var_olan_dosya_korunur(tmp_path):
     assert "edit_file" in cikti, "engelleme çıkış yolu göstermeli"
 
 
-async def test_web_modelinde_okumak_toptan_yazmayi_acmaz(tmp_path):
+async def test_web_modelinde_okumak_buyuk_dosyada_toptan_yazmayi_acmaz(tmp_path):
     """Koruma İKİ KATMANLI ve katmanlar farklı kuralda — bu bilinçli.
 
     `files.py` "önce oku" der ve okunmuş dosyada yolu açar. Motor katmanı ise web
-    modellerinde var olan bir dosyanın toptan yazılmasını okunmuş olsa da kapatır:
+    modellerinde BÜYÜK bir dosyanın toptan yazılmasını okunmuş olsa da kapatır:
     ölçüldü, yıkıcı başarısızlıkların HEPSİNDE `write_file` vardı ve zayıf model yüz
     satırlık hata yüzeyini temiz geçemiyor. Sıkı olan katman kazanır.
 
-    Bu test o katmanlamayı KİLİTLER: biri gevşetilirse burada görülür.
+    Kısıt boyutla sınırlıdır çünkü gerekçesi hacimdir; küçük dosyada aynı gerekçe
+    yoktur ve orada kural yalnızca maliyet üretiyordu (bkz.
+    `test_full_rewrite_guard.py`). Bu test büyük dosyadaki katmanlamayı KİLİTLER.
     """
     alan = tmp_path / "okundu"
     alan.mkdir()
-    sonuc, cikti = await _dene(alan, durum_dosya_var_okunmus, dict(HAMLELER)["var_olani_yaz"])
+
+    def buyuk_dosya_okunmus(kok, deps, budget):
+        from fusion_cli.engines.agent.loop import MAX_LINES_FOR_FULL_REWRITE
+
+        hedef = kok / VAR_OLAN
+        hedef.write_text("def eski():\n" * (MAX_LINES_FOR_FULL_REWRITE + 20), encoding="utf-8")
+        deps.tool_context.fully_read.add(hedef.resolve())
+
+    sonuc, cikti = await _dene(alan, buyuk_dosya_okunmus, dict(HAMLELER)["var_olani_yaz"])
 
     assert sonuc is not ToolOutcome.OK
     assert "edit_file" in cikti
