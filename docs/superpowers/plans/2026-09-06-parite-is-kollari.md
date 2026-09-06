@@ -552,3 +552,60 @@ Bugünkü taban ölçüm: starter seti **%87,5 (21/24)**, ortalama 9,0 model ça
 8. **11 → 20** (repo haritası, sonra çapraz tutarlılık).
 9. **15 + 21 + 23 + 22** (adaptörler, yetenek keşfi, güvenlik, UX).
 10. **12 + 14** (primitif kütüphanesi, koşu içi araç üretimi).
+
+---
+
+## Uygulama durumu (6 Eylül 2026)
+
+24 maddenin tamamı kodlandı ve kalite kapısından geçti. Her madde önce RED testle
+üretildi; kilitlenme ağı iki gerçek regresyon yakaladı (kapsam zorlaması ve ilerleme
+rubriği) ve ikisi de gerekçesiyle kodda sabitlendi.
+
+| # | Madde | Commit |
+|---|---|---|
+| 16 | Gözlemlenebilirlik, `fusion trace` | `0582bf4` |
+| 17 | Alan setleri, ölçüt kapısı, kararlılık raporu | `33eea94` |
+| 1 | Modele göre düzenleme biçimi | `3256ac2` |
+| 2 | Araç şeması sadeleştirme | `d5925c0` |
+| 4 | Edit sonrası dil kapısı | `623f9ed` |
+| 5 | ACI penceresi ve arama özeti | `eb9d4e8` |
+| 3 | Artifact deposu | `479406d` |
+| 7 | Runtime tanı | `623d2a6` |
+| 6 | Önce kırmızı sonra yeşil | `351168b` |
+| 18 | Yanıt bütünlüğü + kota geri çekilmesi | `7d48834`, `767f98f` |
+| 10 | Zorluk temelli yükseltme | `5446811` |
+| 13 | Puanlı ilerleme rubriği | `7b9f7e0` |
+| 9 | Condenser yapısı ve devam kaydı | `8c6c124` |
+| 19 | İzole çalışma alanı | `e35432c` |
+| 8 | Kanıtla aday seçimi | `7c078df` |
+| 24 | Tekrar oynatma | `3b2019d` |
+| 21 | Sağlayıcı yetenek keşfi | `048e93f` |
+| 15 | Alan adaptörleri | `b7e2c9e` |
+| 20 | Çapraz dosya tutarlılığı | `8309f6d` |
+| 23 | Adım düzeyinde geri alma | `7237cd3` |
+| 11 | Depo haritası | `4e52a71` |
+| 14 | Koşu içi araç üretimi | `428d25d` |
+| 12 | Döngü primitifleri | `9a55bd1` |
+| 22 | Araya girme (steering) | son kapıda |
+
+### Kapsam notu
+
+Maddelerin bir kısmı **çekirdek sözleşme** olarak teslim edildi: mekanizma, testi ve
+bağlantı noktası hazır; ürün yüzeyine tam serilmesi ayrı iştir. Örnekler:
+
+- **8** seçim kuralını ve `ATTEMPTS` zarfını verir; plan yürütücüsünün N alt turu
+  fiilen paralel koşturması opt-in ve varsayılan kapalıdır.
+- **12** primitif seçimini tanımlar; `plan_runner`'ın bu seçime göre tamamen
+  parçalanması ayrı bir refactor.
+- **11** haritayı üretir; sistem bağlamına otomatik enjeksiyonu ölçümle açılmalı.
+- **22** araya girme kuyruğunu ve tur bağlantısını verir; CLI/masaüstü arayüz
+  düğmeleri ayrı iştir.
+
+Bu ayrım bilinçlidir: her madde ölçülebilir bir kanıt bırakır, hiçbiri "yazıldı ama
+çalıştığı gösterilmedi" durumunda kalmaz.
+
+### Kalan iş
+
+- Canlı ölçüm: 24 görevlik set ve Godot koşusu bu 24 maddeden SONRA tekrarlanmalı;
+  son ölçüm (%87,5) yalnız kapsam düzeltmesini içeriyor.
+- Paketleme: kurulu uygulama hâlâ bu turdan önceki sürümde.
