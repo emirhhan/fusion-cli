@@ -53,3 +53,42 @@ def test_talimat_metni_citi_gerekce_ile_ister():
 
 def test_strip_call_fence_citsiz_govdeye_dokunmaz():
     assert strip_call_fence('{"a":1}') == '{"a":1}'
+
+
+# --------------------------------------------------------------------------- #
+# Sayfadan geri okuma: backtick METİNDE YOKTUR.
+# --------------------------------------------------------------------------- #
+
+
+def _sayfadan(*satirlar: str) -> str:
+    """Tarayıcının çizdiği kod bloğunun `innerText` hâlini kur.
+
+    Çit backtick'leri `<pre>` elemanına dönüştüğü için metinde bulunmaz; yerine
+    dil rozeti ve "Kopyala" düğmesinin metni satır olarak düşer.
+    """
+    return "FUSION_TOOL_CALL\n" + "\n".join(satirlar) + "\nFUSION_TOOL_CALL_END"
+
+
+def test_dil_rozeti_json_dan_once_gelirse_dusurulur():
+    ham = _sayfadan("json", '{"name":"read_file","arguments":{"path":"hesap/__init__.py"}}')
+
+    sonuc = parse_tool_calls(ham)
+
+    assert not sonuc.errors
+    assert "hesap/__init__.py" in sonuc.calls[0].arguments
+
+
+def test_kopyala_dugmesi_metni_de_dusurulur():
+    ham = _sayfadan("json", "Kopyala", '{"name":"read_file","arguments":{"path":"a.py"}}')
+
+    assert [c.name for c in parse_tool_calls(ham).calls] == ["read_file"]
+
+
+def test_uzun_metin_sus_sayilmaz():
+    """Kısa rozet atılır, modelin gerçek cümlesi atılmaz — aksi hâlde sessiz kayıp."""
+    from fusion_cli.core.tool_emulation import strip_call_fence
+
+    uzun = "Bu satır modelin kendi açıklamasıdır ve kırk karakterden uzundur."
+    govde = f'{uzun}\n{{"name":"read_file"}}'
+
+    assert strip_call_fence(govde) == govde

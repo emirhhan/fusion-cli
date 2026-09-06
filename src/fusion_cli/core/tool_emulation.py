@@ -192,11 +192,49 @@ def strip_call_fence(body: str) -> str:
 
     Çitsiz gövde de kabul edilir: eski yanıtlar ve çiti atlayan modeller
     ayrıştırılmaya devam eder.
+
+    İki farklı kaynaktan iki farklı biçim gelir ve ikisi de karşılanır:
+
+    - **Ham metin** (API yolu, kayıttan oynatma): çit backtick'leriyle birlikte
+      gelir ve düşürülür.
+    - **Sayfadan geri okuma** (web yolu): tarayıcı kod bloğunu `<pre>` olarak
+      çizer, backtick'ler METİNDE YOKTUR; yerine dil rozeti ("json") ve
+      "Kopyala" düğmesinin metni satır olarak düşer. Bunlar da düşürülür —
+      aksi halde çiti zorunlu kılmak, çözdüğü sorunun yerine "geçersiz JSON"
+      koyardı. Aynı rozet sorunu payload tarafında `strip_fence_label` ile
+      zaten ölçülmüş ve çözülmüştü.
     """
-    if not body.startswith("```"):
+    if body.startswith("```"):
+        fenced = re.fullmatch(
+            r"```[^\r\n]*\r?\n(?P<body>.*?)\r?\n?```[ \t]*", body, flags=re.DOTALL
+        )
+        if fenced is not None:
+            return fenced.group("body").strip()
+    return _drop_render_prefix(body)
+
+
+#: Çizilmiş kod bloğunun JSON'dan önce bırakabileceği en fazla süs satırı.
+#: Ölçülen süsler dil rozeti ve "Kopyala" düğmesidir; üçüncü satır payı,
+#: arayüzün ileride bir etiket daha eklemesine karşı tamponu.
+MAX_RENDER_PREFIX_LINES = 3
+
+#: Süs satırının en fazla uzunluğu. Rozet ve düğme metni kısadır; uzun bir satır
+#: modelin gerçek metnidir ve atılmaz.
+MAX_RENDER_PREFIX_CHARS = 40
+
+
+def _drop_render_prefix(body: str) -> str:
+    """JSON'dan önceki kısa süs satırlarını (dil rozeti, "Kopyala") düşür."""
+    stripped = body.lstrip()
+    if stripped.startswith(("{", "[")):
         return body
-    fenced = re.fullmatch(r"```[^\r\n]*\r?\n(?P<body>.*?)\r?\n?```[ \t]*", body, flags=re.DOTALL)
-    return fenced.group("body").strip() if fenced else body
+    lines = body.splitlines()
+    for index, line in enumerate(lines[:MAX_RENDER_PREFIX_LINES]):
+        if line.strip().startswith(("{", "[")):
+            return "\n".join(lines[index:]).strip()
+        if len(line.strip()) > MAX_RENDER_PREFIX_CHARS:
+            break
+    return body
 
 
 #: Payload protokolünün TEK örneği ve TEK kural listesi.
