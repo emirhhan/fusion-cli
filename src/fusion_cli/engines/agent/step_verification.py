@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.cross_file import scene_script_conflicts
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
@@ -507,6 +508,14 @@ async def verify_plan_acceptance(
     stale = _stale_step_effects(plan, deps.tool_context.root)
     if stale:
         return VerificationResult(ok=False, summary=stale[0], findings=stale)
+
+    # Tek dosya doğru, bütün bozuk olabilir: ölçüldü (Godot koşusu), sahnedeki düğüm
+    # tipi ile script'in beklediği taban uyuşmuyordu ve motor sıfır çıkış koduyla
+    # parse hatası bastı. Bu sınıf hatayı ne dil kapısı ne de çalıştırma kapısı
+    # yakalar; çapraz denetim motor çalışmadan önce söyler.
+    catismalar = scene_script_conflicts(deps.tool_context.root)
+    if catismalar:
+        return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)
 
     result = (
         await deps.verifier.verify()
