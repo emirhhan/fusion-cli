@@ -831,3 +831,13 @@ def test_bos_keyword_listesi_reddedilir(tmp_path):
 
     with pytest.raises(EvalError, match="boş olamaz"):
         load_tasks(yol)
+
+
+def test_keyword_buyuk_kucuk_harfe_duyarsizdir():
+    """Ölçüldü: doğru cevap cümleye "Erişilemeyen…" diye başladı ve düştü.
+
+    Büyük harf bir davranış farkı değildir; ölçüt onu ayırt etmemeli.
+    """
+    criterion = SuccessCriterion(kind=CriterionKind.KEYWORD, keyword="erişilem")
+
+    assert evaluate_criterion(criterion, _execution("Erişilemeyen kaynak uydurulmadı"))

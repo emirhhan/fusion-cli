@@ -69,6 +69,21 @@ def _sayfadan(*satirlar: str) -> str:
     return "FUSION_TOOL_CALL\n" + "\n".join(satirlar) + "\nFUSION_TOOL_CALL_END"
 
 
+def test_rozet_json_a_bitisik_gelirse_de_dusurulur():
+    """Ölçüldü: sayfa rozeti JSON'a BİTİŞİK yazıyor — `JSON{"plan_id": …`.
+
+    Satır bazlı temizlik bunu göremiyordu ve tur `geçersiz JSON` ile ölüyordu;
+    çit, çözdüğü bozulmanın yerine yenisini koymuş oluyordu.
+    """
+    ham = "FUSION_TOOL_CALL\nJSON" + '{"name":"read_file","arguments":{"path":"a.py"}}'
+    ham += "\nFUSION_TOOL_CALL_END"
+
+    sonuc = parse_tool_calls(ham)
+
+    assert not sonuc.errors
+    assert [c.name for c in sonuc.calls] == ["read_file"]
+
+
 def test_dil_rozeti_json_dan_once_gelirse_dusurulur():
     ham = _sayfadan("json", '{"name":"read_file","arguments":{"path":"hesap/__init__.py"}}')
 

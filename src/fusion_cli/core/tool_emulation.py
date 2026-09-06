@@ -213,28 +213,29 @@ def strip_call_fence(body: str) -> str:
     return _drop_render_prefix(body)
 
 
-#: Çizilmiş kod bloğunun JSON'dan önce bırakabileceği en fazla süs satırı.
-#: Ölçülen süsler dil rozeti ve "Kopyala" düğmesidir; üçüncü satır payı,
-#: arayüzün ileride bir etiket daha eklemesine karşı tamponu.
-MAX_RENDER_PREFIX_LINES = 3
-
-#: Süs satırının en fazla uzunluğu. Rozet ve düğme metni kısadır; uzun bir satır
-#: modelin gerçek metnidir ve atılmaz.
+#: JSON'dan önce süs sayılabilecek en fazla karakter.
+#
+# Ölçüldü (6 Eylül canlı koşusu): Gemini kod bloğunu çizerken dil rozetini
+# JSON'a BİTİŞİK yazıyor — geri okunan metin `JSON{"plan_id": …` biçiminde
+# geliyor, arada satır sonu yok. Satır bazlı temizlik bunu göremezdi ve tur
+# `TOOL_CALL_PARSE_ERROR: geçersiz JSON` ile ölüyordu.
+#
+# Rozet ("json", "JSON", "Kopyala") kısadır; bu eşiğin üstündeki bir ön ek
+# modelin gerçek cümlesidir ve ATILMAZ — sessiz kayıp olurdu.
 MAX_RENDER_PREFIX_CHARS = 40
 
 
 def _drop_render_prefix(body: str) -> str:
-    """JSON'dan önceki kısa süs satırlarını (dil rozeti, "Kopyala") düşür."""
-    stripped = body.lstrip()
-    if stripped.startswith(("{", "[")):
+    """JSON'dan önceki kısa süsü (dil rozeti, "Kopyala") düşür. Satıra bağlı değildir."""
+    if body.lstrip().startswith(("{", "[")):
         return body
-    lines = body.splitlines()
-    for index, line in enumerate(lines[:MAX_RENDER_PREFIX_LINES]):
-        if line.strip().startswith(("{", "[")):
-            return "\n".join(lines[index:]).strip()
-        if len(line.strip()) > MAX_RENDER_PREFIX_CHARS:
-            break
-    return body
+    adaylar = [index for index in (body.find("{"), body.find("[")) if index >= 0]
+    if not adaylar:
+        return body
+    bas = min(adaylar)
+    if len("".join(body[:bas].split())) > MAX_RENDER_PREFIX_CHARS:
+        return body
+    return body[bas:].strip()
 
 
 #: Payload protokolünün TEK örneği ve TEK kural listesi.

@@ -283,6 +283,8 @@ tasks:
         - çözülem
         - çözümlenem
         - indirilem
+        - gerçekleştirileme
+        - kopyalanama
 
   - id: cok-dosyali-modul-kur
     request: >-
