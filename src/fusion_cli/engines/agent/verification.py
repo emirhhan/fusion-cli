@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ...config.models import Config
 from ...core.constants import SHELL_TIMEOUT_S
+from ...core.diagnosis import diagnose
 from ...core.evidence import (
     CriterionEvidence,
     EvidenceStatus,
@@ -335,10 +336,11 @@ class CommandVerifier:
             bildirilen = _reported_failure(command, output)
             if bildirilen:
                 ozet = f"komut sıfır döndü ama hata bildirdi ({bildirilen}): {command}"
+                tani = diagnose(output)
                 return VerificationResult(
                     ok=False,
                     summary=ozet,
-                    findings=(ozet, output),
+                    findings=(ozet, *((tani.as_guidance(),) if tani else ()), output),
                     evidence=(
                         CriterionEvidence(
                             criterion_id=command,
@@ -388,10 +390,14 @@ class CommandVerifier:
 
         ozet = f"komut başarısız (çıkış {process.returncode}): {command}"
         output = _tail(ham)
+        # Tanı çıkarılabiliyorsa bulgunun BAŞINA konur: hem kullanıcı hem kurtarma
+        # turu "hangi dosyanın hangi satırı" bilgisini ham çıktıyı taramadan görür.
+        tani = diagnose(output)
+        bulgular = (ozet, *((tani.as_guidance(),) if tani else ()), output)
         return VerificationResult(
             ok=False,
             summary=ozet,
-            findings=(ozet, output),
+            findings=bulgular,
             evidence=(
                 CriterionEvidence(
                     criterion_id=command,

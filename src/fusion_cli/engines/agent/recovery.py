@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...core.diagnosis import diagnose
 from ...core.execution_plan import PlanStep, RetrySafety
 from ...core.failure import (
     FailureCategory,
@@ -72,10 +73,15 @@ def choose_recovery(
             "Aynı hedefi koru; geçici hatadan sonra yalnızca bir kez yeniden dene.",
         )
     if failure.category in {FailureCategory.VERIFICATION, FailureCategory.TOOL_CONTRACT}:
+        # Ham hata metnini kopyalamak yetmiyor (ölçüldü, 5 Eylül Godot koşusu):
+        # elde `at: GDScript::reload (res://player.gd:12)` varken model aynı yanlışı
+        # tekrarladı. Tanı çıkarılabiliyorsa yönerge KONUMU ve BELİRTİYİ önce söyler.
+        tani = diagnose(failure.detail)
+        onek = f"{tani.as_guidance()} " if tani is not None else ""
         return RecoveryDecision(
             RecoveryAction.REPLAN,
             "Mevcut yaklaşımın veya araç argümanlarının düzeltilmesi gerekiyor.",
-            f"Yaklaşımı dar biçimde onar. Önceki hata: {failure.detail[:1200]}",
+            f"{onek}Yaklaşımı dar biçimde onar. Önceki hata: {failure.detail[:1200]}",
         )
     return RecoveryDecision(
         RecoveryAction.PAUSE,
