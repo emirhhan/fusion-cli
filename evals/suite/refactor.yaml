@@ -1,0 +1,142 @@
+# Çok dosyalı değişiklik seti — mevcut kodu ANLAYIP tutarlı biçimde değiştirmek.
+#
+# starter.yaml çoğunlukla "sıfırdan dosya üret" ölçüyor; ölçülen kayıp ise çok
+# dosyalı tutarlılıkta çıkıyor (5 Eylül canlı koşusu: `cok-dosyali-modul-kur`
+# başarısız, Godot'ta sahne düğüm tipi ile script API'si uyuşmadı). Buradaki her
+# görev, bir dosyayı doğru yazmanın yetmediği, bütünün tutarlı kalması gereken
+# işlerdir.
+#
+# Ölçüt daima exit_code'dur: davranış çalıştırılarak kanıtlanır, dosya varlığıyla
+# değil. Her görevin referans çözümü tests/test_eval_criteria_sound.py içindedir.
+tasks:
+  - id: imza-degisikligini-cagiranlara-yay
+    request: >-
+      hesap/vergi.py içindeki vergi_hesapla fonksiyonu artık ikinci bir `oran`
+      parametresi almalı (varsayılan 0.20). Fonksiyonu güncelle ve onu çağıran
+      TÜM dosyaları da güncelle; mevcut davranış varsayılan oranda aynı kalmalı.
+    setup:
+      hesap/__init__.py: |
+        from .vergi import vergi_hesapla
+      hesap/vergi.py: |
+        def vergi_hesapla(tutar):
+            return tutar * 0.20
+      hesap/rapor.py: |
+        from .vergi import vergi_hesapla
+
+
+        def ozet(tutarlar):
+            return sum(vergi_hesapla(tutar) for tutar in tutarlar)
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from hesap.vergi import vergi_hesapla; from hesap.rapor import ozet;
+        assert vergi_hesapla(100) == 20.0; assert vergi_hesapla(100, 0.10) == 10.0;
+        assert ozet([100, 100]) == 40.0"
+
+  - id: modulu-pakete-bol-apiyi-koru
+    request: >-
+      araclar.py çok büyüdü. İçindeki metin ve sayı yardımcılarını araclar/ paketi
+      altında ayrı modüllere böl. Dışarıdan `from araclar import kisalt, yuzde`
+      çağrısı aynen çalışmaya devam etmeli.
+    setup:
+      araclar.py: |
+        def kisalt(metin, sinir=10):
+            return metin if len(metin) <= sinir else metin[: sinir - 1] + "…"
+
+
+        def yuzde(deger, toplam):
+            if not toplam:
+                return 0.0
+            return deger / toplam * 100
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from araclar import kisalt, yuzde;
+        assert kisalt('merhaba dunya', 8) == 'merhaba…';
+        assert kisalt('kisa') == 'kisa'; assert yuzde(1, 4) == 25.0; assert yuzde(1, 0) == 0.0"
+
+  - id: tekrarlanan-mantigi-tek-yere-al
+    request: >-
+      siparis.py ve fatura.py içinde aynı indirim hesabı iki kez yazılmış. Ortak
+      mantığı tek bir yere taşı ve iki dosyayı da o ortak koda bağla; davranış
+      değişmemeli.
+    setup:
+      siparis.py: |
+        def siparis_toplami(tutar, indirim_orani):
+            if indirim_orani < 0 or indirim_orani > 0.5:
+                raise ValueError("gecersiz indirim")
+            return round(tutar * (1 - indirim_orani), 2)
+      fatura.py: |
+        def fatura_toplami(tutar, indirim_orani):
+            if indirim_orani < 0 or indirim_orani > 0.5:
+                raise ValueError("gecersiz indirim")
+            return round(tutar * (1 - indirim_orani), 2)
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from siparis import siparis_toplami; from fatura import fatura_toplami;
+        assert siparis_toplami(100, 0.1) == 90.0; assert fatura_toplami(100, 0.1) == 90.0;
+        import inspect, siparis, fatura;
+        assert 'indirim' not in inspect.getsource(fatura.fatura_toplami).split('def')[0]"
+
+  - id: tip-ipuclari-ekle-davranisi-bozma
+    request: >-
+      olcum.py içindeki fonksiyonlara tip ipuçları ekle. Davranış birebir aynı
+      kalmalı; hiçbir hesap değişmemeli.
+    setup:
+      olcum.py: |
+        def ortalama(sayilar):
+            if not sayilar:
+                return 0.0
+            return sum(sayilar) / len(sayilar)
+
+
+        def en_buyuk(sayilar, varsayilan=None):
+            return max(sayilar) if sayilar else varsayilan
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "import typing, olcum;
+        assert olcum.ortalama([2, 4]) == 3.0; assert olcum.ortalama([]) == 0.0;
+        assert olcum.en_buyuk([1, 5]) == 5; assert olcum.en_buyuk([], 0) == 0;
+        assert typing.get_type_hints(olcum.ortalama)"
+
+  - id: yeni-alani-uctan-uca-ekle
+    request: >-
+      Kullanıcı kaydına `eposta` alanı eklenmeli: veri sınıfına ekle, doğrulamayı
+      güncelle ve mevcut testleri bozmadan yeni alanı da doğrula.
+    setup:
+      kullanici.py: |
+        from dataclasses import dataclass
+
+
+        @dataclass
+        class Kullanici:
+            ad: str
+            yas: int
+
+
+        def dogrula(kullanici):
+            if not kullanici.ad:
+                raise ValueError("ad zorunlu")
+            if kullanici.yas < 0:
+                raise ValueError("yas negatif olamaz")
+            return True
+      test_kullanici.py: |
+        from kullanici import Kullanici, dogrula
+
+
+        def test_gecerli_kullanici():
+            assert dogrula(Kullanici(ad="ada", yas=30))
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: >-
+        python -c "from kullanici import Kullanici, dogrula;
+        k = Kullanici(ad='ada', yas=30, eposta='ada@ornek.com'); assert dogrula(k);
+        import pytest, sys;
+        sys.exit(pytest.main(['-q', 'test_kullanici.py']))"

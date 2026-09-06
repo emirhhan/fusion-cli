@@ -25,6 +25,7 @@ def _result_to_dict(result: TaskResult) -> dict[str, object]:
         "retries": result.retries,
         "model_calls": result.model_calls,
         "duration_seconds": result.duration_seconds,
+        "stable": result.kararli,
     }
 
 
@@ -36,6 +37,9 @@ def _summary(report: RunReport) -> dict[str, object]:
         "total_retries": report.total_retries,
         "mean_model_calls": report.mean_model_calls,
         "mean_duration_seconds": report.mean_duration_seconds,
+        # Kararsız görev, ölçülen farkın gürültü olabileceğini söyler: bir ayarın
+        # etkisini değerlendirirken önce bu listeye bakılır.
+        "unstable_tasks": [result.task_id for result in report.results if not result.kararli],
     }
 
 

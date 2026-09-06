@@ -1,6 +1,6 @@
 # Kalite kapısı — CLAUDE.md: her faz sonunda `make check` temiz olmadan commit atılmaz.
 # Araçlar .venv varsa oradan, yoksa PATH'ten çalışır; böylece CI de aynı kapıyı kullanır.
-.PHONY: setup venv install format lint type test deadlock check clean eval app-check app-visual runtime-bundle app-package
+.PHONY: setup venv install format lint type test deadlock check clean eval eval-refactor eval-hata app-check app-visual runtime-bundle app-package
 
 VENV_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/,)
 PY       := $(VENV_BIN)python
@@ -72,6 +72,15 @@ app-package: install
 #   $(PY) -m evals compare eski.json yeni.json
 eval:
 	$(PY) -m evals run evals/suite/starter.yaml --out eval-report.json
+
+# Alan setleri: çok dosyalı değişiklik ve hata teşhisi. Tek koşu gürültülüdür;
+# bir ayarın etkisini ölçerken `--repeat 3` ile çalıştırılır ve raporun
+# `unstable_tasks` alanına bakılır.
+eval-refactor:
+	$(PY) -m evals run evals/suite/refactor.yaml --out eval-refactor.json --repeat 3
+
+eval-hata:
+	$(PY) -m evals run evals/suite/hata.yaml --out eval-hata.json --repeat 3
 
 clean:
 	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache src/*.egg-info

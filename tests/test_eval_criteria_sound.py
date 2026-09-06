@@ -18,7 +18,11 @@ import pytest
 from evals.loader import load_tasks
 from evals.tasks import CriterionKind
 
-SUITE = Path(__file__).resolve().parents[1] / "evals" / "suite" / "starter.yaml"
+SUITE_DIR = Path(__file__).resolve().parents[1] / "evals" / "suite"
+#: Setlerin TAMAMI denetlenir: yeni bir set eklendiğinde ölçütleri de referans
+#: çözümle kanıtlanmadan sete giremesin. Tek sete bakan bir kapı, ikinci set
+#: eklendiği anda sessizce işlevsiz kalırdı.
+SUITES = sorted(SUITE_DIR.glob("*.yaml"))
 
 #: Görev kimliği → ölçütün GEÇMESİ gereken referans çözüm (yol → içerik).
 #:
@@ -112,6 +116,97 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
     "bozuk-json-veriyi-onar": {
         "veri.json": '{"ad": "Fusion", "surum": "0.3.0", "etiketler": ["cli", "agent"]}\n'
     },
+    # --- refactor.yaml ------------------------------------------------------- #
+    "imza-degisikligini-cagiranlara-yay": {
+        "hesap/vergi.py": "def vergi_hesapla(tutar, oran=0.20):\n    return tutar * oran\n",
+        "hesap/rapor.py": (
+            "from .vergi import vergi_hesapla\n\n\n"
+            "def ozet(tutarlar):\n"
+            "    return sum(vergi_hesapla(tutar) for tutar in tutarlar)\n"
+        ),
+    },
+    "modulu-pakete-bol-apiyi-koru": {
+        "araclar.py": "",
+        "araclar/__init__.py": "from .metin import kisalt\nfrom .sayi import yuzde\n",
+        "araclar/metin.py": (
+            "def kisalt(metin, sinir=10):\n"
+            '    return metin if len(metin) <= sinir else metin[: sinir - 1] + "…"\n'
+        ),
+        "araclar/sayi.py": (
+            "def yuzde(deger, toplam):\n"
+            "    if not toplam:\n        return 0.0\n"
+            "    return deger / toplam * 100\n"
+        ),
+    },
+    "tekrarlanan-mantigi-tek-yere-al": {
+        "ortak.py": (
+            "def indirimli_tutar(tutar, indirim_orani):\n"
+            "    if indirim_orani < 0 or indirim_orani > 0.5:\n"
+            '        raise ValueError("gecersiz indirim")\n'
+            "    return round(tutar * (1 - indirim_orani), 2)\n"
+        ),
+        "siparis.py": (
+            "from ortak import indirimli_tutar\n\n\n"
+            "def siparis_toplami(tutar, indirim_orani):\n"
+            "    return indirimli_tutar(tutar, indirim_orani)\n"
+        ),
+        "fatura.py": (
+            "from ortak import indirimli_tutar\n\n\n"
+            "def fatura_toplami(tutar, indirim_orani):\n"
+            "    return indirimli_tutar(tutar, indirim_orani)\n"
+        ),
+    },
+    "tip-ipuclari-ekle-davranisi-bozma": {
+        "olcum.py": (
+            "def ortalama(sayilar: list[float]) -> float:\n"
+            "    if not sayilar:\n        return 0.0\n"
+            "    return sum(sayilar) / len(sayilar)\n\n\n"
+            "def en_buyuk(sayilar: list[int], varsayilan: int | None = None) -> int | None:\n"
+            "    return max(sayilar) if sayilar else varsayilan\n"
+        )
+    },
+    "yeni-alani-uctan-uca-ekle": {
+        "kullanici.py": (
+            "from dataclasses import dataclass\n\n\n"
+            "@dataclass\nclass Kullanici:\n"
+            '    ad: str\n    yas: int\n    eposta: str = ""\n\n\n'
+            "def dogrula(kullanici):\n"
+            "    if not kullanici.ad:\n"
+            '        raise ValueError("ad zorunlu")\n'
+            "    if kullanici.yas < 0:\n"
+            '        raise ValueError("yas negatif olamaz")\n'
+            '    if kullanici.eposta and "@" not in kullanici.eposta:\n'
+            '        raise ValueError("gecersiz eposta")\n'
+            "    return True\n"
+        )
+    },
+    # --- hata.yaml ------------------------------------------------------------ #
+    "sessiz-yanlis-sonucu-duzelt": {
+        "ortalama.py": ("def ortalama(sayilar):\n    return sum(sayilar) / len(sayilar)\n")
+    },
+    "kenar-durumunda-cokme": {
+        "bol.py": (
+            "def ortalama_bol(sayilar, bolen):\n"
+            "    if not sayilar:\n        return 0.0\n"
+            "    return sum(sayilar) / len(sayilar) / bolen\n"
+        )
+    },
+    "yanlis-anahtar-traceback": {
+        "rapor.py": (
+            "from veri import KAYITLAR\n\n\n"
+            "def ozet():\n"
+            "    return \", \".join(f\"{kayit['ad']}:{kayit['puan']}\" for kayit in KAYITLAR)\n\n\n"
+            'if __name__ == "__main__":\n    print(ozet())\n'
+        )
+    },
+    "iki-testten-birini-bozmadan-duzelt": {
+        "metin.py": "def baslik(metin):\n    return metin.strip().upper()\n"
+    },
+    "yanlis-sinir-degeri": {
+        "indirim.py": (
+            "def indirim_orani(tutar):\n    if tutar >= 100:\n        return 0.10\n    return 0.0\n"
+        )
+    },
     "mevcut-projeye-uy": {
         "matematik.py": (
             '"""Matematik yardimcilari."""\n\n\n'
@@ -124,8 +219,25 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
 }
 
 
+#: Referans çözümü DOSYA olarak yazılamayan görevler.
+#
+# `arena` ölçütü gerçek Chromium ile davranış sınar (`python -m evals.behavioral`);
+# doğru çözümü `evals/fixtures/arena_reference/index.html` fikstürüdür ve tarayıcı
+# gerektirdiği için bu ağsız kapıda çalıştırılamaz. Ölçütün kendisi
+# `tests/test_behavioral_eval.py` içinde ayrıca sınanır.
+TARAYICI_GEREKTIREN = frozenset({"arena-survival-core-loop"})
+
+
 def _exit_code_gorevleri():
-    return [gorev for gorev in load_tasks(SUITE) if gorev.criterion.kind is CriterionKind.EXIT_CODE]
+    gorevler = []
+    for suite in SUITES:
+        gorevler.extend(
+            gorev
+            for gorev in load_tasks(suite)
+            if gorev.criterion.kind is CriterionKind.EXIT_CODE
+            and gorev.id not in TARAYICI_GEREKTIREN
+        )
+    return gorevler
 
 
 def _gorev_kimlikleri():
@@ -144,7 +256,7 @@ def test_olcut_dogru_cozumu_kabul_eder(gorev_id, tmp_path: Path):
             "doğrulanmadan sete girmemeli."
         )
 
-    for yol, icerik in cozum.items():
+    for yol, icerik in {**gorev.setup, **cozum}.items():
         hedef = tmp_path / yol
         hedef.parent.mkdir(parents=True, exist_ok=True)
         hedef.write_text(icerik, encoding="utf-8")

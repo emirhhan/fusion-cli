@@ -731,3 +731,45 @@ async def test_gunluk_kotada_beklemeden_durur():
 async def _bekleme_yok(seconds: float) -> None:
     """Testte gerçek zaman harcanmaz."""
     return None
+
+
+def test_rapor_kararsiz_gorevleri_ozette_bildirir():
+    """Tek koşu gürültülüdür: hangi görevin kararsız olduğu ÖZETTE görünmeli.
+
+    Ölçüldü (5-6 Eylül): aynı Godot görevi üç koşuda üç farklı yerde durdu. Bir
+    ayarın etkisini ölçerken kararsız görevleri ayırt edemezsek, gürültüyü
+    ilerleme sanarız.
+    """
+    from evals.metrics import RunReport, TaskResult
+    from evals.report import report_to_dict
+
+    rapor = RunReport(
+        results=(
+            TaskResult(
+                task_id="kararli",
+                success=True,
+                first_attempt_success=True,
+                retries=0,
+                model_calls=5,
+                duration_seconds=1.0,
+                runs=3,
+                passes=3,
+            ),
+            TaskResult(
+                task_id="kararsiz",
+                success=False,
+                first_attempt_success=False,
+                retries=0,
+                model_calls=5,
+                duration_seconds=1.0,
+                runs=3,
+                passes=2,
+            ),
+        )
+    )
+
+    payload = report_to_dict(rapor)
+
+    assert payload["summary"]["unstable_tasks"] == ["kararsiz"]
+    assert payload["results"][0]["stable"] is True
+    assert payload["results"][1]["stable"] is False
