@@ -151,7 +151,10 @@ class WebProviderAdapter:
         messages = tuple(self._prepare_images(message) for message in request.messages)
         if self._tool_support is not ToolSupport.EMULATED or not request.tools:
             return messages
-        instructions = render_tool_instructions(request.tools)
+        # Web yolunda çağrı METİNDEN üretilir: şema ne kadar şişkinse model o kadar
+        # sık yanlış anahtar yazıyor. Sade biçim zorunlu alanları öne çıkarır;
+        # opsiyonel alanlar araç açıklamasında zaten anlatılıyor.
+        instructions = render_tool_instructions(request.tools, compact=True)
         return (Message("system", instructions), *messages)
 
     def _prepare_images(self, message: Message) -> Message:

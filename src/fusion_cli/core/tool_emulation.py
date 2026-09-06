@@ -306,8 +306,41 @@ def _instruction_schema(value: object) -> object:
     return value
 
 
-def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
-    """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök."""
+def _compact_schema(parameters: object) -> object:
+    """Zayıf model için şemayı ZORUNLU alanlara indir.
+
+    Ölçüldü (literatür): küçük modelde araç seçimi, şema sadeleştiğinde belirgin
+    biçimde düzeliyor; opsiyonel alan kalabalığı zorunlu alanı gölgeliyor ve model
+    çağrıyı eksik ya da yanlış anahtarla üretiyor.
+
+    Zorunlu alan bildirilmemişse hiçbir şey atılmaz: "hepsi opsiyonel" ile "hiçbiri
+    gösterilmesin" aynı şey değildir.
+    """
+    if not isinstance(parameters, Mapping):
+        return _instruction_schema(parameters)
+    required = parameters.get("required")
+    properties = parameters.get("properties")
+    if not isinstance(required, (list, tuple)) or not isinstance(properties, Mapping):
+        return _instruction_schema(parameters)
+    zorunlu = {str(name) for name in required}
+    sade = {
+        "type": parameters.get("type", "object"),
+        "properties": {
+            key: _instruction_schema(value) for key, value in properties.items() if key in zorunlu
+        },
+        "required": [str(name) for name in required],
+    }
+    return sade
+
+
+def render_tool_instructions(
+    schemas: Sequence[Mapping[str, object]], *, compact: bool = False
+) -> str:
+    """Kanonik kısa-çağrı ve ham-payload araç sözleşmesini metne dök.
+
+    `compact` verildiğinde şema zorunlu alanlara indirilir; araç adı ve açıklaması
+    korunur çünkü modelin ARACI seçmesi için gereken bilgi odur.
+    """
     lines = [
         "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.",
         "",
@@ -336,7 +369,8 @@ def render_tool_instructions(schemas: Sequence[Mapping[str, object]]) -> str:
 
         name = function.get("name", "")
         description = function.get("description", "")
-        parameters = _instruction_schema(function.get("parameters", {}))
+        ham = function.get("parameters", {})
+        parameters = _compact_schema(ham) if compact else _instruction_schema(ham)
 
         lines.append(f"- {name}: {description}")
         lines.append(
