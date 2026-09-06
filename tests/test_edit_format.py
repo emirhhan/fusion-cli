@@ -15,8 +15,14 @@ from fusion_cli.tools import build_registry
 
 
 def _names(edit_format: EditFormat) -> set[str]:
+    """Modele SUNULAN araçlar: biçim tercihi şemayı daraltır.
+
+    Dispatcher tarafı ayrıdır ve `test_edit_format_dispatch.py` içinde sınanır:
+    gizlenen araç yine ÇALIŞTIRILABİLİR, çünkü şemadan çıkarmak "önermiyorum"
+    demektir, "yapamazsın" değil.
+    """
     policy = ExecutionPolicy(is_web=False, edit_format=edit_format)
-    return _permitted(None, build_registry(), policy) or set()
+    return _permitted(None, build_registry(), policy, for_schema=True) or set()
 
 
 def test_search_replace_biciminde_satir_araligi_sunulmaz():

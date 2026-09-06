@@ -94,6 +94,7 @@ from .promotion import (
     should_promote,
     signals_from_turn,
 )
+from .repo_context import repo_map_block
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -404,12 +405,18 @@ async def run_agent(
     remembered = as_prompt_block(recalled)
     expertise = _recall_skill(task, classification, deps, depth=depth)
     proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
+    # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Yalnız çok
+    # adımlı işlerde ve kökte kod varsa eklenir; sohbete sembol listesi iliştirmek
+    # bağlamı boşuna şişirir.
+    harita = repo_map_block(deps.tool_context.root, kind) if depth == 0 else ""
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
-            part for part in (proje_ve_dis_bellek, remembered, expertise, extra_system) if part
+            part
+            for part in (proje_ve_dis_bellek, harita, remembered, expertise, extra_system)
+            if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
@@ -1230,7 +1237,7 @@ async def _call_model(
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=(
-            tuple(registry.schemas(_permitted(allowed_tools, registry, execution)))
+            tuple(registry.schemas(_permitted(allowed_tools, registry, execution, for_schema=True)))
             if offer_tools
             else ()
         ),
@@ -1291,6 +1298,8 @@ def _permitted(
     allowed_tools: set[str] | None,
     registry: ToolRegistry,
     execution: ExecutionPolicy,
+    *,
+    for_schema: bool = False,
 ) -> set[str] | None:
     """Modele sunulacak araç adlarını belirle.
 
@@ -1306,7 +1315,13 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
-    names -= _EDIT_TOOLS_HIDDEN.get(execution.edit_format, frozenset())
+    if for_schema:
+        # Biçim tercihi ŞEMAYI daraltır, YETENEĞİ kapatmaz. Ölçüldü (6 Eylül canlı
+        # koşusu): `replace_range` dispatcher'da da kapatılınca model onu yine
+        # çağırdı, "kapsam dışı" cevabını aldı ve üç görev bu yüzden düştü.
+        # Şemadan çıkarmak "önermiyorum", engellemek "yapamazsın" demektir; ikincisi
+        # yalnız adım kapsamı ve mutasyon izni için geçerlidir.
+        names -= _EDIT_TOOLS_HIDDEN.get(execution.edit_format, frozenset())
     if not execution.allow_mutation:
         names = {
             name
