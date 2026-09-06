@@ -13,6 +13,8 @@ from collections.abc import Iterable, Iterator
 from dataclasses import replace
 from threading import Event
 
+from ..core.artifacts import offload_output
+from ..core.constants import MAX_OUTPUT_CHARS
 from ..core.errors import FusionError, PathAccessError
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
 from .args import ArgumentError
@@ -104,17 +106,18 @@ class ToolRegistry:
         try:
             if inspect.iscoroutinefunction(tool.run):
                 outcome = tool.run(args, context)
-                return await outcome  # type: ignore[no-any-return]  # coroutine ToolResult döndürür
+                return _offload(await outcome, name, context)  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
             # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i
             # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
             # `replace` diğer paylaşılan değişiklik/todo/tarayıcı durumunu korur.
             invocation_context = replace(context, cancelled=_CancellationEvent(context.cancelled))
             try:
-                return await asyncio.to_thread(_run_sync, tool.run, args, invocation_context)
+                sonuc = await asyncio.to_thread(_run_sync, tool.run, args, invocation_context)
             except asyncio.CancelledError:
                 invocation_context.cancelled.set()
                 raise
+            return _offload(sonuc, name, context)
         except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu
@@ -129,3 +132,19 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
+    """Bağlamı şişiren çıktıyı artifact'a al.
+
+    TEK yerde yapılır: her aracın kendi kırpma kuralını yazması, aynı hatayı her
+    araçta yeniden üretmek demekti. Depo yoksa davranış aynen korunur.
+    """
+    if context.artifacts is None or not result.output:
+        return result
+    output, path = offload_output(
+        result.output, store=context.artifacts, tool=name, limit=MAX_OUTPUT_CHARS
+    )
+    if path is None:
+        return result
+    return replace(result, output=output, artifact_path=str(path))

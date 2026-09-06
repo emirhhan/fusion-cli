@@ -22,6 +22,7 @@ from pathlib import Path
 from threading import Event
 from typing import Protocol
 
+from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
 from .changeset import ChangeSet
 from .tool_content import ToolContent, ToolContentType
@@ -109,6 +110,11 @@ class ToolResult:
     ok: bool = True
     content: tuple[ToolContent, ...] = ()
     structured: Mapping[str, object] | None = None
+    #: Çıktı bağlamı şişirdiği için diske alındıysa dosyanın yolu.
+    #:
+    #: Kırpma bilgiyi yok eder, artifact yalnızca YER DEĞİŞTİRİR: model özeti görür,
+    #: gerekirse dosyayı `read_file` ile açar. Kanıt zinciri de bu yolu kullanır.
+    artifact_path: str = ""
 
     @property
     def images(self) -> tuple[str, ...]:
@@ -250,6 +256,8 @@ class ToolContext:
     extra_roots: tuple[Path, ...] = ()
     #: İptal edilen turdaki thread tabanlı araçların yürümeye devam etmesini önler.
     cancelled: Event = field(default_factory=Event)
+    #: Büyük araç çıktılarının yazılacağı depo; `None` ise kırpma davranışı korunur.
+    artifacts: ArtifactStore | None = None
     #: Bu turda bir okumada gösterilecek EN FAZLA satır; `None` ise varsayılan.
     #:
     #: SWE-agent'ın ölçümü: turda ~100 satır göstermek en iyi sonucu veriyor. Sınır

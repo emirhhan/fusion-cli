@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ..config.models import Config
 from ..config.permissions import load_allowed_commands
+from ..core.artifacts import ArtifactStore
 from ..core.concurrency import BackgroundTasks
 from ..core.events import (
     ErrorOccurred,
@@ -179,6 +180,9 @@ async def run_agent_task(
             root=root or Path.cwd(),
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
+            # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi
+            # kaybolmaz, model gerektiğinde dosyayı açar (context rot).
+            artifacts=ArtifactStore(config.memory_dir / "artifacts" / _artifact_id()),
         )
         deps = AgentDeps(
             config=config,
@@ -391,3 +395,8 @@ def _open_trace(trace_dir: Path | None) -> TraceWriter | None:
         return TraceStore(trace_dir).writer(datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     except OSError:
         return None
+
+
+def _artifact_id() -> str:
+    """Oturum artifact dizininin adı — iz kimliğiyle aynı zaman damgası biçimi."""
+    return datetime.now().strftime("%Y%m%d-%H%M%S-%f")
