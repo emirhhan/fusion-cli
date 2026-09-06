@@ -216,6 +216,91 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
             '    """Iki sayinin farkini dondurur."""\n    return a - b\n'
         )
     },
+    # --- bakim.yaml: günlük bakım işleri ---
+    "eski-adi-koruyarak-yeniden-adlandir": {
+        "metin.py": (
+            "def ozetle(s, sinir=5):\n"
+            '    return s if len(s) <= sinir else s[:sinir] + "..."\n\n\n'
+            "#: Eski ad korunur: çağıran kod kırılmamalı.\n"
+            "kisalt = ozetle\n"
+        )
+    },
+    "sessiz-hata-yutmayi-bitir": {
+        "ayar.py": (
+            "import json\n\n\n"
+            "def oku(yol):\n"
+            "    try:\n"
+            '        with open(yol, encoding="utf-8") as f:\n'
+            "            return json.load(f)\n"
+            "    except FileNotFoundError:\n"
+            "        return None\n"
+            "    except json.JSONDecodeError as hata:\n"
+            '        raise ValueError(f"bozuk yapılandırma: {yol}") from hata\n'
+        )
+    },
+    "dongusel-importu-coz": {
+        "siparis.py": (
+            "def siparis_ozeti(tutarlar):\n"
+            '    return f"{len(tutarlar)} sipariş / {sum(tutarlar)} TL"\n'
+        ),
+        "kullanici.py": (
+            "from siparis import siparis_ozeti\n\n\n"
+            "def kullanici_ozeti(ad, tutarlar):\n"
+            '    return f"{ad}: {siparis_ozeti(tutarlar)}"\n'
+        ),
+    },
+    "surum-sabitini-tek-kaynaga-indir": {
+        "paket/__init__.py": 'SURUM = "2.0.0"\n',
+        "paket/cli.py": ('from . import SURUM\n\n\ndef surum_yaz():\n    return f"v{SURUM}"\n'),
+        "paket/rapor.py": (
+            'from . import SURUM\n\n\ndef baslik():\n    return f"Rapor (v{SURUM})"\n'
+        ),
+    },
+    "sinir-durumu-bos-girdi": {
+        "ortalama.py": (
+            "def ortalama(sayilar):\n"
+            "    if not sayilar:\n"
+            "        return 0.0\n"
+            "    return sum(sayilar) / len(sayilar)\n"
+        )
+    },
+    "tekrari-ortak-yardimciya-cikar": {
+        "fiyat.py": (
+            "def _yuvarla(tutar):\n"
+            "    return int(tutar * 100 + 0.5) / 100\n\n\n"
+            "def net(tutar):\n"
+            "    return _yuvarla(tutar)\n\n\n"
+            "def brut(tutar):\n"
+            "    return _yuvarla(tutar * 1.2)\n\n\n"
+            "def indirimli(tutar, oran):\n"
+            "    return _yuvarla(tutar * (1 - oran))\n"
+        )
+    },
+    "turkce-karakterli-slug": {
+        "slug.py": (
+            "import re\n\n"
+            '_TR = str.maketrans("çğıöşüÇĞIİÖŞÜ", "cgiosuCGIIOSU")\n\n\n'
+            "def slug(metin):\n"
+            "    duz = metin.translate(_TR).lower()\n"
+            '    return re.sub(r"[^a-z0-9]+", "-", duz).strip("-")\n'
+        )
+    },
+    "varsayilanlari-birlestir": {
+        "yapilandirma.py": (
+            'VARSAYILAN = {"port": 8080, "log": {"seviye": "info", "dosya": "app.log"}}\n\n\n'
+            "def _birlestir(taban, ustune):\n"
+            "    sonuc = dict(taban)\n"
+            "    for anahtar, deger in (ustune or {}).items():\n"
+            "        mevcut = sonuc.get(anahtar)\n"
+            "        if isinstance(mevcut, dict) and isinstance(deger, dict):\n"
+            "            sonuc[anahtar] = _birlestir(mevcut, deger)\n"
+            "        else:\n"
+            "            sonuc[anahtar] = deger\n"
+            "    return sonuc\n\n\n"
+            "def yukle(kullanici):\n"
+            "    return _birlestir(VARSAYILAN, kullanici)\n"
+        )
+    },
 }
 
 
