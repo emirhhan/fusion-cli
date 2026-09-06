@@ -1,9 +1,20 @@
 Aşağıda bir agent oturumunun ESKİ kısmı var. Bunu, konuşmanın devamı için gereken
-TÜM önemli bilgiyi koruyan kısa bir özete indir: ne istendi, hangi dosyalar,
-kararlar ve bulgular önemli, nerede kalındı.
+TÜM önemli bilgiyi koruyan kısa bir özete indir.
 
-Madde madde ve öz yaz. Kod, dosya yolu, fonksiyon adı gibi kritik ayrıntıları ATMA.
-Türkçe yaz.
+Özeti tam olarak şu dört başlıkla yaz; başlıkları değiştirme, birini boş bırakma
+(bilgi yoksa "yok" yaz):
+
+HEDEF: kullanıcının asıl istediği iş, tek cümle.
+DURUM: şu ana kadar gerçekten yapılanlar — değişen dosyalar, çalıştırılan komutlar
+ve sonuçları.
+AÇIK İŞLER: yapılmayı bekleyen adımlar; hangisi neye bağlı.
+KARARLAR: verilmiş kararlar ve gerekçeleri; tekrar tartışılmasın diye.
+
+Kurallar:
+- Dosya yolları, komutlar, fonksiyon/sembol adları, hata mesajları ve artifact
+  yolları ÖZETLENMEZ; aynen yazılır. Bunlar sonraki turun tek tutamağıdır.
+- Yapılmamış bir işi yapılmış gibi yazma; emin değilsen "doğrulanmadı" de.
+- Madde madde ve öz yaz. Türkçe yaz.
 
 Oturum:
 {trace}

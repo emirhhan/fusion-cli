@@ -50,6 +50,12 @@ class WorkflowCheckpoint:
     updated_at: float
     step_evidence: tuple[StepCheckpointEvidence, ...] = ()
     budget_usage: tuple[WorkflowBudgetUsage, ...] = ()
+    #: Bu oturumda kaç kez bağlam özetlendi.
+    #
+    # Devam eden tur neyin özetlendiğini bilmelidir: aksi halde "bu dosyayı zaten
+    # okumuştum" sanır ya da yapılmış işi yeniden yapar. Sayının kendisi de bir
+    # teşhis sinyalidir: çok sık özetleme, bağlamın taşmakta olduğunu söyler.
+    condensations: int = 0
 
 
 class CheckpointStore(Protocol):

@@ -64,6 +64,7 @@ def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
         "updated_at": checkpoint.updated_at,
         "step_evidence": evidence_payload(checkpoint.step_evidence),
         "budget_usage": budget_payload(checkpoint.budget_usage),
+        "condensations": checkpoint.condensations,
     }
 
 
@@ -157,6 +158,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
         updated_at=float(updated_at),
         step_evidence=parse_evidence(data.get("step_evidence", [])),
         budget_usage=parse_budget(data.get("budget_usage", [])),
+        condensations=_integer(data, "condensations", 0),
     )
 
 

@@ -223,6 +223,11 @@ class AgentOutcome:
     failed_tool_calls: int = 0
     #: Bu turda yapılan gerçek model çağrısı sayısı (teşhis ve bütçe için).
     model_calls_made: int = 0
+    #: Bu turda kaç kez bağlam özetlendi (condensation).
+    #
+    # Sayı teşhis sinyalidir: sık özetleme, bağlamın taşmakta olduğunu söyler ve
+    # devam eden turun neyin özetlendiğini bilmesi gerekir.
+    condensations: int = 0
     #: Planlama çağrıları toplam model sayısına dahildir; final kapıları model değildir.
     planning_calls_made: int = 0
     final_verification_calls: int = 0
@@ -281,6 +286,8 @@ class AgentDeps:
     #: Verilmezse tur içinde beklenir (tek seferlik CLI için doğru davranış).
     background: BackgroundTasks | None = None
     channel: Channel = Channel.MAIN
+    #: Bu turda kaç kez bağlam özetlendi; plan yürütücüsü checkpoint'e taşır.
+    condensations: int = 0
     #: Kullanıcının seçtiği görev tipi (`/type`). `task_model_map` üzerinden bu turda
     #: kullanılacak modeli belirler; haritada karşılığı yoksa `agent:` rolü kullanılır.
     task_type: str = "general"
@@ -557,6 +564,9 @@ async def run_agent(
         recalled, outcome, deps, plan_mode=plan_mode, verification=verification
     )
     outcome.messages = await _maybe_compress(outcome.messages, deps)
+    # Özetleme sayısı turun sonucuna taşınır: plan yürütücüsü onu checkpoint'e
+    # yazar ve devam eden tur neyin özetlendiğini bilir.
+    outcome.condensations = deps.condensations
     # Tarayıcı oturumunun sahibi EN DIŞTAKİ turdur. İç içe çağrılar (öz-denetim,
     # doğrulama düzeltmesi, alt-ajan) aynı bağlamı paylaşır; onların kapatması
     # sürmekte olan turun sayfasını elinden alırdı. Kapatılmayan oturum arkada
@@ -2326,6 +2336,7 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
     )
     if len(compressed) < before:
         deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
+        deps.condensations += 1
     return compressed
 
 

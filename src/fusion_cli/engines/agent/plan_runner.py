@@ -63,6 +63,8 @@ class _PlanRun:
     outcomes: list[AgentOutcome] = field(default_factory=list)
     spent: dict[tuple[BudgetEnvelope, str], int] = field(default_factory=dict)
     baseline: tuple[str, ...] = ()
+    #: Bu planda kaç kez bağlam özetlendi; devam eden tur bunu bilmelidir.
+    condensations: int = 0
     planning_calls: int = 0
     final_calls: int = 0
     repair_ids: set[str] = field(default_factory=set)
@@ -112,6 +114,7 @@ class _PlanRun:
                     WorkflowBudgetUsage(envelope.value, scope, calls)
                     for (envelope, scope), calls in self.spent.items()
                 ),
+                self.condensations,
             )
         )
         deps.publisher.publish(
@@ -175,6 +178,7 @@ class _PlanRun:
             allowed_tools=set(allowed or ()),
         )
         self.outcomes.append(outcome)
+        self.condensations += outcome.condensations
         if not self.charge(envelope, outcome.model_calls_made, step.step_id):
             self.current = replace_step(self.current, replace(running, status=StepStatus.BLOCKED))
             return None
