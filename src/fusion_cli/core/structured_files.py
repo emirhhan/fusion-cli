@@ -90,7 +90,7 @@ def _godot_kaynak_denetle(content: str) -> str | None:
     if _dengesiz_tirnak(content):
         return (
             "Kapanmamış tırnak var: Godot metin kaynağında tırnaklar dengeli "
-            "olmalı. Dosyanın ortasında ya da sonunda tek başına kalan bir `\"` "
+            'olmalı. Dosyanın ortasında ya da sonunda tek başına kalan bir `"` '
             "Godot'un dosyayı hiç yükleyememesine yol açar: `Parse Error`. "
             "Gömülü GDScript bloğunu kapatan tırnağı kontrol et."
         )
@@ -146,12 +146,83 @@ def _godot_proje_denetle(content: str) -> str | None:
     return None
 
 
+def _python_denetle(content: str) -> str | None:
+    """Python kaynağını derleyicinin kendi ayrıştırıcısıyla denetle.
+
+    SWE-agent'ın ölçtüğü ACI dersi: düzenleme sonrası çalışan bir denetim, bozuk
+    sözdizimini üretim anında yakalar ve modele hemen geri verir. `compile` kodu
+    ÇALIŞTIRMAZ, yalnız ayrıştırır: yan etkisi yoktur.
+    """
+    try:
+        compile(content, "<agent>", "exec")
+    except SyntaxError as hata:
+        satir = hata.lineno or 0
+        return f"Python sözdizimi geçersiz (satır {satir}): {hata.msg}"
+    except ValueError as hata:
+        # Kaynakta null bayt gibi derleyicinin reddettiği içerik.
+        return f"Python kaynağı geçersiz: {hata}"
+    return None
+
+
+def _yaml_denetle(content: str) -> str | None:
+    """YAML'ı ayrıştırıcıdan geçir; kütüphane yoksa denetleme yapma."""
+    try:
+        import yaml
+    except ImportError:
+        return None
+    try:
+        yaml.safe_load(content)
+    except yaml.YAMLError as hata:
+        return f"YAML geçersiz: {str(hata).splitlines()[0]}"
+    return None
+
+
+#: GDScript'te blok açan satırlar.
+_GDSCRIPT_BLOK = re.compile(r"^\s*(func|if|elif|else|for|while|match|class|_init)\b.*:\s*(#.*)?$")
+
+
+def _gdscript_denetle(content: str) -> str | None:
+    """Blok açan satırın ardından girinti gelmiş mi?
+
+    Godot bunu `Parse Error` ile reddeder ama BUNU YAPARKEN sıfır çıkış kodu
+    verebiliyor (ölçüldü, 5 Eylül Godot koşusu); hatayı motora bırakmak yerine
+    yazma anında yakalamak turu bir kurtarma turundan kurtarır. Denetim dar
+    tutulur: yalnız girinti sözleşmesi, kapsam çözümlemesi değil.
+    """
+    satirlar = content.splitlines()
+    for index, satir in enumerate(satirlar):
+        if not _GDSCRIPT_BLOK.match(satir):
+            continue
+        girinti = len(satir) - len(satir.lstrip())
+        sonraki = next(
+            (
+                item
+                for item in satirlar[index + 1 :]
+                if item.strip() and not item.strip().startswith("#")
+            ),
+            None,
+        )
+        if sonraki is None:
+            return f"GDScript geçersiz (satır {index + 1}): blok açıldı ama gövdesi yok"
+        if len(sonraki) - len(sonraki.lstrip()) <= girinti:
+            return (
+                f"GDScript geçersiz (satır {index + 2}): blok gövdesi girintili olmalı "
+                f"(satır {index + 1} bir blok açıyor)"
+            )
+    return None
+
+
 #: Uzantı → denetleyici. Yeni biçim eklemek buraya bir satır eklemektir.
 _DENETLEYICILER: dict[str, Callable[[str], str | None]] = {
     ".json": _json_denetle,
     ".toml": _toml_denetle,
     ".tscn": _godot_kaynak_denetle,
     ".tres": _godot_kaynak_denetle,
+    ".py": _python_denetle,
+    ".pyi": _python_denetle,
+    ".yaml": _yaml_denetle,
+    ".yml": _yaml_denetle,
+    ".gd": _gdscript_denetle,
 }
 
 #: Biçimi SAHİPLENEN araç aileleri: uzantı → (gerekli araçlar, gerekçe).

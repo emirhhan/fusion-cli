@@ -174,10 +174,13 @@ HAMLELER: tuple[tuple[str, Callable[[], ToolCall]], ...] = (
     ("dizini_listele", lambda: _cagri("list_dir", path=".")),
     ("desen_ara", lambda: _cagri("glob", pattern="**/*.py")),
     ("metin_ara", lambda: _cagri("search_code", pattern="def")),
-    ("yeni_dosya_yaz", lambda: _cagri("write_file", path=YENI, content="yeni içerik\n")),
+    # İçerik GEÇERLİ Python'dur: matris "kapılar birbirini engelliyor mu" diye sorar,
+    # "bozuk kod diske yazılabiliyor mu" diye değil. Dil kapısı (structured_files)
+    # bozuk sözdizimini bilerek reddeder ve bunun testi test_language_gate.py'dedir.
+    ("yeni_dosya_yaz", lambda: _cagri("write_file", path=YENI, content="YENI = 1\n")),
     (
         "var_olani_yaz",
-        lambda: _cagri("write_file", path=VAR_OLAN, content="yeni tam içerik\n"),
+        lambda: _cagri("write_file", path=VAR_OLAN, content="def eski():\n    return 2\n"),
     ),
     (
         "var_olani_duzenle",

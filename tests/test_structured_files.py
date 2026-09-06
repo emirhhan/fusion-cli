@@ -18,8 +18,13 @@ from fusion_cli.core.structured_files import validate_structured
 
 
 def test_bilinmeyen_bicim_denetlenmez():
+    """Denetlemediğimiz biçimi reddetmek modeli yapamayacağı düzeltmeye zorlar.
+
+    Not: `.py` artık BİLİNEN bir biçimdir (bkz. `tests/test_language_gate.py`);
+    örnek, denetleyicisi olmayan bir dille verilir.
+    """
     assert validate_structured(Path("notlar.txt"), "herhangi bir metin") is None
-    assert validate_structured(Path("kod.py"), "def f(:") is None
+    assert validate_structured(Path("kod.rb"), "def f(") is None
 
 
 def test_bozuk_json_reddedilir():
