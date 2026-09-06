@@ -18,6 +18,8 @@ import json
 import re
 from pathlib import Path
 
+from .domains import godot_adapter
+
 #: Node paket yöneticileri: lock dosyası → komut öneki. Sıra anlamlıdır, ilk
 #: eşleşen kazanır; npm en sonda çünkü lock dosyası olmadan da varsayılandır.
 _NODE_LOCKS = (
@@ -189,9 +191,8 @@ def _godot(root: Path) -> tuple[str, ...]:
     `--quit` açılışta çıkar: kapı "proje AÇILIYOR mu" sorusudur, oyunu
     oynamak değildir. `--headless` ekran istemez, sunucuda da çalışır.
     """
-    return (
-        ("godot --headless --path . --quit",) if (root / "project.godot").exists() else ()
-    )
+    adaptor = godot_adapter()
+    return adaptor.gate_commands() if adaptor.matches(root) else ()
 
 
 def _rust(root: Path) -> tuple[str, ...]:

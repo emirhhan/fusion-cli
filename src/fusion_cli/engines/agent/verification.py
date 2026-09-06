@@ -31,6 +31,7 @@ from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import JavaScriptSyntaxChecker, VerificationResult, Verifier
 from .browser_verify import BrowserVerifier
+from .domains import godot_adapter
 from .javascript_verify import (
     JavaScriptSyntaxVerifier,
     NodeJavaScriptSyntaxChecker,
@@ -421,12 +422,9 @@ _COMMAND_NOT_FOUND = 127
 # araç adına göre genişletilir. İşaretler dar tutulur: yalnız motorun KENDİ hata
 # satırında geçen ifadeler yazılır, yoksa kapı gürültüye döner.
 _ZERO_EXIT_FAILURE_MARKERS: dict[str, tuple[str, ...]] = {
-    "godot": (
-        "script error",
-        "parse error",
-        "can't run project",
-        "failed to load script",
-    ),
+    # İşaretler alan adaptöründen gelir: aynı bilgi iki yerde durursa zamanla
+    # ayrışır ve biri güncellenirken öteki sessizce eskir.
+    godot_adapter().name: godot_adapter().zero_exit_failure_markers(),
 }
 
 
