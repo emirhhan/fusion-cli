@@ -70,6 +70,19 @@ WEB_TIMEOUT_S = 20.0
 #: tembelliği değil, aracın sınırıdır ve modeli zorlamak onu UYDURMAYA iter.
 CAPABILITY_WALL_PREFIX = "ERİŞİM DUVARI:"
 
+#: Kaynağın kendisine ULAŞILAMADIĞINI bildiren çıktının öneki.
+#
+# Duvardan farkı sebeptir: duvarda adres vardır ama kapı kapalıdır, burada adres
+# hiç çözülmez. Motor açısından SONUÇ aynıdır — iş bu araçla yapılamaz — ve
+# eylem-kanıtı kapısı aynı şekilde geri çekilir.
+#
+# Ölçüldü (6 Eylül canlı koşusu, `erisilemeyen-kaynagi-uydurma`): model adresi
+# denedi, DNS çözülmedi, hiçbir şey uydurmadı ve durumu dürüstçe açıkladı. Kanıt
+# kapısı "workspace_mutation doğrulanamadı" deyip modelin AÇIKLAMASINI silip
+# yerine genel bir mesaj koydu; kullanıcı sebebi hiç öğrenemedi ve üç koşunun
+# üçü de başarısız sayıldı. Var olmayan bir adresi kopyalamamak doğru davranıştır.
+UNREACHABLE_RESOURCE_PREFIX = "ERİŞİLEMEZ KAYNAK:"
+
 #: Tarayıcı turu için kabul edilebilir EN KISA bütçe (saniye). Yapılandırma bunun
 #: altına inerse tur daha başlamadan zaman aşımına uğrar; taban buradadır.
 MIN_BROWSER_TURN_S = 30.0

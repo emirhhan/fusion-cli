@@ -25,6 +25,7 @@ from ..core.constants import (
     MAX_OUTPUT_CHARS,
     MAX_WEB_REDIRECTS,
     MAX_WEB_RESULTS,
+    UNREACHABLE_RESOURCE_PREFIX,
     WEB_TIMEOUT_S,
     truncate_notice,
 )
@@ -51,12 +52,12 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
     url = _normalize_url(require_str(args, "url"))
     reason = url_block_reason(url)
     if reason is not None:
-        return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+        return ToolResult.failure(_unreachable(reason))
 
     try:
         content_type, body = _fetch_following_redirects(url)
     except httpx.HTTPError as exc:
-        return ToolResult.failure(f"Sayfa çekilemedi ({type(exc).__name__}): {exc}")
+        return ToolResult.failure(_unreachable(f"{type(exc).__name__}: {exc}"))
     except _BlockedRedirectError as exc:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
@@ -108,6 +109,15 @@ def access_wall_notice(text: str) -> str:
         "Kapıyı geçemiyorsan (bilgi sende yok, doğrulama insan istiyor) bu içeriği "
         "varmış gibi kullanma ve yerine benzerini UYDURMA — kullanıcıya erişemediğini "
         "ve neye ihtiyacın olduğunu açıkça söyle."
+    )
+
+
+def _unreachable(reason: str) -> str:
+    """Ulaşılamayan kaynağı, modelin UYDURMAYA itilmeyeceği biçimde bildir."""
+    return (
+        f"{UNREACHABLE_RESOURCE_PREFIX} bu adrese erişilemez ({reason}). İçerik "
+        "ALINAMADI. Yerine benzerini UYDURMA ve alınmış gibi kullanma; kullanıcıya "
+        "erişemediğini ve sebebini açıkça söyle."
     )
 
 

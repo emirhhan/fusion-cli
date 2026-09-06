@@ -34,7 +34,11 @@ from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
 from ...core.clock import SystemClock
 from ...core.concurrency import BackgroundTasks
-from ...core.constants import CAPABILITY_WALL_PREFIX, FILE_MISSING_PREFIX
+from ...core.constants import (
+    CAPABILITY_WALL_PREFIX,
+    FILE_MISSING_PREFIX,
+    UNREACHABLE_RESOURCE_PREFIX,
+)
 from ...core.errors import FusionError
 from ...core.events import (
     Channel,
@@ -1856,7 +1860,9 @@ async def _run_tools(
             # alamayıp `denied` döndü; ikinci deneme `TOOL_CALL_DUPLICATE` ile
             # engellendi ve adım hiçbir zaman kanıt üretemedi.
             budget.forget_call(signature)
-        if result.output.startswith(CAPABILITY_WALL_PREFIX):
+        # Duvar ve ulaşılamaz kaynak, kanıt kapısı açısından AYNI durumdur: iş bu
+        # araçla yapılamadı. Modeli kanıt üretmeye zorlamak onu uydurmaya iter.
+        if result.output.startswith((CAPABILITY_WALL_PREFIX, UNREACHABLE_RESOURCE_PREFIX)):
             state.capability_wall = True
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
