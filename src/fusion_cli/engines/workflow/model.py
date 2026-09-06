@@ -51,6 +51,12 @@ class BudgetEnvelope(StrEnum):
     PER_STEP = "per_step"
     RECOVERY = "recovery"
     FINAL = "final_verification"
+    #: Aynı adımın paralel denemeleri.
+    #
+    # Ayrı zarftadır çünkü deneme sayısı adım hakkını yiyip planın kalanını aç
+    # bırakmamalı: test-time scaling ek MALIYETTIR, mevcut bütçenin yeniden
+    # bölüşümü değil.
+    ATTEMPTS = "attempts"
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,9 @@ class WorkflowBudget:
     per_step: int = 24
     recovery: int = 12
     final: int = 2
+    #: Paralel deneme için ek çağrı hakkı. Varsayılan 0: özellik OPT-IN'dir ve
+    #: yapılandırılmadan tek kuruş fazla harcanmaz.
+    attempts: int = 0
 
     def limit_for(self, envelope: BudgetEnvelope) -> int:
         """İstenen zarfın çağrı sınırını döndür."""
@@ -69,6 +78,7 @@ class WorkflowBudget:
             BudgetEnvelope.PER_STEP: self.per_step,
             BudgetEnvelope.RECOVERY: self.recovery,
             BudgetEnvelope.FINAL: self.final,
+            BudgetEnvelope.ATTEMPTS: self.attempts,
         }[envelope]
 
 
