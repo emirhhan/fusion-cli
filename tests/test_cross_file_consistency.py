@@ -22,7 +22,12 @@ SAHNE = (
     'script = ExtResource("1_player")\n'
 )
 
-SCRIPT = "extends {taban}\n\nfunc _physics_process(delta):\n\tvelocity = Vector2.ZERO\n\tmove_and_slide()\n"
+SCRIPT = (
+    "extends {taban}\n\n"
+    "func _physics_process(delta):\n"
+    "\tvelocity = Vector2.ZERO\n"
+    "\tmove_and_slide()\n"
+)
 
 
 def test_area2d_dugumune_baglanan_hareket_scripti_yakalanir(tmp_path):
