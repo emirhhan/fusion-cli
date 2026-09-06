@@ -1196,13 +1196,50 @@ async def _fill_editor(locator: Any, text: str) -> None:
     # Zengin metin editörü satır sonlarını ve boşlukları normalize eder, bu yüzden
     # birebir eşitlik aranmaz (bkz. `strip_sent_text`); aranan şey metnin SONUNUN
     # kaybolmamış olmasıdır.
-    if len(varan) >= len(text) * EDITOR_DELIVERY_RATIO:
+    if len(varan) < len(text) * EDITOR_DELIVERY_RATIO:
+        raise WebBrowserError(
+            "mesaj kutusu metni kırptı: "
+            f"{len(text)} karakter yazıldı, {len(varan)} karakter yerleşti. "
+            "Promptun sonu (görev metni) modele ULAŞMADI; tur bu haliyle sürdürülemez."
+        )
+
+    hasar = markdown_damage(text, varan)
+    if hasar is None:
+        return
+    # Biçimlendirme yedi: yapıştırma yolu editörün markdown dönüşümünü tetiklemez.
+    await _paste_editor(locator, text)
+    varan = await _editor_icerigi(locator)
+    if varan is None or markdown_damage(text, varan) is None:
         return
     raise WebBrowserError(
-        "mesaj kutusu metni kırptı: "
-        f"{len(text)} karakter yazıldı, {len(varan)} karakter yerleşti. "
-        "Promptun sonu (görev metni) modele ULAŞMADI; tur bu haliyle sürdürülemez."
+        "mesaj kutusu metni biçimlendirdi ve karakter yedi "
+        f"({markdown_damage(text, varan)}). Görev metni modele BOZULARAK gidecekti; "
+        "tur bu haliyle sürdürülemez."
     )
+
+
+async def _paste_editor(locator: Any, text: str) -> None:
+    """Metni yazma yerine YAPIŞTIRMA olayıyla yerleştir.
+
+    Markdown otomatik biçimlendirmesi yazma (`input`) olaylarına bağlıdır; düz
+    metin yapıştırma aynı dönüşümü tetiklemez. Başarısız olursa sessizce geçilir:
+    çağıran taraf sonucu yeniden okuyup karar verir.
+    """
+    with contextlib.suppress(Exception):
+        await locator.evaluate(
+            """(el, text) => {
+                el.focus();
+                if ('value' in el) { el.value = ''; } else { el.textContent = ''; }
+                const dt = new DataTransfer();
+                dt.setData('text/plain', text);
+                el.dispatchEvent(
+                    new ClipboardEvent('paste', {
+                        clipboardData: dt, bubbles: true, cancelable: true
+                    })
+                );
+            }""",
+            text,
+        )
 
 
 async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int) -> Any | None:
@@ -1541,6 +1578,33 @@ MIN_SENT_LINE_STRIP = 12
 #: %36 (50.864 yazıldı, 32.316 okundu). Eşik ikisinin ortasına değil, gürültünün
 #: hemen altına konur.
 EDITOR_DELIVERY_RATIO = 0.95
+
+#: Zengin metin editörünün markdown olarak yorumlayıp YİYEBİLECEĞİ karakterler.
+#
+# Ölçüldü (6 Eylül canlı koşusu, `cok-dosyali-modul-kur`): "hesap/__init__.py"
+# yazıldı, editöre "hesap/init.py" yerleşti — `__…__` kalın metin sanıldı ve alt
+# çizgiler silindi. Model kendisine söylenen dosyayı sadakatle oluşturdu; görev
+# üç denemenin üçünde de bu yüzden düştü. Uzunluk kontrolü bunu göremez: dört
+# karakterlik kayıp %95 oranının çok üstünde kalır.
+#
+# Bu karakterler biçimlendirme dışında boşluk normalizasyonundan etkilenmez,
+# bu yüzden sayıları birebir karşılaştırılabilir.
+MARKDOWN_SENSITIVE = ("_", "*", "`", "~")
+
+
+def markdown_damage(sent: str, arrived: str) -> str | None:
+    """Editör markdown biçimlendirmesi yüzünden karakter yediyse hangisini, kaç tane.
+
+    Saftır ve doğrudan test edilir. `None` dönmesi "hasar yok" demektir; fazla
+    karakter yerleşmesi hasar SAYILMAZ (editör kendi imlecini/işaretini eklemiş
+    olabilir), eksik yerleşmesi sayılır.
+    """
+    for karakter in MARKDOWN_SENSITIVE:
+        yazilan = sent.count(karakter)
+        yerlesen = arrived.count(karakter)
+        if yerlesen < yazilan:
+            return f"{karakter!r}: {yazilan} yazıldı, {yerlesen} yerleşti"
+    return None
 
 
 def strip_sent_text(body: str, sent: str) -> str:
