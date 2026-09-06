@@ -54,6 +54,7 @@ from ...core.events import (
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, LessonMemory
 from ...core.model_capability import EditFormat
+from ...core.progress import RoundSignals, progressed
 from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
@@ -864,7 +865,7 @@ async def _drive(
         errored = await _run_tools(
             result.tool_calls, messages, deps, registry, state, execution=execution
         )
-        budget.record_round(progressed=_progress_marker(deps, state) != before)
+        budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
         # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
         state.read_only_rounds = (
             0 if state.mutating_tool_calls_made > 0 else (state.read_only_rounds + 1)
@@ -912,14 +913,37 @@ async def _drive(
             messages.append(reflexion.enough_exploring_note(MAX_READ_ONLY_ROUNDS))
 
 
-def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int]:
+def _round_signals(
+    deps: AgentDeps, state: _State, before: tuple[int, int, int, int]
+) -> RoundSignals:
+    """Turun sinyallerini önceki ölçümle farkını alarak topla.
+
+    İkili "bir şey değişti mi" kararı, başarısız üç çağrıyla hiç çağrı yapmamayı
+    aynı kefeye koyuyordu ve eşiği ayarlamak imkânsızdı. Sinyaller ayrıştırılınca
+    budama kararı ölçülebilir ve ayarlanabilir olur.
+    """
+    simdi = _progress_marker(deps, state)
+    return RoundSignals(
+        mutations=max(0, simdi[1] - before[1]),
+        new_reads=max(0, (simdi[0] - before[0]) - (simdi[1] - before[1])),
+        failures=max(0, simdi[2] - before[2]),
+        repeats=max(0, simdi[3] - before[3]),
+    )
+
+
+def _progress_marker(deps: AgentDeps, state: _State) -> tuple[int, int, int, int]:
     """Turun ilerleyip ilerlemediğini ölçen iki sayı.
 
     Başarılı araç sayısı VE dokunulan dosya sayısı birlikte bakılır: bir tur yalnızca
     okuma yapmış olabilir (dosya sayısı artmaz ama iş yapılmıştır) ya da yalnızca
     yazma (ikisi de artar). İkisi de sabit kaldıysa o turda hiçbir şey olmamıştır.
     """
-    return state.tool_calls_made, len(deps.tool_context.touched)
+    return (
+        state.tool_calls_made,
+        len(deps.tool_context.touched),
+        state.failed_tool_calls,
+        state.already_done_calls,
+    )
 
 
 def _halt(
