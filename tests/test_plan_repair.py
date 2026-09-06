@@ -284,3 +284,58 @@ async def test_adim_kapsami_disindaki_arac_yapi_kapisini_yonlendiremez(tmp_path)
     assert "godot__save_scene" not in dar.tool_context.available_tools
     # Paylaşılan tur durumu KOPYALANMAZ: değişiklik kaydı aynı nesne kalmalı.
     assert dar.tool_context.changes is context.changes
+
+
+def _tool_names(deps):
+    return deps.execution.allowed_tool_names
+
+
+async def test_adim_kapsami_gozlemi_engellemez(tmp_path):
+    """Kapsam YAN ETKİYİ sınırlar, bakmayı değil.
+
+    Ölçüldü (canlı starter koşusu): plan `traceback-okuyup-duzelt` adımını yalnız
+    `shell` ailesiyle açtı; model traceback'i okuyup `read_file` demek istedi ve
+    "araç bu adımın izin verilen kapsamında değil" cevabını aldı. Aynı koşuda
+    `test-ciktisini-okuyup-duzelt` adımında `read_file`, `replace_range` ve
+    `edit_file` birlikte kapalıydı: görev yapılamaz hâle geldi.
+    """
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("kabuk"), allowed_tool_families=("shell",))
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "read_file" in _tool_names(dar)
+    assert "list_dir" in _tool_names(dar)
+
+
+async def test_adimin_kendi_etkisi_kapsam_disinda_birakilmaz(tmp_path):
+    """Plan `files` ailesini yazmayı unutsa da dosya etkisi olan adım yazabilmeli."""
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(
+        _step("duzelt", expected_effects=("file:metin.py",)),
+        allowed_tool_families=("shell",),
+    )
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "write_file" in _tool_names(dar)
+    assert "replace_range" in _tool_names(dar)
+
+
+async def test_kapsam_disi_yan_etki_araci_hala_kapalidir(tmp_path):
+    """Gevşetme yalnız gözlem ve adımın KENDİ etkisine aittir."""
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    # Adım `files` ailesiyle açıldı ve kabuk etkisi bildirmedi: kabuk kapalı kalır.
+    dar = step_deps(
+        _deps(tmp_path), _step("yaz", expected_effects=("file:a.txt",)), remaining=4, observe=False
+    )
+
+    assert "write_file" in _tool_names(dar)
+    assert "run_shell" not in _tool_names(dar)

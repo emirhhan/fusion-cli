@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from ...core.checkpoint import StepCheckpointEvidence
 from ...core.execution_plan import PlanStep
-from ...core.tools import tool_family
+from ...core.tools import ToolFamily, tool_family
 from ...tools import build_registry
 from ..workflow.model import WorkflowBudget
 from .execution_policy import ExecutionPolicy
@@ -39,16 +39,52 @@ def workflow_budget(deps: AgentDeps) -> WorkflowBudget:
     )
 
 
+#: Bildirilen beklenen etkinin ZORUNLU kıldığı araç aileleri.
+#:
+#: Plan ailesini yazmayı unutursa adım kendi etkisini üretemez hâle gelir. Ölçüldü
+#: (canlı starter koşusu): `test-ciktisini-okuyup-duzelt` adımı dosyayı düzeltmesi
+#: gerekirken yalnız `shell` ailesiyle açıldı; `replace_range` ve `edit_file`
+#: kapalıydı ve görev yapılamadı. Adımın kendi sözleşmesi, kapsamının alt sınırıdır.
+_ETKI_AILELERI: dict[str, str] = {
+    "workspace_mutation": ToolFamily.FILES.value,
+    "shell_action": ToolFamily.SHELL.value,
+    "git_commit": ToolFamily.VCS.value,
+    "git_push": ToolFamily.VCS.value,
+}
+
+
+def _effect_families(step: PlanStep) -> set[str]:
+    """Adımın bildirdiği etkiyi üretebilmesi için gereken aileler."""
+    families = set()
+    for effect in step.expected_effects:
+        if effect.startswith("file:"):
+            families.add(ToolFamily.FILES.value)
+            continue
+        aile = _ETKI_AILELERI.get(effect)
+        if aile is not None:
+            families.add(aile)
+    return families
+
+
 def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool) -> AgentDeps:
-    """Adım ailesini gerçek kayıt adlarına çevir; gözlem turunu salt-okunur kıl."""
+    """Adım ailesini gerçek kayıt adlarına çevir; gözlem turunu salt-okunur kıl.
+
+    Kapsam YAN ETKİYİ sınırlar, bakmayı değil: okuma araçları her adımda açıktır.
+    Ölçüldü (canlı starter koşusu): yalnız `shell` ailesiyle açılan adımda model
+    traceback'i okumak için `read_file` çağırdı ve "kapsam dışı" cevabını aldı;
+    başka bir adımda `read_file`, `replace_range` ve `edit_file` birlikte kapalıydı
+    ve görev yapılamaz hâle geldi. Gözlemin yan etkisi yoktur, planın niyetini de
+    ihlal edemez; kapsamın işi bir adımın BAŞKA adımın işini yapmasını önlemektir.
+    """
     policy = getattr(deps, "execution", None) or ExecutionPolicy(is_web=False)
     registry = getattr(deps, "base_registry", None) or build_registry()
+    families = set(step.allowed_tool_families) | _effect_families(step)
     known = ((name, registry.get(name)) for name in registry.names())
     allowed = frozenset(
         name
         for name, tool in known
         if tool is not None
-        and tool_family(name).value in step.allowed_tool_families
+        and (not tool.mutating or tool_family(name).value in families)
         and (not observe or not tool.mutating)
     )
     if policy.allowed_tool_names is not None:
