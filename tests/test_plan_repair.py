@@ -339,3 +339,36 @@ async def test_kapsam_disi_yan_etki_araci_hala_kapalidir(tmp_path):
 
     assert "write_file" in _tool_names(dar)
     assert "run_shell" not in _tool_names(dar)
+
+
+async def test_kabuk_izni_varken_dosya_araclari_kapatilmaz(tmp_path):
+    """Kabuk açıkken dosya düzenlemeyi kapatmak gerçek bir kısıt değildir.
+
+    Ölçüldü (6 Eylül canlı koşusu): plan `test-ciktisini-okuyup-duzelt` adımını
+    yalnız `shell` ailesiyle açtı; `replace_range` ve `edit_file` "kapsam dışı"
+    diye engellendi. Ama `shell` zaten `sed` ile aynı düzenlemeyi yapabilir —
+    kısıt işi engellemiyor, yalnız modeli daha kötü araca itiyor.
+    """
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("duzelt"), allowed_tool_families=("shell",), expected_effects=())
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "run_shell" in dar.execution.allowed_tool_names
+    assert "edit_file" in dar.execution.allowed_tool_names
+    assert "replace_range" in dar.execution.allowed_tool_names
+
+
+async def test_kabuk_izni_yokken_dosya_araclari_kapali_kalir(tmp_path):
+    from dataclasses import replace as _replace
+
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    adim = _replace(_step("oku"), allowed_tool_families=("search",), expected_effects=())
+
+    dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
+
+    assert "edit_file" not in dar.execution.allowed_tool_names

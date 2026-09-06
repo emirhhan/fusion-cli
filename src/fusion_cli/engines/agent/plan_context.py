@@ -80,6 +80,12 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     policy = getattr(deps, "execution", None) or ExecutionPolicy(is_web=False)
     registry = getattr(deps, "base_registry", None) or build_registry()
     families = set(step.allowed_tool_families) | _effect_families(step)
+    # Kabuk açıkken dosya düzenlemeyi kapatmak GERÇEK bir kısıt değildir: `sed` ile
+    # aynı değişiklik zaten yapılabilir. Ölçüldü (6 Eylül): yalnız `shell` ailesiyle
+    # açılan adımda `edit_file` ve `replace_range` engellendi; kısıt işi engellemedi,
+    # modeli daha kötü ve denetlenmesi zor araca itti.
+    if ToolFamily.SHELL.value in families:
+        families.add(ToolFamily.FILES.value)
     known = ((name, registry.get(name)) for name in registry.names())
     allowed = frozenset(
         name
