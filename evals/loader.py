@@ -19,7 +19,7 @@ from fusion_cli.core.errors import EvalError
 _CRITERION_FIELDS: dict[CriterionKind, tuple[str, str]] = {
     CriterionKind.EXIT_CODE: ("expected_exit_code", "int"),
     CriterionKind.FILE_CHANGED: ("expected_path", "str"),
-    CriterionKind.KEYWORD: ("keyword", "str"),
+    CriterionKind.KEYWORD: ("keyword", "str|list"),
 }
 
 
@@ -109,4 +109,16 @@ def _parse_criterion(raw: object) -> SuccessCriterion:
         )
     if field == "expected_path":
         return SuccessCriterion(kind=kind, expected_path=str(value))
-    return SuccessCriterion(kind=kind, keyword=str(value))
+    return _parse_keyword(kind, value)
+
+
+def _parse_keyword(kind: CriterionKind, value: object) -> SuccessCriterion:
+    """`keyword` tek bir metin ya da eşdeğerler listesi olabilir."""
+    if isinstance(value, str):
+        return SuccessCriterion(kind=kind, keyword=value)
+    if isinstance(value, list):
+        kelimeler = tuple(str(kelime) for kelime in value if str(kelime))
+        if not kelimeler:
+            raise EvalError("keyword listesi boş olamaz")
+        return SuccessCriterion(kind=kind, keyword=kelimeler[0], alternatives=kelimeler[1:])
+    raise EvalError(f"keyword bir metin ya da metin listesi olmalı: {value!r}")

@@ -773,3 +773,61 @@ def test_rapor_kararsiz_gorevleri_ozette_bildirir():
     assert payload["summary"]["unstable_tasks"] == ["kararsiz"]
     assert payload["results"][0]["stable"] is True
     assert payload["results"][1]["stable"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Anahtar kelime eşdeğerleri
+# --------------------------------------------------------------------------- #
+
+
+def _execution(text: str) -> TaskExecution:
+    return TaskExecution(task_id="t", output_text=text)
+
+
+def test_keyword_esdegerlerinden_biri_yeterlidir():
+    """Ölçüt davranışı ölçer, tek bir Türkçe çekimi değil.
+
+    Ölçüldü: "bu adrese erişilemez" diyen DOĞRU cevap, "erişe" anahtarını
+    tutturamadığı için üç koşunun üçünde de başarısız sayılıyordu.
+    """
+    criterion = SuccessCriterion(
+        kind=CriterionKind.KEYWORD, keyword="erişe", alternatives=("erişilemez",)
+    )
+
+    assert evaluate_criterion(criterion, _execution("bu adrese erişilemez"))
+    assert evaluate_criterion(criterion, _execution("siteye erişemedim"))
+
+
+def test_keyword_esdegerleri_uydurmayi_gecirmez():
+    criterion = SuccessCriterion(
+        kind=CriterionKind.KEYWORD, keyword="erişe", alternatives=("erişilemez",)
+    )
+
+    assert not evaluate_criterion(criterion, _execution("siteyi kopyaladım, hazır"))
+
+
+def test_keyword_listesi_yaml_dan_okunur(tmp_path):
+    yol = tmp_path / "set.yaml"
+    yol.write_text(
+        "tasks:\n"
+        "  - id: t\n"
+        "    request: iş\n"
+        "    criterion: {kind: keyword, keyword: [ilk, ikinci]}\n",
+        encoding="utf-8",
+    )
+
+    criterion = load_tasks(yol)[0].criterion
+
+    assert criterion.keyword == "ilk"
+    assert criterion.alternatives == ("ikinci",)
+
+
+def test_bos_keyword_listesi_reddedilir(tmp_path):
+    yol = tmp_path / "set.yaml"
+    yol.write_text(
+        "tasks:\n  - id: t\n    request: iş\n    criterion: {kind: keyword, keyword: []}\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(EvalError, match="boş olamaz"):
+        load_tasks(yol)

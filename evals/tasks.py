@@ -38,6 +38,13 @@ class SuccessCriterion:
     expected_path: str | None = None
     #: KEYWORD için çıktıda aranan metin.
     keyword: str | None = None
+    #: KEYWORD için kabul edilen EŞDEĞER ifadeler; herhangi biri yeterlidir.
+    #
+    # Ölçüldü: "erişe" anahtarı, "bu adrese erişilemez" diyen DOĞRU cevabı
+    # başarısız sayıyordu — ölçüt davranışı değil, tek bir Türkçe çekimi test
+    # ediyordu. Eşdeğerler, ölçütü gevşetmeden aynı davranışın farklı
+    # ifadelerini kapsar.
+    alternatives: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

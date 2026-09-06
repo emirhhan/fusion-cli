@@ -20,8 +20,8 @@ def evaluate_criterion(criterion: SuccessCriterion, execution: TaskExecution) ->
         return criterion.expected_path in execution.changed_files
 
     if criterion.kind is CriterionKind.KEYWORD:
-        keyword = criterion.keyword or ""
-        return keyword in execution.output_text
+        aranan = (criterion.keyword or "", *criterion.alternatives)
+        return any(kelime in execution.output_text for kelime in aranan if kelime)
 
     # Enum kapsamı yukarıda tükendi; buraya düşmek imkânsız olmalı.
     raise AssertionError(f"bilinmeyen ölçüt türü: {criterion.kind!r}")
