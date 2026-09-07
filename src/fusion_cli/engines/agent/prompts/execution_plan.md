@@ -32,6 +32,15 @@ Kurallar:
   güvenli araç yolundan gerçekten çalıştığını denetler.
 - Hata düzeltmede `reproduction` kullan: `target` testi çalıştıran komuttur; komut
   düzeltmeden önce (kırmızı) ve sonra (yeşil) aynı adımda çalışmalıdır.
+- Bir adım dosya üretiyorsa yolu `expected_effects` içine `file:<yol>` olarak yaz ve
+  o adımın dosya kontrollerinde AYNI yolu hedef göster. İki farklı yol iddia eden
+  plan reddedilir; adım hangisini üretirse üretsin öteki düşer.
+- Kontrol hedefi bir TAHMİN değil, adımın uyacağı sözleşmedir: adıma birebir bu yol
+  bildirilir. Var olmayan bir klasör yapısını uydurma; görevde ya da depoda geçen
+  yolu kullan.
+- Bir adımın hedefi, o adıma verdiğin `allowed_tool_families` ile YAPILABİLİR olmalı.
+  Ağdan içerik gerekiyorsa `web` ailesini ver; veremiyorsan o adımı planlama ve işi
+  mevcut araçlarla yapılabilecek biçimde kur (örneğin varlığı koddan üret).
 - Alanları ŞEMADAKİ gibi yaz: listeler liste, her adımda `retry_safety` olsun.
 - Dış dünyada yinelenmesi riskli işlemleri `never`, önce durum okunması gerekenleri
   `observe_first`, güvenle yinelenebilenleri `safe` olarak işaretle.

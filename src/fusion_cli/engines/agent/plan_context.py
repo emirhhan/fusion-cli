@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.checkpoint import StepCheckpointEvidence
-from ...core.execution_plan import PlanStep
+from ...core.execution_plan import PlanStep, VerificationCheck, VerificationCheckKind
 from ...core.tools import ToolContext, ToolFamily, tool_family
 from ...tools import build_registry
 from ..workflow.model import WorkflowBudget
@@ -131,6 +131,54 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     )
 
 
+def measurement_block(step: PlanStep) -> str:
+    """Kapının BİREBİR bakacağı hedefleri adım istemine yaz.
+
+    Ölçüldü (7 Eylül canlı Godot koşusu, `game-manager-eksiklerini-tamamla`):
+    plan adıma `scripts/game_manager.gd` hedefli bir kontrol iliştirdi; adım
+    istemi ise yalnız başarı koşulunun METNİNİ taşıyordu. Model işi yaptı ama
+    dosyayı başka bir ada yazdı, kapı tahmin edilen yola baktı ve "kontrol
+    hedefi dosya bulunamadı" ile düştü. Üç deneme de aynı duvara çarptı.
+
+    Hedefler plan yazılırken, yani depo keşfedilmeden ÜRETİLİR; adımın onları
+    görmemesi ölçümü kör bir bilmeceye çevirir. Blok yalnız hedefleri taşır,
+    içerik taşımaz.
+    """
+    satirlar: list[str] = []
+    for effect in step.expected_effects:
+        if effect.startswith("file:"):
+            _ekle(satirlar, f"- dosya: {effect.removeprefix('file:').strip()}")
+    for check in step.verification_checks:
+        _ekle(satirlar, _check_line(check))
+    if not satirlar:
+        return ""
+    return (
+        "ÖLÇÜLECEK KANIT (kapı birebir buna bakar):\n"
+        + "\n".join(satirlar)
+        + "\nYollar ve adlar birebir bunlar olmalı; başka bir ada ya da klasöre "
+        "yazarsan adım düşer. Hedef yanlış görünüyorsa dosyayı doğru yola TAŞI.\n\n"
+    )
+
+
+def _ekle(satirlar: list[str], satir: str) -> None:
+    """Aynı hedefi iki kez yazma: `file:` etkisi ve kontrol çoğu kez aynıdır."""
+    if satir and satir not in satirlar:
+        satirlar.append(satir)
+
+
+def _check_line(check: VerificationCheck) -> str:
+    """Tek kontrolü, modelin uygulayabileceği tek satırlık kontrata çevir."""
+    if check.kind is VerificationCheckKind.FILE_EXISTS:
+        return f"- dosya: {check.target}"
+    if check.kind is VerificationCheckKind.FILE_CONTAINS:
+        return f"- dosya: {check.target} (içinde birebir geçmeli: {check.expected})"
+    if check.kind is VerificationCheckKind.COMMAND:
+        return f"- komut: {check.target} (bu adımda gerçekten çalıştırılmalı)"
+    if check.kind is VerificationCheckKind.TOOL:
+        return f"- araç çağrısı: {check.target} ({check.expected})"
+    return ""
+
+
 def step_prompt(
     task: str,
     step: PlanStep,
@@ -145,7 +193,8 @@ def step_prompt(
         f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
         + "\n".join(f"- {criterion}" for criterion in step.success_criteria)
         + f"\n\nDOĞRULAMA İPUCU:\n{step.verification_hint}\n\n"
-        "Yalnızca bu adımı tamamla. Sonuçta yaptığını ve gözlediğin kanıtı açıkça yaz."
+        + measurement_block(step)
+        + "Yalnızca bu adımı tamamla. Sonuçta yaptığını ve gözlediğin kanıtı açıkça yaz."
     )
 
 

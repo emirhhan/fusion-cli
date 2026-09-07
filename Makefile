@@ -46,7 +46,8 @@ test:
 # yeniden adlandırılırsa `deadlock` hedefi "no tests ran" ile kırılır; `test`
 # hedefinde bu sessizce kaybolurdu.
 DEADLOCK_SUITES := tests/test_deadlock_property.py tests/test_gate_matrix.py \
-                   tests/test_web_build_runs.py tests/test_eval_criteria_sound.py
+                   tests/test_web_build_runs.py tests/test_eval_criteria_sound.py \
+                   tests/test_measured_is_told.py
 
 deadlock:
 	$(PYTEST) $(DEADLOCK_SUITES)

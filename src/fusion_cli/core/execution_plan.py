@@ -123,6 +123,42 @@ def _find_cycle(steps: tuple[PlanStep, ...]) -> tuple[str, ...] | None:
     return None
 
 
+#: Dosya durumunu ölçen kontrol türleri.
+_FILE_CHECKS = frozenset({VerificationCheckKind.FILE_EXISTS, VerificationCheckKind.FILE_CONTAINS})
+
+
+def _declared_files(step: PlanStep) -> tuple[str, ...]:
+    """Adımın ÜRETMEYİ vaat ettiği dosya yolları."""
+    return tuple(
+        effect.removeprefix("file:").strip()
+        for effect in step.expected_effects
+        if effect.startswith("file:")
+    )
+
+
+def _target_conflicts(step: PlanStep, check: VerificationCheck) -> tuple[str, ...]:
+    """Adımın vaat ettiği yol ile ölçülen yol çelişiyor mu.
+
+    Ölçüldü (7 Eylül canlı Godot koşusu, `game-manager-eksiklerini-tamamla`):
+    beklenen etki bir yolu, kontrol başka bir yolu gösteriyordu. Adım hangisini
+    üretirse üretsin öteki düşüyordu ve hiçbir deneme bunu düzeltemezdi.
+
+    Vaat HİÇ yoksa çelişki de yok: mevcut bir dosyayı düzenleyen adım `file:`
+    etkisi bildirmek zorunda değildir. Çelişki yalnız İKİ farklı yol iddia
+    edildiğinde doğar ve düzeltmesi planlayıcıya aittir.
+    """
+    if check.kind not in _FILE_CHECKS:
+        return ()
+    declared = _declared_files(step)
+    if not declared or check.target.strip() in declared:
+        return ()
+    return (
+        f"Plan adımı '{step.step_id}' iki farklı dosya yolu iddia ediyor: "
+        f"beklenen etki {', '.join(declared)}, kontrol hedefi {check.target}. "
+        "İkisi aynı yolu göstermeli.",
+    )
+
+
 def validate_plan(plan: ExecutionPlan) -> PlanValidation:
     """Planın temel alanlarını ve yönsüz olmayan bağımlılık grafiğini doğrula."""
     errors: list[str] = []
@@ -145,6 +181,7 @@ def validate_plan(plan: ExecutionPlan) -> PlanValidation:
                 )
             if not check.target.strip():
                 errors.append(f"Plan adımı '{step.step_id}' boş doğrulama hedefi içeriyor.")
+            errors.extend(_target_conflicts(step, check))
             if (
                 check.kind
                 in {
