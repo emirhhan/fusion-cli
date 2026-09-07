@@ -108,6 +108,20 @@ class _PlanRun:
     def remaining(self, envelope: BudgetEnvelope, scope: str = "") -> int:
         return max(0, self.limits.limit_for(envelope) - self.ledger.used(envelope, scope=scope))
 
+    def forget_rolled_back(self, paths: tuple[Path, ...]) -> None:
+        """Geri alınan yazmaları tekrar kaydından da düş.
+
+        Geri alma diski ESKİ hâline döndürür; o hâlde aynı düzenlemeyi yeniden
+        istemek tekrar DEĞİLDİR, tek çıkış yoludur. İki kapı birbirini kilitliyordu:
+        doğrulaması düşen adımın doğru düzenlemesi geri alınıyor, model aynı
+        düzenlemeyi yineleyince tekrar kapısı "bunu zaten yaptın" diyordu.
+        """
+        if not paths:
+            return
+        butce = getattr(self.deps, "budget", None)
+        if butce is not None:
+            butce.forget_calls_touching(paths)
+
     def progress(self) -> None:
         """Doğrulama kapısı çalıştı: idle saatini tazele.
 
@@ -396,7 +410,7 @@ class _PlanRun:
             try:
                 verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)
             except BaseException:
-                geri_alma.discard()
+                self.forget_rolled_back(geri_alma.discard())
                 raise
             if verification.ok:
                 self.deps.tool_context.changes.absorb(turn_deps.tool_context.changes)
@@ -404,7 +418,11 @@ class _PlanRun:
                 return None
             # Düşen deneme diske yarım durum bırakmamalı: sonraki deneme kendi
             # hatasıyla değil öncekinin enkazıyla uğraşıyordu (ölçüldü, Godot koşusu).
-            geri_alma.discard()
+            #
+            # Geri alınan yazmalar tekrar kaydından da düşmelidir: aksi halde model
+            # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
+            # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
+            self.forget_rolled_back(geri_alma.discard())
             recovery = choose_recovery(
                 classify_failure(outcome, verification), running, running.attempts
             )

@@ -23,8 +23,10 @@ Modül saftır: yapılandırma okumaz, olay yayınlamaz, saati `Clock` üzerinde
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 
 from .protocols import Clock
 
@@ -80,6 +82,12 @@ class TurnBudget:
     #: Başarılı her değiştirici araçtan sonra artar; tekrar imzasını tazeler.
     mutation_epoch: int = 0
     seen_calls: dict[CallSignature, int] = field(default_factory=dict)
+    #: Değiştirici olarak üretilmiş imzalar.
+    #
+    # Çağ değerine bakarak ayırmak yanlıştı: tur başında çağ 0'dır ve OKUMA
+    # imzaları da 0 taşır; geri alma sonrası unutma o yüzden okumaları da
+    # siliyordu (test yakaladı).
+    mutating_signatures: set[CallSignature] = field(default_factory=set)
     #: Bu turda DÜŞEN çağrıların imzaları. Başarılı bir değişiklikten sonra
     #: unutulurlar: düşme sebebi ortadan kalkmış olabilir.
     failed_signatures: set[CallSignature] = field(default_factory=set)
@@ -211,7 +219,10 @@ class TurnBudget:
         durumda tekrardır. Okuma araçlarında güncel çağ kullanılır, çünkü çalışma
         alanı değiştikten sonra aynı dosyayı yeniden okumak yeni bilgi getirir.
         """
-        return (name, encoded_arguments, 0 if mutating else self.mutation_epoch)
+        imza = (name, encoded_arguments, 0 if mutating else self.mutation_epoch)
+        if mutating:
+            self.mutating_signatures.add(imza)
+        return imza
 
     def count_call(self, signature: CallSignature) -> int:
         """İmzayı kaydet ve BU çağrıdan ÖNCE kaç kez görüldüğünü döndür."""
@@ -246,6 +257,28 @@ class TurnBudget:
         # DÜŞTÜ. Bir azaltmak, iki kez denenmiş bir çağrıyı hâlâ engelli
         # bırakırdı (değiştirici araçlarda sınır zaten 1'dir).
         self.seen_calls.pop(signature, None)
+
+    def forget_calls_touching(self, paths: Iterable[Path]) -> None:
+        """Geri alınan dosyalara dokunan DEĞİŞTİRİCİ çağrıları yapılmamış say.
+
+        Ölçüldü (7 Eylül, 42 görevlik set): adım `replace_range` ile doğru
+        düzeltmeyi yazdı, kabuk çıktısı bile doğruladı; adım doğrulaması düşünce
+        yazma geri alındı ve model AYNI doğru düzenlemeyi tekrar denediğinde
+        `TOOL_CALL_DUPLICATE` ile engellendi. Engelin gerekçesi "çalışma alanında
+        o zamandan beri ilgili bir değişiklik olmadı" idi — oysa değişiklik BİZ
+        geri aldığımız için yoktu. Doğru hamle tam da tekrarlanması gereken
+        hamleydi; görev bu ölü kilitle düştü.
+
+        Yalnız değiştirici imzalar unutulur: onların imzası çağa duyarsızdır
+        (daima 0) ve kendiliğinden asla çözülmez. Okuma çağrıları güncel çağı
+        taşıdığı için zaten kendiliğinden serbest kalır.
+        """
+        aranan = {str(path) for path in paths}
+        aranan |= {path.name for path in paths}
+        for imza in [i for i in self.seen_calls if i in self.mutating_signatures]:
+            if any(parca and parca in imza[1] for parca in aranan):
+                self.seen_calls.pop(imza, None)
+                self.failed_signatures.discard(imza)
 
     def record_mutation(self) -> None:
         """Başarılı bir değiştirici araç çalıştı: çalışma alanı ilerledi.
