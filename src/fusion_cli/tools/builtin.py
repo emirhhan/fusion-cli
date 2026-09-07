@@ -79,8 +79,10 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="replace_range",
         description="TERCİH EDİLEN kısmi düzenleme aracı. Önce read_file ile ilgili "
-        "satırları oku; sonra 1-tabanlı start_line..end_line aralığını yalnızca YENİ "
-        "içerikle değiştir. Eski kodu tekrar göndermezsin; whitespace eşleşmesi gerekmez. "
+        "satırları oku; sonra 1-tabanlı start_line..end_line aralığı SİLİNİR ve yerine "
+        "'new' yazılır. Whitespace eşleşmesi gerekmez. EKLEME yapıyorsan: son satırı "
+        "aralığa al ve 'new' içinde o satırı AYNEN tekrar edip altına yeni kodu yaz — "
+        "aksi hâlde var olan kodu silersin. "
         "Dosya okunduktan sonra değişmişse güvenli biçimde reddedilir ve yeniden okuman istenir.",
         parameters=_schema(
             {
@@ -95,7 +97,8 @@ _TOOLS: tuple[Tool, ...] = (
                 },
                 "new": {
                     **_STRING,
-                    "description": "Aralığın yerine gelecek YENİ içerik. Eski içeriği gönderme.",
+                    "description": "Aralığın yerine yazılacak içeriğin TAMAMI. Aralıkta "
+                    "kalmasını istediğin satırları da buraya yaz: aralık tamamen silinir.",
                 },
             },
             ["path", "start_line", "end_line", "new"],
