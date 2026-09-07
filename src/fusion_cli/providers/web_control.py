@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from ..config.keys import environ_snapshot
 from ..config.models import Config, WebSessionConfig
+from ..core.types import ModelSpec
 from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
 
 if TYPE_CHECKING:  # pragma: no cover - yalnız tip denetimi
@@ -163,7 +164,52 @@ def register_session(
         write_web_sessions(yeni)
     except Exception as error:  # ConfigError ve OSError türevleri
         return None, {"ok": False, "metin": f"Oturum kaydedilemedi: {error}"}
-    return yeni, {"ok": True, "model": model, "metin": "Oturum kaydedildi."}
+    yeni, yonlendirme = _route_roles_if_idle(yeni, model)
+    metin = "Oturum kaydedildi." if not yonlendirme else f"Oturum kaydedildi; {yonlendirme}"
+    return yeni, {"ok": True, "model": model, "metin": metin}
+
+
+def _route_roles_if_idle(config: Config, model: str) -> tuple[Config, str]:
+    """Çalışan başka sağlayıcı yoksa rolleri bu oturuma bağla.
+
+    Ölçüldü (7 Eylül): kullanıcı Gemini web'e giriş yapıyor, oturum yazılıyor ve
+    panel "bağlı" diyor — ama agent/hakem/aday zincirleri hâlâ API anahtarı
+    isteyen modelleri gösteriyor ve `fusion doctor` "hazır değil" diyordu. Ürünün
+    kimliği ücretsiz modellerle çalışmaktır; giriş yaptıktan sonra kullanıcının
+    yapılandırmayı elle düzeltmesi beklenemez.
+
+    Yönlendirme YALNIZCA hiçbir rol çalışmıyorken yapılır: anahtarı olan
+    kullanıcının kurduğu zincir sessizce değiştirilmez. Zincirler DEĞİŞTİRİLMEZ,
+    web modeli başa EKLENİR — kullanıcı sonradan anahtar eklerse eski modeller
+    yedek olarak yerinde kalır.
+    """
+    from dataclasses import replace as _replace
+
+    from ..config.keys import detect
+    from ..config.readiness import evaluate
+    from ..config.writer import write_model_section
+
+    anahtarlar = detect()
+    if evaluate(config, anahtarlar).agent_ok:
+        return config, ""
+
+    def onde(spec: ModelSpec) -> ModelSpec:
+        if spec.models and spec.models[0] == model:
+            return spec
+        return _replace(spec, model=model, fallback=tuple(spec.models))
+
+    yonlendirilmis = _replace(
+        config,
+        agent=onde(config.agent),
+        judge=onde(config.judge),
+        candidates=tuple(onde(spec) for spec in config.candidates) or (onde(config.agent),),
+    )
+    try:
+        write_model_section(yonlendirilmis)
+    except Exception:
+        # Yönlendirme bir KOLAYLIKTIR; yazılamazsa oturum yine de kayıtlıdır.
+        return config, ""
+    return yonlendirilmis, f"roller {model} modeline bağlandı."
 
 
 def remove_session(
