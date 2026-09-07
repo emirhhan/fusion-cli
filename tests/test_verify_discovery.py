@@ -251,7 +251,9 @@ def test_godot_kapisi_hizli_kapida_da_bulunur(tmp_path):
 
 def test_godot_projesinde_davranis_kapisi_yoktur(tmp_path):
     """Godot kapısı projeyi AÇAR; oyunu oynatmaz. Davranış kanıtı sayılmaz."""
-    (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
+    (tmp_path / "project.godot").write_text(
+        '[application]\nrun/main_scene="res://ana.tscn"\n', encoding="utf-8"
+    )
 
     assert discover_commands(tmp_path) == ("godot --headless --path . --quit",)
     assert behavioral_commands(tmp_path) == ()

@@ -99,7 +99,12 @@ _TOOLING_SUBCOMMANDS = frozenset(
 #: Sınır dar tutulur: `--headless` ZORUNLUDUR ve yalnız aşağıdaki bayraklar geçer.
 #: Dışa aktarma (`--export-*`), betik çalıştırma (`--script`) ya da başsız olmayan
 #: çağrı onay ister.
-_GODOT_VERIFY_FLAGS = frozenset({"--headless", "--path", "--quit", "--quit-after", "--verbose"})
+#: `--editor`, projeyi kurulum aşamasında AÇIP kapatan kapının bayrağıdır: ölçüldü,
+#: ana sahne tanımlanmadan `--quit` ve `--quit-after` dönmüyor, `--editor --quit`
+#: sıfır çıkışla dönüyor. İçe aktarma önbelleği yazar, projeyi değiştirmez.
+_GODOT_VERIFY_FLAGS = frozenset(
+    {"--headless", "--path", "--quit", "--quit-after", "--verbose", "--editor"}
+)
 
 #: Onaysız geçilen git alt komutları — TEK KAYNAK.
 #:

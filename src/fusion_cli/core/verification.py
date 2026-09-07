@@ -12,6 +12,14 @@ from typing import Protocol
 
 from .evidence import CriterionEvidence
 
+#: Zaman aşımına uğrayan kapı bulgusunun ortak öneki — TEK KAYNAK.
+#
+# Bulgu metnini hem üreten (`engines/agent/verification.py`) hem de baseline ile
+# karşılaştıran (`engines/agent/step_verification.py`) taraf aynı biçimi bilmek
+# zorunda; iki yerde yazılsaydı biri değiştiğinde karşılaştırma sessizce kör
+# kalırdı.
+TIMEOUT_FINDING_PREFIX = "komut zaman aşımına uğradı"
+
 
 @dataclass(frozen=True, slots=True)
 class VerificationResult:

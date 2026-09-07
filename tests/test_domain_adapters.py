@@ -28,8 +28,12 @@ def test_godot_disi_proje_adaptor_uretmez(tmp_path):
     assert adapter_for(tmp_path) is None
 
 
-def test_godot_kapisi_bassiz_dogrulama_komutudur():
-    komutlar = godot_adapter().gate_commands()
+def test_godot_kapisi_bassiz_dogrulama_komutudur(tmp_path):
+    (tmp_path / "project.godot").write_text(
+        '[application]\nrun/main_scene="res://ana.tscn"\n', encoding="utf-8"
+    )
+
+    komutlar = godot_adapter().gate_commands(tmp_path)
 
     assert komutlar == ("godot --headless --path . --quit",)
 

@@ -192,7 +192,7 @@ def _godot(root: Path) -> tuple[str, ...]:
     oynamak değildir. `--headless` ekran istemez, sunucuda da çalışır.
     """
     adaptor = godot_adapter()
-    return adaptor.gate_commands() if adaptor.matches(root) else ()
+    return adaptor.gate_commands(root) if adaptor.matches(root) else ()
 
 
 def _rust(root: Path) -> tuple[str, ...]:

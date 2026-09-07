@@ -29,7 +29,12 @@ from ...core.evidence import (
 )
 from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
-from ...core.verification import JavaScriptSyntaxChecker, VerificationResult, Verifier
+from ...core.verification import (
+    TIMEOUT_FINDING_PREFIX,
+    JavaScriptSyntaxChecker,
+    VerificationResult,
+    Verifier,
+)
 from .browser_verify import BrowserVerifier
 from .domains import godot_adapter
 from .javascript_verify import (
@@ -311,7 +316,7 @@ class CommandVerifier:
             process.kill()
             await process.wait()
             okuyucu.cancel()
-            detay = f"komut zaman aşımına uğradı ({self._timeout_s}s): {command}"
+            detay = f"{TIMEOUT_FINDING_PREFIX} ({self._timeout_s}s): {command}"
             onceki = _tail(bytes(tampon)).strip()
             if onceki:
                 detay = f"{detay}\nAsılmadan önce şunu söyledi:\n{onceki}"
@@ -324,7 +329,7 @@ class CommandVerifier:
                         criterion_id=command,
                         kind=VerificationCheckKind.COMMAND,
                         status=EvidenceStatus.FAILED,
-                        summary="komut zaman aşımına uğradı",
+                        summary=TIMEOUT_FINDING_PREFIX,
                         command=command,
                         output=onceki,
                     ),

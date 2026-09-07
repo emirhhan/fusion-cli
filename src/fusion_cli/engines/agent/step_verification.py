@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from ...core.cross_file import scene_script_conflicts
@@ -17,7 +17,8 @@ from ...core.execution_plan import (
     VerificationCheck,
     VerificationCheckKind,
 )
-from ...core.verification import VerificationResult
+from ...core.file_lookup import locate_by_name
+from ...core.verification import TIMEOUT_FINDING_PREFIX, VerificationResult
 from .reproduction import evaluate_reproduction
 from .verify_discovery import behavioral_commands
 
@@ -241,6 +242,24 @@ def _evaluate_check(
     )
 
 
+def _missing_target_summary(root: Path, target: str) -> str:
+    """Eksik hedefi, tek hamlede düzeltilebilir bir yönergeye çevir.
+
+    Ölçüldü (7 Eylül canlı Godot koşusu): kapı "kontrol hedefi dosya bulunamadı"
+    dedi ve sustu. Aynı adlı dosya depo kökünde DURUYORDU; model onu taşımak
+    yerine iki kez yeniden üretti ve kurtarma hakkı tükendi. Bulgu, kurtarma
+    yönergesine olduğu gibi taşınır — orada yön yoksa deneme de yönsüzdür.
+    """
+    yerler = locate_by_name(root, PurePosixPath(target).name)
+    if not yerler:
+        return "kontrol hedefi dosya bulunamadı"
+    return (
+        "kontrol hedefi dosya bulunamadı; aynı adlı dosya burada: "
+        + ", ".join(yerler)
+        + f" — yeniden üretme, {target} yoluna TAŞI"
+    )
+
+
 def evaluate_file_check(
     check: VerificationCheck, root: Path, *, step_mutates: bool = True
 ) -> CriterionEvidence:
@@ -270,7 +289,7 @@ def evaluate_file_check(
             check.criterion_id,
             check.kind,
             EvidenceStatus.FAILED if step_mutates else EvidenceStatus.UNVERIFIED,
-            "kontrol hedefi dosya bulunamadı"
+            _missing_target_summary(root, check.target)
             if step_mutates
             else "adım dosya üretmeyi vaat etmedi; kontrol hedefi yok",
             artifact=check.target,
@@ -365,6 +384,29 @@ def _criterion_evidence(
     return tuple(results)
 
 
+def new_findings(current: tuple[str, ...], baseline: tuple[str, ...]) -> tuple[str, ...]:
+    """Bu adımın EKLEDİĞİ bulguları ayıkla; zaten düşen kapıyı adıma yazma.
+
+    Ölçüldü (7 Eylül canlı Godot koşusu, `project-setup`): asılan kapının bulgusu
+    "asılmadan önce şunu söyledi:" kuyruğunu taşıyor ve kuyruk her koşuda birebir
+    aynı olmuyor. Birebir metin karşılaştırması aynı kapıyı, aynı sebeple düşerken
+    "yeni kırılma" saydı ve adımı öldürdü.
+
+    Gevşetme YALNIZ zaman aşımına özeldir: orada değişen şey kapının kararı değil,
+    asılmadan önce yetişen çıktıdır. Çalışıp başarısız olan komutta çıktı ADIMIN
+    eseridir ve birebir karşılaştırılır — yoksa yeni kırılmalar gizlenirdi.
+    """
+    onceden = {_finding_key(item) for item in baseline}
+    return tuple(item for item in current if _finding_key(item) not in onceden)
+
+
+def _finding_key(finding: str) -> str:
+    """Bulgunun kimliği: zaman aşımında komut satırı, diğerlerinde metnin tamamı."""
+    if finding.startswith(TIMEOUT_FINDING_PREFIX):
+        return finding.splitlines()[0].strip()
+    return finding
+
+
 async def verify_step(
     step: PlanStep,
     outcome: AgentOutcome,
@@ -428,10 +470,9 @@ async def verify_step(
         if verification.ok:
             evidence.append("proje doğrulama kapısı geçti")
         else:
-            onceden = set(baseline)
-            yeni = tuple(bulgu for bulgu in verification.findings if bulgu not in onceden)
-            if not yeni and verification.summary and verification.summary not in onceden:
-                yeni = (verification.summary,)
+            yeni = new_findings(verification.findings, baseline)
+            if not yeni and verification.summary:
+                yeni = new_findings((verification.summary,), baseline)
             if yeni:
                 findings.extend(yeni)
             else:
