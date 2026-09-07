@@ -189,10 +189,11 @@ def _evaluate_check(
     root: Path,
     outcome: AgentOutcome,
     verification: VerificationResult | None,
+    step_mutates: bool = True,
 ) -> CriterionEvidence:
     """Tek kontrolü yürüt; yeni komut başlatmadan yalnız mevcut kanıtı tüket."""
     if check.kind in {VerificationCheckKind.FILE_EXISTS, VerificationCheckKind.FILE_CONTAINS}:
-        return evaluate_file_check(check, root)
+        return evaluate_file_check(check, root, step_mutates=step_mutates)
 
     if check.kind is VerificationCheckKind.REPRODUCTION:
         # Hatayı gösteren test: kanıt İKİ parçalıdır (önce kırmızı, sonra yeşil).
@@ -240,8 +241,21 @@ def _evaluate_check(
     )
 
 
-def evaluate_file_check(check: VerificationCheck, root: Path) -> CriterionEvidence:
-    """Dosya kontrolünü gerçek artifact üzerinde yeniden ölç."""
+def evaluate_file_check(
+    check: VerificationCheck, root: Path, *, step_mutates: bool = True
+) -> CriterionEvidence:
+    """Dosya kontrolünü gerçek artifact üzerinde yeniden ölç.
+
+    `step_mutates=False` iken eksik dosya BAŞARISIZLIK değil, doğrulanamamış
+    kontroldür. Ölçüldü (7 Eylül, `mevcut-projeye-uy`): plan bir KEŞİF adımı
+    üretti ("projeyi incele"), adımın hiçbir dosya yazma vaadi yoktu ama plan ona
+    bir `file_exists` kontrolü iliştirdi ve hedefi yanlıştı. Kontrol düştü, adım
+    bloklandı, kurtarma hakkı tükendi ve TÜM koşu öldü — üstelik asıl düzenleme
+    adımı doğru çalışıyordu.
+
+    Bir adım üretmeyi VAAT ETMEDİĞİ bir dosyanın yokluğundan sorumlu tutulamaz.
+    Planın tutarsız kontrolü, adımın hatası sayılmaz.
+    """
     path = _safe_effect_path(root, check.target)
     if path is None:
         return CriterionEvidence(
@@ -255,8 +269,10 @@ def evaluate_file_check(check: VerificationCheck, root: Path) -> CriterionEviden
         return CriterionEvidence(
             check.criterion_id,
             check.kind,
-            EvidenceStatus.FAILED,
-            "kontrol hedefi dosya bulunamadı",
+            EvidenceStatus.FAILED if step_mutates else EvidenceStatus.UNVERIFIED,
+            "kontrol hedefi dosya bulunamadı"
+            if step_mutates
+            else "adım dosya üretmeyi vaat etmedi; kontrol hedefi yok",
             artifact=check.target,
         )
     if check.kind is VerificationCheckKind.FILE_EXISTS:
@@ -308,6 +324,9 @@ def _criterion_evidence(
     verification: VerificationResult | None,
 ) -> tuple[CriterionEvidence, ...]:
     """Her başarı koşulunu bağlı kontrollerle değerlendir."""
+    step_mutates = "workspace_mutation" in step.expected_effects or any(
+        effect.startswith("file:") for effect in step.expected_effects
+    )
     results: list[CriterionEvidence] = []
     for criterion in step.success_criteria:
         checks = tuple(
@@ -332,6 +351,7 @@ def _criterion_evidence(
                 root=root,
                 outcome=outcome,
                 verification=verification,
+                step_mutates=step_mutates,
             )
             for check in checks
         )
