@@ -141,8 +141,9 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
         # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
         return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Yolu list_dir ya da "
-            "glob ile doğrula; dosyanın oluşturulması gerekiyorsa write_file kullan."
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+            "Yolu list_dir ya da glob ile doğrula; dosyanın oluşturulması gerekiyorsa "
+            "write_file kullan."
         )
     if path.is_dir():
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
@@ -247,9 +248,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # dosyayla baş başa bırakırdı: ölçülen vakada tur "tamamlandı" derken
         # Godot projesi hiç açılmıyordu. Reddetmek önceki iyi durumu korur ve
         # modele düzeltme şansı verir.
-        return ToolResult.failure(
-            f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}"
-        )
+        return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}")
     path.parent.mkdir(parents=True, exist_ok=True)
     context.changes.record(path)
     try:
@@ -358,7 +357,7 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     if not path.exists():
         return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. "
+            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
             "Düzenlenecek dosya yok; yolu doğrula veya write_file kullan."
         )
     if path.is_dir():
@@ -408,9 +407,7 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
         path, updated, available_tools=frozenset(context.available_tools), authoring=False
     )
     if yapi_sorunu is not None:
-        return ToolResult.failure(
-            f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}"
-        )
+        return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}")
 
     context.changes.record(path)
     try:
@@ -652,3 +649,40 @@ def _match_problem(text: str, old: str, *, position: int | None) -> str | None:
         "Yalnızca birini değiştirecekseniz çevresinden birkaç satır daha ekleyerek "
         "eşleşmeyi daraltın."
     )
+
+
+#: "Bunu mu demek istedin?" listesinde gösterilecek en fazla ad.
+MAX_BENZER_ONERI = 3
+
+#: Bir adın benzer sayılması için gereken en düşük oran (0-1 arası).
+#
+# 0.6, `difflib`'in kendi varsayılanıdır ve yazım hatası/karakter kaybı için
+# ölçülmüş bir eşiktir. Daha düşük bir değer alakasız dosyaları önerir ve
+# "bunu mu demek istedin" sorusunu gürültüye çevirir.
+BENZERLIK_ESIGI = 0.6
+
+
+def _benzer_oneri(path: Path) -> str:
+    """Bulunamayan dosyaya en yakın komşu adları öner.
+
+    Ölçüldü (7 Eylül canlı koşusu): model `paket/init.py` okumaya çalıştı — doğru
+    ad `paket/__init__.py` idi ve alt çizgiler modelin bağlamında daha önce
+    kaybolmuştu. "Dosya yok" cevabı yönsüzdü; model üç tur boyunca `list_dir`,
+    `glob` ve tekrar okuma denedi. Komşu adı SÖYLEMEK o turları tamamen ortadan
+    kaldırır ve karakter kaybı dışındaki her yazım hatasında da işe yarar.
+
+    Öneri bir İDDİA değildir: dizin okunamazsa ya da yeterince benzer ad yoksa
+    sessizce boş döner.
+    """
+    import difflib
+
+    try:
+        adaylar = [item.name for item in path.parent.iterdir() if item.is_file()]
+    except OSError:
+        return ""
+    yakin = difflib.get_close_matches(
+        path.name, adaylar, n=MAX_BENZER_ONERI, cutoff=BENZERLIK_ESIGI
+    )
+    if not yakin:
+        return ""
+    return " Aynı dizinde benzer ad: " + ", ".join(yakin) + "."
