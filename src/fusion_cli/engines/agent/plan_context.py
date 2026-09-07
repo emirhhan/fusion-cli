@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.checkpoint import StepCheckpointEvidence
 from ...core.execution_plan import PlanStep
-from ...core.tools import ToolFamily, tool_family
+from ...core.tools import ToolContext, ToolFamily, tool_family
 from ...tools import build_registry
 from ..workflow.model import WorkflowBudget
 from .execution_policy import ExecutionPolicy
@@ -129,12 +131,64 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     )
 
 
-def step_prompt(task: str, step: PlanStep, evidence: dict[str, StepCheckpointEvidence]) -> str:
+def step_prompt(
+    task: str,
+    step: PlanStep,
+    evidence: dict[str, StepCheckpointEvidence],
+    *,
+    workspace: str = "",
+) -> str:
     """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret."""
     return (
         f"ANA GÖREV:\n{task}\n\nPLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
+        f"{workspace}"
         f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
         + "\n".join(f"- {criterion}" for criterion in step.success_criteria)
         + f"\n\nDOĞRULAMA İPUCU:\n{step.verification_hint}\n\n"
         "Yalnızca bu adımı tamamla. Sonuçta yaptığını ve gözlediğin kanıtı açıkça yaz."
     )
+
+
+#: Adım isteminde listelenecek en fazla dosya adı.
+#
+# Adım istemi DAR olmalı; amaç dosya sistemini kopyalamak değil, aynı keşfi
+# ikinci kez yaptırmamak. Uzun liste bağlamı şişirir ve context rot üretir.
+MAX_STEP_WORKSPACE_FILES = 12
+
+
+def workspace_block(context: ToolContext) -> str:
+    """Bu turda ZATEN okunan ve değiştirilen dosyaları adım istemine yaz.
+
+    Ölçüldü (7 Eylül canlı koşusu, `surum-sabitini-tek-kaynaga-indir`): depo
+    haritası yalnız üst turda (`depth == 0`) veriliyor; plan adımları alt turda
+    koştuğu için hiçbir bağlam görmüyordu. Her adım `list_dir` ve `glob **/*` ile
+    baştan başladı, aynı üç dosyayı üst üste okudu ve bütçe iş bitmeden tükendi.
+
+    Adımın kendi keşfini yapması yanlış değildir; aynı keşfi ÜÇÜNCÜ kez yapması
+    israftır. Blok yalnız ADLARI taşır, içerik taşımaz: yönlendirir, bağlamı
+    şişirmez.
+    """
+    okunan = _relative_names(context, context.fully_read)
+    degisen = _relative_names(context, context.touched)
+    if not okunan and not degisen:
+        return ""
+    satirlar = ["ÇALIŞMA ALANI (bu turda):"]
+    if okunan:
+        satirlar.append(f"- okunan: {', '.join(okunan)}")
+    if degisen:
+        satirlar.append(f"- değiştirilen: {', '.join(degisen)}")
+    satirlar.append("Bu dosyaları yeniden aramana gerek yok; içeriği gerekiyorsa doğrudan oku.")
+    return "\n".join(satirlar) + "\n\n"
+
+
+def _relative_names(context: ToolContext, paths: Iterable[Path]) -> list[str]:
+    """Yolları proje köküne göre kısalt; kök dışındakiler olduğu gibi kalır."""
+    adlar: list[str] = []
+    for path in sorted(paths):
+        try:
+            adlar.append(path.relative_to(context.root).as_posix())
+        except ValueError:
+            adlar.append(path.name)
+        if len(adlar) >= MAX_STEP_WORKSPACE_FILES:
+            break
+    return adlar

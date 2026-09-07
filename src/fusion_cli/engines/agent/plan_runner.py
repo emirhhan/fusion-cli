@@ -47,7 +47,7 @@ from .plan_checkpoint import (
     resume_plan,
     stale_step_ids,
 )
-from .plan_context import step_deps, step_prompt, workflow_budget
+from .plan_context import step_deps, step_prompt, workflow_budget, workspace_block
 from .plan_generation import RunAgent, generate_plan
 from .promotion import PromotionContext
 from .recovery import choose_recovery, classify_failure
@@ -206,7 +206,12 @@ class _PlanRun:
         self.save()
         turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
         deps = step_deps(turn_deps, running, remaining, observe=observe)
-        prompt = step_prompt(self.task, running, self.evidence)
+        prompt = step_prompt(
+            self.task,
+            running,
+            self.evidence,
+            workspace=workspace_block(self.deps.tool_context),
+        )
         if guidance:
             prompt += f"\n\nKURTARMA YÖNERGESİ:\n{guidance}"
         allowed = deps.execution.allowed_tool_names if deps.execution else frozenset()
@@ -308,7 +313,12 @@ class _PlanRun:
                 running = replace(step, status=StepStatus.RUNNING, attempts=step.attempts + 1)
                 try:
                     outcome = await self.agent(
-                        step_prompt(self.task, running, self.evidence),
+                        step_prompt(
+                            self.task,
+                            running,
+                            self.evidence,
+                            workspace=workspace_block(aday_baglam),
+                        ),
                         step_deps(
                             aday_deps,
                             running,
