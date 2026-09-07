@@ -33,6 +33,13 @@ function fakeTransport(
         }));
         return;
       }
+      if (request.ad === "sohbet.listele") {
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true, sohbetler: [] } }),
+        }));
+        return;
+      }
       if (request.ad === "oturum.gecmis") {
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
@@ -16,9 +16,16 @@ import type {
   SessionLineEvent,
   SessionAttachment,
   SessionTransport,
+  StoredConversation,
 } from "./types";
 
 const DEFAULT_SESSION_ID = "varsayilan";
+//: Açılışta geri açılacak en fazla sekme.
+//
+// Sınır bir tercih değil, koruma: 110 sohbeti olan bir kullanıcıda hepsini
+// açmak her biri için ayrı bir çekirdek süreci başlatırdı. Gerisi saklı
+// sohbet listesinden tek tıkla açılır.
+const MAX_RESTORED_SESSIONS = 8;
 const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı.";
 
 export const tauriSessionTransport: SessionTransport = {
@@ -51,6 +58,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const requestedClose = useRef(new Set<string>());
   const runningRequests = useRef(new Set<string>());
   const mounted = useRef(false);
+  const [stored, setStored] = useState<StoredConversation[]>([]);
+  const storedRef = useRef<StoredConversation[]>([]);
+  storedRef.current = stored;
 
   const connect = useCallback(
     async (input: NewSession = {}, publish = true) => {
@@ -85,6 +95,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         }
       });
       clients.current.set(id, client);
+      // Sekme kimliği HER bağlanmada bildirilir. Ölçüldü (kullanıcının diski):
+      // `resume` yolu kimliği hiç göndermiyordu, çekirdek de rastgele bir kimlik
+      // üretiyordu; o konuşmalara bir daha ulaşılamıyordu.
+      const baslatildi = client.request("oturum.baslat", { sohbet_id: id }).catch(() => undefined);
       if (publish) {
         dispatch({
           type: "created",
@@ -99,9 +113,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         });
         // Geçmiş, sekme kimliği arka uca bildirildikten SONRA istenir: kimliksiz
         // sorulursa proje genelindeki başka bir konuşma yüklenir.
-        void client
-          .request("oturum.baslat", { sohbet_id: id })
-          .catch(() => undefined)
+        void baslatildi
           .then(() => client.request("oturum.gecmis", {}))
           .then((result) => {
             if (!Array.isArray(result.mesajlar)) return;
@@ -189,6 +201,61 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [connect, transport],
   );
 
+  const restoreSessions = useCallback(async () => {
+    // Kaydedilmiş sekmeler zaten yazılıyordu; yalnız okunmuyordu. Ölçüldü
+    // (kullanıcının makinesi, 7-8 Eylül): her açılışta tek ve sabit kimlikli bir
+    // sekme açılıyor, dünkü konuşmalara giden yol tamamen kapanıyordu.
+    const saved = persistedView.current?.sessions ?? [];
+    const restorable = [...saved]
+      .sort((left, right) => left.updatedAt - right.updatedAt)
+      .slice(-MAX_RESTORED_SESSIONS);
+    if (restorable.length === 0) {
+      await create({ id: DEFAULT_SESSION_ID });
+      return;
+    }
+    for (const session of restorable) {
+      await connect({
+        id: session.id,
+        title: session.title,
+        source: session.source,
+        root: session.root,
+      }).catch(() => undefined);
+    }
+    const activeId = persistedView.current?.activeId;
+    if (activeId && restorable.some((session) => session.id === activeId)) {
+      dispatch({ type: "selected", id: activeId });
+    }
+  }, [connect, create]);
+
+  const refreshStored = useCallback(async () => {
+    // Liste AÇIK sekmeden istenir: çekirdek kendi kökündeki sohbetleri bilir.
+    const client = clients.current.values().next().value;
+    if (!client) return;
+    const result = await client.request("sohbet.listele", {}).catch(() => null);
+    if (!result || !Array.isArray(result.sohbetler)) return;
+    const rows: StoredConversation[] = result.sohbetler.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const row = item as Record<string, unknown>;
+      if (typeof row.sohbet_id !== "string" || typeof row.baslik !== "string") return [];
+      return [{
+        id: row.sohbet_id,
+        title: row.baslik,
+        updatedAt: typeof row.guncelleme === "number" ? row.guncelleme : 0,
+        messageCount: typeof row.mesaj_sayisi === "number" ? row.mesaj_sayisi : 0,
+      }];
+    });
+    setStored(rows);
+  }, []);
+
+  const openStored = useCallback(
+    async (id: string, root?: string) => {
+      const known = storedRef.current.find((item) => item.id === id);
+      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root });
+      dispatch({ type: "selected", id });
+    },
+    [connect],
+  );
+
   useEffect(() => {
     mounted.current = true;
     let active = true;
@@ -220,10 +287,10 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           return;
         }
         [unlistenLine, unlistenClosed] = listeners;
-        const previousActive = persistedView.current?.sessions.find(
-          (session) => session.id === persistedView.current?.activeId,
-        );
-        await create({ id: DEFAULT_SESSION_ID, root: previousActive?.root });
+        await restoreSessions();
+        // Saklı sohbetler açılışta bir kez okunur: liste kullanıcıya
+        // "nereye dönebilirim" sorusunun cevabıdır, sekmelerden bağımsızdır.
+        await refreshStored();
       } catch (reason) {
         if (active) dispatch({ type: "connectionFailed", reason: String(reason) });
       }
@@ -241,7 +308,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       requestedClose.current.clear();
       runningRequests.current.clear();
     };
-  }, [create, transport]);
+  }, [refreshStored, restoreSessions, transport]);
 
   useEffect(() => {
     if (state.order.length === 0 || typeof window === "undefined") return;
@@ -404,6 +471,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   return {
     activeSession,
     answer,
+    openStored,
+    refreshStored,
+    storedConversations: stored,
     clear: (id: string) => dispatch({ type: "cleared", id }),
     close,
     create,

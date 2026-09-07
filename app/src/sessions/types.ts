@@ -85,3 +85,11 @@ export interface RecentProject {
   root: string;
   updatedAt: number;
 }
+
+/** Diskte duran, henüz açılmamış bir sohbetin künyesi. */
+export interface StoredConversation {
+  id: string;
+  title: string;
+  updatedAt: number;
+  messageCount: number;
+}

@@ -1085,14 +1085,32 @@ export function SessionUygulama({
               void controller.create({ root: destination.slice("project:".length) });
             }
           }}
-          onSec={(id) => { setPage("chat"); controller.select(id); }}
+          onSec={(id) => {
+            setPage("chat");
+            // Açık sekme seçilir; diskte duran sohbet ise ÖNCE açılır. İkisi de
+            // aynı listede durur: kullanıcı için ikisi de "dünkü konuşmam"dır.
+            if (controller.state.sessions[id]) controller.select(id);
+            else void controller.openStored(id, active?.root);
+          }}
           onYeni={() => { setNewTaskError(null); setNewTaskOpen(true); }}
-          oturumlar={controller.sessions.map((session) => ({
-            session_id: session.id,
-            source: session.source,
-            title: session.title,
-            project: projectName(session.root),
-          }))}
+          oturumlar={[
+            ...controller.sessions.map((session) => ({
+              session_id: session.id,
+              source: session.source,
+              title: session.title,
+              project: projectName(session.root),
+            })),
+            // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
+            // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
+            ...controller.storedConversations
+              .filter((conversation) => !controller.state.sessions[conversation.id])
+              .map((conversation) => ({
+                session_id: conversation.id,
+                source: "fusion",
+                title: conversation.title,
+                project: projectName(active?.root ?? ""),
+              })),
+          ]}
           projeler={controller.recentProjects.map((project) => ({
             name: project.name,
             pinned: false,
