@@ -68,6 +68,74 @@ def _workspace_digest(root: Path) -> str:
     return hashlib.sha256(str(root.expanduser().resolve()).encode()).hexdigest()[:16]
 
 
+#: Sohbet listesinde gösterilecek başlığın en fazla uzunluğu.
+#
+# Başlık bir ÖZET değil, tanıma ipucudur: kullanıcı kendi cümlesinin ilk satırından
+# konuşmayı tanır. Uzun metin listeyi okunmaz hâle getirir.
+TITLE_BUDGET = 80
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class ConversationRef:
+    """Diskte duran bir sohbetin listelenebilir künyesi."""
+
+    conversation_id: str
+    title: str
+    updated_at: float
+    message_count: int
+
+
+def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...]:
+    """Bir workspace'te kayıtlı sohbetleri en yeniden eskiye sırala.
+
+    Ölçüldü (kullanıcının diski, 8 Eylül): 110 sohbet transcript dosyalarında
+    duruyordu ama arayüz yalnız AÇIK sekmeleri gösteriyordu; dünkü konuşmaya
+    ulaşmanın hiçbir yolu yoktu. Ulaşılamayan geçmiş, yok sayılmış geçmiştir.
+
+    Kullanıcı mesajı olmayan kayıt sohbet sayılmaz: yalnız araç olayı taşıyan
+    bir kimlik kullanıcı için hiçbir şey ifade etmez.
+    """
+    digest = _workspace_digest(root)
+    path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ()
+    titles: dict[str, str] = {}
+    stamps: dict[str, float] = {}
+    counts: dict[str, int] = {}
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(event, dict) or event.get("event") not in {
+            "UserMessage",
+            "TurnAnswered",
+        }:
+            continue
+        conversation = event.get("session_id")
+        text = event.get("text")
+        if not isinstance(conversation, str) or not isinstance(text, str) or not text.strip():
+            continue
+        counts[conversation] = counts.get(conversation, 0) + 1
+        stamp = event.get("timestamp")
+        if isinstance(stamp, (int, float)):
+            stamps[conversation] = max(stamps.get(conversation, 0.0), float(stamp))
+        if event.get("event") == "UserMessage" and conversation not in titles:
+            titles[conversation] = redact(text.strip().splitlines()[0])[:TITLE_BUDGET]
+    refs = tuple(
+        ConversationRef(
+            conversation_id=conversation,
+            title=title,
+            updated_at=stamps.get(conversation, 0.0),
+            message_count=counts.get(conversation, 0),
+        )
+        for conversation, title in titles.items()
+    )
+    return tuple(sorted(refs, key=lambda ref: ref.updated_at, reverse=True))
+
+
 class TranscriptStore:
     """Bir workspace için son transcript ve denetlenebilir olay günlüğü."""
 

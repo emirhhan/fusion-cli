@@ -26,7 +26,11 @@ from typing import Any
 
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
-from ..cli.repl.transcript_store import TranscriptStore, load_transcript_messages
+from ..cli.repl.transcript_store import (
+    TranscriptStore,
+    list_conversations,
+    load_transcript_messages,
+)
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
@@ -217,6 +221,13 @@ class _MeteredSink:
         self._inner.handle(event)
 
 
+#: Sekme kimliği bildirilmeden yazılan turların gideceği sohbet.
+#
+# Uygulamanın ön yüzü ilk sekmesini bu kimlikle açar; ikisi aynı olmazsa açılış
+# turu ile sekmenin geçmişi ayrışır.
+FALLBACK_CONVERSATION_ID = "varsayilan"
+
+
 class AppSession:
     """Uygulamanın sürdüğü tek oturum."""
 
@@ -236,10 +247,16 @@ class AppSession:
             health=_build_health(config),
         )
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
-        #: ile gelir; TUI ve testler vermez, o zaman proje geneli okunur.
+        #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
         self._state.history = load_transcript_messages(config.memory_dir, root)
-        self._transcript_store = TranscriptStore(config.memory_dir, root)
+        # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
+        # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve
+        # o konuşmalara bir daha ulaşılamadı — 110 sohbetin çoğu böyle orphan kaldı.
+        # Sekme kimliği gelene kadar yazılanlar, ulaşılabilir tek bir sohbette durur.
+        self._transcript_store = TranscriptStore(
+            config.memory_dir, root, conversation_id=FALLBACK_CONVERSATION_ID
+        )
         #: "sohbet" ya da "kod". Varsayılan SOHBET: kullanıcı boş bir pencerede
         #: "merhaba" yazdığında Fusion proje taramasıyla başlamamalı.
         self._workspace_mode = "sohbet"
@@ -286,6 +303,8 @@ class AppSession:
                     if message.role in {"user", "assistant"}
                 ],
             }
+        if request.name == "sohbet.listele":
+            return self._list_conversations()
         if request.name == "kademe.listele":
             return list_tiers(self._state.config)
         if request.name == "kademe.sec":
@@ -445,6 +464,25 @@ class AppSession:
         if request.name == "tur.kes":
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
+
+    def _list_conversations(self) -> dict[str, Any]:
+        """Bu proje kökünde diskte duran sohbetleri listele.
+
+        Arayüz yalnız AÇIK sekmeleri gösteriyordu; kapatılan ya da uygulama
+        yeniden başlayınca geri açılmayan konuşmalara ulaşmanın yolu yoktu.
+        """
+        return {
+            "ok": True,
+            "sohbetler": [
+                {
+                    "sohbet_id": ref.conversation_id,
+                    "baslik": ref.title,
+                    "guncelleme": ref.updated_at,
+                    "mesaj_sayisi": ref.message_count,
+                }
+                for ref in list_conversations(self._state.config.memory_dir, self._root)
+            ],
+        }
 
     def _rebind_transcript(self) -> None:
         """Transcript deposunu güncel kök ve konuşma kimliğine bağla.
@@ -738,13 +776,23 @@ class AppSession:
         try:
             outcome = await self._turn
         except asyncio.CancelledError:
+            # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
+            # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
+            self._transcript_store.record_assistant(messages.APP_TURN_CANCELLED)
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._turn = None
         # Çok-turlu sohbet: bu turun ürettiği geçmiş bir SONRAKİ `tur.calistir`e
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         self._state.history = outcome.messages
-        if outcome.ok and outcome.final_text.strip():
+        # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
+        #
+        # Ölçüldü (7 Eylül, kullanıcının Godot koşuları): plan adımı duraklayınca
+        # tur `ok=False` döndü; soru diske yazıldı, cevap yazılmadı. Diskteki
+        # `198b3a19…` sohbeti 8 soru ve 0 cevap taşıyor. Sekme yeniden açıldığında
+        # model kendi ne dediğini göremiyor ve kaldığı yerden süremiyor — oysa
+        # duraklama metni tam da devam etmek için gereken bilgidir.
+        if outcome.final_text.strip():
             self._transcript_store.record_assistant(outcome.final_text)
         # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
         metin = outcome.final_text
