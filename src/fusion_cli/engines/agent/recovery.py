@@ -39,26 +39,72 @@ def classify_failure(outcome: object, verification: StepVerificationResult) -> F
     return FailureRecord(FailureCategory.UNKNOWN, combined.strip() or "bilinmeyen hata")
 
 
+#: Kör tekrarın tanındığı deneme sayısı.
+#
+# İkinci denemeden sonra hata sınıfı aynıysa üçüncüsü de aynı duvara çarpar; hak
+# bütçeye değil BİLGİYE bağlıdır.
+BASE_ATTEMPTS = 2
+
+#: Doğrulama hatasında, yönerge yeni bilgi taşıdığında tanınan tavan.
+#
+# Ölçüldü (7 Eylül canlı Godot koşusu): ikinci denemenin bulgusu ilkinden farklıydı
+# (dosyanın gerçek yeri bulunmuştu) ama hak zaten bitmişti. Bir hak daha vermek
+# kör tekrar değildir: yönerge değiştiyse deneme de değişir.
+MAX_VERIFICATION_ATTEMPTS = 3
+
+#: Yeni bilgi kuralının geçerli olduğu hata sınıfları — yönergesi bulgudan üretilenler.
+_REPAIRABLE = frozenset({FailureCategory.VERIFICATION, FailureCategory.TOOL_CONTRACT})
+
+
+def _repair_guidance(failure: FailureRecord) -> str:
+    """Bulgudan, KONUMU ve belirtiyi önce söyleyen onarım yönergesi üret.
+
+    Ham hata metnini kopyalamak yetmiyor (ölçüldü, 5 Eylül Godot koşusu): elde
+    `at: GDScript::reload (res://player.gd:12)` varken model aynı yanlışı
+    tekrarladı. Tanı çıkarılabiliyorsa yönerge KONUMU ve BELİRTİYİ önce söyler.
+    """
+    tani = diagnose(failure.detail)
+    onek = f"{tani.as_guidance()} " if tani is not None else ""
+    return f"{onek}Yaklaşımı dar biçimde onar. Önceki hata: {failure.detail[:1200]}"
+
+
 def choose_recovery(
     failure: FailureRecord,
     step: PlanStep,
     attempts: int,
+    *,
+    previous_guidance: str = "",
 ) -> RecoveryDecision:
-    """Hata sınıfı, retry güvenliği ve deneme sayısından güvenli eylemi seç."""
+    """Hata sınıfı, retry güvenliği ve deneme sayısından güvenli eylemi seç.
+
+    `previous_guidance`, bir önceki denemeye verilen yönergedir: onarım yönergesi
+    değişmediyse yeni deneme kör tekrardır ve hak verilmez.
+    """
     if step.retry_safety is RetrySafety.NEVER:
         return RecoveryDecision(
             RecoveryAction.PAUSE,
             "Adım yinelendiğinde dış etkiyi çoğaltabilir.",
         )
-    if attempts >= 2:
-        return RecoveryDecision(
-            RecoveryAction.PAUSE,
-            "Sınırlı kurtarma hakkı tükendi.",
-        )
     if failure.category is FailureCategory.PERMISSION:
         return RecoveryDecision(
             RecoveryAction.PAUSE,
             "İzin veya onay kısıtı otomatik yolla aşılamaz.",
+        )
+    if failure.category in _REPAIRABLE and step.retry_safety is not RetrySafety.OBSERVE_FIRST:
+        guidance = _repair_guidance(failure)
+        if attempts >= MAX_VERIFICATION_ATTEMPTS or (
+            attempts >= BASE_ATTEMPTS and guidance == previous_guidance
+        ):
+            return RecoveryDecision(RecoveryAction.PAUSE, "Sınırlı kurtarma hakkı tükendi.")
+        return RecoveryDecision(
+            RecoveryAction.REPLAN,
+            "Mevcut yaklaşımın veya araç argümanlarının düzeltilmesi gerekiyor.",
+            guidance,
+        )
+    if attempts >= BASE_ATTEMPTS:
+        return RecoveryDecision(
+            RecoveryAction.PAUSE,
+            "Sınırlı kurtarma hakkı tükendi.",
         )
     if step.retry_safety is RetrySafety.OBSERVE_FIRST:
         return RecoveryDecision(
@@ -71,17 +117,6 @@ def choose_recovery(
             RecoveryAction.RETRY,
             "Geçici hata güvenli bir sınırlı yeniden denemeye uygun.",
             "Aynı hedefi koru; geçici hatadan sonra yalnızca bir kez yeniden dene.",
-        )
-    if failure.category in {FailureCategory.VERIFICATION, FailureCategory.TOOL_CONTRACT}:
-        # Ham hata metnini kopyalamak yetmiyor (ölçüldü, 5 Eylül Godot koşusu):
-        # elde `at: GDScript::reload (res://player.gd:12)` varken model aynı yanlışı
-        # tekrarladı. Tanı çıkarılabiliyorsa yönerge KONUMU ve BELİRTİYİ önce söyler.
-        tani = diagnose(failure.detail)
-        onek = f"{tani.as_guidance()} " if tani is not None else ""
-        return RecoveryDecision(
-            RecoveryAction.REPLAN,
-            "Mevcut yaklaşımın veya araç argümanlarının düzeltilmesi gerekiyor.",
-            f"{onek}Yaklaşımı dar biçimde onar. Önceki hata: {failure.detail[:1200]}",
         )
     return RecoveryDecision(
         RecoveryAction.PAUSE,

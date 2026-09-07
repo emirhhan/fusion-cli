@@ -434,7 +434,10 @@ class _PlanRun:
             # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
             self.forget_rolled_back(geri_alma.discard())
             recovery = choose_recovery(
-                classify_failure(outcome, verification), running, running.attempts
+                classify_failure(outcome, verification),
+                running,
+                running.attempts,
+                previous_guidance=guidance,
             )
             if recovery.action is RecoveryAction.PAUSE or observe:
                 self.current = replace_step(
