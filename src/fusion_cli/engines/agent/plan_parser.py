@@ -64,9 +64,7 @@ def _decode_plan_object(raw: str) -> object:
         try:
             decoded = ast.literal_eval(text[start:].strip())
         except (SyntaxError, ValueError) as repair_exc:
-            raise PlanParseError(
-                f"Plan JSON olarak ayrıştırılamadı: {exc.msg}"
-            ) from repair_exc
+            raise PlanParseError(f"Plan JSON olarak ayrıştırılamadı: {exc.msg}") from repair_exc
     return cast("object", decoded)
 
 
@@ -142,6 +140,15 @@ def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationChec
                 f"Geçersiz doğrulama kontrolü türü (steps[{index}]): {check_data.get('kind')}"
             ) from exc
         expected = check_data.get("expected", "")
+        if kind is VerificationCheckKind.TOOL and isinstance(expected, dict):
+            # Araç argüman nesnesiyle onun JSON metni aynı sözleşmedir. Modeli
+            # yalnız bu sarmalama farkı için yeniden çağırma; içerik korunur.
+            try:
+                expected = json.dumps(expected, ensure_ascii=False, allow_nan=False)
+            except (TypeError, ValueError) as exc:
+                raise PlanParseError(
+                    "Araç kontrolü 'expected' geçerli bir JSON nesnesi olmalıdır."
+                ) from exc
         if not isinstance(expected, str):
             raise PlanParseError("Doğrulama kontrolü 'expected' metin olmalıdır.")
         checks.append(

@@ -123,3 +123,55 @@ def test_python_sozluk_bicimindeki_plan_guvenle_okunur():
     plan = parse_execution_plan(pythonish)
 
     assert plan.plan_id == "plan-1"
+
+
+@pytest.mark.parametrize(
+    "expected", [{"path": "assets/oyun.zip"}, {"query": "ücretsiz çizim", "options": {"limit": 3}}]
+)
+def test_arac_kontrolunun_nesne_argumanlari_kayipsiz_korunur(expected):
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["verification_checks"] = [
+        {
+            "criterion_id": "hedef dosya bulundu",
+            "kind": "tool",
+            "target": "read_file",
+            "expected": expected,
+        }
+    ]
+    plan = parse_execution_plan(json.dumps(data))
+    assert json.loads(plan.steps[0].verification_checks[0].expected) == expected
+
+
+@pytest.mark.parametrize("kind", ["file_contains", "command"])
+def test_nesne_normalizasyonu_diger_kontrolleri_gevsetmez(kind):
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["verification_checks"] = [
+        {
+            "criterion_id": "hedef dosya bulundu",
+            "kind": kind,
+            "target": "main.py",
+            "expected": {"text": "def main"},
+        }
+    ]
+    with pytest.raises(PlanParseError, match="expected"):
+        parse_execution_plan(json.dumps(data))
+
+
+def test_python_literal_icindeki_json_disindaki_deger_onarilabilir_hata_verir():
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["verification_checks"] = [
+        {
+            "criterion_id": "hedef dosya bulundu",
+            "kind": "tool",
+            "target": "read_file",
+            "expected": {"options": {"a", "b"}},
+        }
+    ]
+    with pytest.raises(PlanParseError, match="geçerli bir JSON nesnesi"):
+        parse_execution_plan(repr(data))

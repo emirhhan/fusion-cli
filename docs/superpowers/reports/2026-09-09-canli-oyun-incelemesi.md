@@ -85,3 +85,25 @@ dosyalık mypy kontrolü geçti; ardından eklenen değişiklikler ayrıca odakl
 Yeni model çağrılarının kalan kalıcı recovery bütçesiyle tekrar başlaması ve tek
 adımın dört bağımsız paketi zorunlu tutması hâlâ canlı görevde engel oluşturuyor.
 Gemini kullanıcı oturumu ve gerçek oynanabilir teslim henüz doğrulanmadı.
+
+`run-07-nvidia` dokuz adımlı Godot planında `tool.expected` alanını JSON nesnesi
+olarak verdi. İki model çağrısı da sırf bu temsil farkından reddedildi. Ayrıştırıcı
+artık yalnız TOOL kontrollerindeki nesneyi kayıpsız JSON metnine normalleştiriyor;
+diğer kontrol türlerinin şema kısıtları değişmiyor. Gerçek iki başarısız plan yeni
+ayrıştırıcıyla geçti. Python literal içindeki küme gibi JSON dışı değerler normal
+PlanParseError onarım yolunda tutuluyor. Bu düzeltilmiş akış `run-08-nvidia` ile
+aynı özgün istem üzerinden yeniden sınanıyor.
+
+## Dış model için araştırma ile mevcut kodun eşleşmesi
+
+- [ACE](https://arxiv.org/abs/2510.04618) ağırlık değiştirmeden bağlamı geliştirir.
+  Fusion'ın mevcut hafızası buna uygun bir başlangıç; başarısız görevi başarılı
+  ders olarak kaydetmek doğru değildir.
+- [GEPA](https://arxiv.org/abs/2507.19457) gerçek çalışma izleriyle prompt adaylarını
+  üretip ölçer. Fusion'ın kökteki `prompt_opt/optimizer.py` modülü benzer bir
+  offline seçim arayüzü sunuyor; canlı öğrenme entegrasyonu ayrıca gerekir.
+- [Anthropic uygulaması](https://www.anthropic.com/engineering/harness-design-long-running-apps)
+  uygulanabilir parçalara bölme, bağımsız ürün değerlendirmesi ve gerçek uygulama
+  kullanımıyla iyileştirme gösteriyor. Bu sonuçlar herhangi bir modelin her işte
+  Astra ile eşit olduğunun kanıtı değildir. Fusion için ölçü, orijinal kullanıcı
+  isteğinin çalışan ürüne dönüşmesi olmalı.
