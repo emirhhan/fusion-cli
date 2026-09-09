@@ -140,6 +140,14 @@ def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationChec
                 f"Geçersiz doğrulama kontrolü türü (steps[{index}]): {check_data.get('kind')}"
             ) from exc
         expected = check_data.get("expected", "")
+        if expected == {} and kind in {
+            VerificationCheckKind.COMMAND,
+            VerificationCheckKind.FILE_EXISTS,
+            VerificationCheckKind.REPRODUCTION,
+        }:
+            # Bu kontroller içerik beklemez; boş nesne bilgi taşımayan boş
+            # alanla eşdeğerdir. Dolu nesneyi veya file_contains'i dönüştürme.
+            expected = ""
         if kind is VerificationCheckKind.TOOL and isinstance(expected, dict):
             # Araç argüman nesnesiyle onun JSON metni aynı sözleşmedir. Modeli
             # yalnız bu sarmalama farkı için yeniden çağırma; içerik korunur.
@@ -150,7 +158,10 @@ def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationChec
                     "Araç kontrolü 'expected' geçerli bir JSON nesnesi olmalıdır."
                 ) from exc
         if not isinstance(expected, str):
-            raise PlanParseError("Doğrulama kontrolü 'expected' metin olmalıdır.")
+            raise PlanParseError(
+                f"steps[{index}].verification_checks[{check_index}].expected metin "
+                'olmalıdır; beklenen içerik yoksa "" kullan.'
+            )
         checks.append(
             VerificationCheck(
                 criterion_id=_require_string(check_data, "criterion_id"),

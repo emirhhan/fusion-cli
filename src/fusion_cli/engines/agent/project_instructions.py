@@ -13,6 +13,9 @@ derin arama turu bekletirdi ve çoğu proje kuralını kökte tutar.
 
 from __future__ import annotations
 
+import json
+import platform
+import shutil
 from pathlib import Path
 
 #: Bilinen proje-talimat dosyası adları, öncelik sırasıyla. İlk bulunan kullanılır;
@@ -99,13 +102,32 @@ def read_all_instructions(root: Path, home: Path | None) -> str:
     """
     # Çalışma alanı özeti EN BAŞTA: model neyin içinde olduğunu bilmeden doğru
     # aracı seçemez ve yanlış yığınla yandan yeni bir proje kurar (ölçüldü).
+    ortam = (
+        "ORTAM (Fusion tarafından ölçüldü):\n"
+        + json.dumps(
+            {
+                "cwd": str(root.resolve()),
+                "os": platform.system(),
+                "arch": platform.machine(),
+                "executables": {
+                    name: path
+                    for name in ("git", "python3", "node", "npm", "godot")
+                    if (path := shutil.which(name))
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\nDosya yollarını bu çalışma köküne göreli yaz; başka bir kök veya işletim "
+        "sistemi varsayma. Listelenen çalıştırılabilir dosyalar PATH üzerinde bulundu; "
+        "sürümleri henüz doğrulanmadı. Yeni kurulumdan önce mevcut aracı denetle."
+    )
     ozet = workspace_summary(root)
     proje_talimati = read_project_instructions(root)
     if home is None:
-        return "\n".join(part for part in (ozet, proje_talimati) if part)
+        return "\n".join(part for part in (ortam, ozet, proje_talimati) if part)
 
     from ...history.memory_files import read_external_memory
 
     dis_bellek = read_external_memory(home, root)
-    parts = [ozet, proje_talimati, dis_bellek]
+    parts = [ortam, ozet, proje_talimati, dis_bellek]
     return "\n".join(part for part in parts if part)

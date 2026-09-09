@@ -161,6 +161,23 @@ def test_nesne_normalizasyonu_diger_kontrolleri_gevsetmez(kind):
         parse_execution_plan(json.dumps(data))
 
 
+@pytest.mark.parametrize("kind", ["command", "file_exists", "reproduction"])
+def test_beklenen_icerik_kullanmayan_kontrolde_bos_nesne_bos_metindir(kind):
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["verification_checks"] = [
+        {
+            "criterion_id": "hedef dosya bulundu",
+            "kind": kind,
+            "target": "main.py",
+            "expected": {},
+        }
+    ]
+    plan = parse_execution_plan(json.dumps(data))
+    assert plan.steps[0].verification_checks[0].expected == ""
+
+
 def test_python_literal_icindeki_json_disindaki_deger_onarilabilir_hata_verir():
     import json
 

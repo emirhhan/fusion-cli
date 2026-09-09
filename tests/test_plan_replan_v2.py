@@ -131,3 +131,16 @@ def test_ayni_hedefi_ureten_yeniden_plan_reddedilir():
     candidate = ExecutionPlan("aday", "oyun yap", (failed,))
 
     assert merge_replanned_plan(current, candidate, "asset", "fp") is None
+
+
+def test_yeniden_plan_bagimsiz_bekleyen_teslimati_dusuremez():
+    pending = _step("story", target="story.json")
+    current = ExecutionPlan(
+        "p", "hikayeli oyun", (_step("asset", target="missing.png"), pending)
+    )
+    candidate = ExecutionPlan("aday", "oyun", (_step("new-asset", target="player.png"),))
+
+    merged = merge_replanned_plan(current, candidate, "asset", "fp")
+
+    assert merged is not None
+    assert pending in merged.steps

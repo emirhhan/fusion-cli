@@ -36,12 +36,12 @@ def merge_replanned_plan(
     failed_step_id: str,
     fingerprint: str,
 ) -> ExecutionPlan | None:
-    """Etkilenen dalı aday planla değiştir; tamamlanan bağımsız adımları sakla."""
+    """Etkilenen dalı aday planla değiştir; bağımsız teslimatları sakla."""
     affected = dependent_ids(current, {failed_step_id})
     preserved = tuple(
         step
         for step in current.steps
-        if step.status is StepStatus.COMPLETED and step.step_id not in affected
+        if step.step_id not in affected
     )
     preserved_ids = {step.step_id for step in preserved}
     replacements = tuple(step for step in candidate.steps if step.step_id not in preserved_ids)

@@ -392,3 +392,115 @@ async def test_kabuk_izni_yokken_dosya_araclari_kapali_kalir(tmp_path):
     dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
 
     assert "edit_file" not in dar.execution.allowed_tool_names
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize("check_kind", [VerificationCheckKind.COMMAND, VerificationCheckKind.TOOL])
+async def test_kesifteki_kabuk_kontrolu_calistirilmadan_plan_onarilir(tmp_path, resume, check_kind):
+    import json
+
+    from fusion_cli.core.checkpoint import WorkflowCheckpoint
+    from fusion_cli.core.evidence import ToolUse
+
+    step = replace(
+        _step("godot-check"),
+        phase=PlanPhase.DISCOVERY,
+        allowed_tool_families=("shell",),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        verification_checks=(
+            VerificationCheck(
+                "godot-check kanıtlandı",
+                check_kind,
+                "run_shell" if check_kind is VerificationCheckKind.TOOL else "godot --version",
+                '{"command":"godot --version"}' if check_kind is VerificationCheckKind.TOOL else "",
+            ),
+        ),
+    )
+    plan = ExecutionPlan("scope-repair", "oyun yap", (step,), status=PlanStatus.PAUSED)
+    deps = _deps(tmp_path)
+    if resume:
+        saved = replace(plan, steps=(replace(step, attempts=1, status=StepStatus.BLOCKED),))
+        deps.checkpoint_store.save(
+            WorkflowCheckpoint(saved, str(tmp_path.resolve()), "conv", (), 1.0)
+        )
+    calls = []
+
+    async def agent(task, agent_deps, **kwargs):
+        if "YENİDEN PLANLAMA GÖREVİ" in task:
+            assert "oyun yap" in task
+            if resume:
+                assert "kaldığın yerden devam et" in task
+            calls.append("repair")
+            candidate = {
+                "plan_id": "fixed",
+                "task": "oyun yap",
+                "schema_version": 2,
+                "steps": [
+                    {
+                        "step_id": "godot-check",
+                        "goal": step.goal,
+                        "depends_on": [],
+                        "expected_effects": [],
+                        "allowed_tool_families": ["shell"],
+                        "success_criteria": list(step.success_criteria),
+                        "verification_hint": step.verification_hint,
+                        "verification_checks": [
+                            {
+                                "criterion_id": step.success_criteria[0],
+                                "kind": "command",
+                                "target": "godot --version",
+                                "expected": "",
+                            }
+                        ],
+                        "phase": "execution",
+                        "retry_safety": "safe",
+                    }
+                ],
+            }
+            return AgentOutcome(final_text=json.dumps(candidate), messages=[], model_calls_made=1)
+        assert calls == ["repair"], "Çalıştırılamaz adım, onarılmadan modele gönderildi"
+        calls.append("execute")
+        assert "run_shell" in kwargs["allowed_tools"]
+        return AgentOutcome(
+            final_text="Sürüm doğrulandı",
+            messages=[],
+            model_calls_made=1,
+            tool_calls_made=1,
+            tool_uses=(
+                ToolUse("run_shell", arguments={"command": "godot --version"}, output="4.5.stable"),
+            ),
+        )
+
+    outcome = await run_execution_plan(
+        "kaldığın yerden devam et" if resume else "oyun yap",
+        deps,
+        agent,
+        plan=None if resume else plan,
+    )
+    assert outcome.ok
+    assert calls == ["repair", "execute"]
+    assert deps.checkpoint_store.load("scope-repair").plan.steps[0].revision == 1
+
+
+@pytest.mark.parametrize("recovery,revision", [(0, 0), (12, 1)])
+async def test_kapsam_onarimi_butce_ve_tek_revision_sinirini_asmaz(tmp_path, recovery, revision):
+    step = replace(
+        _step("check"),
+        phase=PlanPhase.DISCOVERY,
+        revision=revision,
+        verification_checks=(
+            VerificationCheck("check kanıtlandı", VerificationCheckKind.COMMAND, "godot --version"),
+        ),
+    )
+
+    async def agent(*args, **kwargs):
+        pytest.fail("Sınırı tükenmiş onarım model çağırmamalı")
+
+    result = await run_execution_plan(
+        "oyun yap",
+        _deps(tmp_path, recovery=recovery),
+        agent,
+        plan=ExecutionPlan("bounded-scope", "oyun yap", (step,)),
+    )
+    assert not result.ok
+    assert "run_shell kapalı" in result.final_text

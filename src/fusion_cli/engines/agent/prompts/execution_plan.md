@@ -26,6 +26,8 @@ Yalnızca JSON döndür; açıklama veya Markdown kullanma.
 }
 
 Kurallar:
+- `expected` alanı command, file_exists ve reproduction için tam olarak "" olmalı.
+  file_contains için aranacak metni yaz; tool için {"path":"."} gibi argüman nesnesi kullan.
 - Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
   listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
   doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.

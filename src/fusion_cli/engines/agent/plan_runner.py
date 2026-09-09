@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import ExitStack
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -23,10 +24,12 @@ from ...core.events import (
 from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
+    PlanPhase,
     PlanStatus,
     PlanStep,
     RetrySafety,
     StepStatus,
+    VerificationCheckKind,
     ready_steps,
     validate_plan,
 )
@@ -391,6 +394,40 @@ class _PlanRun:
                 goal=step.goal,
             )
         )
+        unavailable: set[str] = set()
+        if step.phase is PlanPhase.DISCOVERY:
+            scoped = step_deps(self.deps, step, remaining=1, observe=True)
+            allowed = scoped.execution.allowed_tool_names if scoped.execution else frozenset()
+            for check in step.verification_checks:
+                if check.kind in {
+                    VerificationCheckKind.COMMAND,
+                    VerificationCheckKind.REPRODUCTION,
+                }:
+                    unavailable.add("run_shell")
+                elif check.kind is VerificationCheckKind.TOOL and check.target not in (
+                    allowed or ()
+                ):
+                    unavailable.add(check.target)
+        if unavailable:
+            # Keşifte kabuk kapalıdır. Modeli bildiğimiz aynı engele tekrar
+            # gönderme; eski checkpoint'lerde de sözleşmeyi önce onar.
+            from .loop import AgentOutcome
+
+            finding = (
+                f"Keşif adımında {', '.join(sorted(unavailable))} kapalı fakat başarı koşulu "
+                "bu araçları zorunlu tutuyor. Gerekiyorsa bu kontrolü execution evresindeki "
+                "bir adıma taşı; keşfi salt-okunur araç kanıtıyla sınırla."
+            )
+            verification = StepVerificationResult(ok=False, findings=(finding,))
+            outcome = AgentOutcome(final_text=finding, messages=[], ok=False)
+            reason = "Adımın araç kapsamı ile doğrulama koşulu çelişiyor."
+            if step.revision == 0:
+                repaired, reason = await self.replan_failed_step(
+                    step, outcome, verification, "discovery-command-conflict"
+                )
+                if repaired:
+                    return None
+            return self.pause(_pause_text(step.step_id, reason, verification, outcome))
         slots = self._attempt_slots(step)
         if slots > 1 and step.step_id not in self.repair_ids and not step.attempts:
             secildi = await self.run_candidates(step, slots)
@@ -516,7 +553,13 @@ class _PlanRun:
             f"Doğrulama bulguları: {findings[:2000]}\n"
             f"Adımın son açıklaması: {outcome.final_text[:1200]}\n"
             f"Korunacak tamamlanmış adım kimlikleri: {completed}\n"
-            "Aynı hedef, dosya yolu ve kontrolü tekrar etme. Önce gerçek yolu keşfeden "
+            "Mevcut plan (kalan teslimatlar da korunmalıdır):\n"
+            f"{json.dumps(asdict(self.current), ensure_ascii=False)}\n"
+            "Hata onarımı ana görevin kapsamını küçültmez. Hikaye, arayüz, test veya "
+            "başka bir kalan teslimatı silme; etkilenen dalın hedeflerini yeni adımlarda koru.\n"
+            "Aynı hatalı varsayımı tekrar etme. Kanıtlanmış doğru hedefleri koru; "
+            "sorun evre veya araç kapsamıysa yalnız bu çelişkiyi gider. "
+            "Önce gerçek yolu keşfeden "
             "bir adım gerekiyorsa ekle. Tamamlanmış adımları aynı kimlikle plana koy; "
             "onların işini yeniden isteme. Başarısız adımı ve ona bağlı dalı yeni kanıta "
             "göre değiştir. Eksiksiz ve geçerli bir yürütme planı döndür."
@@ -643,8 +686,19 @@ async def run_execution_plan(
             str(deps.tool_context.root.resolve()), deps.conversation_id
         )
     current = plan or (checkpoint.plan if checkpoint else None)
+    execution_task = task
+    if checkpoint is not None and task != checkpoint.plan.task:
+        execution_task = (
+            f"ASIL KULLANICI GÖREVİ:\n{checkpoint.plan.task}\n\n"
+            f"KULLANICININ SON YÖNLENDİRMESİ:\n{task}"
+        )
     run = _PlanRun(
-        task, deps, run_agent, current or ExecutionPlan("", task, ()), limits, BudgetLedger(limits)
+        execution_task,
+        deps,
+        run_agent,
+        current or ExecutionPlan("", task, ()),
+        limits,
+        BudgetLedger(limits),
     )
     if current is None:
         generated = await generate_plan(task, deps, run_agent, limits.planning, promotion)
@@ -656,7 +710,8 @@ async def run_execution_plan(
                 ok=False,
                 budget_stopped=not allowed or limits.planning == 0,
             )
-        current = generated.plan
+        # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
+        current = replace(generated.plan, task=task)
     validation = validate_plan(current)
     if not validation.ok:
         return run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)

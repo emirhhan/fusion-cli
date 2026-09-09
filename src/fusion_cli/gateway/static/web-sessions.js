@@ -126,7 +126,7 @@ async function launchWebLogin() {
   if (!(await saveNativeWeb(false))) return;
   try {
     const res = await post("/api/web_sessions/login", {provider: activeWebProvider, account});
-    $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, sonra pencereyi kapat — gerisi otomatik.";
+    $("nativeWebStatus").textContent = "İzole tarayıcı açıldı. Giriş yap, ardından Chrome menüsünden Çık'ı seç. Oturum otomatik sınanacak.";
     toast("Giriş tarayıcısı açıldı");
     if (res && res.pid) awaitLoginThenValidate(res.pid);
   } catch (e) { $("nativeWebStatus").textContent = e.message; toast(e.message, true); }

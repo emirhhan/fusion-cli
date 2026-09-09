@@ -259,7 +259,11 @@ async def test_ayni_kanitta_donen_adim_bir_kez_yeniden_planlanir(tmp_path):
     assert result.ok is True
     assert sum("YENİDEN PLANLAMA GÖREVİ" in prompt for prompt in prompts) == 1
     assert any("asset-real" in prompt for prompt in prompts)
-    assert not any("discover işini yap" in prompt for prompt in prompts)
+    assert not any(
+        "discover işini yap" in prompt
+        for prompt in prompts
+        if "YENİDEN PLANLAMA GÖREVİ" not in prompt
+    )
 
 
 async def test_adim_butcesi_asildiginda_basari_uydurmadan_duraklar(tmp_path):

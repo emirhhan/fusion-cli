@@ -441,7 +441,7 @@ async def test_home_yoksa_dis_bellek_okunmaz_ama_proje_talimati_calisir(
 
     sistem = provider.seen_messages[0][0]
     assert "proje kurali" in sistem.content
-    assert "dis_bellek" not in sistem.content
+    assert "<dis_bellek " not in sistem.content
 
 
 async def test_proje_talimati_dis_bellekten_once_gelir(monkeypatch, tmp_path, sink):

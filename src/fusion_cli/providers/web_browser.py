@@ -24,7 +24,9 @@ import contextlib
 import hashlib
 import json
 import logging
+import os
 import re
+import sys
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -664,6 +666,7 @@ async def _launch_profile_context(
             return await chromium.launch_persistent_context(
                 str(profile),
                 channel=channel,
+                chromium_sandbox=True,
                 headless=headless,
                 viewport={"width": 1440, "height": 1000},
                 locale="tr-TR",
@@ -1056,9 +1059,66 @@ async def _deliver_turn(
     return WebTurn(answer, kademe)
 
 
+def _native_login_executable() -> str | None:
+    """macOS'ta elle giriş için kurulu normal Chrome'u bul."""
+    if sys.platform != "darwin":
+        return None
+    for base in (Path("/Applications"), Path.home() / "Applications"):
+        executable = base / "Google Chrome.app/Contents/MacOS/Google Chrome"
+        if executable.is_file():
+            return str(executable)
+    return None
+
+
+def _profile_process_alive(profile: Path) -> bool:
+    """Chrome'un izole profil kilidindeki sürecin hâlâ yaşadığını denetle."""
+    try:
+        owner = (profile / "SingletonLock").readlink().name
+        pid = int(owner.rsplit("-", 1)[-1])
+        if pid <= 0:
+            return False
+        os.kill(pid, 0)
+    except PermissionError:
+        return True
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 async def open_login_browser(provider: str, account: str) -> None:
     """Görünür izole profili aç ve kullanıcı tarayıcıyı kapatana kadar bekle."""
     definition = provider_definition(provider)
+    profile = browser_profile_dir(provider, account)
+    profile.mkdir(parents=True, exist_ok=True)
+    native = _native_login_executable()
+    if native is not None:
+        # Giriş kullanıcıya aittir: bu süreçte Playwright, CDP veya otomasyon
+        # bayrağı yoktur. Yalnız Fusion'ın izole profili açılır.
+        try:
+            process = await asyncio.create_subprocess_exec(
+                native,
+                f"--user-data-dir={profile}",
+                definition.home_url,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as error:
+            raise WebBrowserError("Normal Chrome giriş penceresi açılamadı.") from error
+        try:
+            code = await process.wait()
+        except asyncio.CancelledError:
+            if process.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    process.terminate()
+                await process.wait()
+            raise
+        if code != 0:
+            raise WebBrowserError(f"Normal Chrome giriş süreci hata ile kapandı ({code}).")
+        # Chrome URL'yi zaten açık aynı profile devredip hemen çıkabilir.
+        # Panel, kullanıcı o Chrome'dan tamamen çıkmadan doğrulamaya geçmesin.
+        while _profile_process_alive(profile):  # noqa: ASYNC110
+            await asyncio.sleep(0.5)
+        return
     try:
         from playwright.async_api import async_playwright
     except ImportError as error:
@@ -1066,8 +1126,6 @@ async def open_login_browser(provider: str, account: str) -> None:
             "Playwright kurulu değil. `pip install -e '.[web]'` ve "
             "`python -m playwright install chromium` çalıştır."
         ) from error
-    profile = browser_profile_dir(provider, account)
-    profile.mkdir(parents=True, exist_ok=True)
     clear_profile_singletons(profile)
     async with async_playwright() as playwright:
         context = await _launch_profile_context(

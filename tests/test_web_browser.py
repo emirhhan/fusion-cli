@@ -25,6 +25,17 @@ from fusion_cli.providers.web_browser import (
 from fusion_cli.providers.web_registry import WebSessionRegistry
 
 
+async def test_tarayici_guvenlik_sandboxunu_kapatmaz(tmp_path):
+    from fusion_cli.providers.web_browser import _launch_profile_context
+
+    chromium = mock.Mock()
+    chromium.launch_persistent_context = mock.AsyncMock()
+    await _launch_profile_context(
+        chromium, profile=tmp_path, headless=False, accept_downloads=True
+    )
+    assert chromium.launch_persistent_context.call_args.kwargs["chromium_sandbox"] is True
+
+
 def test_cookie_header_degerindeki_esittir_isaretini_korur():
     parsed = parse_cookie_header("a=1; session=abc==; empty=; flag")
     assert parsed == {"a": "1", "session": "abc==", "empty": ""}

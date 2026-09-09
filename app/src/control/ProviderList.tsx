@@ -86,6 +86,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
       setBusy(null);
       return;
     }
+    setNotice("Açılan Chrome'da giriş yap; ardından Chrome menüsünden Çık'ı seç. Oturum otomatik sınanacak.");
     const poll = async () => {
       const durum = (await client.request("web.giris_durumu", { pid: acilis.pid })) as {
         acik?: boolean;

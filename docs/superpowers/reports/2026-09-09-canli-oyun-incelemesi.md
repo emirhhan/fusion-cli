@@ -124,5 +124,44 @@ verdi. Test, literal edit_file kelimesi yerine gerçek config.json değişikliğ
 kontrol edecek şekilde düzeltildi; 15 senaryo testi yeniden geçirdi. Bu test
 commit'i 599f70f, paketlenen fa18faa uygulama kaynaklarını değiştirmiyordu.
 
-Kalan oyun engeli run08'deki discovery+command plan çelişkisidir. Bu belge veya
+## Run09–11: plan kapsamı ve ortam kanıtı
+
+Discovery+command çelişkisi artık yürütme öncesinde mevcut sınırlı onarım yoluna
+gider; keşif araç izinleri genişletilmez. Run09 bu engeli geçip doğru macOS Godot
+adresini buldu; fakat kurulu Godot'u kullanmak yerine yeniden indirmeye çalışırken
+durdu. Ortam bağlamı artık gerçek cwd/OS/mimari ve PATH üzerinde bulunan araçları
+taşır; sürüm doğrulanmış gibi gösterilmez.
+
+Devam mesajının asıl görevi değiştirdiği ve yeniden planlamanın bağımsız bekleyen
+teslimatları silebildiği de düzeltildi. Checkpoint ana görevi ile yeni yönlendirme
+birlikte aktarılır; onarım mevcut planın tamamını görür ve etkilenmeyen adımlar
+korunur. Bağımlı dalın anlamsal kapsamı hâlâ ürün değerlendirmesi gerektirir.
+
+Canlı NVIDIA kataloğunda 80 model görüldü; Nemotron Ultra ayrı geçici yapılandırmada
+denendi. Kullanıcının model tercihi değiştirilmedi. Run10, içerik beklemeyen
+kontrollerde expected:{} üretti. Yalnız command/file_exists/reproduction için bu
+boş değer boş metne normalleştirilir; dolu nesneler ve file_contains gevşetilmez.
+Gerçek son plan artık 10 adımla ayrıştırılır. Run11 yeni kodla canlı denemedir.
+
+Kullanıcı giriş Chrome'unda no-sandbox uyarısı bildirdi. Playwright bağlamına
+chromium_sandbox=True eklendi. Ayrı boş profille canlı Chrome denemesinde
+--no-sandbox bulunmadığı doğrulandı. Bu, Google hesabına girişin başarı kanıtı
+değildir. Kullanıcıya normal Chrome ile Fusion'ın izole profilinde giriş yolu da
+açıldı; kişisel Chrome profili okunmadı veya taşınmadı.
+
+Kullanıcı normal Chrome girişini tamamladı. İlk CLI kontrolü auth hatası verdi;
+aynı profilin doğrudan kontrolü oturum açık gösterdi. İkinci gerçek CLI çağrısı
+OTURUM_HAZIR yanıtıyla 23.8 saniyede tamamlandı. İlk geçici hatanın nedeni henüz
+kanıtlanmadı. macOS giriş akışı artık normal Chrome'u otomasyon bayrağı olmadan
+açar; UI Chrome'dan tamamen çıkılmasını ister, açık profile URL devri de profil
+sahibinin kapanmasını bekler. Kişisel profil kullanılmaz.
+
+Run11, keşif komutunu TOOL/run_shell diye yeniden yazarak ilk ön kontrolü geçti.
+Ön kontrol artık keşif için gerçek izin kümesini kullanır ve bu eşdeğer çelişkiyi
+de yakalar. Run12, giriş yapılmış Gemini ile özgün oyun isteğini yürütüyor.
+
+Yeni düzeltmeler için hedefli testler ve bağımsız kod incelemesi geçti. Geniş pytest
+koşusu exit 0 ile tamamlandı; koşu başladıktan sonra eklenen native login ve son
+keşif kontrolü değişiklikleri ayrıca hedefli testlerle doğrulandı.
+Henüz oynanabilir oyun teslim edilmedi; bu belge veya
 başarılı altyapı testleri oyun görevinin tamamlandığı anlamına gelmez.
