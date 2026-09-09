@@ -1133,6 +1133,11 @@ async def _send_turn(
             "sayfa hazır olmayabilir veya web arayüzü değişmiş olabilir"
         )
 
+    # Anonim Gemini'de composer da yanıt da çalışır. Yalnız yanıt beklerken
+    # kontrol etmek geçtir: hazır yanıt yolu auth denetimini atlayabiliyor.
+    if await _strong_login_signal(page, definition):
+        raise WebBrowserAuthError(_login_required_message(definition))
+
     before = await _response_snapshot(page, definition.response_selectors)
     await _fill_editor(input_locator, prompt)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
@@ -1685,6 +1690,9 @@ _LOGIN_SELECTORS: dict[str, tuple[str, ...]] = {
         # formunu aramak bağlı hesabın sessizce anonim modele düşmesini kaçırır.
         'button:text-is("Oturum aç")',
         'button:text-is("Sign in")',
+        # Gemini'nin simge düğmesinde metin yok; erişilebilir adı aria-label'da.
+        'button[aria-label="Oturum aç"]',
+        'button[aria-label="Sign in"]',
         'input[type="email"]',
         'input[type="password"]',
         'form[action*="signin"]',

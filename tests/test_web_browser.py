@@ -142,11 +142,12 @@ async def test_gemini_bodyde_sign_in_metni_tek_basina_auth_sayilmaz():
 
 
 @pytest.mark.parametrize("label", ("Oturum aç", "Sign in"))
-async def test_gemini_anonim_sohbetin_gorunen_giris_dugmesi_auth_ister(label):
+@pytest.mark.parametrize("selector", ('button:text-is("{}")', 'button[aria-label="{}"]'))
+async def test_gemini_anonim_sohbetin_gorunen_giris_dugmesi_auth_ister(label, selector):
     page = _FakePage(
         "https://gemini.google.com/app",
         f"Gemini {label} Flash-Lite",
-        visible_selectors=(f'button:text-is("{label}")',),
+        visible_selectors=(selector.format(label),),
     )
     with pytest.raises(WebBrowserAuthError):
         await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
@@ -472,3 +473,23 @@ async def test_kod_blogu_dil_etiketi_cevaba_karismaz():
 
     assert snapshot == ('[application]\nconfig/name="Oyun"',)
     assert "Ini, TOML" not in snapshot[0]
+
+
+async def test_anonim_composer_acik_olsa_da_istem_gonderilmeden_giris_istenir(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.providers import web_browser as browser
+
+    page = _FakePage(
+        "https://gemini.google.com/app",
+        "Gemini",
+        visible_selectors=('button[aria-label="Oturum aç"]',),
+    )
+    fill = AsyncMock()
+    monkeypatch.setattr(browser, "_first_visible", AsyncMock(return_value=AsyncMock()))
+    monkeypatch.setattr(browser, "_response_snapshot", AsyncMock(return_value=()))
+    monkeypatch.setattr(browser, "_fill_editor", fill)
+    monkeypatch.setattr(browser, "_wait_for_response", AsyncMock(return_value="yanıt"))
+    with pytest.raises(WebBrowserAuthError):
+        await browser._send_turn(page, WEB_BROWSER_PROVIDERS["gemini_web"], "kullanıcı görevi")
+    fill.assert_not_awaited()

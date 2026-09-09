@@ -107,3 +107,22 @@ aynı özgün istem üzerinden yeniden sınanıyor.
   kullanımıyla iyileştirme gösteriyor. Bu sonuçlar herhangi bir modelin her işte
   Astra ile eşit olduğunun kanıtı değildir. Fusion için ölçü, orijinal kullanıcı
   isteğinin çalışan ürüne dönüşmesi olmalı.
+
+## Gemini auth kapısının gerçek sayfayla tamamlanması
+
+İlk selector düzeltmesi canlı testte yetersiz kaldı: Gemini anonim composer'da
+`button:text-is` eşleşmiyordu; görünür simge düğmesinin adı `aria-label` içindeydi.
+Ayrıca hazır yanıt yolu, yalnız yanıt beklerken yapılan auth kontrolünü atlıyordu.
+Türkçe/İngilizce tam aria-label seçicileri ve `_send_turn` içinde editöre yazmadan
+önce güçlü auth kontrolü eklendi. Önceki gerçek probe anonim Flash-Lite ile
+başarı dönerken, son probe 3.4 saniyede authentication hatası + failed TurnOutcome
++ TurnFinished üretti. Kullanıcı istemi artık anonim editöre yazılmadan engellenir.
+60 web oturumu/tarayıcı/hatırlatma testi ve bağımsız kod incelemesi geçti.
+
+Son geniş pytest koşusu 3448 başarılı, 4 atlanan, 1 eski metin beklentisi hatası
+verdi. Test, literal edit_file kelimesi yerine gerçek config.json değişikliğini
+kontrol edecek şekilde düzeltildi; 15 senaryo testi yeniden geçirdi. Bu test
+commit'i 599f70f, paketlenen fa18faa uygulama kaynaklarını değiştirmiyordu.
+
+Kalan oyun engeli run08'deki discovery+command plan çelişkisidir. Bu belge veya
+başarılı altyapı testleri oyun görevinin tamamlandığı anlamına gelmez.
