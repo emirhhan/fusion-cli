@@ -196,6 +196,8 @@ def _print_summary(report: RunReport) -> None:
     print("\nÖzet:")
     print(f"  görev sayısı           : {report.task_count}")
     print(f"  başarı oranı           : {report.task_success_rate:.3f}")
+    print(f"  tekil koşu başarı oranı: {report.run_success_rate:.3f}")
+    print(f"  katı görev güvenilirliği: {report.strict_task_success_rate:.3f}")
     print(f"  ilk denemede başarı    : {report.first_attempt_success_rate:.3f}")
     print(f"  toplam yeniden deneme  : {report.total_retries}")
     print(f"  ort. model çağrısı     : {report.mean_model_calls:.2f}")

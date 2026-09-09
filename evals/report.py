@@ -33,6 +33,8 @@ def _summary(report: RunReport) -> dict[str, object]:
     return {
         "task_count": report.task_count,
         "task_success_rate": report.task_success_rate,
+        "run_success_rate": report.run_success_rate,
+        "strict_task_success_rate": report.strict_task_success_rate,
         "first_attempt_success_rate": report.first_attempt_success_rate,
         "total_retries": report.total_retries,
         "mean_model_calls": report.mean_model_calls,

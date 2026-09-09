@@ -22,6 +22,16 @@ Fusion iki şeyi tek üründe birleştirir:
 | MCP köprüsü | Fusion araçlarını dışa aç (sunucu) + dış MCP araçlarını kullan (istemci) |
 | MCP kurulumu (`/mcp`, `fusion mcp-add`, panel) | Sohbette `/mcp add <ad> <komut>`, terminalden `fusion mcp-add`, ya da Control Panel'in "MCP sunucusu bağla" kartından — üçü de aynı config.yaml'a yazar, elle düzenleme gerekmez |
 | Öz-öğrenen bellek | Her görevden ders çıkarır, benzer işlerde hatırlar |
+| Uzak MCP OAuth | HTTP MCP sunucularında tarayıcı girişi, PKCE ve macOS Keychain token deposu |
+| Kanıta bağlı yeniden planlama | Aynı başarısız hedefte dönmek yerine doğrulanmış işi koruyup dalı bir kez yeniler |
+| Gerçek asset kapısı | PNG/JPEG başlığı, boyut, kaynak URL'si ve lisans manifestini doğrular |
+| Production değerlendirmesi | Godot asset, MCP, replan, büyük dosya ve sohbet izolasyonunu üç tekrarla ölçer |
+
+Yayın ölçümü `python -m evals run evals/suite/production.yaml --profile production --repeat 3`
+komutuyla çalışır. Rapor, bütün tekil koşuların başarı oranını ve yalnız üç tekrarın
+üçünü de geçen görevlerin katı güvenilirlik oranını ayrı gösterir. Canlı Meta OAuth
+girişi kullanıcı hesabı ve tarayıcı onayı gerektirdiği için son smoke kontroldür;
+token hiçbir değerlendirme fikstüründe tutulmaz.
 
 ## Hâlâ eksik olanlar (dürüst)
 

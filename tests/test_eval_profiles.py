@@ -9,6 +9,7 @@ from .fakes import make_config
 
 def test_profiles_have_stable_cli_values():
     assert [profile.value for profile in EvalProfile] == [
+        "production",
         "fusion-full",
         "fusion-minimal",
         "direct",

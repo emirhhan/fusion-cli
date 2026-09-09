@@ -1,0 +1,7 @@
+[application]
+config/name="Fusion Production Fixture"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=320
+window/size/viewport_height=180

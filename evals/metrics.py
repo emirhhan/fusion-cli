@@ -113,6 +113,17 @@ class RunReport:
         return _mean([1.0 if r.success else 0.0 for r in self.results])
 
     @property
+    def run_success_rate(self) -> float:
+        """Bütün tekrarların tek tek geçme oranı; kararsızlığı görünür tutar."""
+        runs = sum(result.runs for result in self.results)
+        return sum(result.passes for result in self.results) / runs if runs else 0.0
+
+    @property
+    def strict_task_success_rate(self) -> float:
+        """Yalnız her tekrarı geçen görevlerin oranı."""
+        return self.task_success_rate
+
+    @property
     def first_attempt_success_rate(self) -> float:
         """İlk denemede başarılı görevlerin oranı (0..1)."""
 

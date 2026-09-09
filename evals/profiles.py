@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 
 class EvalProfile(StrEnum):
+    PRODUCTION = "production"
     FUSION_FULL = "fusion-full"
     FUSION_MINIMAL = "fusion-minimal"
     DIRECT = "direct"
@@ -41,7 +42,7 @@ def build_runner(profile: EvalProfile, config: Config) -> AgentRunner:
 
 
 def exclusions_for(profile: EvalProfile) -> tuple[str, ...]:
-    if profile is EvalProfile.FUSION_FULL:
+    if profile in {EvalProfile.PRODUCTION, EvalProfile.FUSION_FULL}:
         return ("interactive_asker", "persistent_lessons", "cross_run_recall")
     if profile is EvalProfile.FUSION_MINIMAL:
         return ("verifier", "self_review", "reflexion", "recall", "playbooks", "workflow")

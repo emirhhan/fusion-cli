@@ -1,0 +1,62 @@
+# Fusion'ın kullanıcıda kırılan gerçek iş aileleri. Yayın kapısında üç tekrar çalıştırılır.
+tasks:
+  - id: godot-asset-lisansli
+    request: >-
+      Mevcut Godot projesine assets/player.png için gerçek bir PNG ve assets/ASSETS.json
+      içinde source_url ile license kaydı ekle. project.godot dosyasını koru.
+    setup:
+      project.godot: |
+        [application]
+        config/name="Fusion Eval"
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import json, pathlib; p=pathlib.Path('assets/player.png'); m=json.load(open('assets/ASSETS.json')); assert p.read_bytes().startswith(b'\\x89PNG'); assert m['player.png']['source_url'].startswith('http'); assert m['player.png']['license']"
+
+  - id: oauth-mcp-yasam-dongusu
+    request: >-
+      oauth_mcp_server.py dosyasını incele; sunucunun ping aracını listeleyen ve çağıran
+      smoke_test.py yaz. Kimlik bilgisi veya token'ı dosyaya yazma.
+    setup:
+      oauth_mcp_server.py: |
+        TOOLS = {"ping": lambda: "pong"}
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import smoke_test; assert smoke_test.call('ping') == 'pong'"
+
+  - id: yanlis-hedefte-yeniden-planla
+    request: >-
+      config.json yanlışlıkla legacy/config.json diye tarif edilmiş. Önce gerçek yolu bul,
+      sonra config.json içindeki enabled değerini true yap; olmayan legacy yolunu oluşturma.
+    setup:
+      config.json: '{"enabled": false}'
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import json,os; assert json.load(open('config.json'))['enabled'] is True; assert not os.path.exists('legacy')"
+
+  - id: buyuk-artifact-korumali-duzenleme
+    request: >-
+      large.py içindeki TARGET değerini 42 yap. Diğer sabitleri ve dosya yapısını koru.
+    setup:
+      large.py: |
+        HEADER = "keep"
+        TARGET = 1
+        FOOTER = "keep-too"
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import large; assert large.TARGET==42 and large.HEADER=='keep' and large.FOOTER=='keep-too'"
+
+  - id: sohbet-izolasyonu
+    request: >-
+      conversation-a.json ve conversation-b.json dosyalarını oku. Yalnız conversation-a.json
+      içindeki status alanını done yap; diğer sohbet dosyasına dokunma.
+    setup:
+      conversation-a.json: '{"status": "pending", "owner": "a"}'
+      conversation-b.json: '{"status": "pending", "owner": "b"}'
+    criterion:
+      kind: exit_code
+      expected_exit_code: 0
+      command: python -c "import json; a=json.load(open('conversation-a.json')); b=json.load(open('conversation-b.json')); assert a=={'status':'done','owner':'a'}; assert b=={'status':'pending','owner':'b'}"
