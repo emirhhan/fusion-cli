@@ -512,7 +512,8 @@ describe("SessionUygulama", () => {
       onClosed: vi.fn(async () => () => undefined),
     };
     render(<SessionUygulama transport={transport} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Beceriler ve Ajanlar" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Emir profil menüsü" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Beceriler ve Ajanlar" }));
     expect(await screen.findByRole("heading", { name: "Beceriler ve Ajanlar", level: 1 })).toBeTruthy();
     expect(screen.queryByPlaceholderText("Fusion'a bir görev ver")).toBeNull();
   });

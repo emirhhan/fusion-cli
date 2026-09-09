@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
@@ -143,6 +143,8 @@ export function Sidebar({
   // eskiden bir CSS değişkeni hilesiyle yapılıyordu ve o hile, geniş kipte
   // temel `display`/`padding` değerlerini de siliyordu (ölçüldü).
   const darEkran = useDarEkran();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [historyExpanded, setHistoryExpanded] = useState(() =>
     typeof localStorage === "undefined" || localStorage.getItem("fusion.sidebar.history-open.v1") !== "false",
@@ -192,6 +194,27 @@ export function Sidebar({
     localStorage.setItem("fusion.sidebar.history-open.v1", String(next));
     return next;
   });
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [profileOpen]);
+
+  const navigateFromProfile = (destination: string) => {
+    setProfileOpen(false);
+    onNavigate(destination);
+  };
 
   const projectSection = (title: string, projects: ProjeSatiri[]) => projects.length > 0 && (
     <section aria-label={title} className="sidebar__section">
@@ -291,15 +314,37 @@ export function Sidebar({
       </div>
 
       <div className="sidebar__bottom">
-        <NavItem icon="skills" label="Beceriler ve Ajanlar" onClick={() => onNavigate("skills")} />
-        <NavItem ders="dersler" icon="lessons" label="Dersler" onClick={() => onNavigate("lessons")} />
-        <NavItem
-          ders="kontrol-paneli"
-          icon="panel"
-          label="Kontrol Paneli"
-          onClick={() => onNavigate("control-panel")}
-        />
-        <NavItem ders="ayarlar" icon="settings" label="Ayarlar" onClick={() => onNavigate("settings")} />
+        <div className="sidebar__profile-wrap" ref={profileRef}>
+          {profileOpen && (
+            <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
+              <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button">
+                <span className="sidebar__avatar">EM</span>
+                <span className="sidebar__profile-copy"><strong>Emir</strong><small>Plus</small></span>
+                <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
+              </button>
+              <div className="sidebar__profile-separator" />
+              <button data-ders="kontrol-paneli" onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Merkezi</span></button>
+              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
+              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
+              <button data-ders="dersler" onClick={() => navigateFromProfile("lessons")} role="menuitem" type="button"><Icon name="lessons" /><span>Dersler</span></button>
+              <button data-ders="ayarlar" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
+              <div className="sidebar__profile-separator" />
+              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span><Icon className="sidebar__profile-chevron" name="chevron" size={18} /></button>
+            </div>
+          )}
+          <button
+            aria-expanded={profileOpen}
+            aria-haspopup="menu"
+            aria-label="Emir profil menüsü"
+            className="sidebar__profile-trigger"
+            onClick={() => setProfileOpen((open) => !open)}
+            type="button"
+          >
+            <span className="sidebar__avatar">EM</span>
+            <span className="sidebar__profile-copy sidebar__label"><strong>Emir</strong><small>Plus</small></span>
+            <span aria-hidden="true" className="sidebar__profile-status" />
+          </button>
+        </div>
       </div>
     </nav>
   );

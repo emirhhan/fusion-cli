@@ -47,10 +47,23 @@ describe("Sidebar", () => {
   it("ürünün ana bölümlerini tek navigasyonda gösterir", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.getByRole("button", { name: /yeni görev/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /beceriler ve ajanlar/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /dersler/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /kontrol paneli/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /ayarlar/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /emir profil menüsü/i }));
+    expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /dersler/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /kontrol merkezi/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /mcp bağlantıları/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /ayarlar/i })).toBeTruthy();
+  });
+
+  it("profil menüsünden hedefe gider ve menüyü kapatır", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /emir profil menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith("connectors");
+    expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
   });
 
   it("aramayla oturumları başlık ve kaynak üzerinden filtreler", () => {

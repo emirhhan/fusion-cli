@@ -60,7 +60,7 @@
   --tehlike: var(--text-danger);
   --ters-metin: var(--text-inverse);
 
-  --kenar-cubugu-genislik: 281px;
+  --kenar-cubugu-genislik: 296px;
   --inspector-width: 420px;
   --sidebar-rail-width: 68px;
   --icerik-en-fazla: 768px;
@@ -111,22 +111,23 @@
      yüzey (kenar çubuğu), Soft White mürekkep, Signal Green vurgu.
      Ölçülen kontrastlar: Soft White/Carbon 16.30:1, ikincil metin 7.05:1,
      Signal Green/Obsidian 16.02:1 — üçü de WCAG AA'nın epey üstünde. */
-  --surface-canvas: #14181d;
-  --surface-sidebar: #0b0a0d;
-  --surface-selected: #232a33;
-  --surface-message-user: #1e242b;
+  --surface-canvas: #212121;
+  --surface-sidebar: #171717;
+  --surface-selected: #2f2f2f;
+  --surface-message-user: #303030;
   --surface-accent-subtle: #1e2a12;
-  --surface-raised: #1a1f26;
-  --surface-hover: #1e242b;
+  --surface-raised: #2f2f2f;
+  --surface-menu: #333333;
+  --surface-hover: #2a2a2a;
   --surface-overlay: rgb(0 0 0 / 64%);
   --text-primary: #f3f5f6;
-  --text-secondary: #9aa4af;
+  --text-secondary: #b4b4b4;
   --text-inverse: #0b0a0d;
   --text-danger: #ff9b95;
   --text-success: #69d3ac;
   --text-warning: #f4c66e;
-  --border-subtle: #232a33;
-  --border-strong: #3a444f;
+  --border-subtle: #3a3a3a;
+  --border-strong: #565656;
   --control-primary: #f3f5f6;
   /* Koyu zeminde markanın kendi yeşili doğrudan kullanılabilir. */
   --focus-ring: var(--brand-signal);

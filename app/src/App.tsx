@@ -1075,6 +1075,11 @@ export function SessionUygulama({
             } else if (destination === "control-panel") {
               setControlTitle("Kontrol Paneli");
               setPage("control");
+            } else if (destination === "connectors") {
+              setControlTitle("MCP Bağlantıları");
+              setPage("control");
+            } else if (destination === "help") {
+              setPage("lessons");
             } else if (destination.startsWith("resume:")) {
               setPage("chat");
               const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";

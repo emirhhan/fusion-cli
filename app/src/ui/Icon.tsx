@@ -7,13 +7,16 @@ export type IconName =
   | "chevron"
   | "copy"
   | "files"
+  | "help"
   | "lessons"
   | "new"
+  | "logout"
   | "panel"
   | "preview"
   | "search"
   | "send"
   | "settings"
+  | "user"
   | "sidebar"
   | "skills"
   | "stop"
@@ -27,13 +30,16 @@ const paths: Record<IconName, ReactNode> = {
   chevron: <path d="m9 18 6-6-6-6" />,
   copy: <><rect width="13" height="13" x="8" y="8" rx="2" /><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3" /></>,
   files: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v5h4" /></>,
+  help: <><circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.5 2.1c-.8.4-1.3 1-1.3 1.9" /><path d="M12 17h.01" /></>,
   lessons: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22.5z" /><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5a2.5 2.5 0 0 1 2.5 2.5z" /></>,
   new: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
+  logout: <><path d="M10 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
   panel: <><rect width="18" height="16" x="3" y="4" rx="2" /><path d="M15 4v16" /></>,
   preview: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6" /><circle cx="12" cy="12" r="2.5" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,
   send: <><path d="m22 2-7 20-4-9-9-4z" /><path d="M22 2 11 13" /></>,
   settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" /></>,
+  user: <><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></>,
   sidebar: <><rect width="18" height="16" x="3" y="4" rx="2" /><path d="M9 4v16" /></>,
   skills: <><path d="m12 3 1.4 4.2L18 8.5l-3.5 2.7.1 4.5-3.6-2.5-3.6 2.5.1-4.5L4 8.5l4.6-1.3z" /><path d="M17 17v4" /><path d="M15 19h4" /></>,
   stop: <rect width="10" height="10" x="7" y="7" rx="1.5" />,

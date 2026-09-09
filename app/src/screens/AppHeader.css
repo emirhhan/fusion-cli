@@ -1,14 +1,14 @@
 .app-header {
   align-items: center;
   background: color-mix(in srgb, var(--surface-canvas) 92%, transparent);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 0;
   display: grid;
   gap: var(--space-2);
   grid-template-columns: auto minmax(0, 1fr) auto;
   min-width: 0;
   min-height: var(--header-height);
   overflow: hidden;
-  padding: 0 var(--space-3);
+  padding: 0 18px;
 }
 
 .app-header__identity {
@@ -19,8 +19,8 @@
 }
 
 .app-header h1 {
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 500;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
