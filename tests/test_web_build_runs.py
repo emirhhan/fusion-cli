@@ -265,7 +265,7 @@ async def test_kosu_sifre_duvarli_site_uydurulmadan_raporlanir(monkeypatch, tmp_
     monkeypatch.setattr(
         web_tools,
         "_fetch_following_redirects",
-        lambda url: ("text/html", SIFRE_DUVARI_HTML),
+        lambda url: ("text/html", SIFRE_DUVARI_HTML, url),
     )
     _kur(
         monkeypatch,
@@ -334,7 +334,7 @@ async def test_kosu_normal_sayfa_uyari_almadan_gecer(monkeypatch, tmp_path, sink
     monkeypatch.setattr(
         web_tools,
         "_fetch_following_redirects",
-        lambda url: ("text/html", "<h1>Spor Ayakkabı</h1><p>1.499 TL</p>"),
+        lambda url: ("text/html", "<h1>Spor Ayakkabı</h1><p>1.499 TL</p>", url),
     )
     _kur(
         monkeypatch,

@@ -17,6 +17,7 @@ from __future__ import annotations
 FILE_MISSING_PREFIX = "Dosya yok:"
 
 MAX_READ_BYTES = 100_000
+MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
 #: Tek bir read_file çağrısında döndürülecek en fazla satır.
 #
 # Sınır bayt değil SATIR cinsindendir çünkü modelin devam edeceği birim satırdır.

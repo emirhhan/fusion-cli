@@ -83,6 +83,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "browser_close": ToolFamily.BROWSER,
     "web_search": ToolFamily.WEB,
     "web_fetch": ToolFamily.WEB,
+    "download_file": ToolFamily.WEB,
     "read_url_content": ToolFamily.WEB,
     "spawn_agent": ToolFamily.DELEGATION,
     "invoke_subagent": ToolFamily.DELEGATION,

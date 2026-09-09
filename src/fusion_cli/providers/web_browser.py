@@ -1681,6 +1681,10 @@ _LOGIN_SELECTORS: dict[str, tuple[str, ...]] = {
         'a[href*="/login"]',
     ),
     "gemini_web": (
+        # Anonim Gemini de istem alır ve Flash-Lite ile yanıtlar. Yalnız giriş
+        # formunu aramak bağlı hesabın sessizce anonim modele düşmesini kaçırır.
+        'button:text-is("Oturum aç")',
+        'button:text-is("Sign in")',
         'input[type="email"]',
         'input[type="password"]',
         'form[action*="signin"]',

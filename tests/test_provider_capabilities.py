@@ -10,8 +10,38 @@ from fusion_cli.core.types import ModelSpec
 from fusion_cli.providers.capabilities import (
     TaskRequirements,
     capabilities_for,
+    infer_task_requirements,
     select_compatible_model,
 )
+
+
+@pytest.mark.parametrize(
+    "task",
+    (
+        "İnternetten free assetler toplayarak 2d bir oyun yap; hikaye ve ara sahneler olsun.",
+        "Tüm projeyi kapsamlı olarak geliştir ve PNG sprite dosyaları oluştur.",
+    ),
+)
+def test_kapsamli_gorev_dogrulanmis_web_araclarini_baslamadan_elemez(task):
+    gemini = ModelSpec("gemini", "gemini_web/main/auto", tags=("strict",))
+    sessions = (
+        WebSessionConfig(
+            model=gemini.model,
+            provider="gemini_web",
+            transport="browser",
+            tool_support="emulated",
+            tool_eval_passed=True,
+        ),
+    )
+
+    requirements = infer_task_requirements(task, mutating=True)
+
+    assert requirements.tools
+    assert select_compatible_model((gemini,), requirements, sessions, strict=True) == gemini
+
+
+def test_gercek_gorsel_eki_gorsel_destegi_istemeye_devam_eder():
+    assert infer_task_requirements("Bu resmi incele", has_images=True).images
 
 
 def test_gemini_web_uzun_gorselli_cok_aracli_mutasyon_isinden_elenir():

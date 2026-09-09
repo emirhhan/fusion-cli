@@ -62,6 +62,14 @@ class ChangeSet:
         """Bu turda dokunulan yollar, kaydedilme sırasıyla."""
         return tuple(self._snapshots)
 
+    def record_created(self, path: Path) -> None:
+        """Yalnız atomik, üzerine yazmayan oluşturma BAŞARILI olduktan sonra çağır.
+
+        Önceden kayıt almak, oluşturma yarışını başka yazıcı kazanırsa onun
+        dosyasını geri almada siler. Burada oluşturma başarısını çağıran kanıtlar.
+        """
+        self._snapshots.setdefault(path, Snapshot(path=path, content=None))
+
     def was_created_this_turn(self, path: Path) -> bool:
         """Bu dosyayı bu turda agent'ın KENDİSİ mi oluşturdu (öncesinde yoktu)?
 

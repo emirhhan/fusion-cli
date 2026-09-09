@@ -23,6 +23,24 @@ def context(tmp_path):
     return ToolContext(root=tmp_path)
 
 
+def test_sayfa_okuma_indirme_baglantisinin_adresini_kaybetmez(monkeypatch, context):
+    monkeypatch.setattr(
+        web,
+        "_fetch_following_redirects",
+        lambda url: (
+            "text/html",
+            '<h1>Asset pack</h1><a href="/media/pack.zip"><b>Download</b></a>'
+            '<a href="javascript:alert(1)">Invalid</a>',
+            url,
+        ),
+    )
+    result = web.web_fetch({"url": "https://8.8.8.8/assets/pack"}, context)
+    assert result.ok
+    assert "https://8.8.8.8/media/pack.zip" in result.output
+    assert "Download" in result.output
+    assert "javascript:" not in result.output
+
+
 @pytest.fixture
 def registry():
     return build_registry()

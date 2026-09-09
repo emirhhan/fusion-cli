@@ -55,3 +55,8 @@ def test_mutasyon_kapaliyken_yazma_araclari_yine_kapali():
     calistirilabilir = _permitted(None, build_registry(), policy) or set()
 
     assert "write_file" not in calistirilabilir
+
+
+def test_bos_arac_kumesi_planlamaya_yonetim_araci_sizdirmaz():
+    assert _permitted(set(), build_registry(), _policy()) == set()
+    assert _permitted(set(), build_registry(), _policy(), for_schema=True) == set()

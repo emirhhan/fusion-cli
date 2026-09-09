@@ -145,6 +145,30 @@ async def test_gecersiz_model_plani_yalniz_bir_kez_onarilir(tmp_path):
     assert result.ok is False
     assert len(calls) == 2
     assert "plan üretilemedi" in result.final_text.lower()
+    # İkinci istek ayrı bir model turudur; ilk turun şemasını görmüş sayılmaz.
+    assert '"verification_checks"' in calls[1]
+    assert '"allowed_tool_families"' in calls[1]
+
+
+async def test_planlama_saglayici_hatasi_json_hatasi_olarak_gizlenmez(tmp_path):
+    calls = []
+
+    async def failed_agent(task, deps, **kwargs):
+        calls.append(task)
+        return AgentOutcome(
+            final_text="authentication: Gemini oturumu açık değil.",
+            messages=[],
+            ok=False,
+            model_calls_made=1,
+        )
+
+    result = await run_execution_plan(
+        "oyun yap", _FakeDeps(ToolContext(root=tmp_path)), failed_agent
+    )
+    assert not result.ok
+    assert "authentication: Gemini oturumu açık değil" in result.final_text
+    assert len(calls) == 1
+    assert result.model_calls_made == 1
 
 
 async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_path):

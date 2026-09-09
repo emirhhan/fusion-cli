@@ -120,7 +120,13 @@ def select_compatible_model(
 def infer_task_requirements(
     task: str, *, has_images: bool = False, mutating: bool = False
 ) -> TaskRequirements:
-    """Görev metninden yalnız açık ve güvenli gereksinimleri çıkar."""
+    """Model girdisinin gereksinimini çıkar; orkestratör yeteneğini modele yükleme.
+
+    Uzun görevleri planlayıcı, dosya/ağ işlemlerini araçlar yürütür. Görevde
+    "oyun yap" geçmesi native function calling gerektirmez; doğrulanmış emülasyon
+    aynı araçları çağırabilir. PNG üretmek de modele resim girdisi göndermek değildir.
+    Açık taşıma gereksinimleri gerektiğinde TaskRequirements ile ayrıca verilir.
+    """
     lowered = task.casefold()
     web = any(word in lowered for word in ("internet", "webden", "web'den", "asset topla"))
     mutation_words = (
@@ -136,17 +142,7 @@ def infer_task_requirements(
         "kur",
     )
     mutating = mutating or any(word in lowered for word in mutation_words)
-    long_running = any(
-        word in lowered
-        for word in ("oyun yap", "uygulama yap", "kapsamlı", "tüm proje", "baştan sona")
-    )
-    image_task = has_images or any(
-        word in lowered for word in ("görsel", "sprite", "texture", "png", "jpg")
-    )
     return TaskRequirements(
         tools=mutating or web,
-        native_tools=mutating and long_running,
-        images=image_task,
-        web=web,
-        long_running=long_running,
+        images=has_images,
     )

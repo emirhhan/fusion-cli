@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ...core.checkpoint import StepCheckpointEvidence
-from ...core.execution_plan import PlanStep, VerificationCheck, VerificationCheckKind
+from ...core.execution_plan import PlanPhase, PlanStep, VerificationCheck, VerificationCheckKind
 from ...core.tools import ToolContext, ToolFamily, tool_family
 from ...tools import build_registry
 from ..workflow.model import WorkflowBudget
@@ -79,6 +79,7 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
     ve görev yapılamaz hâle geldi. Gözlemin yan etkisi yoktur, planın niyetini de
     ihlal edemez; kapsamın işi bir adımın BAŞKA adımın işini yapmasını önlemektir.
     """
+    observe = observe or step.phase is PlanPhase.DISCOVERY
     policy = getattr(deps, "execution", None) or ExecutionPolicy(is_web=False)
     registry = getattr(deps, "base_registry", None) or build_registry()
     families = set(step.allowed_tool_families) | _effect_families(step)
@@ -115,7 +116,7 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
             required_effect=effect,
             requires_tool_evidence=effect is not None,
             allow_mutation=policy.allow_mutation and not observe,
-            mutation_block_reason="Kurtarma yalnız mevcut durumu gözlemleyebilir."
+            mutation_block_reason="Bu adım yalnız mevcut durumu gözlemleyebilir."
             if observe
             else policy.mutation_block_reason,
             observe_only=observe,
@@ -188,7 +189,10 @@ def step_prompt(
 ) -> str:
     """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret."""
     return (
-        f"ANA GÖREV:\n{task}\n\nPLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
+        f"ŞİMDİ YÜRÜTÜLECEK PLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
+        f"ADIM EVRESİ: {step.phase.value}\n"
+        "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
+        f"ANA GÖREV (kapsam ve kısıtlar korunacak):\n{task}\n\n"
         f"{workspace}"
         f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
         + "\n".join(f"- {criterion}" for criterion in step.success_criteria)

@@ -26,9 +26,20 @@ Yalnızca JSON döndür; açıklama veya Markdown kullanma.
 }
 
 Kurallar:
+- Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
+  listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
+  doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.
+- Kullanıcının olumsuz kısıtlarını koru. Araç hatası veya zaman baskısı, istenen ürünü
+  daha kolay bir teknolojiye ya da assetsiz bir demoya dönüştürme izni değildir.
+- Harici varlık istendiğinde araştırma, gerçek dosyaları indirme ve üründe kullanma
+  işlerini kapsa. Kaynak/lisans manifesti dosyaların yerine geçmez.
 - Yalnızca gerekli adımları üret; bağımsız adımları gereksiz yere zincirleme.
 - Görev yolu, dosya yapısı veya dış kaynağı belirsizse ilk adımı `discovery` yap.
   Keşif adımı yalnız mevcut durumu ve gerçek yolları kanıtlar; dosya üretmeyi vaat etmez.
+  Keşifte salt-okunur araçlar (list_dir, read_file, glob, grep, git, web_search,
+  web_fetch) kullanılır; run_shell ve dosya yazma araçları açık değildir. Kontrolleri
+  keşifte gerçekten kullanılacak araca bağla (kind: tool); shell gerekiyorsa ayrı
+  execution adımı planla.
   Dosya oluşturan veya değiştiren adımları `execution` yap ve keşif adımına bağla.
 - Her başarı koşulu araç çıktısı, dosya durumu veya test sonucu ile kanıtlanabilir olsun.
 - Her başarı koşulunu en az bir `verification_checks` kaydına bağla. `command`

@@ -39,7 +39,7 @@ from ...core.constants import (
     FILE_MISSING_PREFIX,
     UNREACHABLE_RESOURCE_PREFIX,
 )
-from ...core.errors import FusionError
+from ...core.errors import ConfigError, FusionError
 from ...core.events import (
     Channel,
     ContextCompressed,
@@ -358,7 +358,8 @@ async def run_agent(
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
     `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
-    kendi araç setini bildirebilir). Görev yönetimi ve soru sorma her zaman açıktır.
+    kendi araç setini bildirebilir). Boş küme tüm araçları kapatır; dolu kümede
+    görev yönetimi ve soru sorma araçları ayrıca sunulur.
     """
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
@@ -440,9 +441,15 @@ async def run_agent(
     )
 
     if deps.execution is None:
-        selected_spec = select_agent_spec(
-            deps.config, deps.task_type, requirements=deps.task_requirements
-        )
+        try:
+            selected_spec = select_agent_spec(
+                deps.config, deps.task_type, requirements=deps.task_requirements
+            )
+        except ConfigError as error:
+            # Henüz hiçbir model çağrılmadı. Normal başarısız sonuç döndürerek
+            # oturumun bitiş olayı ve ekleri içeren geçmişi kaydetmesini sağla.
+            messages.append(Message("assistant", str(error)))
+            return AgentOutcome(final_text=str(error), messages=messages, ok=False)
         # Politikaya BU TURUN metni verilir, geçmişle birleştirilmiş hali değil.
         #
         # `kind` yukarıda geçmişle birlikte hesaplandı ve öyle kalır: bütçe ve
@@ -1327,6 +1334,8 @@ def _permitted(
     Aynı gerekçe düzenleme biçimi için de geçerlidir: örtüşen araçlar birlikte
     sunulmaz.
     """
+    if allowed_tools is not None and not allowed_tools:
+        return set()
     names = (
         set(registry.names())
         if allowed_tools is None

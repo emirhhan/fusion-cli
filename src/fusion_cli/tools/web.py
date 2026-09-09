@@ -16,6 +16,7 @@ import re
 import socket
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
+from html.parser import HTMLParser
 from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlparse
 
 import httpx
@@ -55,13 +56,13 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(_unreachable(reason))
 
     try:
-        content_type, body = _fetch_following_redirects(url)
+        content_type, body, final_url = _fetch_following_redirects(url)
     except httpx.HTTPError as exc:
         return ToolResult.failure(_unreachable(f"{type(exc).__name__}: {exc}"))
     except _BlockedRedirectError as exc:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
-    text = strip_html(body) if _looks_like_html(content_type, body) else body
+    text = page_text(body, final_url) if _looks_like_html(content_type, body) else body
     govde = truncate_notice(text, MAX_OUTPUT_CHARS, ne="sayfa metni") or "(boş içerik)"
     duvar = access_wall_notice(text)
     return ToolResult(f"{duvar}\n\n{govde}" if duvar else govde)
@@ -125,7 +126,7 @@ class _BlockedRedirectError(Exception):
     """Bir yönlendirme SSRF doğrulamasını geçemedi ya da zincir çok uzadı."""
 
 
-def _fetch_following_redirects(url: str) -> tuple[str, str]:
+def _fetch_following_redirects(url: str) -> tuple[str, str, str]:
     """Yönlendirmeleri ELLE, her adımı SSRF'e karşı doğrulayarak takip et.
 
     `httpx`'in kendi `follow_redirects`'i ara hedefleri denetlemez; dış bir URL
@@ -139,7 +140,7 @@ def _fetch_following_redirects(url: str) -> tuple[str, str]:
             response = client.get(current, headers={"User-Agent": _USER_AGENT})
             if not response.is_redirect:
                 response.raise_for_status()
-                return response.headers.get("content-type", ""), response.text
+                return response.headers.get("content-type", ""), response.text, str(response.url)
             location = response.headers.get("location", "")
             current = urljoin(current, location)
             reason = url_block_reason(current)
@@ -169,6 +170,37 @@ def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:
 # --------------------------------------------------------------------------- #
 # HTML işleme — saf fonksiyonlar, doğrudan test edilir.
 # --------------------------------------------------------------------------- #
+
+
+class _PageLinks(HTMLParser):
+    """Bağlantıları metinden ayır; yalnızca HTTP(S) hedeflerini koru."""
+
+    def __init__(self, base_url: str) -> None:
+        super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.urls: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        href = dict(attrs).get("href")
+        if tag != "a" or not href or len(self.urls) >= 80:
+            return
+        url = urljoin(self.base_url, href)
+        if urlparse(url).scheme in _ALLOWED_SCHEMES and url not in self.urls:
+            self.urls.append(url)
+
+
+def page_text(body: str, base_url: str) -> str:
+    """Sayfa temizlenirken indirme bağlantıları kaybolup model URL uydurmasın."""
+    links = _PageLinks(base_url)
+    links.feed(body)
+    text = strip_html(body)
+    if not links.urls:
+        return text
+    # Bağlantılara ayrı yer ayır: uzun sayfa metni indirme hedeflerini kesmesin.
+    body_budget = MAX_OUTPUT_CHARS // 2
+    targets = truncate_notice("\n".join(links.urls), body_budget - 100, ne="bağlantılar")
+    summary = truncate_notice(text, body_budget, ne="sayfa metni")
+    return f"{summary}\n\nSayfadaki bağlantılar:\n{targets}"
 
 
 def strip_html(html: str) -> str:

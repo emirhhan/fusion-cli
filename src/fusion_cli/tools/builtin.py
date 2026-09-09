@@ -10,7 +10,7 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 from __future__ import annotations
 
 from ..core.tools import Tool
-from . import browser, files, planning, scaffold_tool, search, shell, web
+from . import browser, download, files, planning, scaffold_tool, search, shell, web
 from .registry import ToolRegistry
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
@@ -256,6 +256,16 @@ _TOOLS: tuple[Tool, ...] = (
         "ya da hata mesajı çözümü gerektiğinde kullan; ezberden emin konuşma.",
         parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
         run=web.web_search,
+    ),
+    Tool(
+        name="download_file",
+        description="Kamuya açık bir URL'den gerçek dosyayı proje içine indir (en fazla 32 MiB). "
+        "PNG/JPEG, ses, font ve ZIP assetleri için kullan; web_fetch ikili dosya kaydetmez. "
+        "Mevcut dosyanın üzerine yazmaz. İndirmeden önce lisansı kaynak sayfasından doğrula; "
+        "sonrasında ASSETS.json kaydını oluştur. Arşivleri kendiliğinden açmaz.",
+        parameters=_schema({"url": _STRING, "path": _STRING}, ["url", "path"]),
+        run=download.download_file,
+        mutating=True,
     ),
     Tool(
         name="web_fetch",

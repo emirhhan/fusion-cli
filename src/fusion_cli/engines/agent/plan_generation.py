@@ -55,6 +55,7 @@ async def generate_plan(
     prompt = template.replace("{task}", task)
     if promotion is not None:
         prompt = f"{promotion.render()}\n\n{prompt}"
+    original_prompt = prompt
     calls = 0
     error = "Planlama bütçesi tükendi."
     # Mevcut plan sözleşmesi tek biçim onarımına izin verir.
@@ -72,13 +73,17 @@ async def generate_plan(
             allowed_tools=set(),
         )
         calls += outcome.model_calls_made
+        if not outcome.ok:
+            # Kimlik doğrulama, kota veya çalışma bütçesi hatası bozuk JSON
+            # değildir; biçim onarımıyla gizlenmez ve yeniden model çağırılmaz.
+            return PlanGeneration(None, calls, outcome.final_text or "Planlama çağrısı başarısız.")
         try:
             return PlanGeneration(parse_execution_plan(outcome.final_text), calls)
         except PlanParseError as exc:
             error = str(exc)
             prompt = (
-                f"Aşağıdaki plan geçersiz: {error}\n"
+                f"{original_prompt}\n\nAşağıdaki plan geçersiz: {error}\n"
                 "Şemaya uyan eksiksiz JSON'u yeniden üret. Yalnızca JSON döndür.\n\n"
-                f"Asıl görev:\n{task}\n\nGeçersiz çıktı:\n{outcome.final_text[:4000]}"
+                f"Geçersiz çıktı (yalnız hata bağlamıdır):\n{outcome.final_text[:4000]}"
             )
     return PlanGeneration(None, calls, error)

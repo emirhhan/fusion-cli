@@ -7,6 +7,7 @@ import pytest
 
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
+    PlanPhase,
     PlanStatus,
     RetrySafety,
     StepStatus,
@@ -35,6 +36,25 @@ def _file_step(name, path, *, depends_on=()):
             ),
         ),
     )
+
+
+def test_kesif_adimi_ana_gorevi_uygulamaya_baslayamaz(tmp_path):
+    from fusion_cli.engines.agent.plan_context import step_deps
+
+    discovery = replace(
+        _step("discover"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files", "shell", "web"),
+    )
+    deps = step_deps(_deps(tmp_path), discovery, remaining=4, observe=False)
+
+    assert deps.execution.observe_only
+    assert not deps.execution.allow_mutation
+    assert "list_dir" in deps.execution.allowed_tool_names
+    assert "read_file" in deps.execution.allowed_tool_names
+    assert "write_file" not in deps.execution.allowed_tool_names
+    assert "run_shell" not in deps.execution.allowed_tool_names
 
 
 def _deps(root, *, recovery=12, final=2):

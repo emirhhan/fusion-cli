@@ -141,6 +141,17 @@ async def test_gemini_bodyde_sign_in_metni_tek_basina_auth_sayilmaz():
     await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
 
 
+@pytest.mark.parametrize("label", ("Oturum aç", "Sign in"))
+async def test_gemini_anonim_sohbetin_gorunen_giris_dugmesi_auth_ister(label):
+    page = _FakePage(
+        "https://gemini.google.com/app",
+        f"Gemini {label} Flash-Lite",
+        visible_selectors=(f'button:text-is("{label}")',),
+    )
+    with pytest.raises(WebBrowserAuthError):
+        await _raise_known_page_error(page, WEB_BROWSER_PROVIDERS["gemini_web"])
+
+
 async def test_gemini_accounts_url_gercek_auth_sinyalidir():
     page = _FakePage(
         "https://accounts.google.com/v3/signin/identifier",
@@ -450,7 +461,7 @@ async def test_kod_blogu_dil_etiketi_cevaba_karismaz():
             assert "remove" in script
             for secici in _KOD_BLOGU_SUSLERI:
                 assert secici in script
-            return ["[application]\nconfig/name=\"Oyun\""]
+            return ['[application]\nconfig/name="Oyun"']
 
     class _Page:
         def locator(self, selector):
