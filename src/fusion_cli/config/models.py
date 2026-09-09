@@ -10,6 +10,7 @@ yapılandırma hiç yüklenmez ve test kırılır.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 from ..core.execution_mode import ExecutionMode
@@ -163,16 +164,27 @@ class EmbeddingConfig:
     model: str
 
 
+class McpTransport(StrEnum):
+    """MCP sunucusuna ulaşmak için kullanılan standart taşıma."""
+
+    STDIO = "stdio"
+    STREAMABLE_HTTP = "streamable_http"
+
+
 @dataclass(frozen=True, slots=True)
 class McpServerConfig:
-    """Bağlanılacak bir dış MCP sunucusu (stdio ile başlatılır).
+    """Bağlanılacak dış MCP sunucusu; eski kayıtlar stdio olarak kalır.
 
     Burada tutulur (mcp SDK'sını import ETMEZ): yapılandırma, MCP kurulu olmadan da
     yüklenebilmeli. Bağlantıyı kuran `mcp_bridge` katmanı SDK'yı ayrıca ister."""
 
     name: str
-    command: str
+    command: str = ""
     args: tuple[str, ...] = ()
+    transport: McpTransport = McpTransport.STDIO
+    url: str = ""
+    scopes: tuple[str, ...] = ()
+    client_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)

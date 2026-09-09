@@ -14,17 +14,19 @@ yani Fusion'ın ONAY akışından geçerler (kullanıcı görmeden çalışmazla
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp import ClientSession
 
 from ..config.models import McpServerConfig
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ..tools import ToolRegistry
 from .content import normalize_call_result
+from .transport import open_mcp_stream
 
 __all__ = ["McpClient", "McpServerConfig", "RemoteTool"]
 
@@ -42,29 +44,73 @@ class RemoteTool:
     schema: dict[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class McpConnectionStatus:
+    """Bir MCP sunucusunun diğerlerinden bağımsız sağlık sonucu."""
+
+    server: str
+    state: str
+    tool_count: int = 0
+    latency_ms: int = 0
+    message: str | None = None
+
+
 class McpClient:
     """Yapılandırılmış MCP sunucularına bağlanan, araçlarını taşıyan istemci."""
 
-    def __init__(self, configs: Sequence[McpServerConfig]) -> None:
+    def __init__(self, configs: Sequence[McpServerConfig], *, timeout_seconds: float = 10) -> None:
         self._configs = tuple(configs)
-        self._stack = AsyncExitStack()
+        self._timeout_seconds = timeout_seconds
+        self._stacks: dict[str, AsyncExitStack] = {}
         self._sessions: dict[str, ClientSession] = {}
+        self._statuses: dict[str, McpConnectionStatus] = {}
+
+    @property
+    def statuses(self) -> dict[str, McpConnectionStatus]:
+        return dict(self._statuses)
 
     async def __aenter__(self) -> McpClient:
-        try:
-            for config in self._configs:
-                params = StdioServerParameters(command=config.command, args=list(config.args))
-                read, write = await self._stack.enter_async_context(stdio_client(params))
-                session = await self._stack.enter_async_context(ClientSession(read, write))
-                await session.initialize()
-                self._sessions[config.name] = session
-        except Exception:
-            await self._stack.aclose()
-            raise
+        for config in self._configs:
+            await self._connect_server(config)
         return self
 
     async def __aexit__(self, *exc: object) -> None:
-        await self._stack.aclose()
+        for stack in reversed(tuple(self._stacks.values())):
+            await stack.aclose()
+        self._stacks.clear()
+        self._sessions.clear()
+
+    async def _connect_server(self, config: McpServerConfig) -> None:
+        started = time.monotonic()
+        stack = AsyncExitStack()
+        try:
+            async with asyncio.timeout(self._timeout_seconds):
+                read, write = await stack.enter_async_context(open_mcp_stream(config))
+                session = await stack.enter_async_context(ClientSession(read, write))
+                await session.initialize()
+                self._sessions[config.name] = session
+                self._stacks[config.name] = stack
+                self._statuses[config.name] = McpConnectionStatus(
+                    server=config.name,
+                    state="bagli",
+                    latency_ms=int((time.monotonic() - started) * 1000),
+                )
+        except TimeoutError:
+            await stack.aclose()
+            self._statuses[config.name] = McpConnectionStatus(
+                server=config.name,
+                state="zaman_asimi",
+                latency_ms=int((time.monotonic() - started) * 1000),
+                message="MCP başlatma zaman aşımına uğradı.",
+            )
+        except Exception:
+            await stack.aclose()
+            self._statuses[config.name] = McpConnectionStatus(
+                server=config.name,
+                state="hata",
+                latency_ms=int((time.monotonic() - started) * 1000),
+                message="MCP sunucusu başlatılamadı.",
+            )
 
     async def list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
@@ -110,7 +156,17 @@ class McpClient:
         """
         added: list[str] = []
         for server in self._sessions:
-            for remote in await self.list_tools(server):
+            tools = await self.list_tools(server)
+            current = self._statuses.get(server)
+            if current is not None:
+                self._statuses[server] = McpConnectionStatus(
+                    server=server,
+                    state=current.state,
+                    tool_count=len(tools),
+                    latency_ms=current.latency_ms,
+                    message=current.message,
+                )
+            for remote in tools:
                 fusion_name = f"{server}__{remote.name}"
                 registry.register(
                     Tool(

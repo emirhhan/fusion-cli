@@ -21,7 +21,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
-from fusion_cli.config.models import McpServerConfig
+from fusion_cli.config.models import McpServerConfig, McpTransport
 from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.mcp_bridge.client import McpClient
@@ -80,6 +80,26 @@ async def test_register_into_araclari_kayit_defterine_ekler(tmp_path):
     tool = registry.get("fusion__list_dir")
     assert tool is not None
     assert tool.mutating is True
+
+
+async def test_bozuk_bir_sunucu_saglam_sunucunun_araclarini_dusurmez(tmp_path):
+    from fusion_cli.tools import ToolRegistry
+
+    bozuk = McpServerConfig(
+        name="bozuk",
+        transport=McpTransport.STDIO,
+        command="kesinlikle-bulunmayan-fusion-komutu",
+    )
+    registry = ToolRegistry()
+
+    async with McpClient((bozuk, _server_config(tmp_path)), timeout_seconds=3) as client:
+        eklenen = await client.register_into(registry)
+        durumlar = client.statuses
+
+    assert any(name.startswith("fusion__") for name in eklenen)
+    assert durumlar["bozuk"].state == "hata"
+    assert durumlar["fusion"].state == "bagli"
+    assert "kesinlikle-bulunmayan" not in (durumlar["bozuk"].message or "")
 
 
 # --- fusion agent (tek-atış CLI) MCP'ye bağlanır ---------------------------- #

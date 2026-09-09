@@ -12,7 +12,7 @@ import yaml
 
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.model_select import apply_tier
-from fusion_cli.config.models import McpServerConfig
+from fusion_cli.config.models import McpServerConfig, McpTransport
 from fusion_cli.config.writer import write_mcp_servers, write_model_section, write_provider
 from fusion_cli.core.errors import ConfigError
 
@@ -224,3 +224,36 @@ def test_mcp_sunucusu_diger_bolumlere_dokunmaz(tmp_path):
 
     yazilan = yaml.safe_load(hedef.read_text(encoding="utf-8"))
     assert yazilan["runtime"] == {"max_tokens": 99}
+
+
+def test_eski_mcp_kaydi_stdio_olarak_yuklenir(tmp_path):
+    hedef = tmp_path / "config.yaml"
+    hedef.write_text(
+        yaml.safe_dump(
+            {"mcp_servers": [{"name": "godot", "command": "npx", "args": ["godot-mcp"]}]}
+        ),
+        encoding="utf-8",
+    )
+
+    sunucu = load_config(hedef).mcp_servers[0]
+
+    assert sunucu.transport is McpTransport.STDIO
+    assert sunucu.command == "npx"
+
+
+def test_http_mcp_kaydi_token_yazmadan_geri_okunur(tmp_path):
+    hedef = tmp_path / "config.yaml"
+    sunucu = McpServerConfig(
+        name="meta",
+        transport=McpTransport.STREAMABLE_HTTP,
+        url="https://mcp.example.com/mcp",
+        scopes=("ads_read", "business_management"),
+        client_id="fusion-desktop",
+    )
+
+    write_mcp_servers(replace(load_config(), mcp_servers=(sunucu,)), hedef)
+    metin = hedef.read_text(encoding="utf-8")
+
+    assert load_config(hedef).mcp_servers == (sunucu,)
+    assert "access_token" not in metin
+    assert "refresh_token" not in metin

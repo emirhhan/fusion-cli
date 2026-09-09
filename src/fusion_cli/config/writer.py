@@ -37,7 +37,7 @@ import yaml
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
-from .models import Config
+from .models import Config, McpTransport
 from .paths import user_config_candidates, user_config_dir
 
 _fcntl: ModuleType | None
@@ -161,8 +161,16 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "name": server.name,
                     "command": server.command,
                     "args": list(server.args),
+                    "transport": server.transport.value,
+                    "url": server.url,
+                    "scopes": list(server.scopes),
+                    "client_id": server.client_id,
                 }.items()
-                if value is not None and value != ()
+                if value is not None
+                and value != ()
+                and value != []
+                and value != ""
+                and not (key == "transport" and value == McpTransport.STDIO.value)
             }
             for server in config.mcp_servers
         ]
