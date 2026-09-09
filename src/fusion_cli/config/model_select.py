@@ -10,6 +10,7 @@ Değişiklik yalnızca oturum boyunca yaşar; kalıcı olması için `config.yam
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
 from ..core.errors import ConfigError
 from ..core.routing_strategy import RoutingStrategy, order_models
@@ -18,8 +19,13 @@ from .eligibility import capability_from_spec
 from .models import Config
 from .tool_policy import can_be_mutation_agent
 
+if TYPE_CHECKING:
+    from ..providers.capabilities import TaskRequirements
 
-def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
+
+def select_agent_spec(
+    config: Config, task_type: str, requirements: TaskRequirements | None = None
+) -> ModelSpec:
     """Agent turunda kullanılacak modeli görev tipine göre seç.
 
     `task_model_map` uzun süre yalnızca fusion motorunda uygulanıyordu; agent her
@@ -33,19 +39,28 @@ def select_agent_spec(config: Config, task_type: str) -> ModelSpec:
     # Aksi halde başlıkta Gemini görünürken haritadaki eski `secilen` adayı NVIDIA
     # çalıştırabilir; agent ve öz-denetim farklı modeller kullanır.
     if config.agent.strict:
+        if requirements is not None:
+            from ..providers.capabilities import select_compatible_model
+
+            return select_compatible_model(
+                (config.agent,), requirements, config.web_sessions, strict=True
+            )
         return config.agent
 
     mapped = config.task_model_map.get(task_type)
-    if not mapped:
-        return config.agent
-    secilen = config.candidate_by_name(str(mapped))
+    secilen = config.candidate_by_name(str(mapped)) if mapped else None
     if secilen is None:
-        return config.agent
+        secilen = config.agent
     # Araç desteği olmayan (ya da yalnızca taklit) bir aday, dosya değiştiren agent
     # OLAMAZ (master prompt §5.3). Böyle bir adaya yönlendirilmişse varsayılan `agent:`
     # rolüne düşülür — o rol araç yetenekli olacak biçimde seçilmiştir.
     if not can_be_mutation_agent(capability_from_spec(secilen)).ok:
-        return config.agent
+        secilen = config.agent
+    if requirements is not None:
+        from ..providers.capabilities import select_compatible_model
+
+        pool = tuple(dict.fromkeys((secilen, *config.candidates, config.agent)))
+        secilen = select_compatible_model(pool, requirements, config.web_sessions)
     return _with_agent_fallbacks(secilen, config.agent)
 
 

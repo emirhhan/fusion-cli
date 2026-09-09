@@ -75,6 +75,7 @@ from ...core.types import (
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
 from ...memory.lessons import as_prompt_block
+from ...providers.capabilities import TaskRequirements, infer_task_requirements
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
@@ -323,6 +324,8 @@ class AgentDeps:
     checkpoint_store: CheckpointStore | None = None
     #: Aynı kökteki farklı sohbetlerin checkpoint'lerini birbirinden ayırır.
     conversation_id: str = ""
+    #: İlk dış turda çıkarılan zorunlu model yetenekleri; iç turlar aynı kararı taşır.
+    task_requirements: TaskRequirements | None = None
 
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
@@ -378,6 +381,12 @@ async def run_agent(
     # onay istemine yazılan tek harfle de yaşandı.
     classification = classify_task_details(_scoped_task(task, history))
     kind = classification.primary
+    if deps.task_requirements is None and depth == 0:
+        deps.task_requirements = infer_task_requirements(
+            task,
+            has_images=bool(images),
+            mutating=require_local_mutation,
+        )
 
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
     # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
@@ -431,7 +440,9 @@ async def run_agent(
     )
 
     if deps.execution is None:
-        selected_spec = select_agent_spec(deps.config, deps.task_type)
+        selected_spec = select_agent_spec(
+            deps.config, deps.task_type, requirements=deps.task_requirements
+        )
         # Politikaya BU TURUN metni verilir, geçmişle birleştirilmiş hali değil.
         #
         # `kind` yukarıda geçmişle birlikte hesaplandı ve öyle kalır: bütçe ve
@@ -1234,7 +1245,10 @@ async def _call_model(
     runtime = deps.config.runtime
     # Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
     # zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
-    spec = escalated_spec(select_agent_spec(deps.config, deps.task_type), execution.escalation)
+    spec = escalated_spec(
+        select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements),
+        execution.escalation,
+    )
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,
@@ -2377,7 +2391,7 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
     aynı kusuru tekrarladı. Burada yalnız correction alt turu farklılaştırılır;
     bütçe, çalışma alanı, onay ve kalan fallback sırası paylaşılmaya devam eder.
     """
-    selected = select_agent_spec(deps.config, deps.task_type)
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
     if not selected.fallback:
         return deps
 
