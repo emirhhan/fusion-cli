@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from typing import cast
 
@@ -57,7 +58,15 @@ def _decode_plan_object(raw: str) -> object:
     try:
         decoded, _ = json.JSONDecoder().raw_decode(text, start)
     except json.JSONDecodeError as exc:
-        raise PlanParseError(f"Plan JSON olarak ayrıştırılamadı: {exc.msg}") from exc
+        # Gemini/GLM ailesi JSON istendiğinde zaman zaman tek tırnaklı Python
+        # sözlüğü döndürüyor. `literal_eval` kod çalıştırmaz; yalnız literal
+        # değerleri çözer. Sonuç aşağıda aynı katı plan şemasından geçer.
+        try:
+            decoded = ast.literal_eval(text[start:].strip())
+        except (SyntaxError, ValueError) as repair_exc:
+            raise PlanParseError(
+                f"Plan JSON olarak ayrıştırılamadı: {exc.msg}"
+            ) from repair_exc
     return cast("object", decoded)
 
 

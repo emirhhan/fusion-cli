@@ -114,3 +114,12 @@ def test_ayiklama_gecersiz_plani_gecerli_yapmaz():
 
     with pytest.raises(PlanParseError, match="boş hedef"):
         parse_execution_plan(f"JSON{invalid}")
+
+
+def test_python_sozluk_bicimindeki_plan_guvenle_okunur():
+    """Gemini/GLM bazen JSON yerine tek tırnaklı Python sözlüğü döndürüyor."""
+    pythonish = VALID_PLAN.replace('"', "'")
+
+    plan = parse_execution_plan(pythonish)
+
+    assert plan.plan_id == "plan-1"

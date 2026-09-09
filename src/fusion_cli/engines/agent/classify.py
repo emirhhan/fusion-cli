@@ -58,6 +58,18 @@ _EXPLANATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Oyun isteminde "UI", "arayüz" veya "HTML istemiyorum" geçmesi görevi web
+# sitesi yapmaz. Ölçülen Godot/Dead Cells koşusunda bu olumsuz HTML ifadesi
+# WEBSITE puanını şişirip oyun üretimini yanlış beceri kapsamına soktu.
+_GAME_CREATION_RE = re.compile(
+    r"\b(?:oyun|game|godot|unity|dead\s*cells|deadcells)\b",
+    re.IGNORECASE,
+)
+_CREATION_RE = re.compile(
+    r"\b(?:yap|oluştur|olustur|geliştir|gelistir|kur|inşa\s+et|insa\s+et)[a-zçğıöşü]*\b",
+    re.IGNORECASE,
+)
+
 #: Tür → anahtar kelimeler. Sıra ÖNCELİKTİR: ilk eşleşen tür kazanır. Daha özgül
 #: türler (bugfix/test) genel olanlardan (feature) önce gelir.
 _RULES: tuple[tuple[TaskKind, tuple[str, ...]], ...] = (
@@ -318,8 +330,10 @@ def classify_task_details(request: str) -> TaskClassification:
         )
 
     # Git/deploy ve "çalışır hale getir" sözleşmeleri gerçek mutation emirleridir.
-    forced_feature = (_OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered)) or (
-        _MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered)
+    forced_feature = (
+        (_OPERATION_RE.search(lowered) and not _EXPLANATION_RE.search(lowered))
+        or (_MAKE_OPERATIONAL_RE.search(lowered) and not _EXPLANATION_RE.search(lowered))
+        or (_GAME_CREATION_RE.search(lowered) and _CREATION_RE.search(lowered))
     )
 
     scores = _classification_scores(request)

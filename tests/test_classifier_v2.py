@@ -37,6 +37,19 @@ def test_uzun_oyun_promptunda_yardimci_test_bugfix_primaryyi_ele_gecirmez():
     assert result.score_for(TaskKind.FEATURE) > result.score_for(TaskKind.TEST)
 
 
+def test_godot_oyunu_ui_istedigi_icin_website_sayilmaz():
+    request = (
+        "bana internetten free assetler toplayarak 2d bir oyun yapar mısın "
+        "deadcells e benzeyen bir oyun olmasını istiyorum hikayeler ara sahneler "
+        "ve kaliteli bir UI olmalı gerçek bir oyun gibi görünmeli assetsiz sadece "
+        "html olan hiçbir şey istemiyorum istersen godot kullanabilirsin."
+    )
+
+    result = classify_task_details(request)
+
+    assert result.primary is TaskKind.FEATURE
+
+
 def test_classify_task_geriye_uyumlu_primary_dondurur():
     assert classify_task(GAME_PROMPT) is TaskKind.FEATURE
 
