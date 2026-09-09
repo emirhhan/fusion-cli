@@ -39,6 +39,9 @@ Kurallar:
 - Bir adım dosya üretiyorsa yolu `expected_effects` içine `file:<yol>` olarak yaz ve
   o adımın dosya kontrollerinde AYNI yolu hedef göster. İki farklı yol iddia eden
   plan reddedilir; adım hangisini üretirse üretsin öteki düşer.
+- İnternetten alınan PNG/JPEG asset için aynı klasörde `ASSETS.json` oluştur.
+  Manifestte dosya adına karşılık geçerli `source_url` ve açık `license` alanları
+  bulunmalı; boş, bozuk, uzantısı yanlış ve 1x1 placeholder görsel kabul edilmez.
 - Kontrol hedefi bir TAHMİN değil, adımın uyacağı sözleşmedir: adıma birebir bu yol
   bildirilir. Var olmayan bir klasör yapısını uydurma; görevde ya da depoda geçen
   yolu kullan.

@@ -201,8 +201,8 @@ async def test_ayni_kanitta_donen_adim_bir_kez_yeniden_planlanir(tmp_path):
                     {"step_id":"asset-real","goal":"gerçek asseti hazırla",
                      "depends_on":["discover"],
                      "expected_effects":["file:assets/player.png"],"allowed_tool_families":["files"],
-                     "success_criteria":["asset mevcut"],"verification_hint":"dosyayı denetle",
-                     "verification_checks":[{"criterion_id":"asset mevcut","kind":"file_exists",
+                         "success_criteria":["dosya mevcut"],"verification_hint":"dosyayı denetle",
+                         "verification_checks":[{"criterion_id":"dosya mevcut","kind":"file_exists",
                        "target":"assets/player.png","expected":""}],"retry_safety":"safe",
                      "phase":"execution"}
                   ]}""",

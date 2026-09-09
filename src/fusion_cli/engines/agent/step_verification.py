@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
+from ...core.assets import inspect_image_asset, validate_asset_manifest
 from ...core.cross_file import scene_script_conflicts
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import (
@@ -295,6 +296,30 @@ def evaluate_file_check(
             artifact=check.target,
         )
     if check.kind is VerificationCheckKind.FILE_EXISTS:
+        image_words = ("asset", "görsel", "image", "sprite", "texture")
+        is_image_asset = path.suffix.casefold() in {".png", ".jpg", ".jpeg"} and any(
+            word in check.criterion_id.casefold() for word in image_words
+        )
+        if is_image_asset:
+            inspection = inspect_image_asset(path)
+            findings = (*inspection.findings, *validate_asset_manifest(path, root))
+            if findings:
+                return CriterionEvidence(
+                    check.criterion_id,
+                    check.kind,
+                    EvidenceStatus.FAILED,
+                    "; ".join(findings),
+                    artifact=check.target,
+                )
+            return CriterionEvidence(
+                check.criterion_id,
+                check.kind,
+                EvidenceStatus.PASSED,
+                f"görsel asset doğrulandı: {inspection.format} "
+                f"{inspection.width}x{inspection.height}, {inspection.bytes} bayt; "
+                "kaynak ve lisans kayıtlı",
+                artifact=check.target,
+            )
         return CriterionEvidence(
             check.criterion_id,
             check.kind,
