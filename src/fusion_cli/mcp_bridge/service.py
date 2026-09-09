@@ -18,6 +18,10 @@ class McpConnectionService:
         self._tasks: dict[str, asyncio.Task[McpConnectionStatus]] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
 
+    @property
+    def statuses(self) -> dict[str, McpConnectionStatus]:
+        return {name: self.login_status(name) for name in set(self._statuses) | set(self._tasks)}
+
     async def test(self, config: McpServerConfig) -> McpConnectionStatus:
         status = await self._probe(config)
         self._statuses[config.name] = status
