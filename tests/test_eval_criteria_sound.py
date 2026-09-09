@@ -10,6 +10,7 @@ Ağ ve model yoktur: yalnızca ölçüt komutu çalışır. Set büyüdükçe bu
 
 from __future__ import annotations
 
+import base64
 import subprocess
 import sys
 from pathlib import Path
@@ -29,6 +30,27 @@ SUITES = sorted(SUITE_DIR.glob("*.yaml"))
 #: Bunlar "agent böyle yazmalı" demek değildir; ölçütün makul bir doğru çözümü
 #: kabul ettiğini gösterir. Ölçüt fazla darsa burada kırılır.
 REFERANS_COZUMLER: dict[str, dict[str, str]] = {
+    "godot-asset-lisansli": {
+        "assets/player.png": (
+            "base64:iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR4nGP4z8Dwn4GBgYGJAQoAHgQCAfVhQ3sAAAAASUVORK5CYII="
+        ),
+        "assets/ASSETS.json": (
+            '{"player.png":{"source_url":"https://example.com/player.png","license":"CC0-1.0"}}'
+        ),
+    },
+    "oauth-mcp-yasam-dongusu": {
+        "smoke_test.py": (
+            "from oauth_mcp_server import TOOLS\n\ndef call(name):\n    return TOOLS[name]()\n"
+        )
+    },
+    "yanlis-hedefte-yeniden-planla": {"config.json": '{"enabled": true}'},
+    "buyuk-artifact-korumali-duzenleme": {
+        "large.py": 'HEADER = "keep"\nTARGET = 42\nFOOTER = "keep-too"\n'
+    },
+    "sohbet-izolasyonu": {
+        "conversation-a.json": '{"status": "done", "owner": "a"}',
+        "conversation-b.json": '{"status": "pending", "owner": "b"}',
+    },
     "hello-calisir": {"hello.py": "print('merhaba dünya')\n"},
     "bug-fix-tek-dosya": {"hesap.py": "def topla(a, b):\n    return a + b\n"},
     "test-ciktisini-okuyup-duzelt": {
@@ -344,7 +366,10 @@ def test_olcut_dogru_cozumu_kabul_eder(gorev_id, tmp_path: Path):
     for yol, icerik in {**gorev.setup, **cozum}.items():
         hedef = tmp_path / yol
         hedef.parent.mkdir(parents=True, exist_ok=True)
-        hedef.write_text(icerik, encoding="utf-8")
+        if icerik.startswith("base64:"):
+            hedef.write_bytes(base64.b64decode(icerik.removeprefix("base64:")))
+        else:
+            hedef.write_text(icerik, encoding="utf-8")
 
     komut = (gorev.criterion.command or "").replace("python ", f"{sys.executable} ")
     sonuc = subprocess.run(

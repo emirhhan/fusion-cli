@@ -40,11 +40,17 @@ def select_agent_spec(
     # çalıştırabilir; agent ve öz-denetim farklı modeller kullanır.
     if config.agent.strict:
         if requirements is not None:
-            from ..providers.capabilities import select_compatible_model
+            from ..providers.capabilities import capabilities_for, compatibility_issues
 
-            return select_compatible_model(
-                (config.agent,), requirements, config.web_sessions, strict=True
+            issues = compatibility_issues(
+                capabilities_for(config.agent, config.web_sessions), requirements
             )
+            # Araç politikasının mevcut erken-hata yolu daha açıklayıcıdır ve
+            # kullanıcıya model çağırmadan mutation'ın neden kapalı olduğunu söyler.
+            # Burada yalnız taşımanın yapısal olarak kaldıramadığı ağır işleri kes.
+            blocking = tuple(issue for issue in issues if issue != "araç desteği")
+            if blocking:
+                raise ConfigError(f"Seçilen model bu görevle uyumsuz: {', '.join(blocking)}.")
         return config.agent
 
     mapped = config.task_model_map.get(task_type)

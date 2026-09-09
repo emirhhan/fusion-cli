@@ -447,6 +447,7 @@ class _PlanRun:
             )
             should_replan = (
                 not observe
+                and running.retry_safety is not RetrySafety.NEVER
                 and running.revision == 0
                 and (repeated or recovery.action is RecoveryAction.PAUSE)
             )
