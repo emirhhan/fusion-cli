@@ -107,9 +107,7 @@ async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
     assert sonuc.tool_calls_made == 0
 
 
-async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(
-    monkeypatch, tmp_path, sink
-):
+async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(monkeypatch, tmp_path, sink):
     seen: list[str] = []
 
     async def fake_runner(task, deps, run_agent):
@@ -138,9 +136,7 @@ class _PlanCasusu:
         return AgentOutcome(final_text="planlı sonuç", messages=[])
 
 
-async def test_hizli_yol_yarim_kalinca_kanitla_planli_yola_yukselir(
-    monkeypatch, tmp_path, sink
-):
+async def test_hizli_yol_yarim_kalinca_kanitla_planli_yola_yukselir(monkeypatch, tmp_path, sink):
     _kur(
         monkeypatch,
         ScriptedProvider(
@@ -2105,9 +2101,7 @@ def test_farkli_hatalar_yineleme_sayilmaz():
     )
 
 
-async def test_json_metni_olarak_gelen_dizi_argumani_araci_dusurmez(
-    monkeypatch, tmp_path, sink
-):
+async def test_json_metni_olarak_gelen_dizi_argumani_araci_dusurmez(monkeypatch, tmp_path, sink):
     """Ölçüldü (Godot koşusu): `todos` alanı dizi yerine o dizinin JSON metniydi.
 
     Çağrı sözleşme hatasıyla düştü, adım bütçesinden bir hak gitti ve görev
@@ -2158,7 +2152,30 @@ async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_pa
 
     await run_agent("görev", deps)
 
-    sonuclar = [
-        olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)
-    ]
+    sonuclar = [olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)]
     assert sonuclar == [ToolOutcome.DENIED, ToolOutcome.DENIED]
+
+
+async def test_ilk_yazmadan_sonraki_uzun_kesif_yeniden_uyarilir(monkeypatch, tmp_path, sink):
+    """Tek dosya yazmak, sonraki arama döngüsünün uyarısını kapatmamalı."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    for i in range(4):
+        (tmp_path / f"kaynak{i}.txt").write_text(f"kaynak {i}")
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=(tool_call("write_file", path="ilk.txt", content="ilk"),)),
+            *[
+                model_result(tool_calls=(tool_call("read_file", path=f"kaynak{i}.txt"),))
+                for i in range(4)
+            ],
+            model_result(TAM_CEVAP),
+        ]
+    )
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink)
+    deps.execution = ExecutionPolicy(is_web=False, complex_task=True)
+    sonuc = await run_agent(
+        "dosyaları tamamla", deps, depth=1, internal=True, self_review=False, verify=False
+    )
+    assert any("[dur-ve-yap]" in m.content for m in sonuc.messages if m.harness_note)

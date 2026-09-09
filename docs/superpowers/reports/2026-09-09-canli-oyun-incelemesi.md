@@ -68,3 +68,20 @@ Oyun dosyalarını incelemeyi yapan agent elle üretmiyor.
   eksikleri Fusion'a geri vererek düzeltme.
 - Güncel masaüstü paketinin hazırlanması ve aynı davranışların kullanıcı arayüzünde
   doğrulanması. Henüz yeni sürüm kurulmadı ve oyun başarı iddiası yapılmadı.
+
+## Ek canlı bulgu ve doğrulama
+
+`run-06-nvidia` gerçek `download_file` çağrısıyla Kenney platformer ZIP'ini indirdi.
+Ancak kalan paketler için arama döngüsüne girdi; adım tamamlanmadığı için rollback
+indirilen dosyayı geri aldı. Bu, teslim edilmiş asset veya çalışan oyun sayılmaz.
+İlk başarılı mutasyondan sonra keşif uyarısının kalıcı kapandığı bulundu. Sayaç
+artık son turdaki mutasyonu karşılaştırıyor; toplam iki uyarı sınırı korunuyor.
+Not, indirme görevini kod yazmaya çevirmek yerine gözlenen URL'yi kullanmayı
+anlatıyor. İlk yazma ardından dört okuma regresyonu önce başarısız, düzeltmeden
+sonra başarılı oldu. Agent/hafıza-hatırlatma testleri ve bağımsız kod incelemesi geçti.
+
+İlk düzeltme grubu `393aad3` commitinde. Tam Python test koşusu, Ruff ve 311 kaynak
+dosyalık mypy kontrolü geçti; ardından eklenen değişiklikler ayrıca odaklı sınandı.
+Yeni model çağrılarının kalan kalıcı recovery bütçesiyle tekrar başlaması ve tek
+adımın dört bağımsız paketi zorunlu tutması hâlâ canlı görevde engel oluşturuyor.
+Gemini kullanıcı oturumu ve gerçek oynanabilir teslim henüz doğrulanmadı.

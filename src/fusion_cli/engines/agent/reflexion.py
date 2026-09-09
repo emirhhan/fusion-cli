@@ -78,9 +78,11 @@ ASKED_INSTEAD_OF_ACTING_NOTE = (
 # Kapı tur SONUNDA değil ORTASINDA konuşur: sonda söylemek, bütçe zaten bittiği
 # için işe yaramıyordu.
 ENOUGH_EXPLORING_NOTE = (
-    "[dur-ve-yap] {rounds} turdur yalnızca okuyorsun ve tek bir değişiklik "
-    "yapmadın. Keşif yeterli. ŞİMDİ somut değişikliği yap: değiştireceğin ilk "
-    "dosyayı seç ve edit_file / write_file çağır. Yeni dosya KEŞFETME; ama "
+    "[dur-ve-yap] Son {rounds} turdur yalnızca okuyorsun. Mevcut kanıtlarla "
+    "yapılabilen sıradaki somut işi tamamla. Dosya düzenlenecekse uygun düzenleme "
+    "aracını; dış asset indirilecekse gözlediğin gerçek URL ile download_file "
+    "aracını, erişimin varsa kullan. Tüm kaynakları bulmayı beklemeden bulunan "
+    "kaynağı işle; URL veya dosya içeriği uydurma. Yeni dosya KEŞFETME; ama "
     "değiştireceğin dosyayı okumak keşif değildir — 'old' metnini tutturmak için "
     "onu okumak serbesttir ve gerekirse yapmalısın. Hangi dosyayı değiştireceğini "
     "bilmiyorsan bunu açıkça söyle ve dur."

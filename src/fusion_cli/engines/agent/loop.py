@@ -909,13 +909,14 @@ async def _drive(
             return _halt_local(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
         before = _progress_marker(deps, state)
+        mutations_before = state.mutating_tool_calls_made
         errored = await _run_tools(
             result.tool_calls, messages, deps, registry, state, execution=execution
         )
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
         # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
         state.read_only_rounds = (
-            0 if state.mutating_tool_calls_made > 0 else (state.read_only_rounds + 1)
+            0 if state.mutating_tool_calls_made > mutations_before else (state.read_only_rounds + 1)
         )
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
@@ -1554,8 +1555,6 @@ def _needs_push_to_act(state: _State, *, plan_mode: bool, execution: ExecutionPo
     if plan_mode or not execution.allow_mutation:
         return False
     if not (execution.requires_tool_evidence or execution.complex_task):
-        return False
-    if state.mutating_tool_calls_made > 0:
         return False
     if state.explore_pushes >= MAX_EXPLORE_PUSHES:
         return False
