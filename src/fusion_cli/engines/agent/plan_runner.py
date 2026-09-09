@@ -49,8 +49,10 @@ from .plan_checkpoint import (
 )
 from .plan_context import step_deps, step_prompt, workflow_budget, workspace_block
 from .plan_generation import RunAgent, generate_plan
+from .progress import progress_fingerprint
 from .promotion import PromotionContext
 from .recovery import choose_recovery, classify_failure
+from .replan import merge_replanned_plan
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
 
 if TYPE_CHECKING:
@@ -433,15 +435,44 @@ class _PlanRun:
             # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
             # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
             self.forget_rolled_back(geri_alma.discard())
+            fingerprint = progress_fingerprint(running, outcome, verification)
+            repeated = bool(running.last_progress_fingerprint) and (
+                fingerprint == running.last_progress_fingerprint
+            )
             recovery = choose_recovery(
                 classify_failure(outcome, verification),
                 running,
                 running.attempts,
                 previous_guidance=guidance,
             )
+            should_replan = (
+                not observe
+                and running.revision == 0
+                and (repeated or recovery.action is RecoveryAction.PAUSE)
+            )
+            if should_replan:
+                replanned, reason = await self.replan_failed_step(
+                    running, outcome, verification, fingerprint
+                )
+                if replanned:
+                    return None
+                self.current = replace_step(
+                    self.current,
+                    replace(
+                        running,
+                        status=StepStatus.BLOCKED,
+                        last_progress_fingerprint=fingerprint,
+                    ),
+                )
+                return self.pause(_pause_text(step.step_id, reason, verification, outcome))
             if recovery.action is RecoveryAction.PAUSE or observe:
                 self.current = replace_step(
-                    self.current, replace(running, status=StepStatus.BLOCKED)
+                    self.current,
+                    replace(
+                        running,
+                        status=StepStatus.BLOCKED,
+                        last_progress_fingerprint=fingerprint,
+                    ),
                 )
                 return self.pause(_pause_text(step.step_id, recovery.reason, verification, outcome))
             self.deps.publisher.publish(
@@ -452,8 +483,60 @@ class _PlanRun:
                     attempt=running.attempts + 1,
                 )
             )
-            guidance, step, recovering = recovery.guidance, running, True
+            guidance = recovery.guidance
+            step = replace(running, last_progress_fingerprint=fingerprint)
+            self.current = replace_step(self.current, step)
+            self.save()
+            recovering = True
             observe = recovery.action is RecoveryAction.OBSERVE
+
+    async def replan_failed_step(
+        self,
+        step: PlanStep,
+        outcome: AgentOutcome,
+        verification: StepVerificationResult,
+        fingerprint: str,
+    ) -> tuple[bool, str]:
+        """Aynı duvara çarpan dalı yalnız bir kez yeniden üret."""
+        remaining = self.remaining(BudgetEnvelope.RECOVERY, step.step_id)
+        if remaining <= 0:
+            return False, "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
+        completed = (
+            ", ".join(
+                item.step_id for item in self.current.steps if item.status is StepStatus.COMPLETED
+            )
+            or "yok"
+        )
+        findings = "; ".join(verification.findings) or "doğrulama kanıtı üretilemedi"
+        task = (
+            f"{self.task}\n\n"
+            "YENİDEN PLANLAMA GÖREVİ:\n"
+            f"Başarısız adım: {step.step_id} — {step.goal}\n"
+            f"Doğrulama bulguları: {findings[:2000]}\n"
+            f"Adımın son açıklaması: {outcome.final_text[:1200]}\n"
+            f"Korunacak tamamlanmış adım kimlikleri: {completed}\n"
+            "Aynı hedef, dosya yolu ve kontrolü tekrar etme. Önce gerçek yolu keşfeden "
+            "bir adım gerekiyorsa ekle. Tamamlanmış adımları aynı kimlikle plana koy; "
+            "onların işini yeniden isteme. Başarısız adımı ve ona bağlı dalı yeni kanıta "
+            "göre değiştir. Eksiksiz ve geçerli bir yürütme planı döndür."
+        )
+        generated = await generate_plan(task, self.deps, self.agent, remaining, None)
+        self.planning_calls += generated.calls
+        if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
+            return False, "Yeniden planlama kurtarma bütçesini aştı."
+        if generated.plan is None:
+            return False, f"Yeniden plan üretilemedi: {generated.error}"
+        merged = merge_replanned_plan(self.current, generated.plan, step.step_id, fingerprint)
+        if merged is None:
+            return (
+                False,
+                "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti.",
+            )
+        affected = dependent_ids(self.current, {step.step_id})
+        self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
+        self.current = merged
+        self.save()
+        return True, ""
 
     async def repair_final(self, acceptance: VerificationResult) -> bool:
         """Bulgunun ilişkili dalını aç; bağımsız tamamlanan adımları koru."""

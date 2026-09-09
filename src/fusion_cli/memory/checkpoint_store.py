@@ -11,6 +11,7 @@ from typing import cast
 from ..core.checkpoint import WorkflowCheckpoint
 from ..core.execution_plan import (
     ExecutionPlan,
+    PlanPhase,
     PlanStatus,
     PlanStep,
     RetrySafety,
@@ -44,6 +45,9 @@ def _step_to_dict(step: PlanStep) -> dict[str, object]:
             }
             for check in step.verification_checks
         ],
+        "phase": step.phase.value,
+        "revision": step.revision,
+        "last_progress_fingerprint": step.last_progress_fingerprint,
     }
 
 
@@ -139,6 +143,9 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
                 status=StepStatus(_text(step, "status")),
                 attempts=_integer(step, "attempts"),
                 verification_checks=_verification_checks(step.get("verification_checks")),
+                phase=PlanPhase(str(step.get("phase", PlanPhase.EXECUTION.value))),
+                revision=_integer(step, "revision", 0),
+                last_progress_fingerprint=str(step.get("last_progress_fingerprint", "")),
             )
         )
     updated_at = data.get("updated_at")

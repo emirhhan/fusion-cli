@@ -15,6 +15,7 @@ from fusion_cli.core.constants import MAX_CHECKPOINT_OUTPUT_CHARS
 from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
+    PlanPhase,
     PlanStep,
     RetrySafety,
     VerificationCheck,
@@ -58,6 +59,23 @@ def test_checkpoint_atomik_round_trip(tmp_path):
 
     assert store.load("plan-1") == checkpoint
     assert not tuple((tmp_path / "checkpoints").glob("*.tmp"))
+
+
+def test_checkpoint_plan_fazi_revizyonu_ve_ilerleme_izini_korur(tmp_path):
+    store = JsonCheckpointStore(tmp_path / "checkpoints")
+    checkpoint = _checkpoint(tmp_path)
+    step = replace(
+        checkpoint.plan.steps[0],
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        revision=2,
+        last_progress_fingerprint="abc123",
+    )
+    checkpoint = replace(checkpoint, plan=replace(checkpoint.plan, steps=(step,)))
+
+    store.save(checkpoint)
+
+    assert store.load("plan-1") == checkpoint
 
 
 def test_bozuk_checkpoint_yok_sayilir(tmp_path):

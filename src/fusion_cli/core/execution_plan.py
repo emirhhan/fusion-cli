@@ -34,6 +34,13 @@ class RetrySafety(StrEnum):
     NEVER = "never"
 
 
+class PlanPhase(StrEnum):
+    """Plan adımının bilgi toplama mı, değişiklik üretme mi yaptığını belirtir."""
+
+    DISCOVERY = "discovery"
+    EXECUTION = "execution"
+
+
 class VerificationCheckKind(StrEnum):
     """Güvenli ve makinece uygulanabilir kontrol türleri."""
 
@@ -73,6 +80,9 @@ class PlanStep:
     status: StepStatus = StepStatus.PENDING
     attempts: int = 0
     verification_checks: tuple[VerificationCheck, ...] = ()
+    phase: PlanPhase = PlanPhase.EXECUTION
+    revision: int = 0
+    last_progress_fingerprint: str = ""
 
 
 @dataclass(frozen=True)
@@ -172,6 +182,11 @@ def validate_plan(plan: ExecutionPlan) -> PlanValidation:
             errors.append(f"Plan adımı '{step.step_id}' boş hedef içeriyor.")
         if not step.success_criteria or any(not item.strip() for item in step.success_criteria):
             errors.append(f"Plan adımı '{step.step_id}' doğrulanabilir başarı koşulu içermiyor.")
+        if step.phase is PlanPhase.DISCOVERY and _declared_files(step):
+            errors.append(
+                f"Keşif adımı '{step.step_id}' henüz bilinmeyen bir dosyayı üretmeyi vaat edemez; "
+                "önce gerçek yolu bulmalı, dosya üretimini yürütme adımına bırakmalıdır."
+            )
         criteria = set(step.success_criteria)
         for check in step.verification_checks:
             if check.criterion_id not in criteria:

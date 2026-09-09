@@ -14,6 +14,7 @@ Yalnızca JSON döndür; açıklama veya Markdown kullanma.
     "allowed_tool_families": ["files", "shell", "web", "delegation"],
     "success_criteria": ["gözlenebilir başarı koşulu"],
     "verification_hint": "başarının nasıl denetleneceği",
+    "phase": "discovery | execution",
     "verification_checks": [{
       "criterion_id": "success_criteria içindeki koşulun birebir metni",
       "kind": "file_exists | file_contains | command | tool | reproduction",
@@ -26,6 +27,9 @@ Yalnızca JSON döndür; açıklama veya Markdown kullanma.
 
 Kurallar:
 - Yalnızca gerekli adımları üret; bağımsız adımları gereksiz yere zincirleme.
+- Görev yolu, dosya yapısı veya dış kaynağı belirsizse ilk adımı `discovery` yap.
+  Keşif adımı yalnız mevcut durumu ve gerçek yolları kanıtlar; dosya üretmeyi vaat etmez.
+  Dosya oluşturan veya değiştiren adımları `execution` yap ve keşif adımına bağla.
 - Her başarı koşulu araç çıktısı, dosya durumu veya test sonucu ile kanıtlanabilir olsun.
 - Her başarı koşulunu en az bir `verification_checks` kaydına bağla. `command`
   kontrolü doğrulayıcı içinde yeni komut çalıştırmaz; yürütme sırasında aynı komutun

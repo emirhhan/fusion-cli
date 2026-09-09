@@ -8,6 +8,7 @@ from typing import cast
 from fusion_cli.core.errors import FusionError
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
+    PlanPhase,
     PlanStatus,
     PlanStep,
     RetrySafety,
@@ -167,6 +168,17 @@ def _parse_step(value: object, index: int) -> PlanStep:
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")
     retry_safety = _parse_retry_safety(data)
+    phase_value = data.get("phase", PlanPhase.EXECUTION.value)
+    if not isinstance(phase_value, str):
+        raise PlanParseError("Eksik veya geçersiz plan alanı: phase")
+    try:
+        phase = PlanPhase(phase_value)
+    except ValueError as exc:
+        raise PlanParseError(f"Geçersiz phase değeri: {phase_value}") from exc
+
+    revision = data.get("revision", 0)
+    if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+        raise PlanParseError("Eksik veya geçersiz plan alanı: revision")
 
     return PlanStep(
         step_id=step_id,
@@ -179,6 +191,8 @@ def _parse_step(value: object, index: int) -> PlanStep:
         retry_safety=retry_safety,
         status=StepStatus.PENDING,
         verification_checks=_parse_checks(data, index),
+        phase=phase,
+        revision=revision,
     )
 
 

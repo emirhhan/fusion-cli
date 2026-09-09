@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
 from fusion_cli.core.events import (
@@ -11,7 +11,13 @@ from fusion_cli.core.events import (
     ExecutionStepStarted,
     ExecutionStepVerified,
 )
-from fusion_cli.core.execution_plan import ExecutionPlan, PlanStep, RetrySafety
+from fusion_cli.core.execution_plan import (
+    ExecutionPlan,
+    PlanPhase,
+    PlanStep,
+    RetrySafety,
+    StepStatus,
+)
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import Message
 from fusion_cli.core.verification import VerificationResult
@@ -146,7 +152,7 @@ async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_pa
     prompts: list[str] = []
 
     async def agent(task, deps, **kwargs):
-        del deps, kwargs
+        del kwargs
         prompts.append(task)
         return AgentOutcome(final_text="tamam", messages=[], model_calls_made=1)
 
@@ -170,6 +176,66 @@ async def test_dogrulama_hatasi_onarim_yonergesiyle_bir_kez_yeniden_denir(tmp_pa
     assert len(prompts) == 2
     assert "KURTARMA YÖNERGESİ" in prompts[1]
     assert "pytest kırıldı" in prompts[1]
+
+
+async def test_ayni_kanitta_donen_adim_bir_kez_yeniden_planlanir(tmp_path):
+    discover = replace(_step("discover"), phase=PlanPhase.DISCOVERY, status=StepStatus.COMPLETED)
+    failed = _step("asset", depends_on=("discover",), expected_effects=("file:missing.png",))
+    plan = ExecutionPlan("p", "oyun yap", (discover, failed))
+    prompts: list[str] = []
+
+    async def agent(task, deps, **kwargs):
+        del kwargs
+        prompts.append(task)
+        if "YENİDEN PLANLAMA GÖREVİ" in task:
+            return AgentOutcome(
+                final_text="""{
+                  "plan_id": "aday", "task": "oyun yap", "schema_version": 2,
+                  "steps": [
+                    {"step_id":"discover","goal":"gerçek yolu bul","depends_on":[],
+                     "expected_effects":[],"allowed_tool_families":["files"],
+                     "success_criteria":["yol bulundu"],"verification_hint":"arama kaydı",
+                     "verification_checks":[{"criterion_id":"yol bulundu","kind":"command",
+                       "target":"find . -type f","expected":""}],"retry_safety":"safe",
+                     "phase":"discovery"},
+                    {"step_id":"asset-real","goal":"gerçek asseti hazırla",
+                     "depends_on":["discover"],
+                     "expected_effects":["file:assets/player.png"],"allowed_tool_families":["files"],
+                     "success_criteria":["asset mevcut"],"verification_hint":"dosyayı denetle",
+                     "verification_checks":[{"criterion_id":"asset mevcut","kind":"file_exists",
+                       "target":"assets/player.png","expected":""}],"retry_safety":"safe",
+                     "phase":"execution"}
+                  ]}""",
+                messages=[],
+                model_calls_made=1,
+            )
+        if "asset-real" in task:
+            target = deps.tool_context.root / "assets" / "player.png"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"png")
+        return AgentOutcome(final_text="denendi", messages=[], model_calls_made=1)
+
+    class _Verifier:
+        def __init__(self):
+            self.calls = 0
+
+        async def verify(self):
+            self.calls += 1
+            if self.calls in {2, 3}:
+                return VerificationResult(ok=False, findings=("hedef dosya bulunamadı",))
+            return VerificationResult(ok=True)
+
+    result = await run_execution_plan(
+        "oyun yap",
+        _FakeDeps(ToolContext(root=tmp_path), verifier=_Verifier()),
+        agent,
+        plan=plan,
+    )
+
+    assert result.ok is True
+    assert sum("YENİDEN PLANLAMA GÖREVİ" in prompt for prompt in prompts) == 1
+    assert any("asset-real" in prompt for prompt in prompts)
+    assert not any("discover işini yap" in prompt for prompt in prompts)
 
 
 async def test_adim_butcesi_asildiginda_basari_uydurmadan_duraklar(tmp_path):
