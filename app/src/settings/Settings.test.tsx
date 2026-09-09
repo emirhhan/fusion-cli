@@ -16,7 +16,7 @@ function client() {
       if (name === "ayar.talimat") return { ok: true, metin: "Kısa yaz.", sinir: 4000 };
       if (name === "baglanti.listele") return {
         ok: true,
-        sunucular: [{ ad: "github", komut: "npx", argumanlar: ["-y", "mcp-github"] }],
+        sunucular: [{ ad: "github", komut: "npx", argumanlar: ["-y", "mcp-github"], tasima: "stdio", durum: "bagli", arac_sayisi: 3 }],
       };
       if (name === "web.saglayicilar") return {
         ok: true,
@@ -126,5 +126,33 @@ describe("Settings — derinlik", () => {
     fireEvent.click(await screen.findByRole("button", { name: "github bağlantısını kaldır" }));
 
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.sil", { ad: "github" }));
+  });
+
+  it("uzak MCP ekler ve OAuth giriş durumunu gösterir", async () => {
+    const fake = client();
+    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
+    await screen.findByText("github");
+
+    fireEvent.change(screen.getByLabelText("Bağlantı türü"), { target: { value: "streamable_http" } });
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "meta" } });
+    fireEvent.change(screen.getByLabelText("MCP adresi"), { target: { value: "https://mcp.example.com/mcp" } });
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
+
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.ekle", {
+      ad: "meta",
+      tasima: "streamable_http",
+      url: "https://mcp.example.com/mcp",
+      kapsamlar: "",
+      client_id: "",
+    }));
+  });
+
+  it("bağlı MCP için araç sayısı ve test eylemi gösterir", async () => {
+    const fake = client();
+    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
+
+    expect(await screen.findByText("3 araç")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "github bağlantısını test et" }));
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.dogrula", { ad: "github" }));
   });
 });

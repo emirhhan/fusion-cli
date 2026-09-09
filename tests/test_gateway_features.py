@@ -232,6 +232,27 @@ async def test_mcp_sunucusu_silinir(tmp_path):
     assert "sil-beni" not in [s["name"] for s in state["mcp_servers"]]
 
 
+async def test_uzak_mcp_oauth_alanlariyla_eklenir(tmp_path):
+    app = _app(tmp_path)
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/mcp_servers",
+            json={
+                "name": "meta",
+                "transport": "streamable_http",
+                "url": "https://mcp.example.com/mcp",
+                "scopes": ["ads_read"],
+            },
+        )
+        state = (await client.get("/api/state")).json()
+
+    assert response.json()["ok"] is True
+    record = next(item for item in state["mcp_servers"] if item["name"] == "meta")
+    assert record["transport"] == "streamable_http"
+    assert record["url"] == "https://mcp.example.com/mcp"
+    assert "token" not in str(record).lower()
+
+
 async def test_config_export_ucu(tmp_path):
     async with _client(_app(tmp_path)) as client:
         d = (await client.get("/api/config/export")).json()

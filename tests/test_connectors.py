@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.appserver import connectors
-from fusion_cli.config.models import McpServerConfig
+from fusion_cli.config.models import McpServerConfig, McpTransport
 from tests.fakes import make_config
 
 
@@ -73,3 +73,48 @@ def test_yazma_basarisizsa_degisiklik_uygulanmis_gosterilmez(config, monkeypatch
 
     assert yeni is None
     assert sonuc["ok"] is False
+
+
+def test_http_baglanti_url_ve_kapsamlarla_eklenir(config):
+    yeni, sonuc = connectors.add_connector(
+        config,
+        {
+            "ad": "meta",
+            "tasima": "streamable_http",
+            "url": "https://mcp.example.com/mcp",
+            "kapsamlar": "ads_read business_management",
+        },
+    )
+
+    assert sonuc["ok"] is True
+    assert yeni is not None
+    assert yeni.mcp_servers[0].transport is McpTransport.STREAMABLE_HTTP
+    assert yeni.mcp_servers[0].url == "https://mcp.example.com/mcp"
+    assert yeni.mcp_servers[0].scopes == ("ads_read", "business_management")
+
+
+def test_guvensiz_uzak_http_baglanti_reddedilir(config):
+    _, sonuc = connectors.add_connector(
+        config,
+        {"ad": "meta", "tasima": "streamable_http", "url": "http://example.com/mcp"},
+    )
+
+    assert sonuc["ok"] is False
+    assert "HTTPS" in sonuc["metin"]
+
+
+def test_baglanti_listesi_tasima_ve_saglik_durumunu_verir(config):
+    with_one = make_config(
+        source=config.source,
+        mcp_servers=(McpServerConfig(name="github", command="npx"),),
+    )
+
+    sonuc = connectors.list_connectors(
+        with_one,
+        {"github": {"durum": "bagli", "arac_sayisi": 7, "mesaj": None}},
+    )
+
+    row = sonuc["sunucular"][0]
+    assert row["tasima"] == "stdio"
+    assert row["durum"] == "bagli"
+    assert row["arac_sayisi"] == 7

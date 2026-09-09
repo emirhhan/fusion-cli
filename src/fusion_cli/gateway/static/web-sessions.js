@@ -263,9 +263,15 @@ function bindWebSessionForm() {
 
 function mcpServerCard(server) {
   const args = (server.args || []).join(" ");
+  const remote = server.transport === "streamable_http";
+  const target = remote ? server.url : `${server.command}${args ? " " + args : ""}`;
+  const state = server.state || "yapilandirildi";
+  const login = remote && state !== "bagli" ? `<button onclick="loginMcpServer('${server.name}')">Giriş yap</button>` : "";
+  const logout = remote && state === "bagli" ? `<button onclick="logoutMcpServer('${server.name}')">Çıkış yap</button>` : "";
   return `<div class="pcard"><div class="pcard-head"><span class="name">${server.name}</span></div>
-    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${server.command}${args ? " " + args : ""}</div>
-    <div class="row"><button class="danger" onclick="delMcpServer('${server.name}')">Sil</button></div></div>`;
+    <div class="meta" style="margin:var(--space-2) 0;word-break:break-all">${target}</div>
+    <div class="hint">${state}${server.tool_count ? ` · ${server.tool_count} araç` : ""}</div>
+    <div class="row">${login}${logout}<button onclick="testMcpServer('${server.name}')">Test et</button><button class="danger" onclick="delMcpServer('${server.name}')">Sil</button></div></div>`;
 }
 
 // STATE her yüklendiğinde çağrılır (render() → renderMcpServers()); STATE henüz
@@ -293,15 +299,33 @@ function toggleMcpAdd() {
 // zaten tek bir metin kutusu, `-y` gibi bayraklar burada seçenek sanılmaz).
 async function addMcpServer() {
   const name = $("mcpName").value.trim();
+  const transport = $("mcpTransport").value;
   const command = $("mcpCommand").value.trim();
   const args = $("mcpArgs").value.trim().split(/\s+/).filter(Boolean);
-  if (!name || !command) return toast("ad ve komut gerekli", true);
+  const url = $("mcpUrl").value.trim();
+  const scopes = $("mcpScopes").value.trim().split(/\s+/).filter(Boolean);
+  if (!name || (transport === "stdio" ? !command : !url)) return toast("ad ve bağlantı hedefi gerekli", true);
   try {
-    await post("/api/mcp_servers", { name, command, args });
-    toast(name + " MCP sunucusu bağlandı — etkinleşmesi için Fusion'ı yeniden başlat");
-    $("mcpName").value = ""; $("mcpCommand").value = ""; $("mcpArgs").value = "";
+    await post("/api/mcp_servers", { name, transport, command, args, url, scopes });
+    toast(name + (transport === "stdio" ? " MCP sunucusu test edildi" : " için giriş penceresi açılıyor"));
+    $("mcpName").value = ""; $("mcpCommand").value = ""; $("mcpArgs").value = ""; $("mcpUrl").value = ""; $("mcpScopes").value = "";
     await load();
   } catch (e) { toast(e.message, true); }
+}
+
+async function testMcpServer(name) {
+  try { await post("/api/mcp_servers/test", { name }); await load(); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function loginMcpServer(name) {
+  try { await post("/api/mcp_servers/login", { name }); toast("Tarayıcı girişi bekleniyor"); setTimeout(load, 1200); }
+  catch (e) { toast(e.message, true); }
+}
+
+async function logoutMcpServer(name) {
+  try { await post("/api/mcp_servers/logout", { name }); await load(); }
+  catch (e) { toast(e.message, true); }
 }
 
 async function delMcpServer(name) {

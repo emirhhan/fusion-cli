@@ -30,7 +30,7 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip için
 
 from ..config.credentials import FernetSecretStore
 from ..config.live import reload_if_changed, revision
-from ..config.models import Config, McpServerConfig
+from ..config.models import Config, McpServerConfig, McpTransport
 from ..core.compression import compress_messages, saved_chars
 from ..core.errors import ConfigError, FusionError
 from ..core.health import HealthRegistry
@@ -38,6 +38,7 @@ from ..core.protocols import LlmProvider
 from ..core.redaction import redact
 from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
+from ..mcp_bridge.client import McpConnectionStatus
 from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
 from ..ui import messages
@@ -86,6 +87,9 @@ class GatewayApp:
         self._cache = PromptCache()
         #: Panel için birleşik model kataloğu (otomatik listeleme); TTL önbellekli.
         self._catalog = catalog or CatalogCache()
+        from ..mcp_bridge.service import McpConnectionService
+
+        self._mcp_connections = McpConnectionService()
 
     def _refresh_config(self) -> None:
         """HTTP istek sınırlarında panel/terminal ile paylaşılan yapılandırmayı yeniden yükle."""
@@ -222,6 +226,18 @@ class GatewayApp:
             return
         if method == "POST" and path == "/api/mcp_servers/delete":
             await self._api_delete_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/test":
+            await self._api_test_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/login":
+            await self._api_login_mcp_server(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/login_state":
+            await self._api_mcp_login_state(receive, send)
+            return
+        if method == "POST" and path == "/api/mcp_servers/logout":
+            await self._api_logout_mcp_server(receive, send)
             return
         if method == "POST" and path == "/v1/chat/completions":
             await self._chat(receive, send)
@@ -727,7 +743,19 @@ class GatewayApp:
         }
 
     def _mcp_server_json(self, server: McpServerConfig) -> dict[str, Any]:
-        return {"name": server.name, "command": server.command, "args": list(server.args)}
+        status = self._mcp_connections.statuses.get(server.name)
+        return {
+            "name": server.name,
+            "command": server.command,
+            "args": list(server.args),
+            "transport": server.transport.value,
+            "url": server.url,
+            "scopes": list(server.scopes),
+            "client_id": server.client_id,
+            "state": status.state if status else "yapilandirildi",
+            "tool_count": status.tool_count if status else 0,
+            "message": status.message if status else None,
+        }
 
     async def _api_add_mcp_server(self, receive: Receive, send: Send) -> None:
         """Panelden dış bir MCP sunucusu ekle/güncelle — `fusion mcp-add`'in panel eşdeğeri."""
@@ -735,13 +763,35 @@ class GatewayApp:
 
         body = await _read_json(receive)
         name = str(body.get("name", "")).strip()
+        try:
+            transport = McpTransport(str(body.get("transport", "stdio")))
+        except ValueError:
+            await _json(send, _error_body("geçersiz MCP bağlantı türü"), status=400)
+            return
         command = str(body.get("command", "")).strip()
+        url = str(body.get("url", "")).strip()
         args = tuple(str(item) for item in body.get("args", []) if str(item).strip())
-        if not name or not command:
+        if not name or (transport is McpTransport.STDIO and not command):
             await _json(send, _error_body("ad ve komut zorunlu"), status=400)
             return
+        if transport is McpTransport.STREAMABLE_HTTP:
+            from ..mcp_bridge.oauth import validate_remote_mcp_url
+
+            try:
+                validate_remote_mcp_url(url)
+            except ValueError as error:
+                await _json(send, _error_body(str(error)), status=400)
+                return
         others = tuple(item for item in self._config.mcp_servers if item.name != name)
-        yeni = McpServerConfig(name=name, command=command, args=args)
+        yeni = McpServerConfig(
+            name=name,
+            command=command,
+            args=args,
+            transport=transport,
+            url=url,
+            scopes=tuple(str(item) for item in body.get("scopes", []) if str(item).strip()),
+            client_id=str(body.get("client_id", "")).strip(),
+        )
         updated = _dc_replace(self._config, mcp_servers=(*others, yeni))
         try:
             writer.write_mcp_servers(updated)
@@ -750,7 +800,58 @@ class GatewayApp:
             return
         self._config = updated
         self._config_revision = revision(updated)
-        await _json(send, {"ok": True, "name": name})
+        status = (
+            self._mcp_connections.start_login(yeni)
+            if transport is McpTransport.STREAMABLE_HTTP
+            else await self._mcp_connections.test(yeni)
+        )
+        await _json(send, {"ok": True, "name": name, **self._mcp_status_json(status)})
+
+    def _find_mcp(self, name: object) -> McpServerConfig | None:
+        wanted = str(name or "")
+        return next((item for item in self._config.mcp_servers if item.name == wanted), None)
+
+    @staticmethod
+    def _mcp_status_json(status: McpConnectionStatus) -> dict[str, Any]:
+        return {
+            "state": status.state,
+            "tool_count": status.tool_count,
+            "latency_ms": status.latency_ms,
+            "message": status.message,
+        }
+
+    async def _api_test_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(await self._mcp_connections.test(server))}
+        )
+
+    async def _api_login_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(self._mcp_connections.start_login(server))}
+        )
+
+    async def _api_mcp_login_state(self, receive: Receive, send: Send) -> None:
+        name = str((await _read_json(receive)).get("name", ""))
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(self._mcp_connections.login_status(name))}
+        )
+
+    async def _api_logout_mcp_server(self, receive: Receive, send: Send) -> None:
+        server = self._find_mcp((await _read_json(receive)).get("name"))
+        if server is None:
+            await _json(send, _error_body("böyle bir MCP sunucusu yok"), status=400)
+            return
+        await _json(
+            send, {"ok": True, **self._mcp_status_json(await self._mcp_connections.logout(server))}
+        )
 
     async def _api_delete_mcp_server(self, receive: Receive, send: Send) -> None:
         from ..config import writer

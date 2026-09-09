@@ -34,7 +34,7 @@ from ..cli.repl.transcript_store import (
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
-from ..config.models import Config
+from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
 from ..core.events import Event
 from ..core.health import HealthRegistry
@@ -52,7 +52,7 @@ from .commands import (
     render_command_text,
     run_command,
 )
-from .connectors import add_connector, list_connectors, remove_connector
+from .connectors import add_connector, list_connectors, remove_connector, status_payload
 from .control import (
     connect_web_session,
     delete_secret,
@@ -276,6 +276,9 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
+        from ..mcp_bridge.service import McpConnectionService
+
+        self._mcp_connections = McpConnectionService()
         self._turn: asyncio.Task[Any] | None = None
 
     async def handle(self, request: Request) -> None:
@@ -413,10 +416,32 @@ class AppSession:
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
         if request.name == "baglanti.listele":
-            return list_connectors(self._state.config)
+            return list_connectors(self._state.config, self._mcp_connections.statuses)
         if request.name == "baglanti.ekle":
-            return self._change_connectors(add_connector, request.data)
+            return await self._add_connector(request.data)
+        if request.name == "baglanti.dogrula":
+            server = self._connector(request.data.get("ad"))
+            if server is None:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            return status_payload(await self._mcp_connections.test(server))
+        if request.name == "baglanti.giris":
+            server = self._connector(request.data.get("ad"))
+            if server is None:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            return status_payload(self._mcp_connections.start_login(server))
+        if request.name == "baglanti.giris_durumu":
+            return status_payload(
+                self._mcp_connections.login_status(str(request.data.get("ad", "")))
+            )
+        if request.name == "baglanti.cikis":
+            server = self._connector(request.data.get("ad"))
+            if server is None:
+                return {"ok": False, "metin": "Bağlantı bulunamadı."}
+            return status_payload(await self._mcp_connections.logout(server))
         if request.name == "baglanti.sil":
+            server = self._connector(request.data.get("ad"))
+            if server is not None:
+                await self._mcp_connections.logout(server)
             return self._change_connectors(remove_connector, request.data)
         if request.name == "ses.ayar":
             return voice_settings(request.data)
@@ -586,6 +611,22 @@ class AppSession:
         if yeni is not None:
             self._state.config = yeni
         return sonuc
+
+    def _connector(self, name: object) -> McpServerConfig | None:
+        wanted = str(name or "")
+        return next((item for item in self._state.config.mcp_servers if item.name == wanted), None)
+
+    async def _add_connector(self, data: object) -> dict[str, Any]:
+        yeni, sonuc = add_connector(self._state.config, data)
+        if yeni is None:
+            return sonuc
+        self._state.config = yeni
+        server = yeni.mcp_servers[-1]
+        if server.transport.value == "streamable_http":
+            status = self._mcp_connections.start_login(server)
+        else:
+            status = await self._mcp_connections.test(server)
+        return {**sonuc, **status_payload(status), "ok": True}
 
     def _apply_workspace_mode(self, value: object) -> dict[str, Any] | None:
         """`kip`: "sohbet" ya da "kod".
@@ -872,5 +913,6 @@ class AppSession:
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         voice_stop()
+        await self._mcp_connections.close()
         await self._processes.close()
         self.pending.cancel_all()

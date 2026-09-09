@@ -145,10 +145,19 @@
                 <div id="mcpServers"></div>
                 <label class="fld">Sunucu adı <span class="fhint">(ör. github)</span>
                   <input id="mcpName" placeholder="github" /></label>
+                <label class="fld">Bağlantı türü
+                  <select id="mcpTransport">
+                    <option value="stdio">Yerel komut</option>
+                    <option value="streamable_http">Uzak MCP · OAuth</option>
+                  </select></label>
                 <label class="fld">Komut <span class="fhint">(ör. npx)</span>
                   <input id="mcpCommand" placeholder="npx" /></label>
                 <label class="fld">Argümanlar <span class="fhint">(boşlukla ayrılmış)</span>
                   <input id="mcpArgs" placeholder="-y @modelcontextprotocol/server-github" /></label>
+                <label class="fld">Uzak MCP adresi <span class="fhint">(OAuth için HTTPS)</span>
+                  <input id="mcpUrl" placeholder="https://mcp.example.com/mcp" /></label>
+                <label class="fld">OAuth kapsamları <span class="fhint">(boşlukla ayrılmış)</span>
+                  <input id="mcpScopes" placeholder="ads_read business_management" /></label>
                 <div class="row"><button onclick="busyClick(event, addMcpServer)">MCP sunucusunu kaydet</button></div>
               </div>
             </div>
