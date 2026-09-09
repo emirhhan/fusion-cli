@@ -129,6 +129,8 @@ async def test_hata_mesajinda_yol_goreli(root):
 
 async def test_okumaya_gomulen_model_yazmaya_itilir(root):
     """Dördüncü keşif turundan sonra modele 'dur-ve-yap' notu gitmeli."""
+    import json
+
     from fusion_cli.engines.agent import reflexion
 
     from .scenarios import OKUYUP_YAZMAYAN
@@ -141,7 +143,7 @@ async def test_okumaya_gomulen_model_yazmaya_itilir(root):
         if mesaj.role == "user" and "[dur-ve-yap]" in mesaj.content
     ]
     assert notlar, "keşif kapısı hiç konuşmadı"
-    assert "edit_file" in notlar[0]
+    assert json.loads((root / "config.json").read_text())["host"] == "0.0.0.0"
     assert reflexion.ENOUGH_EXPLORING_NOTE.split("{")[0] in notlar[0]
 
 
