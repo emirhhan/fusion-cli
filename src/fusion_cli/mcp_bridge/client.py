@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from mcp import ClientSession
 
-from ..config.models import McpServerConfig
+from ..config.models import McpServerConfig, McpTransport
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ..tools import ToolRegistry
 from .content import normalize_call_result
@@ -85,7 +85,14 @@ class McpClient:
         stack = AsyncExitStack()
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                read, write = await stack.enter_async_context(open_mcp_stream(config))
+                auth = None
+                if config.transport is McpTransport.STREAMABLE_HTTP:
+                    from .oauth import oauth_provider_for
+
+                    bundle = await oauth_provider_for(config)
+                    auth = bundle.auth
+                    stack.push_async_callback(bundle.callback.close)
+                read, write = await stack.enter_async_context(open_mcp_stream(config, auth=auth))
                 session = await stack.enter_async_context(ClientSession(read, write))
                 await session.initialize()
                 self._sessions[config.name] = session
