@@ -124,9 +124,21 @@ def step_deps(deps: AgentDeps, step: PlanStep, remaining: int, *, observe: bool)
             # modelle aynı duvara çarpmak yerine bir üst modele yükselinir.
             escalation=step.attempts,
             complex_task=policy.complex_task and not observe,
-            max_model_calls=min(policy.max_model_calls, remaining)
-            if policy.max_model_calls is not None
-            else remaining,
+            # Adımın harcama yetkisi ZARFTIR, görev düzeyi kademesi değil.
+            #
+            # Ölçüldü (Dead Cells koşusu, `assets/ASSETS.json` adımı): görev metni
+            # karmaşıklık anahtar kelimelerine çarpmadı ve `file:` etkisi
+            # `_MUTATING_EFFECTS` içinde olmadığı için `policy_for` sohbet
+            # kademesini verdi (`max_model_calls=8`). `workflow_budget()` adım
+            # zarfını doğru biçimde 40'a yükseltti ama burada `min(8, 40)`
+            # uygulanıyordu: zarf hiç bağlamadı, adım hiçbir hata vermeden
+            # 8 çağrıda "adım bütçesi doldu" ile düştü.
+            #
+            # `remaining` zarfın kalanıdır ve `workflow_budget()` zarfı zaten alt
+            # turun kendi sınırından küçük olmayacak şekilde kuruyor; bu yüzden
+            # kalan tek otoritedir. Sınır hâlâ AŞAĞI çalışır: zarf tükenmeye
+            # yakınsa adım kalanla yetinir (gözlem sondası `remaining=1` ile gelir).
+            max_model_calls=remaining,
             allowed_tool_names=allowed,
         ),
     )
