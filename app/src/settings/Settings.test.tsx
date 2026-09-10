@@ -181,6 +181,7 @@ describe("Settings — derinlik", () => {
       url: "https://mcp.example.com/mcp",
       kapsamlar: "",
       client_id: "",
+      token: "",
     }));
   });
 

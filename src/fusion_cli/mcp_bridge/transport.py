@@ -38,6 +38,26 @@ def resolve_stdio_args(
     return resolved
 
 
+def resolve_bearer_headers(
+    config: McpServerConfig, *, environ: Mapping[str, str] | None = None
+) -> dict[str, str] | None:
+    """Yapılandırılmış token'ı istek başlığına çevir; token yoksa None.
+
+    Eksik değeri SESSİZCE geçmek kimliksiz bir istek gönderirdi; sunucunun 401'i
+    kullanıcıya anlaşılmaz bir "başlatılamadı" hatası olarak dönerdi.
+    """
+    if not config.token_env:
+        return None
+    source = os.environ if environ is None else environ
+    value = source.get(config.token_env, "").strip()
+    if not value:
+        raise ValueError(
+            f"MCP erişim token'ı bulunamadı: {config.token_env}. "
+            "Bağlantıyı yeniden ekleyip token'ı gir."
+        )
+    return {"Authorization": f"Bearer {value}"}
+
+
 @asynccontextmanager
 async def open_mcp_stream(
     config: McpServerConfig, *, auth: httpx.Auth | None = None
@@ -53,6 +73,7 @@ async def open_mcp_stream(
 
     if not config.url:
         raise ValueError("HTTP MCP bağlantısı için URL gerekli")
-    async with streamablehttp_client(config.url, auth=auth) as streams:
+    headers = resolve_bearer_headers(config)
+    async with streamablehttp_client(config.url, headers=headers, auth=auth) as streams:
         read, write, _session_id = streams
         yield read, write

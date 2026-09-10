@@ -23,12 +23,31 @@ from ..mcp_bridge.oauth import validate_remote_mcp_url
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _MAX_SECRET_CHARS = 8_192
+#: Türetilen token ortam değişkenlerinin ortak öneki.
+_TOKEN_PREFIX = "FUSION_MCP_TOKEN_"
+
+
+def token_env_name(connector_name: str) -> str:
+    """Bağlantı adından token'ın ortam değişkeni adını türet.
+
+    Kullanıcıdan ayrıca bir değişken adı istemek gereksiz bir adımdı: token tek
+    bir bağlantıya aittir ve adı oradan belirlenir.
+    """
+    slug = re.sub(r"[^A-Za-z0-9]+", "_", connector_name).strip("_").upper()
+    return f"{_TOKEN_PREFIX}{slug}" if slug else ""
 
 
 def connector_secret_values(data: object) -> tuple[dict[str, str], str | None]:
-    """RPC girdisindeki stdio sırlarını doğrula; değerleri hiçbir yanıta ekleme."""
+    """RPC girdisindeki sırları doğrula; değerleri hiçbir yanıta ekleme.
+
+    Uzak sunucunun erişim token'ı da buradan geçer: çağıran (`_add_connector`)
+    sırları şifreli depoya yazıp geri alma akışını zaten çözmüş durumda.
+    """
     if not isinstance(data, dict):
         return {}, None
+    token, token_error = _token_secret(data)
+    if token_error is not None:
+        return {}, token_error
     raw = data.get("ortam", {})
     if raw is None:
         return {}, None
@@ -45,7 +64,25 @@ def connector_secret_values(data: object) -> tuple[dict[str, str], str | None]:
         if not value or len(value) > _MAX_SECRET_CHARS:
             return {}, f"{name} değeri boş olamaz ve {_MAX_SECRET_CHARS} karakteri aşamaz."
         values[name] = value
-    return values, None
+    return {**token, **values}, None
+
+
+def _token_secret(data: Mapping[str, Any]) -> tuple[dict[str, str], str | None]:
+    """`token` alanını türetilmiş ortam adına bağla."""
+    raw = data.get("token")
+    if raw is None:
+        return {}, None
+    if not isinstance(raw, str):
+        return {}, "MCP erişim token'ı metin olmalı."
+    value = raw.strip()
+    if not value:
+        return {}, None
+    if len(value) > _MAX_SECRET_CHARS:
+        return {}, f"MCP erişim token'ı {_MAX_SECRET_CHARS} karakteri aşamaz."
+    name = token_env_name(str(data.get("ad", "")).strip())
+    if not name:
+        return {}, "Token kaydetmek için bağlantının bir adı olmalı."
+    return {name: value}, None
 
 
 def status_payload(status: McpConnectionStatus) -> dict[str, Any]:
@@ -75,6 +112,8 @@ def list_connectors(
                 "kapsamlar": list(server.scopes),
                 "client_id": server.client_id,
                 "ortam_degiskenleri": list(server.env_names),
+                # Yalnız token'ın VAR olduğu bildirilir; değer hiçbir yanıta girmez.
+                "token_var": bool(server.token_env),
                 **_row_status((statuses or {}).get(server.name)),
             }
             for server in config.mcp_servers
@@ -148,12 +187,15 @@ def add_connector(config: Config, data: object) -> tuple[Config | None, dict[str
         except ValueError as error:
             return None, {"ok": False, "metin": str(error)}
         scopes = tuple(str(data.get("kapsamlar", "")).split())
+        token_env = token_env_name(ad) if token_env_name(ad) in secrets else ""
         sunucu = McpServerConfig(
             name=ad,
             transport=transport,
             url=url,
             scopes=scopes,
             client_id=str(data.get("client_id", "")).strip(),
+            token_env=token_env,
+            env_names=(token_env,) if token_env else (),
         )
     yeni = replace(config, mcp_servers=(*config.mcp_servers, sunucu))
     return _persist(yeni, f"'{ad}' bağlantısı eklendi.")

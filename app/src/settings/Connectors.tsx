@@ -15,6 +15,7 @@ interface ConnectorRow {
   komut: string;
   mesaj?: string | null;
   tasima?: Transport;
+  token_var?: boolean;
   url?: string;
 }
 
@@ -32,6 +33,7 @@ const EMPTY = {
   kapsamlar: "",
   komut: "",
   tasima: "stdio" as Transport,
+  token: "",
   url: "",
 };
 
@@ -97,6 +99,7 @@ export function Connectors({ client }: { client: ProtocolClient }) {
           url: draft.url,
           kapsamlar: draft.kapsamlar,
           client_id: draft.client_id,
+          token: draft.token,
         };
 
   return (
@@ -104,7 +107,7 @@ export function Connectors({ client }: { client: ProtocolClient }) {
       <div className="settings__card-head">
         <div>
           <h3>MCP bağlantıları</h3>
-          <p className="settings__hint">Yerel araçları veya OAuth destekli uzak MCP servislerini bağlayın.</p>
+          <p className="settings__hint">Yerel araçları ya da uzak MCP servislerini OAuth veya erişim token'ı ile bağlayın.</p>
         </div>
         <span className="settings__badge">{rows.filter((row) => row.durum === "bagli").length} etkin</span>
       </div>
@@ -208,6 +211,14 @@ export function Connectors({ client }: { client: ProtocolClient }) {
               placeholder="https://mcp.example.com/mcp"
               type="url"
               value={draft.url}
+            />
+            <label htmlFor="baglanti-token">Erişim token'ı</label>
+            <input
+              id="baglanti-token"
+              onChange={(event) => setDraft((current) => ({ ...current, token: event.target.value }))}
+              placeholder="Varsa OAuth atlanır; giriş penceresi açılmaz"
+              type="password"
+              value={draft.token}
             />
             <label htmlFor="baglanti-kapsam">OAuth kapsamları</label>
             <input

@@ -52,6 +52,7 @@ const CUSTOM_EMPTY = {
   kapsamlar: "",
   komut: "",
   tasima: "stdio" as ConnectorTransport,
+  token: "",
   url: "",
 };
 
@@ -163,6 +164,7 @@ export function ConnectorsScreen({
             url: custom.url,
             kapsamlar: custom.kapsamlar,
             client_id: custom.client_id,
+            token: custom.token,
           };
     const result = await run("baglanti.ekle", payload, "add:custom");
     if (result?.ok) {
@@ -252,7 +254,7 @@ export function ConnectorsScreen({
               value={custom.tasima}
             >
               <option value="stdio">Yerel komut</option>
-              <option value="streamable_http">Uzak MCP · OAuth</option>
+              <option value="streamable_http">Uzak MCP · OAuth ya da token</option>
             </select>
             <label htmlFor="ozel-ad">Ad</label>
             <input
@@ -280,6 +282,14 @@ export function ConnectorsScreen({
                   placeholder="https://mcp.example.com/mcp"
                   type="url"
                   value={custom.url}
+                />
+                <label htmlFor="ozel-token">Erişim token'ı</label>
+                <input
+                  id="ozel-token"
+                  onChange={(event) => setCustom((c) => ({ ...c, token: event.target.value }))}
+                  placeholder="Varsa OAuth atlanır; giriş penceresi açılmaz"
+                  type="password"
+                  value={custom.token}
                 />
                 <label htmlFor="ozel-kapsam">OAuth kapsamları</label>
                 <input

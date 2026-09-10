@@ -142,7 +142,9 @@ class McpClient:
         try:
             async with asyncio.timeout(self._timeout_seconds) as deadline:
                 auth = None
-                if config.transport is McpTransport.STREAMABLE_HTTP:
+                # Token yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
+                # penceresi açılmaz ve her turda yeniden yetkilendirme denenmez.
+                if config.transport is McpTransport.STREAMABLE_HTTP and not config.token_env:
                     from .oauth import oauth_provider_for
 
                     bundle = await oauth_provider_for(

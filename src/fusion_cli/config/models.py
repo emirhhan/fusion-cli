@@ -188,6 +188,15 @@ class McpServerConfig:
     #: stdio sunucusunun ihtiyaç duyduğu sırların yalnız ORTAM DEĞİŞKENİ adları.
     #: Değerler config'e girmez; şifreli depodan süreç ortamına yüklenir.
     env_names: tuple[str, ...] = ()
+    #: Uzak sunucuya `Authorization: Bearer` ile gidecek token'ın ORTAM DEĞİŞKENİ adı.
+    #
+    # OAuth'a alternatif yoldur. Ölçüldü (mcp.facebook.com/ads): sunucu dinamik
+    # istemci kaydını reddediyor, yani client_id olmadan OAuth hiç başlamıyor; aynı
+    # sunucunun metadatası `bearer_methods_supported: ["header"]` diyor. Token dolu
+    # olduğunda OAuth akışı HİÇ kurulmaz: giriş penceresi, client_id ve her tura
+    # eklenen OAuth gecikmesi ortadan kalkar. Değer burada değil, `env_names` gibi
+    # şifreli depoda durur.
+    token_env: str = ""
 
 
 @dataclass(frozen=True, slots=True)

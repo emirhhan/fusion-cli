@@ -699,7 +699,9 @@ class AppSession:
         os.environ.update(secrets)
         self._state.config = yeni
         server = yeni.mcp_servers[-1]
-        if server.transport.value == "streamable_http":
+        # Token'lı uzak sunucuda OAuth yoktur: giriş penceresi beklemek yerine
+        # bağlantı doğrudan denenir ve sonuç hemen görünür.
+        if server.transport.value == "streamable_http" and not server.token_env:
             status = self._mcp_connections.start_login(server)
         else:
             status = await self._mcp_connections.test(server)

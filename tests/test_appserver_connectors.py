@@ -136,3 +136,48 @@ async def test_baglanti_cikis_token_deposunu_temizler(tmp_path):
 
     assert result["durum"] == "kapali"
     assert fake.logged_out == ["meta"]
+
+
+async def test_tokenli_http_baglanti_giris_penceresi_acmaz(tmp_path, monkeypatch):
+    """Token verilmişse OAuth akışı yerine doğrudan bağlantı denenir.
+
+    Ölçüldü (mcp.facebook.com/ads): sunucu dinamik kaydı reddettiği için giriş
+    penceresi hiç açılmıyor ve kullanıcı sonsuza dek "giriş bekleniyor" görüyordu.
+    """
+    session, fake = _session(tmp_path)
+    monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", lambda _config: None)
+    stored: dict[str, str] = {}
+
+    class _Store:
+        available = True
+
+        def set(self, name, value):
+            stored[name] = value
+
+        def get(self, name):
+            return stored.get(name)
+
+        def delete(self, name):
+            stored.pop(name, None)
+
+    session._secret_store = _Store()
+
+    result = await session._dispatch(
+        Request(
+            "1",
+            "baglanti.ekle",
+            {
+                "ad": "Meta Ads",
+                "tasima": "streamable_http",
+                "url": "https://mcp.example.com/ads",
+                "token": "gizli-token",
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["durum"] == "bagli"
+    assert fake.started == []
+    assert stored == {"FUSION_MCP_TOKEN_META_ADS": "gizli-token"}
+    sunucu = session._state.config.mcp_servers[0]
+    assert sunucu.token_env == "FUSION_MCP_TOKEN_META_ADS"
