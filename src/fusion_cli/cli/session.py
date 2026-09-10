@@ -285,21 +285,22 @@ async def _run_agent_with_mcp(
     if not config.mcp_servers:
         return await _run()
     try:
-        from ..mcp_bridge.client import McpClient
+        from ..mcp_bridge.pool import ensure_mcp_tools
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
         return await _run()
     try:
-        async with McpClient(config.mcp_servers) as client:
-            eklenen = await client.register_into(deps.base_registry)
-            # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi
-            # zaten doğru üreten araç varsa model elle yazmaya değil ona
-            # yönlendirilir.
-            deps.tool_context.available_tools.update(eklenen)
-            return await _run()
+        # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
+        # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
+        # kapanışında yapılır, tur içinde değil.
+        eklenen = await ensure_mcp_tools(config.mcp_servers, deps.base_registry)
     except Exception as error:
         bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
         return await _run()
+    # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
+    # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
+    deps.tool_context.available_tools.update(eklenen)
+    return await _run()
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

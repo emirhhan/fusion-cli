@@ -334,23 +334,24 @@ async def _drive_agent(
     if not state.config.mcp_servers:
         return await run_agent(line, deps, **kwargs)
     try:
-        from ...mcp_bridge.client import McpClient
+        from ...mcp_bridge.pool import ensure_mcp_tools
     except ImportError:
         console.print(f"[{theme.WARN}]{messages.MCP_MISSING_DEP}[/{theme.WARN}]")
         return await run_agent(line, deps, **kwargs)
     try:
-        async with McpClient(state.config.mcp_servers) as client:
-            added = await client.register_into(deps.base_registry)
-            if added:
-                console.print(
-                    f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
-                )
-            return await run_agent(line, deps, **kwargs)
+        # Havuz açık bağlantıyı yeniden kullanır; her tur stdio sunucusunu
+        # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
+        added = await ensure_mcp_tools(state.config.mcp_servers, deps.base_registry)
     except Exception as error:
         console.print(
             f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
         )
         return await run_agent(line, deps, **kwargs)
+    if added:
+        console.print(
+            f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"
+        )
+    return await run_agent(line, deps, **kwargs)
 
 
 async def _fusion_turn(line: str, state: ReplState, console: Console) -> None:

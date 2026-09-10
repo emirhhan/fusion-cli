@@ -301,11 +301,15 @@ async def _with_web_cleanup(coro: Awaitable[T]) -> T:
     Tur İÇİNDE kapatılmaz: REPL turlar arası sohbet sürekliliğini bu bağlamlarda
     taşır ve tek bir `asyncio.run` içinde çalışır.
     """
+    from ..mcp_bridge.pool import close_mcp_pool
     from ..providers.web_browser import close_all_browser_sessions
 
     try:
         return await coro
     finally:
+        # MCP bağlantıları da oturum kaynağıdır: stdio alt süreçleri (npx ...)
+        # kapanışta sahipsiz kalmamalı.
+        await close_mcp_pool()
         await close_all_browser_sessions()
 
 

@@ -1010,12 +1010,14 @@ class AppSession:
 
     async def close(self) -> None:
         """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""
+        from ..mcp_bridge.pool import close_mcp_pool
         from ..providers.web_browser import close_all_browser_sessions
         from ..providers.web_control import stop_all_login_processes
 
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         voice_stop()
+        await close_mcp_pool()
         await self._mcp_connections.close()
         await self._processes.close()
         await close_all_browser_sessions()
