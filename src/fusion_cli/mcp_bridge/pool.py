@@ -203,6 +203,24 @@ async def ensure_mcp_tools(
     return await client.register_into(registry)
 
 
+async def ensure_hosted_tools(config: object, registry: ToolRegistry) -> tuple[str, ...]:
+    """Sağlayıcı-barındırmalı connector araçlarını kayıt defterine ekle.
+
+    MCP havuzundan AYRIDIR: burada tutulacak bir bağlantı yoktur, araçlar
+    sağlayıcının oturumunda yaşar. Keşif her turda bir kez yapılır ve tek bir
+    tarayıcı turu harcar — bu yüzden doğrulanmamış connector için hiç gidilmez
+    (bkz. `mcp_bridge/hosted.py::register_into`).
+    """
+    connectors = getattr(config, "hosted_connectors", ())
+    if not connectors:
+        return ()
+    from ..providers.hosted_bridge import HostedSessionChannel
+    from .hosted import HostedConnectorClient
+
+    client = HostedConnectorClient(connectors, ask=HostedSessionChannel(config))  # type: ignore[arg-type]
+    return await client.register_into(registry)
+
+
 async def close_mcp_pool() -> None:
     """Süreç/oturum biterken açık MCP bağlantılarını kapat."""
     await _POOL.aclose()
