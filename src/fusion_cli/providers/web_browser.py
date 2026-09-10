@@ -1252,9 +1252,16 @@ async def _owns_profile_process(pid: int, profile: Path) -> bool:
     )
 
 
-async def open_login_browser(provider: str, account: str) -> None:
-    """Görünür izole profili aç ve kullanıcı tarayıcıyı kapatana kadar bekle."""
+async def open_login_browser(provider: str, account: str, *, url: str = "") -> None:
+    """Görünür izole profili aç ve kullanıcı tarayıcıyı kapatana kadar bekle.
+
+    `url` verilmezse sağlayıcının ana sayfası açılır. Sağlayıcı-barındırmalı
+    connector kurulumunda kullanıcıyı doğrudan connector paneline götürmek için
+    `connector_settings_url` geçilir: aynı izole profil, aynı bekleme davranışı —
+    tek fark hangi sayfanın açıldığı.
+    """
     definition = provider_definition(provider)
+    target = url or definition.home_url
     profile = browser_profile_dir(provider, account)
     profile.mkdir(parents=True, exist_ok=True)
     native = _native_login_executable()
@@ -1269,7 +1276,7 @@ async def open_login_browser(provider: str, account: str) -> None:
                 f"--user-data-dir={profile}",
                 "--no-first-run",
                 "--no-default-browser-check",
-                definition.home_url,
+                target,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
@@ -1308,7 +1315,7 @@ async def open_login_browser(provider: str, account: str) -> None:
             accept_downloads=True,
         )
         page = context.pages[0] if context.pages else await context.new_page()
-        await page.goto(definition.home_url, wait_until="domcontentloaded", timeout=60_000)
+        await page.goto(target, wait_until="domcontentloaded", timeout=60_000)
         # Pencere, kullanıcı kapatana kadar açık kalır. Yoklama bilinçlidir: giriş
         # bitişini sağlayıcıya özgü bir seçiciye bağlamak, arayüz her değiştiğinde
         # kırılırdı.

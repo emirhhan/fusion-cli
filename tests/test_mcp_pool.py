@@ -170,3 +170,56 @@ async def test_ayni_kayit_defterine_ikinci_kayit_turu_dusurmez(fake_client, tmp_
     registry.register_or_replace(arac)
 
     assert registry.get("godot__save_scene") is arac
+
+
+async def test_barindirmali_kanal_turlar_arasi_korunur(monkeypatch):
+    """Kanal her turda yeniden kurulursa konuşma geçmişi çöpe gider.
+
+    `hosted_bridge` konuşmanın SÜREKLİ olmasını şart koşuyor: her tur yeni kanal
+    demek, her turda yeniden keşif turu ve kaybolan bağlam demekti.
+    """
+    from dataclasses import replace
+
+    from fusion_cli.config.models import HostedConnectorConfig, WebSessionConfig
+    from fusion_cli.tools import ToolRegistry
+
+    from .fakes import make_config
+
+    kurulan: list[object] = []
+
+    class _Kanal:
+        def __init__(self, config) -> None:
+            kurulan.append(config)
+
+        async def __call__(self, connector, prompt):
+            del connector, prompt
+            return ""
+
+    monkeypatch.setattr(pool_module, "_hosted_channel_factory", _Kanal, raising=False)
+
+    config = replace(
+        make_config(),
+        web_sessions=(
+            WebSessionConfig(
+                model="claude_web/main/auto",
+                provider="claude_web",
+                account="main",
+                transport="browser",
+                login_verified=True,
+                enabled=True,
+            ),
+        ),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="MetaAds",
+                url="https://mcp.facebook.com/ads",
+                provider="claude_web",
+                verified=False,
+            ),
+        ),
+    )
+
+    await pool_module.ensure_hosted_tools(config, ToolRegistry())
+    await pool_module.ensure_hosted_tools(config, ToolRegistry())
+
+    assert len(kurulan) == 1, "aynı yapılandırmada kanal yeniden kurulmamalı"

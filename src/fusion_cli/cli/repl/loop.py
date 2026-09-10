@@ -331,22 +331,32 @@ async def _drive_agent(
         "extra_system": extra_system,
         "step_limit": step_limit,
     }
-    if not state.config.mcp_servers:
+    if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
     try:
-        from ...mcp_bridge.pool import ensure_mcp_tools
+        from ...mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
     except ImportError:
         console.print(f"[{theme.WARN}]{messages.MCP_MISSING_DEP}[/{theme.WARN}]")
         return await run_agent(line, deps, **kwargs)
-    try:
-        # Havuz açık bağlantıyı yeniden kullanır; her tur stdio sunucusunu
-        # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
-        added = await ensure_mcp_tools(state.config.mcp_servers, deps.base_registry)
-    except Exception as error:
-        console.print(
-            f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
-        )
-        return await run_agent(line, deps, **kwargs)
+    added: tuple[str, ...] = ()
+    if state.config.mcp_servers:
+        try:
+            # Havuz açık bağlantıyı yeniden kullanır; her tur stdio sunucusunu
+            # yeniden başlatmak ölçülmüş bir maliyetti (bkz. `mcp_bridge/pool.py`).
+            added += await ensure_mcp_tools(state.config.mcp_servers, deps.base_registry)
+        except Exception as error:
+            console.print(
+                f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
+            )
+    if state.config.hosted_connectors:
+        # Biri düşerse diğeri yine eklenir: iki taşıma birbirinin arızasını
+        # devralmaz.
+        try:
+            added += await ensure_hosted_tools(state.config, deps.base_registry)
+        except Exception as error:
+            console.print(
+                f"[{theme.WARN}]{messages.MCP_CONNECT_FAILED.format(error=error)}[/{theme.WARN}]"
+            )
     if added:
         console.print(
             f"[{theme.DIM}]{messages.MCP_TOOLS_LOADED.format(count=len(added))}[/{theme.DIM}]"

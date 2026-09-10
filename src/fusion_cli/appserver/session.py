@@ -82,6 +82,11 @@ from .history import (
     preview_session,
     search_sessions,
 )
+from .hosted_connectors import (
+    add_hosted_connector,
+    hosted_provider_rows,
+    remove_hosted_connector,
+)
 from .instructions import get_instructions, instruction_block, save_instructions
 from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
@@ -461,6 +466,14 @@ class AppSession:
             if server is None:
                 return {"ok": False, "metin": "Bağlantı bulunamadı."}
             return status_payload(await self._mcp_connections.logout(server))
+        if request.name == "baglanti.saglayicilar":
+            return {"ok": True, "saglayicilar": hosted_provider_rows(self._state.config)}
+        if request.name == "baglanti.saglayici_ekle":
+            return self._change_connectors(add_hosted_connector, request.data)
+        if request.name == "baglanti.saglayici_sil":
+            return self._change_connectors(remove_hosted_connector, request.data)
+        if request.name == "baglanti.panel_ac":
+            return await self._open_connector_panel(request.data)
         if request.name == "baglanti.sil":
             server = self._connector(request.data.get("ad"))
             if server is not None:
@@ -706,6 +719,29 @@ class AppSession:
         else:
             status = await self._mcp_connections.test(server)
         return {**sonuc, **status_payload(status), "ok": True}
+
+    async def _open_connector_panel(self, data: object) -> dict[str, Any]:
+        """`baglanti.panel_ac`: sağlayıcının connector ekranını izole profilde aç.
+
+        Giriş ve connector ekleme AYNI profilde olmak zorunda: Fusion turları o
+        profili sürüyor. Başka bir tarayıcıda eklenen connector, Fusion'ın gördüğü
+        oturumda görünmez.
+        """
+        if not isinstance(data, dict):
+            return {"ok": False, "metin": "Geçersiz istek."}
+        saglayici = str(data.get("saglayici", "")).strip()
+        hesap = str(data.get("hesap", "") or "main").strip()
+        rows = {row["id"]: row for row in hosted_provider_rows(self._state.config)}
+        row = rows.get(saglayici)
+        if row is None:
+            return {"ok": False, "metin": "Bu sağlayıcı connector eklemeyi desteklemiyor."}
+        from ..providers.web_browser import open_login_browser
+
+        try:
+            await open_login_browser(saglayici, hesap, url=str(row["adres"]))
+        except Exception as error:
+            return {"ok": False, "metin": f"Sağlayıcı paneli açılamadı: {error}"}
+        return {"ok": True, "adres": row["adres"]}
 
     def _restore_connector_secrets(self, previous: dict[str, str | None]) -> None:
         """Başarısız bağlantı eklemesinde sır deposunu önceki hâline getir."""

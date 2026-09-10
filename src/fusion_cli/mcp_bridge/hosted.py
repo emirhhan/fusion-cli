@@ -35,6 +35,9 @@ from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ..tools import ToolRegistry
 
 __all__ = [
+    "MESSAGE_MARKER_IN_BODY",
+    "MESSAGE_MISSING_RESULT",
+    "MESSAGE_NO_ENVELOPE",
     "RESULT_CLOSE",
     "RESULT_OPEN",
     "HostedConnectorClient",
@@ -50,10 +53,6 @@ _LOG = logging.getLogger(__name__)
 RESULT_OPEN = "FUSION_MCP_RESULT"
 RESULT_CLOSE = "FUSION_MCP_RESULT_END"
 
-_BLOCK = re.compile(
-    rf"{re.escape(RESULT_OPEN)}\s*(?P<body>.*?)\s*{re.escape(RESULT_CLOSE)}",
-    re.DOTALL,
-)
 #: Model JSON'u kod bloğuna almaya bayılır; bu içeriği bozmamalı.
 _FENCE = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n(?P<body>.*?)\n?```$", re.DOTALL)
 
@@ -64,6 +63,10 @@ MESSAGE_NO_ENVELOPE = (
     f"sağlayıcı cevabında {RESULT_OPEN} zarfı yok; sonuç okunamadı "
     "(model işi yapmış olabilir ama doğrulanamaz)"
 )
+MESSAGE_MARKER_IN_BODY = (
+    "zarf gövdesinde zarf işareti kaldı; sonuç belirsiz olduğu için kabul edilmedi"
+)
+MESSAGE_MISSING_RESULT = "zarfta 'sonuc' alanı yok; aracın döndürdüğü değer taşınmamış"
 
 
 class HostedRelayError(RuntimeError):
@@ -87,10 +90,19 @@ def parse_result(text: str) -> object:
     turda Fusion'ın işin yapıldığını sanmasına yol açardı — `mcp_bridge/client.py`
     aynı sınıftan bir hatayı (`isError` bayrağının atılması) zaten bir kez ödedi.
     """
-    match = _BLOCK.search(text)
-    if match is None:
+    start = text.find(RESULT_OPEN)
+    # Kapanış işaretinin SONUNCUSU aranır, ilki değil. Gövde uzak sunucudan gelir
+    # ve güvenilmez: gömülü bir kapanış işareti, tembel bir eşleşmeyi erken
+    # durdurup saldırganın seçtiği JSON'u "tüm sonuç" gibi okutabilirdi; gerçek
+    # kuyruk (ve içindeki `ok: false`) sessizce düşerdi.
+    end = text.rfind(RESULT_CLOSE)
+    if start < 0 or end < start:
         raise HostedRelayError(MESSAGE_NO_ENVELOPE)
-    body = match.group("body").strip()
+    body = text[start + len(RESULT_OPEN) : end].strip()
+    # Gövdede hâlâ işaret varsa sonuç BELİRSİZDİR (iç içe ya da yinelenmiş zarf).
+    # Belirsizi tahminle çözmek yerine reddetmek, sessiz yanlış sonuçtan iyidir.
+    if RESULT_OPEN in body or RESULT_CLOSE in body:
+        raise HostedRelayError(MESSAGE_MARKER_IN_BODY)
     fenced = _FENCE.match(body)
     if fenced is not None:
         body = fenced.group("body").strip()
@@ -165,7 +177,7 @@ class HostedConnectorClient:
     async def list_tools(self, connector: str) -> list[HostedTool]:
         """Connector'ın araçlarını sağlayıcı oturumuna sorarak keşfet."""
         config = self._connector(connector)
-        payload = await self._exchange(config, render_discovery_prompt(config))
+        payload = await self._exchange(config, render_discovery_prompt(config), repair=True)
         if not isinstance(payload, Mapping):
             raise HostedRelayError("keşif cevabı JSON nesnesi değil")
         raw = payload.get("araclar")
@@ -190,10 +202,20 @@ class HostedConnectorClient:
         return tools
 
     async def call(self, connector: str, tool: str, args: Mapping[str, object]) -> ToolResult:
-        """Aracı sağlayıcı oturumu üzerinden çağır ve sonucu kanonik hâle getir."""
+        """Aracı sağlayıcı oturumu üzerinden çağır ve sonucu kanonik hâle getir.
+
+        ÇAĞRIDA ONARIM TURU YOKTUR ve bu bilinçli bir güvenlik kararıdır. Uzak araç
+        sağlayıcının ajan döngüsünde çalışır; Fusion orada ne olduğunu göremez.
+        Bozuk zarftan sonra "sonucu tekrar yaz" demek prompt düzeyinde bir ricadır:
+        model bunu yok sayıp işlemi yenilerse reklam bütçesi İKİ KEZ değişir ve
+        Fusion bunu fark edemez. Bu yüzden görünür hata döner; yeniden deneme
+        kararı Fusion'ın kendi onay akışına kalır (araç `mutating=True`).
+        """
         config = self._connector(connector)
         try:
-            payload = await self._exchange(config, render_call_prompt(config, tool, args))
+            payload = await self._exchange(
+                config, render_call_prompt(config, tool, args), repair=False
+            )
         except HostedRelayError as error:
             # Görünür hata: modele düzeltme şansı verir, sessizce başarı saymaz.
             return ToolResult.failure(f"{connector}.{tool} sonucu okunamadı: {error}")
@@ -204,16 +226,28 @@ class HostedConnectorClient:
             # Hata METNİ olduğu gibi taşınır: uzak sunucular çözüm önerisini
             # genelde oraya yazar (bkz. `mcp_bridge/client.py`).
             return ToolResult.failure(f"{connector}.{tool} başarısız: {hata}")
-        sonuc = payload.get("sonuc", payload)
+        if "sonuc" not in payload:
+            # Zarfın kendi kontrol alanını araç çıktısı saymak, modele boş ama
+            # "başarılı" görünen bir sonuç verirdi.
+            return ToolResult.failure(f"{connector}.{tool}: {MESSAGE_MISSING_RESULT}")
+        sonuc = payload["sonuc"]
         structured = sonuc if isinstance(sonuc, Mapping) else {"sonuc": sonuc}
         return ToolResult(output=json.dumps(sonuc, ensure_ascii=False), structured=dict(structured))
 
-    async def _exchange(self, connector: HostedConnectorConfig, prompt: str) -> object:
-        """İstemi gönder, zarfı çöz; bozuksa BİR kez katı hatırlatmayla tekrar sor."""
+    async def _exchange(
+        self, connector: HostedConnectorConfig, prompt: str, *, repair: bool
+    ) -> object:
+        """İstemi gönder ve zarfı çöz.
+
+        `repair` yalnız SALT-OKUMA alışverişlerinde açıktır (keşif): iki kez sormak
+        zararsızdır. Araç çağrısında kapalıdır — gerekçesi `call()` içinde.
+        """
         answer = await self._ask(connector, prompt)
         try:
             return parse_result(answer)
         except HostedRelayError as first:
+            if not repair:
+                raise
             _LOG.info(
                 "sağlayıcı cevabı sözleşmeye uymadı, onarım isteniyor",
                 extra={"baglanti": connector.name, "hata": str(first)},

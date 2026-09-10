@@ -282,21 +282,29 @@ async def _run_agent_with_mcp(
             step_limit=step_limit,
         )
 
-    if not config.mcp_servers:
+    if not config.mcp_servers and not config.hosted_connectors:
         return await _run()
     try:
-        from ..mcp_bridge.pool import ensure_mcp_tools
+        from ..mcp_bridge.pool import ensure_hosted_tools, ensure_mcp_tools
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
         return await _run()
-    try:
-        # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
-        # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
-        # kapanışında yapılır, tur içinde değil.
-        eklenen = await ensure_mcp_tools(config.mcp_servers, deps.base_registry)
-    except Exception as error:
-        bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-        return await _run()
+    eklenen: tuple[str, ...] = ()
+    if config.mcp_servers:
+        try:
+            # Bağlantı TURUN değil oturumun kaynağıdır: havuz açık bağlantıyı
+            # yeniden kullanır (bkz. `mcp_bridge/pool.py`). Kapatma oturum
+            # kapanışında yapılır, tur içinde değil.
+            eklenen += await ensure_mcp_tools(config.mcp_servers, deps.base_registry)
+        except Exception as error:
+            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
+    if config.hosted_connectors:
+        # Sağlayıcı-barındırmalı connector'lar ayrı yoldan gelir: bağlantı yoktur,
+        # araçlar sağlayıcının oturumunda yaşar. Biri düşerse diğeri yine eklenir.
+        try:
+            eklenen += await ensure_hosted_tools(config, deps.base_registry)
+        except Exception as error:
+            bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
     # Yapı denetimi hangi araçların VAR olduğunu bilmeli: bir biçimi zaten doğru
     # üreten araç varsa model elle yazmaya değil ona yönlendirilir.
     deps.tool_context.available_tools.update(eklenen)

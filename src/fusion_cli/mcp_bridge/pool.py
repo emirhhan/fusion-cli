@@ -26,11 +26,12 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 
-from ..config.models import McpServerConfig
+from ..config.models import Config, McpServerConfig
 from ..tools import ToolRegistry
 from .client import McpClient
+from .hosted import AskSession
 
-__all__ = ["McpToolPool", "close_mcp_pool", "ensure_mcp_tools"]
+__all__ = ["McpToolPool", "close_mcp_pool", "ensure_hosted_tools", "ensure_mcp_tools"]
 
 _LOG = logging.getLogger(__name__)
 
@@ -203,21 +204,44 @@ async def ensure_mcp_tools(
     return await client.register_into(registry)
 
 
-async def ensure_hosted_tools(config: object, registry: ToolRegistry) -> tuple[str, ...]:
+def _hosted_channel_factory(config: Config) -> AskSession:
+    """Gerçek kanalı kur. Ayrı fonksiyon: test yerine geçebilsin."""
+    from ..providers.hosted_bridge import HostedSessionChannel
+
+    return HostedSessionChannel(config)
+
+
+#: Barındırmalı connector kanalı TURLAR ARASI yaşar.
+#
+# `providers/hosted_bridge.py` konuşmanın sürekli olmasını şart koşuyor: kanalı her
+# turda yeniden kurmak geçmişi çöpe atar, her tur yeni bir keşif turu harcanır ve
+# connector bağlamı kaybolur. Anahtar yapılandırmadır: kullanıcı bağlantı ekleyip
+# çıkardığında kanal yenilenmelidir.
+_HOSTED: tuple[object, AskSession] | None = None
+
+
+def _hosted_channel(config: Config) -> AskSession:
+    global _HOSTED
+    key = (config.hosted_connectors, config.web_sessions)
+    if _HOSTED is not None and _HOSTED[0] == key:
+        return _HOSTED[1]
+    channel = _hosted_channel_factory(config)
+    _HOSTED = (key, channel)
+    return channel
+
+
+async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[str, ...]:
     """Sağlayıcı-barındırmalı connector araçlarını kayıt defterine ekle.
 
     MCP havuzundan AYRIDIR: burada tutulacak bir bağlantı yoktur, araçlar
-    sağlayıcının oturumunda yaşar. Keşif her turda bir kez yapılır ve tek bir
-    tarayıcı turu harcar — bu yüzden doğrulanmamış connector için hiç gidilmez
-    (bkz. `mcp_bridge/hosted.py::register_into`).
+    sağlayıcının oturumunda yaşar. Doğrulanmamış connector için oturuma hiç
+    gidilmez (bkz. `mcp_bridge/hosted.py::register_into`).
     """
-    connectors = getattr(config, "hosted_connectors", ())
-    if not connectors:
+    if not config.hosted_connectors:
         return ()
-    from ..providers.hosted_bridge import HostedSessionChannel
     from .hosted import HostedConnectorClient
 
-    client = HostedConnectorClient(connectors, ask=HostedSessionChannel(config))  # type: ignore[arg-type]
+    client = HostedConnectorClient(config.hosted_connectors, ask=_hosted_channel(config))
     return await client.register_into(registry)
 
 

@@ -20,6 +20,7 @@ from ..config.models import Config, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
 from ..mcp_bridge.client import McpConnectionStatus
 from ..mcp_bridge.oauth import validate_remote_mcp_url
+from .hosted_connectors import hosted_connector_rows
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _MAX_SECRET_CHARS = 8_192
@@ -117,7 +118,10 @@ def list_connectors(
                 **_row_status((statuses or {}).get(server.name)),
             }
             for server in config.mcp_servers
-        ],
+        ]
+        # Barındırmalı connector'lar aynı listede görünür: kullanıcı için ikisi de
+        # "bağlantı"dır, farkı `tasima` alanı taşır.
+        + hosted_connector_rows(config),
     }
 
 
