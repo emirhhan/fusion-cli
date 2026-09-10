@@ -8,10 +8,21 @@ Panelin bu akışı hatasız sürmesi projenin ana taşıdır.
 from __future__ import annotations
 
 import sys
+from unittest.mock import Mock
 
 import pytest
 
+from fusion_cli.providers import web_control
 from fusion_cli.providers.web_control import login_argv, provider_cards
+
+
+def test_kapanmis_cocuk_zombi_olsa_da_acik_sayilmaz(monkeypatch):
+    process = Mock()
+    process.poll.return_value = 0
+    monkeypatch.setitem(web_control._LOGIN_PROCESSES, 1234, process)
+    monkeypatch.setattr(web_control.os, "kill", lambda *_: pytest.fail("PID yoklaması yapılmamalı"))
+    assert web_control.process_alive(1234) is False
+    assert web_control.login_exit_code(1234) == 0
 
 
 def test_paketlenmis_ikili_modul_bayragiyla_calistirilmaz(monkeypatch: pytest.MonkeyPatch):
@@ -51,8 +62,6 @@ def test_kartlar_dort_saglayiciyi_anahtar_istemeden_tanitir(
     girişlere bağlı olmamalı, yoksa geliştiricinin kendi oturumu testi
     yeşil ya da kırmızı yapar.
     """
-    from fusion_cli.providers import web_control
-
     monkeypatch.setattr(
         web_control, "browser_profile_dir", lambda provider, account: tmp_path / provider
     )
@@ -147,3 +156,14 @@ def test_tek_liste_hem_anahtarli_hem_web_saglayicilari_tasir(tmp_path, monkeypat
     assert web["tur"] == "web" and web["eylem"] == "oturum"
     anahtar = next(s for s in satirlar if s["id"] == "openrouter")
     assert anahtar["tur"] == "anahtar" and anahtar["eylem"] == "anahtar"
+def test_giris_surecleri_toplu_kapanista_kendi_surec_grubuyla_sonlandirilir(monkeypatch):
+    process = Mock(pid=4321)
+    process.poll.return_value = None
+    monkeypatch.setattr(web_control.subprocess, "Popen", Mock(return_value=process))
+    killpg = Mock()
+    monkeypatch.setattr(web_control.os, "killpg", killpg)
+
+    web_control.start_login("chatgpt_web", "main")
+    web_control.stop_all_login_processes()
+
+    killpg.assert_called_once()

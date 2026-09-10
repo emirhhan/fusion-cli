@@ -149,7 +149,8 @@
 .sidebar__profile-copy { display: grid; line-height: 1.18; min-width: 0; }
 .sidebar__profile-copy strong { font-size: var(--text-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
 .sidebar__profile-copy small { color: var(--text-secondary); font-size: var(--text-sm); margin-top: 3px; }
-.sidebar__profile-status { background: var(--text-success); border: 2px solid var(--surface-sidebar); border-radius: 50%; height: 9px; width: 9px; }
+.sidebar__profile-status { background: var(--text-secondary); border: 2px solid var(--surface-sidebar); border-radius: 50%; height: 9px; width: 9px; }
+.sidebar__profile-status[data-connected="true"] { background: var(--text-success); }
 .sidebar__profile-menu {
   animation: profile-menu-in var(--duration-normal) var(--ease-standard);
   background: var(--surface-menu, var(--surface-raised));

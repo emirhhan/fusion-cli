@@ -105,7 +105,7 @@ def test_bagli_sayilmak_icin_kayitli_oturum_da_gerekir(tmp_path, config):
     assert chatgpt["bagli"] is False
 
 
-def test_kayitli_ve_profilli_saglayici_baglidir(tmp_path, config):
+def test_kayitli_ve_profilli_ama_dogrulanmamis_saglayici_bagli_sayilmaz(tmp_path, config):
     kayitli, _ = web_control.register_session(config, "chatgpt_web", "main")
     assert kayitli is not None
     (tmp_path / "chatgpt_web" / "main").mkdir(parents=True)
@@ -113,8 +113,22 @@ def test_kayitli_ve_profilli_saglayici_baglidir(tmp_path, config):
     kartlar = web_control.provider_cards(sessions=kayitli.web_sessions, secret_store=None)
     chatgpt = next(kart for kart in kartlar if kart["id"] == "chatgpt_web")
 
-    assert chatgpt["bagli"] is True
+    assert chatgpt["bagli"] is False
     assert chatgpt["model"] == "chatgpt_web/main/auto"
+
+
+def test_yalniz_gercek_sinamayi_gecmis_oturum_bagli_sayilir(tmp_path, config):
+    from dataclasses import replace
+
+    kayitli, _ = web_control.register_session(config, "chatgpt_web", "main")
+    assert kayitli is not None
+    dogrulanmis = replace(kayitli.web_sessions[0], login_verified=True)
+    (tmp_path / "chatgpt_web" / "main").mkdir(parents=True)
+
+    kartlar = web_control.provider_cards(sessions=(dogrulanmis,), secret_store=None)
+    chatgpt = next(kart for kart in kartlar if kart["id"] == "chatgpt_web")
+
+    assert chatgpt["bagli"] is True
 
 
 @pytest.mark.asyncio

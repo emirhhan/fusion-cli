@@ -225,6 +225,8 @@ class WebSessionConfig:
     #: tutturamadığında sessizce yanlış dosyaya yanlış içerik yazma riski doğar.
     #: Panel değerlendirmeyi çalıştırıp bu alanı yazar.
     tool_eval_passed: bool = False
+    #: Son gerçek küçük istek başarıyla tamamlandı mı? Profil klasörü bunu kanıtlamaz.
+    login_verified: bool = False
     #: Browser transport görünmeden çalışsın mı? Sorunda panelden kapatılabilir.
     headless: bool = True
     #: Web UI çağrısı için üst süre sınırı.

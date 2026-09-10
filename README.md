@@ -1,8 +1,31 @@
-# Fusion-CLI
+# Fusion — Masaüstü ve Terminal
 
-Ücretsiz LLM'lerle çalışan, terminalde yaşayan bir kodlama asistanı.
+Masaüstü çalışma alanı ve terminal arayüzü sunan bir kodlama asistanı.
+İki arayüz aynı Python çekirdeğini kullanır. Sağlayıcı ücretleri ve kotaları
+kullanılan hizmete ve hesaba bağlıdır.
 
-> **Durum: 0.3.0a8 (alpha).** Değişiklikler: [CHANGELOG.md](CHANGELOG.md). Çekirdek akış çalışır durumda ve test kapsamı geniştir;
+## Masaüstü uygulaması
+
+[GitHub Releases](https://github.com/emirhhan/fusion-cli/releases) sayfasındaki
+bilgisayarınıza uygun kurucuyu indirin. macOS'ta DMG'yi açıp Fusion'ı yazılabilir
+Uygulamalar klasörünüze taşıyın. Python veya terminal kurulumu gerekmez.
+Paketler Apple noter onaylı değildir; macOS güvenlik uyarısı gösterebilir.
+
+Kontrol panelinden API anahtarı kaydedebilir, desteklenen sağlayıcıların anahtarını
+sınayabilir veya web sağlayıcısında ayrı Chrome profiliyle giriş yapabilirsiniz.
+“Anahtar kayıtlı” API isteğinin başarılı olduğu anlamına gelmez. Web sağlayıcıları
+üçüncü taraf web arayüzlerine bağlıdır; giriş, CAPTCHA, kota ve arayüz değişiklikleri
+çalışmayı etkileyebilir.
+
+0.3.0-alpha.9 sürümünden itibaren uygulama içi güncelleme ekranı bulunur.
+Güncellemenin sunulması için imzalı Release dosyaları yayımlanmış olmalıdır.
+[Güncelleme ve dağıtım kılavuzu](docs/UPDATES.md).
+
+## Terminal sürümü
+
+Aşağıdaki komutlar masaüstünden bağımsız terminal sürümünü kurar.
+
+> **Durum: 0.3.0a9 (alpha).** Değişiklikler: [CHANGELOG.md](CHANGELOG.md). Çekirdek akış çalışır durumda ve test kapsamı geniştir;
 > arayüzde ve model davranışında bilinen kısıtlar vardır. Açık başlıklar için
 > [docs/BACKLOG.md](docs/BACKLOG.md).
 
@@ -60,15 +83,20 @@ bazlı `.env`. Koddaki değişikliği anında görürsün.
 | **OpenRouter** | önerilen taban | <https://openrouter.ai/keys> |
 | NVIDIA NIM | opsiyonel, ayrı kota | <https://build.nvidia.com/> |
 
-İkisi de ücretsizdir. Kurulum sihirbazı ikisini de sorar; NIM Enter ile atlanır.
+Ücretsiz modeller ve kotalar sağlayıcının güncel koşullarına bağlıdır.
+Kurulum sihirbazı ikisini de sorar; NIM Enter ile atlanır.
 
-Anahtarlar **tek yerde** tutulur:
+Terminal kurulum sihirbazının yazdığı anahtar dosyaları:
 
 - macOS/Linux: `~/.config/fusion-cli/.env`
 - Windows: `%APPDATA%\fusion-cli\.env`
 
 Dosya `0600` ile yazılır. Proje kökündeki `.env` yalnızca geliştirici kurulumunda
 oluşur ve isteğe bağlı bir override'dır.
+
+Masaüstü panelinden girilen anahtarlar ayrıca şifreli kasada tutulur. macOS'ta
+bu kasa `~/.local/share/fusion-cli/vault` altındadır ve her kurulumda Keychain
+parolası istemez. [Saklama ve eski kasadan geçiş](docs/UPDATES.md#kimlik-bilgileri).
 
 Anahtarların okunma önceliği:
 

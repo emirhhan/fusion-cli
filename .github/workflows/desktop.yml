@@ -11,6 +11,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  terminal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Terminal paketini üret
+        run: |
+          python -m pip install build
+          python -m build --outdir terminal-dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fusion-terminal
+          path: terminal-dist/*
+          if-no-files-found: error
   macos:
     strategy:
       fail-fast: false
@@ -72,6 +88,21 @@ jobs:
           path: dagitim/*.dmg
           if-no-files-found: error
 
+      - name: İmzalı uygulama içi güncelleme paketi
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          python desktop_build/macos/build_update.py --app app/src-tauri/target/release/bundle/macos/Fusion.app --output guncelleme
+          mv guncelleme/latest.json guncelleme/latest-${{ matrix.target }}.json
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: fusion-update-${{ matrix.target }}
+          path: guncelleme/*
+          if-no-files-found: error
+
   windows:
     runs-on: windows-latest
     steps:
@@ -123,7 +154,7 @@ jobs:
   # budur; Actions artefaktları erişim ister ve süresi dolar, Release dolmaz.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [macos, windows]
+    needs: [macos, windows, terminal]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -135,12 +166,25 @@ jobs:
         run: |
           mkdir -p dagitim
           find indirilenler -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} dagitim/ \;
+          find indirilenler -type f \( -name '*.tar.gz' -o -name '*.sig' \) -exec cp {} dagitim/ \;
+          find indirilenler -type f -name '*.whl' -exec cp {} dagitim/ \;
+          python - <<'PY'
+          import json, pathlib
+          manifests = [json.loads(p.read_text()) for p in pathlib.Path('indirilenler').rglob('latest-*.json')]
+          assert len(manifests) == 2, 'İki macOS mimarisi bekleniyor'
+          merged = manifests[0]
+          for manifest in manifests[1:]:
+              assert manifest['version'] == merged['version']
+              merged['platforms'].update(manifest['platforms'])
+          pathlib.Path('dagitim/latest.json').write_text(json.dumps(merged, indent=2))
+          PY
           ls -lh dagitim
       - name: Release oluştur ve dosyaları yükle
         uses: softprops/action-gh-release@v2
         with:
           files: dagitim/*
           generate_release_notes: true
+          make_latest: true
           body: |
             Fusion masaüstü uygulaması. Kurulum yalnız indirip açmaktır; Python,
             Terminal ya da başka bir kurulum gerekmez.
@@ -150,6 +194,13 @@ jobs:
             | Mac (Apple M1/M2/M3/M4) | `Fusion-macOS-Apple-Silicon.dmg` |
             | Mac (Intel) | `Fusion-macOS-Intel.dmg` |
             | Windows | `Fusion-Windows-Kurulum.exe` |
+
+            Terminal sürümü ayrı Python wheel (`fusion_cli-*.whl`) ve kaynak
+            arşivi olarak eklenir. Python 3.11+ ile `pipx install <wheel-dosyası>`
+            kullanın veya README'deki `setup.sh` / `install.ps1` adımlarını izleyin.
+
+            0.3.0-alpha.9 ve sonrası macOS kurulumları kontrol panelinden imzalı
+            güncelleme alabilir. Güncellemeden önce çalışan görevleri tamamlayın.
 
             Mac'inin hangisi olduğunu bilmiyorsan:  → Bu Mac Hakkında.
             "Çip: Apple ..." yazıyorsa Apple Silicon, "İşlemci: Intel" yazıyorsa Intel.

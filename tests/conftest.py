@@ -64,4 +64,5 @@ def izole_sistem_anahtarligi(monkeypatch):
     from fusion_cli.config import keys
 
     monkeypatch.setattr(keys, "_keyring_master_key", lambda: None)
+    monkeypatch.setattr(keys, "_local_master_key", lambda: None)
     monkeypatch.delenv(keys.FUSION_SECRET_ENV, raising=False)

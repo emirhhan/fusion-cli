@@ -397,6 +397,16 @@ class AppSession:
             )
         if request.name == "kontrol.anahtar_sil":
             return delete_secret(self._secret_store, str(request.data.get("saglayici", "")))
+        if request.name == "kontrol.anahtar_dogrula":
+            from ..config.keys import environ_snapshot
+            from ..providers.api_validation import validate_api_key
+            from ..providers.registry import BUILTIN_PROVIDERS
+
+            provider_id = str(request.data.get("saglayici", ""))
+            definition = next((item for item in BUILTIN_PROVIDERS if item.id == provider_id), None)
+            key = environ_snapshot().get(definition.auth_env or "", "") if definition else ""
+            validation = await validate_api_key(provider_id, key)
+            return {"ok": validation.ok, "metin": validation.message}
         if request.name == "kontrol.gateway_baslat":
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":
@@ -462,6 +472,9 @@ class AppSession:
         if request.name == "web.saglayicilar":
             return web_provider_cards(self._state.config)
         if request.name == "web.giris":
+            from ..providers.web_browser import close_all_browser_sessions
+
+            await close_all_browser_sessions()
             return start_web_login(request.data.get("saglayici"), request.data.get("hesap"))
         if request.name == "web.baglan":
             return self._change_web_session(
@@ -472,9 +485,20 @@ class AppSession:
                 disconnect_web_session, request.data.get("saglayici"), request.data.get("hesap")
             )
         if request.name == "web.dogrula":
-            return await verify_web_session(
+            sonuc = await verify_web_session(
                 self._state.config, request.data.get("saglayici"), request.data.get("hesap")
             )
+            from ..providers.web_control import set_login_verified
+
+            yeni = set_login_verified(
+                self._state.config,
+                str(request.data.get("saglayici") or ""),
+                str(request.data.get("hesap") or "main"),
+                sonuc.get("ok") is True,
+            )
+            if yeni is not None:
+                self._state.config = yeni
+            return sonuc
         if request.name == "web.giris_durumu":
             return web_login_state(request.data.get("pid"))
         if request.name == "ders.listele":
@@ -965,9 +989,14 @@ class AppSession:
 
     async def close(self) -> None:
         """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""
+        from ..providers.web_browser import close_all_browser_sessions
+        from ..providers.web_control import stop_all_login_processes
+
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         voice_stop()
         await self._mcp_connections.close()
         await self._processes.close()
+        await close_all_browser_sessions()
+        stop_all_login_processes()
         self.pending.cancel_all()

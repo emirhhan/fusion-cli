@@ -555,6 +555,13 @@ class GatewayApp:
         except TimeoutError:
             await _json(send, _error_body("bağlantı testi zaman aşımına uğradı"), status=504)
             return
+        from ..providers.web_control import set_login_verified
+
+        updated = set_login_verified(
+            self._config, session.provider, session.account, result.ok
+        )
+        if updated is not None:
+            self._config = updated
         status = 200 if result.ok else 502
         await _json(
             send,
@@ -739,7 +746,11 @@ class GatewayApp:
             "enabled": session.enabled,
             "secret_saved": secret_saved,
             "profile_exists": profile_exists,
-            "connected": secret_saved or profile_exists or session.transport == "http",
+            "connected": session.transport == "http"
+            or (
+                (secret_saved or profile_exists)
+                and bool(getattr(session, "login_verified", False))
+            ),
         }
 
     def _mcp_server_json(self, server: McpServerConfig) -> dict[str, Any]:

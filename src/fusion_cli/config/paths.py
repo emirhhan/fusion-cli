@@ -42,6 +42,8 @@ def user_data_dir() -> Path:
 
 def credentials_file() -> Path:
     """Şifreli sır deposunun dosya yolu (kalıcı veri dizini altında)."""
+    if sys.platform == "darwin" and not os.environ.get("FUSION_SECRET_KEY", "").strip():
+        return user_data_dir() / "vault" / "secrets.enc"
     return user_data_dir() / "secrets.enc"
 
 

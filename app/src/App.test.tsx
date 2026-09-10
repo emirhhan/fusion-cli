@@ -513,7 +513,7 @@ describe("SessionUygulama", () => {
       onClosed: vi.fn(async () => () => undefined),
     };
     render(<SessionUygulama transport={transport} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Emir profil menüsü" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Yerel profil menüsü" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Beceriler ve Ajanlar" }));
     expect(await screen.findByRole("heading", { name: "Beceriler ve Ajanlar", level: 1 })).toBeTruthy();
     expect(screen.queryByPlaceholderText("Fusion'a bir görev ver")).toBeNull();
@@ -738,7 +738,7 @@ it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider",
   render(<SessionUygulama transport={fake.transport} />);
   fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbetini sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
-  fireEvent.click(screen.getByRole("button", { name: "Emir profil menüsü" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yerel profil menüsü" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));
   await screen.findByRole("heading", { name: "Ayarlar" });
   expect(vi.mocked(fake.transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");

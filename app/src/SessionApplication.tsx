@@ -404,6 +404,7 @@ export function SessionUygulama({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
+  const [webProfile, setWebProfile] = useState<{ account: string; providerName: string } | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
@@ -438,6 +439,25 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  useEffect(() => {
+    if (!active) {
+      setWebProfile(null);
+      return;
+    }
+    let current = true;
+    void active.client.request("saglayici.katalog", {}).then((payload) => {
+      if (!current) return;
+      const rows = Array.isArray(payload.saglayicilar) ? payload.saglayicilar : [];
+      const connected = rows.find((row) => row?.tur === "web" && row?.bagli === true);
+      setWebProfile(connected ? {
+        account: String(connected.hesap ?? "main"),
+        providerName: String(connected.ad ?? "Web sağlayıcısı"),
+      } : null);
+    }).catch(() => {
+      if (current) setWebProfile(null);
+    });
+    return () => { current = false; };
+  }, [active?.client, controlRevision]);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
   const startDesktopChat = async () => {
@@ -852,6 +872,7 @@ export function SessionUygulama({
           onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
           revision={controlRevision}
+          onProvidersChanged={() => setControlRevision((value) => value + 1)}
           onRunCommand={(command) => {
             // Seçici panelin ÜSTÜNDE açılır; sayfa değişmez. Eskiden burada
             // `setPage("chat")` vardı ve kullanıcı model seçmeye basar basmaz
@@ -1159,6 +1180,7 @@ export function SessionUygulama({
             root: project.root,
             updated_at: project.updatedAt,
           }))}
+          webProfile={webProfile}
         />
       }
       sidebarCollapsed={layout.sidebarCollapsed}

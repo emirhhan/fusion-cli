@@ -38,21 +38,20 @@ function client() {
 }
 
 describe("ControlPanel", () => {
-  it("boş Keychain kuyruğunda uygulanamaz ayarlar ve sonraki izin eylemlerini göstermez", async () => {
+  it("anahtar kaydında sistem izin penceresi açmaz", async () => {
     const bridge: PermissionBridge = { request: vi.fn(async () => "denied"), openSettings: vi.fn() };
     render(<ControlPanel client={client()} onClose={() => undefined} permissionBridge={bridge} />);
 
     fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
     fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
-    await screen.findByRole("button", { name: "Yeniden dene" });
+    await screen.findByText(/anahtarı kaydedildi/);
 
     expect(screen.queryByRole("button", { name: "Sistem Ayarlarını Aç" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sonraki izne geç" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Şimdi değil" })).toBeTruthy();
+    expect(bridge.request).not.toHaveBeenCalled();
   });
-  it("requests Keychain only when an API key is saved", async () => {
+  it("API anahtarını Keychain onayı istemeden kaydeder", async () => {
     const fake = client();
     const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
     render(<ControlPanel client={fake} onClose={() => undefined} permissionBridge={bridge} />);
@@ -61,9 +60,7 @@ describe("ControlPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
     fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
-
-    await waitFor(() => expect(bridge.request).toHaveBeenCalledWith("keychain"));
+    expect(bridge.request).not.toHaveBeenCalled();
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
       saglayici: "openrouter",
       deger: "sk-secret",
@@ -86,7 +83,6 @@ describe("ControlPanel", () => {
     const input = (await screen.findByLabelText(/API anahtarı/i)) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "sk-gizli-test-degeri" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
       saglayici: "openrouter", deger: "sk-gizli-test-degeri",
     }));

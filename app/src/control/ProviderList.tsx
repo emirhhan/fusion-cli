@@ -26,8 +26,12 @@ interface ProviderRow {
 }
 
 const YOKLAMA_MS = 1500;
+const GIRIS_SURESI_MS = 15 * 60 * 1000;
 
-export function ProviderList({ client }: { client: ProtocolClient }) {
+export function ProviderList({ client, onChanged = () => undefined }: {
+  client: ProtocolClient;
+  onChanged?: () => void;
+}) {
   const [rows, setRows] = useState<ProviderRow[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -35,6 +39,22 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
+  const run = async (operation: () => Promise<void>) => {
+    try {
+      await operation();
+    } catch {
+      setBusy(null);
+      setNotice("İşlem tamamlanamadı. Bağlantını kontrol edip tekrar dene.");
+    }
+  };
+
+  const verifyKey = async (row: ProviderRow) => {
+    setBusy(row.id);
+    setNotice("API anahtarı sınanıyor…");
+    const result = await client.request("kontrol.anahtar_dogrula", { saglayici: row.id });
+    setNotice(String(result.metin ?? (result.ok ? "API anahtarı doğrulandı." : "Anahtar sınaması geçmedi.")));
+    setBusy(null);
+  };
 
   const load = useCallback(async () => {
     try {
@@ -76,48 +96,70 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
     const hesap = row.hesap ?? "main";
     setBusy(row.id);
     setNotice(null);
-    const acilis = (await client.request("web.giris", { saglayici: row.id, hesap })) as {
-      ok?: boolean;
-      metin?: string;
-      pid?: number;
-    };
+    let acilis: { ok?: boolean; metin?: string; pid?: number };
+    try {
+      acilis = (await client.request("web.giris", { saglayici: row.id, hesap })) as typeof acilis;
+    } catch {
+      setBusy(null);
+      setNotice("Giriş penceresi başlatılamadı. Fusion'ı kapatıp tekrar aç ve yeniden dene.");
+      return;
+    }
     if (!acilis?.ok || !acilis.pid) {
       setNotice(acilis?.metin ?? "Giriş penceresi açılamadı.");
       setBusy(null);
       return;
     }
     setNotice("Açılan Chrome'da giriş yap; ardından Chrome menüsünden Çık'ı seç. Oturum otomatik sınanacak.");
+    const deadline = Date.now() + GIRIS_SURESI_MS;
     const poll = async () => {
-      const durum = (await client.request("web.giris_durumu", { pid: acilis.pid })) as {
-        acik?: boolean;
-      };
-      if (durum?.acik) {
-        timers.current.push(window.setTimeout(() => void poll(), YOKLAMA_MS));
-        return;
-      }
-      setNotice("Oturum kaydediliyor…");
-      const kayit = (await client.request("web.baglan", { saglayici: row.id, hesap })) as {
-        ok?: boolean;
-        metin?: string;
-      };
-      if (!kayit?.ok) {
+      try {
+        if (Date.now() >= deadline) {
+          setBusy(null);
+          setNotice("Giriş süresi doldu. Giriş Chrome'unu kapatıp yeniden dene.");
+          return;
+        }
+        const durum = (await client.request("web.giris_durumu", { pid: acilis.pid })) as {
+          acik?: boolean;
+          ok?: boolean;
+          metin?: string;
+        };
+        if (durum.ok === false) {
+          setBusy(null);
+          setNotice(durum.metin ?? "Giriş işlemi tamamlanamadı.");
+          return;
+        }
+        if (durum?.acik) {
+          timers.current.push(window.setTimeout(() => void poll(), YOKLAMA_MS));
+          return;
+        }
+        setNotice("Oturum kaydediliyor…");
+        const kayit = (await client.request("web.baglan", { saglayici: row.id, hesap })) as {
+          ok?: boolean;
+          metin?: string;
+        };
+        if (!kayit?.ok) {
+          setBusy(null);
+          setNotice(kayit?.metin ?? "Oturum kaydedilemedi.");
+          await load();
+          return;
+        }
+        setNotice("Oturum sınanıyor…");
+        const sinama = (await client.request("web.dogrula", { saglayici: row.id, hesap })) as {
+          ok?: boolean;
+          metin?: string;
+        };
         setBusy(null);
-        setNotice(kayit?.metin ?? "Oturum kaydedilemedi.");
+        setNotice(
+          sinama?.ok
+            ? `${row.ad} bağlandı ve çalışıyor.`
+            : `${row.ad} kaydedildi ama sınama geçmedi: ${sinama?.metin ?? "sebep bilinmiyor"}`,
+        );
         await load();
-        return;
+        onChanged();
+      } catch {
+        setBusy(null);
+        setNotice("Giriş işlemi izlenemedi. Fusion'ı kapatıp tekrar aç ve yeniden dene.");
       }
-      setNotice("Oturum sınanıyor…");
-      const sinama = (await client.request("web.dogrula", { saglayici: row.id, hesap })) as {
-        ok?: boolean;
-        metin?: string;
-      };
-      setBusy(null);
-      setNotice(
-        sinama?.ok
-          ? `${row.ad} bağlandı ve çalışıyor.`
-          : `${row.ad} kaydedildi ama sınama geçmedi: ${sinama?.metin ?? "sebep bilinmiyor"}`,
-      );
-      await load();
     };
     await poll();
   };
@@ -148,6 +190,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
     setBusy(null);
     setNotice(sonuc?.metin ?? (sonuc?.ok ? "Oturum kapatıldı." : "Oturum kapatılamadı."));
     await load();
+    if (sonuc?.ok) onChanged();
   };
 
   const saveKey = async (row: ProviderRow) => {
@@ -165,6 +208,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
     }
     setNotice(`${row.ad} anahtarı kaydedildi.`);
     await load();
+    onChanged();
   };
 
   const dropKey = async (row: ProviderRow) => {
@@ -180,6 +224,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
     }
     setNotice(`${row.ad} anahtarı silindi.`);
     await load();
+    onChanged();
   };
 
   return (
@@ -230,7 +275,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
                 )}
               </span>
               <span className="provider-list__name">{row.ad}</span>
-              <span className="provider-list__state">{row.bagli ? "bağlı" : "bağlı değil"}</span>
+              <span className="provider-list__state">{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : (row.bagli ? "bağlı" : "bağlı değil")}</span>
             </button>
 
             {open === row.id && (
@@ -261,7 +306,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
                           <button
                             className="provider-list__action"
                             disabled={busy === row.id}
-                            onClick={() => void verify(row)}
+                            onClick={() => void run(() => verify(row))}
                             type="button"
                           >
                             Bağlantıyı sına
@@ -269,7 +314,7 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
                           <button
                             className="provider-list__action provider-list__action--danger"
                             disabled={busy === row.id}
-                            onClick={() => void logout(row)}
+                            onClick={() => void run(() => logout(row))}
                             type="button"
                           >
                             Çıkış yap
@@ -291,22 +336,25 @@ export function ProviderList({ client }: { client: ProtocolClient }) {
                     <button
                       className="provider-list__action"
                       disabled={busy === row.id || !secret.trim()}
-                      onClick={() => void saveKey(row)}
+                      onClick={() => void run(() => saveKey(row))}
                       type="button"
                     >
                       Kaydet
                     </button>
                     {row.bagli && (
+                      <button type="button" disabled={busy === row.id} onClick={() => void run(() => verifyKey(row))}>Anahtarı sına</button>
+                    )}
+                    {row.bagli && (
                       <button
                         className="provider-list__action"
                         disabled={busy === row.id}
-                        onClick={() => void dropKey(row)}
+                        onClick={() => void run(() => dropKey(row))}
                         type="button"
                       >
                         Kayıtlı anahtarı sil
                       </button>
                     )}
-                    <small>Anahtar sistem anahtarlığında şifrelenir; arayüze geri okunmaz.</small>
+                    <small>Anahtar yerel şifreli kasada saklanır; arayüze geri okunmaz.</small>
                   </>
                 )}
               </div>

@@ -14,6 +14,7 @@ def test_keyring_beklenmeyen_hatasi_kullaniciya_kacmaz(monkeypatch):
     döner; ham macOS/keyring istisnası kullanıcıya kaçmaz — depo devre dışı kalır,
     uygulama tam çalışır (RULES: sınır katmanında yakala, logla, çökme)."""
     monkeypatch.delenv("FUSION_SECRET_KEY", raising=False)
+    monkeypatch.setattr(keys_module.sys, "platform", "linux")
 
     def _patla(*_args: object, **_kwargs: object) -> str:
         raise RuntimeError("'credential-master-key' öğesinin saklanacağı bir anahtar zinciri yok")

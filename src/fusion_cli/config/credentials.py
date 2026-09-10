@@ -10,8 +10,9 @@ sağlayıcı kimliğine değil. Böylece bu modül `providers` katmanını impor
 (katman sınırı korunur) ve depo tamamen generic kalır.
 
 Güvenlik modeli:
-- Ana anahtar ORTAMDAN gelir (`FUSION_SECRET_KEY`); diske/koda/git'e yazılmaz.
-  Şifreli metin ile anahtar hiçbir zaman aynı yerde bulunmaz.
+- Ana anahtar config.keys tarafından çözülür: ortam değişkeni önceliklidir;
+  macOS'ta kullanıcıya özel yerel dosya, diğer sistemlerde sistem anahtarlığı kullanılır.
+  Yerel dosya yöntemi aynı kullanıcıya karşı Keychain erişim denetimi sağlamaz.
 - Anahtar yoksa depo `available=False`; yazma/okuma anlaşılır hata verir, uygulama
   çökmez, uygulama saklanan sır olmadan tam çalışır.
 - Değerler ne log'a ne prompt'a ne tool sonucuna girer; yalnızca şifreli dosyada.

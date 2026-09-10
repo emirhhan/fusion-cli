@@ -55,7 +55,8 @@ describe("ProviderList", () => {
   it("bağlı olanı ayırt eder", async () => {
     render(<ProviderList client={client()} />);
     await screen.findByText("Gemini Web");
-    expect(screen.getAllByText("bağlı").length).toBe(2);
+    expect(screen.getAllByText("bağlı").length).toBe(1);
+    expect(screen.getByText("anahtar kayıtlı")).toBeTruthy();
   });
 
   it("liste boşsa sessiz kalmaz", async () => {
@@ -76,6 +77,22 @@ describe("ProviderList", () => {
 });
 
 describe("ProviderList — web oturumu", () => {
+  it("giriş isteği hata verirse Sürüyor durumunda takılı kalmaz", async () => {
+    const failing = {
+      request: vi.fn(async (name: string) => {
+        if (name === "saglayici.katalog") return { ok: true, saglayicilar: SATIRLAR };
+        if (name === "web.giris") throw new Error("bağlantı kesildi");
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    render(<ProviderList client={failing} />);
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Oturum aç" }));
+
+    expect(await screen.findByText(/giriş penceresi başlatılamadı/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Oturum aç" }).hasAttribute("disabled")).toBe(false);
+  });
+
   it("giriş penceresi kapanınca oturumu kaydeder ve gerçekten sınar", async () => {
     // Eskiden yalnız liste tazeleniyordu: profil klasörü oluştuğu için "bağlı"
     // görünüyor, Fusion ise sağlayıcıyı hiç kullanamıyordu.
@@ -130,4 +147,3 @@ describe("ProviderList — web oturumu", () => {
     expect(await screen.findByText(/giriş yarım kalmış olabilir/i)).toBeTruthy();
   });
 });
-

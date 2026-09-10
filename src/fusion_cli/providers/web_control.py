@@ -12,6 +12,8 @@ düzeltilirken öteki eskirdi.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +39,9 @@ class SecretReader(Protocol):
     @property
     def available(self) -> bool: ...
     def list_names(self) -> tuple[str, ...]: ...
+
+
+_LOGIN_PROCESSES: dict[int, subprocess.Popen[Any]] = {}
 
 
 def login_argv(provider: str, account: str) -> list[str]:
@@ -69,14 +74,34 @@ def start_login(provider: str, account: str) -> int:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+    _LOGIN_PROCESSES[process.pid] = process
     return process.pid
+
+
+def stop_all_login_processes() -> None:
+    """Fusion'ın başlattığı giriş süreci ve Chrome çocuklarını kapat."""
+    for pid, process in tuple(_LOGIN_PROCESSES.items()):
+        try:
+            if process.poll() is not None:
+                continue
+            if os.name == "posix":
+                os.killpg(pid, signal.SIGTERM)
+            else:  # pragma: no cover - Windows paketinde süreç grubu API'si farklıdır
+                process.terminate()
+        except OSError:
+            pass
+        finally:
+            _LOGIN_PROCESSES.pop(pid, None)
 
 
 def process_alive(pid: int) -> bool:
     """Giriş penceresinin süreci hâlâ yaşıyor mu?"""
     if pid <= 0:
         return False
-    import os
+    process = _LOGIN_PROCESSES.get(pid)
+    if process is not None:
+        # kill(pid, 0) zombi süreçleri canlı sayar. poll() çocuğu toplar.
+        return process.poll() is None
 
     try:
         os.kill(pid, 0)
@@ -87,6 +112,12 @@ def process_alive(pid: int) -> bool:
     except OSError:
         return False
     return True
+
+
+def login_exit_code(pid: int) -> int | None:
+    """Yalnız bu uygulamanın başlattığı girişin çıkış durumunu döndür."""
+    process = _LOGIN_PROCESSES.get(pid)
+    return process.poll() if process is not None else None
 
 
 def _profile_dir(provider: str, account: str) -> Path:
@@ -259,6 +290,31 @@ def _build_web_provider(config: Config, model: str) -> LlmProvider | None:
     return registry.build(model) if registry else None
 
 
+def set_login_verified(
+    config: Config, provider: str, account: str, verified: bool
+) -> Config | None:
+    """Gerçek sınama sonucunu yapılandırmaya yaz; yalnız metadata saklanır."""
+    from dataclasses import replace as _replace
+
+    from ..config.writer import write_web_sessions
+
+    hesap = normalize_account(account or "main")
+    found = False
+    sessions = []
+    for item in config.web_sessions:
+        matches = item.provider == provider and normalize_account(str(item.account)) == hesap
+        found = found or matches
+        sessions.append(_replace(item, login_verified=verified) if matches else item)
+    if not found:
+        return None
+    updated = _replace(config, web_sessions=tuple(sessions))
+    try:
+        write_web_sessions(updated)
+    except Exception:
+        return None
+    return updated
+
+
 async def validate_session(config: Config, provider: str, account: str = "main") -> dict[str, Any]:
     """Gerçek ve KÜÇÜK bir istek gönderip oturumun çalıştığını doğrula.
 
@@ -377,7 +433,9 @@ def provider_cards(
                 # oturum gerekir. Eskiden yalnız klasöre bakılıyordu: giriş
                 # yapmadan pencereyi kapatmak bile "bağlı" gösteriyordu ve
                 # Fusion o sağlayıcıyı yine de kullanamıyordu.
-                "bagli": profil_var and bool(getattr(session, "enabled", False)),
+                "bagli": profil_var
+                and bool(getattr(session, "enabled", False))
+                and bool(getattr(session, "login_verified", False)),
                 "profil_var": profil_var,
                 "model": getattr(session, "model", None),
                 "arac_destegi": getattr(session, "tool_support", "none"),

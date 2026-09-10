@@ -48,7 +48,7 @@ describe("Sidebar", () => {
   it("ürünün ana bölümlerini tek navigasyonda gösterir", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /emir profil menüsü/i }));
+    fireEvent.click(screen.getByRole("button", { name: /yerel profil menüsü/i }));
     expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /dersler/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /kontrol merkezi/i })).toBeTruthy();
@@ -60,11 +60,35 @@ describe("Sidebar", () => {
     const onNavigate = vi.fn();
     render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /emir profil menüsü/i }));
+    fireEvent.click(screen.getByRole("button", { name: /yerel profil menüsü/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("connectors");
     expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
+  });
+
+  it("sağlayıcı girişi yokken uydurma kullanıcı adı ve paket göstermez", () => {
+    render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /yerel profil menüsü/i }).textContent).toContain("Bağlantı yok");
+    expect(screen.queryByText("Emir")).toBeNull();
+    expect(screen.queryByText("Plus")).toBeNull();
+  });
+
+  it("doğrulanmış web oturumunu profil satırında gerçek bağlantı olarak gösterir", () => {
+    render(
+      <Sidebar
+        etkin={null}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[]}
+        webProfile={{ providerName: "ChatGPT Web", account: "main" }}
+      />,
+    );
+
+    const profile = screen.getByRole("button", { name: /chatgpt web profil menüsü/i });
+    expect(profile.textContent).toContain("ChatGPT Web");
+    expect(profile.textContent).toContain("main hesabı bağlı");
   });
 
   it("aramayla oturumları başlık ve kaynak üzerinden filtreler", () => {

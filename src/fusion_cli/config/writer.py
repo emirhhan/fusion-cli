@@ -132,6 +132,7 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                     # Ölçüm sonucu KALICI olmalı: gateway yeniden başladığında model
                     # yeniden ölçülmeden mutation iznini kaybetmemeli.
                     "tool_eval_passed": session.tool_eval_passed,
+                    "login_verified": session.login_verified,
                     "headless": session.headless,
                     "timeout_s": session.timeout_s,
                     "enabled": session.enabled,

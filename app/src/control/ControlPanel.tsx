@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PermissionPrompt } from "../permissions/PermissionPrompt";
 import { usePermissions } from "../permissions/usePermissions";
 import type { PermissionBridge } from "../permissions/types";
@@ -7,6 +7,7 @@ import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { ProviderList } from "./ProviderList";
+import { UpdatePanel } from "./UpdatePanel";
 import "./ControlPanel.css";
 
 interface ProviderRow { id: string; ad: string; ortam: string; kurulu: boolean }
@@ -63,9 +64,10 @@ interface ControlPanelProps {
   /** Değeri değişince panel durumu yeniden okunur. Panelden çalıştırılan bir
    *  komut modeli değiştirdiğinde ekranda eski değer kalıyordu. */
   revision?: number;
+  onProvidersChanged?: () => void;
 }
 
-export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge, revision = 0, title = "Kontrol Paneli" }: ControlPanelProps) {
+export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged, onRunCommand, permissionBridge = nativePermissionBridge, revision = 0, title = "Kontrol Paneli" }: ControlPanelProps) {
   const permissions = usePermissions(permissionBridge);
   const [state, setState] = useState<ControlState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -105,20 +107,6 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
     !aranan || anahtarlar.toLocaleLowerCase("tr").includes(aranan);
   const bolumler = SECTION_KEYS.filter(eslesir);
   const canAddCandidate = Boolean(newCandidate.ad.trim() && newCandidate.model.trim());
-  const gatedClient = useMemo(() => new Proxy(client, {
-    get(target, property, receiver) {
-      if (property === "request") {
-        return async (name: string, data: Record<string, unknown>) => {
-          if (name === "kontrol.anahtar_kaydet" && !(await permissions.ensure("keychain"))) {
-            return { ok: false, metin: "Anahtarlık izni verilmedi." };
-          }
-          return target.request(name, data);
-        };
-      }
-      const value = Reflect.get(target, property, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  }), [client, permissions.ensure]);
 
   if (!state) return <main className="control-panel"><p>{error ?? "Kontrol paneli yükleniyor…"}</p></main>;
   const gatewayRunning = state.gateway.durum === "calisiyor";
@@ -144,6 +132,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
       {(notice || error) && <p className="control-panel__notice" data-error={Boolean(error)} role={error ? "alert" : "status"}>{error ?? notice}</p>}
 
       <div className="control-panel__layout">
+        {eslesir("güncelleme sürüm uygulama") && <UpdatePanel />}
         {eslesir(SECTION_KEYS[0]) && (
         <section className="control-panel__section">
           <div className="control-panel__section-heading"><div><span>Çalışma zamanı</span><h3>Model düzeni</h3></div><i data-online="true">Hazır</i></div>
@@ -248,7 +237,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
           {state.sir_deposu_hatasi && (
             <p className="control-panel__warning" role="status">{state.sir_deposu_hatasi}</p>
           )}
-          <ProviderList client={gatedClient} />
+          <ProviderList client={client} onChanged={onProvidersChanged} />
         </section>
         )}
 

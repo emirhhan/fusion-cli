@@ -77,16 +77,28 @@ FUSION_SECRET_ENV = "FUSION_SECRET_KEY"
 
 
 def secret_key() -> str | None:
-    """Credential deposu anahtarını env'den, yoksa sistem anahtarlığından çöz.
-
-    Eski davranış korunur: `FUSION_SECRET_KEY` her zaman önceliklidir.  Yeni native
-    web sağlayıcıları için macOS Keychain/Linux Secret Service üzerinde otomatik bir
-    master key üretilebilir; bu anahtar config/.env/git içine yazılmaz.
-    """
+    """Önce ortamı, macOS'ta yerel kasayı, diğer sistemlerde anahtarlığı kullan."""
     value = os.environ.get(FUSION_SECRET_ENV, "").strip()
     if value:
         return value
+    if _uses_local_vault():
+        return _local_master_key()
     return _keyring_master_key()
+
+
+def _uses_local_vault() -> bool:
+    return sys.platform == "darwin"
+
+
+def _local_master_key() -> str | None:
+    from .local_vault import local_master_key
+    from .paths import user_data_dir
+
+    try:
+        return local_master_key(user_data_dir())
+    except (OSError, ValueError):
+        _logger.exception("Yerel kasa açılamadı; mevcut kayıtlar korunuyor.")
+        return None
 
 
 def _keyring_master_key() -> str | None:

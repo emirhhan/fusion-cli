@@ -32,6 +32,8 @@ tempfile = "3"
 thiserror = "2"
 tauri-plugin-dialog = "2"
 portable-pty = "0.9"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

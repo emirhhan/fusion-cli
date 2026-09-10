@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
@@ -791,6 +792,26 @@ async def test_web_dogrula_kayitsiz_saglayiciyi_reddeder(tmp_path):
 
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is False
+
+
+async def test_oturum_kapanirken_web_tarayıcılarını_ve_giris_sureclerini_kapatir(
+    tmp_path, monkeypatch
+):
+    tarayicilar = AsyncMock()
+    girisler = Mock()
+    monkeypatch.setattr(
+        "fusion_cli.providers.web_browser.close_all_browser_sessions", tarayicilar
+    )
+    monkeypatch.setattr(
+        "fusion_cli.providers.web_control.stop_all_login_processes", girisler,
+        raising=False,
+    )
+    oturum = _session(tmp_path, [])
+
+    await oturum.close()
+
+    tarayicilar.assert_awaited_once()
+    girisler.assert_called_once()
 
 
 async def test_oturum_baslat_sohbet_kimligiyle_o_sekmenin_gecmisini_yukler(tmp_path, monkeypatch):

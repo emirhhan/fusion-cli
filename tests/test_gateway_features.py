@@ -383,7 +383,7 @@ async def test_native_web_session_cookie_sifreli_kaydedilir_ve_model_listesine_g
 
     session = next(item for item in state["web_sessions"] if item["provider"] == "chatgpt_web")
     assert session["secret_saved"] is True
-    assert session["connected"] is True
+    assert session["connected"] is False
     assert "chatgpt_web/main/auto" in {item["id"] for item in models["data"]}
     encrypted_path = tmp_path / "s.enc"
     encrypted = encrypted_path.read_bytes()

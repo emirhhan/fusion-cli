@@ -3,6 +3,20 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a9] — 2026-09-10
+
+- Masaüstü kontrol paneline imzalı uygulama içi güncelleme eklendi; GitHub
+  Releases için macOS güncelleme arşivi ve manifest üretimi sağlandı.
+- macOS'ta Fusion API kasası tekrarlayan Keychain izin isteği olmadan açılır.
+  Eski kasa korunur; sessiz geçiş mümkün değilse anahtar yeniden girilir.
+- Web bağlantısı yalnız doğrulama sonrası bağlı gösterilir. Kapanmış giriş
+  süreçlerinin açık sayılması, hata durumunda takılı kalan düğmeler ve Chrome
+  süreç temizliği düzeltildi.
+- API kaydı ve doğrulaması ayrıldı; OpenRouter, OpenAI, Anthropic ve Gemini
+  için kimlik doğrulamalı anahtar sınaması eklendi.
+- Sol alttaki sabit örnek profil kaldırıldı; bağlantı bilgisi gerçek oturumdan okunur.
+- Masaüstü ve terminal kurulumları README'de ayrı açıklandı.
+
 ## [0.3.0a8] — 2026-08-30
 
 - Windows çalışma zamanı paketi başarıyla üretildikten sonra CP1252 konsoluna

@@ -32,6 +32,8 @@ interface SidebarProps {
   onYeni: () => void;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
+  /** Yalnız arka ucun bağlı diye bildirdiği gerçek web oturumundan gelir. */
+  webProfile?: { account: string; providerName: string } | null;
 }
 
 interface NavItemProps {
@@ -134,6 +136,7 @@ export function Sidebar({
   onYeni,
   oturumlar,
   projeler = [],
+  webProfile = null,
 }: SidebarProps) {
   // Dar pencerede kenar çubuğu kendiliğinden ikon şeridine iner. Bu KARAR
   // burada verilir çünkü dar kip kuralları `data-collapsed` seçicisine bağlıdır;
@@ -232,6 +235,12 @@ export function Sidebar({
     setProfileOpen(false);
     onNavigate(destination);
   };
+  const profileName = webProfile?.providerName ?? "Yerel profil";
+  const profileMenuLabel = webProfile ? `${profileName} profil menüsü` : "Yerel profil menüsü";
+  const profileDetail = webProfile ? `${webProfile.account} hesabı bağlı` : "Bağlantı yok";
+  const profileInitials = webProfile
+    ? webProfile.providerName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
+    : "FP";
 
   return (
     <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed || darEkran}>
@@ -323,8 +332,8 @@ export function Sidebar({
           {profileOpen && (
             <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
               <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button">
-                <span className="sidebar__avatar">EM</span>
-                <span className="sidebar__profile-copy"><strong>Emir</strong><small>Plus</small></span>
+                <span className="sidebar__avatar">{profileInitials}</span>
+                <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
@@ -340,14 +349,14 @@ export function Sidebar({
           <button
             aria-expanded={profileOpen}
             aria-haspopup="menu"
-            aria-label="Emir profil menüsü"
+            aria-label={profileMenuLabel}
             className="sidebar__profile-trigger"
             onClick={() => setProfileOpen((open) => !open)}
             type="button"
           >
-            <span className="sidebar__avatar">EM</span>
-            <span className="sidebar__profile-copy sidebar__label"><strong>Emir</strong><small>Plus</small></span>
-            <span aria-hidden="true" className="sidebar__profile-status" />
+            <span className="sidebar__avatar">{profileInitials}</span>
+            <span className="sidebar__profile-copy sidebar__label"><strong>{profileName}</strong><small>{profileDetail}</small></span>
+            <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(webProfile)} />
           </button>
         </div>
       </div>

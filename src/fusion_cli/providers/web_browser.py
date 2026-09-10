@@ -1088,6 +1088,60 @@ def _profile_process_alive(profile: Path) -> bool:
     return True
 
 
+async def _stop_profile_process(profile: Path) -> None:
+    """Önceki Fusion girişinden kalan, bu profile ait Chrome'u kapat."""
+    try:
+        owner = (profile / "SingletonLock").readlink().name
+        pid = int(owner.rsplit("-", 1)[-1])
+        if pid <= 0 or pid == os.getpid():
+            return
+        if not await _owns_profile_process(pid, profile):
+            if _profile_process_alive(profile):
+                raise WebBrowserError(
+                    "Profil kilidinin sahibi doğrulanamadı. "
+                    "Fusion giriş Chrome'unu kapatıp yeniden dene."
+                )
+            return
+        os.kill(pid, 15)
+    except (OSError, ValueError):
+        return
+    for _ in range(20):
+        if not _profile_process_alive(profile):
+            return
+        await asyncio.sleep(0.05)
+    if await _owns_profile_process(pid, profile):
+        with contextlib.suppress(OSError):
+            os.kill(pid, 9)
+
+
+async def _owns_profile_process(pid: int, profile: Path) -> bool:
+    """PID yeniden kullanımında farklı bir kullanıcı sürecine sinyal gönderme."""
+    import subprocess
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    command = result.stdout.strip()
+    return (
+        result.returncode == 0
+        and "Google Chrome.app/Contents/MacOS/Google Chrome" in command
+        and bool(
+            re.search(
+                r"(?:^|\s)--user-data-dir=" + re.escape(str(profile)) + r"(?:\s--|\shttps?://|$)",
+                command,
+            )
+        )
+    )
+
+
 async def open_login_browser(provider: str, account: str) -> None:
     """Görünür izole profili aç ve kullanıcı tarayıcıyı kapatana kadar bekle."""
     definition = provider_definition(provider)
@@ -1095,6 +1149,8 @@ async def open_login_browser(provider: str, account: str) -> None:
     profile.mkdir(parents=True, exist_ok=True)
     native = _native_login_executable()
     if native is not None:
+        await _stop_profile_process(profile)
+        clear_profile_singletons(profile)
         # Giriş kullanıcıya aittir: bu süreçte Playwright, CDP veya otomasyon
         # bayrağı yoktur. Yalnız Fusion'ın izole profili açılır.
         try:
