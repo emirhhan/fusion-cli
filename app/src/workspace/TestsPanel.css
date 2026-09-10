@@ -8,7 +8,7 @@
 }
 .tests-panel__git strong { font-size: var(--text-xs); }
 .tests-panel__git span,
-.tests-panel p { color: var(--text-secondary); font-size: 11px; }
+.tests-panel p { color: var(--text-secondary); font-size: var(--text-2xs); }
 .tests-panel__commands { display: grid; gap: var(--space-2); }
 .tests-panel__commands button {
   align-items: flex-start;
@@ -25,7 +25,7 @@
 .tests-panel__commands code { color: var(--text-secondary); font: 10px var(--font-mono); }
 .tests-panel__evidence { display: grid; gap: var(--space-2); }
 .tests-panel__evidence details { border-bottom: 1px solid var(--border-subtle); padding-bottom: var(--space-2); }
-.tests-panel__evidence summary { display: flex; font-size: 11px; gap: var(--space-2); justify-content: space-between; }
+.tests-panel__evidence summary { display: flex; font-size: var(--text-2xs); gap: var(--space-2); justify-content: space-between; }
 .tests-panel__evidence summary span { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .tests-panel__evidence summary strong[data-status="bitti"] { color: var(--text-success); }
 .tests-panel__evidence summary strong[data-status="hata"] { color: var(--text-danger); }

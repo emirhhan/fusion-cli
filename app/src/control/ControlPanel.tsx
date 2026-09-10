@@ -5,6 +5,7 @@ import type { PermissionBridge } from "../permissions/types";
 import { nativePermissionBridge } from "../platform/permissions";
 import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
+import { PageHeader } from "../ui/PageHeader";
 import { ProviderList } from "./ProviderList";
 import "./ControlPanel.css";
 
@@ -46,6 +47,8 @@ function Definition({ label, value }: { label: string; value: string }) {
 
 interface ControlPanelProps {
   client: ProtocolClient;
+  /** Sayfa başlığı. Panel MCP kapısından açıldığında "MCP Bağlantıları" olur. */
+  title?: string;
   /** Çalışma klasörünü değiştir. Verilmezse düğme HİÇ çizilmez. */
   onChangeRoot?: () => void;
   onClose: () => void;
@@ -62,7 +65,7 @@ interface ControlPanelProps {
   revision?: number;
 }
 
-export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge, revision = 0 }: ControlPanelProps) {
+export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, permissionBridge = nativePermissionBridge, revision = 0, title = "Kontrol Paneli" }: ControlPanelProps) {
   const permissions = usePermissions(permissionBridge);
   const [state, setState] = useState<ControlState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -122,9 +125,8 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
 
   return (
     <main className="control-panel">
-      <header className="control-panel__header">
-        <div><span>Fusion for macOS</span><h2>Kontrol Paneli</h2><p>Modeller, bağlantılar, izinler ve yerel gateway tek görünümde.</p></div>
-        <div className="control-panel__header-tools">
+      <PageHeader
+        actions={<>
           <input
             aria-label="Panelde ara"
             className="control-panel__search"
@@ -134,8 +136,11 @@ export function ControlPanel({ client, onChangeRoot, onClose, onRunCommand, perm
             value={query}
           />
           <Button onClick={onClose} variant="secondary">Kapat</Button>
-        </div>
-      </header>
+        </>}
+        description="Modeller, bağlantılar, izinler ve yerel gateway tek görünümde."
+        eyebrow="Fusion for macOS"
+        title={title}
+      />
       {(notice || error) && <p className="control-panel__notice" data-error={Boolean(error)} role={error ? "alert" : "status"}>{error ?? notice}</p>}
 
       <div className="control-panel__layout">

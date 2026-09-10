@@ -48,7 +48,7 @@
 
 .terminal-tabs__state {
   color: var(--text-secondary);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   margin-left: auto;
 }
 
@@ -176,7 +176,7 @@
 
 .terminal-tabs__status {
   color: #c4c9d0;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -185,7 +185,7 @@
 .terminal-tabs__status--hata { color: #ff9b95; }
 
 .terminal-tabs__actions { display: flex; }
-.terminal-tabs__actions button { color: #aeb5bf; font-size: 10px; }
+.terminal-tabs__actions button { color: #aeb5bf; font-size: var(--text-2xs); }
 
 .terminal-tabs__output {
   color: #e5e7eb;
@@ -252,7 +252,7 @@
   background: transparent;
   border: 0;
   color: #aeb5bf;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 0 var(--space-2);
 }
 
@@ -301,7 +301,7 @@
 .process-list article > div { display: grid; gap: 3px; }
 .process-list article > div:last-child { justify-items: end; }
 .process-list strong { font: 11px/1.4 var(--font-mono); overflow-wrap: anywhere; }
-.process-list span { color: var(--text-secondary); font-size: 11px; }
+.process-list span { color: var(--text-secondary); font-size: var(--text-2xs); }
 .process-status--calisiyor { color: var(--text-warning) !important; }
 .process-status--bitti { color: var(--text-success) !important; }
 .process-status--hata { color: var(--text-danger) !important; }

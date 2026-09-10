@@ -24,7 +24,7 @@
 
 .changes-panel__item header span {
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--text-2xs);
 }
 
 .changes-panel__item pre {

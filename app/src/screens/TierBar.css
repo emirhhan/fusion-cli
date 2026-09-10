@@ -32,7 +32,7 @@
 .tier-bar__step {
   background: var(--border-subtle);
   border: none;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   height: 6px;
   padding: 0;
   transition: background-color var(--duration-fast) ease-out, width var(--duration-fast) ease-out;

@@ -76,10 +76,16 @@
   --space-10: 40px;
   --bosluk-birim: var(--space-2);
 
+  /* Kademeler bileşenlerdeki ÖLÇÜLEN kullanımdan türedi: ham pikselde 2-26px
+     arası 15 ayrı değer vardı ve aynı rol farklı ekranlarda farklı köşe
+     yuvarlaklığı taşıyordu. Aşağıdaki kademeler o kullanımların tamamını
+     karşılar; yalnız Composer'ın kapsül girdisi (26px) ekrana özgü kalır. */
+  --radius-2xs: 2px;
   --radius-xs: 6px;
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-pill: 999px;
   --yaricap: var(--radius-md);
 
@@ -89,14 +95,33 @@
      düşüş yerleşimi bozmasın. */
   --font-sans: Satoshi, "Satoshi Variable", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* Kademeler bileşenlerdeki ÖLÇÜLEN kullanımdan türedi: ham pikselde 9-30px
+     arası 15 ayrı değer vardı ve aynı rol farklı ekranlarda farklı boyuttaydı.
+     Aşağıdaki yedi kademe o kullanımların tamamını karşılar. */
+  --text-2xs: 0.6875rem;
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-md: 1rem;
   --text-lg: 1.125rem;
   --text-xl: 1.375rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
   --line-tight: 1.3;
   --line-body: 1.6;
+  /* Harf aralığı da roldür, süs değil: küçük punto üst etiket açılır, büyük
+     punto başlık toparlanır. */
+  --tracking-eyebrow: 0.05em;
+  --tracking-title: -0.02em;
 
+  /* Tam ekran sayfaların (Ayarlar, Kontrol Paneli) ortak içerik genişliği.
+     İkisi ayrı değer kullanıyordu; okuma ölçüsü sayfadan sayfaya değişmesin. */
+  --page-max-width: 1120px;
+
+  /* Yükselme kademeleri: hover'da öğe zeminden hafif kalkar, basılınca oturur.
+     Gölge derinliği kaliteli component hissinin parçasıdır; ham gölge yerine
+     tek kaynaktan gelir. */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 6%), 0 2px 6px rgb(0 0 0 / 6%);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 10%);
   --shadow-overlay: 0 20px 60px rgb(0 0 0 / 18%);
   --duration-fast: 120ms;
   --duration-normal: 180ms;

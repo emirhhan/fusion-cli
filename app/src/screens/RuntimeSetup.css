@@ -23,7 +23,7 @@
 
 .runtime-setup__mark span {
   border: 2px solid var(--ana-metin);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   height: 31px;
   left: 5px;
   position: absolute;
@@ -37,7 +37,7 @@
 }
 
 .runtime-setup h1 {
-  font-size: 24px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.25;
@@ -46,7 +46,7 @@
 
 .runtime-setup__message {
   color: var(--sonuk-metin);
-  font-size: 14px;
+  font-size: var(--text-sm);
   line-height: 1.55;
   margin: 10px 0 24px;
 }
@@ -61,7 +61,7 @@
   appearance: none;
   background: var(--kenarlik);
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   height: 6px;
   overflow: hidden;
   width: 100%;
@@ -73,14 +73,14 @@
 
 .runtime-setup__progress progress::-webkit-progress-value {
   background: var(--ana-metin);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   transition: width 180ms ease;
 }
 
 .runtime-setup__progress span,
 .runtime-setup__version {
   color: var(--sonuk-metin);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .runtime-setup__version {
@@ -99,7 +99,7 @@
 
 .runtime-setup__details {
   color: var(--sonuk-metin);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   margin-top: 18px;
 }

@@ -152,7 +152,7 @@
 .preview-panel__asset { display: grid; gap: var(--space-3); min-height: 0; }
 .preview-panel__asset header { display: grid; gap: 2px; }
 .preview-panel__asset header strong { font-size: var(--text-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.preview-panel__asset header span { color: var(--text-secondary); font-size: 11px; }
+.preview-panel__asset header span { color: var(--text-secondary); font-size: var(--text-2xs); }
 
 .preview-panel__asset img,
 .preview-panel__asset video {

@@ -15,29 +15,29 @@
 }
 
 .provider-list__head span {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   letter-spacing: 0.12em;
   color: var(--text-secondary);
 }
 
 .provider-list__head h3 {
   margin: 2px 0 0;
-  font-size: 16px;
+  font-size: var(--text-md);
 }
 
 .provider-list__search {
   width: 160px;
   padding: 7px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-canvas);
   color: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .provider-list__notice {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
@@ -58,7 +58,7 @@
   gap: 10px;
   padding: 9px 10px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: inherit;
   font: inherit;
@@ -83,19 +83,19 @@
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 7px;
+  border-radius: var(--radius-xs);
   background: var(--surface-canvas);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .provider-list__name {
-  font-size: 14px;
+  font-size: var(--text-sm);
 }
 
 .provider-list__state {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
@@ -109,26 +109,26 @@
   margin: 2px 0 8px 32px;
   padding: 12px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   background: var(--surface-canvas);
 }
 
 .provider-list__detail p,
 .provider-list__detail small {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
 .provider-list__detail label {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
 }
 
 .provider-list__detail input {
   padding: 8px 10px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: inherit;
   font: inherit;
@@ -138,11 +138,11 @@
   justify-self: start;
   padding: 7px 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface-raised);
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
 }
 
@@ -157,13 +157,13 @@
 
 .provider-list__warn {
   color: var(--text-danger, #b42318);
-  font-size: 12px;
+  font-size: var(--text-xs);
   margin: 0;
 }
 
 .provider-list__empty {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: var(--text-sm);
   margin: 0;
   padding: 18px 4px;
   text-align: center;

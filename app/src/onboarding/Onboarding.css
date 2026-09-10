@@ -21,7 +21,7 @@
 
 .onboarding__brand-mark span {
   border: 1.5px solid var(--text-primary);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   height: 24px;
   left: 5px;
   position: absolute;
@@ -60,7 +60,7 @@
   border-radius: var(--radius-pill);
   display: inline-flex;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   height: 22px;
   justify-content: center;
   width: 22px;
@@ -108,7 +108,7 @@
 }
 
 .onboarding__content h1 {
-  font-size: 30px;
+  font-size: var(--text-3xl);
   font-weight: 600;
   letter-spacing: -0.025em;
   line-height: var(--line-tight);
@@ -258,7 +258,7 @@
   }
 
   .onboarding__content h1 {
-    font-size: 25px;
+    font-size: var(--text-2xl);
   }
 
   .onboarding__project-list {

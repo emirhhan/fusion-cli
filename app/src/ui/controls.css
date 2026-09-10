@@ -15,11 +15,19 @@
   transition:
     background var(--duration-fast) var(--ease-standard),
     border-color var(--duration-fast) var(--ease-standard),
-    color var(--duration-fast) var(--ease-standard);
+    box-shadow var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard),
+    transform var(--duration-fast) var(--ease-standard);
 }
 
 .ui-button:hover:not(:disabled) {
   background: var(--surface-hover);
+}
+
+/* Basma geri bildirimi: öğe bir piksel oturur. transform compositor'da çalışır,
+   layout'u tetiklemez. Klavye erişimi global :focus-visible ile zaten kaplı. */
+.ui-button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .ui-button--primary {
@@ -27,13 +35,21 @@
   color: var(--text-inverse);
 }
 
+/* Birincil buton hover'da GRİYE dönmüyor artık (marka mürekkebi griye kaymamalı);
+   mürekkebe hafif ikincil karışım + yükselme gölgesiyle canlanır. */
 .ui-button--primary:hover:not(:disabled) {
-  background: var(--text-secondary);
+  background: color-mix(in srgb, var(--control-primary) 88%, var(--text-secondary));
+  box-shadow: var(--shadow-sm);
 }
 
 .ui-button--secondary {
   background: var(--surface-raised);
   border-color: var(--border-subtle);
+}
+
+.ui-button--secondary:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
 }
 
 .ui-button--ghost,

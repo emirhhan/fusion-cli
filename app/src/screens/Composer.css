@@ -8,9 +8,11 @@
 .composer {
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
+  /* Ekrana özgü kapsül köşesi: girdi kutusunun karakteristik ölçüsü ölçek
+     kademelerinden birine denk düşmüyor, yuvarlanırsa tanınır biçimi bozulur. */
   border-radius: 26px;
   box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
-  padding: 12px 14px;
+  padding: var(--space-3) var(--space-4);
   position: relative;
 }
 
@@ -172,7 +174,7 @@
 .composer__attachment-thumb {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   object-fit: cover;
   display: block;
 }

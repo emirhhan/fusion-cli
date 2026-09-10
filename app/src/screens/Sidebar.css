@@ -44,7 +44,7 @@
 .sidebar__project {
   background: transparent;
   border: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   min-height: 42px;
   transition: background-color var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
@@ -121,7 +121,7 @@
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   cursor: pointer;
   display: grid;
@@ -141,20 +141,20 @@
   color: #fff;
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: 13px;
+  font-size: var(--text-sm);
   height: 38px;
   justify-content: center;
   width: 38px;
 }
 .sidebar__profile-copy { display: grid; line-height: 1.18; min-width: 0; }
-.sidebar__profile-copy strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
-.sidebar__profile-copy small { color: var(--text-secondary); font-size: 13px; margin-top: 3px; }
+.sidebar__profile-copy strong { font-size: var(--text-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.sidebar__profile-copy small { color: var(--text-secondary); font-size: var(--text-sm); margin-top: 3px; }
 .sidebar__profile-status { background: var(--text-success); border: 2px solid var(--surface-sidebar); border-radius: 50%; height: 9px; width: 9px; }
 .sidebar__profile-menu {
   animation: profile-menu-in var(--duration-normal) var(--ease-standard);
   background: var(--surface-menu, var(--surface-raised));
   border: 1px solid var(--border-subtle);
-  border-radius: 22px;
+  border-radius: var(--radius-xl);
   bottom: 80px;
   box-shadow: 0 18px 48px rgb(0 0 0 / 28%);
   display: grid;
@@ -168,12 +168,12 @@
   align-items: center;
   background: transparent;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   cursor: pointer;
   display: grid;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--text-sm);
   gap: 12px;
   grid-template-columns: 24px minmax(0, 1fr) auto;
   min-height: 46px;
@@ -359,11 +359,9 @@
   color: var(--text-primary);
 }
 
-/* Sohbet satırı: seçim düğmesi + silme. Silme İKİ adımdır (sohbet geri
-   getirilemez) ve yalnız satırın üstüne gelince ya da odaklanınca görünür —
-   liste sürekli çarpı işaretiyle dolu görünmesin. */
-.sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) auto; }
-.sidebar__session-delete { background: transparent; border: 0; border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: 16px; line-height: 1; opacity: 0; padding: 6px 8px; }
+/* Sohbet satırı: seçim, sabitleme ve doğrudan silme. */
+.sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) auto auto; }
+.sidebar__session-delete { background: transparent; border: 0; border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-md); line-height: 1; opacity: 0; padding: 6px 8px; }
 .sidebar__session-row:hover .sidebar__session-delete,
 .sidebar__session-delete:focus-visible { opacity: 1; }
 .sidebar__session-delete:hover { background: var(--surface-hover); color: var(--text-danger); }
@@ -377,3 +375,23 @@
   .sidebar__history-body { animation: none; }
   .sidebar__history-toggle svg { transition: none; }
 }
+
+.sidebar__brand .fusion-wordmark { flex: 1; font-size: var(--text-xl); }
+.sidebar__search-trigger, .sidebar__session-pin, .sidebar__more { background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; }
+.sidebar__search-trigger { padding: 7px; border-radius: var(--radius-sm); display: flex; }
+.sidebar__search-trigger:hover, .sidebar__session-pin:hover, .sidebar__more:hover { background: var(--surface-hover); color: var(--text-primary); }
+.sidebar__session-pin { padding: 6px; border-radius: var(--radius-xs); opacity: 0; display: flex; }
+.sidebar__session-row:hover .sidebar__session-pin, .sidebar__session-pin:focus-visible, .sidebar__session-pin[aria-pressed="true"] { opacity: 1; }
+.sidebar__session-delete { display: flex; }
+.sidebar__section-title:has(.sidebar__project) { padding: 0; }
+.sidebar__project { font-weight: 500; }
+.sidebar__more { text-align: left; font: inherit; font-size: var(--text-sm); padding: 9px 8px 9px 34px; border-radius: var(--radius-sm); }
+.sidebar[data-collapsed="true"] .sidebar__session-pin, .sidebar[data-collapsed="true"] .sidebar__more { display: none; }
+.sidebar[data-collapsed="true"] .sidebar__brand { flex-wrap: wrap; height: auto; }
+.sidebar[data-collapsed="true"] .sidebar__section-title:has(.sidebar__project) { display: block; }
+@media (hover: none) { .sidebar__session-pin, .sidebar__session-delete { opacity: 1; } }
+
+.sidebar__session-source:empty { display: none; }
+.sidebar__session { align-items: center; }
+
+.sidebar__storage-error { color: var(--text-secondary); font-size: var(--text-xs); padding: 0 8px; }

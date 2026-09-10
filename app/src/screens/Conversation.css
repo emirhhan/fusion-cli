@@ -35,7 +35,7 @@
 
 .conversation__bubble {
   background: var(--surface-message-user);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   max-width: 82%;
   overflow-wrap: anywhere;
   padding: 10px var(--space-4);
@@ -106,7 +106,7 @@
   border: 1px solid currentColor;
   border-radius: 50%;
   display: inline-flex;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 700;
   height: 16px;
   justify-content: center;
@@ -225,7 +225,7 @@
 }
 
 .conversation__attachment img {
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: block;
   height: 44px;
   object-fit: cover;

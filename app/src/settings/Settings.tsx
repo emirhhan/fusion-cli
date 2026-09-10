@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
+import { Button } from "../ui/Button";
+import { PageHeader } from "../ui/PageHeader";
 import { Connectors } from "./Connectors";
 import { Instructions } from "./Instructions";
 import { UsagePanel } from "./UsagePanel";
@@ -86,16 +88,12 @@ export function Settings({ client, onClose, onThemeChange, themePreference }: Se
 
   return (
     <section aria-label="Ayarlar" className="settings">
-      <header className="settings__head">
-        <div>
-          <span>TERCİHLER</span>
-          <h2>Ayarlar</h2>
-          <p>Görünüm, arayüz davranışı ve bu bilgisayardaki durumun özeti.</p>
-        </div>
-        <button className="settings__close" onClick={onClose} type="button">
-          Kapat
-        </button>
-      </header>
+      <PageHeader
+        actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
+        description="Görünüm, arayüz davranışı ve bu bilgisayardaki durumun özeti."
+        eyebrow="Tercihler"
+        title="Ayarlar"
+      />
 
       {error && <p className="settings__error" role="status">{error}</p>}
 

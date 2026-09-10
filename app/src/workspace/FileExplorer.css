@@ -45,7 +45,7 @@
 .file-explorer__chevron {
   color: var(--text-secondary);
   display: inline-grid;
-  font-size: 18px;
+  font-size: var(--text-lg);
   place-items: center;
   width: 12px;
 }
@@ -60,7 +60,7 @@
 }
 
 .file-explorer__kind--klasor {
-  border-radius: 2px;
+  border-radius: var(--radius-2xs);
   height: 10px;
   position: relative;
   width: 14px;
@@ -69,7 +69,7 @@
 .file-explorer__kind--klasor::before {
   border: 1.5px solid currentColor;
   border-bottom: 0;
-  border-radius: 2px 2px 0 0;
+  border-radius: var(--radius-2xs) var(--radius-2xs) 0 0;
   content: "";
   height: 3px;
   left: -1.5px;
@@ -95,7 +95,7 @@
 }
 
 .file-explorer__file-head strong {
-  font-size: 12px;
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -103,13 +103,13 @@
 .file-explorer__notice,
 .file-explorer__state {
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .file-explorer__viewer pre {
   background: var(--surface-sidebar);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font: 11px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   margin: 0;
