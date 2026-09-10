@@ -25,6 +25,7 @@ import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
 import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 import { ControlPanel } from "../src/control/ControlPanel";
+import { ConnectorsScreen } from "../src/connectors/ConnectorsScreen";
 import { Lessons } from "../src/lessons/Lessons";
 import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
@@ -306,6 +307,7 @@ function Preview() {
     : <Inspector collapsed={inspectorCollapsed} width={inspectorWidth} />;
   const capabilities = state === "capabilities";
   const control = state === "control";
+  const connectors = state === "connectors";
   const onboarding = state === "onboarding";
   const lessons = state === "lessons" || state === "lessons-step";
   const settings = state === "settings";
@@ -371,7 +373,7 @@ function Preview() {
             value={composerValue}
           />
         )}
-        content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
+        content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
         header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={settings ? "Ayarlar" : lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
         inspector={capabilities || control || lessons || settings ? undefined : inspector}
         inspectorCollapsed={inspectorCollapsed}

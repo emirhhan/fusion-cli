@@ -47,6 +47,7 @@ import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
+import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { Lessons } from "./lessons/Lessons";
 import { Spotlight } from "./lessons/Spotlight";
 import { Settings } from "./settings/Settings";
@@ -184,7 +185,7 @@ function projectName(root: string): string {
 }
 
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
-const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control"];
+const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors"];
 
 function ProjectInspector({
   activeTab,
@@ -417,7 +418,7 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons" | "settings" | "image-create" | "video-create">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "lessons" | "settings" | "image-create" | "video-create">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -472,8 +473,7 @@ export function SessionUygulama({
               setControlTitle("Kontrol Paneli");
               setPage("control");
             } else if (destination === "connectors") {
-              setControlTitle("MCP Bağlantıları");
-              setPage("control");
+              setPage("connectors");
             } else if (destination === "help") {
               setPage("lessons");
             } else if (destination.startsWith("resume:")) {
@@ -864,6 +864,8 @@ export function SessionUygulama({
           }}
         />
       )
+      : page === "connectors"
+        ? <ConnectorsScreen client={active.client} onClose={() => setPage("chat")} />
       : page === "settings"
         ? (
           <Settings

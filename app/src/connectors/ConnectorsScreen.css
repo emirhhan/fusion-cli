@@ -1,0 +1,432 @@
+/* Ayrı MCP bağlantı ekranı. Ölçüler yalnız tasarım tokenlarından gelir; ham
+   piksel yok, böylece Ayarlar/Kontrol Paneli ile aynı görsel dili paylaşır. */
+.connectors {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  height: 100%;
+  overflow: auto;
+  padding: var(--space-6) var(--space-8) var(--space-10);
+}
+
+.connectors .page-header {
+  margin-bottom: var(--space-6);
+}
+
+.connectors__search {
+  width: 200px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.connectors__notice {
+  max-width: var(--page-max-width);
+  margin: 0 auto var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-accent-subtle);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+}
+
+/* --- Katalog ikonu --------------------------------------------------------- */
+.connector-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+/* --- Özel sunucu formu ----------------------------------------------------- */
+.connectors__custom {
+  max-width: var(--page-max-width);
+  margin: 0 auto var(--space-5);
+  padding: var(--space-5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-sidebar);
+}
+
+.connectors__custom-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.connectors__custom-head h3 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+.connectors__custom-close {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+}
+
+.connectors__custom-close:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.connectors__custom-form {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.connectors__custom-form label {
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+}
+
+.connectors__custom-form input,
+.connectors__custom-form select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: inherit;
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.connectors__custom-submit {
+  grid-column: 2;
+  justify-self: start;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: var(--control-primary);
+  color: var(--text-inverse);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  transition: box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.connectors__custom-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.connectors__custom-submit:hover:not(:disabled) {
+  box-shadow: var(--shadow-sm);
+}
+
+/* --- Sekmeler -------------------------------------------------------------- */
+.connectors__tabs {
+  display: flex;
+  gap: var(--space-1);
+  max-width: var(--page-max-width);
+  margin: 0 auto var(--space-4);
+  padding: var(--space-1);
+  background: var(--surface-selected);
+  border-radius: var(--radius-md);
+  width: fit-content;
+}
+
+.connectors__tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  transition: background var(--duration-fast) var(--ease-standard),
+    color var(--duration-fast) var(--ease-standard);
+}
+
+.connectors__tab[aria-selected="true"] {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.connectors__tab:hover:not([aria-selected="true"]) {
+  color: var(--text-primary);
+}
+
+/* --- Banner (öne çıkan 3) -------------------------------------------------- */
+.connectors__featured {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  max-width: var(--page-max-width);
+  margin: 0 auto var(--space-5);
+}
+
+.connectors__banner {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  transition: border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.connectors__banner:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.connectors__banner .connector-icon {
+  grid-row: 1 / 3;
+}
+
+.connectors__banner-body {
+  min-width: 0;
+}
+
+.connectors__banner-body strong {
+  display: block;
+  font-size: var(--text-md);
+}
+
+.connectors__banner-body p {
+  margin: var(--space-1) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-wrap: pretty;
+}
+
+.connectors__banner .connectors__connect {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: var(--space-2);
+}
+
+/* --- Bağlan düğmesi -------------------------------------------------------- */
+.connectors__connect {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  transition: background var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard);
+}
+
+.connectors__connect:hover:not(:disabled) {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.connectors__connect[data-connected="true"] {
+  color: var(--text-success);
+  border-color: color-mix(in srgb, var(--text-success) 35%, var(--border-subtle));
+  cursor: default;
+}
+
+.connectors__connect:disabled:not([data-connected="true"]) {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* --- Katalog tablosu ------------------------------------------------------- */
+.connectors__table {
+  width: 100%;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  border-collapse: collapse;
+}
+
+.connectors__table thead th {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.connectors__table tbody td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.connectors__table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.connectors__cell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.connectors__cell strong {
+  display: block;
+  font-size: var(--text-sm);
+}
+
+.connectors__cell small {
+  display: block;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.connectors__type {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.connectors__status {
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.connectors__status[data-ok="true"] {
+  color: var(--text-success);
+}
+
+.connectors__status--muted {
+  color: var(--text-secondary);
+}
+
+.connectors__action-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.connectors__empty {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-8) var(--space-3);
+}
+
+/* --- Bağlı sekmesi --------------------------------------------------------- */
+.connectors__connected {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+}
+
+.connectors__empty-block {
+  padding: var(--space-8);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.connectors__list {
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.connectors__row {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.connectors__row[data-state="bagli"] {
+  border-color: color-mix(in srgb, var(--text-success) 32%, var(--border-subtle));
+}
+
+.connectors__row[data-state="hata"],
+.connectors__row[data-state="zaman_asimi"] {
+  border-color: color-mix(in srgb, var(--text-warning) 42%, var(--border-subtle));
+}
+
+.connectors__row-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.connectors__row-main small {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.connectors__row code {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  overflow-wrap: anywhere;
+}
+
+.connectors__row-error {
+  margin: 0;
+  color: var(--text-warning);
+  font-size: var(--text-xs);
+}
+
+.connectors__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.connectors__row-actions button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+}
+
+.connectors__row-actions button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.connectors__row-actions button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@media (max-width: 900px) {
+  .connectors {
+    padding: var(--space-5);
+  }
+  .connectors__featured {
+    grid-template-columns: 1fr;
+  }
+  .connectors__table thead {
+    display: none;
+  }
+  .connectors__table tbody td:nth-child(2) {
+    display: none;
+  }
+}

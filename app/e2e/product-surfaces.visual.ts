@@ -12,17 +12,22 @@ for (const visualCase of [
   { name: "settings-light", state: "settings", theme: "light", width: 1440 },
   { name: "settings-dark", state: "settings", theme: "dark", width: 1440 },
   { name: "settings-compact", state: "settings", theme: "light", width: 920 },
+  { name: "connectors-light", state: "connectors", theme: "light", width: 1440 },
+  { name: "connectors-dark", state: "connectors", theme: "dark", width: 1440 },
+  { name: "connectors-compact", state: "connectors", theme: "light", width: 920 },
 ]) {
   test(visualCase.name, async ({ page }) => {
     await page.setViewportSize({ width: visualCase.width, height: 900 });
     await page.goto(`/e2e/preview.html?state=${visualCase.state}&theme=${visualCase.theme}`);
     const anchor = visualCase.state === "control"
       ? ".control-panel"
-      : visualCase.state === "lessons"
-        ? ".lessons"
-        : visualCase.state === "settings"
-          ? ".settings"
-          : ".onboarding";
+      : visualCase.state === "connectors"
+        ? ".connectors"
+        : visualCase.state === "lessons"
+          ? ".lessons"
+          : visualCase.state === "settings"
+            ? ".settings"
+            : ".onboarding";
     await expect(page.locator(anchor)).toBeVisible();
     await expect(page).toHaveScreenshot(`${visualCase.name}.png`, { fullPage: true });
   });
