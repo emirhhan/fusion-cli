@@ -54,6 +54,12 @@ class McpToolPool:
     def __init__(self) -> None:
         self._entry: _Entry | None = None
         self._lock = asyncio.Lock()
+        #: Kapanması istenmiş ama henüz bitmemiş gözetmen görevleri.
+        #
+        # İptal edilen bir `client_for` çağrısı girdiyi `self._entry`'ye ASLA
+        # yazmaz; o girdinin görevi burada tutulmazsa `aclose()` onu bulamaz ve
+        # stdio alt süreci oturumdan sağ çıkar.
+        self._draining: set[asyncio.Task[None]] = set()
 
     @property
     def is_empty(self) -> bool:
@@ -87,7 +93,18 @@ class McpToolPool:
     ) -> McpClient:
         entry = _Entry(configs=configs, loop=loop)
         entry.task = loop.create_task(self._supervise(entry))
-        await entry.ready.wait()
+        try:
+            await entry.ready.wait()
+        except BaseException:
+            # İPTAL DE BURAYA DÜŞER ve asıl sızıntı yolu buydu: Ctrl-C ya da
+            # `AppSession.close()` turu bağlantı kurulurken iptal ettiğinde girdi
+            # `self._entry`'ye hiç yazılmıyor, gözetmen bağlanmayı bitirip
+            # `stop.wait()`'te sonsuza park ediyor ve `aclose()` onu bulamıyordu.
+            # Burada beklemek YANLIŞ olur: iptal edilmiş bağlamda her `await`
+            # anında yeniden `CancelledError` verir. Bu yüzden yalnız kapanma
+            # işareti verilir ve görev `aclose()`'un bekleyeceği kümeye alınır.
+            self._drain(entry)
+            raise
         if entry.error is not None or entry.client is None:
             # Başarısız giriş ÖNBELLEĞE YAZILMAZ: sonraki tur yeniden denemeli,
             # aksi hâlde tek geçici arıza oturumun kalanını araçsız bırakırdı.
@@ -96,6 +113,20 @@ class McpToolPool:
             raise entry.error or RuntimeError("MCP bağlantısı kurulamadı.")
         self._entry = entry
         return entry.client
+
+    def _drain(self, entry: _Entry) -> None:
+        """Girdiye kapanma işareti ver ve görevini `aclose()` için kaydet.
+
+        Beklemez: iptal edilmiş bağlamdan çağrılabilir olmak zorundadır. Gözetmen
+        `stop` olayını görüp yığını KENDİ görevinde kapatır — `cancel()` değil
+        `stop` kullanılır, çünkü düzenli kapanış alt süreci daha güvenli bırakır.
+        """
+        entry.stop.set()
+        task = entry.task
+        if task is None or task.done():
+            return
+        self._draining.add(task)
+        task.add_done_callback(self._draining.discard)
 
     async def _supervise(self, entry: _Entry) -> None:
         """Yığını AÇ, kapatma istenene kadar tut, kendi görevinde kapat."""
@@ -132,15 +163,27 @@ class McpToolPool:
     async def aclose(self) -> None:
         """Oturum biterken bağlantıları kapat; stdio alt süreçleri sahipsiz kalmasın."""
         async with self._lock:
-            entry = self._entry
-            if entry is None:
-                return
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 self._entry = None
+                self._draining.clear()
                 return
-            await self._discard(entry, loop)
+            entry = self._entry
+            if entry is not None:
+                await self._discard(entry, loop)
+            await self._drain_pending(loop)
+
+    async def _drain_pending(self, loop: asyncio.AbstractEventLoop) -> None:
+        """İptal yüzünden sahipsiz kalmış gözetmen görevlerinin bitmesini bekle."""
+        pending = tuple(task for task in self._draining if task.get_loop() is loop)
+        self._draining.difference_update(pending)
+        if not pending:
+            return
+        results = await asyncio.gather(*pending, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                _LOG.warning("MCP bağlantısı kapanışta hata verdi", extra={"hata": repr(result)})
 
 
 _POOL = McpToolPool()
@@ -151,8 +194,10 @@ async def ensure_mcp_tools(
 ) -> tuple[str, ...]:
     """Bağlan (ya da açık bağlantıyı kullan) ve araçları kayıt defterine ekle.
 
-    Kayıt her turda tekrar çağrılır: `ToolRegistry.register` aynı adı üzerine
-    yazar, bu yüzden tekrar eklemek zararsızdır ve taze şema taşır.
+    Kayıt her turda tekrar çağrılır. `ToolRegistry.register` yinelenen adda
+    `FusionError` fırlatır — uzak araçlar bu yüzden `register_or_replace` ile
+    yazılır: bağlantı artık oturum boyunca yaşadığı için aynı defter ikinci turda
+    yeniden beslenebilir ve keşif taze şema getirir.
     """
     client = await _POOL.client_for(configs)
     return await client.register_into(registry)

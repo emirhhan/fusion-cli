@@ -246,7 +246,9 @@ class McpClient:
                 )
             for remote in tools:
                 fusion_name = f"{server}__{remote.name}"
-                registry.register(
+                # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
+                # ikinci turda yeniden beslenebilir (bkz. `mcp_bridge/pool.py`).
+                registry.register_or_replace(
                     Tool(
                         name=fusion_name,
                         description=remote.description,

@@ -53,6 +53,18 @@ class ToolRegistry:
             raise FusionError(f"Araç adı zaten kayıtlı: {tool.name}")
         self._tools[tool.name] = tool
 
+    def register_or_replace(self, tool: Tool) -> None:
+        """Aynı adı taşıyan aracı ÜZERİNE YAZ — yalnız dış (uzak) araçlar için.
+
+        Yerel araçlarda yinelenen ad bir programlama hatasıdır ve `register`
+        haklı olarak hata verir. Uzak araçlar ise her keşifte yeniden gelir ve
+        şemaları sunucu tarafında değişebilir: MCP bağlantısı artık oturum boyunca
+        yaşadığı için aynı kayıt defteri ikinci turda yeniden beslenebilir
+        (bkz. `mcp_bridge/pool.py`). Orada doğru davranış hata vermek değil, taze
+        şemayı geçirmektir.
+        """
+        self._tools[tool.name] = tool
+
     def register_alias(self, alias: str, target: str) -> None:
         """Var olan bir aracı ikinci bir adla da aç (aynı executor, aynı şema)."""
         tool = self.get(target)

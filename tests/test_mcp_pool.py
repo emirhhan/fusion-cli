@@ -103,3 +103,70 @@ async def test_baglanma_hatasi_havuzda_saklanmaz(monkeypatch):
 
     assert havuz.is_empty
     await havuz.aclose()
+
+
+async def test_baglanirken_iptal_gozetmeni_sahipsiz_birakmaz(monkeypatch):
+    """İptal edilen ilk tur, açılmış bağlantıyı arkada bırakmamalı.
+
+    Ölçülmüş sızıntı yolu (inceleme): kullanıcı REPL'de Ctrl-C'ye bastığında ya da
+    `AppSession.close()` çalışan turu iptal ettiğinde `client_for` bağlantı
+    kurulurken iptal ediliyordu. `_open` `self._entry`'yi ATAMADAN çıkıyor, gözetmen
+    görevi bağlanmayı bitirip `stop.wait()`'te sonsuza park ediyor ve `aclose()`
+    `self._entry is None` görüp hiçbir şey yapmıyordu: stdio alt süreci (npx ...)
+    oturumdan sağ çıkıyordu — yani bu modülün var olma gerekçesinin tam tersi.
+    """
+    baslatildi = asyncio.Event()
+    serbest = asyncio.Event()
+    kapandi = asyncio.Event()
+
+    class _Yavas:
+        def __init__(self, configs, **_kwargs) -> None:
+            del configs
+
+        async def __aenter__(self):
+            baslatildi.set()
+            await serbest.wait()
+            return self
+
+        async def __aexit__(self, *_exc: object) -> None:
+            kapandi.set()
+
+    monkeypatch.setattr(pool_module, "McpClient", _Yavas)
+    havuz = McpToolPool()
+
+    gorev = asyncio.create_task(havuz.client_for(_configs("godot")))
+    await baslatildi.wait()
+    gorev.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await gorev
+
+    # Bağlantı kurulmayı bitirir (gerçek dünyada npx ayağa kalkar)...
+    serbest.set()
+    # ...ve teardown onu BULMAK zorundadır.
+    await havuz.aclose()
+
+    assert kapandi.is_set(), "iptal edilen turun bağlantısı sahipsiz kaldı"
+
+
+async def test_ayni_kayit_defterine_ikinci_kayit_turu_dusurmez(fake_client, tmp_path):
+    """Bağlantı oturum boyunca yaşıyorsa araçlar aynı deftere iki kez yazılabilir.
+
+    `ToolRegistry.register` yinelenen adda `FusionError` fırlatır. Bağlantı artık
+    turlar arası yaşadığı için, aynı `base_registry` ikinci turda yeniden
+    beslenirse tur bu hatayla düşerdi. Uzak araç her keşifte TAZE şemayla gelir;
+    doğru davranış üzerine yazmaktır.
+    """
+    from fusion_cli.core.tools import Tool, ToolResult
+    from fusion_cli.tools import ToolRegistry
+
+    registry = ToolRegistry()
+
+    async def _run(args: object, context: object) -> ToolResult:
+        del args, context
+        return ToolResult.success("")
+
+    arac = Tool(name="godot__save_scene", description="", parameters={}, run=_run, mutating=True)
+    registry.register_or_replace(arac)
+    registry.register_or_replace(arac)
+
+    assert registry.get("godot__save_scene") is arac
