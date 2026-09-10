@@ -12,6 +12,8 @@ Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 - Web bağlantısı yalnız doğrulama sonrası bağlı gösterilir. Kapanmış giriş
   süreçlerinin açık sayılması, hata durumunda takılı kalan düğmeler ve Chrome
   süreç temizliği düzeltildi.
+- Etkin Chrome profilinin kilidi korunur; yeni görünür giriş eski elle
+  aktarılmış çerezlerle ezilmez.
 - API kaydı ve doğrulaması ayrıldı; OpenRouter, OpenAI, Anthropic ve Gemini
   için kimlik doğrulamalı anahtar sınaması eklendi.
 - Sol alttaki sabit örnek profil kaldırıldı; bağlantı bilgisi gerçek oturumdan okunur.

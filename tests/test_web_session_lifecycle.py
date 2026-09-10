@@ -34,6 +34,7 @@ def test_giristen_sonra_oturum_yapilandirmaya_yazilir(config):
     oturum = yeni.web_sessions[0]
     assert oturum.provider == "chatgpt_web"
     assert oturum.transport == "browser"
+    assert oturum.credential_ref is None
     assert oturum.enabled is True
     assert oturum.model == "chatgpt_web/main/auto"
 

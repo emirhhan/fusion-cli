@@ -51,7 +51,7 @@ async def test_url_acik_profile_devredilince_profil_kapanmadan_bitmez(tmp_path, 
         web_browser.asyncio, "create_subprocess_exec", AsyncMock(return_value=process)
     )
     monkeypatch.setattr(web_browser, "_stop_profile_process", AsyncMock(), raising=False)
-    alive = Mock(side_effect=[True, True, False])
+    alive = Mock(side_effect=[False, True, True, False])
     monkeypatch.setattr(web_browser, "_profile_process_alive", alive)
     sleep = AsyncMock()
     monkeypatch.setattr(web_browser.asyncio, "sleep", sleep)
@@ -59,4 +59,4 @@ async def test_url_acik_profile_devredilince_profil_kapanmadan_bitmez(tmp_path, 
     await web_browser.open_login_browser("gemini_web", "main")
 
     assert sleep.await_count == 2
-    assert alive.call_count == 3
+    assert alive.call_count == 4

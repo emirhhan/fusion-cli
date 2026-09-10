@@ -163,7 +163,6 @@ def register_session(
 
     from ..config.models import WebSessionConfig
     from ..config.writer import write_web_sessions
-    from .web_browser import web_secret_name
 
     if provider not in WEB_BROWSER_PROVIDERS:
         return None, {"ok": False, "metin": f"Tanınmayan web sağlayıcısı: {provider}"}
@@ -179,7 +178,9 @@ def register_session(
         provider=provider,
         account=hesap,
         transport="browser",
-        credential_ref=web_secret_name(provider, hesap),
+        # Görünür Chrome girişinde gerçek profil tek kaynaktır; eski elle
+        # aktarılmış Cookie başlığı yeni oturumu her turda ezmemelidir.
+        credential_ref=None,
         tool_support="emulated" if tool_support != "none" else "none",
         tool_eval_passed=korunan_olcum,
         enabled=True,

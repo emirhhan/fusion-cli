@@ -346,9 +346,12 @@ _SINGLETON_LOCK_NAMES = ("SingletonLock", "SingletonCookie", "SingletonSocket")
 def clear_profile_singletons(profile: Path) -> None:
     """Bir önceki çalıştırmadan kalan Chrome tekil-örnek kilitlerini temizle.
 
-    Bu kilitler temizlenmezse görünür giriş tarayıcısı açılır açılmaz kapanır.  İşaretler
-    Chrome tarafından her başlatmada yeniden oluşturulur; silinmeleri güvenlidir.
+    Yalnız artık kullanılmayan kilitler silinir; etkin profil ikinci kez açılamaz.
     """
+    if _profile_process_alive(profile):
+        raise WebBrowserError(
+            "Bu Fusion Chrome profili hâlâ açık. Giriş penceresini kapatıp tekrar dene."
+        )
     for name in _SINGLETON_LOCK_NAMES:
         lock = profile / name
         # Bunlar genelde sembolik bağlantıdır; hedef var olmasa bile bağlantı silinmelidir.

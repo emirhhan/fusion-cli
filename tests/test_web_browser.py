@@ -14,6 +14,7 @@ from fusion_cli.providers import web_registry
 from fusion_cli.providers.web_browser import (
     WEB_BROWSER_PROVIDERS,
     WebBrowserAuthError,
+    WebBrowserError,
     _raise_known_page_error,
     browser_profile_dir,
     browser_turn_budget,
@@ -78,7 +79,8 @@ def test_secret_adi_ve_profil_yolu_guvenli_slug_kullanir(monkeypatch, tmp_path):
     )
 
 
-def test_clear_profile_singletons_takili_kilitleri_siler(tmp_path):
+def test_clear_profile_singletons_takili_kilitleri_siler(tmp_path, monkeypatch):
+    monkeypatch.setattr("fusion_cli.providers.web_browser._profile_process_alive", lambda _: False)
     # Chrome, çökme/zorla kapatma sonrası bu sembolik bağlantıları geride bırakır ve
     # bir sonraki başlatmada "mevcut oturuma devret" moduna girip hemen kapanır.
     (tmp_path / "SingletonLock").symlink_to("unknown-host-2311")
@@ -98,6 +100,15 @@ def test_clear_profile_singletons_takili_kilitleri_siler(tmp_path):
 
 def test_clear_profile_singletons_olmayan_dizinde_patlamaz(tmp_path):
     clear_profile_singletons(tmp_path / "yok")
+
+
+def test_etkin_profilin_kilidi_silinmez(tmp_path, monkeypatch):
+    lock = tmp_path / "SingletonLock"
+    lock.symlink_to("test-host-123")
+    monkeypatch.setattr("fusion_cli.providers.web_browser._profile_process_alive", lambda _: True)
+    with pytest.raises(WebBrowserError, match="hâlâ açık"):
+        clear_profile_singletons(tmp_path)
+    assert lock.is_symlink()
 
 
 def test_web_session_varsayilanlari_browser_icin_genisletilebilir():
