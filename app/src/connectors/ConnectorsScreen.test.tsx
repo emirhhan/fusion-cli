@@ -29,6 +29,34 @@ function fakeClient(
 
 describe("ConnectorsScreen", () => {
   afterEach(cleanup);
+  it("özel bağlantı popup'ı odağı alır ve Escape ile açan düğmeye döner", async () => {
+    render(<ConnectorsScreen client={fakeClient()} onClose={() => undefined} />);
+    const add = screen.getByRole("button", { name: "Ekle" });
+    add.focus();
+    fireEvent.click(add);
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(add);
+  });
+  it("popup odağı içeride tutar ve başarısız eklemede girdileri korur", async () => {
+    render(<ConnectorsScreen client={fakeClient([], { "baglanti.ekle": { ok: false, metin: "Sunucuya ulaşılamadı" } })} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    const ad = within(dialog).getByLabelText("Ad");
+    fireEvent.change(ad, { target: { value: "deneme" } });
+    fireEvent.change(within(dialog).getByLabelText("Komut"), { target: { value: "npx test" } });
+    const submit = within(dialog).getByRole("button", { name: "Ekle" });
+    submit.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Özel sunucu formunu kapat" }));
+    fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(submit);
+    fireEvent.click(submit);
+    await within(dialog).findByText("Sunucuya ulaşılamadı");
+    expect(ad).toHaveProperty("value", "deneme");
+  });
 
   it("keşfet sekmesinde 3 banner ve katalog tablosunu gösterir", async () => {
     const client = fakeClient();

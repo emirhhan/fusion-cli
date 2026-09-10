@@ -3,6 +3,17 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [0.3.0a10] — 2026-09-10
+
+- Paketli uygulamada web girişinin Chrome açılmadan kapanmasına neden olan
+  hesap parametresi düzeltildi; gerçek CLI ayrıştırıcısıyla regresyon testi eklendi.
+- Yeni Fusion tarayıcı profillerinde Chrome ilk kurulum ve varsayılan tarayıcı
+  ekranları atlanır; normal Chrome profili kullanılmaz.
+- Kontrol paneli kategorilere ayrıldı; sağlayıcı ayrıntılarının yanlışlıkla
+  yan yana çizilmesi düzeltildi ve kenar çubuğu daha kompakt hale getirildi.
+- MCP ekleme ve yapılandırma formları odak yönetimi ve Escape desteği olan
+  ayrı bir bağlantı penceresinde açılır.
+
 ## [0.3.0a9] — 2026-09-10
 
 - Masaüstü kontrol paneline imzalı uygulama içi güncelleme eklendi; GitHub

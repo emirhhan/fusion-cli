@@ -43,7 +43,7 @@ describe("tasarım token'ları", () => {
   });
 
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
-    expect(css).toContain("--kenar-cubugu-genislik: 296px");
+    expect(css).toContain("--kenar-cubugu-genislik: 280px");
   });
 
   it("ekranların kullandığı ana metin rengini tanımlar", () => {

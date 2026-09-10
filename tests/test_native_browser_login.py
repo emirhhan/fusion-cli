@@ -23,6 +23,8 @@ async def test_macos_girisi_otomasyon_bayraklari_olmadan_izole_profili_acar(tmp_
     assert launch.call_args.args == (
         "/Chrome",
         f"--user-data-dir={tmp_path}",
+        "--no-first-run",
+        "--no-default-browser-check",
         "https://gemini.google.com/app",
     )
     process.wait.assert_awaited_once()

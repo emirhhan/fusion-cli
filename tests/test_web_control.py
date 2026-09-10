@@ -40,7 +40,28 @@ def test_paketlenmis_ikili_modul_bayragiyla_calistirilmaz(monkeypatch: pytest.Mo
     assert "-m" not in argv
     assert argv[0].endswith("fusion")
     assert argv[1] == "web-login"
-    assert argv[2:] == ["gemini_web", "main"]
+    assert argv[2:] == ["gemini_web", "--account", "main"]
+
+
+@pytest.mark.parametrize("account", ["main", "work"])
+def test_paketli_giris_komutu_gercek_cli_sozlesmesiyle_uyumludur(monkeypatch, account):
+    """Panelin ürettiği komut gerçekten giriş işlevine ulaşmalı, parse hatası olmamalı."""
+    from typer.testing import CliRunner
+
+    from fusion_cli.cli.app import app
+    from fusion_cli.providers import web_browser
+
+    calls = []
+
+    async def open_browser(provider, selected_account):
+        calls.append((provider, selected_account))
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(web_browser, "open_login_browser", open_browser)
+    result = CliRunner().invoke(app, login_argv("gemini_web", account)[1:])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [("gemini_web", account)]
 
 
 def test_kaynak_kurulumda_modul_girisi_kullanilir(monkeypatch: pytest.MonkeyPatch):

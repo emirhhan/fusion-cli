@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { ConnectorIcon } from "./ConnectorIcon";
 import { ConnectorSetupForm } from "./ConnectorSetupForm";
+import { ConnectorDialog } from "./ConnectorDialog";
 import {
   addPayloadFor,
   allConnectors,
@@ -216,16 +217,20 @@ export function ConnectorsScreen({
       )}
 
       {setupEntry && (
+        <ConnectorDialog label={`${setupEntry.label} bağlantısını kur`} onClose={() => setSetupEntry(null)}>
         <ConnectorSetupForm
           busy={busy !== null}
           entry={setupEntry}
           onCancel={() => setSetupEntry(null)}
           onSubmit={(values) => void submitSetup(values)}
         />
+        {notice && <p role="status">{notice}</p>}
+        </ConnectorDialog>
       )}
 
       {showCustom && (
-        <section aria-label="Özel MCP sunucusu ekle" className="connectors__custom">
+        <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={() => setShowCustom(false)}>
+        <section className="connectors__custom">
           <div className="connectors__custom-head">
             <h3>Özel sunucu ekle</h3>
             <button
@@ -295,6 +300,8 @@ export function ConnectorsScreen({
             </button>
           </div>
         </section>
+        {notice && <p role="status">{notice}</p>}
+        </ConnectorDialog>
       )}
 
       <div className="connectors__tabs" role="tablist">

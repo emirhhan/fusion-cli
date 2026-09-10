@@ -56,7 +56,7 @@ def login_argv(provider: str, account: str) -> list[str]:
         raise ValueError(f"tanınmayan web sağlayıcısı: {provider}")
     normalized = normalize_account(account or "main")
     if getattr(sys, "frozen", False):
-        return [sys.executable, "web-login", provider, normalized]
+        return [sys.executable, "web-login", provider, "--account", normalized]
     return [sys.executable, "-m", "fusion_cli.providers.web_login", provider, normalized]
 
 

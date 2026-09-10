@@ -440,3 +440,10 @@
     display: none;
   }
 }
+.connector-dialog__backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: rgb(0 0 0 / 38%); }
+.connector-dialog { width: min(520px, 100%); max-height: calc(100dvh - 48px); overflow: auto; border: 1px solid var(--border-subtle); border-radius: 16px; background: var(--surface-raised); color: var(--text-primary); box-shadow: 0 24px 80px rgb(0 0 0 / 25%); padding: 24px; }
+.connector-dialog .connectors__custom { margin: 0; padding: 0; border: 0; background: transparent; }
+.connector-dialog .connectors__custom-form { grid-template-columns: 1fr; gap: 8px; }
+.connector-dialog .connectors__custom-form input, .connector-dialog .connectors__custom-form select { min-height: 36px; width: 100%; box-sizing: border-box; }
+.connector-dialog .connectors__custom-form label { margin-top: 8px; }
+.connector-dialog .connectors__custom-submit { margin-top: 12px; justify-self: end; }

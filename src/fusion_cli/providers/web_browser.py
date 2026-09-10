@@ -1160,6 +1160,8 @@ async def open_login_browser(provider: str, account: str) -> None:
             process = await asyncio.create_subprocess_exec(
                 native,
                 f"--user-data-dir={profile}",
+                "--no-first-run",
+                "--no-default-browser-check",
                 definition.home_url,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,

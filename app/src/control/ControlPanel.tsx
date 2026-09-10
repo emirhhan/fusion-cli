@@ -29,7 +29,9 @@ const SECTION_KEYS = [
   "sağlayıcılar bağlantılar anahtar api oturum web",
   "yerel gateway openai uyumlu uç nokta cursor cline",
   "mcp sunucuları araç bağlantıları",
+  "güncelleme sürüm uygulama",
 ] as const;
+const SECTION_LABELS = ["Modeller", "İzinler", "Sağlayıcılar", "Gateway", "MCP", "Güncellemeler"];
 
 const permissionLabels: Record<string, string> = {
   ask: "Her işlemde sor",
@@ -74,6 +76,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [section, setSection] = useState(2);
   const [newCandidate, setNewCandidate] = useState({ ad: "", model: "" });
 
   const reload = useCallback(async () => {
@@ -104,7 +107,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
   /** Bölüm arama terimiyle eşleşiyor mu? Anahtarlar ekranda görünmeyen eş
    *  anlamlıları da içerir: kullanıcı "anahtar" yazınca sağlayıcılar çıksın. */
   const eslesir = (anahtarlar: string) =>
-    !aranan || anahtarlar.toLocaleLowerCase("tr").includes(aranan);
+    aranan ? anahtarlar.toLocaleLowerCase("tr").includes(aranan) : anahtarlar === SECTION_KEYS[section];
   const bolumler = SECTION_KEYS.filter(eslesir);
   const canAddCandidate = Boolean(newCandidate.ad.trim() && newCandidate.model.trim());
 
@@ -125,14 +128,18 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
           />
           <Button onClick={onClose} variant="secondary">Kapat</Button>
         </>}
-        description="Modeller, bağlantılar, izinler ve yerel gateway tek görünümde."
+        description="Fusion çalışma alanını ve bağlantılarını yönet."
         eyebrow="Fusion for macOS"
         title={title}
       />
       {(notice || error) && <p className="control-panel__notice" data-error={Boolean(error)} role={error ? "alert" : "status"}>{error ?? notice}</p>}
 
+      <div className="control-panel__workspace">
+      <nav className="control-panel__nav" aria-label="Kontrol kategorileri">
+        {SECTION_LABELS.map((label, index) => <button key={label} type="button" aria-current={!aranan && section === index ? "page" : undefined} onClick={() => { setSection(index); setQuery(""); }}>{label}</button>)}
+      </nav>
       <div className="control-panel__layout">
-        {eslesir("güncelleme sürüm uygulama") && <UpdatePanel />}
+        {eslesir(SECTION_KEYS[5]) && <UpdatePanel />}
         {eslesir(SECTION_KEYS[0]) && (
         <section className="control-panel__section">
           <div className="control-panel__section-heading"><div><span>Çalışma zamanı</span><h3>Model düzeni</h3></div><i data-online="true">Hazır</i></div>
@@ -205,7 +212,6 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
                   Adayı ekle
                 </button>
               </div>
-              <small>Havuz `/model` komutuyla yazılır; panel kendi yazma yolunu açmaz.</small>
             </div>
           )}
         </section>
@@ -232,14 +238,12 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
         </section>
         )}
 
-        {eslesir(SECTION_KEYS[2]) && (
-        <section className="control-panel__section control-panel__section--wide">
+        <section hidden={!eslesir(SECTION_KEYS[2])} className="control-panel__section control-panel__section--wide">
           {state.sir_deposu_hatasi && (
             <p className="control-panel__warning" role="status">{state.sir_deposu_hatasi}</p>
           )}
           <ProviderList client={client} onChanged={onProvidersChanged} />
         </section>
-        )}
 
         {eslesir(SECTION_KEYS[3]) && (
         <section className="control-panel__section">
@@ -264,6 +268,7 @@ export function ControlPanel({ client, onChangeRoot, onClose, onProvidersChanged
         {bolumler.length === 0 && (
           <p className="control-panel__empty">"{query.trim()}" için eşleşen bölüm yok.</p>
         )}
+      </div>
       </div>
       {permissions.activeKind && (
         <PermissionPrompt

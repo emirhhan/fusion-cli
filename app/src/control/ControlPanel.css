@@ -4,7 +4,12 @@
 .control-panel__section p { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
 .control-panel__notice { background: var(--surface-accent-subtle); border-radius: var(--radius-sm); font-size: var(--text-sm); margin: 0 auto 14px; max-width: var(--page-max-width); padding: 9px 12px; }
 .control-panel__notice[data-error="true"] { color: var(--text-danger); }
-.control-panel__layout { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: auto; max-width: var(--page-max-width); }
+.control-panel__workspace { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 28px; margin: auto; max-width: 960px; }
+.control-panel__nav { display: flex; flex-direction: column; gap: 4px; align-self: start; }
+.control-panel__nav button { text-align: left; min-height: 36px; padding: 8px 12px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.control-panel__nav button:hover, .control-panel__nav button[aria-current="page"] { background: var(--surface-hover); color: var(--text-primary); }
+.control-panel__nav button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.control-panel__layout { display: grid; align-content: start; gap: 14px; min-width: 0; }
 .control-panel__section { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 18px; }
 .control-panel__section--wide { grid-column: 1 / -1; }
 .control-panel__section-heading { align-items: start; display: flex; justify-content: space-between; margin-bottom: 14px; }
@@ -25,9 +30,10 @@
 .control-panel__endpoint { background: var(--surface-hover); border-radius: var(--radius-sm); display: block; font-size: var(--text-xs); margin-bottom: 10px; overflow-wrap: anywhere; padding: 10px; }
 .control-panel__section > .ui-button { margin-top: 14px; }
 .control-panel ul { list-style: none; margin: 0; padding: 0; }
-.control-panel li { align-items: center; border-top: 1px solid var(--border-subtle); display: flex; font-size: var(--text-sm); justify-content: space-between; padding: 9px 0; }
+.control-panel__section > ul > li { align-items: center; border-top: 1px solid var(--border-subtle); display: flex; font-size: var(--text-sm); justify-content: space-between; padding: 9px 0; }
 .control-panel li code { color: var(--text-secondary); font-size: var(--text-2xs); }
 @media (max-width: 900px) { .control-panel { padding: 22px; } .control-panel__layout { grid-template-columns: 1fr; } .control-panel__section--wide { grid-column: auto; } .control-panel__provider { grid-template-columns: 1fr auto; } .control-panel__provider input { grid-column: 1 / -1; } }
+@media (max-width: 650px) { .control-panel__workspace { grid-template-columns: 1fr; gap: 16px; } .control-panel__nav { flex-direction: row; flex-wrap: wrap; } .control-panel__search { width: 150px; } }
 
 /* Anahtarlık arızası sessiz kalmaz: kullanıcı kayıtlı anahtarını kaybetmiş
    sanmasın diye sebep panelde görünür. */
