@@ -99,6 +99,97 @@ describe("ConnectorsScreen", () => {
     );
   });
 
+  it("sağlayıcı üzerinden bağlantıda hazır sağlayıcıyı seçtirir ve uyarısını gösterir", async () => {
+    const client = fakeClient([], {
+      "baglanti.saglayicilar": {
+        ok: true,
+        saglayicilar: [
+          { id: "claude_web", ad: "Claude Web", adres: "https://claude.ai/settings/connectors", hazir: true },
+          { id: "chatgpt_web", ad: "ChatGPT Web", adres: "https://chatgpt.com/#settings/Connectors", hazir: false },
+        ],
+      },
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.saglayicilar", {}));
+    // Hazır olan seçilebilir, olmayan devre dışı.
+    const hazir = within(dialog).getByLabelText(/Claude Web/) as HTMLInputElement;
+    const hazirDegil = within(dialog).getByLabelText(/ChatGPT Web/) as HTMLInputElement;
+    expect(hazir.disabled).toBe(false);
+    expect(hazirDegil.disabled).toBe(true);
+    // Kullanıcı bu bağlantının neye bağımlı olduğunu görmeli.
+    expect(within(dialog).getByText(/yalnızca giriş yaptığınız model bağlıyken/i)).toBeTruthy();
+  });
+
+  it("hiç web sağlayıcısı bağlı değilse uyarır ve eklemeye izin vermez", async () => {
+    const client = fakeClient([], {
+      "baglanti.saglayicilar": {
+        ok: true,
+        saglayicilar: [
+          { id: "claude_web", ad: "Claude Web", adres: "https://claude.ai/settings/connectors", hazir: false },
+        ],
+      },
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+
+    await waitFor(() =>
+      expect(within(dialog).getByText(/hiçbir web sağlayıcısına bağlı değilsiniz/i)).toBeTruthy(),
+    );
+    expect(
+      (within(dialog).getByRole("button", { name: "Ekle" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("sağlayıcı bağlantısını ekler ve panelini açar", async () => {
+    const client = fakeClient([], {
+      "baglanti.saglayicilar": {
+        ok: true,
+        saglayicilar: [
+          { id: "claude_web", ad: "Claude Web", adres: "https://claude.ai/settings/connectors", hazir: true },
+        ],
+      },
+      "baglanti.saglayici_ekle": {
+        ok: true,
+        ad: "Meta Ads",
+        mcp_adresi: "https://mcp.facebook.com/ads",
+        adres: "https://claude.ai/settings/connectors",
+        saglayici: "claude_web",
+      },
+    });
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.saglayicilar", {}));
+    fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Meta Ads" } });
+    fireEvent.change(within(dialog).getByLabelText("MCP adresi"), {
+      target: { value: "https://mcp.facebook.com/ads" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ekle" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith(
+        "baglanti.saglayici_ekle",
+        expect.objectContaining({ ad: "Meta Ads", saglayici: "claude_web" }),
+      ),
+    );
+    // Ekleme sonrası kullanıcıya yapıştıracağı adres ve paneli açan düğme verilir.
+    const panel = await screen.findByRole("button", { name: "Sağlayıcı panelini aç" });
+    fireEvent.click(panel);
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith(
+        "baglanti.panel_ac",
+        expect.objectContaining({ saglayici: "claude_web" }),
+      ),
+    );
+  });
+
   it("keşfet sekmesinde 3 banner ve katalog tablosunu gösterir", async () => {
     const client = fakeClient();
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);

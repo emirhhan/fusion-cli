@@ -447,3 +447,81 @@
 .connector-dialog .connectors__custom-form input, .connector-dialog .connectors__custom-form select { min-height: 36px; width: 100%; box-sizing: border-box; }
 .connector-dialog .connectors__custom-form label { margin-top: 8px; }
 .connector-dialog .connectors__custom-submit { margin-top: 12px; justify-self: end; }
+
+/* --- Sağlayıcı-barındırmalı bağlantı kurulumu -----------------------------
+   Bu akışta kullanıcı iki şeyi birlikte anlamak zorunda: bağlantının HANGİ
+   oturuma bağımlı olduğu ve adresi NEREYE yapıştıracağı. Bu yüzden açıklama
+   metni ve seçim listesi görsel olarak ayrılır; uyarı ise sessiz bir ipucu
+   değil, durduran bir blok olarak görünür. */
+.connectors__hosted-note {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.connectors__hosted-note strong { color: var(--text-primary); }
+
+.connectors__hosted-warn {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--text-danger);
+  border-radius: var(--radius-sm);
+  color: var(--text-danger);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.connectors__hosted-list {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-sidebar);
+}
+
+.connectors__hosted-list legend {
+  padding: 0 var(--space-2);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.connectors__hosted-option {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  /* Hazır olmayan sağlayıcı tıklanabilir görünmemeli; sebebi yanında yazar. */
+  transition: background var(--duration-fast, 150ms) ease;
+}
+
+.connectors__hosted-option:hover:not(:has(input:disabled)) { background: var(--surface-hover); }
+.connectors__hosted-option:has(input:checked) { background: var(--surface-accent-subtle); }
+.connectors__hosted-option:has(input:disabled) { color: var(--text-secondary); cursor: default; }
+.connectors__hosted-option em { font-style: normal; color: var(--text-secondary); }
+
+.connectors__hosted-done {
+  margin: var(--space-3) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-accent-subtle);
+  font-size: var(--text-sm);
+}
+
+.connectors__hosted-done p { margin: 0 0 var(--space-2); line-height: 1.5; }
+
+.connectors__hosted-done code {
+  display: block;
+  margin-bottom: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: var(--text-xs);
+  /* Uzun MCP adresi taşmasın: kullanıcı tamamını görüp kopyalayabilmeli. */
+  overflow-wrap: anywhere;
+}

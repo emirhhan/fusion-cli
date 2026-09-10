@@ -46,12 +46,27 @@ const STATE_LABELS: Record<string, string> = {
 
 type TabId = "kesfet" | "bagli";
 
+interface HostedProvider {
+  adres: string;
+  ad: string;
+  hazir: boolean;
+  id: string;
+}
+
+interface HostedResult {
+  adres: string;
+  ad: string;
+  mcp_adresi: string;
+  saglayici: string;
+}
+
 const CUSTOM_EMPTY = {
   ad: "",
   client_id: "",
   kapsamlar: "",
   komut: "",
-  tasima: "stdio" as ConnectorTransport,
+  saglayici: "",
+  tasima: "stdio" as ConnectorTransport | "hosted",
   token: "",
   url: "",
 };
@@ -71,6 +86,10 @@ export function ConnectorsScreen({
   const [showCustom, setShowCustom] = useState(false);
   const [setupEntry, setSetupEntry] = useState<CatalogEntry | null>(null);
   const [custom, setCustom] = useState(CUSTOM_EMPTY);
+  // Sağlayıcı-barındırmalı bağlantı: araçlar Fusion'da değil, kullanıcının zaten
+  // giriş yaptığı web sağlayıcısının connector ekranında yaşar.
+  const [providers, setProviders] = useState<HostedProvider[] | null>(null);
+  const [hosted, setHosted] = useState<HostedResult | null>(null);
 
   const load = useCallback(async () => {
     const result = (await client.request("baglanti.listele", {})) as RpcResult;
@@ -88,6 +107,35 @@ export function ConnectorsScreen({
     const timer = window.setInterval(() => void load(), 1200);
     return () => window.clearInterval(timer);
   }, [load, rows]);
+
+  // Tür "hosted" seçilince sağlayıcılar okunur. Liste veriden gelir: hangi
+  // sağlayıcının hazır olduğunu arayüz TAHMİN ETMEZ.
+  useEffect(() => {
+    if (custom.tasima !== "hosted" || providers !== null) return;
+    let iptal = false;
+    void (async () => {
+      try {
+        const result = (await client.request("baglanti.saglayicilar", {})) as {
+          ok?: boolean;
+          saglayicilar?: HostedProvider[];
+        };
+        if (!iptal && result?.ok) setProviders(result.saglayicilar ?? []);
+      } catch {
+        if (!iptal) setProviders([]);
+      }
+    })();
+    return () => {
+      iptal = true;
+    };
+  }, [client, custom.tasima, providers]);
+
+  // İlk hazır sağlayıcı kendiliğinden seçilir: tek seçenek varken kullanıcıyı
+  // ayrıca tıklatmak gereksiz bir adımdır.
+  useEffect(() => {
+    if (custom.tasima !== "hosted" || custom.saglayici) return;
+    const ilk = providers?.find((item) => item.hazir);
+    if (ilk) setCustom((c) => ({ ...c, saglayici: ilk.id }));
+  }, [custom.saglayici, custom.tasima, providers]);
 
   const run = useCallback(
     async (name: string, data: Record<string, unknown>, key: string) => {
@@ -149,12 +197,32 @@ export function ConnectorsScreen({
     [rows],
   );
 
+  const hazirSaglayici = providers?.some((item) => item.hazir) ?? false;
   const canAddCustom = Boolean(
     custom.ad.trim() &&
-      (custom.tasima === "stdio" ? custom.komut.trim() : custom.url.trim()),
+      (custom.tasima === "stdio" ? custom.komut.trim() : custom.url.trim()) &&
+      // Barındırmalı bağlantı, taşıyacak bir oturum olmadan kaydedilemez: kayıt
+      // edilir ama hiç çalışmaz ve kullanıcı sebebini anlamazdı.
+      (custom.tasima !== "hosted" || (hazirSaglayici && Boolean(custom.saglayici))),
   );
 
+  const submitHosted = async () => {
+    const result = (await run(
+      "baglanti.saglayici_ekle",
+      { ad: custom.ad, url: custom.url, saglayici: custom.saglayici },
+      "add:hosted",
+    )) as (HostedResult & { ok?: boolean }) | undefined;
+    if (result?.ok) {
+      setHosted(result);
+      setCustom((c) => ({ ...CUSTOM_EMPTY, saglayici: c.saglayici, tasima: "hosted" }));
+    }
+  };
+
   const submitCustom = async () => {
+    if (custom.tasima === "hosted") {
+      await submitHosted();
+      return;
+    }
     const payload =
       custom.tasima === "stdio"
         ? { ad: custom.ad, komut: custom.komut }
@@ -255,6 +323,7 @@ export function ConnectorsScreen({
             >
               <option value="stdio">Yerel komut</option>
               <option value="streamable_http">Uzak MCP · OAuth ya da token</option>
+              <option value="hosted">Sağlayıcı üzerinden · giriş gerekmez</option>
             </select>
             <label htmlFor="ozel-ad">Ad</label>
             <input
@@ -263,7 +332,72 @@ export function ConnectorsScreen({
               placeholder={custom.tasima === "stdio" ? "godot" : "kendi-mcp"}
               value={custom.ad}
             />
-            {custom.tasima === "stdio" ? (
+            {custom.tasima === "hosted" ? (
+              <>
+                <label htmlFor="ozel-hosted-url">MCP adresi</label>
+                <input
+                  id="ozel-hosted-url"
+                  onChange={(event) => setCustom((c) => ({ ...c, url: event.target.value }))}
+                  placeholder="https://mcp.facebook.com/ads"
+                  type="url"
+                  value={custom.url}
+                />
+                <p className="connectors__hosted-note">
+                  Bu bağlantı araçlarını web sağlayıcınızın üzerinden çalıştırır ve{" "}
+                  <strong>yalnızca giriş yaptığınız model bağlıyken</strong> çalışır. Giriş
+                  sağlayıcının kendi ekranında yapılır; token Fusion'a hiç gelmez.
+                </p>
+                {providers === null ? (
+                  <p className="connectors__hosted-note">Sağlayıcılar okunuyor…</p>
+                ) : hazirSaglayici ? (
+                  <fieldset className="connectors__hosted-list">
+                    <legend>Hangi sağlayıcı üzerinden?</legend>
+                    {providers.map((item) => (
+                      <label className="connectors__hosted-option" key={item.id}>
+                        <input
+                          checked={custom.saglayici === item.id}
+                          disabled={!item.hazir}
+                          name="hosted-saglayici"
+                          onChange={() => setCustom((c) => ({ ...c, saglayici: item.id }))}
+                          type="radio"
+                          value={item.id}
+                        />
+                        <span>
+                          {item.ad}
+                          {!item.hazir && <em> · oturum bağlı değil</em>}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <p className="connectors__hosted-warn" role="alert">
+                    Hiçbir web sağlayıcısına bağlı değilsiniz. Bu MCP aracı web sağlayıcılar
+                    üzerinden çalışabilmektedir; önce Ayarlar'dan bir sağlayıcıya giriş yapın.
+                  </p>
+                )}
+                {hosted && (
+                  <div className="connectors__hosted-done">
+                    <p>
+                      <strong>{hosted.ad}</strong> kaydedildi. Sağlayıcının connector ekranını
+                      açın ve şu adresi MCP adresi olarak yapıştırın:
+                    </p>
+                    <code>{hosted.mcp_adresi}</code>
+                    <Button
+                      onClick={() =>
+                        void run(
+                          "baglanti.panel_ac",
+                          { saglayici: hosted.saglayici },
+                          "panel:hosted",
+                        )
+                      }
+                      variant="secondary"
+                    >
+                      Sağlayıcı panelini aç
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : custom.tasima === "stdio" ? (
               <>
                 <label htmlFor="ozel-komut">Komut</label>
                 <input
