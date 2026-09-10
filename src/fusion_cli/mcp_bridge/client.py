@@ -15,12 +15,15 @@ yani Fusion'ın ONAY akışından geçerler (kullanıcı görmeden çalışmazla
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 
 from mcp import ClientSession
+from mcp.client.auth.exceptions import OAuthRegistrationError
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
@@ -30,8 +33,18 @@ from .transport import open_mcp_stream
 
 __all__ = ["McpClient", "McpServerConfig", "RemoteTool"]
 
+_LOG = logging.getLogger(__name__)
+
 #: Uzak aracı Fusion'a bağlayan çalıştırıcı (async ToolExecutor).
 _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
+
+MESSAGE_TIMEOUT = "MCP başlatma zaman aşımına uğradı."
+MESSAGE_FAILED = "MCP sunucusu başlatılamadı."
+MESSAGE_REGISTRATION_REJECTED = (
+    "Bu MCP sunucusu Fusion'ın kendini otomatik kaydetmesine izin vermiyor, bu yüzden "
+    "giriş sayfası açılamadı. Sağlayıcının verdiği bir client_id ile bağlantıyı "
+    "yeniden ekle."
+)
 
 
 @dataclass(slots=True)
@@ -53,6 +66,49 @@ class McpConnectionStatus:
     tool_count: int = 0
     latency_ms: int = 0
     message: str | None = None
+
+
+async def _close_failed_stack(stack: AsyncExitStack, error: BaseException) -> BaseException | None:
+    """Başarısız bağlantının kaynaklarını kapat; asıl hatayı döndür, dış iptalde None.
+
+    SDK taşıma görev grubundaki hatayı (ör. OAuth kaydı reddi) bekleyen
+    `initialize` çağrısını İPTAL ederek bildirir; asıl hata ancak görev grubu
+    kapanırken `ExceptionGroup` içinde görünür. Ölçüldü (Meta Ads MCP): bu iptal
+    `except Exception`'dan kaçıyor, giriş görevini düşürüyor ve arayüz sonsuza
+    dek "Giriş bekleniyor" gösteriyordu. Görevin kendisi dışarıdan iptal
+    edildiyse iptal yutulmaz.
+    """
+    try:
+        await stack.aclose()
+    except Exception as close_error:  # görev grubu asıl hatayı kapanışta verir
+        error = close_error
+    if isinstance(error, Exception):
+        return error
+    task = asyncio.current_task()
+    is_internal_cancel = isinstance(error, asyncio.CancelledError) and (
+        task is None or task.cancelling() == 0
+    )
+    return error if is_internal_cancel else None
+
+
+def _leaf_errors(error: BaseException) -> Iterator[BaseException]:
+    if isinstance(error, BaseExceptionGroup):
+        for inner in error.exceptions:
+            yield from _leaf_errors(inner)
+    else:
+        yield error
+
+
+def _failure_status(server: str, error: BaseException, *, latency_ms: int) -> McpConnectionStatus:
+    """Başarısızlığı kullanıcının üzerine eylem yapabileceği duruma çevir."""
+    leaves = tuple(_leaf_errors(error))
+    if any(isinstance(leaf, OAuthRegistrationError) for leaf in leaves):
+        state, message = "hata", MESSAGE_REGISTRATION_REJECTED
+    elif any(isinstance(leaf, TimeoutError) for leaf in leaves):
+        state, message = "zaman_asimi", MESSAGE_TIMEOUT
+    else:
+        state, message = "hata", MESSAGE_FAILED
+    return McpConnectionStatus(server=server, state=state, latency_ms=latency_ms, message=message)
 
 
 class McpClient:
@@ -84,12 +140,14 @@ class McpClient:
         started = time.monotonic()
         stack = AsyncExitStack()
         try:
-            async with asyncio.timeout(self._timeout_seconds):
+            async with asyncio.timeout(self._timeout_seconds) as deadline:
                 auth = None
                 if config.transport is McpTransport.STREAMABLE_HTTP:
                     from .oauth import oauth_provider_for
 
-                    bundle = await oauth_provider_for(config)
+                    bundle = await oauth_provider_for(
+                        config, on_waiting=self._deadline_pause(deadline)
+                    )
                     auth = bundle.auth
                     stack.push_async_callback(bundle.callback.close)
                 read, write = await stack.enter_async_context(open_mcp_stream(config, auth=auth))
@@ -102,22 +160,33 @@ class McpClient:
                     state="bagli",
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
-        except TimeoutError:
-            await stack.aclose()
-            self._statuses[config.name] = McpConnectionStatus(
-                server=config.name,
-                state="zaman_asimi",
-                latency_ms=int((time.monotonic() - started) * 1000),
-                message="MCP başlatma zaman aşımına uğradı.",
+        except BaseException as error:
+            failure = await _close_failed_stack(stack, error)
+            if failure is None:
+                raise
+            _LOG.warning(
+                "MCP bağlantısı kurulamadı",
+                extra={"sunucu": config.name, "hata": type(failure).__name__},
             )
-        except Exception:
-            await stack.aclose()
-            self._statuses[config.name] = McpConnectionStatus(
-                server=config.name,
-                state="hata",
-                latency_ms=int((time.monotonic() - started) * 1000),
-                message="MCP sunucusu başlatılamadı.",
+            self._statuses[config.name] = _failure_status(
+                config.name, failure, latency_ms=int((time.monotonic() - started) * 1000)
             )
+
+    def _deadline_pause(self, deadline: asyncio.Timeout) -> Callable[[bool], None]:
+        """Kullanıcı tarayıcıda giriş yaparken bağlantı süresini durdur.
+
+        Süre ağ adımları içindir; OAuth girişini bekleyen kullanıcıya uygulanınca
+        girişi saniyeler içinde bitirmeyen herkes "zaman aşımı" görüyordu. Bekleme
+        kendi üst sınırını `LoopbackOAuthCallback` içinde taşır.
+        """
+        loop = asyncio.get_running_loop()
+
+        def on_waiting(is_waiting: bool) -> None:
+            # Bağlam kapandıktan sonra gelen bildirim (iptal temizliği) anlamsızdır.
+            with contextlib.suppress(RuntimeError):
+                deadline.reschedule(None if is_waiting else loop.time() + self._timeout_seconds)
+
+        return on_waiting
 
     async def list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""

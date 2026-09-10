@@ -38,12 +38,17 @@ class McpConnectionService:
     def login_status(self, name: str) -> McpConnectionStatus:
         task = self._tasks.get(name)
         if task is not None and task.done():
-            try:
-                status = task.result()
-            except Exception:
-                status = McpConnectionStatus(
-                    server=name, state="hata", message="MCP girişi tamamlanamadı."
-                )
+            if task.cancelled():
+                # İptal edilmiş görevin `result()`'ı CancelledError fırlatır ve
+                # `baglanti.listele` isteğini düşürürdü.
+                status = McpConnectionStatus(server=name, state="kapali")
+            else:
+                try:
+                    status = task.result()
+                except Exception:
+                    status = McpConnectionStatus(
+                        server=name, state="hata", message="MCP girişi tamamlanamadı."
+                    )
             self._statuses[name] = status
             self._tasks.pop(name, None)
         return self._statuses.get(name, McpConnectionStatus(server=name, state="kapali"))

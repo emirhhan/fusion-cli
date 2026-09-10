@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import webbrowser
+from collections.abc import Callable
 from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
@@ -28,8 +29,16 @@ def validate_remote_mcp_url(url: str) -> None:
 class LoopbackOAuthCallback:
     """Tek OAuth dönüşü için yalnız loopback üzerinde yaşayan HTTP dinleyici."""
 
-    def __init__(self, *, timeout_seconds: float = 300) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 300,
+        on_waiting: Callable[[bool], None] | None = None,
+    ) -> None:
         self._timeout_seconds = timeout_seconds
+        #: Kullanıcının tarayıcıda giriş yaptığı süreyi bildirir (True: başladı,
+        #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
+        self._on_waiting = on_waiting
         self._server: asyncio.Server | None = None
         self._result: asyncio.Future[tuple[str, str | None]] | None = None
         self.redirect_uri = ""
@@ -45,6 +54,8 @@ class LoopbackOAuthCallback:
         self.redirect_uri = f"http://127.0.0.1:{port}/oauth/callback"
 
     async def open_redirect(self, url: str) -> None:
+        if self._on_waiting is not None:
+            self._on_waiting(True)
         await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
 
     async def wait_for_code(self) -> tuple[str, str | None]:
@@ -53,6 +64,8 @@ class LoopbackOAuthCallback:
         try:
             return await asyncio.wait_for(self._result, timeout=self._timeout_seconds)
         finally:
+            if self._on_waiting is not None:
+                self._on_waiting(False)
             await self.close()
 
     async def close(self) -> None:
@@ -114,10 +127,12 @@ class OAuthBundle:
     storage: KeyringTokenStorage
 
 
-async def oauth_provider_for(config: McpServerConfig) -> OAuthBundle:
+async def oauth_provider_for(
+    config: McpServerConfig, *, on_waiting: Callable[[bool], None] | None = None
+) -> OAuthBundle:
     """Yapılandırma için SDK OAuth sağlayıcısı ve yaşam döngüsü kaynaklarını kur."""
     validate_remote_mcp_url(config.url)
-    callback = LoopbackOAuthCallback()
+    callback = LoopbackOAuthCallback(on_waiting=on_waiting)
     await callback.start()
     storage = KeyringTokenStorage(config.url)
     metadata = OAuthClientMetadata(

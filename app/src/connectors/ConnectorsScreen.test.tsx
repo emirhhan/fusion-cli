@@ -57,6 +57,25 @@ describe("ConnectorsScreen", () => {
     await within(dialog).findByText("Sunucuya ulaşılamadı");
     expect(ad).toHaveProperty("value", "deneme");
   });
+  it("otomatik kaydı reddeden uzak sunucu için client_id girilebilir", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "streamable_http" } });
+    fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Meta Ads" } });
+    fireEvent.change(within(dialog).getByLabelText("MCP adresi"), {
+      target: { value: "https://mcp.facebook.com/ads" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Client ID"), { target: { value: "123456" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Ekle" }));
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith(
+        "baglanti.ekle",
+        expect.objectContaining({ client_id: "123456", tasima: "streamable_http" }),
+      ),
+    );
+  });
 
   it("keşfet sekmesinde 3 banner ve katalog tablosunu gösterir", async () => {
     const client = fakeClient();

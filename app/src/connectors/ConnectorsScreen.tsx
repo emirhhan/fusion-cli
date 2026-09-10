@@ -288,6 +288,13 @@ export function ConnectorsScreen({
                   placeholder="boş bırakılabilir"
                   value={custom.kapsamlar}
                 />
+                <label htmlFor="ozel-client">Client ID</label>
+                <input
+                  id="ozel-client"
+                  onChange={(event) => setCustom((c) => ({ ...c, client_id: event.target.value }))}
+                  placeholder="Sunucu otomatik kaydı reddederse sağlayıcının verdiği kimlik"
+                  value={custom.client_id}
+                />
               </>
             )}
             <button
