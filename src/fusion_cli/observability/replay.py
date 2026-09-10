@@ -14,7 +14,7 @@ from typing import Any, cast
 
 from ..core import events as event_module
 from ..core.events import Event, ToolOutcome
-from ..core.types import ModelResult, TokenUsage
+from ..core.types import ModelResult, TokenUsage, ToolCall
 
 #: Ada göre olay sınıfları — tek kaynak `core.events` modülüdür.
 _EVENT_TYPES: dict[str, type[Event]] = {
@@ -61,11 +61,34 @@ def _model_result(payload: dict[str, object]) -> ModelResult | dict[str, object]
     alanlar = {field.name for field in dataclasses.fields(ModelResult)}
     kwargs = {key: payload[key] for key in payload if key in alanlar}
     kwargs.pop("usage", None)
-    kwargs.pop("tool_calls", None)
+    # Araç çağrıları eskiden buradan ATILIYORDU. Olay geri geliyordu ama içi
+    # boşalmış oluyordu: araç kullanan bir turun kaydı, o turu yeniden
+    # üretemiyordu ve kayıp sessizdi (çağrı sayısı 1 → 0).
+    kwargs["tool_calls"] = _tool_calls(payload.get("tool_calls"))
     try:
         return ModelResult(usage=TokenUsage(), **cast("Any", kwargs))
     except (TypeError, ValueError):
         return payload
+
+
+def _tool_calls(value: object) -> tuple[ToolCall, ...]:
+    """Kayıttaki araç çağrılarını geri kur.
+
+    Modül genelindeki TOLERANS burada da geçerlidir: eksik alanlı ya da biçimi
+    bozuk tek bir çağrı yalnız KENDİSİNİ düşürür, olayın tamamını değil. Teşhis
+    aracı elde hiçbir şey bırakmamaktansa eksik kayıt vermelidir.
+    """
+    if not isinstance(value, (list, tuple)):
+        return ()
+    kurulan: list[ToolCall] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        cagri_id, name, arguments = item.get("id"), item.get("name"), item.get("arguments")
+        if not (isinstance(cagri_id, str) and isinstance(name, str) and isinstance(arguments, str)):
+            continue
+        kurulan.append(ToolCall(id=cagri_id, name=name, arguments=arguments))
+    return tuple(kurulan)
 
 
 def _enum(tip: type[Enum], value: str) -> object:
