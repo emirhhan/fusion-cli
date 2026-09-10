@@ -1976,8 +1976,11 @@ async def _execute(
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     tool = registry.get(call.name)
     if execution.allowed_tool_names is not None and call.name not in execution.allowed_tool_names:
+        # Serbest araçlar SÖYLENMELİ: gözlem turunda model yalnız "kapsamda değil"
+        # cevabını görünce aynı yazma aracını başka argümanla yeniden deniyordu.
+        allowed = ", ".join(sorted(execution.allowed_tool_names)) or "yok"
         return ToolResult.failure(
-            "Araç bu adımın izin verilen kapsamında değil."
+            f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
         ), ToolOutcome.BLOCKED
     if tool is not None and tool.mutating and not execution.allow_mutation:
         # Yetenek kapısı onaydan ÖNCE gelir: kullanıcıya sormanın anlamı yok, bu

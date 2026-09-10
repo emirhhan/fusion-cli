@@ -262,6 +262,7 @@ class _PlanRun:
             running,
             self.evidence,
             workspace=workspace_block(self.deps.tool_context),
+            observe=observe,
         )
         if guidance:
             prompt += f"\n\nKURTARMA YÖNERGESİ:\n{guidance}"

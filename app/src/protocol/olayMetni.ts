@@ -34,13 +34,26 @@ function aracAyrintisi(args: unknown): { ayrinti?: string; kaynak?: string } {
   return { ayrinti: url ?? path ?? command ?? query, kaynak: url };
 }
 
+/**
+ * Araç sonucunun başlığı. Reddedilen ya da kapsam dışı kalan çağrı "çalıştı"
+ * görünürse kullanıcı dosyanın yazıldığını sanır; ölçüldü: kurtarma turundaki
+ * `write_file` engellenmişti ama akış "araç çalıştı" diyordu.
+ */
+const ARAC_SONUCU: Record<string, string> = {
+  ok: "araç çalıştı",
+  failed: "araç başarısız",
+  denied: "araç reddedildi",
+  blocked: "araç engellendi",
+};
+
 export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
-      return { metin: `araç çalıştı: ${ad}`, ayrinti, kaynak };
+      const baslik = ARAC_SONUCU[String(veri.outcome ?? "ok")] ?? ARAC_SONUCU.ok;
+      return { metin: `${baslik}: ${ad}`, ayrinti, kaynak };
     }
     case "ModelCallStarted": {
       // Arka plan çağrıları (hakem, sentez, öz-denetim) kullanıcının ilerleme

@@ -30,6 +30,17 @@ describe("olayAdimi", () => {
   });
 
   it.each([
+    ["ok", "araç çalıştı: write_file"],
+    ["failed", "araç başarısız: write_file"],
+    ["denied", "araç reddedildi: write_file"],
+    ["blocked", "araç engellendi: write_file"],
+  ] as const)("%s sonuçlu araç çağrısını çalıştı saymaz", (outcome, metin) => {
+    // Kapsam dışı yazma çağrısı "araç çalıştı" görünüyor, dosya ise hiç yazılmıyordu.
+    const adim = olayAdimi({ olay: "ToolExecuted", name: "write_file", outcome, args: {} });
+    expect(adim?.metin).toBe(metin);
+  });
+
+  it.each([
     ["completed", "görev tamamlandı"],
     ["partial", "görev kısmi kaldı"],
     ["failed", "görev başarısız"],

@@ -180,18 +180,29 @@ def _check_line(check: VerificationCheck) -> str:
     return ""
 
 
+#: Gözlem turunda yazma araçları kapalıdır (bkz. `step_deps`). Ölçüldü (Dead Cells
+#: koşusu): model bunu bilmeden `run_shell` ve `write_file` çağırdı, ikisi de
+#: engellendi ve adım "dosya bulunamadı" ile duraklatıldı.
+OBSERVE_NOTE = (
+    "BU BİR GÖZLEM TURUDUR: dosya yazan, komut çalıştıran ve indiren araçlar bu turda "
+    "KAPALIDIR. Onları çağırma; yalnız okuyarak mevcut durumu ve eksikleri raporla.\n\n"
+)
+
+
 def step_prompt(
     task: str,
     step: PlanStep,
     evidence: dict[str, StepCheckpointEvidence],
     *,
     workspace: str = "",
+    observe: bool = False,
 ) -> str:
     """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret."""
     return (
         f"ŞİMDİ YÜRÜTÜLECEK PLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
         f"ADIM EVRESİ: {step.phase.value}\n"
-        "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
+        + (OBSERVE_NOTE if observe else "")
+        + "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
         f"ANA GÖREV (kapsam ve kısıtlar korunacak):\n{task}\n\n"
         f"{workspace}"
         f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"

@@ -61,3 +61,18 @@ def test_blok_dosya_icerigi_tasimaz(tmp_path):
 
     assert "gizli.py" in blok
     assert "PAROLA" not in blok
+
+
+def test_gozlem_turu_istemi_yazma_araclarinin_kapali_oldugunu_soyler():
+    """Gözlem turunda model yazma araçlarını çağırıyor, reddi fark etmiyordu.
+
+    Ölçüldü (Dead Cells koşusu): kurtarma turu `run_shell` ve `write_file` çağırdı,
+    ikisi de kapsam dışıydı; adım "dosya bulunamadı" ile duraklatıldı.
+    """
+    istem = step_prompt("iş", _step("adim"), {}, observe=True)
+
+    assert "GÖZLEM TURU" in istem
+
+
+def test_normal_adim_istemi_gozlem_notu_tasimaz():
+    assert "GÖZLEM TURU" not in step_prompt("iş", _step("adim"), {})
