@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from types import SimpleNamespace
 
+import pytest
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
@@ -26,6 +27,7 @@ from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.mcp_bridge.client import McpClient
 from fusion_cli.mcp_bridge.server import build_server
+from fusion_cli.mcp_bridge.transport import resolve_stdio_args
 
 from .fakes import make_config
 
@@ -37,6 +39,32 @@ def _server_config(root):
         command=sys.executable,
         args=("-m", "fusion_cli.mcp_bridge.server", str(root)),
     )
+
+
+def test_stdio_gizli_argumani_yapilandirmaya_yazmadan_cozer():
+    config = McpServerConfig(
+        name="postgres",
+        command="server-postgres",
+        args=("__FUSION_SECRET__:POSTGRES_URL",),
+        env_names=("POSTGRES_URL",),
+    )
+
+    assert resolve_stdio_args(
+        config,
+        environ={"POSTGRES_URL": "postgresql://user:secret@localhost/db"},
+    ) == ["postgresql://user:secret@localhost/db"]
+
+
+def test_stdio_gizli_arguman_eksikse_acik_hata_verir():
+    config = McpServerConfig(
+        name="postgres",
+        command="server-postgres",
+        args=("__FUSION_SECRET__:POSTGRES_URL",),
+        env_names=("POSTGRES_URL",),
+    )
+
+    with pytest.raises(ValueError, match="POSTGRES_URL"):
+        resolve_stdio_args(config, environ={})
 
 
 # --- sunucu (birim) -------------------------------------------------------- #

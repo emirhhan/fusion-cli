@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -13,6 +14,29 @@ from mcp.client.streamable_http import streamablehttp_client
 
 from ..config.models import McpServerConfig, McpTransport
 
+_SECRET_ARGUMENT_PREFIX = "__FUSION_SECRET__:"
+
+
+def resolve_stdio_args(
+    config: McpServerConfig, *, environ: Mapping[str, str] | None = None
+) -> list[str]:
+    """Şifreli ortam başvurularını yalnız alt-süreç başlatılırken çöz."""
+    source = os.environ if environ is None else environ
+    allowed = set(config.env_names)
+    resolved: list[str] = []
+    for argument in config.args:
+        if not argument.startswith(_SECRET_ARGUMENT_PREFIX):
+            resolved.append(argument)
+            continue
+        name = argument.removeprefix(_SECRET_ARGUMENT_PREFIX)
+        if name not in allowed:
+            raise ValueError(f"MCP gizli argümanı yapılandırılmamış: {name}")
+        value = source.get(name, "")
+        if not value:
+            raise ValueError(f"MCP gizli argümanı bulunamadı: {name}")
+        resolved.append(value)
+    return resolved
+
 
 @asynccontextmanager
 async def open_mcp_stream(
@@ -22,7 +46,7 @@ async def open_mcp_stream(
     if config.transport is McpTransport.STDIO:
         if not config.command:
             raise ValueError("stdio MCP bağlantısı için komut gerekli")
-        params = StdioServerParameters(command=config.command, args=list(config.args))
+        params = StdioServerParameters(command=config.command, args=resolve_stdio_args(config))
         async with stdio_client(params) as streams:
             yield streams
         return

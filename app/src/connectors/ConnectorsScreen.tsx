@@ -3,6 +3,7 @@ import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { ConnectorIcon } from "./ConnectorIcon";
+import { ConnectorSetupForm } from "./ConnectorSetupForm";
 import {
   addPayloadFor,
   allConnectors,
@@ -66,6 +67,7 @@ export function ConnectorsScreen({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showCustom, setShowCustom] = useState(false);
+  const [setupEntry, setSetupEntry] = useState<CatalogEntry | null>(null);
   const [custom, setCustom] = useState(CUSTOM_EMPTY);
 
   const load = useCallback(async () => {
@@ -115,6 +117,10 @@ export function ConnectorsScreen({
     async (entry: CatalogEntry) => {
       const existing = rowByName.get(entry.id);
       if (!existing) {
+        if (entry.setup?.length) {
+          setSetupEntry(entry);
+          return;
+        }
         await run("baglanti.ekle", addPayloadFor(entry), `add:${entry.id}`);
         return;
       }
@@ -164,6 +170,16 @@ export function ConnectorsScreen({
     }
   };
 
+  const submitSetup = async (values: Readonly<Record<string, string>>) => {
+    if (!setupEntry) return;
+    const result = await run(
+      "baglanti.ekle",
+      addPayloadFor(setupEntry, values),
+      `add:${setupEntry.id}`,
+    );
+    if (result?.ok) setSetupEntry(null);
+  };
+
   const entryLabel = (id: string): string =>
     allConnectors.find((e) => e.id === id)?.label ?? id;
 
@@ -197,6 +213,15 @@ export function ConnectorsScreen({
         <p className="connectors__notice" role="status">
           {notice}
         </p>
+      )}
+
+      {setupEntry && (
+        <ConnectorSetupForm
+          busy={busy !== null}
+          entry={setupEntry}
+          onCancel={() => setSetupEntry(null)}
+          onSubmit={(values) => void submitSetup(values)}
+        />
       )}
 
       {showCustom && (
@@ -373,7 +398,7 @@ export function ConnectorsScreen({
                         onClick={() => void connectCatalog(entry)}
                         type="button"
                       >
-                        {connected ? "Bağlı" : "Bağlan"}
+                        {connected ? "Bağlı" : entry.setup?.length ? "Kur" : "Bağlan"}
                       </button>
                     </td>
                   </tr>

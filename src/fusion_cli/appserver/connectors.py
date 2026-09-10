@@ -10,6 +10,7 @@ YALNIZCA kullanıcının arayüzdeki açık eylemiyle çalışır.
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Mapping
 from dataclasses import replace
@@ -19,6 +20,32 @@ from ..config.models import Config, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
 from ..mcp_bridge.client import McpConnectionStatus
 from ..mcp_bridge.oauth import validate_remote_mcp_url
+
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
+_MAX_SECRET_CHARS = 8_192
+
+
+def connector_secret_values(data: object) -> tuple[dict[str, str], str | None]:
+    """RPC girdisindeki stdio sırlarını doğrula; değerleri hiçbir yanıta ekleme."""
+    if not isinstance(data, dict):
+        return {}, None
+    raw = data.get("ortam", {})
+    if raw is None:
+        return {}, None
+    if not isinstance(raw, dict):
+        return {}, "MCP ortam değişkenleri sözlük olmalı."
+    values: dict[str, str] = {}
+    for raw_name, raw_value in raw.items():
+        name = str(raw_name).strip()
+        if not _ENV_NAME.fullmatch(name):
+            return {}, f"Geçersiz MCP ortam değişkeni adı: {name or '(boş)'}"
+        if not isinstance(raw_value, str):
+            return {}, f"{name} değeri metin olmalı."
+        value = raw_value
+        if not value or len(value) > _MAX_SECRET_CHARS:
+            return {}, f"{name} değeri boş olamaz ve {_MAX_SECRET_CHARS} karakteri aşamaz."
+        values[name] = value
+    return values, None
 
 
 def status_payload(status: McpConnectionStatus) -> dict[str, Any]:
@@ -47,6 +74,7 @@ def list_connectors(
                 "url": server.url,
                 "kapsamlar": list(server.scopes),
                 "client_id": server.client_id,
+                "ortam_degiskenleri": list(server.env_names),
                 **_row_status((statuses or {}).get(server.name)),
             }
             for server in config.mcp_servers
@@ -89,6 +117,9 @@ def add_connector(config: Config, data: object) -> tuple[Config | None, dict[str
         return None, {"ok": False, "metin": "Geçersiz MCP bağlantı türü."}
     ham = str(data.get("komut", "")).strip()
     url = str(data.get("url", "")).strip()
+    secrets, secret_error = connector_secret_values(data)
+    if secret_error is not None:
+        return None, {"ok": False, "metin": secret_error}
     if not ad:
         return None, {"ok": False, "metin": "Bağlantının bir adı olmalı."}
     if transport is McpTransport.STDIO and not ham:
@@ -102,7 +133,15 @@ def add_connector(config: Config, data: object) -> tuple[Config | None, dict[str
             return None, {"ok": False, "metin": f"Komut ayrıştırılamadı: {error}"}
         if not parcalar:
             return None, {"ok": False, "metin": "Çalıştırılacak komut boş olamaz."}
-        sunucu = McpServerConfig(name=ad, command=parcalar[0], args=tuple(parcalar[1:]))
+        raw_args = data.get("argumanlar", [])
+        if not isinstance(raw_args, list) or not all(isinstance(item, str) for item in raw_args):
+            return None, {"ok": False, "metin": "MCP komut argümanları metin listesi olmalı."}
+        sunucu = McpServerConfig(
+            name=ad,
+            command=parcalar[0],
+            args=(*parcalar[1:], *(item for item in raw_args if item)),
+            env_names=tuple(secrets),
+        )
     else:
         try:
             validate_remote_mcp_url(url)

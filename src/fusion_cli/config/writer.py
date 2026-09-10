@@ -165,6 +165,7 @@ def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
                     "url": server.url,
                     "scopes": list(server.scopes),
                     "client_id": server.client_id,
+                    "env_names": list(server.env_names),
                 }.items()
                 if value is not None
                 and value != ()

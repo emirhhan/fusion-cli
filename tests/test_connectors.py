@@ -23,6 +23,36 @@ def test_komut_satiri_komut_ve_argumanlara_bolunur(config):
     assert yeni.mcp_servers[0].args == ("-y", "mcp-github")
 
 
+def test_katalog_argumanlari_ve_sir_adlari_ayri_saklanir(config):
+    yeni, sonuc = connectors.add_connector(
+        config,
+        {
+            "ad": "brave",
+            "komut": "npx -y @modelcontextprotocol/server-brave-search",
+            "argumanlar": ["--safe"],
+            "ortam": {"BRAVE_API_KEY": "gizli-deger"},
+        },
+    )
+
+    assert sonuc["ok"] is True
+    assert yeni is not None
+    server = yeni.mcp_servers[0]
+    assert server.args == ("-y", "@modelcontextprotocol/server-brave-search", "--safe")
+    assert server.env_names == ("BRAVE_API_KEY",)
+    assert "gizli-deger" not in config.source.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("name", ["lowercase", "BAD-NAME", "1TOKEN"])
+def test_gecersiz_ortam_degiskeni_adi_reddedilir(config, name):
+    _, sonuc = connectors.add_connector(
+        config,
+        {"ad": "x", "komut": "server", "ortam": {name: "gizli"}},
+    )
+
+    assert sonuc["ok"] is False
+    assert "ortam değişkeni" in sonuc["metin"]
+
+
 def test_ayni_ad_iki_kez_eklenemez(config):
     with_one = make_config(
         source=config.source,

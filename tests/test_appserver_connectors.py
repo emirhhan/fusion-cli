@@ -64,6 +64,42 @@ async def test_http_baglanti_eklenince_giris_arka_planda_baslar(tmp_path, monkey
     assert fake.started == ["meta"]
 
 
+async def test_stdio_baglanti_sirlarini_sifreli_depo_ve_ortama_yazar(tmp_path, monkeypatch):
+    session, _fake = _session(tmp_path)
+    monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", lambda _config: None)
+    stored: dict[str, str] = {}
+
+    class _Store:
+        available = True
+
+        def set(self, name, value):
+            stored[name] = value
+
+        def get(self, name):
+            return stored.get(name)
+
+        def delete(self, name):
+            stored.pop(name, None)
+
+    session._secret_store = _Store()
+
+    result = await session._dispatch(
+        Request(
+            "secret",
+            "baglanti.ekle",
+            {
+                "ad": "brave",
+                "komut": "npx -y server-brave",
+                "ortam": {"BRAVE_API_KEY": "gizli-deger"},
+            },
+        )
+    )
+
+    assert result["ok"] is True
+    assert stored == {"BRAVE_API_KEY": "gizli-deger"}
+    assert session._state.config.mcp_servers[0].env_names == ("BRAVE_API_KEY",)
+
+
 async def test_baglanti_dogrula_arac_sayisini_dondurur(tmp_path):
     session, _fake = _session(tmp_path)
     session._state.config = __import__("dataclasses").replace(

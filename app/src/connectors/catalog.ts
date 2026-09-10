@@ -4,14 +4,24 @@
  * bağlansın. Her giriş `baglanti.ekle` RPC'sinin BEKLEDİĞİ alanları taşır; ekran
  * yalnız bunu iletir, kendi uç noktasını uydurmaz.
  *
- * Uç noktalar Eylül 2026'da resmi remote-MCP listesinden alındı
- * (github.com/jaw9c/awesome-remote-mcp-servers). Değişebilirler; katalog bir
- * BAŞLANGIÇ değeridir, kullanıcı "Ekle" ile kendi değerini girip düzeltebilir.
+ * Uç noktalar ve paketler sağlayıcıların yayımladığı belgelerden derlendi.
+ * Değişebilirler; katalog bir BAŞLANGIÇ değeridir, kullanıcı "Ekle" ile kendi
+ * değerini girip düzeltebilir.
  * Remote uç noktalar backend'de `validate_remote_mcp_url`'den geçer: HTTPS
  * zorunlu, düz HTTP yalnız loopback (Figma masaüstü) için.
  */
 
 export type ConnectorTransport = "stdio" | "streamable_http";
+export type SetupFieldTarget = "argument" | "environment" | "secret_argument";
+
+export interface SetupField {
+  id: string;
+  label: string;
+  placeholder: string;
+  secret?: boolean;
+  target: SetupFieldTarget;
+  environmentName?: string;
+}
 
 export interface CatalogEntry {
   /** Bağlantının kaydedileceği ad (baglanti.ekle `ad`). Benzersiz. */
@@ -37,6 +47,8 @@ export interface CatalogEntry {
   featured?: boolean;
   /** Bağlanınca OAuth girişi gerektirir mi? (Sadece bilgilendirme rozeti.) */
   oauth?: boolean;
+  /** Bağlantı kurulmadan önce kullanıcıdan alınması gereken alanlar. */
+  setup?: readonly SetupField[];
 }
 
 const CATALOG: readonly CatalogEntry[] = [
@@ -175,6 +187,23 @@ const CATALOG: readonly CatalogEntry[] = [
     glyph: "Sl",
     transport: "stdio",
     command: "npx -y @modelcontextprotocol/server-slack",
+    setup: [
+      {
+        id: "bot-token",
+        label: "Slack bot jetonu",
+        placeholder: "xoxb-…",
+        secret: true,
+        target: "environment",
+        environmentName: "SLACK_BOT_TOKEN",
+      },
+      {
+        id: "team-id",
+        label: "Slack çalışma alanı kimliği",
+        placeholder: "T01234567",
+        target: "environment",
+        environmentName: "SLACK_TEAM_ID",
+      },
+    ],
   },
   {
     id: "gmail",
@@ -196,6 +225,16 @@ const CATALOG: readonly CatalogEntry[] = [
     glyph: "Pg",
     transport: "stdio",
     command: "npx -y @modelcontextprotocol/server-postgres",
+    setup: [
+      {
+        id: "dsn",
+        label: "PostgreSQL bağlantı adresi",
+        placeholder: "postgresql://kullanici:parola@localhost/veritabani",
+        secret: true,
+        target: "secret_argument",
+        environmentName: "POSTGRES_URL",
+      },
+    ],
   },
   {
     id: "filesystem",
@@ -206,6 +245,14 @@ const CATALOG: readonly CatalogEntry[] = [
     glyph: "Fs",
     transport: "stdio",
     command: "npx -y @modelcontextprotocol/server-filesystem",
+    setup: [
+      {
+        id: "root",
+        label: "İzin verilen klasör",
+        placeholder: "/Users/ad/Proje",
+        target: "argument",
+      },
+    ],
   },
   {
     id: "brave-search",
@@ -216,6 +263,16 @@ const CATALOG: readonly CatalogEntry[] = [
     glyph: "Br",
     transport: "stdio",
     command: "npx -y @modelcontextprotocol/server-brave-search",
+    setup: [
+      {
+        id: "api-key",
+        label: "Brave API anahtarı",
+        placeholder: "BSA…",
+        secret: true,
+        target: "environment",
+        environmentName: "BRAVE_API_KEY",
+      },
+    ],
   },
   {
     id: "puppeteer",
@@ -269,9 +326,34 @@ export const catalogConnectors: readonly CatalogEntry[] = CATALOG.filter((e) => 
 export const allConnectors: readonly CatalogEntry[] = CATALOG;
 
 /** Bir katalog girişini `baglanti.ekle` RPC yüküne çevir. */
-export function addPayloadFor(entry: CatalogEntry): Record<string, unknown> {
+export function addPayloadFor(
+  entry: CatalogEntry,
+  values: Readonly<Record<string, string>> = {},
+): Record<string, unknown> {
   if (entry.transport === "stdio") {
-    return { ad: entry.id, komut: entry.command };
+    const arguments_ = entry.setup
+      ?.filter((field) => field.target === "argument" || field.target === "secret_argument")
+      .map((field) =>
+        field.target === "secret_argument"
+          ? `__FUSION_SECRET__:${field.environmentName}`
+          : values[field.id],
+      )
+      .filter(Boolean);
+    const environment = Object.fromEntries(
+      (entry.setup ?? [])
+        .filter(
+          (field) =>
+            (field.target === "environment" || field.target === "secret_argument") &&
+            field.environmentName,
+        )
+        .map((field) => [field.environmentName!, values[field.id]]),
+    );
+    return {
+      ad: entry.id,
+      komut: entry.command,
+      ...(arguments_?.length ? { argumanlar: arguments_ } : {}),
+      ...(Object.keys(environment).length ? { ortam: environment } : {}),
+    };
   }
   return {
     ad: entry.id,

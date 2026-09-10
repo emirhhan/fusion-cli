@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shlex
 import sys
 from collections.abc import Callable
@@ -53,7 +54,13 @@ from .commands import (
     render_command_text,
     run_command,
 )
-from .connectors import add_connector, list_connectors, remove_connector, status_payload
+from .connectors import (
+    add_connector,
+    connector_secret_values,
+    list_connectors,
+    remove_connector,
+    status_payload,
+)
 from .control import (
     connect_web_session,
     delete_secret,
@@ -639,9 +646,27 @@ class AppSession:
         return next((item for item in self._state.config.mcp_servers if item.name == wanted), None)
 
     async def _add_connector(self, data: object) -> dict[str, Any]:
+        secrets, secret_error = connector_secret_values(data)
+        if secret_error is not None:
+            return {"ok": False, "metin": secret_error}
+        if secrets and not self._secret_store.available:
+            return {
+                "ok": False,
+                "metin": "Sistem anahtarlığı kullanılamıyor; MCP sırrı kaydedilemedi.",
+            }
+        previous: dict[str, str | None] = {}
+        try:
+            for name, value in secrets.items():
+                previous[name] = self._secret_store.get(name)
+                self._secret_store.set(name, value)
+        except Exception as error:
+            self._restore_connector_secrets(previous)
+            return {"ok": False, "metin": f"MCP sırrı kaydedilemedi: {error}"}
         yeni, sonuc = add_connector(self._state.config, data)
         if yeni is None:
+            self._restore_connector_secrets(previous)
             return sonuc
+        os.environ.update(secrets)
         self._state.config = yeni
         server = yeni.mcp_servers[-1]
         if server.transport.value == "streamable_http":
@@ -649,6 +674,14 @@ class AppSession:
         else:
             status = await self._mcp_connections.test(server)
         return {**sonuc, **status_payload(status), "ok": True}
+
+    def _restore_connector_secrets(self, previous: dict[str, str | None]) -> None:
+        """Başarısız bağlantı eklemesinde sır deposunu önceki hâline getir."""
+        for name, value in previous.items():
+            if value is None:
+                self._secret_store.delete(name)
+            else:
+                self._secret_store.set(name, value)
 
     def _apply_workspace_mode(self, value: object) -> dict[str, Any] | None:
         """`kip`: "sohbet" ya da "kod".

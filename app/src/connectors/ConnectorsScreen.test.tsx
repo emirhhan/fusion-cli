@@ -61,6 +61,76 @@ describe("ConnectorsScreen", () => {
     );
   });
 
+  it("klasör isteyen katalog girişini kurulum formundan argümanla ekler", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "dosya sistemi" } });
+    const row = screen.getByText("Dosya sistemi").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
+    const setup = screen.getByLabelText("Dosya sistemi kurulumu");
+    fireEvent.change(within(setup).getByLabelText("İzin verilen klasör"), {
+      target: { value: "/Users/demo/Proje" },
+    });
+    fireEvent.click(within(setup).getByRole("button", { name: "Bağlantıyı ekle" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
+        ad: "filesystem",
+        komut: "npx -y @modelcontextprotocol/server-filesystem",
+        argumanlar: ["/Users/demo/Proje"],
+      }),
+    );
+  });
+
+  it("API anahtarını komuta katmadan şifreli ortam payloadıyla gönderir", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "brave" } });
+    const row = screen.getByText("Brave Search").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
+    const setup = screen.getByLabelText("Brave Search kurulumu");
+    const secret = within(setup).getByLabelText("Brave API anahtarı");
+    expect(secret).toHaveProperty("type", "password");
+    fireEvent.change(secret, { target: { value: "brave-gizli" } });
+    fireEvent.click(within(setup).getByRole("button", { name: "Bağlantıyı ekle" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
+        ad: "brave-search",
+        komut: "npx -y @modelcontextprotocol/server-brave-search",
+        ortam: { BRAVE_API_KEY: "brave-gizli" },
+      }),
+    );
+  });
+
+  it("PostgreSQL parolasını yapılandırma argümanına açık yazmaz", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalled());
+
+    fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "postgres" } });
+    const row = screen.getByText("PostgreSQL").closest("tr")!;
+    fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
+    const setup = screen.getByLabelText("PostgreSQL kurulumu");
+    fireEvent.change(within(setup).getByLabelText("PostgreSQL bağlantı adresi"), {
+      target: { value: "postgresql://user:secret@localhost/db" },
+    });
+    fireEvent.click(within(setup).getByRole("button", { name: "Bağlantıyı ekle" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
+        ad: "postgres",
+        komut: "npx -y @modelcontextprotocol/server-postgres",
+        argumanlar: ["__FUSION_SECRET__:POSTGRES_URL"],
+        ortam: { POSTGRES_URL: "postgresql://user:secret@localhost/db" },
+      }),
+    );
+  });
+
   it("uzak OAuth katalog girişinde backendin başlattığı girişi tekrarlamaz", async () => {
     const client = fakeClient([], {
       "baglanti.ekle": { ok: true, durum: "giris_bekleniyor" },

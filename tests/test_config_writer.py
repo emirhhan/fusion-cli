@@ -202,6 +202,21 @@ def test_mcp_sunucusu_yazilip_geri_okunabilir(tmp_path):
     assert geri.mcp_servers == (sunucu,)
 
 
+def test_mcp_sir_degerini_degil_yalniz_ortam_adini_yazar(tmp_path):
+    hedef = tmp_path / "config.yaml"
+    sunucu = McpServerConfig(
+        name="brave",
+        command="npx",
+        env_names=("BRAVE_API_KEY",),
+    )
+    config = replace(load_config(), mcp_servers=(sunucu,))
+
+    write_mcp_servers(config, hedef)
+
+    assert load_config(hedef).mcp_servers == (sunucu,)
+    assert "BRAVE_API_KEY" in hedef.read_text(encoding="utf-8")
+
+
 def test_mcp_sunucusu_ayni_ada_yazilinca_uzerine_yazilir(tmp_path):
     """`mcp-add` aynı adla tekrar çağrılırsa eski komut değil yenisi kalmalı."""
     hedef = tmp_path / "config.yaml"

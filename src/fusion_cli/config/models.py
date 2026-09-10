@@ -185,6 +185,9 @@ class McpServerConfig:
     url: str = ""
     scopes: tuple[str, ...] = ()
     client_id: str = ""
+    #: stdio sunucusunun ihtiyaç duyduğu sırların yalnız ORTAM DEĞİŞKENİ adları.
+    #: Değerler config'e girmez; şifreli depodan süreç ortamına yüklenir.
+    env_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
