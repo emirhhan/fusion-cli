@@ -70,6 +70,10 @@ kadar sor. Sorular kısa ve tek konulu olsun.
 
 MODE_PROMPTS = {Mode.GOAL: GOAL_PROMPT, Mode.GRILL: GRILL_PROMPT}
 
+#: Kipin agent turuna verdiği adım sınırı. Hedef kipi pes etmemeli; terminal ve
+#: masaüstü aynı değeri buradan okur ki iki yüzey ayrışmasın.
+MODE_STEP_LIMITS = {Mode.GOAL: 100}
+
 MACROS: dict[str, Macro] = {
     "goal": Macro(
         task="Proje hedefini belirle ve tamamla.",
@@ -116,3 +120,8 @@ def get(name: str) -> Macro | None:
 def mode_prompt(mode: Mode) -> str:
     """Kipin sistem promptuna eklenecek metni; kip yoksa boş."""
     return MODE_PROMPTS.get(mode, "")
+
+
+def mode_step_limit(mode: Mode) -> int | None:
+    """Kipin adım sınırı; kip sınır değiştirmiyorsa None (varsayılan bütçe)."""
+    return MODE_STEP_LIMITS.get(mode)

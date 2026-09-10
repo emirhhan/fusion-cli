@@ -856,3 +856,44 @@ async def test_yarim_biten_tur_bos_mesaj_dondurmez(tmp_path, monkeypatch):
     veri = _sonuc(satirlar, "t1")
     assert veri["ok"] is False
     assert veri["metin"].strip(), "yarım tur boş mesajla bitmemeli"
+
+
+async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
+    tmp_path, monkeypatch
+):
+    """`/goal` masaüstünde "çalıştırılıyor…" deyip hiçbir turu başlatmıyordu."""
+    from fusion_cli.cli.repl import macros
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    olay = asyncio.Event()
+    olay.set()
+    yakalanan: dict = {}
+    monkeypatch.setattr(
+        "fusion_cli.cli.session.run_agent_task",
+        lambda *a, **kw: _sahte_gorev(olay, yakalanan, **kw),
+    )
+
+    await oturum.handle(
+        Request(id="1", name="komut.calistir", data={"ad": "goal", "arguman": "oyunu bitir"})
+    )
+    komut = _sonuc(satirlar, "1")
+    assert komut["ok"] is True
+    assert komut["gorev"] == "oyunu bitir"
+
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": komut["gorev"]}))
+    assert macros.GOAL_PROMPT in yakalanan["kwargs"]["extra_system"]
+    assert yakalanan["kwargs"]["step_limit"] == macros.mode_step_limit(macros.Mode.GOAL)
+
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "sıradan iş"}))
+    assert macros.GOAL_PROMPT not in yakalanan["kwargs"]["extra_system"]
+    assert yakalanan["kwargs"]["step_limit"] is None
+
+
+async def test_makro_olmayan_komut_gorev_dondurmez(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="komut.calistir", data={"ad": "level", "arguman": ""}))
+
+    assert "gorev" not in _sonuc(satirlar, "1")

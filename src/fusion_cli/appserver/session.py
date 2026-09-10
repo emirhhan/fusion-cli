@@ -25,6 +25,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from ..cli.repl import macros
 from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
@@ -288,6 +289,8 @@ class AppSession:
 
         self._mcp_connections = McpConnectionService()
         self._turn: asyncio.Task[Any] | None = None
+        #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
+        self._next_turn_mode = macros.Mode.NONE
 
     async def handle(self, request: Request) -> None:
         """İsteği çalıştır ve sonucunu yaz. İstisna sızdırmaz."""
@@ -814,9 +817,19 @@ class AppSession:
                 "ok": True,
                 "metin": await render_command_text(self._registry, self._state, command.name),
             }
-        return run_command(
+        result = run_command(
             self._registry, self._state, name, argument, secret_store=self._secret_store
         )
+        # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
+        # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
+        # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.
+        # Görev arayüze döner, arayüz onu normal tur olarak gönderir; kip ise o
+        # tura burada taşınır.
+        task, mode = self._state.take_pending()
+        if not task:
+            return result
+        self._next_turn_mode = mode
+        return {**result, "gorev": task}
 
     def _command_options(self, data: dict[str, Any]) -> dict[str, Any]:
         """Sıradaki seçici/metin adımını döndür; yoksa `ok: False`."""
@@ -862,11 +875,13 @@ class AppSession:
             )
         capability_context = self._take_capability_context()
         inherited_context = self._state.take_pending_digest()
+        turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
         extra_system = "\n\n".join(
             part
             for part in (
+                macros.mode_prompt(turn_mode),
                 inherited_context,
                 capability_context,
                 attachment_context,
@@ -891,6 +906,7 @@ class AppSession:
                 interactive=True,
                 capabilities=self._state.capabilities,
                 conversation_id=self._conversation_id or "app",
+                step_limit=macros.mode_step_limit(turn_mode),
             )
         )
         try:

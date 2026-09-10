@@ -150,6 +150,7 @@ async def run_agent_task(
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     conversation_id: str = "cli",
+    step_limit: int | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -212,6 +213,7 @@ async def run_agent_task(
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,
+            step_limit=step_limit,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -255,6 +257,7 @@ async def _run_agent_with_mcp(
     extra_system: str,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
+    step_limit: int | None = None,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -266,7 +269,8 @@ async def _run_agent_with_mcp(
     MCP'siz devam eder (REPL ile aynı davranış).
     """
     plan_mode = mode is ApprovalMode.PLAN
-    if not config.mcp_servers:
+
+    async def _run() -> AgentOutcome:
         return await run_agent(
             task,
             deps,
@@ -275,20 +279,16 @@ async def _run_agent_with_mcp(
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,
+            step_limit=step_limit,
         )
+
+    if not config.mcp_servers:
+        return await _run()
     try:
         from ..mcp_bridge.client import McpClient
     except ImportError:
         bus.publish(ErrorOccurred(messages.MCP_MISSING_DEP, fatal=False))
-        return await run_agent(
-            task,
-            deps,
-            history=history,
-            plan_mode=plan_mode,
-            extra_system=extra_system,
-            system_prompt=system_prompt,
-            images=images,
-        )
+        return await _run()
     try:
         async with McpClient(config.mcp_servers) as client:
             eklenen = await client.register_into(deps.base_registry)
@@ -296,26 +296,10 @@ async def _run_agent_with_mcp(
             # zaten doğru üreten araç varsa model elle yazmaya değil ona
             # yönlendirilir.
             deps.tool_context.available_tools.update(eklenen)
-            return await run_agent(
-                task,
-                deps,
-                history=history,
-                plan_mode=plan_mode,
-                extra_system=extra_system,
-                system_prompt=system_prompt,
-                images=images,
-            )
+            return await _run()
     except Exception as error:
         bus.publish(ErrorOccurred(messages.MCP_CONNECT_FAILED.format(error=error), fatal=False))
-        return await run_agent(
-            task,
-            deps,
-            history=history,
-            plan_mode=plan_mode,
-            extra_system=extra_system,
-            system_prompt=system_prompt,
-            images=images,
-        )
+        return await _run()
 
 
 def _changed_names(tool_context: ToolContext) -> tuple[str, ...]:

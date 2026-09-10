@@ -144,6 +144,33 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.varsayilan.messages.at(-1)?.metin).toBe("MCP hazır");
   });
 
+  it("makro komutunun hazırladığı görevi hemen tur olarak başlatır", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/goal oyunu bitir"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitResult("varsayilan", request.id, {
+      ok: true,
+      metin: "goal çalıştırılıyor…",
+      gorev: "oyunu bitir",
+    }));
+    await act(async () => { await command; });
+
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    const turn = JSON.parse(fake.sent[1].line);
+    expect(turn.ad).toBe("tur.calistir");
+    expect(turn.veri.gorev).toBe("oyunu bitir");
+    expect(result.current.state.sessions.varsayilan.running).toBe(true);
+    const userMessages = result.current.state.sessions.varsayilan.messages
+      .filter((message) => message.rol === "kullanici")
+      .map((message) => message.metin);
+    expect(userMessages).toEqual(["/goal oyunu bitir"]);
+  });
+
   it("her protokol satırını yalnız ait olduğu oturuma yönlendirir", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

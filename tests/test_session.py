@@ -136,3 +136,35 @@ async def test_model_on_kontrol_hatasi_turu_basarisiz_sonucla_kapatir(tmp_path):
     assert isinstance(sink.events[-1], TurnFinished)
     assert sum(isinstance(event, TurnFinished) for event in sink.events) == 1
     assert any(isinstance(event, TurnOutcome) and event.status == "failed" for event in sink.events)
+
+
+async def test_agent_gorevi_adim_sinirini_agent_dongusune_iletir(tmp_path, monkeypatch):
+    """Masaüstündeki `/goal` turu hedef kipinin adım sınırını kaybetmemeli."""
+    from types import SimpleNamespace
+
+    yakalanan: dict = {}
+
+    async def sahte_run_agent(task, deps, **kwargs):
+        yakalanan.update(kwargs)
+        return SimpleNamespace(
+            ok=True,
+            final_text="bitti",
+            messages=[],
+            budget_stopped=False,
+            made_no_changes=True,
+        )
+
+    monkeypatch.setattr(session, "run_agent", sahte_run_agent)
+    config = replace(make_config(), mcp_servers=())
+
+    await session.run_agent_task(
+        "hedefe git",
+        config,
+        sinks=(RecordingSink(),),
+        prompter_factory=lambda _drain: None,
+        root=tmp_path,
+        interactive=False,
+        step_limit=7,
+    )
+
+    assert yakalanan["step_limit"] == 7

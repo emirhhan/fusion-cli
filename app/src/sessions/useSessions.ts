@@ -327,7 +327,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [state]);
 
   const send = useCallback(
-    (id: string, task: string, attachments: SessionAttachment[] = []) => {
+    (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true) => {
       const session = state.sessions[id];
       if (
         !session || !task.trim() || session.status !== "ready" ||
@@ -337,15 +337,18 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       dispatch({ type: "runningChanged", id, running: true });
       // Ekler mesajla birlikte KAYDEDİLİR: gönderdikten sonra composer temizlenir
       // ve aksi hâlde kullanıcının ne gönderdiğinin geçmişte hiçbir izi kalmaz.
-      dispatch({
-        type: "messageAdded",
-        id,
-        message: {
-          rol: "kullanici",
-          metin: task,
-          ...(attachments.length > 0 ? { ekler: attachments } : {}),
-        },
-      });
+      // Makro turunda kullanıcının yazdığı `/goal …` satırı zaten kayıtlıdır.
+      if (recordMessage) {
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: {
+            rol: "kullanici",
+            metin: task,
+            ...(attachments.length > 0 ? { ekler: attachments } : {}),
+          },
+        });
+      }
       if (session.title === DEFAULT_TITLE) {
         dispatch({ type: "titleChanged", id, title: titleFromTask(task) });
       }
@@ -399,9 +402,15 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           },
         });
       }
+      // Makro (`/goal` …) görevi yalnız hazırlar; çekirdek görevi geri verir ve
+      // tur burada normal gönderim yolundan başlar. Aksi hâlde komut
+      // "çalıştırılıyor…" deyip hiçbir iş yapmıyordu.
+      if (typeof result.gorev === "string" && result.gorev.trim()) {
+        send(id, result.gorev, [], false);
+      }
       return result;
     },
-    [state.sessions],
+    [state.sessions, send],
   );
 
   const stop = useCallback(

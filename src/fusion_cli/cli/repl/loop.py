@@ -49,9 +49,6 @@ from .state import Engine, Reminder, ReplState
 #: Komut geçmişinin saklandığı dosya adı.
 HISTORY_FILE = "repl_history"
 
-#: Hedef kipinde adım sınırı yükselir: pes etmemek daha çok deneme gerektirir.
-GOAL_STEP_LIMIT = 100
-
 
 def _build_health(config: Config) -> HealthRegistry:
     """Oturum için sağlık kaydını yapılandırma eşiklerinden kur."""
@@ -446,7 +443,7 @@ async def _agent_turn(
                 console,
                 plan_mode=state.approval.value == "plan",
                 extra_system=turn_extra_system,
-                step_limit=GOAL_STEP_LIMIT if mode is Mode.GOAL else None,
+                step_limit=macros.mode_step_limit(mode),
             )
             # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
             state.last_changes = tool_context.changes
