@@ -1,0 +1,1171 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Tier } from "./screens/TierBar";
+import { Approval } from "./dialogs/Approval";
+import { CloseConfirm } from "./dialogs/CloseConfirm";
+import { HistoryPicker } from "./dialogs/HistoryPicker";
+import { NewTaskDialog } from "./dialogs/NewTaskDialog";
+import {
+  CommandSelector,
+  type CommandSelectorPayload,
+} from "./dialogs/CommandSelector";
+import { useHistory } from "./history/useHistory";
+import { ProtocolClient } from "./protocol/client";
+import { olayEkle } from "./protocol/olayAkisi";
+import type { Soru } from "./protocol/types";
+import { useSessions } from "./sessions/useSessions";
+import type { SessionTransport } from "./sessions/types";
+import { AppHeader } from "./screens/AppHeader";
+import {
+  Composer,
+  type ApprovalMode,
+  type ComposerAttachment,
+  type ComposerCommand,
+  type WorkspaceMode,
+} from "./screens/Composer";
+import { Conversation, type Mesaj } from "./screens/Conversation";
+import { EmptyState } from "./screens/EmptyState";
+import { Inspector, type InspectorTabId } from "./screens/Inspector";
+import { Shell } from "./screens/Shell";
+import { Sidebar } from "./screens/Sidebar";
+import { useLayout } from "./state/useLayout";
+import { useInspectorLayout } from "./state/useInspectorLayout";
+import {
+  applyTheme,
+  readThemePreference,
+  saveThemePreference,
+  type ThemePreference,
+} from "./theme/theme";
+import { FileExplorer } from "./workspace/FileExplorer";
+import { ChangesPanel } from "./workspace/ChangesPanel";
+import { TestsPanel } from "./workspace/TestsPanel";
+import { PreviewPanel } from "./workspace/PreviewPanel";
+import { ProcessesPanel } from "./processes/ProcessesPanel";
+import { TerminalPanel } from "./processes/TerminalPanel";
+import { useProcesses } from "./processes/useProcesses";
+import { SkillsCatalog } from "./capabilities/SkillsCatalog";
+import { ControlPanel } from "./control/ControlPanel";
+import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
+import { Lessons } from "./lessons/Lessons";
+import { Spotlight } from "./lessons/Spotlight";
+import { Settings } from "./settings/Settings";
+import { desktopDir } from "@tauri-apps/api/path";
+import { ProjectPicker } from "./screens/ProjectPicker";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import {
+  kabukVar,
+  onVoiceBargeIn,
+  onVoiceMessage,
+  onVoiceAnswer,
+  onVoicePrefsRequest,
+  publishVoiceAsk,
+  publishVoicePrefs,
+  publishVoiceRuntimeState,
+  type VoicePrefsPayload,
+} from "./voice/bridge";
+import { openVoiceWindow } from "./voice/windowBridge";
+import { findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { Onboarding, type OnboardingValue } from "./onboarding";
+import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
+import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
+import { PermissionPrompt } from "./permissions/PermissionPrompt";
+import { usePermissions } from "./permissions/usePermissions";
+import type { PermissionBridge } from "./permissions/types";
+import { nativePermissionBridge } from "./platform/permissions";
+import { listenForFileDrops } from "./platform/drop";
+
+/** Sohbetin içinden çalışma klasörünü değiştiren komut. */
+const FOLDER_COMMAND = {
+  ad: "klasor",
+  aciklama: "Çalışma klasörünü değiştir",
+  destekleniyor: true,
+  grup: "Çalışma alanı",
+  kullanim: "/klasor",
+};
+
+function attachmentFromPath(path: string): ComposerAttachment {
+  return {
+    kind: /\.(avif|gif|jpe?g|png|svg|webp)$/i.test(path) ? "image" : "file",
+    name: path.split(/[\\/]/).filter(Boolean).slice(-1)[0] ?? path,
+    path,
+  };
+}
+
+function attachmentsFromPaths(paths: string[]): ComposerAttachment[] {
+  return paths
+    .filter((path) => typeof path === "string" && path.trim().length > 0)
+    .map(attachmentFromPath);
+}
+
+function commandSelectorFrom(value: unknown): CommandSelectorPayload | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const continuation = row.devam as Record<string, unknown> | undefined;
+  if (
+    typeof row.adim !== "string" ||
+    !["secim", "metin", "gizli_metin"].includes(String(row.tur)) ||
+    typeof row.baslik !== "string" ||
+    !continuation ||
+    typeof continuation.komut !== "string" ||
+    typeof continuation.arguman_on_eki !== "string"
+  ) return null;
+  return value as CommandSelectorPayload;
+}
+
+function useConversation(client: ProtocolClient) {
+  const [messages, setMessages] = useState<Mesaj[]>([]);
+  const [question, setQuestion] = useState<{ id: string; data: Soru } | null>(null);
+  const [running, setRunning] = useState(false);
+
+  useEffect(() => {
+    void client.request("oturum.durum", {}).catch(() => undefined);
+    client.onEvent((event) => {
+      setMessages((current) => olayEkle(current, event));
+    });
+    client.onQuestion((id, data) => {
+      if (data.tur === "onay") setQuestion({ id, data: data as unknown as Soru });
+    });
+  }, [client]);
+
+  const send = (task: string) => {
+    setRunning(true);
+    setMessages((current) => [...current, { rol: "kullanici", metin: task }]);
+    void client
+      .request("tur.calistir", { gorev: task })
+      .then((result) => {
+        const text = typeof result.metin === "string" ? result.metin : "";
+        if (text) setMessages((current) => [...current, { rol: "asistan", metin: text }]);
+      })
+      .catch((error) =>
+        setMessages((current) => [...current, { rol: "asistan", metin: `Hata: ${String(error)}` }]),
+      )
+      .finally(() => setRunning(false));
+  };
+  const stop = () => {
+    void client.request("tur.kes", {}).catch(() => undefined);
+    setRunning(false);
+  };
+  const answer = (data: Record<string, unknown>) => {
+    if (question) client.reply(question.id, data);
+    setQuestion(null);
+  };
+  const clear = () => {
+    setMessages([]);
+    setQuestion(null);
+    setRunning(false);
+  };
+  return { answer, clear, messages, question, running, send, stop };
+}
+
+function useAppTheme() {
+  const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
+
+  useEffect(() => {
+    applyTheme(themePreference);
+    if (themePreference !== "system" || !window.matchMedia) return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => applyTheme("system", document.documentElement, media.matches);
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, [themePreference]);
+
+  const changeTheme = (preference: ThemePreference) => {
+    saveThemePreference(preference);
+    setThemePreference(preference);
+  };
+  return { changeTheme, themePreference };
+}
+
+function projectName(root: string): string {
+  const parts = root.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] ?? root;
+}
+
+/** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
+const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors"];
+
+function ProjectInspector({
+  activeTab,
+  client,
+  collapsed,
+  onActiveTabChange,
+  onCollapsedChange,
+  onWidthChange,
+  requestedTab,
+  root,
+  width,
+}: {
+  activeTab: InspectorTabId;
+  client: ProtocolClient;
+  collapsed: boolean;
+  onActiveTabChange: (tab: InspectorTabId) => void;
+  onCollapsedChange: (collapsed: boolean) => void;
+  onWidthChange: (width: number) => void;
+  requestedTab: InspectorTabId | null;
+  root: string;
+  width: number;
+}) {
+  const [revision, setRevision] = useState(0);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const processes = useProcesses(client);
+  const changed = () => setRevision((current) => current + 1);
+  useEffect(() => client.onEvent((event) => {
+    const modifyingTools = new Set(["write_file", "edit_file", "multi_edit", "replace_range"]);
+    if (
+      event.olay === "FilesChanged" ||
+      (event.olay === "ToolExecuted" && event.outcome === "ok" &&
+        typeof event.name === "string" && modifyingTools.has(event.name))
+    ) changed();
+  }), [client]);
+  return (
+    <Inspector
+      activeTab={activeTab}
+      collapsed={collapsed}
+      onActiveTabChange={onActiveTabChange}
+      onCollapsedChange={onCollapsedChange}
+      onWidthChange={onWidthChange}
+      requestedTab={requestedTab}
+      width={width}
+      content={{
+        files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
+        changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
+        terminal: <TerminalPanel cwd={root} />,
+        processes: <ProcessesPanel controller={processes} />,
+        tests: <TestsPanel client={client} processes={processes} />,
+        preview: <PreviewPanel client={client} selectedPath={selectedPath} />,
+      }}
+    />
+  );
+}
+
+export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
+  const conversation = useConversation(istemci);
+  const layout = useLayout();
+  const inspectorLayout = useInspectorLayout();
+  const [draft, setDraft] = useState("");
+  // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
+  useAppTheme();
+  const clear = () => {
+    setDraft("");
+    conversation.clear();
+  };
+  const content = conversation.messages.length > 0 ? (
+    <Conversation mesajlar={conversation.messages} />
+  ) : (
+    <EmptyState onSelectPrompt={setDraft} />
+  );
+
+  return (
+    <Shell
+      composer={
+        <Composer
+          onSend={conversation.send}
+          onStop={conversation.stop}
+          onValueChange={setDraft}
+          running={conversation.running}
+          value={draft}
+        />
+      }
+      content={
+        <>
+          {content}
+          {conversation.question && (
+            <Approval onCevap={conversation.answer} soru={conversation.question.data} />
+          )}
+        </>
+      }
+      header={
+        <AppHeader
+          inspectorOpen={layout.inspectorOpen}
+          onToggleInspector={layout.toggleInspector}
+          onToggleSidebar={layout.toggleSidebar}
+          sidebarCollapsed={layout.sidebarCollapsed}
+          status={conversation.running ? "Çalışıyor" : "Hazır"}
+          title="Yeni görev"
+        />
+      }
+      inspector={
+        <Inspector
+          activeTab={inspectorLayout.activeTab}
+          collapsed={inspectorLayout.collapsed}
+          onActiveTabChange={inspectorLayout.setActiveTab}
+          onCollapsedChange={inspectorLayout.setCollapsed}
+          onWidthChange={inspectorLayout.setWidth}
+          width={inspectorLayout.width}
+        />
+      }
+      inspectorCollapsed={inspectorLayout.collapsed}
+      inspectorOpen={layout.inspectorOpen}
+      inspectorWidth={inspectorLayout.width}
+      onInspectorClose={layout.closeInspector}
+      sidebar={
+        <Sidebar
+          collapsed={layout.sidebarCollapsed}
+          etkin={null}
+          onSec={() => undefined}
+          onYeni={clear}
+          oturumlar={[]}
+        />
+      }
+      sidebarCollapsed={layout.sidebarCollapsed}
+    />
+  );
+}
+
+function ConnectedOnboarding({
+  client,
+  projects,
+  runtimeVersion,
+  onFinish,
+}: {
+  client: ProtocolClient;
+  projects: SampleProject[];
+  runtimeVersion?: string;
+  onFinish: (projectId: string | null) => void;
+}) {
+  const [value, setValue] = useState<OnboardingValue>({ step: "welcome", selectedProjectId: null });
+  const [sources, setSources] = useState<DiscoveredSource[]>([
+    { kind: "claude", status: "not-found" },
+    { kind: "codex", status: "not-found" },
+    { kind: "hermes", status: "not-found" },
+  ]);
+  const [providers, setProviders] = useState<ProviderSummary[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      client.request("gecmis.kaynaklar", {}),
+      client.request("kontrol.durum", {}),
+    ]).then(([history, control]) => {
+      if (!alive) return;
+      const found = new Set(
+        Array.isArray(history.kaynaklar)
+          ? history.kaynaklar.map((item) => String((item as Record<string, unknown>).ad ?? ""))
+          : [],
+      );
+      setSources((["claude", "codex", "hermes"] as const).map((kind) => ({
+        kind,
+        status: found.has(kind) ? "found" : "not-found",
+        itemCount: found.has(kind) ? 1 : 0,
+      })));
+      const rows = Array.isArray(control.saglayicilar) ? control.saglayicilar : [];
+      setProviders(rows.slice(0, 8).map((raw) => {
+        const row = raw as Record<string, unknown>;
+        const configured = row.kurulu === true;
+        return {
+          id: String(row.id ?? ""),
+          name: String(row.ad ?? row.id ?? "Sağlayıcı"),
+          secretConfigured: configured,
+          status: configured ? "ready" : "needs-setup",
+        };
+      }));
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [client]);
+
+  return (
+    <Onboarding
+      onChange={setValue}
+      onComplete={({ selectedProjectId }) => onFinish(selectedProjectId)}
+      onSkip={() => onFinish(null)}
+      projects={projects}
+      providers={providers}
+      runtime={{ status: "ready", version: runtimeVersion }}
+      sources={sources}
+      value={value}
+    />
+  );
+}
+
+export function SessionUygulama({
+  transport,
+  onboarding = false,
+  runtimeVersion,
+  onOnboardingComplete = () => undefined,
+  selectFolder = selectDirectory,
+  selectFiles = selectLocalFiles,
+  permissionBridge = nativePermissionBridge,
+}: {
+  transport?: SessionTransport;
+  onboarding?: boolean;
+  runtimeVersion?: string;
+  onOnboardingComplete?: () => void;
+  selectFolder?: (defaultPath?: string) => Promise<string | null>;
+  selectFiles?: (defaultPath?: string) => Promise<string[]>;
+  permissionBridge?: PermissionBridge;
+}) {
+  const permissions = usePermissions(permissionBridge);
+  const controller = useSessions(transport);
+  const layout = useLayout();
+  const inspectorLayout = useInspectorLayout();
+  const { changeTheme, themePreference } = useAppTheme();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
+  const [controlRevision, setControlRevision] = useState(0);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const [commandError, setCommandError] = useState<string | null>(null);
+  const [commands, setCommands] = useState<ComposerCommand[]>([]);
+  const [tiers, setTiers] = useState<Tier[]>([]);
+  const [activeTier, setActiveTier] = useState("");
+  const [tierEditable, setTierEditable] = useState(true);
+  const [tierReason, setTierReason] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [newTaskBusy, setNewTaskBusy] = useState(false);
+  const [newTaskError, setNewTaskError] = useState<string | null>(null);
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "lessons" | "settings" | "image-create" | "video-create">("chat");
+  // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
+  // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
+  const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
+  const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
+  // Varsayılan SOHBET: boş bir pencerede "merhaba" yazmak proje taraması
+  // başlatmamalı. Kod kipine geçiş kullanıcının açık kararıdır.
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("sohbet");
+  // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
+  // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
+  const [approval, setApproval] = useState<ApprovalMode>("auto");
+  const [modeBusy, setModeBusy] = useState(false);
+  const [spotlight, setSpotlight] = useState<{ isaret: string; metin: string } | null>(null);
+  const [closeAsked, setCloseAsked] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(onboarding);
+  const voiceRequest = useRef<{
+    afterIndex: number;
+    sawRunning: boolean;
+    sessionId: string;
+  } | null>(null);
+  const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
+  const pendingBargeIn = useRef(false);
+  const active = controller.activeSession;
+  const hasOpenedSession = useRef(false);
+  useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
+  const startDesktopChat = async () => {
+    setNewTaskError(null);
+    try {
+      const root = await desktopDir();
+      await controller.create({ root });
+      setPage("chat");
+      setWorkspaceMode("sohbet");
+    } catch {
+      setNewTaskError("Desktop klasörü açılamadı. Yeniden dene veya bir klasör seç.");
+    }
+  };
+  const history = useHistory(active?.client ?? null);
+  const navigateSidebar = async (destination: string) => {
+    setNewTaskError(null);
+    try {
+      if (!active && !["image-create", "video-create"].includes(destination) && !destination.startsWith("project:")) {
+        await controller.create({ root: await desktopDir() });
+      }
+            if (destination === "image-create" || destination === "video-create") {
+              setPage(destination);
+            } else if (destination === "skills") {
+              setPage("skills");
+            } else if (destination === "lessons") {
+              setPage("lessons");
+            } else if (destination === "settings") {
+              setPage("settings");
+            } else if (destination === "control-panel") {
+              setControlTitle("Kontrol Paneli");
+              setPage("control");
+            } else if (destination === "connectors") {
+              setPage("connectors");
+            } else if (destination === "help") {
+              setPage("lessons");
+            } else if (destination.startsWith("resume:")) {
+              setPage("chat");
+              const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
+              setHistoryOpen(true);
+              void history.openSource(source);
+            } else if (destination.startsWith("project:")) {
+              setPage("chat");
+              await controller.create({ root: destination.slice("project:".length) });
+            }
+    } catch {
+      setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
+    }
+  };
+  const composerCommands = useMemo<ComposerCommand[]>(() => [
+    FOLDER_COMMAND,
+    ...commands.filter((command) => !command.ad.toLocaleLowerCase("tr").startsWith("resume")),
+    ...history.sources.map((source) => ({
+      ad: `resume${source.ad}`,
+      aciklama: `${source.ad[0].toLocaleUpperCase("tr")}${source.ad.slice(1)} konuşmasına devam et`,
+      grup: "Geçmiş",
+      kullanim: source.komut,
+      destekleniyor: true,
+    })),
+  ], [commands, history.sources]);
+
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    let unlisten: (() => void) | null = null;
+    void listenForFileDrops((paths) => {
+      if (!alive) return;
+      const additions = attachmentsFromPaths(paths);
+      if (additions.length === 0) {
+        setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+        return;
+      }
+      setAttachmentError(null);
+      setAttachments((current) => ({
+        ...current,
+        [active.id]: [...(current[active.id] ?? []), ...additions]
+          .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
+      }));
+    }).then((stop) => {
+      if (alive) unlisten = stop;
+      else stop();
+    }).catch(() => {
+      if (alive) setAttachmentError("Sürükle-bırak dinleyicisi başlatılamadı. Uygulamayı yeniden dene.");
+    });
+    return () => { alive = false; unlisten?.(); };
+  }, [active?.id]);
+
+  // Kademe listesi oturuma bağlıdır: sağlayıcı tercihi ve etkin model oturumun
+  // yapılandırmasından gelir, bu yüzden istemcide önbelleğe alınmaz.
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    void active.client
+      .request("kademe.listele", {})
+      .then((payload) => {
+        if (!alive || payload.ok !== true || !Array.isArray(payload.kademeler)) return;
+        setTiers(payload.kademeler as Tier[]);
+        setActiveTier(typeof payload.etkin === "string" ? payload.etkin : "");
+        setTierEditable(payload.duzenlenebilir !== false);
+        setTierReason(typeof payload.metin === "string" ? payload.metin : "");
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [active]);
+
+  const changeTier = useCallback(
+    async (ad: string) => {
+      if (!active) return;
+      const onceki = activeTier;
+      // İyimser güncelleme: bar anında tepki verir, çekirdek reddederse geri alınır.
+      setActiveTier(ad);
+      const sonuc = await active.client.request("kademe.sec", { ad }).catch(() => null);
+      if (!sonuc || sonuc.ok !== true) {
+        setActiveTier(onceki);
+        if (sonuc && typeof sonuc.metin === "string") setTierReason(sonuc.metin);
+        return;
+      }
+      if (typeof sonuc.etkin === "string") setActiveTier(sonuc.etkin);
+    },
+    [active, activeTier],
+  );
+
+  useEffect(() => {
+    if (!active) return;
+    let alive = true;
+    void Promise.all([
+      active.client.request("komut.listele", {}),
+      active.client.request("yetenek.katalog", {}),
+    ]).then(([commandPayload, capabilityPayload]) => {
+      if (!alive) return;
+      const listed = Array.isArray(commandPayload.komutlar) ? commandPayload.komutlar : [];
+      const commandRows: ComposerCommand[] = listed.flatMap((raw) => {
+        if (!raw || typeof raw !== "object") return [];
+        const row = raw as Record<string, unknown>;
+        if (typeof row.ad !== "string") return [];
+        return [{
+          ad: row.ad,
+          aciklama: String(row.aciklama ?? ""),
+          grup: String(row.grup ?? "Komut"),
+          kullanim: String(row.kullanim ?? ""),
+          destekleniyor: row.destekleniyor !== false,
+        }];
+      });
+      const mcpRows: ComposerCommand[] = (Array.isArray(capabilityPayload.mcp) ? capabilityPayload.mcp : [])
+        .flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return [];
+          const row = raw as Record<string, unknown>;
+          if (typeof row.ad !== "string" || row.etkin !== true) return [];
+          return [{
+            ad: `mcp ${row.ad}`,
+            aciklama: String(row.aciklama ?? `${row.ad} MCP sunucusu`),
+            grup: "MCP",
+            kullanim: "",
+            destekleniyor: true,
+          }];
+        });
+      setCommands([...commandRows, ...mcpRows]);
+    }).catch(() => { if (alive) setCommands([]); });
+    return () => { alive = false; };
+  }, [active?.client, active?.id]);
+
+  // Kapatma isteği Rust'ta durdurulur ve karar burada sorulur.
+  useEffect(() => {
+    if (!kabukVar()) return;
+    const cikar = listen("uygulama://kapatma-istegi", () => setCloseAsked(true));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, []);
+
+  // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
+  // kullanıcı yazışmış gibi tam dökümü görür.
+  useEffect(() => {
+    if (!active) return;
+    const cikar = onVoiceMessage((mesaj) => {
+      if (mesaj.kaynak !== "kullanici") return;
+      // Sözü kesildiyse modele NE söylerken kesildiği de gider. Bu bağlam
+      // olmadan model yarım bıraktığı cevabı bilmez ve kullanıcının
+      // düzeltmesini yeni bir soru sanar.
+      const gorev = mesaj.kesilen
+        ? `${mesaj.metin}\n\n[Sesli konuşma: sen "${mesaj.kesilen}" derken sözün kesildi.`
+          + ` Yarım kalan cevabınla kullanıcının bu son sözünü birlikte değerlendir;`
+          + ` baştan tekrar etme.]`
+        : mesaj.metin;
+      const accepted = controller.send(active.id, gorev, []);
+      if (!accepted) {
+        void publishVoiceRuntimeState({
+          durum: "error",
+          metin: "Bu konuşmada bir görev zaten çalışıyor. Bitmesini bekleyip yeniden konuş.",
+        });
+        return;
+      }
+      voiceRequest.current = {
+        afterIndex: active.messages.length,
+        sawRunning: false,
+        sessionId: active.id,
+      };
+      void publishVoiceRuntimeState({ durum: "thinking" });
+    });
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active, controller]);
+
+  useEffect(() => {
+    const remove = onVoiceBargeIn(() => {
+      pendingBargeIn.current = true;
+      const turn = activeVoiceTurn.current;
+      if (turn) void turn.cancel().catch(() => undefined);
+    });
+    return () => {
+      void remove.then((unlisten) => unlisten()).catch(() => undefined);
+      void activeVoiceTurn.current?.cancel().catch(() => undefined);
+    };
+  }, []);
+
+  // Yalnız Talk'tan başlayan turun nihai cevabı seslendirilir. Kullanıcının
+  // normal yazışmaları sessiz kalır; sohbet değişse bile istek başladığı
+  // oturumun kendi çekirdeği kullanılır. Tur kimliği hemen alınır; gerçek
+  // bitiş ayrı `ses.bekle` isteğiyle izlenir ve zaman tahmini kullanılmaz.
+  useEffect(() => {
+    const pending = voiceRequest.current;
+    if (!pending) return;
+    const session = controller.state.sessions[pending.sessionId];
+    if (!session) {
+      voiceRequest.current = null;
+      return;
+    }
+    if (session.running) {
+      pending.sawRunning = true;
+      return;
+    }
+    if (!pending.sawRunning) return;
+    voiceRequest.current = null;
+    const answer = findVoiceAnswer(session.messages, pending.afterIndex);
+    if (!answer) {
+      void publishVoiceRuntimeState({ durum: "error", metin: "Fusion yanıt üretmedi." });
+      return;
+    }
+    pendingBargeIn.current = false;
+    void speakVoiceAnswer(session.client, answer, publishVoiceRuntimeState)
+      .then((turn) => {
+        activeVoiceTurn.current = turn;
+        if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);
+        void turn.finished.finally(() => {
+          if (activeVoiceTurn.current === turn) activeVoiceTurn.current = null;
+        }).catch(() => undefined);
+      })
+      .catch(() => undefined);
+  }, [controller.state.sessions]);
+
+  // Ses tercihleri konuşma penceresinden gelir ama YAZMA yolu tektir: burada,
+  // ana pencerenin çekirdek bağlantısı üzerinden. Pencerenin kendi bağlantısını
+  // açmak, iki ayrı yazıcı ve iki ayrı hata yolu demek olurdu.
+  useEffect(() => {
+    if (!active) return;
+    const client = active.client;
+    const yayinla = async (istek: VoicePrefsPayload | null) => {
+      const sonuc = istek
+        ? await client.request("ses.ayar", { ...istek })
+        : await client.request("ses.durum", {});
+      const kaynak = (istek ? sonuc : (sonuc.ayar as Record<string, unknown> | undefined)) ?? {};
+      const satir = kaynak as Record<string, unknown>;
+      await publishVoicePrefs({
+        hiz: typeof satir.hiz === "number" ? satir.hiz : 1,
+        model: typeof satir.model === "string" ? satir.model : null,
+        robotik: typeof satir.robotik === "number" ? satir.robotik : 0.5,
+      });
+    };
+    const cikar = onVoicePrefsRequest((istek) => void yayinla(istek).catch(() => undefined));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active]);
+
+  // Açık onay konuşma penceresine de yayılır ve oradan gelen cevap aynı
+  // `answer` yolundan geçer: iki ayrı onay mantığı olsaydı biri düzeltilirken
+  // öteki eskirdi.
+  useEffect(() => {
+    if (!active) return;
+    const soru = active.question;
+    void publishVoiceAsk(
+      soru
+        ? {
+            acik: true,
+            arac: soru.data.arac,
+            metin: soru.data.soru ?? `${soru.data.arac ?? "İşlem"} çalıştırılsın mı?`,
+            secenekler: (soru.data.secenekler ?? [
+              { deger: "evet", etiket: "Onayla" },
+              { deger: "hayir", etiket: "Reddet" },
+            ]).map((secenek) => ({
+              deger: secenek.deger ?? secenek.etiket,
+              etiket: secenek.etiket,
+            })),
+          }
+        : null,
+    ).catch(() => undefined);
+  }, [active?.question, active]);
+
+  useEffect(() => {
+    if (!active) return;
+    const id = active.id;
+    // Cevap biçimi ana penceredeki onay kutusuyla AYNIDIR: `{ secim }`.
+    const cikar = onVoiceAnswer((cevap) => controller.answer(id, { secim: cevap }));
+    return () => void cikar.then((f) => f()).catch(() => undefined);
+  }, [active?.id, controller]);
+
+  if (controller.state.connectionError) {
+    return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
+  }
+  if (!active) {
+    if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
+    return <Shell
+      header={<AppHeader title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
+      content={<>{page === "image-create" || page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
+      sidebarCollapsed={layout.sidebarCollapsed}
+      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
+    />;
+  }
+
+  if (showOnboarding) {
+    const projects: SampleProject[] = [
+      { id: active.root, name: projectName(active.root), description: "Şu anda açık olan çalışma alanı", path: active.root },
+      ...controller.recentProjects.filter((project) => project.root !== active.root).slice(0, 3).map((project) => ({
+        id: project.root, name: project.name, description: "Yakın zamanda kullanılan proje", path: project.root,
+      })),
+    ];
+    return (
+      <ConnectedOnboarding
+        client={active.client}
+        onFinish={(projectId) => {
+          setShowOnboarding(false);
+          onOnboardingComplete();
+          if (projectId && projectId !== active.root) void controller.create({ root: projectId });
+        }}
+        projects={projects}
+        runtimeVersion={runtimeVersion}
+      />
+    );
+  }
+
+  // Kendi başlığını taşıyan tam ekran sayfalarda üst şerit o başlığı TEKRARLAMAZ.
+  // Ölçüldü: Ayarlar açıkken ekranda "Ayarlar" iki kez yazıyordu ve erişilebilirlik
+  // ağacında aynı adla iki başlık düğümü oluşuyordu. Şerit bu sayfalarda çalışma
+  // alanını gösterir; sayfanın kimliği sayfanın kendi başlığındadır.
+  const headerTitle = SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
+    ? projectName(active.root)
+    : page === "image-create" ? "Görsel oluştur"
+      : page === "video-create" ? "Video oluştur"
+        : page === "skills" ? "Beceriler ve Ajanlar"
+          : page === "lessons" ? "Dersler"
+            : active.title;
+
+  const draft = drafts[active.id] ?? "";
+  const activeAttachments = attachments[active.id] ?? [];
+  const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
+  const executeCommand = async (input: string, recordInput = true) => {
+    setCommandBusy(true);
+    setCommandError(null);
+    try {
+      const result = await controller.runCommand(active.id, input, recordInput);
+      const next = commandSelectorFrom(result.secici);
+      setCommandSelector(next);
+      // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
+      if (result.temizle === true) controller.clear(active.id);
+      // Komut yapılandırmayı değiştirmiş olabilir; panel eski değeri göstermesin.
+      if (next === null) setControlRevision((current) => current + 1);
+      if (result.ok === false) setCommandError(String(result.metin ?? "Komut tamamlanamadı."));
+    } catch {
+      setCommandError("Komut çalıştırılamadı. Bağlantıyı kontrol edip yeniden dene.");
+    } finally {
+      setCommandBusy(false);
+    }
+  };
+  const send = (task: string) => {
+    const resumeSource = task.match(/^\/resume(claude|codex|hermes)$/i)?.[1]?.toLocaleLowerCase("tr") as "claude" | "codex" | "hermes" | undefined;
+    if (resumeSource && history.sources.some((source) => source.ad === resumeSource)) {
+      setHistoryOpen(true);
+      void history.openSource(resumeSource);
+    } else if (task.trim().toLocaleLowerCase("tr") === `/${FOLDER_COMMAND.ad}`) {
+      // Klasör değiştirme UYGULAMA tarafı iştir: çekirdeğin kökü açılışta
+      // belirlenir, bu yüzden komutu çekirdeğe göndermek anlamsız olurdu.
+      void requestTaskFolder();
+    } else if (task.startsWith("/")) void executeCommand(task);
+    else {
+      controller.send(active.id, task, activeAttachments);
+      setAttachments((current) => ({ ...current, [active.id]: [] }));
+    }
+    setDraft("");
+  };
+  const conversationContent = active.messages.length > 0 ? (
+    <Conversation mesajlar={active.messages} />
+  ) : (
+    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} onSelectPrompt={setDraft} />
+  );
+  /** Ders adımının işaret ettiği yüzeyi aç. Hiçbir şey çalıştırılmaz. */
+  const openLessonTarget = (hedef: string) => {
+    if (hedef === "yetenek") return setPage("skills");
+    if (hedef === "kontrol") return setPage("control");
+    if (hedef === "gecmis") {
+      setPage("chat");
+      return setHistoryOpen(true);
+    }
+    setPage("chat");
+    layout.openInspector();
+    setRequestedTab(hedef === "surec" ? "processes" : "files");
+  };
+  const content = page === "image-create" || page === "video-create"
+    ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
+    : page === "skills"
+    ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
+    : page === "control"
+      ? (
+        <ControlPanel
+          client={active.client}
+          title={controlTitle}
+          onChangeRoot={() => void requestTaskFolder()}
+          onClose={() => setPage("chat")}
+          revision={controlRevision}
+          onRunCommand={(command) => {
+            // Seçici panelin ÜSTÜNDE açılır; sayfa değişmez. Eskiden burada
+            // `setPage("chat")` vardı ve kullanıcı model seçmeye basar basmaz
+            // sohbet ekranına atılıyordu — seçimini yaptıktan sonra panele
+            // dönmek için elle geri gitmesi gerekiyordu.
+            void executeCommand(command, false);
+          }}
+        />
+      )
+      : page === "connectors"
+        ? <ConnectorsScreen client={active.client} onClose={() => setPage("chat")} />
+      : page === "settings"
+        ? (
+          <Settings
+            client={active.client}
+            onClose={() => setPage("chat")}
+            onThemeChange={changeTheme}
+            themePreference={themePreference}
+          />
+        )
+      : page === "lessons"
+        ? (
+          <Lessons
+            client={active.client}
+            onClose={() => setPage("chat")}
+            onOpenTab={openLessonTarget}
+            onShowMark={(isaret, metin) => {
+              // Işık gerçek arayüzün üstüne düşer; ders ekranı kapanır.
+              setPage("chat");
+              setSpotlight({ isaret, metin });
+            }}
+            onUseComposer={(gorev) => {
+              setPage("chat");
+              setDraft(gorev);
+            }}
+          />
+        )
+        : conversationContent;
+  const status = active.status === "crashed"
+    ? "Bağlantı kesildi"
+    : active.running
+      ? "Çalışıyor"
+      : "Hazır";
+  const chooseTaskFolder = async () => {
+    setNewTaskBusy(true);
+    setNewTaskError(null);
+    try {
+      const storedRoot = localStorage.getItem("fusion.last-project-root") ?? undefined;
+      const root = (await selectFolder(storedRoot === "/" ? undefined : storedRoot))?.trim();
+      if (!root) {
+        setNewTaskOpen(false);
+        return;
+      }
+      if (root === "/") {
+        setNewTaskError("Kök dizin yerine çalışacağın proje klasörünü seç.");
+        return;
+      }
+      await controller.create({ root });
+      localStorage.setItem("fusion.last-project-root", root);
+      setPage("chat");
+      setWorkspaceMode("kod");
+      setNewTaskOpen(false);
+    } catch {
+      setNewTaskError("Klasör açılamadı. Erişimi kontrol edip yeniden dene.");
+    } finally {
+      setNewTaskBusy(false);
+    }
+  };
+  function requestTaskFolder() {
+    void permissions.ensure("workspace").then((granted) => {
+      if (granted) void chooseTaskFolder();
+    });
+  }
+
+  return (
+    <Shell
+      composer={page === "chat" ? (
+        <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
+        <Composer
+          activeTier={activeTier}
+          tiers={tiers}
+          tierEditable={tierEditable}
+          tierReason={tierReason}
+          onTierChange={(ad) => void changeTier(ad)}
+          approval={approval}
+          onApprovalChange={(next) => {
+            setApproval(next);
+            void active.client.request("oturum.baslat", { mod: next });
+          }}
+          attachments={activeAttachments}
+          attachmentError={attachmentError ?? commandError}
+          commands={composerCommands}
+          mode={workspaceMode}
+          onAttach={() => {
+            setAttachmentError(null);
+            void selectFiles(active.root).then((paths) => {
+              const additions = attachmentsFromPaths(paths);
+              if (paths.length > 0 && additions.length === 0) {
+                setAttachmentError("Seçimde geçerli bir dosya yolu bulunamadı.");
+                return;
+              }
+              setAttachments((current) => ({
+                ...current,
+                [active.id]: [...(current[active.id] ?? []), ...additions]
+                  .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index),
+              }));
+            }).catch(() => setAttachmentError("Dosya seçici açılamadı. Erişimi kontrol edip yeniden dene."));
+          }}
+          onDropFiles={(files) => {
+            setAttachmentError(null);
+            const additions = files.flatMap((file): ComposerAttachment[] => {
+              const localPath = (file as File & { path?: string }).path || file.webkitRelativePath || file.name;
+              if (!localPath.trim()) return [];
+              return [{ kind: file.type.startsWith("image/") ? "image" : "file", name: file.name, path: localPath }];
+            });
+            if (files.length > 0 && additions.length === 0) {
+              setAttachmentError("Sürüklenen öğelerde geçerli bir dosya yolu bulunamadı.");
+              return;
+            }
+            setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
+          }}
+          modeBusy={modeBusy}
+          onModeChange={(next) => {
+            const onceki = workspaceMode;
+            if (next === onceki) return;
+            // Kip ÖNCE iyimser değişir (tıklama anında görünür), çekirdek
+            // reddederse geri alınır. Sessizce eski kipte kalmak, kullanıcının
+            // kod kipinde sandığı bir sohbeti sürdürmesine yol açıyordu.
+            setWorkspaceMode(next);
+            setModeBusy(true);
+            setCommandError(null);
+            void active.client
+              .request("oturum.baslat", { kip: next })
+              .then((sonuc) => {
+                if (sonuc.ok === true) return;
+                setWorkspaceMode(onceki);
+                setCommandError(String(sonuc.metin ?? "Kip değiştirilemedi."));
+              })
+              .catch(() => {
+                setWorkspaceMode(onceki);
+                setCommandError("Kip değiştirilemedi. Bağlantıyı kontrol et.");
+              })
+              .finally(() => setModeBusy(false));
+          }}
+          onSend={send}
+          onVoice={() => void openVoiceWindow()}
+          onRemoveAttachment={(path) => setAttachments((current) => ({
+            ...current,
+            [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
+          }))}
+          onStop={() => controller.stop(active.id)}
+          onValueChange={setDraft}
+          running={active.running}
+          value={draft}
+        /></>
+      ) : undefined}
+      content={
+        <>
+          {content}
+          {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {spotlight && (
+            <Spotlight
+              isaret={spotlight.isaret}
+              metin={spotlight.metin}
+              onClose={() => setSpotlight(null)}
+            />
+          )}
+          {closeAsked && (
+            <CloseConfirm
+              onCancel={() => setCloseAsked(false)}
+              onConfirm={() => void invoke("kapatmayi_onayla")}
+              running={active.running}
+            />
+          )}
+          {active.question && (
+            <Approval
+              onCevap={(answer) => controller.answer(active.id, answer)}
+              soru={active.question.data}
+            />
+          )}
+          {historyOpen && (
+            <HistoryPicker
+              history={history}
+              onClose={() => setHistoryOpen(false)}
+              onResume={(session) => controller.resume({
+                source: session.kaynak,
+                sessionId: session.oturum_id,
+                title: session.baslik,
+                root: active.root,
+              })}
+              open
+            />
+          )}
+          <NewTaskDialog
+            busy={newTaskBusy}
+            error={newTaskError}
+            onCancel={() => { setNewTaskError(null); setNewTaskOpen(false); }}
+            onChat={() => {
+              setNewTaskOpen(false);
+              setNewTaskError(null);
+              setPage("chat");
+              setWorkspaceMode("sohbet");
+              void controller.create();
+            }}
+            onFolder={requestTaskFolder}
+            open={newTaskOpen}
+          />
+          {permissions.activeKind && (
+            <PermissionPrompt
+              canOpenSettings={permissions.activeKind === "microphone" || permissions.activeKind === "speech"}
+              error={permissions.error}
+              isRequesting={permissions.isRequesting}
+              kind={permissions.activeKind}
+              phase={permissions.phase}
+              onContinue={() => void permissions.continue()}
+              onContinueToNext={permissions.hasQueuedPermission ? permissions.continueToNext : undefined}
+              onDismiss={permissions.dismiss}
+              onOpenSettings={() => void permissions.openSettings(permissions.activeKind!)}
+              onRetry={() => void permissions.retry()}
+            />
+          )}
+          {commandSelector && (
+            <CommandSelector
+              busy={commandBusy}
+              error={commandError}
+              onCancel={() => {
+                setCommandError(null);
+                setCommandSelector(null);
+              }}
+              onSelect={(input) => void executeCommand(input, false)}
+              open
+              selector={commandSelector}
+            />
+          )}
+        </>
+      }
+      header={
+        <AppHeader
+          inspectorOpen={layout.inspectorOpen}
+          onToggleInspector={layout.toggleInspector}
+          onToggleSidebar={layout.toggleSidebar}
+          sidebarCollapsed={layout.sidebarCollapsed}
+          status={status}
+          title={headerTitle}
+        />
+      }
+      inspector={page === "chat" ? (
+        <ProjectInspector
+          activeTab={inspectorLayout.activeTab}
+          client={active.client}
+          collapsed={inspectorLayout.collapsed}
+          key={active.id}
+          onActiveTabChange={inspectorLayout.setActiveTab}
+          onCollapsedChange={inspectorLayout.setCollapsed}
+          onWidthChange={inspectorLayout.setWidth}
+          requestedTab={requestedTab}
+          root={active.root}
+          width={inspectorLayout.width}
+        />
+      ) : undefined}
+      inspectorCollapsed={inspectorLayout.collapsed}
+      inspectorOpen={page === "chat" && layout.inspectorOpen}
+      inspectorWidth={inspectorLayout.width}
+      onInspectorClose={layout.closeInspector}
+      sidebar={
+        <Sidebar
+          collapsed={layout.sidebarCollapsed}
+          availableSources={history.sources.map((source) => source.ad)}
+          etkin={active.id}
+          onSil={(id) => controller.remove(id)}
+          onNavigate={(destination) => void navigateSidebar(destination)}
+          onSec={(id) => {
+            setPage("chat");
+            // Açık sekme seçilir; diskte duran sohbet ise ÖNCE açılır. İkisi de
+            // aynı listede durur: kullanıcı için ikisi de "dünkü konuşmam"dır.
+            if (controller.state.sessions[id]) controller.select(id);
+            else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
+          }}
+          onYeni={() => void startDesktopChat()}
+          oturumlar={[
+            ...controller.sessions.map((session) => ({
+              session_id: session.id,
+              source: session.source,
+              title: session.title,
+              project: projectName(session.root),
+              projectRoot: session.root,
+              updated_at: session.updatedAt,
+            })),
+            // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
+            // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
+            ...controller.storedConversations
+              .filter((conversation) => !controller.state.sessions[conversation.id])
+              .map((conversation) => ({
+                session_id: conversation.id,
+                source: "fusion",
+                title: conversation.title,
+                project: projectName(conversation.root),
+                projectRoot: conversation.root,
+                updated_at: conversation.updatedAt * 1000,
+              })),
+          ]}
+          projeler={controller.recentProjects.map((project) => ({
+            name: project.name,
+            pinned: false,
+            root: project.root,
+            updated_at: project.updatedAt,
+          }))}
+        />
+      }
+      sidebarCollapsed={layout.sidebarCollapsed}
+    />
+  );
+}
+
+export function CoreConnectedApp({ transport }: { transport?: SessionTransport } = {}) {
+  return <SessionUygulama transport={transport} />;
+}
