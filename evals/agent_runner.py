@@ -17,7 +17,7 @@ from pathlib import Path
 from evals.executor import AgentRunObservation
 from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
-from fusion_cli.core.events import Event, ModelCallFinished
+from fusion_cli.core.events import Event, ExecutionRetryScheduled, ModelCallFinished
 from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import is_rate_limit_error
@@ -35,15 +35,23 @@ class _NullPublisher:
 
 
 class _CountingPublisher:
-    """Gerçek model çağrılarını event akışından say ve downstream'e ilet."""
+    """Model çağrısını ve kurtarma turunu event akışından say, downstream'e ilet.
+
+    `retries` eskiden yürütücüde SABİT 0 yazıyordu; ölçüm "hiç kurtarma yapılmadı"
+    sonucunu koddan üretiyordu ve `first_attempt_success` her görevi ilk denemede
+    başarılı gösteriyordu. Sayı artık olay akışından gelir.
+    """
 
     def __init__(self, downstream: _NullPublisher | TranscriptRecorder) -> None:
         self._downstream = downstream
         self.model_calls = 0
+        self.retries = 0
 
     def publish(self, event: Event) -> None:
         if isinstance(event, ModelCallFinished):
             self.model_calls += 1
+        elif isinstance(event, ExecutionRetryScheduled):
+            self.retries += 1
         self._downstream.publish(event)
 
 
@@ -124,6 +132,7 @@ class FusionAgentRunner:
         return AgentRunObservation(
             output_text=outcome.final_text,
             model_calls=publisher.model_calls,
+            retries=publisher.retries,
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
         )
@@ -194,6 +203,7 @@ class MinimalAgentRunner(FusionAgentRunner):
         return AgentRunObservation(
             output_text=outcome.final_text,
             model_calls=publisher.model_calls,
+            retries=publisher.retries,
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
         )

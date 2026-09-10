@@ -42,6 +42,12 @@ class AgentRunObservation:
 
     output_text: str
     model_calls: int
+    #: Turda açılan KURTARMA turu sayısı (`ExecutionRetryScheduled`).
+    #:
+    #: Sağlayıcı arızasından gelen yedek-zincir geçişi ve araç sözleşmesi onarımı
+    #: BURAYA girmez: üçü ayrı arıza sınıfıdır ve tek sayıda toplanınca altyapı
+    #: arızası ajan başarısızlığı gibi okunur.
+    retries: int = 0
     #: Sağlayıcı kotası yüzünden tur ölçülemedi mi?
     rate_limited: bool = False
     #: Kota hatasının ham metni (günlük kota / geçici sınır ayrımı için).
@@ -110,7 +116,7 @@ class AgentTaskExecutor:
             rate_limited=observation.rate_limited,
             rate_limit_detail=observation.rate_limit_detail,
             model_calls=observation.model_calls,
-            retries=0,
+            retries=observation.retries,
             duration_seconds=duration,
         )
 

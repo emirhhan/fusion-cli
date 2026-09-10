@@ -17,11 +17,17 @@ class _FakeRunner:
     """Kök dizine önceden belirlenmiş dosyalar yazan ve sabit gözlem döndüren koşucu."""
 
     def __init__(
-        self, *, files: dict[str, str] | None = None, output: str = "", model_calls: int = 1
+        self,
+        *,
+        files: dict[str, str] | None = None,
+        output: str = "",
+        model_calls: int = 1,
+        retries: int = 0,
     ) -> None:
         self._files = files or {}
         self._output = output
         self._model_calls = model_calls
+        self._retries = retries
         self.roots: list[Path] = []
 
     async def run(
@@ -35,7 +41,9 @@ class _FakeRunner:
         self.roots.append(root)
         for name, content in self._files.items():
             (root / name).write_text(content, encoding="utf-8")
-        return AgentRunObservation(output_text=self._output, model_calls=self._model_calls)
+        return AgentRunObservation(
+            output_text=self._output, model_calls=self._model_calls, retries=self._retries
+        )
 
 
 class _FakeClock:
@@ -192,3 +200,29 @@ async def test_exit_code_command_agenttan_bagimsiz_puanlanir(tmp_path):
     execution = await executor.run(task)
 
     assert execution.exit_code == 7
+
+
+async def test_yeniden_deneme_sayisi_gozlemden_raporlanir(tmp_path):
+    """`retries` sabit 0 değildir; gözlemin saydığı kurtarma turunu taşır.
+
+    Sabit sıfır iken "hiç kurtarma yapılmadı" sonucu ölçümden değil koddan
+    geliyordu; `first_attempt_success` de aynı sabitten etkilendiği için her görev
+    ilk denemede başarılı görünüyordu.
+    """
+    runner = _FakeRunner(files={"hello.py": "print('x')"}, retries=2)
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    task = _task("t", SuccessCriterion(kind=CriterionKind.FILE_CHANGED, expected_path="hello.py"))
+
+    execution = await executor.run(task)
+
+    assert execution.retries == 2
+
+
+async def test_kurtarma_yoksa_yeniden_deneme_sifir_kalir(tmp_path):
+    runner = _FakeRunner(files={"hello.py": "print('x')"})
+    executor = AgentTaskExecutor(runner, workspace_root=tmp_path, clock=_FakeClock(0.0, 1.0))
+    task = _task("t", SuccessCriterion(kind=CriterionKind.FILE_CHANGED, expected_path="hello.py"))
+
+    execution = await executor.run(task)
+
+    assert execution.retries == 0
