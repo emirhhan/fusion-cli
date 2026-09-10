@@ -86,6 +86,7 @@ from .hosted_connectors import (
     add_hosted_connector,
     hosted_provider_rows,
     remove_hosted_connector,
+    verify_hosted_connector,
 )
 from .instructions import get_instructions, instruction_block, save_instructions
 from .lessons import get_lesson, list_lessons
@@ -293,6 +294,9 @@ class AppSession:
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
+        #: Sağlayıcı connector panelini açan arka plan görevleri (sağlayıcı → görev).
+        #: Pencere kullanıcı kapatana kadar yaşar; RPC onu beklemez.
+        self._panel_tasks: dict[str, asyncio.Task[None]] = {}
         self._turn: asyncio.Task[Any] | None = None
         #: Bir makronun (`/goal` …) bir SONRAKİ tura taşıyacağı davranış kipi.
         self._next_turn_mode = macros.Mode.NONE
@@ -470,6 +474,11 @@ class AppSession:
             return {"ok": True, "saglayicilar": hosted_provider_rows(self._state.config)}
         if request.name == "baglanti.saglayici_ekle":
             return self._change_connectors(add_hosted_connector, request.data)
+        if request.name == "baglanti.saglayici_dogrula":
+            yeni, sonuc = await verify_hosted_connector(self._state.config, request.data)
+            if yeni is not None:
+                self._state.config = yeni
+            return sonuc
         if request.name == "baglanti.saglayici_sil":
             return self._change_connectors(remove_hosted_connector, request.data)
         if request.name == "baglanti.panel_ac":
@@ -737,10 +746,16 @@ class AppSession:
             return {"ok": False, "metin": "Bu sağlayıcı connector eklemeyi desteklemiyor."}
         from ..providers.web_browser import open_login_browser
 
-        try:
-            await open_login_browser(saglayici, hesap, url=str(row["adres"]))
-        except Exception as error:
-            return {"ok": False, "metin": f"Sağlayıcı paneli açılamadı: {error}"}
+        # ARKA PLANA alınır ve BEKLENMEZ. `open_login_browser` kullanıcı tarayıcıyı
+        # kapatana kadar döner değil; beklenirse RPC dakikalarca açık kalır ve
+        # arayüzdeki tek `busy` bayrağı bütün Bağlantılar ekranını kilitler —
+        # kullanıcı donmuş sanır. `baglanti.giris` aynı sorunu `start_login` ile
+        # arka plan görevine vererek çözüyor; burada da aynı desen kullanılır.
+        task = self._panel_tasks.get(saglayici)
+        if task is None or task.done():
+            self._panel_tasks[saglayici] = asyncio.create_task(
+                open_login_browser(saglayici, hesap, url=str(row["adres"]))
+            )
         return {"ok": True, "adres": row["adres"]}
 
     def _restore_connector_secrets(self, previous: dict[str, str | None]) -> None:
@@ -1053,6 +1068,10 @@ class AppSession:
         if self._turn is not None and not self._turn.done():
             self._turn.cancel()
         voice_stop()
+        for task in self._panel_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._panel_tasks.clear()
         await close_mcp_pool()
         await self._mcp_connections.close()
         await self._processes.close()

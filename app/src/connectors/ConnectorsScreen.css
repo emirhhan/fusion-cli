@@ -525,3 +525,9 @@
   /* Uzun MCP adresi taşmasın: kullanıcı tamamını görüp kopyalayabilmeli. */
   overflow-wrap: anywhere;
 }
+
+.connectors__hosted-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}

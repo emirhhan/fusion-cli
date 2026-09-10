@@ -95,3 +95,22 @@ async def test_kanal_modelin_metnini_dondurur(tasima):
     cevap = await kanal(_connector(), "istem")
 
     assert cevap == "cevap 1"
+
+
+async def test_gecmis_gonderilen_kismi_biriktirmez(tasima):
+    """Geçmiş sınırsız büyürse uzun oturumda maliyet N² olur.
+
+    `_deliver_turn` yalnız gönderilmemiş kısmı yazar; gönderilmiş önek
+    KORUNMAK zorunda değildir. Ölçülen iki maliyet: sürekli büyüyen `Message`
+    listesi ve her çağrıda tüm geçmişi tarayan `_task_reminder`.
+    """
+    config = replace(make_config(), web_sessions=(_session(),))
+    kanal = HostedSessionChannel(config)
+
+    for index in range(6):
+        await kanal(_connector(), f"istem {index}")
+
+    # Önsöz + son alışveriş kalır; tarih sınırsız birikmez.
+    assert kanal.conversations[("claude_web", "main")] <= 4
+    # Önsöz HER ZAMAN ilk mesaj olmalı: havuz konuşmayı onunla eşler.
+    assert tasima.turns[-1][0] == tasima.turns[0][0]

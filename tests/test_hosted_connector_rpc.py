@@ -101,3 +101,84 @@ def test_listede_hosted_connector_tasimasiyla_gorunur():
     assert hosted[0]["saglayici"] == "claude_web"
     # Oturum bağlı olduğu için çalışabilir; bu bilgi arayüzdeki uyarıyı besler.
     assert hosted[0]["hazir"] is True
+
+
+async def test_dogrulama_araclari_sayar_ve_kaydi_dogrulanmis_yapar():
+    """`verified` bayrağını açan tek yol budur; aksi hâlde özellik hiç çalışmaz.
+
+    Ölçülmüş boşluk (inceleme): kurulum akışı sonuna kadar izlense bile
+    `register_into` doğrulanmamış connector'ı atlıyor, `added` hep boş kalıyor ve
+    kullanıcı sebebi göremiyordu.
+    """
+    from fusion_cli.appserver.hosted_connectors import verify_hosted_connector
+
+    config = replace(
+        make_config(),
+        web_sessions=(_session(),),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="Meta Ads",
+                url="https://mcp.facebook.com/ads",
+                provider="claude_web",
+            ),
+        ),
+    )
+
+    async def kesif(connector):
+        del connector
+        return ("get_campaigns", "set_budget")
+
+    yeni, sonuc = await verify_hosted_connector(config, {"ad": "Meta Ads"}, discover=kesif)
+
+    assert sonuc["ok"] is True, sonuc
+    assert sonuc["arac_sayisi"] == 2
+    assert yeni is not None
+    assert yeni.hosted_connectors[0].verified is True
+
+
+async def test_kesif_bos_donerse_dogrulanmis_sayilmaz():
+    """Araç bulunamadıysa connector hazır değildir; yeşil göstermek yalan olurdu."""
+    from fusion_cli.appserver.hosted_connectors import verify_hosted_connector
+
+    config = replace(
+        make_config(),
+        web_sessions=(_session(),),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="Meta Ads", url="https://mcp.facebook.com/ads", provider="claude_web"
+            ),
+        ),
+    )
+
+    async def bos(connector):
+        del connector
+        return ()
+
+    yeni, sonuc = await verify_hosted_connector(config, {"ad": "Meta Ads"}, discover=bos)
+
+    assert sonuc["ok"] is False
+    assert yeni is None
+    assert "araç" in sonuc["metin"]
+
+
+async def test_kesif_hatasi_kullaniciya_tasinir():
+    from fusion_cli.appserver.hosted_connectors import verify_hosted_connector
+
+    config = replace(
+        make_config(),
+        web_sessions=(_session(),),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="Meta Ads", url="https://mcp.facebook.com/ads", provider="claude_web"
+            ),
+        ),
+    )
+
+    async def patla(connector):
+        del connector
+        raise RuntimeError("oturum düştü")
+
+    yeni, sonuc = await verify_hosted_connector(config, {"ad": "Meta Ads"}, discover=patla)
+
+    assert yeni is None
+    assert "oturum düştü" in sonuc["metin"]

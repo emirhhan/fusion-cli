@@ -389,18 +389,39 @@ export function ConnectorsScreen({
                       açın ve şu adresi MCP adresi olarak yapıştırın:
                     </p>
                     <code>{hosted.mcp_adresi}</code>
-                    <Button
-                      onClick={() =>
-                        void run(
-                          "baglanti.panel_ac",
-                          { saglayici: hosted.saglayici },
-                          "panel:hosted",
-                        )
-                      }
-                      variant="secondary"
-                    >
-                      Sağlayıcı panelini aç
-                    </Button>
+                    <div className="connectors__hosted-actions">
+                      <Button
+                        onClick={() =>
+                          void run(
+                            "baglanti.panel_ac",
+                            { saglayici: hosted.saglayici },
+                            "panel:hosted",
+                          )
+                        }
+                        variant="secondary"
+                      >
+                        Sağlayıcı panelini aç
+                      </Button>
+                      {/* Araçlar ancak doğrulamadan SONRA kaydedilir: ölçülmemiş bir
+                          connector'ın araçlarını sunmak, modelin var olmayan
+                          yeteneklere güvenmesine yol açar. */}
+                      <Button
+                        onClick={() =>
+                          void run(
+                            "baglanti.saglayici_dogrula",
+                            { ad: hosted.ad },
+                            "dogrula:hosted",
+                          )
+                        }
+                        variant="primary"
+                      >
+                        Bağlantıyı doğrula
+                      </Button>
+                    </div>
+                    <p className="connectors__hosted-note">
+                      Adresi sağlayıcının ekranına ekledikten sonra doğrula — araçlar
+                      yalnızca doğrulandıktan sonra kullanılabilir.
+                    </p>
                   </div>
                 )}
               </>

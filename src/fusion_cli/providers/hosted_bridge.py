@@ -27,6 +27,9 @@ __all__ = ["PREAMBLE", "HostedSessionChannel"]
 
 #: Connector başına konuşmayı açan SABİT mesaj. Sabit olması zorunludur (bkz.
 #: modül açıklaması): havuz konuşmayı bu mesajın özetiyle bulur.
+#: Geçmişte tutulan en fazla mesaj: önsöz + son istem + son cevap.
+_KEPT_MESSAGES = 3
+
 PREAMBLE = (
     "Bu konuşma Fusion ile kurulmuş otomatik bir köprüdür. Sana bağlı connector "
     "araçlarını çağırmanı isteyeceğim. Her seferinde yalnızca istenen aracı çağır "
@@ -55,7 +58,23 @@ class HostedSessionChannel:
         )
         turn = await transport(self._credential(session), tuple(history), session.model)
         history.append(Message(role="assistant", content=turn.text))
+        self._trim(history)
         return turn.text
+
+    @staticmethod
+    def _trim(history: list[Message]) -> None:
+        """Önsözü ve yalnız SON alışverişi tut.
+
+        Gönderilmiş önek korunmak zorunda değil: `_deliver_turn` konuşmaya yalnız
+        gönderilmemiş kısmı yazar. Sınırsız biriken liste iki maliyet üretiyordu —
+        oturum boyunca büyüyen bellek ve her çağrıda tüm geçmişi tarayan
+        `_task_reminder`, yani N çağrıda O(N²) iş. Önsöz yerinde KALIR: havuz
+        konuşmayı `messages[:1]` ile eşler, onu düşürmek her çağrıda yeni sekme
+        açardı.
+        """
+        if len(history) <= _KEPT_MESSAGES:
+            return
+        del history[1 : len(history) - (_KEPT_MESSAGES - 1)]
 
     def _session_for(self, connector: HostedConnectorConfig) -> WebSessionConfig:
         """Connector'ı taşıyacak oturumu bul; yoksa SEBEBİ söyleyerek düş.

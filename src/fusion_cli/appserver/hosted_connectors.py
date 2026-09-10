@@ -11,6 +11,7 @@ token Fusion'a hiç gelmez. Bu, modelin var olma gerekçesidir.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import replace
 from typing import Any
 
@@ -24,7 +25,12 @@ __all__ = [
     "hosted_connector_rows",
     "hosted_provider_rows",
     "remove_hosted_connector",
+    "verify_hosted_connector",
 ]
+
+#: Connector'ın araçlarını keşfeden çağrı. Enjekte edilir: doğrulama mantığı
+#: gerçek tarayıcı açmadan test edilebilmeli.
+Discover = Callable[[HostedConnectorConfig], Awaitable[Sequence[str]]]
 
 
 def hosted_provider_rows(config: Config) -> list[dict[str, Any]]:
@@ -143,3 +149,70 @@ def remove_hosted_connector(config: Config, data: object) -> tuple[Config | None
     except Exception as error:
         return None, {"ok": False, "metin": f"Bağlantı kaldırılamadı: {error}"}
     return yeni, {"ok": True, "ad": ad}
+
+
+async def _discover_tools(connector: HostedConnectorConfig) -> Sequence[str]:
+    """Gerçek keşif: connector'ın araçlarını sağlayıcı oturumuna sorarak al."""
+    from ..config.loader import load_config
+    from ..mcp_bridge.hosted import HostedConnectorClient
+    from ..providers.hosted_bridge import HostedSessionChannel
+
+    config = load_config()
+    client = HostedConnectorClient((connector,), ask=HostedSessionChannel(config))
+    tools = await client.list_tools(connector.name)
+    return [tool.name for tool in tools]
+
+
+async def verify_hosted_connector(
+    config: Config, data: object, *, discover: Discover | None = None
+) -> tuple[Config | None, dict[str, Any]]:
+    """`baglanti.saglayici_dogrula`: araçları bir kez keşfet ve kaydı doğrula.
+
+    `verified` bayrağını açan TEK yol budur. Ölçülmüş boşluk (inceleme): bayrağı
+    açan hiçbir yol yoktu; kullanıcı kurulumu sonuna kadar izlese bile
+    `register_into` connector'ı atlıyor, hiç araç kaydedilmiyor ve sebebi hiçbir
+    yerde görünmüyordu.
+
+    Keşif boş dönerse doğrulanmış SAYILMAZ: araç bulunamamış bir bağlantıyı yeşil
+    göstermek, modelin var olmayan yeteneklere güvenmesine yol açardı — bu, bayrağın
+    ilk baştaki varoluş gerekçesi.
+    """
+    if not isinstance(data, dict):
+        return None, {"ok": False, "metin": "Geçersiz bağlantı."}
+    ad = str(data.get("ad", "")).strip()
+    connector = next((item for item in config.hosted_connectors if item.name == ad), None)
+    if connector is None:
+        return None, {"ok": False, "metin": f"'{ad}' adlı bağlantı bulunamadı."}
+    if not hosted_connector_ready(config, connector):
+        definition = provider_definition(connector.provider)
+        return None, {
+            "ok": False,
+            "metin": f"{definition.name} oturumu bağlı değil; doğrulama yapılamaz.",
+        }
+    probe = discover or _discover_tools
+    try:
+        tools = await probe(connector)
+    except Exception as error:
+        # Hata METNİ taşınır: sebebi (oturum düştü, connector eklenmemiş) yalnız
+        # orada yazılı ve kullanıcının yapacağı iş ona bağlı.
+        return None, {"ok": False, "metin": f"Doğrulama başarısız: {error}"}
+    if not tools:
+        return None, {
+            "ok": False,
+            "metin": (
+                "Sağlayıcı bu connector için hiç araç bildirmedi. Adresi sağlayıcının "
+                "connector ekranına eklediğinden ve bağlantının açık olduğundan emin ol."
+            ),
+        }
+    yeni = replace(
+        config,
+        hosted_connectors=tuple(
+            replace(item, verified=True) if item.name == ad else item
+            for item in config.hosted_connectors
+        ),
+    )
+    try:
+        write_hosted_connectors(yeni)
+    except Exception as error:
+        return None, {"ok": False, "metin": f"Bağlantı kaydedilemedi: {error}"}
+    return yeni, {"ok": True, "ad": ad, "arac_sayisi": len(tools), "araclar": list(tools)}
