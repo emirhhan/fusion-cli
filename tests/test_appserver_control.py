@@ -30,6 +30,37 @@ async def _request(session: AppSession, lines: list[str], name: str, data: dict[
     return json.loads(lines[-1])["veri"]
 
 
+async def test_web_girisi_diger_saglayicinin_sohbetini_kapatmaz(tmp_path, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from fusion_cli.providers import web_browser
+
+    pool = web_browser.BrowserSessionPool()
+    monkeypatch.setattr(web_browser, "_POOL", pool)
+    gemini_page = AsyncMock()
+    chatgpt_page = AsyncMock()
+    pool.remember_conversation(
+        "gemini_web", "main", "root", web_browser.ConversationState(page=gemini_page)
+    )
+    pool.remember_conversation(
+        "chatgpt_web", "main", "root", web_browser.ConversationState(page=chatgpt_page)
+    )
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.start_web_login", lambda *_: {"ok": True, "pid": 123}
+    )
+    lines = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    try:
+        result = await _request(
+            session, lines, "web.giris", {"saglayici": "chatgpt_web", "hesap": "main"}
+        )
+        assert result["ok"] is True
+        assert pool.conversation("gemini_web", "main", "root") is not None
+        assert pool.conversation("chatgpt_web", "main", "root") is None
+    finally:
+        await session.close()
+
+
 async def test_kontrol_durumu_model_izin_gateway_ve_sir_adlarini_guvenli_dondurur(
     tmp_path: Path,
 ):

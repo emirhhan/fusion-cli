@@ -39,6 +39,108 @@ async def test_tarayici_guvenlik_sandboxunu_kapatmaz(tmp_path):
     }
 
 
+class _Emitter:
+    """Playwright nesnelerinin `on(olay, geri_çağrı)` yüzeyini taklit eder."""
+
+    def __init__(self, close_event: str):
+        self.listeners = {}
+        self.close_event = close_event
+        self.closed = False
+
+    def on(self, event, callback):
+        self.listeners[event] = callback
+
+    async def close(self):
+        self.closed = True
+        callback = self.listeners.get(self.close_event)
+        if callback:
+            callback(self)
+
+
+class _SharedSpy:
+    """`SharedProfileBrowser` yerine geçip bırakma çağrılarını kaydeder."""
+
+    def __init__(self, calls, profile):
+        self._calls = calls
+        self._profile = profile
+
+    async def release(self, *, force, timeout_s):
+        self._calls.append((self._profile, force))
+
+
+def _pool_with_fake_connections(monkeypatch, tmp_path):
+    from fusion_cli.providers import web_browser
+
+    pairs = [(_Emitter("disconnected"), _Emitter("close")) for _ in range(2)]
+    connect = mock.AsyncMock(side_effect=pairs)
+    monkeypatch.setattr(web_browser, "_connect_shared_context", connect)
+    monkeypatch.setattr(
+        web_browser, "browser_profile_dir", lambda *parts: tmp_path.joinpath(*parts)
+    )
+    releases = []
+    monkeypatch.setattr(
+        web_browser,
+        "_shared_profile_browser",
+        lambda _playwright, profile: _SharedSpy(releases, profile),
+    )
+    manager = web_browser.BrowserSessionPool()
+    manager._playwright = mock.Mock()
+    return manager, pairs, releases
+
+
+def _gemini_session() -> WebSessionConfig:
+    return WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", account="main")
+
+
+async def test_kapanan_baglam_havuzdan_atilir_ve_yeniden_acilir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, _ = _pool_with_fake_connections(monkeypatch, tmp_path)
+    credential = WebSessionCredential()
+    (_, first), (_, second) = pairs
+
+    assert await manager.context_for(_gemini_session(), credential) is first
+    await first.close()
+    assert await manager.context_for(_gemini_session(), credential) is second
+
+
+async def test_paylasilan_chrome_baglantisi_kopunca_yeniden_baglanir(monkeypatch, tmp_path):
+    """Başka bir sekme giriş için Chrome'u kapatınca bu sekme sonraki turda bağlanmalı."""
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, _ = _pool_with_fake_connections(monkeypatch, tmp_path)
+    credential = WebSessionCredential()
+    (first_browser, first), (_, second) = pairs
+
+    assert await manager.context_for(_gemini_session(), credential) is first
+    await first_browser.close()
+    assert await manager.context_for(_gemini_session(), credential) is second
+
+
+async def test_giris_icin_profil_birakmak_paylasilan_chromeu_zorla_kapatir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, pairs, releases = _pool_with_fake_connections(monkeypatch, tmp_path)
+    await manager.context_for(_gemini_session(), WebSessionCredential())
+
+    await manager.close_session("gemini_web", "main")
+
+    first_browser, _ = pairs[0]
+    assert first_browser.closed is True
+    assert releases == [(tmp_path / "gemini_web" / "main", True)]
+
+
+async def test_surec_kapanirken_yalniz_kendi_kirasini_birakir(monkeypatch, tmp_path):
+    from fusion_cli.providers.web_session import WebSessionCredential
+
+    manager, _, releases = _pool_with_fake_connections(monkeypatch, tmp_path)
+    await manager.context_for(_gemini_session(), WebSessionCredential())
+
+    await manager.close()
+
+    assert releases == [(tmp_path / "gemini_web" / "main", False)]
+
+
 def test_cookie_header_degerindeki_esittir_isaretini_korur():
     parsed = parse_cookie_header("a=1; session=abc==; empty=; flag")
     assert parsed == {"a": "1", "session": "abc==", "empty": ""}

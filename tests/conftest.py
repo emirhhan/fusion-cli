@@ -49,6 +49,12 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
         "FUSION_MEMORY_DIR",
         str(tmp_path.parent / f".{tmp_path.name}-fusion-memory"),
     )
+    # Web profilleri ve paylaşılan Chrome kiraları kullanıcı veri dizininde durur.
+    # Havuzu kapatan bir test gerçek dizine giderse kullanıcının AÇIK Fusion
+    # Chrome'unu kapatabilirdi.
+    user_data = tmp_path.parent / f".{tmp_path.name}-fusion-data"
+    monkeypatch.setenv("XDG_DATA_HOME", str(user_data))
+    monkeypatch.setenv("LOCALAPPDATA", str(user_data))
 
 
 @pytest.fixture(autouse=True)

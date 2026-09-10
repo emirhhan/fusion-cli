@@ -475,9 +475,12 @@ class AppSession:
         if request.name == "web.saglayicilar":
             return web_provider_cards(self._state.config)
         if request.name == "web.giris":
-            from ..providers.web_browser import close_all_browser_sessions
+            from ..providers.web_browser import close_browser_session, normalize_account
 
-            await close_all_browser_sessions()
+            await close_browser_session(
+                str(request.data.get("saglayici") or ""),
+                normalize_account(str(request.data.get("hesap") or "main")),
+            )
             return start_web_login(request.data.get("saglayici"), request.data.get("hesap"))
         if request.name == "web.baglan":
             return self._change_web_session(

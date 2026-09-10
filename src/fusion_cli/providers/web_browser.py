@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
@@ -39,6 +40,13 @@ from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
 from .web_session import WebSessionCredential, WebTransport, WebTurn
+from .web_shared_browser import (
+    SharedBrowserError,
+    SharedBrowserHooks,
+    SharedProfileBrowser,
+    chrome_launch_arguments,
+    endpoint_alive,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -686,6 +694,66 @@ async def _launch_profile_context(
     raise WebBrowserError("tarayıcı bağlamı açılamadı")
 
 
+def _shared_profile_browser(playwright: Any | None, profile: Path) -> SharedProfileBrowser:
+    """Profilin süreçler arası paylaşılan Chrome'u için gerçek kancaları kur."""
+
+    async def launch(path: Path, headless: bool) -> None:
+        executable = _native_login_executable() or (
+            playwright.chromium.executable_path if playwright is not None else None
+        )
+        if not executable:
+            raise WebBrowserError("Chrome bulunamadı. Google Chrome'u kurup tekrar dene.")
+        # Chrome bu süreçten BAĞIMSIZ yaşar: sekme kapanınca diğer sekmelerin
+        # sohbetleri düşmesin. Kapanışı kira kaydı yönetir.
+        await asyncio.to_thread(
+            subprocess.Popen,
+            chrome_launch_arguments(executable, path, headless=headless),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    async def close(endpoint: str) -> None:
+        if playwright is None:
+            # CDP istemcisi yoksa yalnız Fusion'ın bu profil için açtığı Chrome durdurulur.
+            await _stop_profile_process(profile)
+            return
+        browser = await playwright.chromium.connect_over_cdp(endpoint)
+        session = await browser.new_browser_cdp_session()
+        with contextlib.suppress(Exception):  # Chrome kapanırken bağlantı kopabilir
+            await session.send("Browser.close")
+
+    return SharedProfileBrowser(
+        profile,
+        SharedBrowserHooks(
+            prepare_launch=clear_profile_singletons,
+            launch=launch,
+            is_alive=endpoint_alive,
+            close=close,
+        ),
+        owner_pid=os.getpid(),
+    )
+
+
+async def _connect_shared_context(
+    playwright: Any, profile: Path, session: WebSessionConfig
+) -> tuple[Any, Any]:
+    """Paylaşılan Chrome'u kirala ve CDP ile bağlan; (tarayıcı, bağlam) döndür."""
+    shared = _shared_profile_browser(playwright, profile)
+    budget = browser_turn_budget(session)
+    try:
+        endpoint = await shared.acquire(headless=session.headless, timeout_s=budget)
+    except SharedBrowserError as error:
+        raise WebBrowserError(str(error)) from error
+    try:
+        browser = await playwright.chromium.connect_over_cdp(endpoint)
+    except BaseException:
+        await shared.release(force=False, timeout_s=budget)
+        raise
+    context = browser.contexts[0] if browser.contexts else await browser.new_context()
+    return browser, context
+
+
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
 #: çağrılar (ders çıkarımı, öz-denetim, sıkıştırma) için yeterlidir.
 MAX_OPEN_CONVERSATIONS = 4
@@ -737,11 +805,17 @@ def conversation_digest(messages: Sequence[Message]) -> str:
 
 
 class BrowserSessionPool:
-    """Süreç-yerel kalıcı Playwright bağlamları; sağlayıcı/hesap başına bir tane."""
+    """Paylaşılan Chrome'a açılan süreç-yerel bağlantılar; sağlayıcı/hesap başına bir tane.
+
+    Chrome'un kendisi süreçler arasında paylaşılır (`web_shared_browser`); bu
+    havuz yalnız bu sürecin CDP bağlantısını, bağlamını ve sohbet sayfalarını tutar.
+    """
 
     def __init__(self) -> None:
         self._playwright: Any | None = None
-        self._contexts: dict[tuple[str, str, bool], Any] = {}
+        self._contexts: dict[tuple[str, str], Any] = {}
+        #: Bağlamların geldiği CDP bağlantıları; kapatmak Chrome'u değil bağlantıyı bırakır.
+        self._browsers: dict[tuple[str, str], Any] = {}
         self._locks: dict[tuple[str, str], asyncio.Lock] = {}
         #: Sınır aşımında bırakılan, kapatılmayı bekleyen sayfalar.
         self._closing: list[Any] = []
@@ -799,7 +873,7 @@ class BrowserSessionPool:
                 await page.close()
 
     async def context_for(self, session: WebSessionConfig, credential: WebSessionCredential) -> Any:
-        key = (session.provider, session.account, session.headless)
+        key = (session.provider, session.account)
         async with self._guard:
             existing = self._contexts.get(key)
             if existing is not None:
@@ -817,36 +891,55 @@ class BrowserSessionPool:
             if self._playwright is None:
                 self._playwright = await async_playwright().start()
             profile = browser_profile_dir(session.provider, session.account)
-            profile.mkdir(parents=True, exist_ok=True)
-            clear_profile_singletons(profile)
-            context = await _launch_profile_context(
-                self._playwright.chromium,
-                profile=profile,
-                headless=session.headless,
-                accept_downloads=False,
-            )
+            browser, context = await _connect_shared_context(self._playwright, profile, session)
             await _inject_cookie_header(context, session.provider, credential.token)
             self._contexts[key] = context
+            self._browsers[key] = browser
+
+            def forget_closed_context(*_: Any) -> None:
+                # A late close event must not evict a replacement context.
+                if self._contexts.get(key) is context:
+                    self._contexts.pop(key, None)
+                    self._browsers.pop(key, None)
+
+            # Chrome başka bir sekme tarafından kapatılınca (giriş penceresi) bağlantı
+            # kopar; sonraki tur yeniden kiralayıp bağlanır.
+            context.on("close", forget_closed_context)
+            browser.on("disconnected", forget_closed_context)
             return context
 
     async def close_session(self, provider: str, account: str) -> None:
-        """Bir profile ait tüm (görünür/görünmez) bağlamları kapat.
+        """Profili tamamen serbest bırak: paylaşılan Chrome da kapanır.
 
         Chrome kalıcı profilleri KİLİTLER. Kontrol paneli, etkileşimli giriş penceresi
-        açmadan ya da headless ayarını değiştirmeden önce bunu çağırır.
+        açmadan ya da headless ayarını değiştirmeden önce bunu çağırır; diğer
+        sekmelerin bağlantıları kopar ve sonraki turlarında yeniden bağlanırlar.
         """
         await self.drop_account_conversations(provider, account)
+        await self._disconnect((provider, account))
+        await _shared_profile_browser(
+            self._playwright, browser_profile_dir(provider, account)
+        ).release(force=True, timeout_s=MIN_BROWSER_TURN_S)
+
+    async def _disconnect(self, key: tuple[str, str]) -> None:
         async with self._guard:
-            keys = [key for key in self._contexts if key[0] == provider and key[1] == account]
-            contexts = [self._contexts.pop(key) for key in keys]
-        for context in contexts:
-            with contextlib.suppress(Exception):
-                await context.close()
+            self._contexts.pop(key, None)
+            browser = self._browsers.pop(key, None)
+        if browser is not None:
+            with contextlib.suppress(Exception):  # zaten kopmuş bağlantı
+                await browser.close()
 
     async def close(self) -> None:
-        for context in tuple(self._contexts.values()):
-            with contextlib.suppress(Exception):
-                await context.close()
+        for provider, account, root in tuple(self._conversations):
+            await self.drop_conversation(provider, account, root)
+        await self.flush_closed()
+        for key in tuple(self._browsers):
+            await self._disconnect(key)
+            # Süreç çıkarken yalnız kendi kirası bırakılır; son kiracıysa Chrome kapanır.
+            with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
+                await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
+                    force=False, timeout_s=MIN_BROWSER_TURN_S
+                )
         self._contexts.clear()
         if self._playwright is not None:
             with contextlib.suppress(Exception):
@@ -1016,6 +1109,7 @@ async def _deliver_turn(
     state = manager.conversation(session.provider, session.account, root)
     resumable = (
         state is not None
+        and not state.page.is_closed()
         and 0 < state.sent_count < len(messages)
         and conversation_digest(messages[: state.sent_count]) == state.prefix_digest
     )

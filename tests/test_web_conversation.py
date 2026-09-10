@@ -41,6 +41,9 @@ class _FakePage:
     async def close(self) -> None:
         self.closed = True
 
+    def is_closed(self) -> bool:
+        return self.closed
+
 
 class _FakeContext:
     def __init__(self, log: list[tuple[str, str]]) -> None:
@@ -109,6 +112,26 @@ async def test_ikinci_tur_yeni_sohbet_acmaz(pool, log):
     gotos = [entry for entry in log if entry[0] == "goto"]
     assert len(gotos) == 1, "ikinci tur için yeniden sohbet açılmamalı"
     assert pool.fake_context.pages_created == 1
+
+
+async def test_havuz_kapatildiktan_sonra_eski_sohbet_sayfasina_devam_etmez(pool, log):
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    await transport(credential, _messages(2), "m")
+    await pool.close()
+    await transport(credential, _messages(3), "m")
+    assert pool.fake_context.pages_created == 2
+    assert "mesaj-0" in [entry[1] for entry in log if entry[0] == "send"][-1]
+
+
+async def test_disaridan_kapanan_sayfayi_yeniden_kullanmaz(pool, log):
+    transport = build_browser_transport(_session(), pool=pool)
+    credential = WebSessionCredential()
+    await transport(credential, _messages(2), "m")
+    state = pool.conversation("chatgpt_web", "main", conversation_digest(_messages(1)))
+    await state.page.close()
+    await transport(credential, _messages(3), "m")
+    assert pool.fake_context.pages_created == 2
 
 
 async def test_ikinci_tur_yalnizca_yeni_mesaji_gonderir(pool, log):
