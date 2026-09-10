@@ -15,9 +15,13 @@ interface RpcRow {
 
 /** Sahte protokol istemcisi: baglanti.listele için verilen satırları döndürür,
  *  diğer çağrıları kaydeder. */
-function fakeClient(rows: RpcRow[] = []) {
+function fakeClient(
+  rows: RpcRow[] = [],
+  responses: Record<string, Record<string, unknown>> = {},
+) {
   const request = vi.fn(async (name: string, _data: unknown) => {
     if (name === "baglanti.listele") return { ok: true, sunucular: rows };
+    if (responses[name]) return responses[name];
     return { ok: true, metin: "tamam" };
   });
   return { request } as unknown as ProtocolClient & { request: ReturnType<typeof vi.fn> };
@@ -52,17 +56,19 @@ describe("ConnectorsScreen", () => {
     await waitFor(() =>
       expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
         ad: "shopify",
-        komut: "npx -y @shopify/dev-mcp",
+        komut: "npx -y @shopify/dev-mcp@latest",
       }),
     );
   });
 
-  it("uzak OAuth katalog girişini ekleyip girişi başlatır", async () => {
-    const client = fakeClient();
+  it("uzak OAuth katalog girişinde backendin başlattığı girişi tekrarlamaz", async () => {
+    const client = fakeClient([], {
+      "baglanti.ekle": { ok: true, durum: "giris_bekleniyor" },
+    });
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
-    // GitHub banner'ı remote+OAuth: önce ekle, sonra giriş.
+    // `baglanti.ekle` remote bağlantıda OAuth'u backend tarafında başlatır.
     const banners = screen.getByLabelText("Popüler bağlantılar");
     const github = within(banners).getByText("GitHub").closest("article")!;
     fireEvent.click(within(github).getByRole("button", { name: "Bağlan" }));
@@ -71,13 +77,36 @@ describe("ConnectorsScreen", () => {
       expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
         ad: "github",
         tasima: "streamable_http",
-        url: "https://api.githubcopilot.com/mcp",
+        url: "https://api.githubcopilot.com/mcp/",
         kapsamlar: "",
         client_id: "",
       }),
     );
+    expect(client.request).not.toHaveBeenCalledWith("baglanti.giris", { ad: "github" });
+  });
+
+  it("önceden eklenmiş uzak bağlantının girişini başlatır", async () => {
+    const client = fakeClient([
+      {
+        ad: "github",
+        durum: "yapilandirildi",
+        tasima: "streamable_http",
+        url: "https://api.githubcopilot.com/mcp/",
+      },
+    ]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.listele", {}));
+
+    const banners = screen.getByLabelText("Popüler bağlantılar");
+    const github = within(banners).getByText("GitHub").closest("article")!;
+    fireEvent.click(within(github).getByRole("button", { name: "Bağlan" }));
+
     await waitFor(() =>
       expect(client.request).toHaveBeenCalledWith("baglanti.giris", { ad: "github" }),
+    );
+    expect(client.request).not.toHaveBeenCalledWith(
+      "baglanti.ekle",
+      expect.objectContaining({ ad: "github" }),
     );
   });
 

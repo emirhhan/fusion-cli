@@ -115,8 +115,8 @@ export function ConnectorsScreen({
     async (entry: CatalogEntry) => {
       const existing = rowByName.get(entry.id);
       if (!existing) {
-        const added = await run("baglanti.ekle", addPayloadFor(entry), `add:${entry.id}`);
-        if (!added?.ok && added?.metin) return;
+        await run("baglanti.ekle", addPayloadFor(entry), `add:${entry.id}`);
+        return;
       }
       if (entry.transport === "streamable_http" && entry.oauth) {
         await run("baglanti.giris", { ad: entry.id }, `login:${entry.id}`);

@@ -49,7 +49,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#5a8f3d",
     glyph: "Sh",
     transport: "stdio",
-    command: "npx -y @shopify/dev-mcp",
+    command: "npx -y @shopify/dev-mcp@latest",
     featured: true,
   },
   {
@@ -60,7 +60,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#6e7681",
     glyph: "GH",
     transport: "streamable_http",
-    url: "https://api.githubcopilot.com/mcp",
+    url: "https://api.githubcopilot.com/mcp/",
     oauth: true,
     featured: true,
   },
