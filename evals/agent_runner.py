@@ -15,12 +15,13 @@ from dataclasses import replace
 from pathlib import Path
 
 from evals.executor import AgentRunObservation
+from evals.runner import EvaluationUnavailableError
 from evals.transcript import TranscriptRecorder
 from fusion_cli.config.models import Config
 from fusion_cli.core.events import Event, ExecutionRetryScheduled, ModelCallFinished
 from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.core.types import is_rate_limit_error
+from fusion_cli.core.types import is_permanent_error, is_rate_limit_error
 from fusion_cli.engines.agent import run_agent
 from fusion_cli.engines.agent.approval import ApprovalRequest, Decision
 from fusion_cli.engines.agent.loop import AgentDeps
@@ -123,6 +124,7 @@ class FusionAgentRunner:
         finally:
             if kayit is not None:
                 kayit.close()
+        _ensure_provider_available(outcome.ok, outcome.final_text)
         # Kota hatası görev başarısızlığı değildir; ayırt edilmezse ölçüm sessizce
         # bozulur (ölçüldü: kota tükenirken model çağrısı 8.6→5.8→1.0'a düştü ve
         # düşüş yanlışlıkla bir kod değişikliğine atfedildi).
@@ -199,6 +201,7 @@ class MinimalAgentRunner(FusionAgentRunner):
         finally:
             if kayit is not None:
                 kayit.close()
+        _ensure_provider_available(outcome.ok, outcome.final_text)
         kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         return AgentRunObservation(
             output_text=outcome.final_text,
@@ -207,3 +210,12 @@ class MinimalAgentRunner(FusionAgentRunner):
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
         )
+
+
+def _ensure_provider_available(ok: bool, detail: str) -> None:
+    """Kalıcı sağlayıcı arızasını yanlış bir benchmark başarısızlığına çevirme."""
+    if ok or not is_permanent_error(detail) or is_rate_limit_error(detail):
+        return
+    raise EvaluationUnavailableError(
+        f"Sağlayıcı kullanılamıyor; ölçüm agent'ın yeteneği hakkında bilgi vermez: {detail}"
+    )

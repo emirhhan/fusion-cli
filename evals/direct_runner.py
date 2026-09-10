@@ -7,12 +7,13 @@ from pathlib import Path
 
 from evals.agent_runner import _CountingPublisher, _NullPublisher
 from evals.executor import AgentRunObservation
+from evals.runner import EvaluationUnavailableError
 from evals.transcript import TranscriptRecorder
 from fusion_cli.cli.session import build_request
 from fusion_cli.config.models import Config
 from fusion_cli.core.events import EventPublisher
 from fusion_cli.core.protocols import LlmProvider
-from fusion_cli.core.types import is_rate_limit_error
+from fusion_cli.core.types import is_permanent_error, is_rate_limit_error
 from fusion_cli.providers.factory import build_provider
 from fusion_cli.providers.web_registry import web_registry_for
 
@@ -65,6 +66,10 @@ class DirectRunner:
         finally:
             if recorder is not None:
                 recorder.close()
+        if not result.ok and is_permanent_error(output) and not is_rate_limit_error(output):
+            raise EvaluationUnavailableError(
+                f"Sağlayıcı kullanılamıyor; ölçüm agent'ın yeteneği hakkında bilgi vermez: {output}"
+            )
         limited = not result.ok and is_rate_limit_error(output)
         return AgentRunObservation(
             output_text=output,

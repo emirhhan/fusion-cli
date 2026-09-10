@@ -24,7 +24,7 @@ from evals.loader import load_tasks
 from evals.metrics import RunReport
 from evals.profiles import EvalProfile, RunMetadata, build_runner, exclusions_for
 from evals.report import read_report, write_report
-from evals.runner import RateLimitedError, TaskExecutor, run_suite
+from evals.runner import EvaluationUnavailableError, RateLimitedError, TaskExecutor, run_suite
 from evals.tasks import EvalTask
 from fusion_cli.config.loader import load_config
 from fusion_cli.core.clock import SystemClock
@@ -93,9 +93,9 @@ def _run(args: argparse.Namespace) -> int:
     print(f"{len(tasks)} görev{tekrar} koşturuluyor (çalışma dizini: {workspace_root})…")
     try:
         report = asyncio.run(_run_suite_and_close(tasks, executor, repeat=args.repeat))
-    except RateLimitedError as hata:
-        # Kota hatasını "başarısız ölçüm" diye raporlamak yanıltıcıdır: agent'ın
-        # yeteneği hiç ölçülmemiştir. Rapor da YAZILMAZ.
+    except (RateLimitedError, EvaluationUnavailableError) as hata:
+        # Kota ya da kalıcı sağlayıcı erişim hatasını "başarısız ölçüm" diye
+        # raporlamak yanıltıcıdır: agent'ın yeteneği hiç ölçülmemiştir. Rapor YAZILMAZ.
         print(f"\nÖLÇÜM DURDURULDU: {hata}")
         return 2
 

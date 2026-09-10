@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import pytest
 from evals import agent_runner
 from evals.agent_runner import FusionAgentRunner
+from evals.runner import EvaluationUnavailableError
 
 from fusion_cli.engines.agent.loop import AgentOutcome
 
@@ -52,3 +54,25 @@ async def test_eval_runner_verifier_baglar_ve_eventlerden_model_cagrisi_sayar(
 
     # Review/hakem gibi AgentOutcome dışında kalan çağrılar dahil event gerçeği.
     assert result.model_calls == 3
+
+
+async def test_eval_runner_saglayici_oturumu_yoksa_olcum_yazmaz(
+    monkeypatch,
+    tmp_path,
+):
+    async def fake_run_agent(request, deps):
+        return AgentOutcome(
+            final_text="authentication: Gemini Web oturumu açık değil veya süresi dolmuş.",
+            messages=[],
+            ok=False,
+            model_calls_made=1,
+        )
+
+    monkeypatch.setattr(agent_runner, "run_agent", fake_run_agent)
+    monkeypatch.setattr(agent_runner, "build_verifier", lambda *args, **kwargs: None)
+
+    runner = object.__new__(FusionAgentRunner)
+    runner._config = object()
+
+    with pytest.raises(EvaluationUnavailableError, match="oturumu"):
+        await runner.run("görev", root=tmp_path)

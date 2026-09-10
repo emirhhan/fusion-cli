@@ -23,6 +23,10 @@ class RateLimitedError(EvalError):
     """Sağlayıcı kotası tükendi; ölçüm anlamını yitirdi."""
 
 
+class EvaluationUnavailableError(EvalError):
+    """Sağlayıcıya erişilemedi; agent yeteneği ölçülemedi."""
+
+
 #: Geçici sınırda kaç kez daha denenir. Sınırsız denemek kotayı ve kullanıcının
 #: zamanını tüketir; hiç denememek dakikalık bir sınır yüzünden koşuyu iptal eder.
 MAX_RATE_LIMIT_RETRIES = 2
