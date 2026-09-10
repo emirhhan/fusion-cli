@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from ..config.models import HostedConnectorConfig
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ..tools import ToolRegistry
+from ..tools.emulation import coerce_arguments, validate_arguments
 
 __all__ = [
     "MESSAGE_MARKER_IN_BODY",
@@ -167,6 +168,13 @@ class HostedConnectorClient:
     def __init__(self, connectors: Sequence[HostedConnectorConfig], *, ask: AskSession) -> None:
         self._connectors = {connector.name: connector for connector in connectors}
         self._ask = ask
+        #: Keşifte görülen araçlar: (connector, araç) → şema.
+        #
+        # Çağrı oturuma GİTMEDEN ÖNCE buraya bakılır. Bir tarayıcı turu başlatmak
+        # uzak aracı gerçekten çalıştırabilir ve bunlar reklam bütçesi değiştiren
+        # araçlar: uydurulmuş bir ad ya da eksik zorunlu alan, parayı yanlış
+        # harcadıktan SONRA fark edilmemeli.
+        self._schemas: dict[tuple[str, str], Mapping[str, object]] = {}
 
     def _connector(self, name: str) -> HostedConnectorConfig:
         connector = self._connectors.get(name)
@@ -191,12 +199,14 @@ class HostedConnectorClient:
             if not name:
                 continue
             schema = item.get("sema")
+            resolved = dict(schema) if isinstance(schema, Mapping) else {}
+            self._schemas[(connector, name)] = resolved
             tools.append(
                 HostedTool(
                     connector=connector,
                     name=name,
                     description=str(item.get("aciklama", "")),
-                    schema=dict(schema) if isinstance(schema, Mapping) else {},
+                    schema=resolved,
                 )
             )
         return tools
@@ -212,6 +222,11 @@ class HostedConnectorClient:
         kararı Fusion'ın kendi onay akışına kalır (araç `mutating=True`).
         """
         config = self._connector(connector)
+        hata = self._precheck(connector, tool, args)
+        if hata is not None:
+            return ToolResult.failure(hata)
+        schema = self._schemas.get((connector, tool), {})
+        args = coerce_arguments(schema, args) if schema else dict(args)
         try:
             payload = await self._exchange(
                 config, render_call_prompt(config, tool, args), repair=False
@@ -233,6 +248,29 @@ class HostedConnectorClient:
         sonuc = payload["sonuc"]
         structured = sonuc if isinstance(sonuc, Mapping) else {"sonuc": sonuc}
         return ToolResult(output=json.dumps(sonuc, ensure_ascii=False), structured=dict(structured))
+
+    def _precheck(self, connector: str, tool: str, args: Mapping[str, object]) -> str | None:
+        """Çağrı oturuma gitmeden önce adı ve argümanları doğrula; hata metni döndür.
+
+        Keşif hiç yapılmadıysa doğrulama ATLANIR: bilgi yokken kısıt koymak işi
+        engellerdi. Şema boş gelen araçta da doğrulama yapılamaz — uydurma bir
+        kısıt, var olan bir yeteneği kapatırdı.
+        """
+        if not self._schemas:
+            return None
+        if (connector, tool) not in self._schemas:
+            bilinen = sorted(name for owner, name in self._schemas if owner == connector)
+            return (
+                f"{connector} bağlantısında '{tool}' adlı araç yok. "
+                f"Kullanılabilir: {', '.join(bilinen) or '(keşif boş döndü)'}"
+            )
+        schema = self._schemas[(connector, tool)]
+        if not schema:
+            return None
+        errors = validate_arguments(schema, coerce_arguments(schema, args))
+        if errors:
+            return f"{connector}.{tool} argümanları şemaya uymuyor: {'; '.join(errors)}"
+        return None
 
     async def _exchange(
         self, connector: HostedConnectorConfig, prompt: str, *, repair: bool

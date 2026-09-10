@@ -197,7 +197,7 @@ def test_zarf_govdesinde_isaret_kalirsa_reddedilir():
         parse_result(metin)
 
 
-async def test_cagri_bozuk_zarfta_yeniden_SORMAZ():
+async def test_cagri_bozuk_zarfta_yeniden_sormaz():
     """Araç çağrısından sonra onarım turu YOK: çağrı iki kez çalışabilirdi.
 
     Uzak araç sağlayıcının ajan döngüsünde çalışır; Fusion orada ne olduğunu
@@ -238,3 +238,53 @@ async def test_sonuc_alani_yoksa_zarf_sizdirilmaz():
 
     assert result.ok is False
     assert "sonuc" in result.output
+
+
+# --- yazma güvenliği: çağrı oturuma gitmeden önce doğrulanır ---------------- #
+
+
+async def test_kesfedilmemis_arac_oturuma_hic_gitmez():
+    """Model araç adı uydurursa ya da ad eskimişse para harcayan tur başlamamalı."""
+    oturum = _Oturum(_zarf({"araclar": [{"ad": "get_campaigns", "aciklama": "", "sema": {}}]}))
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    await client.list_tools("MetaAds")
+    cagri_sayisi = len(oturum.prompts)
+
+    result = await client.call("MetaAds", "delete_everything", {})
+
+    assert result.ok is False
+    assert "delete_everything" in result.output
+    assert len(oturum.prompts) == cagri_sayisi, "bilinmeyen araç için oturuma gidilmemeli"
+
+
+async def test_semaya_uymayan_argumanlar_cagriyi_durdurur():
+    """Eksik zorunlu alanla reklam aracına gitmek bütçeyi yanlış değiştirebilir."""
+    sema = {
+        "type": "object",
+        "properties": {"hesap": {"type": "string"}, "butce": {"type": "integer"}},
+        "required": ["hesap", "butce"],
+    }
+    oturum = _Oturum(_zarf({"araclar": [{"ad": "set_budget", "aciklama": "", "sema": sema}]}))
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    await client.list_tools("MetaAds")
+    cagri_sayisi = len(oturum.prompts)
+
+    result = await client.call("MetaAds", "set_budget", {"hesap": "act_1"})
+
+    assert result.ok is False
+    assert "butce" in result.output
+    assert len(oturum.prompts) == cagri_sayisi
+
+
+async def test_semasi_bilinmeyen_arac_dogrulanmadan_gecer():
+    """Şema boşsa doğrulama yapılamaz; uydurma kısıt koymak işi engellerdi."""
+    oturum = _Oturum(
+        _zarf({"araclar": [{"ad": "get_campaigns", "aciklama": "", "sema": {}}]}),
+        _zarf({"ok": True, "sonuc": {"a": 1}}),
+    )
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    await client.list_tools("MetaAds")
+
+    result = await client.call("MetaAds", "get_campaigns", {"serbest": 1})
+
+    assert result.ok is True
