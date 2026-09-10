@@ -3,6 +3,12 @@
 Biçim [Keep a Changelog](https://keepachangelog.com/tr/1.1.0/) esaslıdır.
 Sürümleme [SemVer](https://semver.org/lang/tr/) uyarınca yapılır.
 
+## [Desktop 0.3.0-alpha.11] — 2026-09-10
+
+- Gerçek macOS uygulamasında saptanan panel genişliği düzeltildi; kontrol paneli
+  çalışma alanına yayılır ve içerik ortalanır. Güncelleme düğmeleri ortak ölçülere uyar.
+- Terminal/çalışma zamanı sürümü 0.3.0a10 olarak korunur; bu yalnız arayüz güncellemesidir.
+
 ## [0.3.0a10] — 2026-09-10
 
 - Paketli uygulamada web girişinin Chrome açılmadan kapanmasına neden olan
