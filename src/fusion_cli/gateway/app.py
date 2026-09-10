@@ -557,9 +557,7 @@ class GatewayApp:
             return
         from ..providers.web_control import set_login_verified
 
-        updated = set_login_verified(
-            self._config, session.provider, session.account, result.ok
-        )
+        updated = set_login_verified(self._config, session.provider, session.account, result.ok)
         if updated is not None:
             self._config = updated
         status = 200 if result.ok else 502
@@ -748,8 +746,7 @@ class GatewayApp:
             "profile_exists": profile_exists,
             "connected": session.transport == "http"
             or (
-                (secret_saved or profile_exists)
-                and bool(getattr(session, "login_verified", False))
+                (secret_saved or profile_exists) and bool(getattr(session, "login_verified", False))
             ),
         }
 

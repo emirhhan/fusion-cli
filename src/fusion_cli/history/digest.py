@@ -35,7 +35,7 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\b[A-Z][A-Z0-9_]*_(KEY|TOKEN|SECRET|PASSWORD)\s*=\s*\S{8,}"),
     re.compile(
         r'"?[A-Za-z0-9_.-]*(?:access[_-]?token|refresh[_-]?token|id[_-]?token|'
-        r'auth[_-]?token|api[_-]?key|client[_-]?secret|token|secret|password)'
+        r"auth[_-]?token|api[_-]?key|client[_-]?secret|token|secret|password)"
         r'[A-Za-z0-9_.-]*"?\s*:\s*"[^"\r\n]{8,}"',
         re.IGNORECASE,
     ),

@@ -65,9 +65,7 @@ async def test_search_code_sistem_cache_ve_vendor_koklerini_daha_taramadan_budar
     assert "dependency.py" not in sonuc.output
 
 
-async def test_search_code_projedeki_library_kaynak_dizinini_gizlemez(
-    registry, context, tmp_path
-):
+async def test_search_code_projedeki_library_kaynak_dizinini_gizlemez(registry, context, tmp_path):
     source = tmp_path / "Library"
     source.mkdir()
     (source / "source.py").write_text("hedef", encoding="utf-8")
@@ -82,9 +80,7 @@ async def test_search_code_aday_sinirinda_kismi_sonuc_ve_daraltma_yolu_doner(
     registry, context, tmp_path, monkeypatch
 ):
     for index in range(5):
-        (tmp_path / f"{index}.txt").write_text(
-            "hedef" if index == 0 else "başka", encoding="utf-8"
-        )
+        (tmp_path / f"{index}.txt").write_text("hedef" if index == 0 else "başka", encoding="utf-8")
     monkeypatch.setattr(search_tools, "MAX_SEARCH_CANDIDATES", 2)
 
     sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
@@ -126,8 +122,15 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     registry, context, tmp_path
 ):
     for name in (
-        ".npmrc", ".git-credentials", ".pypirc", "credentials.json",
-        "credentials.yaml", "token.json", "config.json", "config.yaml", "config.yml",
+        ".npmrc",
+        ".git-credentials",
+        ".pypirc",
+        "credentials.json",
+        "credentials.yaml",
+        "token.json",
+        "config.json",
+        "config.yaml",
+        "config.yml",
         "service-account.json",
     ):
         (tmp_path / name).write_text(
@@ -142,8 +145,15 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
     assert all(
         name not in sonuc.output
         for name in (
-            ".npmrc", ".git-credentials", ".pypirc", "credentials.json",
-            "credentials.yaml", "token.json", "config.json", "config.yaml", "config.yml",
+            ".npmrc",
+            ".git-credentials",
+            ".pypirc",
+            "credentials.json",
+            "credentials.yaml",
+            "token.json",
+            "config.json",
+            "config.yaml",
+            "config.yml",
             "service-account.json",
         )
     )
@@ -152,9 +162,17 @@ async def test_search_code_common_auth_files_and_json_tokens_are_excluded(
 
 async def test_search_code_yapisal_olasi_sir_dosyalarini_atlar(registry, context, tmp_path):
     names = (
-        "auth-prod.yaml", "credentials.toml", "config.toml", "firebase.json",
-        "token-prod.json", "secrets-prod.yml", "private.key", "id_ecdsa",
-        "certificate.p12", "server.crt", "private.p12",
+        "auth-prod.yaml",
+        "credentials.toml",
+        "config.toml",
+        "firebase.json",
+        "token-prod.json",
+        "secrets-prod.yml",
+        "private.key",
+        "id_ecdsa",
+        "certificate.p12",
+        "server.crt",
+        "private.p12",
     )
     for name in names:
         (tmp_path / name).write_text(
@@ -219,7 +237,13 @@ async def test_search_code_buyuk_hassas_dizinlerin_buyuk_harflerini_de_atlar(
     registry, context, tmp_path
 ):
     for directory in (
-        ".CLAUDE", "Claude", "CHROME", "Application Support", "CACHE", "CACHES", "VENDOR"
+        ".CLAUDE",
+        "Claude",
+        "CHROME",
+        "Application Support",
+        "CACHE",
+        "CACHES",
+        "VENDOR",
     ):
         target = tmp_path / directory
         target.mkdir()
@@ -235,9 +259,7 @@ async def test_search_code_buyuk_hassas_dizinlerin_buyuk_harflerini_de_atlar(
     )
 
 
-async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(
-    registry, context, tmp_path
-):
+async def test_search_code_patolojik_regexi_dosya_okumadan_reddeder(registry, context, tmp_path):
     (tmp_path / "large.txt").write_text("a" * 100_000, encoding="utf-8")
 
     sonuc = await _calistir(registry, context, "search_code", pattern="(a+)+$")
@@ -279,6 +301,7 @@ async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri
     registry, context, tmp_path
 ):
     (tmp_path / "many.txt").write_text("hedef\n" + "başka\n" * 1000, encoding="utf-8")
+
     class CancelDuringMatching(threading.Event):
         checks = 0
 
@@ -327,9 +350,7 @@ async def test_iptal_edilen_sync_arac_isci_threadine_iptal_sinyali_verir(registr
     assert await asyncio.to_thread(stopped.wait, 1.0)
 
 
-async def test_iptal_sinyali_sonraki_arac_cagrisini_zehirlemez(
-    registry, context, tmp_path
-):
+async def test_iptal_sinyali_sonraki_arac_cagrisini_zehirlemez(registry, context, tmp_path):
     started = threading.Event()
 
     def cancellable_search(_args, tool_context):

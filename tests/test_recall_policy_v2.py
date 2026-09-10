@@ -110,7 +110,9 @@ def test_feature_icin_genel_frontend_skill_zorlanmaz():
     )
     # Görevle yalnız TEK kelime paylaşıyor: enjekte edilmemeli.
     zayif = select_skill(
-        (frontend,), TaskKind.FEATURE, task="kullaniciya design ekrani ekle",
+        (frontend,),
+        TaskKind.FEATURE,
+        task="kullaniciya design ekrani ekle",
         min_score=MIN_AUTO_SKILL_SCORE,
     )
     assert zayif is None

@@ -43,6 +43,7 @@ def recall_limit_for(*, complex_task: bool) -> int:
     """Görevin karmaşıklığına göre recall bütçesi."""
     return COMPLEX_RECALL_LIMIT if complex_task else AUTO_RECALL_LIMIT
 
+
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
 
@@ -70,9 +71,7 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
     from .verify_discovery import project_kinds
 
     context = deps.tool_context
-    sunucular = {
-        ad.split("__", 1)[0] for ad in context.available_tools if "__" in ad
-    }
+    sunucular = {ad.split("__", 1)[0] for ad in context.available_tools if "__" in ad}
     return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular)}))
 
 

@@ -267,17 +267,13 @@ def test_test_paketi_olan_python_projesi_davranis_kapisi_sunar(tmp_path):
 
 def test_yalniz_derleyen_node_projesi_davranis_kapisi_saymaz(tmp_path):
     """`build` kodun DERLENDİĞİNİ kanıtlar, ÇALIŞTIĞINI değil."""
-    (tmp_path / "package.json").write_text(
-        '{"scripts": {"build": "vite build"}}', encoding="utf-8"
-    )
+    (tmp_path / "package.json").write_text('{"scripts": {"build": "vite build"}}', encoding="utf-8")
 
     assert behavioral_commands(tmp_path) == ()
 
 
 def test_test_scripti_olan_node_projesi_davranis_kapisi_sunar(tmp_path):
-    (tmp_path / "package.json").write_text(
-        '{"scripts": {"test": "vitest run"}}', encoding="utf-8"
-    )
+    (tmp_path / "package.json").write_text('{"scripts": {"test": "vitest run"}}', encoding="utf-8")
 
     assert behavioral_commands(tmp_path) == ("npm run test",)
 

@@ -25,9 +25,7 @@ def _sonuc(satirlar, kimlik):
 
 
 async def _secici(oturum, satirlar, kimlik, arguman):
-    await oturum.handle(
-        Request(kimlik, "komut.secenekler", {"ad": "model", "arguman": arguman})
-    )
+    await oturum.handle(Request(kimlik, "komut.secenekler", {"ad": "model", "arguman": arguman}))
     return _sonuc(satirlar, kimlik)
 
 

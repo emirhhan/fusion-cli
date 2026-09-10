@@ -156,6 +156,8 @@ def test_tek_liste_hem_anahtarli_hem_web_saglayicilari_tasir(tmp_path, monkeypat
     assert web["tur"] == "web" and web["eylem"] == "oturum"
     anahtar = next(s for s in satirlar if s["id"] == "openrouter")
     assert anahtar["tur"] == "anahtar" and anahtar["eylem"] == "anahtar"
+
+
 def test_giris_surecleri_toplu_kapanista_kendi_surec_grubuyla_sonlandirilir(monkeypatch):
     process = Mock(pid=4321)
     process.poll.return_value = None

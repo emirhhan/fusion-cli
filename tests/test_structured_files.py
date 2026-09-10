@@ -238,7 +238,7 @@ def test_replace_range_ile_script_baglanabilir(tmp_path):
 
     sahne = tmp_path / "main.tscn"
     sahne.write_text(
-        "[gd_scene format=3]\n\n" '[node name="Player" type="CharacterBody2D"]\n',
+        '[gd_scene format=3]\n\n[node name="Player" type="CharacterBody2D"]\n',
         encoding="utf-8",
     )
     context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
@@ -260,7 +260,7 @@ def test_edit_file_de_yapiyi_bozamaz(tmp_path):
 
     sahne = tmp_path / "main.tscn"
     sahne.write_text(
-        "[gd_scene format=3]\n\n" '[node name="Player" type="Node2D"]\n', encoding="utf-8"
+        '[gd_scene format=3]\n\n[node name="Player" type="Node2D"]\n', encoding="utf-8"
     )
     context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
 
@@ -279,7 +279,7 @@ def test_edit_file_gecerli_hedefli_degisikligi_yazar(tmp_path):
 
     sahne = tmp_path / "main.tscn"
     sahne.write_text(
-        "[gd_scene format=3]\n\n" '[node name="Player" type="Node2D"]\n', encoding="utf-8"
+        '[gd_scene format=3]\n\n[node name="Player" type="Node2D"]\n', encoding="utf-8"
     )
     context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
 
@@ -306,8 +306,7 @@ def test_basliksiz_sonuc_hedefli_duzenlemede_cikis_yolunu_gosterir():
     """
     sorun = validate_structured(
         Path("main.tscn"),
-        '[ext_resource type="Script" path="res://a.gd" id="1"]\n'
-        '[node name="a" type="Node2D"]\n',
+        '[ext_resource type="Script" path="res://a.gd" id="1"]\n[node name="a" type="Node2D"]\n',
         available_tools=_GODOT_ARACLARI,
         authoring=False,
     )
@@ -342,7 +341,7 @@ def test_gomulu_script_iceren_gecerli_sahne_kabul_edilir():
         "[gd_scene format=3]\n\n"
         '[sub_resource type="GDScript" id="g"]\n'
         'script/source = "extends Node2D\n\n'
-        'func _ready():\n'
+        "func _ready():\n"
         '\tprint(\\"merhaba\\")\n'
         '"\n\n'
         '[node name="root" type="Node2D"]\n'

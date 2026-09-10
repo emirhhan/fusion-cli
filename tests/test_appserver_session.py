@@ -799,11 +799,10 @@ async def test_oturum_kapanirken_web_tarayıcılarını_ve_giris_sureclerini_kap
 ):
     tarayicilar = AsyncMock()
     girisler = Mock()
+    monkeypatch.setattr("fusion_cli.providers.web_browser.close_all_browser_sessions", tarayicilar)
     monkeypatch.setattr(
-        "fusion_cli.providers.web_browser.close_all_browser_sessions", tarayicilar
-    )
-    monkeypatch.setattr(
-        "fusion_cli.providers.web_control.stop_all_login_processes", girisler,
+        "fusion_cli.providers.web_control.stop_all_login_processes",
+        girisler,
         raising=False,
     )
     oturum = _session(tmp_path, [])

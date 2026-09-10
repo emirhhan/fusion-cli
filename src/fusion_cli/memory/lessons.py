@@ -177,9 +177,7 @@ class ChromaLessonMemory:
                 self._collection.update(
                     ids=[row_id],
                     documents=[document],
-                    metadatas=[
-                        _to_metadata(replace(lesson, tags=etiketler), self._clock.now())
-                    ],
+                    metadatas=[_to_metadata(replace(lesson, tags=etiketler), self._clock.now())],
                 )
                 updated += 1
             return updated

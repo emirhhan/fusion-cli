@@ -38,11 +38,7 @@ def merge_replanned_plan(
 ) -> ExecutionPlan | None:
     """Etkilenen dalı aday planla değiştir; bağımsız teslimatları sakla."""
     affected = dependent_ids(current, {failed_step_id})
-    preserved = tuple(
-        step
-        for step in current.steps
-        if step.step_id not in affected
-    )
+    preserved = tuple(step for step in current.steps if step.step_id not in affected)
     preserved_ids = {step.step_id for step in preserved}
     replacements = tuple(step for step in candidate.steps if step.step_id not in preserved_ids)
     if not replacements or _shape(

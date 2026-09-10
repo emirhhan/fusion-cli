@@ -26,7 +26,7 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     # ANTHROPIC_API_KEY and nested JSON config fields.
     re.compile(
         r'((?:["\']?)[A-Za-z0-9_.-]*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|'
-        r'id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password)'
+        r"id[_-]?token|auth[_-]?token|client[_-]?secret|credential|token|secret|password)"
         r'[A-Za-z0-9_.-]*(?:["\']?)\s*[:=]\s*["\']?)([^"\'\s,}]+)(["\']?)',
         re.IGNORECASE,
     ),
@@ -69,8 +69,18 @@ def redact(text: str) -> str:
     if not any(
         marker in lowered
         for marker in (
-            "token", "secret", "password", "api", "bearer", "auth", "credential",
-            "private", "sk-", "gh", "xox", "akia",
+            "token",
+            "secret",
+            "password",
+            "api",
+            "bearer",
+            "auth",
+            "credential",
+            "private",
+            "sk-",
+            "gh",
+            "xox",
+            "akia",
         )
     ):
         return text

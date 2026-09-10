@@ -24,7 +24,6 @@ def _butce() -> TurnBudget:
     )
 
 
-
 def test_dusen_degistirici_cagri_sonradan_yeniden_denenebilir():
     """Düşen bir değiştirici çağrı, engeli kalkınca yeniden denenebilmeli.
 

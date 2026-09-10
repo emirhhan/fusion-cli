@@ -105,4 +105,3 @@ def test_windows_kabugu_ve_sonlandirma_posix_varsayimi_yapmaz():
 
     # Sonlandırma stratejisi de platforma göre seçilir; `killpg` adı geçmemeli.
     assert callable(terminate_process_tree)
-

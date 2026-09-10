@@ -111,9 +111,7 @@ async def test_gorsel_olmayan_dosya_anlasilir_hata_verir(tmp_path, goren):
     (tmp_path / "not.txt").write_text("merhaba", encoding="utf-8")
     deps = _deps(tmp_path, vision=ModelSpec(name="goz", model="sahte/vl"))
 
-    sonuc = await _registry(deps).execute(
-        "view_image", {"path": "not.txt"}, deps.tool_context
-    )
+    sonuc = await _registry(deps).execute("view_image", {"path": "not.txt"}, deps.tool_context)
 
     assert sonuc.ok is False
     assert "görsel" in sonuc.output.lower()
@@ -122,9 +120,7 @@ async def test_gorsel_olmayan_dosya_anlasilir_hata_verir(tmp_path, goren):
 async def test_olmayan_dosya_anlasilir_hata_verir(tmp_path, goren):
     deps = _deps(tmp_path, vision=ModelSpec(name="goz", model="sahte/vl"))
 
-    sonuc = await _registry(deps).execute(
-        "view_image", {"path": "yok.png"}, deps.tool_context
-    )
+    sonuc = await _registry(deps).execute("view_image", {"path": "yok.png"}, deps.tool_context)
 
     assert sonuc.ok is False
 
@@ -166,9 +162,7 @@ async def test_gorsel_modeli_hatasi_yutulmaz(tmp_path, monkeypatch):
                 error="APIError: 410 Gone - model has reached its end of life",
             )
 
-    monkeypatch.setattr(
-        "fusion_cli.providers.factory.build_provider", lambda spec, **kw: _Olu()
-    )
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", lambda spec, **kw: _Olu())
     (tmp_path / "a.png").write_bytes(_PNG)
     deps = _deps(tmp_path, vision=ModelSpec(name="goz", model="sahte/vl"))
 

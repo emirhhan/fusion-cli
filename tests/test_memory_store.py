@@ -401,13 +401,19 @@ def test_eski_dersler_workspace_turunden_etiketlenebilir(tmp_path):
     (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
     bellek = ChromaLessonMemory(tmp_path / "db")
     bellek.add(
-        Lesson(text="godot sahnesinde res oneki kullanma", kind=LessonKind.MISTAKE,
-               workspace=str(proje))
+        Lesson(
+            text="godot sahnesinde res oneki kullanma",
+            kind=LessonKind.MISTAKE,
+            workspace=str(proje),
+        )
     )
     bellek.add(Lesson(text="genel bir ders", kind=LessonKind.SUCCESS))
     bellek.add(
-        Lesson(text="silinmis projenin dersi", kind=LessonKind.SUCCESS,
-               workspace=str(tmp_path / "olmayan"))
+        Lesson(
+            text="silinmis projenin dersi",
+            kind=LessonKind.SUCCESS,
+            workspace=str(tmp_path / "olmayan"),
+        )
     )
 
     guncellenen = bellek.retag_from_workspace()
@@ -428,8 +434,12 @@ def test_retag_zaten_etiketli_dersi_bozmaz(tmp_path):
     (proje / "project.godot").write_text("[application]\n", encoding="utf-8")
     bellek = ChromaLessonMemory(tmp_path / "db")
     bellek.add(
-        Lesson(text="elle verilmis etiket", kind=LessonKind.SUCCESS,
-               workspace=str(proje), tags=("mcp:godot",))
+        Lesson(
+            text="elle verilmis etiket",
+            kind=LessonKind.SUCCESS,
+            workspace=str(proje),
+            tags=("mcp:godot",),
+        )
     )
 
     assert bellek.retag_from_workspace() == 0
@@ -485,8 +495,9 @@ def test_aday_havuzu_bellek_buyudukce_yeterli_kalir(tmp_path, monkeypatch):
     for i in range(60):
         bellek.add(Lesson(text=f"alakasiz ders numara {i}", kind=LessonKind.SUCCESS))
     bellek.add(
-        Lesson(text="stripe iadesi geri alinamaz, once test anahtariyla dene",
-               kind=LessonKind.MISTAKE)
+        Lesson(
+            text="stripe iadesi geri alinamaz, once test anahtariyla dene", kind=LessonKind.MISTAKE
+        )
     )
 
     istenen = {}
@@ -520,9 +531,7 @@ def test_prompt_gibi_uzun_gorev_etiketi_gomulmez(tmp_path):
         kind=LessonKind.MISTAKE,
         task="ANA GÖREV:\nuzun bir görev metni\n\nPLAN ADIMI [x]:\nbir şeyler yap",
     )
-    etiket_gibi = Lesson(
-        text="ders metni", kind=LessonKind.MISTAKE, task="godot sahne düzenleme"
-    )
+    etiket_gibi = Lesson(text="ders metni", kind=LessonKind.MISTAKE, task="godot sahne düzenleme")
 
     assert _embed_source(prompt_gibi) == "ders metni"
     assert _embed_source(etiket_gibi) == "godot sahne düzenleme\nders metni"

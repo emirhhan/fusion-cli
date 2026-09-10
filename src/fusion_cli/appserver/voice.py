@@ -647,7 +647,9 @@ def stop(turn_id: object = None) -> dict[str, Any]:
             targets = (
                 [(identifier, _SPEECH_PROCESSES[identifier])]
                 if identifier is not None and identifier in _SPEECH_PROCESSES
-                else list(_SPEECH_PROCESSES.items()) if identifier is None else []
+                else list(_SPEECH_PROCESSES.items())
+                if identifier is None
+                else []
             )
             for owned_id, (process, _cleanup) in targets:
                 _SPEECH_PROCESSES.pop(owned_id, None)

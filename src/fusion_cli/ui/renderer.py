@@ -187,23 +187,17 @@ class ConsoleRenderer:
             yol = "planlı" if event.route == "workflow" else "hızlı"
             self._status(f"Yürütme yolu: {yol} — {'; '.join(event.reasons)}")
         elif isinstance(event, ExecutionPromoted):
-            self._status(
-                f"Görev planlı yürütmeye yükseltildi — {'; '.join(event.reasons)}"
-            )
+            self._status(f"Görev planlı yürütmeye yükseltildi — {'; '.join(event.reasons)}")
         elif isinstance(event, ExecutionPlanCreated):
             self._status(f"Plan hazır: {event.total_steps} doğrulanabilir adım")
         elif isinstance(event, ExecutionStepStarted):
-            self._status(
-                f"Adım {event.index}/{event.total_steps}: {event.goal}"
-            )
+            self._status(f"Adım {event.index}/{event.total_steps}: {event.goal}")
         elif isinstance(event, ExecutionStepVerified):
             durum = "doğrulandı" if event.ok else "doğrulanamadı"
             ayrinti = event.evidence if event.ok else event.findings
             self._status(f"{event.step_id} {durum}: {'; '.join(ayrinti)}")
         elif isinstance(event, ExecutionRetryScheduled):
-            self._status(
-                f"Kurtarma {event.action} (deneme {event.attempt}): {event.reason}"
-            )
+            self._status(f"Kurtarma {event.action} (deneme {event.attempt}): {event.reason}")
         elif isinstance(event, ExecutionCheckpointSaved):
             self._status(f"Checkpoint kaydedildi: {event.completed_steps} adım tamam")
         elif isinstance(event, ExecutionPaused):

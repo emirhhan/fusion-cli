@@ -431,9 +431,7 @@ async def _agent_turn(
             # ve `task_model_map` REPL'de sessizce uygulanmıyordu.
             task_type=state.task_type,
             health=state.health,
-            checkpoint_store=JsonCheckpointStore(
-                state.config.memory_dir / "workflow-checkpoints"
-            ),
+            checkpoint_store=JsonCheckpointStore(state.config.memory_dir / "workflow-checkpoints"),
             conversation_id="repl",
         )
         try:

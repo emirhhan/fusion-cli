@@ -57,9 +57,7 @@ def test_acik_basit_sohbet_hizli_yolu_secer():
 def test_belirsiz_gorev_hizli_baslar_ama_yukseltilebilir():
     classification = TaskClassification(primary=TaskKind.GENERAL, confidence=0.0)
 
-    decision = choose_execution_route(
-        "şuna bir bak", classification, _policy(), ExecutionMode.AUTO
-    )
+    decision = choose_execution_route("şuna bir bak", classification, _policy(), ExecutionMode.AUTO)
 
     assert decision.route is ExecutionRoute.FAST_PROMOTABLE
     assert decision.reasons == ("görev kapsamı çalışma sırasında netleşecek",)

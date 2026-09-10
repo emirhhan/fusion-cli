@@ -42,9 +42,7 @@ def test_sinyal_yoksa_hizli_yol_devam_eder():
 
 
 def test_birden_fazla_sinyal_tum_gerekceleri_kararli_sirada_tasir():
-    decision = should_promote(
-        ExecutionSignals(pending_todos=4, tool_families=2, needs_repair=True)
-    )
+    decision = should_promote(ExecutionSignals(pending_todos=4, tool_families=2, needs_repair=True))
 
     assert decision.reasons == (
         "üç veya daha fazla bekleyen iş",
@@ -168,10 +166,13 @@ def test_salt_okuma_turu_dogrulama_gereksinimi_uretmez():
     assert signals_from_turn(observation).needs_verification is False
 
 
-@pytest.mark.parametrize("observation", [
-    TurnObservation(hit_step_limit=True),
-    TurnObservation(budget_stopped=True),
-])
+@pytest.mark.parametrize(
+    "observation",
+    [
+        TurnObservation(hit_step_limit=True),
+        TurnObservation(budget_stopped=True),
+    ],
+)
 def test_tukenen_butce_baski_sinyali_uretir(observation):
     assert signals_from_turn(observation).budget_pressure is True
 

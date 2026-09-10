@@ -23,9 +23,7 @@ def test_redact_bearer_token_maskeler():
 
 def test_redact_kisa_json_yaml_ve_key_value_sirlarini_maskeler():
     degerler = ("qx1", "qy2", "qz3")
-    cikti = redact(
-        'credentials: "qx1"\napi_key=qy2\nAuthorization: Bearer qz3'
-    )
+    cikti = redact('credentials: "qx1"\napi_key=qy2\nAuthorization: Bearer qz3')
 
     assert all(deger not in cikti for deger in degerler)
     assert REDACTED_MARK in cikti
