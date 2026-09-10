@@ -101,23 +101,59 @@ describe("Settings — derinlik", () => {
     const fake = client();
     render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
     expect(await screen.findByText("github")).toBeTruthy();
-
+    expect(screen.queryByLabelText("Ad")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
+    expect(screen.getByRole("dialog", { name: "MCP bağlantısı ekle" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "dosyalar" } });
     fireEvent.change(screen.getByLabelText("Komut"), { target: { value: "npx -y mcp-fs" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
 
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.ekle", {
       ad: "dosyalar",
       komut: "npx -y mcp-fs",
     }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("ayar MCP popup'ı Escape ile kapanır ve odağı geri verir", async () => {
+    render(<Settings client={client()} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
+    const open = await screen.findByRole("button", { name: "Bağlantı ekle" });
+    open.focus();
+    fireEvent.click(open);
+    const dialog = screen.getByRole("dialog", { name: "MCP bağlantısı ekle" });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(open);
+  });
+  it("bekleyen eklemede Escape odağı döndürür ve ikinci popup açılmaz", async () => {
+    const base = client();
+    let finish!: (value: Record<string, unknown>) => void;
+    const request = (name: string, data: Record<string, unknown>) => name === "baglanti.ekle"
+      ? new Promise<Record<string, unknown>>((resolve) => { finish = resolve; })
+      : base.request(name, data);
+    render(<Settings client={{ request } as unknown as ProtocolClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
+    const open = await screen.findByRole("button", { name: "Bağlantı ekle" });
+    open.focus();
+    fireEvent.click(open);
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "yerel" } });
+    fireEvent.change(screen.getByLabelText("Komut"), { target: { value: "npx server" } });
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.activeElement).toBe(open);
+    fireEvent.click(open);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    finish({ ok: true });
+    await waitFor(() => expect(open.getAttribute("aria-disabled")).toBe("false"));
   });
 
   it("iki alan dolmadan bağlantı eklenemez", async () => {
     render(<Settings client={client()} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
     await screen.findByText("github");
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
     fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "dosyalar" } });
 
-    expect((screen.getByRole("button", { name: "Bağlantı ekle" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Bağlantıyı kaydet" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("bağlantıyı kaldırır", async () => {
@@ -132,11 +168,12 @@ describe("Settings — derinlik", () => {
     const fake = client();
     render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
     await screen.findByText("github");
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
 
     fireEvent.change(screen.getByLabelText("Bağlantı türü"), { target: { value: "streamable_http" } });
     fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "meta" } });
     fireEvent.change(screen.getByLabelText("MCP adresi"), { target: { value: "https://mcp.example.com/mcp" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
 
     await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.ekle", {
       ad: "meta",

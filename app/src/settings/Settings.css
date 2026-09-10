@@ -114,3 +114,10 @@
   .settings__connector { grid-template-columns: 1fr !important; }
   .settings__connector-actions { justify-content: flex-start; }
 }
+.settings__connector-add { margin-top: 16px; min-height: 36px; padding: 8px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-raised); color: var(--text-primary); font: inherit; cursor: pointer; }
+.connector-dialog .settings__connector-form { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 0; padding: 0; border: 0; }
+.connector-dialog .settings__connector-form input, .connector-dialog .settings__connector-form select { width: 100%; min-height: 36px; box-sizing: border-box; }
+.connector-dialog .settings__connector-form label { margin-top: 8px; }
+.connector-dialog .settings__connector-form button { grid-column: 1; justify-self: end; min-height: 36px; margin-top: 12px; padding: 8px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-hover); color: var(--text-primary); font: inherit; cursor: pointer; }
+.connector-dialog .settings__connector-form button:disabled { opacity: .5; cursor: default; }
+.connector-dialog .settings__hint { margin-top: 12px; }

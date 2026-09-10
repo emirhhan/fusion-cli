@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
+import { ConnectorDialog } from "../connectors/ConnectorDialog";
+import "../connectors/ConnectorsScreen.css";
 
 type Transport = "stdio" | "streamable_http";
 
@@ -47,6 +49,7 @@ export function Connectors({ client }: { client: ProtocolClient }) {
   const [draft, setDraft] = useState(EMPTY);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback(async () => {
     const result = (await client.request("baglanti.listele", {})) as {
@@ -72,7 +75,7 @@ export function Connectors({ client }: { client: ProtocolClient }) {
       const result = (await client.request(name, data)) as ConnectorResult;
       setNotice(result?.metin ?? result?.mesaj ?? null);
       if (result?.ok || result?.durum) {
-        if (name === "baglanti.ekle") setDraft(EMPTY);
+        if (name === "baglanti.ekle" && result.ok) { setDraft(EMPTY); setAdding(false); }
         await load();
       }
     } catch {
@@ -166,6 +169,9 @@ export function Connectors({ client }: { client: ProtocolClient }) {
         <p className="settings__hint">Henüz bağlantı yok.</p>
       )}
 
+      <button className="settings__connector-add" aria-disabled={busy !== null} onClick={() => { if (busy !== null) return; setNotice(null); setAdding(true); }} type="button">Bağlantı ekle</button>
+      {adding && <ConnectorDialog label="MCP bağlantısı ekle" onClose={() => setAdding(false)}>
+      <div className="connectors__custom-head"><h3>MCP bağlantısı ekle</h3><button className="connectors__custom-close" onClick={() => setAdding(false)} type="button">Vazgeç</button></div>
       <div className="settings__form settings__connector-form">
         <label htmlFor="baglanti-tur">Bağlantı türü</label>
         <select
@@ -224,10 +230,12 @@ export function Connectors({ client }: { client: ProtocolClient }) {
           onClick={() => void run("baglanti.ekle", addPayload)}
           type="button"
         >
-          Bağlantı ekle
+          Bağlantıyı kaydet
         </button>
       </div>
       {notice && <p className="settings__hint" role="status">{notice}</p>}
+      </ConnectorDialog>}
+      {!adding && notice && <p className="settings__hint" role="status">{notice}</p>}
     </article>
   );
 }
