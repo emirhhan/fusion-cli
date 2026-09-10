@@ -31,6 +31,7 @@ interface RpcResult {
   durum?: string;
   mesaj?: string | null;
   metin?: string;
+  oauth_donus_adresi?: string;
   ok?: boolean;
   sunucular?: ConnectorRow[];
 }
@@ -90,10 +91,16 @@ export function ConnectorsScreen({
   // giriş yaptığı web sağlayıcısının connector ekranında yaşar.
   const [providers, setProviders] = useState<HostedProvider[] | null>(null);
   const [hosted, setHosted] = useState<HostedResult | null>(null);
+  // OAuth dönüş adresi sunucudan gelir: port sabittir ama arayüz onu
+  // TEKRARLAMAZ — iki yerde yazılan bir sabit zamanla ayrışır.
+  const [oauthReturn, setOauthReturn] = useState("");
 
   const load = useCallback(async () => {
     const result = (await client.request("baglanti.listele", {})) as RpcResult;
-    if (result?.ok) setRows(result.sunucular ?? []);
+    if (result?.ok) {
+      setRows(result.sunucular ?? []);
+      if (result.oauth_donus_adresi) setOauthReturn(result.oauth_donus_adresi);
+    }
   }, [client]);
 
   useEffect(() => {
@@ -439,6 +446,15 @@ export function ConnectorsScreen({
                   placeholder="Sunucu otomatik kaydı reddederse sağlayıcının verdiği kimlik"
                   value={custom.client_id}
                 />
+                {custom.client_id.trim() && oauthReturn && (
+                  <div className="connectors__hosted-done">
+                    <p>
+                      Kendi OAuth uygulamanı kullanıyorsun. Sağlayıcının panelinde
+                      <strong> geçerli yönlendirme adresi</strong> olarak tam olarak şunu kaydet:
+                    </p>
+                    <code>{oauthReturn}</code>
+                  </div>
+                )}
               </>
             )}
             <button

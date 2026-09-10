@@ -19,7 +19,7 @@ from typing import Any
 from ..config.models import Config, McpServerConfig, McpTransport
 from ..config.writer import write_mcp_servers
 from ..mcp_bridge.client import McpConnectionStatus
-from ..mcp_bridge.oauth import validate_remote_mcp_url
+from ..mcp_bridge.oauth import DEFAULT_CALLBACK_PORT, validate_remote_mcp_url
 from .hosted_connectors import hosted_connector_rows
 
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
@@ -103,6 +103,10 @@ def list_connectors(
     """`baglanti.listele`: bağlı MCP sunucuları."""
     return {
         "ok": True,
+        # Kullanıcı bunu sağlayıcının OAuth panelinde "geçerli yönlendirme adresi"
+        # olarak kaydeder. Arayüzde gösterilmesi zorunlu: adres birebir eşleşmeli
+        # ve portu tahmin etmek zorunda kalmamalı (bkz. `oauth.DEFAULT_CALLBACK_PORT`).
+        "oauth_donus_adresi": f"http://localhost:{DEFAULT_CALLBACK_PORT}/oauth/callback",
         "sunucular": [
             {
                 "ad": server.name,

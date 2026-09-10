@@ -16,6 +16,19 @@ from pydantic import AnyUrl
 from ..config.models import McpServerConfig
 from .tokens import KeyringTokenStorage
 
+#: Loopback OAuth dönüşünün SABİT portu.
+#
+# Ölçülmüş engel: Facebook Login, yönlendirme adresinin uygulama ayarlarındaki
+# kayıtla BİREBİR eşleşmesini ister. Dinleyici eskiden `port=0` ile açılıyordu ve
+# adres her denemede `http://127.0.0.1:<rastgele>/oauth/callback` oluyordu; hiçbir
+# zaman eşleşemezdi, yani kullanıcının KENDİ Meta uygulamasının client_id'siyle
+# giriş yapması imkânsızdı. Dinamik kayıt (DCR) destekleyen sunucularda sabit port
+# gerekmez; orada `port=0` davranışı korunur.
+#
+# Host da `localhost`tur: Facebook yönlendirme adresinde `localhost`u kabul eder ve
+# kullanıcı panele bunu yazar. Dinleme yine yalnız loopback arayüzündedir.
+DEFAULT_CALLBACK_PORT = 8765
+
 
 def validate_remote_mcp_url(url: str) -> None:
     parsed = urlparse(url)
@@ -34,8 +47,10 @@ class LoopbackOAuthCallback:
         *,
         timeout_seconds: float = 300,
         on_waiting: Callable[[bool], None] | None = None,
+        port: int = DEFAULT_CALLBACK_PORT,
     ) -> None:
         self._timeout_seconds = timeout_seconds
+        self._port = port
         #: Kullanıcının tarayıcıda giriş yaptığı süreyi bildirir (True: başladı,
         #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
         self._on_waiting = on_waiting
@@ -48,10 +63,20 @@ class LoopbackOAuthCallback:
             return
         loop = asyncio.get_running_loop()
         self._result = loop.create_future()
-        self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+        try:
+            self._server = await asyncio.start_server(self._handle, "127.0.0.1", self._port)
+        except OSError as error:
+            # Sessizce başka bir porta kaymak, sağlayıcıda kayıtlı OLMAYAN bir
+            # adresle giriş denemek olurdu; kullanıcı "neden eşleşmiyor" diye
+            # bakarken hata hiç görünmezdi.
+            raise OSError(
+                f"OAuth dönüş portu {self._port} kullanılamıyor: {error}. "
+                "Portu kullanan programı kapat ya da bağlantıda başka bir port seç."
+            ) from error
         socket = self._server.sockets[0]
         port = int(socket.getsockname()[1])
-        self.redirect_uri = f"http://127.0.0.1:{port}/oauth/callback"
+        host = "localhost" if self._port else "127.0.0.1"
+        self.redirect_uri = f"http://{host}:{port}/oauth/callback"
 
     async def open_redirect(self, url: str) -> None:
         if self._on_waiting is not None:
