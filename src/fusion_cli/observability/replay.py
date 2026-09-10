@@ -60,13 +60,13 @@ def _model_result(payload: dict[str, object]) -> ModelResult | dict[str, object]
     """Model sonucunu geri kur; tanınmayan alanlar atılır."""
     alanlar = {field.name for field in dataclasses.fields(ModelResult)}
     kwargs = {key: payload[key] for key in payload if key in alanlar}
-    kwargs.pop("usage", None)
+    kwargs["usage"] = _token_usage(payload.get("usage"))
     # Araç çağrıları eskiden buradan ATILIYORDU. Olay geri geliyordu ama içi
     # boşalmış oluyordu: araç kullanan bir turun kaydı, o turu yeniden
     # üretemiyordu ve kayıp sessizdi (çağrı sayısı 1 → 0).
     kwargs["tool_calls"] = _tool_calls(payload.get("tool_calls"))
     try:
-        return ModelResult(usage=TokenUsage(), **cast("Any", kwargs))
+        return ModelResult(**cast("Any", kwargs))
     except (TypeError, ValueError):
         return payload
 
@@ -89,6 +89,29 @@ def _tool_calls(value: object) -> tuple[ToolCall, ...]:
             continue
         kurulan.append(ToolCall(id=cagri_id, name=name, arguments=arguments))
     return tuple(kurulan)
+
+
+def _token_usage(value: object) -> TokenUsage:
+    """Kayıttaki token ve maliyet muhasebesini toleranslı biçimde geri kur."""
+    if not isinstance(value, dict):
+        return TokenUsage()
+    prompt_tokens = value.get("prompt_tokens")
+    completion_tokens = value.get("completion_tokens")
+    cost_usd = value.get("cost_usd")
+    if not (
+        isinstance(prompt_tokens, int)
+        and not isinstance(prompt_tokens, bool)
+        and isinstance(completion_tokens, int)
+        and not isinstance(completion_tokens, bool)
+        and isinstance(cost_usd, (int, float))
+        and not isinstance(cost_usd, bool)
+    ):
+        return TokenUsage()
+    return TokenUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        cost_usd=float(cost_usd),
+    )
 
 
 def _enum(tip: type[Enum], value: str) -> object:

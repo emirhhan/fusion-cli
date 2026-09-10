@@ -24,7 +24,7 @@ def _kaydet(event: Event) -> dict[str, object]:
     return json.loads(akis.getvalue())
 
 
-def _model_call_finished(*calls: ToolCall) -> ModelCallFinished:
+def _model_call_finished(*calls: ToolCall, usage: TokenUsage | None = None) -> ModelCallFinished:
     return ModelCallFinished(
         role="agent",
         result=ModelResult(
@@ -33,7 +33,7 @@ def _model_call_finished(*calls: ToolCall) -> ModelCallFinished:
             text="",
             latency_ms=12,
             ok=True,
-            usage=TokenUsage(),
+            usage=usage or TokenUsage(),
             tool_calls=calls,
         ),
     )
@@ -76,3 +76,21 @@ def test_bozuk_arac_cagrisi_kaydi_olayin_tamamini_dusurmez() -> None:
     assert isinstance(geri, ModelCallFinished)
     assert isinstance(geri.result, ModelResult)
     assert geri.result.tool_calls == ()
+
+
+def test_model_sonucundaki_token_kullanimi_kayittan_geri_kurulur() -> None:
+    payload = _kaydet(
+        _model_call_finished(
+            usage=TokenUsage(prompt_tokens=13, completion_tokens=21, cost_usd=0.34)
+        )
+    )
+
+    geri = event_from_payload(payload)
+
+    assert isinstance(geri, ModelCallFinished)
+    assert isinstance(geri.result, ModelResult)
+    assert geri.result.usage == TokenUsage(
+        prompt_tokens=13,
+        completion_tokens=21,
+        cost_usd=0.34,
+    )
