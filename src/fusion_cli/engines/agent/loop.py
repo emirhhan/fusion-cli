@@ -515,7 +515,7 @@ async def run_agent(
             ExecutionRouteSelected(route=route.route.value, reasons=route.reasons)
         )
         if route.route is ExecutionRoute.WORKFLOW:
-            return await run_execution_plan(task, deps, run_agent)
+            return await run_execution_plan(task, deps, run_agent, self_review=self_review)
     else:
         route = None
 
@@ -535,7 +535,9 @@ async def run_agent(
         promoted = _promotion_context(task, outcome, deps, budget)
         if promoted is not None:
             deps.publisher.publish(ExecutionPromoted(reasons=promoted.reasons))
-            return await run_execution_plan(task, deps, run_agent, promotion=promoted)
+            return await run_execution_plan(
+                task, deps, run_agent, promotion=promoted, self_review=self_review
+            )
 
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini

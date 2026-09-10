@@ -110,7 +110,7 @@ async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
 async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(monkeypatch, tmp_path, sink):
     seen: list[str] = []
 
-    async def fake_runner(task, deps, run_agent):
+    async def fake_runner(task, deps, run_agent, **kwargs):
         del deps, run_agent
         seen.append(task)
         return AgentOutcome(final_text="planlı sonuç", messages=[])
@@ -124,13 +124,24 @@ async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(monkeypatch
     assert seen == ["yeni özellik ekle"]
 
 
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_planli_akis_oz_denetime_yapilandirmayi_aktarir(monkeypatch, tmp_path, sink, enabled):
+    from unittest.mock import AsyncMock
+
+    runner = AsyncMock(return_value=AgentOutcome(final_text="planlı sonuç", messages=[]))
+    monkeypatch.setattr(agent_loop, "run_execution_plan", runner)
+    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
+    await run_agent("yeni özellik ekle", deps, self_review=enabled)
+    assert runner.call_args.kwargs["self_review"] is enabled
+
+
 class _PlanCasusu:
     """`run_execution_plan` yerine geçip devredilen görev ve bağlamı kaydeder."""
 
     def __init__(self):
         self.cagrilar = []
 
-    async def __call__(self, task, deps, run_agent, *, plan=None, promotion=None):
+    async def __call__(self, task, deps, run_agent, *, plan=None, promotion=None, self_review=None):
         del deps, run_agent, plan
         self.cagrilar.append((task, promotion))
         return AgentOutcome(final_text="planlı sonuç", messages=[])

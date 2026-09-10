@@ -22,6 +22,7 @@ const nativeInvoke = vi.hoisted(() => vi.fn(async (command: string) => {
 
 vi.mock("./platform/drop", () => ({ listenForFileDrops: nativeDrops.listen }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: nativeInvoke }));
+vi.mock("@tauri-apps/api/path", () => ({ desktopDir: vi.fn(async () => "/Users/test/Desktop") }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async () => vi.fn()) }));
 vi.mock("./processes/XtermSession", () => ({
   XtermSession: ({ session }: { session: { snapshot: { terminalId: string } } }) => (
@@ -287,15 +288,15 @@ describe("SessionUygulama", () => {
     render(<SessionUygulama selectFolder={selectFolder} transport={transport} />);
     await screen.findByRole("heading", { name: "Yeni görev" });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Klasörde kod görevi" }));
+    fireEvent.click(screen.getByRole("button", { name: /Proje seç:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Yeni proje / klasör seç" }));
     fireEvent.click(screen.getByRole("button", { name: /Devam et/i }));
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
     expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop/Oyun");
     expect(localStorage.getItem("fusion.last-project-root")).toBe("/Users/test/Desktop/Oyun");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Klasörde kod görevi" }));
+    fireEvent.click(screen.getByRole("button", { name: /Proje seç:/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Yeni proje / klasör seç" }));
     await waitFor(() => expect(selectFolder).toHaveBeenCalledTimes(2));
     expect(transport.create).toHaveBeenCalledTimes(2);
     expect(selectFolder).toHaveBeenLastCalledWith("/Users/test/Desktop/Oyun");
@@ -487,10 +488,10 @@ describe("SessionUygulama", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
     await waitFor(() => expect(screen.getAllByText("ilk görev").length).toBeGreaterThan(1));
-    fireEvent.click(screen.getAllByRole("button", { name: "Yeni görev" })[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Sohbet başlat" }));
+    fireEvent.click(screen.getByRole("button", { name: "Yeni sohbet" }));
 
     await waitFor(() => expect(transport.create).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");
     expect(screen.getByRole("heading", { name: "Yeni görev" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "ilk görev" }));
     expect(screen.getByRole("heading", { name: "ilk görev" })).toBeTruthy();
@@ -696,4 +697,49 @@ describe("Çalışma kipi", () => {
       screen.getByRole("button", { name: "Kod" }).getAttribute("aria-pressed"),
     ).toBe("true"));
   });
+});
+
+it("son sohbet silinince yeni Desktop sohbeti açılabilir ve eski kimlik geri gelmez", async () => {
+  const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [] } });
+  render(<SessionUygulama transport={fake.transport} />);
+  await screen.findByRole("heading", { name: "Yeni görev" });
+  const deletedId = vi.mocked(fake.transport.create).mock.calls[0][0];
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sabitle" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sil" }));
+  await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
+  await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
+  expect(screen.queryByText("Hazırlanıyor…")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Yeni görev sohbetini sil" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Yeni sohbet" }));
+  await waitFor(() => expect(fake.transport.create).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(fake.transport.create).mock.calls[1][0]).not.toBe(deletedId);
+  expect(vi.mocked(fake.transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");
+  await screen.findByRole("textbox", { name: "Mesaj" });
+});
+
+it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async () => {
+  const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [{ sohbet_id: "sakli", baslik: "Saklı sohbet", kok: "/proje", guncelleme: 1, mesaj_sayisi: 1 }] } });
+  render(<SessionUygulama transport={fake.transport} />);
+  await screen.findByRole("button", { name: "Saklı sohbet" });
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sil" }));
+  await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
+  fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+  expect(screen.getByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
+  expect(screen.getByText("Daha sonra")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
+  expect(screen.getByRole("heading", { name: "Video oluştur" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbetini sil" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());
+  expect(fake.requests.some((request) => request.ad === "sohbet.sil" && request.veri.sohbet_id === "sakli")).toBe(true);
+});
+
+it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider", async () => {
+  const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [] } });
+  render(<SessionUygulama transport={fake.transport} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbetini sil" }));
+  await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
+  fireEvent.click(screen.getByRole("button", { name: "Emir profil menüsü" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));
+  await screen.findByRole("heading", { name: "Ayarlar" });
+  expect(vi.mocked(fake.transport.create).mock.calls[1][1]).toBe("/Users/test/Desktop");
 });

@@ -54,7 +54,7 @@ def _step_to_dict(step: PlanStep) -> dict[str, object]:
 def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
     plan = checkpoint.plan
     return {
-        "schema_version": 3,
+        "schema_version": 4,
         "plan": {
             "plan_id": plan.plan_id,
             "task": plan.task,
@@ -69,6 +69,7 @@ def _to_dict(checkpoint: WorkflowCheckpoint) -> dict[str, object]:
         "step_evidence": evidence_payload(checkpoint.step_evidence),
         "budget_usage": budget_payload(checkpoint.budget_usage),
         "condensations": checkpoint.condensations,
+        "quality_feedback": checkpoint.quality_feedback,
     }
 
 
@@ -166,6 +167,7 @@ def _from_dict(raw: object) -> WorkflowCheckpoint:
         step_evidence=parse_evidence(data.get("step_evidence", [])),
         budget_usage=parse_budget(data.get("budget_usage", [])),
         condensations=_integer(data, "condensations", 0),
+        quality_feedback=_text(data, "quality_feedback") if "quality_feedback" in data else "",
     )
 
 

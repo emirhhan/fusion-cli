@@ -11,6 +11,7 @@ from .plan_parser import PlanParseError, parse_execution_plan
 from .promotion import PromotionContext
 
 if TYPE_CHECKING:
+    from ...core.types import Message
     from .loop import AgentDeps, AgentOutcome
 
 
@@ -22,6 +23,7 @@ class RunAgent(Protocol):
         task: str,
         deps: AgentDeps,
         *,
+        history: list[Message] | None = ...,
         plan_mode: bool = ...,
         depth: int = ...,
         self_review: bool | None = ...,

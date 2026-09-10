@@ -38,6 +38,7 @@ def load_transcript_messages(
     """
     digest = _workspace_digest(root)
     path = base_dir.expanduser().resolve() / "transcripts" / digest / "events.jsonl"
+    deleted = _deleted_conversations(path.parent)
     messages: list[Message] = []
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -50,6 +51,8 @@ def load_transcript_messages(
             continue
         if not isinstance(event, dict):
             continue
+        if _conversation_digest(event.get("session_id")) in deleted:
+            continue
         if conversation_id is not None and event.get("session_id") != conversation_id:
             continue
         text = event.get("text")
@@ -61,6 +64,31 @@ def load_transcript_messages(
         elif event.get("event") == "TurnAnswered":
             messages.append(Message("assistant", safe_text))
     return messages[-_MAX_HISTORY_MESSAGES:]
+
+
+def _conversation_digest(conversation_id: object) -> str:
+    return hashlib.sha256(str(conversation_id).encode()).hexdigest()
+
+
+def _deleted_conversations(directory: Path) -> set[str]:
+    deleted = directory / "deleted"
+    try:
+        return {entry.name for entry in deleted.iterdir()}
+    except FileNotFoundError:
+        return set()
+
+
+def delete_conversation(base_dir: Path, root: Path, conversation_id: str) -> None:
+    """Kimliği kalıcı olarak kaldır; geç gelen olaylar sohbeti diriltmesin.
+
+    Her kimlik ayrı işaret taşır: eşzamanlı süreçler ortak olay dosyasını
+    yeniden yazmaz ve başka sohbetlerin mesajlarını kaybetmez. Denetim
+    günlüğü korunur; silinen sohbet listeye ve model bağlamına alınmaz.
+    """
+    directory = base_dir.expanduser().resolve() / "transcripts" / _workspace_digest(root)
+    deleted = directory / "deleted"
+    deleted.mkdir(parents=True, exist_ok=True, mode=0o700)
+    (deleted / _conversation_digest(conversation_id)).touch(mode=0o600, exist_ok=True)
 
 
 def _workspace_digest(root: Path) -> str:
@@ -101,6 +129,7 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return ()
+    deleted = _deleted_conversations(path.parent)
     titles: dict[str, str] = {}
     stamps: dict[str, float] = {}
     counts: dict[str, int] = {}
@@ -115,6 +144,8 @@ def list_conversations(base_dir: Path, root: Path) -> tuple[ConversationRef, ...
         }:
             continue
         conversation = event.get("session_id")
+        if _conversation_digest(conversation) in deleted:
+            continue
         text = event.get("text")
         if not isinstance(conversation, str) or not isinstance(text, str) or not text.strip():
             continue
@@ -196,6 +227,8 @@ class TranscriptStore:
         self._append(payload)
 
     def _append(self, payload: dict[str, Any]) -> None:
+        if _conversation_digest(self.session_id) in _deleted_conversations(self.base_dir):
+            return
         payload = {
             "session_id": self.session_id,
             "timestamp": time.time(),

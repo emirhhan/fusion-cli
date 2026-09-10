@@ -165,3 +165,40 @@ koşusu exit 0 ile tamamlandı; koşu başladıktan sonra eklenen native login v
 keşif kontrolü değişiklikleri ayrıca hedefli testlerle doğrulandı.
 Henüz oynanabilir oyun teslim edilmedi; bu belge veya
 başarılı altyapı testleri oyun görevinin tamamlandığı anlamına gelmez.
+
+## Run12–14: teslim kanıtı ve devam tuzağı
+
+Run12 yalnız küçük Godot iskeleti ve ASSETS.json üretti. Bildirilen görseller
+diskte yoktu; sahne yalnız HUD içeriyordu. Godot açılışında ana sahnenin harf
+büyüklüğü uyuşmazlığı ve eksik icon.svg görüldü. Bu sonuç reddedildi.
+OTURUM_HAZIR yanıtı da tek başına hesap girişini kanıtlamadı: sonraki model
+menüsünde giriş istemi ve Flash-Lite görüldü. Önceki oturum açık yorumu bu
+bulguyla geri çekildi. Normal Chrome ile otomasyonun anahtar deposu ayarları
+eşleştirildi; kullanıcıdan yeniden giriş isteniyor, doğrulama henüz tamamlanmadı.
+
+Asset envanteri kontrolü artık manifestin varlığıyla yetinmiyor: gerçek, boş
+olmayan, proje kökü içindeki dosyaları ve lisans/kaynak kayıtlarını doğruluyor.
+Manifestin kendisini veya lisans belgesini asset olarak saymıyor. Son kalite
+incelemesi tamamlanma kaydından önce çalışıyor; başarısız düzeltme geri alınıyor,
+kalite bulgusu ve harcanan bütçe checkpoint'te korunuyor. Devam komutu eksik
+kalite düzeltmesini atlayamıyor.
+
+Run13 eksik assetleri bu kontrolle reddetti. Run14 ayrı geçici DeepSeek
+yapılandırmasıyla gerçek indirme bağlantıları buldu, ancak kurtarma adımı
+OBSERVE_FIRST nedeniyle yalnız okuma araçlarıyla çalıştı. Tekrar devam etmek
+aynı gözlem moduna dönüyordu; bu yürütme engelinin düzeltmesi sürüyor.
+Kullanıcının kalıcı model seçimi değiştirilmedi.
+
+## Sohbet ve proje arayüzü
+
+Proje başlıkları altında son beş sohbet, daha fazla göster, sabitleme, doğrudan
+silme, Desktop başlangıcı ve composer proje seçicisi eklendi. Görsel/video
+girişleri şimdilik “Daha sonra” gösteriyor. Silinen sohbetler için kalıcı silme
+kaydı geç gelen yazmaların sohbeti geri getirmesini önlüyor; disk silme hatası
+UI'da başarı olarak gösterilmiyor. Son sohbetin silinmesi ve yeniden açılış
+tarih sıralaması ayrıca sınanıyor.
+
+Son tam arayüz koşusunda 72 test dosyasında 505 test ve üretim derlemesi geçti.
+Python geniş koşusu, Ruff ve mypy geçti; sonraki küçük düzeltmeler için hedefli
+doğrulama ve son inceleme sürüyor. Bu değişiklikler henüz kurulu fa18faa
+uygulamasında bulunmuyor; son paket, kaynak doğrulaması ve kurulum bekliyor.

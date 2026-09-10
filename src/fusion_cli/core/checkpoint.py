@@ -56,6 +56,8 @@ class WorkflowCheckpoint:
     # okumuştum" sanır ya da yapılmış işi yeniden yapar. Sayının kendisi de bir
     # teşhis sinyalidir: çok sık özetleme, bağlamın taşmakta olduğunu söyler.
     condensations: int = 0
+    #: Unresolved quality feedback must survive a paused/completed-step resume.
+    quality_feedback: str = ""
 
 
 class CheckpointStore(Protocol):

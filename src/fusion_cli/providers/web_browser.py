@@ -667,6 +667,9 @@ async def _launch_profile_context(
                 str(profile),
                 channel=channel,
                 chromium_sandbox=True,
+                # Elle girişteki normal Chrome ile aynı işletim sistemi anahtar
+                # deposunu kullan; test anahtarlığı oturum çerezlerini açamaz.
+                ignore_default_args=["--use-mock-keychain", "--password-store=basic"],
                 headless=headless,
                 viewport={"width": 1440, "height": 1000},
                 locale="tr-TR",

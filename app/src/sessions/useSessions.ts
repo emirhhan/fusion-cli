@@ -54,6 +54,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     typeof window === "undefined" ? null : loadSessionView(window.localStorage),
   );
   const clients = useRef(new Map<string, ProtocolClient>());
+  const clientRoots = useRef(new Map<string, string>());
+  const deletedIds = useRef(new Set<string>());
   const lineHandlers = useRef(new Map<string, (line: string) => void>());
   const requestedClose = useRef(new Set<string>());
   const runningRequests = useRef(new Set<string>());
@@ -95,6 +97,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         }
       });
       clients.current.set(id, client);
+      clientRoots.current.set(id, snapshot.kok);
       // Sekme kimliği HER bağlanmada bildirilir. Ölçüldü (kullanıcının diski):
       // `resume` yolu kimliği hiç göndermiyordu, çekirdek de rastgele bir kimlik
       // üretiyordu; o konuşmalara bir daha ulaşılamıyordu.
@@ -105,6 +108,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           session: {
             id,
             title: input.title ?? DEFAULT_TITLE,
+            updatedAt: input.updatedAt,
             source: input.source ?? "fusion",
             root: snapshot.kok,
             pid: snapshot.pid,
@@ -210,7 +214,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       .sort((left, right) => left.updatedAt - right.updatedAt)
       .slice(-MAX_RESTORED_SESSIONS);
     if (restorable.length === 0) {
-      await create({ id: DEFAULT_SESSION_ID });
+      // Boş kayıt, son sohbetin silindiğini gösterir; eski sabit kimliği diriltme.
+      await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID });
       return;
     }
     for (const session of restorable) {
@@ -219,6 +224,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         title: session.title,
         source: session.source,
         root: session.root,
+        updatedAt: session.updatedAt,
       }).catch(() => undefined);
     }
     const activeId = persistedView.current?.activeId;
@@ -229,16 +235,19 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
 
   const refreshStored = useCallback(async () => {
     // Liste AÇIK sekmeden istenir: çekirdek kendi kökündeki sohbetleri bilir.
-    const client = clients.current.values().next().value;
-    if (!client) return;
+    const entry = clients.current.entries().next().value;
+    if (!entry) return;
+    const [clientId, client] = entry;
     const result = await client.request("sohbet.listele", {}).catch(() => null);
     if (!result || !Array.isArray(result.sohbetler)) return;
     const rows: StoredConversation[] = result.sohbetler.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
       const row = item as Record<string, unknown>;
       if (typeof row.sohbet_id !== "string" || typeof row.baslik !== "string") return [];
+      if (deletedIds.current.has(row.sohbet_id)) return [];
       return [{
         id: row.sohbet_id,
+        root: typeof row.kok === "string" ? row.kok : clientRoots.current.get(clientId) ?? "",
         title: row.baslik,
         updatedAt: typeof row.guncelleme === "number" ? row.guncelleme : 0,
         messageCount: typeof row.mesaj_sayisi === "number" ? row.mesaj_sayisi : 0,
@@ -250,7 +259,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const openStored = useCallback(
     async (id: string, root?: string) => {
       const known = storedRef.current.find((item) => item.id === id);
-      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root });
+      await connect({ id, title: known?.title ?? DEFAULT_TITLE, root: root ?? known?.root, updatedAt: known ? known.updatedAt * 1000 : undefined });
       dispatch({ type: "selected", id });
     },
     [connect],
@@ -311,7 +320,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   }, [refreshStored, restoreSessions, transport]);
 
   useEffect(() => {
-    if (state.order.length === 0 || typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
+    // İlk yüklemede kayıtları koru; başarılı silme sonrası boş görünümü de sakla.
+    if (state.order.length === 0 && deletedIds.current.size === 0) return;
     saveSessionView(window.localStorage, state);
   }, [state]);
 
@@ -431,20 +442,30 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [transport],
   );
 
-  /** Sohbeti KALICI olarak sil.
-   *
-   * Kayıt ÖNCE listeden çıkar, çekirdek kapanışı arkada sürer. Eskiden tersiydi
-   * ve kullanıcı sil'e bastığında saniyelerce tüm ekranı kaplayan
-   * "Bağlanıyor…" görüyordu — silme anında hissedilmeli.
-   */
+  /** Disk kaydı silinmeden görünümden çıkarma; başarısızlık tekrar denenebilsin. */
   const remove = useCallback(
     async (id: string) => {
-      dispatch({ type: "removed", id });
-      // Süreç zaten çökmüş olabilir; kapatma hatası silmeyi geri almamalı,
-      // yoksa kullanıcı bozuk bir kaydı hiç temizleyemez.
-      await close(id).catch(() => undefined);
+      const session = state.sessions[id];
+      const known = storedRef.current.find((item) => item.id === id);
+      const root = session?.root ?? known?.root;
+      if (!root) throw new Error("Sohbetin proje kökü bulunamadı. Geçmişi yenileyin.");
+      const live = session?.status === "ready" ? session : Object.values(state.sessions)
+        .find((item) => item.status === "ready" && clients.current.has(item.id));
+      const temporary = live ? null : await connect({ root }, false);
+      const client = live?.client ?? temporary!.client;
+      try {
+        const result = await client.request("sohbet.sil", { sohbet_id: id, kok: root });
+        if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet silinemedi."));
+        deletedIds.current.add(id);
+        setStored((rows) => rows.filter((item) => item.id !== id));
+        dispatch({ type: "removed", id });
+        // Diskte silme tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.
+        if (session) await close(id).catch(() => undefined);
+      } finally {
+        if (temporary) await close(temporary.id).catch(() => undefined);
+      }
     },
-    [close],
+    [close, connect, state.sessions],
   );
 
   const activeSession = state.activeId ? state.sessions[state.activeId] ?? null : null;

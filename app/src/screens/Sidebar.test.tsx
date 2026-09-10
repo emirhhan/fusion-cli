@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,13 +41,13 @@ describe("Sidebar", () => {
   it("yeni sohbet tıklanınca bildirir", () => {
     const onYeni = vi.fn();
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={onYeni} />);
-    screen.getByText("Yeni görev").click();
+    screen.getByText("Yeni sohbet").click();
     expect(onYeni).toHaveBeenCalledOnce();
   });
 
   it("ürünün ana bölümlerini tek navigasyonda gösterir", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /yeni görev/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /emir profil menüsü/i }));
     expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /dersler/i })).toBeTruthy();
@@ -68,6 +69,7 @@ describe("Sidebar", () => {
 
   it("aramayla oturumları başlık ve kaynak üzerinden filtreler", () => {
     render(<Sidebar oturumlar={sessions} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Konuşma ve proje aramasını aç" }));
     fireEvent.change(screen.getByRole("searchbox", { name: /ara/i }), {
       target: { value: "codex" },
     });
@@ -77,6 +79,7 @@ describe("Sidebar", () => {
 
   it("Türkçe proje adıyla arar", () => {
     render(<Sidebar oturumlar={sessions} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Konuşma ve proje aramasını aç" }));
     fireEvent.change(screen.getByRole("searchbox", { name: /ara/i }), {
       target: { value: "şeker" },
     });
@@ -98,8 +101,7 @@ describe("Sidebar", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Sabit projeler")).toBeTruthy();
-    expect(screen.getByText("Yakın projeler")).toBeTruthy();
+
     const projectButtons = screen.getAllByRole("button", { name: /projesini aç/i });
     expect(projectButtons.map((button) => button.textContent)).toEqual(["Sabit", "Bugün", "Dün"]);
   });
@@ -124,7 +126,7 @@ describe("Sidebar", () => {
       <Sidebar collapsed etkin={null} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />,
     );
     expect(container.querySelector(".sidebar")?.getAttribute("data-collapsed")).toBe("true");
-    expect(screen.getByRole("button", { name: /yeni görev/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
   });
 
   it("ikon rayında sohbet ve projelerin görünür kimliğini korur", () => {
@@ -181,24 +183,12 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(screen.getByRole("button", { name: "Geçmişi genişlet" }).getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("silme tek tıkla olmaz; önce onay ister", () => {
+  it("çöp kutusu tek tıkta silmeyi başlatır", async () => {
     const sil = vi.fn();
     render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
-
     fireEvent.click(screen.getByRole("button", { name: "oyun sohbetini sil" }));
-    expect(sil).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "oyun sohbetini kalıcı olarak sil" }));
-    expect(sil).toHaveBeenCalledWith("1");
-  });
-
-  it("vazgeçince silmez", () => {
-    const sil = vi.fn();
-    render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
-
-    fireEvent.click(screen.getByRole("button", { name: "serbest sohbetini sil" }));
-    fireEvent.click(screen.getByRole("button", { name: "Silmekten vazgeç" }));
-    expect(sil).not.toHaveBeenCalled();
+    await waitFor(() => expect(sil).toHaveBeenCalledWith("1"));
+    expect(screen.queryByRole("button", { name: "Silmekten vazgeç" })).toBeNull();
   });
   it("Fusion sohbetlerinde marka logosu basmaz, içe aktarılanda basar", () => {
     const { container } = render(
@@ -235,4 +225,52 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
     expect(satir?.querySelector(".sidebar__session-dot")).toBeTruthy();
     expect(satir?.querySelector(".sidebar__session-title")?.textContent).toBe("oyun yaz");
   });
+});
+
+
+describe("Sidebar yeni düzen", () => {
+  const many = Array.from({ length: 7 }, (_, i) => ({ session_id: String(i), source: "fusion", title: `Sohbet ${i}`, project: "Desktop", projectRoot: "/Users/test/Desktop", updated_at: i }));
+  it("en yeni beşi gösterir, daha fazla ile kalanları açar", () => {
+    render(<Sidebar etkin={null} oturumlar={many} onYeni={vi.fn()} onSec={vi.fn()} />);
+    expect(screen.queryByText("Sohbet 0")).toBeNull();
+    expect(screen.getByText("Sohbet 6")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
+    expect(screen.getByText("Sohbet 0")).toBeTruthy();
+  });
+  it("sabitlemeyi yeniden açılışta korur ve eski sohbeti ilk beşe taşır", () => {
+    const props = { etkin: null, oturumlar: many, onYeni: vi.fn(), onSec: vi.fn() };
+    const view = render(<Sidebar {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitle" }));
+    view.unmount(); render(<Sidebar {...props} />);
+    expect(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitlemekten çıkar" }).getAttribute("aria-pressed")).toBe("true");
+  });
+  it("oluşturma sayfalarına yönlendirir", () => {
+    const navigate = vi.fn();
+    render(<Sidebar etkin={null} oturumlar={[]} onYeni={vi.fn()} onSec={vi.fn()} onNavigate={navigate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+    fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
+    expect(navigate.mock.calls).toEqual([["image-create"], ["video-create"]]);
+  });
+});
+
+it("silme hatasını gösterir ve sabitlemeyi yalnız başarılı silmede kaldırır", async () => {
+  const remove = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
+  render(<Sidebar etkin={null} oturumlar={[sessions[0]]} onYeni={vi.fn()} onSec={vi.fn()} onSil={remove} />);
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sabitle" }));
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sil" }));
+  await screen.findByRole("alert");
+  expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sil" }));
+  await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
+});
+
+it("StrictMode ve depolama hatasında sabitleme arayüzünü çalışır tutar", () => {
+  const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+  try {
+    render(<StrictMode><Sidebar etkin={null} oturumlar={[sessions[0]]} onYeni={vi.fn()} onSec={vi.fn()} /></StrictMode>);
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sabitle" }));
+    expect(screen.getByRole("button", { name: "İlk iş sohbetini sabitlemekten çıkar" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("alert").textContent).toContain("kaydedilemedi");
+  } finally { write.mockRestore(); }
 });

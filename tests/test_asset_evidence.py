@@ -6,7 +6,13 @@ import json
 import struct
 import zlib
 
-from fusion_cli.core.assets import inspect_image_asset, validate_asset_manifest
+import pytest
+
+from fusion_cli.core.assets import (
+    inspect_image_asset,
+    validate_asset_inventory,
+    validate_asset_manifest,
+)
 from fusion_cli.core.evidence import EvidenceStatus
 from fusion_cli.core.execution_plan import VerificationCheck, VerificationCheckKind
 from fusion_cli.engines.agent.step_verification import evaluate_file_check
@@ -99,3 +105,62 @@ def test_plan_dogrulayici_sprite_kosulunda_manifesti_zorunlu_tutar(tmp_path):
 
     assert missing.status is EvidenceStatus.FAILED
     assert valid.status is EvidenceStatus.PASSED
+
+
+def test_asset_manifesti_var_ama_indirilen_dosya_yoksa_adim_gecmez(tmp_path):
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {
+                        "path": "assets/player.png",
+                        "source_url": "https://example.com/player",
+                        "license": "CC0",
+                    }
+                ]
+            }
+        )
+    )
+    check = VerificationCheck(
+        "Assetler indirildi", VerificationCheckKind.FILE_EXISTS, "ASSETS.json"
+    )
+
+    result = evaluate_file_check(check, tmp_path)
+
+    assert result.status is EvidenceStatus.FAILED
+    assert "assets/player.png" in result.summary
+
+
+def test_liste_manifesti_gercek_gorsel_ve_kaynakla_gecer(tmp_path):
+    (tmp_path / "player.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {
+                        "path": "player.png",
+                        "source_url": "https://example.com/player",
+                        "license": "CC0",
+                    }
+                ]
+            }
+        )
+    )
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_manifestteki_kok_disi_asset_okunmaz(tmp_path):
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(json.dumps({"../outside.png": {"license": "CC0"}}))
+    assert "çalışma kökü dışında" in " ".join(validate_asset_inventory(manifest, tmp_path))
+
+
+@pytest.mark.parametrize("name", ["ASSETS.json", "LICENSES.json", "bad\x00.png"])
+def test_manifest_kendisi_lisans_belgesi_ve_bozuk_yolu_asset_saymaz(tmp_path, name):
+    manifest = tmp_path / "ASSETS.json"
+    if name == "LICENSES.json":
+        (tmp_path / name).write_text("{}")
+    manifest.write_text(json.dumps({name: {"source_url": "https://example.com", "license": "CC0"}}))
+    assert validate_asset_inventory(manifest, tmp_path)

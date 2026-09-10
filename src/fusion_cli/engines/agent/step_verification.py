@@ -8,7 +8,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
-from ...core.assets import inspect_image_asset, validate_asset_manifest
+from ...core.assets import (
+    inspect_image_asset,
+    is_asset_inventory,
+    validate_asset_inventory,
+    validate_asset_manifest,
+)
 from ...core.cross_file import scene_script_conflicts
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import (
@@ -296,6 +301,17 @@ def evaluate_file_check(
             artifact=check.target,
         )
     if check.kind is VerificationCheckKind.FILE_EXISTS:
+        if is_asset_inventory(path):
+            findings = validate_asset_inventory(path, root)
+            return CriterionEvidence(
+                check.criterion_id,
+                check.kind,
+                EvidenceStatus.FAILED if findings else EvidenceStatus.PASSED,
+                "; ".join(findings)
+                if findings
+                else "manifestteki gerçek asset dosyaları doğrulandı",
+                artifact=check.target,
+            )
         image_words = ("asset", "görsel", "image", "sprite", "texture")
         is_image_asset = path.suffix.casefold() in {".png", ".jpg", ".jpeg"} and any(
             word in check.criterion_id.casefold() for word in image_words

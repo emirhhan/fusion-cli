@@ -30,8 +30,7 @@ function isMetadata(value: unknown): value is PersistedSessionMetadata {
     && typeof item.title === "string"
     && isSource(item.source)
     && typeof item.root === "string"
-    && typeof item.updatedAt === "number"
-    && Number.isFinite(item.updatedAt);
+    && (item.updatedAt === undefined || (typeof item.updatedAt === "number" && Number.isFinite(item.updatedAt)));
 }
 
 export function loadSessionView(storage: StorageLike): PersistedSessionView | null {
@@ -42,7 +41,8 @@ export function loadSessionView(storage: StorageLike): PersistedSessionView | nu
     if (parsed.version !== SESSION_VIEW_VERSION || !Array.isArray(parsed.sessions)) return null;
     if (parsed.activeId !== null && typeof parsed.activeId !== "string") return null;
     if (!parsed.sessions.every(isMetadata)) return null;
-    return parsed as unknown as PersistedSessionView;
+    const view = parsed as unknown as PersistedSessionView;
+    return { ...view, sessions: view.sessions.map((session) => ({ ...session, updatedAt: session.updatedAt ?? 0 })) };
   } catch {
     return null;
   }
@@ -64,7 +64,7 @@ export function saveSessionView(
         title: session.title,
         source: session.source,
         root: session.root,
-        updatedAt,
+        updatedAt: session.updatedAt ?? updatedAt,
       }];
     }),
   };

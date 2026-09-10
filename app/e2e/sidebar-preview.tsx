@@ -1,0 +1,16 @@
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { Sidebar } from "../src/screens/Sidebar";
+import { Shell } from "../src/screens/Shell";
+import { Composer } from "../src/screens/Composer";
+import { ProjectPicker } from "../src/screens/ProjectPicker";
+import { EmptyState } from "../src/screens/EmptyState";
+import { AppHeader } from "../src/screens/AppHeader";
+import "../src/theme/tokens.css";
+import "../src/brand/brand.css";
+import "../src/App.css";
+import { applyTheme } from "../src/theme/theme";
+applyTheme("dark");
+const projects = [{ root: "/Users/demo/Desktop", name: "Desktop", updatedAt: 2, pinned: false }, { root: "/Projects/Oyun", name: "Oyun", updatedAt: 1, pinned: false }];
+const titles = ["Yeni arayüzü hazırla", "Proje dosyalarını incele", "Görselleri düzenle", "Test sonuçlarını değerlendir", "Başlangıç ekranını tasarla", "Proje planını güncelle", "Renkleri karşılaştır"];
+ReactDOM.createRoot(document.getElementById("root")!).render(<Shell header={<AppHeader title="Yeni sohbet" status="Hazır" />} content={<EmptyState projectName="Desktop" />} composer={<><ProjectPicker root={projects[0].root} projects={projects} onSelect={async () => undefined} onNew={() => undefined} onSettings={() => undefined} /><Composer onSend={() => undefined} /></>} sidebar={<Sidebar etkin={null} onYeni={() => undefined} onSec={() => undefined} onSil={async () => undefined} projeler={projects} oturumlar={titles.map((title, index) => ({ session_id: `fixture-${index}`, title, source: "fusion", project: "Desktop", projectRoot: projects[0].root, updated_at: 10 - index }))} />} />);

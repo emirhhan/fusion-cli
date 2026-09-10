@@ -50,6 +50,8 @@ import { ControlPanel } from "./control/ControlPanel";
 import { Lessons } from "./lessons/Lessons";
 import { Spotlight } from "./lessons/Spotlight";
 import { Settings } from "./settings/Settings";
+import { desktopDir } from "@tauri-apps/api/path";
+import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -180,6 +182,9 @@ function projectName(root: string): string {
   const parts = root.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? root;
 }
+
+/** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
+const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control"];
 
 function ProjectInspector({
   activeTab,
@@ -412,7 +417,7 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons" | "settings">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "lessons" | "settings" | "image-create" | "video-create">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -435,7 +440,55 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  const hasOpenedSession = useRef(false);
+  useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
+  const startDesktopChat = async () => {
+    setNewTaskError(null);
+    try {
+      const root = await desktopDir();
+      await controller.create({ root });
+      setPage("chat");
+      setWorkspaceMode("sohbet");
+    } catch {
+      setNewTaskError("Desktop klasörü açılamadı. Yeniden dene veya bir klasör seç.");
+    }
+  };
   const history = useHistory(active?.client ?? null);
+  const navigateSidebar = async (destination: string) => {
+    setNewTaskError(null);
+    try {
+      if (!active && !["image-create", "video-create"].includes(destination) && !destination.startsWith("project:")) {
+        await controller.create({ root: await desktopDir() });
+      }
+            if (destination === "image-create" || destination === "video-create") {
+              setPage(destination);
+            } else if (destination === "skills") {
+              setPage("skills");
+            } else if (destination === "lessons") {
+              setPage("lessons");
+            } else if (destination === "settings") {
+              setPage("settings");
+            } else if (destination === "control-panel") {
+              setControlTitle("Kontrol Paneli");
+              setPage("control");
+            } else if (destination === "connectors") {
+              setControlTitle("MCP Bağlantıları");
+              setPage("control");
+            } else if (destination === "help") {
+              setPage("lessons");
+            } else if (destination.startsWith("resume:")) {
+              setPage("chat");
+              const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
+              setHistoryOpen(true);
+              void history.openSource(source);
+            } else if (destination.startsWith("project:")) {
+              setPage("chat");
+              await controller.create({ root: destination.slice("project:".length) });
+            }
+    } catch {
+      setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
+    }
+  };
   const composerCommands = useMemo<ComposerCommand[]>(() => [
     FOLDER_COMMAND,
     ...commands.filter((command) => !command.ad.toLocaleLowerCase("tr").startsWith("resume")),
@@ -556,26 +609,6 @@ export function SessionUygulama({
     const cikar = listen("uygulama://kapatma-istegi", () => setCloseAsked(true));
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, []);
-
-  // Hiç oturum kalmadıysa (ör. sonuncusu silindi) yenisi açılır. Eskiden burada
-  // tüm ekranı kaplayan "Bağlanıyor…" kalıyordu ve silme donmuş görünüyordu.
-  // Yaratma RENDER'da değil burada yapılır; render'da yan etki çift oturum üretti.
-  // Koşul dar tutulur: uygulama açılışta zaten kendi oturumunu yaratıyor.
-  // "Hiç oturum yok" durumunu körlemesine doldurmak o yaratımla yarışıp ÇİFT
-  // oturum üretiyordu (testler yakaladı). Bu yüzden yalnız daha önce oturum
-  // GÖRMÜŞSEK ve şimdi hiç kalmadıysa yenisi açılır.
-  const oturumSayisi = controller.state.order.length;
-  const oturumGorulduMu = useRef(false);
-  useEffect(() => {
-    if (oturumSayisi > 0) {
-      oturumGorulduMu.current = true;
-      return;
-    }
-    if (oturumGorulduMu.current && !controller.state.connectionError) {
-      oturumGorulduMu.current = false;
-      void controller.create({});
-    }
-  }, [controller, oturumSayisi]);
 
   // Konuşma penceresinden gelen söz AYNI sohbete düşer: kip kapandığında
   // kullanıcı yazışmış gibi tam dökümü görür.
@@ -713,7 +746,15 @@ export function SessionUygulama({
   if (controller.state.connectionError) {
     return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
   }
-  if (!active) return <div className="app-status-screen">Hazırlanıyor…</div>;
+  if (!active) {
+    if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
+    return <Shell
+      header={<AppHeader title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
+      content={<>{page === "image-create" || page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
+      sidebarCollapsed={layout.sidebarCollapsed}
+      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
+    />;
+  }
 
   if (showOnboarding) {
     const projects: SampleProject[] = [
@@ -735,6 +776,18 @@ export function SessionUygulama({
       />
     );
   }
+
+  // Kendi başlığını taşıyan tam ekran sayfalarda üst şerit o başlığı TEKRARLAMAZ.
+  // Ölçüldü: Ayarlar açıkken ekranda "Ayarlar" iki kez yazıyordu ve erişilebilirlik
+  // ağacında aynı adla iki başlık düğümü oluşuyordu. Şerit bu sayfalarda çalışma
+  // alanını gösterir; sayfanın kimliği sayfanın kendi başlığındadır.
+  const headerTitle = SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
+    ? projectName(active.root)
+    : page === "image-create" ? "Görsel oluştur"
+      : page === "video-create" ? "Video oluştur"
+        : page === "skills" ? "Beceriler ve Ajanlar"
+          : page === "lessons" ? "Dersler"
+            : active.title;
 
   const draft = drafts[active.id] ?? "";
   const activeAttachments = attachments[active.id] ?? [];
@@ -776,7 +829,7 @@ export function SessionUygulama({
   const conversationContent = active.messages.length > 0 ? (
     <Conversation mesajlar={active.messages} />
   ) : (
-    <EmptyState durum={active.running ? "thinking" : "idle"} onSelectPrompt={setDraft} />
+    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} onSelectPrompt={setDraft} />
   );
   /** Ders adımının işaret ettiği yüzeyi aç. Hiçbir şey çalıştırılmaz. */
   const openLessonTarget = (hedef: string) => {
@@ -790,12 +843,15 @@ export function SessionUygulama({
     layout.openInspector();
     setRequestedTab(hedef === "surec" ? "processes" : "files");
   };
-  const content = page === "skills"
+  const content = page === "image-create" || page === "video-create"
+    ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
+    : page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
       ? (
         <ControlPanel
           client={active.client}
+          title={controlTitle}
           onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
           revision={controlRevision}
@@ -874,6 +930,7 @@ export function SessionUygulama({
   return (
     <Shell
       composer={page === "chat" ? (
+        <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <Composer
           activeTier={activeTier}
           tiers={tiers}
@@ -950,11 +1007,12 @@ export function SessionUygulama({
           onValueChange={setDraft}
           running={active.running}
           value={draft}
-        />
+        /></>
       ) : undefined}
       content={
         <>
           {content}
+          {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
           {spotlight && (
             <Spotlight
               isaret={spotlight.isaret}
@@ -1038,7 +1096,7 @@ export function SessionUygulama({
           onToggleSidebar={layout.toggleSidebar}
           sidebarCollapsed={layout.sidebarCollapsed}
           status={status}
-          title={page === "skills" ? "Beceriler ve Ajanlar" : page === "control" ? controlTitle : page === "lessons" ? "Dersler" : page === "settings" ? "Ayarlar" : active.title}
+          title={headerTitle}
         />
       }
       inspector={page === "chat" ? (
@@ -1064,46 +1122,24 @@ export function SessionUygulama({
           collapsed={layout.sidebarCollapsed}
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
-          onSil={(id) => void controller.remove(id)}
-          onNavigate={(destination) => {
-            if (destination === "skills") {
-              setPage("skills");
-            } else if (destination === "lessons") {
-              setPage("lessons");
-            } else if (destination === "settings") {
-              setPage("settings");
-            } else if (destination === "control-panel") {
-              setControlTitle("Kontrol Paneli");
-              setPage("control");
-            } else if (destination === "connectors") {
-              setControlTitle("MCP Bağlantıları");
-              setPage("control");
-            } else if (destination === "help") {
-              setPage("lessons");
-            } else if (destination.startsWith("resume:")) {
-              setPage("chat");
-              const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
-              setHistoryOpen(true);
-              void history.openSource(source);
-            } else if (destination.startsWith("project:")) {
-              setPage("chat");
-              void controller.create({ root: destination.slice("project:".length) });
-            }
-          }}
+          onSil={(id) => controller.remove(id)}
+          onNavigate={(destination) => void navigateSidebar(destination)}
           onSec={(id) => {
             setPage("chat");
             // Açık sekme seçilir; diskte duran sohbet ise ÖNCE açılır. İkisi de
             // aynı listede durur: kullanıcı için ikisi de "dünkü konuşmam"dır.
             if (controller.state.sessions[id]) controller.select(id);
-            else void controller.openStored(id, active?.root);
+            else void controller.openStored(id, controller.storedConversations.find((item) => item.id === id)?.root ?? active?.root);
           }}
-          onYeni={() => { setNewTaskError(null); setNewTaskOpen(true); }}
+          onYeni={() => void startDesktopChat()}
           oturumlar={[
             ...controller.sessions.map((session) => ({
               session_id: session.id,
               source: session.source,
               title: session.title,
               project: projectName(session.root),
+              projectRoot: session.root,
+              updated_at: session.updatedAt,
             })),
             // Diskte duran ama açılmamış sohbetler. Ölçüldü (kullanıcının diski,
             // 8 Eylül): 110 sohbet kayıtlıydı ve arayüzde hiçbiri görünmüyordu.
@@ -1113,7 +1149,9 @@ export function SessionUygulama({
                 session_id: conversation.id,
                 source: "fusion",
                 title: conversation.title,
-                project: projectName(active?.root ?? ""),
+                project: projectName(conversation.root),
+                projectRoot: conversation.root,
+                updated_at: conversation.updatedAt * 1000,
               })),
           ]}
           projeler={controller.recentProjects.map((project) => ({

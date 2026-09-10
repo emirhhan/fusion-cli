@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from ...core.assets import is_asset_inventory
 from ...core.diagnosis import diagnose
-from ...core.execution_plan import PlanStep, RetrySafety
+from ...core.evidence import EvidenceStatus
+from ...core.execution_plan import PlanPhase, PlanStep, RetrySafety, VerificationCheckKind
 from ...core.failure import (
     FailureCategory,
     FailureRecord,
     RecoveryAction,
     RecoveryDecision,
 )
-from .step_verification import StepVerificationResult
+from .step_verification import StepVerificationResult, evaluate_file_check
 
 
 def classify_failure(outcome: object, verification: StepVerificationResult) -> FailureRecord:
@@ -122,3 +126,32 @@ def choose_recovery(
         RecoveryAction.PAUSE,
         "Bilinmeyen hata kör yeniden denemeye uygun değil.",
     )
+
+
+def can_repair_local_inventory(step: PlanStep, root: Path) -> bool:
+    """Allow one observed inventory repair only within a local file contract."""
+    if (
+        step.retry_safety is not RetrySafety.OBSERVE_FIRST
+        or step.phase is PlanPhase.DISCOVERY
+        or step.revision != 0
+        or not step.expected_effects
+        or not set(step.allowed_tool_families) <= {"files", "web"}
+        or any(not effect.startswith("file:") for effect in step.expected_effects)
+    ):
+        return False
+    try:
+        resolved = root.resolve()
+        if any(
+            not (root / effect.removeprefix("file:")).resolve().is_relative_to(resolved)
+            for effect in step.expected_effects
+        ):
+            return False
+        return any(
+            check.kind is VerificationCheckKind.FILE_EXISTS
+            and is_asset_inventory(Path(check.target))
+            and (root / check.target).resolve().is_relative_to(resolved)
+            and evaluate_file_check(check, root).status is EvidenceStatus.FAILED
+            for check in step.verification_checks
+        )
+    except (OSError, ValueError, RuntimeError):
+        return False

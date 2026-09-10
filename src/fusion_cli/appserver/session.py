@@ -28,6 +28,7 @@ from ..cli.repl.commands import RENDERED_COMMANDS, build_registry
 from ..cli.repl.state import Engine, ReplState
 from ..cli.repl.transcript_store import (
     TranscriptStore,
+    delete_conversation,
     list_conversations,
     load_transcript_messages,
 )
@@ -306,6 +307,8 @@ class AppSession:
                     if message.role in {"user", "assistant"}
                 ],
             }
+        if request.name == "sohbet.sil":
+            return await self._delete_conversation(request.data)
         if request.name == "sohbet.listele":
             return self._list_conversations()
         if request.name == "kademe.listele":
@@ -490,6 +493,24 @@ class AppSession:
             return self._cancel_turn()
         return {"ok": False, "metin": messages.APP_UNKNOWN_REQUEST.format(name=request.name)}
 
+    async def _delete_conversation(self, data: dict[str, Any]) -> dict[str, Any]:
+        conversation_id = data.get("sohbet_id")
+        root_value = data.get("kok")
+        if not isinstance(conversation_id, str) or not conversation_id.strip():
+            return {"ok": False, "metin": "Sohbet kimliği zorunludur."}
+        if root_value is not None and (not isinstance(root_value, str) or not root_value.strip()):
+            return {"ok": False, "metin": "Proje kökü geçerli bir dizin olmalıdır."}
+        root = await asyncio.to_thread(Path(root_value).expanduser) if root_value else self._root
+        root = await asyncio.to_thread(root.resolve)
+        current_root = await asyncio.to_thread(self._root.resolve)
+        await asyncio.to_thread(
+            delete_conversation, self._state.config.memory_dir, root, conversation_id
+        )
+        if root == current_root and conversation_id == self._transcript_store.session_id:
+            self._cancel_turn()
+            self._state.history = []
+        return {"ok": True, "sohbet_id": conversation_id}
+
     def _list_conversations(self) -> dict[str, Any]:
         """Bu proje kökünde diskte duran sohbetleri listele.
 
@@ -501,6 +522,7 @@ class AppSession:
             "sohbetler": [
                 {
                     "sohbet_id": ref.conversation_id,
+                    "kok": str(self._root.expanduser().resolve()),
                     "baslik": ref.title,
                     "guncelleme": ref.updated_at,
                     "mesaj_sayisi": ref.message_count,

@@ -1,6 +1,9 @@
 import type { ReactNode, SVGProps } from "react";
 
 export type IconName =
+  | "folder"
+  | "image"
+  | "video"
   | "attach"
   | "changes"
   | "chat"
@@ -24,6 +27,9 @@ export type IconName =
   | "tests";
 
 const paths: Record<IconName, ReactNode> = {
+  folder: <path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" />,
+  image: <><rect x="3" y="3" width="18" height="18" rx="3" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 5-5 4 4 4-6 5 7" /></>,
+  video: <><rect x="3" y="5" width="13" height="14" rx="2" /><path d="m16 10 5-3v10l-5-3" /></>,
   attach: <path d="m20.5 11.5-8.9 8.9a5 5 0 0 1-7.1-7.1l9.6-9.6a3.5 3.5 0 0 1 5 5l-9.6 9.6a2 2 0 0 1-2.8-2.8l8.9-8.9" />,
   changes: <><path d="M5 7h10" /><path d="m12 4 3 3-3 3" /><path d="M19 17H9" /><path d="m12 14-3 3 3 3" /></>,
   chat: <path d="M20 12a7 7 0 0 1-7 7H8l-4 3v-4.6A7 7 0 0 1 6 5h7a7 7 0 0 1 7 7Z" />,

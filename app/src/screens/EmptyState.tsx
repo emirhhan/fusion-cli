@@ -16,9 +16,11 @@ const suggestions = [
  */
 export function EmptyState({
   durum = "idle",
+  projectName,
   onSelectPrompt = () => undefined,
 }: {
   durum?: AvatarState;
+  projectName?: string;
   onSelectPrompt?: (prompt: string) => void;
 }) {
   return (
@@ -27,7 +29,7 @@ export function EmptyState({
         <div className="empty-state__character empty-state__character--uncropped">
           <FusionAvatar scale={1.35} state={durum} />
         </div>
-        <h2>Bugün ne üzerinde çalışıyoruz?</h2>
+        <h2>{projectName ? `${projectName} içinde ne üzerinde çalışıyoruz?` : "Bugün ne üzerinde çalışıyoruz?"}</h2>
         <p>Bir proje üret, mevcut kodu geliştir veya kaldığın konuşmayı sürdür.</p>
         <div aria-label="Başlangıç önerileri" className="empty-state__suggestions">
           {suggestions.map((suggestion) => (

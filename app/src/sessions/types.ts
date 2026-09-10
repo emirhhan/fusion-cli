@@ -40,6 +40,7 @@ export interface SessionQuestion {
 }
 
 export interface SessionModel {
+  updatedAt?: number;
   id: string;
   title: string;
   source: SessionSource;
@@ -54,6 +55,7 @@ export interface SessionModel {
 }
 
 export interface NewSession {
+  updatedAt?: number;
   id?: string;
   title?: string;
   source?: SessionSource;
@@ -89,6 +91,7 @@ export interface RecentProject {
 /** Diskte duran, henüz açılmamış bir sohbetin künyesi. */
 export interface StoredConversation {
   id: string;
+  root: string;
   title: string;
   updatedAt: number;
   messageCount: number;

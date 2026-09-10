@@ -12,6 +12,7 @@ export const initialSessionState: SessionState = {
 };
 
 interface SessionSeed {
+  updatedAt?: number;
   id: string;
   title: string;
   source: SessionSource;
@@ -54,6 +55,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       const exists = Boolean(state.sessions[action.session.id]);
       const model: SessionModel = {
         ...action.session,
+        updatedAt: action.session.updatedAt ?? Date.now(),
         pid: action.session.pid ?? null,
         status: "ready",
         error: null,
@@ -77,17 +79,19 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
     case "selected":
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
     case "titleChanged":
-      return updateSession(state, action.id, (session) => ({ ...session, title: action.title }));
+      return updateSession(state, action.id, (session) => ({ ...session, title: action.title, updatedAt: Date.now() }));
     case "messageAdded":
       return updateSession(state, action.id, (session) => ({
         ...session,
         messages: [...session.messages, action.message],
+        updatedAt: Date.now(),
       }));
     case "eventReceived":
       // Olaylar akışa BİRLEŞTİRİLEREK girer; birleştirme kuralı `olayEkle`de.
       return updateSession(state, action.id, (session) => ({
         ...session,
         messages: olayEkle(session.messages, action.event),
+        updatedAt: Date.now(),
       }));
     case "runningChanged":
       return updateSession(state, action.id, (session) => ({

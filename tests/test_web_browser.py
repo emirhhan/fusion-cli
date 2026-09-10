@@ -30,10 +30,12 @@ async def test_tarayici_guvenlik_sandboxunu_kapatmaz(tmp_path):
 
     chromium = mock.Mock()
     chromium.launch_persistent_context = mock.AsyncMock()
-    await _launch_profile_context(
-        chromium, profile=tmp_path, headless=False, accept_downloads=True
-    )
+    await _launch_profile_context(chromium, profile=tmp_path, headless=False, accept_downloads=True)
     assert chromium.launch_persistent_context.call_args.kwargs["chromium_sandbox"] is True
+    assert set(chromium.launch_persistent_context.call_args.kwargs["ignore_default_args"]) == {
+        "--use-mock-keychain",
+        "--password-store=basic",
+    }
 
 
 def test_cookie_header_degerindeki_esittir_isaretini_korur():

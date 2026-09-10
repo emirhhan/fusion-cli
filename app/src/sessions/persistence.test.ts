@@ -64,3 +64,18 @@ describe("session persistence", () => {
     expect(loadSessionView(target)).toBeNull();
   });
 });
+
+it("her sohbetin etkinlik zamanını ayrı saklar", () => {
+  const target = storage(); const current = state();
+  current.sessions.bir.updatedAt = 17;
+  current.sessions.iki = { ...current.sessions.bir, id: "iki", updatedAt: 9 };
+  current.order.push("iki");
+  saveSessionView(target, current, 999);
+  expect(loadSessionView(target)?.sessions.map((item) => item.updatedAt)).toEqual([17, 9]);
+});
+
+it("zaman alanı olmayan eski kayıtları sıfır tarihiyle yükler", () => {
+  const target = storage();
+  target.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "eski", sessions: [{ id: "eski", title: "Eski", source: "fusion", root: "/proje" }] }));
+  expect(loadSessionView(target)?.sessions[0].updatedAt).toBe(0);
+});

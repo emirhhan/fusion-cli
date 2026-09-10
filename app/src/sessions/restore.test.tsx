@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
 import { SESSION_VIEW_KEY } from "./persistence";
@@ -120,4 +120,26 @@ describe("oturum geri yükleme", () => {
     await waitFor(() => expect(result.current.activeSession?.id).toBe("eski-c"));
     expect(fake.basladi.some((item) => item.sohbet === "eski-c")).toBe(true);
   });
+});
+
+it("yeniden bağlanma sohbetlerin gerçek etkinlik zamanını değiştirmez", async () => {
+  localStorage.setItem(SESSION_VIEW_KEY, JSON.stringify({ version: 1, activeId: "yeni", sessions: [
+    { id: "yeni", title: "Yeni", source: "fusion", root: "/proje", updatedAt: 200 },
+    { id: "eski", title: "Eski", source: "fusion", root: "/proje", updatedAt: 100 },
+  ] }));
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.sessions).toHaveLength(2));
+  expect(result.current.state.sessions.yeni.updatedAt).toBe(200);
+  expect(result.current.state.sessions.eski.updatedAt).toBe(100);
+  expect(JSON.parse(localStorage.getItem(SESSION_VIEW_KEY)!).sessions.map((item: { updatedAt: number }) => item.updatedAt)).toEqual([100, 200]);
+});
+
+it("saklı sohbeti açmak etkinlik zamanını değiştirmez", async () => {
+  const fake = fakeTransport();
+  const { result } = renderHook(() => useSessions(fake.transport));
+  await waitFor(() => expect(result.current.storedConversations).toHaveLength(1));
+  await act(async () => { await result.current.openStored("eski-c"); });
+  expect(result.current.state.sessions["eski-c"].updatedAt).toBe(1000);
+  expect(JSON.parse(localStorage.getItem(SESSION_VIEW_KEY)!).sessions.find((item: { id: string }) => item.id === "eski-c").updatedAt).toBe(1000);
 });

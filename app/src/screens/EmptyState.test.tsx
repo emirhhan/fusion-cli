@@ -34,3 +34,11 @@ describe("EmptyState", () => {
     ).toBe(true);
   });
 });
+
+it("boş sohbet başlığı seçilen projeyle güncellenir", () => {
+  const view = render(<EmptyState projectName="Desktop" />);
+  expect(screen.getByRole("heading", { name: "Desktop içinde ne üzerinde çalışıyoruz?" })).toBeTruthy();
+  view.rerender(<EmptyState projectName="Oyun" />);
+  expect(screen.getByRole("heading", { name: "Oyun içinde ne üzerinde çalışıyoruz?" })).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: /Desktop/ })).toBeNull();
+});

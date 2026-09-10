@@ -20,6 +20,8 @@ from ...core.events import (
     ExecutionRetryScheduled,
     ExecutionStepStarted,
     ExecutionStepVerified,
+    SelfReviewFinished,
+    SelfReviewStarted,
 )
 from ...core.evidence import EvidenceStatus
 from ...core.execution_plan import (
@@ -40,7 +42,9 @@ from ...core.types import Message
 from ...core.verification import VerificationResult
 from ...core.workspace import IsolatedWorkspace, isolate
 from ..workflow.model import BudgetEnvelope, BudgetLedger, WorkflowBudget
+from . import review
 from .attempts import Attempt, choose_attempt
+from .execution_policy import ExecutionPolicy
 from .plan_checkpoint import (
     artifact_changed,
     capture_evidence,
@@ -54,7 +58,7 @@ from .plan_context import step_deps, step_prompt, workflow_budget, workspace_blo
 from .plan_generation import RunAgent, generate_plan
 from .progress import progress_fingerprint
 from .promotion import PromotionContext
-from .recovery import choose_recovery, classify_failure
+from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
 from .replan import merge_replanned_plan
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
 
@@ -100,6 +104,9 @@ class _PlanRun:
     #: `outcomes` listesine girer; kaybedenlerin maliyeti yine de kaybolmamalıdır.
     attempt_model_calls: int = 0
     repair_ids: set[str] = field(default_factory=set)
+    self_review: bool = False
+    review_calls: int = 0
+    quality_feedback: str = ""
 
     def charge(self, envelope: BudgetEnvelope, calls: int, scope: str = "") -> bool:
         """Reddedilen harcama bile gerçekte yapıldı; checkpoint'te kaybolmaz."""
@@ -161,6 +168,7 @@ class _PlanRun:
                     for (envelope, scope), calls in self.spent.items()
                 ),
                 self.condensations,
+                self.quality_feedback,
             )
         )
         deps.publisher.publish(
@@ -176,11 +184,15 @@ class _PlanRun:
 
         return AgentOutcome(
             final_text=text,
-            messages=[Message("assistant", text)],
+            messages=[
+                *(message for outcome in self.outcomes for message in outcome.messages),
+                Message("assistant", text),
+            ],
             ok=ok,
             tool_calls_made=sum(item.tool_calls_made for item in self.outcomes),
             model_calls_made=self.planning_calls
             + self.attempt_model_calls
+            + self.review_calls
             + sum(item.model_calls_made for item in self.outcomes),
             planning_calls_made=self.planning_calls,
             final_verification_calls=self.final_calls,
@@ -199,7 +211,13 @@ class _PlanRun:
         return self.outcome(text, ok=False, budget_stopped=budget)
 
     async def execute(
-        self, step: PlanStep, guidance: str, *, recovery: bool, observe: bool
+        self,
+        step: PlanStep,
+        guidance: str,
+        *,
+        recovery: bool,
+        observe: bool,
+        local_repair: bool = False,
     ) -> tuple[PlanStep, AgentOutcome, AgentDeps] | None:
         """Çağrıdan önce zarfı sınırla; yürütme başlamadan checkpoint al."""
         envelope = BudgetEnvelope.RECOVERY if recovery else BudgetEnvelope.PER_STEP
@@ -211,6 +229,34 @@ class _PlanRun:
         self.save()
         turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
         deps = step_deps(turn_deps, running, remaining, observe=observe)
+        if local_repair and deps.execution is not None:
+            permitted = frozenset(
+                {
+                    "read_file",
+                    "view_file",
+                    "list_dir",
+                    "list_files",
+                    "glob",
+                    "grep_search",
+                    "web_search",
+                    "web_fetch",
+                    "read_url_content",
+                    "download_file",
+                    "write_file",
+                    "create_file",
+                    "edit_file",
+                    "multi_edit",
+                    "replace_range",
+                }
+            )
+            deps = replace(
+                deps,
+                execution=replace(
+                    deps.execution,
+                    allowed_tool_names=(deps.execution.allowed_tool_names or frozenset())
+                    & permitted,
+                ),
+            )
         prompt = step_prompt(
             self.task,
             running,
@@ -447,8 +493,11 @@ class _PlanRun:
             if step.step_id in self.repair_ids
             else ""
         )
+        local_repair = False
         while True:
-            executed = await self.execute(step, guidance, recovery=recovering, observe=observe)
+            executed = await self.execute(
+                step, guidance, recovery=recovering, observe=observe, local_repair=local_repair
+            )
             if executed is None:
                 return self.pause(
                     f"Workflow bütçesi tükendi; '{step.step_id}' adımında duraklatıldı.",
@@ -472,6 +521,22 @@ class _PlanRun:
             # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
             # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
             self.forget_rolled_back(geri_alma.discard())
+            if observe and can_repair_local_inventory(running, self.deps.tool_context.root):
+                # Persist the one repair allowance before enabling local writes.
+                step = replace(running, revision=running.revision + 1)
+                self.current = replace_step(self.current, step)
+                self.save()
+                guidance = "Eksik yerel asset teslimatını onar. " + "; ".join(verification.findings)
+                observe = False
+                recovering = True
+                local_repair = True
+                continue
+            if local_repair:
+                return self.pause(
+                    _pause_text(
+                        running.step_id, "Yerel asset onarımı başarısız.", verification, outcome
+                    )
+                )
             fingerprint = progress_fingerprint(running, outcome, verification)
             repeated = bool(running.last_progress_fingerprint) and (
                 fingerprint == running.last_progress_fingerprint
@@ -608,8 +673,92 @@ class _PlanRun:
             if step.step_id in affected
         )
 
+    async def quality_gate(self) -> VerificationResult | AgentOutcome | None:
+        """Spend one bounded review/correction before recording completion."""
+        scope = "$quality-review"
+        text = self.outcomes[-1].final_text if self.outcomes else "Bekleyen kalite düzeltmesi."
+        candidate = self.outcome(text, ok=True)
+        feedback = self.quality_feedback
+        if not feedback:
+            if not self.self_review or not self.outcomes or not self.outcomes[-1].ok:
+                return None
+            if not candidate.final_text.strip():
+                return None
+            if self.remaining(BudgetEnvelope.RECOVERY, scope) <= 0:
+                return self.pause("Workflow öz denetim bütçesi tükendi.", budget=True)
+            self.deps.publisher.publish(SelfReviewStarted())
+            self.review_calls += 1
+            self.charge(BudgetEnvelope.RECOVERY, 1, scope)
+            feedback = await review.review_turn(
+                self.task,
+                candidate.final_text,
+                candidate.messages,
+                config=self.deps.config,
+                publisher=self.deps.publisher,
+            )
+            self.deps.publisher.publish(SelfReviewFinished(issue_found=bool(feedback)))
+            if not feedback:
+                return None
+            self.quality_feedback = feedback
+            self.save()
+        remaining = self.remaining(BudgetEnvelope.RECOVERY, scope)
+        if remaining <= 0 or self.remaining(BudgetEnvelope.FINAL) <= 0:
+            return self.pause("Öz denetim düzeltme/doğrulama bütçesi tükendi.", budget=True)
+        policy = self.deps.execution or ExecutionPolicy(is_web=False)
+        correction_deps = replace(
+            self.deps,
+            execution=replace(
+                policy, max_model_calls=min(policy.max_model_calls or remaining, remaining)
+            ),
+            tool_context=_step_context(self.deps.tool_context),
+        )
+        rollback = StepRollback(correction_deps.tool_context.changes)
+        try:
+            try:
+                correction = await self.agent(
+                    f"ASIL KULLANICI GÖREVİ:\n{self.task}\n\nÖZ DENETİM DÜZELTMESİ:\n{feedback}",
+                    correction_deps,
+                    history=candidate.messages,
+                    depth=1,
+                    self_review=False,
+                    verify=False,
+                    internal=True,
+                )
+            finally:
+                if correction_deps.tool_context.browser.is_open:
+                    await correction_deps.tool_context.browser.close()
+            self.outcomes.append(correction)
+            self.condensations += correction.condensations
+            allowed = self.charge(BudgetEnvelope.RECOVERY, correction.model_calls_made, scope)
+            if not allowed or not correction.ok:
+                self.forget_rolled_back(rollback.discard())
+                return self.pause("Öz denetim düzeltmesi tamamlanamadı.", budget=not allowed)
+            self.charge(BudgetEnvelope.FINAL, 1)
+            self.final_calls += 1
+            # Persist actual correction and gate charges before a cancellable await.
+            self.save()
+            # Previously captured evidence may describe files changed by correction.
+            acceptance = await verify_plan_acceptance(self.current, self.deps)
+            self.progress()
+            if not acceptance.ok:
+                self.forget_rolled_back(rollback.discard())
+                detail = "; ".join(acceptance.findings) or acceptance.summary
+                return self.pause(f"Öz denetim sonrası final doğrulama başarısız: {detail}")
+        except BaseException:
+            self.forget_rolled_back(rollback.discard())
+            raise
+        self.deps.tool_context.changes.absorb(correction_deps.tool_context.changes)
+        self.deps.tool_context.touched.update(correction_deps.tool_context.touched)
+        self.quality_feedback = ""
+        return acceptance
+
     async def finish(self, acceptance: VerificationResult) -> AgentOutcome:
         """Final geçmeden tamamlandı kaydetme; doğrulanmayan koşulları açıkça bildir."""
+        quality = await self.quality_gate()
+        if isinstance(quality, VerificationResult):
+            acceptance = quality
+        elif quality is not None:
+            return quality
         warnings = list(acceptance.warnings)
         for saved in self.evidence.values():
             for criterion in saved.criteria:
@@ -642,6 +791,9 @@ class _PlanRun:
                 return self.pause(
                     "Planın tamamlanmamış adımları güvenli devam veya bağımlılık kanıtı bekliyor."
                 )
+            if self.quality_feedback:
+                # The correction below must itself pass a fresh final acceptance.
+                return await self.finish(VerificationResult(ok=True))
             if not self.charge(BudgetEnvelope.FINAL, 1):
                 # Bu kapı çalıştırılmadı; reddedilen ön tahsisi gerçek maliyetten çıkar.
                 self.spent[(BudgetEnvelope.FINAL, "")] -= 1
@@ -677,6 +829,7 @@ async def run_execution_plan(
     *,
     plan: ExecutionPlan | None = None,
     promotion: PromotionContext | None = None,
+    self_review: bool | None = None,
 ) -> AgentOutcome:
     """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası."""
     limits = workflow_budget(deps)
@@ -700,6 +853,11 @@ async def run_execution_plan(
         limits,
         BudgetLedger(limits),
     )
+    run.self_review = (
+        getattr(getattr(getattr(deps, "config", None), "runtime", None), "self_review", False)
+        if self_review is None
+        else self_review
+    )
     if current is None:
         generated = await generate_plan(task, deps, run_agent, limits.planning, promotion)
         run.planning_calls = generated.calls
@@ -719,6 +877,7 @@ async def run_execution_plan(
         ExecutionPlanCreated(plan_id=current.plan_id, total_steps=len(current.steps))
     )
     if checkpoint is not None:
+        run.quality_feedback = checkpoint.quality_feedback
         run.ledger.restore(checkpoint.budget_usage)
         run.spent = {
             (BudgetEnvelope(item.envelope), item.scope): item.calls

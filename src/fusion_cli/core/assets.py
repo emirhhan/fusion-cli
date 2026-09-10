@@ -89,7 +89,56 @@ def _manifest_entries(raw: object) -> dict[str, object]:
         return {}
     if isinstance(raw.get("assets"), dict):
         return cast("dict[str, object]", raw["assets"])
+    if isinstance(raw.get("assets"), list):
+        items = raw["assets"]
+        if any(
+            not isinstance(item, dict) or not isinstance(item.get("path"), str) for item in items
+        ):
+            return {}
+        return {item["path"]: item for item in items}
     return cast("dict[str, object]", raw)
+
+
+def is_asset_inventory(path: Path) -> bool:
+    """Salt lisans belgelerinden ayrı, dosya teslim envanteri adlarını tanı."""
+    return path.name.casefold() in {"assets.json", "asset-manifest.json"}
+
+
+def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
+    """Manifestin adını değil, bildirdiği gerçek dosyaları ve kaynakları doğrula."""
+    try:
+        entries = _manifest_entries(json.loads(manifest.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return ("asset manifesti okunamadı veya geçerli JSON değil",)
+    if not entries:
+        return ("asset manifesti gerçek dosya kaydı içermiyor",)
+    findings: list[str] = []
+    for name, entry in entries.items():
+        if not name or not isinstance(entry, dict):
+            findings.append(f"geçersiz asset kaydı: {name}")
+            continue
+        try:
+            path = (manifest.parent / name).resolve()
+        except (OSError, ValueError, RuntimeError):
+            findings.append(f"asset yolu çözümlenemedi: {name!r}")
+            continue
+        if path.name.casefold() in {item.casefold() for item in _MANIFEST_NAMES}:
+            findings.append(f"manifest veya lisans belgesi teslim asseti değildir: {name}")
+            continue
+        if not path.is_relative_to(root.resolve()):
+            findings.append(f"asset yolu çalışma kökü dışında: {name}")
+            continue
+        try:
+            present = path.is_file() and path.stat().st_size > 0
+        except OSError:
+            present = False
+        if not present:
+            findings.append(f"manifestteki gerçek asset dosyası bulunamadı veya boş: {name}")
+            continue
+        findings.extend(f"{name}: {item}" for item in validate_asset_manifest(path, root))
+        if path.suffix.casefold() in {".png", ".jpg", ".jpeg"}:
+            findings.extend(f"{name}: {item}" for item in inspect_image_asset(path).findings)
+    return tuple(findings)
 
 
 def validate_asset_manifest(path: Path, root: Path) -> tuple[str, ...]:
