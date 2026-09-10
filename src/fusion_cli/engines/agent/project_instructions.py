@@ -7,6 +7,12 @@ tanımlamış olabilir. Model bunu kendi kararıyla `read_file` ile bulabilir am
 ekler (docs/PROMPT_ARCHITECTURE.md'de araştırılan "Custom Instructions" katmanı).
 Bu modül aynı garantiyi verir: dosya varsa okunur, yoksa sessizce atlanır.
 
+Talimat dosyasının İŞARET ETTİĞİ kural dosyaları da bir seviye izlenir. Sebep
+ölçüldü: bu deponun CLAUDE.md'si "kod yazmadan önce RULES.md okunur" der ve asıl
+mimari/isimlendirme/katman kuralları orada durur — ama RULES.md prompta hiç
+girmiyordu, yalnız ona giden işaret giriyordu. Garanti edilen katman, garanti
+edilmeyen bir okuma turuna bağlanmış oluyordu.
+
 Yalnızca proje KÖKÜNE bakılır (workspace_hint.py'deki "sığ tarama" ilkesiyle aynı):
 derin arama turu bekletirdi ve çoğu proje kuralını kökte tutar.
 """
@@ -15,6 +21,7 @@ from __future__ import annotations
 
 import json
 import platform
+import re
 import shutil
 from pathlib import Path
 
@@ -30,6 +37,22 @@ CANDIDATE_FILENAMES: tuple[str, ...] = (
 #: Okunacak en fazla karakter. Bazı talimat dosyaları (ör. bu projenin RULES.md'si)
 #: uzun olabilir; sınırsız okuma bağlam bütçesini tek dosyaya harcardı.
 MAX_CHARS = 8_000
+
+#: İşaret edilen kural dosyalarının TOPLAM bütçesi. Ayrı tutulur ki ana talimat
+#: dosyası kendi bütçesini kaybetmesin.
+MAX_LINKED_CHARS = 4_000
+
+#: En fazla kaç kural dosyası izlenir. Talimat dosyaları çoğu kez onlarca bağlantı
+#: taşır (rozetler, dış dokümanlar); hepsini okumak bütçeyi gürültüye harcardı.
+MAX_LINKED_FILES = 3
+
+#: İzlenebilir uzantılar. Talimat dosyası GÜVENİLMEZ girdidir: `.env`, anahtar
+#: dosyası ya da ikili bir şeyi prompta gömmek sır sızdırır. Yalnız düz metin
+#: kural biçimleri okunur.
+LINKABLE_SUFFIXES: frozenset[str] = frozenset({".md", ".mdc", ".markdown", ".txt", ".rst"})
+
+#: Markdown bağlantısı: [metin](hedef). Hedefteki başlık/çapa parçası atılır.
+_LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 
 
 def read_project_instructions(root: Path) -> str:
@@ -52,8 +75,69 @@ def read_project_instructions(root: Path) -> str:
         if kirpildi:
             content = content[:MAX_CHARS]
         ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
-        return f'<proje_talimati kaynak="{filename}">\n{content}{ek}\n</proje_talimati>'
+        bloklar = [f'<proje_talimati kaynak="{filename}">\n{content}{ek}\n</proje_talimati>']
+        bloklar.extend(_linked_rules(root, content, skip=path))
+        return "\n".join(bloklar)
     return ""
+
+
+def _linked_rules(root: Path, content: str, *, skip: Path) -> list[str]:
+    """Talimat metninin işaret ettiği kural dosyalarını oku.
+
+    Talimat dosyası çoğu kez asıl kuralı KENDİSİ taşımaz, işaret eder: bu deponun
+    CLAUDE.md'si "kod yazmadan önce RULES.md okunur" der ve mimari, isimlendirme,
+    katman kuralları orada durur. İşaret edilen dosya prompta hiç girmezse kural
+    katmanı modelin kendi kararına kalır — modülün var oluş sebebi ise tam olarak
+    bu şansı ortadan kaldırmaktır.
+
+    Yalnız BİR seviye izlenir: derin zincir bağlam bütçesini sessizce tüketirdi.
+
+    Talimat dosyası güvenilmez girdidir; her hedef üç kapıdan geçer: kök içinde
+    kalmalı, izinli bir metin uzantısı taşımalı ve gerçek bir dosya olmalı. URL ve
+    mutlak yol hiç denenmez.
+    """
+    kalan = MAX_LINKED_CHARS
+    okunan: list[str] = []
+    gorulen: set[Path] = {skip.resolve()}
+    for hedef in _LINK_PATTERN.findall(content):
+        if len(okunan) >= MAX_LINKED_FILES or kalan <= 0:
+            break
+        yol = _resolve_rule_path(root, hedef)
+        if yol is None or yol in gorulen:
+            continue
+        gorulen.add(yol)
+        try:
+            metin = yol.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not metin:
+            continue
+        kirpildi = len(metin) > kalan
+        metin = metin[:kalan]
+        kalan -= len(metin)
+        ad = yol.relative_to(root.resolve()).as_posix()
+        ek = "\n[…kırpıldı, dosyanın tamamı için read_file kullan…]" if kirpildi else ""
+        okunan.append(f'<proje_kurali kaynak="{ad}">\n{metin}{ek}\n</proje_kurali>')
+    return okunan
+
+
+def _resolve_rule_path(root: Path, target: str) -> Path | None:
+    """Bağlantı hedefini kök içindeki gerçek bir kural dosyasına çöz; olmazsa `None`."""
+    hedef = target.split("#", 1)[0].strip()
+    if not hedef or "://" in hedef or hedef.startswith(("/", "#", "mailto:")):
+        return None
+    kok = root.resolve()
+    try:
+        yol = (kok / hedef).resolve()
+    except (OSError, ValueError):
+        return None
+    # `resolve()` sembolik bağı da açar: `..` ya da bir symlink kökün dışına
+    # çıkıyorsa dosya HİÇ açılmaz.
+    if not yol.is_relative_to(kok):
+        return None
+    if yol.suffix.lower() not in LINKABLE_SUFFIXES or not yol.is_file():
+        return None
+    return yol
 
 
 #: Proje türünü belli eden işaret dosyaları — modele KANIT olarak gösterilir.
