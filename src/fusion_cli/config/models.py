@@ -200,6 +200,37 @@ class McpServerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class HostedConnectorConfig:
+    """Web sağlayıcısının KENDİ connector ekranından bağlanmış uzak MCP sunucusu.
+
+    Fusion bu sunucuya MCP KONUŞMAZ. Araçlar sağlayıcının ajan döngüsünün içinde
+    yaşar; Fusion onları zaten sürdüğü web oturumuna yazıp okuyarak kullanır
+    (bkz. `mcp_bridge/hosted.py`).
+
+    Neden bu model gerekli — ölçülmüş engel: Meta'nın barındırdığı MCP dinamik
+    istemci kaydını reddediyor ve BAŞKALARININ reklam hesabına OAuth ile
+    girebilmek Meta'da App Review istiyor. Buna karşılık aynı sunucu
+    ChatGPT/Claude/Gemini'nin connector ekranından tek girişle bağlanabiliyor,
+    çünkü o istemciler sunucu tarafında onaylı.
+    """
+
+    #: Kullanıcıya görünen ad; araç adlarının öneki de budur.
+    name: str
+    #: MCP adresi. Kullanıcı bunu sağlayıcının connector paneline yapıştırır.
+    url: str
+    #: Bu connector'ı barındıran web sağlayıcısı (`claude_web`, `chatgpt_web`, ...).
+    provider: str
+    #: Aynı sağlayıcıda birden çok oturumu ayıran etiket.
+    account: str = "main"
+    #: Keşif ÖLÇÜMÜ geçti mi?
+    #
+    # Varsayılan False ve bu bilinçli — `WebSessionConfig.tool_eval_passed` ile
+    # aynı gerekçe: doğrulanmamış bir connector'ın araçlarını kayıt defterine
+    # eklemek, modelin var olmayan yeteneklere güvenmesine yol açar.
+    verified: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class WebSessionConfig:
     """Kullanıcının kendi web aboneliği veya yetkili OpenAI-uyumlu web ucu.
 
@@ -310,6 +341,8 @@ class Config:
     #: Kullanıcının yetkili olduğu web (oturum tabanlı) uçlar. Boşsa özellik kapalı;
     #: tanımlıysa eşleşen model kimlikleri API yerine web transport'uyla karşılanır.
     web_sessions: tuple[WebSessionConfig, ...] = ()
+    #: Web sağlayıcısının connector ekranından bağlanmış uzak MCP sunucuları.
+    hosted_connectors: tuple[HostedConnectorConfig, ...] = ()
 
     def candidate_by_name(self, name: str) -> ModelSpec | None:
         """Ada göre aday bul; yoksa None."""
@@ -319,3 +352,21 @@ class Config:
         """Ada göre kademe bul (büyük/küçük harf duyarsız); yoksa None."""
         wanted = name.strip().lower()
         return next((item for item in self.tiers if item.name == wanted), None)
+
+
+def hosted_connector_ready(config: Config, connector: HostedConnectorConfig) -> bool:
+    """Connector'ı taşıyacak web oturumu var ve kullanılabilir mi?
+
+    Sağlayıcı-barındırmalı connector yalnız o sağlayıcının oturumu AÇIKKEN
+    çalışır: araçlar Fusion'da değil sağlayıcının ajan döngüsünde yaşar. Bu yüzden
+    "çalışabilir mi" sorusu bir tahmin değil, yapılandırmadan okunan bir olgudur —
+    arayüz uyarısını da bu fonksiyon besler.
+    """
+    return any(
+        session.provider == connector.provider
+        and session.account == connector.account
+        and session.transport == "browser"
+        and session.enabled
+        and session.login_verified
+        for session in config.web_sessions
+    )

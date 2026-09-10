@@ -157,6 +157,14 @@ class BrowserProviderDefinition:
     tier_selectors: tuple[str, ...] = ()
     default_models: tuple[str, ...] = ("auto",)
     cookie_hint: str = "Tam Cookie başlığı"
+    #: Sağlayıcının KENDİ connector/MCP ekranının adresi.
+    #
+    # Sağlayıcı-barındırmalı connector kurulumunda kullanıcıyı buraya götürüyoruz
+    # (bkz. `config.models.HostedConnectorConfig`). Adres her sağlayıcıda farklı:
+    # tek bir adrese yönlendirmek kullanıcıyı yanlış panele götürürdü. Boş kalırsa
+    # o sağlayıcı kurulum akışında seçenek olarak SUNULMAZ — tahmini bir adres,
+    # kullanıcıyı var olmayan bir sayfaya yollar.
+    connector_settings_url: str = ""
 
 
 WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
@@ -198,6 +206,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         default_models=("auto",),
         cookie_hint="chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
+        connector_settings_url="https://chatgpt.com/#settings/Connectors",
     ),
     "claude_web": BrowserProviderDefinition(
         id="claude_web",
@@ -235,6 +244,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         ),
         default_models=("auto",),
         cookie_hint="claude.ai oturumunun tam Cookie başlığı (sessionKey dahil)",
+        connector_settings_url="https://claude.ai/settings/connectors",
     ),
     "gemini_web": BrowserProviderDefinition(
         id="gemini_web",
@@ -282,6 +292,9 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         cookie_hint=(
             "gemini.google.com isteğinin tam Cookie başlığı; Google için tarayıcıyla giriş önerilir"
         ),
+        # Gemini'de özel MCP sunucusu tüketici arayüzünden değil işletme
+        # panelinden eklenir: Settings & help → Manage team → Connected apps.
+        connector_settings_url="https://business.gemini.google/",
     ),
     "copilot_web": BrowserProviderDefinition(
         id="copilot_web",

@@ -30,6 +30,7 @@ from .keys import ProviderPreference, apply_preference, detect, prune_config
 from .models import (
     Config,
     EmbeddingConfig,
+    HostedConnectorConfig,
     McpServerConfig,
     ProfileEligibility,
     RuntimeConfig,
@@ -56,6 +57,7 @@ _SECTIONS = (
     "embedding",
     "tiers",
     "profile_eligibility",
+    "hosted_connectors",
     "mcp_servers",
     "web_sessions",
 )
@@ -166,6 +168,7 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         tiers=_build_tiers(merged["tiers"]),
         profile_eligibility=_build_eligibility(merged.get("profile_eligibility")),
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
+        hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
         web_sessions=_build_web_sessions(merged.get("web_sessions")),
     )
 
@@ -202,6 +205,18 @@ def _build_eligibility(raw: object) -> dict[str, ProfileEligibility]:
         str(profile): _build(ProfileEligibility, item, f"profile_eligibility.{profile}")
         for profile, item in raw.items()
     }
+
+
+def _build_hosted_connectors(raw: object) -> tuple[HostedConnectorConfig, ...]:
+    """Sağlayıcı-barındırmalı connector listesini oku."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list):
+        raise ConfigError(f"hosted_connectors: liste bekleniyordu, gelen: {type(raw).__name__}")
+    return tuple(
+        _build(HostedConnectorConfig, item, f"hosted_connectors[{index}]")
+        for index, item in enumerate(raw)
+    )
 
 
 def _build_mcp_servers(raw: object) -> tuple[McpServerConfig, ...]:

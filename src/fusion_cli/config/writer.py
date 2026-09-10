@@ -145,6 +145,30 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
     return target
 
 
+def write_hosted_connectors(config: Config, path: Path | None = None) -> Path:
+    """Sağlayıcı-barındırmalı connector listesini yaz.
+
+    Bu kayıtlarda SIR YOKTUR: kimlik doğrulama sağlayıcının kendi oturumunda
+    yapılır ve token Fusion'a hiç gelmez. Yazılan tek şey hangi adresin hangi
+    sağlayıcı oturumunda bağlı olduğu ve ölçümün geçip geçmediğidir.
+    """
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        existing["hosted_connectors"] = [
+            {
+                "name": connector.name,
+                "url": connector.url,
+                "provider": connector.provider,
+                "account": connector.account,
+                "verified": connector.verified,
+            }
+            for connector in config.hosted_connectors
+        ]
+        _atomic_write(target, existing)
+    return target
+
+
 def write_mcp_servers(config: Config, path: Path | None = None) -> Path:
     """Dış MCP sunucu listesini yaz; kullanıcı `mcp_servers`'ı elle düzenlemek zorunda kalmaz.
 
