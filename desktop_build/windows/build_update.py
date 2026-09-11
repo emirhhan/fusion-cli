@@ -34,7 +34,16 @@ def build_update(installer: Path, destination: Path, version: str, repository: s
         shutil.copy2(installer, hedef)
 
     app_root = Path(__file__).resolve().parents[2] / "app"
-    signer = app_root / "node_modules/.bin/tauri"
+    # Windows'ta `node_modules/.bin/tauri` bir KABUK betiğidir ve doğrudan
+    # çalıştırılamaz; npm aynı klasöre `.cmd` sarmalayıcısını koyar. Ölçüldü
+    # (alpha.13 release koşusu): doğrudan çağrı
+    # `OSError: [WinError 193] %1 is not a valid Win32 application` verdi ve
+    # manifest hiç üretilmedi.
+    signer = app_root / "node_modules/.bin/tauri.cmd"
+    if not signer.is_file():
+        signer = app_root / "node_modules/.bin/tauri"
+    if not signer.is_file():
+        raise FileNotFoundError(f"tauri imzalayıcısı bulunamadı: {signer}")
     command = [
         str(signer),
         "signer",
