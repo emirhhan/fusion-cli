@@ -35,12 +35,28 @@ for package in (
     "mcp",
     "piper",
     "onnxruntime",
+    # Web sağlayıcıları (ChatGPT/Claude/Gemini arayüzü) Playwright'a bağlıdır.
+    # Ölçüldü (alpha.12 release'i): paket toplanmadığı için paketlenmiş uygulamada
+    # HİÇBİR web sağlayıcısı çalışmıyordu; arayüzde duruyorlar ama altlarında motor
+    # yoktu ve kullanıcı "Playwright kurulu değil" hatasını alıyordu. Tarayıcı
+    # İKİLİLERİ ayrı bir mesele: onlar `~/Library/Caches/ms-playwright` altında
+    # yaşar ve `playwright install chromium` ile gelir; pakete girmezler.
+    "playwright",
 ):
     package_datas, package_binaries, package_hidden = collect_all(package)
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden
-for distribution in ("fusion-cli", "litellm", "chromadb", "keyring", "httpx", "piper-tts", "onnxruntime"):
+for distribution in (
+    "fusion-cli",
+    "litellm",
+    "chromadb",
+    "keyring",
+    "httpx",
+    "piper-tts",
+    "onnxruntime",
+    "playwright",
+):
     datas += copy_metadata(distribution)
 
 a = Analysis(
