@@ -1414,25 +1414,42 @@ async def _fill_editor(locator: Any, text: str) -> None:
     Yazdığını geri okumadan göndermek bu hatayı GÖRÜNMEZ kılıyordu; iz dosyası da
     yakalayamıyor çünkü oraya gönderilmek İSTENEN metin yazılıyor.
     """
-    yazildi = False
-    try:
-        await locator.fill(text)
-        yazildi = True
-    except Exception:
-        pass
 
-    if not yazildi:
+    # Ölçüt YÖNTEMİN başarısı değil SONUÇTUR.
+    #
+    # Ölçüldü (11 Eylül, chatgpt_web, gerçek oturum): ChatGPT'nin Lexical
+    # editöründe `fill()` HATA FIRLATMADAN hiçbir şey yapmıyor. Kod istisna
+    # gelmediği için "yazıldı" sayıyor, yedek yolları hiç denemiyor ve tur
+    # "1483 karakter yazıldı, 0 karakter yerleşti" ile düşüyordu. Her denemeden
+    # sonra geri okunur; ilk tutan yol kazanır.
+    async def _dene_fill() -> None:
+        await locator.fill(text)
+
+    async def _dene_yaz() -> None:
         await locator.click()
         with contextlib.suppress(Exception):
             await locator.press("Control+A")
         with contextlib.suppress(Exception):
             await locator.press("Meta+A")
-        await locator.press("Backspace")
+        with contextlib.suppress(Exception):
+            await locator.press("Backspace")
         await locator.insert_text(text)
 
-    varan = await _editor_icerigi(locator)
+    async def _dene_yapistir() -> None:
+        await _paste_editor(locator, text)
+
+    varan: str | None = None
+    for yontem in (_dene_fill, _dene_yaz, _dene_yapistir):
+        with contextlib.suppress(Exception):
+            await yontem()
+        varan = await _editor_icerigi(locator)
+        if varan is None:
+            # Okuyamadık: doğrulama yapılamıyor, turu bloke etmek yerine geçir.
+            return
+        if len(varan) >= len(text) * EDITOR_DELIVERY_RATIO:
+            break
     if varan is None:
-        # Okuyamadık: doğrulama yapılamıyor, turu bloke etmek yerine geçir.
+        # Döngü hiç dönmediyse (boş yöntem listesi) doğrulama yapılamaz.
         return
     # Zengin metin editörü satır sonlarını ve boşlukları normalize eder, bu yüzden
     # birebir eşitlik aranmaz (bkz. `strip_sent_text`); aranan şey metnin SONUNUN
@@ -1483,16 +1500,45 @@ async def _paste_editor(locator: Any, text: str) -> None:
         )
 
 
+#: Öncelikli seçiciye tanınan süre. Bu pencere içinde daha aşağı sıradaki bir
+#: eşleşme KABUL EDİLMEZ; sayfa yüklenirken yedek elemanlar çoğu zaman gerçek
+#: olandan önce hazır olur ve sıra anlamını yitirir.
+SELECTOR_PRIORITY_GRACE_S = 4.0
+
+
 async def _first_visible(page: Any, selectors: Sequence[str], *, timeout_ms: int) -> Any | None:
-    deadline = time.monotonic() + timeout_ms / 1000
+    """Listedeki İLK seçiciyi tercih ederek görünür elemanı bul.
+
+    Sıra bir ÖNCELİKTİR, sadece bir liste değil. Ölçüldü (11 Eylül, chatgpt_web,
+    gerçek oturum): tur mesaj kutusu olarak `TEXTAREA.wcDTda_fallbackTextarea`
+    seçiyordu — ChatGPT'nin GİZLİ yedek textarea'sı. Sayfa yüklenirken o eleman
+    gerçek ProseMirror kutusundan (`#prompt-textarea`) önce hazır oluyor ve ilk
+    eşleşeni hemen kabul etmek sırayı anlamsız kılıyordu. Prompt gizli kutuya
+    yazılıyor, geri okuma 0 karakter veriyor ve tur "1483 karakter yazıldı,
+    0 karakter yerleşti" ile düşüyordu.
+
+    Bu yüzden düşük öncelikli eşleşme, öncelikli olana tanınan süre dolmadan
+    kabul edilmez. Öncelikli seçici hiç gelmezse tur BLOKE EDİLMEZ: eldeki en iyi
+    eşleşmeyle sürdürülür.
+    """
+    baslangic = time.monotonic()
+    deadline = baslangic + timeout_ms / 1000
+    # Hoşgörü süresi bütçenin YARISINI aşamaz: kısa zaman aşımlarında tüm süreyi
+    # yerse yedek eşleşme hiç kabul edilmez ve tur elde seçenek varken düşerdi.
+    grace = min(SELECTOR_PRIORITY_GRACE_S, timeout_ms / 2000)
     while time.monotonic() < deadline:
-        for selector in selectors:
+        gecen = time.monotonic() - baslangic
+        for sira, selector in enumerate(selectors):
             locator = page.locator(selector).last
             try:
-                if await locator.count() and await locator.is_visible():
-                    return locator
+                if not (await locator.count() and await locator.is_visible()):
+                    continue
             except Exception:
                 continue
+            if sira == 0 or gecen >= grace:
+                return locator
+            # Öncelikli seçici hâlâ gelebilir; bu turda kabul etme.
+            break
         await asyncio.sleep(0.25)
     return None
 
