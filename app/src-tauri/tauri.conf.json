@@ -1,12 +1,14 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Fusion",
-  "version": "0.3.0-alpha.12",
+  "version": "0.3.0-alpha.13",
   "identifier": "com.fusion.desktop",
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwQjJCREE2Q0IyODQ3NTEKUldSUlJ5akxwcjJ5ME1sL2xSNEtQdnJITWFxOCs3a0R3NlUxclF5OWlFczU4c3BpdWwvNmR5VmMK",
-      "endpoints": ["https://github.com/emirhhan/fusion-cli/releases/latest/download/latest.json"]
+      "endpoints": [
+        "https://github.com/emirhhan/fusion-cli/releases/latest/download/latest.json"
+      ]
     }
   },
   "build": {
