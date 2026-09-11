@@ -58,6 +58,13 @@ jobs:
         working-directory: app
         run: npm run listen:build:mac
       - name: React ve Rust kalite kapıları
+        # Süre sınırı ZORUNLU. Ölçüldü (alpha.11, macos-15 aarch64): üç PTY testi
+        # (`terminal::tests::forwards_terminal_output_without_stripping_ansi_bytes`
+        # ve iki kardeşi) runner'da asılı kaldı; iş 5,5 saat çalıştı, release hiç
+        # oluşmadı ve sonraki etiketin macOS runner'ını da bekletti. Aynı testler
+        # aynı mimaride yerelde 1,1 saniyede geçiyor — arıza runner'a özgü.
+        # Sınır arızayı ÇÖZMEZ, görünür kılar ve kuyruğu serbest bırakır.
+        timeout-minutes: 25
         working-directory: app
         run: npm run check
       - name: Native runtime ve uygulama paketini üret
@@ -105,6 +112,14 @@ jobs:
 
   windows:
     runs-on: windows-latest
+    # Türkçe çıktı Windows'ta cp1252'ye sığmıyor. Ölçüldü (alpha.11): konuşma
+    # adaptörü BAŞARIYLA derlendi, sonra "Konuşma adaptörü hazır: ..." satırını
+    # yazdırırken `UnicodeEncodeError: 'charmap' codec can't encode '\u015f'` ile
+    # çöktü ve release hiç oluşmadı. Depodaki her mesaj Türkçe olduğu için tek tek
+    # print düzeltmek bu hata sınıfını kapatmaz; yorumlayıcı UTF-8'e alınır.
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: "utf-8"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -126,6 +141,13 @@ jobs:
         working-directory: app
         run: npm run listen:build:win
       - name: React ve Rust kalite kapıları
+        # Süre sınırı ZORUNLU. Ölçüldü (alpha.11, macos-15 aarch64): üç PTY testi
+        # (`terminal::tests::forwards_terminal_output_without_stripping_ansi_bytes`
+        # ve iki kardeşi) runner'da asılı kaldı; iş 5,5 saat çalıştı, release hiç
+        # oluşmadı ve sonraki etiketin macOS runner'ını da bekletti. Aynı testler
+        # aynı mimaride yerelde 1,1 saniyede geçiyor — arıza runner'a özgü.
+        # Sınır arızayı ÇÖZMEZ, görünür kılar ve kuyruğu serbest bırakır.
+        timeout-minutes: 25
         working-directory: app
         run: npm run check
       - name: Native runtime ve uygulama kurucusunu üret
