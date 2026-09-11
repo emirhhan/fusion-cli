@@ -11,6 +11,16 @@ pub enum PermissionKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
+// Bu enum ARAYÜZLE paylaşılan bir protokol tipidir: dört durumun hepsi
+// `serde` ile aynı biçimde serileşir ve ön yüz dördünü de bekler. `Denied` ve
+// `Restricted` yalnız macOS izin API'lerinden üretilebiliyor; Windows derlemesinde
+// hiçbir yerde kurulmadıkları için `-D warnings` altında `dead_code` hatası
+// veriyorlardı. Ölçüldü (alpha.12 Windows işi): `error: variant `Denied` is never
+// constructed` ile clippy düştü ve kurucu hiç üretilmedi.
+//
+// Bastırma yalnız macOS DIŞINDA açılır: macOS'ta varyantlar gerçekten
+// ulaşılabilir olmalı ve orada lint'in çalışmaya devam etmesi istenir.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum PermissionState {
     Unknown,
     Granted,
