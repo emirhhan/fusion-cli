@@ -254,8 +254,23 @@ def chrome_launch_arguments(executable: str, profile: Path, *, headless: bool) -
         "--no-default-browser-check",
         "--lang=tr-TR",
         "--window-size=1440,1000",
+        # Örtülü/arka plan pencerede macOS zamanlayıcıları kısar; tur bütçesi
+        # boşa yanar ve yanıt beklerken zaman aşımına düşülür.
+        "--disable-backgrounding-occluded-windows",
+        "--disable-renderer-backgrounding",
     ]
     if headless:
         arguments.append("--headless=new")
+    else:
+        # Pencere EKRAN DIŞINA alınır. Ölçüldü (12 Eylül): `headless=True` ile
+        # ChatGPT turu 16 saniyede Cloudflare doğrulamasına takılıyor — profilde
+        # geçerli `cf_clearance` olmasına rağmen, çünkü headless Chrome farklı bir
+        # User-Agent gönderir ve çerez o kimliğe bağlıdır. Yani görünür Chrome
+        # zorunlu; bedeli kullanıcının ekranında sürekli açılan bir pencereydi.
+        #
+        # Bu bir GİZLENME tekniği değildir: tarayıcı hâlâ gerçek headful
+        # Chrome'dur, sunucuya giden hiçbir şey değişmez. Yalnız pencere
+        # kullanıcının görünür alanında durmaz.
+        arguments.append("--window-position=-32000,-32000")
     arguments.append("about:blank")
     return arguments
