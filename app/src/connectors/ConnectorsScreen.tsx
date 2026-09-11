@@ -204,6 +204,12 @@ export function ConnectorsScreen({
     [rows],
   );
 
+  // Kilit DÜĞME BAŞINA. Tek bir `busy` bayrağı bütün ekranı kilitliyordu:
+  // uzun süren bir istek (sağlayıcı panelini açmak, kullanıcı pencereyi
+  // kapatana kadar sürer) boyunca hiçbir düğmeye basılamıyor ve ekran donmuş
+  // görünüyordu. İstekler birbirinden bağımsız; birlikte kilitlemek gereksiz.
+  const mesgul = (key: string) => busy === key;
+  const eklemeMesgul = busy?.startsWith("add:") ?? false;
   const hazirSaglayici = providers?.some((item) => item.hazir) ?? false;
   const canAddCustom = Boolean(
     custom.ad.trim() &&
@@ -296,7 +302,7 @@ export function ConnectorsScreen({
       {setupEntry && (
         <ConnectorDialog label={`${setupEntry.label} bağlantısını kur`} onClose={() => setSetupEntry(null)}>
         <ConnectorSetupForm
-          busy={busy !== null}
+          busy={eklemeMesgul}
           entry={setupEntry}
           onCancel={() => setSetupEntry(null)}
           onSubmit={(values) => void submitSetup(values)}
@@ -480,7 +486,7 @@ export function ConnectorsScreen({
             )}
             <button
               className="connectors__custom-submit"
-              disabled={busy !== null || !canAddCustom}
+              disabled={eklemeMesgul || !canAddCustom}
               onClick={() => void submitCustom()}
               type="button"
             >
@@ -531,7 +537,7 @@ export function ConnectorsScreen({
                     <button
                       className="connectors__connect"
                       data-connected={connected}
-                      disabled={busy !== null || connected || pending}
+                      disabled={mesgul(`add:${entry.id}`) || connected || pending}
                       onClick={() => void connectCatalog(entry)}
                       type="button"
                     >
@@ -589,7 +595,7 @@ export function ConnectorsScreen({
                       <button
                         className="connectors__connect"
                         data-connected={connected}
-                        disabled={busy !== null || connected || pending}
+                        disabled={mesgul(`add:${entry.id}`) || connected || pending}
                         onClick={() => void connectCatalog(entry)}
                         type="button"
                       >
@@ -640,7 +646,7 @@ export function ConnectorsScreen({
                     <div className="connectors__row-actions">
                       {remote && row.durum !== "bagli" && (
                         <button
-                          disabled={busy !== null || pending}
+                          disabled={mesgul(`login:${row.ad}`) || pending}
                           onClick={() => void run("baglanti.giris", { ad: row.ad }, `login:${row.ad}`)}
                           type="button"
                         >
@@ -648,7 +654,7 @@ export function ConnectorsScreen({
                         </button>
                       )}
                       <button
-                        disabled={busy !== null || pending}
+                        disabled={mesgul(`test:${row.ad}`) || pending}
                         onClick={() => void run("baglanti.dogrula", { ad: row.ad }, `test:${row.ad}`)}
                         type="button"
                       >
@@ -656,7 +662,7 @@ export function ConnectorsScreen({
                       </button>
                       {remote && row.durum === "bagli" && (
                         <button
-                          disabled={busy !== null}
+                          disabled={mesgul(`logout:${row.ad}`)}
                           onClick={() => void run("baglanti.cikis", { ad: row.ad }, `logout:${row.ad}`)}
                           type="button"
                         >
@@ -664,7 +670,7 @@ export function ConnectorsScreen({
                         </button>
                       )}
                       <button
-                        disabled={busy !== null}
+                        disabled={mesgul(`remove:${row.ad}`)}
                         onClick={() => void run("baglanti.sil", { ad: row.ad }, `remove:${row.ad}`)}
                         type="button"
                       >

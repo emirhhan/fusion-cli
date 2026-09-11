@@ -190,6 +190,36 @@ describe("ConnectorsScreen", () => {
     );
   });
 
+  it("bir işlem sürerken diğer düğmeler kilitlenmez", async () => {
+    // Tek bir `busy` bayrağı bütün ekranı kilitliyordu: uzun süren bir istek
+    // (ör. sağlayıcı panelini açmak, kullanıcı pencereyi kapatana kadar sürer)
+    // boyunca hiçbir düğmeye basılamıyordu ve ekran donmuş görünüyordu.
+    let birak: (() => void) | undefined;
+    const bekleyen = new Promise<Record<string, unknown>>((resolve) => {
+      birak = () => resolve({ ok: true });
+    });
+    const client = fakeClient(
+      [
+        { ad: "godot", durum: "bagli", tasima: "stdio", komut: "npx", argumanlar: [] },
+        { ad: "meta", durum: "bagli", tasima: "stdio", komut: "npx", argumanlar: [] },
+      ],
+      { "baglanti.dogrula": bekleyen as unknown as Record<string, unknown> },
+    );
+
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(screen.getByRole("tab", { name: /^Bağlı/ }));
+    const testler = await screen.findAllByRole("button", { name: "Test et" });
+    fireEvent.click(testler[0]);
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.dogrula", { ad: "godot" }),
+    );
+
+    // Kendi düğmesi kilitli, BAŞKA satırınki serbest kalmalı.
+    expect((testler[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((testler[1] as HTMLButtonElement).disabled).toBe(false);
+    birak?.();
+  });
+
   it("keşfet sekmesinde 3 banner ve katalog tablosunu gösterir", async () => {
     const client = fakeClient();
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
