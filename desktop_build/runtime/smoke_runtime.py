@@ -13,18 +13,52 @@ import platform
 import secrets
 import subprocess
 import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, cast
 
 _TIMEOUT_SANIYE = 30
+#: Süreç kimliği → stderr kuyruğu (canlı). Zaman aşımı mesajına eklenir.
+_STDERR_LOG: dict[int, list[str]] = {}
 #: Şifreli credential deposunun anahtarı boşsa oturum açılışı sistem
 #: anahtarlığına (macOS Keychain) dokunur; başsız/etkileşimsiz bir ortamda bu
 #: erişim süresiz asılı kalabilir. Duman testi gerçek sırra dokunmaz — yalnız
 #: bu tek süreç için rastgele, tek kullanımlık bir değer üretip anahtarlık
 #: yolunu devre dışı bırakır.
 _DUMMY_SECRET_ENV = {"FUSION_SECRET_KEY": secrets.token_urlsafe(32)}
+
+
+def _drain_stderr(process: subprocess.Popen[str]) -> list[str]:
+    """`stderr`'i SÜREKLİ oku ve biriktir; dönen liste canlı günlüktür.
+
+    Neden zorunlu — ölçüldü (Windows CI, run 34596348602 ve üç koşu öncesi):
+    `stderr=subprocess.PIPE` veriliyor ama hiçbir yerde OKUNMUYORDU. Windows'ta
+    boru tamponu küçüktür; paketlenmiş exe'nin import uyarıları (litellm,
+    chromadb, onnxruntime) tamponu doldurunca çocuk süreç stderr'e YAZARKEN
+    bloke oluyor ve isteğe cevap veremiyor. Belirti tam olarak gözlenene
+    uyuyordu: ilk istek geçiyor (tampon henüz dolmamış), ikincisi sonsuza kadar
+    yanıtsız kalıyor ve çocuktan hiç çıktı gelmiyor.
+
+    macOS'ta tetiklenmemesinin sebebi daha büyük tampon ve daha az uyarıdır;
+    yani bu bir Windows arızası değil, her yerde var olan bir kilitlenme riski.
+
+    Biriken satırlar hata mesajına eklenir: sessiz bir zaman aşımı yerine
+    çocuğun ne dediği görünür.
+    """
+    lines: list[str] = []
+    stderr = process.stderr
+    if stderr is None:
+        return lines
+
+    def _pump() -> None:
+        for line in stderr:
+            lines.append(line.rstrip())
+            del lines[:-40]  # kuyruk yeter; sınırsız büyümesi bellek sızdırır
+
+    threading.Thread(target=_pump, name="fusion-smoke-stderr", daemon=True).start()
+    return lines
 
 
 def _request(
@@ -59,8 +93,10 @@ def _request(
                 line = reader.submit(stdout.readline).result(timeout=_TIMEOUT_SANIYE)
             except FutureTimeoutError as error:
                 process.kill()
+                kuyruk = "\n".join(_STDERR_LOG.get(id(process), [])[-12:])
+                detay = f"\nçocuk sürecin stderr kuyruğu:\n{kuyruk}" if kuyruk else ""
                 raise AssertionError(
-                    f"{name} isteği {_TIMEOUT_SANIYE} saniyede yanıt vermedi"
+                    f"{name} isteği {_TIMEOUT_SANIYE} saniyede yanıt vermedi{detay}"
                 ) from error
             assert line, f"{name} isteği yanıtsız kaldı: süreç akışı kapandı"
             response = json.loads(line)
@@ -93,6 +129,7 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
             # Windows ev dizinini HOME değil USERPROFILE belirler; ikisi de verilir.
             env={**env, "HOME": str(home), "USERPROFILE": str(home)},
         )
+        _STDERR_LOG[id(process)] = _drain_stderr(process)
         listing = _request(process, "files", "proje.listele", {"yol": ""})
         assert listing["ok"] is True and any(
             entry["ad"] == "hello.txt" for entry in listing["girdiler"]
@@ -158,6 +195,8 @@ def smoke(executable: Path) -> None:
         text=True,
         env=env,
     )
+    # İkinci süreç de boşaltılır: aynı kilitlenme riski burada da var.
+    _STDERR_LOG[id(process)] = _drain_stderr(process)
     response = _request(process, "smoke-1", "oturum.durum", {})
     assert response.get("ok") is True
     assert process.stdin is not None
