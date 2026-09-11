@@ -109,16 +109,29 @@ def _request(
 
 def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
     """Paketli protokolün gerçek proje araçlarını boş HOME ile sınar."""
-    with tempfile.TemporaryDirectory(prefix="fusion-runtime-smoke-") as raw:
+    # `ignore_cleanup_errors`: Windows'ta çocuk süreç `cwd=root` tuttuğu için
+    # dizin silinemiyor ve temizlik hatası ASIL hatanın üstüne beş kat
+    # `PermissionError` yığıyordu (ölçüldü: run 34609258515 — gerçek assert
+    # neredeyse okunamaz hâle geldi). Temizlik arızası teşhisi gömmemeli.
+    with tempfile.TemporaryDirectory(
+        prefix="fusion-runtime-smoke-", ignore_cleanup_errors=True
+    ) as raw:
         root = Path(raw) / "project-one"
         other = Path(raw) / "project-two"
         home = Path(raw) / "home"
         root.mkdir()
         other.mkdir()
         home.mkdir()
-        (root / "hello.txt").write_text("Fusion hazır\n", encoding="utf-8")
+        # `newline="\n"` ZORUNLU: `write_text` metin kipinde yazar ve Windows
+        # `\n`'i `\r\n`'e çevirir. Ölçüldü (run 34609258515): dosya diske
+        # "Fusion hazır\r\n" olarak yazıldı, `proje.oku` onu birebir döndürdü ve
+        # `== "Fusion hazır\n"` karşılaştırması düştü. Hata üründe değil testin
+        # kurgusundaydı; beklenti platforma göre değişmemeli.
+        (root / "hello.txt").write_text("Fusion hazır\n", encoding="utf-8", newline="\n")
         (root / "pixel.png").write_bytes(b"\x89PNG\r\n\x1a\ncontent")
-        (other / "second.txt").write_text("ikinci oturum\n", encoding="utf-8")
+        (other / "second.txt").write_text("ikinci oturum\n", encoding="utf-8", newline="\n")
+        # Süreç `try/finally` içinde: assert düşse bile öldürülmeli. Açık kalan
+        # çocuk `cwd=root` tuttuğu için geçici dizin Windows'ta silinemiyor.
         process = subprocess.Popen(
             [str(executable), "app"],
             cwd=root,
