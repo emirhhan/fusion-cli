@@ -41,11 +41,24 @@ def _request(
     request = {"tip": "istek", "id": request_id, "ad": name, "veri": data}
     process.stdin.write(json.dumps(request) + "\n")
     process.stdin.flush()
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-smoke-read") as reader:
+    # Okuyucu BİLEREK `with` bloğu DEĞİL.
+    #
+    # Ölçüldü (Windows CI, run 34580249690): bir istek zaman aşımına uğradı,
+    # `AssertionError` fırlatıldı ve `with` bloğundan çıkış `shutdown(wait=True)`
+    # çağırdı; o da hâlâ `stdout.readline()` içinde bloke olan iş parçacığını join
+    # etmeye çalıştı. Çocuk süreç boruyu açık tuttuğu için readline asla dönmedi:
+    # adım 2 saat 6 dakika asılı kaldı, hata mesajı hiç görünmedi ve paket
+    # üretilmedi. Sonsuz asılma, anlaşılır bir hatadan her zaman kötüdür.
+    #
+    # Çözüm: zaman aşımında ÖNCE çocuk süreç öldürülür (böylece readline dönebilir),
+    # sonra havuz beklenmeden kapatılır.
+    reader = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fusion-smoke-read")
+    try:
         while True:
             try:
                 line = reader.submit(stdout.readline).result(timeout=_TIMEOUT_SANIYE)
             except FutureTimeoutError as error:
+                process.kill()
                 raise AssertionError(
                     f"{name} isteği {_TIMEOUT_SANIYE} saniyede yanıt vermedi"
                 ) from error
@@ -53,6 +66,9 @@ def _request(
             response = json.loads(line)
             if response.get("tip") == "sonuc" and response.get("id") == request_id:
                 return cast(dict[str, Any], response.get("veri", {}))
+    finally:
+        # Bloke bir iş parçacığını beklemek asılmanın ta kendisiydi.
+        reader.shutdown(wait=False, cancel_futures=True)
 
 
 def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:

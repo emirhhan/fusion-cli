@@ -90,6 +90,10 @@ jobs:
         # güncelleme almasını sağlıyor. Kök neden ayrı görev olarak açık.
         run: npm run check:ci
       - name: Native runtime ve uygulama paketini üret
+        # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
+        # run 34580249690): `runtime:smoke` asıldı ve adım 2 saat 6 dakika
+        # çıktı vermeden sürdü; sınır olmadığı için kendiliğinden bitmeyecekti.
+        timeout-minutes: 45
         working-directory: app
         run: npm run bundle:mac
       - name: Mimariyi ve uygulama paketini doğrula
@@ -142,6 +146,10 @@ jobs:
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: "utf-8"
+      # Tamponlanmış çıktı, asılan adımda ÖLÇÜM KAYBIDIR: 2 saatlik asılmada tek
+      # satır log yoktu çünkü Python boruya blok tamponlu yazıyor ve iptal edilince
+      # tampon kayboluyor.
+      PYTHONUNBUFFERED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -195,6 +203,10 @@ jobs:
         # güncelleme almasını sağlıyor. Kök neden ayrı görev olarak açık.
         run: npm run check:ci
       - name: Native runtime ve uygulama kurucusunu üret
+        # Hiçbir adım 6 saatlik iş sınırını yakmamalı. Ölçüldü (Windows,
+        # run 34580249690): `runtime:smoke` asıldı ve adım 2 saat 6 dakika
+        # çıktı vermeden sürdü; sınır olmadığı için kendiliğinden bitmeyecekti.
+        timeout-minutes: 45
         working-directory: app
         run: npm run bundle:win
       - name: Hedefi doğrula
