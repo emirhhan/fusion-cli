@@ -107,6 +107,15 @@ class RuntimeConfig:
     #: Varsayılan KAPALI: ölçümde ücretsiz görme modelleri açık uçlu kullanımda
     #: güvenilmez çıktı verdi ve her soru ayrı çağrı olduğu için maliyetlidir.
     visual_verification: bool = False
+    #: Arayüz teması: "system" | "light" | "dark".
+    #
+    # Neden YAPILANDIRMADA — ölçüldü (11 Eylül): tercih webview `localStorage`'ında
+    # tutuluyordu ve o depo kullanıcının kurulumunda hiç yazılmıyordu
+    # (`WebsiteData/LocalStorage` 0 bayt). Yazma hatası yutulduğu için tercih her
+    # açılışta `system`'e düşüyor, macOS koyu temadayken içerik beyaz kalıyor ve
+    # kullanıcı koyuyu seçse bile sonraki açılışta unutuluyordu. Yapılandırma
+    # katmanı zaten kalıcı ve sınanmış; tercih oraya taşınır.
+    theme: str = "system"
     #: Agent: istek bir playbook'u tetiklerse serbest döngü yerine deterministik akış
     #: çalışır (daha az model çağrısı). Varsayılan kapalı: mevcut davranış korunur.
     playbooks: bool = False

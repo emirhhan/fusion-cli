@@ -445,6 +445,10 @@ class AppSession:
             return usage_status(self._usage, self._state.health)
         if request.name == "ayar.talimat":
             return get_instructions()
+        if request.name == "ayar.tema":
+            return {"ok": True, "tema": self._state.config.runtime.theme}
+        if request.name == "ayar.tema_kaydet":
+            return self._save_theme(request.data)
         if request.name == "ayar.talimat_kaydet":
             return save_instructions(request.data.get("metin"))
         if request.name == "baglanti.listele":
@@ -757,6 +761,30 @@ class AppSession:
                 open_login_browser(saglayici, hesap, url=str(row["adres"]))
             )
         return {"ok": True, "adres": row["adres"]}
+
+    def _save_theme(self, data: object) -> dict[str, Any]:
+        """`ayar.tema_kaydet`: tercihi yapılandırmaya yaz.
+
+        Hata SESSİZCE yutulmaz. Tercih eskiden webview `localStorage`'ında
+        tutuluyordu ve yazma başarısız olduğunda sessizce geçiliyordu; tam bu
+        sessizlik yüzünden kullanıcının seçtiği tema her açılışta unutuluyor ve
+        sebebi hiçbir yerde görünmüyordu.
+        """
+        from dataclasses import replace as _replace
+
+        from ..config.writer import THEME_VALUES, write_theme
+
+        tema = str(data.get("tema", "")).strip() if isinstance(data, dict) else ""
+        if tema not in THEME_VALUES:
+            return {"ok": False, "metin": f"Geçersiz tema: {tema or '(boş)'}"}
+        try:
+            write_theme(self._state.config, tema)
+        except Exception as error:
+            return {"ok": False, "metin": f"Tema kaydedilemedi: {error}"}
+        self._state.config = _replace(
+            self._state.config, runtime=_replace(self._state.config.runtime, theme=tema)
+        )
+        return {"ok": True, "tema": tema}
 
     def _restore_connector_secrets(self, previous: dict[str, str | None]) -> None:
         """Başarısız bağlantı eklemesinde sır deposunu önceki hâline getir."""

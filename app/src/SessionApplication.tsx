@@ -157,8 +157,35 @@ function useConversation(client: ProtocolClient) {
   return { answer, clear, messages, question, running, send, stop };
 }
 
-function useAppTheme() {
+/** Yalnız `request` gerekir; kanca taşıma tipine bağlı olmamalı. */
+type TemaIstemcisi = Pick<ProtocolClient, "request">;
+
+function useAppTheme(client?: TemaIstemcisi) {
   const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
+
+  // Tercih YAPILANDIRMADAN okunur; `localStorage` yalnız ilk boyamayı hızlandıran
+  // önbellektir. Ölçüldü (11 Eylül): webview'in LocalStorage deposu kullanıcının
+  // kurulumunda hiç yazılmıyordu (0 bayt) ve yazma hatası yutulduğu için tercih
+  // her açılışta `system`'e düşüyor, macOS koyu temadayken içerik beyaz kalıyordu.
+  useEffect(() => {
+    if (!client) return;
+    let iptal = false;
+    void (async () => {
+      try {
+        const sonuc = (await client.request("ayar.tema", {})) as { ok?: boolean; tema?: string };
+        const tema = sonuc?.tema;
+        if (!iptal && sonuc?.ok && (tema === "system" || tema === "light" || tema === "dark")) {
+          setThemePreference(tema);
+          saveThemePreference(tema);
+        }
+      } catch {
+        // Yapılandırma okunamazsa önbellekteki tercihle devam edilir.
+      }
+    })();
+    return () => {
+      iptal = true;
+    };
+  }, [client]);
 
   useEffect(() => {
     applyTheme(themePreference);
@@ -172,6 +199,10 @@ function useAppTheme() {
   const changeTheme = (preference: ThemePreference) => {
     saveThemePreference(preference);
     setThemePreference(preference);
+    // Kalıcılık yapılandırmadadır; hata sessizce yutulmaz, konsola düşer.
+    void client?.request("ayar.tema_kaydet", { tema: preference }).catch((error: unknown) => {
+      console.error("Tema kaydedilemedi", error);
+    });
   };
   return { changeTheme, themePreference };
 }
@@ -244,7 +275,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const inspectorLayout = useInspectorLayout();
   const [draft, setDraft] = useState("");
   // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
-  useAppTheme();
+  useAppTheme(istemci);
   const clear = () => {
     setDraft("");
     conversation.clear();
@@ -398,7 +429,6 @@ export function SessionUygulama({
   const controller = useSessions(transport);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
-  const { changeTheme, themePreference } = useAppTheme();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -439,6 +469,7 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  const { changeTheme, themePreference } = useAppTheme(active?.client);
   useEffect(() => {
     if (!active) {
       setWebProfile(null);

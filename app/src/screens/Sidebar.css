@@ -125,10 +125,13 @@
   color: var(--text-primary);
   cursor: pointer;
   display: grid;
-  gap: 10px;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
-  min-height: 58px;
-  padding: 8px;
+  /* Profil bloğu kenar çubuğunun en alt satırıdır, bir kart değil: 58 piksellik
+     yükseklik ve 38 piksellik avatar onu sohbet listesinden daha baskın kılıyordu.
+     Ölçüler gezinme öğeleriyle aynı hizaya çekildi. */
+  gap: 8px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  min-height: 44px;
+  padding: 6px 8px;
   text-align: left;
   width: 100%;
 }
@@ -141,14 +144,29 @@
   color: #fff;
   display: inline-flex;
   flex: 0 0 auto;
-  font-size: var(--text-sm);
-  height: 38px;
+  font-size: var(--text-xs);
+  height: 28px;
   justify-content: center;
-  width: 38px;
+  width: 28px;
 }
 .sidebar__profile-copy { display: grid; line-height: 1.18; min-width: 0; }
-.sidebar__profile-copy strong { font-size: var(--text-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
-.sidebar__profile-copy small { color: var(--text-secondary); font-size: var(--text-sm); margin-top: 3px; }
+.sidebar__profile-copy strong {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* İkinci satır birinciden küçük olmalı: eşit boyutta ikisi de başlık gibi
+   okunuyor ve blok gereğinden büyük görünüyordu. */
+.sidebar__profile-copy small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .sidebar__profile-status { background: var(--text-secondary); border: 2px solid var(--surface-sidebar); border-radius: 50%; height: 9px; width: 9px; }
 .sidebar__profile-status[data-connected="true"] { background: var(--text-success); }
 .sidebar__profile-menu {

@@ -96,6 +96,32 @@ def write_verification_commands(
     return target
 
 
+#: Kabul edilen tema değerleri. Arayüzdeki `ThemePreference` ile aynı küme.
+THEME_VALUES = ("system", "light", "dark")
+
+
+def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
+    """Arayüz temasını `runtime:` altına yaz.
+
+    Tanınmayan değer REDDEDİLİR: sessizce kabul edilirse arayüz çözemeyeceği bir
+    durumla açılır ve hata hiçbir yerde görünmez.
+
+    Yalnızca bu anahtar güncellenir; kullanıcının bütçe ve sağlayıcı ayarları
+    korunur (bkz. `write_verification_commands`).
+    """
+    if theme not in THEME_VALUES:
+        raise ValueError(f"Geçersiz tema: {theme}. Seçenekler: {', '.join(THEME_VALUES)}")
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated["theme"] = theme
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
 def write_provider(config: Config, provider: str, path: Path | None = None) -> Path:
     """Sağlayıcı tercihini `runtime:` altına yaz; yazılan yolu döndür.
 
