@@ -371,7 +371,7 @@ export function ConnectorsScreen({
                         />
                         <span>
                           {item.ad}
-                          {!item.hazir && <em> · oturum bağlı değil</em>}
+                          {!item.hazir && <em>oturum bağlı değil</em>}
                         </span>
                       </label>
                     ))}

@@ -453,6 +453,18 @@
    oturuma bağımlı olduğu ve adresi NEREYE yapıştıracağı. Bu yüzden açıklama
    metni ve seçim listesi görsel olarak ayrılır; uyarı ise sessiz bir ipucu
    değil, durduran bir blok olarak görünür. */
+/* Form iki sütunlu bir grid (`auto 1fr`): etiket solda, girdi sağda. Kendi
+   blokları tam satır kaplamazsa ETİKET SÜTUNUNA düşerler ve metin her kelimede
+   alt satıra kayar — ölçüldü, kurulum ekranı okunamaz hâldeydi. */
+.connectors__hosted-note,
+.connectors__hosted-warn,
+.connectors__hosted-list,
+.connectors__hosted-done,
+.connectors__hosted-actions {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .connectors__hosted-note {
   margin: var(--space-2) 0 0;
   color: var(--text-secondary);
@@ -487,22 +499,42 @@
 }
 
 .connectors__hosted-option {
-  display: flex;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
   align-items: center;
+  width: 100%;
+  box-sizing: border-box;
   margin-top: var(--space-2);
-  padding: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
   font-size: var(--text-sm);
+  line-height: 1.4;
   cursor: pointer;
   /* Hazır olmayan sağlayıcı tıklanabilir görünmemeli; sebebi yanında yazar. */
-  transition: background var(--duration-fast, 150ms) ease;
+  transition: background var(--duration-fast, 150ms) ease,
+    border-color var(--duration-fast, 150ms) ease;
+}
+
+.connectors__hosted-option span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
 }
 
 .connectors__hosted-option:hover:not(:has(input:disabled)) { background: var(--surface-hover); }
-.connectors__hosted-option:has(input:checked) { background: var(--surface-accent-subtle); }
+.connectors__hosted-option:has(input:checked) {
+  background: var(--surface-accent-subtle);
+  border-color: var(--text-primary);
+}
 .connectors__hosted-option:has(input:disabled) { color: var(--text-secondary); cursor: default; }
-.connectors__hosted-option em { font-style: normal; color: var(--text-secondary); }
+.connectors__hosted-option em {
+  font-style: normal;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
 
 .connectors__hosted-done {
   margin: var(--space-3) 0 0;
