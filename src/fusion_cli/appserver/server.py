@@ -85,16 +85,47 @@ async def _stdin_lines() -> AsyncIterator[str]:
         yield line
 
 
+def force_utf8_stdio() -> None:
+    """Protokol akışlarını UTF-8'e sabitle.
+
+    Protokol stdio üzerinden JSON konuşur ve JSON UTF-8'dir; akışın kodlaması
+    işletim sisteminin yereline BIRAKILAMAZ.
+
+    Ölçüldü (Windows CI, beş koşu): `proje.oku` isteği 30 saniyede yanıt vermedi
+    ve stderr boş geldi. Okunan dosyanın içeriği "Fusion hazır" idi ve `ı`
+    (U+0131) cp1252'de YOK; `sys.stdout.write` `UnicodeEncodeError` fırlattı.
+    `proje.listele` geçiyordu çünkü cevabı yalnız ASCII dosya adları taşıyor.
+    Kullanıcı açısından sonucu şuydu: Windows'ta Türkçe karakter içeren bir
+    dosyayı okumak oturumu sessizce öldürüyordu.
+
+    Ortam değişkeni (PYTHONUTF8) yeterli DEĞİL: çağıran süreç kendi `env`'ini
+    verebiliyor ve protokolün doğruluğu çağıranın ortamına bağlı olamaz.
+    """
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            # `newline` dokunulmaz: satır sonu sözleşmesi okuyucu tarafında.
+            reconfigure(encoding="utf-8", errors="strict")
+
+
 def _stdout_writer(line: str) -> None:
     """Tek satır yaz ve hemen boşalt; uygulama olayları anında görmeli."""
     try:
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
+    except UnicodeEncodeError:
+        # SIRA ÖNEMLİ: `UnicodeEncodeError` bir `ValueError` alt sınıfıdır ve
+        # eskiden aşağıdaki blokla birlikte yakalanıp `SystemExit(0)` veriyordu.
+        # Süreç temiz çıkmış gibi görünüyor, istek cevapsız kalıyor ve hiçbir
+        # yerde iz bırakmıyordu; beş CI koşusu bu sessizliğin arkasında arandı.
+        # Kodlama hatası GÖRÜNÜR olmalı.
+        raise
     except (BrokenPipeError, ValueError):
-        # Yazılamayan bir kanala olay biriktirmek bellek sızdırır; sessizce dur.
+        # Kopan ya da kapanmış kanala olay biriktirmek bellek sızdırır; sessizce dur.
         raise SystemExit(0) from None
 
 
 async def run_stdio(root: Path, home: Path) -> None:
     """Gerçek stdio üzerinde protokolü çalıştır."""
+    force_utf8_stdio()
     await serve(_stdin_lines(), _stdout_writer, root=root, home=home)
