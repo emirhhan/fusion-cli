@@ -7,7 +7,7 @@ type Transport = "stdio" | "streamable_http";
 
 interface ConnectorRow {
   ad: string;
-  argumanlar: string[];
+  argumanlar?: string[];
   arac_sayisi?: number;
   client_id?: string;
   durum?: string;
@@ -124,7 +124,12 @@ export function Connectors({ client }: { client: ProtocolClient }) {
                   <span className="settings__connector-state">{LABELS[row.durum ?? "yapilandirildi"]}</span>
                   {row.durum === "bagli" && <span>{row.arac_sayisi ?? 0} araç</span>}
                 </div>
-                <code>{remote ? row.url : [row.komut, ...row.argumanlar].join(" ")}</code>
+                <code>
+                  {/* `hosted` satırı komut taşımaz; dizi eksik gelse bile
+                      ekran çökmemeli (ölçüldü: TypeError bütün sayfayı
+                      boşaltıyordu). */}
+                  {row.url ? row.url : [row.komut, ...(row.argumanlar ?? [])].join(" ")}
+                </code>
                 {row.mesaj && <p className="settings__connector-error" role="status">{row.mesaj}</p>}
                 <div className="settings__connector-actions">
                   {remote && row.durum !== "bagli" && (

@@ -182,3 +182,31 @@ async def test_kesif_hatasi_kullaniciya_tasinir():
 
     assert yeni is None
     assert "oturum düştü" in sonuc["metin"]
+
+
+def test_barindirmali_satir_liste_sozlesmesine_uyar():
+    """Satır biçimi TEK OLMALI: arayüz satırları ayrım yapmadan işliyor.
+
+    Ölçüldü (kullanıcı makinesi): `hosted` satırı `komut` ve `argumanlar`
+    taşımıyordu. Ayarlar ekranı uzak olmayan her satır için
+    `[row.komut, ...row.argumanlar].join(" ")` yapıyor; `argumanlar` undefined
+    olunca TypeError fırlıyor ve EKRAN TAMAMEN BOŞ kalıyordu. Kullanıcı bunu
+    "ayarlara basınca hiçbir şey gelmiyor" diye bildirdi.
+    """
+    config = replace(
+        make_config(),
+        web_sessions=(_session(),),
+        hosted_connectors=(
+            HostedConnectorConfig(
+                name="Meta", url="https://mcp.facebook.com/ads", provider="claude_web"
+            ),
+        ),
+    )
+
+    satirlar = list_connectors(config)["sunucular"]
+    hosted = next(row for row in satirlar if row["tasima"] == "hosted")
+    stdio_ornegi = {"komut", "argumanlar", "url", "tasima", "ad"}
+
+    assert stdio_ornegi <= set(hosted), f"eksik alanlar: {stdio_ornegi - set(hosted)}"
+    assert isinstance(hosted["argumanlar"], list)
+    assert isinstance(hosted["komut"], str)

@@ -70,6 +70,13 @@ def hosted_connector_rows(config: Config) -> list[dict[str, Any]]:
             "ad": connector.name,
             "tasima": "hosted",
             "url": connector.url,
+            # Satır biçimi TEK olmalı. Ölçüldü (kullanıcı makinesi): bu iki alan
+            # eksikti ve Ayarlar ekranı uzak olmayan her satır için
+            # `[row.komut, ...row.argumanlar].join(" ")` yaptığı için TypeError
+            # fırlatıp EKRANI TAMAMEN BOŞ bırakıyordu. Arayüz satırları ayrım
+            # yapmadan işliyor; sözleşmeyi bölmek çağıranı kırar.
+            "komut": "",
+            "argumanlar": [],
             "saglayici": connector.provider,
             "hesap": connector.account,
             "dogrulandi": connector.verified,

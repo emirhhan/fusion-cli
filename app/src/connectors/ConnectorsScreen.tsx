@@ -18,7 +18,7 @@ import "./ConnectorsScreen.css";
 /** Bağlı MCP sunucusunun `baglanti.listele`'den gelen satırı. */
 interface ConnectorRow {
   ad: string;
-  argumanlar: string[];
+  argumanlar?: string[];
   arac_sayisi?: number;
   durum?: string;
   komut: string;
@@ -637,7 +637,12 @@ export function ConnectorsScreen({
                         <small>{row.arac_sayisi ?? 0} araç</small>
                       )}
                     </div>
-                    <code>{remote ? row.url : [row.komut, ...row.argumanlar].join(" ")}</code>
+                    <code>
+                  {/* `hosted` satırı komut taşımaz; dizi eksik gelse bile
+                      ekran çökmemeli (ölçüldü: TypeError bütün sayfayı
+                      boşaltıyordu). */}
+                  {row.url ? row.url : [row.komut, ...(row.argumanlar ?? [])].join(" ")}
+                </code>
                     {row.mesaj && (
                       <p className="connectors__row-error" role="status">
                         {row.mesaj}
