@@ -39,6 +39,10 @@ def validate_remote_mcp_url(url: str) -> None:
     raise ValueError("Uzak MCP adresi HTTPS olmalı; düz HTTP yalnız loopback için kullanılabilir.")
 
 
+class McpLoginRequiredError(RuntimeError):
+    """Sunucu giriş istiyor ama bu bağlamda giriş penceresi açılamaz."""
+
+
 class LoopbackOAuthCallback:
     """Tek OAuth dönüşü için yalnız loopback üzerinde yaşayan HTTP dinleyici."""
 
@@ -48,9 +52,12 @@ class LoopbackOAuthCallback:
         timeout_seconds: float = 300,
         on_waiting: Callable[[bool], None] | None = None,
         port: int = DEFAULT_CALLBACK_PORT,
+        interactive: bool = True,
     ) -> None:
         self._timeout_seconds = timeout_seconds
         self._port = port
+        #: Tarayıcı açılabilir mi? Tur yolunda AÇILAMAZ (bkz. `open_redirect`).
+        self._interactive = interactive
         #: Kullanıcının tarayıcıda giriş yaptığı süreyi bildirir (True: başladı,
         #: False: bitti). Bağlantı süresi bu aralıkta işlememelidir.
         self._on_waiting = on_waiting
@@ -79,6 +86,19 @@ class LoopbackOAuthCallback:
         self.redirect_uri = f"http://{host}:{port}/oauth/callback"
 
     async def open_redirect(self, url: str) -> None:
+        """Yetkilendirme sayfasını aç — YALNIZ kullanıcının açık eyleminde.
+
+        Ölçüldü (11 Eylül): kullanıcı Fusion'a istek yazıp Enter'a bastığında
+        Notion'un yetkilendirme sayfası açılıyordu. `notion` OAuth'lu bir uzak MCP
+        ve her tur bağlanılıyor; token yoksa SDK buraya geliyor ve tarayıcı
+        fırlıyordu. Giriş kullanıcının AÇIK eylemidir; tur yolunda bağlantı bir
+        zenginleştirmedir ve sessizce atlanır.
+        """
+        if not self._interactive:
+            raise McpLoginRequiredError(
+                "Bu MCP sunucusu giriş istiyor. Bağlantılar ekranından 'Bağlan' de; "
+                "tur sırasında giriş penceresi açılmaz."
+            )
         if self._on_waiting is not None:
             self._on_waiting(True)
         await asyncio.to_thread(webbrowser.open, url, new=1, autoraise=True)
@@ -171,11 +191,14 @@ def registration_is_stale(client: OAuthClientInformationFull | None, redirect_ur
 
 
 async def oauth_provider_for(
-    config: McpServerConfig, *, on_waiting: Callable[[bool], None] | None = None
+    config: McpServerConfig,
+    *,
+    on_waiting: Callable[[bool], None] | None = None,
+    interactive: bool = True,
 ) -> OAuthBundle:
     """Yapılandırma için SDK OAuth sağlayıcısı ve yaşam döngüsü kaynaklarını kur."""
     validate_remote_mcp_url(config.url)
-    callback = LoopbackOAuthCallback(on_waiting=on_waiting)
+    callback = LoopbackOAuthCallback(on_waiting=on_waiting, interactive=interactive)
     await callback.start()
     storage = KeyringTokenStorage(config.url)
     metadata = OAuthClientMetadata(

@@ -77,7 +77,7 @@ async def test_token_varken_oauth_akisi_hic_baslatilmaz(monkeypatch):
     """Token varken giriş penceresi açılmamalı: OAuth sağlayıcısı kurulmamalı."""
     cagrildi = False
 
-    async def fake_provider(_config, *, on_waiting=None):
+    async def fake_provider(_config, *, on_waiting=None, interactive=True):
         nonlocal cagrildi
         cagrildi = True
         return SimpleNamespace(auth=None, callback=SimpleNamespace(close=_noop))

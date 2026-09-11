@@ -54,7 +54,7 @@ async def test_kayit_reddi_giris_durumunu_client_id_mesajiyla_hataya_dusurur(mon
     eder; asıl hata ancak bağlantı yığını kapanırken görünür.
     """
 
-    async def fake_provider(_config, *, on_waiting=None):
+    async def fake_provider(_config, *, on_waiting=None, interactive=True):
         return SimpleNamespace(
             auth=None, callback=oauth_module.LoopbackOAuthCallback(timeout_seconds=1)
         )
@@ -106,7 +106,7 @@ async def test_kullanici_girisi_beklenirken_baglanti_zaman_asimi_islemez(monkeyp
     monkeypatch.setattr(oauth_module.webbrowser, "open", lambda *_args, **_kwargs: True)
     callbacks: list[oauth_module.LoopbackOAuthCallback] = []
 
-    async def fake_provider(_config, *, on_waiting=None):
+    async def fake_provider(_config, *, on_waiting=None, interactive=True):
         callback = oauth_module.LoopbackOAuthCallback(timeout_seconds=2, on_waiting=on_waiting)
         await callback.start()
         callbacks.append(callback)

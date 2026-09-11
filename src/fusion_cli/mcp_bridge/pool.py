@@ -132,7 +132,9 @@ class McpToolPool:
     async def _supervise(self, entry: _Entry) -> None:
         """Yığını AÇ, kapatma istenene kadar tut, kendi görevinde kapat."""
         try:
-            async with McpClient(entry.configs) as client:
+            # TUR YOLU ETKİLEŞİMSİZDİR: giriş penceresi yalnız kullanıcının
+            # "Bağlan" eyleminde açılır (bkz. `oauth.LoopbackOAuthCallback`).
+            async with McpClient(entry.configs, interactive=False) as client:
                 entry.client = client
                 entry.ready.set()
                 await entry.stop.wait()

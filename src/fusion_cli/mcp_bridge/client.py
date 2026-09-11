@@ -114,9 +114,17 @@ def _failure_status(server: str, error: BaseException, *, latency_ms: int) -> Mc
 class McpClient:
     """Yapılandırılmış MCP sunucularına bağlanan, araçlarını taşıyan istemci."""
 
-    def __init__(self, configs: Sequence[McpServerConfig], *, timeout_seconds: float = 10) -> None:
+    def __init__(
+        self,
+        configs: Sequence[McpServerConfig],
+        *,
+        timeout_seconds: float = 10,
+        interactive: bool = True,
+    ) -> None:
         self._configs = tuple(configs)
         self._timeout_seconds = timeout_seconds
+        #: Giriş penceresi açılabilir mi? Tur yolu bunu KAPATIR.
+        self._interactive = interactive
         self._stacks: dict[str, AsyncExitStack] = {}
         self._sessions: dict[str, ClientSession] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
@@ -148,7 +156,9 @@ class McpClient:
                     from .oauth import oauth_provider_for
 
                     bundle = await oauth_provider_for(
-                        config, on_waiting=self._deadline_pause(deadline)
+                        config,
+                        on_waiting=self._deadline_pause(deadline),
+                        interactive=self._interactive,
                     )
                     auth = bundle.auth
                     stack.push_async_callback(bundle.callback.close)
