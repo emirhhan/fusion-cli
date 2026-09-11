@@ -152,6 +152,24 @@ class OAuthBundle:
     storage: KeyringTokenStorage
 
 
+def registration_is_stale(client: OAuthClientInformationFull | None, redirect_uri: str) -> bool:
+    """Saklanan istemci kaydı, ŞU ANKİ yönlendirme adresini kapsıyor mu?
+
+    Kayıt, kaydedildiği adrese BAĞLIDIR. Ölçüldü (11 Eylül, Notion MCP): istemci
+    daha önce rastgele portlu bir adresle kaydolmuştu; port sabitlendikten sonra
+    yetkilendirme isteği yeni adresi gönderdi, sunucu kayıtlı adresi bekliyordu ve
+    `Invalid redirect_uri for OAuth client` ile reddetti. Kullanıcının bunu kendi
+    başına çözmesi mümkün değil: bayat kayıt anahtarlıkta, hata ekranda.
+
+    Bayat kayıt SAKLANMAZ; atılır ve sunucuya yeniden kaydolunur.
+    """
+    if client is None:
+        return False
+    # `redirect_uris` None olabilir: kayıt hiç adres taşımıyorsa eşleşme de yoktur.
+    kayitli = {str(item).rstrip("/") for item in (client.redirect_uris or ())}
+    return redirect_uri.rstrip("/") not in kayitli
+
+
 async def oauth_provider_for(
     config: McpServerConfig, *, on_waiting: Callable[[bool], None] | None = None
 ) -> OAuthBundle:
@@ -166,7 +184,12 @@ async def oauth_provider_for(
         scope=" ".join(config.scopes) or None,
         client_name="Fusion Desktop",
     )
-    if config.client_id and await storage.get_client_info() is None:
+    kayitli = await storage.get_client_info()
+    if registration_is_stale(kayitli, callback.redirect_uri):
+        # Token'lar da eski kayda aittir: yeni kayıtla birlikte yeniden alınmalı.
+        await storage.clear()
+        kayitli = None
+    if config.client_id and kayitli is None:
         await storage.set_client_info(
             OAuthClientInformationFull(**metadata.model_dump(), client_id=config.client_id)
         )

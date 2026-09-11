@@ -173,6 +173,7 @@ def register_session(
     korunan_olcum = bool(getattr(mevcut, "tool_eval_passed", False)) and (
         getattr(mevcut, "tool_support", None) == tool_support
     )
+    varsayilan = WebSessionConfig(model=model, provider=provider, account=hesap)
     oturum = WebSessionConfig(
         model=model,
         provider=provider,
@@ -183,6 +184,16 @@ def register_session(
         credential_ref=None,
         tool_support="emulated" if tool_support != "none" else "none",
         tool_eval_passed=korunan_olcum,
+        # KULLANICI TERCİHLERİ KORUNUR. `headless` ve `timeout_s` türetilmiş durum
+        # değil, bilinçli seçimdir; oturumu yeniden kaydetmek onları sıfırlamamalı.
+        #
+        # Ölçüldü (11 Eylül): ChatGPT Cloudflare bot kontrolüne takıldığı için
+        # oturum görünür kipe alınmıştı. Kullanıcı arayüzden oturumu yeniden
+        # sınadığında bu alan taşınmadığı için tercih sessizce `true`ya döndü,
+        # görünür pencere hiç açılmadı ve aynı hata tekrar alındı — sebebi
+        # hiçbir yerde görünmüyordu.
+        headless=getattr(mevcut, "headless", varsayilan.headless),
+        timeout_s=getattr(mevcut, "timeout_s", varsayilan.timeout_s),
         enabled=True,
     )
     digerleri = tuple(
