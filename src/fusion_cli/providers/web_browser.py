@@ -1691,6 +1691,31 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
     )
 
 
+async def _challenge_signal(
+    page: Any, definition: BrowserProviderDefinition, *, body: str
+) -> str | None:
+    """Bot doğrulaması işaretini gövdede VE BAŞLIKTA ara.
+
+    Başlık neden gerekli — ölçüldü: Cloudflare ara sayfasının gövdesi BOŞ gelir
+    (JS ile sonradan doldurulur) ve sinyal yalnız `<title>` içinde bulunur. Yalnız
+    gövdeye bakan sınıflandırma bu sayfayı hiç tanımıyordu.
+    """
+    del definition  # imza simetrisi; sınıflandırma sağlayıcıya özgü değil
+    işaret = _matched_marker(body, _CHALLENGE_MARKERS)
+    if işaret is not None:
+        return işaret
+    try:
+        title = await page.title()
+    except Exception:
+        # Başlık okunamıyorsa teşhis GÖVDEYE düşer; burada hata yükseltmek
+        # asıl arızayı gizlerdi.
+        return None
+    # Gövde `_page_chrome_text` içinde `.lower()` ile veriliyor ve
+    # `_matched_marker` büyük/küçük harfe DUYARLI. Başlık aynı normalleştirmeden
+    # geçmezse "Bir dakika lütfen" hiçbir zaman eşleşmez.
+    return _matched_marker(str(title or "").lower(), _CHALLENGE_MARKERS)
+
+
 async def _raise_if_blocked(
     page: Any, definition: BrowserProviderDefinition, *, sent_prompt: str = ""
 ) -> None:
@@ -1702,7 +1727,7 @@ async def _raise_if_blocked(
     if await _strong_login_signal(page, definition):
         raise WebBrowserAuthError(_login_required_message(definition))
     body = await _page_chrome_text(page, definition, sent_prompt=sent_prompt)
-    dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
+    dogrulama = await _challenge_signal(page, definition, body=body)
     if dogrulama is not None:
         raise WebBrowserAuthError(_human_verification_message(definition, dogrulama))
 
@@ -1728,7 +1753,7 @@ async def _raise_known_page_error(
     if not body and not ignore_clean:
         body = ""
 
-    dogrulama = _matched_marker(body, _CHALLENGE_MARKERS)
+    dogrulama = await _challenge_signal(page, definition, body=body)
     if dogrulama is not None:
         raise WebBrowserAuthError(_human_verification_message(definition, dogrulama))
     # Kota işaretleri DAR tutulur. "try again later" burada DEĞİLDİR ve bu ölçülmüş
@@ -1759,6 +1784,14 @@ _CHALLENGE_MARKERS = (
     "captcha",
     "insan olduğunuzu doğrulayın",
     "robot olmadığınızı",
+    # Cloudflare ara sayfasının kendi metni. Ölçüldü (11 Eylül, chatgpt_web,
+    # headless): başlık "Bir dakika lütfen..." ve gövde BOŞ geldi; hiçbir işaret
+    # eşleşmediği için Fusion "mesaj alanı bulunamadı; arayüz değişmiş olabilir"
+    # dedi ve kullanıcıyı seçici aramaya yöneltti. Sayfa hiç yüklenmemişti.
+    #
+    # Üç noktadan SONRASI yazılmaz: sağlayıcı "…" ya da "..." kullanabiliyor.
+    "bir dakika lütfen",
+    "just a moment",
 )
 
 #: GERÇEKTEN kota/hız sınırını söyleyen işaretler. Dar tutulur.

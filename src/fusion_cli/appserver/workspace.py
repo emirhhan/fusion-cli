@@ -10,12 +10,11 @@ from __future__ import annotations
 import base64
 import difflib
 import hashlib
-import mimetypes
 import os
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
 _DEFAULT_LIMIT = 100
@@ -177,8 +176,63 @@ def list_entries(root: Path, data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+#: Uzantı → MIME. Açık eşleme, `mimetypes` modülü YERİNE kullanılır.
+#
+# Ölçüldü (Windows CI, run 34591998944): `proje.oku` isteği paketlenmiş runtime'da
+# 30 saniyede yanıt vermedi ve Windows kurucusu hiç üretilemedi. Zincir şuydu —
+# `proje.listele` tür tahmini yapmıyor ve hızlı geçiyor; `proje.oku` ise `mimetypes`
+# modülünü İLK kez kullanan istek ve o modülün tembel ilk kurulumu Windows'ta
+# `read_windows_registry()` ile HKEY_CLASSES_ROOT'u tarıyor. Donmuş (PyInstaller)
+# bir exe içinde bu tarama kullanıcının isteğini bloke ediyor.
+#
+# İkinci ve daha önemli gerekçe: tür tahmini kullanıcının KAYIT DEFTERİNE göre
+# değişmemeli. Aynı dosya her makinede aynı türü vermelidir; `mimetypes` bunu
+# garanti etmiyor çünkü Windows'ta sistem yapılandırmasını okur.
+_MIME_BY_SUFFIX: dict[str, str] = {
+    ".avif": "image/avif",
+    ".bmp": "image/bmp",
+    ".css": "text/css",
+    ".csv": "text/csv",
+    ".gif": "image/gif",
+    ".htm": "text/html",
+    ".html": "text/html",
+    ".ico": "image/vnd.microsoft.icon",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".js": "text/javascript",
+    ".json": "application/json",
+    ".m4a": "audio/mp4",
+    ".md": "text/markdown",
+    ".mp3": "audio/mpeg",
+    ".mp4": "video/mp4",
+    ".ogg": "audio/ogg",
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".toml": "application/toml",
+    ".ts": "text/typescript",
+    ".txt": "text/plain",
+    ".wav": "audio/wav",
+    ".webm": "video/webm",
+    ".webp": "image/webp",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
+
+
+def guess_mime(name: str) -> str | None:
+    """Dosya adından MIME türünü tahmin et; bilinmiyorsa None.
+
+    Kararı çağırana bırakır: okuma yolunda ikili dosya `octet-stream`, metin
+    `text/plain` olur; önizleme yolunda bilinmeyen tür `octet-stream` sayılır.
+    """
+    suffix = PurePosixPath(name.lower()).suffix
+    return _MIME_BY_SUFFIX.get(suffix)
+
+
 def _mime(path: Path, *, binary: bool) -> str:
-    guessed = mimetypes.guess_type(path.name)[0]
+    guessed = guess_mime(path.name)
     if guessed:
         return guessed
     return "application/octet-stream" if binary else "text/plain"
@@ -233,7 +287,7 @@ def preview_entry(root: Path, data: dict[str, Any]) -> dict[str, Any]:
         return _error(str(error))
     if not path.exists() or not path.is_file():
         return _error("Dosya bulunamadı.")
-    mime = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    mime = guess_mime(path.name) or "application/octet-stream"
     if mime.startswith("image/"):
         kind = "image"
     elif mime.startswith("audio/"):
