@@ -438,7 +438,18 @@ mod tests {
 
     fn pty_test_guard() -> MutexGuard<'static, ()> {
         static PTY_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        PTY_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+        // Zehirlenme YUTULUR, çünkü bu kilit veri değil SIRA korur.
+        //
+        // Ölçüldü (Windows CI): tek bir zamanlama assert'i kilidi tutarken
+        // paniklediğinde diğer dokuz test `PoisonError` ile düştü ve çıktı "10
+        // başarısız test" dedi. Gerçek arıza BİRDİ; dokuzu gürültüydü ve asıl
+        // sebebi gizliyordu. Kilit yalnız PTY testlerinin üst üste binmesini
+        // engeller; içinde korunan bir durum yok, bu yüzden zehirli kilidi
+        // devralmak güvenlidir.
+        PTY_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn manager() -> (TerminalManager, OutputLog, ClosedLog) {

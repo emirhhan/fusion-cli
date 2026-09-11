@@ -64,7 +64,12 @@ jobs:
         # oluşmadı ve sonraki etiketin macOS runner'ını da bekletti. Aynı testler
         # aynı mimaride yerelde 1,1 saniyede geçiyor — arıza runner'a özgü.
         # Sınır arızayı ÇÖZMEZ, görünür kılar ve kuyruğu serbest bırakır.
-        timeout-minutes: 25
+        #
+        # 25 dakika ÇOK DARDI ve meşru derlemeyi kesti (ölçüldü: aarch64 işi
+        # 26m11s'te "has timed out after 25 minutes" ile düştü; Rust derlemesi
+        # soğuk runner'da tek başına bunu aşıyor). 60 dakika soğuk tam derlemenin
+        # rahatça üstünde, asılı kalan işin 5,5 saatinin çok altında.
+        timeout-minutes: 60
         working-directory: app
         run: npm run check
       - name: Native runtime ve uygulama paketini üret
@@ -147,7 +152,12 @@ jobs:
         # oluşmadı ve sonraki etiketin macOS runner'ını da bekletti. Aynı testler
         # aynı mimaride yerelde 1,1 saniyede geçiyor — arıza runner'a özgü.
         # Sınır arızayı ÇÖZMEZ, görünür kılar ve kuyruğu serbest bırakır.
-        timeout-minutes: 25
+        #
+        # 25 dakika ÇOK DARDI ve meşru derlemeyi kesti (ölçüldü: aarch64 işi
+        # 26m11s'te "has timed out after 25 minutes" ile düştü; Rust derlemesi
+        # soğuk runner'da tek başına bunu aşıyor). 60 dakika soğuk tam derlemenin
+        # rahatça üstünde, asılı kalan işin 5,5 saatinin çok altında.
+        timeout-minutes: 60
         working-directory: app
         run: npm run check
       - name: Native runtime ve uygulama kurucusunu üret
