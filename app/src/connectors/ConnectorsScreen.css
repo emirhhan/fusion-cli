@@ -563,3 +563,86 @@
   flex-wrap: wrap;
   gap: var(--space-2);
 }
+
+/* Marka logosu taşıyan kutu: monogramdan farklı olarak içerik ortalanır ve
+   metin rengi koyu temada logo rengine yedek olur. */
+.connector-icon--brand { color: var(--text-primary); }
+
+/* --- Ekleme sihirbazı --------------------------------------------------- */
+
+.wizard { display: grid; gap: var(--space-4); }
+
+.wizard__lead { color: var(--text-secondary); font-size: var(--text-xs); margin: 0; }
+
+.wizard__choices { display: grid; gap: var(--space-2); }
+
+/* Kartlar AYNI boyda: farklı boylarda düğmeler ekranı dağıtıyordu. */
+.wizard__choice {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  text-align: start;
+  width: 100%;
+}
+.wizard__choice:hover { background: var(--surface-hover); border-color: var(--border-strong); }
+.wizard__choice[aria-pressed="true"] {
+  background: var(--surface-accent-subtle);
+  border-color: var(--accent-text);
+}
+.wizard__choice strong { font-size: var(--text-sm, 14px); font-weight: 600; }
+.wizard__choice small { color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.5; }
+
+.wizard__step-head {
+  align-items: baseline;
+  display: flex;
+  gap: var(--space-3);
+}
+
+.wizard__back {
+  background: none;
+  border: 0;
+  color: var(--accent-text);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 0;
+}
+.wizard__back:hover { text-decoration: underline; }
+
+.wizard__form { display: grid; gap: var(--space-1); }
+.wizard__form label { color: var(--text-secondary); font-size: var(--text-xs); margin-top: var(--space-2); }
+.wizard__form input:not([type="radio"]) {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  width: 100%;
+}
+
+.wizard__note {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+  margin: var(--space-2) 0 0;
+}
+.wizard__note code { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.wizard__warn { color: var(--text-danger); font-size: var(--text-xs); margin: var(--space-2) 0 0; }
+
+.wizard__providers { border: 0; display: grid; gap: var(--space-1); margin: var(--space-2) 0 0; padding: 0; }
+.wizard__providers legend { color: var(--text-secondary); font-size: var(--text-xs); padding: 0; }
+.wizard__provider { align-items: center; display: flex; gap: var(--space-2); font-size: var(--text-xs); }
+.wizard__provider em { color: var(--text-secondary); font-style: normal; margin-inline-start: var(--space-2); }
+
+/* Alt sıra: düğmeler AYNI hizada ve aynı boyda. */
+.wizard__foot {
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  padding-top: var(--space-4);
+}

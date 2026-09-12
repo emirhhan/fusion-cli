@@ -17,6 +17,7 @@ from typing import Any
 
 from ..config.models import Config, HostedConnectorConfig, hosted_connector_ready
 from ..config.writer import write_hosted_connectors
+from ..core.constants import HOSTED_VERIFY_TIMEOUT_S
 from ..mcp_bridge.oauth import validate_remote_mcp_url
 from ..providers.web_browser import WEB_BROWSER_PROVIDERS, provider_definition
 
@@ -165,7 +166,12 @@ async def _discover_tools(connector: HostedConnectorConfig) -> Sequence[str]:
     from ..providers.hosted_bridge import HostedSessionChannel
 
     config = load_config()
-    client = HostedConnectorClient((connector,), ask=HostedSessionChannel(config))
+    # Doğrulama turu sağlayıcının kendi tur süresinden UZUN olabilir; taban
+    # yükseltilir (bkz. `HOSTED_VERIFY_TIMEOUT_S`).
+    client = HostedConnectorClient(
+        (connector,),
+        ask=HostedSessionChannel(config, timeout_floor_s=HOSTED_VERIFY_TIMEOUT_S),
+    )
     tools = await client.list_tools(connector.name)
     return [tool.name for tool in tools]
 

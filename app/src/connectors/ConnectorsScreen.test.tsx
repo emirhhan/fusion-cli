@@ -3,6 +3,10 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { ConnectorsScreen } from "./ConnectorsScreen";
 import type { ProtocolClient } from "../protocol/client";
 
+// Modül düzeyinde: eskiden yalnız ilk describe'ın içindeydi ve sonraki
+// blokların render'ları birikip sorguları çoklu eşleştiriyordu.
+afterEach(cleanup);
+
 interface RpcRow {
   ad: string;
   argumanlar?: string[];
@@ -44,13 +48,15 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={fakeClient([], { "baglanti.ekle": { ok: false, metin: "Sunucuya ulaşılamadı" } })} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Yerel komut/ }));
     const ad = within(dialog).getByLabelText("Ad");
     fireEvent.change(ad, { target: { value: "deneme" } });
     fireEvent.change(within(dialog).getByLabelText("Komut"), { target: { value: "npx test" } });
     const submit = within(dialog).getByRole("button", { name: "Ekle" });
     submit.focus();
+    // Sözleşme ODAĞIN KUTUNUN İÇİNDE KALMASI; hangi düğmeye düştüğü değil.
     fireEvent.keyDown(window, { key: "Tab" });
-    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Özel sunucu formunu kapat" }));
+    expect(dialog.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(window, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(submit);
     fireEvent.click(submit);
@@ -62,7 +68,7 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
-    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "streamable_http" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Uzak MCP/ }));
     fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Meta Ads" } });
     fireEvent.change(within(dialog).getByLabelText("MCP adresi"), {
       target: { value: "https://mcp.facebook.com/ads" },
@@ -82,7 +88,7 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
-    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "streamable_http" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Uzak MCP/ }));
     fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Meta Ads" } });
     fireEvent.change(within(dialog).getByLabelText("MCP adresi"), {
       target: { value: "https://mcp.facebook.com/ads" },
@@ -112,7 +118,7 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
-    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sağlayıcı üzerinden/ }));
 
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.saglayicilar", {}));
     // Hazır olan seçilebilir, olmayan devre dışı.
@@ -121,7 +127,7 @@ describe("ConnectorsScreen", () => {
     expect(hazir.disabled).toBe(false);
     expect(hazirDegil.disabled).toBe(true);
     // Kullanıcı bu bağlantının neye bağımlı olduğunu görmeli.
-    expect(within(dialog).getByText(/yalnızca giriş yaptığınız model bağlıyken/i)).toBeTruthy();
+    expect(within(dialog).getByText(/connector ekranı açılır/i)).toBeTruthy();
   });
 
   it("hiç web sağlayıcısı bağlı değilse uyarır ve eklemeye izin vermez", async () => {
@@ -136,10 +142,10 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
-    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sağlayıcı üzerinden/ }));
 
     await waitFor(() =>
-      expect(within(dialog).getByText(/hiçbir web sağlayıcısına bağlı değilsiniz/i)).toBeTruthy(),
+      expect(within(dialog).getByText(/hiçbir web sağlayıcısına bağlı değilsin/i)).toBeTruthy(),
     );
     expect(
       (within(dialog).getByRole("button", { name: "Ekle" }) as HTMLButtonElement).disabled,
@@ -165,7 +171,7 @@ describe("ConnectorsScreen", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
     const dialog = screen.getByRole("dialog", { name: "Özel MCP sunucusu ekle" });
-    fireEvent.change(within(dialog).getByLabelText("Tür"), { target: { value: "hosted" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Sağlayıcı üzerinden/ }));
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.saglayicilar", {}));
     fireEvent.change(within(dialog).getByLabelText("Ad"), { target: { value: "Meta Ads" } });
     fireEvent.change(within(dialog).getByLabelText("MCP adresi"), {
@@ -179,15 +185,24 @@ describe("ConnectorsScreen", () => {
         expect.objectContaining({ ad: "Meta Ads", saglayici: "claude_web" }),
       ),
     );
-    // Ekleme sonrası kullanıcıya yapıştıracağı adres ve paneli açan düğme verilir.
-    const panel = await screen.findByRole("button", { name: "Sağlayıcı panelini aç" });
-    fireEvent.click(panel);
+    /* Eskiden burada yeşil bir blok açılıp "şu adresi sağlayıcının MCP alanına
+       yapıştır" diyordu — yani kullanıcının az önce YAZDIĞI adresi geri
+       veriyordu. Artık panel doğrudan açılır ve doğrulama kendiliğinden
+       denenir; kullanıcının ayrıca bir düğmeye basması gerekmez. */
     await waitFor(() =>
       expect(client.request).toHaveBeenCalledWith(
         "baglanti.panel_ac",
         expect.objectContaining({ saglayici: "claude_web" }),
       ),
     );
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith(
+        "baglanti.saglayici_dogrula",
+        expect.objectContaining({ ad: "Meta Ads" }),
+      ),
+    );
+    expect(screen.queryByRole("button", { name: "Sağlayıcı panelini aç" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Bağlantıyı doğrula" })).toBeNull();
   });
 
   it("bir işlem sürerken diğer düğmeler kilitlenmez", async () => {
@@ -400,6 +415,7 @@ describe("ConnectorsScreen", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+    fireEvent.click(screen.getByRole("button", { name: /Yerel komut/ }));
     fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "godot" } });
     fireEvent.change(screen.getByLabelText("Komut"), { target: { value: "npx -y godot-mcp" } });
     const form = screen.getByLabelText("Özel MCP sunucusu ekle");
@@ -422,5 +438,76 @@ describe("ConnectorsScreen", () => {
     const connected = screen.getByLabelText("Bağlı sunucular");
     expect(within(connected).getByText("GitHub")).toBeTruthy();
     expect(within(connected).getByText("8 araç")).toBeTruthy();
+  });
+});
+
+describe("ConnectorsScreen — silme", () => {
+  /* Ölçülmüş hata: her satır için `baglanti.sil` çağrılıyordu. Barındırmalı
+     bağlantılar ayrı depoda (`config.hosted_connectors`) yaşar; uç kaydı
+     bulamayıp "'X' adlı bağlantı yok" diyor, satır ekranda kalıyor ve
+     kullanıcı bağlantıyı silemediğini görüyordu. */
+  it("barındırmalı bağlantıyı sağlayıcı ucundan siler", async () => {
+    const istekler: { ad: string; veri: unknown }[] = [];
+    const client = {
+      request: vi.fn(async (ad: string, veri: unknown) => {
+        istekler.push({ ad, veri });
+        if (ad === "baglanti.listele") {
+          return {
+            ok: true,
+            sunucular: [
+              {
+                ad: "meta-ads",
+                tasima: "hosted",
+                url: "https://mcp.facebook.com/ads",
+                komut: "",
+                argumanlar: [],
+                durum: "bagli",
+              },
+            ],
+          };
+        }
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Bağlı/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Kaldır" }));
+
+    await waitFor(() =>
+      expect(istekler.some((istek) => istek.ad === "baglanti.saglayici_sil")).toBe(true),
+    );
+    expect(istekler.some((istek) => istek.ad === "baglanti.sil")).toBe(false);
+  });
+
+  it("yerel MCP sunucusunu normal uçtan siler", async () => {
+    const istekler: string[] = [];
+    const client = {
+      request: vi.fn(async (ad: string) => {
+        istekler.push(ad);
+        if (ad === "baglanti.listele") {
+          return {
+            ok: true,
+            sunucular: [
+              {
+                ad: "godot",
+                tasima: "stdio",
+                komut: "npx",
+                argumanlar: ["-y", "godot-mcp"],
+                durum: "bagli",
+              },
+            ],
+          };
+        }
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    fireEvent.click(await screen.findByRole("tab", { name: /Bağlı/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Kaldır" }));
+
+    await waitFor(() => expect(istekler).toContain("baglanti.sil"));
+    expect(istekler).not.toContain("baglanti.saglayici_sil");
   });
 });

@@ -124,11 +124,18 @@ def _envelope_rules() -> str:
 
 
 def render_discovery_prompt(connector: HostedConnectorConfig) -> str:
-    """Connector'ın araçlarını ve JSON şemalarını isteyen istem."""
+    """Connector'ın araçlarını ve JSON şemalarını isteyen istem.
+
+    KISA tutulur. Uzun istem iki maliyet üretiyordu: kullanıcı her doğrulamada
+    sağlayıcının ekranında uzun bir metnin yazılmasını izliyordu ve model cevabı
+    o kadar uzun sürüyordu ki tur zaman aşımına düşüyordu. Sözleşme için gereken
+    şey birkaç satır.
+    """
+    # Adres KALIR: kullanıcının Fusion'da verdiği ad, sağlayıcının kendi
+    # listesindeki adla aynı olmak zorunda değil. Connector'ı tekilleştiren şey
+    # adrestir; onu atmak modelin yanlış connector'ı listelemesine yol açardı.
     return (
-        f"Bağlı connector: {connector.name} ({connector.url}).\n"
-        "Bu connector'ın SANA sunduğu araçları listele. Her araç için adını, kısa "
-        "açıklamasını ve girdi JSON şemasını ver.\n"
+        f"{connector.name} ({connector.url}) connector'ının araçlarını listele.\n"
         '{"araclar": [{"ad": "...", "aciklama": "...", "sema": {...}}]}\n'
         f"{_envelope_rules()}"
     )

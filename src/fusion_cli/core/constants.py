@@ -184,3 +184,13 @@ SCRYPT_SALT_BYTES = 16
 # Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt Crockford
 # Base32'de 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
 RECOVERY_CODE_BYTES = 10
+
+
+#: Barındırmalı connector doğrulaması için tanınan süre (saniye).
+#
+# Doğrulama, sağlayıcının KENDİ sohbetine bir istem yazıp cevabını beklemektir;
+# yani bir sayfa yükleme + yazma + tam streaming üretim turudur. Sağlayıcı
+# başına ayarlanan tur süresi (Gemini'de 180 sn) bunun için dar kalıyor ve
+# kullanıcı "doğrulama başarısız" görüyordu — oysa model hâlâ yazıyordu.
+# 420 sn, ölçülen en yavaş sağlayıcının (ChatGPT) tur süresiyle aynı tavandır.
+HOSTED_VERIFY_TIMEOUT_S = 420.0

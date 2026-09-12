@@ -5,6 +5,7 @@ import { PageHeader } from "../ui/PageHeader";
 import { ConnectorIcon } from "./ConnectorIcon";
 import { ConnectorSetupForm } from "./ConnectorSetupForm";
 import { ConnectorDialog } from "./ConnectorDialog";
+import { CustomConnectorWizard } from "./CustomConnectorWizard";
 import {
   addPayloadFor,
   allConnectors,
@@ -23,7 +24,10 @@ interface ConnectorRow {
   durum?: string;
   komut: string;
   mesaj?: string | null;
-  tasima?: ConnectorTransport;
+  /** Satırın taşıması. `hosted` KATALOGDA yoktur ama çekirdek onu döndürür:
+   *  barındırmalı bağlantılar ayrı depoda yaşar ve ayrı uçtan silinir. Tipin
+   *  bunu taşımaması, silme hatasını derleyiciden gizlemişti. */
+  tasima?: ConnectorTransport | "hosted";
   url?: string;
 }
 
@@ -90,7 +94,6 @@ export function ConnectorsScreen({
   // Sağlayıcı-barındırmalı bağlantı: araçlar Fusion'da değil, kullanıcının zaten
   // giriş yaptığı web sağlayıcısının connector ekranında yaşar.
   const [providers, setProviders] = useState<HostedProvider[] | null>(null);
-  const [hosted, setHosted] = useState<HostedResult | null>(null);
   // OAuth dönüş adresi sunucudan gelir: port sabittir ama arayüz onu
   // TEKRARLAMAZ — iki yerde yazılan bir sabit zamanla ayrışır.
   const [oauthReturn, setOauthReturn] = useState("");
@@ -210,25 +213,37 @@ export function ConnectorsScreen({
   // görünüyordu. İstekler birbirinden bağımsız; birlikte kilitlemek gereksiz.
   const mesgul = (key: string) => busy === key;
   const eklemeMesgul = busy?.startsWith("add:") ?? false;
-  const hazirSaglayici = providers?.some((item) => item.hazir) ?? false;
-  const canAddCustom = Boolean(
-    custom.ad.trim() &&
-      (custom.tasima === "stdio" ? custom.komut.trim() : custom.url.trim()) &&
-      // Barındırmalı bağlantı, taşıyacak bir oturum olmadan kaydedilemez: kayıt
-      // edilir ama hiç çalışmaz ve kullanıcı sebebini anlamazdı.
-      (custom.tasima !== "hosted" || (hazirSaglayici && Boolean(custom.saglayici))),
-  );
 
+  /**
+   * Barındırmalı bağlantıyı ekle ve KULLANICIYI İŞİN İÇİNDEN ÇIKAR.
+   *
+   * Ölçülmüş akış şuydu: kullanıcı adresi yazıyor, sağlayıcıyı seçiyor, Ekle'ye
+   * basıyor ve altta yeşil bir blok açılıp "şu adresi sağlayıcının MCP alanına
+   * yapıştır" diyordu — yani kullanıcının az önce YAZDIĞI adresi geri veriyordu.
+   * Artık adres panoya kopyalanır, sağlayıcının connector ekranı doğrudan
+   * açılır ve doğrulama kendiliğinden denenir.
+   */
   const submitHosted = async () => {
     const result = (await run(
       "baglanti.saglayici_ekle",
       { ad: custom.ad, url: custom.url, saglayici: custom.saglayici },
       "add:hosted",
     )) as (HostedResult & { ok?: boolean }) | undefined;
-    if (result?.ok) {
-      setHosted(result);
-      setCustom((c) => ({ ...CUSTOM_EMPTY, saglayici: c.saglayici, tasima: "hosted" }));
-    }
+    if (!result?.ok) return;
+    setCustom((c) => ({ ...CUSTOM_EMPTY, saglayici: c.saglayici, tasima: "hosted" }));
+    // Pano yazımı başarısız olabilir (izin, odak); adres yine ekranda durur.
+    const kopyalandi = await navigator.clipboard
+      ?.writeText(result.mcp_adresi)
+      .then(() => true, () => false);
+    setNotice(
+      kopyalandi
+        ? "Adres panoya kopyalandı. Sağlayıcının connector ekranı açılıyor…"
+        : "Sağlayıcının connector ekranı açılıyor…",
+    );
+    await run("baglanti.panel_ac", { saglayici: result.saglayici }, "panel:hosted");
+    // Panel kapandığında doğrulama KENDİLİĞİNDEN denenir: kullanıcının ayrıca
+    // bir düğmeye basması gereken bir adım değil.
+    await run("baglanti.saglayici_dogrula", { ad: result.ad }, "dogrula:hosted");
   };
 
   const submitCustom = async () => {
@@ -313,188 +328,16 @@ export function ConnectorsScreen({
 
       {showCustom && (
         <ConnectorDialog label="Özel MCP sunucusu ekle" onClose={() => setShowCustom(false)}>
-        <section className="connectors__custom">
-          <div className="connectors__custom-head">
-            <h3>Özel sunucu ekle</h3>
-            <button
-              aria-label="Özel sunucu formunu kapat"
-              className="connectors__custom-close"
-              onClick={() => setShowCustom(false)}
-              type="button"
-            >
-              Vazgeç
-            </button>
-          </div>
-          <div className="connectors__custom-form">
-            <label htmlFor="ozel-tur">Tür</label>
-            <select
-              id="ozel-tur"
-              onChange={(event) =>
-                setCustom((c) => ({ ...c, tasima: event.target.value as ConnectorTransport }))
-              }
-              value={custom.tasima}
-            >
-              <option value="stdio">Yerel komut</option>
-              <option value="streamable_http">Uzak MCP · OAuth ya da token</option>
-              <option value="hosted">Sağlayıcı üzerinden · giriş gerekmez</option>
-            </select>
-            <label htmlFor="ozel-ad">Ad</label>
-            <input
-              id="ozel-ad"
-              onChange={(event) => setCustom((c) => ({ ...c, ad: event.target.value }))}
-              placeholder={custom.tasima === "stdio" ? "godot" : "kendi-mcp"}
-              value={custom.ad}
-            />
-            {custom.tasima === "hosted" ? (
-              <>
-                <label htmlFor="ozel-hosted-url">MCP adresi</label>
-                <input
-                  id="ozel-hosted-url"
-                  onChange={(event) => setCustom((c) => ({ ...c, url: event.target.value }))}
-                  placeholder="https://mcp.facebook.com/ads"
-                  type="url"
-                  value={custom.url}
-                />
-                <p className="connectors__hosted-note">
-                  Bu bağlantı araçlarını web sağlayıcınızın üzerinden çalıştırır ve{" "}
-                  <strong>yalnızca giriş yaptığınız model bağlıyken</strong> çalışır. Giriş
-                  sağlayıcının kendi ekranında yapılır; token Fusion'a hiç gelmez.
-                </p>
-                {providers === null ? (
-                  <p className="connectors__hosted-note">Sağlayıcılar okunuyor…</p>
-                ) : hazirSaglayici ? (
-                  <fieldset className="connectors__hosted-list">
-                    <legend>Hangi sağlayıcı üzerinden?</legend>
-                    {providers.map((item) => (
-                      <label className="connectors__hosted-option" key={item.id}>
-                        <input
-                          checked={custom.saglayici === item.id}
-                          disabled={!item.hazir}
-                          name="hosted-saglayici"
-                          onChange={() => setCustom((c) => ({ ...c, saglayici: item.id }))}
-                          type="radio"
-                          value={item.id}
-                        />
-                        <span>
-                          {item.ad}
-                          {!item.hazir && <em>oturum bağlı değil</em>}
-                        </span>
-                      </label>
-                    ))}
-                  </fieldset>
-                ) : (
-                  <p className="connectors__hosted-warn" role="alert">
-                    Hiçbir web sağlayıcısına bağlı değilsiniz. Bu MCP aracı web sağlayıcılar
-                    üzerinden çalışabilmektedir; önce Ayarlar'dan bir sağlayıcıya giriş yapın.
-                  </p>
-                )}
-                {hosted && (
-                  <div className="connectors__hosted-done">
-                    <p>
-                      <strong>{hosted.ad}</strong> kaydedildi. Sağlayıcının connector ekranını
-                      açın ve şu adresi MCP adresi olarak yapıştırın:
-                    </p>
-                    <code>{hosted.mcp_adresi}</code>
-                    <div className="connectors__hosted-actions">
-                      <Button
-                        onClick={() =>
-                          void run(
-                            "baglanti.panel_ac",
-                            { saglayici: hosted.saglayici },
-                            "panel:hosted",
-                          )
-                        }
-                        variant="secondary"
-                      >
-                        Sağlayıcı panelini aç
-                      </Button>
-                      {/* Araçlar ancak doğrulamadan SONRA kaydedilir: ölçülmemiş bir
-                          connector'ın araçlarını sunmak, modelin var olmayan
-                          yeteneklere güvenmesine yol açar. */}
-                      <Button
-                        onClick={() =>
-                          void run(
-                            "baglanti.saglayici_dogrula",
-                            { ad: hosted.ad },
-                            "dogrula:hosted",
-                          )
-                        }
-                        variant="primary"
-                      >
-                        Bağlantıyı doğrula
-                      </Button>
-                    </div>
-                    <p className="connectors__hosted-note">
-                      Adresi sağlayıcının ekranına ekledikten sonra doğrula — araçlar
-                      yalnızca doğrulandıktan sonra kullanılabilir.
-                    </p>
-                  </div>
-                )}
-              </>
-            ) : custom.tasima === "stdio" ? (
-              <>
-                <label htmlFor="ozel-komut">Komut</label>
-                <input
-                  id="ozel-komut"
-                  onChange={(event) => setCustom((c) => ({ ...c, komut: event.target.value }))}
-                  placeholder="npx -y godot-mcp"
-                  value={custom.komut}
-                />
-              </>
-            ) : (
-              <>
-                <label htmlFor="ozel-url">MCP adresi</label>
-                <input
-                  id="ozel-url"
-                  onChange={(event) => setCustom((c) => ({ ...c, url: event.target.value }))}
-                  placeholder="https://mcp.example.com/mcp"
-                  type="url"
-                  value={custom.url}
-                />
-                <label htmlFor="ozel-token">Erişim token'ı</label>
-                <input
-                  id="ozel-token"
-                  onChange={(event) => setCustom((c) => ({ ...c, token: event.target.value }))}
-                  placeholder="Varsa OAuth atlanır; giriş penceresi açılmaz"
-                  type="password"
-                  value={custom.token}
-                />
-                <label htmlFor="ozel-kapsam">OAuth kapsamları</label>
-                <input
-                  id="ozel-kapsam"
-                  onChange={(event) => setCustom((c) => ({ ...c, kapsamlar: event.target.value }))}
-                  placeholder="boş bırakılabilir"
-                  value={custom.kapsamlar}
-                />
-                <label htmlFor="ozel-client">Client ID</label>
-                <input
-                  id="ozel-client"
-                  onChange={(event) => setCustom((c) => ({ ...c, client_id: event.target.value }))}
-                  placeholder="Sunucu otomatik kaydı reddederse sağlayıcının verdiği kimlik"
-                  value={custom.client_id}
-                />
-                {custom.client_id.trim() && oauthReturn && (
-                  <div className="connectors__hosted-done">
-                    <p>
-                      Kendi OAuth uygulamanı kullanıyorsun. Sağlayıcının panelinde
-                      <strong> geçerli yönlendirme adresi</strong> olarak tam olarak şunu kaydet:
-                    </p>
-                    <code>{oauthReturn}</code>
-                  </div>
-                )}
-              </>
-            )}
-            <button
-              className="connectors__custom-submit"
-              disabled={eklemeMesgul || !canAddCustom}
-              onClick={() => void submitCustom()}
-              type="button"
-            >
-              Ekle
-            </button>
-          </div>
-        </section>
-        {notice && <p role="status">{notice}</p>}
+          <CustomConnectorWizard
+            deger={custom}
+            mesgul={eklemeMesgul}
+            oauthDonusAdresi={oauthReturn}
+            onCancel={() => setShowCustom(false)}
+            onChange={setCustom}
+            onSubmit={() => void submitCustom()}
+            saglayicilar={providers}
+          />
+          {notice && <p role="status">{notice}</p>}
         </ConnectorDialog>
       )}
 
@@ -625,6 +468,7 @@ export function ConnectorsScreen({
             <ul className="connectors__list">
               {rows.map((row) => {
                 const remote = row.tasima === "streamable_http";
+                const hosted = row.tasima === "hosted";
                 const pending = row.durum === "giris_bekleniyor";
                 return (
                   <li className="connectors__row" data-state={row.durum} key={row.ad}>
@@ -676,7 +520,19 @@ export function ConnectorsScreen({
                       )}
                       <button
                         disabled={mesgul(`remove:${row.ad}`)}
-                        onClick={() => void run("baglanti.sil", { ad: row.ad }, `remove:${row.ad}`)}
+                        onClick={() =>
+                          // Barındırmalı bağlantı AYRI bir depoda yaşar
+                          // (`config.hosted_connectors`) ve ayrı uçtan silinir.
+                          // Ölçülen hata: her satır için `baglanti.sil`
+                          // çağrılıyordu; uç barındırmalı kaydı bulamayıp
+                          // "'X' adlı bağlantı yok" diyor, satır ekranda
+                          // kalıyor ve kullanıcı silemediğini görüyordu.
+                          void run(
+                            hosted ? "baglanti.saglayici_sil" : "baglanti.sil",
+                            { ad: row.ad },
+                            `remove:${row.ad}`,
+                          )
+                        }
                         type="button"
                       >
                         Kaldır

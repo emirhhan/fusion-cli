@@ -46,6 +46,9 @@ class HostedSessionChannel:
     #: Gizli çözümü için şifreli depo (cookie başlığı). Yoksa boş kimlikle gidilir.
     secret_store: object | None = None
     trace_dir: Path | None = None
+    #: Sağlayıcının kendi tur süresini AŞAN bir taban. Doğrulama turu için
+    #: kullanılır: sağlayıcı başına ayarlanan süre oraya dar geliyordu.
+    timeout_floor_s: float | None = None
     _histories: dict[tuple[str, str], list[Message]] = field(default_factory=dict, init=False)
 
     async def __call__(self, connector: HostedConnectorConfig, prompt: str) -> str:
@@ -53,8 +56,11 @@ class HostedSessionChannel:
         key = (connector.provider, connector.account)
         history = self._histories.setdefault(key, [Message(role="user", content=PREAMBLE)])
         history.append(Message(role="user", content=prompt))
+        timeout_s = session.timeout_s
+        if self.timeout_floor_s is not None:
+            timeout_s = max(timeout_s, self.timeout_floor_s)
         transport = build_browser_transport(
-            session, timeout_s=session.timeout_s, trace_dir=self.trace_dir
+            session, timeout_s=timeout_s, trace_dir=self.trace_dir
         )
         turn = await transport(self._credential(session), tuple(history), session.model)
         history.append(Message(role="assistant", content=turn.text))
