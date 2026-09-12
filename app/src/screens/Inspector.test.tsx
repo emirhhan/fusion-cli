@@ -84,19 +84,6 @@ describe("Inspector", () => {
     expect(onActiveTabChange).toHaveBeenCalledWith("preview");
   });
 
-  it("istenen sekmeyi yalnız bir kez uygular ve kullanıcı seçimini kilitlemez", () => {
-    const onActiveTabChange = vi.fn();
-    const view = render(
-      <Inspector activeTab="files" onActiveTabChange={onActiveTabChange} requestedTab="files" />,
-    );
-    expect(onActiveTabChange).toHaveBeenCalledWith("files");
-    onActiveTabChange.mockClear();
-    view.rerender(
-      <Inspector activeTab="terminal" onActiveTabChange={onActiveTabChange} requestedTab="files" />,
-    );
-    expect(screen.getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe("true");
-    expect(onActiveTabChange).not.toHaveBeenCalled();
-  });
 
   it("daraltılmış araç şeridinde olmayan panellere aria-controls vermez", () => {
     render(<Inspector collapsed />);

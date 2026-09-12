@@ -39,38 +39,22 @@ interface SidebarProps {
    */
   hesap?: { kullanici_adi: string; eposta: string; avatar: string } | null;
   onCikis?: () => void;
+  /** Yeni sürüm varsa numarası; yoksa şerit hiç çizilmez. */
+  guncellemeSurumu?: string | null;
+  onGuncellemeAc?: () => void;
 }
 
 interface NavItemProps {
-  /** Ders ışığının yakalayacağı nişan; yalnız derslerde adı geçen öğelerde. */
-  ders?: string;
   icon: IconName;
   label: string;
   onClick?: () => void;
 }
 
-/** Kenar çubuğunun ikon şeridine indiği eşik. */
-const DAR_EKRAN = "(max-width: 1199px)";
-
-function useDarEkran(): boolean {
-  const [dar, setDar] = useState(() => window.matchMedia?.(DAR_EKRAN).matches ?? false);
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const media = window.matchMedia(DAR_EKRAN);
-    const onChange = (event: MediaQueryListEvent) => setDar(event.matches);
-    setDar(media.matches);
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-  return dar;
-}
-
-function NavItem({ ders, icon, label, onClick }: NavItemProps) {
+function NavItem({ icon, label, onClick }: NavItemProps) {
   return (
     <button
       aria-label={label}
       className="sidebar__nav-item"
-      data-ders={ders}
       onClick={onClick}
       type="button"
     >
@@ -143,12 +127,9 @@ export function Sidebar({
   projeler = [],
   hesap = null,
   onCikis,
+  guncellemeSurumu = null,
+  onGuncellemeAc,
 }: SidebarProps) {
-  // Dar pencerede kenar çubuğu kendiliğinden ikon şeridine iner. Bu KARAR
-  // burada verilir çünkü dar kip kuralları `data-collapsed` seçicisine bağlıdır;
-  // eskiden bir CSS değişkeni hilesiyle yapılıyordu ve o hile, geniş kipte
-  // temel `display`/`padding` değerlerini de siliyordu (ölçüldü).
-  const darEkran = useDarEkran();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -251,17 +232,17 @@ export function Sidebar({
       : "?");
 
   return (
-    <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed || darEkran}>
+    <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed}>
       <div className="sidebar__top">
         <div aria-label="Fusion" className="sidebar__brand">
           <Logo size={24} />
           <span className="sidebar__label fusion-wordmark">Fusion</span>
           <button aria-label="Konuşma ve proje aramasını aç" aria-expanded={searchOpen} className="sidebar__search-trigger" onClick={() => setSearchOpen((open) => !open)} type="button"><Icon name="search" size={19} /></button>
         </div>
-        <NavItem ders="yeni-gorev" icon="new" label="Yeni sohbet" onClick={onYeni} />
+        <NavItem icon="new" label="Yeni sohbet" onClick={onYeni} />
         <NavItem icon="image" label="Görsel oluştur" onClick={() => onNavigate("image-create")} />
         <NavItem icon="video" label="Video oluştur" onClick={() => onNavigate("video-create")} />
-        {searchOpen && <label className="sidebar__search" data-ders="arama">
+        {searchOpen && <label className="sidebar__search">
           <Icon name="search" size={17} />
           <span className="sidebar__sr-only">Konuşma ve proje ara</span>
           <input
@@ -283,7 +264,6 @@ export function Sidebar({
               aria-expanded={historyExpanded}
               aria-label={historyExpanded ? "Geçmişi daralt" : "Geçmişi genişlet"}
               className="sidebar__history-toggle"
-              data-ders="gecmis"
               onClick={toggleHistory}
               type="button"
             >
@@ -336,6 +316,15 @@ export function Sidebar({
       </div>
 
       <div className="sidebar__bottom">
+        {/* Güncelleme şeridi profilin HEMEN ÜSTÜNDE durur: kullanıcı yeni sürümü
+            aramak zorunda kalmasın. Sürüm yoksa hiç çizilmez — boş bir satır
+            "bir şey var mı?" sorusunu her açılışta yeniden sordururdu. */}
+        {guncellemeSurumu && onGuncellemeAc && (
+          <button className="sidebar__update" onClick={onGuncellemeAc} type="button">
+            <span className="sidebar__update-dot" aria-hidden="true" />
+            <span className="sidebar__label">{guncellemeSurumu} sürümü hazır</span>
+          </button>
+        )}
         <div className="sidebar__profile-wrap" ref={profileRef}>
           {profileOpen && (
             <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
@@ -346,8 +335,8 @@ export function Sidebar({
               </button>
               <div className="sidebar__profile-separator" />
               <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="settings" /><span>Hesabım</span></button>
-              <button data-ders="ayarlar" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
-              <button data-ders="kontrol-paneli" onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
+              <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
+              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
               <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
               <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
               <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>

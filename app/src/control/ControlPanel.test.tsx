@@ -6,22 +6,18 @@ import { ControlPanel } from "./ControlPanel";
 
 afterEach(cleanup);
 
-function client() {
-  let gateway = "kapali";
+function client(ekle: { sirHatasi?: string } = {}) {
   return {
     request: vi.fn(async (name: string, data: Record<string, unknown>) => {
       if (name === "kontrol.durum") return {
         ok: true,
         kok: "/Users/test/Fusion",
-        model: { agent: "openrouter/agent", hakem: "openrouter/judge", adaylar: ["model/a", "model/b"], saglayici: "auto", yogunluk: "high" },
-        izin: { mod: "ask", kokle_sinirli: false },
-        mcp: [{ ad: "github", komut: "npx" }],
         saglayicilar: [
           { id: "openrouter", ad: "OpenRouter", ortam: "OPENROUTER_API_KEY", kurulu: false },
           { id: "nvidia_nim", ad: "NVIDIA NIM", ortam: "NVIDIA_NIM_API_KEY", kurulu: true },
         ],
-        sir_deposu_hazir: true,
-        gateway: { durum: gateway, adres: "http://127.0.0.1:8787/v1" },
+        sir_deposu_hazir: !ekle.sirHatasi,
+        sir_deposu_hatasi: ekle.sirHatasi ?? null,
       };
       if (name === "saglayici.katalog") return {
         ok: true,
@@ -30,15 +26,87 @@ function client() {
           { id: "openrouter", ad: "OpenRouter", tur: "anahtar", eylem: "anahtar", bagli: false, ortam: "OPENROUTER_API_KEY" },
         ],
       };
-      if (name === "kontrol.gateway_baslat") gateway = "calisiyor";
-      if (name === "kontrol.gateway_durdur") gateway = "kapali";
-      return { ok: true, ...data, durum: gateway };
+      return { ok: true, ...data };
     }),
   } as unknown as ProtocolClient;
 }
 
-describe("ControlPanel", () => {
-  it("kategori değişirken bekleyen web girişini kaydedip doğrulamayı sürdürür", async () => {
+describe("ControlPanel — kapsam", () => {
+  /* Panel altı bölüm taşıyordu ve kullanıcının ölçülmüş tepkisi şuydu:
+     "kontrol panelindeki mcp alanı ne işe yarıyor", "güncellemeler neden
+     kontrol panelinde", "gateway nedir ben bile bilmiyorum". Hepsi ait
+     oldukları yerlere taşındı; burada yalnız sağlayıcılar kaldı. */
+  it("yalnız sağlayıcıları yönetir; taşınan bölümleri göstermez", async () => {
+    render(<ControlPanel client={client()} onClose={() => undefined} />);
+
+    expect(await screen.findByRole("button", { name: /OpenRouter/i })).toBeTruthy();
+    for (const gitmis of ["Modeller", "Gateway", "MCP", "Güncellemeler", "İzinler"]) {
+      expect(screen.queryByRole("button", { name: gitmis })).toBeNull();
+    }
+    expect(screen.queryByLabelText("Panelde ara")).toBeNull();
+  });
+
+  it("kapatma isteğini iletir", async () => {
+    const onClose = vi.fn();
+    render(<ControlPanel client={client()} onClose={onClose} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Kapat" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  /* Anahtarlık çalışmıyorsa kullanıcı bunu anahtar GİRMEDEN ÖNCE bilmeli;
+     yazdığı anahtar kaydedilemeyecek. */
+  it("sır deposu hatasını anahtar girilmeden önce gösterir", async () => {
+    render(
+      <ControlPanel
+        client={client({ sirHatasi: "Sistem anahtarlığı kullanılamıyor." })}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(await screen.findByText("Sistem anahtarlığı kullanılamıyor.")).toBeTruthy();
+  });
+});
+
+describe("ControlPanel — sağlayıcı anahtarı", () => {
+  it("anahtarı parola alanından kaydeder, değeri ekrana yansıtmaz", async () => {
+    const fake = client();
+    render(<ControlPanel client={fake} onClose={() => undefined} />);
+
+    // Anahtar alanı listede AÇIK durmaz; satıra tıklayınca açılır.
+    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/ }));
+    const input = (await screen.findByLabelText(/API anahtarı/i)) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "sk-gizli-test-degeri" } });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+
+    await waitFor(() =>
+      expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
+        saglayici: "openrouter",
+        deger: "sk-gizli-test-degeri",
+      }),
+    );
+    expect(screen.queryByText("sk-gizli-test-degeri")).toBeNull();
+  });
+
+  it("anahtar kaydı sistem izin penceresi açmaz", async () => {
+    const bridge: PermissionBridge = { request: vi.fn(async () => "denied"), openSettings: vi.fn() };
+    render(<ControlPanel client={client()} onClose={() => undefined} permissionBridge={bridge} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
+    fireEvent.change(await screen.findByLabelText(/API anahtarı/i), {
+      target: { value: "sk-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    await screen.findByText(/anahtarı kaydedildi/);
+
+    expect(screen.queryByRole("button", { name: "Sistem Ayarlarını Aç" })).toBeNull();
+    expect(bridge.request).not.toHaveBeenCalled();
+  });
+});
+
+describe("ControlPanel — web oturumu", () => {
+  it("bekleyen web girişini izler ve kapanınca doğrulamayı sürdürür", async () => {
     const base = client();
     let open = true;
     const request = vi.fn(async (name: string, data: Record<string, unknown>) => {
@@ -46,200 +114,31 @@ describe("ControlPanel", () => {
       if (name === "web.giris_durumu") return { ok: true, acik: open };
       return base.request(name, data);
     });
-    render(<ControlPanel client={{ request } as unknown as ProtocolClient} onClose={() => undefined} />);
+    render(
+      <ControlPanel client={{ request } as unknown as ProtocolClient} onClose={() => undefined} />,
+    );
+
     fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/i }));
     vi.useFakeTimers();
     try {
-      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Oturum aç" })); });
-      fireEvent.click(screen.getByRole("button", { name: "Modeller" }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Oturum aç" }));
+      });
       open = false;
-      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
-      expect(request).toHaveBeenCalledWith("web.baglan", { saglayici: "chatgpt_web", hesap: "main" });
-      expect(request).toHaveBeenCalledWith("web.dogrula", { saglayici: "chatgpt_web", hesap: "main" });
-    } finally { vi.useRealTimers(); }
-  });
-  it("kategori seçimi yalnız ilgili kontrolleri açar, arama diğer kategorilere ulaşır", async () => {
-    render(<ControlPanel client={client()} onClose={() => undefined} />);
-    await screen.findByRole("button", { name: /OpenRouter/i });
-    expect(screen.queryByText("openrouter/agent")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Modeller" }));
-    expect(screen.getByText("openrouter/agent")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /OpenRouter/i })).toBeNull();
-    fireEvent.change(screen.getByLabelText("Panelde ara"), { target: { value: "gateway" } });
-    expect(screen.getByRole("button", { name: "Gateway'i başlat" })).toBeTruthy();
-  });
-  it("anahtar kaydında sistem izin penceresi açmaz", async () => {
-    const bridge: PermissionBridge = { request: vi.fn(async () => "denied"), openSettings: vi.fn() };
-    render(<ControlPanel client={client()} onClose={() => undefined} permissionBridge={bridge} />);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1500);
+      });
 
-    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
-    fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    await screen.findByText(/anahtarı kaydedildi/);
-
-    expect(screen.queryByRole("button", { name: "Sistem Ayarlarını Aç" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sonraki izne geç" })).toBeNull();
-    expect(bridge.request).not.toHaveBeenCalled();
-  });
-  it("API anahtarını Keychain onayı istemeden kaydeder", async () => {
-    const fake = client();
-    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
-    render(<ControlPanel client={fake} onClose={() => undefined} permissionBridge={bridge} />);
-    expect(bridge.request).not.toHaveBeenCalled();
-
-    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/i }));
-    fireEvent.change(await screen.findByLabelText(/API anahtarı/i), { target: { value: "sk-secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    expect(bridge.request).not.toHaveBeenCalled();
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
-      saglayici: "openrouter",
-      deger: "sk-secret",
-    }));
-  });
-  it("model, izin, MCP ve gateway durumunu tek native görünümde gösterir", async () => {
-    render(<ControlPanel client={client()} onClose={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    expect(await screen.findByText("openrouter/agent")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "İzinler" }));
-    expect(screen.getByText("Her işlemde sor")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "MCP" }));
-    expect(screen.getByText("github")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Gateway" }));
-    expect(screen.getByText("http://127.0.0.1:8787/v1")).toBeTruthy();
-  });
-
-  it("sağlayıcı satırına tıklayınca anahtarı parola alanından kaydeder, değeri ekrana yansıtmaz", async () => {
-    const fake = client();
-    const bridge: PermissionBridge = { request: vi.fn(async () => "granted"), openSettings: vi.fn() };
-    render(<ControlPanel client={fake} onClose={() => undefined} permissionBridge={bridge} />);
-    // Anahtar alanı artık listede AÇIK durmuyor; satıra tıklayınca açılıyor.
-    fireEvent.click(await screen.findByRole("button", { name: /OpenRouter/ }));
-    const input = (await screen.findByLabelText(/API anahtarı/i)) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "sk-gizli-test-degeri" } });
-    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.anahtar_kaydet", {
-      saglayici: "openrouter", deger: "sk-gizli-test-degeri",
-    }));
-    expect(screen.queryByText("sk-gizli-test-degeri")).toBeNull();
-  });
-
-  it("gateway'i başlatıp gerçek durumunu yeniden yükler", async () => {
-    const fake = client();
-    render(<ControlPanel client={fake} onClose={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Gateway" }));
-    const start = await screen.findByRole("button", { name: "Gateway'i başlat" });
-    fireEvent.click(start);
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("kontrol.gateway_baslat", {}));
-    await waitFor(() => expect(screen.getByText("Çalışıyor")).toBeTruthy());
-  });
-});
-
-describe("ControlPanel — yönetim derinliği", () => {
-  it("model düzenini komut köprüsünden değiştirir; kendi uç noktasını uydurmaz", async () => {
-    const onCommand = vi.fn();
-    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-
-    fireEvent.click(screen.getByRole("button", { name: "Ajan modelini değiştir" }));
-    expect(onCommand).toHaveBeenCalledWith("/model");
-
-    fireEvent.click(screen.getByRole("button", { name: "Düşünme düzeyini değiştir" }));
-    expect(onCommand).toHaveBeenCalledWith("/level");
-
-    fireEvent.click(screen.getByRole("button", { name: "Model profilini değiştir" }));
-    expect(onCommand).toHaveBeenCalledWith("/mode");
-  });
-
-  it("çalışma klasörünü gösterir ve değiştirmeyi çağırana devreder", async () => {
-    const onChangeRoot = vi.fn();
-    render(<ControlPanel client={client()} onChangeRoot={onChangeRoot} onClose={() => undefined} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "İzinler" }));
-    expect(await screen.findByText("/Users/test/Fusion")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Çalışma klasörünü değiştir" }));
-    expect(onChangeRoot).toHaveBeenCalledOnce();
-  });
-
-  it("değiştirme geri çağrıları verilmediğinde düğmeleri hiç çizmez", async () => {
-    render(<ControlPanel client={client()} onClose={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-
-    expect(screen.queryByRole("button", { name: "Ajan modelini değiştir" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Çalışma klasörünü değiştir" })).toBeNull();
-  });
-});
-
-describe("ControlPanel — arama ve model ekleme", () => {
-  it("arama, eşleşmeyen bölümleri gizler", async () => {
-    render(<ControlPanel client={client()} onClose={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-    fireEvent.change(screen.getByRole("searchbox", { name: /panelde ara/i }), {
-      target: { value: "gateway" },
-    });
-
-    expect(screen.getByText("Yerel Gateway")).toBeTruthy();
-    expect(screen.queryByText("MCP sunucuları")).toBeNull();
-  });
-
-  it("eşleşme yoksa bunu söyler", async () => {
-    render(<ControlPanel client={client()} onClose={() => undefined} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-    fireEvent.change(screen.getByRole("searchbox", { name: /panelde ara/i }), {
-      target: { value: "kkkk" },
-    });
-    expect(screen.getByText(/eşleşen bölüm yok/i)).toBeTruthy();
-  });
-
-  it("yeni adayı komut köprüsünden ekler; kendi uç noktasını uydurmaz", async () => {
-    const onCommand = vi.fn();
-    const fake = client();
-    render(<ControlPanel client={fake} onClose={() => undefined} onRunCommand={onCommand} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-
-    fireEvent.change(screen.getByLabelText("Aday adı"), { target: { value: "hizli" } });
-    fireEvent.change(screen.getByLabelText("Model kimliği"), { target: { value: "ollama/q:7b" } });
-    fireEvent.click(screen.getByRole("button", { name: "Adayı ekle" }));
-
-    expect(onCommand).toHaveBeenCalledWith("/model add hizli ollama/q:7b");
-    // Panel model havuzunu KENDİ yazmaz: protokole doğrudan yazma isteği gitmez.
-    expect(fake.request).not.toHaveBeenCalledWith("kontrol.model_ekle", expect.anything());
-  });
-
-  it("iki alan da dolmadan ekleme düğmesi çalışmaz", async () => {
-    const onCommand = vi.fn();
-    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-    fireEvent.change(screen.getByLabelText("Aday adı"), { target: { value: "hizli" } });
-
-    expect((screen.getByRole("button", { name: "Adayı ekle" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Adayı ekle" }));
-    expect(onCommand).not.toHaveBeenCalled();
-  });
-
-  it("adayı komut köprüsünden çıkarır", async () => {
-    const onCommand = vi.fn();
-    render(<ControlPanel client={client()} onClose={() => undefined} onRunCommand={onCommand} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    await screen.findByText("Model düzeni");
-    fireEvent.click(screen.getByRole("button", { name: "model/a adayını çıkar" }));
-    expect(onCommand).toHaveBeenCalledWith("/model rm model/a");
-  });
-  it("bagli saglayicilarin model katalogunu getiren komutu calistirir", async () => {
-    const onRunCommand = vi.fn();
-    render(<ControlPanel client={client()} onClose={vi.fn()} onRunCommand={onRunCommand} />);
-
-    fireEvent.click(await screen.findByRole("button", { name: "Modeller" }));
-    const dugme = await screen.findByRole("button", {
-      name: "Bağlı sağlayıcıların modellerini getir",
-    });
-    fireEvent.click(dugme);
-
-    expect(onRunCommand).toHaveBeenCalledWith("/development");
+      expect(request).toHaveBeenCalledWith("web.baglan", {
+        saglayici: "chatgpt_web",
+        hesap: "main",
+      });
+      expect(request).toHaveBeenCalledWith("web.dogrula", {
+        saglayici: "chatgpt_web",
+        hesap: "main",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

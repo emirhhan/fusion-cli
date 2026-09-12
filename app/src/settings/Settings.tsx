@@ -3,31 +3,44 @@ import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
-import { setShowSteps } from "./preferences";
-import { useShowSteps } from "./useShowSteps";
-import { Connectors } from "./Connectors";
+import { UpdatePanel } from "../control/UpdatePanel";
 import { Instructions } from "./Instructions";
 import { UsagePanel } from "./UsagePanel";
 import { VoicePreferences } from "./VoicePreferences";
+import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
+import { Models, type ModelState } from "./sections/Models";
+import { Permissions } from "./sections/Permissions";
+import { Advanced } from "./sections/Advanced";
 import "./Settings.css";
 
 /**
- * Ayarlar — Kontrol Paneli'nden AYRI ekran.
+ * Ayarlar — macOS tarzı sol menü, tek kolon içerik.
  *
- * Ayrım bilinçlidir: Kontrol Paneli çalışan sistemi YÖNETİR (model düzeni,
- * anahtarlar, gateway, MCP). Ayarlar ise kullanıcının kendi TERCİHLERİNİ ve
- * durum özetini taşır — görünüm, arayüz davranışı, bağlantı özeti, gizlilik.
- * İkisini tek ekrana yığmak, sık kullanılan tercihleri yönetim ayrıntısının
- * altına gömüyordu.
+ * Eskiden her şey tek sayfada kart kart akıyordu: tema tercihiyle gateway
+ * durumu, gizlilik metniyle MCP sayısı aynı yığındaydı ve aranan şey
+ * bulunamıyordu. Bölümler artık ayrı; her biri TEK bir soruyu cevaplar.
+ *
+ * Kontrol Paneli ile ayrım korunur: orası SAĞLAYICI bağlantılarını yönetir
+ * (anahtarlar, web oturumları), burası kullanıcının tercihleri ve sistemin
+ * ayarlanabilir yanı.
  */
 
-/** Kenar çubuğundaki geçmiş bölümünün açık başlayıp başlamayacağı. */
-const HISTORY_KEY = "fusion.sidebar.history-open.v1";
+type BolumId = "genel" | "hesap" | "modeller" | "izinler" | "guncellemeler" | "gelismis";
+
+const BOLUMLER: { id: BolumId; etiket: string }[] = [
+  { id: "genel", etiket: "Genel" },
+  { id: "hesap", etiket: "Hesap" },
+  { id: "modeller", etiket: "Modeller" },
+  { id: "izinler", etiket: "İzinler" },
+  { id: "guncellemeler", etiket: "Güncellemeler" },
+  { id: "gelismis", etiket: "Gelişmiş" },
+];
 
 interface ControlSnapshot {
   gateway?: { adres?: string; durum?: string };
+  izin?: { mod?: string; kokle_sinirli?: boolean };
   kok?: string;
-  mcp?: { ad: string }[];
+  model?: ModelState;
   saglayicilar?: { id: string; kurulu?: boolean }[];
 }
 
@@ -36,35 +49,33 @@ interface SettingsProps {
   onClose: () => void;
   onThemeChange: (preference: ThemePreference) => void;
   themePreference: ThemePreference;
+  /** Hesabım ekranını açar. Verilmezse hesap bölümü yalnız bilgi gösterir. */
+  onOpenAccount?: () => void;
+  onChangeRoot?: () => void;
+  onRunCommand?: (command: string) => void;
 }
 
-function readHistoryOpen(): boolean {
-  try {
-    return localStorage.getItem(HISTORY_KEY) !== "false";
-  } catch {
-    // Özel pencerede depo erişilemez olabilir; varsayılan açıktır.
-    return true;
-  }
-}
-
-export function Settings({ client, onClose, onThemeChange, themePreference }: SettingsProps) {
-  const showSteps = useShowSteps();
+export function Settings({
+  client,
+  onChangeRoot,
+  onClose,
+  onOpenAccount,
+  onRunCommand,
+  onThemeChange,
+  themePreference,
+}: SettingsProps) {
+  const [bolum, setBolum] = useState<BolumId>("genel");
   const [control, setControl] = useState<ControlSnapshot | null>(null);
-  const [webConnected, setWebConnected] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
+  const [gatewayBusy, setGatewayBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [durum, web] = await Promise.all([
-        client.request("kontrol.durum", {}) as Promise<ControlSnapshot & { ok?: boolean }>,
-        client.request("web.saglayicilar", {}) as Promise<{
-          ok?: boolean;
-          saglayicilar?: { bagli?: boolean }[];
-        }>,
-      ]);
+      const durum = (await client.request("kontrol.durum", {})) as ControlSnapshot & {
+        ok?: boolean;
+      };
       setControl(durum ?? null);
-      setWebConnected((web?.saglayicilar ?? []).filter((item) => item.bagli).length);
       setError(null);
     } catch {
       setError("Ayarlar okunamadı.");
@@ -75,105 +86,108 @@ export function Settings({ client, onClose, onThemeChange, themePreference }: Se
     void load();
   }, [load]);
 
-  const toggleHistory = () => {
-    const next = !historyOpen;
-    setHistoryOpen(next);
+  const changeHistory = (open: boolean) => {
+    setHistoryOpen(open);
     try {
-      localStorage.setItem(HISTORY_KEY, String(next));
+      localStorage.setItem(HISTORY_KEY, String(open));
     } catch {
       // Yazılamıyorsa tercih bu oturumda geçerli olur; ekran yine çalışır.
     }
   };
 
-  const keyProviders = (control?.saglayicilar ?? []).filter((item) => item.kurulu).length;
-  const connections = keyProviders + webConnected;
   const gatewayRunning = control?.gateway?.durum === "calisiyor";
+  const toggleGateway = () => {
+    setGatewayBusy(true);
+    const uc = gatewayRunning ? "kontrol.gateway_durdur" : "kontrol.gateway_baslat";
+    void client
+      .request(uc, {})
+      .then(() => load())
+      .catch(() => setError("Yerel API ucu değiştirilemedi."))
+      .finally(() => setGatewayBusy(false));
+  };
 
   return (
     <section aria-label="Ayarlar" className="settings">
       <PageHeader
         actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
-        description="Görünüm, arayüz davranışı ve bu bilgisayardaki durumun özeti."
-        eyebrow="Tercihler"
+        description="Görünüm, hesap, modeller ve izinler."
         title="Ayarlar"
       />
 
       {error && <p className="settings__error" role="status">{error}</p>}
 
-      <div className="settings__grid">
-        <article className="settings__card">
-          <h3>Görünüm</h3>
-          <label className="settings__row" htmlFor="settings-theme">
-            <span>Görünüm</span>
-            <select
-              id="settings-theme"
-              onChange={(event) => onThemeChange(event.target.value as ThemePreference)}
-              value={themePreference}
+      <div className="settings__workspace">
+        <nav aria-label="Ayar bölümleri" className="settings__nav">
+          {BOLUMLER.map((item) => (
+            <button
+              aria-current={bolum === item.id ? "page" : undefined}
+              key={item.id}
+              onClick={() => setBolum(item.id)}
+              type="button"
             >
-              <option value="system">Sistemi izle</option>
-              <option value="light">Açık</option>
-              <option value="dark">Koyu</option>
-            </select>
-          </label>
-          <label className="settings__row settings__row--check">
-            <input
-              checked={historyOpen}
-              id="settings-history"
-              onChange={toggleHistory}
-              type="checkbox"
+              {item.etiket}
+            </button>
+          ))}
+        </nav>
+
+        <div className="settings__panel">
+          {bolum === "genel" && (
+            <General
+              historyOpen={historyOpen}
+              onHistoryChange={changeHistory}
+              onThemeChange={onThemeChange}
+              themePreference={themePreference}
             />
-            <span>Geçmiş bölümünü açık başlat</span>
-          </label>
-          {/* Varsayılan KAPALI: adım dökümü teşhis içindir, günlük kullanımda
-              her cevabın üstünü dolduruyordu. */}
-          <label className="settings__row settings__row--check">
-            <input
-              checked={showSteps}
-              id="settings-steps"
-              onChange={(event) => setShowSteps(event.target.checked)}
-              type="checkbox"
+          )}
+
+          {bolum === "hesap" && (
+            <article className="settings__card">
+              <h3>Hesap</h3>
+              <p className="settings__hint">
+                Hesabın, parolan ve avatarın bu bilgisayarda tutulur. Hiçbir bilgi
+                sunucuya gönderilmez; hesabı silersen ya da Fusion'ı kaldırırsan
+                verileri de gider.
+              </p>
+              {onOpenAccount && (
+                <div className="settings__actions">
+                  <Button onClick={onOpenAccount} variant="secondary">
+                    Hesabımı aç
+                  </Button>
+                </div>
+              )}
+            </article>
+          )}
+
+          {bolum === "modeller" && (
+            <Models model={control?.model ?? null} onRunCommand={onRunCommand} />
+          )}
+
+          {bolum === "izinler" && (
+            <Permissions
+              kok={control?.kok ?? ""}
+              kokleSinirli={control?.izin?.kokle_sinirli !== false}
+              mod={control?.izin?.mod ?? "auto"}
+              onChangeRoot={onChangeRoot}
+              onRunCommand={onRunCommand}
             />
-            <span>Fusion'ın attığı adımları göster</span>
-          </label>
-        </article>
+          )}
 
-        <article className="settings__card">
-          <h3>Çalışma alanı</h3>
-          <dl className="settings__pairs">
-            <dt>Etkin klasör</dt>
-            <dd>{control?.kok ?? "—"}</dd>
-            <dt>Araç bağlantıları</dt>
-            <dd>{(control?.mcp ?? []).length} MCP sunucusu</dd>
-          </dl>
-        </article>
+          {bolum === "guncellemeler" && <UpdatePanel />}
 
-        <article className="settings__card">
-          <h3>Bağlantılar</h3>
-          <p className="settings__stat">{connections} bağlı bağlantı</p>
-          <p className="settings__hint">
-            {gatewayRunning ? "Gateway çalışıyor" : "Gateway kapalı"}
-          </p>
-          <p className="settings__hint">
-            Sağlayıcıları eklemek ve çıkarmak Kontrol Paneli'ndedir.
-          </p>
-        </article>
-
-        <Instructions client={client} />
-
-        <Connectors client={client} />
-
-        <UsagePanel client={client} />
-
-        <VoicePreferences client={client} />
-
-        <article className="settings__card">
-          <h3>Gizlilik</h3>
-          <p className="settings__hint">
-            Sohbetleriniz, projeleriniz ve anahtarlarınız dahil tüm verileriniz bu cihazda
-            kalır. Fusion bunları hiçbir sunucuya kopyalamaz; yalnız sizin seçtiğiniz
-            modele, sizin gönderdiğiniz mesajı iletir.
-          </p>
-        </article>
+          {bolum === "gelismis" && (
+            <>
+              <Advanced
+                adres={control?.gateway?.adres ?? ""}
+                calisiyor={gatewayRunning}
+                mesgul={gatewayBusy}
+                onToggle={toggleGateway}
+              />
+              <Instructions client={client} />
+              <UsagePanel client={client} />
+              <VoicePreferences client={client} />
+            </>
+          )}
+        </div>
       </div>
     </section>
   );

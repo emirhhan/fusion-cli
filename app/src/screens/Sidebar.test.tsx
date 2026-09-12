@@ -325,3 +325,43 @@ it("StrictMode ve depolama hatasında sabitleme arayüzünü çalışır tutar",
     expect(screen.getByRole("alert").textContent).toContain("kaydedilemedi");
   } finally { write.mockRestore(); }
 });
+
+describe("Sidebar — güncelleme ve daraltma", () => {
+  /* Kullanıcı yeni sürümü ARAMAK zorunda kalmamalı: eskiden ancak Kontrol
+     Paneli açılıp düğmeye basılırsa görünüyordu ve kimse oraya bakmıyordu. */
+  it("yeni sürüm varsa profilin üstünde şerit gösterir", () => {
+    const onGuncellemeAc = vi.fn();
+    render(
+      <Sidebar
+        etkin={null}
+        guncellemeSurumu="0.4.1"
+        onGuncellemeAc={onGuncellemeAc}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[]}
+      />,
+    );
+
+    const serit = screen.getByRole("button", { name: /0.4.1 sürümü hazır/ });
+    fireEvent.click(serit);
+
+    expect(onGuncellemeAc).toHaveBeenCalledTimes(1);
+  });
+
+  it("sürüm yoksa şerit hiç çizilmez", () => {
+    render(<Sidebar etkin={null} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />);
+
+    expect(screen.queryByRole("button", { name: /sürümü hazır/ })).toBeNull();
+  });
+
+  /* Daraltma artık ikon şeridine inmek değil TAMAMEN gizlenmek demek
+     (ChatGPT/Claude gibi). Yarı görünür bir çubuk, kapalıdan da açıktan da
+     kötüydü. */
+  it("daraltıldığında data-collapsed işaretlenir", () => {
+    const { container } = render(
+      <Sidebar collapsed etkin={null} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />,
+    );
+
+    expect(container.querySelector("nav")?.getAttribute("data-collapsed")).toBe("true");
+  });
+});

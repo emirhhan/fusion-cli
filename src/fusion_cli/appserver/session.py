@@ -89,7 +89,6 @@ from .hosted_connectors import (
     verify_hosted_connector,
 )
 from .instructions import get_instructions, instruction_block, save_instructions
-from .lessons import get_lesson, list_lessons
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
@@ -554,10 +553,6 @@ class AppSession:
             return sonuc
         if request.name == "web.giris_durumu":
             return web_login_state(request.data.get("pid"))
-        if request.name == "ders.listele":
-            return list_lessons()
-        if request.name == "ders.getir":
-            return get_lesson(str(request.data.get("id", "")))
         if request.name == "komut.listele":
             return {"ok": True, "komutlar": list_commands(self._registry)}
         if request.name == "komut.calistir":

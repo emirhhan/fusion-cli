@@ -45,9 +45,9 @@ import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
 import { ControlPanel } from "./control/ControlPanel";
+import { useUpdateAvailable } from "./control/useUpdateAvailable";
 import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
-import { Lessons } from "./lessons/Lessons";
-import { Spotlight } from "./lessons/Spotlight";
+import { HelpScreen } from "./help/HelpScreen";
 import { Settings } from "./settings/Settings";
 import { useShowSteps } from "./settings/useShowSteps";
 import { desktopDir } from "@tauri-apps/api/path";
@@ -228,7 +228,6 @@ function ProjectInspector({
   onCollapsedChange,
   onSelectPath,
   onWidthChange,
-  requestedTab,
   root,
   selectedPath,
   width,
@@ -241,7 +240,6 @@ function ProjectInspector({
   /** Seçili dosya DIŞARIDAN yönetilir: sohbetteki kod kartı da bir dosya açar. */
   onSelectPath: (path: string | null) => void;
   onWidthChange: (width: number) => void;
-  requestedTab: InspectorTabId | null;
   root: string;
   selectedPath: string | null;
   width: number;
@@ -264,7 +262,6 @@ function ProjectInspector({
       onActiveTabChange={onActiveTabChange}
       onCollapsedChange={onCollapsedChange}
       onWidthChange={onWidthChange}
-      requestedTab={requestedTab}
       width={width}
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={onSelectPath} root={root} />,
@@ -454,11 +451,10 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "lessons" | "settings" | "account" | "image-create" | "video-create">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "help" | "settings" | "account" | "image-create" | "video-create">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
-  const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
   // Seçili dosya BURADA durur: hem çalışma panelindeki ağaç hem sohbetteki
   // kod kartı aynı seçimi değiştirir.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -470,7 +466,6 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [modeBusy, setModeBusy] = useState(false);
-  const [spotlight, setSpotlight] = useState<{ isaret: string; metin: string } | null>(null);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const voiceRequest = useRef<{
@@ -485,6 +480,7 @@ export function SessionUygulama({
   const account = useAccount(active?.client ?? null);
   const etkinHesap =
     account.durum?.hesaplar.find((item) => item.kimlik === account.durum?.etkin) ?? null;
+  const guncellemeSurumu = useUpdateAvailable();
   const { changeTheme, themePreference } = useAppTheme(active?.client);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
@@ -510,8 +506,8 @@ export function SessionUygulama({
               setPage(destination);
             } else if (destination === "skills") {
               setPage("skills");
-            } else if (destination === "lessons") {
-              setPage("lessons");
+            } else if (destination === "help") {
+              setPage("help");
             } else if (destination === "settings") {
               setPage("settings");
             } else if (destination === "control-panel") {
@@ -525,8 +521,7 @@ export function SessionUygulama({
               // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
               // kullanıcıya orada açıkça söylüyoruz.
               setPage("settings");
-            } else if (destination === "help") {
-              setPage("lessons");
+
             } else if (destination.startsWith("resume:")) {
               setPage("chat");
               const source = destination.slice("resume:".length) as "claude" | "codex" | "hermes";
@@ -856,7 +851,7 @@ export function SessionUygulama({
     : page === "image-create" ? "Görsel oluştur"
       : page === "video-create" ? "Video oluştur"
         : page === "skills" ? "Beceriler ve Ajanlar"
-          : page === "lessons" ? "Dersler"
+          : page === "help" ? "Yardım"
             : active.title;
 
   const draft = drafts[active.id] ?? "";
@@ -911,18 +906,6 @@ export function SessionUygulama({
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} onSelectPrompt={setDraft} />
   );
-  /** Ders adımının işaret ettiği yüzeyi aç. Hiçbir şey çalıştırılmaz. */
-  const openLessonTarget = (hedef: string) => {
-    if (hedef === "yetenek") return setPage("skills");
-    if (hedef === "kontrol") return setPage("control");
-    if (hedef === "gecmis") {
-      setPage("chat");
-      return setHistoryOpen(true);
-    }
-    setPage("chat");
-    layout.openInspector();
-    setRequestedTab(hedef === "surec" ? "processes" : "files");
-  };
   const content = page === "image-create" || page === "video-create"
     ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
     : page === "skills"
@@ -932,17 +915,9 @@ export function SessionUygulama({
         <ControlPanel
           client={active.client}
           title={controlTitle}
-          onChangeRoot={() => void requestTaskFolder()}
           onClose={() => setPage("chat")}
           revision={controlRevision}
           onProvidersChanged={() => setControlRevision((value) => value + 1)}
-          onRunCommand={(command) => {
-            // Seçici panelin ÜSTÜNDE açılır; sayfa değişmez. Eskiden burada
-            // `setPage("chat")` vardı ve kullanıcı model seçmeye basar basmaz
-            // sohbet ekranına atılıyordu — seçimini yaptıktan sonra panele
-            // dönmek için elle geri gitmesi gerekiyordu.
-            void executeCommand(command, false);
-          }}
         />
       )
       : page === "connectors"
@@ -970,26 +945,20 @@ export function SessionUygulama({
         ? (
           <Settings
             client={active.client}
+            onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
+            onOpenAccount={() => setPage("account")}
+            onRunCommand={(command) => void executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}
           />
         )
-      : page === "lessons"
+      : page === "help"
         ? (
-          <Lessons
-            client={active.client}
+          <HelpScreen
             onClose={() => setPage("chat")}
-            onOpenTab={openLessonTarget}
-            onShowMark={(isaret, metin) => {
-              // Işık gerçek arayüzün üstüne düşer; ders ekranı kapanır.
-              setPage("chat");
-              setSpotlight({ isaret, metin });
-            }}
-            onUseComposer={(gorev) => {
-              setPage("chat");
-              setDraft(gorev);
-            }}
+            onOpenSettings={() => setPage("settings")}
+            surum={runtimeVersion}
           />
         )
         : conversationContent;
@@ -1115,13 +1084,6 @@ export function SessionUygulama({
         <>
           {content}
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
-          {spotlight && (
-            <Spotlight
-              isaret={spotlight.isaret}
-              metin={spotlight.metin}
-              onClose={() => setSpotlight(null)}
-            />
-          )}
           {closeAsked && (
             <CloseConfirm
               onCancel={() => setCloseAsked(false)}
@@ -1211,7 +1173,6 @@ export function SessionUygulama({
           onCollapsedChange={inspectorLayout.setCollapsed}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
-          requestedTab={requestedTab}
           root={active.root}
           selectedPath={selectedPath}
           width={inspectorLayout.width}
@@ -1264,6 +1225,8 @@ export function SessionUygulama({
             root: project.root,
             updated_at: project.updatedAt,
           }))}
+          guncellemeSurumu={guncellemeSurumu}
+          onGuncellemeAc={() => setPage("settings")}
           hesap={etkinHesap}
           onCikis={() => {
             // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması

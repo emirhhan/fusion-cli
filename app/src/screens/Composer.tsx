@@ -225,7 +225,6 @@ export function Composer({
         {attachmentError && <p aria-live="polite" className="composer__attachment-error">{attachmentError}</p>}
         <textarea
           aria-label="Mesaj"
-          data-ders="gorev-kutusu"
           disabled={running}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
@@ -239,7 +238,6 @@ export function Composer({
               <div
                 aria-label="Çalışma kipi"
                 className="composer__mode"
-                data-ders="kip"
                 data-mode={mode}
                 role="group"
               >
@@ -262,14 +260,13 @@ export function Composer({
                 ))}
               </div>
             )}
-            <span data-ders="ek">
+            <span>
               <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
             </span>
             {onApprovalChange ? (
               <button
                 aria-label={`İzin modu: ${APPROVAL_LABEL[approval]}. Değiştirmek için tıkla ya da Shift+Tab.`}
                 className="composer__approval"
-                data-ders="izin"
                 data-mode={approval}
                 onClick={() => onApprovalChange(nextApproval())}
                 title={APPROVAL_HINT[approval]}
@@ -289,7 +286,6 @@ export function Composer({
                 <button
                   aria-label="Konuşarak anlat"
                   className="composer__voice"
-                  data-ders="mikrofon"
                   onClick={onVoice}
                   type="button"
                 >

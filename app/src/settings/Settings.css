@@ -121,3 +121,89 @@
 .connector-dialog .settings__connector-form button { grid-column: 1; justify-self: end; min-height: 36px; margin-top: 12px; padding: 8px 14px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: var(--surface-hover); color: var(--text-primary); font: inherit; cursor: pointer; }
 .connector-dialog .settings__connector-form button:disabled { opacity: .5; cursor: default; }
 .connector-dialog .settings__hint { margin-top: 12px; }
+
+/* --- macOS tarzı sol menü ---------------------------------------------- */
+
+.settings__workspace {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: 180px minmax(0, 1fr);
+  padding: var(--space-6);
+}
+
+.settings__nav {
+  align-content: start;
+  display: grid;
+  gap: 2px;
+  position: sticky;
+  top: var(--space-6);
+}
+
+.settings__nav button {
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--text-sm, 14px);
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+}
+.settings__nav button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.settings__nav button[aria-current="page"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings__panel { display: grid; gap: var(--space-4); align-content: start; }
+
+.settings__card-head {
+  align-items: center;
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+}
+.settings__card-head h3 { margin: 0; }
+.settings__card-head i {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-style: normal;
+}
+.settings__card-head i[data-online="true"] { color: var(--text-success); }
+
+.settings__actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
+
+.settings__endpoint {
+  background: var(--surface-hover);
+  border-radius: var(--radius-xs);
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  margin-top: var(--space-2);
+  overflow-x: auto;
+  padding: var(--space-2) var(--space-3);
+}
+
+/* İzin modları: seçili olan RENKLE değil, kenarlık ve zeminle de ayrılır. */
+.settings__choices { display: grid; gap: var(--space-2); }
+
+.settings__choice {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+}
+.settings__choice[data-active="true"] {
+  background: var(--surface-accent-subtle);
+  border-color: var(--accent-text);
+}
+.settings__choice strong { font-size: var(--text-sm, 14px); font-weight: 600; }
+.settings__choice small { color: var(--text-secondary); font-size: var(--text-xs); }
+
+/* Dar pencerede menü üste geçer; içerik sıkışmaz. */
+@media (max-width: 899px) {
+  .settings__workspace { grid-template-columns: minmax(0, 1fr); }
+  .settings__nav { display: flex; flex-wrap: wrap; position: static; }
+}

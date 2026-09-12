@@ -10,18 +10,16 @@ function client() {
         ok: true,
         kok: "/Users/test/Fusion",
         gateway: { durum: "calisiyor", adres: "http://127.0.0.1:8787/v1" },
+        izin: { mod: "auto", kokle_sinirli: true },
+        model: {
+          agent: "gemini_web/main/auto",
+          hakem: "openrouter/hakem",
+          adaylar: ["hizli", "derin"],
+          saglayici: "gemini_web",
+        },
         saglayicilar: [{ id: "openrouter", ad: "OpenRouter", kurulu: true }],
-        mcp: [{ ad: "github", komut: "npx" }],
       };
       if (name === "ayar.talimat") return { ok: true, metin: "Kısa yaz.", sinir: 4000 };
-      if (name === "baglanti.listele") return {
-        ok: true,
-        sunucular: [{ ad: "github", komut: "npx", argumanlar: ["-y", "mcp-github"], tasima: "stdio", durum: "bagli", arac_sayisi: 3 }],
-      };
-      if (name === "web.saglayicilar") return {
-        ok: true,
-        saglayicilar: [{ id: "claude_web", ad: "Claude Web", bagli: true }],
-      };
       if (name === "kullanim.durum") return {
         ok: true,
         kullanim: {
@@ -49,148 +47,203 @@ function client() {
   } as unknown as ProtocolClient;
 }
 
+function ciz(ekle: Partial<Parameters<typeof Settings>[0]> = {}) {
+  const fake = ekle.client ?? client();
+  render(
+    <Settings
+      client={fake}
+      onClose={() => undefined}
+      onThemeChange={() => undefined}
+      themePreference="system"
+      {...ekle}
+    />,
+  );
+  return fake;
+}
+
+/** Bölüme geç: içerik artık tek yığında değil, sol menüyle ayrılmış durumda. */
+function bolum(etiket: string) {
+  fireEvent.click(screen.getByRole("button", { name: etiket }));
+}
+
 // Depodaki diğer testlerle aynı: render'lar birikirse sorgular çoklu eşleşir.
 afterEach(() => {
   cleanup();
   localStorage.clear();
 });
 
-describe("Settings", () => {
-  it("tema ve yerel tercihleri kontrol panelinden ayrı gösterir", async () => {
-    const onThemeChange = vi.fn();
-    render(<Settings client={client()} onClose={() => undefined} onThemeChange={onThemeChange} themePreference="system" />);
-    expect(await screen.findByRole("heading", { name: "Ayarlar" })).toBeTruthy();
-    fireEvent.change(screen.getByRole("combobox", { name: "Görünüm" }), { target: { value: "dark" } });
-    expect(onThemeChange).toHaveBeenCalledWith("dark");
+describe("Settings — yapı", () => {
+  it("bölümleri sol menüde listeler ve Genel ile açılır", async () => {
+    ciz();
 
-    const history = screen.getByRole("checkbox", { name: "Geçmiş bölümünü açık başlat" }) as HTMLInputElement;
-    expect(history.checked).toBe(true);
-    fireEvent.click(history);
-    expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
+    expect(await screen.findByRole("heading", { name: "Ayarlar" })).toBeTruthy();
+    for (const etiket of ["Genel", "Hesap", "Modeller", "İzinler", "Güncellemeler", "Gelişmiş"]) {
+      expect(screen.getByRole("button", { name: etiket })).toBeTruthy();
+    }
+    expect(screen.getByRole("button", { name: "Genel" }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("bağlantı, çalışma alanı ve gizlilik özetini gerçek protokolden yükler", async () => {
-    render(<Settings client={client()} onClose={() => undefined} onThemeChange={() => undefined} themePreference="light" />);
-    await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
-    expect(screen.getByText("2 bağlı bağlantı")).toBeTruthy();
-    expect(screen.getByText("Gateway çalışıyor")).toBeTruthy();
-    expect(await screen.findByText("Sistem · Cem")).toBeTruthy();
-    expect(screen.getByText(/verileriniz bu cihazda/i)).toBeTruthy();
+  /* Kullanıcının ölçülmüş şikayeti: "Fusion for macOS" eyebrow'u ve "Çalışma
+     alanı" kartı ne olduğu anlaşılmayan yerlerdi. */
+  it("kaldırılan bölümleri ve etiketleri artık göstermez", async () => {
+    ciz();
+    await screen.findByRole("heading", { name: "Ayarlar" });
+
+    expect(screen.queryByText("Fusion for macOS")).toBeNull();
+    expect(screen.queryByText("Çalışma alanı")).toBeNull();
+    expect(screen.queryByText(/^Gateway/)).toBeNull();
+  });
+
+  it("bölüm değiştirince yalnız o bölüm çizilir", async () => {
+    ciz();
+    await screen.findByRole("heading", { name: "Ayarlar" });
+    expect(screen.getByRole("heading", { name: "Görünüm" })).toBeTruthy();
+
+    bolum("İzinler");
+
+    expect(screen.queryByRole("heading", { name: "Görünüm" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Çalışma modu" })).toBeTruthy();
   });
 });
 
-describe("Settings — derinlik", () => {
+describe("Settings — Genel", () => {
+  it("tema seçimini iletir ve geçmiş tercihini saklar", async () => {
+    const onThemeChange = vi.fn();
+    ciz({ onThemeChange });
+    await screen.findByRole("heading", { name: "Ayarlar" });
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Tema" }), {
+      target: { value: "dark" },
+    });
+    expect(onThemeChange).toHaveBeenCalledWith("dark");
+
+    const gecmis = screen.getByRole("checkbox", {
+      name: "Geçmiş bölümünü açık başlat",
+    }) as HTMLInputElement;
+    expect(gecmis.checked).toBe(true);
+    fireEvent.click(gecmis);
+    expect(localStorage.getItem("fusion.sidebar.history-open.v1")).toBe("false");
+  });
+
+  it("dil seçeneği tek ve kapalıdır; sebebini yazar", async () => {
+    ciz();
+    await screen.findByRole("heading", { name: "Ayarlar" });
+
+    const dil = screen.getByRole("combobox", { name: "Dil" }) as HTMLSelectElement;
+    expect(dil.disabled).toBe(true);
+    expect(screen.getByText(/yalnız Türkçe/i)).toBeTruthy();
+  });
+});
+
+describe("Settings — Modeller", () => {
+  /* Ajan modunda TEK model çalışır; hakem ve aday havuzu yalnız Fusion
+     motoruna aittir. İkisini birlikte göstermek, agent turunda hiç
+     kullanılmayan kavramları kullanıcının önüne koyuyordu. */
+  it("ajan modelini ayrı, Fusion motorunu ayrı gösterir", async () => {
+    ciz();
+    bolum("Modeller");
+
+    await waitFor(() => expect(screen.getByText("gemini_web/main/auto")).toBeTruthy());
+    expect(screen.getByRole("heading", { name: "Ajan modeli" })).toBeTruthy();
+    const fusion = screen.getByRole("heading", { name: "Fusion motoru" }).closest("article");
+    expect(fusion?.textContent).toContain("openrouter/hakem");
+    expect(fusion?.textContent).toContain("hizli · derin");
+  });
+
+  it("düşünme düzeyi artık sunulmaz", async () => {
+    ciz();
+    bolum("Modeller");
+    await waitFor(() => expect(screen.getByText("gemini_web/main/auto")).toBeTruthy());
+
+    expect(screen.queryByText(/Düşünme düzeyi/i)).toBeNull();
+  });
+
+  it("model değiştirme isteğini komut olarak iletir", async () => {
+    const onRunCommand = vi.fn();
+    ciz({ onRunCommand });
+    bolum("Modeller");
+    await waitFor(() => expect(screen.getByText("gemini_web/main/auto")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Modeli değiştir" }));
+
+    expect(onRunCommand).toHaveBeenCalledWith("/model");
+  });
+});
+
+describe("Settings — İzinler", () => {
+  it("etkin modu işaretler ve ne yaptığını yazar", async () => {
+    ciz();
+    bolum("İzinler");
+
+    await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
+    const otomatik = screen.getByText("Otomatik uygula").closest(".settings__choice");
+    expect(otomatik?.getAttribute("data-active")).toBe("true");
+    expect(screen.getByText(/yıkıcı işlemde yine sorar/i)).toBeTruthy();
+  });
+
+  it("klasör değiştirme isteğini iletir", async () => {
+    const onChangeRoot = vi.fn();
+    ciz({ onChangeRoot });
+    bolum("İzinler");
+    await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Klasörü değiştir" }));
+
+    expect(onChangeRoot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Settings — Gelişmiş", () => {
+  /* "gateway nedir ben bile bilmiyorum" — ad ne olduğunu değil ne YAPTIĞINI
+     söylemeli. */
+  it("yerel API ucunu adıyla değil işleviyle anlatır", async () => {
+    ciz();
+    bolum("Gelişmiş");
+
+    expect(await screen.findByRole("heading", { name: "Yerel API ucu" })).toBeTruthy();
+    expect(screen.getByText(/Cursor, Cline/)).toBeTruthy();
+    expect(screen.getByText("http://127.0.0.1:8787/v1")).toBeTruthy();
+  });
+
+  it("çalışan ucu durdurma isteğini çekirdeğe gönderir", async () => {
+    const fake = ciz();
+    bolum("Gelişmiş");
+    await screen.findByRole("heading", { name: "Yerel API ucu" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Durdur" }));
+
+    await waitFor(() =>
+      expect(fake.request).toHaveBeenCalledWith("kontrol.gateway_durdur", {}),
+    );
+  });
+
   it("kalıcı talimatı yükler ve kaydeder", async () => {
-    const fake = client();
-    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
+    const fake = ciz();
+    bolum("Gelişmiş");
+
     const alan = (await screen.findByLabelText("Kalıcı talimat")) as HTMLTextAreaElement;
     expect(alan.value).toBe("Kısa yaz.");
-
-    // Değişiklik yokken kaydetmek anlamsız: düğme kapalı.
-    expect((screen.getByRole("button", { name: "Kaydet" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Kaydet" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
 
     fireEvent.change(alan, { target: { value: "Cevapları kısa tut." } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("ayar.talimat_kaydet", {
-      metin: "Cevapları kısa tut.",
-    }));
+    await waitFor(() =>
+      expect(fake.request).toHaveBeenCalledWith("ayar.talimat_kaydet", {
+        metin: "Cevapları kısa tut.",
+      }),
+    );
   });
 
-  it("MCP bağlantılarını listeler ve ekler", async () => {
-    const fake = client();
-    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    expect(await screen.findByText("github")).toBeTruthy();
-    expect(screen.queryByLabelText("Ad")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
-    expect(screen.getByRole("dialog", { name: "MCP bağlantısı ekle" })).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "dosyalar" } });
-    fireEvent.change(screen.getByLabelText("Komut"), { target: { value: "npx -y mcp-fs" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
+  /* MCP yönetimi TEK ekranda olmalı: Ayarlar'daki ikinci kopya, biri
+     düzeltilirken ötekinin eskimesi demekti. */
+  it("MCP yönetimi Ayarlar'da tekrar edilmez", async () => {
+    ciz();
+    bolum("Gelişmiş");
+    await screen.findByRole("heading", { name: "Yerel API ucu" });
 
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.ekle", {
-      ad: "dosyalar",
-      komut: "npx -y mcp-fs",
-    }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-  });
-
-  it("ayar MCP popup'ı Escape ile kapanır ve odağı geri verir", async () => {
-    render(<Settings client={client()} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    const open = await screen.findByRole("button", { name: "Bağlantı ekle" });
-    open.focus();
-    fireEvent.click(open);
-    const dialog = screen.getByRole("dialog", { name: "MCP bağlantısı ekle" });
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
-    expect(document.activeElement).toBe(open);
-  });
-  it("bekleyen eklemede Escape odağı döndürür ve ikinci popup açılmaz", async () => {
-    const base = client();
-    let finish!: (value: Record<string, unknown>) => void;
-    const request = (name: string, data: Record<string, unknown>) => name === "baglanti.ekle"
-      ? new Promise<Record<string, unknown>>((resolve) => { finish = resolve; })
-      : base.request(name, data);
-    render(<Settings client={{ request } as unknown as ProtocolClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    const open = await screen.findByRole("button", { name: "Bağlantı ekle" });
-    open.focus();
-    fireEvent.click(open);
-    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "yerel" } });
-    fireEvent.change(screen.getByLabelText("Komut"), { target: { value: "npx server" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(document.activeElement).toBe(open);
-    fireEvent.click(open);
-    expect(screen.queryByRole("dialog")).toBeNull();
-    finish({ ok: true });
-    await waitFor(() => expect(open.getAttribute("aria-disabled")).toBe("false"));
-  });
-
-  it("iki alan dolmadan bağlantı eklenemez", async () => {
-    render(<Settings client={client()} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    await screen.findByText("github");
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
-    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "dosyalar" } });
-
-    expect((screen.getByRole("button", { name: "Bağlantıyı kaydet" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("bağlantıyı kaldırır", async () => {
-    const fake = client();
-    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    fireEvent.click(await screen.findByRole("button", { name: "github bağlantısını kaldır" }));
-
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.sil", { ad: "github" }));
-  });
-
-  it("uzak MCP ekler ve OAuth giriş durumunu gösterir", async () => {
-    const fake = client();
-    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-    await screen.findByText("github");
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantı ekle" }));
-
-    fireEvent.change(screen.getByLabelText("Bağlantı türü"), { target: { value: "streamable_http" } });
-    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "meta" } });
-    fireEvent.change(screen.getByLabelText("MCP adresi"), { target: { value: "https://mcp.example.com/mcp" } });
-    fireEvent.click(screen.getByRole("button", { name: "Bağlantıyı kaydet" }));
-
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.ekle", {
-      ad: "meta",
-      tasima: "streamable_http",
-      url: "https://mcp.example.com/mcp",
-      kapsamlar: "",
-      client_id: "",
-      token: "",
-    }));
-  });
-
-  it("bağlı MCP için araç sayısı ve test eylemi gösterir", async () => {
-    const fake = client();
-    render(<Settings client={fake} onClose={() => undefined} onThemeChange={() => undefined} themePreference="system" />);
-
-    expect(await screen.findByText("3 araç")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "github bağlantısını test et" }));
-    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("baglanti.dogrula", { ad: "github" }));
+    expect(screen.queryByRole("button", { name: "Bağlantı ekle" })).toBeNull();
   });
 });

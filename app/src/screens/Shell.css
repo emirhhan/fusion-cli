@@ -15,12 +15,26 @@
   grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) var(--inspector-width);
 }
 
+/* Daraltılmış kenar çubuğu TAMAMEN gizlenir — ChatGPT ve Claude'daki gibi.
+   Eskiden ikon şeridine iniyordu: başlıklar gizlenince geriye anlamsız
+   simgeler, yarım kalmış arama kutusu ve baş harflere inmiş proje adları
+   kalıyordu. Yarı görünür bir çubuk, kapalı bir çubuktan da açık bir çubuktan
+   da kötüydü. Geri açma yolu başlıktaki düğmedir. */
 .app-shell[data-sidebar-collapsed="true"] {
-  grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) 0;
+  grid-template-columns: 0 minmax(0, 1fr) 0;
 }
 
 .app-shell[data-sidebar-collapsed="true"][data-inspector-open="true"] {
-  grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) var(--inspector-width);
+  grid-template-columns: 0 minmax(0, 1fr) var(--inspector-width);
+}
+
+.app-shell[data-sidebar-collapsed="true"] .app-shell__sidebar {
+  border-right: 0;
+  overflow: hidden;
+  /* `display: none` DEĞİL: odaktaki bir öğe DOM'dan kalkınca odak gövdeye
+     düşüyor ve klavye kullanıcısı yerini kaybediyordu. Genişlik sıfır,
+     içerik erişilemez. */
+  visibility: hidden;
 }
 
 .app-shell__sidebar {
@@ -81,40 +95,46 @@
   z-index: var(--z-overlay);
 }
 
-@media (max-width: 1199px) {
-  .app-shell,
-  .app-shell[data-sidebar-collapsed="false"] {
-    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) 0;
-  }
-
-  .app-shell[data-inspector-open="true"],
-  .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
-    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr) var(--inspector-width);
-  }
-}
-
+/* Dar pencerede kenar çubuğu SÜTUN KAPLAMAZ; içeriğin üstüne biner ve arkası
+   karartılır. Eskiden ikon şeridine inip kalıcı bir sütun tutuyordu: 1024px
+   altında sohbet için kalan yer zaten dardı ve o şerit hiçbir iş görmüyordu. */
 @media (max-width: 1023px) {
   .app-shell,
   .app-shell[data-inspector-open="true"],
   .app-shell[data-sidebar-collapsed="false"],
   .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
-    grid-template-columns: var(--sidebar-rail-width) minmax(0, 1fr);
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .app-shell__sidebar {
+    bottom: 0;
+    box-shadow: var(--shadow-overlay);
+    position: fixed;
+    top: var(--header-height);
+    width: var(--kenar-cubugu-genislik);
+    z-index: var(--z-overlay);
+  }
+
+  .app-shell[data-sidebar-collapsed="true"] .app-shell__sidebar {
+    /* Üste binen çubuk kapalıyken ekran dışına çekilir: sıfır genişlik burada
+       yetmez, konumu sabit. */
+    transform: translateX(-100%);
   }
 
   .app-shell__inspector {
     box-sizing: border-box;
     bottom: 0;
     box-shadow: var(--shadow-overlay);
-    max-width: calc(100vw - var(--sidebar-rail-width));
+    max-width: 100vw;
     position: fixed;
     right: 0;
     top: var(--header-height);
-    width: min(var(--inspector-width), calc(100vw - var(--sidebar-rail-width)));
+    width: min(var(--inspector-width), 100vw);
   }
 
   .app-shell__backdrop {
     display: block;
-    left: var(--sidebar-rail-width);
+    left: 0;
     top: var(--header-height);
   }
 }

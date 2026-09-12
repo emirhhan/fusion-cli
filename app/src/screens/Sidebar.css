@@ -414,3 +414,31 @@
 .sidebar__session { align-items: center; }
 
 .sidebar__storage-error { color: var(--text-secondary); font-size: var(--text-xs); padding: 0 8px; }
+
+/* Güncelleme şeridi — profilin hemen üstünde, ince ve sessiz.
+   Nokta TEK işaret değildir: yanında sürüm numarası yazar, böylece renk körü
+   kullanıcı da ne olduğunu okur. */
+.sidebar__update {
+  align-items: center;
+  background: var(--surface-accent-subtle);
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--accent-text);
+  cursor: pointer;
+  display: flex;
+  font-size: var(--text-xs);
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  width: 100%;
+}
+.sidebar__update:hover { background: var(--surface-hover); }
+
+.sidebar__update-dot {
+  background: var(--accent-text);
+  border-radius: var(--radius-pill);
+  flex: none;
+  height: 6px;
+  width: 6px;
+}

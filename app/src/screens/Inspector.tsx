@@ -37,12 +37,6 @@ interface InspectorProps {
   onActiveTabChange?: (tab: InspectorTabId) => void;
   onCollapsedChange?: (collapsed: boolean) => void;
   onWidthChange?: (width: number) => void;
-  /**
-   * Dışarıdan istenen sekme. Ders adımı "proje sekmesini aç" dediğinde
-   * kullanılır; kullanıcının elle seçtiği sekmeyi kilitlemez — istek
-   * değiştiğinde bir kez uygulanır, sonra denetim yine kullanıcıdadır.
-   */
-  requestedTab?: InspectorTabId | null;
   status?: InspectorStatus;
   width?: number;
 }
@@ -55,28 +49,16 @@ export function Inspector({
   onActiveTabChange,
   onCollapsedChange,
   onWidthChange,
-  requestedTab = null,
   status = "ready",
   width = INSPECTOR_DEFAULT_WIDTH,
 }: InspectorProps) {
   const [internalActiveTab, setInternalActiveTab] = useState<InspectorTabId>("files");
-  const appliedRequestedTab = useRef<InspectorTabId | null>(null);
   const resizeCleanup = useRef<() => void>(() => undefined);
   const activeTab = controlledActiveTab ?? internalActiveTab;
   const setActiveTab = (tab: InspectorTabId) => {
     if (controlledActiveTab === undefined) setInternalActiveTab(tab);
     onActiveTabChange?.(tab);
   };
-  useEffect(() => {
-    if (!requestedTab) {
-      appliedRequestedTab.current = null;
-      return;
-    }
-    if (appliedRequestedTab.current === requestedTab) return;
-    appliedRequestedTab.current = requestedTab;
-    if (controlledActiveTab === undefined) setInternalActiveTab(requestedTab);
-    onActiveTabChange?.(requestedTab);
-  }, [controlledActiveTab, onActiveTabChange, requestedTab]);
   useEffect(() => () => resizeCleanup.current(), []);
   useEffect(() => {
     if (collapsed) resizeCleanup.current();
