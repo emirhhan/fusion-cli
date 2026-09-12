@@ -1,5 +1,5 @@
 import type { Mesaj } from "../screens/Conversation";
-import { olayAdimi } from "./olayMetni";
+import { olayAdimi, type OlayAdimi } from "./olayMetni";
 
 /**
  * Olayı sohbet akışına ekle.
@@ -22,12 +22,21 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
   const son = messages[messages.length - 1];
   const bloklanabilir = son?.rol === "olay" && !son.adimlar?.some((item) => item.sonuc);
   if (!bloklanabilir) {
-    return [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
+    const acilan: Mesaj[] = [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
+    return adim.diff ? [...acilan, degisiklikMesaji(adim)] : acilan;
   }
 
   const adimlar = [...(son.adimlar ?? []), adim];
-  return [
-    ...messages.slice(0, -1),
-    { ...son, adimlar, metin: adim.metin },
-  ];
+  const guncel: Mesaj[] = [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
+  return adim.diff ? [...guncel, degisiklikMesaji(adim)] : guncel;
+}
+
+/**
+ * Değişiklik KALICI bir mesajdır, çalışma bloğunun parçası değil.
+ *
+ * Çalışma göstergesi iş bitince kaybolur; dosyaya ne yazıldığı kaybolmamalı.
+ * Kullanıcının elinde kalan tek kanıt budur.
+ */
+function degisiklikMesaji(adim: OlayAdimi): Mesaj {
+  return { rol: "degisiklik", metin: adim.yol ?? "", diff: adim.diff };
 }

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Tier } from "./screens/TierBar";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
   CommandSelector,
+  continuation,
   type CommandSelectorPayload,
 } from "./dialogs/CommandSelector";
 import { useHistory } from "./history/useHistory";
@@ -23,6 +23,7 @@ import {
   type WorkspaceMode,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
+import type { ModelOption } from "./screens/ModelPicker";
 import { EmptyState } from "./screens/EmptyState";
 import { Inspector, type InspectorTabId } from "./screens/Inspector";
 import { Shell } from "./screens/Shell";
@@ -48,6 +49,7 @@ import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { Lessons } from "./lessons/Lessons";
 import { Spotlight } from "./lessons/Spotlight";
 import { Settings } from "./settings/Settings";
+import { useShowSteps } from "./settings/useShowSteps";
 import { desktopDir } from "@tauri-apps/api/path";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
@@ -221,9 +223,11 @@ function ProjectInspector({
   collapsed,
   onActiveTabChange,
   onCollapsedChange,
+  onSelectPath,
   onWidthChange,
   requestedTab,
   root,
+  selectedPath,
   width,
 }: {
   activeTab: InspectorTabId;
@@ -231,13 +235,15 @@ function ProjectInspector({
   collapsed: boolean;
   onActiveTabChange: (tab: InspectorTabId) => void;
   onCollapsedChange: (collapsed: boolean) => void;
+  /** Seçili dosya DIŞARIDAN yönetilir: sohbetteki kod kartı da bir dosya açar. */
+  onSelectPath: (path: string | null) => void;
   onWidthChange: (width: number) => void;
   requestedTab: InspectorTabId | null;
   root: string;
+  selectedPath: string | null;
   width: number;
 }) {
   const [revision, setRevision] = useState(0);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const processes = useProcesses(client);
   const changed = () => setRevision((current) => current + 1);
   useEffect(() => client.onEvent((event) => {
@@ -258,7 +264,7 @@ function ProjectInspector({
       requestedTab={requestedTab}
       width={width}
       content={{
-        files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={setSelectedPath} root={root} />,
+        files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={onSelectPath} root={root} />,
         changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
         terminal: <TerminalPanel cwd={root} />,
         processes: <ProcessesPanel controller={processes} />,
@@ -274,6 +280,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [draft, setDraft] = useState("");
+  const showSteps = useShowSteps();
   // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
   useAppTheme(istemci);
   const clear = () => {
@@ -281,7 +288,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
     conversation.clear();
   };
   const content = conversation.messages.length > 0 ? (
-    <Conversation mesajlar={conversation.messages} />
+    <Conversation mesajlar={conversation.messages} showSteps={showSteps} />
   ) : (
     <EmptyState onSelectPrompt={setDraft} />
   );
@@ -438,10 +445,9 @@ export function SessionUygulama({
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
-  const [tiers, setTiers] = useState<Tier[]>([]);
-  const [activeTier, setActiveTier] = useState("");
-  const [tierEditable, setTierEditable] = useState(true);
-  const [tierReason, setTierReason] = useState("");
+  const [activeModel, setActiveModel] = useState("");
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
+  const [modelsBusy, setModelsBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
@@ -451,6 +457,10 @@ export function SessionUygulama({
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
   const [requestedTab, setRequestedTab] = useState<InspectorTabId | null>(null);
+  // Seçili dosya BURADA durur: hem çalışma panelindeki ağaç hem sohbetteki
+  // kod kartı aynı seçimi değiştirir.
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const showSteps = useShowSteps();
   // Varsayılan SOHBET: boş bir pencerede "merhaba" yazmak proje taraması
   // başlatmamalı. Kod kipine geçiş kullanıcının açık kararıdır.
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("sohbet");
@@ -575,42 +585,55 @@ export function SessionUygulama({
     return () => { alive = false; unlisten?.(); };
   }, [active?.id]);
 
-  // Kademe listesi oturuma bağlıdır: sağlayıcı tercihi ve etkin model oturumun
-  // yapılandırmasından gelir, bu yüzden istemcide önbelleğe alınmaz.
+  // Etkin model oturumun yapılandırmasından gelir; istemcide önbelleğe alınmaz.
+  // `controlRevision` bağımlılıktır: `/model` komutu modeli değiştirdiğinde
+  // composer'daki ad da tazelenmeli, yoksa eski model yazılı kalırdı.
   useEffect(() => {
     if (!active) return;
     let alive = true;
     void active.client
-      .request("kademe.listele", {})
+      .request("kontrol.durum", {})
       .then((payload) => {
-        if (!alive || payload.ok !== true || !Array.isArray(payload.kademeler)) return;
-        setTiers(payload.kademeler as Tier[]);
-        setActiveTier(typeof payload.etkin === "string" ? payload.etkin : "");
-        setTierEditable(payload.duzenlenebilir !== false);
-        setTierReason(typeof payload.metin === "string" ? payload.metin : "");
+        if (!alive || payload.ok !== true) return;
+        const model = (payload.model as { agent?: unknown } | undefined)?.agent;
+        if (typeof model === "string") setActiveModel(model);
       })
       .catch(() => undefined);
     return () => {
       alive = false;
     };
-  }, [active]);
+  }, [active, controlRevision]);
 
-  const changeTier = useCallback(
-    async (ad: string) => {
-      if (!active) return;
-      const onceki = activeTier;
-      // İyimser güncelleme: bar anında tepki verir, çekirdek reddederse geri alınır.
-      setActiveTier(ad);
-      const sonuc = await active.client.request("kademe.sec", { ad }).catch(() => null);
-      if (!sonuc || sonuc.ok !== true) {
-        setActiveTier(onceki);
-        if (sonuc && typeof sonuc.metin === "string") setTierReason(sonuc.metin);
+  /**
+   * Model listesini `/model` komutunun KENDİ seçeneklerinden oku.
+   *
+   * Ayrı bir "modelleri listele" ucu açılmadı: `/model` akışı zaten testli ve
+   * sağlayıcıya göre doğru listeyi üretiyor. İkinci bir yol açmak, biri
+   * düzeltilirken ötekinin eskimesi demekti (RULES "Genel Tasarım").
+   */
+  const loadModelOptions = useCallback(async () => {
+    if (!active) return;
+    setModelsBusy(true);
+    try {
+      const sonuc = await active.client.request("komut.secenekler", { ad: "model", arguman: "" });
+      const secici = commandSelectorFrom(sonuc?.secici);
+      if (!secici) {
+        setModelOptions([]);
         return;
       }
-      if (typeof sonuc.etkin === "string") setActiveTier(sonuc.etkin);
-    },
-    [active, activeTier],
-  );
+      setModelOptions(
+        secici.secenekler.map((secenek) => ({
+          deger: continuation(secici, secenek.deger),
+          etiket: secenek.etiket,
+          aciklama: secenek.aciklama,
+        })),
+      );
+    } catch {
+      setModelOptions([]);
+    } finally {
+      setModelsBusy(false);
+    }
+  }, [active]);
 
   useEffect(() => {
     if (!active) return;
@@ -875,7 +898,17 @@ export function SessionUygulama({
     setDraft("");
   };
   const conversationContent = active.messages.length > 0 ? (
-    <Conversation mesajlar={active.messages} />
+    <Conversation
+      mesajlar={active.messages}
+      showSteps={showSteps}
+      onOpenFile={(path) => {
+        setSelectedPath(path);
+        // Dosyanın İÇERİĞİNİ gösteren sekme önizlemedir; ağaç sekmesi yalnız
+        // klasörü açardı ve kullanıcı tıkladığı dosyayı göremezdi.
+        inspectorLayout.setActiveTab("preview");
+        layout.openInspector();
+      }}
+    />
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} onSelectPrompt={setDraft} />
   );
@@ -983,11 +1016,11 @@ export function SessionUygulama({
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <Composer
-          activeTier={activeTier}
-          tiers={tiers}
-          tierEditable={tierEditable}
-          tierReason={tierReason}
-          onTierChange={(ad) => void changeTier(ad)}
+          activeModel={activeModel}
+          modelOptions={modelOptions}
+          modelsBusy={modelsBusy}
+          onModelMenuOpen={() => void loadModelOptions()}
+          onModelSelect={(komut) => void executeCommand(komut, false)}
           approval={approval}
           onApprovalChange={(next) => {
             setApproval(next);
@@ -1158,9 +1191,11 @@ export function SessionUygulama({
           key={active.id}
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
+          onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           requestedTab={requestedTab}
           root={active.root}
+          selectedPath={selectedPath}
           width={inspectorLayout.width}
         />
       ) : undefined}

@@ -23,6 +23,16 @@ describe("Conversation", () => {
     expect(screen.getByText("Fusion")).toBeTruthy();
   });
 
+  it("Fusion yanıtını markdown olarak çizer; kodu kendi kartına alır", () => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{ rol: "asistan", metin: "## Kurulum\n\n```python\nprint(1)\n```" }]}
+      />,
+    );
+    expect(container.querySelector("h2")?.textContent).toBe("Kurulum");
+    expect(container.querySelector(".code-card")).not.toBeNull();
+  });
+
   it("mesaj geçmişini canlı bölge yapmaz; işlem durumunu ayrı canlı bölgede sunar", () => {
     const { container } = render(
       <Conversation
@@ -37,76 +47,87 @@ describe("Conversation", () => {
     expect(screen.getByRole("status").textContent).toBe("Çalışıyor");
   });
 
-  it("çalışan durumu ikonla ve metinle ayırt eder", () => {
+  it("çalışırken tek satır gösterir; kutu, ikon ve 'Çalışma' başlığı çizmez", () => {
     const { container } = render(
       <Conversation
         mesajlar={[{ rol: "olay", metin: "dosya yazıyor", adimlar: [{ metin: "dosya yazıyor" }] }]}
       />,
     );
-    expect(screen.getByText("Çalışma")).toBeTruthy();
-    expect(container.querySelector('[data-state="running"]')?.textContent).toContain("Çalışıyor");
-    expect(screen.getByLabelText("Çalışıyor simgesi")).toBeTruthy();
+    expect(screen.queryByText("Çalışma")).toBeNull();
+    expect(container.querySelector(".activity__pulse")?.textContent).toBe("dosya yazıyor");
+    expect(container.querySelector('[data-state="running"]')).not.toBeNull();
+    expect(container.querySelector("details")).toBeNull();
   });
 
-  it.each([
-    ["completed", "Tamamlandı", "Tamamlandı simgesi"],
-    ["partial", "Kısmi", "Kısmi simgesi"],
-    ["failed", "Başarısız", "Başarısız simgesi"],
-  ] as const)("%s tur sonucunu typed durumdan dürüstçe gösterir ve duyurur", (sonuc, etiket, simge) => {
+  /* Kullanıcının ölçülmüş şikayeti: basit bir soruda bile cevabın üstünde yeşil
+     tikli bir "Tamamlandı" bloğu kalıyordu. Biten iş iz BIRAKMAMALI. */
+  it("tamamlanan iş hiçbir iz bırakmaz", () => {
     const { container } = render(
       <Conversation
         mesajlar={[{
           rol: "olay",
-          metin: "yerelleştirilmiş sonuç metni",
-          adimlar: [{ metin: "yerelleştirilmiş sonuç metni", sonuc }],
+          metin: "görev tamamlandı",
+          adimlar: [{ metin: "görev tamamlandı", sonuc: "completed" }],
         }]}
       />,
     );
-    const outcomeRow = container.querySelector(`[data-state="${sonuc}"]`);
-    expect(outcomeRow).not.toBeNull();
-    expect(outcomeRow?.textContent ?? "").toContain(etiket);
-    expect(screen.getByLabelText(simge)).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe(etiket);
-    if (sonuc === "partial") {
-      expect(container.querySelector('[data-state="partial"]')?.textContent).not.toContain("Tamamlandı");
-      expect(screen.getByRole("status").textContent).not.toContain("Tamamlandı");
-    }
+    expect(container.querySelector(".activity")).toBeNull();
+    expect(container.textContent).not.toContain("Tamamlandı");
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
-  it("ayrıntılı çalışma adımını açılabilir kutuda sunar", () => {
+  it("adım dökümü açıkken tamamlanan iş katlanmış özet bırakır", () => {
     render(
       <Conversation
+        showSteps
         mesajlar={[{
           rol: "olay",
-          metin: "araç çalıştı: write_file",
-          adimlar: [{ metin: "araç çalıştı: write_file", ayrinti: "index.html" }],
-        }]}
-      />,
-    );
-    expect(screen.getByText("index.html").closest("details")).toBeTruthy();
-  });
-
-  it("tek ve ayrıntısız adımda açılır kutu açmaz; aynı cümleyi iki kez yazmaz", () => {
-    render(<Conversation mesajlar={[{ rol: "olay", metin: "düşünüyor", adimlar: [{ metin: "düşünüyor" }] }]} />);
-    expect(screen.getAllByText("düşünüyor")).toHaveLength(1);
-    expect(screen.queryByRole("group")).toBeNull();
-  });
-
-  it("ardışık adımlar tek blokta ve sayısıyla görünür", () => {
-    render(
-      <Conversation
-        mesajlar={[{
-          rol: "olay",
-          metin: "düşünüyor",
+          metin: "görev tamamlandı",
           adimlar: [
-            { metin: "düşünüyor", ayrinti: "agent · openrouter/x" },
-            { metin: "araç çalıştı: web_fetch", kaynak: "https://ornek.com" },
+            { metin: "düşünüyor", ayrinti: "agent · model" },
+            { metin: "araç çalıştı: write_file", ayrinti: "index.html", sonuc: "completed" },
           ],
         }]}
       />,
     );
-    expect(screen.getByText("2 adım")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "https://ornek.com" })).toBeTruthy();
+    const ozet = screen.getByText("2 adım · detaylar");
+    expect(ozet.closest("details")?.hasAttribute("open")).toBe(false);
+    expect(screen.getByText("index.html")).toBeTruthy();
+  });
+
+  it.each([
+    ["failed", "Tamamlanamadı"],
+    ["partial", "Kısmen tamamlandı"],
+  ] as const)("%s sonucu kaybolmaz; sebebiyle görünür kalır", (sonuc, etiket) => {
+    const { container } = render(
+      <Conversation
+        mesajlar={[{
+          rol: "olay",
+          metin: "adım düştü",
+          adimlar: [{ metin: "adım düştü", ayrinti: "agent adım bütçesi doldu", sonuc }],
+        }]}
+      />,
+    );
+    const satir = container.querySelector(`[data-state="${sonuc}"]`);
+    expect(satir?.textContent).toContain(etiket);
+    expect(satir?.textContent).toContain("agent adım bütçesi doldu");
+    expect(satir?.textContent).not.toContain("Tamamlandı");
+  });
+
+  it("başarısızlığı ekran okuyucuya duyurur, başarıyı duyurmaz", () => {
+    const { rerender } = render(
+      <Conversation
+        mesajlar={[{ rol: "olay", metin: "düştü", adimlar: [{ metin: "düştü", sonuc: "failed" }] }]}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("Tamamlanamadı");
+
+    rerender(
+      <Conversation
+        mesajlar={[{ rol: "olay", metin: "bitti", adimlar: [{ metin: "bitti", sonuc: "completed" }] }]}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("uzun ve satır sonlu metni güvenli metin akışında korur", () => {

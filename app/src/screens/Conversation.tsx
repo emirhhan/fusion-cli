@@ -1,8 +1,11 @@
 import { Button } from "../ui/Button";
 import "./Conversation.css";
 
-import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
+import type { OlayAdimi } from "../protocol/olayMetni";
 import { assetUrl } from "../platform/assetUrl";
+import { Markdown } from "../markdown/Markdown";
+import { DiffCard } from "../markdown/DiffCard";
+import { ActivityLine, activityState } from "./ActivityLine";
 
 export interface MesajEki {
   kind: "image" | "file";
@@ -12,11 +15,13 @@ export interface MesajEki {
 
 export interface Mesaj {
   metin: string;
-  rol: "kullanici" | "asistan" | "olay";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
   /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
   ekler?: MesajEki[];
+  /** Yalnız `rol === "degisiklik"` için: dosyaya uygulanan unified diff. */
+  diff?: string;
 }
 
 /**
@@ -46,14 +51,23 @@ function SentAttachments({ ekler }: { ekler: MesajEki[] }) {
   );
 }
 
-function AssistantMessage({ text }: { text: string }) {
+/**
+ * Fusion'ın cevabı.
+ *
+ * Metin MARKDOWN olarak çizilir. Eskiden düz metindi ve model kod yazdığında
+ * cevap okunmaz bir duvara dönüşüyordu: başlıklar, listeler ve kod blokları
+ * ham işaretleriyle akıyordu. Kod artık kendi kartında, katlanmış durur.
+ */
+function AssistantMessage({ text, onOpenFile }: { text: string; onOpenFile?: (path: string) => void }) {
   const copy = () => {
     void navigator.clipboard?.writeText(text);
   };
   return (
     <article aria-label="Fusion yanıtı" className="conversation__article">
       <div className="conversation__role">Fusion</div>
-      <div className="conversation__text">{text}</div>
+      <div className="conversation__text">
+        <Markdown onOpenFile={onOpenFile} text={text} />
+      </div>
       <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
       </div>
@@ -61,92 +75,17 @@ function AssistantMessage({ text }: { text: string }) {
   );
 }
 
-type ActivityState = "running" | OlaySonucu;
-
-function activityState(adimlar: OlayAdimi[]): ActivityState {
-  const sonuncu = adimlar[adimlar.length - 1];
-  return sonuncu?.sonuc ?? "running";
+export interface ConversationProps {
+  mesajlar: Mesaj[];
+  /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
+  onOpenFile?: (path: string) => void;
+  /** Ayarlardaki "adımları göster" tercihi. */
+  showSteps?: boolean;
 }
 
-const activityLabels: Record<ActivityState, string> = {
-  running: "Çalışıyor",
-  failed: "Başarısız",
-  partial: "Kısmi",
-  completed: "Tamamlandı",
-};
-
-const activityIcons: Record<ActivityState, string> = {
-  running: "…",
-  failed: "!",
-  partial: "~",
-  completed: "✓",
-};
-
-/**
- * Çalışma bloğu.
- *
- * Ardışık adımlar TEK bir satırda toplanır: eskiden her model çağrısı ayrı bir
- * "model düşünüyor…" satırı açıyordu ve aynı cümle üst üste iki kez
- * görünüyordu. Başlıkta yalnız en son yapılan iş yazar; açınca hangi model,
- * hangi dosya ve hangi adres olduğu görünür.
- */
-function ActivityBlock({ adimlar, metin }: { adimlar: OlayAdimi[]; metin: string }) {
-  const sonuncu = adimlar[adimlar.length - 1];
-  const baslik = sonuncu?.metin ?? metin;
-  const sayi = adimlar.length;
-  const durum = activityState(adimlar);
-  const rowLead = (
-    <span className="conversation__event-lead">
-      <span aria-label={`${activityLabels[durum]} simgesi`} className="conversation__event-icon" role="img">
-        {activityIcons[durum]}
-      </span>
-      <span className="conversation__role">Çalışma</span>
-      <span className="conversation__event-state">{activityLabels[durum]}</span>
-    </span>
-  );
-  // Tek adımlı ve ayrıntısız blokta açılır kapanır bir kutu boş yere yer kaplar
-  // ve aynı cümleyi iki kez gösterirdi; düz satır yeterli.
-  if (sayi <= 1 && !sonuncu?.ayrinti && !sonuncu?.kaynak) {
-    return (
-      <div className="conversation__event-row" data-state={durum}>
-        {rowLead}
-        <span className="conversation__event-title">{baslik}</span>
-      </div>
-    );
-  }
-  return (
-    <details className="conversation__event conversation__event-row" data-state={durum}>
-      <summary>
-        {rowLead}
-        <span className="conversation__event-title">{baslik}</span>
-        {sayi > 1 && <span className="conversation__event-count">{sayi} adım</span>}
-      </summary>
-      <ol className="conversation__event-steps">
-        {adimlar.map((adim, index) => (
-          <li key={index}>
-            <span className="conversation__step-title">{adim.metin}</span>
-            {adim.kaynak ? (
-              <a
-                className="conversation__step-source"
-                href={adim.kaynak}
-                rel="noreferrer noopener"
-                target="_blank"
-              >
-                {adim.kaynak}
-              </a>
-            ) : (
-              adim.ayrinti && <span className="conversation__step-detail">{adim.ayrinti}</span>
-            )}
-          </li>
-        ))}
-      </ol>
-    </details>
-  );
-}
-
-export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
+export function Conversation({ mesajlar, onOpenFile, showSteps = false }: ConversationProps) {
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
-  const sonOlayDurumu = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
+  const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   return (
     <div className="conversation">
       <div className="conversation__stream">
@@ -164,22 +103,32 @@ export function Conversation({ mesajlar }: { mesajlar: Mesaj[] }) {
               </div>
             );
           }
+          if (message.rol === "degisiklik") {
+            return (
+              <div className="conversation__message conversation__message--change" key={index}>
+                <DiffCard diff={message.diff ?? ""} onOpenFile={onOpenFile} path={message.metin} />
+              </div>
+            );
+          }
           if (message.rol === "olay") {
             return (
               <div className="conversation__message conversation__message--event" key={index}>
-                <ActivityBlock adimlar={message.adimlar ?? []} metin={message.metin} />
+                <ActivityLine adimlar={message.adimlar ?? []} showSteps={showSteps} />
               </div>
             );
           }
           return (
             <div className="conversation__message conversation__message--assistant" key={index}>
-              <AssistantMessage text={message.metin} />
+              <AssistantMessage onOpenFile={onOpenFile} text={message.metin} />
             </div>
           );
         })}
       </div>
+      {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
+          Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek
+          gürültüdür ve görsel tarafta da kaldırıldı. */}
       <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
-        {sonOlayDurumu ? activityLabels[sonOlayDurumu] : ""}
+        {sonDurum === "running" ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
       </div>
     </div>
   );

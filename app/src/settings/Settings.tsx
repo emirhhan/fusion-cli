@@ -3,6 +3,8 @@ import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
+import { setShowSteps } from "./preferences";
+import { useShowSteps } from "./useShowSteps";
 import { Connectors } from "./Connectors";
 import { Instructions } from "./Instructions";
 import { UsagePanel } from "./UsagePanel";
@@ -46,6 +48,7 @@ function readHistoryOpen(): boolean {
 }
 
 export function Settings({ client, onClose, onThemeChange, themePreference }: SettingsProps) {
+  const showSteps = useShowSteps();
   const [control, setControl] = useState<ControlSnapshot | null>(null);
   const [webConnected, setWebConnected] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -120,6 +123,17 @@ export function Settings({ client, onClose, onThemeChange, themePreference }: Se
               type="checkbox"
             />
             <span>Geçmiş bölümünü açık başlat</span>
+          </label>
+          {/* Varsayılan KAPALI: adım dökümü teşhis içindir, günlük kullanımda
+              her cevabın üstünü dolduruyordu. */}
+          <label className="settings__row settings__row--check">
+            <input
+              checked={showSteps}
+              id="settings-steps"
+              onChange={(event) => setShowSteps(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Fusion'ın attığı adımları göster</span>
           </label>
         </article>
 

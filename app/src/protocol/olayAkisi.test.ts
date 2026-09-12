@@ -61,3 +61,33 @@ describe("olayEkle", () => {
     expect(mesajlar[0].metin).toBe("adım 1/2 başladı");
   });
 });
+
+describe("değişiklik kartı", () => {
+  it("başarılı yazmanın diff'ini kalıcı bir mesaj olarak ekler", () => {
+    const sonuc = olayEkle([], {
+      olay: "ToolExecuted",
+      name: "write_file",
+      outcome: "ok",
+      args: { path: "scripts/Player.gd" },
+      diff: "--- a\n+++ b\n+var speed = 320",
+    });
+
+    const degisiklik = sonuc.find((mesaj) => mesaj.rol === "degisiklik");
+    expect(degisiklik?.metin).toBe("scripts/Player.gd");
+    expect(degisiklik?.diff).toContain("var speed = 320");
+  });
+
+  /* Engellenen bir yazmanın diff'ini göstermek, yapılmamış bir değişikliği
+     yapılmış gibi sunardı — kullanıcının ölçülmüş şikayetinin tam merkezi. */
+  it("engellenen yazmada diff kartı çıkarmaz", () => {
+    const sonuc = olayEkle([], {
+      olay: "ToolExecuted",
+      name: "write_file",
+      outcome: "blocked",
+      args: { path: "project.godot" },
+      diff: "--- a\n+++ b\n+config_version=5",
+    });
+
+    expect(sonuc.some((mesaj) => mesaj.rol === "degisiklik")).toBe(false);
+  });
+});

@@ -25,7 +25,7 @@ interface CommandSelectorProps {
   selector: CommandSelectorPayload;
 }
 
-function continuation(selector: CommandSelectorPayload, value: string): string {
+export function continuation(selector: CommandSelectorPayload, value: string): string {
   return `/${selector.devam.komut} ${selector.devam.arguman_on_eki}${value}`.trimEnd();
 }
 

@@ -21,6 +21,10 @@ export interface OlayAdimi {
   kaynak?: string;
   /** Turun sonucu gibi kendi başına duran adımlar akışta ayrı satır olur. */
   sonuc?: OlaySonucu;
+  /** Değiştirici dosya aracı BAŞARIYLA çalıştıysa ürettiği unified diff. */
+  diff?: string;
+  /** `diff` varsa değişen dosyanın yolu. */
+  yol?: string;
 }
 
 /** Araç argümanlarından okunabilir tek satır çıkar. */
@@ -53,7 +57,13 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
       const baslik = ARAC_SONUCU[String(veri.outcome ?? "ok")] ?? ARAC_SONUCU.ok;
-      return { metin: `${baslik}: ${ad}`, ayrinti, kaynak };
+      // Diff YALNIZ başarılı çağrıda taşınır. Engellenen ya da düşen bir
+      // yazmanın diff'ini göstermek, yapılmamış bir değişikliği yapılmış gibi
+      // sunardı — bu, `ARAC_SONUCU` ayrımının zaten kapattığı tuzağın aynısı.
+      const diff = veri.outcome === "ok" && typeof veri.diff === "string" && veri.diff
+        ? veri.diff
+        : undefined;
+      return { metin: `${baslik}: ${ad}`, ayrinti, kaynak, diff, yol: diff ? ayrinti : undefined };
     }
     case "ModelCallStarted": {
       // Arka plan çağrıları (hakem, sentez, öz-denetim) kullanıcının ilerleme

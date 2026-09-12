@@ -4,7 +4,7 @@ import { Icon } from "../ui/Icon";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
-import { TierBar, type Tier } from "./TierBar";
+import { ModelPicker, type ModelOption } from "./ModelPicker";
 
 /** Kipler tek yerde tanımlanır: etiket, simge ve ne yaptığı birlikte durur. */
 const MODES = [
@@ -76,15 +76,13 @@ interface ComposerProps {
   onVoice?: () => void;
   onRemoveAttachment?: (path: string) => void;
   onSend: (task: string) => void;
-  /** Düşünme düzeyi kademeleri. Boşsa çubuk çizilmez. */
-  tiers?: Tier[];
-  /** Etkin kademe adı. */
-  activeTier?: string;
-  /** Sağlayıcı NVIDIA'yı dışlıyorsa çubuk kilitlidir. */
-  tierEditable?: boolean;
-  /** Kilit gerekçesi — çekirdekten gelir. */
-  tierReason?: string;
-  onTierChange?: (ad: string) => void;
+  /** Etkin ajan modeli. Boşsa seçici çizilmez. */
+  activeModel?: string;
+  /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
+  modelOptions?: ModelOption[];
+  modelsBusy?: boolean;
+  onModelMenuOpen?: () => void;
+  onModelSelect?: (deger: string) => void;
   onStop?: () => void;
   onValueChange?: (value: string) => void;
   running?: boolean;
@@ -108,11 +106,11 @@ export function Composer({
   onStop = () => undefined,
   onValueChange,
   running = false,
-  tiers = [],
-  activeTier,
-  tierEditable = true,
-  tierReason,
-  onTierChange,
+  activeModel = "",
+  modelOptions = [],
+  modelsBusy = false,
+  onModelMenuOpen,
+  onModelSelect,
   value,
 }: ComposerProps) {
   const [internalValue, setInternalValue] = useState("");
@@ -298,13 +296,13 @@ export function Composer({
                   <MicIcon size={18} />
                 </button>
               )}
-              {tiers && tiers.length > 0 && (
-                <TierBar
-                  active={activeTier ?? ""}
-                  editable={tierEditable !== false}
-                  onSelect={(ad) => onTierChange?.(ad)}
-                  reason={tierReason}
-                  tiers={tiers}
+              {onModelSelect && activeModel && (
+                <ModelPicker
+                  active={activeModel}
+                  busy={modelsBusy}
+                  onOpen={onModelMenuOpen}
+                  onSelect={onModelSelect}
+                  options={modelOptions}
                 />
               )}
               <Button aria-label="Gönder" disabled={!draft.trim()} icon="send" iconOnly onClick={send} variant="primary" />

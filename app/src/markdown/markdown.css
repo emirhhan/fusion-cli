@@ -1,0 +1,207 @@
+/* Model cevabının tipografisi ve kod kartı.
+   Renkler yalnız `theme/tokens.css` değişkenlerinden gelir; ham renk yazılmaz. */
+
+.markdown {
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+
+.markdown p { margin: 0 0 var(--space-4); }
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  /* Başlık üstü boşluk altındakinden BÜYÜK: bölüm başlangıcı göze çarpsın,
+     başlık kendi paragrafına yapışsın. */
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.markdown h1 { font-size: 1.5rem; }
+.markdown h2 { font-size: 1.3rem; }
+.markdown h3 { font-size: 1.12rem; }
+.markdown h4,
+.markdown h5,
+.markdown h6 { font-size: 1rem; }
+
+.markdown ul,
+.markdown ol { margin: 0 0 var(--space-4); padding-inline-start: var(--space-6); }
+.markdown li { margin-bottom: var(--space-1); }
+.markdown li > input[type="checkbox"] { margin-inline-end: var(--space-2); }
+
+.markdown blockquote {
+  border-inline-start: 3px solid var(--border-strong);
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1) 0 var(--space-1) var(--space-4);
+}
+
+.markdown hr {
+  background: var(--border-subtle);
+  border: 0;
+  height: 1px;
+  margin: var(--space-6) 0;
+}
+
+.markdown a { color: var(--accent-text); text-underline-offset: 2px; }
+
+.markdown__image { border-radius: var(--radius-sm); max-width: 100%; }
+
+.markdown__inline-code {
+  background: var(--surface-hover);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.12em 0.36em;
+}
+
+/* Geniş tablo SAYFAYI değil kendi kutusunu kaydırır. */
+.markdown__table-scroll { margin: 0 0 var(--space-4); overflow-x: auto; }
+
+.markdown table { border-collapse: collapse; font-size: 0.94em; width: 100%; }
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border-subtle);
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+}
+.markdown th { background: var(--surface-hover); font-weight: 600; }
+
+/* --- Kod kartı -------------------------------------------------------- */
+
+.code-card {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  margin: 0 0 var(--space-4);
+  overflow: hidden;
+}
+
+.code-card__head {
+  align-items: center;
+  background: var(--surface-hover);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.code-card__name {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-card__name--link {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+.code-card__name--link:hover { color: var(--accent-text); text-decoration: underline; }
+
+.code-card__lang {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 1px var(--space-2);
+}
+
+.code-card__copy {
+  background: none;
+  border: 0;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  margin-inline-start: auto;
+  padding: var(--space-1) var(--space-2);
+}
+.code-card__copy:hover { background: var(--surface-canvas); color: var(--text-primary); }
+
+.code-card__body { overflow-x: auto; }
+
+.code-card pre {
+  margin: 0;
+  padding: var(--space-3);
+}
+
+.code-card code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+/* Açık tema varsayılan, koyu tema üzerine biner. İkisi de satır-içi ÖZEL
+   DEĞİŞKENDEN okunur: shiki'nin düz `color` çıktısı satır-içi stil olarak
+   bu kuralı ezerdi (bkz. CodeCard.tokenStyle).
+
+   Yedek `--text-primary`: renklendirme düşerse (dil tanınmadı, shiki
+   yüklenemedi) kod renksiz ama OKUNUR kalır. */
+.code-card code span { color: var(--shiki-light, var(--text-primary)); }
+:root[data-theme="dark"] .code-card code span { color: var(--shiki-dark, var(--text-primary)); }
+
+/* Kapalı kartın son satırı yumuşak biter: kesilmiş olduğu görülsün. */
+.code-card[data-open="false"] .code-card__body {
+  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+}
+
+.code-card__toggle {
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: var(--space-2);
+  text-align: center;
+  width: 100%;
+}
+.code-card__toggle:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .code-card__copy,
+  .code-card__toggle { transition: background var(--duration-fast, 150ms) ease; }
+}
+
+/* --- Değişiklik kartı --------------------------------------------------
+   Kod kartının gövdesini paylaşır; farkı satır renklendirmesidir. Renk TEK
+   işaret değildir: `+`/`-` karakterleri satırda durur, böylece renk körü
+   kullanıcı da ekleme ile silmeyi ayırt eder. */
+
+.diff-card__stat {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.diff-card__stat--add { color: var(--text-success); }
+.diff-card__stat--remove { color: var(--text-danger); margin-inline-end: auto; }
+
+.diff-card__line { display: block; }
+
+.diff-card__line[data-kind="add"] {
+  background: color-mix(in srgb, var(--text-success) 14%, transparent);
+  color: var(--text-primary);
+}
+.diff-card__line[data-kind="remove"] {
+  background: color-mix(in srgb, var(--text-danger) 14%, transparent);
+  color: var(--text-primary);
+}
+.diff-card__line[data-kind="meta"],
+.diff-card__line[data-kind="hunk"] { color: var(--text-secondary); }
+.diff-card__line[data-kind="context"] { color: var(--text-primary); }
