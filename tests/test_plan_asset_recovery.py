@@ -105,3 +105,60 @@ def test_inventory_repair_preserves_safety_boundaries(tmp_path, change):
         ),
     )
     assert not can_repair_local_inventory(replace(step, **change), tmp_path)
+
+
+async def test_son_kurtarma_hakki_gozlem_turuna_harcanmaz(tmp_path):
+    """Gözlem turu YAZMAZ; son hakkı ona vermek adımı çaresiz kapatır.
+
+    Ölçüldü (13 Eylül, Godot koşusu): `fetch-and-setup-assets` ilk denemede
+    manifesti dosyasız yazıp düştü. Kalan tek kurtarma hakkı gözlem turuna gitti,
+    model "bu aşamada dosya yazma ve indirme kapalı" diyerek yalnız planı anlattı
+    ve adım hiç asset indirilmeden duraklatıldı. Tek hak, işi YAPABİLEN tura gider.
+    """
+    deps = _deps(tmp_path, recovery=1)
+    step = replace(
+        _step("assets", expected_effects=("file:ASSETS.json",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=3,
+        allowed_tool_families=("files", "web"),
+        success_criteria=("assets",),
+        verification_checks=(
+            VerificationCheck("assets", VerificationCheckKind.FILE_EXISTS, "ASSETS.json"),
+        ),
+    )
+    gozlem_mi: list[bool] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        gozlem_mi.append(kwargs["plan_mode"])
+        if not kwargs["plan_mode"]:
+            for name, text in [
+                ("sound.txt", "real asset"),
+                (
+                    "ASSETS.json",
+                    json.dumps(
+                        {
+                            "sound.txt": {
+                                "source_url": "https://example.com/source",
+                                "license": "CC0",
+                            }
+                        }
+                    ),
+                ),
+            ]:
+                path = tmp_path / name
+                turn_deps.tool_context.changes.record_created(path)
+                path.write_text(text)
+                turn_deps.tool_context.touched.add(path)
+        return AgentOutcome(final_text="done", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "assets",
+        deps,
+        agent,
+        plan=ExecutionPlan("asset-single-chance", "assets", (step,)),
+        self_review=False,
+    )
+
+    assert gozlem_mi == [False]
+    assert result.ok is True
+    assert (tmp_path / "sound.txt").exists()

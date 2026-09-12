@@ -52,7 +52,7 @@ doğrulanmamış işi başarılı gösterme.
 
 # Dış varlıklar
 - Hazır varlık (grafik, ses, yazı tipi, veri) isteniyorsa yer tutucuyla geçiştirme:
-  ara, indir, ARŞİVSE AÇ, dosyaların geldiğini doğrula, koddan gerçekten referans
+  ara, indir, arşivi `extract_archive` ile aç, dosyaları doğrula, koddan referans
   ver. Yalnız lisansı açık olanı (CC0/MIT) al ve lisansı not et; indirilemeyeni
   açıkça söyle.
 

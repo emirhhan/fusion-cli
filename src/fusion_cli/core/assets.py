@@ -133,7 +133,14 @@ def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
         except OSError:
             present = False
         if not present:
-            findings.append(f"manifestteki gerçek asset dosyası bulunamadı veya boş: {name}")
+            # Sıra söylenir: ölçüldü (13 Eylül, Godot koşusu) — model manifesti
+            # İLK yazdı, hiç indirme yapmadı ve "manifest oluşturuldu" diye
+            # bildirdi. Eksik olanı söylemek yetmiyor, YAPILACAĞI söylemek gerekiyor.
+            findings.append(
+                f"manifestteki gerçek asset dosyası bulunamadı veya boş: {name} "
+                "(önce web_search + download_file ile indir, arşivse extract_archive "
+                "ile aç, manifesti EN SON yaz)"
+            )
             continue
         findings.extend(f"{name}: {item}" for item in validate_asset_manifest(path, root))
         if path.suffix.casefold() in {".png", ".jpg", ".jpeg"}:

@@ -10,7 +10,7 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 from __future__ import annotations
 
 from ..core.tools import Tool
-from . import browser, download, files, planning, scaffold_tool, search, shell, web
+from . import archive, browser, download, files, planning, scaffold_tool, search, shell, web
 from .registry import ToolRegistry
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
@@ -265,6 +265,21 @@ _TOOLS: tuple[Tool, ...] = (
         "sonrasında ASSETS.json kaydını oluştur. Arşivleri kendiliğinden açmaz.",
         parameters=_schema({"url": _STRING, "path": _STRING}, ["url", "path"]),
         run=download.download_file,
+        mutating=True,
+    ),
+    Tool(
+        name="extract_archive",
+        description="İndirilen ZIP/TAR arşivini proje içine aç. Asset paketleri sıkıştırılmış "
+        "gelir; açmadan içindeki PNG/ses dosyalarına referans veremezsin. Arşiv dışına çıkan "
+        "yol ve bağlantı içeren üyeler açılmaz. `dest` verilmezse arşivin bulunduğu dizine açar.",
+        parameters=_schema(
+            {
+                "path": {**_STRING, "description": "Açılacak arşiv (proje içi yol)"},
+                "dest": {**_STRING, "description": "Hedef dizin (varsayılan: arşivin dizini)"},
+            },
+            ["path"],
+        ),
+        run=archive.extract_archive,
         mutating=True,
     ),
     Tool(

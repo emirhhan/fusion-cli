@@ -128,6 +128,12 @@ class _PlanRun:
     outcomes: list[AgentOutcome] = field(default_factory=list)
     spent: dict[tuple[BudgetEnvelope, str], int] = field(default_factory=dict)
     baseline: tuple[str, ...] = ()
+    #: Görevde istenip PLANLANAMAYAN teslimatlar (bkz. `plan_coverage`).
+    #:
+    #: Plan yine yürütülür ama sonuç sessizce "tamamlandı" diye raporlanamaz:
+    #: ölçüldü (Dead Cells koşusu) — asset, UI ve ara sahne istenmişti, plan
+    #: hiçbirini içermiyordu ve koşu başarıyla bitti sayıldı.
+    uncovered: tuple[str, ...] = ()
     #: Bu planda kaç kez bağlam özetlendi; devam eden tur bunu bilmelidir.
     condensations: int = 0
     planning_calls: int = 0
@@ -521,6 +527,17 @@ class _PlanRun:
                 return None
         recovering = step.step_id in self.repair_ids or step.attempts > 0
         observe = step.retry_safety is RetrySafety.OBSERVE_FIRST and recovering
+        if observe and self.remaining(BudgetEnvelope.RECOVERY, step.step_id) < 2:
+            # Gözlem turu YAZMAZ: dosya ve indirme araçları kapalıdır. Son kurtarma
+            # hakkını ona harcamak, adımı düzeltme şansı olmayan bir turla kapatmak
+            # demektir.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): `fetch-and-setup-assets` ilk denemede
+            # manifesti dosyasız yazdığı için düştü; tek kalan hak gözlem turuna
+            # gitti, model "bu aşamada dosya yazma ve indirme kapalı" diyerek yalnız
+            # plan anlattı ve adım "kurtarma hakkı tükendi" ile duraklatıldı — hiçbir
+            # asset indirilmedi.
+            observe = False
         guidance = (
             "Final doğrulamasında bozulan koşulları onar."
             if step.step_id in self.repair_ids
@@ -820,6 +837,10 @@ class _PlanRun:
         elif quality is not None:
             return quality
         warnings = list(acceptance.warnings)
+        warnings.extend(
+            f"Kullanıcının istediği '{ad}' için plan adımı üretilemedi; teslim edilmedi."
+            for ad in self.uncovered
+        )
         for saved in self.evidence.values():
             for criterion in saved.criteria:
                 if criterion.status is not EvidenceStatus.PASSED:
@@ -919,7 +940,9 @@ async def run_execution_plan(
         else self_review
     )
     if current is None:
-        generated = await generate_plan(task, deps, run_agent, limits.planning, promotion)
+        generated = await generate_plan(
+            task, deps, run_agent, limits.planning, promotion, check_coverage=True
+        )
         run.planning_calls = generated.calls
         allowed = run.charge(BudgetEnvelope.PLANNING, generated.calls)
         if not allowed or generated.plan is None:
@@ -930,6 +953,7 @@ async def run_execution_plan(
             )
         # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
         current = replace(generated.plan, task=task)
+        run.uncovered = generated.missing
     validation = validate_plan(current)
     if not validation.ok:
         return run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)

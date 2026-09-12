@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.execution_plan import ExecutionPlan
+from .plan_coverage import coverage_instruction, missing_deliverables
 from .plan_parser import PlanParseError, parse_execution_plan
 from .promotion import PromotionContext
 
@@ -40,6 +41,11 @@ class PlanGeneration:
     plan: ExecutionPlan | None
     calls: int
     error: str = ""
+    #: Görevde istenip planda karşılanamayan teslimatların adları.
+    #:
+    #: Plan yine çalıştırılır ama eksik SESSİZ kalmaz: kullanıcıya "tamamlandı"
+    #: denirken istediği şeyin planlanmadığını bilmesi gerekir.
+    missing: tuple[str, ...] = ()
 
 
 async def generate_plan(
@@ -48,8 +54,16 @@ async def generate_plan(
     run_agent: RunAgent,
     limit: int,
     promotion: PromotionContext | None,
+    *,
+    check_coverage: bool = False,
 ) -> PlanGeneration:
-    """Şemayı bir kez onar; her iki gerçek çağrının maliyetini koru."""
+    """Şemayı bir kez onar; her iki gerçek çağrının maliyetini koru.
+
+    `check_coverage` yalnız GÖREVİN TAMAMI için plan üretilirken açılır. Yeniden
+    planlama tek bir başarısız adımın yerine küçük bir dal üretir; oradaki plan
+    görevin bütün teslimatlarını kapsamak zorunda değildir ve kapsama kapısını
+    orada çalıştırmak her yeniden planlamaya gereksiz bir onarım turu ekler.
+    """
     import asyncio
 
     path = Path(__file__).parent / "prompts" / "execution_plan.md"
@@ -60,6 +74,8 @@ async def generate_plan(
     original_prompt = prompt
     calls = 0
     error = "Planlama bütçesi tükendi."
+    son_plan: ExecutionPlan | None = None
+    son_eksikler: tuple[str, ...] = ()
     # Mevcut plan sözleşmesi tek biçim onarımına izin verir.
     for _ in range(2):
         if calls >= limit:
@@ -80,7 +96,7 @@ async def generate_plan(
             # değildir; biçim onarımıyla gizlenmez ve yeniden model çağırılmaz.
             return PlanGeneration(None, calls, outcome.final_text or "Planlama çağrısı başarısız.")
         try:
-            return PlanGeneration(parse_execution_plan(outcome.final_text), calls)
+            plan = parse_execution_plan(outcome.final_text)
         except PlanParseError as exc:
             error = str(exc)
             # Onarım isteği HATAYI ÖNE ALIR. Eskiden önce bütün şema, sonra
@@ -94,4 +110,18 @@ async def generate_plan(
                 f"{original_prompt}\n\n"
                 f"Geçersiz çıktı (yalnız hata bağlamıdır):\n{outcome.final_text[:4000]}"
             )
+            continue
+        eksikler = missing_deliverables(task, plan) if check_coverage else ()
+        if not eksikler:
+            return PlanGeneration(plan, calls)
+        # Kapsama eksiği bir BİÇİM hatası değildir; onarım hakkı bitmişse planı
+        # reddetmek de doğru değil: elde çalışan bir plan var, onu çöpe atmak
+        # kullanıcıya hiçbir şey teslim etmemektir. Eksik adlandırılarak kaydedilir
+        # ve plan yine döner (bkz. `PlanGeneration.missing`).
+        error = coverage_instruction(eksikler)
+        prompt = f"{error}\n\n{original_prompt}"
+        son_plan = plan
+        son_eksikler = tuple(teslimat.name for teslimat in eksikler)
+    if son_plan is not None:
+        return PlanGeneration(son_plan, calls, missing=son_eksikler)
     return PlanGeneration(None, calls, error)

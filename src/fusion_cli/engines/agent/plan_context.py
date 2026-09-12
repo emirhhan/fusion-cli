@@ -7,6 +7,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.assets import is_asset_inventory
 from ...core.checkpoint import StepCheckpointEvidence
 from ...core.execution_plan import PlanPhase, PlanStep, VerificationCheck, VerificationCheckKind
 from ...core.tools import ToolContext, ToolFamily, tool_family
@@ -201,6 +202,31 @@ OBSERVE_NOTE = (
 )
 
 
+#: Asset teslimatı olan adımın SIRA talimatı.
+#
+# Ölçüldü (13 Eylül, iki ayrı Godot koşusu): adım "ücretsiz assetleri indir ve
+# ASSETS.json manifestini oluştur" diyordu; model her iki koşuda da ÖNCE manifesti
+# yazdı, hiç indirme yapmadı ve "manifest oluşturuldu" diye bildirdi. Manifest
+# doğrulaması dosyaları bulamayınca adım düştü. Sıra, kapı düşmeden ÖNCE söylenir.
+ASSET_ORDER_NOTE = (
+    "ASSET SIRASI (bu adımda zorunlu): 1) `web_search` ile lisansı açık (CC0/MIT) "
+    "gerçek dosya adresini bul, 2) `download_file` ile indir, 3) arşivse "
+    "`extract_archive` ile aç, 4) dosyaların diskte olduğunu `list_dir` ile doğrula, "
+    "5) manifesti EN SON yaz. Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
+)
+
+
+def asset_step(step: PlanStep) -> bool:
+    """Bu adım gerçek dosya teslim eden bir asset adımı mı?
+
+    Karar adımın KENDİ sözleşmesinden okunur: beklenen etki ya da doğrulama hedefi
+    bir asset envanteri (`ASSETS.json`) ise bu adım dosya indirmek zorundadır.
+    """
+    hedefler = [effect.removeprefix("file:") for effect in step.expected_effects]
+    hedefler.extend(check.target for check in step.verification_checks if check.target)
+    return any(is_asset_inventory(Path(hedef)) for hedef in hedefler)
+
+
 def step_prompt(
     task: str,
     step: PlanStep,
@@ -214,6 +240,7 @@ def step_prompt(
         f"ŞİMDİ YÜRÜTÜLECEK PLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
         f"ADIM EVRESİ: {step.phase.value}\n"
         + (OBSERVE_NOTE if observe else "")
+        + (ASSET_ORDER_NOTE if not observe and asset_step(step) else "")
         + "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
         f"ANA GÖREV (kapsam ve kısıtlar korunacak):\n{task}\n\n"
         f"{workspace}"

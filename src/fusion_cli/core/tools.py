@@ -66,6 +66,8 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "create_file": ToolFamily.FILES,
     "glob": ToolFamily.FILES,
     "scaffold_web": ToolFamily.FILES,
+    # Arşiv açmak dosya işidir: içerik ağdan DEĞİL, diskteki arşivden gelir.
+    "extract_archive": ToolFamily.FILES,
     "grep_search": ToolFamily.SEARCH,
     "search_code": ToolFamily.SEARCH,
     "search_codebase": ToolFamily.SEARCH,
