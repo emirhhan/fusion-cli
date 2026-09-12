@@ -47,6 +47,7 @@ import { ControlPanel } from "./control/ControlPanel";
 import { useUpdateAvailable } from "./control/useUpdateAvailable";
 import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { HelpScreen } from "./help/HelpScreen";
+import { Notification, insanDogrulamasiGerekiyor } from "./notify/Notification";
 import { Settings } from "./settings/Settings";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
@@ -488,6 +489,15 @@ export function SessionUygulama({
     account.durum?.hesaplar.find((item) => item.kimlik === account.durum?.etkin) ?? null;
   const guncellemeSurumu = useUpdateAvailable();
   const inspectorPlacement = useInspectorPlacement();
+  const [dogrulamaUyarisi, setDogrulamaUyarisi] = useState<string | null>(null);
+  // Sağlayıcı insan doğrulaması isterse Fusion tek başına ilerleyemez. Bu,
+  // sohbetin içine gömülü bir hata satırı olarak kayboluyordu; kullanıcı neden
+  // durduğunu anlamıyordu. Artık kart olarak görünür ve eylem sunar.
+  const sonAsistanMetni = [...(active?.messages ?? [])].reverse()
+    .find((mesaj) => mesaj.rol === "asistan")?.metin ?? "";
+  useEffect(() => {
+    if (insanDogrulamasiGerekiyor(sonAsistanMetni)) setDogrulamaUyarisi(sonAsistanMetni);
+  }, [sonAsistanMetni]);
   const { changeTheme, themePreference } = useAppTheme(active?.client);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
@@ -1091,6 +1101,21 @@ export function SessionUygulama({
         <>
           {content}
           {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {dogrulamaUyarisi && (
+            <Notification
+              baslik="Sağlayıcı doğrulama istiyor"
+              metin="Sağlayıcı insan doğrulaması (captcha) istiyor. Bunu ancak sen tamamlayabilirsin; giriş penceresini açıp doğrulamayı bitir."
+              eylem={{
+                etiket: "Giriş penceresini aç",
+                onSelect: () => {
+                  setDogrulamaUyarisi(null);
+                  setControlTitle("Sağlayıcılar");
+                  setPage("control");
+                },
+              }}
+              onDismiss={() => setDogrulamaUyarisi(null)}
+            />
+          )}
           {closeAsked && (
             <CloseConfirm
               onCancel={() => setCloseAsked(false)}

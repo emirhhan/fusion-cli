@@ -1,0 +1,57 @@
+/* macOS bildirim kartı: sağ üstte, yüzeyden kalkık, kendiliğinden kapanmaz. */
+
+.notification {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  display: grid;
+  gap: var(--space-3);
+  inset-block-start: calc(var(--header-height, 48px) + var(--space-4));
+  inset-inline-end: var(--space-4);
+  max-width: 360px;
+  padding: var(--space-4);
+  position: fixed;
+  z-index: var(--z-overlay);
+}
+
+.notification__body { display: grid; gap: var(--space-1); }
+.notification__body strong { font-size: var(--text-sm, 14px); }
+.notification__body p {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.notification__actions { display: flex; gap: var(--space-2); justify-content: flex-end; }
+
+.notification__primary,
+.notification__close {
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: var(--space-2) var(--space-3);
+}
+
+.notification__primary {
+  background: var(--control-primary);
+  border: 0;
+  color: var(--text-inverse);
+}
+
+.notification__close {
+  background: none;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+.notification__close:hover { background: var(--surface-hover); color: var(--text-primary); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .notification { animation: notification-in var(--duration-normal, 300ms) var(--ease-out-expo, ease); }
+}
+
+@keyframes notification-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}

@@ -764,7 +764,45 @@ async def _connect_shared_context(
         await shared.release(force=False, timeout_s=budget)
         raise
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
+    if not session.headless:
+        await _hide_browser_window(context)
     return browser, context
+
+
+async def _hide_browser_window(context: Any) -> None:
+    """Tur penceresini kullanıcının gözünden kaldır.
+
+    `--window-position=-32000,-32000` tek başına YETMİYOR: macOS'ta Chrome
+    pencereyi görünür ekrana geri sıkıştırabiliyor ve kullanıcı her turda
+    sağlayıcının sohbetine yazılan metni izliyordu ("gpt yi seçtiğimizde ekran
+    açılıyor, ne yazıyorsa görüyorum").
+
+    Pencere burada CDP ile KÜÇÜLTÜLÜR. Bu bir gizlenme tekniği değildir:
+    tarayıcı hâlâ gerçek headful Chrome'dur, sunucuya giden hiçbir şey
+    değişmez — yalnız pencere kullanıcının önünde durmaz. Headless'a geçmek
+    seçenek değil: Cloudflare doğrulaması headless User-Agent'ta düşüyor
+    (ölçüldü, 12 Eylül).
+
+    Başarısızlık YUTULUR: pencereyi küçültememek turu durdurmaz, yalnız
+    kullanıcı onu görür.
+    """
+    try:
+        page = context.pages[0] if context.pages else await context.new_page()
+        session = await context.new_cdp_session(page)
+        try:
+            window = await session.send("Browser.getWindowForTarget")
+            await session.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": window["windowId"],
+                    "bounds": {"windowState": "minimized"},
+                },
+            )
+        finally:
+            await session.detach()
+    except Exception:
+        # Pencereyi küçültememek turu durdurmaz; yalnız kullanıcı onu görür.
+        _logger.debug("tur penceresi küçültülemedi", exc_info=True)
 
 
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
