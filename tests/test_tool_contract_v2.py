@@ -203,7 +203,7 @@ async def test_second_invalid_call_blocks_but_does_not_kill_turn(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_third_successful_read_is_stopped(tmp_path) -> None:
+async def test_ucuncu_okuma_calistirilmaz_onbellekten_cevaplanir(tmp_path) -> None:
     (tmp_path / "input.txt").write_text("hello", encoding="utf-8")
     registry = build_registry()
     deps = _deps(tmp_path)
@@ -218,14 +218,15 @@ async def test_third_successful_read_is_stopped(tmp_path) -> None:
 
     assert not await _run_tools((first,), messages, deps, registry, state, execution=execution)
     assert not await _run_tools((second,), messages, deps, registry, state, execution=execution)
-    assert await _run_tools((third,), messages, deps, registry, state, execution=execution)
-    # Üçüncü çağrı ÇALIŞTIRILMAZ: modele dosya içeriği değil, uyarı döner.
-    assert "TOOL_CALL_DUPLICATE" in messages[-1].content
-    assert "hello" not in messages[-1].content
-    # ...ama tur ÖLDÜRÜLMEZ. Tekrarlanan bir okuma zararsız bir verimsizliktir;
-    # turu kesmek o ana kadarki tüm ilerlemeyi çöpe atar (ölçüldü: model dört
-    # dosyayı okuyup birini düzelttikten sonra takıldı ve yapılan iş kayboldu).
-    # Israr ederse kararı "ilerleme yok" kapısı verir.
+    # Üçüncü çağrı ARACI ÇALIŞTIRMAZ ama HATA da değildir: önceki sonuç döner.
+    #
+    # Eskiden burada `TOOL_CALL_DUPLICATE` hatası vardı ve model istediği bilgiyi
+    # hiç alamıyordu. Ölçülen sonuç (Godot koşusu): engellenen çağrı ilerleme
+    # saymadığı için boşta tur sayacı doldu ve görev "adım bütçesi doldu" ile
+    # öldü. Bilgiyi vermek zinciri sürdürür ve yeni iş yaptırmaz.
+    assert not await _run_tools((third,), messages, deps, registry, state, execution=execution)
+    assert "TOOL_CALL_CACHED" in messages[-1].content
+    assert "hello" in messages[-1].content
     assert not state.tool_contract_abort
 
 

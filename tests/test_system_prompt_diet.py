@@ -11,9 +11,17 @@ def prompt() -> str:
 
 
 def test_system_prompt_context_butcesini_asmaz():
+    """Kimlik promptu her turda bağlam yer; şişmesi serbest değildir.
+
+    Tavan bir ÖLÇÜ SABİTİdir, sistem sınırı değil: 5.000'den 5.250'ye, "dış
+    varlıklar" kuralı için bilinçli olarak yükseltildi. Gerekçe: oyun/görsel
+    işlerinde model varlıkları indirmek yerine yer tutucu bırakıyordu ve kural
+    olmadan bu davranış tekrarlanıyordu. Kural dört satıra sıkıştırıldı; bundan
+    sonra eklenecek her şey yine yer açmak zorundadır.
+    """
     text = prompt()
 
-    assert len(text) <= 5_000
+    assert len(text) <= 5_250
 
 
 def test_system_prompt_kritik_calisma_ilkelerini_korur():

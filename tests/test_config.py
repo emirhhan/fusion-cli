@@ -73,7 +73,9 @@ def test_workflow_butce_zarflari_profesyonel_varsayilanlarla_gelir():
 
     assert runtime.workflow_planning_calls == 2
     assert runtime.workflow_step_calls == 24
-    assert runtime.workflow_recovery_calls == 12
+    # Kurtarma zarfı adım zarfıyla orantılı tutulur: adım 90 çağrı
+    # harcayabiliyorken düşen adımı 12 çağrıyla toparlamak dar kalıyordu.
+    assert runtime.workflow_recovery_calls == 24
     assert runtime.workflow_final_verification_calls == 2
     assert runtime.workflow_attempt_calls == 0
 

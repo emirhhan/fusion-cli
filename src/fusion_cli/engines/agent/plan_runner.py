@@ -82,6 +82,38 @@ def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext
     )
 
 
+#: Başarısız bir adım en çok kaç kez DAHA KÜÇÜK parçalara bölünmeye çalışılır.
+#
+# Üç deneme ölçüme dayanır: ilk bölme genelde çok kaba kalıyor, ikincisi adımı
+# gerçekten ayırıyor. Üçüncüden sonrası aynı cevabı farklı kelimelerle üretiyor
+# ve yalnız bütçe yakıyor — orada karar kullanıcıya geçer.
+_MAX_STEP_SPLITS = 3
+
+#: Bölme de tutmadığında kullanıcıya sorulan cümle.
+_BOLUNEMEDI_SORUSU = (
+    "Bu adım daha küçük parçalara da bölünemedi: '{hedef}'. "
+    "Hedefi daralt, farklı bir yol tarif et ya da bu adımı atlamamı söyle."
+)
+
+
+def _bolme_talimati(step: PlanStep, deneme: int) -> str:
+    """Adımı alt adımlara bölmesini isteyen ek talimat.
+
+    Genel "yeniden planla" isteği aynı hedefi farklı kelimelerle geri getiriyordu
+    ve `merge_replanned_plan` onu haklı olarak reddediyordu. Bu talimat NE
+    İSTENDİĞİNİ açıkça söyler: aynı işi yeniden tarif etme, PARÇALA.
+    """
+    return (
+        f"BÖLME TALİMATI (deneme {deneme}/{_MAX_STEP_SPLITS}):\n"
+        f"'{step.step_id}' adımı bu hâliyle tamamlanamıyor: {step.goal}\n"
+        "Aynı hedefi yeniden yazma — onu 2-4 DAHA KÜÇÜK adıma böl. Her alt adım "
+        "tek bir somut çıktı üretmeli ve kendi başına doğrulanabilmeli. "
+        "Alt adımların hedefleri birbirinden ve başarısız hedeften FARKLI olmalı. "
+        "Önce bilgi eksikse ilk alt adım yalnız keşif olsun, sonrakiler o bilgiye "
+        "dayansın."
+    )
+
+
 @dataclass
 class _PlanRun:
     """Bir plan çalıştırmasının tek durum ve sayaç otoritesi."""
@@ -601,7 +633,14 @@ class _PlanRun:
         verification: StepVerificationResult,
         fingerprint: str,
     ) -> tuple[bool, str]:
-        """Aynı duvara çarpan dalı yalnız bir kez yeniden üret."""
+        """Aynı duvara çarpan dalı yeniden üret; tutmazsa adımı parçalara böl.
+
+        Önce genel bir yeniden planlama istenir. Model aynı hedefi geri getirirse
+        (`merge_replanned_plan` onu reddeder) adım `_MAX_STEP_SPLITS` kez DAHA
+        KÜÇÜK alt adımlara bölünmeye çalışılır. Hiçbiri tutmazsa karar
+        kullanıcıya bırakılır: körlemesine denemeye devam etmek bütçe yakmaktan
+        başka bir şey yapmaz.
+        """
         remaining = self.remaining(BudgetEnvelope.RECOVERY, step.step_id)
         if remaining <= 0:
             return False, "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
@@ -630,18 +669,38 @@ class _PlanRun:
             "onların işini yeniden isteme. Başarısız adımı ve ona bağlı dalı yeni kanıta "
             "göre değiştir. Eksiksiz ve geçerli bir yürütme planı döndür."
         )
-        generated = await generate_plan(task, self.deps, self.agent, remaining, None)
-        self.planning_calls += generated.calls
-        if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
-            return False, "Yeniden planlama kurtarma bütçesini aştı."
-        if generated.plan is None:
-            return False, f"Yeniden plan üretilemedi: {generated.error}"
-        merged = merge_replanned_plan(self.current, generated.plan, step.step_id, fingerprint)
-        if merged is None:
-            return (
-                False,
-                "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti.",
+        # Aynı hedefi tekrar eden bir plan REDDEDİLİR; eskiden burada iş biterdi ve
+        # kullanıcı "yeniden plan aynı başarısız hedefi tekrarladı" diyen duraklamayla
+        # baş başa kalırdı. Model aynı duvara toslamaya devam ediyorsa doğru hamle
+        # pes etmek değil, adımı DAHA KÜÇÜK parçalara bölmektir: büyük bir hedefi
+        # tek turda tutturamayan model, üç küçük hedefi ayrı ayrı tutturabiliyor.
+        merged: ExecutionPlan | None = None
+        son_hata = ""
+        for deneme in range(_MAX_STEP_SPLITS + 1):
+            istek = task if deneme == 0 else f"{task}\n\n{_bolme_talimati(step, deneme)}"
+            kalan = self.remaining(BudgetEnvelope.RECOVERY, step.step_id)
+            if kalan <= 0:
+                son_hata = "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
+                break
+            generated = await generate_plan(istek, self.deps, self.agent, kalan, None)
+            self.planning_calls += generated.calls
+            if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
+                son_hata = "Yeniden planlama kurtarma bütçesini aştı."
+                break
+            if generated.plan is None:
+                son_hata = f"Yeniden plan üretilemedi: {generated.error}"
+                continue
+            merged = merge_replanned_plan(self.current, generated.plan, step.step_id, fingerprint)
+            if merged is not None:
+                break
+            son_hata = (
+                "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti."
             )
+        if merged is None:
+            # Bölme de tutmadıysa karar KULLANICININ: model bu adımı kendi başına
+            # aşamıyor ve körlemesine denemeye devam etmek bütçeyi yakmaktan başka
+            # bir şey yapmaz.
+            return False, f"{son_hata} {_BOLUNEMEDI_SORUSU.format(hedef=step.goal)}".strip()
         affected = dependent_ids(self.current, {step.step_id})
         self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
         self.current = merged

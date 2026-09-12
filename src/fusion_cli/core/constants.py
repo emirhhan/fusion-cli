@@ -144,3 +144,19 @@ def truncate_notice(text: str, limit: int, *, ne: str = "çıktı") -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + f"\n\n[… {ne} {limit} karakterde KIRPILDI; gerisi gösterilmedi.]"
+
+#: Tekrarlanan okuma çağrısına önbellekten cevap verirken saklanan en büyük
+#: çıktı (karakter).
+#:
+#: Model aynı dosyayı ikinci kez istediğinde çağrıyı ENGELLEMEK yerine ilk
+#: sonucu geri veriyoruz; bunun için sonucu turda tutmak gerekiyor. Sınır
+#: gerekçesi: `read_file` çıktısı zaten araç katmanında kırpılıyor ve tipik bir
+#: kaynak dosya bu sınırın altında kalıyor; daha büyüğünü turda tutmak belleği
+#: çıktının değerini aşan biçimde şişirirdi.
+REPEAT_READ_CACHE_CHARS = 64_000
+#: Turda önbellekte tutulacak en çok okuma sonucu.
+#:
+#: Bir agent turunda okunan ayrı dosya sayısı ölçümlerde onlarla ifade ediliyor;
+#: 64 giriş bunun çok üstünde ve sınırsız büyümeyi engeller.
+REPEAT_READ_CACHE_ENTRIES = 64
+

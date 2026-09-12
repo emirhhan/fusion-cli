@@ -180,14 +180,19 @@ async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path
     )
 
     assert not sonuc.ok
-    engellenen = [
+    # Araç yalnız izin verilen tekrar sınırı kadar (2) çalışır; kalan sekiz çağrı
+    # önbellekten cevaplanır.
+    # Kapı hâlâ açıktır — sınırsız tekrar YOK — ama tekrar artık hata değil,
+    # bilinen sonucun geri verilmesidir.
+    onbellekten = [
         event
         for event in sink.events
-        if isinstance(event, ToolExecuted) and event.outcome is ToolOutcome.BLOCKED
+        if isinstance(event, ToolExecuted) and "TOOL_CALL_CACHED" in event.output
     ]
-    assert engellenen, "tekrar eden çağrı engellenmiş olmalı"
+    assert onbellekten, "tekrar eden okuma önbellekten cevaplanmalı"
+    assert sonuc.tool_calls_made == 2
     # Tur ilk tekrarda ÖLMEZ; model kendini toparlayamayınca ilerleme-yok kapısı
-    # bitirir. Böylece o ana kadar yapılmış iş korunur.
+    # bitirir. Böylece o ana kadar yapılmış iş korunur ve döngü sonsuza gitmez.
     tukendi = [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
     assert tukendi and tukendi[-1].reason == BudgetStop.NO_PROGRESS.value
 

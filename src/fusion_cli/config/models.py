@@ -137,7 +137,11 @@ class RuntimeConfig:
     #
     # Kurtarma da bir alt-turdur; iki çağrılık zarf ilk denemede taşıyordu.
     # Kör tekrarı bu sayaç değil hata sınıflandırması ve `retry_safety` engeller.
-    workflow_recovery_calls: int = 12
+    #
+    # Adım zarfı gerçek işin boyuna açıldığında (bkz. `execution_policy`) kurtarma
+    # da onunla orantılı olmalı: düşen bir adımı 12 çağrıyla toparlamak, adımın
+    # kendisi 90 çağrı harcayabiliyorken anlamsız bir darlıktı.
+    workflow_recovery_calls: int = 24
     #: Final kabul doğrulaması ve gerekirse raporlama çağrısı zarfı.
     workflow_final_verification_calls: int = 2
     #: Paralel deneme (test-time scaling) için EK çağrı hakkı.

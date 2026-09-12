@@ -115,8 +115,12 @@ def test_web_policy_hard_ve_idle_limitlerini_ayirir():
     assert simple.total_timeout_s == 240.0
     assert simple.idle_timeout_s == 120.0
 
-    assert complex_.total_timeout_s == 1800.0
-    assert complex_.idle_timeout_s == 240.0
+    # Karmaşık ve uzun işlerde durdurma yetkisi SABİT SAYIDA değil, boşta
+    # kalma süresindedir: ilerleyen tur çalışmaya devam eder, ilerlemeyen tur
+    # dakikalar içinde durur. Ölçüldü (Godot koşusu): 1800 sn / 28 çağrılık
+    # sınır gerçek bir oyun projesini tam ilerlerken kesiyordu.
+    assert complex_.total_timeout_s == 5400.0
+    assert complex_.idle_timeout_s == 300.0
 
-    assert extended.total_timeout_s == 2400.0
-    assert extended.idle_timeout_s == 300.0
+    assert extended.total_timeout_s == 10_800.0
+    assert extended.idle_timeout_s == 420.0

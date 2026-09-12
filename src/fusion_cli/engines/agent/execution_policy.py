@@ -131,18 +131,25 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     complex_task = kind in _COMPLEX_KINDS or required_effect in _MUTATING_EFFECTS
     simple_chat = _is_genuine_simple_chat(task, kind, required_effect)
 
+    # DURDURMA YETKİSİ sabit çağrı sayısında DEĞİL, ilerleme kapısındadır.
+    #
+    # Ölçüldü (Godot koşusu, kullanıcı makinesi): gerçek bir oyun projesi
+    # `project.godot` + birkaç sahne + birkaç script + asset indirme demek; bu,
+    # onlarca okuma ve yazma eder. 28 çağrılık sınır işi TAM İLERLERKEN kesiyor
+    # ve kullanıcıya yarım bir iskelet bırakıyordu. Sayılar bu yüzden gerçek
+    # işin boyuna göre açıldı.
+    #
+    # Kaçak koruması sayıdan değil iki yerden gelir ve ikisi de KORUNDU:
+    # ilerlemesiz tur sayacı (`max_idle_rounds`) ve boşta-kalma zaman aşımı.
+    # İlerleyen bir tur çalışmaya devam eder, ilerlemeyen tur dakikalar içinde
+    # durur — asıl istenen davranış budur.
     if extended:
-        # Kullanıcı açıkça büyük iş istediğinde yeteneği erken kesme; yine de sonsuz
-        # web çağrısına karşı emniyet supabı bırak.
-        max_calls, max_rounds, timeout, idle_timeout = 36, 28, 2400.0, 300.0
+        max_calls, max_rounds, timeout, idle_timeout = 150, 130, 10_800.0, 420.0
     elif complex_task:
-        # Ölçüldü: sözleşme artık yanıt başına TEK araç çağrısı ve var olan dosyada
-        # toptan yazma yerine hedefli düzenleme istiyor. İkisi de tur sayısını mekanik
-        # olarak artırır — dört dosyalık bir görev ~6 okuma + ~6 düzenleme + doğrulama
-        # ile 14+ tur harcıyor. Eski 12 turluk sınır dört koşunun ikisini tam da iş
-        # ilerlerken kesti ("araç turu sınırına ulaşıldı"). Sınır akışa uydurulur.
-        max_calls, max_rounds, timeout, idle_timeout = 28, 22, 1800.0, 240.0
+        max_calls, max_rounds, timeout, idle_timeout = 90, 75, 5_400.0, 300.0
     else:
+        # Kısa sohbet açılmaz: buradaki dar sınır maliyeti değil, basit bir
+        # soruya onlarca web turu harcanmasını engeller.
         max_calls, max_rounds, timeout, idle_timeout = 8, 5, 240.0, 120.0
 
     return ExecutionPolicy(

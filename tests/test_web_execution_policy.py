@@ -148,7 +148,15 @@ async def test_web_mutation_keeps_self_review(monkeypatch, tmp_path):
     assert any(isinstance(event, SelfReviewStarted) for event in sink.events)
 
 
-async def test_web_duplicate_tool_loop_is_blocked_without_workspace_change(monkeypatch, tmp_path):
+async def test_web_tekrarlanan_okuma_engellenmez_onbellekten_cevaplanir(monkeypatch, tmp_path):
+    """Yinelenen OKUMA hata almaz; ilk sonuç geri verilir.
+
+    Ölçülen ölü kilit (Godot koşusu): model `list_dir .` çağrısını yineledi,
+    tekrar kapısı `blocked` döndürdü, engellenen çağrı ilerleme saymadığı için
+    boşta tur sayacı doldu ve görev "agent adım bütçesi doldu" ile öldü. Oysa
+    model yalnızca zaten sahip olduğu bilgiyi istiyordu. Araç YENİDEN
+    ÇALIŞTIRILMAZ ama bilgi verilir, böylece zincir kırılmaz.
+    """
     sink = RecordingSink()
     repeated = tool_call("list_dir", path=".")
     provider = ScriptedProvider(
@@ -167,9 +175,35 @@ async def test_web_duplicate_tool_loop_is_blocked_without_workspace_change(monke
     assert [event.outcome for event in events] == [
         ToolOutcome.OK,
         ToolOutcome.OK,
-        ToolOutcome.BLOCKED,
+        ToolOutcome.OK,
     ]
+    # Üçüncü çağrı önbellekten geldi: sonuç var ama YENİ İŞ yapılmadı.
+    assert "TOOL_CALL_CACHED" in events[2].output
     assert result.tool_calls_made == 2
+
+
+async def test_web_tekrarlanan_yazma_hala_engellenir(monkeypatch, tmp_path):
+    """Değiştirici çağrının tekrarı önbellek yolundan YARARLANAMAZ.
+
+    Okumada tekrar zararsız bir verimsizliktir; yazmada aynı değişikliği iki kez
+    uygulamak gerçek bir yan etkidir ve engel orada durmalıdır.
+    """
+    sink = RecordingSink()
+    repeated = tool_call("write_file", path="not.txt", content="merhaba")
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[repeated]),
+            model_result(tool_calls=[repeated]),
+            model_result("Dosyayı yazdım."),
+        ]
+    )
+    _patch_provider(monkeypatch, provider)
+
+    await run_agent("not.txt dosyasına merhaba yaz", _deps(tmp_path, sink))
+
+    events = [event for event in sink.events if isinstance(event, ToolExecuted)]
+    assert [event.outcome for event in events] == [ToolOutcome.OK, ToolOutcome.BLOCKED]
+    assert "TOOL_CALL_DUPLICATE" in events[1].output
 
 
 async def test_web_provider_failure_is_not_sent_to_self_review(monkeypatch, tmp_path):

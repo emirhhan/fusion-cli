@@ -1839,6 +1839,35 @@ async def _run_tools(
             # Engellenen yineleme, işin ZATEN YAPILDIĞININ kanıtıdır: düşen
             # çağrılar bu noktaya gelmeden unutulur (`forget_call`).
             state.already_done_calls += 1
+            # OKUMA tekrarına HATA değil, ilk sonucun kendisi döner.
+            #
+            # Ölçülen ölü kilit (Godot koşusu): model `list_dir .` çağrısını
+            # yineledi, kapı onu `blocked` yaptı, engellenen çağrı ilerleme
+            # saymadığı için boşta tur sayacı doldu ve görev "agent adım bütçesi
+            # doldu" ile öldü. Oysa model yalnızca zaten sahip olduğu bilgiyi
+            # yeniden istiyordu; ona hata vermek zinciri kırıyor, bilgiyi vermek
+            # sürdürüyor ve YENİ İŞ YAPTIRMIYOR. Değiştirici araçlar bu yoldan
+            # yararlanamaz: aynı yazma iki kez yapılmaz, orası hâlâ engellidir.
+            onbellek = budget.recall_read(signature)
+            if onbellek is not None:
+                output = f"{_REPEATED_READ_NOTE}\n\n{onbellek}"
+                deps.publisher.publish(
+                    ToolExecuted(
+                        name=call.name,
+                        args=args,
+                        outcome=ToolOutcome.OK,
+                        output=output,
+                        diff=None,
+                    )
+                )
+                messages.append(
+                    Message("tool", output, tool_call_id=call.id, name=call.name, ok=True)
+                )
+                _note_tool_use(state, call.name, tool, ok=True, arguments=args, output=output)
+                # Kanıt sayaçları ARTMAZ: yeni bir iş yapılmadı, yalnızca bilinen
+                # bir sonuç tekrar sunuldu. İlerleme kapısı bunu ilerleme saymaz
+                # ve model kendini toparlayamazsa tur yine biter.
+                continue
             output = _duplicate_call_message()
             deps.publisher.publish(
                 ToolExecuted(
@@ -1890,6 +1919,10 @@ async def _run_tools(
             state.capability_wall = True
         if outcome is ToolOutcome.OK:
             state.tool_calls_made += 1
+            # Okuma sonucu turda saklanır: aynı okuma yinelenirse engel yerine
+            # bu sonuç döner (bkz. tekrar kapısı).
+            if tool is not None and not tool.mutating:
+                budget.remember_read(signature, result.output)
             if call.name in _FILE_READ_TOOLS:
                 state.successful_file_reads += 1
             mutating = bool(tool is not None and tool.mutating)
@@ -2056,6 +2089,19 @@ def _repeated_failure_note(tool_name: str, output: str, count: int) -> str | Non
         "eklemeyi, göreli yol yerine tam yol vermeyi dene. Bu da olmazsa başka bir "
         "araçla aynı sonuca ulaşmayı dene."
     )
+
+
+#: Tekrarlanan OKUMA çağrısında sonucun önüne konan not.
+#
+# Sonucu sessizce geri vermek, modelin aracı yeniden çalıştırdığını sanmasına ve
+# değişmeyen bir dosyayı "taze" bilgi sayıp aynı döngüye girmesine yol açardı.
+# Not, sonucun ÖNBELLEKTEN geldiğini ve çalışma alanının değişmediğini söyler.
+_REPEATED_READ_NOTE = (
+    "TOOL_CALL_CACHED: Bu okumayı aynı argümanlarla zaten yapmıştın ve çalışma "
+    "alanında o zamandan beri ilgili bir değişiklik olmadı. Araç yeniden "
+    "çalıştırılmadı; önceki sonuç aşağıda. Aynı okumayı bir daha isteme — "
+    "elindeki bilgiyle sonraki adıma geç."
+)
 
 
 def _duplicate_call_message() -> str:

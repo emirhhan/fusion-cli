@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from .constants import REPEAT_READ_CACHE_CHARS, REPEAT_READ_CACHE_ENTRIES
 from .protocols import Clock
 
 
@@ -102,6 +103,12 @@ class TurnBudget:
     successful_tool_evidence: list[tuple[str, dict[str, object], bool]] = field(
         default_factory=list
     )
+    #: Başarılı OKUMA çağrılarının sonucu: imza → çıktı.
+    #
+    # Tekrarlanan bir okumayı engellemek yerine ilk sonucu geri vermek için
+    # tutulur (bkz. `remember_read`). Değiştirici çağrılar buraya GİRMEZ: onların
+    # tekrarı gerçekten engellenmelidir, aynı yazma iki kez yapılmaz.
+    read_results: dict[CallSignature, str] = field(default_factory=dict)
     #: Tur durduysa sebebi; durmadıysa None.
     stop: BudgetStop | None = None
 
@@ -229,6 +236,26 @@ class TurnBudget:
         seen = self.seen_calls.get(signature, 0)
         self.seen_calls[signature] = seen + 1
         return seen
+
+    def remember_read(self, signature: CallSignature, output: str) -> None:
+        """Başarılı bir okumanın sonucunu turda sakla.
+
+        Model aynı dosyayı ikinci kez istediğinde çağrı ENGELLENMEZ, bu sonuç
+        geri verilir. Ölçülen ölü kilit (Godot koşusu): model `list_dir .`
+        çağrısını yineledi, tekrar kapısı onu `blocked` yaptı, engellenen çağrı
+        ilerleme saymadığı için boşta tur sayacı doldu ve görev "agent adım
+        bütçesi doldu" ile öldü — oysa model yalnızca zaten sahip olduğu bilgiyi
+        yeniden istiyordu. Hata vermek yerine bilgiyi vermek zinciri sürdürür ve
+        hiçbir yeni iş yaptırmaz.
+        """
+        if len(self.read_results) >= REPEAT_READ_CACHE_ENTRIES:
+            # En eski giriş düşer: sözlük ekleme sırasını korur.
+            self.read_results.pop(next(iter(self.read_results)))
+        self.read_results[signature] = output[:REPEAT_READ_CACHE_CHARS]
+
+    def recall_read(self, signature: CallSignature) -> str | None:
+        """Bu okumanın önceki sonucu varsa döndür."""
+        return self.read_results.get(signature)
 
     def note_failed_call(self, signature: CallSignature) -> None:
         """Düşen çağrıyı işaretle; BAŞARILI bir değişiklikten sonra unutulacak.
