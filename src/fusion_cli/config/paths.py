@@ -20,10 +20,29 @@ ENV_CONFIG = "FUSION_CONFIG"
 ENV_HOME = "FUSION_HOME"
 #: Kalıcı belleğin yerini doğrudan belirleyen ortam değişkeni.
 ENV_MEMORY_DIR = "FUSION_MEMORY_DIR"
+#: Etkin yerel hesabın kimliği. Boşsa hesapsız (eski) düzen geçerlidir.
+#
+# Hesaplar aynı makineyi paylaşan kişilerin işlerini AYIRIR: hangi sağlayıcıya
+# giriş yapıldığı, hangi MCP'lerin bağlı olduğu ve hangi modelin kullanıldığı
+# hesaba özeldir. Ayrım TEK yerden yapılır — `user_config_dir` — çünkü bu
+# bilgilerin tamamı `config.yaml`'da durur ve tüm okuyucular oradan geçer.
+ENV_ACCOUNT = "FUSION_ACCOUNT"
+#: Hesap dizinlerinin toplandığı alt klasör adı.
+_ACCOUNTS_DIR = "accounts"
 
 
-def user_config_dir() -> Path:
-    """`config.yaml` ve `.env` dosyalarının tutulduğu kullanıcı dizini."""
+def active_account() -> str:
+    """Etkin hesabın kimliği; hesapsız kullanımda boş metin."""
+    return os.environ.get(ENV_ACCOUNT, "").strip()
+
+
+def base_config_dir() -> Path:
+    """Hesaptan BAĞIMSIZ yapılandırma kökü.
+
+    Hesap listesi (`accounts.db`) buraya yazılır: hangi hesapların olduğunu
+    bilmek için önce bir hesap seçmek gerekseydi giriş ekranı hiçbir şey
+    listeleyemezdi.
+    """
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
         return Path(base) / APP_NAME
@@ -31,13 +50,43 @@ def user_config_dir() -> Path:
     return Path(base) / APP_NAME
 
 
-def user_data_dir() -> Path:
-    """Kalıcı verinin (bellek, indeks, geçmiş) tutulduğu kullanıcı dizini."""
+def base_data_dir() -> Path:
+    """Hesaptan BAĞIMSIZ kalıcı veri kökü."""
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
         return Path(base) / APP_NAME
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
+
+
+def account_config_dir(account_id: str) -> Path:
+    """Belirli bir hesabın yapılandırma dizini."""
+    return base_config_dir() / _ACCOUNTS_DIR / account_id
+
+
+def user_config_dir() -> Path:
+    """`config.yaml` ve `.env` dosyalarının tutulduğu kullanıcı dizini.
+
+    Hesap etkinse onun dizini döner; değilse eski düzen korunur. Hesabı olmayan
+    bir kurulumun ayarları TAŞINMAZ — kullanıcı bir hesap açtığında dosyaları
+    KOPYALAYARAK devralırız (bkz. `accounts.migration`).
+    """
+    account = active_account()
+    return account_config_dir(account) if account else base_config_dir()
+
+
+def user_data_dir() -> Path:
+    """Kalıcı verinin (bellek, indeks, geçmiş) tutulduğu kullanıcı dizini.
+
+    HESABA GÖRE DEĞİŞMEZ ve bu bilinçli bir karardır. Burada tarayıcı profilleri
+    duruyor ve bir Chrome profili yüzlerce megabayt olabilir; hesap başına
+    kopyalamak diski boşuna şişirir, taşımak ise kullanıcının giriş yapmış
+    oturumlarını riske atar.
+    Hesap ayrımı için gereken şey zaten `config.yaml`'dadır: hangi sağlayıcı
+    oturumunun etkin olduğunu, hangi MCP sunucularının bağlı olduğunu ve hangi
+    modelin kullanıldığını o dosya söyler ve o dosya hesaba özeldir.
+    """
+    return base_data_dir()
 
 
 def credentials_file() -> Path:

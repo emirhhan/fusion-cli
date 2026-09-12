@@ -467,7 +467,15 @@ def app_protocol() -> None:
     import asyncio
     from pathlib import Path
 
+    from ..accounts import activate_account, remembered_account
     from ..appserver.server import run_stdio
+
+    # Etkin hesap YAPILANDIRMA OKUNMADAN ÖNCE seçilmelidir: `config.yaml` hesaba
+    # özel bir dizinden gelir ve oturum nesnesi kurulurken zaten yükleniyor.
+    # Hatırlanan hesap yoksa hesapsız (eski) düzen geçerli kalır.
+    hesap = remembered_account()
+    if hesap:
+        activate_account(hesap)
 
     asyncio.run(run_stdio(Path.cwd(), Path.home()))
 

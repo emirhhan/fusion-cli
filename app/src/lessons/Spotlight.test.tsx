@@ -86,7 +86,6 @@ describe("Ders işaretleri arayüzde gerçekten var", () => {
       "arama",
       "gecmis",
       "kontrol-paneli",
-      "dersler",
       "ayarlar",
     ];
     const eksik = beklenen.filter((isaret) => !kaynaklar.includes(`"${isaret}"`));

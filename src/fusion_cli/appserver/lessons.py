@@ -36,7 +36,6 @@ KNOWN_MARKS = (
     "arama",
     "gecmis",
     "kontrol-paneli",
-    "dersler",
     "ayarlar",
 )
 

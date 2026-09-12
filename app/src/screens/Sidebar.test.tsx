@@ -48,47 +48,74 @@ describe("Sidebar", () => {
   it("ürünün ana bölümlerini tek navigasyonda gösterir", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /yerel profil menüsü/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    expect(screen.getByRole("menuitem", { name: /hesabım/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^ayarlar$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /kontrol paneli/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /dersler/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /kontrol merkezi/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /mcp bağlantıları/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /ayarlar/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /yardım/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^dil$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /çıkış yap/i })).toBeTruthy();
   });
 
   it("profil menüsünden hedefe gider ve menüyü kapatır", () => {
     const onNavigate = vi.fn();
     render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /yerel profil menüsü/i }));
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("connectors");
     expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
   });
 
-  it("sağlayıcı girişi yokken uydurma kullanıcı adı ve paket göstermez", () => {
+  it("giriş yapılmadıysa uydurma kullanıcı adı göstermez", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: /yerel profil menüsü/i }).textContent).toContain("Bağlantı yok");
+    expect(screen.getByRole("button", { name: /hesap menüsü/i }).textContent).toContain(
+      "Giriş yapılmadı",
+    );
     expect(screen.queryByText("Emir")).toBeNull();
-    expect(screen.queryByText("Plus")).toBeNull();
   });
 
-  it("doğrulanmış web oturumunu profil satırında gerçek bağlantı olarak gösterir", () => {
+  it("giriş yapan hesabı sol altta gerçek kullanıcı olarak gösterir", () => {
+    /* Ölçülmüş şikayet: burada kullanılan MODELİN adı ("Gemini Web") bir
+       kullanıcı adı gibi duruyordu; hesap kavramı yoktu. */
     render(
       <Sidebar
         etkin={null}
+        hesap={{ kullanici_adi: "emirhan", eposta: "e@ornek.com", avatar: "🏍️" }}
         onSec={vi.fn()}
         onYeni={vi.fn()}
         oturumlar={[]}
-        webProfile={{ providerName: "ChatGPT Web", account: "main" }}
       />,
     );
 
-    const profile = screen.getByRole("button", { name: /chatgpt web profil menüsü/i });
-    expect(profile.textContent).toContain("ChatGPT Web");
-    expect(profile.textContent).toContain("main hesabı bağlı");
+    const profile = screen.getByRole("button", { name: /emirhan hesap menüsü/i });
+    expect(profile.textContent).toContain("emirhan");
+    expect(profile.textContent).toContain("e@ornek.com");
+    expect(profile.textContent).not.toContain("Gemini");
+  });
+
+  it("çıkış yap menüden bildirilir ve menü kapanır", () => {
+    const onCikis = vi.fn();
+    render(
+      <Sidebar
+        etkin={null}
+        hesap={{ kullanici_adi: "emirhan", eposta: "e@ornek.com", avatar: "" }}
+        onCikis={onCikis}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /çıkış yap/i }));
+
+    expect(onCikis).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("aramayla oturumları başlık ve kaynak üzerinden filtreler", () => {

@@ -160,3 +160,27 @@ REPEAT_READ_CACHE_CHARS = 64_000
 #: 64 giriş bunun çok üstünde ve sınırsız büyümeyi engeller.
 REPEAT_READ_CACHE_ENTRIES = 64
 
+
+#: Parola karması için scrypt maliyet parametreleri.
+#
+# argon2 yerine stdlib `hashlib.scrypt` seçildi: masaüstü paketine yeni bir
+# yerel bağımlılık (argon2-cffi) sokmak DMG boyutunu ve derleme riskini
+# artırıyordu, scrypt ise aynı sınıfta bir bellek-zorlu fonksiyon ve Python'un
+# içinde geliyor.
+#
+# N=2^15, r=8, p=1: RFC 7914'ün etkileşimli oturum açma için önerdiği çalışma
+# noktası (~32 MB bellek). Ölçüldü (bu makine): tek doğrulama ~90 ms — insanın
+# fark etmediği, deneme-yanılma saldırısını ise ciddi biçimde pahalılaştıran bir
+# süre. `maxmem` varsayılanı bu N için yetmiyor, açıkça verilir.
+SCRYPT_N = 1 << 15
+SCRYPT_R = 8
+SCRYPT_P = 1
+SCRYPT_MAXMEM = 64 * 1024 * 1024
+#: Parola karmasının ve tuzun bayt uzunluğu.
+SCRYPT_KEY_BYTES = 32
+SCRYPT_SALT_BYTES = 16
+#: Kurtarma kodunun taşıdığı rastgele bayt sayısı.
+#
+# Sunucu yok, hız sınırı yok: kod yeterince uzun olmalı. 10 bayt Crockford
+# Base32'de 16 karaktere karşılık gelir ve kaba kuvvetle bulunamaz.
+RECOVERY_CODE_BYTES = 10

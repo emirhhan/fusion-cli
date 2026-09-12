@@ -32,8 +32,13 @@ interface SidebarProps {
   onYeni: () => void;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
-  /** Yalnız arka ucun bağlı diye bildirdiği gerçek web oturumundan gelir. */
-  webProfile?: { account: string; providerName: string } | null;
+  /** Sol alttaki satır: giriş yapmış YEREL HESAP.
+   *
+   * Eskiden burada web sağlayıcısının adı ("Gemini Web") yazıyordu ve kullanıcı
+   * adı gibi görünüyordu; hesap kavramı henüz yoktu. Artık gerçek hesap durur.
+   */
+  hesap?: { kullanici_adi: string; eposta: string; avatar: string } | null;
+  onCikis?: () => void;
 }
 
 interface NavItemProps {
@@ -136,7 +141,8 @@ export function Sidebar({
   onYeni,
   oturumlar,
   projeler = [],
-  webProfile = null,
+  hesap = null,
+  onCikis,
 }: SidebarProps) {
   // Dar pencerede kenar çubuğu kendiliğinden ikon şeridine iner. Bu KARAR
   // burada verilir çünkü dar kip kuralları `data-collapsed` seçicisine bağlıdır;
@@ -235,12 +241,14 @@ export function Sidebar({
     setProfileOpen(false);
     onNavigate(destination);
   };
-  const profileName = webProfile?.providerName ?? "Yerel profil";
-  const profileMenuLabel = webProfile ? `${profileName} profil menüsü` : "Yerel profil menüsü";
-  const profileDetail = webProfile ? `${webProfile.account} hesabı bağlı` : "Bağlantı yok";
-  const profileInitials = webProfile
-    ? webProfile.providerName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
-    : "FP";
+  const profileName = hesap?.kullanici_adi ?? "Hesap yok";
+  const profileMenuLabel = hesap ? `${profileName} hesap menüsü` : "Hesap menüsü";
+  const profileDetail = hesap?.eposta ?? "Giriş yapılmadı";
+  const profileInitials =
+    hesap?.avatar ||
+    (hesap
+      ? hesap.kullanici_adi.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toLocaleUpperCase("tr")
+      : "?");
 
   return (
     <nav aria-label="Fusion" className="sidebar" data-collapsed={collapsed || darEkran}>
@@ -331,19 +339,21 @@ export function Sidebar({
         <div className="sidebar__profile-wrap" ref={profileRef}>
           {profileOpen && (
             <div aria-label="Profil menüsü" className="sidebar__profile-menu" role="menu">
-              <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button">
+              <button className="sidebar__profile-heading" onClick={() => navigateFromProfile("account")} role="menuitem" type="button">
                 <span className="sidebar__avatar">{profileInitials}</span>
                 <span className="sidebar__profile-copy"><strong>{profileName}</strong><small>{profileDetail}</small></span>
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
-              <button data-ders="kontrol-paneli" onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Merkezi</span></button>
+              <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="settings" /><span>Hesabım</span></button>
+              <button data-ders="ayarlar" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
+              <button data-ders="kontrol-paneli" onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
               <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
               <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
-              <button data-ders="dersler" onClick={() => navigateFromProfile("lessons")} role="menuitem" type="button"><Icon name="lessons" /><span>Dersler</span></button>
-              <button data-ders="ayarlar" onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
+              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
+              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="lessons" /><span>Dil</span></button>
               <div className="sidebar__profile-separator" />
-              <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span><Icon className="sidebar__profile-chevron" name="chevron" size={18} /></button>
+              <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="help" /><span>Çıkış yap</span></button>
             </div>
           )}
           <button
@@ -356,7 +366,7 @@ export function Sidebar({
           >
             <span className="sidebar__avatar">{profileInitials}</span>
             <span className="sidebar__profile-copy sidebar__label"><strong>{profileName}</strong><small>{profileDetail}</small></span>
-            <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(webProfile)} />
+            <span aria-hidden="true" className="sidebar__profile-status" data-connected={Boolean(hesap)} />
           </button>
         </div>
       </div>

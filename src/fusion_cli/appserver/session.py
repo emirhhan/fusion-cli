@@ -294,6 +294,11 @@ class AppSession:
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
+        from .accounts import AccountService
+
+        #: Hesap uçları. Depo hesaptan BAĞIMSIZ bir dosyadadır; etkin hesap
+        #: süreç açılışında zaten seçilmiştir (bkz. `cli` giriş noktası).
+        self._accounts = AccountService()
         #: Sağlayıcı connector panelini açan arka plan görevleri (sağlayıcı → görev).
         #: Pencere kullanıcı kapatana kadar yaşar; RPC onu beklemez.
         self._panel_tasks: dict[str, asyncio.Task[None]] = {}
@@ -443,6 +448,22 @@ class AppSession:
             )
         if request.name == "kullanim.durum":
             return usage_status(self._usage, self._state.health)
+        if request.name == "hesap.durum":
+            return self._accounts.status()
+        if request.name == "hesap.kayit":
+            return self._accounts.register(request.data)
+        if request.name == "hesap.giris":
+            return self._accounts.login(request.data)
+        if request.name == "hesap.cikis":
+            return self._accounts.logout()
+        if request.name == "hesap.kurtar":
+            return self._accounts.recover(request.data)
+        if request.name == "hesap.guncelle":
+            return self._accounts.update(request.data)
+        if request.name == "hesap.avatar_yukle":
+            return self._accounts.upload_avatar(request.data)
+        if request.name == "hesap.sil":
+            return self._accounts.remove(request.data)
         if request.name == "ayar.talimat":
             return get_instructions()
         if request.name == "ayar.tema":

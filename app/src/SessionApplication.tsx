@@ -67,6 +67,9 @@ import {
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
 import { findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { AccountGate } from "./account/AccountGate";
+import { AccountScreen } from "./account/AccountScreen";
+import { useAccount } from "./account/useAccount";
 import { Onboarding, type OnboardingValue } from "./onboarding";
 import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
@@ -215,7 +218,7 @@ function projectName(root: string): string {
 }
 
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
-const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors"];
+const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
 
 function ProjectInspector({
   activeTab,
@@ -441,7 +444,6 @@ export function SessionUygulama({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
   const [controlRevision, setControlRevision] = useState(0);
-  const [webProfile, setWebProfile] = useState<{ account: string; providerName: string } | null>(null);
   const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
@@ -452,7 +454,7 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "lessons" | "settings" | "image-create" | "video-create">("chat");
+  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "lessons" | "settings" | "account" | "image-create" | "video-create">("chat");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -479,26 +481,11 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  // Hesap kapısı onboarding'den ÖNCE gelir: kimin kurulum yaptığı belli olmalı.
+  const account = useAccount(active?.client ?? null);
+  const etkinHesap =
+    account.durum?.hesaplar.find((item) => item.kimlik === account.durum?.etkin) ?? null;
   const { changeTheme, themePreference } = useAppTheme(active?.client);
-  useEffect(() => {
-    if (!active) {
-      setWebProfile(null);
-      return;
-    }
-    let current = true;
-    void active.client.request("saglayici.katalog", {}).then((payload) => {
-      if (!current) return;
-      const rows = Array.isArray(payload.saglayicilar) ? payload.saglayicilar : [];
-      const connected = rows.find((row) => row?.tur === "web" && row?.bagli === true);
-      setWebProfile(connected ? {
-        account: String(connected.hesap ?? "main"),
-        providerName: String(connected.ad ?? "Web sağlayıcısı"),
-      } : null);
-    }).catch(() => {
-      if (current) setWebProfile(null);
-    });
-    return () => { current = false; };
-  }, [active?.client, controlRevision]);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
   const startDesktopChat = async () => {
@@ -532,6 +519,12 @@ export function SessionUygulama({
               setPage("control");
             } else if (destination === "connectors") {
               setPage("connectors");
+            } else if (destination === "account") {
+              setPage("account");
+            } else if (destination === "language") {
+              // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
+              // kullanıcıya orada açıkça söylüyoruz.
+              setPage("settings");
             } else if (destination === "help") {
               setPage("lessons");
             } else if (destination.startsWith("resume:")) {
@@ -827,6 +820,12 @@ export function SessionUygulama({
     />;
   }
 
+  // Fusion hesapsız açılmaz. Kapı, çekirdek bağlandıktan sonra çizilir:
+  // hesap bilgisi oradan okunuyor.
+  if (active && !account.yukleniyor && account.durum && !account.durum.etkin) {
+    return <AccountGate account={account} />;
+  }
+
   if (showOnboarding) {
     const projects: SampleProject[] = [
       { id: active.root, name: projectName(active.root), description: "Şu anda açık olan çalışma alanı", path: active.root },
@@ -948,6 +947,25 @@ export function SessionUygulama({
       )
       : page === "connectors"
         ? <ConnectorsScreen client={active.client} onClose={() => setPage("chat")} />
+      : page === "account"
+        ? (
+          <AccountScreen
+            account={account}
+            onClose={() => setPage("chat")}
+            onPickAvatarFile={async () => {
+              // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
+              // dosya sistemine yazmaz ve avatar hesabın kendi dizininde durur.
+              const secilen = await selectFiles(active.root).catch(() => []);
+              const yol = secilen[0];
+              const kimlik = account.durum?.etkin;
+              if (!yol || !kimlik) return null;
+              const sonuc = await active.client
+                .request("hesap.avatar_yukle", { kimlik, yol })
+                .catch(() => null);
+              return sonuc?.ok === true && typeof sonuc.avatar === "string" ? sonuc.avatar : null;
+            }}
+          />
+        )
       : page === "settings"
         ? (
           <Settings
@@ -1246,7 +1264,12 @@ export function SessionUygulama({
             root: project.root,
             updated_at: project.updatedAt,
           }))}
-          webProfile={webProfile}
+          hesap={etkinHesap}
+          onCikis={() => {
+            // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması
+            // ancak yeni bir çekirdek sürecinde bırakılabilir.
+            void account.cikis().then(() => window.location.reload());
+          }}
         />
       }
       sidebarCollapsed={layout.sidebarCollapsed}
