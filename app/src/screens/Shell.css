@@ -138,3 +138,40 @@
     top: var(--header-height);
   }
 }
+
+/* --- Çalışma paneli ALTTA (VS Code düzeni) ------------------------------
+   Sağdaki dar sütunda geniş bir terminal ya da uzun bir diff okunmuyordu.
+   Alt yerleşimde panel, görev kutusunun altında tam genişlikte durur. */
+
+.app-shell[data-inspector-placement="bottom"] {
+  grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.app-shell[data-inspector-placement="bottom"][data-sidebar-collapsed="true"] {
+  grid-template-columns: 0 minmax(0, 1fr);
+}
+
+/* Panel çalışma alanının İÇİNDE değil, onun altında bir satır olur: kenar
+   çubuğu tam yükseklikte kalsın. */
+.app-shell[data-inspector-placement="bottom"] .app-shell__workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-height: 0;
+}
+
+.app-shell[data-inspector-placement="bottom"] .app-shell__inspector {
+  border-inline-start: 0;
+  border-top: 1px solid var(--border-subtle);
+  grid-column: 2;
+  grid-row: 1;
+  height: var(--inspector-bottom-height, 280px);
+  max-height: 60vh;
+  min-height: 0;
+  /* Kendi ızgara hücresinde değil, çalışma alanının son satırında durur. */
+  align-self: end;
+}
+
+.app-shell[data-inspector-placement="bottom"][data-inspector-open="false"] .app-shell__inspector {
+  display: none;
+}

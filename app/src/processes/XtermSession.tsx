@@ -62,6 +62,32 @@ export function createXtermAdapter(): XtermAdapter {
   };
 }
 
+/**
+ * Kabuğu doğuracak GERÇEK sütun/satır sayısını ölç.
+ *
+ * Ölçüm xterm'in KENDİ hesabıyla yapılır: geçici bir terminal açılır, `fit`
+ * çağrılır, sayılar okunur ve terminal atılır.
+ *
+ * Ölçülen hata (kullanıcı makinesi): kabuk 8.4×18 piksellik TAHMİNİ hücre
+ * boyutuyla doğuruluyor, hemen ardından xterm gerçek boyutu ölçüp yeniden
+ * boyutlandırıyordu. Kabuk ilk istemini ilk boyutta çizmiş oluyor, yeniden
+ * boyutlandırmada bir daha çiziyor ve ekranda İKİ İSTEM satırı kalıyordu —
+ * "birden fazla terminal path'i görünüyor" şikayeti buydu. Tahmin yerine
+ * ölçüm, sorunu kaynağında bitirir.
+ */
+export function measureTerminalSize(host: HTMLElement): { cols: number; rows: number } {
+  const probe = new Terminal({ fontFamily: resolveMonoFont(), fontSize: 12 });
+  const fit = new FitAddon();
+  probe.loadAddon(fit);
+  try {
+    probe.open(host);
+    fit.fit();
+    return { cols: probe.cols, rows: probe.rows };
+  } finally {
+    probe.dispose();
+  }
+}
+
 export function XtermSession({
   session,
   active,

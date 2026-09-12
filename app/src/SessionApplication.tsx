@@ -40,7 +40,6 @@ import { FileExplorer } from "./workspace/FileExplorer";
 import { ChangesPanel } from "./workspace/ChangesPanel";
 import { TestsPanel } from "./workspace/TestsPanel";
 import { PreviewPanel } from "./workspace/PreviewPanel";
-import { ProcessesPanel } from "./processes/ProcessesPanel";
 import { TerminalPanel } from "./processes/TerminalPanel";
 import { useProcesses } from "./processes/useProcesses";
 import { SkillsCatalog } from "./capabilities/SkillsCatalog";
@@ -50,6 +49,7 @@ import { ConnectorsScreen } from "./connectors/ConnectorsScreen";
 import { HelpScreen } from "./help/HelpScreen";
 import { Settings } from "./settings/Settings";
 import { useShowSteps } from "./settings/useShowSteps";
+import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
@@ -265,10 +265,16 @@ function ProjectInspector({
       width={width}
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={onSelectPath} root={root} />,
-        changes: <ChangesPanel client={client} onChanged={changed} revision={revision} />,
+        // Doğrulama komutları DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
+        // "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı 'Testler' sekmesi git
+        // durumunu ikinci kez gösteriyordu.
+        changes: (
+          <>
+            <ChangesPanel client={client} onChanged={changed} revision={revision} />
+            <TestsPanel client={client} processes={processes} />
+          </>
+        ),
         terminal: <TerminalPanel cwd={root} />,
-        processes: <ProcessesPanel controller={processes} />,
-        tests: <TestsPanel client={client} processes={processes} />,
         preview: <PreviewPanel client={client} selectedPath={selectedPath} />,
       }}
     />
@@ -481,6 +487,7 @@ export function SessionUygulama({
   const etkinHesap =
     account.durum?.hesaplar.find((item) => item.kimlik === account.durum?.etkin) ?? null;
   const guncellemeSurumu = useUpdateAvailable();
+  const inspectorPlacement = useInspectorPlacement();
   const { changeTheme, themePreference } = useAppTheme(active?.client);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
@@ -1179,6 +1186,7 @@ export function SessionUygulama({
         />
       ) : undefined}
       inspectorCollapsed={inspectorLayout.collapsed}
+      inspectorPlacement={inspectorPlacement}
       inspectorOpen={page === "chat" && layout.inspectorOpen}
       inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}

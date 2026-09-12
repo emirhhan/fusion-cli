@@ -17,16 +17,22 @@ import { Icon } from "../ui/Icon";
 import "./Inspector.css";
 
 type InspectorStatus = "ready" | "loading" | "error";
-export type InspectorTabId = "files" | "changes" | "terminal" | "processes" | "tests" | "preview" | "context";
+/**
+ * Çalışma panelinin sekmeleri.
+ *
+ * Yedi sekme vardı: Dosyalar, Değişiklikler, Terminal, Süreçler, Testler,
+ * Önizleme, Bağlam. Kullanıcının ölçülmüş tepkisi panelin "sahte ve dummy"
+ * göründüğüydü — çoğu sekme aynı boş kutuyu çiziyor, Süreçler ile Testler ise
+ * zaten Terminal'in yaptığı işi iki ayrı yerde gösteriyordu. Dördü kaldı ve
+ * her biri ayrı bir soruyu cevaplıyor.
+ */
+export type InspectorTabId = "files" | "changes" | "terminal" | "preview";
 
 const tabs: { id: InspectorTabId; label: string; icon: IconName }[] = [
   { id: "files", label: "Dosyalar", icon: "files" },
   { id: "changes", label: "Değişiklikler", icon: "changes" },
   { id: "terminal", label: "Terminal", icon: "terminal" },
-  { id: "processes", label: "Süreçler", icon: "panel" },
-  { id: "tests", label: "Testler", icon: "tests" },
   { id: "preview", label: "Önizleme", icon: "preview" },
-  { id: "context", label: "Bağlam", icon: "skills" },
 ];
 
 interface InspectorProps {

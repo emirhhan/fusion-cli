@@ -8,7 +8,7 @@ describe("Inspector", () => {
   it("bağlamsal araçları erişilebilir sekmeler olarak sunar", () => {
     render(<Inspector />);
     expect(screen.getByRole("tablist", { name: "Denetçi araçları" })).toBeTruthy();
-    expect(screen.getAllByRole("tab")).toHaveLength(7);
+    expect(screen.getAllByRole("tab")).toHaveLength(4);
     expect(screen.getByRole("tabpanel")).toBeTruthy();
   });
 

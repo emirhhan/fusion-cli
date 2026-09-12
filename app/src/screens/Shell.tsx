@@ -61,6 +61,8 @@ interface ShellProps {
   onInspectorClose?: () => void;
   sidebar: ReactNode;
   sidebarCollapsed?: boolean;
+  /** Çalışma paneli sağda mı, görev kutusunun altında mı. */
+  inspectorPlacement?: "right" | "bottom";
 }
 
 export function Shell({
@@ -74,6 +76,7 @@ export function Shell({
   onInspectorClose,
   sidebar,
   sidebarCollapsed = false,
+  inspectorPlacement = "right",
 }: ShellProps) {
   const inspectorRef = useRef<HTMLElement>(null);
   const overlayOwnsFocus = useRef(false);
@@ -162,6 +165,7 @@ export function Shell({
       className="app-shell"
       data-inspector-open={inspectorOpen}
       data-inspector-overlay={inspectorOverlay}
+      data-inspector-placement={inspectorPlacement}
       data-sidebar-collapsed={sidebarCollapsed}
       style={{ "--inspector-width": `${inspectorTrackWidth}px` } as CSSProperties}
     >

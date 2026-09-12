@@ -6,6 +6,8 @@ vi.mock("./XtermSession", () => ({
   XtermSession: ({ session, active }: { session: TerminalSession; active: boolean }) => (
     <div data-active={String(active)}>xterm {session.snapshot.terminalId}</div>
   ),
+  // Gerçek ölçüm xterm'i ve bir tarayıcıyı gerektirir; jsdom'da varsayılana düşer.
+  measureTerminalSize: () => ({ cols: 0, rows: 0 }),
 }));
 
 import { TerminalTabs } from "./TerminalTabs";
@@ -156,25 +158,20 @@ describe("TerminalTabs", () => {
     await waitFor(() => expect(late.close).toHaveBeenCalledOnce());
     expect(late.dispose).toHaveBeenCalledOnce();
   });
-  it("kabugu sabit 80x24 ile degil GERCEK olcuyle acar", async () => {
-    // Sabit boyutla açmak kabuğun ilk istemini ve tamamlama listesini yanlış
-    // genişlikte çizdiriyordu; panel dar olduğunda satırlar bozuk kayıyordu.
+  it("kabugu tahminle degil xterm'in OLCTUGU boyutla acar", async () => {
+    /* Ölçülen hata (kullanıcı makinesi): kabuk tahmini hücre boyutuyla
+       doğuruluyor, hemen ardından xterm gerçek boyutu ölçüp yeniden
+       boyutlandırıyordu. Kabuk istemini iki kez çiziyor ve ekranda iki ayrı
+       istem satırı kalıyordu. Artık ölçüm ÖNCE yapılır. */
     const fake = runtime();
-    const { container } = render(<TerminalTabs cwd="/proje" runtime={fake} />);
-
-    const host = container.querySelector(".terminal-tabs") as HTMLElement;
-    vi.spyOn(host, "getBoundingClientRect").mockReturnValue({
-      width: 420, height: 360, top: 0, left: 0, right: 420, bottom: 360, x: 0, y: 0,
-      toJSON: () => ({}),
-    } as DOMRect);
+    const measure = vi.fn(() => ({ cols: 53, rows: 19 }));
+    render(<TerminalTabs cwd="/proje" measure={measure} runtime={fake} />);
 
     fireEvent.click(screen.getByRole("button", { name: "İlk terminali aç" }));
 
     await waitFor(() => expect(fake.openSession).toHaveBeenCalled());
-    const cagri = vi.mocked(fake.openSession).mock.calls[0];
-    expect(cagri[1]).toBeGreaterThan(20);
-    expect(cagri[1]).toBeLessThan(80);
-    expect(cagri[2]).toBeGreaterThan(5);
+    expect(measure).toHaveBeenCalled();
+    expect(vi.mocked(fake.openSession).mock.calls[0]).toEqual(["/proje", 53, 19]);
   });
 
   it("olcum yapilamazsa guvenli varsayilana duser", async () => {

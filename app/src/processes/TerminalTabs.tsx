@@ -1,18 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "../ui/Icon";
-import { XtermSession } from "./XtermSession";
+import { XtermSession, measureTerminalSize } from "./XtermSession";
 import { terminalRuntime, type TerminalClosedEvent, type TerminalRuntime, type TerminalSession } from "./terminalBridge";
 
 /** Ölçüm yapılamazsa kullanılan güvenli varsayılan. */
 const VARSAYILAN_SUTUN = 80;
 const VARSAYILAN_SATIR = 24;
-
-/* Terminal yazı tipinin yaklaşık hücre boyutu. Kesin ölçüm xterm'in kendi
-   `fit` eklentisinden gelir ve açılıştan hemen sonra çekirdeğe bildirilir;
-   buradaki tahmin yalnız kabuğun İLK istemini doğru genişlikte çizmesi
-   içindir. */
-const HUCRE_GENISLIGI_PX = 8.4;
-const HUCRE_YUKSEKLIGI_PX = 18;
 
 interface TerminalTab {
   title: string;
@@ -28,7 +21,16 @@ function closedStatus(closed: TerminalClosedEvent | null) {
   return { label: `Hata (${closed.exitCode})`, tone: "hata" };
 }
 
-export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; runtime?: TerminalRuntime }) {
+export function TerminalTabs({
+  cwd,
+  runtime = terminalRuntime,
+  measure = measureTerminalSize,
+}: {
+  cwd: string;
+  runtime?: TerminalRuntime;
+  /** Ölçüm enjekte edilebilir: xterm gerçek tarayıcı olmadan ölçemez. */
+  measure?: (host: HTMLElement) => { cols: number; rows: number };
+}) {
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const tabsRef = useRef<TerminalTab[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -36,6 +38,8 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
   const [opening, setOpening] = useState(false);
   const nextNumber = useRef(1);
   const hostRef = useRef<HTMLDivElement | null>(null);
+  /** Ölçüm için kullanılan, ekranda görünmeyen ama YER KAPLAYAN kutu. */
+  const probeRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
@@ -52,15 +56,26 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
     };
   }, []);
 
-  /** Panelin gerçek sütun/satır sayısı; ölçülemezse güvenli varsayılan. */
+  /**
+   * Kabuğun doğacağı sütun/satır sayısı — xterm'in KENDİ ölçümüyle.
+   *
+   * Eskiden hücre boyutu tahmin ediliyordu (8.4×18 px) ve tahmin xterm'in
+   * gerçek ölçüsünü tutturmadığı için kabuk açılır açılmaz yeniden
+   * boyutlandırılıyor, istemini iki kez çiziyordu. Ölçüm yapılamıyorsa (kutu
+   * henüz yerleşmemiş, test ortamı) güvenli varsayılana düşülür.
+   */
   const olcVeyaVarsayilan = (): { cols: number; rows: number } => {
-    const host = hostRef.current;
-    if (!host) return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
-    const { width, height } = host.getBoundingClientRect();
-    if (width <= 0 || height <= 0) return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
-    const cols = Math.max(20, Math.floor(width / HUCRE_GENISLIGI_PX));
-    const rows = Math.max(5, Math.floor(height / HUCRE_YUKSEKLIGI_PX));
-    return { cols, rows };
+    const probe = probeRef.current;
+    if (!probe) return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
+    try {
+      const { cols, rows } = measure(probe);
+      if (cols > 0 && rows > 0) return { cols, rows };
+    } catch {
+      // Ölçüm başarısızsa terminal yine açılır; ilk `fit` düzeltir.
+    } finally {
+      probe.replaceChildren();
+    }
+    return { cols: VARSAYILAN_SUTUN, rows: VARSAYILAN_SATIR };
   };
 
   const openTerminal = async () => {
@@ -164,6 +179,10 @@ export function TerminalTabs({ cwd, runtime = terminalRuntime }: { cwd: string; 
         </button>
         <button aria-label="Aktif terminali kapat" className="terminal-tabs__close" disabled={!activeId} onClick={() => void closeActive()} title="Terminali kapat" type="button">×</button>
       </div>
+
+      {/* Ölçüm kutusu: terminal paneliyle AYNI alanı kaplar ama görünmez.
+          Boyutu buradan okunur, böylece kabuk doğru sayıyla doğar. */}
+      <div aria-hidden="true" className="terminal-tabs__probe" ref={probeRef} />
 
       {error && <p className="process-error" role="alert">{error}</p>}
       {tabs.length ? tabs.map((tab) => {

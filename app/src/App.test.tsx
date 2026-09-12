@@ -28,6 +28,8 @@ vi.mock("./processes/XtermSession", () => ({
   XtermSession: ({ session }: { session: { snapshot: { terminalId: string } } }) => (
     <div>PTY {session.snapshot.terminalId}</div>
   ),
+  // Gerçek ölçüm xterm'i ve bir tarayıcıyı gerektirir; jsdom'da varsayılana düşer.
+  measureTerminalSize: () => ({ cols: 0, rows: 0 }),
 }));
 
 function fakeClient() {
@@ -456,13 +458,15 @@ describe("SessionUygulama", () => {
     }));
     expect(await screen.findByText("PTY terminal-1")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Testler" }));
+    /* Doğrulama komutları artık DEĞİŞİKLİKLER sekmesinde: "ne değişti" ile
+       "hâlâ çalışıyor mu" aynı soruya bakar. Ayrı Testler ve Süreçler
+       sekmeleri git durumunu ve komut çıktısını ikinci kez gösteriyordu. */
+    fireEvent.click(screen.getByRole("tab", { name: "Değişiklikler" }));
     expect(await screen.findByText("main")).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: "Testleri çalıştır" }));
     expect(await screen.findByText("testler geçti")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Süreçler" }));
-    expect(await screen.findByText("npm test")).toBeTruthy();
+    // Komut hem öneri düğmesinde hem kanıt dökümünde geçer; ikisi de beklenen.
+    expect((await screen.findAllByText("npm test")).length).toBeGreaterThan(0);
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {

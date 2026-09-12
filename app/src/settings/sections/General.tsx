@@ -1,6 +1,8 @@
 import type { ThemePreference } from "../../theme/theme";
 import { setShowSteps } from "../preferences";
 import { useShowSteps } from "../useShowSteps";
+import { setPlacement, type InspectorPlacement } from "../placement";
+import { useInspectorPlacement } from "../useInspectorPlacement";
 
 /**
  * Genel — kullanıcının günlük tercihleri.
@@ -34,6 +36,7 @@ export function General({
   themePreference: ThemePreference;
 }) {
   const showSteps = useShowSteps();
+  const placement = useInspectorPlacement();
   return (
     <>
       <article className="settings__card">
@@ -83,6 +86,20 @@ export function General({
           />
           <span>Fusion'ın attığı adımları göster</span>
         </label>
+        <label className="settings__row" htmlFor="settings-placement">
+          <span>Çalışma paneli</span>
+          <select
+            id="settings-placement"
+            onChange={(event) => setPlacement(event.target.value as InspectorPlacement)}
+            value={placement}
+          >
+            <option value="right">Sağda</option>
+            <option value="bottom">Altta (VS Code gibi)</option>
+          </select>
+        </label>
+        <p className="settings__hint">
+          Geniş bir terminal ya da uzun bir diff, alt yerleşimde daha rahat okunur.
+        </p>
       </article>
     </>
   );

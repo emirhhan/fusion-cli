@@ -305,3 +305,15 @@
 .process-status--calisiyor { color: var(--text-warning) !important; }
 .process-status--bitti { color: var(--text-success) !important; }
 .process-status--hata { color: var(--text-danger) !important; }
+
+/* Ölçüm kutusu: terminal paneliyle aynı alanı kaplar, görünmez.
+   `display: none` DEĞİL — ölçülemeyen bir kutu sıfır boyut döndürür ve kabuk
+   yine yanlış sayıyla doğardı. */
+.terminal-tabs__probe {
+  flex: 1;
+  min-height: 0;
+  pointer-events: none;
+  position: absolute;
+  visibility: hidden;
+  inset: var(--terminal-strip-height, 36px) 0 0 0;
+}

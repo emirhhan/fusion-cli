@@ -7,9 +7,7 @@ export const INSPECTOR_MAX_WIDTH = 680;
 export const INSPECTOR_DEFAULT_WIDTH = 420;
 export const INSPECTOR_COLLAPSED_WIDTH = 56;
 
-const inspectorTabs = new Set<InspectorTabId>([
-  "files", "changes", "terminal", "processes", "tests", "preview", "context",
-]);
+const inspectorTabs = new Set<InspectorTabId>(["files", "changes", "terminal", "preview"]);
 
 interface InspectorLayoutState {
   activeTab: InspectorTabId;
