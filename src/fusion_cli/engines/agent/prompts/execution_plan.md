@@ -1,6 +1,10 @@
 Kullanıcı görevini küçük, doğrulanabilir ve bağımlılıkları açık adımlara ayır.
 Yalnızca JSON döndür; açıklama veya Markdown kullanma.
 
+JSON dizelerinin İÇİNDE çift tırnak KULLANMA. Komut yazman gerekiyorsa
+tek tırnak kullan: "target": "python3 -c 'print(1)'". Çift tırnak dizeyi
+erken kapatır ve plan ayrıştırılamaz.
+
 Şema:
 {
   "plan_id": "kısa-kararlı-kimlik",

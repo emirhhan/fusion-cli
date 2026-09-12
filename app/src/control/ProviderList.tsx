@@ -23,6 +23,8 @@ interface ProviderRow {
   /** Tarayıcı profili var mı? Tek başına "bağlı" demek DEĞİLDİR. */
   profil_var?: boolean;
   tur: "web" | "anahtar";
+  /** Taklit araç ölçümü geçildi mi — geçmediyse model DOSYA YAZAMAZ. */
+  olcum_gecti?: boolean;
 }
 
 const YOKLAMA_MS = 1500;
@@ -275,7 +277,7 @@ export function ProviderList({ client, onChanged = () => undefined }: {
                 )}
               </span>
               <span className="provider-list__name">{row.ad}</span>
-              <span className="provider-list__state">{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : (row.bagli ? "bağlı" : "bağlı değil")}</span>
+              <span className="provider-list__state">{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil"}</span>
             </button>
 
             {open === row.id && (
@@ -303,6 +305,27 @@ export function ProviderList({ client, onChanged = () => undefined }: {
                       </button>
                       {row.bagli && (
                         <>
+                          {/* Ölçüm, modelin dosya yazabilmesinin ÖN KOŞULU.
+                              Puanlayıcı baştan beri vardı ama onu çalıştıran
+                              hiçbir yol yoktu: bayrak yalnız config elle
+                              düzenlenerek açılabiliyordu. */}
+                          <button
+                            className="provider-list__action"
+                            disabled={busy === row.id}
+                            onClick={() =>
+                              void run(async () => {
+                                const sonuc = await client.request("web.arac_olc", {
+                                  saglayici: row.id,
+                                  hesap: row.hesap ?? "main",
+                                });
+                                setNotice(String(sonuc?.metin ?? "Ölçüm tamamlanamadı."));
+                                await load();
+                              })
+                            }
+                            type="button"
+                          >
+                            {row.olcum_gecti ? "Araç ölçümünü yenile" : "Araç desteğini ölç"}
+                          </button>
                           <button
                             className="provider-list__action"
                             disabled={busy === row.id}

@@ -24,6 +24,8 @@ class _ScriptedProvider:
     def __init__(self, outputs: list[str]) -> None:
         self._outputs = list(outputs)
         self.seen: list[str] = []
+        #: Her çağrının TAM mesaj listesi — sohbetin sürüp sürmediği buradan görülür.
+        self.istekler: list[tuple] = []
 
     @property
     def label(self) -> str:
@@ -31,6 +33,7 @@ class _ScriptedProvider:
 
     async def complete(self, request):
         self.seen.append(request.messages[-1].content)
+        self.istekler.append(request.messages)
         text = self._outputs.pop(0) if self._outputs else ""
         return ModelResult(name=MODEL, model=MODEL, text=text, latency_ms=1, ok=True)
 
@@ -207,3 +210,51 @@ async def test_kayit_defteri_oturum_yapilandirmasiyla_kurabilir():
     saglayici = registry.build_session(_replace(oturum, tool_support="none"))
 
     assert saglayici._tool_support is ToolSupport.NONE
+
+
+async def test_senaryolar_tek_sohbette_birikerek_sorulur():
+    """Her senaryo için taze istek göndermek YENİ sohbet açar — kota bunu affetmez.
+
+    Web taşıması sohbeti yalnız gönderilen önek değişmediyse sürdürür
+    (`web_browser.ConversationState`). Ölçüldü (13 Eylül, kullanıcı makinesi):
+    senaryo başına taze istek ekranda on dörde yakın sekme açtı, sağlayıcı bunu
+    bot davranışı sayıp konuşma oranı sınırını uyguladı.
+    """
+    provider = _ScriptedProvider(_kusursuz_ciktilar())
+
+    await probe_emulation(_config(), MODEL, registry=_Registry(provider))
+
+    uzunluklar = [len(mesajlar) for mesajlar in provider.istekler]
+    # 1 sistem + (kullanıcı, asistan) çiftleri: 2, 4, 6, 8, 10...
+    assert uzunluklar == [2, 4, 6, 8, 10]
+    for mesajlar in provider.istekler:
+        # Önek DEĞİŞMEZ: ilk mesaj hep aynı sistem talimatı.
+        assert mesajlar[0].role == "system"
+        assert mesajlar[0].content == provider.istekler[0][0].content
+
+
+async def test_oran_sinirinda_olcum_derhal_durur():
+    """Sınıra takılmışken denemeye devam etmek sınırı derinleştirir."""
+
+    class _Sinirli:
+        label = MODEL
+
+        def __init__(self) -> None:
+            self.cagri = 0
+
+        async def complete(self, request):
+            self.cagri += 1
+            return ModelResult(
+                name=MODEL,
+                model=MODEL,
+                text="",
+                latency_ms=1,
+                ok=False,
+                error="modal-conversation-history-rate-limit",
+            )
+
+    saglayici = _Sinirli()
+    with pytest.raises(FusionError, match="oran sınırına takıldı"):
+        await probe_emulation(_config(), MODEL, registry=_Registry(saglayici))
+
+    assert saglayici.cagri == 1

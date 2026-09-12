@@ -35,8 +35,11 @@ async def test_indirilen_ikili_dosya_kayitsiz_metin_donusumune_ugramaz(tmp_path,
     assert hashlib.sha256(content).hexdigest() in result.output
     assert path in context.touched
     assert path in context.changes.paths
-    context.changes.restore()
-    assert not path.exists()
+    # Edinilen dosya geri almada SİLİNMEZ: adım düşse bile paket diskte kalır,
+    # yoksa her denemede yeniden indirilir (ölçüldü: Godot koşusu, 260 KB'lık
+    # Kenney paketi doğrulama düşünce silindi).
+    assert context.changes.restore() == ()
+    assert path.read_bytes() == content
 
 
 async def test_var_olan_asset_uzerine_yazmaz(tmp_path, monkeypatch):

@@ -536,6 +536,18 @@ class AppSession:
             return self._change_web_session(
                 disconnect_web_session, request.data.get("saglayici"), request.data.get("hesap")
             )
+        if request.name == "web.arac_olc":
+            from .tool_measure import measure_tool_support
+
+            olcum = await measure_tool_support(
+                self._state.config,
+                str(request.data.get("saglayici", "")),
+                str(request.data.get("hesap", "main")),
+            )
+            # Ölçüm yapılandırmayı değiştirdi; oturum eski hâli taşımasın.
+            if olcum.get("ok"):
+                self._state.config = load_config()
+            return olcum
         if request.name == "web.dogrula":
             sonuc = await verify_web_session(
                 self._state.config, request.data.get("saglayici"), request.data.get("hesap")

@@ -52,8 +52,9 @@ doğrulanmamış işi başarılı gösterme.
 
 # Dış varlıklar
 - Hazır varlık (grafik, ses, yazı tipi, veri) isteniyorsa yer tutucuyla geçiştirme:
-  ara, indir, geldiğini doğrula, koddan gerçekten referans ver. Yalnız lisansı açık
-  olanı (CC0/MIT) al ve lisansı not et; indirilemeyeni açıkça söyle.
+  ara, indir, ARŞİVSE AÇ, dosyaların geldiğini doğrula, koddan gerçekten referans
+  ver. Yalnız lisansı açık olanı (CC0/MIT) al ve lisansı not et; indirilemeyeni
+  açıkça söyle.
 
 # Doğrulama
 - Kod değiştirdiğinde mümkün olan en ilgili test, lint, build veya çalışma kontrolünü yap.

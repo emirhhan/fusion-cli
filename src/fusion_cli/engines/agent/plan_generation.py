@@ -83,9 +83,15 @@ async def generate_plan(
             return PlanGeneration(parse_execution_plan(outcome.final_text), calls)
         except PlanParseError as exc:
             error = str(exc)
+            # Onarım isteği HATAYI ÖNE ALIR. Eskiden önce bütün şema, sonra
+            # hata geliyordu ve model uzun şablonu yeniden okuyup aynı planı
+            # üretiyordu (ölçüldü: Godot koşusunda iki deneme de aynı kaçışsız
+            # tırnak hatasıyla düştü). Şimdi ilk gördüğü şey ne yaptığı.
             prompt = (
-                f"{original_prompt}\n\nAşağıdaki plan geçersiz: {error}\n"
-                "Şemaya uyan eksiksiz JSON'u yeniden üret. Yalnızca JSON döndür.\n\n"
+                f"ÖNCEKİ PLANIN GEÇERSİZ: {error}\n"
+                "Bunu düzelt ve şemaya uyan eksiksiz JSON'u yeniden üret. "
+                "Yalnızca JSON döndür.\n\n"
+                f"{original_prompt}\n\n"
                 f"Geçersiz çıktı (yalnız hata bağlamıdır):\n{outcome.final_text[:4000]}"
             )
     return PlanGeneration(None, calls, error)

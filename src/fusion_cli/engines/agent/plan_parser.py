@@ -24,6 +24,31 @@ class PlanParseError(FusionError):
     """Model çıktısı geçerli bir yürütme planına dönüştürülemedi."""
 
 
+def _parse_error_message(text: str, exc: json.JSONDecodeError) -> str:
+    """Ayrıştırma hatasını MODELİN DÜZELTEBİLECEĞİ bir mesaja çevir.
+
+    Yalın `Expecting ',' delimiter: line 148 column 24` mesajı onarım turunda
+    işe yaramıyordu: model neyi yanlış yaptığını göremediği için aynı planı
+    yeniden üretiyordu (ölçüldü — Godot koşusu, iki deneme de aynı hatayla
+    düştü). Hatanın geçtiği satır mesaja konur; en sık görülen sebep (dizenin
+    içinde kaçışsız çift tırnak) ayrıca adıyla söylenir.
+    """
+    satirlar = text.splitlines()
+    satir = satirlar[exc.lineno - 1].strip() if 0 < exc.lineno <= len(satirlar) else ""
+    parcalar = [f"Plan JSON olarak ayrıştırılamadı: {exc.msg} (satır {exc.lineno})"]
+    if satir:
+        parcalar.append(f"Sorunlu satır: {satir[:200]}")
+    # Kaçışsız tırnak, ölçülen baskın sebep. İşareti HATANIN TÜRÜ verir:
+    # bir dize erken kapandığında çözücü ayırıcı bekler. Yalnız tırnak saymak
+    # yetmiyordu — normal tek satırlık JSON'da da çok tırnak olur.
+    if "delimiter" in exc.msg and satir.count('"') > 4:
+        parcalar.append(
+            "Bu satırda bir dizenin içinde kaçışsız çift tırnak var. "
+            "Dize içindeki tırnakları TEK tırnağa çevir."
+        )
+    return " ".join(parcalar)
+
+
 def _strip_code_fence(raw: str) -> str:
     """Varsa tek Markdown kod çitini kaldır."""
     text = raw.strip()
@@ -64,7 +89,7 @@ def _decode_plan_object(raw: str) -> object:
         try:
             decoded = ast.literal_eval(text[start:].strip())
         except (SyntaxError, ValueError) as repair_exc:
-            raise PlanParseError(f"Plan JSON olarak ayrıştırılamadı: {exc.msg}") from repair_exc
+            raise PlanParseError(_parse_error_message(text, exc)) from repair_exc
     return cast("object", decoded)
 
 

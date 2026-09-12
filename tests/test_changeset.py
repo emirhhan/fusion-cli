@@ -131,3 +131,55 @@ def test_bir_dosya_geri_alinamasa_da_digerleri_alinir(tmp_path, monkeypatch):
     assert saglam.read_text(encoding="utf-8") == "eski\n"
     assert saglam in geri_alinan
     assert sorunlu not in geri_alinan
+
+
+def test_edinilen_dosya_geri_almada_silinmez(tmp_path):
+    """İndirilen varlık, adım düşse bile diskte kalır.
+
+    Ölçülmüş vaka: `download_file` 260 KB'lık paketi getirdi, adım doğrulaması
+    düştü ve geri alma paketi sildi; sonraki deneme sıfırdan indirmek zorunda
+    kaldı. Edinilen dosya agent'ın ürettiği içerik değildir.
+    """
+    paket = tmp_path / "assets" / "kenney.zip"
+    paket.parent.mkdir()
+    kayit = ChangeSet()
+    paket.write_bytes(b"PK\x03\x04")
+    kayit.record_acquired(paket)
+
+    # İzlenir: kısıtlar ve raporlama dosyayı görmelidir.
+    assert paket in kayit.paths
+    assert kayit.was_created_this_turn(paket)
+
+    geri_alinan = kayit.restore()
+
+    assert paket.exists()
+    assert paket not in geri_alinan
+
+
+def test_yazilan_dosya_edinim_yaninda_yine_geri_alinir(tmp_path):
+    paket = tmp_path / "kenney.zip"
+    kod = tmp_path / "oyuncu.gd"
+    paket.write_bytes(b"PK")
+    kayit = ChangeSet()
+    kayit.record_acquired(paket)
+    kayit.record(kod)
+    kod.write_text("extends Node\n", encoding="utf-8")
+
+    geri_alinan = kayit.restore()
+
+    assert paket.exists()
+    assert not kod.exists()
+    assert geri_alinan == (kod,)
+
+
+def test_edinim_alt_isleme_aktarilir(tmp_path):
+    paket = tmp_path / "kenney.zip"
+    paket.write_bytes(b"PK")
+    alt = ChangeSet()
+    alt.record_acquired(paket)
+    ust = ChangeSet()
+
+    ust.absorb(alt)
+    ust.restore()
+
+    assert paket.exists()

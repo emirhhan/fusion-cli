@@ -371,6 +371,31 @@ async def validate_session(config: Config, provider: str, account: str = "main")
     }
 
 
+def set_tool_eval_passed(
+    config: Config, provider: str, account: str, passed: bool
+) -> Config | None:
+    """Ölçüm sonucunu yapılandırmaya yaz."""
+    from dataclasses import replace as _replace
+
+    from ..config.writer import write_web_sessions
+
+    hesap = normalize_account(account or "main")
+    found = False
+    sessions = []
+    for item in config.web_sessions:
+        matches = item.provider == provider and normalize_account(str(item.account)) == hesap
+        found = found or matches
+        sessions.append(_replace(item, tool_eval_passed=passed) if matches else item)
+    if not found:
+        return None
+    updated = _replace(config, web_sessions=tuple(sessions))
+    try:
+        write_web_sessions(updated)
+    except Exception:
+        return None
+    return updated
+
+
 def provider_catalog(
     *,
     sessions: tuple[Any, ...],

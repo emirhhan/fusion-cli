@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -617,8 +617,8 @@ def _call_subject(call: ToolCall | None) -> str:
         return ""
     if not isinstance(arguments, dict):
         return ""
-    for field in _SUBJECT_FIELDS:
-        value = arguments.get(field)
+    for alan in _SUBJECT_FIELDS:
+        value = arguments.get(alan)
         if isinstance(value, str) and value.strip():
             return value.strip()[:80]
     return ""
@@ -764,50 +764,61 @@ async def _connect_shared_context(
         await shared.release(force=False, timeout_s=budget)
         raise
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
-    if not session.headless:
-        await _hide_browser_window(context)
     return browser, context
-
-
-async def _hide_browser_window(context: Any) -> None:
-    """Tur penceresini kullanıcının gözünden kaldır.
-
-    `--window-position=-32000,-32000` tek başına YETMİYOR: macOS'ta Chrome
-    pencereyi görünür ekrana geri sıkıştırabiliyor ve kullanıcı her turda
-    sağlayıcının sohbetine yazılan metni izliyordu ("gpt yi seçtiğimizde ekran
-    açılıyor, ne yazıyorsa görüyorum").
-
-    Pencere burada CDP ile KÜÇÜLTÜLÜR. Bu bir gizlenme tekniği değildir:
-    tarayıcı hâlâ gerçek headful Chrome'dur, sunucuya giden hiçbir şey
-    değişmez — yalnız pencere kullanıcının önünde durmaz. Headless'a geçmek
-    seçenek değil: Cloudflare doğrulaması headless User-Agent'ta düşüyor
-    (ölçüldü, 12 Eylül).
-
-    Başarısızlık YUTULUR: pencereyi küçültememek turu durdurmaz, yalnız
-    kullanıcı onu görür.
-    """
-    try:
-        page = context.pages[0] if context.pages else await context.new_page()
-        session = await context.new_cdp_session(page)
-        try:
-            window = await session.send("Browser.getWindowForTarget")
-            await session.send(
-                "Browser.setWindowBounds",
-                {
-                    "windowId": window["windowId"],
-                    "bounds": {"windowState": "minimized"},
-                },
-            )
-        finally:
-            await session.detach()
-    except Exception:
-        # Pencereyi küçültememek turu durdurmaz; yalnız kullanıcı onu görür.
-        _logger.debug("tur penceresi küçültülemedi", exc_info=True)
 
 
 #: Bir hesapta aynı anda açık tutulacak en fazla sohbet. Ana tur + yardımcı
 #: çağrılar (ders çıkarımı, öz-denetim, sıkıştırma) için yeterlidir.
 MAX_OPEN_CONVERSATIONS = 4
+
+
+#: Aralıksız açılmasına izin verilen YENİ sohbet sayısı (kova kapasitesi).
+#:
+#: Bir agent koşusu doğal olarak birkaç kök açar: ana tur + ders çıkarımı +
+#: sıkıştırma. Üçü beklemesiz geçer; ondan sonrası ölçülü ilerler.
+NEW_CONVERSATION_BURST = 3
+
+#: Kovaya bir yeni-sohbet hakkının geri gelmesi için geçmesi gereken süre (saniye).
+#:
+#: Ölçüldü (13 Eylül, kullanıcı makinesi): araç ölçümü senaryo başına yeni sohbet
+#: açtı; birkaç dakika içinde on dörde yakın sohbet isteği sağlayıcı tarafında bot
+#: davranışı sayıldı ve `modal-conversation-history-rate-limit` uygulandı — o günün
+#: kalan kotası gitti. Sohbet açma hızı, sınırı tetikleyen hızın ALTINDA kalmalıdır;
+#: 30 saniye, o koşudaki ortalama açma aralığının (~19 s) belirgin biçimde üstündedir
+#: ve normal bir koşuda hiç beklemeye yol açmaz (kova dolu başlar).
+NEW_CONVERSATION_INTERVAL_S = 30.0
+
+
+@dataclass(slots=True)
+class ConversationPacer:
+    """Yeni sohbet açma hızını insan hızına indiren jeton kovası.
+
+    Neden hız sınırı Fusion tarafında: sağlayıcı sınırı UYGULADIKTAN sonra yapacak
+    bir şey kalmıyor — kota o gün için biter. Tek korunma, sınırı hiç tetiklememektir.
+
+    Kova DOLU başlar: normal bir koşu hiç beklemez. Yalnız arka arkaya sohbet açan
+    patolojik yol (ölçüm sondası, sürekli düşen oturum) yavaşlar.
+    """
+
+    #: Elde kalan yeni-sohbet hakkı. Kesirli: kısmi dolum sayılır.
+    tokens: float = NEW_CONVERSATION_BURST
+    #: Son dolum zamanı (monotonic saat: sistem saati geri alınsa da bozulmaz).
+    updated_at: float = field(default_factory=time.monotonic)
+
+    def bekleme_suresi(self, *, now: float) -> float:
+        """Şimdi bir sohbet açmak için kaç saniye beklemek gerekiyor?"""
+        self.tokens = min(
+            float(NEW_CONVERSATION_BURST),
+            self.tokens + (now - self.updated_at) / NEW_CONVERSATION_INTERVAL_S,
+        )
+        self.updated_at = now
+        if self.tokens >= 1.0:
+            return 0.0
+        return (1.0 - self.tokens) * NEW_CONVERSATION_INTERVAL_S
+
+    def harca(self) -> None:
+        """Bir hakkı düş. Bekleme tamamlandıktan SONRA çağrılır."""
+        self.tokens = max(0.0, self.tokens - 1.0)
 
 
 @dataclass(slots=True)
@@ -877,10 +888,16 @@ class BrowserSessionPool:
         #: düşürüyorlardı. İzde görüldü: agent turunun ortasında ders çağrısı sohbeti
         #: sıfırlıyor, sonraki tur geçmişin tamamını yeniden göndermek zorunda kalıyordu.
         self._conversations: dict[tuple[str, str, str], ConversationState] = {}
+        #: Hesap başına yeni-sohbet hız kovası (bkz. `ConversationPacer`).
+        self._pacers: dict[tuple[str, str], ConversationPacer] = {}
         self._guard = asyncio.Lock()
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
+
+    def pacer_for(self, provider: str, account: str) -> ConversationPacer:
+        """Hesabın yeni-sohbet hız kovası; ilk çağrıda dolu olarak kurulur."""
+        return self._pacers.setdefault((provider, account), ConversationPacer())
 
     def conversation(self, provider: str, account: str, root: str) -> ConversationState | None:
         return self._conversations.get((provider, account, root))
@@ -1138,6 +1155,30 @@ def build_browser_transport(
     return _transport
 
 
+async def _pace_new_conversation(
+    manager: BrowserSessionPool, session: WebSessionConfig, *, sleep: Any = None
+) -> float:
+    """Yeni sohbet açmadan önce gerekirse bekle; beklenen süreyi döndür.
+
+    `sleep` enjekte edilebilir: hız sınırı davranışı gerçek zaman geçirmeden
+    test edilebilmeli.
+    """
+    pacer = manager.pacer_for(session.provider, session.account)
+    bekleme = pacer.bekleme_suresi(now=time.monotonic())
+    if bekleme > 0:
+        # Sessizce beklemek "Fusion dondu" gibi görünür; sebebi günlüğe yazılır.
+        _logger.info(
+            "yeni sohbet hiz siniri: saglayici=%s hesap=%s bekleme=%.1fs",
+            session.provider,
+            session.account,
+            bekleme,
+        )
+        await (sleep or asyncio.sleep)(bekleme)
+        pacer.bekleme_suresi(now=time.monotonic())
+    pacer.harca()
+    return bekleme
+
+
 async def _deliver_turn(
     manager: BrowserSessionPool,
     session: WebSessionConfig,
@@ -1173,6 +1214,7 @@ async def _deliver_turn(
             state.page, definition, prompt, previous=state.last_answer, limit_s=limit_s
         )
     else:
+        await _pace_new_conversation(manager, session)
         await manager.drop_conversation(session.provider, session.account, root)
         page = await context.new_page()
         state = ConversationState(page=page)

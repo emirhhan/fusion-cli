@@ -262,15 +262,15 @@ def chrome_launch_arguments(executable: str, profile: Path, *, headless: bool) -
     if headless:
         arguments.append("--headless=new")
     else:
-        # Pencere EKRAN DIŞINA alınır. Ölçüldü (12 Eylül): `headless=True` ile
-        # ChatGPT turu 16 saniyede Cloudflare doğrulamasına takılıyor — profilde
-        # geçerli `cf_clearance` olmasına rağmen, çünkü headless Chrome farklı bir
-        # User-Agent gönderir ve çerez o kimliğe bağlıdır. Yani görünür Chrome
-        # zorunlu; bedeli kullanıcının ekranında sürekli açılan bir pencereydi.
+        # GÖRÜNÜR kip. Pencere ekran dışına ALINMAYA ÇALIŞILIR ama buna
+        # güvenilemez: ölçüldü (13 Eylül, macOS, Chrome 152) — Chrome hem bu
+        # bayrağı hem CDP'nin `Browser.setWindowBounds` çağrısını yok sayıp
+        # pencereyi ekranda `maximized` bırakıyor. Yani görünür kipte pencere
+        # kullanıcının önündedir ve bunu gizlemenin güvenilir bir yolu yoktur.
         #
-        # Bu bir GİZLENME tekniği değildir: tarayıcı hâlâ gerçek headful
-        # Chrome'dur, sunucuya giden hiçbir şey değişmez. Yalnız pencere
-        # kullanıcının görünür alanında durmaz.
+        # Tek gerçek çözüm headless kiptir; varsayılan da odur
+        # (`WebSessionConfig.headless`). Bu bayrak yalnız görünür kipi
+        # bilerek seçmiş kurulumlarda pencereyi kenara itmeye çalışır.
         arguments.append("--window-position=-32000,-32000")
     arguments.append("about:blank")
     return arguments

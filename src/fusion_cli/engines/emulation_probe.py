@@ -126,6 +126,19 @@ PROBE_SCENARIOS: tuple[ProbeScenario, ...] = (
 )
 
 
+#: Sağlayıcıların oran sınırı hatalarında geçen işaretler.
+_ORAN_ISARETLERI = ("rate-limit", "rate_limit", "rate limit", "too many requests", "oran sınırı")
+
+
+def _oran_siniri_mi(hata: str) -> bool:
+    """Hata metni oran sınırını mı söylüyor?
+
+    İşaretler sağlayıcının KENDİ metninden okunur; Fusion kendi kalıbını uydurmaz.
+    """
+    kucuk = hata.casefold()
+    return any(isaret in kucuk for isaret in _ORAN_ISARETLERI)
+
+
 def _schema_of(tool_name: str) -> Mapping[str, object] | None:
     for schema in build_registry().schemas():
         function = schema.get("function")
@@ -166,9 +179,19 @@ async def probe_emulation(
     instructions = render_tool_instructions(build_registry().schemas())
     cases: list[EvalCase] = []
     samples: list[ProbeSample] = []
+    # Geçmiş BİRİKEREK gider ve ilk mesaj hep aynı kalır: web taşıması sohbeti
+    # yalnızca gönderilen önek değişmediyse sürdürür (bkz.
+    # `web_browser.ConversationState`). Her senaryoyu iki mesajlık taze bir
+    # istekle göndermek her senaryoda YENİ sohbet açıyordu.
+    #
+    # Ölçüldü (13 Eylül, kullanıcı makinesi): senaryo başına yeni sohbet, ekranda
+    # on dörde yakın sekme açtı ve sağlayıcı bunu bot davranışı sayıp konuşma
+    # oranı sınırını uyguladı — ölçüm de, kullanıcının o gün kalan kotası da gitti.
+    history: list[Message] = [Message("system", instructions)]
     for scenario in scenarios:
+        history.append(Message("user", scenario.prompt))
         request = CompletionRequest(
-            messages=(Message("system", instructions), Message("user", scenario.prompt)),
+            messages=tuple(history),
             temperature=0.0,
             max_tokens=PROBE_MAX_TOKENS,
             timeout_s=PROBE_TIMEOUT_S,
@@ -182,7 +205,15 @@ async def probe_emulation(
                 f"Ölçüm zaman aşımına uğradı ({scenario.expected_tool or 'araçsız'} senaryosu)."
             ) from error
         if not result.ok:
+            if _oran_siniri_mi(result.error or ""):
+                # Sınıra takılmışken denemeye devam etmek sınırı DERİNLEŞTİRİR:
+                # her deneme yeni bir konuşma isteğidir. Ölçüm burada durur.
+                raise FusionError(
+                    "Sağlayıcı oran sınırına takıldı; ölçüm durduruldu. "
+                    "Sınır kalkınca tekrar dene."
+                )
             raise FusionError(f"Ölçüm sırasında sağlayıcı hatası: {result.error}")
+        history.append(Message("assistant", result.text))
         cases.append(
             EvalCase(
                 output=result.text,

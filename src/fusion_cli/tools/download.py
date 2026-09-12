@@ -60,7 +60,9 @@ def _save_new(path: Path, content: bytes, context: ToolContext) -> None:
         if context.cancelled.is_set():
             raise InterruptedError("İndirme iptal edildi.")
         os.link(temporary, path)
-        context.changes.record_created(path)
+        # EDİNİM: dosya indirildi, agent yazmadı. Adım düşse bile silinmez;
+        # yeniden indirmek ağ, süre ve sağlayıcı kotası harcar.
+        context.changes.record_acquired(path)
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

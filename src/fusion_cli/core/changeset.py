@@ -41,6 +41,8 @@ class ChangeSet:
     """
 
     _snapshots: dict[Path, Snapshot] = field(default_factory=dict)
+    #: Dışarıdan EDİNİLEN yollar; izlenir ama geri alınmaz (bkz. `record_acquired`).
+    _acquired: set[Path] = field(default_factory=set)
 
     def record(self, path: Path) -> bool:
         """Yazmadan önce çağrılır. Aynı yol için ikinci çağrı yok sayılır."""
@@ -70,6 +72,26 @@ class ChangeSet:
         """
         self._snapshots.setdefault(path, Snapshot(path=path, content=None))
 
+    def record_acquired(self, path: Path) -> None:
+        """Dışarıdan EDİNİLEN dosyayı kaydet ama geri almaya DAHİL ETME.
+
+        İndirilen bir varlık (asset, arşiv, veri kümesi) agent'ın yazdığı kod
+        değildir: içeriğini o üretmedi, yalnız getirdi. Adım düştüğünde onu
+        silmek iki maliyet üretir — dosya yeniden indirilir (ağ, süre, kota) ve
+        o sırada sağlayıcı oran sınırına takılabilir.
+
+        Ölçüldü (13 Eylül, Godot koşusu): `download_file` Kenney'den 260 KB'lık
+        paketi indirdi, adım doğrulaması `assets/player.png` bulamayınca düştü
+        ve geri alma indirilen paketi de sildi. Sonraki deneme sıfırdan başladı
+        ve kurtarma hakkı bitti — oysa dosya diskte duruyor olsa adım yalnız
+        arşivi açmayı deneyecekti.
+
+        Dosya yine de İZLENİR (`paths`, `was_created_this_turn`): kısıtlar ve
+        raporlama onu görmeye devam eder; yalnız geri alma ona dokunmaz.
+        """
+        self._snapshots.setdefault(path, Snapshot(path=path, content=None))
+        self._acquired.add(path)
+
     def was_created_this_turn(self, path: Path) -> bool:
         """Bu dosyayı bu turda agent'ın KENDİSİ mi oluşturdu (öncesinde yoktu)?
 
@@ -93,20 +115,28 @@ class ChangeSet:
         """
         geri_alinan: list[Path] = []
         for snapshot in self._snapshots.values():
+            # Edinilen dosya geri alınmaz: agent onu yazmadı, getirdi
+            # (bkz. `record_acquired`).
+            if snapshot.path in self._acquired:
+                continue
             if _restore_one(snapshot):
                 geri_alinan.append(snapshot.path)
         self._snapshots.clear()
+        self._acquired.clear()
         return tuple(geri_alinan)
 
     def commit(self) -> None:
         """Değişiklikleri kalıcı say: kayıt boşaltılır, geri alma imkânı biter."""
         self._snapshots.clear()
+        self._acquired.clear()
 
     def absorb(self, other: ChangeSet) -> None:
         """Alt işlemin kayıtlarını ilk hâli koruyarak bu tura aktar."""
         for path, snapshot in other._snapshots.items():
             self._snapshots.setdefault(path, snapshot)
+        self._acquired |= other._acquired
         other._snapshots.clear()
+        other._acquired.clear()
 
 
 def _restore_one(snapshot: Snapshot) -> bool:

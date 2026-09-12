@@ -142,3 +142,53 @@ def test_yeniden_plan_bagimsiz_bekleyen_teslimati_dusuremez():
 
     assert merged is not None
     assert pending in merged.steps
+
+
+class TestPlanAyristirmaHatasi:
+    """Ayrıştırma hatası, modelin DÜZELTEBİLECEĞİ bir mesaja çevrilmeli.
+
+    Ölçülen çöküş (Godot koşusu, 13 Eylül): model bir kabuk komutunu JSON
+    dizesinin içine kaçışsız çift tırnaklarla yazdı. Yalın
+    `Expecting ',' delimiter: line 148 column 24` mesajı onarım turunda işe
+    yaramadı; model neyi yanlış yaptığını göremediği için aynı planı yeniden
+    üretti ve ikinci deneme de aynı hatayla düştü.
+    """
+
+    def test_hata_satiri_ve_sebebi_mesaja_girer(self):
+        from fusion_cli.engines.agent.plan_parser import PlanParseError, parse_execution_plan
+
+        bozuk = (
+            '{"plan_id":"a","task":"t","schema_version":2,"steps":[{\n'
+            '"target": "python3 -c "print(1)" devam"\n'
+            "}]}"
+        )
+
+        with pytest.raises(PlanParseError) as hata:
+            parse_execution_plan(bozuk)
+
+        mesaj = str(hata.value)
+        assert "satır 2" in mesaj
+        assert "python3 -c" in mesaj
+        assert "TEK tırnağa çevir" in mesaj
+
+    def test_sade_hatada_uydurma_sebep_eklenmez(self):
+        """Tırnak sorunu yoksa tırnak önerisi de olmamalı."""
+        from fusion_cli.engines.agent.plan_parser import PlanParseError, parse_execution_plan
+
+        with pytest.raises(PlanParseError) as hata:
+            parse_execution_plan('{"plan_id": "a", "steps": [}')
+
+        assert "TEK tırnağa çevir" not in str(hata.value)
+
+    def test_prompt_tirnak_kuralini_tasir(self):
+        """Önlem promptta olmalı: onarım turu son çare, ilk savunma değil."""
+        from pathlib import Path
+
+        import fusion_cli.engines.agent as agent_pkg
+
+        metin = (Path(agent_pkg.__file__).parent / "prompts" / "execution_plan.md").read_text(
+            encoding="utf-8"
+        )
+
+        assert "çift tırnak KULLANMA" in metin
+        assert "tek tırnak" in metin
