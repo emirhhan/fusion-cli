@@ -387,3 +387,45 @@ def test_dosya_adi_gecmeyen_bulguda_eski_secim_korunur(tmp_path):
     )
 
     assert kok == {"scenes"}
+
+
+def test_bildirilmeyen_ama_dokunulan_dosya_da_adima_baglanir(tmp_path):
+    """Plan her dosyayı bildirmez; kanıt kaydı dokunulanı yine gösterir.
+
+    Ölçüldü (13 Eylül, koşu 31): kapı `Player.tscn` için doğru bulguyu verdi ama
+    hiçbir adım o yolu `expected_effects` içinde bildirmiyordu (adım yalnız
+    `file:scenes/Main.tscn` diyordu). Eşleme boş kalınca tek bir onarım denemesi
+    bile yapılmadı ve koşu "kısmi" bitti.
+    """
+    from fusion_cli.core.checkpoint import StepCheckpointEvidence
+    from fusion_cli.core.evidence import ToolUse
+    from fusion_cli.core.execution_plan import ExecutionPlan
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.plan_context import workflow_budget
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
+    from fusion_cli.engines.workflow.model import BudgetLedger
+    from tests.test_plan_repair import _deps
+
+    varlik = _adim("assets", "Varlıkları indir", etki="file:ASSETS.json")
+    oyun = _adim("gameplay", "Sahneleri yaz", etki="file:scenes/Main.tscn")
+    deps = _deps(tmp_path)
+    limits = workflow_budget(deps)
+    kosu = _PlanRun(
+        task=GOREV,
+        deps=deps,
+        agent=None,
+        current=ExecutionPlan("p", GOREV, (varlik, oyun)),
+        limits=limits,
+        ledger=BudgetLedger(limits),
+    )
+    kosu.evidence["gameplay"] = StepCheckpointEvidence(
+        step_id="gameplay",
+        tool_uses=(
+            ToolUse("write_file", arguments={"path": "scenes/Player.tscn"}, mutating=True),
+        ),
+    )
+    bulgu = "Player.tscn: 'Player' düğümüne bağlı Player.gd script'i `$Sprite2D` kullanıyor"
+
+    kok = kosu._product_step_ids(VerificationResult(ok=False, summary=bulgu, findings=(bulgu,)))
+
+    assert kok == {"gameplay"}

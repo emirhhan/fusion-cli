@@ -865,7 +865,17 @@ class _PlanRun:
         )
 
     def _step_owning_mentioned_file(self, acceptance: VerificationResult) -> set[str]:
-        """Bulguda ADI GEÇEN dosyayı üreten adım; yoksa boş küme."""
+        """Bulguda ADI GEÇEN dosyayı üreten adım; yoksa boş küme.
+
+        İki kaynak sırayla denenir: adımın BİLDİRDİĞİ etkiler ve adımın GERÇEKTEN
+        dokunduğu dosyalar. İkincisi zorunlu — plan her dosyayı bildirmez.
+
+        Ölçüldü (13 Eylül, koşu 31): kapı `Player.tscn` için doğru bulguyu verdi
+        ama hiçbir adım o yolu `expected_effects` içinde bildirmiyordu (adım
+        yalnız `file:scenes/Main.tscn` diyordu). Eşleme boş kalınca tek bir onarım
+        denemesi bile yapılmadı ve koşu "kısmi" bitti — oysa dosyayı yazan adım
+        kanıt kaydında apaçık duruyordu.
+        """
         metin = " ".join((acceptance.summary, *acceptance.findings))
         for step in self.current.steps:
             for effect in step.expected_effects:
@@ -874,7 +884,22 @@ class _PlanRun:
                 yol = effect.removeprefix("file:").strip()
                 if yol and (yol in metin or Path(yol).name in metin):
                     return {step.step_id}
+        for step in self.current.steps:
+            if any(ad in metin for ad in self._touched_names(step.step_id)):
+                return {step.step_id}
         return set()
+
+    def _touched_names(self, step_id: str) -> set[str]:
+        """Adımın kanıt kaydında geçen dosya adları."""
+        kayit = self.evidence.get(step_id)
+        if kayit is None:
+            return set()
+        adlar = {Path(item.path).name for item in kayit.artifacts if item.path}
+        for kullanim in kayit.tool_uses:
+            yol = kullanim.arguments.get("path")
+            if isinstance(yol, str) and yol.strip():
+                adlar.add(Path(yol).name)
+        return {ad for ad in adlar if ad}
 
     def _product_step_ids(self, acceptance: VerificationResult) -> set[str]:
         """Ürünü kuran adım — hiçbir adımın kanıtına bağlanamayan bulgular için.
