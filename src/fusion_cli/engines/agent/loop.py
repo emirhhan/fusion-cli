@@ -1811,6 +1811,7 @@ async def _run_tools(
                 call.name,
                 contract_errors,
                 tool.schema().get("function") if tool is not None else None,
+                registry=registry,
             )
             outcome = ToolOutcome.BLOCKED if no_more_repairs else ToolOutcome.FAILED
             deps.publisher.publish(
@@ -2151,13 +2152,55 @@ def _tool_contract_failure(
     name: str,
     errors: list[str],
     function_schema: object,
+    *,
+    registry: ToolRegistry | None = None,
 ) -> str:
+    """Sözleşme hatasını, ÖRNEĞİ hatanın işaret ettiği araçtan vererek bildir.
+
+    Ölçüldü (13 Eylül, Godot koşusu): `write_file` mevcut dosyada reddedildi ve
+    hata "replace_range kullan" dedi — ama örnek yine `write_file` çağrısıydı.
+    Model örneği izleyip aynı çağrıyı tekrarladı, adım bütçesi doldu ve oyun
+    yarım kaldı. Hata bir aracı önerirken başka bir aracın örneğini göstermek,
+    öneriyi geri almaktır.
+    """
     lines = ["TOOL_CALL_INVALID", f"tool: {name}", "errors:"]
     lines.extend(f"- {error}" for error in errors)
-    if isinstance(function_schema, dict):
+    onerilen = _suggested_tool_schema(name, errors, registry)
+    if onerilen is not None:
+        lines.append("valid_example:")
+        lines.append(render_tool_example(onerilen))
+    elif isinstance(function_schema, dict):
         lines.append("valid_example:")
         lines.append(render_tool_example(function_schema))
     return "\n".join(lines)
+
+
+def _suggested_tool_schema(
+    name: str, errors: list[str], registry: ToolRegistry | None
+) -> dict[str, object] | None:
+    """Hata metninde ADIYLA önerilen BAŞKA aracın şeması; yoksa None.
+
+    Metinde birden çok araç anılıyorsa EN SONA yazılan seçilir: öneriler sıra
+    halinde yazılıyor ("önce read_file ile gör, sonra replace_range ile gönder")
+    ve modelin yanlış yaptığı adım zincirin sonundaki YAZMA adımıdır.
+    """
+    if registry is None:
+        return None
+    metin = " ".join(errors)
+    sirali = sorted(
+        ((metin.rfind(aday), aday) for aday in registry.names() if aday != name),
+        reverse=True,
+    )
+    for konum, aday in sirali:
+        if konum < 0:
+            break
+        tool = registry.get(aday)
+        if tool is None:
+            continue
+        schema = tool.schema().get("function")
+        if isinstance(schema, dict):
+            return schema
+    return None
 
 
 def _tool_contract_abort_message(detail: str) -> str:
