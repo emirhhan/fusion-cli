@@ -9,8 +9,10 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 from ...core.assets import (
+    UNUSED_ASSETS_PREFIX,
     inspect_image_asset,
     is_asset_inventory,
+    unused_manifest_assets,
     validate_asset_inventory,
     validate_asset_manifest,
 )
@@ -593,6 +595,16 @@ def _stale_step_effects(plan: ExecutionPlan, root: Path) -> tuple[str, ...]:
     return tuple(findings)
 
 
+def _unused_assets(root: Path) -> tuple[str, ...]:
+    """Projedeki her manifest için kullanılmayan varlıkları topla."""
+    bulgular: list[str] = []
+    for manifest in sorted(root.rglob("*.json")):
+        if not is_asset_inventory(manifest):
+            continue
+        bulgular.extend(unused_manifest_assets(manifest, root))
+    return tuple(bulgular)
+
+
 async def verify_plan_acceptance(
     plan: ExecutionPlan,
     deps: AgentDeps,
@@ -618,6 +630,20 @@ async def verify_plan_acceptance(
     catismalar = scene_script_conflicts(deps.tool_context.root)
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)
+
+    # İndirmek KULLANMAK değildir. Ölçüldü (13 Eylül, Godot koşusu): Kenney Pixel
+    # Platformer indirildi, 252 dosya açıldı, manifest doğru yazıldı ve plan
+    # "tamamlandı" dedi — ama sahnede tek sprite yoktu, oyun HealthBar ve
+    # Label'lardan oluşuyordu. Kullanıcının isteği tam bu sonucu dışlıyordu.
+    kullanilmayan = _unused_assets(deps.tool_context.root)
+    if kullanilmayan:
+        ozet = (
+            f"{UNUSED_ASSETS_PREFIX} "
+            + ", ".join(kullanilmayan[:5])
+            + (" …" if len(kullanilmayan) > 5 else "")
+            + ". Sahnede/kodda bu dosyalara gerçekten referans ver."
+        )
+        return VerificationResult(ok=False, summary=ozet, findings=(ozet,))
 
     result = (
         await deps.verifier.verify()

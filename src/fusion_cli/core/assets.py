@@ -276,3 +276,84 @@ def validate_asset_manifest(path: Path, root: Path) -> tuple[str, ...]:
             return (f"{manifest.name} kaydında lisans yok",)
         return ()
     return ("görsel asset lisans manifestinde kayıtlı değil",)
+
+
+#: "İndirildi ama kullanılmadı" bulgusunun değişmez öneki.
+#
+# Motor katmanı bu işarete bakarak onarılacak adımı seçer; metin iki yerde ayrı
+# yazılırsa sessizce ayrışır (bkz. `FILE_MISSING_PREFIX` ile aynı gerekçe).
+UNUSED_ASSETS_PREFIX = "indirilen varlıklar üründe HİÇ kullanılmamış:"
+
+
+#: Varlık referansı aranacak kaynak dosya uzantıları.
+#
+# Liste dar tutulur: kaynak ve sahne dosyaları. İkili dosyalarda metin aramak
+# anlamsız, manifest ve lisans belgelerinde ise referans bulmak yanıltıcı olur —
+# manifest zaten dosyayı listeler, onu "kullanım" saymak kapıyı işlevsiz kılar.
+_REFERENCE_SUFFIXES = frozenset(
+    {
+        ".gd", ".tscn", ".tres", ".cs", ".gdshader", ".cfg", ".godot", ".json",
+        ".py", ".js", ".ts", ".tsx", ".html", ".css", ".lua", ".cpp", ".h",
+    }
+)  # fmt: skip
+
+#: Referans taramasında atlanan dosya adları (manifest/lisans belgeleri).
+_REFERENCE_SKIP_NAMES = frozenset(item.casefold() for item in _MANIFEST_NAMES)
+
+
+def unused_manifest_assets(manifest: Path, root: Path) -> tuple[str, ...]:
+    """Manifestte bildirilen ama PROJE KODUNDA hiç anılmayan varlıklar.
+
+    İndirmek kullanmak değildir. Ölçüldü (13 Eylül, Godot koşusu): Kenney Pixel
+    Platformer indirildi, 252 dosya açıldı, manifest doğru yazıldı ve plan
+    "tamamlandı" raporladı — ama üretilen sahnede TEK BİR sprite yoktu, oyun
+    HealthBar ve Label'lardan oluşuyordu. Kullanıcının isteği ("assetsiz hiçbir
+    şey istemiyorum") tam olarak bu sonucu dışlıyordu.
+
+    Referans, dosya adının kaynak/sahne dosyalarında geçmesidir. Kasıtlı olarak
+    kabadır: amaç "doğru kullanılmış mı" demek değil, HİÇ kullanılmamış varlığı
+    yakalamaktır. Tilemap/atlas gibi tek dosyanın yüzlerce karoyu taşıdığı
+    durumlarda da doğru çalışır — atlas dosyası anılmışsa kullanılmış sayılır.
+    """
+    entries = _manifest_entries(_read_json(manifest))
+    if not entries:
+        return ()
+    metin = _project_text(root)
+    if not metin:
+        return ()
+    kullanilmayan = [
+        name
+        for name in entries
+        if isinstance(name, str) and name and Path(name).name.casefold() not in metin
+    ]
+    return tuple(sorted(kullanilmayan))
+
+
+def _read_json(path: Path) -> object:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _project_text(root: Path) -> str:
+    """Projedeki kaynak ve sahne dosyalarının birleşik, küçük harfe indirilmiş metni."""
+    from .constants import SKIP_DIRECTORIES
+
+    parcalar: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if path.suffix.casefold() not in _REFERENCE_SUFFIXES:
+            continue
+        if path.name.casefold() in _REFERENCE_SKIP_NAMES:
+            continue
+        # Gizli dizinler taranmaz: devam kaydı (`.fusion`), git verisi ve araç
+        # önbellekleri projenin kodu değildir ve içlerindeki JSON, kullanım
+        # kanıtı sayılamaz — testte `.cp/` altındaki checkpoint dosyaları kapıyı
+        # yanlış tarafa düşürdü.
+        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in path.parts):
+            continue
+        try:
+            parcalar.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    return "\n".join(parcalar).casefold()

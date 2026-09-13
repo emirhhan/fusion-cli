@@ -273,3 +273,46 @@ async def test_planlanamayan_teslimat_turu_tamamlandi_saymaz(tmp_path):
     assert sonuc.ok is False
     assert "teslim edilmedi" in sonuc.final_text
     assert "dış varlık (asset) edinimi" in sonuc.final_text
+
+
+async def test_kullanilmayan_varlik_bulgusu_urunu_kuran_adimi_onarir(tmp_path):
+    """Bulgu tek adımın kanıtını çürütmez; eksik olan ÜRÜNE bağlayan referanstır.
+
+    Ölçüldü (13 Eylül, Godot koşusu): gerçek asset indirildi, proje ve menü
+    yazıldı, Godot başsız açıldı — ama sahnede tek sprite yoktu. Kapı bunu
+    yakaladı, onarılacak adım bulunamadığı için hiçbir deneme yapılmadı.
+    """
+    from fusion_cli.core.assets import UNUSED_ASSETS_PREFIX
+    from fusion_cli.core.execution_plan import ExecutionPlan, PlanPhase
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
+    from fusion_cli.engines.agent.plan_context import workflow_budget
+    from fusion_cli.engines.workflow.model import BudgetLedger
+    from tests.test_plan_repair import _deps
+
+    varlik_adimi = _adim("assets", "Varlıkları indir", etki="file:assets/ASSETS.json")
+    urun_adimi = _adim("scenes", "Sahneleri yaz", etki="file:scenes/Main.tscn")
+    urun_adimi = urun_adimi.__class__(
+        **{
+            **{alan: getattr(urun_adimi, alan) for alan in urun_adimi.__dataclass_fields__},
+            "phase": PlanPhase.EXECUTION,
+        }
+    )
+    deps = _deps(tmp_path)
+    limits = workflow_budget(deps)
+    kosu = _PlanRun(
+        task=GOREV,
+        deps=deps,
+        agent=None,
+        current=ExecutionPlan("p", GOREV, (varlik_adimi, urun_adimi)),
+        limits=limits,
+        ledger=BudgetLedger(limits),
+    )
+
+    kok = kosu._product_step_ids(
+        VerificationResult(ok=False, summary=f"{UNUSED_ASSETS_PREFIX} assets/player.png")
+    )
+
+    # Varlığı GETİREN adım değil, sahneyi yazan adım onarılır.
+    assert kok == {"scenes"}
+    assert kosu._product_step_ids(VerificationResult(ok=False, summary="başka bir sorun")) == set()

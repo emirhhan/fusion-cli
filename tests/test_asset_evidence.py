@@ -323,3 +323,73 @@ def test_kok_disina_cikan_yol_iki_tabanla_da_kabul_edilmez(tmp_path):
     bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
 
     assert "çalışma kökü dışında" in bulgular
+
+
+def _kenney_manifest(kok, files):
+    manifest = kok / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://kenney.nl/assets/pixel-platformer",
+                "license": "CC0",
+                "files": list(files),
+            }
+        )
+    )
+    return manifest
+
+
+def test_indirilip_hic_kullanilmayan_varlik_bildirilir(tmp_path):
+    """İndirmek KULLANMAK değildir.
+
+    Ölçüldü (13 Eylül, Godot koşusu): Kenney Pixel Platformer indirildi, 252 dosya
+    açıldı, manifest doğru yazıldı ve plan "tamamlandı" dedi — ama sahnede tek
+    sprite yoktu; oyun HealthBar ve Label'lardan oluşuyordu.
+    """
+    from fusion_cli.core.assets import unused_manifest_assets
+
+    (tmp_path / "Tiles").mkdir()
+    (tmp_path / "Tiles/tile_0000.png").write_bytes(_png(8, 8))
+    (tmp_path / "main.tscn").write_text('[gd_scene format=3]\n[node name="Main" type="Node2D"]\n')
+    # Manifestin kendisi taranmaz: dosyayı zaten listeler, onu "kullanım" saymak
+    # kapıyı işlevsiz kılardı.
+    manifest = _kenney_manifest(tmp_path, ["Tiles/tile_0000.png"])
+
+    assert unused_manifest_assets(manifest, tmp_path) == ("Tiles/tile_0000.png",)
+
+
+def test_sahnede_anilan_varlik_kullanilmis_sayilir(tmp_path):
+    from fusion_cli.core.assets import unused_manifest_assets
+
+    (tmp_path / "Tiles").mkdir()
+    (tmp_path / "Tiles/tile_0000.png").write_bytes(_png(8, 8))
+    (tmp_path / "main.tscn").write_text(
+        '[gd_scene format=3]\n'
+        '[ext_resource type="Texture2D" path="res://Tiles/tile_0000.png" id="1"]\n'
+    )
+    manifest = _kenney_manifest(tmp_path, ["Tiles/tile_0000.png"])
+
+    assert unused_manifest_assets(manifest, tmp_path) == ()
+
+
+def test_atlas_dosyasi_anilinca_tum_karolar_kullanilmis_sayilmaz(tmp_path):
+    """Kapı dosya adı düzeyinde çalışır: anılan atlas geçer, anılmayan karo geçmez."""
+    from fusion_cli.core.assets import unused_manifest_assets
+
+    (tmp_path / "Tilemap").mkdir()
+    for ad in ("tilemap.png", "tilemap-characters.png"):
+        (tmp_path / "Tilemap" / ad).write_bytes(_png(8, 8))
+    (tmp_path / "level.gd").write_text('const ATLAS = "res://Tilemap/tilemap.png"\n')
+    manifest = _kenney_manifest(tmp_path, ["Tilemap/tilemap.png", "Tilemap/tilemap-characters.png"])
+
+    assert unused_manifest_assets(manifest, tmp_path) == ("Tilemap/tilemap-characters.png",)
+
+
+def test_kaynak_dosyasi_olmayan_projede_kullanim_iddia_edilmez(tmp_path):
+    """Hiç kaynak dosya yoksa kapı SESSİZ kalır: ölçemediği şeyi suçlamaz."""
+    from fusion_cli.core.assets import unused_manifest_assets
+
+    (tmp_path / "a.png").write_bytes(_png(8, 8))
+    manifest = _kenney_manifest(tmp_path, ["a.png"])
+
+    assert unused_manifest_assets(manifest, tmp_path) == ()

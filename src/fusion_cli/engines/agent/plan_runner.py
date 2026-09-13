@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ...core.assets import UNUSED_ASSETS_PREFIX, is_asset_inventory
 from ...core.browser_session import BrowserSession
 from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
@@ -753,6 +754,8 @@ class _PlanRun:
                 )
             }
         if not roots:
+            roots = self._product_step_ids(acceptance)
+        if not roots:
             return False
         affected = dependent_ids(self.current, roots)
         self.current = invalidate(self.current, roots)
@@ -764,6 +767,27 @@ class _PlanRun:
             for step in self.current.steps
             if step.step_id in affected
         )
+
+    def _product_step_ids(self, acceptance: VerificationResult) -> set[str]:
+        """Ürünü kuran adım — hiçbir adımın kanıtına bağlanamayan bulgular için.
+
+        "İndirilen varlıklar hiç kullanılmamış" bulgusu tek bir adımın kanıtını
+        çürütmez: eksik olan şey, varlığı ÜRÜNE bağlayan referanstır. Onarılacak
+        adım varlığı getiren adım değil, sahneyi/kodu yazan adımdır.
+        """
+        if UNUSED_ASSETS_PREFIX not in acceptance.summary:
+            return set()
+        adaylar = [
+            step.step_id
+            for step in self.current.steps
+            if step.phase is PlanPhase.EXECUTION
+            and any(
+                effect.startswith("file:")
+                and not is_asset_inventory(Path(effect.removeprefix("file:").strip()))
+                for effect in step.expected_effects
+            )
+        ]
+        return {adaylar[-1]} if adaylar else set()
 
     async def quality_gate(self) -> VerificationResult | AgentOutcome | None:
         """Spend one bounded review/correction before recording completion."""
