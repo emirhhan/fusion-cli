@@ -162,3 +162,60 @@ async def test_son_kurtarma_hakki_gozlem_turuna_harcanmaz(tmp_path):
     assert gozlem_mi == [False]
     assert result.ok is True
     assert (tmp_path / "sound.txt").exists()
+
+
+async def test_onarim_turunda_arsiv_acma_araci_aciktir(tmp_path):
+    """İndirilen paket ZIP gelir; açamıyorsa indirmenin faydası yok.
+
+    Ölçüldü (13 Eylül, Godot koşusu): onarım turunda `download_file` açıktı ama
+    `extract_archive` kapalıydı; model bir python betiği yazıp `run_shell` denedi,
+    o da kapsam dışıydı ve adım hiç asset açmadan düştü.
+    """
+    deps = _deps(tmp_path)
+    (tmp_path / "ASSETS.json").write_text(json.dumps({"missing.txt": {"license": "CC0"}}))
+    step = replace(
+        _step("assets", expected_effects=("file:ASSETS.json",)),
+        retry_safety=RetrySafety.OBSERVE_FIRST,
+        attempts=3,
+        allowed_tool_families=("files", "web"),
+        success_criteria=("assets",),
+        verification_checks=(
+            VerificationCheck("assets", VerificationCheckKind.FILE_EXISTS, "ASSETS.json"),
+        ),
+    )
+    araclar: list[set[str]] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        araclar.append(set(kwargs["allowed_tools"]))
+        if not kwargs["plan_mode"]:
+            for name, text in [
+                ("sound.txt", "real asset"),
+                (
+                    "ASSETS.json",
+                    json.dumps(
+                        {
+                            "sound.txt": {
+                                "source_url": "https://example.com/source",
+                                "license": "CC0",
+                            }
+                        }
+                    ),
+                ),
+            ]:
+                path = tmp_path / name
+                turn_deps.tool_context.changes.record_created(path)
+                path.write_text(text)
+                turn_deps.tool_context.touched.add(path)
+        return AgentOutcome(final_text="done", messages=[], model_calls_made=1)
+
+    await run_execution_plan(
+        "assets",
+        deps,
+        agent,
+        plan=ExecutionPlan("asset-repair-tools", "assets", (step,)),
+        self_review=False,
+    )
+
+    yazan_tur = [item for item in araclar if "download_file" in item]
+    assert yazan_tur, "onarım turu hiç açılmadı"
+    assert "extract_archive" in yazan_tur[-1]

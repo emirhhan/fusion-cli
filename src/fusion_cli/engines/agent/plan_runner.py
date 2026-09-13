@@ -282,6 +282,12 @@ class _PlanRun:
                     "web_fetch",
                     "read_url_content",
                     "download_file",
+                    # Arşiv açmadan indirilen paket kullanılamaz: asset paketleri
+                    # ZIP gelir. Ölçüldü (13 Eylül, Godot koşusu): onarım turunda
+                    # `download_file` açıktı ama `extract_archive` kapalıydı; model
+                    # bir python betiği yazıp `run_shell` denedi, o da kapsam dışı
+                    # olduğu için engellendi ve adım hiç asset açmadan düştü.
+                    "extract_archive",
                     "write_file",
                     "create_file",
                     "edit_file",
