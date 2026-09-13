@@ -85,8 +85,22 @@ def godot_has_main_scene(root: Path) -> bool:
         if _SECTION.match(line):
             in_section = True
         elif in_section and _MAIN_SCENE.match(line):
-            return True
+            # Tanımlı olması yetmez: dosya DİSKTE de olmalı.
+            #
+            # Ölçüldü (13 Eylül, koşu 32): `run/main_scene="res://scenes/main.tscn"`
+            # yazıyordu ama dosya hiç yazılmamıştı. Proje "çalıştırılabilir" sayıldı,
+            # kurulum kapısı (içe aktarma) atlandı ve çalıştırma kapısı üç satır
+            # ERROR'a rağmen sıfır çıkışla geçti.
+            return _declared_main_scene_exists(root, line)
     return False
+
+
+def _declared_main_scene_exists(root: Path, line: str) -> bool:
+    """`run/main_scene` satırındaki sahne dosyası diskte var mı?"""
+    eslesme = re.search(r'res://(?P<yol>[^"\']+)', line)
+    if eslesme is None:
+        return False
+    return (root / eslesme.group("yol").strip()).is_file()
 
 
 #: Godot'un içe aktarma gerektiren görsel/ses uzantıları.
@@ -145,6 +159,10 @@ def godot_adapter() -> DomainAdapter:
             "can't run project",
             "failed to load script",
             "no loader found",
+            # Ölçüldü (koşu 32): ana sahne dosyası yoktu; motor "Cannot open file"
+            # ve "Failed loading scene" bastı, çıkış kodu yine 0'dı.
+            "cannot open file",
+            "failed loading",
         ),
         _criteria=(
             "project.godot içinde ana sahne (run/main_scene) tanımlı",

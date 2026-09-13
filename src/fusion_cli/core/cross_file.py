@@ -277,7 +277,18 @@ def broken_resource_paths(root: Path) -> tuple[str, ...]:
     da birleştirme olan ifadeler hakkında iddia edilmez.
     """
     bulgular: list[str] = []
-    for kaynak in sorted([*root.rglob("*.gd"), *root.rglob("*.tscn"), *root.rglob("*.tres")]):
+    # `project.godot` DAHİL: projenin en kritik `res://` yolu ana sahnedir.
+    #
+    # Ölçüldü (13 Eylül, koşu 32): `run/main_scene="res://scenes/main.tscn"` yazıyordu
+    # ama dosya hiç yazılmamıştı. Godot üç satır ERROR bastı ve ÇIKIŞ KODU 0 verdi;
+    # kapılar geçti, koşu teslim aşamasına geldi. Hatayı ancak öz denetim gördü.
+    kaynaklar = [
+        *root.rglob("*.gd"),
+        *root.rglob("*.tscn"),
+        *root.rglob("*.tres"),
+        *([root / "project.godot"] if (root / "project.godot").is_file() else []),
+    ]
+    for kaynak in sorted(kaynaklar):
         if any(part.startswith(".") for part in kaynak.parts):
             continue
         try:

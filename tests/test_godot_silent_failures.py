@@ -266,3 +266,21 @@ def test_dugum_api_kullanmayan_script_hakkinda_iddia_edilmez(tmp_path):
     )
 
     assert scripts_without_base(tmp_path) == ()
+
+
+def test_project_godot_icindeki_kirik_yol_da_bildirilir(tmp_path):
+    """Projenin en kritik `res://` yolu ana sahnedir; tarama onu da kapsar.
+
+    Ölçüldü (13 Eylül, koşu 32): ana sahne dosyası hiç yazılmamıştı; Godot üç satır
+    ERROR bastı ve çıkış kodu 0 verdi. Hatayı yalnız öz denetim gördü.
+    """
+    from fusion_cli.core.cross_file import broken_resource_paths
+
+    (tmp_path / "project.godot").write_text(
+        '[application]\nrun/main_scene="res://scenes/main.tscn"\n', encoding="utf-8"
+    )
+
+    bulgular = broken_resource_paths(tmp_path)
+
+    assert len(bulgular) == 1
+    assert "scenes/main.tscn" in bulgular[0]
