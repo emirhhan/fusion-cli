@@ -68,6 +68,27 @@ DELIVERABLES: tuple[Deliverable, ...] = (
         instruction="arayüz ekranlarını (menü, HUD) üreten ayrı bir adım",
     ),
     Deliverable(
+        name="düşman ve dövüş",
+        # "Dead Cells benzeri" demek dövüş demektir: oyunun çekirdek döngüsü
+        # düşmanla karşılaşmaktır. Ölçüldü (13 Eylül, koşu 32): oyun çalıştı,
+        # assetler ve hareket tamamdı; kullanıcı ilk cümlede "düşman yok,
+        # saldıracağımız bir şey yok" dedi. Plan hiçbir adımda düşman anmamıştı.
+        request_markers=(
+            "deadcells",
+            "dead cells",
+            "dövüş",
+            "savaş",
+            "düşman",
+            "boss",
+            "roguelike",
+            "hack and slash",
+        ),
+        plan_markers=("düşman", "enemy", "dövüş", "savaş", "combat", "boss", "hasar"),
+        instruction=(
+            "düşmanları üreten ve oyuncuyla dövüşünü (hasar alma/verme) kuran ayrı bir adım"
+        ),
+    ),
+    Deliverable(
         name="hikâye / ara sahne",
         request_markers=("ara sahne", "arasahne", "cutscene", "hikaye", "hikâye", "senaryo"),
         plan_markers=("ara sahne", "arasahne", "cutscene", "hikaye", "hikâye", "senaryo"),

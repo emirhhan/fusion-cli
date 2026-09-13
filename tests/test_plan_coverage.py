@@ -429,3 +429,40 @@ def test_bildirilmeyen_ama_dokunulan_dosya_da_adima_baglanir(tmp_path):
     kok = kosu._product_step_ids(VerificationResult(ok=False, summary=bulgu, findings=(bulgu,)))
 
     assert kok == {"gameplay"}
+
+
+DEADCELLS_GOREVI = GOREV + " deadcells e benzeyen bir oyun olsun"
+
+
+def test_deadcells_istegi_dusman_adimi_zorunlu_kilar():
+    """"Dead Cells benzeri" demek dövüş demektir.
+
+    Ölçüldü (13 Eylül, koşu 32): oyun çalıştı, assetler ve hareket tamamdı;
+    kullanıcının ilk cümlesi "düşman yok, saldıracağımız bir şey yok" oldu. Plan
+    hiçbir adımda düşman anmamıştı ve kapsama kapısı bunu istemiyordu.
+    """
+    plan = _plan(
+        _adim("assets", "Ücretsiz assetleri indir"),
+        _adim("ui", "Ana menü ve HUD kur"),
+        _adim("story", "Hikâye ve ara sahne akışını yaz"),
+        _adim("player", "Oyuncu hareketini kodla"),
+    )
+
+    assert [t.name for t in missing_deliverables(DEADCELLS_GOREVI, plan)] == ["düşman ve dövüş"]
+
+
+def test_dusman_adimi_varsa_eksik_bildirilmez():
+    plan = _plan(
+        _adim("assets", "Ücretsiz sprite paketlerini indir"),
+        _adim("ui", "Menü ve HUD kur"),
+        _adim("story", "Ara sahne akışını yaz"),
+        _adim("combat", "Düşmanları üret ve dövüş hasarını kur"),
+    )
+
+    assert missing_deliverables(DEADCELLS_GOREVI, plan) == ()
+
+
+def test_dovus_istemeyen_gorevde_dusman_zorunlu_degildir():
+    gorev = "bu fonksiyondaki hatayı düzelt"
+
+    assert missing_deliverables(gorev, _plan(_adim("fix", "Hatayı düzelt"))) == ()

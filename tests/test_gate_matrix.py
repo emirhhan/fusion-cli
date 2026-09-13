@@ -325,7 +325,10 @@ async def test_okunmamis_var_olan_dosya_korunur(tmp_path):
 
     assert sonuc is not ToolOutcome.OK
     assert "zaten var" in cikti
-    assert "edit_file" in cikti, "engelleme çıkış yolu göstermeli"
+    # Çıkış yolu ADIYLA gösterilir: küçük dosyada "tamamını oku, sonra yaz",
+    # her boyutta "değişen aralığı gönder".
+    assert "read_file" in cikti, "engelleme çıkış yolu göstermeli"
+    assert "replace_range" in cikti, "engelleme çıkış yolu göstermeli"
 
 
 async def test_web_modelinde_okumak_buyuk_dosyada_toptan_yazmayi_acmaz(tmp_path):

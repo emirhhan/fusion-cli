@@ -349,3 +349,39 @@ def test_gomulu_script_iceren_gecerli_sahne_kabul_edilir():
     )
 
     assert validate_structured(Path("main.tscn"), gecerli, authoring=False) is None
+
+
+def test_tanınmayan_godot_bolum_basligi_bildirilir():
+    """`[subresource]` tek harf farkıyla sahneyi yüklenemez yapar; çıkış kodu 0'dır.
+
+    Ölçüldü (13 Eylül, koşu 32): sahne `[subresource type="CapsuleShape2D"]` yazdı;
+    Godot "Unknown tag 'subresource'" basıp sahneyi hiç yükleyemedi, oyun açılmadı
+    ama bütün kapılar geçti.
+    """
+    from pathlib import Path
+
+    from fusion_cli.core.structured_files import validate_structured
+
+    bozuk = '[gd_scene format=3]\n\n[subresource type="CapsuleShape2D" id="1"]\n'
+
+    hata = validate_structured(Path("a.tscn"), bozuk)
+
+    assert hata is not None
+    assert "subresource" in hata
+    assert "sub_resource" in hata
+
+
+def test_gecerli_bolum_basliklari_kabul_edilir():
+    from pathlib import Path
+
+    from fusion_cli.core.structured_files import validate_structured
+
+    iyi = (
+        "[gd_scene load_steps=2 format=3]\n\n"
+        '[ext_resource type="Script" path="res://a.gd" id="1"]\n\n'
+        '[sub_resource type="RectangleShape2D" id="2"]\n\n'
+        '[node name="Main" type="Node2D"]\n\n'
+        '[connection signal="pressed" from="Button" to="." method="_on_pressed"]\n'
+    )
+
+    assert validate_structured(Path("a.tscn"), iyi) is None

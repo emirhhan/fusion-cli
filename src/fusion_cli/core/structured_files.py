@@ -75,6 +75,30 @@ def _dengesiz_tirnak(content: str) -> bool:
     return sayac % 2 == 1
 
 
+#: Godot metin kaynağında geçerli bölüm başlıkları.
+_GODOT_BOLUMLERI = frozenset(
+    {
+        "gd_scene",
+        "gd_resource",
+        "ext_resource",
+        "sub_resource",
+        "resource",
+        "node",
+        "connection",
+        "editable",
+    }
+)
+
+#: Sık yapılan yazım hatasının doğru karşılığı.
+_YAKIN_BOLUM = {
+    "subresource": "sub_resource",
+    "extresource": "ext_resource",
+    "gdscene": "gd_scene",
+    "gdresource": "gd_resource",
+    "nodes": "node",
+}
+
+
 def _godot_kaynak_denetle(content: str) -> str | None:
     """Godot metin kaynağı (`.tscn`, `.tres`).
 
@@ -112,6 +136,18 @@ def _godot_kaynak_denetle(content: str) -> str | None:
         if eslesme is None:
             continue
         ad = eslesme.group("ad")
+        if ad not in _GODOT_BOLUMLERI:
+            # Ölçüldü (13 Eylül, koşu 32): sahne `[subresource type="CapsuleShape2D"]`
+            # yazmıştı; doğrusu `[sub_resource …]`. Godot "Unknown tag 'subresource'"
+            # basıp sahneyi hiç yükleyemedi ve ÇIKIŞ KODU 0 verdi — oyun açılmıyordu
+            # ama bütün kapılar geçmişti. Tek harf farkı, sessiz teslim.
+            yakin = _YAKIN_BOLUM.get(ad)
+            oneri = f" Bunu mu demek istedin: `[{yakin} …]`?" if yakin else ""
+            return (
+                f"Tanınmayan bölüm başlığı: `[{ad} …]`. Godot bu dosyayı yükleyemez "
+                f"(`Unknown tag '{ad}'`) ama ÇIKIŞ KODU 0 verir, yani hata sessiz "
+                f"kalır. Geçerli başlıklar: {', '.join(sorted(_GODOT_BOLUMLERI))}.{oneri}"
+            )
         if ad == "node":
             dugum_goruldu = True
         elif ad == "ext_resource" and dugum_goruldu:
