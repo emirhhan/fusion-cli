@@ -17,6 +17,7 @@ from ...core.assets import (
     validate_asset_manifest,
 )
 from ...core.cross_file import (
+    missing_node_references,
     promised_key_conflicts,
     runtime_script_conflicts,
     scene_script_conflicts,
@@ -637,6 +638,7 @@ async def verify_plan_acceptance(
         scene_script_conflicts(deps.tool_context.root)
         + runtime_script_conflicts(deps.tool_context.root)
         + promised_key_conflicts(deps.tool_context.root)
+        + missing_node_references(deps.tool_context.root)
     )
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)

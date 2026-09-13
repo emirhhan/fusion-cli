@@ -105,3 +105,73 @@ def test_godot_projesi_olmayan_kokte_iddia_yok(tmp_path):
     (tmp_path / "main.gd").write_text('label.text = "[HAREKET: A/D]"\n', encoding="utf-8")
 
     assert promised_key_conflicts(tmp_path) == ()
+
+
+SAHNE_SPRITESIZ = '''[gd_scene format=3]
+
+[ext_resource type="Script" path="res://player.gd" id="1"]
+
+[node name="Main" type="Node2D"]
+
+[node name="Player" type="CharacterBody2D" parent="."]
+script = ExtResource("1")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
+'''
+
+SAHNE_SPRITELI = SAHNE_SPRITESIZ + '\n[node name="Sprite2D" type="Sprite2D" parent="Player"]\n'
+
+PLAYER_GD = (
+    "extends CharacterBody2D\n\n@onready var sprite: Sprite2D = $Sprite2D\n\n"
+    "func _physics_process(_d):\n\tsprite.flip_h = true\n"
+)
+
+
+def test_sahnede_olmayan_cocuk_dugum_bildirilir(tmp_path):
+    """`$Sprite2D` yoksa değişken null olur ve oyun ilk kullanımda çöker.
+
+    Ölçüldü (13 Eylül, koşu 26): `player.gd` `$Sprite2D` bekliyordu, sahnedeki
+    Player düğümünün tek çocuğu `CollisionShape2D` idi. Proje başsız açıldı,
+    bütün kapılar geçti ve koşu "tamamlandı" raporlandı.
+    """
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "player.gd").write_text(PLAYER_GD, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SAHNE_SPRITESIZ, encoding="utf-8")
+
+    bulgular = missing_node_references(tmp_path)
+
+    assert len(bulgular) == 1
+    assert "$Sprite2D" in bulgular[0]
+    assert "player.gd" in bulgular[0]
+
+
+def test_cocuk_dugum_varsa_bildirilmez(tmp_path):
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "player.gd").write_text(PLAYER_GD, encoding="utf-8")
+    (tmp_path / "main.tscn").write_text(SAHNE_SPRITELI, encoding="utf-8")
+
+    assert missing_node_references(tmp_path) == ()
+
+
+def test_yol_iceren_referans_hakkinda_iddia_edilmez(tmp_path):
+    """`$UI/Label` çok parçalıdır; kapı dar kalır ve sessizdir."""
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "player.gd").write_text(
+        "extends CharacterBody2D\n\n@onready var l = $UI/Label\n", encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(SAHNE_SPRITESIZ, encoding="utf-8")
+
+    assert missing_node_references(tmp_path) == ()
+
+
+def test_scriptsiz_sahne_hakkinda_iddia_edilmez(tmp_path):
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "main.tscn").write_text(
+        '[gd_scene format=3]\n\n[node name="Main" type="Node2D"]\n', encoding="utf-8"
+    )
+
+    assert missing_node_references(tmp_path) == ()

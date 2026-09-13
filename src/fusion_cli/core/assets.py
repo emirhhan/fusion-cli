@@ -340,10 +340,18 @@ _USABLE_ASSET_SUFFIXES = frozenset(
 # manifest zaten dosyayı listeler, onu "kullanım" saymak kapıyı işlevsiz kılar.
 _REFERENCE_SUFFIXES = frozenset(
     {
-        ".gd", ".tscn", ".tres", ".cs", ".gdshader", ".cfg", ".godot", ".json",
+        ".gd", ".tscn", ".tres", ".cs", ".gdshader", ".json",
         ".py", ".js", ".ts", ".tsx", ".html", ".css", ".lua", ".cpp", ".h",
     }
 )  # fmt: skip
+
+#: Taramadan DIŞLANAN yapılandırma dosyaları.
+#
+# Ölçüldü (13 Eylül, koşu 26): üretilen oyunda tek varlık referansı
+# `project.godot` içindeki `config/icon="res://Preview.png"` satırıydı. Kapı bunu
+# "sanat ürüne girdi" saydı ve sahnede tek sprite olmayan bir projeyi geçirdi.
+# Pencere ikonu oyunun içeriği değildir; referans sahnede ya da kodda olmalı.
+_CONFIG_FILE_NAMES = frozenset({"project.godot", "export_presets.cfg", "default_env.tres"})
 
 #: Referans taramasında atlanan dosya adları (manifest/lisans belgeleri).
 _REFERENCE_SKIP_NAMES = frozenset(item.casefold() for item in _MANIFEST_NAMES)
@@ -407,6 +415,8 @@ def _project_text(root: Path) -> str:
         if path.suffix.casefold() not in _REFERENCE_SUFFIXES:
             continue
         if path.name.casefold() in _REFERENCE_SKIP_NAMES:
+            continue
+        if path.name.casefold() in _CONFIG_FILE_NAMES:
             continue
         # Gizli dizinler taranmaz: devam kaydı (`.fusion`), git verisi ve araç
         # önbellekleri projenin kodu değildir ve içlerindeki JSON, kullanım

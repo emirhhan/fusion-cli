@@ -181,3 +181,78 @@ def promised_key_conflicts(root: Path) -> tuple[str, ...]:
         "project.godot içinde hiç girdi eşlemesi ([input]) yok ve kod bu tuşları "
         "okumuyor; oyun o tuşlara cevap vermez.",
     )
+
+
+#: Script'in sahnede VAR OLMASINI beklediği çocuk düğüm: `$Ad` ya da `get_node("Ad")`.
+# Yol içeren referans (`$UI/Label`) DIŞARIDA: çok parçalı yol hakkında iddia
+# edilmez, kapı dar kalır.
+_CHILD_REF = re.compile(
+    r'(?:\$(?P<kisa>[A-Za-z_]\w*)(?![\w/])|get_node\(\s*"(?P<uzun>[^"/]+)"\s*\))'
+)
+#: Sahnedeki düğümün adı ve ebeveyni.
+_NODE_HEADER = re.compile(
+    r'\[node name="(?P<ad>[^"]+)"(?:[^\]]*?parent="(?P<ebeveyn>[^"]*)")?[^\]]*\]'
+)
+
+
+def missing_node_references(root: Path) -> tuple[str, ...]:
+    """Script'in beklediği çocuk düğüm sahnede var mı?
+
+    `@onready var sprite = $Sprite2D` satırı, sahnede `Sprite2D` adlı bir çocuk
+    YOKSA `null` döner. Godot açılışta hiçbir şey söylemez; oyun ilk kullanımda
+    (ör. ilk harekette `sprite.flip_h`) çöker ya da sessizce hiçbir şey yapmaz.
+
+    Ölçüldü (13 Eylül, koşu 26): `player.gd` `$Sprite2D` bekliyordu, `main.tscn`
+    içindeki Player düğümünün tek çocuğu `CollisionShape2D` idi. Proje başsız
+    açıldı, bütün kapılar geçti, oyun "tamamlandı" raporlandı.
+
+    Kapı DAR: yalnız tek parçalı adlar (`$Sprite2D`) denetlenir; yol içeren
+    (`$UI/Label`) ya da çalışma anında eklenen düğümler hakkında iddia edilmez.
+    """
+    bulgular: list[str] = []
+    for sahne in sorted(root.rglob("*.tscn")):
+        try:
+            metin = sahne.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        kaynaklar = {
+            eslesme.group("id"): eslesme.group("path")
+            for eslesme in _EXT_RESOURCE.finditer(metin)
+        }
+        for dugum in _NODE.finditer(metin):
+            ref = _SCRIPT_REF.search(dugum.group("govde"))
+            if ref is None:
+                continue
+            yol = kaynaklar.get(ref.group("id"))
+            if yol is None:
+                continue
+            cocuklar = _children_of(metin, dugum.group("ad"))
+            bulgular.extend(
+                f"{sahne.name}: '{dugum.group('ad')}' düğümüne bağlı "
+                f"{Path(yol).name} script'i `${beklenen}` düğümünü kullanıyor ama sahnede "
+                "o adda bir çocuk yok; değişken null olur ve oyun ilk kullanımda çöker."
+                for beklenen in _expected_children(root, yol) - cocuklar
+            )
+    return tuple(bulgular)
+
+
+def _children_of(metin: str, ad: str) -> set[str]:
+    """Sahne metninde `ad` düğümünün doğrudan çocuklarının adları."""
+    return {
+        eslesme.group("ad")
+        for eslesme in _NODE_HEADER.finditer(metin)
+        if (eslesme.group("ebeveyn") or "") == ad
+    }
+
+
+def _expected_children(root: Path, res_path: str) -> set[str]:
+    """Script'in tek parçalı adla beklediği çocuk düğümler."""
+    dosya = root / res_path.removeprefix("res://")
+    try:
+        kaynak = dosya.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {
+        eslesme.group("kisa") or eslesme.group("uzun")
+        for eslesme in _CHILD_REF.finditer(kaynak)
+    }
