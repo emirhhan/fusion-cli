@@ -16,7 +16,11 @@ from ...core.assets import (
     validate_asset_inventory,
     validate_asset_manifest,
 )
-from ...core.cross_file import scene_script_conflicts
+from ...core.cross_file import (
+    promised_key_conflicts,
+    runtime_script_conflicts,
+    scene_script_conflicts,
+)
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import (
     ExecutionPlan,
@@ -627,7 +631,13 @@ async def verify_plan_acceptance(
     # tipi ile script'in beklediği taban uyuşmuyordu ve motor sıfır çıkış koduyla
     # parse hatası bastı. Bu sınıf hatayı ne dil kapısı ne de çalıştırma kapısı
     # yakalar; çapraz denetim motor çalışmadan önce söyler.
-    catismalar = scene_script_conflicts(deps.tool_context.root)
+    # Üç çapraz denetim de SESSİZ hata sınıfını hedefler: motor sıfır çıkışla
+    # açılır, kapı geçer, kullanıcı oyunu açar ve hiçbir şey çalışmaz.
+    catismalar = (
+        scene_script_conflicts(deps.tool_context.root)
+        + runtime_script_conflicts(deps.tool_context.root)
+        + promised_key_conflicts(deps.tool_context.root)
+    )
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)
 

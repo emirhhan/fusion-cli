@@ -99,3 +99,85 @@ def _script_base(root: Path, res_path: str) -> str | None:
         return None
     eslesme = _EXTENDS.search(kaynak)
     return eslesme.group("taban") if eslesme else None
+
+
+#: Çalışma anında script üretip düğüme bağlama kalıbı.
+_RUNTIME_SCRIPT = re.compile(r"GDScript\.new\s*\(")
+_SET_SCRIPT = re.compile(r"\.set_script\s*\(")
+_RELOAD = re.compile(r"\.reload\s*\(")
+
+#: Kullanıcıya "şu tuşla oynanır" diyen metinlerdeki harf çifti (ör. "A/D").
+_PROMISED_KEYS = re.compile(r"\b([A-Z])/([A-Z])\b")
+#: Koddan doğrudan okunan fiziksel tuş.
+_KEY_CONSTANT = re.compile(r"KEY_([A-Z])\b")
+#: `project.godot` içindeki girdi eşlemesi bölümü.
+_INPUT_SECTION = re.compile(r"^\s*\[input\]", re.MULTILINE)
+
+
+def runtime_script_conflicts(root: Path) -> tuple[str, ...]:
+    """Çalışma anında üretilen script `reload()` edilmeden bağlanmış mı?
+
+    Godot'ta `GDScript.new()` ile üretilen bir script, `reload()` çağrılmadan
+    `set_script()` ile bağlanırsa DERLENMEZ: motor hiçbir hata basmaz, düğüm
+    sessizce ölü kalır.
+
+    Ölçüldü (13 Eylül, Godot koşusu): oyuncu düğümünün hareket/zıplama kodu tam da
+    bu yolla üretildi. Motor sıfır çıkışla açıldı, kapılar geçti, kullanıcı oyunu
+    açtı ve karakter hiçbir tuşa cevap vermedi. Aynı kalıbı `reload()` ile ve
+    onsuz iki kez ölçtüm: yalnız `reload()` olan çalıştı.
+    """
+    bulgular: list[str] = []
+    for kaynak in sorted(root.rglob("*.gd")):
+        try:
+            metin = kaynak.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if not _RUNTIME_SCRIPT.search(metin) or not _SET_SCRIPT.search(metin):
+            continue
+        if _RELOAD.search(metin):
+            continue
+        bulgular.append(
+            f"{kaynak.name}: çalışma anında üretilen GDScript `reload()` edilmeden "
+            "`set_script()` ile bağlanıyor; script derlenmez ve düğüm sessizce ölü "
+            "kalır. `source_code` atadıktan SONRA `script.reload()` çağır."
+        )
+    return tuple(bulgular)
+
+
+def promised_key_conflicts(root: Path) -> tuple[str, ...]:
+    """Arayüzde söz verilen tuşlar gerçekten bağlanmış mı?
+
+    Ölçüldü (13 Eylül, Godot koşusu): oyunun HUD'u "[HAREKET: A/D veya OKLAR]"
+    yazıyordu; `project.godot` içinde hiç `[input]` bölümü yoktu ve kod yalnız
+    yerleşik `ui_*` eylemlerini okuyordu. Kullanıcı A/D'ye bastı, hiçbir şey olmadı.
+    Kullanıcıya gösterilen tuş, bağlanmamış tuş olamaz.
+
+    Kapı DAR: proje bir girdi eşlemesi tanımlıyorsa sessiz kalır (eşlemenin içeriği
+    burada çözülmez), yalnız hiç eşleme yokken söz verilen harfleri bildirir.
+    """
+    proje = root / "project.godot"
+    try:
+        yapilandirma = proje.read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    if _INPUT_SECTION.search(yapilandirma):
+        return ()
+    sozler: dict[str, str] = {}
+    okunan: set[str] = set()
+    for kaynak in sorted([*root.rglob("*.gd"), *root.rglob("*.tscn")]):
+        try:
+            metin = kaynak.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        okunan.update(_KEY_CONSTANT.findall(metin))
+        for eslesme in _PROMISED_KEYS.finditer(metin):
+            for harf in eslesme.groups():
+                sozler.setdefault(harf, kaynak.name)
+    eksik = sorted(harf for harf in sozler if harf not in okunan)
+    if not eksik:
+        return ()
+    return (
+        "arayüz " + ", ".join(eksik) + " tuşlarıyla oynandığını söylüyor ama "
+        "project.godot içinde hiç girdi eşlemesi ([input]) yok ve kod bu tuşları "
+        "okumuyor; oyun o tuşlara cevap vermez.",
+    )
