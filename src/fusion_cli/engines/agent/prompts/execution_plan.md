@@ -23,16 +23,18 @@ erken kapatır ve plan ayrıştırılamaz.
       "criterion_id": "success_criteria içindeki koşulun birebir metni",
       "kind": "file_exists | file_contains | command | tool | reproduction",
       "target": "göreli dosya yolu, gerçekten çalıştırılacak komut veya araç adı",
-      "expected": {"path": "."}
+      "expected": ""
     }],
     "retry_safety": "safe | observe_first | never"
   }]
 }
 
 Kurallar:
-- `expected` alanı: `tool` için yukarıdaki gibi GERÇEK JSON NESNESİ yaz (dize
-  içine gömme, tırnak kaçırma); `file_contains` için aranacak metni dize olarak yaz;
-  command, file_exists ve reproduction için tam olarak "" yaz.
+- `expected` alanı yalnız iki kontrolde doludur. `tool` için GERÇEK JSON NESNESİ
+  yaz — dize içine gömme, tırnak kaçırma:
+  {"criterion_id": "...", "kind": "tool", "target": "list_dir", "expected": {"path": "."}}
+  `file_contains` için aranacak metni dize yaz. command, file_exists ve
+  reproduction kontrollerinde tam olarak "" yaz.
 - Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
   listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
   doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.
