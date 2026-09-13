@@ -256,3 +256,71 @@ def _expected_children(root: Path, res_path: str) -> set[str]:
         eslesme.group("kisa") or eslesme.group("uzun")
         for eslesme in _CHILD_REF.finditer(kaynak)
     }
+
+
+#: Kodda ya da sahnede geçen proje içi kaynak yolu.
+_RES_PATH = re.compile(r'res://(?P<yol>[^"\')\n]+)')
+#: Düğüm API'si kullanan ama tabanını bildirmeyen script'in izleri.
+_NODE_API = re.compile(r"\b(?:move_and_slide|is_on_floor|velocity|add_child|queue_free)\b")
+
+
+def broken_resource_paths(root: Path) -> tuple[str, ...]:
+    """Kodun/sahnenin yüklediği `res://` yolu diskte gerçekten var mı?
+
+    Ölçüldü (13 Eylül, koşu 28): indirilen paket
+    `assets/Grassland Platformer Art **With Slopes**/` klasörüne açıldı (ad
+    yıldızlı), kod ise yıldızsız yolu yüklüyordu. `ResourceLoader.exists()` false
+    döndü, hiçbir doku yüklenmedi ve motor tek satır hata basmadı — kapılar geçti,
+    koşu "tamamlandı" dedi ve oyun bomboş açıldı.
+
+    Kapı DAR: yalnız değişmez (sabit) yollar denetlenir; içinde biçimlendirme ya
+    da birleştirme olan ifadeler hakkında iddia edilmez.
+    """
+    bulgular: list[str] = []
+    for kaynak in sorted([*root.rglob("*.gd"), *root.rglob("*.tscn"), *root.rglob("*.tres")]):
+        if any(part.startswith(".") for part in kaynak.parts):
+            continue
+        try:
+            metin = kaynak.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for eslesme in _RES_PATH.finditer(metin):
+            yol = eslesme.group("yol").strip()
+            if not yol or "%" in yol or "{" in yol or yol.endswith("/"):
+                continue
+            if (root / yol).exists():
+                continue
+            bulgular.append(
+                f"{kaynak.name}: `res://{yol}` yolu diskte YOK; yükleme sessizce "
+                "başarısız olur. Gerçek yolu `list_dir` ile doğrula ve düzelt."
+            )
+    return tuple(dict.fromkeys(bulgular))
+
+
+def scripts_without_base(root: Path) -> tuple[str, ...]:
+    """Düğüm API'si kullanan script tabanını (`extends`) bildiriyor mu?
+
+    `extends` satırı olmayan bir GDScript `RefCounted` sayılır; `velocity`,
+    `move_and_slide()` gibi düğüm üyeleri orada YOKTUR.
+
+    Ölçüldü (13 Eylül, koşu 28): `player.gd` `const SPEED` ile başlıyordu, hiç
+    `extends` yoktu ve `velocity`/`move_and_slide()` kullanıyordu. Dosya hiçbir
+    sahneye bağlı olmadığı için motor da sessiz kaldı; proje açıldı, kapılar geçti
+    ve oyunda oyuncu diye bir şey yoktu.
+    """
+    bulgular: list[str] = []
+    for kaynak in sorted(root.rglob("*.gd")):
+        if any(part.startswith(".") for part in kaynak.parts):
+            continue
+        try:
+            metin = kaynak.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if _EXTENDS.search(metin) or not _NODE_API.search(metin):
+            continue
+        bulgular.append(
+            f"{kaynak.name}: düğüm API'si (velocity/move_and_slide gibi) kullanıyor "
+            "ama `extends` satırı yok; script RefCounted sayılır ve bu üyeler orada "
+            "bulunmaz. Dosyanın başına doğru tabanı yaz (ör. `extends CharacterBody2D`)."
+        )
+    return tuple(bulgular)

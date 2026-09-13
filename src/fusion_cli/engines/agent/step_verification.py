@@ -17,10 +17,12 @@ from ...core.assets import (
     validate_asset_manifest,
 )
 from ...core.cross_file import (
+    broken_resource_paths,
     missing_node_references,
     promised_key_conflicts,
     runtime_script_conflicts,
     scene_script_conflicts,
+    scripts_without_base,
 )
 from ...core.evidence import CriterionEvidence, EvidenceStatus
 from ...core.execution_plan import (
@@ -639,6 +641,8 @@ async def verify_plan_acceptance(
         + runtime_script_conflicts(deps.tool_context.root)
         + promised_key_conflicts(deps.tool_context.root)
         + missing_node_references(deps.tool_context.root)
+        + broken_resource_paths(deps.tool_context.root)
+        + scripts_without_base(deps.tool_context.root)
     )
     if catismalar:
         return VerificationResult(ok=False, summary=catismalar[0], findings=catismalar)

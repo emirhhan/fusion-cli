@@ -175,3 +175,94 @@ def test_scriptsiz_sahne_hakkinda_iddia_edilmez(tmp_path):
     )
 
     assert missing_node_references(tmp_path) == ()
+
+
+def test_diskte_olmayan_res_yolu_bildirilir(tmp_path):
+    """Yükleme sessizce başarısız olur; motor tek satır hata basmaz.
+
+    Ölçüldü (13 Eylül, koşu 28): paket `Grassland Platformer Art **With Slopes**`
+    klasörüne açıldı (ad yıldızlı), kod yıldızsız yolu yüklüyordu.
+    `ResourceLoader.exists()` false döndü, doku hiç yüklenmedi, kapılar geçti ve
+    koşu "tamamlandı" dedi; oyun bomboş açıldı.
+    """
+    from fusion_cli.core.cross_file import broken_resource_paths
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/gercek.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "player.gd").write_text(
+        'extends Node2D\n\nfunc _ready():\n\tvar t = load("res://assets/yanlis.png")\n',
+        encoding="utf-8",
+    )
+
+    bulgular = broken_resource_paths(tmp_path)
+
+    assert len(bulgular) == 1
+    assert "assets/yanlis.png" in bulgular[0]
+
+
+def test_var_olan_res_yolu_bildirilmez(tmp_path):
+    from fusion_cli.core.cross_file import broken_resource_paths
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/gercek.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (tmp_path / "player.gd").write_text(
+        'extends Node2D\n\nfunc _ready():\n\tvar t = load("res://assets/gercek.png")\n',
+        encoding="utf-8",
+    )
+
+    assert broken_resource_paths(tmp_path) == ()
+
+
+def test_degisken_iceren_yol_hakkinda_iddia_edilmez(tmp_path):
+    """Biçimlendirilen yol çalışma anında oluşur; kapı dar kalır."""
+    from fusion_cli.core.cross_file import broken_resource_paths
+
+    (tmp_path / "player.gd").write_text(
+        'extends Node2D\n\nfunc _ready():\n\tvar t = load("res://tiles/%s.png" % ad)\n',
+        encoding="utf-8",
+    )
+
+    assert broken_resource_paths(tmp_path) == ()
+
+
+def test_extends_bildirmeyen_dugum_scripti_bildirilir(tmp_path):
+    """`extends` yoksa script RefCounted sayılır; `velocity` orada yoktur.
+
+    Ölçüldü (13 Eylül, koşu 28): `player.gd` `const SPEED` ile başlıyordu, hiç
+    `extends` yoktu ve `velocity`/`move_and_slide()` kullanıyordu; dosya hiçbir
+    sahneye bağlı olmadığı için motor da sessiz kaldı.
+    """
+    from fusion_cli.core.cross_file import scripts_without_base
+
+    (tmp_path / "player.gd").write_text(
+        "const SPEED = 300.0\n\nfunc _physics_process(_d):\n"
+        "\tvelocity.x = SPEED\n\tmove_and_slide()\n",
+        encoding="utf-8",
+    )
+
+    bulgular = scripts_without_base(tmp_path)
+
+    assert len(bulgular) == 1
+    assert "extends" in bulgular[0]
+
+
+def test_taban_bildiren_script_bildirilmez(tmp_path):
+    from fusion_cli.core.cross_file import scripts_without_base
+
+    (tmp_path / "player.gd").write_text(
+        "extends CharacterBody2D\n\nfunc _physics_process(_d):\n\tmove_and_slide()\n",
+        encoding="utf-8",
+    )
+
+    assert scripts_without_base(tmp_path) == ()
+
+
+def test_dugum_api_kullanmayan_script_hakkinda_iddia_edilmez(tmp_path):
+    """Saf veri/yardımcı script'in tabanı olmak zorunda değildir."""
+    from fusion_cli.core.cross_file import scripts_without_base
+
+    (tmp_path / "hesap.gd").write_text(
+        "static func topla(a, b):\n\treturn a + b\n", encoding="utf-8"
+    )
+
+    assert scripts_without_base(tmp_path) == ()
