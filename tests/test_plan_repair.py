@@ -509,3 +509,27 @@ async def test_kapsam_onarimi_butce_ve_tek_revision_sinirini_asmaz(tmp_path, rec
     )
     assert not result.ok
     assert "run_shell kapalı" in result.final_text
+
+
+def test_final_onarim_yonergesi_bozulan_kosulu_birebir_tasir():
+    """Onarım adımı NEYİN bozuk olduğunu bilmezse kör onarım yapar.
+
+    Ölçüldü (13 Eylül, Godot koşusu): adım yalnız "Final doğrulamasında bozulan
+    koşulları onar." cümlesini alıyordu; model `project.godot` dosyasını yeniden
+    yazmaya çalıştı, kapı aynı bulguyla yine düştü ve koşu iki adım arasında
+    50 dakika döndü.
+    """
+    from fusion_cli.engines.agent.plan_runner import repair_guidance
+
+    yonerge = repair_guidance(
+        ("indirilen varlıklar üründe HİÇ kullanılmamış: assets/player.png",)
+    )
+
+    assert "BOZULAN KOŞULLAR" in yonerge
+    assert "assets/player.png" in yonerge
+
+
+def test_bulgu_yoksa_yonerge_eski_hâlinde_kalir():
+    from fusion_cli.engines.agent.plan_runner import repair_guidance
+
+    assert repair_guidance(()) == "Final doğrulamasında bozulan koşulları onar."

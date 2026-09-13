@@ -126,6 +126,24 @@ def _only_inspection_checks(step: PlanStep) -> bool:
     return True
 
 
+def repair_guidance(findings: tuple[str, ...]) -> str:
+    """Final onarımı adımına verilen yönerge.
+
+    Ölçüldü (13 Eylül, Godot koşusu): adım yalnız "Final doğrulamasında bozulan
+    koşulları onar." cümlesini alıyordu ve NEYİN bozuk olduğunu bilmiyordu. Model
+    `project.godot` dosyasını yeniden yazmaya çalıştı, kapı aynı bulguyla yine
+    düştü ve koşu iki adım arasında 50 dakika döndü. Bulgu, düzeltmenin ta kendisi.
+    """
+    yonerge = "Final doğrulamasında bozulan koşulları onar."
+    if not findings:
+        return yonerge
+    return (
+        yonerge
+        + "\nBOZULAN KOŞULLAR (birebir bunları gider):\n"
+        + "\n".join(f"- {bulgu}" for bulgu in findings)
+    )
+
+
 def _bolme_talimati(step: PlanStep, deneme: int) -> str:
     """Adımı alt adımlara bölmesini isteyen ek talimat.
 
@@ -172,6 +190,13 @@ class _PlanRun:
     #: `outcomes` listesine girer; kaybedenlerin maliyeti yine de kaybolmamalıdır.
     attempt_model_calls: int = 0
     repair_ids: set[str] = field(default_factory=set)
+    #: Final kabulün BULGULARI — onarım adımına birebir verilir.
+    #:
+    #: Ölçüldü (13 Eylül, Godot koşusu): onarım adımı yalnız "Final doğrulamasında
+    #: bozulan koşulları onar." cümlesini alıyordu. Model neyin bozuk olduğunu
+    #: bilmediği için `project.godot` dosyasını yeniden yazmaya çalıştı, kapı
+    #: aynı bulguyla yine düştü ve koşu iki adım arasında 50 dakika döndü.
+    repair_findings: tuple[str, ...] = ()
     self_review: bool = False
     review_calls: int = 0
     quality_feedback: str = ""
@@ -625,9 +650,7 @@ class _PlanRun:
             # asset indirilmedi.
             observe = False
         guidance = (
-            "Final doğrulamasında bozulan koşulları onar."
-            if step.step_id in self.repair_ids
-            else ""
+            repair_guidance(self.repair_findings) if step.step_id in self.repair_ids else ""
         )
         local_repair = False
         while True:
@@ -827,6 +850,9 @@ class _PlanRun:
             roots = self._product_step_ids(acceptance)
         if not roots:
             return False
+        self.repair_findings = tuple(acceptance.findings) or (
+            (acceptance.summary,) if acceptance.summary else ()
+        )
         affected = dependent_ids(self.current, roots)
         self.current = invalidate(self.current, roots)
         self.evidence = {key: value for key, value in self.evidence.items() if key not in affected}
