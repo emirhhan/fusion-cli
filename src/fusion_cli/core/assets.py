@@ -174,6 +174,32 @@ def _resolve_asset_path(name: str, manifest: Path, root: Path) -> Path | None:
     return adaylar[0]
 
 
+def _locate_by_name(file_name: str, root: Path) -> str | None:
+    """Aynı ADLA proje içinde var olan dosyanın göreli yolu; yoksa None.
+
+    Arşiv açıldıktan sonra manifest yolları elle yazılıyor ve bir segment
+    kaybolabiliyor ya da iki kez yazılabiliyor. Dosya diskte durduğu hâlde
+    "bulunamadı" demek, modeli yeniden indirmeye itiyor ve hakkını tüketiyor.
+    """
+    from .constants import SKIP_DIRECTORIES
+
+    if not file_name:
+        return None
+    try:
+        adaylar = sorted(root.rglob(file_name))
+    except OSError:
+        return None
+    for aday in adaylar:
+        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in aday.parts):
+            continue
+        try:
+            if aday.is_file():
+                return aday.relative_to(root).as_posix()
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
     """Manifestin adını değil, bildirdiği gerçek dosyaları ve kaynakları doğrula."""
     try:
@@ -213,6 +239,19 @@ def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
             # Sıra söylenir: ölçüldü (13 Eylül, Godot koşusu) — model manifesti
             # İLK yazdı, hiç indirme yapmadı ve "manifest oluşturuldu" diye
             # bildirdi. Eksik olanı söylemek yetmiyor, YAPILACAĞI söylemek gerekiyor.
+            gercek = _locate_by_name(Path(name).name, root)
+            if gercek is not None:
+                # Dosya VAR, yol yanlış. Ölçüldü (13 Eylül, Godot koşusu):
+                # arşiv açıldıktan sonra manifest `assets/PNG/PNG/Player/...`
+                # yazdı (bir segment iki kez); dosya `assets/PNG/Player/...`
+                # altındaydı. "Bulunamadı" demek modele düzeltmeyi göstermiyordu
+                # ve adım yeniden indirmeye kalkıp hakkını tüketti.
+                findings.append(
+                    f"manifestteki yol yanlış: {name} yok ama aynı adlı dosya "
+                    f"{gercek} altında var. Manifestteki yolu buna göre düzelt; "
+                    "yeniden indirmeye gerek yok."
+                )
+                continue
             findings.append(
                 f"manifestteki gerçek asset dosyası bulunamadı veya boş: {name} "
                 "(önce web_search + download_file ile indir, arşivse extract_archive "

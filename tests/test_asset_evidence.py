@@ -393,3 +393,50 @@ def test_kaynak_dosyasi_olmayan_projede_kullanim_iddia_edilmez(tmp_path):
     manifest = _kenney_manifest(tmp_path, ["a.png"])
 
     assert unused_manifest_assets(manifest, tmp_path) == ()
+
+
+def test_yol_yanlissa_gercek_konum_soylenir(tmp_path):
+    """Dosya VAR, yol yanlış: model yeniden indirmeye kalkmamalı.
+
+    Ölçüldü (13 Eylül, Godot koşusu): arşiv açıldıktan sonra manifest
+    `assets/PNG/PNG/Player/Poses/player_fall.png` yazdı (bir segment iki kez);
+    dosya `assets/PNG/Player/Poses/player_fall.png` altındaydı. "Bulunamadı"
+    demek düzeltmeyi göstermiyordu; adım yeniden indirmeye kalkıp hakkını tüketti.
+    """
+    gercek = tmp_path / "assets/PNG/Player/Poses"
+    gercek.mkdir(parents=True)
+    (gercek / "player_fall.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://kenney.nl/assets/platformer-characters",
+                "license": "CC0",
+                "files": ["assets/PNG/PNG/Player/Poses/player_fall.png"],
+            }
+        )
+    )
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "yol yanlış" in bulgular
+    assert "assets/PNG/Player/Poses/player_fall.png" in bulgular
+    assert "yeniden indirmeye gerek yok" in bulgular
+
+
+def test_dosya_gercekten_yoksa_indirme_yonlendirmesi_kalir(tmp_path):
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://example.com/p",
+                "license": "CC0",
+                "files": ["assets/hic_yok.png"],
+            }
+        )
+    )
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "bulunamadı veya boş" in bulgular
+    assert "download_file" in bulgular
