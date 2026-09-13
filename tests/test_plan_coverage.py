@@ -285,8 +285,8 @@ async def test_kullanilmayan_varlik_bulgusu_urunu_kuran_adimi_onarir(tmp_path):
     from fusion_cli.core.assets import UNUSED_ASSETS_PREFIX
     from fusion_cli.core.execution_plan import ExecutionPlan, PlanPhase
     from fusion_cli.core.verification import VerificationResult
-    from fusion_cli.engines.agent.plan_runner import _PlanRun
     from fusion_cli.engines.agent.plan_context import workflow_budget
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
     from fusion_cli.engines.workflow.model import BudgetLedger
     from tests.test_plan_repair import _deps
 
