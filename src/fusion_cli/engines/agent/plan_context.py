@@ -217,7 +217,14 @@ ASSET_ORDER_NOTE = (
     "6) manifesti EN SON şu biçimde yaz: "
     '{"source_url": "<indirdiğin sayfa>", "license": "CC0", '
     '"files": ["assets/player.png", …]}'
-    ". Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
+    ". Manifest, indirilmemiş dosyayı bildirirse adım düşer. "
+    # Ölçüldü (13 Eylül, beş koşu): kenney.nl ve opengameart.org sayfalarındaki
+    # bağlantılar doğrudan dosyaya gidiyor ve `download_file` ile indi (üç koşuda
+    # gerçek paket geldi). itch.io listeleri indirme bağlantısı vermiyor; üç koşu
+    # orada döndü, sonunda adres uydurmaya geçip 404 aldı ve hiçbir asset gelmedi.
+    "Kaynak seçimi (ölçülmüş): kenney.nl ve opengameart.org sayfaları doğrudan "
+    "dosya/arşiv bağlantısı verir. itch.io listeleri indirme bağlantısı vermez; "
+    "orada dönüp durma, adres de uydurma.\n\n"
 )
 
 
