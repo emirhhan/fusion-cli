@@ -59,6 +59,9 @@ Kurallar:
 - Bir adım dosya üretiyorsa yolu `expected_effects` içine `file:<yol>` olarak yaz ve
   o adımın dosya kontrollerinde AYNI yolu hedef göster. İki farklı yol iddia eden
   plan reddedilir; adım hangisini üretirse üretsin öteki düşer.
+- Dış varlık indiren adımda dosya ADLARINI UYDURMA: paketin içindekiler indirmeden
+  bilinemez. O adımın tek dosya vaadi ve kontrol hedefi `ASSETS.json` manifestidir;
+  manifest, bildirdiği dosyaların gerçekten var olduğunu ve lisanslı olduğunu kanıtlar.
 - İnternetten alınan PNG/JPEG asset için aynı klasörde `ASSETS.json` oluştur.
   Manifestte dosya adına karşılık geçerli `source_url` ve açık `license` alanları
   bulunmalı; boş, bozuk, uzantısı yanlış ve 1x1 placeholder görsel kabul edilmez.

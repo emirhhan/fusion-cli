@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+from pathlib import Path
 from typing import cast
 
 from fusion_cli.core.errors import FusionError
@@ -146,6 +147,41 @@ def _parse_retry_safety(data: dict[str, object]) -> RetrySafety:
         raise PlanParseError(f"Geçersiz retry_safety değeri: {value}") from exc
 
 
+#: Uydurulması kaçınılmaz olan varlık uzantıları.
+_ASSET_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".ogg", ".wav", ".mp3", ".ttf"})
+
+
+def _drop_invented_asset_files(effects: tuple[str, ...]) -> tuple[str, ...]:
+    """Manifest bildiren adımdan UYDURULMUŞ varlık dosyası vaatlerini düş.
+
+    Plan, depo keşfedilmeden yazılır: indirilecek paketin içindeki dosya adları o
+    anda BİLİNEMEZ. Ölçüldü (13 Eylül, Godot koşusu): adım
+    `["file:ASSETS.json", "file:assets/player.png"]` bildirdi; model üç gerçek
+    paketi indirdi (1393 dosya) ve geçerli bir manifest yazdı, ama kapı uydurulmuş
+    `assets/player.png` yolunu aradı. Üç deneme düştü ve model sonunda 3 baytlık
+    sahte bir "PNG" yazdı — görsel doğrulaması onu yakaladı ve koşu bitti.
+
+    Manifest kontrolü bu vaatlerin YERİNE geçer ve daha güçlüdür: manifestte
+    bildirilen dosyaların gerçekten var olduğunu, geçerli görsel olduğunu ve
+    lisansının kayıtlı olduğunu doğrular (bkz. `core.assets`). Manifest bildirmeyen
+    adımlarda hiçbir şey düşürülmez — orada dosya vaadi tek sözleşmedir.
+    """
+    from ...core.assets import is_asset_inventory
+
+    yollar = [
+        effect.removeprefix("file:").strip() for effect in effects if effect.startswith("file:")
+    ]
+    if not any(is_asset_inventory(Path(yol)) for yol in yollar):
+        return effects
+    return tuple(
+        effect
+        for effect in effects
+        if not effect.startswith("file:")
+        or is_asset_inventory(Path(effect.removeprefix("file:").strip()))
+        or Path(effect.removeprefix("file:").strip()).suffix.casefold() not in _ASSET_SUFFIXES
+    )
+
+
 def _parse_checks(data: dict[str, object], index: int) -> tuple[VerificationCheck, ...]:
     """İsteğe bağlı tipli kontrolleri ayrıştır; eski planlar boş listeyle yaşar."""
     raw_checks = data.get("verification_checks", [])
@@ -215,7 +251,7 @@ def _parse_step(value: object, index: int) -> PlanStep:
     step_id = _require_string(data, "step_id")
     goal = _require_string(data, "goal")
     depends_on = _require_strings(data, "depends_on")
-    expected_effects = _require_strings(data, "expected_effects")
+    expected_effects = _drop_invented_asset_files(_require_strings(data, "expected_effects"))
     allowed_tool_families = _require_strings(data, "allowed_tool_families")
     success_criteria = _require_strings(data, "success_criteria")
     verification_hint = _require_string(data, "verification_hint")

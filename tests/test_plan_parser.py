@@ -192,3 +192,57 @@ def test_python_literal_icindeki_json_disindaki_deger_onarilabilir_hata_verir():
     ]
     with pytest.raises(PlanParseError, match="geçerli bir JSON nesnesi"):
         parse_execution_plan(repr(data))
+
+
+def test_manifest_bildiren_adimdan_uydurma_varlik_vaadi_dusurulur():
+    """Paketin içindeki dosya adları indirmeden BİLİNEMEZ.
+
+    Ölçüldü (13 Eylül, Godot koşusu): adım `["file:ASSETS.json",
+    "file:assets/player.png"]` bildirdi. Model üç gerçek paketi indirdi (1393
+    dosya) ve geçerli manifest yazdı; kapı uydurulmuş `assets/player.png` yolunu
+    aradı, üç deneme düştü ve model sonunda 3 baytlık sahte bir "PNG" yazdı.
+    """
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["expected_effects"] = [
+        "file:ASSETS.json",
+        "file:assets/player.png",
+        "workspace_mutation",
+    ]
+
+    plan = parse_execution_plan(json.dumps(data))
+
+    assert plan.steps[0].expected_effects == ("file:ASSETS.json", "workspace_mutation")
+
+
+def test_manifest_bildirmeyen_adimin_dosya_vaadi_korunur():
+    """Manifest yoksa dosya vaadi tek sözleşmedir; düşürmek kapıyı kör eder."""
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["expected_effects"] = ["file:assets/player.png"]
+    data["steps"][0]["verification_checks"] = [
+        {
+            "criterion_id": data["steps"][0]["success_criteria"][0],
+            "kind": "file_exists",
+            "target": "assets/player.png",
+            "expected": "",
+        }
+    ]
+
+    plan = parse_execution_plan(json.dumps(data))
+
+    assert plan.steps[0].expected_effects == ("file:assets/player.png",)
+
+
+def test_manifest_yanindaki_kod_dosyasi_vaadi_korunur():
+    """Yalnız VARLIK uzantıları düşer: script vaadi uydurma değildir."""
+    import json
+
+    data = json.loads(VALID_PLAN)
+    data["steps"][0]["expected_effects"] = ["file:ASSETS.json", "file:scripts/player.gd"]
+
+    plan = parse_execution_plan(json.dumps(data))
+
+    assert plan.steps[0].expected_effects == ("file:ASSETS.json", "file:scripts/player.gd")
