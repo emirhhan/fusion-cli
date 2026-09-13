@@ -217,7 +217,8 @@ def test_asset_adimina_sira_talimati_eklenir():
     assert asset_step(adim)
     istem = step_prompt(GOREV, adim, {})
     assert "ASSET SIRASI" in istem
-    assert "manifesti EN SON yaz" in istem
+    assert "manifesti EN SON" in istem
+    assert '"files"' in istem
 
 
 def test_asset_olmayan_adima_sira_talimati_eklenmez():

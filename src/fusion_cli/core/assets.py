@@ -84,6 +84,43 @@ def inspect_image_asset(path: Path) -> ImageAssetInspection:
     return ImageAssetInspection(path, image_format, width, height, len(data), tuple(findings))
 
 
+#: Manifestin belge düzeyinde taşıdığı, tüm dosyalar için geçerli alanlar.
+_BELGE_ALANLARI = ("source_url", "source", "license", "author", "attribution")
+
+
+def _document_level_entries(raw: dict[str, object]) -> dict[str, object] | None:
+    """`{"source": …, "license": …, "files": [...]}` biçimini kayıtlara çevir.
+
+    Tek bir paketten gelen dosyaların hepsi aynı kaynağı ve lisansı paylaşır ve
+    model bunu doğal olarak BİR KEZ yazıyor. Ölçüldü (13 Eylül, Godot koşusu):
+    OpenGameArt'tan indirilen paket için manifest tam bu biçimde yazıldı; katı
+    okuma onu "geçersiz asset kaydı: source" diye reddetti, geri alma dosyayı
+    sildi ve adım kurtarılamadı — oysa gereken bilgi (dosya listesi + ortak
+    kaynak/lisans) manifestte eksiksiz duruyordu.
+
+    Tolerans BİÇİMdedir: kaynak ya da lisans eksikse kayıtlar yine doğrulamada
+    düşer, çünkü alanlar olduğu gibi taşınır.
+    """
+    files = raw.get("files")
+    if not isinstance(files, list) or not files:
+        return None
+    ortak = {
+        # Kaynak alanı iki adla da yazılıyor; doğrulayıcı `source_url` bekler.
+        ("source_url" if anahtar == "source" else anahtar): raw[anahtar]
+        for anahtar in _BELGE_ALANLARI
+        if isinstance(raw.get(anahtar), str)
+    }
+    kayitlar: dict[str, object] = {}
+    for item in files:
+        if isinstance(item, str):
+            kayitlar[item] = dict(ortak)
+        elif isinstance(item, dict) and isinstance(item.get("path"), str):
+            kayitlar[str(item["path"])] = {**ortak, **item}
+        else:
+            return None
+    return kayitlar
+
+
 def _manifest_entries(raw: object) -> dict[str, object]:
     if not isinstance(raw, dict):
         return {}
@@ -96,12 +133,45 @@ def _manifest_entries(raw: object) -> dict[str, object]:
         ):
             return {}
         return {item["path"]: item for item in items}
+    belge = _document_level_entries(raw)
+    if belge is not None:
+        return belge
     return cast("dict[str, object]", raw)
 
 
 def is_asset_inventory(path: Path) -> bool:
     """Salt lisans belgelerinden ayrı, dosya teslim envanteri adlarını tanı."""
     return path.name.casefold() in {"assets.json", "asset-manifest.json"}
+
+
+def _resolve_asset_path(name: str, manifest: Path, root: Path) -> Path | None:
+    """Manifestteki yolu diskteki dosyaya çöz; iki taban da denenir.
+
+    Yol iki farklı ve ikisi de doğal olan konvansiyonla yazılıyor: manifestin
+    bulunduğu klasöre göre (`Previews/grass.png`) ya da proje köküne göre
+    (`assets/Previews/grass.png`). Ölçüldü (13 Eylül, Godot koşusu): Kenney
+    paketi indirildi, 777 dosya açıldı ve manifest kök tabanlı yazıldı; tek
+    tabanlı çözüm `assets/assets/Previews/grass.png` arayıp "dosya bulunamadı"
+    dedi. Dosyalar diskte duruyordu ve adım kurtarılamadı.
+
+    Var olan dosya tercih edilir; hiçbiri yoksa manifest tabanlı yol döner ki
+    hata mesajı kullanıcının yazdığı yolu gösterebilsin.
+    """
+    adaylar: list[Path] = []
+    for taban in (manifest.parent, root):
+        try:
+            adaylar.append((taban / name).resolve())
+        except (OSError, ValueError, RuntimeError):
+            continue
+    if not adaylar:
+        return None
+    for aday in adaylar:
+        try:
+            if aday.is_file():
+                return aday
+        except OSError:
+            continue
+    return adaylar[0]
 
 
 def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
@@ -115,11 +185,18 @@ def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
     findings: list[str] = []
     for name, entry in entries.items():
         if not name or not isinstance(entry, dict):
-            findings.append(f"geçersiz asset kaydı: {name}")
+            # Hangi biçimin beklendiği SÖYLENİR: "geçersiz kayıt" mesajı, manifesti
+            # belge düzeyinde yazan modele ne yapacağını göstermiyordu (ölçüldü:
+            # 13 Eylül, Godot koşusu — dört alan da bu satırda reddedildi).
+            findings.append(
+                f"geçersiz asset kaydı: {name} — manifest ya "
+                '{"<dosya yolu>": {"source_url": …, "license": …}} ya da '
+                '{"source_url": …, "license": …, "files": ["<dosya yolu>", …]} '
+                "biçiminde olmalı"
+            )
             continue
-        try:
-            path = (manifest.parent / name).resolve()
-        except (OSError, ValueError, RuntimeError):
+        path = _resolve_asset_path(name, manifest, root)
+        if path is None:
             findings.append(f"asset yolu çözümlenemedi: {name!r}")
             continue
         if path.name.casefold() in {item.casefold() for item in _MANIFEST_NAMES}:
@@ -148,6 +225,24 @@ def validate_asset_inventory(manifest: Path, root: Path) -> tuple[str, ...]:
     return tuple(findings)
 
 
+def _manifest_keys(path: Path, manifest: Path, root: Path) -> tuple[str, ...]:
+    """Bu asset için manifestte aranacak anahtarlar, olasılık sırasıyla.
+
+    Yol manifeste göre de (`Previews/grass.png`) köke göre de
+    (`assets/Previews/grass.png`) yazılabiliyor; kayıt hangisiyle yazıldıysa
+    onunla bulunmalı (bkz. `_resolve_asset_path`).
+    """
+    hedef = path.resolve()
+    anahtarlar: list[str] = []
+    for taban in (manifest.parent.resolve(), root):
+        try:
+            anahtarlar.append(hedef.relative_to(taban).as_posix())
+        except ValueError:
+            continue
+    anahtarlar.append(path.name)
+    return tuple(dict.fromkeys(anahtarlar))
+
+
 def validate_asset_manifest(path: Path, root: Path) -> tuple[str, ...]:
     """Asset için proje içinde kaynak URL'si ve lisans kaydı ara."""
     resolved_root = root.resolve()
@@ -163,10 +258,13 @@ def validate_asset_manifest(path: Path, root: Path) -> tuple[str, ...]:
     for manifest in manifests:
         try:
             entries = _manifest_entries(json.loads(manifest.read_text(encoding="utf-8")))
-            key = path.resolve().relative_to(manifest.parent.resolve()).as_posix()
+            anahtarlar = _manifest_keys(path, manifest, resolved_root)
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             continue
-        entry = entries.get(key) or entries.get(path.name)
+        entry = next(
+            (entries[anahtar] for anahtar in anahtarlar if isinstance(entries.get(anahtar), dict)),
+            None,
+        )
         if not isinstance(entry, dict):
             continue
         source = entry.get("source_url")

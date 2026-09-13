@@ -56,6 +56,7 @@ from .plan_checkpoint import (
 )
 from .plan_context import step_deps, step_prompt, workflow_budget, workspace_block
 from .plan_generation import RunAgent, generate_plan
+from .plan_phase_repair import repair_discovery_phase
 from .progress import progress_fingerprint
 from .promotion import PromotionContext
 from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
@@ -506,6 +507,20 @@ class _PlanRun:
             verification = StepVerificationResult(ok=False, findings=(finding,))
             outcome = AgentOutcome(final_text=finding, messages=[], ok=False)
             reason = "Adımın araç kapsamı ile doğrulama koşulu çelişiyor."
+            # Çelişki MEKANİK olarak giderilebiliyorsa modele sorulmaz.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): yeniden planlama keşif adımını
+            # ikiye böldü ve aynı komut kontrolünü yeni adıma aynen taşıdı; ikinci
+            # ziyarette hak kalmadığı için koşu hiçbir şey teslim etmeden
+            # duraklatıldı. Kontrolü bağlı yürütme adımına taşımak yeni yetki
+            # açmaz ve cevabı değişmeyen bir soruyu tekrar sormaz.
+            onarilmis = repair_discovery_phase(
+                self.current, step, frozenset(unavailable)
+            )
+            if onarilmis is not None:
+                self.current = onarilmis
+                self.save()
+                return None
             if step.revision == 0:
                 repaired, reason = await self.replan_failed_step(
                     step, outcome, verification, "discovery-command-conflict"

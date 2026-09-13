@@ -164,3 +164,162 @@ def test_manifest_kendisi_lisans_belgesi_ve_bozuk_yolu_asset_saymaz(tmp_path, na
         (tmp_path / name).write_text("{}")
     manifest.write_text(json.dumps({name: {"source_url": "https://example.com", "license": "CC0"}}))
     assert validate_asset_inventory(manifest, tmp_path)
+
+
+def test_belge_duzeyi_manifesti_ortak_kaynak_ve_lisansla_gecer(tmp_path):
+    """Tek paketten gelen dosyalar kaynağı ve lisansı PAYLAŞIR.
+
+    Ölçüldü (13 Eylül, Godot koşusu): OpenGameArt paketi indirildi, açıldı ve
+    manifest tam bu biçimde yazıldı; katı okuma onu "geçersiz asset kaydı: source"
+    diye reddetti, geri alma dosyayı sildi ve adım kurtarılamadı.
+    """
+    (tmp_path / "player.png").write_bytes(_png(8, 8))
+    (tmp_path / "enemy.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source": "https://opengameart.org/content/pixel-character",
+                "license": "CC0",
+                "author": "surt",
+                "files": ["player.png", "enemy.png"],
+            }
+        )
+    )
+
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_belge_duzeyi_manifesti_source_url_adiyla_da_gecer(tmp_path):
+    (tmp_path / "player.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://example.com/pack",
+                "license": "MIT",
+                "files": ["player.png"],
+            }
+        )
+    )
+
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_belge_duzeyi_manifestinde_lisans_yoksa_gecmez(tmp_path):
+    """Tolerans BİÇİMdedir: eksik lisans yine düşer."""
+    (tmp_path / "player.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps({"source": "https://example.com/pack", "files": ["player.png"]})
+    )
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "lisans" in bulgular
+
+
+def test_belge_duzeyi_manifesti_indirilmemis_dosyayi_gizlemez(tmp_path):
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {"source": "https://example.com/p", "license": "CC0", "files": ["yok.png"]}
+        )
+    )
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "bulunamadı veya boş" in bulgular
+    assert "download_file" in bulgular
+
+
+def test_dosya_basina_alan_belge_duzeyini_ezebilir(tmp_path):
+    (tmp_path / "player.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source": "https://example.com/paket",
+                "license": "CC0",
+                "files": [
+                    {
+                        "path": "player.png",
+                        "source_url": "https://example.com/tek-dosya",
+                        "license": "MIT",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_gecersiz_kayit_hatasi_beklenen_bicimi_soyler(tmp_path):
+    manifest = tmp_path / "ASSETS.json"
+    manifest.write_text(json.dumps({"player.png": "CC0"}))
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "geçersiz asset kaydı" in bulgular
+    assert "files" in bulgular
+
+
+def test_kok_tabanli_yol_yazan_manifest_diskteki_dosyayi_bulur(tmp_path):
+    """Manifest `assets/` içinde ama yolları KÖKE göre yazılmış.
+
+    Ölçüldü (13 Eylül, Godot koşusu): Kenney Platformer Kit indirildi (4,6 MB),
+    777 dosya açıldı ve manifest `assets/Previews/grass.png` biçiminde yazıldı.
+    Tek tabanlı çözüm `assets/assets/Previews/grass.png` arayıp "dosya bulunamadı"
+    dedi; dosyalar diskte duruyordu ve adım kurtarılamadı.
+    """
+    (tmp_path / "assets/Previews").mkdir(parents=True)
+    (tmp_path / "assets/Previews/grass.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "assets/ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://kenney.nl/assets/platformer-kit",
+                "license": "CC0",
+                "files": ["assets/Previews/grass.png"],
+            }
+        )
+    )
+
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_manifest_tabanli_yol_da_calismaya_devam_eder(tmp_path):
+    (tmp_path / "assets/Previews").mkdir(parents=True)
+    (tmp_path / "assets/Previews/grass.png").write_bytes(_png(8, 8))
+    manifest = tmp_path / "assets/ASSETS.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://kenney.nl/assets/platformer-kit",
+                "license": "CC0",
+                "files": ["Previews/grass.png"],
+            }
+        )
+    )
+
+    assert validate_asset_inventory(manifest, tmp_path) == ()
+
+
+def test_kok_disina_cikan_yol_iki_tabanla_da_kabul_edilmez(tmp_path):
+    """Tolerans yalnız TABAN seçimindedir; kök sınırı gevşemez."""
+    manifest = tmp_path / "assets" / "ASSETS.json"
+    manifest.parent.mkdir()
+    manifest.write_text(
+        json.dumps(
+            {
+                "source_url": "https://example.com/p",
+                "license": "CC0",
+                "files": ["../../x.png"],
+            }
+        )
+    )
+
+    bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
+
+    assert "çalışma kökü dışında" in bulgular

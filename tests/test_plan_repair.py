@@ -458,7 +458,11 @@ async def test_kesifteki_kabuk_kontrolu_calistirilmadan_plan_onarilir(tmp_path, 
                 ],
             }
             return AgentOutcome(final_text=json.dumps(candidate), messages=[], model_calls_made=1)
-        assert calls == ["repair"], "Çalıştırılamaz adım, onarılmadan modele gönderildi"
+        # Çelişki MEKANİK olarak giderilir: adım kabuk araçlarını kendisi istemişti,
+        # yanlış olan tek şey evre etiketiydi. Modele yeniden plan sorulmaz — ölçüldü
+        # (13 Eylül, Godot koşusu): sorulduğunda aynı çelişkiyi yeni adıma taşıdı ve
+        # koşu hiçbir şey teslim etmeden duraklatıldı.
+        assert calls == [], "Mekanik olarak onarılabilen çelişki için model çağrıldı"
         calls.append("execute")
         assert "run_shell" in kwargs["allowed_tools"]
         return AgentOutcome(
@@ -478,8 +482,9 @@ async def test_kesifteki_kabuk_kontrolu_calistirilmadan_plan_onarilir(tmp_path, 
         plan=None if resume else plan,
     )
     assert outcome.ok
-    assert calls == ["repair", "execute"]
-    assert deps.checkpoint_store.load("scope-repair").plan.steps[0].revision == 1
+    assert calls == ["execute"]
+    kayit = deps.checkpoint_store.load("scope-repair")
+    assert kayit.plan.steps[0].phase is PlanPhase.EXECUTION
 
 
 @pytest.mark.parametrize("recovery,revision", [(0, 0), (12, 1)])

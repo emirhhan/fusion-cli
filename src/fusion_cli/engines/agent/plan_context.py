@@ -214,7 +214,10 @@ ASSET_ORDER_NOTE = (
     "bağlantısını oradan al — arama sonucu genellikle liste sayfasıdır ve adresi "
     "ezberden üretmek çalışmaz, 3) `download_file` ile indir, 4) arşivse "
     "`extract_archive` ile aç, 5) dosyaların diskte olduğunu `list_dir` ile doğrula, "
-    "6) manifesti EN SON yaz. Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
+    "6) manifesti EN SON şu biçimde yaz: "
+    '{"source_url": "<indirdiğin sayfa>", "license": "CC0", '
+    '"files": ["assets/player.png", …]}'
+    ". Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
 )
 
 
