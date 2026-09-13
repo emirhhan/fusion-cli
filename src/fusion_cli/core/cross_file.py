@@ -226,7 +226,7 @@ def missing_node_references(root: Path) -> tuple[str, ...]:
             yol = kaynaklar.get(ref.group("id"))
             if yol is None:
                 continue
-            cocuklar = _children_of(metin, dugum.group("ad"))
+            cocuklar = _children_of(metin, _scene_path(metin, dugum.group("ad")))
             bulgular.extend(
                 f"{sahne.name}: '{dugum.group('ad')}' düğümüne bağlı "
                 f"{Path(yol).name} script'i `${beklenen}` düğümünü kullanıyor ama sahnede "
@@ -236,26 +236,60 @@ def missing_node_references(root: Path) -> tuple[str, ...]:
     return tuple(bulgular)
 
 
-def _children_of(metin: str, ad: str) -> set[str]:
-    """Sahne metninde `ad` düğümünün doğrudan çocuklarının adları."""
+def _scene_path(metin: str, ad: str) -> str:
+    """Düğümün sahne içindeki YOLU: çocukları bu yolu `parent` olarak yazar.
+
+    Kök düğümün `parent` alanı yoktur ve çocukları `parent="."` yazar; ara bir
+    düğümün çocukları ise `parent="Ust/Ad"` yazar. Ölçüldü (13 Eylül): kontrol
+    `parent="Main"` arıyordu, gerçek sahnede kökün çocukları `parent="."` yazıyordu
+    ve kapı VAR OLAN düğümü yok sanıp bitmiş bir sahneyi reddediyordu.
+    """
+    for eslesme in _NODE_HEADER.finditer(metin):
+        if eslesme.group("ad") != ad:
+            continue
+        ebeveyn = eslesme.group("ebeveyn")
+        if ebeveyn is None:
+            return "."
+        return ad if ebeveyn == "." else f"{ebeveyn}/{ad}"
+    return ad
+
+
+def _children_of(metin: str, yol: str) -> set[str]:
+    """Sahne metninde `yol` düğümünün doğrudan çocuklarının adları."""
     return {
         eslesme.group("ad")
         for eslesme in _NODE_HEADER.finditer(metin)
-        if (eslesme.group("ebeveyn") or "") == ad
+        if (eslesme.group("ebeveyn") or "") == yol
     }
 
 
+#: Düğümün YOKLUĞUNA karşı korunan erişim: `has_node("X")`, `get_node_or_null("X")`.
+_GUARDED_REF = re.compile(
+    r'(?:has_node|get_node_or_null)\(\s*"(?P<ad>[^"]+)"\s*\)'
+)
+
+
 def _expected_children(root: Path, res_path: str) -> set[str]:
-    """Script'in tek parçalı adla beklediği çocuk düğümler."""
+    """Script'in VARLIĞINA GÜVENDİĞİ tek parçalı çocuk düğümler.
+
+    `has_node("X")` ya da `get_node_or_null("X")` ile korunan erişim eksik düğümde
+    çökmez; onu suçlamak bitmiş bir sahneyi reddetmek olur. Ölçüldü (13 Eylül):
+    `ui_manager.gd` tüm erişimlerini `has_node` ile koruyordu ve kapı yine de
+    "eksik düğüm" diyordu.
+    """
     dosya = root / res_path.removeprefix("res://")
     try:
         kaynak = dosya.read_text(encoding="utf-8")
     except OSError:
         return set()
-    return {
+    korunan = {
+        ad.split("/")[0] for ad in (e.group("ad") for e in _GUARDED_REF.finditer(kaynak))
+    }
+    beklenen = {
         eslesme.group("kisa") or eslesme.group("uzun")
         for eslesme in _CHILD_REF.finditer(kaynak)
     }
+    return {ad for ad in beklenen if ad not in korunan}
 
 
 #: Kodda ya da sahnede geçen proje içi kaynak yolu.

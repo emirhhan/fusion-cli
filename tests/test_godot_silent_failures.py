@@ -284,3 +284,59 @@ def test_project_godot_icindeki_kirik_yol_da_bildirilir(tmp_path):
 
     assert len(bulgular) == 1
     assert "scenes/main.tscn" in bulgular[0]
+
+
+SAHNE_KOK_COCUKLU = '''[gd_scene format=3]
+
+[ext_resource type="Script" path="res://main.gd" id="1"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1")
+
+[node name="UI" type="CanvasLayer" parent="."]
+'''
+
+
+def test_kok_dugumun_cocugu_parent_nokta_yazar(tmp_path):
+    """Kökün çocukları `parent="."` yazar; kapı bunu görmeliydi.
+
+    Ölçüldü (13 Eylül): kontrol `parent="Main"` arıyordu, gerçek sahnede kökün
+    çocukları `parent="."` yazıyordu ve kapı VAR OLAN düğümü yok sanıp bitmiş bir
+    sahneyi reddediyordu (koşu 31 yanlış yere reddedildi).
+    """
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "main.gd").write_text(
+        "extends Node2D\n\n@onready var ui = $UI\n", encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(SAHNE_KOK_COCUKLU, encoding="utf-8")
+
+    assert missing_node_references(tmp_path) == ()
+
+
+def test_has_node_ile_korunan_erisim_suclanmaz(tmp_path):
+    """Korunan erişim eksik düğümde çökmez; suçlamak bitmiş sahneyi reddetmek olur."""
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "main.gd").write_text(
+        'extends Node2D\n\n@onready var kutu = $DialogueBox if has_node("DialogueBox") else null\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.tscn").write_text(SAHNE_KOK_COCUKLU, encoding="utf-8")
+
+    assert missing_node_references(tmp_path) == ()
+
+
+def test_korunmayan_eksik_dugum_yine_bildirilir(tmp_path):
+    """Gevşeme yalnız KORUNAN erişime ait; çıplak `$X` hâlâ yakalanır."""
+    from fusion_cli.core.cross_file import missing_node_references
+
+    (tmp_path / "main.gd").write_text(
+        "extends Node2D\n\nfunc _ready():\n\t$Eksik.show()\n", encoding="utf-8"
+    )
+    (tmp_path / "main.tscn").write_text(SAHNE_KOK_COCUKLU, encoding="utf-8")
+
+    bulgular = missing_node_references(tmp_path)
+
+    assert len(bulgular) == 1
+    assert "$Eksik" in bulgular[0]
