@@ -464,7 +464,12 @@ async def test_web_modelinde_var_olan_dosya_write_file_ile_ezilemez(monkeypatch,
         for event in sink.events
         if isinstance(event, ToolExecuted) and event.outcome is not ToolOutcome.OK
     ]
-    assert engellenen and "edit_file" in engellenen[0].output
+    # Mesaj ÇIKIŞ YOLUNU söyler: küçük dosyada "tamamını oku, sonra yeniden yaz".
+    # Ölçüldü (koşu 27): yalnız `replace_range` öneren mesajla model sahne dosyasını
+    # hiç yazamadı ve adım bütçesi doldu.
+    assert engellenen
+    assert "read_file" in engellenen[0].output
+    assert "TAMAMINI" in engellenen[0].output
 
 
 async def test_web_modelinde_yeni_dosya_yazilabilir(monkeypatch, tmp_path, sink):
@@ -545,3 +550,36 @@ async def test_bozuk_cagri_turu_tek_hamlede_oldurmez(monkeypatch, tmp_path, sink
 
     assert sonuc.ok, f"tek bozuk çağrı turu öldürdü: {sonuc.final_text[:120]}"
     assert sonuc.final_text == TAM_CEVAP
+
+
+async def test_buyuk_dosyada_mesaj_hedefli_duzenlemeyi_ister(monkeypatch, tmp_path, sink):
+    """60 satırdan büyük dosyada toptan yazma çıkışı YOKTUR; mesaj da onu önermez."""
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+
+    hedef = tmp_path / "buyuk.py"
+    hedef.write_text("".join(f"satir_{i} = {i}\n" for i in range(120)), encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[tool_call("write_file", path="buyuk.py", content="yeni\n")]
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.execution = ExecutionPolicy(is_web=True, heuristic_auto_continue=False)
+
+    await run_agent("buyuk.py'yi düzelt", deps)
+
+    engellenen = [
+        event
+        for event in sink.events
+        if isinstance(event, ToolExecuted) and event.outcome is not ToolOutcome.OK
+    ]
+    assert engellenen
+    assert "replace_range" in engellenen[0].output
+    assert "TAMAMINI" not in engellenen[0].output
+    assert hedef.read_text(encoding="utf-8").startswith("satir_0 = 0")

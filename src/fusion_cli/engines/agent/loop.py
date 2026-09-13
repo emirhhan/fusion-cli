@@ -1688,10 +1688,26 @@ def _targeted_edit_required(
         return []
     if _rewrite_is_last_resort(hedef, deps, state):
         return []
+    satir = _line_count(hedef)
+    if satir <= MAX_LINES_FOR_FULL_REWRITE:
+        # Küçük dosyada çıkış yolu VARDIR ve söylenmelidir: tamamını okuduktan
+        # sonra toptan yazma serbest (bkz. `_rewrite_is_last_resort`).
+        #
+        # Ölçüldü (13 Eylül, koşu 27): mesaj yalnız `replace_range` öneriyordu.
+        # Model `scenes/main.tscn` için `write_file` denedi, engellendi, `edit_file`
+        # ile boş 'old' gönderdi, tekrar `write_file` denedi ve tekrar kapısına
+        # takıldı; adım bütçesi doldu, sahne hiç yazılamadı. Sahne dosyası
+        # satır satır yamanacak bir metin değildir, yeniden üretilir.
+        return [
+            f"'{raw}' zaten var ({satir} satır) ve İÇERİĞİNİ BU ADIMDA OKUMADIN. "
+            "Önce `read_file` ile TAMAMINI oku; tamamını gördükten sonra `write_file` "
+            "ile yeniden yazmana izin verilir. Yalnız küçük bir parça değişecekse "
+            "`replace_range` ile o aralığı gönder."
+        ]
     return [
-        f"'{raw}' zaten var. Var olan dosyayı toptan yeniden yazma — önce read_file "
-        "ile ilgili satırları gör, sonra replace_range ile YALNIZCA yeni parçayı gönder. "
-        "Kısa exact-text değişimi dışında edit_file'a düşme."
+        f"'{raw}' zaten var ve {satir} satır. Var olan dosyayı toptan yeniden yazma — "
+        "önce read_file ile ilgili satırları gör, sonra replace_range ile YALNIZCA yeni "
+        "parçayı gönder. Kısa exact-text değişimi dışında edit_file'a düşme."
     ]
 
 
