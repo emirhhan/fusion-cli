@@ -864,6 +864,18 @@ class _PlanRun:
             if step.step_id in affected
         )
 
+    def _step_owning_mentioned_file(self, acceptance: VerificationResult) -> set[str]:
+        """Bulguda ADI GEÇEN dosyayı üreten adım; yoksa boş küme."""
+        metin = " ".join((acceptance.summary, *acceptance.findings))
+        for step in self.current.steps:
+            for effect in step.expected_effects:
+                if not effect.startswith("file:"):
+                    continue
+                yol = effect.removeprefix("file:").strip()
+                if yol and (yol in metin or Path(yol).name in metin):
+                    return {step.step_id}
+        return set()
+
     def _product_step_ids(self, acceptance: VerificationResult) -> set[str]:
         """Ürünü kuran adım — hiçbir adımın kanıtına bağlanamayan bulgular için.
 
@@ -871,6 +883,16 @@ class _PlanRun:
         çürütmez: eksik olan şey, varlığı ÜRÜNE bağlayan referanstır. Onarılacak
         adım varlığı getiren adım değil, sahneyi/kodu yazan adımdır.
         """
+        dosyanin_adimi = self._step_owning_mentioned_file(acceptance)
+        if dosyanin_adimi:
+            # Bulgu bir DOSYAYI adıyla suçluyorsa onarılacak adım bellidir: o
+            # dosyayı üreten adım.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): kapı "main.gd: çalışma anında
+            # üretilen GDScript reload() edilmeden bağlanıyor" dedi; hiçbir adım
+            # köke bağlanamadığı için tek bir onarım denemesi bile yapılmadı ve
+            # koşu "kısmi" bitti. Oysa `main.gd`'yi yazan adım plandaydı.
+            return dosyanin_adimi
         if UNUSED_ASSETS_PREFIX not in acceptance.summary:
             return set()
         adaylar = [

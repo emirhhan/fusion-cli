@@ -316,3 +316,74 @@ async def test_kullanilmayan_varlik_bulgusu_urunu_kuran_adimi_onarir(tmp_path):
     # Varlığı GETİREN adım değil, sahneyi yazan adım onarılır.
     assert kok == {"scenes"}
     assert kosu._product_step_ids(VerificationResult(ok=False, summary="başka bir sorun")) == set()
+
+
+def test_dosya_adi_gecen_bulgu_o_dosyayi_yazan_adimi_onarir(tmp_path):
+    """Bulgu bir dosyayı adıyla suçluyorsa onarılacak adım bellidir.
+
+    Ölçüldü (13 Eylül, Godot koşusu): kapı "main.gd: çalışma anında üretilen
+    GDScript reload() edilmeden bağlanıyor" dedi; hiçbir adım köke bağlanamadığı
+    için tek bir onarım denemesi bile yapılmadı ve koşu "kısmi" bitti.
+    """
+    from fusion_cli.core.execution_plan import ExecutionPlan
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.plan_context import workflow_budget
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
+    from fusion_cli.engines.workflow.model import BudgetLedger
+    from tests.test_plan_repair import _deps
+
+    varlik = _adim("assets", "Varlıkları indir", etki="file:ASSETS.json")
+    oyun = _adim("gameplay", "Oynanışı yaz", etki="file:main.gd")
+    deps = _deps(tmp_path)
+    limits = workflow_budget(deps)
+    kosu = _PlanRun(
+        task=GOREV,
+        deps=deps,
+        agent=None,
+        current=ExecutionPlan("p", GOREV, (varlik, oyun)),
+        limits=limits,
+        ledger=BudgetLedger(limits),
+    )
+    bulgu = (
+        "main.gd: çalışma anında üretilen GDScript `reload()` edilmeden "
+        "`set_script()` ile bağlanıyor"
+    )
+
+    kok = kosu._product_step_ids(VerificationResult(ok=False, summary=bulgu, findings=(bulgu,)))
+
+    assert kok == {"gameplay"}
+
+
+def test_dosya_adi_gecmeyen_bulguda_eski_secim_korunur(tmp_path):
+    from fusion_cli.core.assets import UNUSED_ASSETS_PREFIX
+    from fusion_cli.core.execution_plan import ExecutionPlan, PlanPhase
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.plan_context import workflow_budget
+    from fusion_cli.engines.agent.plan_runner import _PlanRun
+    from fusion_cli.engines.workflow.model import BudgetLedger
+    from tests.test_plan_repair import _deps
+
+    varlik = _adim("assets", "Varlıkları indir", etki="file:assets/ASSETS.json")
+    sahne = _adim("scenes", "Sahneleri yaz", etki="file:scenes/Main.tscn")
+    sahne = sahne.__class__(
+        **{
+            **{alan: getattr(sahne, alan) for alan in sahne.__dataclass_fields__},
+            "phase": PlanPhase.EXECUTION,
+        }
+    )
+    deps = _deps(tmp_path)
+    limits = workflow_budget(deps)
+    kosu = _PlanRun(
+        task=GOREV,
+        deps=deps,
+        agent=None,
+        current=ExecutionPlan("p", GOREV, (varlik, sahne)),
+        limits=limits,
+        ledger=BudgetLedger(limits),
+    )
+
+    kok = kosu._product_step_ids(
+        VerificationResult(ok=False, summary=f"{UNUSED_ASSETS_PREFIX} indirilen paket")
+    )
+
+    assert kok == {"scenes"}
