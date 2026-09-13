@@ -55,7 +55,13 @@ from .plan_checkpoint import (
     resume_plan,
     stale_step_ids,
 )
-from .plan_context import step_deps, step_prompt, workflow_budget, workspace_block
+from .plan_context import (
+    empty_workspace,
+    step_deps,
+    step_prompt,
+    workflow_budget,
+    workspace_block,
+)
 from .plan_generation import RunAgent, generate_plan
 from .plan_phase_repair import repair_discovery_phase
 from .progress import progress_fingerprint
@@ -96,6 +102,28 @@ _BOLUNEMEDI_SORUSU = (
     "Bu adım daha küçük parçalara da bölünemedi: '{hedef}'. "
     "Hedefi daralt, farklı bir yol tarif et ya da bu adımı atlamamı söyle."
 )
+
+
+#: Salt-okunur inceleme araçları: bunların kanıtını Fusion kendi gözlemiyle verebilir.
+_INSPECTION_TOOLS = frozenset(
+    {"list_dir", "list_files", "read_file", "view_file", "glob", "grep_search", "search_code"}
+)
+
+
+def _only_inspection_checks(step: PlanStep) -> bool:
+    """Adımın TÜM kontrolleri salt-okunur inceleme çağrısı mı?
+
+    Boş dizinde bu kontrollerin söyleyebileceği tek şey "burada bir şey yok" ve
+    Fusion bunu doğrudan gözleyebilir. Komut, dosya ya da yeniden-üretim kontrolü
+    varsa atlama YAPILMAZ: onların kanıtı gerçekten çalıştırmayı gerektirir ve
+    atlamak işi yapılmış saymak olurdu.
+    """
+    for check in step.verification_checks:
+        if check.kind is not VerificationCheckKind.TOOL:
+            return False
+        if check.target not in _INSPECTION_TOOLS:
+            return False
+    return True
 
 
 def _bolme_talimati(step: PlanStep, deneme: int) -> str:
@@ -472,6 +500,25 @@ class _PlanRun:
         self.save()
         return None
 
+    def _skip_empty_discovery(self, step: PlanStep) -> None:
+        """Boş dizindeki keşif adımını Fusion'ın kendi gözlemiyle tamamla."""
+        kanit = "çalışma dizini boş: Fusion doğrudan gözledi, keşfedilecek dosya yok"
+        tamam = replace(step, status=StepStatus.COMPLETED, attempts=step.attempts + 1)
+        self.current = replace_step(self.current, tamam)
+        # Kayıt BOŞ kanıtla tutulur: adımın kendi ölçülebilir koşulu yoktu ve
+        # uydurma kanıt yazmak, kapıyı kandırmak olurdu.
+        self.evidence[step.step_id] = StepCheckpointEvidence(step_id=step.step_id)
+        self.save()
+        self.deps.publisher.publish(
+            ExecutionStepVerified(
+                plan_id=self.current.plan_id,
+                step_id=step.step_id,
+                ok=True,
+                evidence=(kanit,),
+                findings=(),
+            )
+        )
+
     async def run_step(self, step: PlanStep) -> AgentOutcome | None:
         """Tek adımı ve mevcut sınırlı kurtarma kararını yürüt."""
         self.deps.publisher.publish(
@@ -487,6 +534,23 @@ class _PlanRun:
                 goal=step.goal,
             )
         )
+        if (
+            step.phase is PlanPhase.DISCOVERY
+            and empty_workspace(self.deps.tool_context.root)
+            and _only_inspection_checks(step)
+        ):
+            # BOŞ dizinde keşfedilecek hiçbir şey yok ve keşif adımı yazamaz: model
+            # ilk hamlede `project.godot` yazmaya çalışıp engellenir, sonra aynı
+            # listelemeyi tekrarlar ve adım bütçesi dolar.
+            #
+            # Ölçüldü (13 Eylül, üç ayrı Godot koşusu): boş dizinde keşif adımı
+            # 15-17 model çağrısı harcadı, iki denemesi de "adım bütçesi doldu" ile
+            # düştü ve koşu hiçbir şey teslim etmeden bitti.
+            #
+            # Kanıt UYDURULMUYOR: dizinin boş olduğunu Fusion'ın KENDİSİ gözledi ve
+            # bu, modelin aynı şeyi rapor etmesinden daha güçlü bir gözlemdir.
+            self._skip_empty_discovery(step)
+            return None
         unavailable: set[str] = set()
         if step.phase is PlanPhase.DISCOVERY:
             scoped = step_deps(self.deps, step, remaining=1, observe=True)

@@ -488,3 +488,106 @@ async def test_kanitlanmayan_davranis_kullaniciya_bildirilir(tmp_path):
     assert "davranış kanıtlanmadı" in result.final_text
     tamamlandi = [olay for olay in deps.publisher.events if isinstance(olay, ExecutionCompleted)]
     assert tamamlandi and tamamlandi[0].warnings
+
+
+async def test_bos_dizinde_kesif_adimi_model_cagirmadan_tamamlanir(tmp_path):
+    """Boş dizinde keşfedilecek bir şey yok ve keşif adımı yazamaz.
+
+    Ölçüldü (13 Eylül, üç ayrı Godot koşusu): model ilk hamlede `project.godot`
+    yazmaya çalıştı, engellendi, sonra aynı listelemeyi tekrarladı; adım 15-17
+    model çağrısı harcayıp "bütçe doldu" ile düştü ve koşu hiçbir şey teslim
+    etmeden bitti. Dizinin boş olduğunu Fusion kendisi gözleyebilir.
+    """
+    from fusion_cli.core.execution_plan import PlanPhase
+    from tests.test_plan_repair import _deps
+
+    kesif = replace(_step("discovery"), phase=PlanPhase.DISCOVERY, expected_effects=())
+    yazma = _step("build", expected_effects=("file:project.godot",))
+    cagrilar: list[str] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        cagrilar.append(task)
+        yol = tmp_path / "project.godot"
+        turn_deps.tool_context.changes.record_created(yol)
+        yol.write_text("[application]\n", encoding="utf-8")
+        turn_deps.tool_context.touched.add(yol)
+        return AgentOutcome(final_text="yazdım", messages=[], model_calls_made=1)
+
+    sonuc = await run_execution_plan(
+        "oyun yap",
+        _deps(tmp_path),
+        agent,
+        plan=ExecutionPlan("bos-kesif", "oyun yap", (kesif, yazma)),
+        self_review=False,
+    )
+
+    assert sonuc.ok
+    # Keşif adımı için model HİÇ çağrılmadı; yalnız yazma adımı çağrıldı.
+    assert len(cagrilar) == 1
+    assert "build" in cagrilar[0]
+
+
+async def test_dolu_dizinde_kesif_adimi_normal_calisir(tmp_path):
+    """Gerçek dosya varsa keşif anlamlıdır ve atlanmaz."""
+    from fusion_cli.core.execution_plan import PlanPhase
+    from tests.test_plan_repair import _deps
+
+    (tmp_path / "mevcut.gd").write_text("extends Node\n", encoding="utf-8")
+    kesif = replace(_step("discovery"), phase=PlanPhase.DISCOVERY, expected_effects=())
+    cagrilar: list[str] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        cagrilar.append(task)
+        return AgentOutcome(final_text="dizin incelendi", messages=[], model_calls_made=1)
+
+    await run_execution_plan(
+        "incele",
+        _deps(tmp_path),
+        agent,
+        plan=ExecutionPlan("dolu-kesif", "incele", (kesif,)),
+        self_review=False,
+    )
+
+    assert len(cagrilar) == 1
+
+
+async def test_bos_dizinde_komut_kontrollu_kesif_atlanmaz(tmp_path):
+    """Komut kontrolünün kanıtı gerçekten çalıştırmayı gerektirir.
+
+    Atlamak, işi yapılmış saymak olurdu; boş dizin bunu değiştirmez.
+    """
+    from fusion_cli.core.execution_plan import (
+        PlanPhase,
+        VerificationCheck,
+        VerificationCheckKind,
+    )
+    from tests.test_plan_repair import _deps
+
+    kesif = replace(
+        _step("discovery"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("shell",),
+        verification_checks=(
+            VerificationCheck(
+                _step("discovery").success_criteria[0],
+                VerificationCheckKind.COMMAND,
+                "godot --version",
+            ),
+        ),
+    )
+    cagrilar: list[str] = []
+
+    async def agent(task, turn_deps, **kwargs):
+        cagrilar.append(task)
+        return AgentOutcome(final_text="sürüm okundu", messages=[], model_calls_made=1)
+
+    await run_execution_plan(
+        "kontrol",
+        _deps(tmp_path),
+        agent,
+        plan=ExecutionPlan("komutlu-kesif", "kontrol", (kesif,)),
+        self_review=False,
+    )
+
+    assert cagrilar, "komut kontrollü keşif adımı modele hiç gitmedi"

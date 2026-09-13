@@ -296,6 +296,18 @@ def workspace_block(context: ToolContext) -> str:
     return "\n".join(satirlar) + "\n\n"
 
 
+def empty_workspace(root: Path) -> bool:
+    """Çalışma dizininde kullanıcının HİÇBİR dosyası yok mu?
+
+    Gizli girdiler sayılmaz: `.fusion` devam kaydı ya da `.git` verisi kullanıcının
+    projesi değildir.
+    """
+    try:
+        return not any(item for item in root.iterdir() if not item.name.startswith("."))
+    except OSError:
+        return False
+
+
 def _bos_dizin_notu(context: ToolContext) -> str:
     """Çalışma dizini boşsa bunu AÇIKÇA söyle.
 
@@ -304,13 +316,7 @@ def _bos_dizin_notu(context: ToolContext) -> str:
     çağrısı + 18 dakika sonra "ilerleme yok" ile düştü. Modelin eksik bilgisi
     basitti: dizinde hiçbir şey yoktu ve keşfedecek bir şey kalmamıştı.
     """
-    try:
-        bos = not any(
-            item for item in context.root.iterdir() if not item.name.startswith(".")
-        )
-    except OSError:
-        return ""
-    if not bos:
+    if not empty_workspace(context.root):
         return ""
     return (
         "ÇALIŞMA DİZİNİ BOŞ: keşfedilecek mevcut dosya yok. Bir kez doğrulaman "
