@@ -372,8 +372,14 @@ def test_sahnede_anilan_varlik_kullanilmis_sayilir(tmp_path):
     assert unused_manifest_assets(manifest, tmp_path) == ()
 
 
-def test_atlas_dosyasi_anilinca_tum_karolar_kullanilmis_sayilmaz(tmp_path):
-    """Kapı dosya adı düzeyinde çalışır: anılan atlas geçer, anılmayan karo geçmez."""
+def test_en_az_bir_varlik_kullanildiysa_kapi_sessizdir(tmp_path):
+    """Bir paketin HER dosyasının kullanılması ne mümkün ne gereklidir.
+
+    Ölçüldü (13 Eylül, Godot koşusu): manifest paketin tamamını listeledi; kapı
+    `License.txt`, `Sample.png`, `Tilesheet.txt` gibi belge/önizleme dosyaları için
+    "kullanılmadı" deyip bitmiş bir oyunu reddetti. Sorulan soru "indirilen sanat
+    ürüne girdi mi" sorusudur.
+    """
     from fusion_cli.core.assets import unused_manifest_assets
 
     (tmp_path / "Tilemap").mkdir()
@@ -382,7 +388,19 @@ def test_atlas_dosyasi_anilinca_tum_karolar_kullanilmis_sayilmaz(tmp_path):
     (tmp_path / "level.gd").write_text('const ATLAS = "res://Tilemap/tilemap.png"\n')
     manifest = _kenney_manifest(tmp_path, ["Tilemap/tilemap.png", "Tilemap/tilemap-characters.png"])
 
-    assert unused_manifest_assets(manifest, tmp_path) == ("Tilemap/tilemap-characters.png",)
+    assert unused_manifest_assets(manifest, tmp_path) == ()
+
+
+def test_belge_ve_lisans_dosyalari_kullanim_beklentisi_yaratmaz(tmp_path):
+    """Manifest yalnız belge listeliyorsa kapı hiçbir şey iddia etmez."""
+    from fusion_cli.core.assets import unused_manifest_assets
+
+    (tmp_path / "License.txt").write_text("CC0\n")
+    (tmp_path / "Instructions.url").write_text("[InternetShortcut]\n")
+    (tmp_path / "main.gd").write_text("extends Node2D\n")
+    manifest = _kenney_manifest(tmp_path, ["License.txt", "Instructions.url"])
+
+    assert unused_manifest_assets(manifest, tmp_path) == ()
 
 
 def test_kaynak_dosyasi_olmayan_projede_kullanim_iddia_edilmez(tmp_path):

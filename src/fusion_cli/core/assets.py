@@ -324,6 +324,15 @@ def validate_asset_manifest(path: Path, root: Path) -> tuple[str, ...]:
 UNUSED_ASSETS_PREFIX = "indirilen varlıklar üründe HİÇ kullanılmamış:"
 
 
+#: Üründe gerçekten KULLANILABİLİR varlık uzantıları.
+#
+# Lisans metni, yönerge kısayolu ve paket dokümanı teslim varlığı değildir; onların
+# koddan referanslanmasını beklemek anlamsızdır.
+_USABLE_ASSET_SUFFIXES = frozenset(
+    {".png", ".jpg", ".jpeg", ".webp", ".svg", ".ogg", ".wav", ".mp3", ".ttf", ".otf"}
+)
+
+
 #: Varlık referansı aranacak kaynak dosya uzantıları.
 #
 # Liste dar tutulur: kaynak ve sahne dosyaları. İkili dosyalarda metin aramak
@@ -360,11 +369,25 @@ def unused_manifest_assets(manifest: Path, root: Path) -> tuple[str, ...]:
     metin = _project_text(root)
     if not metin:
         return ()
-    kullanilmayan = [
+    varliklar = [
         name
         for name in entries
-        if isinstance(name, str) and name and Path(name).name.casefold() not in metin
+        if isinstance(name, str)
+        and name
+        and Path(name).suffix.casefold() in _USABLE_ASSET_SUFFIXES
     ]
+    if not varliklar:
+        return ()
+    kullanilmayan = [name for name in varliklar if Path(name).name.casefold() not in metin]
+    if len(kullanilmayan) < len(varliklar):
+        # EN AZ BİR varlık üründe anılıyor: paket gerçekten kullanılmış.
+        #
+        # Ölçüldü (13 Eylül, Godot koşusu): manifest paketin tamamını listeledi ve
+        # kapı `License.txt`, `Sample.png`, `Tilesheet.txt` gibi belge/önizleme
+        # dosyalarının "kullanılmadığını" söyleyip bitmiş bir oyunu reddetti. Bir
+        # paketin her dosyasının kullanılması ne mümkün ne gereklidir; sorulan soru
+        # "indirilen sanat ürüne girdi mi" sorusudur.
+        return ()
     return tuple(sorted(kullanilmayan))
 
 

@@ -39,6 +39,9 @@ class DomainAdapter:
     def matches(self, root: Path) -> bool:
         return (root / self.marker).exists()
 
+    #: Kapıdan ÖNCE çalışması gereken hazırlık komutlarını üreten kanca.
+    _preparation: Callable[[Path], tuple[str, ...]] | None = None
+
     def gate_commands(self, root: Path) -> tuple[str, ...]:
         """Projenin AÇILDIĞINI kanıtlayan komutlar.
 
@@ -48,8 +51,9 @@ class DomainAdapter:
         hakkı tükendi. Kurulum aşamasında kapı ucuz ve dönmesi GARANTİ olmalı;
         proje çalıştırılabilir olur olmaz yine davranışı ölçer.
         """
+        hazirlik = self._preparation(root) if self._preparation is not None else ()
         if self._is_runnable is None or not self._setup_gates or self._is_runnable(root):
-            return self._gates
+            return hazirlik + self._gates
         return self._setup_gates
 
     def zero_exit_failure_markers(self) -> tuple[str, ...]:
@@ -85,6 +89,41 @@ def godot_has_main_scene(root: Path) -> bool:
     return False
 
 
+#: Godot'un içe aktarma gerektiren görsel/ses uzantıları.
+_GODOT_IMPORTED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".webp", ".ogg", ".wav", ".mp3"})
+
+
+def godot_needs_import(root: Path) -> bool:
+    """Projede İÇE AKTARILMAMIŞ varlık var mı?
+
+    Godot bir PNG'yi ancak içe aktardıktan sonra yükleyebilir; yanında bir
+    `<dosya>.import` üretir. Editör hiç açılmadan eklenen dosyalar için bu kayıt
+    yoktur ve `load("res://...png")` çalışma anında düşer.
+
+    Ölçüldü (13 Eylül, Godot koşusu): 400 karo indirilip açıldı, kod doğru yolu
+    yüklüyordu ve motor `No loader found for resource:
+    res://assets/Tiles/Default/tile_0000.png` bastı — üstelik çıkış kodu 0'dı.
+    Kapı "proje açılıyor" diyordu, oyun ise ilk karede varlığı yükleyemiyordu.
+    """
+    from ...core.constants import SKIP_DIRECTORIES
+
+    for path in root.rglob("*"):
+        if path.suffix.casefold() not in _GODOT_IMPORTED_SUFFIXES:
+            continue
+        if any(part in SKIP_DIRECTORIES or part.startswith(".") for part in path.parts):
+            continue
+        if not path.with_suffix(path.suffix + ".import").exists():
+            return True
+    return False
+
+
+def _godot_preparation(root: Path) -> tuple[str, ...]:
+    """İçe aktarılmamış varlık varsa kapıdan önce bir kez içe aktar."""
+    if not godot_needs_import(root):
+        return ()
+    return ("godot --headless --path . --editor --quit",)
+
+
 def godot_adapter() -> DomainAdapter:
     """Godot: motorun kendisi projeyi açabiliyor mu, hata basıyor mu?
 
@@ -97,7 +136,16 @@ def godot_adapter() -> DomainAdapter:
         _gates=("godot --headless --path . --quit",),
         _setup_gates=("godot --headless --path . --editor --quit",),
         _is_runnable=godot_has_main_scene,
-        _markers=("script error", "parse error", "can't run project", "failed to load script"),
+        _preparation=_godot_preparation,
+        # "no loader found" sıfır çıkışla basılır ve oyunun varlığı yükleyemediğini
+        # söyler; kapının sessiz kalması tam da bu yüzden yanlıştır.
+        _markers=(
+            "script error",
+            "parse error",
+            "can't run project",
+            "failed to load script",
+            "no loader found",
+        ),
         _criteria=(
             "project.godot içinde ana sahne (run/main_scene) tanımlı",
             "godot --headless çalıştığında hiçbir SCRIPT ERROR / Parse Error basılmıyor",
