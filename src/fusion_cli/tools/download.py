@@ -68,6 +68,25 @@ def _save_new(path: Path, content: bytes, context: ToolContext) -> None:
             temporary.unlink(missing_ok=True)
 
 
+def _hata_metni(error: Exception) -> str:
+    """Hatayı OKUNUR bir cümleye çevir; boş mesajı türle doldur.
+
+    Ölçüldü (13 Eylül, koşu 29): indirme `Dosya indirilemedi: ` mesajıyla düştü —
+    iki nokta üst üsteden sonra hiçbir şey yoktu. httpx bağlantı/zaman aşımı
+    hatalarının `str()` değeri boş olabiliyor; model neyin olduğunu göremediği için
+    aynı adresi tekrar denedi ve adım kurtarma hakkını tüketti.
+    """
+    metin = str(error).strip()
+    if metin:
+        return metin
+    ad = type(error).__name__
+    if isinstance(error, TimeoutError | httpx.TimeoutException):
+        return f"{ad}: sunucu zamanında cevap vermedi"
+    if isinstance(error, httpx.ConnectError):
+        return f"{ad}: sunucuya bağlanılamadı (adres ya da ağ)"
+    return f"{ad}: sağlayıcı ayrıntı vermedi"
+
+
 #: Adresin var olmadığını söyleyen HTTP durumları.
 _YOK_DURUMLARI = ("404", "403", "410")
 
@@ -99,7 +118,9 @@ async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         content = await _download_bytes(url, context)
         _save_new(path, content, context)
     except (httpx.HTTPError, OSError, ValueError) as error:
-        return ToolResult.failure(f"Dosya indirilemedi: {error}{_tahmin_uyarisi(error)}")
+        return ToolResult.failure(
+            f"Dosya indirilemedi ({url}): {_hata_metni(error)}{_tahmin_uyarisi(error)}"
+        )
     context.touched.add(path)
     digest = hashlib.sha256(content).hexdigest()
     return ToolResult(

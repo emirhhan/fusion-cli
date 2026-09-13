@@ -181,3 +181,39 @@ async def test_ag_hatasi_arama_uyarisi_almaz(tmp_path, monkeypatch):
 
     assert not sonuc.ok
     assert "web_search" not in sonuc.output
+
+
+async def test_bos_hata_mesaji_tur_bilgisiyle_doldurulur(tmp_path, monkeypatch):
+    """Boş hata modele hiçbir şey söylemiyordu.
+
+    Ölçüldü (13 Eylül, koşu 29): indirme "Dosya indirilemedi: " mesajıyla düştü —
+    iki nokta üst üsteden sonra hiçbir şey yoktu. httpx bağlantı/zaman aşımı
+    hatalarının `str()` değeri boş olabiliyor; model aynı adresi tekrar denedi ve
+    adımın kurtarma hakkı tükendi.
+    """
+
+    def _patlat(request):
+        raise httpx.ConnectError("")
+
+    _network(monkeypatch, _patlat)
+
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.zip", "path": "a.zip"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "ConnectError" in sonuc.output
+    assert "bağlanılamadı" in sonuc.output
+    # Hangi adresin düştüğü de söylenir.
+    assert "8.8.8.8/a.zip" in sonuc.output
+
+
+async def test_dolu_hata_mesaji_korunur(tmp_path, monkeypatch):
+    _network(monkeypatch, lambda request: httpx.Response(500))
+
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.zip", "path": "a.zip"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "500" in sonuc.output
