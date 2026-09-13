@@ -19,8 +19,13 @@ _ANA_SAHNESIZ = '[application]\nconfig/name="Oyun"\n'
 _ANA_SAHNELI = '[application]\nconfig/name="Oyun"\nrun/main_scene="res://ana.tscn"\n'
 
 
-def _proje(tmp_path, icerik):
+def _proje(tmp_path, icerik, *, sahne_dosyasi: bool = True):
+    """Test projesi. Ana sahne BİLDİRİLDİYSE dosyası da yazılır: kapı artık
+    dosyanın varlığını istiyor (ölçüldü, koşu 32: bildirilip yazılmamış sahne
+    üç satır ERROR'a rağmen sıfır çıkışla geçiyordu)."""
     (tmp_path / "project.godot").write_text(icerik, encoding="utf-8")
+    if sahne_dosyasi and "run/main_scene" in icerik:
+        (tmp_path / "ana.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
     return tmp_path
 
 

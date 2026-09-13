@@ -254,6 +254,7 @@ def test_godot_projesinde_davranis_kapisi_yoktur(tmp_path):
     (tmp_path / "project.godot").write_text(
         '[application]\nrun/main_scene="res://ana.tscn"\n', encoding="utf-8"
     )
+    (tmp_path / "ana.tscn").write_text("[gd_scene format=3]\n", encoding="utf-8")
 
     assert discover_commands(tmp_path) == ("godot --headless --path . --quit",)
     assert behavioral_commands(tmp_path) == ()
