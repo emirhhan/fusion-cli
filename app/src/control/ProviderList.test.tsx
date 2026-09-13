@@ -55,7 +55,10 @@ describe("ProviderList", () => {
   it("bağlı olanı ayırt eder", async () => {
     render(<ProviderList client={client()} />);
     await screen.findByText("Gemini Web");
-    expect(screen.getAllByText("bağlı").length).toBe(1);
+    // Durum etiketi artık ölçümü de söylüyor: "bağlı · dosya yazabilir" /
+    // "bağlı · yalnız okur". Ölçüm geçmemiş bir oturum dosya yazamaz ve kullanıcının
+    // bunu satırda görmesi gerekiyor.
+    expect(screen.getAllByText(/^bağlı · /).length).toBe(1);
     expect(screen.getByText("anahtar kayıtlı")).toBeTruthy();
   });
 
