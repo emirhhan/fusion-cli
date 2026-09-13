@@ -23,15 +23,16 @@ erken kapatır ve plan ayrıştırılamaz.
       "criterion_id": "success_criteria içindeki koşulun birebir metni",
       "kind": "file_exists | file_contains | command | tool | reproduction",
       "target": "göreli dosya yolu, gerçekten çalıştırılacak komut veya araç adı",
-      "expected": "file_contains için sabit metin; tool için beklenen argüman alt kümesinin JSON nesnesi; diğerlerinde boş"
+      "expected": {"path": "."}
     }],
     "retry_safety": "safe | observe_first | never"
   }]
 }
 
 Kurallar:
-- `expected` alanı command, file_exists ve reproduction için tam olarak "" olmalı.
-  file_contains için aranacak metni yaz; tool için {"path":"."} gibi argüman nesnesi kullan.
+- `expected` alanı: `tool` için yukarıdaki gibi GERÇEK JSON NESNESİ yaz (dize
+  içine gömme, tırnak kaçırma); `file_contains` için aranacak metni dize olarak yaz;
+  command, file_exists ve reproduction için tam olarak "" yaz.
 - Plan kullanıcının TÜM teslimatlarını kapsamalı. İskelet, dosya varlığı veya yapılacaklar
   listesi çalışan ürün değildir. Son adımda ürünü çalıştırıp temel kullanıcı akışını
   doğrula; sadece kaynak dosyalarının varlığıyla tamamlandı deme.
@@ -63,8 +64,8 @@ Kurallar:
   bildirilir. Var olmayan bir klasör yapısını uydurma; görevde ya da depoda geçen
   yolu kullan.
 - Bir adımın hedefi, o adıma verdiğin `allowed_tool_families` ile YAPILABİLİR olmalı.
-  Ağdan içerik gerekiyorsa `web` ailesini ver; veremiyorsan o adımı planlama ve işi
-  mevcut araçlarla yapılabilecek biçimde kur (örneğin varlığı koddan üret).
+  Ağdan içerik gerekiyorsa `web` ailesini VER. Kullanıcı hazır varlık istediyse onu
+  koddan/betikten üretmek çözüm değildir: üretilen yer tutucu istenen varlık değildir.
 - Alanları ŞEMADAKİ gibi yaz: listeler liste, her adımda `retry_safety` olsun.
 - Dış dünyada yinelenmesi riskli işlemleri `never`, önce durum okunması gerekenleri
   `observe_first`, güvenle yinelenebilenleri `safe` olarak işaretle.

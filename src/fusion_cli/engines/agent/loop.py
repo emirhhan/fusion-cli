@@ -1206,6 +1206,16 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
         return any(
             name in {"web_search", "web_fetch", "read_url_content"} for name, _, _ in evidence
         )
+    if effect.startswith("file:"):
+        # Dosya teslim eden adımın kanıtı DEĞİŞTİREN bir araçtır.
+        #
+        # Eskiden `file:` etkisi son satıra düşüyordu ve "herhangi bir başarılı
+        # araç" kanıt sayılıyordu. Ölçüldü (13 Eylül, Godot koşusu): adım
+        # `file:ASSETS.json` bekliyordu, model tek bir `web_search` yaptı, sonra
+        # "assetleri bulup indireceğim" diyen bir metinle turu bitirdi ve kanıt
+        # kapısı bunu YETERLİ saydı. Hiçbir dosya yazılmadı, hiçbir yeniden istem
+        # yapılmadı; adım doğrulamada düştü ve kurtarma hakkı boşa gitti.
+        return any(mutating for _, _, mutating in evidence)
     if effect == "workspace_read":
         return any(
             name
