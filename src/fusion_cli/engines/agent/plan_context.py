@@ -286,7 +286,7 @@ def workspace_block(context: ToolContext) -> str:
     okunan = _relative_names(context, context.fully_read)
     degisen = _relative_names(context, context.touched)
     if not okunan and not degisen:
-        return ""
+        return _bos_dizin_notu(context)
     satirlar = ["ÇALIŞMA ALANI (bu turda):"]
     if okunan:
         satirlar.append(f"- okunan: {', '.join(okunan)}")
@@ -294,6 +294,29 @@ def workspace_block(context: ToolContext) -> str:
         satirlar.append(f"- değiştirilen: {', '.join(degisen)}")
     satirlar.append("Bu dosyaları yeniden aramana gerek yok; içeriği gerekiyorsa doğrudan oku.")
     return "\n".join(satirlar) + "\n\n"
+
+
+def _bos_dizin_notu(context: ToolContext) -> str:
+    """Çalışma dizini boşsa bunu AÇIKÇA söyle.
+
+    Ölçüldü (13 Eylül, Godot koşusu): boş dizinde keşif adımı `list_dir` çağrısını
+    tekrar tekrar yaptı, tekrar önbelleği aynı cevabı döndürdü ve adım 15 model
+    çağrısı + 18 dakika sonra "ilerleme yok" ile düştü. Modelin eksik bilgisi
+    basitti: dizinde hiçbir şey yoktu ve keşfedecek bir şey kalmamıştı.
+    """
+    try:
+        bos = not any(
+            item for item in context.root.iterdir() if not item.name.startswith(".")
+        )
+    except OSError:
+        return ""
+    if not bos:
+        return ""
+    return (
+        "ÇALIŞMA DİZİNİ BOŞ: keşfedilecek mevcut dosya yok. Bir kez doğrulaman "
+        "yeterli; aynı listelemeyi yinelemek ilerleme değildir. Bulguyu yaz ve "
+        "adımı bitir.\n\n"
+    )
 
 
 def _relative_names(context: ToolContext, paths: Iterable[Path]) -> list[str]:

@@ -35,7 +35,26 @@ def test_okunan_ve_degisen_dosyalar_yazilir(tmp_path):
 
 def test_hicbir_sey_yapilmamissa_blok_bos(tmp_path):
     """Boş blok yazmak istemi gürültüyle şişirirdi."""
+    (tmp_path / "mevcut.py").write_text("x = 1\n", encoding="utf-8")
+
     assert workspace_block(_baglam(tmp_path)) == ""
+
+
+def test_bos_calisma_dizini_acikca_soylenir(tmp_path):
+    """Ölçüldü (13 Eylül, Godot koşusu): boş dizinde keşif adımı `list_dir`'i
+    tekrar tekrar çağırdı, önbellek aynı cevabı döndürdü ve adım 15 model çağrısı
+    sonra "ilerleme yok" ile düştü. Eksik bilgi basitti: dizin boştu."""
+    blok = workspace_block(_baglam(tmp_path))
+
+    assert "ÇALIŞMA DİZİNİ BOŞ" in blok
+    assert "yinelemek ilerleme değildir" in blok
+
+
+def test_gizli_dosya_dizini_dolu_saymaz(tmp_path):
+    """`.fusion` gibi araç dizinleri kullanıcının dosyası değildir."""
+    (tmp_path / ".fusion").mkdir()
+
+    assert "ÇALIŞMA DİZİNİ BOŞ" in workspace_block(_baglam(tmp_path))
 
 
 def test_liste_sinirlanir(tmp_path):
