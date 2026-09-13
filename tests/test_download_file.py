@@ -151,3 +151,33 @@ async def test_gercek_arac_iptali_akisi_kapatir_ve_dosya_birakmaz(tmp_path, monk
     assert closed.is_set()
     assert not context.changes.paths
     assert not (tmp_path / "a.zip").exists()
+
+
+async def test_yok_adres_hatasi_aramaya_yonlendirir(tmp_path, monkeypatch):
+    """404 alan model ezberden başka yol denemeye devam ediyordu.
+
+    Ölçüldü (13 Eylül, Godot koşusu): üç ayrı `raw.githubusercontent.com` yolu
+    404 döndü, model hiç `web_search` çağırmadı ve assetleri betikle üretmeye
+    geçti. Hata artık yapılacak şeyi söylüyor.
+    """
+    _network(monkeypatch, lambda request: httpx.Response(404))
+
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/yok.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "web_search" in sonuc.output
+    assert "başka yol DENEME" in sonuc.output
+
+
+async def test_ag_hatasi_arama_uyarisi_almaz(tmp_path, monkeypatch):
+    """Geçici ağ hatası yanlış adres değildir; aramaya yönlendirmek yanıltır."""
+    _network(monkeypatch, lambda request: httpx.Response(503))
+
+    sonuc = await download.download_file(
+        {"url": "https://8.8.8.8/a.png", "path": "a.png"}, ToolContext(root=tmp_path)
+    )
+
+    assert not sonuc.ok
+    assert "web_search" not in sonuc.output

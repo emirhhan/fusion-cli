@@ -124,8 +124,14 @@ class RuntimeConfig:
     workflow_mode: ExecutionMode = ExecutionMode.AUTO
     #: Workflow modunda tur başına sabit model-çağrısı bütçesi (oran sınırı kapısı).
     workflow_max_model_calls: int = 12
-    #: Tipli plan üretimi ve tek biçim-onarım çağrısı için zarf.
-    workflow_planning_calls: int = 2
+    #: Tipli plan üretimi ve onarım çağrıları için zarf.
+    #
+    # 2 iken tek onarım hakkı vardı ve iki farklı onarım sebebi onun için
+    # yarışıyordu: bozuk JSON (biçim) ve eksik teslimat (kapsama). Ölçüldü
+    # (13 Eylül, Godot koşusu): plan asset/UI/ara sahne adımı içermedi, kapsama
+    # onarımı için hak kalmadı ve koşu iskeletle "tamamlandı" dedi. 3 ile her iki
+    # onarım aynı planlama evresinde yapılabilir.
+    workflow_planning_calls: int = 3
     #: Her plan adımının bağımsız model çağrısı zarfı.
     #
     # Bir adım TEK bir alt-tur olarak çalışır ve o alt-tur kendi tur sınırına

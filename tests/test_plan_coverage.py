@@ -236,3 +236,39 @@ def test_gozlem_turunda_sira_talimati_verilmez():
     adim = _adim("assets", "Assetleri topla", etki="file:ASSETS.json")
 
     assert "ASSET SIRASI" not in step_prompt(GOREV, adim, {}, observe=True)
+
+
+async def test_planlanamayan_teslimat_turu_tamamlandi_saymaz(tmp_path):
+    """Uyarı yetmez: "tamamlandı" görünen bir koşu teslim edilmemiş işi gizler.
+
+    Ölçüldü (13 Eylül, Godot koşusu): asset, UI ve ara sahne istenmişti; plan iki
+    adımdı, koşu yalnız `project.godot` yazıp "tamamlandı" raporladı.
+    """
+    from fusion_cli.core.execution_plan import ExecutionPlan
+    from fusion_cli.engines.agent.loop import AgentOutcome
+    from fusion_cli.engines.agent.plan_runner import run_execution_plan
+    from tests.test_plan_repair import _deps
+    from tests.test_plan_runner import _step
+
+    deps = _deps(tmp_path)
+    adim = _step("init", expected_effects=("file:project.godot",))
+
+    async def agent(task, turn_deps, **kwargs):
+        yol = tmp_path / "project.godot"
+        turn_deps.tool_context.changes.record_created(yol)
+        yol.write_text("[application]\n", encoding="utf-8")
+        turn_deps.tool_context.touched.add(yol)
+        return AgentOutcome(final_text="yazdım", messages=[], model_calls_made=1)
+
+    sonuc = await run_execution_plan(
+        GOREV,
+        deps,
+        agent,
+        plan=ExecutionPlan("p", GOREV, (adim,)),
+        self_review=False,
+        uncovered=("dış varlık (asset) edinimi",),
+    )
+
+    assert sonuc.ok is False
+    assert "teslim edilmedi" in sonuc.final_text
+    assert "dış varlık (asset) edinimi" in sonuc.final_text

@@ -847,6 +847,20 @@ class _PlanRun:
                     warnings.append(
                         f"Başarı koşulu doğrulanamadı: {saved.step_id} / {criterion.criterion_id}."
                     )
+        if self.uncovered:
+            # Kullanıcının ADIYLA istediği bir teslimat planlanamadıysa iş BİTMEMİŞTİR.
+            #
+            # Ölçüldü (13 Eylül, Godot koşusu): asset, UI ve ara sahne istenmişti;
+            # plan ikisini bile içermedi, koşu `project.godot` yazıp "tamamlandı"
+            # dedi. Uyarı olarak eklemek yetmiyor — sonuç "tamamlandı" göründüğü
+            # sürece kullanıcı teslim edilmemiş işi teslim sanıyor.
+            eksik = ", ".join(self.uncovered)
+            return self.pause(
+                "İş tamamlanmadı: kullanıcının istediği şu teslimatlar için plan adımı "
+                f"üretilemedi ve teslim edilmedi: {eksik}. "
+                "Planlama bütçesi ya da model planı bunları kapsayacak biçimde "
+                "üretemedi; görevi daha küçük parçalara bölerek tekrar isteyin."
+            )
         self.current = replace(self.current, status=PlanStatus.COMPLETED)
         self.save()
         self.deps.publisher.publish(
@@ -911,8 +925,13 @@ async def run_execution_plan(
     plan: ExecutionPlan | None = None,
     promotion: PromotionContext | None = None,
     self_review: bool | None = None,
+    uncovered: tuple[str, ...] = (),
 ) -> AgentOutcome:
-    """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası."""
+    """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası.
+
+    `uncovered`, hazır bir plan verildiğinde (test ya da checkpoint) kapsanmayan
+    teslimatları taşır; plan burada üretilirse değer `generate_plan`'dan gelir.
+    """
     limits = workflow_budget(deps)
     checkpoint = None
     if plan is None and deps.checkpoint_store is not None and deps.conversation_id:
@@ -953,7 +972,9 @@ async def run_execution_plan(
             )
         # Modelin görev özetini kullanıcı isteğinin yerine kalıcılaştırma.
         current = replace(generated.plan, task=task)
-        run.uncovered = generated.missing
+        run.uncovered = generated.missing or uncovered
+    if not run.uncovered:
+        run.uncovered = uncovered
     validation = validate_plan(current)
     if not validation.ok:
         return run.outcome(f"Yürütme planı geçersiz: {' '.join(validation.errors)}", ok=False)

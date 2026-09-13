@@ -68,6 +68,27 @@ def _save_new(path: Path, content: bytes, context: ToolContext) -> None:
             temporary.unlink(missing_ok=True)
 
 
+#: Adresin var olmadığını söyleyen HTTP durumları.
+_YOK_DURUMLARI = ("404", "403", "410")
+
+
+def _tahmin_uyarisi(error: Exception) -> str:
+    """Adres yoksa ASIL hatayı söyle: URL ezberden uydurulmuş.
+
+    Ölçüldü (13 Eylül, Godot koşusu): model `raw.githubusercontent.com` altında
+    üç ayrı yol denedi, üçü de 404 döndü ve hiç `web_search` çağırmadı; sonra
+    assetleri betikle ÜRETMEYE geçti. "İndirilemedi" demek bu döngüyü kırmıyor;
+    yapılacak şeyin söylenmesi gerekiyor.
+    """
+    if not any(durum in str(error) for durum in _YOK_DURUMLARI):
+        return ""
+    return (
+        "\nBu adres YOK. Aynı alan adı altında başka yol DENEME: adresi ezberden "
+        "üretmek çalışmıyor. `web_search` ile indirme sayfasını bul, gerçek dosya "
+        "bağlantısını oradan al (arşiv olabilir) ve onu indir."
+    )
+
+
 async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     """İndirilen dosyanın gerçek boyutunu ve SHA-256 özetini kanıt olarak döndür."""
     path = resolve_path(context, require_str(args, "path"))
@@ -78,7 +99,7 @@ async def download_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         content = await _download_bytes(url, context)
         _save_new(path, content, context)
     except (httpx.HTTPError, OSError, ValueError) as error:
-        return ToolResult.failure(f"Dosya indirilemedi: {error}")
+        return ToolResult.failure(f"Dosya indirilemedi: {error}{_tahmin_uyarisi(error)}")
     context.touched.add(path)
     digest = hashlib.sha256(content).hexdigest()
     return ToolResult(
