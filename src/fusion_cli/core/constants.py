@@ -17,7 +17,18 @@ from __future__ import annotations
 FILE_MISSING_PREFIX = "Dosya yok:"
 
 MAX_READ_BYTES = 100_000
-MAX_DOWNLOAD_BYTES = 32 * 1024 * 1024
+#: `download_file` ile indirilebilecek en fazla bayt.
+#
+# 32 MiB iken gerçek asset paketleri sınıra takılıyordu. Ölçüldü (13 Eylül, Godot
+# koşusu): model aradı, GitHub üzerinde gerçek bir 2D asset paketi buldu ve
+# indirme "32 MiB sınırını aşıyor" ile düştü; oyun yine assetsiz kaldı. Yayınlanan
+# ücretsiz paketler (Kenney, OpenGameArt derlemeleri) onlarca ila birkaç yüz MB
+# arasındadır.
+#
+# 256 MiB, arşiv açma sınırıyla (512 MiB, bkz. `tools.archive`) uyumludur: en
+# büyük kabul edilen arşiv açıldığında da sınır içinde kalır. Sınır KALDIRILMAZ;
+# indirme kullanıcının diskine ve süresine yazılır.
+MAX_DOWNLOAD_BYTES = 256 * 1024 * 1024
 #: Tek bir read_file çağrısında döndürülecek en fazla satır.
 #
 # Sınır bayt değil SATIR cinsindendir çünkü modelin devam edeceği birim satırdır.

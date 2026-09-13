@@ -23,7 +23,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .files import display_path, resolve_path
 
-#: Açılan içeriğin toplam boyut sınırı (bayt). İndirme sınırının (32 MiB) katı
+#: Açılan içeriğin toplam boyut sınırı (bayt). İndirme sınırının (256 MiB) iki katı
 #: tutulur: asset paketleri sıkıştırılmış gelir ve açılınca büyür, ama sınırsız
 #: büyüme "zip bombası" ile diski doldurur.
 MAX_EXTRACT_BYTES = 512 * 1024 * 1024

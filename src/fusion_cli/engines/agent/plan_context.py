@@ -210,9 +210,11 @@ OBSERVE_NOTE = (
 # doğrulaması dosyaları bulamayınca adım düştü. Sıra, kapı düşmeden ÖNCE söylenir.
 ASSET_ORDER_NOTE = (
     "ASSET SIRASI (bu adımda zorunlu): 1) `web_search` ile lisansı açık (CC0/MIT) "
-    "gerçek dosya adresini bul, 2) `download_file` ile indir, 3) arşivse "
-    "`extract_archive` ile aç, 4) dosyaların diskte olduğunu `list_dir` ile doğrula, "
-    "5) manifesti EN SON yaz. Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
+    "kaynak SAYFASINI bul, 2) sayfayı `web_fetch` ile aç ve GERÇEK dosya/arşiv "
+    "bağlantısını oradan al — arama sonucu genellikle liste sayfasıdır ve adresi "
+    "ezberden üretmek çalışmaz, 3) `download_file` ile indir, 4) arşivse "
+    "`extract_archive` ile aç, 5) dosyaların diskte olduğunu `list_dir` ile doğrula, "
+    "6) manifesti EN SON yaz. Manifest, indirilmemiş dosyayı bildirirse adım düşer.\n\n"
 )
 
 

@@ -259,7 +259,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="download_file",
-        description="Kamuya açık bir URL'den gerçek dosyayı proje içine indir (en fazla 32 MiB). "
+        description="Kamuya açık bir URL'den gerçek dosyayı proje içine indir (en fazla 256 MiB). "
         "PNG/JPEG, ses, font ve ZIP assetleri için kullan; web_fetch ikili dosya kaydetmez. "
         "Mevcut dosyanın üzerine yazmaz. İndirmeden önce lisansı kaynak sayfasından doğrula; "
         "sonrasında ASSETS.json kaydını oluştur. Arşivleri kendiliğinden açmaz.",
