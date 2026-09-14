@@ -20,6 +20,7 @@ from mcp.types import (
     ResourceLink,
     TextContent,
     TextResourceContents,
+    ToolAnnotations,
 )
 
 from fusion_cli.config.models import McpServerConfig, McpTransport
@@ -233,7 +234,7 @@ class _SahteSonuc:
 
 
 class _SahteArac:
-    def __init__(self, ad: str, annotations=None) -> None:
+    def __init__(self, ad: str, annotations: ToolAnnotations | None = None) -> None:
         self.name = ad
         self.description = "sahte"
         self.inputSchema = {"type": "object", "properties": {}}
@@ -474,6 +475,49 @@ async def test_register_into_mcp_aciklamasini_arac_etkisine_tasir():
     }
     # Onay akışından çıkarılan uzak araç yok: security kip hepsini sormaya devam eder.
     assert all(registry.get(f"fixture__{ad}").mutating for ad in ("oku", "sil", "yaz"))
+
+
+async def test_hicbir_uzak_arac_yerel_etkiyle_kaydedilmez():
+    from fusion_cli.config.models import HostedConnectorConfig
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.mcp_bridge.hosted import RESULT_CLOSE, RESULT_OPEN, HostedConnectorClient
+    from fusion_cli.tools import ToolRegistry
+
+    session = _SayfaliOturum(
+        {
+            None: SimpleNamespace(
+                tools=[
+                    _SahteArac("oku", ToolAnnotations(readOnlyHint=True)),
+                    _SahteArac("yaz"),
+                ],
+                nextCursor=None,
+            )
+        }
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = session
+    connector = HostedConnectorConfig(
+        name="MetaAds",
+        url="https://mcp.facebook.com/ads",
+        provider="claude_web",
+        account="main",
+        verified=True,
+    )
+    govde = '{"araclar": [{"ad": "update_budget", "sema": {}}]}'
+    zarf = f"{RESULT_OPEN}\n{govde}\n{RESULT_CLOSE}"
+
+    async def _ask(config: HostedConnectorConfig, prompt: str) -> str:
+        del config, prompt
+        return zarf
+
+    hosted = HostedConnectorClient((connector,), ask=_ask)
+    registry = ToolRegistry()
+
+    uzak_adlar = await client.register_into(registry) + await hosted.register_into(registry)
+
+    assert len(uzak_adlar) == 3
+    yerel = [ad for ad in uzak_adlar if registry.get(ad).effect is ToolEffect.LOCAL]
+    assert yerel == [], "uzak araç LOCAL sayılırsa auto kip onu sormadan çalıştırır"
 
 
 async def _sahte_calistir(ad: str, metin: str, hata: bool):

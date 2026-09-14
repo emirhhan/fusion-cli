@@ -31,7 +31,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from ..config.models import HostedConnectorConfig
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from ..tools.emulation import coerce_arguments, validate_arguments
 
@@ -329,6 +329,11 @@ class HostedConnectorClient:
                         run=self._make_run(name, tool.name),
                         # Dış aracın ne yaptığı bilinemez: onay akışına girsin.
                         mutating=True,
+                        # Keşif cevabı modelin yazdığı metindir; MCP açıklaması
+                        # (`readOnlyHint` vb.) taşınmaz ve taşınsa da doğrulanamaz.
+                        # Bu yüzden stdio/HTTP araçlarının açıklamasız varsayılanı
+                        # uygulanır: auto kip ilk çağrıda sorar.
+                        effect=ToolEffect.REMOTE_WRITE,
                     )
                 )
                 added.append(fusion_name)

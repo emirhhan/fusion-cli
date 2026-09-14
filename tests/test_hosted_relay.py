@@ -169,6 +169,37 @@ async def test_kayitli_araclar_connector_onekiyle_ve_mutating_gelir():
     assert arac.mutating is True
 
 
+async def test_barindirmali_arac_uzak_yazma_etkisiyle_kaydedilir_ve_auto_kipte_sorulur():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import (
+        AutoApproval,
+        Decision,
+        build_request,
+    )
+    from fusion_cli.tools import ToolRegistry
+
+    oturum = _Oturum(_zarf({"araclar": [{"ad": "update_budget", "aciklama": "bütçe", "sema": {}}]}))
+    client = HostedConnectorClient((_connector(),), ask=oturum)
+    registry = ToolRegistry()
+    await client.register_into(registry)
+    arac = registry.get("MetaAds__update_budget")
+    assert arac is not None
+
+    sorulanlar: list[str] = []
+
+    class _Reddeden:
+        async def confirm(self, request: object) -> bool:
+            sorulanlar.append(arac.name)
+            return False
+
+    karar = await AutoApproval(_Reddeden()).decide(build_request(arac, {}))
+
+    # Keşif cevabı modelden gelir; MCP açıklaması taşınmaz, güvenilir de değildir.
+    assert arac.effect is ToolEffect.REMOTE_WRITE
+    assert sorulanlar == ["MetaAds__update_budget"]
+    assert karar is Decision.DENIED
+
+
 # --- güvenilmeyen içerik ve tek-çağrı güvenliği ---------------------------- #
 
 
