@@ -27,7 +27,7 @@ from fusion_cli.core.types import Message
 from fusion_cli.engines.agent.loop import AgentOutcome
 from fusion_cli.mcp_bridge.client import McpClient
 from fusion_cli.mcp_bridge.server import build_server
-from fusion_cli.mcp_bridge.transport import resolve_stdio_args
+from fusion_cli.mcp_bridge.transport import resolve_stdio_args, resolve_stdio_env
 
 from .fakes import make_config
 
@@ -65,6 +65,43 @@ def test_stdio_gizli_arguman_eksikse_acik_hata_verir():
 
     with pytest.raises(ValueError, match="POSTGRES_URL"):
         resolve_stdio_args(config, environ={})
+
+
+def test_stdio_ortam_degiskenleri_yalniz_kayitli_adlarla_aktarilir():
+    config = McpServerConfig(name="brave", command="server-brave", env_names=("BRAVE_API_KEY",))
+
+    assert resolve_stdio_env(
+        config, environ={"BRAVE_API_KEY": "anahtar", "BASKA_SIR": "gizli"}
+    ) == {"BRAVE_API_KEY": "anahtar"}
+
+
+def test_stdio_kayitli_ortam_degiskeni_eksikse_acik_hata_verir():
+    config = McpServerConfig(name="brave", command="server-brave", env_names=("BRAVE_API_KEY",))
+
+    with pytest.raises(ValueError, match="BRAVE_API_KEY"):
+        resolve_stdio_env(config, environ={})
+
+
+async def test_stdio_akisi_ortam_degiskenlerini_sunucu_surecine_verir(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from fusion_cli.mcp_bridge import transport
+
+    yakalanan = {}
+
+    @asynccontextmanager
+    async def _sahte_stdio_client(params):
+        yakalanan["env"] = params.env
+        yield ("okuma", "yazma")
+
+    monkeypatch.setattr(transport, "stdio_client", _sahte_stdio_client)
+    monkeypatch.setenv("BRAVE_API_KEY", "anahtar")
+    config = McpServerConfig(name="brave", command="server-brave", env_names=("BRAVE_API_KEY",))
+
+    async with transport.open_mcp_stream(config) as akislar:
+        assert akislar == ("okuma", "yazma")
+
+    assert yakalanan["env"] == {"BRAVE_API_KEY": "anahtar"}
 
 
 # --- sunucu (birim) -------------------------------------------------------- #

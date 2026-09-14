@@ -38,6 +38,24 @@ def resolve_stdio_args(
     return resolved
 
 
+def resolve_stdio_env(
+    config: McpServerConfig, *, environ: Mapping[str, str] | None = None
+) -> dict[str, str]:
+    """Kayıtlı ortam değişkenlerini alt-sürece verilecek sözlüğe çevir.
+
+    MCP SDK `env` verilmezse yalnız HOME, PATH gibi güvenli değişkenleri aktarır.
+    Ölçüldü (SDK 1.29.1, `mcp/client/stdio/__init__.py`): bağlantı ekranında girilen
+    API anahtarları şifreli depodan ortama yükleniyor ama sunucu sürecine hiç
+    ulaşmıyordu. Yalnız `env_names` içindeki adlar aktarılır; Fusion'ın bütün
+    ortamı dış sürece açılmaz.
+    """
+    source = os.environ if environ is None else environ
+    eksikler = [name for name in config.env_names if not source.get(name)]
+    if eksikler:
+        raise ValueError(f"MCP ortam değişkeni bulunamadı: {', '.join(eksikler)}")
+    return {name: source[name] for name in config.env_names}
+
+
 def resolve_bearer_headers(
     config: McpServerConfig, *, environ: Mapping[str, str] | None = None
 ) -> dict[str, str] | None:
@@ -66,7 +84,12 @@ async def open_mcp_stream(
     if config.transport is McpTransport.STDIO:
         if not config.command:
             raise ValueError("stdio MCP bağlantısı için komut gerekli")
-        params = StdioServerParameters(command=config.command, args=resolve_stdio_args(config))
+        params = StdioServerParameters(
+            command=config.command,
+            args=resolve_stdio_args(config),
+            # Boş sözlük yerine None: SDK varsayılan ortamı kendisi kurar.
+            env=resolve_stdio_env(config) or None,
+        )
         async with stdio_client(params) as streams:
             yield streams
         return
