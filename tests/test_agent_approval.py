@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from fusion_cli.core.tools import Tool
+from fusion_cli.core.tools import Tool, ToolEffect
 from fusion_cli.engines.agent.approval import (
+    REMOTE_DESTRUCTIVE_REASON,
     ApprovalAnswer,
     ApprovalMode,
     Decision,
@@ -16,8 +17,15 @@ from fusion_cli.engines.agent.approval import (
 from .fakes import AlwaysApprove, AlwaysReject
 
 
-def _arac(ad="write_file", *, mutating=True):
-    return Tool(name=ad, description="", parameters={}, run=lambda a, c: None, mutating=mutating)
+def _arac(ad="write_file", *, mutating=True, effect=ToolEffect.LOCAL):
+    return Tool(
+        name=ad,
+        description="",
+        parameters={},
+        run=lambda a, c: None,
+        mutating=mutating,
+        effect=effect,
+    )
 
 
 @pytest.mark.parametrize(
@@ -174,3 +182,83 @@ class _SahtePrompter:
     async def confirm(self, request) -> bool:
         self.soruldu = True
         return self.cevap
+
+
+# --- Uzak araç etki sınıfı ---------------------------------------------------- #
+
+
+class _SayanOnayci:
+    """Kaç kez sorulduğunu sayan ve sabit cevap veren sahte kullanıcı."""
+
+    def __init__(self, cevap):
+        self.cevap = cevap
+        self.soru_sayisi = 0
+
+    async def confirm(self, request):
+        self.soru_sayisi += 1
+        return self.cevap
+
+
+async def test_auto_modda_uzak_yazma_araci_sorulmadan_calismaz():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("ads__update_budget", effect=ToolEffect.REMOTE_WRITE), {})
+    )
+
+    assert karar is Decision.DENIED
+
+
+async def test_auto_modda_uzak_yazma_oturum_izniyle_bir_kez_sorulur():
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    politika = build_policy(ApprovalMode.AUTO, onayci)
+    arac = _arac("godot__add_node", effect=ToolEffect.REMOTE_WRITE)
+
+    ilk = await politika.decide(build_request(arac, {"name": "a"}))
+    ikinci = await politika.decide(build_request(arac, {"name": "b"}))
+
+    assert (ilk, ikinci) == (Decision.ALLOW, Decision.ALLOW)
+    assert onayci.soru_sayisi == 1
+
+
+async def test_auto_modda_yikici_uzak_arac_her_cagride_sorulur():
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    politika = build_policy(ApprovalMode.AUTO, onayci)
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    await politika.decide(build_request(arac, {"id": 1}))
+    await politika.decide(build_request(arac, {"id": 2}))
+
+    assert onayci.soru_sayisi == 2
+
+
+def test_yikici_uzak_arac_istegi_gerekceyi_tasir():
+    istek = build_request(_arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE), {})
+
+    assert istek.danger == REMOTE_DESTRUCTIVE_REASON
+
+
+async def test_auto_modda_salt_okunur_uzak_arac_sorulmaz():
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
+    )
+
+    assert karar is Decision.ALLOW
+
+
+async def test_security_modda_salt_okunur_uzak_arac_yine_sorulur():
+    politika = build_policy(ApprovalMode.SECURITY, AlwaysReject())
+
+    karar = await politika.decide(
+        build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
+    )
+
+    assert karar is Decision.DENIED
+
+
+def test_arac_etkisi_varsayilan_olarak_yereldir():
+    arac = Tool(name="read_file", description="", parameters={}, run=lambda a, c: None)
+
+    assert arac.effect is ToolEffect.LOCAL

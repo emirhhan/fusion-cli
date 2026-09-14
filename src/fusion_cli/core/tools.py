@@ -100,6 +100,24 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
 }
 
 
+class ToolEffect(Enum):
+    """Bir aracın dünyada bıraktığı iz — onay kararının girdisi.
+
+    `mutating` "onay akışına girer mi?" sorusunu cevaplar; bu enum "ne kadar
+    sıkı sorulmalı?" sorusunu. Yerel dosya yazımı diff ile görülür ve geri
+    alınabilir; uzak sistemdeki bütçe, yayın veya silme işlemi geri alınamayabilir.
+    """
+
+    #: Yalnız yerel çalışma alanına dokunur (varsayılan).
+    LOCAL = "local"
+    #: Uzak sistemi yalnız okur.
+    REMOTE_READ = "remote_read"
+    #: Uzak sistemde değişiklik yapabilir.
+    REMOTE_WRITE = "remote_write"
+    #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).
+    REMOTE_DESTRUCTIVE = "remote_destructive"
+
+
 def tool_family(name: str) -> ToolFamily:
     """Araç adını iş ailesine çevir.
 
@@ -308,6 +326,8 @@ class Tool:
     # model aynı dosya için iki adı dönüşümlü kullanıp tekrar kapısına takıldı.
     # Takma ad çağrılırsa yine çalışır — amaç hatayı önlemek, seçenek sunmak değil.
     advertised: bool = True
+    #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
+    effect: ToolEffect = ToolEffect.LOCAL
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""

@@ -18,9 +18,18 @@ from enum import Enum
 from typing import Protocol
 
 from ...config.permissions import is_allowed
-from ...core.tools import Tool, ToolArgs
+from ...core.tools import Tool, ToolArgs, ToolEffect
 from ...tools.command_policy import is_unattended_safe
 from ...tools.safety import danger_reason
+
+#: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
+REMOTE_DESTRUCTIVE_REASON = (
+    "Bu uzak araç kendini geri alınamaz değişiklik yapabilir olarak tanımlıyor "
+    "(silme, yayınlama veya harcama). Her çağrıda ayrıca onay istenir."
+)
+
+#: Gözetimsiz (auto kipte sormadan) çalışabilecek etki sınıfları.
+_UNATTENDED_EFFECTS = frozenset({ToolEffect.LOCAL, ToolEffect.REMOTE_READ})
 
 
 class ApprovalMode(Enum):
@@ -61,10 +70,10 @@ class ApprovalRequest:
     danger: str | None
     #: Kullanıcının izin listesinde (.claude/settings.local.json) mi?
     pre_allowed: bool = False
-    #: Kabuk komutu gözetimsiz çalışmaya uygun mu (tanınan, yan etkisiz komut)?
+    #: Çağrı gözetimsiz çalışmaya uygun mu?
     #:
-    #: Kabuk DIŞINDAKİ araçlar için True'dur: onların kararı `mutating` ve `danger`
-    #: üzerinden zaten veriliyor, buradaki soru yalnızca `run_shell` içindir.
+    #: Kabukta tanınan, yan etkisiz komut; kabuk dışında yerel ya da salt okunur
+    #: uzak araç. Uzak yazma araçları False'tur ve auto kipte sorulur.
     unattended_safe: bool = True
 
 
@@ -139,18 +148,27 @@ def build_policy(mode: ApprovalMode, prompter: Prompter) -> ApprovalPolicy:
 def build_request(
     tool: Tool, args: ToolArgs, allowed_commands: frozenset[str] = frozenset()
 ) -> ApprovalRequest:
-    """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır."""
+    """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır.
+
+    Uzak araçlar kabuk komutu gibi ele alınır: auto kip TANIMADIĞI şeyi sormadan
+    yapmaz. Eskiden kabuk dışındaki her araç `unattended_safe=True` sayılıyordu;
+    bir reklam MCP'sinin bütçe değiştiren aracı auto kipte kullanıcı görmeden
+    çalışabiliyordu.
+    """
     command = args.get("command")
     kabuk = tool.name == "run_shell" and isinstance(command, str)
     pre_allowed = kabuk and is_allowed(str(command), allowed_commands)
+    danger = danger_reason(tool.name, args)
+    if danger is None and tool.effect is ToolEffect.REMOTE_DESTRUCTIVE:
+        danger = REMOTE_DESTRUCTIVE_REASON
     return ApprovalRequest(
         tool=tool,
         args=args,
-        danger=danger_reason(tool.name, args),
+        danger=danger,
         pre_allowed=pre_allowed,
-        # Kabuk dışındaki araçlar bu kapıya girmez; kararları `mutating`/`danger`
-        # üzerinden verilir ve burada True kalmaları davranışlarını değiştirmez.
-        unattended_safe=is_unattended_safe(str(command)) if kabuk else True,
+        unattended_safe=(
+            is_unattended_safe(str(command)) if kabuk else tool.effect in _UNATTENDED_EFFECTS
+        ),
     )
 
 
