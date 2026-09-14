@@ -8,8 +8,9 @@ Bağlantı stdio üzerinden kurulur (Claude masaüstü/Cursor'ın kullandığı 
 istemci, sunucu sürecini bir komutla başlatır. Oturumlar `AsyncExitStack` ile açık
 tutulur ve kapanışta hep birlikte temizlenir.
 
-Güvenlik: dış araçların ne yaptığını bilemeyiz; hepsi `mutating=True` kaydedilir —
-yani Fusion'ın ONAY akışından geçerler (kullanıcı görmeden çalışmazlar).
+Güvenlik: dış araçlar `mutating=True` kaydedilir, yani onay akışına girerler. Aracın
+MCP açıklaması `effect` alanına çevrilir: auto kip uzak yazma araçlarını ilk
+çağrıda, yıkıcı araçları her çağrıda sorar (bkz. `tool_effect.py`).
 """
 
 from __future__ import annotations
@@ -26,9 +27,10 @@ from mcp import ClientSession
 from mcp.client.auth.exceptions import OAuthRegistrationError
 
 from ..config.models import McpServerConfig, McpTransport
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from .content import normalize_call_result
+from .tool_effect import effect_from_annotations
 from .transport import open_mcp_stream
 
 __all__ = ["McpClient", "McpServerConfig", "RemoteTool"]
@@ -55,6 +57,7 @@ class RemoteTool:
     name: str
     description: str
     schema: dict[str, object] = field(default_factory=dict)
+    effect: ToolEffect = ToolEffect.REMOTE_WRITE
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +219,8 @@ class McpClient:
                     name=tool.name,
                     description=tool.description or "",
                     schema=dict(tool.inputSchema or {}),
+                    # Sahte ve eski SDK araç nesnelerinde alan olmayabilir.
+                    effect=effect_from_annotations(getattr(tool, "annotations", None)),
                 )
                 for tool in result.tools
             )
@@ -266,6 +271,7 @@ class McpClient:
                         run=self._make_run(server, remote.name),
                         # Dış araç ne yaptığını söylemez: onay akışına girsin diye mutating.
                         mutating=True,
+                        effect=remote.effect,
                     )
                 )
                 added.append(fusion_name)

@@ -196,10 +196,11 @@ class _SahteSonuc:
 
 
 class _SahteArac:
-    def __init__(self, ad: str) -> None:
+    def __init__(self, ad: str, annotations=None) -> None:
         self.name = ad
         self.description = "sahte"
         self.inputSchema = {"type": "object", "properties": {}}
+        self.annotations = annotations
 
 
 class _SahteOturum:
@@ -402,6 +403,40 @@ async def test_yinelenen_cursor_sonsuz_dongu_olusturmaz():
 
     assert [tool.name for tool in tools] == ["bir", "iki"]
     assert session.cursors == [None, "ikinci"]
+
+
+async def test_register_into_mcp_aciklamasini_arac_etkisine_tasir():
+    from mcp.types import ToolAnnotations
+
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.tools import ToolRegistry
+
+    session = _SayfaliOturum(
+        {
+            None: SimpleNamespace(
+                tools=[
+                    _SahteArac("oku", ToolAnnotations(readOnlyHint=True)),
+                    _SahteArac("sil", ToolAnnotations(destructiveHint=True)),
+                    _SahteArac("yaz"),
+                ],
+                nextCursor=None,
+            )
+        }
+    )
+    client = McpClient(())
+    client._sessions["fixture"] = session
+    registry = ToolRegistry()
+
+    await client.register_into(registry)
+
+    etkiler = {ad: registry.get(f"fixture__{ad}").effect for ad in ("oku", "sil", "yaz")}
+    assert etkiler == {
+        "oku": ToolEffect.REMOTE_READ,
+        "sil": ToolEffect.REMOTE_DESTRUCTIVE,
+        "yaz": ToolEffect.REMOTE_WRITE,
+    }
+    # Onay akışından çıkarılan uzak araç yok: security kip hepsini sormaya devam eder.
+    assert all(registry.get(f"fixture__{ad}").mutating for ad in ("oku", "sil", "yaz"))
 
 
 async def _sahte_calistir(ad: str, metin: str, hata: bool):
