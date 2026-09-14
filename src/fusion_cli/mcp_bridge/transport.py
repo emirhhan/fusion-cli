@@ -50,9 +50,9 @@ def resolve_stdio_env(
     ortamı dış sürece açılmaz.
     """
     source = os.environ if environ is None else environ
-    eksikler = [name for name in config.env_names if not source.get(name)]
-    if eksikler:
-        raise ValueError(f"MCP ortam değişkeni bulunamadı: {', '.join(eksikler)}")
+    missing_names = [name for name in config.env_names if not source.get(name)]
+    if missing_names:
+        raise ValueError(f"MCP ortam değişkeni bulunamadı: {', '.join(missing_names)}")
     return {name: source[name] for name in config.env_names}
 
 
