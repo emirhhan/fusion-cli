@@ -651,6 +651,50 @@ async def test_c4_security_komutu_calisan_tura_gecer(tmp_path, monkeypatch):
     assert gorulen["mode"] is ApprovalMode.SECURITY
 
 
+async def test_oturum_izni_masaustunde_sonraki_turda_yeniden_sorulmaz(tmp_path, monkeypatch):
+    """Masaüstü sohbeti tek süreçtir; "oturum boyunca" izni turlar arasında yaşamalı.
+
+    Gerçek hata: `run_agent_task` her turda `build_policy` çağırıyordu ve izin
+    kümesi turla birlikte kayboluyordu.
+    """
+    from fusion_cli.core.tools import Tool, ToolEffect
+    from fusion_cli.engines.agent import AgentOutcome
+    from fusion_cli.engines.agent.approval import ApprovalAnswer, build_request
+
+    arac = Tool(
+        name="godot__add_node",
+        description="",
+        parameters={},
+        run=lambda a, c: None,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    )
+    sorular: list[str] = []
+
+    class _OturumIzniVeren:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def confirm(self, request):
+            sorular.append(request.tool.name)
+            return ApprovalAnswer.SESSION
+
+    async def _sahte_run_agent(task, deps, **kwargs):
+        await deps.policy.decide(build_request(arac, {}))
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.appserver.session.ProtocolPrompter", _OturumIzniVeren)
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent", _sahte_run_agent)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.config = replace(oturum._state.config, mcp_servers=())
+
+    await oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "ilk iş"}))
+    await oturum.handle(Request(id="2", name="tur.calistir", data={"gorev": "ikinci iş"}))
+
+    assert sorular == ["godot__add_node"]
+
+
 async def test_c4_oturum_baslat_onay_modu_ve_motoru_kurar(tmp_path, monkeypatch):
     """C4: `oturum.baslat` isteği spec'te tanımlı ama hiç uygulanmamıştı.
 

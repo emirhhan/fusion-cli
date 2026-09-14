@@ -40,7 +40,7 @@ from ..core.types import (
     is_rate_limit_error,
 )
 from ..engines.agent import AgentOutcome, run_agent
-from ..engines.agent.approval import ApprovalMode, build_policy
+from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
@@ -151,6 +151,7 @@ async def run_agent_task(
     images: tuple[str, ...] = (),
     conversation_id: str = "cli",
     step_limit: int | None = None,
+    approval_memory: ApprovalMemory | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -188,7 +189,9 @@ async def run_agent_task(
         deps = AgentDeps(
             config=config,
             publisher=bus,
-            policy=build_policy(mode, prompter),
+            # Sohbet boyunca yaşayan çağıran kendi hafızasını verir; yoksa
+            # "oturum boyunca" izni bu turla birlikte biter (`fusion run`).
+            policy=build_policy(mode, prompter, approval_memory),
             tool_context=tool_context,
             asker=prompter if can_ask else None,
             code_index=store.code_index if store.enabled else None,

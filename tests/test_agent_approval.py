@@ -262,3 +262,30 @@ def test_arac_etkisi_varsayilan_olarak_yereldir():
     arac = Tool(name="read_file", description="", parameters={}, run=lambda a, c: None)
 
     assert arac.effect is ToolEffect.LOCAL
+
+
+async def test_ortak_onay_hafizasi_yeni_politikada_da_gecerli():
+    from fusion_cli.engines.agent.approval import ApprovalMemory
+
+    hafiza = ApprovalMemory()
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    arac = _arac("godot__add_node", effect=ToolEffect.REMOTE_WRITE)
+
+    for mod in (ApprovalMode.AUTO, ApprovalMode.AUTO, ApprovalMode.SECURITY):
+        karar = await build_policy(mod, onayci, hafiza).decide(build_request(arac, {}))
+        assert karar is Decision.ALLOW
+
+    assert onayci.soru_sayisi == 1
+
+
+async def test_ortak_onay_hafizasi_yikici_cagriyi_turlar_arasinda_hatirlamaz():
+    from fusion_cli.engines.agent.approval import ApprovalMemory
+
+    hafiza = ApprovalMemory()
+    onayci = _SayanOnayci(ApprovalAnswer.SESSION)
+    arac = _arac("wp__delete_page", effect=ToolEffect.REMOTE_DESTRUCTIVE)
+
+    await build_policy(ApprovalMode.AUTO, onayci, hafiza).decide(build_request(arac, {"id": 1}))
+    await build_policy(ApprovalMode.AUTO, onayci, hafiza).decide(build_request(arac, {"id": 1}))
+
+    assert onayci.soru_sayisi == 2

@@ -413,6 +413,7 @@ class _TuiSession:
                     history=self._state.history,
                     background=self._background,
                     tool_context=tool_context,
+                    approval_memory=self._state.approval_memory,
                 )
                 self._state.history = outcome.messages
                 self._state.last_changes = tool_context.changes

@@ -424,7 +424,7 @@ async def _agent_turn(
         deps = AgentDeps(
             config=state.config,
             publisher=bus,
-            policy=build_policy(state.approval, prompter),
+            policy=build_policy(state.approval, prompter, state.approval_memory),
             tool_context=tool_context,
             asker=prompter,
             code_index=state.memory.code_index if state.memory.enabled else None,

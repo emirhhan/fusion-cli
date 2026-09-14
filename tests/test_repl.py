@@ -898,6 +898,49 @@ async def test_plain_repl_consumes_pending_digest_once_and_registers_history_too
     assert state.pending_digest is None
 
 
+async def test_repl_oturum_izni_sonraki_turda_yeniden_sorulmaz(state, monkeypatch):
+    """Oturum boyunca verilen izin tur değişince unutulmamalı.
+
+    Gerçek hata: politika her turda `build_policy` ile yeniden kuruluyordu ve
+    izin kümesi onunla birlikte sıfırlanıyordu; kullanıcı aynı uzak yazma aracı
+    için her mesajda yeniden soruluyordu.
+    """
+    from fusion_cli.cli.repl import loop as repl_loop
+    from fusion_cli.core.tools import Tool, ToolEffect
+    from fusion_cli.engines.agent import AgentOutcome
+    from fusion_cli.engines.agent.approval import ApprovalAnswer, build_request
+
+    arac = Tool(
+        name="godot__add_node",
+        description="",
+        parameters={},
+        run=lambda a, c: None,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    )
+    sorular: list[str] = []
+
+    class _OturumIzniVeren:
+        def __init__(self, *args, **kwargs) -> None:
+            del args, kwargs
+
+        async def confirm(self, request):
+            sorular.append(request.tool.name)
+            return ApprovalAnswer.SESSION
+
+    async def _sahte_run_agent(task, deps, **kwargs):
+        await deps.policy.decide(build_request(arac, {}))
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr(repl_loop, "ConsolePrompter", _OturumIzniVeren)
+    monkeypatch.setattr("fusion_cli.engines.agent.run_agent", _sahte_run_agent)
+
+    await repl_loop._agent_turn("ilk görev", state, Console(quiet=True), _SahteArkaPlan())
+    await repl_loop._agent_turn("ikinci görev", state, Console(quiet=True), _SahteArkaPlan())
+
+    assert sorular == ["godot__add_node"]
+
+
 class _SahteArkaPlan:
     def spawn(self, *a, **k):
         return None

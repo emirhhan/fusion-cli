@@ -89,6 +89,30 @@ class ApprovalPolicy(Protocol):
     async def decide(self, request: ApprovalRequest) -> Decision: ...
 
 
+class ApprovalMemory:
+    """Kullanıcının "oturum boyunca" dediği izinleri turlar arasında taşır.
+
+    Politika her kullanıcı turunda `build_policy` ile yeniden kurulur; izin kümesi
+    politikanın içinde yaşadığında tur bitince kayboluyor ve kullanıcı aynı araç
+    için her mesajda yeniden soruluyordu. Hafızanın sahibi uzun ömürlü sohbet
+    durumudur (`ReplState`); politika yalnızca onu kullanır.
+
+    Yıkıcı çağrılar (`danger` dolu) hiçbir zaman hatırlanmaz.
+    """
+
+    def __init__(self) -> None:
+        self._scopes: set[str] = set()
+
+    def is_remembered(self, request: ApprovalRequest) -> bool:
+        """Bu çağrı için daha önce oturum izni verildi mi?"""
+        return request.danger is None and _scope(request) in self._scopes
+
+    def remember(self, request: ApprovalRequest) -> None:
+        """Oturum iznini kaydet; yıkıcı çağrı sessizce dışarıda bırakılır."""
+        if request.danger is None:
+            self._scopes.add(_scope(request))
+
+
 class AutoApproval:
     """Değiştirici işlemlere otomatik evet; yıkıcı ve TANINMAYAN komutlarda sorar.
 
@@ -98,16 +122,16 @@ class AutoApproval:
     Artık kabuk için soru terstir — tanımadığımız komut sorulur (`command_policy`).
     """
 
-    def __init__(self, prompter: Prompter) -> None:
+    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
-        self._session_allowed: set[str] = set()
+        self._memory = memory if memory is not None else ApprovalMemory()
 
     async def decide(self, request: ApprovalRequest) -> Decision:
         if request.danger is None and request.unattended_safe:
             return Decision.ALLOW
-        if request.danger is None and _scope(request) in self._session_allowed:
+        if self._memory.is_remembered(request):
             return Decision.ALLOW
-        return await _ask_and_remember(self._prompter, request, self._session_allowed)
+        return await _ask_and_remember(self._prompter, request, self._memory)
 
 
 class SecurityApproval:
@@ -117,16 +141,16 @@ class SecurityApproval:
     o kararı zaten vermiştir. Yıkıcı komutlar bu istisnadan yararlanamaz.
     """
 
-    def __init__(self, prompter: Prompter) -> None:
+    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
-        self._session_allowed: set[str] = set()
+        self._memory = memory if memory is not None else ApprovalMemory()
 
     async def decide(self, request: ApprovalRequest) -> Decision:
         if request.pre_allowed and request.danger is None:
             return Decision.ALLOW
-        if request.danger is None and _scope(request) in self._session_allowed:
+        if self._memory.is_remembered(request):
             return Decision.ALLOW
-        return await _ask_and_remember(self._prompter, request, self._session_allowed)
+        return await _ask_and_remember(self._prompter, request, self._memory)
 
 
 class PlanApproval:
@@ -136,13 +160,19 @@ class PlanApproval:
         return Decision.BLOCKED
 
 
-def build_policy(mode: ApprovalMode, prompter: Prompter) -> ApprovalPolicy:
-    """Moda karşılık gelen politikayı üret."""
+def build_policy(
+    mode: ApprovalMode, prompter: Prompter, memory: ApprovalMemory | None = None
+) -> ApprovalPolicy:
+    """Moda karşılık gelen politikayı üret.
+
+    `memory` verilmezse tek turluk taze hafıza kurulur; sohbet boyunca yaşayan
+    çağıranlar kendi hafızalarını her turda aynı nesneyle geçirir.
+    """
     if mode is ApprovalMode.PLAN:
         return PlanApproval()
     if mode is ApprovalMode.SECURITY:
-        return SecurityApproval(prompter)
-    return AutoApproval(prompter)
+        return SecurityApproval(prompter, memory)
+    return AutoApproval(prompter, memory)
 
 
 def build_request(
@@ -175,14 +205,14 @@ def build_request(
 async def _ask_and_remember(
     prompter: Prompter,
     request: ApprovalRequest,
-    session_allowed: set[str],
+    memory: ApprovalMemory,
 ) -> Decision:
     answer = await prompter.confirm(request)
     if answer is ApprovalAnswer.SESSION:
-        # Yıkıcı işlemler hiçbir zaman oturum iznine dönüşmez. UI bu seçeneği
-        # zaten göstermez; ikinci savunma hattı özel prompter'ları da kapsar.
-        if request.danger is None:
-            session_allowed.add(_scope(request))
+        # Yıkıcı işlemler hiçbir zaman oturum iznine dönüşmez (`remember` bunu
+        # uygular). UI bu seçeneği zaten göstermez; ikinci savunma hattı özel
+        # prompter'ları da kapsar.
+        memory.remember(request)
         return Decision.ALLOW
     if answer is ApprovalAnswer.ONCE or answer is True:
         return Decision.ALLOW

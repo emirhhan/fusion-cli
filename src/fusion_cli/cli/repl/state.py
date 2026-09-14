@@ -16,7 +16,7 @@ from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.types import FusionResult, Message
-from ...engines.agent.approval import ApprovalMode
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
@@ -101,6 +101,9 @@ class ReplState:
 
     #: `.claude/settings.local.json` içindeki onaysız komutlar.
     allowed_commands: frozenset[str] = frozenset()
+    #: "Oturum boyunca" verilen onay izinleri. Politika her tur yeniden kurulur;
+    #: izinler turla birlikte kaybolmasın diye sohbet durumunda yaşar.
+    approval_memory: ApprovalMemory = field(default_factory=ApprovalMemory)
     #: Kurulmuş ama henüz gösterilmemiş hatırlatmalar.
     reminders: list[Reminder] = field(default_factory=list)
     #: Devralınan oturumun künyesi. Bir sonraki turda sistem bağlamına eklenir.

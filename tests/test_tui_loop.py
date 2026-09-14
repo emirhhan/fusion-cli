@@ -335,6 +335,27 @@ async def test_tui_consumes_pending_digest_once_and_injects_home(tmp_path, monke
     assert state.pending_digest is None
 
 
+async def test_tui_turlari_ayni_onay_hafizasini_paylasir(tmp_path, monkeypatch) -> None:
+    """Oturum boyunca verilen izin TUI'de de tur değişince unutulmamalı."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("ilk görev")
+    await session._turn("ikinci görev")
+
+    assert calls[0].get("approval_memory") is not None
+    assert calls[0]["approval_memory"] is calls[1]["approval_memory"]
+
+
 class _Onaylayan:
     async def confirm(self, request):
         return True
