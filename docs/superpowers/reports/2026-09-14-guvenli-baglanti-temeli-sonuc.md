@@ -20,7 +20,10 @@ Bu plan boyunca eklenen commit'ler (baseline sonrası, en eskiden en yeniye):
    MCP istemcisi kaydettiği her araca bu etkiyi taşıyor.
 3. `c0733c3` — `fix(mcp): kayıtlı ortam değişkenlerini stdio sunucusuna aktar`
    `mcp_bridge/transport.py::resolve_stdio_env` stdio alt-sürecine yalnız
-   `env_names`'te açıkça listelenen değişkenleri aktarıyor (önceden tüm ortam sızıyordu).
+   `env_names`'te açıkça listelenen değişkenleri aktarıyor. Önceden ortam SIZMIYORDU;
+   tersine eksik kalıyordu: `env` verilmediği için MCP SDK sürece yalnız
+   `get_default_environment()` (HOME, PATH gibi güvenli değişkenler) veriyordu ve
+   bağlantı ekranında kaydedilen anahtarlar sunucuya hiç ulaşmıyordu.
 4. `c5a29cd` — `refactor(mcp): eksik ortam değişkeni listesine İngilizce ad ver`
    Küçük isimlendirme düzeltmesi (aynı Görev 3 kapsamında).
 
@@ -150,6 +153,45 @@ alt-süreçle ve LLM'siz doğru çalıştığını kanıtlıyor.
   raporun yazıldığı anda gerçek sayı 24'tür — fark muhtemelen aradaki commit'lerde
   dokunulan/eklenen bazı dosyaların ruff biçimiyle tam örtüşmemesinden geliyor, ancak
   bu görevin commit'i format sürüklenmesine dokunmuyor.)
+
+- **Etkileşimsiz koşularda açıklamasız uzak araçlar reddedilir (bilinçli).** TTY
+  olmayan ortamda (`fusion run` pipe ile, CI) `ConsolePrompter.confirm` boş cevabı
+  onay saymaz ve `False` döndürür. Bu yüzden `readOnlyHint` taşımayan uzak MCP
+  araçları (ör. `godot__*`) auto kipte `DENIED` olur. Bu kasıtlıdır: gözetimsiz koşu
+  uzak sistemde yazma yapmamalı. Eval koşucusu (`evals/agent_runner.py::_EvalApproval`)
+  kendi politikasını kullandığı için etkilenmez. Masaüstünde `/goal` koşusu böyle bir
+  çağrıda onay kartında duraklar ve kullanıcının cevabını bekler.
+- **Kayıtlı ortam değişkeni eksik stdio sunucusu artık bağlanmaz.** `env_names`
+  içindeki bir değişken bulunamazsa `resolve_stdio_env` açık bir hata verir
+  ("MCP ortam değişkeni bulunamadı: …") ve sunucu başlatılmaz; eskiden sunucu o
+  değişken olmadan başlıyor ve sorun ilk araç çağrısında belirsiz bir hata olarak
+  görünüyordu.
+
+## Son inceleme düzeltmeleri
+
+Son incelemede bulunan iki açık, hatayı gösteren testlerle (önce KIRMIZI) kapatıldı:
+
+1. `f449534` — `fix(mcp): barındırmalı bağlantı araçları da uzak etkiyle kaydedilsin`
+   (KRİTİK). `HostedConnectorClient.register_into` araçları `effect` vermeden
+   kaydediyordu; `MetaAds__update_budget` gibi araçlar `ToolEffect.LOCAL` sayılıp auto
+   kipte sorulmadan çalışıyordu. Keşif cevabı modelin yazdığı metin olduğundan MCP
+   açıklaması taşınmaz ve doğrulanamaz; bu yüzden açıklamasız varsayılan
+   `REMOTE_WRITE` uygulanıyor. Testler: `tests/test_hosted_relay.py` (araç auto kipte
+   soruluyor) ve `tests/test_mcp.py::test_hicbir_uzak_arac_yerel_etkiyle_kaydedilmez`
+   (stdio/HTTP ve barındırmalı kayıt yollarından hiçbir uzak araç `LOCAL` değil).
+2. `b36a585` — `fix(onay): oturum izni tur değişince unutulmasın` (ÖNEMLİ).
+   `build_policy` her kullanıcı turunda yeniden çağrıldığı için "oturum boyunca" izni
+   yalnız o tur yaşıyordu. İzin kümesi `engines/agent/approval.py::ApprovalMemory`
+   nesnesine taşındı; sahibi sohbet durumu `ReplState.approval_memory`'dir ve REPL
+   (`cli/repl/loop.py`), TUI (`cli/repl/tui_loop.py`) ile masaüstü
+   (`appserver/session.py`, süreç başına tek sohbet) her turda aynı nesneyi
+   `run_agent_task(approval_memory=...)`/`build_policy` ile geçiriyor. Tek seferlik
+   `fusion run` taze hafıza alır. Yıkıcı (`danger` dolu) çağrılar hiçbir zaman
+   hatırlanmaz. Testler: `tests/test_repl.py`, `tests/test_appserver_session.py`
+   (iki ayrı turda aynı uzak yazma aracı → tek soru), `tests/test_tui_loop.py`,
+   `tests/test_agent_approval.py` (ortak hafıza; yıkıcı çağrı iki kez sorulur).
+
+Tam kapı (bu düzeltmelerden sonra): `ruff check .` temiz, `mypy` temiz (331 dosya), `pytest` 3845 test — 3841 passed, 4 skipped, 0 failed, 0 error (önceki rapora göre +7 yeni test). Frontend değişmedi, `npm test` çalıştırılmadı.
 
 ## Kapı özeti
 
