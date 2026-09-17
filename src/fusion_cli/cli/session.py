@@ -152,6 +152,7 @@ async def run_agent_task(
     conversation_id: str = "cli",
     step_limit: int | None = None,
     approval_memory: ApprovalMemory | None = None,
+    chat_mode: bool = False,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -217,6 +218,7 @@ async def run_agent_task(
             system_prompt=system_prompt,
             images=images,
             step_limit=step_limit,
+            chat_mode=chat_mode,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -261,6 +263,7 @@ async def _run_agent_with_mcp(
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
+    chat_mode: bool = False,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -279,6 +282,7 @@ async def _run_agent_with_mcp(
             deps,
             history=history,
             plan_mode=plan_mode,
+            chat_mode=chat_mode,
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,

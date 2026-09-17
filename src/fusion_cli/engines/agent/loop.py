@@ -86,6 +86,7 @@ from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, history, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
+from .chat_mode import chat_execution, chat_tool_names
 from .classify import TaskClassification, TaskKind, classify_task_details, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
@@ -344,6 +345,7 @@ async def run_agent(
     *,
     history: list[Message] | None = None,
     plan_mode: bool = False,
+    chat_mode: bool = False,
     extra_system: str = "",
     depth: int = 0,
     self_review: bool | None = None,
@@ -360,6 +362,9 @@ async def run_agent(
     `allowed_tools` verilirse modele YALNIZCA o araçlar sunulur (uzman agent'lar
     kendi araç setini bildirebilir). Boş küme tüm araçları kapatır; dolu kümede
     görev yönetimi ve soru sorma araçları ayrıca sunulur.
+
+    `chat_mode` sohbet turudur: model okur ve cevaplar, çalışma alanını
+    DEĞİŞTİRMEZ ve plan motoruna girmez (bkz. `chat_mode.py`).
     """
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
@@ -368,7 +373,7 @@ async def run_agent(
     if deps.budget is None:
         deps.budget = _new_budget(deps.config)
 
-    if not plan_mode and depth == 0:
+    if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
         if played is not None:
             return played
@@ -392,8 +397,12 @@ async def run_agent(
     # Gerçek dünya etkisi için deterministik handler varsa LLM ReAct döngüsünü
     # tamamen atla. Modelin "pushluyorum" demesi operasyon sonucu değildir; Git
     # workflow'u post-condition (local HEAD == remote HEAD) kanıtını kendisi üretir.
-    effect_result = await maybe_run_effect_workflow(
-        task, deps, registry, plan_mode=plan_mode, depth=depth
+    effect_result = (
+        None
+        if chat_mode
+        else await maybe_run_effect_workflow(
+            task, deps, registry, plan_mode=plan_mode, depth=depth
+        )
     )
     if effect_result is not None:
         effect_messages = list(history or [])
@@ -464,6 +473,10 @@ async def run_agent(
         # Bir kapı turu reddediyorsa dayandığı iddia O TURDA söylenmiş olmalı.
         deps.execution = policy_for(deps.config, selected_spec, kind, task)
     execution = deps.execution
+    if chat_mode:
+        # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
+        execution = chat_execution(execution)
+        allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
     if allowed_tools is not None:
         names = frozenset(_permitted(allowed_tools, registry, execution) or ())
         execution = replace(execution, allowed_tool_names=names)
@@ -504,7 +517,7 @@ async def run_agent(
                 ok=False,
             )
 
-    if not plan_mode and depth == 0:
+    if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(
             task,
             classification,

@@ -1015,6 +1015,9 @@ class AppSession:
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
                 system_prompt=(None if self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT),
+                # Sohbet kipi çalışma alanına dokunmaz: ölçüldü, "kampanya planı
+                # yap" isteği sohbette diske dosya yazıyordu (bkz. `chat_mode.py`).
+                chat_mode=self._workspace_mode != "kod",
                 interactive=True,
                 capabilities=self._state.capabilities,
                 conversation_id=self._conversation_id or "app",
