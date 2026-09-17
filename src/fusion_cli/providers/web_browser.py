@@ -39,6 +39,7 @@ from ..config.paths import user_data_dir
 from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
+from .web_markdown import html_to_markdown
 from .web_session import WebSessionCredential, WebTransport, WebTurn
 from .web_shared_browser import (
     SharedBrowserError,
@@ -1646,17 +1647,42 @@ _KOD_BLOGU_SUSLERI: tuple[str, ...] = (
     "mat-icon",
 )
 
-#: Süsleri kopya bir düğümden silip metni okuyan tarayıcı betiği. Kopya
-#: üzerinde çalışır; sayfanın kendisi DEĞİŞTİRİLMEZ.
-_SUSSUZ_METIN_BETIGI = f"""
+#: Süsleri kopya bir düğümden silip HEM HTML'İ HEM METNİ okuyan tarayıcı betiği.
+#: Kopya üzerinde çalışır; sayfanın kendisi DEĞİŞTİRİLMEZ.
+#:
+#: HTML de alınır çünkü `innerText` yapıyı taşımaz: başlık, liste, tablo ve kod
+#: bloğu düz metne inince cevap okunmaz hâle geliyordu (bkz. `web_markdown`).
+#: Metin yine de alınır: çeviri beklenmedik bir DOM'da içeriği yutarsa ona düşülür.
+_SUSSUZ_ICERIK_BETIGI = f"""
 (nodes) => nodes.map((node) => {{
   const kopya = node.cloneNode(true);
   for (const secici of {list(_KOD_BLOGU_SUSLERI)}) {{
     for (const sus of kopya.querySelectorAll(secici)) sus.remove();
   }}
-  return kopya.innerText ?? '';
+  return {{ html: kopya.innerHTML ?? '', text: kopya.innerText ?? '' }};
 }})
 """
+
+
+#: Çeviri bu orandan az içerik bırakırsa düz metne dönülür. Biçim kaybı,
+#: içerik kaybından iyidir; oran ölçüye değil bu ilkeye dayanır.
+_CEVIRI_ASGARI_ORAN = 0.5
+
+
+def _icerikten_metin(deger: object) -> str:
+    """Tarayıcıdan gelen değeri okunur metne çevir.
+
+    Sözlük gelirse HTML Markdown'a çevrilir; düz metin gelirse (sahte sayfa,
+    eski Playwright) olduğu gibi kullanılır.
+    """
+    if isinstance(deger, Mapping):
+        ham_html = str(deger.get("html") or "")
+        duz_metin = str(deger.get("text") or "")
+        markdown = html_to_markdown(ham_html)
+        if markdown and len(markdown) >= len(duz_metin) * _CEVIRI_ASGARI_ORAN:
+            return markdown
+        return duz_metin
+    return str(deger)
 
 
 async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, ...]:
@@ -1680,7 +1706,7 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
     for selector in selectors:
         locator = page.locator(selector)
         try:
-            values = await locator.evaluate_all(_SUSSUZ_METIN_BETIGI)
+            values = await locator.evaluate_all(_SUSSUZ_ICERIK_BETIGI)
         except Exception:
             # Betik çalıştırılamıyorsa (eski Playwright, sahte sayfa) ham metne
             # düşülür: süslü metin, hiç metin olmamasından iyidir.
@@ -1688,7 +1714,8 @@ async def _response_snapshot(page: Any, selectors: Sequence[str]) -> tuple[str, 
                 values = await locator.all_inner_texts()
             except Exception:
                 continue
-        texts = tuple(_clean_text(value) for value in values if _clean_text(value))
+        okunanlar = (_clean_text(_icerikten_metin(value)) for value in values)
+        texts = tuple(metin for metin in okunanlar if metin)
         if texts:
             return texts
     return ()
