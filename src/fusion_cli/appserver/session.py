@@ -131,6 +131,13 @@ def _build_health(config: Config) -> HealthRegistry:
 #: çoğu uçta reddedilir ve kullanıcıya sebebi belirsiz bir hata döner.
 MAX_GORSEL_BAYT = 5 * 1024 * 1024
 
+#: İptal edilen turun kapanması için tanınan süre.
+#:
+#: İptal anında tarayıcı ya da alt süreç çağrısı bırakılırken birkaç yüz
+#: milisaniye geçebiliyor. Bu kadarı kullanıcıyı bekletmez; daha uzun beklemek
+#: ise "durdurdum, yazamıyorum" hissini uzatırdı.
+TURN_CANCEL_SETTLE_S = 2.0
+
 #: Uzantıdan MIME türü. Liste dar tutulur: tanımadığımız bir türü "image/*"
 #: diye göndermek uçta çözülemeyen bir yük üretir.
 _GORSEL_TURLERI = {
@@ -263,6 +270,8 @@ class AppSession:
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
+        #: İptal edilen turun kapanması bekleniyor mu?
+        self._iptal_bekliyor = False
         self._state.history = load_transcript_messages(config.memory_dir, root)
         # YAZMA kimliği asla rastgele olmaz. Ölçüldü (kullanıcının diski, 7 Eylül):
         # kimliksiz açılan depo her seferinde `session-<zaman>-<rastgele>` üretti ve
@@ -967,6 +976,7 @@ class AppSession:
         """
         if not task.strip():
             return {"ok": False, "metin": messages.RUN_EMPTY_TASK}
+        await self._iptal_edilen_turu_bekle()
         if self._turn is not None and not self._turn.done():
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import run_agent_task
@@ -1113,7 +1123,22 @@ class AppSession:
         if self._turn is None or self._turn.done():
             return {"ok": False, "metin": messages.APP_NO_RUNNING_TURN}
         self._turn.cancel()
+        self._iptal_bekliyor = True
         return {"ok": True, "metin": messages.APP_TURN_CANCELLED}
+
+    async def _iptal_edilen_turu_bekle(self) -> None:
+        """İptal edilen tur kapanana kadar kısa bir süre bekle.
+
+        Ölçüldü (17 Eylül denetimi): tur zaman aşımına düşüp iptal edildikten
+        hemen sonra gönderilen mesaj "zaten çalışan bir tur var" ile reddediliyordu.
+        İptal, tarayıcı çağrısının bırakılmasıyla birkaç yüz milisaniye sürebilir;
+        kullanıcıyı bu yüzden geri çevirmek yerine kısa süre beklenir.
+        """
+        if not self._iptal_bekliyor or self._turn is None:
+            self._iptal_bekliyor = False
+            return
+        await asyncio.wait({self._turn}, timeout=TURN_CANCEL_SETTLE_S)
+        self._iptal_bekliyor = False
 
     def resolve_reply(self, reply: Reply) -> bool:
         """Uygulamanın cevabını bekleyen soruya bağla."""
