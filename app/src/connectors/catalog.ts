@@ -7,6 +7,13 @@
  * Uç noktalar ve paketler sağlayıcıların yayımladığı belgelerden derlendi.
  * Değişebilirler; katalog bir BAŞLANGIÇ değeridir, kullanıcı "Ekle" ile kendi
  * değerini girip düzeltebilir.
+ *
+ * Doğrulama (18 Eylül 2026): npm paketleri `npm view <paket>` ile, PyPI paketleri
+ * pypi.org JSON uç noktasıyla, uzak uç noktalar MCP `initialize` isteğiyle
+ * denendi. Kaldırılanlar: `server-puppeteer`, `server-gdrive`, `server-slack`
+ * npm'de "no longer supported" (deprecated); `server-gmail` npm'de hiç yok (404).
+ * Linear ve Sentry'nin `/sse` adresi 404 veriyordu; uzak girişler Streamable
+ * HTTP konuştuğu için hepsi `/mcp` uç noktasına çevrildi.
  * Remote uç noktalar backend'de `validate_remote_mcp_url`'den geçer: HTTPS
  * zorunlu, düz HTTP yalnız loopback (Figma masaüstü) için.
  */
@@ -51,6 +58,11 @@ export interface CatalogEntry {
   setup?: readonly SetupField[];
 }
 
+/** Yerel girişlerin ihtiyaç duyduğu, ayrıca kurulması gereken çalıştırıcılar.
+ *  Kurulu değilse backend eklemeyi reddeder ve kurulum komutunu söyler. */
+const RUNNERS = ["npx", "uvx"] as const;
+export type ConnectorRunner = (typeof RUNNERS)[number];
+
 const CATALOG: readonly CatalogEntry[] = [
   // --- Banner (öne çıkan 3) ------------------------------------------------ //
   {
@@ -76,18 +88,6 @@ const CATALOG: readonly CatalogEntry[] = [
     oauth: true,
     featured: true,
   },
-  {
-    id: "google-drive",
-    label: "Google Drive",
-    description: "Dosya arama ve içerik okuma; Google hesabıyla yetkilendirilir.",
-    category: "Üretkenlik",
-    tint: "#3b7ddd",
-    glyph: "GD",
-    transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-gdrive",
-    oauth: true,
-    featured: true,
-  },
 
   // --- Katalog ------------------------------------------------------------- //
   {
@@ -98,8 +98,9 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#8a8a86",
     glyph: "No",
     transport: "streamable_http",
-    url: "https://mcp.notion.com/sse",
+    url: "https://mcp.notion.com/mcp",
     oauth: true,
+    featured: true,
   },
   {
     id: "linear",
@@ -109,7 +110,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#5b60d6",
     glyph: "Li",
     transport: "streamable_http",
-    url: "https://mcp.linear.app/sse",
+    url: "https://mcp.linear.app/mcp",
     oauth: true,
   },
   {
@@ -120,7 +121,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#8b5cf6",
     glyph: "Se",
     transport: "streamable_http",
-    url: "https://mcp.sentry.dev/sse",
+    url: "https://mcp.sentry.dev/mcp",
     oauth: true,
   },
   {
@@ -142,7 +143,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#2b7fff",
     glyph: "At",
     transport: "streamable_http",
-    url: "https://mcp.atlassian.com/v1/sse",
+    url: "https://mcp.atlassian.com/v1/mcp",
     oauth: true,
   },
   {
@@ -153,7 +154,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#f38020",
     glyph: "Cf",
     transport: "streamable_http",
-    url: "https://bindings.mcp.cloudflare.com/sse",
+    url: "https://bindings.mcp.cloudflare.com/mcp",
     oauth: true,
   },
   {
@@ -164,7 +165,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#f06a6a",
     glyph: "As",
     transport: "streamable_http",
-    url: "https://mcp.asana.com/sse",
+    url: "https://mcp.asana.com/v2/mcp",
     oauth: true,
   },
   {
@@ -179,60 +180,23 @@ const CATALOG: readonly CatalogEntry[] = [
     oauth: true,
   },
   {
-    id: "slack",
-    label: "Slack",
-    description: "Kanal ve mesaj araçları; bot jetonu ile çalışır.",
-    category: "Üretkenlik",
-    tint: "#4a154b",
-    glyph: "Sl",
-    transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-slack",
-    setup: [
-      {
-        id: "bot-token",
-        label: "Slack bot jetonu",
-        placeholder: "xoxb-…",
-        secret: true,
-        target: "environment",
-        environmentName: "SLACK_BOT_TOKEN",
-      },
-      {
-        id: "team-id",
-        label: "Slack çalışma alanı kimliği",
-        placeholder: "T01234567",
-        target: "environment",
-        environmentName: "SLACK_TEAM_ID",
-      },
-    ],
-  },
-  {
-    id: "gmail",
-    label: "Gmail",
-    description: "E-posta okuma ve gönderme; Google hesabıyla yetkilendirilir.",
-    category: "Üretkenlik",
-    tint: "#d64b3f",
-    glyph: "Gm",
-    transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-gmail",
-    oauth: true,
-  },
-  {
     id: "postgres",
     label: "PostgreSQL",
-    description: "Salt-okunur sorgu ve şema inceleme.",
+    description: "Salt-okunur sorgu, şema inceleme ve sağlık analizi.",
     category: "Veri",
     tint: "#336791",
     glyph: "Pg",
     transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-postgres",
+    // Salt-okunur kip: ajan veritabanında yazma sorgusu çalıştıramaz.
+    command: "uvx postgres-mcp --access-mode=restricted",
     setup: [
       {
         id: "dsn",
         label: "PostgreSQL bağlantı adresi",
         placeholder: "postgresql://kullanici:parola@localhost/veritabani",
         secret: true,
-        target: "secret_argument",
-        environmentName: "POSTGRES_URL",
+        target: "environment",
+        environmentName: "DATABASE_URI",
       },
     ],
   },
@@ -262,7 +226,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#fb542b",
     glyph: "Br",
     transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-brave-search",
+    command: "npx -y @brave/brave-search-mcp-server",
     setup: [
       {
         id: "api-key",
@@ -275,14 +239,14 @@ const CATALOG: readonly CatalogEntry[] = [
     ],
   },
   {
-    id: "puppeteer",
-    label: "Puppeteer",
-    description: "Başsız tarayıcı ile sayfa gezme ve ekran görüntüsü.",
+    id: "playwright",
+    label: "Playwright",
+    description: "Tarayıcıyı sürerek sayfa gezme, form doldurma ve ekran görüntüsü.",
     category: "Araç",
-    tint: "#40b5a4",
-    glyph: "Pp",
+    tint: "#2ead33",
+    glyph: "Pw",
     transport: "stdio",
-    command: "npx -y @modelcontextprotocol/server-puppeteer",
+    command: "npx -y @playwright/mcp@latest",
   },
   {
     id: "fetch",
@@ -312,7 +276,7 @@ const CATALOG: readonly CatalogEntry[] = [
     tint: "#a259ff",
     glyph: "Fi",
     transport: "streamable_http",
-    url: "http://127.0.0.1:3845/sse",
+    url: "http://127.0.0.1:3845/mcp",
   },
 ];
 
@@ -324,6 +288,14 @@ export const catalogConnectors: readonly CatalogEntry[] = CATALOG.filter((e) => 
 
 /** Tüm katalog. */
 export const allConnectors: readonly CatalogEntry[] = CATALOG;
+
+/** Girişin çalışması için kurulu olması gereken çalıştırıcı (npx/uvx); yoksa null.
+ *  Komuttan türetilir: aynı bilgiyi ayrı bir alanda tekrar yazmak ayrışırdı. */
+export function requiredRunner(entry: CatalogEntry): ConnectorRunner | null {
+  if (entry.transport !== "stdio" || !entry.command) return null;
+  const first = entry.command.trim().split(/\s+/)[0];
+  return (RUNNERS as readonly string[]).includes(first) ? (first as ConnectorRunner) : null;
+}
 
 /** Bir katalog girişini `baglanti.ekle` RPC yüküne çevir. */
 export function addPayloadFor(
