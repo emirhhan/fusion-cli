@@ -7,25 +7,59 @@ from collections.abc import Awaitable, Callable
 
 from ..config.models import McpServerConfig
 from .client import McpClient, McpConnectionStatus
+from .failures import STATE_CONNECTED
+from .pool import forget_mcp_failure, mcp_pool_statuses
 from .tokens import KeyringTokenStorage
 
 Probe = Callable[[McpServerConfig], Awaitable[McpConnectionStatus]]
+PoolStatuses = Callable[[], dict[str, McpConnectionStatus]]
 
 
 class McpConnectionService:
-    def __init__(self, *, probe: Probe | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        probe: Probe | None = None,
+        quiet_probe: Probe | None = None,
+        pool_statuses: PoolStatuses = mcp_pool_statuses,
+    ) -> None:
         self._probe = probe or self._probe_server
+        #: Giriş penceresi AÇMAYAN deneme: kaydetmeden önceki doğrulama bunu
+        #: kullanır; giriş isteyen sunucu "giris_gerekli" döner, tarayıcı fırlamaz.
+        self._quiet_probe = quiet_probe or self._probe_server_quietly
+        self._pool_statuses = pool_statuses
         self._tasks: dict[str, asyncio.Task[McpConnectionStatus]] = {}
         self._statuses: dict[str, McpConnectionStatus] = {}
 
     @property
     def statuses(self) -> dict[str, McpConnectionStatus]:
-        return {name: self.login_status(name) for name in set(self._statuses) | set(self._tasks)}
+        """Ekranın göreceği durumlar.
+
+        Kullanıcının hiç test etmediği bir sunucunun durumu turlardan gelir: girişi
+        yapılmamış bir OAuth sunucusu turda sessizce atlanır ve kullanıcı bunu
+        Bağlantılar ekranında "Giriş gerekli" + "Bağlan" olarak görür. Kullanıcının
+        kendi denemesi (test/giriş) daha tazedir ve önceliklidir.
+        """
+        own = {name: self.login_status(name) for name in set(self._statuses) | set(self._tasks)}
+        return {**self._pool_statuses(), **own}
 
     async def test(self, config: McpServerConfig) -> McpConnectionStatus:
         status = await self._probe(config)
-        self._statuses[config.name] = status
+        self._record(config.name, status)
         return status
+
+    async def verify(self, config: McpServerConfig) -> McpConnectionStatus:
+        """Kaydetmeden önce bağlantıyı dene; giriş penceresi açma."""
+        status = await self._quiet_probe(config)
+        self._record(config.name, status)
+        return status
+
+    def _record(self, name: str, status: McpConnectionStatus) -> None:
+        self._statuses[name] = status
+        if status.state == STATE_CONNECTED:
+            # Kullanıcı sunucuyu düzeltti (giriş yaptı, token'ı yeniledi): turlar
+            # onu artık atlamamalı.
+            forget_mcp_failure(name)
 
     def start_login(self, config: McpServerConfig) -> McpConnectionStatus:
         current = self._tasks.get(config.name)
@@ -49,7 +83,7 @@ class McpConnectionService:
                     status = McpConnectionStatus(
                         server=name, state="hata", message="MCP girişi tamamlanamadı."
                     )
-            self._statuses[name] = status
+            self._record(name, status)
             self._tasks.pop(name, None)
         return self._statuses.get(name, McpConnectionStatus(server=name, state="kapali"))
 
@@ -80,15 +114,21 @@ class McpConnectionService:
         return await self._probe(config)
 
     @staticmethod
-    async def _probe_server(config: McpServerConfig) -> McpConnectionStatus:
-        async with McpClient((config,)) as client:
+    async def _probe_server(
+        config: McpServerConfig, *, interactive: bool = True
+    ) -> McpConnectionStatus:
+        async with McpClient((config,), interactive=interactive) as client:
             status = client.statuses.get(config.name)
-            if status is None or status.state != "bagli":
+            if status is None or status.state != STATE_CONNECTED:
                 return status or McpConnectionStatus(server=config.name, state="hata")
             tools = await client.list_tools(config.name)
             return McpConnectionStatus(
                 server=config.name,
-                state="bagli",
+                state=STATE_CONNECTED,
                 tool_count=len(tools),
                 latency_ms=status.latency_ms,
             )
+
+    @classmethod
+    async def _probe_server_quietly(cls, config: McpServerConfig) -> McpConnectionStatus:
+        return await cls._probe_server(config, interactive=False)

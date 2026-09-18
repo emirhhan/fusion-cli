@@ -18,6 +18,21 @@ görevinde kapanır.
 
 Olay döngüsü de anahtarın parçasıdır: ölü bir döngüde kalan görev beklenemez,
 bu yüzden farklı döngü önbellek ıskasıdır (bkz. `_Entry.loop`).
+
+SUNUCU BAŞINA HAVUZ (17 Eylül denetimi): havuz eskiden bütün yapılandırma
+kümesini tek girdi tutuyordu. Kullanıcı bir bağlantıyı kapatıp açınca ya da yeni
+bir bağlantı ekleyince BÜTÜN sunucular yeniden başlıyordu; sunucular da sırayla
+bağlandığı için tur başı gecikme her sunucunun süresinin TOPLAMIYDI. Artık her
+sunucunun kendi gözetmeni var, bağlantılar eşzamanlı kurulur ve yalnız değişen
+sunucu yenilenir.
+
+KENDİLİĞİNDEN DÜZELMEYEN BAŞARISIZLIK TURDA TEKRAR DENENMEZ: girişi yapılmamış
+OAuth sunucusu (Notion), kurulu olmayan çalıştırıcı (uvx), reddedilen token… Bunlar
+kullanıcı bir şey yapmadan düzelmez; her turda yeniden denemek her turda aynı hata
+dökümü ve gecikme demekti. Sunucu bir kez sessizce "park edilir", durumu
+Bağlantılar ekranında görünür (bkz. `service.McpConnectionService.statuses`);
+kullanıcı giriş yapınca ya da bağlantıyı değiştirince park kalkar. Geçici
+arızalar (zaman aşımı, ağ) önbelleğe yazılmaz: sonraki tur yeniden dener.
 """
 
 from __future__ import annotations
@@ -28,36 +43,56 @@ from dataclasses import dataclass, field
 
 from ..config.models import Config, McpServerConfig
 from ..tools import ToolRegistry
-from .client import McpClient
+from .client import McpClient, McpConnectionStatus, failure_status
+from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession
+from .identity import duplicate_of, unique_configs
 
-__all__ = ["McpToolPool", "close_mcp_pool", "ensure_hosted_tools", "ensure_mcp_tools"]
+__all__ = [
+    "McpToolPool",
+    "close_mcp_pool",
+    "ensure_hosted_tools",
+    "ensure_mcp_tools",
+    "forget_mcp_failure",
+    "mcp_pool_statuses",
+]
 
 _LOG = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
 class _Entry:
-    """Tek bir yapılandırma kümesi için canlı bağlantı ve gözetmeni."""
+    """Tek bir sunucunun canlı bağlantısı ve gözetmeni."""
 
-    configs: tuple[McpServerConfig, ...]
+    config: McpServerConfig
     loop: asyncio.AbstractEventLoop
     ready: asyncio.Event = field(default_factory=asyncio.Event)
     stop: asyncio.Event = field(default_factory=asyncio.Event)
     client: McpClient | None = None
-    error: BaseException | None = None
+    error: Exception | None = None
     task: asyncio.Task[None] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _Parked:
+    """Kullanıcı bir şey yapmadan düzelmeyecek başarısızlık (ör. giriş gerekli)."""
+
+    config: McpServerConfig
+    status: McpConnectionStatus
+
+
 class McpToolPool:
-    """Aynı yapılandırma için MCP istemcisini turlar arasında yeniden kullan."""
+    """MCP istemcilerini sunucu başına, turlar arasında yeniden kullan."""
 
     def __init__(self) -> None:
-        self._entry: _Entry | None = None
+        self._entries: dict[str, _Entry] = {}
+        self._parked: dict[str, _Parked] = {}
+        #: Kopyası bildirilmiş bağlantı adları: uyarı oturumda BİR KEZ yazılır.
+        self._reported_duplicates: set[str] = set()
         self._lock = asyncio.Lock()
         #: Kapanması istenmiş ama henüz bitmemiş gözetmen görevleri.
         #
-        # İptal edilen bir `client_for` çağrısı girdiyi `self._entry`'ye ASLA
+        # İptal edilen bir `clients_for` çağrısı girdiyi `self._entries`'e ASLA
         # yazmaz; o girdinin görevi burada tutulmazsa `aclose()` onu bulamaz ve
         # stdio alt süreci oturumdan sağ çıkar.
         self._draining: set[asyncio.Task[None]] = set()
@@ -65,55 +100,131 @@ class McpToolPool:
     @property
     def is_empty(self) -> bool:
         """Havuzda canlı bir bağlantı var mı? Başarısız giriş iz bırakmaz."""
-        return self._entry is None
+        return not self._entries
 
-    async def client_for(self, configs: tuple[McpServerConfig, ...]) -> McpClient:
-        """Yapılandırma için istemci ver; varsa ödünç, yoksa yeni bağlan."""
-        wanted = tuple(configs)
+    @property
+    def statuses(self) -> dict[str, McpConnectionStatus]:
+        """Havuzun bildiği sunucuların durumu: canlılar ve park edilenler."""
+        result = {name: parked.status for name, parked in self._parked.items()}
+        for name, entry in self._entries.items():
+            status = entry.client.statuses.get(name) if entry.client else None
+            if status is not None:
+                result[name] = status
+        return result
+
+    def forget(self, name: str) -> None:
+        """Park edilmiş sunucuyu serbest bırak; sonraki tur yeniden dener.
+
+        Kullanıcı "Bağlan" ile giriş yaptığında çağrılır: token artık anahtarlıkta
+        ve sunucu turda kullanılabilir.
+        """
+        self._parked.pop(name, None)
+
+    async def clients_for(self, configs: tuple[McpServerConfig, ...]) -> tuple[McpClient, ...]:
+        """Kullanılabilir sunucuların istemcilerini ver; eksikleri eşzamanlı bağla."""
+        self._report_duplicates(configs)
+        wanted = unique_configs(configs)
         loop = asyncio.get_running_loop()
         async with self._lock:
-            current = self._entry
-            if current is not None and self._reusable(current, wanted, loop):
-                assert current.client is not None  # `_reusable` bunu garanti eder
-                return current.client
-            if current is not None:
-                await self._discard(current, loop)
-            return await self._open(wanted, loop)
+            await self._discard_stale(wanted, loop)
+            to_open = [
+                config
+                for config in wanted
+                if config.name not in self._entries and not self._is_parked(config)
+            ]
+            if to_open:
+                # İptal gather'dan çocuklara geçer; her `_open` kendi gözetmenini
+                # boşaltma kümesine alır (bkz. `_open`).
+                await asyncio.gather(*(self._open(config, loop) for config in to_open))
+            return tuple(
+                entry.client
+                for config in wanted
+                if (entry := self._entries.get(config.name)) is not None
+                and entry.client is not None
+            )
 
-    def _reusable(
-        self, entry: _Entry, wanted: tuple[McpServerConfig, ...], loop: asyncio.AbstractEventLoop
-    ) -> bool:
-        if entry.configs != wanted or entry.loop is not loop:
+    def _report_duplicates(self, configs: tuple[McpServerConfig, ...]) -> None:
+        for duplicate, original in duplicate_of(configs).items():
+            if duplicate in self._reported_duplicates:
+                continue
+            self._reported_duplicates.add(duplicate)
+            _LOG.warning(
+                "Yinelenen MCP bağlantısı atlandı",
+                extra={"sunucu": duplicate, "asil": original},
+            )
+
+    def _is_parked(self, config: McpServerConfig) -> bool:
+        parked = self._parked.get(config.name)
+        if parked is None:
             return False
-        if entry.client is None or entry.error is not None:
+        if parked.config != config:
+            # Kullanıcı bağlantıyı değiştirdi: eski başarısızlık artık geçersiz.
+            self._parked.pop(config.name, None)
+            return False
+        return True
+
+    async def _discard_stale(
+        self, wanted: tuple[McpServerConfig, ...], loop: asyncio.AbstractEventLoop
+    ) -> None:
+        """İstenmeyen, değişmiş ya da ölü girdileri kapat."""
+        by_name = {config.name: config for config in wanted}
+        for name, entry in tuple(self._entries.items()):
+            if by_name.get(name) == entry.config and self._is_alive(entry, loop):
+                continue
+            del self._entries[name]
+            await self._discard(entry, loop)
+
+    @staticmethod
+    def _is_alive(entry: _Entry, loop: asyncio.AbstractEventLoop) -> bool:
+        if entry.loop is not loop or entry.client is None or entry.error is not None:
             return False
         return entry.task is not None and not entry.task.done()
 
-    async def _open(
-        self, configs: tuple[McpServerConfig, ...], loop: asyncio.AbstractEventLoop
-    ) -> McpClient:
-        entry = _Entry(configs=configs, loop=loop)
+    async def _open(self, config: McpServerConfig, loop: asyncio.AbstractEventLoop) -> None:
+        entry = _Entry(config=config, loop=loop)
         entry.task = loop.create_task(self._supervise(entry))
         try:
             await entry.ready.wait()
         except BaseException:
             # İPTAL DE BURAYA DÜŞER ve asıl sızıntı yolu buydu: Ctrl-C ya da
             # `AppSession.close()` turu bağlantı kurulurken iptal ettiğinde girdi
-            # `self._entry`'ye hiç yazılmıyor, gözetmen bağlanmayı bitirip
-            # `stop.wait()`'te sonsuza park ediyor ve `aclose()` onu bulamıyordu.
-            # Burada beklemek YANLIŞ olur: iptal edilmiş bağlamda her `await`
-            # anında yeniden `CancelledError` verir. Bu yüzden yalnız kapanma
-            # işareti verilir ve görev `aclose()`'un bekleyeceği kümeye alınır.
+            # havuza hiç yazılmıyor, gözetmen bağlanmayı bitirip `stop.wait()`'te
+            # sonsuza park ediyor ve `aclose()` onu bulamıyordu. Burada beklemek
+            # YANLIŞ olur: iptal edilmiş bağlamda her `await` anında yeniden
+            # `CancelledError` verir. Bu yüzden yalnız kapanma işareti verilir ve
+            # görev `aclose()`'un bekleyeceği kümeye alınır.
             self._drain(entry)
             raise
-        if entry.error is not None or entry.client is None:
-            # Başarısız giriş ÖNBELLEĞE YAZILMAZ: sonraki tur yeniden denemeli,
-            # aksi hâlde tek geçici arıza oturumun kalanını araçsız bırakırdı.
-            entry.stop.set()
-            await self._await_task(entry)
-            raise entry.error or RuntimeError("MCP bağlantısı kurulamadı.")
-        self._entry = entry
-        return entry.client
+        status = self._entry_status(entry)
+        if status.state == STATE_CONNECTED:
+            self._entries[config.name] = entry
+            return
+        # Başarısız sunucu havuzda TUTULMAZ; süreci/soketi hemen kapanır.
+        entry.stop.set()
+        await self._await_task(entry)
+        self._record_failure(config, status)
+
+    @staticmethod
+    def _entry_status(entry: _Entry) -> McpConnectionStatus:
+        name = entry.config.name
+        if entry.error is not None:
+            return failure_status(entry.config, entry.error, latency_ms=0)
+        status = entry.client.statuses.get(name) if entry.client else None
+        return status or McpConnectionStatus(server=name, state="hata")
+
+    def _record_failure(self, config: McpServerConfig, status: McpConnectionStatus) -> None:
+        if not is_permanent_kind(status.kind):
+            # Geçici arıza ÖNBELLEĞE YAZILMAZ: sonraki tur yeniden denemeli, aksi
+            # hâlde tek bir ağ kesintisi oturumun kalanını araçsız bırakırdı.
+            return
+        self._parked[config.name] = _Parked(config=config, status=status)
+        # Kullanıcıya gürültüsüz, BİR KEZ: durum Bağlantılar ekranında görünür.
+        level = logging.INFO if status.state == STATE_LOGIN_REQUIRED else logging.WARNING
+        _LOG.log(
+            level,
+            "MCP sunucusu bu oturumda turlarda atlanacak",
+            extra={"sunucu": config.name, "tur": status.kind},
+        )
 
     def _drain(self, entry: _Entry) -> None:
         """Girdiye kapanma işareti ver ve görevini `aclose()` için kaydet.
@@ -134,7 +245,7 @@ class McpToolPool:
         try:
             # TUR YOLU ETKİLEŞİMSİZDİR: giriş penceresi yalnız kullanıcının
             # "Bağlan" eyleminde açılır (bkz. `oauth.LoopbackOAuthCallback`).
-            async with McpClient(entry.configs, interactive=False) as client:
+            async with McpClient((entry.config,), interactive=False) as client:
                 entry.client = client
                 entry.ready.set()
                 await entry.stop.wait()
@@ -145,14 +256,22 @@ class McpToolPool:
             entry.ready.set()
 
     async def _discard(self, entry: _Entry, loop: asyncio.AbstractEventLoop) -> None:
-        """Eski girdiyi bırak; yalnız AYNI döngüde kapatılabilir."""
-        self._entry = None
+        """Girdiyi kapat; yalnız AYNI döngüde beklenebilir."""
         if entry.loop is not loop:
             # Ölü döngüdeki görev beklenemez; beklemek süreci kilitler.
             _LOG.warning("MCP havuzu farklı olay döngüsünde bulundu, bırakıldı")
             return
         entry.stop.set()
         await self._await_task(entry)
+
+    async def discard_client(self, client: McpClient) -> None:
+        """Kullanım sırasında bozulan istemciyi bırak; sonraki tur yeniden bağlanır."""
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            for name, entry in tuple(self._entries.items()):
+                if entry.client is client:
+                    del self._entries[name]
+                    await self._discard(entry, loop)
 
     async def _await_task(self, entry: _Entry) -> None:
         task = entry.task
@@ -166,14 +285,15 @@ class McpToolPool:
     async def aclose(self) -> None:
         """Oturum biterken bağlantıları kapat; stdio alt süreçleri sahipsiz kalmasın."""
         async with self._lock:
+            entries = tuple(self._entries.values())
+            self._entries.clear()
+            self._parked.clear()
             try:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
-                self._entry = None
                 self._draining.clear()
                 return
-            entry = self._entry
-            if entry is not None:
+            for entry in entries:
                 await self._discard(entry, loop)
             await self._drain_pending(loop)
 
@@ -195,15 +315,33 @@ _POOL = McpToolPool()
 async def ensure_mcp_tools(
     configs: tuple[McpServerConfig, ...], registry: ToolRegistry
 ) -> tuple[str, ...]:
-    """Bağlan (ya da açık bağlantıyı kullan) ve araçları kayıt defterine ekle.
+    """Bağlan (ya da açık bağlantıları kullan) ve araçları kayıt defterine ekle.
 
     Kayıt her turda tekrar çağrılır. `ToolRegistry.register` yinelenen adda
     `FusionError` fırlatır — uzak araçlar bu yüzden `register_or_replace` ile
     yazılır: bağlantı artık oturum boyunca yaşadığı için aynı defter ikinci turda
     yeniden beslenebilir ve keşif taze şema getirir.
+
+    Bir sunucunun keşfi düşerse diğerlerinin araçları yine eklenir.
     """
-    client = await _POOL.client_for(configs)
-    return await client.register_into(registry)
+    added: list[str] = []
+    for client in await _POOL.clients_for(configs):
+        try:
+            added.extend(await client.register_into(registry))
+        except Exception as error:  # tek sunucunun kopması turu düşürmez; log'lanır
+            _LOG.warning("MCP araç keşfi başarısız", extra={"hata": type(error).__name__})
+            await _POOL.discard_client(client)
+    return tuple(added)
+
+
+def mcp_pool_statuses() -> dict[str, McpConnectionStatus]:
+    """Turların gördüğü sunucu durumları (Bağlantılar ekranı için)."""
+    return _POOL.statuses
+
+
+def forget_mcp_failure(name: str) -> None:
+    """Kullanıcı sunucuyu düzelttiğinde (giriş vb.) park kaydını kaldır."""
+    _POOL.forget(name)
 
 
 def _hosted_channel_factory(config: Config) -> AskSession:
