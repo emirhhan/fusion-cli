@@ -1741,6 +1741,37 @@ async def observed_tier(page: Any, definition: BrowserProviderDefinition) -> str
     return ""
 
 
+#: Yanıtın bittiğine karar veren İKİ kararlılık penceresi.
+#
+# Ölçüldü (17 Eylül denetimi, gerçek koşu): web turlarındaki model çağrılarının
+# çoğu 9–12 sn sürdü (9.7, 9.3), bir kısmı ise TAM 192 sn sürdü (191.8, 192.8,
+# 192.0). 192 sn bir model süresi değil, bu fonksiyonun 180 sn'lik sınırı artı
+# `_transport`'un ikinci denemesinin ~12 sn'sidir: cevap sayfada ZATEN HAZIRDI,
+# bekleyici bitişi göremedi, süre doldu ve doğru cevap ancak tur baştan
+# çalıştırılınca alındı. Tek soruda üç kez yaşanınca 10 dakika kayboluyor.
+#
+# Sebep, bitişi TEK BİR sinyale bağlamaktı: "eşleşen yanıt öğesi sayısı arttı".
+# O sayı sağlayıcının DOM'una güvenir ve cevap gelse bile artmayabilir — uzun
+# sohbette eski turlar sanallaştırma ile DOM'dan düşer, seçici yedeğe kayarsa
+# sayım başka bir kümeden gelir, boş render edilen öğe `_response_snapshot`
+# tarafından elenir. Hiçbiri "cevap gelmedi" anlamına gelmez.
+#
+# Bu yüzden ikinci bir kabul yolu var: metin bu tur İÇİNDE değişmiş, üretim
+# göstergesi kaybolmuş ve metin RESPONSE_QUIET_S boyunca hiç değişmemişse yanıt
+# tamamlanmış sayılır.
+#
+# Eşikler:
+# - RESPONSE_STABLE_S (1.5): yeni yanıt ÖĞESİ görülen hızlı yol. Öğe sayısı zaten
+#   yeni bir turu kanıtlıyor; kısa pencere yalnızca son akış parçasını bekler.
+# - RESPONSE_QUIET_S (6.0): kanıtı yalnızca metin olan yedek yol. Ölçülen tam tur
+#   9–12 sn ve akış parçaları arası boşluk saniyenin altında; üretim göstergesi de
+#   kaybolmuşken 6 sn sessizlik akış içi bir duraklama olamaz. Yanlış kabulün
+#   maliyeti yarım cevap, geç kabulün maliyeti 180 sn — pencere bu yüzden akış
+#   duraklamasından belirgin biçimde uzun, tur bütçesinden ise çok kısa tutuldu.
+RESPONSE_STABLE_S = 1.5
+RESPONSE_QUIET_S = 6.0
+
+
 async def _wait_for_response(
     page: Any,
     definition: BrowserProviderDefinition,
@@ -1761,16 +1792,26 @@ async def _wait_for_response(
 
     1. "Yeni cevap geldi" ölçütü metin karşılaştırmasına DA bakıyordu
        (`candidate not in before OR sayı arttı`). Metin tabanlı dal, sayfa henüz yeni
-       yanıt öğesini oluşturmadan tetiklenebiliyordu. Artık tek ölçüt YENİ BİR YANIT
-       ÖĞESİNİN VARLIĞIDIR: eşleşen yanıt sayısı artmalıdır.
+       yanıt öğesini oluşturmadan tetiklenebiliyordu. Hızlı yolun ölçütü artık YENİ BİR
+       YANIT ÖĞESİNİN VARLIĞIDIR: eşleşen yanıt sayısı artmalıdır.
 
     2. Süre dolduğunda `latest` (yani ÖNCEKİ turun cevabı) döndürülüyordu. Bu, sessizce
        yanlış veri teslim etmektir. Artık hata fırlatılır: doğrulanamayan bir yanıt,
        yanlış bir yanıttan iyidir.
+
+    Kabul İKİ yoldan olur (bkz. `RESPONSE_STABLE_S` / `RESPONSE_QUIET_S`): yeni yanıt
+    ÖĞESİ görülen hızlı yol ve öğe sayısı artmasa bile metnin bu tur içinde değişip
+    sessizleştiği yedek yol. Süre dolarsa davranış aynı kalır — hata fırlatılır — ama
+    bu artık İSTİSNADIR, normal bitiş yolu değildir.
     """
     deadline = time.monotonic() + limit_s
+    # Turu göndermeden önceki SON yanıt metni: yedek yolun tazelik ölçütü.
+    # Metin bununla da `previous` ile de aynıysa sayfada bu tura ait hiçbir şey
+    # yok demektir ve hiçbir kabul yolu açılmaz.
+    baseline = before[-1] if before else ""
     latest = ""
     stable_since = time.monotonic()
+    calm_since = time.monotonic()
     checks = 0
     while time.monotonic() < deadline:
         checks += 1
@@ -1785,12 +1826,26 @@ async def _wait_for_response(
         # tekrar çalıştırdı. Sayı büyümüş görünse bile metin ÖNCEKİYLE AYNIYSA bu
         # yeni bir yanıt değildir.
         saw_new = len(current) > len(before) and bool(candidate) and candidate != previous
-        if candidate != latest:
+        # Yedek yolun tazeliği: metin HEM gönderim öncesinden HEM de önceki turun
+        # cevabından farklı olmalı. Öğe sayısına bakmaz, çünkü kaçırılan tam olarak
+        # o sinyaldi; eski cevabı yeni sanma riskini bu iki karşılaştırma kapatır.
+        changed = bool(candidate) and candidate != baseline and candidate != previous
+        text_changed = candidate != latest
+        if text_changed:
             latest = candidate
             stable_since = time.monotonic()
         generating = await _any_visible(page, definition.stop_selectors)
-        if saw_new and latest and not generating and time.monotonic() - stable_since >= 1.5:
-            return latest
+        # Sessizlik penceresi üretim göstergesini de kapsar: gösterge görünürken
+        # geçen süre sayılmaz. Böylece "Web'de aranıyor" gibi durağan ara metinler
+        # yedek yoldan da nihai cevap sanılmaz.
+        if text_changed or generating:
+            calm_since = time.monotonic()
+        now = time.monotonic()
+        if latest and not generating:
+            if saw_new and now - stable_since >= RESPONSE_STABLE_S:
+                return latest
+            if changed and now - calm_since >= RESPONSE_QUIET_S:
+                return latest
         if checks % 15 == 0:
             # BEKLERKEN yalnızca gerçekten ENGELLEYEN durumlar turu keser: oturum
             # kapalıysa ya da insan doğrulaması isteniyorsa cevap zaten gelmeyecek.
