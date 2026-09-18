@@ -30,4 +30,6 @@ export interface Soru {
   soru?: string;
   secenekler?: { deger?: string; etiket: string; aciklama?: string }[];
   onerilen?: string | null;
+  /** Düzenleme onaylarında "ne değişecek" önizlemesi (unified diff). */
+  diff?: string;
 }

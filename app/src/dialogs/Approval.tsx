@@ -1,6 +1,7 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
 import type { Soru } from "../protocol/types";
 import { Button } from "../ui/Button";
+import { DiffCard } from "../markdown/DiffCard";
 import "./Approval.css";
 
 interface ApprovalProps {
@@ -49,6 +50,12 @@ export function Approval({ soru, onCevap }: ApprovalProps) {
             </dl>
           )}
         </div>
+        {soru.diff && (
+          <div className="approval__diff">
+            {/* Karar argümandan değil SONUCUNDAN verilir: ne değişecek, burada. */}
+            <DiffCard diff={soru.diff} path={String(soru.argumanlar?.path ?? "")} />
+          </div>
+        )}
         {soru.tehlike && <p className="approval__danger">Dikkat: {soru.tehlike}</p>}
         <div className="approval__actions">
           {(soru.secenekler ?? []).map((option) => {

@@ -61,3 +61,20 @@ describe("Approval", () => {
     );
   });
 });
+
+it("düzenleme onayında ne değişeceğini diff olarak gösterir", () => {
+  render(
+    <Approval
+      onCevap={() => undefined}
+      soru={{
+        tur: "onay",
+        arac: "write_file",
+        argumanlar: { path: "stokapp/fiyat.py" },
+        diff: "--- a/stokapp/fiyat.py\n+++ b/stokapp/fiyat.py\n@@ -1 +1 @@\n-KDV = 0.18\n+KDV = 0.20\n",
+        secenekler: [{ deger: "once", etiket: "Bir kez izin ver" }],
+      }}
+    />,
+  );
+
+  expect(screen.getByText("KDV = 0.20", { exact: false })).toBeTruthy();
+});

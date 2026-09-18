@@ -986,7 +986,7 @@ class AppSession:
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
         sink = _MeteredSink(ProtocolSink(self._writer), self._usage)
-        prompter = ProtocolPrompter(self._writer, self.pending)
+        prompter = ProtocolPrompter(self._writer, self.pending, root=self._state.root)
         config = self._state.config
         if self._disabled_mcp:
             config = replace(

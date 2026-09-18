@@ -94,3 +94,10 @@
   justify-content: flex-end;
   margin-top: var(--space-5);
 }
+
+/* Onay kartındaki değişiklik önizlemesi: uzun diff kartı taşırmasın. */
+.approval__diff {
+  max-height: 260px;
+  overflow: auto;
+  margin-top: 4px;
+}

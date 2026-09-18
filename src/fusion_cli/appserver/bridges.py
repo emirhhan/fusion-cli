@@ -10,11 +10,13 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from itertools import count
+from pathlib import Path
 
 from ..core.events import Event
 from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
+from .approval_preview import onizleme_diffi
 from .protocol import encode_error, encode_event, encode_question
 from .serialize import event_to_dict
 
@@ -83,9 +85,12 @@ class PendingQuestions:
 class ProtocolPrompter:
     """Onay ve soruları tel üzerinden soran ``Prompter`` ve ``UserAsker``."""
 
-    def __init__(self, writer: Writer, pending: PendingQuestions) -> None:
+    def __init__(self, writer: Writer, pending: PendingQuestions, root: Path | None = None) -> None:
         self._writer = writer
         self._pending = pending
+        #: Önizleme diffi için proje kökü. Verilmezse önizleme üretilmez;
+        #: onay akışı bundan bağımsız çalışır.
+        self._root = root
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür."""
@@ -95,6 +100,9 @@ class ProtocolPrompter:
                 "arac": request.tool.name,
                 "argumanlar": _preview_args(request),
                 "tehlike": request.danger,
+                # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
+                # okumalı (bkz. `approval_preview`).
+                "diff": self._onizleme(request),
                 "secenekler": _approval_options(request),
             }
         )
@@ -104,6 +112,15 @@ class ProtocolPrompter:
         if choice == "session" and request.danger is None:
             return ApprovalAnswer.SESSION
         return ApprovalAnswer.DENY
+
+    def _onizleme(self, request: ApprovalRequest) -> str:
+        """Düzenleme onaylarında değişiklik önizlemesi; üretilemezse boş metin."""
+        if self._root is None:
+            return ""
+        try:
+            return onizleme_diffi(request.tool.name, dict(request.args), self._root)
+        except Exception:  # pragma: no cover - önizleme onayı ASLA engellemez
+            return ""
 
     async def ask(
         self,
