@@ -1033,6 +1033,7 @@ export function SessionUygulama({
           attachments={activeAttachments}
           attachmentError={attachmentError ?? commandError}
           commands={composerCommands}
+          context={active.baglam}
           mode={workspaceMode}
           onAttach={() => {
             setAttachmentError(null);

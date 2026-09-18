@@ -1,0 +1,43 @@
+/* Kalan bağlam göstergesi: normalde yalnız sönük bir halka; dolarken renk ve
+   kısa metin kazanır. Dikkat çekmemesi, dolunca da gözden kaçmaması hedeflenir. */
+.context-gauge {
+  align-items: center;
+  color: var(--text-secondary);
+  display: inline-flex;
+  font-size: var(--text-xs);
+  gap: var(--space-1);
+  margin-right: var(--space-1);
+  white-space: nowrap;
+}
+
+.context-gauge[data-seviye="uyari"],
+.context-gauge[data-seviye="kritik"] {
+  color: var(--text-warning);
+}
+
+.context-gauge__ring {
+  flex: none;
+  /* Yay saat 12'den başlasın. */
+  transform: rotate(-90deg);
+}
+
+.context-gauge__track,
+.context-gauge__fill {
+  fill: none;
+  stroke-width: 2.5;
+}
+
+.context-gauge__track {
+  stroke: var(--border-subtle);
+}
+
+.context-gauge__fill {
+  stroke: currentcolor;
+  stroke-linecap: butt;
+}
+
+@media (max-width: 620px) {
+  .context-gauge__label {
+    display: none;
+  }
+}

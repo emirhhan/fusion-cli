@@ -16,6 +16,19 @@ describe("Composer", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it("kalan bağlamı hem boşta hem iş sürerken mesaj kutusunun yanında gösterir", () => {
+    const context = { kullanilan: 20000, sinir: 24000, yuzde: 83 };
+    const { rerender } = render(<Composer context={context} onSend={vi.fn()} />);
+    expect(screen.getByRole("meter").textContent).toBe("Bağlam %17 kaldı");
+    rerender(<Composer context={context} onSend={vi.fn()} running />);
+    expect(screen.getByRole("meter").getAttribute("aria-valuenow")).toBe("83");
+  });
+
+  it("ölçü yokken bağlam göstergesi çizmez", () => {
+    render(<Composer onSend={vi.fn()} />);
+    expect(screen.queryByRole("meter")).toBeNull();
+  });
+
   it("Shift+Enter ile yeni satıra izin verir", () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ProtocolClient } from "../protocol/client";
-import type { Soru } from "../protocol/types";
+import { baglamOlcusuOku, type BaglamOlcusu, type Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
@@ -42,6 +42,23 @@ export const tauriSessionTransport: SessionTransport = {
   onClosed: (handler) =>
     listen<SessionClosedEvent>("oturum-kapandi", (event) => handler(event.payload)),
 };
+
+/**
+ * Kalan bağlamı çekirdekten oku. Tek ölçü kaynağı `oturum.durum`dur: geçmiş
+ * tur sonunda, komutla (`/compact`, `/clear`) ya da devralmayla değişir ve her
+ * seferinde aynı yoldan okunur.
+ */
+function olcuyuTazele(
+  id: string,
+  client: ProtocolClient,
+  dispatch: (action: { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null }) => void,
+): void {
+  void client
+    .request("oturum.durum", {})
+    .then((result) => dispatch({ type: "contextMeasured", id, baglam: baglamOlcusuOku(result.baglam) }))
+    // Çekirdek kapandıysa gösterge son ölçüde kalır; kapanış ayrıca bildirilir.
+    .catch(() => undefined);
+}
 
 function nextSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -138,7 +155,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
             });
             dispatch({ type: "historyLoaded", id, messages });
           })
-          .catch(() => undefined);
+          .catch(() => undefined)
+          // Geri açılan sohbet dolu olabilir: gösterge ilk mesajı beklemesin.
+          .finally(() => olcuyuTazele(id, client, dispatch));
       }
       return { id, client, snapshot };
     },
@@ -195,6 +214,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           });
           dispatch({ type: "historyLoaded", id: connection.id, messages });
         }).catch(() => undefined);
+        olcuyuTazele(connection.id, connection.client, dispatch);
         return {
           id: connection.id,
           secretCount: typeof result.sir_sayisi === "number" ? result.sir_sayisi : 0,
@@ -374,38 +394,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       if (session.title === DEFAULT_TITLE) {
         dispatch({ type: "titleChanged", id, title: titleFromTask(task) });
       }
-      void session.client
-        .request("tur.calistir", { gorev: task, ekler: attachments })
-        .then((result) => {
-          const text = typeof result.metin === "string" ? result.metin : "";
-          if (text) {
-            dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: text } });
-          }
-        })
-        .catch((reason) => {
-          dispatch({
-            type: "messageAdded",
-            id,
-            message: { rol: "asistan", metin: `Hata: ${String(reason)}` },
-          });
-        })
-        .finally(() => {
-          runningRequests.current.delete(id);
-          dispatch({ type: "runningChanged", id, running: false });
-          const bekleyen = kuyruk.current.get(id) ?? [];
-          const sonraki = bekleyen.shift();
-          kuyruk.current.set(id, bekleyen);
-          // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
-          // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
-          // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
-          if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
-        });
+      baslatRef.current?.(id, task, attachments);
       return true;
     },
     [state.sessions],
   );
 
-  //: Kuyruğu süren iç başlatıcı; `send` içinde tanımlanan akışı yeniden kullanır.
+  //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
+  //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const baslatRef = useRef<
     ((id: string, task: string, attachments: SessionAttachment[]) => void) | null
   >(null);
@@ -430,9 +426,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       .finally(() => {
         runningRequests.current.delete(id);
         dispatch({ type: "runningChanged", id, running: false });
+        // Geçmiş tur SONUNDA büyür ve gerekirse özetlenir; ölçü de şimdi eskidi.
+        olcuyuTazele(id, session.client, dispatch);
         const bekleyen = kuyruk.current.get(id) ?? [];
         const sonraki = bekleyen.shift();
         kuyruk.current.set(id, bekleyen);
+        // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
+        // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
+        // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
         if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
       });
   };
@@ -452,6 +453,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         ad: name,
         arguman: parts.join(" "),
       });
+      // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
+      olcuyuTazele(id, session.client, dispatch);
       const text = typeof result.metin === "string" ? result.metin : "";
       if (text || !result.secici) {
         dispatch({

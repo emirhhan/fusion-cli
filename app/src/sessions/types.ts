@@ -1,5 +1,5 @@
 import type { ProtocolClient } from "../protocol/client";
-import type { Soru } from "../protocol/types";
+import type { BaglamOlcusu, Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 
 export type SessionSource = "fusion" | "claude" | "codex" | "hermes";
@@ -51,6 +51,8 @@ export interface SessionModel {
   running: boolean;
   messages: Mesaj[];
   question: SessionQuestion | null;
+  /** Son okunan kalan bağlam ölçüsü; henüz okunmadıysa `null`. */
+  baglam: BaglamOlcusu | null;
   client: ProtocolClient;
 }
 

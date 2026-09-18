@@ -8,7 +8,10 @@ afterEach(() => localStorage.clear());
 function fakeTransport(
   initialHistory: { rol: "kullanici" | "asistan"; metin: string }[] = [],
   resumedHistory = initialHistory,
+  //: Sırayla dönecek `oturum.durum` ölçüleri; biterse boş ölçü döner.
+  baglamlar: Record<string, number>[] = [],
 ) {
+  const durumIstekleri: string[] = [];
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;
   let closedHandler: ((event: SessionClosedEvent) => void) | null = null;
   const sent: { id: string; line: string }[] = [];
@@ -30,6 +33,18 @@ function fakeTransport(
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
           satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true } }),
+        }));
+        return;
+      }
+      if (request.ad === "oturum.durum") {
+        durumIstekleri.push(id);
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({
+            tip: "sonuc",
+            id: request.id,
+            veri: { ok: true, baglam: baglamlar.shift() ?? { kullanilan: 0, sinir: 24000, yuzde: 0 } },
+          }),
         }));
         return;
       }
@@ -68,6 +83,7 @@ function fakeTransport(
     transport,
     sent,
     basladi,
+    durumIstekleri,
     emitLine: (event: SessionLineEvent) => lineHandler?.(event),
     emitResult: (sessionId: string, requestId: string, veri: Record<string, unknown>) => lineHandler?.({
       oturum_id: sessionId,
@@ -125,6 +141,29 @@ describe("useSessions", () => {
     expect(
       result.current.state.sessions.varsayilan.messages.filter((m) => m.rol === "kullanici"),
     ).toHaveLength(2);
+  });
+
+  it("açılışta ve tur bitince kalan bağlamı yeniden okur", async () => {
+    // Geçmiş tur SONUNDA büyür/özetlenir; ölçü yalnız açılışta okunsaydı
+    // gösterge ilk değerde donar ve sıkıştırma yine sürpriz olurdu.
+    const fake = fakeTransport([], [], [
+      { kullanilan: 1200, sinir: 24000, yuzde: 5 },
+      { kullanilan: 22000, sinir: 24000, yuzde: 92 },
+    ]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() =>
+      expect(result.current.activeSession?.baglam).toEqual({ kullanilan: 1200, sinir: 24000, yuzde: 5 }),
+    );
+
+    act(() => { result.current.send("varsayilan", "uzun bir iş"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const tur = JSON.parse(fake.sent[0].line) as { id: string };
+    // Tur sürerken ölçü değişmez; yeni okuma tur bitişini bekler.
+    expect(fake.durumIstekleri).toHaveLength(1);
+    act(() => fake.emitResult("varsayilan", tur.id, { ok: true, metin: "bitti" }));
+
+    await waitFor(() => expect(result.current.activeSession?.baglam?.yuzde).toBe(92));
+    expect(fake.durumIstekleri).toHaveLength(2);
   });
 
   it("ek yollarını yalnız çekirdek görev bağlamına ekler, kullanıcı mesajını temiz tutar", async () => {

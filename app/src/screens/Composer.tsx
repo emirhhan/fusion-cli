@@ -5,6 +5,8 @@ import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
 import { ModelPicker, type ModelOption } from "./ModelPicker";
+import { ContextGauge } from "./ContextGauge";
+import type { BaglamOlcusu } from "../protocol/types";
 
 /** Kipler tek yerde tanımlanır: etiket, simge ve ne yaptığı birlikte durur. */
 const MODES = [
@@ -66,6 +68,8 @@ interface ComposerProps {
   attachments?: ComposerAttachment[];
   attachmentError?: string | null;
   commands?: ComposerCommand[];
+  /** Kalan bağlam ölçüsü; yoksa gösterge çizilmez. */
+  context?: BaglamOlcusu | null;
   mode?: WorkspaceMode;
   /** Kip isteği sürerken düğmeler kilitlenir; çift tıklama iki istek yollardı. */
   modeBusy?: boolean;
@@ -94,6 +98,7 @@ export function Composer({
   attachments = [],
   attachmentError = null,
   commands = [],
+  context = null,
   mode = "sohbet",
   modeBusy = false,
   onApprovalChange,
@@ -286,6 +291,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
+              <ContextGauge olcu={context} />
               {/* Çalışırken de gönderilebilir: mesaj sıraya girer (bkz. useSessions). */}
               <Button
                 aria-label="Sıraya ekle"
@@ -298,6 +304,7 @@ export function Composer({
             </span>
           ) : (
             <span className="composer__actions">
+              <ContextGauge olcu={context} />
               {onVoice && (
                 <button
                   aria-label="Konuşarak anlat"

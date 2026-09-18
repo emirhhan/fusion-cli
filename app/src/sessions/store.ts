@@ -1,5 +1,5 @@
 import type { ProtocolClient } from "../protocol/client";
-import type { Soru } from "../protocol/types";
+import type { BaglamOlcusu, Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
@@ -30,6 +30,7 @@ export type SessionAction =
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
+  | { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null }
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
   | { type: "crashed"; id: string; reason: string }
   | { type: "cleared"; id: string }
@@ -62,6 +63,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         running: false,
         messages: [],
         question: null,
+        baglam: null,
       };
       return {
         ...state,
@@ -102,6 +104,11 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         question: action.question,
+      }));
+    case "contextMeasured":
+      return updateSession(state, action.id, (session) => ({
+        ...session,
+        baglam: action.baglam,
       }));
     case "statusChanged":
       return updateSession(state, action.id, (session) => ({
