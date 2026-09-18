@@ -2190,3 +2190,54 @@ async def test_ilk_yazmadan_sonraki_uzun_kesif_yeniden_uyarilir(monkeypatch, tmp
         "dosyaları tamamla", deps, depth=1, internal=True, self_review=False, verify=False
     )
     assert any("[dur-ve-yap]" in m.content for m in sonuc.messages if m.harness_note)
+
+
+async def test_salt_okuma_turunda_kapi_calismaz(monkeypatch, tmp_path, sink):
+    """Ölçüldü (17 Eylül denetimi): kod açıklaması istenen tura ruff/mypy uyarısı eklendi.
+
+    Tur yalnızca `read_file` çağırmıştı; kullanıcının kodunda hiçbir şey
+    değişmemişken kapı çalıştı ve "sonuç doğrulanamadı" uyarıları cevabın sonuna
+    yapıştı. Kapının sorusu "bozdum mu"dur; değiştirici çağrı yoksa soru da yoktur.
+    """
+    from fusion_cli.core.verification import VerificationResult
+
+    (tmp_path / "a.py").write_text("print(1)\n", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.py")]),
+                model_result("dosya tek satır yazdırıyor"),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(
+        VerificationResult(ok=True, warnings=("doğrulama komutu bulunamadı",))
+    )
+
+    sonuc = await run_agent("bu dosya ne yapıyor", deps)
+
+    assert sonuc.mutating_tool_calls_made == 0
+    assert deps.verifier.calls == 0
+
+
+async def test_degistiren_turda_kapi_calisir(monkeypatch, tmp_path, sink):
+    """Karşı taraf: değişiklik varsa kapı atlanmaz."""
+    from fusion_cli.core.verification import VerificationResult
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x = 1\n")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    deps = _deps(tmp_path, sink, runtime={"self_review": False})
+    deps.verifier = _SahteDogrulayici(VerificationResult(ok=True))
+
+    await run_agent("dosya yaz", deps)
+
+    assert deps.verifier.calls == 1

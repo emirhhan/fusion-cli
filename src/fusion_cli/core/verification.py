@@ -7,7 +7,7 @@ bu protokolü görür — testte sahte verilebilir, yapılandırılmamışsa hi�
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from .evidence import CriterionEvidence
@@ -19,6 +19,13 @@ from .evidence import CriterionEvidence
 # zorunda; iki yerde yazılsaydı biri değiştiğinde karşılaştırma sessizce kör
 # kalırdı.
 TIMEOUT_FINDING_PREFIX = "komut zaman aşımına uğradı"
+
+#: Kurulu OLMAYAN doğrulama aracından doğan uyarının ortak öneki — TEK KAYNAK.
+#
+# `TIMEOUT_FINDING_PREFIX` ile aynı gerekçe: uyarıyı üreten taraf
+# (`engines/agent/verification.py`) ile onu eleyen taraf
+# (`engines/agent/step_verification.py`) aynı biçimi bilmek zorundadır.
+UNVERIFIABLE_COMMAND_PREFIX = "doğrulama komutu bulunamadı"
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +54,24 @@ class VerificationResult:
     @property
     def has_notes(self) -> bool:
         return bool(self.warnings or self.advisories)
+
+
+def without_unverifiable_command_warnings(result: VerificationResult) -> VerificationResult:
+    """Kurulu olmayan araçtan doğan "doğrulanamadı" uyarılarını sonuçtan çıkar.
+
+    Bu uyarının söylediği tek şey "kodu değiştirdim ama sınayamadım"dır. Hiçbir
+    şeyin değişmediği turda (kod açıklaması, salt okuma) kanıtlayacak bir davranış
+    yoktur ve uyarı yalnızca gürültü üretir.
+
+    Ölçüldü (17 Eylül denetimi): yalnız açıklama istenen turun sonuna "doğrulama
+    komutu bulunamadı; sonuç doğrulanamadı: ruff check ." ve aynısının `mypy src`
+    hâli ekleniyordu. Kullanıcı gerçek uyarıyı sahtelerinden ayıramayınca hepsini
+    birden yok saymaya başlar; kapının değeri de o anda biter.
+    """
+    kalan = tuple(
+        uyari for uyari in result.warnings if not uyari.startswith(UNVERIFIABLE_COMMAND_PREFIX)
+    )
+    return result if kalan == result.warnings else replace(result, warnings=kalan)
 
 
 @dataclass(frozen=True, slots=True)

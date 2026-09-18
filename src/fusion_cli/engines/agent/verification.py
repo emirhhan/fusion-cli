@@ -31,6 +31,7 @@ from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
+    UNVERIFIABLE_COMMAND_PREFIX,
     JavaScriptSyntaxChecker,
     VerificationResult,
     Verifier,
@@ -412,7 +413,7 @@ class CommandVerifier:
             # kodunda hiçbir sorun yoktu. Eksik araç yüzünden turu düşürmek, kapıyı
             # gürültüye çevirir ve gerçek hatalara olan güveni yok eder.
             logger.info("doğrulama komutu bulunamadı, doğrulanamadı: %s", command)
-            detay = f"doğrulama komutu bulunamadı; sonuç doğrulanamadı: {command}"
+            detay = f"{UNVERIFIABLE_COMMAND_PREFIX}; sonuç doğrulanamadı: {command}"
             return VerificationResult(
                 ok=True,
                 warnings=(detay,),

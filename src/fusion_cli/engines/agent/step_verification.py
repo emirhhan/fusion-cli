@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
@@ -33,9 +34,13 @@ from ...core.execution_plan import (
     VerificationCheckKind,
 )
 from ...core.file_lookup import locate_by_name
-from ...core.verification import TIMEOUT_FINDING_PREFIX, VerificationResult
+from ...core.verification import (
+    TIMEOUT_FINDING_PREFIX,
+    VerificationResult,
+    without_unverifiable_command_warnings,
+)
 from .reproduction import evaluate_reproduction
-from .verify_discovery import behavioral_commands
+from .verify_discovery import behavioral_commands, is_behavioral_command
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -236,12 +241,9 @@ def _evaluate_check(
             EvidenceStatus.UNVERIFIED,
             "araç kontrolünde beklenen argümanlar geçerli JSON nesnesi değil",
         )
-    for use in outcome.tool_uses:
-        if (
-            use.name == check.target
-            and use.ok
-            and all(use.arguments.get(key) == value for key, value in expected_arguments.items())
-        ):
+    succeeded = tuple(use for use in outcome.tool_uses if use.name == check.target and use.ok)
+    for use in succeeded:
+        if _arguments_match(use.arguments, expected_arguments, root=root):
             return CriterionEvidence(
                 check.criterion_id,
                 check.kind,
@@ -249,12 +251,63 @@ def _evaluate_check(
                 "araç çağrısı başarıyla çalıştı",
                 output=use.output[:8_000],
             )
+    if succeeded:
+        # Araç ÇALIŞTI; eksik olan yalnız argüman eşleşmesi. Ölçüldü (17 Eylül
+        # denetimi): adım gerçekten `run_shell` ve `read_file` çağırmışken kanıt
+        # "başarılı araç çağrısı kaydı yok" diyordu. Kanıt metni yanlış olursa
+        # kullanıcı hem uyarıyı hem kapıyı yok sayar.
+        calisan = ", ".join(
+            sorted({json.dumps(dict(use.arguments), ensure_ascii=False) for use in succeeded})
+        )
+        return CriterionEvidence(
+            check.criterion_id,
+            check.kind,
+            EvidenceStatus.UNVERIFIED,
+            f"{check.target} başarıyla çalıştı ama argümanları planın beklediğinden "
+            f"farklı: beklenen {check.expected}, çalışan {calisan}",
+            output=succeeded[-1].output[:8_000],
+        )
     return CriterionEvidence(
         check.criterion_id,
         check.kind,
         EvidenceStatus.UNVERIFIED,
-        "başarılı araç çağrısı kaydı yok",
+        f"başarılı {check.target} çağrısı kaydı yok",
     )
+
+
+#: Yol argümanlarında anlam taşımayan göreli önek (`./src/a.py` ile `src/a.py` aynıdır).
+_RELATIVE_PREFIX = "./"
+
+
+def _arguments_match(
+    actual: Mapping[str, object], expected: Mapping[str, object], *, root: Path
+) -> bool:
+    """Planın beklediği argüman ALT KÜMESİ gerçek çağrıda karşılandı mı.
+
+    Karşılaştırma normalize edilir: plandaki `expected`, kod görülmeden yazılmış
+    bir tahmindir ve aynı argümanı farklı yazabilir (baştaki `./`, sondaki boşluk,
+    çalışma köküne göre değil MUTLAK yazılmış yol). Ham eşitlik bu biçim farklarını
+    gerçek bir kanıt eksikliği gibi gösteriyordu.
+    """
+    return all(
+        _normalized(actual.get(key), root) == _normalized(value, root)
+        for key, value in expected.items()
+    )
+
+
+def _normalized(value: object, root: Path) -> object:
+    """Argüman değerini karşılaştırılabilir biçime indir; metin dışını olduğu gibi bırak."""
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    path = PurePosixPath(text)
+    if path.is_absolute():
+        # Kök hem verildiği gibi hem çözülmüş hâliyle denenir: macOS'ta `/var`
+        # ile `/private/var` aynı dizindir ve model ikisinden birini yazabilir.
+        for base in (PurePosixPath(root), PurePosixPath(root.resolve())):
+            if path.is_relative_to(base):
+                return str(path.relative_to(base))
+    return text.removeprefix(_RELATIVE_PREFIX)
 
 
 def _missing_target_summary(root: Path, target: str) -> str:
@@ -457,6 +510,34 @@ def _finding_key(finding: str) -> str:
     return finding
 
 
+def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
+    """Adım içinde GERÇEKTEN çalışıp geçen davranış komutlarını kanıta çevir.
+
+    Final kabul kapısı "davranış kanıtlandı mı" sorusunu adımların kanıtından
+    cevaplar. Ölçüldü (17 Eylül denetimi): agent `run_shell` ile pytest'i çalıştırdı,
+    dört test geçti; ama planda o komuta bağlı bir kontrol olmadığı için koşu hiçbir
+    kanıta dönüşmedi ve cevap "davranış kanıtlanmadı" uyarısıyla kapandı.
+
+    Yalnız başarıyla biten (çıkış kodu 0) çağrı sayılır; aynı komut bir kez yazılır.
+    """
+    runs: dict[str, CriterionEvidence] = {}
+    for use in outcome.tool_uses:
+        if not use.ok or use.name != "run_shell":
+            continue
+        command = _tool_command(use)
+        if command in runs or not is_behavioral_command(command):
+            continue
+        runs[command] = CriterionEvidence(
+            criterion_id=command,
+            kind=VerificationCheckKind.COMMAND,
+            status=EvidenceStatus.PASSED,
+            summary="davranış komutu adım içinde başarıyla çalıştı",
+            command=command,
+            output=use.output[:8_000],
+        )
+    return tuple(runs.values())
+
+
 async def verify_step(
     step: PlanStep,
     outcome: AgentOutcome,
@@ -535,7 +616,7 @@ async def verify_step(
         root=deps.tool_context.root,
         outcome=outcome,
         verification=verification,
-    )
+    ) + _behavioral_runs(outcome)
     for item in criteria:
         if item.status is EvidenceStatus.PASSED:
             evidence.append(f"başarı koşulu doğrulandı: {item.criterion_id}")
@@ -568,6 +649,18 @@ UNPROVEN_BEHAVIOR_WARNING = (
     "davranış kanıtlanmadı: bu projede kodu çalıştıran bir doğrulama komutu yok. "
     "Mevcut kapı yalnızca çıktının iyi biçimli olduğunu (derlenir/açılır) gösterir. "
     "Gerçek kanıt için projeye çalıştırılabilir bir test/kontrol komutu ekleyin."
+)
+
+#: Projenin davranış komutu VAR ama bu koşuda çalışmadıysa verilen uyarı.
+#:
+#: `UNPROVEN_BEHAVIOR_WARNING` ile ayrı tutulur: o, projede böyle bir komut
+#: OLMADIĞINI söyler. İkisi tek metne indirilseydi, pytest'i olan bir projeye
+#: "bu projede doğrulama komutu yok" denirdi — kullanıcının doğrudan yanlış
+#: olduğunu bildiği bir cümle, kapının tüm çıktısına olan güveni bitirir.
+UNRUN_BEHAVIOR_WARNING_TEMPLATE = (
+    "davranış kanıtlanmadı: projede kodu çalıştıran doğrulama komutu var ({commands}) "
+    "fakat bu koşuda çalıştırılmadı. Mevcut kanıt yalnızca çıktının iyi biçimli "
+    "olduğunu gösterir; gerçek kanıt için bu komutu çalıştırın."
 )
 
 
@@ -669,12 +762,25 @@ async def verify_plan_acceptance(
     result = replace(result, evidence=(*evidence, *result.evidence))
     if not result.ok:
         return result
-    expected_behavior = set(behavioral_commands(deps.tool_context.root))
+    # Hiçbir dosyaya dokunulmadıysa bu salt okuma/açıklama koşusudur: kanıtlanacak
+    # bir değişiklik yoktur. Ne kurulu olmayan araçtan doğan "sınayamadım" uyarısının
+    # ne de "davranış kanıtlanmadı" uyarısının söyleyecek bir şeyi vardır. Ölçüldü
+    # (17 Eylül denetimi): açıklama turunun sonuna ruff/mypy uyarıları ekleniyordu;
+    # kullanıcı sahte uyarıyı gerçeğinden ayıramayınca hepsini yok sayar.
+    if not deps.tool_context.touched:
+        return without_unverifiable_command_warnings(result)
     behavior_proven = any(
         item.kind is VerificationCheckKind.COMMAND
         and item.status is EvidenceStatus.PASSED
-        and item.command in expected_behavior
+        and is_behavioral_command(item.command)
         for item in result.evidence
     )
-    warnings = () if behavior_proven else (UNPROVEN_BEHAVIOR_WARNING,)
-    return replace(result, warnings=result.warnings + warnings)
+    if behavior_proven:
+        return result
+    available = behavioral_commands(deps.tool_context.root)
+    warning = (
+        UNRUN_BEHAVIOR_WARNING_TEMPLATE.format(commands=", ".join(available))
+        if available
+        else UNPROVEN_BEHAVIOR_WARNING
+    )
+    return replace(result, warnings=(*result.warnings, warning))

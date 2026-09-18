@@ -481,6 +481,8 @@ async def test_kanitlanmayan_davranis_kullaniciya_bildirilir(tmp_path):
     """
     plan = ExecutionPlan(plan_id="p", task="iş", steps=(_step("inspect"),))
     deps = _FakeDeps(ToolContext(root=tmp_path))
+    # Uyarı yalnız bir şey DEĞİŞEN koşuda anlamlıdır; salt okuma koşusu susar.
+    deps.tool_context.touched.add(tmp_path / "main.py")
 
     result = await run_execution_plan("iş", deps, _FakeAgent([]), plan=plan)
 

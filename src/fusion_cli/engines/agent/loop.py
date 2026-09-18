@@ -400,9 +400,7 @@ async def run_agent(
     effect_result = (
         None
         if chat_mode
-        else await maybe_run_effect_workflow(
-            task, deps, registry, plan_mode=plan_mode, depth=depth
-        )
+        else await maybe_run_effect_workflow(task, deps, registry, plan_mode=plan_mode, depth=depth)
     )
     if effect_result is not None:
         effect_messages = list(history or [])
@@ -2432,12 +2430,18 @@ async def _verify(
     Sonuç iki yere birden gider: modele düzeltme talimatı ve ders güvenine sinyal.
     İki kez çalıştırmak hem israf hem de iki farklı cevap alma riskidir.
 
-    İş yapılmadıysa (araç çağrısı yok) kapı anlamsızdır; plan modunda ise hiçbir şey
-    değişmediği için hiç çalışmaz.
+    İş yapılmadıysa kapı anlamsızdır; plan modunda ise hiçbir şey değişmediği için
+    hiç çalışmaz.
+
+    Ölçü DEĞİŞTİRİCİ çağrıdır, çağrı sayısı değil. Ölçüldü (17 Eylül denetimi):
+    yalnız kod açıklaması istenen bir tur `read_file` çağırdığı için kapı devreye
+    girdi ve cevabın sonuna "doğrulanamadı: ruff check .", "mypy src" uyarıları
+    eklendi — kullanıcının kodunda hiçbir şey değişmemişken. Kapının sorusu
+    "bozdum mu"dur; hiçbir şeyi değiştirmeyen turda sorulacak bir soru yoktur.
     """
     if deps.verifier is None or plan_mode or depth > 0:
         return None
-    if outcome.tool_calls_made == 0:
+    if outcome.mutating_tool_calls_made == 0:
         return None
     return await deps.verifier.verify()
 

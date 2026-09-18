@@ -10,6 +10,7 @@ from fusion_cli.engines.agent.verify_discovery import (
     behavioral_commands,
     discover_auto_commands,
     discover_commands,
+    is_behavioral_command,
     project_kinds,
 )
 
@@ -295,3 +296,35 @@ def test_birden_cok_tur_birlikte_donulur(tmp_path):
 
 def test_taninmayan_dizin_bos_doner(tmp_path):
     assert project_kinds(tmp_path) == ()
+
+
+def test_farkli_yazilmis_pytest_komutu_davranis_kaniti_sayilir():
+    """Keşfedilen komutla çalıştırılan komut birebir aynı olmak zorunda değildir.
+
+    Ölçüldü (17 Eylül denetimi): `pytest` gerçekten çalışıp dört test geçtiği hâlde
+    kanıt yalnızca `pytest -q` metniyle karşılaştırıldığı için sayılmadı.
+    """
+    assert is_behavioral_command(".venv/bin/pytest -q tests/test_agent_loop.py") is True
+    assert is_behavioral_command("go test ./...") is True
+    assert is_behavioral_command("npm test") is True
+
+
+def test_kodu_calistirmayan_komut_davranis_kaniti_sayilmaz():
+    """Gevşetme düz metin aramasına indirgenmemelidir."""
+    assert is_behavioral_command("pytest --version") is False
+    assert is_behavioral_command("printf pytest") is False
+    assert is_behavioral_command("cargo build") is False
+    assert is_behavioral_command('echo "pytest') is False
+
+
+def test_cikis_kodunu_gizleyen_komut_davranis_kaniti_sayilmaz():
+    """`pytest || true` kırmızı testte de sıfır döner; başarılı çağrı kanıt değildir."""
+    assert is_behavioral_command("pytest -q || true") is False
+    assert is_behavioral_command("pytest -q | tail -5") is False
+    assert is_behavioral_command("pytest -q ; echo bitti") is False
+
+
+def test_modul_olarak_calistirilan_pytest_davranis_kaniti_sayilir():
+    assert is_behavioral_command("python -m pytest -q") is True
+    assert is_behavioral_command("python3 -m pytest tests/") is True
+    assert is_behavioral_command("python main.py") is False

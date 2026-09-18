@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fusion_cli.core.evidence import EvidenceStatus
+from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
     PlanStep,
@@ -12,7 +12,7 @@ from fusion_cli.core.execution_plan import (
     VerificationCheckKind,
 )
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.core.verification import VerificationResult
+from fusion_cli.core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome
 from fusion_cli.engines.agent.promotion import ToolUse
@@ -36,6 +36,13 @@ def _deps(tmp_path):
         policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
         tool_context=ToolContext(root=tmp_path),
     )
+
+
+def _degisen_deps(tmp_path, *paths: str):
+    """Planın dosya YAZDIĞI koşu: kabul kapısı yalnız bu koşuda davranış kanıtı arar."""
+    deps = _deps(tmp_path)
+    deps.tool_context.touched.update(tmp_path / path for path in paths)
+    return deps
 
 
 def _file_step(path: str) -> PlanStep:
@@ -137,7 +144,7 @@ async def test_yalniz_yapisal_kapisi_olan_proje_davranisi_kanitlanmadi_der(tmp_p
     (tmp_path / "project.godot").write_text("[application]\n", encoding="utf-8")
     plan = _tamamlanmis_plan(_file_step("main.tscn"))
 
-    sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+    sonuc = await verify_plan_acceptance(plan, _degisen_deps(tmp_path, "main.tscn"))
 
     assert sonuc.ok is True
     assert any("davranış" in uyari.lower() for uyari in sonuc.warnings)
@@ -148,7 +155,7 @@ async def test_tanimli_ama_calistirilmamis_test_davranis_uyarisini_kaldirmaz(tmp
     (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
     plan = _tamamlanmis_plan(_file_step("main.py"))
 
-    sonuc = await verify_plan_acceptance(plan, _deps(tmp_path))
+    sonuc = await verify_plan_acceptance(plan, _degisen_deps(tmp_path, "main.py"))
 
     assert sonuc.ok is True
     assert any("davranış" in uyari.lower() for uyari in sonuc.warnings)
@@ -159,7 +166,7 @@ async def test_pytest_surumu_davranis_uyarisini_kaldirmaz(tmp_path):
 
     (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
-    deps = _deps(tmp_path)
+    deps = _degisen_deps(tmp_path, "main.py")
     deps.verifier = CommandVerifier(
         ("pytest --version",),
         cwd=str(tmp_path),
@@ -178,7 +185,7 @@ async def test_echo_pytest_davranis_uyarisini_kaldirmaz(tmp_path):
 
     (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
-    deps = _deps(tmp_path)
+    deps = _degisen_deps(tmp_path, "main.py")
     deps.verifier = CommandVerifier(("printf pytest",), cwd=str(tmp_path), timeout_s=10.0)
 
     sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
@@ -624,3 +631,258 @@ async def test_adimin_yeni_bozdugu_sey_yine_adimi_dusurur(tmp_path):
 
     assert sonuc.ok is False
     assert any("Parse Error" in b for b in sonuc.findings)
+
+
+# --------------------------------------------------------------------------- #
+# Sahte uyarılar: kapı kanıtladığından fazlasını da, azını da söylememeli
+# --------------------------------------------------------------------------- #
+
+
+class _KanitliVerifier:
+    """Verilen kanıt ve uyarıları geçen bir kapı gibi döndürür."""
+
+    def __init__(self, *, evidence=(), warnings=()):
+        self._evidence = tuple(evidence)
+        self._warnings = tuple(warnings)
+
+    async def verify(self):
+        return VerificationResult(ok=True, evidence=self._evidence, warnings=self._warnings)
+
+
+def _komut_kaniti(command: str) -> CriterionEvidence:
+    return CriterionEvidence(
+        criterion_id=command,
+        kind=VerificationCheckKind.COMMAND,
+        status=EvidenceStatus.PASSED,
+        summary="komut başarıyla çalıştı",
+        command=command,
+    )
+
+
+async def test_gercekten_calisan_pytest_davranis_uyarisini_kaldirir(tmp_path):
+    """Ölçüldü (17 Eylül denetimi): `pytest` çalıştı, dört test geçti, uyarı yine çıktı.
+
+    Kanıt keşfedilen komutun YAZIMIYLA karşılaştırılıyordu; agent aynı testleri
+    başka bir yazımla çalıştırınca kanıt görünmez oldu ve kullanıcıya doğru olmayan
+    bir "davranış kanıtlanmadı" cümlesi gösterildi.
+    """
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.verifier = _KanitliVerifier(
+        evidence=(_komut_kaniti(".venv/bin/pytest -q tests/test_agent_loop.py"),)
+    )
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert sonuc.ok is True
+    assert sonuc.warnings == ()
+
+
+async def test_calistirilmayan_test_komutu_icin_uyari_hala_cikar(tmp_path):
+    """Gerçekten doğrulanamayan durumda uyarı susturulmaz; yalnız doğru şeyi söyler."""
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _degisen_deps(tmp_path, "main.py")
+    deps.verifier = _KanitliVerifier(evidence=(_komut_kaniti("ruff check ."),))
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert sonuc.ok is True
+    assert any("davranış kanıtlanmadı" in uyari for uyari in sonuc.warnings)
+    # Projede pytest VAR; "bu projede doğrulama komutu yok" demek yanlış olurdu.
+    assert any("pytest -q" in uyari for uyari in sonuc.warnings)
+
+
+async def test_salt_okuma_kosusunda_kurulu_olmayan_arac_uyarisi_verilmez(tmp_path):
+    """Ölçüldü (17 Eylül denetimi): açıklama turuna ruff/mypy uyarıları ekleniyordu.
+
+    Hiçbir dosyaya dokunulmayan koşuda "kodu sınayamadım" demenin karşılığı yoktur;
+    uyarı yalnızca gerçek uyarıların arasında gürültü yapar.
+    """
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.verifier = _KanitliVerifier(
+        warnings=(
+            f"{UNVERIFIABLE_COMMAND_PREFIX}; sonuç doğrulanamadı: ruff check .",
+            f"{UNVERIFIABLE_COMMAND_PREFIX}; sonuç doğrulanamadı: mypy src",
+        )
+    )
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert not any(UNVERIFIABLE_COMMAND_PREFIX in uyari for uyari in sonuc.warnings)
+
+
+async def test_degisiklik_yapilan_kosuda_kurulu_olmayan_arac_uyarisi_korunur(tmp_path):
+    """Kod değiştiyse "sınayamadım" gerçek ve eyleme dönüştürülebilir bir uyarıdır."""
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.tool_context.touched.add(tmp_path / "main.py")
+    deps.verifier = _KanitliVerifier(
+        warnings=(f"{UNVERIFIABLE_COMMAND_PREFIX}; sonuç doğrulanamadı: ruff check .",)
+    )
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert any(UNVERIFIABLE_COMMAND_PREFIX in uyari for uyari in sonuc.warnings)
+
+
+def _tool_step(expected: str) -> PlanStep:
+    from dataclasses import replace as _replace
+
+    return _replace(
+        _file_step("x"),
+        expected_effects=(),
+        success_criteria=("dosya okundu",),
+        verification_checks=(
+            VerificationCheck(
+                criterion_id="dosya okundu",
+                kind=VerificationCheckKind.TOOL,
+                target="read_file",
+                expected=expected,
+            ),
+        ),
+    )
+
+
+async def test_yol_yazimi_farkli_arac_cagrisi_kanit_sayilir(tmp_path):
+    """Plandaki `./src/a.py` ile çalışan `src/a.py` aynı dosyadır."""
+    outcome = AgentOutcome(
+        final_text="okudum",
+        messages=[],
+        tool_uses=(ToolUse("read_file", arguments={"path": "src/a.py"}, output="icerik"),),
+    )
+
+    result = await verify_step(_tool_step('{"path": "./src/a.py"}'), outcome, _deps(tmp_path))
+
+    assert result.criteria[0].status is EvidenceStatus.PASSED
+
+
+async def test_calisan_arac_cagrisi_icin_kayit_yok_denmez(tmp_path):
+    """Ölçüldü (17 Eylül denetimi): adım `read_file` çağırmışken kanıt "kayıt yok" dedi.
+
+    Kanıt metni yanlış olunca kullanıcı gerçek uyarıyı sahtesinden ayıramıyor.
+    Koşul hâlâ doğrulanmamıştır, ama gerekçe doğru yazılmalıdır.
+    """
+    outcome = AgentOutcome(
+        final_text="okudum",
+        messages=[],
+        tool_uses=(ToolUse("read_file", arguments={"path": "src/b.py"}, output="icerik"),),
+    )
+
+    result = await verify_step(_tool_step('{"path": "src/a.py"}'), outcome, _deps(tmp_path))
+
+    ozet = result.criteria[0].summary
+    assert result.criteria[0].status is EvidenceStatus.UNVERIFIED
+    assert "kaydı yok" not in ozet
+    assert "src/b.py" in ozet
+
+
+async def test_hic_cagrilmayan_arac_icin_kayit_yok_denir(tmp_path):
+    """Araç gerçekten hiç çalışmadıysa kanıt bunu açıkça söyler."""
+    outcome = AgentOutcome(final_text="okumadım", messages=[])
+
+    result = await verify_step(_tool_step('{"path": "src/a.py"}'), outcome, _deps(tmp_path))
+
+    assert result.criteria[0].status is EvidenceStatus.UNVERIFIED
+    assert "kaydı yok" in result.criteria[0].summary
+
+
+async def test_mutlak_yolla_yapilan_arac_cagrisi_kanit_sayilir(tmp_path):
+    """Model yolu çalışma köküne göre değil mutlak yazabilir; aynı dosyadır."""
+    outcome = AgentOutcome(
+        final_text="okudum",
+        messages=[],
+        tool_uses=(
+            ToolUse("read_file", arguments={"path": str(tmp_path / "src" / "a.py")}, output="x"),
+        ),
+    )
+
+    result = await verify_step(_tool_step('{"path": "src/a.py"}'), outcome, _deps(tmp_path))
+
+    assert result.criteria[0].status is EvidenceStatus.PASSED
+
+
+def _pytest_kosusu(*, ok: bool) -> AgentOutcome:
+    return AgentOutcome(
+        final_text="testleri çalıştırdım",
+        messages=[],
+        tool_uses=(
+            ToolUse(
+                "run_shell",
+                ok=ok,
+                mutating=True,
+                arguments={"command": ".venv/bin/pytest -q tests/test_main.py"},
+                output="4 passed" if ok else "1 failed",
+            ),
+        ),
+    )
+
+
+async def test_adimda_calisan_pytest_final_kabulde_davranis_kaniti_sayilir(tmp_path):
+    """Ölçüldü (17 Eylül denetimi): adımda pytest çalışıp dört test geçti, uyarı yine çıktı.
+
+    Planda o komuta bağlı bir kontrol yoktu; gerçek koşu adım kanıtına hiç girmediği
+    için final kabul kapısı onu göremedi.
+    """
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _degisen_deps(tmp_path, "main.py")
+    adim = _file_step("main.py")
+
+    adim_sonucu = await verify_step(adim, _pytest_kosusu(ok=True), deps)
+    sonuc = await verify_plan_acceptance(
+        _tamamlanmis_plan(adim), deps, evidence=adim_sonucu.criteria
+    )
+
+    assert any(
+        item.command == ".venv/bin/pytest -q tests/test_main.py"
+        and item.status is EvidenceStatus.PASSED
+        for item in adim_sonucu.criteria
+    )
+    assert sonuc.ok is True
+    assert not any("davranış kanıtlanmadı" in uyari for uyari in sonuc.warnings)
+
+
+async def test_kirmizi_biten_pytest_davranis_kaniti_sayilmaz(tmp_path):
+    """Çıkış kodu sıfır olmayan koşu kanıt değildir; uyarı yerinde kalır."""
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    deps = _degisen_deps(tmp_path, "main.py")
+    adim = _file_step("main.py")
+
+    adim_sonucu = await verify_step(adim, _pytest_kosusu(ok=False), deps)
+    sonuc = await verify_plan_acceptance(
+        _tamamlanmis_plan(adim), deps, evidence=adim_sonucu.criteria
+    )
+
+    assert not any(item.kind is VerificationCheckKind.COMMAND for item in adim_sonucu.criteria)
+    assert any("davranış kanıtlanmadı" in uyari for uyari in sonuc.warnings)
+
+
+async def test_salt_okuma_kosusunda_davranis_uyarisi_verilmez(tmp_path):
+    """Test komutu olmayan projede açıklama turu "doğrulama komutu yok" demez.
+
+    Uyarı yalnız bir şey DEĞİŞTİYSE anlamlıdır; hiçbir dosyaya dokunulmadıysa
+    kanıtlanacak bir davranış da yoktur.
+    """
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    deps = _deps(tmp_path)
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert sonuc.ok is True
+    assert sonuc.warnings == ()
+
+
+async def test_degisiklik_yapilan_kosuda_komutsuz_proje_uyarisi_korunur(tmp_path):
+    """Karşı taraf: kod değiştiyse ve projede test komutu yoksa uyarı çıkar."""
+    from fusion_cli.engines.agent.step_verification import UNPROVEN_BEHAVIOR_WARNING
+
+    (tmp_path / "main.py").write_text("print(1)\n", encoding="utf-8")
+    deps = _degisen_deps(tmp_path, "main.py")
+
+    sonuc = await verify_plan_acceptance(_tamamlanmis_plan(_file_step("main.py")), deps)
+
+    assert UNPROVEN_BEHAVIOR_WARNING in sonuc.warnings

@@ -16,9 +16,10 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from collections.abc import Callable
 from functools import partial
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from .domain_adapters.defaults import default_domain_registry
 from .domain_adapters.registry import DomainRegistry
@@ -60,7 +61,7 @@ _MAKE_TARGETS = ("check", "test")
 #: `discover_commands` ile bilinçli olarak AYRI tutulur; oradaki soru "bu projede
 #: hangi komut çalışır", buradaki soru "bu ne tür bir proje". İlki ilk eşleşende
 #: durur (komut planı tek olmalı), ikincisi hepsini döndürür (bir depo hem Python
-#: hem Node olabilir). Aynı ayrım `_TEST_MARKERS` / `_BEHAVIORAL_MARKERS` ikilisinde
+#: hem Node olabilir). Aynı ayrım `_TEST_MARKERS` / `_BEHAVIORAL_RUNNERS` ikilisinde
 #: de var.
 _KIND_MARKERS: tuple[tuple[str, str], ...] = (
     ("godot", "project.godot"),
@@ -141,12 +142,71 @@ def _is_test_command(command: str) -> bool:
     return any(marker in command for marker in _TEST_MARKERS)
 
 
-#: Kodu GERÇEKTEN ÇALIŞTIRAN doğrulama komutları.
+#: Kodu GERÇEKTEN ÇALIŞTIRAN doğrulama komutları: koşucu adı → alt komutları.
 #:
 #: Ayrım `_TEST_MARKERS` ile aynı değildir ve olmamalıdır: orada soru "bu komut
 #: pahalı/kırılgan mı, otomatik kapıda atlayayım mı"; burada soru "bu komut
 #: davranışı KANITLIYOR mu". `make test` ikincisine girer, birincisine girmez.
-_BEHAVIORAL_MARKERS = ("pytest", "cargo test", "go test", "run test", "make test")
+#:
+#: Kayıt metin parçası değil, KOŞUCU tutar: aynı ad birden çok kez geçebilir
+#: (`npm test` ile `npm run test` aynı işi yapar). Düz metin araması yetmez —
+#: `printf pytest` de "pytest" içerir ama çalıştırdığı program bambaşkadır.
+_BEHAVIORAL_RUNNERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("pytest", ()),
+    # `python -m pytest`: `-m` bayrak olarak ayıklanır, geriye `pytest` kalır.
+    ("python", ("pytest",)),
+    ("python3", ("pytest",)),
+    ("cargo", ("test",)),
+    ("go", ("test",)),
+    ("make", ("test",)),
+    ("npm", ("test",)),
+    ("npm", ("run", "test")),
+    ("yarn", ("test",)),
+    ("yarn", ("run", "test")),
+    ("pnpm", ("test",)),
+    ("pnpm", ("run", "test")),
+    ("bun", ("test",)),
+    ("bun", ("run", "test")),
+)
+
+#: Koşucuyu çağırsa da tek satır test çalıştırmayan sorgu bayrakları.
+_QUERY_FLAGS = frozenset({"--version", "-V", "--help", "-h", "--collect-only", "--co"})
+
+#: Koşucunun çıkış kodunu kabuğa ulaştırmayan işleçler.
+#:
+#: `pytest || true` ve `pytest | tail` kırmızı testte de sıfır döner; başarılı araç
+#: çağrısı olarak kaydedilen bu komut davranışı kanıtlamaz.
+_EXIT_MASKING_OPERATORS = frozenset({"||", "|", ";", "&"})
+
+
+def is_behavioral_command(command: str) -> bool:
+    """Bu komut kodu GERÇEKTEN çalıştırıp davranışı kanıtlıyor mu.
+
+    Keşfedilen komutla ÇALIŞTIRILAN komut birebir aynı olmak zorunda değildir:
+    keşif `pytest -q` önerir, agent `.venv/bin/pytest tests/test_agent_loop.py`
+    çalıştırır. Ölçüldü (17 Eylül denetimi): birebir metin karşılaştırması yüzünden
+    dört testi geçen gerçek bir `pytest` koşusu kanıt sayılmadı ve tur "davranış
+    kanıtlanmadı" uyarısıyla kapandı.
+
+    Gevşetme metin aramasına indirgenmez: karar komutun ÇALIŞTIRDIĞI programa ve
+    alt komutuna bakar. `printf pytest` ile `pytest --version` kanıt değildir —
+    biri koşucuyu hiç çağırmaz, diğeri tek satır test koşmaz.
+    """
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        # Tırnağı kapanmayan komut ayrıştırılamaz; kanıt saymak uydurma olurdu.
+        return False
+    if not tokens or any(
+        token in _QUERY_FLAGS or token in _EXIT_MASKING_OPERATORS for token in tokens
+    ):
+        return False
+    program = PurePosixPath(tokens[0]).name
+    arguments = [token for token in tokens[1:] if not token.startswith("-")]
+    return any(
+        program == name and arguments[: len(subcommands)] == list(subcommands)
+        for name, subcommands in _BEHAVIORAL_RUNNERS
+    )
 
 
 def behavioral_commands(root: Path, *, domains: DomainRegistry | None = None) -> tuple[str, ...]:
@@ -163,7 +223,7 @@ def behavioral_commands(root: Path, *, domains: DomainRegistry | None = None) ->
     return tuple(
         command
         for command in discover_commands(root, domains=domains)
-        if any(marker in command for marker in _BEHAVIORAL_MARKERS)
+        if is_behavioral_command(command)
     )
 
 
