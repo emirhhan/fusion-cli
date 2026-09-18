@@ -36,7 +36,9 @@ from ...core.verification import (
     Verifier,
 )
 from .browser_verify import BrowserVerifier
-from .domains import godot_adapter
+from .domain_adapters.contract import ToolFailureMarkers
+from .domain_adapters.defaults import default_domain_registry
+from .domain_adapters.registry import DomainRegistry
 from .javascript_verify import (
     JavaScriptSyntaxVerifier,
     NodeJavaScriptSyntaxChecker,
@@ -71,7 +73,11 @@ def resolve_turn_success(
 
 
 def build_verifier(
-    config: Config, *, root: Path, tool_context: ToolContext | None
+    config: Config,
+    *,
+    root: Path,
+    tool_context: ToolContext | None,
+    domains: DomainRegistry | None = None,
 ) -> Verifier | None:
     """Etkin doğrulayıcıları kur; hiçbiri yoksa None.
 
@@ -94,8 +100,13 @@ def build_verifier(
     HİÇBİR kapı kurulmamıştı — üstelik bunu hiçbir şey söylemiyordu. Argümanı
     zorunlu yapmak bu hata sınıfını imkânsız kılar: çağıran ya bağlamı verir ya
     da None'ı bilerek yazar.
+
+    `domains` alan kaydıdır: keşfedilen alan kapıları ve sıfır-çıkış işaretleri
+    buradan gelir. Verilmezse varsayılan kayıt kurulur; kayıt değer nesnesi olduğu
+    için `AgentDeps.domains` ile ayrışmaz.
     """
     verifiers: list[Verifier] = []
+    registry = domains if domains is not None else default_domain_registry()
     # Yapılandırılmış komut varsa o kazanır; yoksa PROJEDEN KEŞFEDİLİR.
     #
     # Kapı eskiden tamamen opt-in'di ve pratikte hiç kurulmuyordu. Bedeli ölçüldü:
@@ -106,9 +117,18 @@ def build_verifier(
     # Keşif komut UYDURMAZ: yalnızca projede kanıtı olanı önerir (var olan script,
     # tanımlı hedef) ve test paketini dışarıda bırakır — sorulan soru "kodu bozdum
     # mu", "tüm testler geçiyor mu" değil.
-    commands = config.runtime.verification_commands or discover_auto_commands(root)
+    commands = config.runtime.verification_commands or discover_auto_commands(
+        root, domains=registry
+    )
     if commands:
-        verifiers.append(CommandVerifier(commands, cwd=str(root), timeout_s=SHELL_TIMEOUT_S))
+        verifiers.append(
+            CommandVerifier(
+                commands,
+                cwd=str(root),
+                timeout_s=SHELL_TIMEOUT_S,
+                failure_markers=registry.output_failure_markers(),
+            )
+        )
     # Betik-yol kapısı YALNIZCA `package.json` olan projede kurulur; başka yerde
     # zaten hiçbir şey söylemez ve "hiç kapı yok" durumunu bozmamalıdır. Komut
     # çalıştırmaz, dosya sistemine bakar: kardeş projeleri birbirine bağlayan bir
@@ -243,10 +263,24 @@ class CommandVerifier:
     (bkz. `loop.run_agent`), yani kapı sessizce işlevsiz kalır.
     """
 
-    def __init__(self, commands: tuple[str, ...], *, cwd: str, timeout_s: float) -> None:
+    def __init__(
+        self,
+        commands: tuple[str, ...],
+        *,
+        cwd: str,
+        timeout_s: float,
+        failure_markers: tuple[ToolFailureMarkers, ...] | None = None,
+    ) -> None:
         self._commands = commands
         self._cwd = cwd
         self._timeout_s = timeout_s
+        # İşaretler alan kaydından gelir; verilmezse varsayılan kaydın işaretleri.
+        # Tarama proje işaretinden bağımsızdır: hatayı basıp `0` dönen ARAÇTIR.
+        self._failure_markers = (
+            failure_markers
+            if failure_markers is not None
+            else default_domain_registry().output_failure_markers()
+        )
 
     async def verify(self) -> VerificationResult:
         evidence: list[CriterionEvidence] = []
@@ -339,7 +373,7 @@ class CommandVerifier:
 
         if process.returncode == 0:
             output = _tail(ham)
-            bildirilen = _reported_failure(command, output)
+            bildirilen = _reported_failure(command, output, self._failure_markers)
             if bildirilen:
                 ozet = f"komut sıfır döndü ama hata bildirdi ({bildirilen}): {command}"
                 tani = diagnose(output)
@@ -420,26 +454,22 @@ class CommandVerifier:
 #: Kabuk "komut bulunamadı" için bu çıkış kodunu verir (POSIX sözleşmesi).
 _COMMAND_NOT_FOUND = 127
 
-#: Sıfır çıkış koduna rağmen hatayı yalnız ÇIKTIYA basan araçlar.
-#
-# Ölçüldü: Godot hem bozuk script'te hem çalışma zamanı hatasında `0` döndürüyor;
-# çıkış koduna bakan kapı bunu "başarıyla çalıştı" sayıp kabul veriyordu. Tablo
-# araç adına göre genişletilir. İşaretler dar tutulur: yalnız motorun KENDİ hata
-# satırında geçen ifadeler yazılır, yoksa kapı gürültüye döner.
-_ZERO_EXIT_FAILURE_MARKERS: dict[str, tuple[str, ...]] = {
-    # İşaretler alan adaptöründen gelir: aynı bilgi iki yerde durursa zamanla
-    # ayrışır ve biri güncellenirken öteki sessizce eskir.
-    godot_adapter().name: godot_adapter().zero_exit_failure_markers(),
-}
 
+def _reported_failure(
+    command: str, output: str, failure_markers: tuple[ToolFailureMarkers, ...]
+) -> str:
+    """Çıkış kodu sessiz kalsa da aracın kendi bildirdiği hatayı yakala.
 
-def _reported_failure(command: str, output: str) -> str:
-    """Çıkış kodu sessiz kalsa da aracın kendi bildirdiği hatayı yakala."""
+    Ölçüldü: motor hem bozuk script'te hem çalışma zamanı hatasında `0` döndürüyor;
+    çıkış koduna bakan kapı bunu "başarıyla çalıştı" sayıp kabul veriyordu. İşaretler
+    alan kaydından gelir ve dar tutulur: yalnız aracın KENDİ hata satırında geçen
+    ifadeler, yoksa kapı gürültüye döner.
+    """
     lowered = output.casefold()
-    for tool, markers in _ZERO_EXIT_FAILURE_MARKERS.items():
-        if not re.search(rf"\b{re.escape(tool)}\b", command):
+    for entry in failure_markers:
+        if not re.search(rf"\b{re.escape(entry.tool)}\b", command):
             continue
-        for marker in markers:
+        for marker in entry.markers:
             if marker in lowered:
                 return marker
     return ""

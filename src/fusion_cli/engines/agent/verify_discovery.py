@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
-from .domains import godot_adapter
+from .domain_adapters.defaults import default_domain_registry
+from .domain_adapters.registry import DomainRegistry
 
 #: Node paket yöneticileri: lock dosyası → komut öneki. Sıra anlamlıdır, ilk
 #: eşleşen kazanır; npm en sonda çünkü lock dosyası olmadan da varsayılandır.
@@ -78,7 +81,7 @@ def project_kinds(root: Path) -> tuple[str, ...]:
     return tuple(sorted(ad for ad, dosya in _KIND_MARKERS if (root / dosya).exists()))
 
 
-def discover_auto_commands(root: Path) -> tuple[str, ...]:
+def discover_auto_commands(root: Path, *, domains: DomainRegistry | None = None) -> tuple[str, ...]:
     """OTOMATİK kapı için doğrulama planı: hızlı ve yalnızca "bozdum mu" sorusu.
 
     Ölçüldü: kapı opt-in olduğu için pratikte hiç kurulmuyordu ve bunun bedeli
@@ -89,7 +92,9 @@ def discover_auto_commands(root: Path) -> tuple[str, ...]:
     Yalnızca projede KANITI olan komutlar önerilir (var olan script, tanımlı
     hedef); uydurulmuş bir komut kapıyı her turda düşürürdü.
     """
-    return discover_commands(root, node_scripts=_AUTO_NODE_SCRIPTS, include_tests=False)
+    return discover_commands(
+        root, node_scripts=_AUTO_NODE_SCRIPTS, include_tests=False, domains=domains
+    )
 
 
 def discover_commands(
@@ -97,14 +102,28 @@ def discover_commands(
     *,
     node_scripts: tuple[str, ...] = _NODE_SCRIPTS,
     include_tests: bool = True,
+    domains: DomainRegistry | None = None,
 ) -> tuple[str, ...]:
     """Proje kökünden doğrulama planı çıkar. Bulunamazsa boş demet.
 
     Sıra MALİYETE göredir: lint → tip denetimi → test. Kapı ilk başarısız komutta
     durur; pahalı olan öne alınsaydı her kırık turda boşuna beklenirdi.
+
+    Alan kapıları (Godot vb.) kayıt defterinden gelir ve Node ile Rust arasındaki
+    yerini korur; ilk boş olmayan keşif kazanır. `domains` verilmezse varsayılan
+    kayıt o anda kurulur.
     """
-    for kesif in (_python, _node, _godot, _rust, _go, _make):
-        plan = kesif(root) if kesif is not _node else _node(root, node_scripts)
+    registry = domains if domains is not None else default_domain_registry()
+    kesifler: tuple[Callable[[Path], tuple[str, ...]], ...] = (
+        _python,
+        partial(_node, scripts=node_scripts),
+        registry.gate_commands,
+        _rust,
+        _go,
+        _make,
+    )
+    for kesif in kesifler:
+        plan = kesif(root)
         if plan:
             return (
                 plan
@@ -130,7 +149,7 @@ def _is_test_command(command: str) -> bool:
 _BEHAVIORAL_MARKERS = ("pytest", "cargo test", "go test", "run test", "make test")
 
 
-def behavioral_commands(root: Path) -> tuple[str, ...]:
+def behavioral_commands(root: Path, *, domains: DomainRegistry | None = None) -> tuple[str, ...]:
     """Projenin, kodu çalıştırarak DAVRANIŞI kanıtlayan komutlarını döndür.
 
     Derleme, tip denetimi, lint ve "proje açılıyor mu" kapıları buraya GİRMEZ:
@@ -143,7 +162,7 @@ def behavioral_commands(root: Path) -> tuple[str, ...]:
     """
     return tuple(
         command
-        for command in discover_commands(root)
+        for command in discover_commands(root, domains=domains)
         if any(marker in command for marker in _BEHAVIORAL_MARKERS)
     )
 
@@ -177,22 +196,6 @@ def _node(root: Path, scripts: tuple[str, ...] = _NODE_SCRIPTS) -> tuple[str, ..
         return ()
     yonetici = next((ad for dosya, ad in _NODE_LOCKS if (root / dosya).exists()), "npm")
     return tuple(f"{yonetici} run {ad}" for ad in scripts if ad in mevcut)
-
-
-def _godot(root: Path) -> tuple[str, ...]:
-    """Godot projesi: motorun KENDİSİ projeyi açabiliyor mu?
-
-    Ölçülen hata: model bozuk bir `project.godot` ve `main.tscn` üretti, tur
-    "tamamlandı" dedi ve kullanıcı açılmayan bir proje aldı. Godot elle
-    çalıştırıldığında iki saniyede söylüyordu: `no main scene defined in the
-    project`, `Parse Error: Unrecognized file type 'node'`. Keşif sırasında
-    Godot bulunmadığı için kapı hiç kurulmuyordu.
-
-    `--quit` açılışta çıkar: kapı "proje AÇILIYOR mu" sorusudur, oyunu
-    oynamak değildir. `--headless` ekran istemez, sunucuda da çalışır.
-    """
-    adaptor = godot_adapter()
-    return adaptor.gate_commands(root) if adaptor.matches(root) else ()
 
 
 def _rust(root: Path) -> tuple[str, ...]:
