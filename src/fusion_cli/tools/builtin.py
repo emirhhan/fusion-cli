@@ -60,7 +60,8 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="write_file",
         description="Bir dosyayı verilen içerikle oluştur ya da TAMAMEN üzerine yaz. "
-        "Var olan dosyanın bir kısmını değiştireceksen bunu değil replace_range kullan.",
+        "Var olan dosyanın bir kısmını değiştireceksen bunu değil edit_file kullan. "
+        "Var olan dosyada sonuç, eski içerikle farkı (diff) gösterir.",
         parameters=_schema(
             {
                 # Açıklamada sıra vurgulanır: içerik büyükse model küçük alanı sona
@@ -77,41 +78,15 @@ _TOOLS: tuple[Tool, ...] = (
         mutating=True,
     ),
     Tool(
-        name="replace_range",
-        description="TERCİH EDİLEN kısmi düzenleme aracı. Önce read_file ile ilgili "
-        "satırları oku; sonra 1-tabanlı start_line..end_line aralığı SİLİNİR ve yerine "
-        "'new' yazılır. Whitespace eşleşmesi gerekmez. EKLEME yapıyorsan: son satırı "
-        "aralığa al ve 'new' içinde o satırı AYNEN tekrar edip altına yeni kodu yaz — "
-        "aksi hâlde var olan kodu silersin. "
-        "Dosya okunduktan sonra değişmişse güvenli biçimde reddedilir ve yeniden okuman istenir.",
-        parameters=_schema(
-            {
-                "path": {**_STRING, "description": "Daha önce read_file ile okunmuş dosya"},
-                "start_line": {
-                    **_INTEGER,
-                    "description": "Değiştirilecek ilk satır, 1 tabanlı ve inclusive.",
-                },
-                "end_line": {
-                    **_INTEGER,
-                    "description": "Değiştirilecek son satır, 1 tabanlı ve inclusive.",
-                },
-                "new": {
-                    **_STRING,
-                    "description": "Aralığın yerine yazılacak içeriğin TAMAMI. Aralıkta "
-                    "kalmasını istediğin satırları da buraya yaz: aralık tamamen silinir.",
-                },
-            },
-            ["path", "start_line", "end_line", "new"],
-        ),
-        run=files.replace_range,
-        mutating=True,
-    ),
-    Tool(
         name="edit_file",
-        description="GERİYE UYUMLU fallback. Çok KISA ve birebir bildiğin bir 'old' "
-        "metnini 'new' ile değiştir. Normal çok satırlı düzenlemede replace_range kullan. "
-        "'old' varsayılan olarak BENZERSİZ olmalı; tekrar eden bir metnin HEPSİNİ "
-        "değiştirecekseniz replace_all: true kullanın (tek çağrıda biter).",
+        description="TERCİH EDİLEN kısmi düzenleme aracı. Önce read_file ile oku; "
+        "sonra dosyadaki 'old' metnini 'new' ile değiştir. 'old' dosyadakiyle BİREBİR "
+        "(girinti dahil) ve BENZERSİZ olmalı; değilse düzenleme reddedilir ve dosya "
+        "değişmez. EKLEME yapıyorsan eklemenin yapılacağı yerdeki mevcut satırı 'old' "
+        "olarak ver ve 'new' içinde o satırı AYNEN tekrar edip yeni kodu ekle. Tekrar "
+        "eden bir metnin HEPSİNİ değiştireceksen replace_all: true kullan. Sonuç "
+        "değişikliğin diff'ini döner: silinmesini istemediğin bir '-' satırı görürsen "
+        "hemen geri ekle.",
         parameters=_schema(
             {
                 "path": _STRING,

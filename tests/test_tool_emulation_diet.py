@@ -26,7 +26,7 @@ def test_her_tool_icin_generated_ornek_tekrarlanmaz():
     assert "kısa değer örneği:" not in text
 
     # Artık yalnız üç kanonik frame var:
-    # kısa çağrı + payload/write + replace_range.
+    # kısa çağrı + payload/write + edit_file.
     assert text.count(CALL_OPEN) == 6
     assert text.count(CALL_CLOSE) == 3
 
@@ -34,7 +34,7 @@ def test_her_tool_icin_generated_ornek_tekrarlanmaz():
 def test_schema_yapisi_korunur_description_tekrari_atilir():
     text = rendered()
 
-    assert '"required":["path","start_line","end_line","new"]' in text
+    assert '"required":["path","old","new"]' in text
     assert '"type":"integer"' in text
     assert '"enum":["pending","in_progress","completed"]' in text
 
@@ -42,14 +42,14 @@ def test_schema_yapisi_korunur_description_tekrari_atilir():
     assert '"description":' not in text
 
 
-def test_payload_ve_range_edit_sozlesmesi_korunur():
+def test_payload_ve_tam_metin_edit_sozlesmesi_korunur():
     text = rendered()
 
     assert PAYLOAD_SENTINEL in text
     assert "FUSION_PAYLOAD" in text
-    assert "replace_range" in text
+    assert "edit_file" in text
     assert "read_file" in text
-    assert "yalnız YENİ içeriği gönder" in text
+    assert "BİREBİR ve BENZERSİZ" in text
 
 
 def test_tum_registry_toollari_promptta_hala_var():

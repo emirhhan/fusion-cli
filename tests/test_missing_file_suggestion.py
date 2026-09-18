@@ -12,7 +12,7 @@ yanlış öneri, öneri olmamasından kötüdür.
 from __future__ import annotations
 
 from fusion_cli.core.tools import ToolContext
-from fusion_cli.tools.files import read_file, replace_range
+from fusion_cli.tools.files import edit_file, read_file
 
 
 def test_benzer_ad_onerilir(tmp_path):
@@ -42,13 +42,13 @@ def test_bos_dizinde_oneri_yok(tmp_path):
 
 
 def test_duzenleme_araci_da_oneri_verir(tmp_path):
-    """Aynı kayıp aynı şekilde `replace_range` yolunda da yaşanıyordu."""
+    """Aynı kayıp aynı şekilde düzenleme yolunda da yaşanıyordu."""
     (tmp_path / "ayarlar.py").write_text("A = 1\n", encoding="utf-8")
 
-    sonuc = replace_range(
-        {"path": "ayarlar.pyy", "start_line": 1, "end_line": 1, "new": "A = 2"},
+    sonuc = edit_file(
+        {"path": "ayarlar.pyy", "old": "A = 1", "new": "A = 2"},
         ToolContext(tmp_path),
     )
 
     assert not sonuc.ok
-    assert "ayarlar.py" in sonuc.output
+    assert "benzer ad: ayarlar.py." in sonuc.output

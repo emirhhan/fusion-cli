@@ -120,27 +120,6 @@ def test_write_file_gecerli_sahneyi_yazar(tmp_path):
     assert (tmp_path / "main.tscn").read_text() == icerik
 
 
-def test_replace_range_sahne_basligini_silemez(tmp_path):
-    """Ölçülen vakada dosyayı asıl bozan `replace_range` oldu."""
-    from fusion_cli.core.tools import ToolContext
-    from fusion_cli.tools.files import read_file, replace_range
-
-    context = ToolContext(root=tmp_path)
-    hedef = tmp_path / "main.tscn"
-    saglam = '[gd_scene format=3]\n\n[node name="a" type="Node2D"]\n'
-    hedef.write_text(saglam)
-    read_file({"path": "main.tscn"}, context)
-
-    sonuc = replace_range(
-        {"path": "main.tscn", "start_line": 1, "end_line": 1, "new": '[node name="b"]'},
-        context,
-    )
-
-    assert sonuc.ok is False
-    assert "gd_scene" in sonuc.output
-    assert hedef.read_text() == saglam, "bozuk düzenleme diske ulaşmamalı"
-
-
 # --- biçimi sahiplenen araçlar ---------------------------------------------- #
 
 
@@ -231,23 +210,18 @@ def test_hedefli_duzenleme_bicimi_bozarsa_yine_reddedilir():
     assert "gd_scene" in sorun
 
 
-def test_replace_range_ile_script_baglanabilir(tmp_path):
+def test_hedefli_duzenlemeyle_script_baglanabilir(tmp_path):
     """Uçtan uca: araçlar sunuluyorken bile hedefli düzenleme diske ulaşmalı."""
     from fusion_cli.core.tools import ToolContext
     from fusion_cli.tools import files
 
     sahne = tmp_path / "main.tscn"
-    sahne.write_text(
-        '[gd_scene format=3]\n\n[node name="Player" type="CharacterBody2D"]\n',
-        encoding="utf-8",
-    )
+    ozgun = '[gd_scene format=3]\n\n[node name="Player" type="CharacterBody2D"]\n'
+    sahne.write_text(ozgun, encoding="utf-8")
     context = ToolContext(root=tmp_path, available_tools=set(_GODOT_ARACLARI))
     files.read_file({"path": "main.tscn"}, context)
 
-    sonuc = files.replace_range(
-        {"path": "main.tscn", "start_line": 1, "end_line": 3, "new": _SCRIPTLI_SAHNE.strip()},
-        context,
-    )
+    sonuc = files.edit_file({"path": "main.tscn", "old": ozgun, "new": _SCRIPTLI_SAHNE}, context)
 
     assert sonuc.ok is True, sonuc.output
     assert "script = ExtResource" in sahne.read_text(encoding="utf-8")

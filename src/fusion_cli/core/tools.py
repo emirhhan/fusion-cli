@@ -60,7 +60,6 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "write_file": ToolFamily.FILES,
     "edit_file": ToolFamily.FILES,
     "multi_edit": ToolFamily.FILES,
-    "replace_range": ToolFamily.FILES,
     "list_dir": ToolFamily.FILES,
     "list_files": ToolFamily.FILES,
     "create_file": ToolFamily.FILES,
@@ -251,12 +250,10 @@ class ToolContext:
     # kırpılmış okuduysa, gönderdiği "tam içerik" gerçekten tam DEĞİLDİR ve kesme
     # noktasından sonrası sessizce yok olur. Bu küme o kararı ölçülebilir kılar.
     fully_read: set[Path] = field(default_factory=set)
-    #: `read_file` ile görülen dosyaların içerik revision'ı.
-    #:
-    #: `replace_range` modelden eski içeriği tekrar üretmesini istemez. Bunun güvenli
-    #: olabilmesi için satır numaralarının HÂLÂ modelin gördüğü dosyaya ait olduğunu
-    #: doğrularız. Revision modele taşınmaz; araç katmanı kendi bildiği okuma durumunu
-    #: burada tutar. Böylece tool çağrısı kısa kalır.
+    #: Artık hiçbir araç okumaz ya da yazmaz. Tek tüketicisi satır aralığı
+    #: düzenlemesiydi (`replace_range`, kaldırıldı); alan yalnız plan motorunun
+    #: adım bağlamı (`plan_runner._step_context`) onu açıkça sıfırladığı için
+    #: duruyor ve o satırla birlikte silinir.
     read_revisions: dict[Path, str] = field(default_factory=dict)
     #: `write_file` çağrısında `path` eksik kaldığında içeriğin saklandığı yer.
     #: `ToolContext` frozen olduğu için taşıyıcı nesne kullanılır (todos ile aynı desen).

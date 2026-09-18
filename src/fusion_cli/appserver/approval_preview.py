@@ -19,7 +19,7 @@ from typing import Any
 __all__ = ["onizleme_diffi"]
 
 #: Önizleme üretilebilen düzenleme araçları.
-_DUZENLEME_ARACLARI = frozenset({"write_file", "replace_range", "edit_file", "multi_edit"})
+_DUZENLEME_ARACLARI = frozenset({"write_file", "edit_file", "multi_edit"})
 
 #: Önizlemede gösterilecek en fazla satır. Uzun diff onay kartını okunmaz yapar;
 #: kullanıcı kararı için başı yeterlidir, tamamı değişiklik kartında zaten görünür.
@@ -57,22 +57,9 @@ def _yeni_icerik(tool_name: str, args: dict[str, Any], mevcut: list[str]) -> lis
     if tool_name == "write_file":
         content = args.get("content")
         return None if not isinstance(content, str) else content.splitlines(keepends=True)
-    if tool_name == "replace_range":
-        return _satir_araligi(args, mevcut)
     if tool_name in ("edit_file", "multi_edit"):
         return _metin_degistir(args, mevcut)
     return None
-
-
-def _satir_araligi(args: dict[str, Any], mevcut: list[str]) -> list[str] | None:
-    """`replace_range` sonucunu üret: aralık TAMAMEN yeni içerikle değişir."""
-    start, end, yeni = args.get("start_line"), args.get("end_line"), args.get("new")
-    if not isinstance(start, int) or not isinstance(end, int) or not isinstance(yeni, str):
-        return None
-    if start < 1 or end < start:
-        return None
-    govde = yeni if yeni.endswith("\n") or not yeni else yeni + "\n"
-    return [*mevcut[: start - 1], *govde.splitlines(keepends=True), *mevcut[end:]]
 
 
 def _metin_degistir(args: dict[str, Any], mevcut: list[str]) -> list[str] | None:

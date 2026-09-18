@@ -1,7 +1,7 @@
 """Sözleşme hatası, önerdiği aracın örneğini göstermeli.
 
 Ölçüldü (13 Eylül, Godot koşusu): `write_file` mevcut dosyada reddedildi, hata
-"replace_range kullan" dedi ama örnek yine `write_file` çağrısıydı. Model örneği
+başka bir aracı önerdi ama örnek yine `write_file` çağrısıydı. Model örneği
 izleyip aynı çağrıyı tekrarladı; adım bütçesi doldu ve oyun yarım kaldı.
 """
 
@@ -12,8 +12,8 @@ from fusion_cli.tools import build_registry
 
 MEVCUT_DOSYA_HATASI = (
     "'project.godot' zaten var. Var olan dosyayı toptan yeniden yazma — önce "
-    "read_file ile ilgili satırları gör, sonra replace_range ile YALNIZCA yeni "
-    "parçayı gönder."
+    "read_file ile ilgili satırları gör, sonra edit_file ile YALNIZCA ilgili "
+    "satırları değiştir."
 )
 
 
@@ -34,7 +34,7 @@ def test_baska_arac_onerildiginde_ornek_o_araca_ait_olur():
     )
 
     ornek = metin.split("valid_example:", 1)[1]
-    assert '"name":"replace_range"' in ornek.replace(" ", "")
+    assert '"name":"edit_file"' in ornek.replace(" ", "")
     assert '"name":"write_file"' not in ornek.replace(" ", "")
 
 

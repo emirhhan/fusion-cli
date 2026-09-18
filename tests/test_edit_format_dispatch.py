@@ -30,9 +30,13 @@ def test_semada_onerilmeyen_bicim_gizlenir():
 
 
 def test_dispatcher_gizlenen_araci_engellemez():
-    calistirilabilir = _permitted(None, build_registry(), _policy()) or set()
+    policy = ExecutionPolicy(is_web=True, edit_format=EditFormat.WHOLE_FILE)
 
-    assert "replace_range" in calistirilabilir
+    sema = _permitted(None, build_registry(), policy, for_schema=True) or set()
+    calistirilabilir = _permitted(None, build_registry(), policy) or set()
+
+    assert "edit_file" not in sema
+    assert "edit_file" in calistirilabilir
 
 
 def test_adim_kapsami_hala_engeller():
@@ -45,7 +49,7 @@ def test_adim_kapsami_hala_engeller():
 
     calistirilabilir = _permitted(None, build_registry(), policy) or set()
 
-    assert "replace_range" not in calistirilabilir
+    assert "edit_file" not in calistirilabilir
     assert "read_file" in calistirilabilir
 
 

@@ -617,7 +617,7 @@ async def test_okunmamis_var_olan_dosyanin_uzerine_yazilmaz(registry, context, t
     sonuc = await _calistir(registry, context, "write_file", path="a.txt", content="yeni")
 
     assert not sonuc.ok
-    assert "replace_range" in sonuc.output
+    assert "edit_file" in sonuc.output
     # En önemlisi: dosya DEĞİŞMEMİŞ olmalı.
     assert hedef.read_text(encoding="utf-8") == "değerli içerik"
 
@@ -759,7 +759,7 @@ def test_bos_old_ile_edit_file_nasil_ekleneceğini_soyler(context, tmp_path):
 
     assert sonuc.ok is False
     assert "read_file" in sonuc.output
-    assert "replace_range" in sonuc.output
+    assert "MEVCUT satırı" in sonuc.output
 
 
 def test_old_alani_hic_gonderilmediginde_eksik_uyarisi_korunur(context, tmp_path):

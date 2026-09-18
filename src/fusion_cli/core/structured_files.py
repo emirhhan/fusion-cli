@@ -306,7 +306,7 @@ def _sahip_yonlendirmesi(path: Path, available_tools: frozenset[str]) -> str | N
         f"{gerekce} Dosyayı BAŞTAN yazmak yerine {liste} araçlarını kullan — bu "
         "araçlar Godot'u çalıştırır ve biçimi doğru üretir. Bu araçların "
         "yapamadığı bir değişiklik varsa (örneğin bir düğüme script bağlamak), "
-        "önce read_file ile oku, sonra replace_range ile YALNIZCA ilgili satırları "
+        "önce read_file ile oku, sonra edit_file ile YALNIZCA ilgili satırları "
         "değiştir; sonuç yine yapı denetiminden geçer."
     )
 

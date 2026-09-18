@@ -36,7 +36,7 @@ def test_search_replace_biciminde_satir_araligi_sunulmaz():
 def test_satir_araligi_biciminde_tum_duzenleme_araclari_acik():
     names = _names(EditFormat.LINE_RANGE)
 
-    assert {"edit_file", "replace_range", "write_file"} <= names
+    assert {"edit_file", "multi_edit", "write_file"} <= names
 
 
 def test_tam_dosya_biciminde_yalniz_yazma_sunulur():

@@ -7,11 +7,15 @@ bir düzenlemeden çok daha pahalıdır.
 
 `multi_edit` ATOMİKTİR: tüm değişiklikler bellekte uygulanır, hepsi başarılıysa dosya
 tek seferde yazılır. Yarım uygulanmış dosya bırakmaz.
+
+Başarılı her düzenleme (ve var olan dosyanın üzerine yazma) modele unified diff
+döner. Ölçüldü (A2): araç yalnız "düzenlendi: yol" dönerken bir eklemede
+`urun.adet -= adet` satırı sessizce silindi ve model sildiği satırı hiç görmedi.
+Diff'te `-` satırı olarak görünen kayıp, aynı turda geri eklenebilir.
 """
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import tempfile
@@ -35,6 +39,7 @@ from .args import (
     require_str,
     require_text,
 )
+from .diffing import bounded_diff
 
 
 def resolve_path(context: ToolContext, raw: str) -> Path:
@@ -125,16 +130,6 @@ def display_path(context: ToolContext, path: Path) -> str:
     return str(path)
 
 
-def _revision(data: bytes) -> str:
-    """Dosya içeriğinin revision kimliği.
-
-    Tam SHA-256 saklanır; modele gönderilmez. Amaç kriptografik güvenlik değil,
-    modelin okuduğu dosya ile düzenlediği dosyanın aynı revision olduğunu kesin
-    biçimde ayırt etmektir.
-    """
-    return hashlib.sha256(data).hexdigest()
-
-
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     if not path.exists():
@@ -149,9 +144,6 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
 
     ham = path.read_bytes()
-    # Kısmi okuma bile hangi DOSYA revision'ının görüldüğünü kesin olarak bilir.
-    # replace_range daha sonra satır numaralarını bu revision'a karşı doğrular.
-    context.read_revisions[path] = _revision(ham)
     data = ham[:MAX_READ_BYTES]
     kirpildi = len(ham) > MAX_READ_BYTES
     try:
@@ -237,7 +229,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(
             f"Bu dosya var ve tam içeriğini okumadın: {display_path(context, path)}. "
             "Üzerine yazmak "
-            "görmediğin satırları siler. Kısmi değişiklik için replace_range kullan; "
+            "görmediğin satırları siler. Kısmi değişiklik için edit_file kullan; "
             "gerçekten tamamını yenileyeceksen önce read_file ile TAMAMINI oku."
         )
     yapi_sorunu = validate_structured(
@@ -249,6 +241,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         # Godot projesi hiç açılmıyordu. Reddetmek önceki iyi durumu korur ve
         # modele düzeltme şansı verir.
         return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}")
+    before = _read_text_or_none(path) if existed else None
     path.parent.mkdir(parents=True, exist_ok=True)
     context.changes.record(path)
     try:
@@ -256,8 +249,33 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     except OSError as exc:
         return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
     context.touched.add(path)
-    action = "güncellendi" if existed else "oluşturuldu"
-    return ToolResult(f"{action}: {display_path(context, path)} ({len(content)} karakter)")
+    shown = display_path(context, path)
+    if not existed:
+        return ToolResult(f"oluşturuldu: {shown} ({len(content.splitlines())} satır)")
+    if before is None:
+        # Önceki içerik metin değildi; fark gösterilemez, yalnız boyut söylenir.
+        return ToolResult(f"güncellendi: {shown} ({len(content)} karakter)")
+    return _change_summary(f"güncellendi: {shown}", before, content, shown)
+
+
+def _read_text_or_none(path: Path) -> str | None:
+    """Dosyayı UTF-8 metin olarak oku; metin değilse ya da okunamıyorsa `None`."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _change_summary(header: str, before: str, after: str, shown: str) -> ToolResult:
+    """Başarılı değişikliğin sonucu: başlık + tavanla sınırlanmış unified diff.
+
+    Tavan onay önizlemesiyle aynıdır (`MAX_PREVIEW_LINES`); büyük bir yeniden
+    yazma bağlamı şişirmez, kırpıldığında kaç satırın gizlendiği yazılır.
+    """
+    diff = bounded_diff(before, after, shown)
+    if not diff:
+        return ToolResult(f"{header} (içerik aynı)")
+    return ToolResult(f"{header}\n{diff}")
 
 
 def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
@@ -282,151 +300,6 @@ def _kurtarma(args: ToolArgs, context: ToolContext) -> ToolResult | None:
     )
 
 
-def _replace_range_text(
-    text: str,
-    start_line: int,
-    end_line: int,
-    new: str,
-) -> str:
-    """1-tabanlı inclusive satır aralığını yeni içerikle değiştir.
-
-    Modelin replacement sonuna newline eklemesine güvenilmez. Araç, çıkarılan
-    aralığın satır-sonu stilini koruyarak yeni içerik ile kalan dosya arasındaki
-    sınırı güvenli biçimde oluşturur.
-    """
-    lines = text.splitlines(keepends=True)
-    line_count = len(lines)
-
-    if line_count == 0:
-        raise ArgumentError("Dosya boş; satır aralığı değiştirilemez. write_file kullan.")
-    if start_line > end_line:
-        raise ArgumentError("'start_line', 'end_line'dan büyük olamaz.")
-    if start_line > line_count or end_line > line_count:
-        raise ArgumentError(
-            f"Satır aralığı dosyanın dışında: {start_line}-{end_line}; dosya {line_count} satır."
-        )
-
-    prefix = "".join(lines[: start_line - 1])
-    removed = "".join(lines[start_line - 1 : end_line])
-    suffix = "".join(lines[end_line:])
-
-    # Kaynak dosyanın/çıkarılan aralığın EOL stilini koru.
-    if "\r\n" in removed:
-        eol = "\r\n"
-    elif "\n" in removed:
-        eol = "\n"
-    elif "\r" in removed:
-        eol = "\r"
-    elif "\r\n" in text:
-        eol = "\r\n"
-    elif "\n" in text:
-        eol = "\n"
-    elif "\r" in text:
-        eol = "\r"
-    else:
-        eol = "\n"
-
-    replacement = new
-
-    if replacement and not replacement.endswith(("\n", "\r")):
-        # Ardından başka satırlar geliyorsa mutlaka satır sınırı gerekir.
-        # Değiştirilen son satır newline ile bitiyorsa dosyanın final newline'ını
-        # da koruruz.
-        removed_ended_with_eol = removed.endswith(("\n", "\r"))
-        if suffix or removed_ended_with_eol:
-            replacement += eol
-
-    return prefix + replacement + suffix
-
-
-def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
-    """Okunmuş bir dosyada satır aralığını yalnız YENİ içerikle değiştir.
-
-    Exact-old eşleşmesine ihtiyaç duymaz. Güvenlik, dosyanın son `read_file`
-    çağrısından beri değişmediğini revision üzerinden doğrulayarak sağlanır.
-    """
-    path = resolve_path(context, require_str(args, "path"))
-    start_line = require_positive_int(args, "start_line", default=0)
-    end_line = require_positive_int(args, "end_line", default=0)
-    new = require_text(args, "new")
-
-    if start_line <= 0 or end_line <= 0:
-        return ToolResult.failure(
-            "'start_line' ve 'end_line' 1 veya daha büyük pozitif tamsayı olmalı."
-        )
-
-    if not path.exists():
-        return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
-            "Düzenlenecek dosya yok; yolu doğrula veya write_file kullan."
-        )
-    if path.is_dir():
-        return ToolResult.failure(f"Bu bir dizin, dosya değil: {display_path(context, path)}")
-
-    expected_revision = context.read_revisions.get(path)
-    if expected_revision is None:
-        return ToolResult.failure(
-            f"'{display_path(context, path)}' bu turda okunmadı. "
-            "Önce read_file ile değiştireceğin satırları oku; sonra replace_range kullan."
-        )
-
-    try:
-        raw = path.read_bytes()
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        return ToolResult.failure(
-            f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
-        )
-
-    if _revision(raw) != expected_revision:
-        # Satır numaraları artık eski revision'a aittir. Yanlış satırı değiştirmek,
-        # bir tur yeniden okumaktan daha pahalıdır.
-        context.read_revisions.pop(path, None)
-        context.fully_read.discard(path)
-        return ToolResult.failure(
-            f"'{display_path(context, path)}' okunduktan sonra değişmiş. "
-            "Satır numaraları artık güvenilir değil; read_file ile ilgili bölümü "
-            "TEKRAR oku ve yeni satır numaralarıyla replace_range çağır."
-        )
-
-    try:
-        updated = _replace_range_text(text, start_line, end_line, new)
-    except ArgumentError as exc:
-        return ToolResult.failure(str(exc))
-
-    if updated == text:
-        return ToolResult.failure("Değişiklik yok; verilen yeni içerik mevcut aralıkla aynı.")
-
-    # Kapı BURADA da uygulanır: ölçülen vakada dosyayı asıl bozan `replace_range`
-    # oldu — model sahne başlığını silen bir aralık değişikliği yaptı.
-    #
-    # Ama bu HEDEFLİ bir düzenlemedir: sahip araçlara yönlendirme yapılmaz, yalnız
-    # biçim denetlenir. Sahip araçların yapamadığı değişikliğin (ör. düğüme script
-    # bağlamak) tek yolu budur.
-    yapi_sorunu = validate_structured(
-        path, updated, available_tools=frozenset(context.available_tools), authoring=False
-    )
-    if yapi_sorunu is not None:
-        return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{yapi_sorunu}")
-
-    context.changes.record(path)
-    try:
-        atomic_write(path, updated)
-    except OSError as exc:
-        return ToolResult.failure(f"Yazılamadı: {display_path(context, path)} ({exc})")
-
-    context.touched.add(path)
-
-    # Bir başarılı range editinden sonra önceki satır numaraları artık eski revision'a
-    # aittir. İkinci range edit için model ilgili bölümü yeniden görmelidir.
-    context.read_revisions.pop(path, None)
-    context.fully_read.discard(path)
-
-    return ToolResult(
-        f"düzenlendi: {display_path(context, path)} (satır {start_line}-{end_line} değiştirildi)"
-    )
-
-
 #: `edit_file` boş `old` ile çağrıldığında modele verilen yol gösterici hata.
 #:
 #: Ölçüldü (Godot koşusu): model `project.godot`'a `run/main_scene` satırını
@@ -436,11 +309,10 @@ def replace_range(args: ToolArgs, context: ToolContext) -> ToolResult:
 #: saymak bir TAHMİNDİR: model pekâlâ bir yeri değiştirmek istiyor olabilir.
 #: Doğru cevap, ne yapılacağını AÇIKÇA söylemektir.
 EMPTY_OLD_MESSAGE = (
-    "'old' boş. edit_file VAR OLAN bir metni değiştirir; dosyaya yeni satır EKLEMEZ. "
-    "Eklemek için: önce read_file ile ilgili bölümü gör, sonra replace_range ile o "
-    "satır aralığını yeni satırı da içerecek şekilde gönder. Kısa bir ekleme ise "
-    "edit_file'ı 'old' olarak eklemenin yapılacağı MEVCUT satırı, 'new' olarak o "
-    "satır + yeni satırı vererek çağır."
+    "'old' boş. edit_file VAR OLAN bir metni değiştirir; boş 'old' ile ekleme yapılmaz. "
+    "Eklemek için: önce read_file ile ilgili bölümü gör, sonra edit_file'ı 'old' "
+    "olarak eklemenin yapılacağı yerdeki MEVCUT satırı (benzersiz değilse birkaç "
+    "komşu satırla birlikte), 'new' olarak o satırları AYNEN + yeni satırı vererek çağır."
 )
 
 
@@ -460,6 +332,15 @@ def _yapi_engeli(path: Path, updated: str, context: ToolContext) -> ToolResult |
     return ToolResult.failure(f"Yapı geçersiz: {display_path(context, path)}\n{sorun}")
 
 
+def _missing_edit_target(path: Path, context: ToolContext) -> ToolResult:
+    """Düzenlenecek dosya yok: komşu adı öner ve iki çıkışı söyle."""
+    return ToolResult.failure(
+        f"{FILE_MISSING_PREFIX} {display_path(context, path)}.{_benzer_oneri(path)} "
+        "Düzenlenecek bir dosya yok — içeriği write_file ile oluştur, ya da doğru "
+        "yolu list_dir / glob ile bul."
+    )
+
+
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     path = resolve_path(context, require_str(args, "path"))
     # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
@@ -471,10 +352,7 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     replace_all = args.get("replace_all") is True
 
     if not path.exists():
-        return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Düzenlenecek bir dosya yok — "
-            "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
-        )
+        return _missing_edit_target(path, context)
     text = path.read_text(encoding="utf-8")
     old = _tolerate_line_numbers(text, old)
 
@@ -485,27 +363,31 @@ def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         count = text.count(old)
         if count == 0:
             return ToolResult.failure(_NOT_FOUND)
-        updated = text.replace(old, new)
-        engel = _yapi_engeli(path, updated, context)
-        if engel is not None:
-            return engel
-        context.changes.record(path)
-        atomic_write(path, updated)
-        context.touched.add(path)
-        return ToolResult(f"düzenlendi: {display_path(context, path)} ({count} değişiklik)")
+        return _apply_edit(path, text, text.replace(old, new), count, context)
 
     problem = _match_problem(text, old, position=None)
     if problem is not None:
         return ToolResult.failure(problem)
 
-    updated = text.replace(old, new, 1)
+    return _apply_edit(path, text, text.replace(old, new, 1), 1, context)
+
+
+def _apply_edit(
+    path: Path, before: str, updated: str, count: int, context: ToolContext
+) -> ToolResult:
+    """Hedefli düzenlemeyi yapı kapısından geçir, yaz ve sonucu diff olarak döndür.
+
+    `edit_file` ve `multi_edit` TEK yoldan yazar: kapı birinde unutulursa biçim
+    hasarı oradan sızar (ölçüldü: `multi_edit` kapıyı atlıyordu).
+    """
     engel = _yapi_engeli(path, updated, context)
     if engel is not None:
         return engel
     context.changes.record(path)
     atomic_write(path, updated)
     context.touched.add(path)
-    return ToolResult(f"düzenlendi: {display_path(context, path)} (1 değişiklik)")
+    shown = display_path(context, path)
+    return _change_summary(f"düzenlendi: {shown} ({count} değişiklik)", before, updated, shown)
 
 
 def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -513,10 +395,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
     edits = parse_edits(require_list(args, "edits"))
 
     if not path.exists():
-        return ToolResult.failure(
-            f"{FILE_MISSING_PREFIX} {display_path(context, path)}. Düzenlenecek bir dosya yok — "
-            "içeriği write_file ile oluştur, ya da doğru yolu list_dir / glob ile bul."
-        )
+        return _missing_edit_target(path, context)
     original = path.read_text(encoding="utf-8")
 
     working = original
@@ -536,10 +415,7 @@ def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
         working = working.replace(old, new, 1)
         toplam += 1
 
-    context.changes.record(path)
-    atomic_write(path, working)
-    context.touched.add(path)
-    return ToolResult(f"düzenlendi: {display_path(context, path)} ({toplam} değişiklik uygulandı)")
+    return _apply_edit(path, original, working, toplam, context)
 
 
 def list_dir(args: ToolArgs, context: ToolContext) -> ToolResult:

@@ -43,9 +43,8 @@ doğrulanmamış işi başarılı gösterme.
 - En küçük doğru değişikliği yap. İlgisiz refactor, yeni dosya veya dokümantasyon ekleme.
 - Kısmi değişiklikte yalnız gerekli bölgeyi düzenle; tüm dosyayı gereksiz yere yeniden
   üretme. Düzenleme araçlarının kendi sözleşmesine uy.
-- Var olan koda EKLEME yaparken silmek istemediğin satırları kaybetme: satır aralığı
-  değiştiren araçlarda aralık tamamen silinir, kalmasını istediğin satırları yeni
-  içerikte aynen tekrar et.
+- Düzenleme sonucunda dönen diff'i oku; silinmesini istemediğin bir `-` satırı
+  görürsen hemen geri ekle.
 - Bir düzenleme geri alındıysa aynı düzenlemeyi yeniden yapmak tekrar değildir; dosya
   eski hâline döndüğü için doğru hamle onu yeniden uygulamaktır.
 - Yorumları yalnız neden bilgisi gerçekten değer katıyorsa ekle.

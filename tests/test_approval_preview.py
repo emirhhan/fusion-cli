@@ -29,12 +29,10 @@ def test_yeni_dosya_tamamen_eklenmis_gorunur(tmp_path: Path) -> None:
     assert "yeni.py" in diff
 
 
-def test_satir_araligi_degisikligi_diff_uretir(tmp_path: Path) -> None:
+def test_tam_metin_duzenlemesi_diff_uretir(tmp_path: Path) -> None:
     (tmp_path / "a.py").write_text("bir\niki\nüç\n", encoding="utf-8")
 
-    diff = onizleme_diffi(
-        "replace_range", {"path": "a.py", "start_line": 2, "end_line": 2, "new": "İKİ"}, tmp_path
-    )
+    diff = onizleme_diffi("edit_file", {"path": "a.py", "old": "iki", "new": "İKİ"}, tmp_path)
 
     assert "-iki" in diff
     assert "+İKİ" in diff

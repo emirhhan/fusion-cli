@@ -345,7 +345,7 @@ async def test_adimin_kendi_etkisi_kapsam_disinda_birakilmaz(tmp_path):
     dar = step_deps(_deps(tmp_path), adim, remaining=4, observe=False)
 
     assert "write_file" in _tool_names(dar)
-    assert "replace_range" in _tool_names(dar)
+    assert "edit_file" in _tool_names(dar)
 
 
 async def test_kapsam_disi_yan_etki_araci_hala_kapalidir(tmp_path):
@@ -379,7 +379,7 @@ async def test_kabuk_izni_varken_dosya_araclari_kapatilmaz(tmp_path):
 
     assert "run_shell" in dar.execution.allowed_tool_names
     assert "edit_file" in dar.execution.allowed_tool_names
-    assert "replace_range" in dar.execution.allowed_tool_names
+    assert "multi_edit" in dar.execution.allowed_tool_names
 
 
 async def test_kabuk_izni_yokken_dosya_araclari_kapali_kalir(tmp_path):

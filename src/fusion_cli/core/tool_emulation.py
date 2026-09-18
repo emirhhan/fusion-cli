@@ -261,34 +261,6 @@ PAYLOAD_EXAMPLE = "\n".join(
     ]
 )
 
-#: Kısmi düzenlemenin V2 örneği: eski kodu model tekrar üretmez.
-# `read_file` çıktısındaki 1-tabanlı satır numaraları kullanılır; güvenlik, araç
-# katmanının sakladığı dosya revision'ıyla sağlanır. Böylece iki büyük payload yerine
-# yalnızca YENİ içerik taşınır ve çağrı bloğuna varmadan kesilme riski düşer.
-RANGE_EDIT_EXAMPLE = "\n".join(
-    [
-        f'{PAYLOAD_OPEN} id="yeni-aralik-1"',
-        "```python",
-        PAYLOAD_SENTINEL,
-        "def topla(a, b):",
-        "    return a + b",
-        "```",
-        PAYLOAD_CLOSE,
-        render_call(
-            {
-                "name": "replace_range",
-                "arguments": {
-                    "path": "hesap.py",
-                    "start_line": 10,
-                    "end_line": 11,
-                    "new": {"$ref": "yeni-aralik-1"},
-                },
-            }
-        ),
-    ]
-)
-
-
 #: Var olan bir dosyayı kısmen değiştirmenin işlenmiş örneği.
 #
 # Bu örneğin varlık sebebi ölçülmüş bir davranıştır: sözleşmedeki TEK mutasyon
@@ -342,12 +314,13 @@ _GENERAL_RULES = (
     "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
     "çizgiler siliniyor.",
     "- Mevcut dosyanın BİR BÖLÜMÜNÜ değiştireceksen önce read_file ile gör, sonra "
-    "replace_range kullan; write_file DEĞİL.",
-    "- replace_range ile yalnız YENİ içeriği gönder; Eski içeriği tekrar üretme.",
-    "- write_file yeni/tam dosya yazımı içindir; edit_file yalnız kısa exact-text "
-    "fallback aracıdır.",
+    "edit_file kullan; write_file DEĞİL.",
+    "- edit_file'da 'old' dosyadakiyle BİREBİR ve BENZERSİZ olmalı; eklemede "
+    "mevcut komşu satırı 'old'a al ve 'new' içinde aynen tekrar et.",
+    "- Düzenleme sonucu dönen diff'i oku; istemediğin bir '-' satırı varsa geri ekle.",
+    "- write_file yeni ya da tamamen yenilenecek dosya içindir.",
     "- Bir yanıtta EN FAZLA BİR DEĞİŞTİRİCİ çağrı yap "
-    "(write_file, replace_range, edit_file, multi_edit, run_shell).",
+    "(write_file, edit_file, multi_edit, run_shell).",
     "- Bağımsız OKUMA çağrılarını aynı yanıtta BİRDEN ÇOK yapabilirsin.",
     "- Aynı çağrıyı aynı argümanlarla tekrar etme.",
     "- Araç gerekmiyorsa tool-call bloğu üretme; nihai cevabı ver.",
@@ -412,7 +385,7 @@ def render_tool_instructions(
         PAYLOAD_EXAMPLE,
         "",
         "Mevcut dosyada kısmi düzenleme örneği:",
-        RANGE_EDIT_EXAMPLE,
+        EDIT_EXAMPLE,
         "",
         "Payload kuralları:",
         *PAYLOAD_RULES,

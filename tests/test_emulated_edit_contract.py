@@ -74,13 +74,13 @@ def _instructions() -> str:
     return render_tool_instructions(build_registry().schemas())
 
 
-def test_sozlesme_replace_range_ornegi_icerir() -> None:
-    """Ana kısmi-edit örneği replace_range V2 olmalı."""
+def test_sozlesme_edit_file_ornegi_icerir() -> None:
+    """Ana kısmi-edit örneği tam metin eşleşmeli `edit_file` olmalı."""
     metin = _instructions()
 
-    assert '"name":"replace_range"' in metin
-    assert "replace_range" in metin
-    assert "Eski içeriği" in metin or "ESKİ içeriği" in metin
+    assert '"name":"edit_file"' in metin
+    assert "replace_range" not in metin
+    assert "BİREBİR ve BENZERSİZ" in metin
 
 
 def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
@@ -96,10 +96,10 @@ def test_sozlesmedeki_edit_ornegi_kendi_ayristiricimizdan_gecer() -> None:
     assert "$ref" not in parsed.calls[0].arguments, "referanslar çözülmüş olmalı"
 
 
-def test_sozlesme_var_olan_dosyada_replace_range_tercihini_soyler() -> None:
+def test_sozlesme_var_olan_dosyada_edit_file_tercihini_soyler() -> None:
     metin = _instructions()
 
-    assert "replace_range kullan" in metin
+    assert "edit_file kullan" in metin
     assert "write_file DEĞİL" in metin
 
 
@@ -201,7 +201,7 @@ def test_sozlesme_tek_cagri_kuralini_degistiricilerle_sinirlar() -> None:
 
     assert "EN FAZLA BİR DEĞİŞTİRİCİ çağrı" in metin
     assert "BİRDEN ÇOK yapabilirsin" in metin
-    assert "replace_range" in metin
+    assert "edit_file" in metin
 
 
 # --- ölü kilit: edit tutmuyor, write engelli ------------------------------- #

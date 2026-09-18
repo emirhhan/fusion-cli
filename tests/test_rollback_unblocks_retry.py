@@ -32,7 +32,7 @@ def _butce() -> TurnBudget:
 
 
 def _yazma(butce: TurnBudget, yol: str):
-    return butce.signature("replace_range", f'{{"path": "{yol}"}}', mutating=True)
+    return butce.signature("edit_file", f'{{"path": "{yol}"}}', mutating=True)
 
 
 def test_geri_alinan_yazma_tekrar_sayilmaz(tmp_path):
