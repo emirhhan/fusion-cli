@@ -638,3 +638,26 @@ def test_eski_damga_da_taninir():
     from fusion_cli.gateway.app import read_dashboard_asset, strip_asset_version
 
     assert read_dashboard_asset(strip_asset_version("0.1.0/panel.js")) is not None
+
+
+def test_web_oturumu_paneli_uc_pencere_kipini_sunar():
+    """Ölçüldü (17 Eylül): ChatGPT headless Chrome'da Cloudflare'e takıldı, gizli kipte çalıştı.
+
+    Eski onay kutusu yalnız iki kipi seçebiliyordu; panel artık üç kipi sunar ve
+    sunucuya `window_mode` gönderir.
+    """
+    govde = _dashboard()
+    assert 'id="nativeWebHeadless"' not in govde
+    assert '<select id="nativeWebWindowMode">' in govde
+    for deger, etiket in (
+        ("visible", "Görünür"),
+        ("headless", "Görünmez"),
+        ("hidden", "Gizli (önerilen: ChatGPT)"),
+    ):
+        assert f'<option value="{deger}">{etiket}</option>' in govde
+    web = _varlik("web-sessions.js")
+    assert "timeout_s, window_mode, tool_support" in web
+    assert 'chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", windowMode:"hidden"' in web
+    # Gizleme uyarısı (ör. macOS izni yok) panelde gösterilir ve HTML olarak yorumlanmaz.
+    assert "escapeHtml(w.window_notice)" in web
+    assert 'id="nativeWebWindowNotice"' in govde

@@ -39,6 +39,7 @@ from ..config.paths import user_data_dir
 from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
 from ..core.types import Message, ToolCall
+from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
 from .web_session import WebSessionCredential, WebTransport, WebTurn
 from .web_shared_browser import (
@@ -166,6 +167,12 @@ class BrowserProviderDefinition:
     # o sağlayıcı kurulum akışında seçenek olarak SUNULMAZ — tahmini bir adres,
     # kullanıcıyı var olmayan bir sayfaya yollar.
     connector_settings_url: str = ""
+    #: YENİ kaydedilen oturumun pencere kipi. Kayıtlı oturumun seçimi hep korunur.
+    #
+    # Ölçüldü (17 Eylül): ChatGPT görünmez (headless) Chrome'da Cloudflare
+    # doğrulamasına takıldı, 7 turun 7'si düştü; gizli kipte (gerçek pencere,
+    # ekrandan gizli) ilk turda çalıştı. Ölçülmemiş sağlayıcı varsayılanda kalır.
+    recommended_window_mode: WindowMode = WindowMode.HEADLESS
 
 
 WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
@@ -208,6 +215,7 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         default_models=("auto",),
         cookie_hint="chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
         connector_settings_url="https://chatgpt.com/#settings/Connectors",
+        recommended_window_mode=WindowMode.HIDDEN,
     ),
     "claude_web": BrowserProviderDefinition(
         id="claude_web",
@@ -1218,6 +1226,10 @@ async def _deliver_turn(
         await _pace_new_conversation(manager, session)
         await manager.drop_conversation(session.provider, session.account, root)
         page = await context.new_page()
+        # Yeni sekme gizli pencereyi öne getirir; kipine yeniden oturt.
+        await _shared_profile_browser(
+            None, browser_profile_dir(session.provider, session.account)
+        ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
         prompt = format_browser_prompt(messages)

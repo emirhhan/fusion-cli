@@ -4,8 +4,27 @@
 
 let activeWebProvider = null, activeWebModel = null;
 
+// Pencere kipleri. `hidden`: gerçek Chrome açılır ve macOS'ta ekrandan gizlenir;
+// ölçüldü (17 Eylül) — ChatGPT görünmez (headless) Chrome'da Cloudflare
+// doğrulamasına takılıyor, gizli kipte çalışıyor. macOS dışında görünmeze düşer.
+const WINDOW_MODES = {
+  visible: {label: "görünür tarayıcı", hint: "Chrome penceresi ekranında açık kalır."},
+  headless: {label: "görünmez", hint: "Pencere hiç açılmaz. Bazı siteler (ChatGPT) bu kipte doğrulamaya takılır."},
+  hidden: {label: "gizli", hint: "Gerçek Chrome açılır ama ekranından gizlenir (yalnız macOS; diğer sistemlerde görünmez kipe düşer)."},
+};
+
+// Dosyadan okunan uyarı metni HTML olarak yorumlanmasın.
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (ch) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"})[ch]);
+}
+
+function updateWindowModeHint() {
+  const mode = WINDOW_MODES[$("nativeWebWindowMode").value];
+  $("nativeWebWindowHint").textContent = mode ? mode.hint : "";
+}
+
 const WEB_INFO = {
-  chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", site:"https://chatgpt.com", hint:"chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
+  chatgpt_web: {name:"ChatGPT Web (Plus/Pro)", windowMode:"hidden", site:"https://chatgpt.com", hint:"chatgpt.com üzerindeki oturum açmış bir isteğin tam Cookie başlığı",
     steps:["Tarayıcıyla giriş yönteminde Fusion'ın açtığı izole Chrome penceresinde hesabına giriş yap ve pencereyi kapat.",
            "Manuel yöntemde chatgpt.com → Geliştirici Araçları → Network bölümünde bir isteği seç; Request Headers içindeki Cookie değerinin tamamını kopyala. Cookie: önekini ekleme.",
            "Kaydet ve bağlantıyı kontrol et. Oturum süresi dolarsa aynı işlemi yenile."]},
@@ -88,7 +107,12 @@ function showWebSetup(id, model) {
   $("webSetupTitle").textContent = info.name;
   $("nativeWebAccount").value = account;
   $("nativeWebCookie").value = "";
-  $("nativeWebHeadless").checked = existing ? existing.headless : true;
+  $("nativeWebWindowMode").value = existing && existing.window_mode ? existing.window_mode : (info.windowMode || "headless");
+  $("nativeWebWindowMode").onchange = updateWindowModeHint;
+  updateWindowModeHint();
+  const windowNotice = existing ? existing.window_notice : null;
+  $("nativeWebWindowNotice").textContent = windowNotice || "";
+  $("nativeWebWindowNotice").hidden = !windowNotice;
   $("nativeWebTimeout").value = existing ? existing.timeout_s : 180;
   $("webGuide").innerHTML = `<h3>Oturum bilgisi nasıl alınır?</h3><div>${info.hint}</div><ol>${info.steps.map((x) => `<li>${x}</li>`).join("")}</ol><div style="margin-top:var(--space-3);color:var(--warn-ink)">Cookie'yi bir şifre gibi koru; paylaşma ve ekran görüntüsüne alma.</div>`;
   updateNativeModel();
@@ -108,10 +132,10 @@ async function saveNativeWeb(showToast = true) {
   const model = $("nativeWebModel").value;
   const cookie = $("nativeWebCookie").value.trim();
   const timeout_s = Number($("nativeWebTimeout").value || 180);
-  const headless = $("nativeWebHeadless").checked;
+  const window_mode = $("nativeWebWindowMode").value;
   $("nativeWebStatus").textContent = "Kaydediliyor…";
   try {
-    await post("/api/web_sessions", {provider: activeWebProvider, account, model, cookie, timeout_s, headless, tool_support: "emulated"});
+    await post("/api/web_sessions", {provider: activeWebProvider, account, model, cookie, timeout_s, window_mode, tool_support: "emulated"});
     $("nativeWebCookie").value = ""; await load();
     $("nativeWebStatus").textContent = "Kaydedildi · Yönlendirme sekmesinde model olarak seçilebilir";
     if (showToast) toast("Web sağlayıcısı kaydedildi");
@@ -214,9 +238,11 @@ function webSessionCard(w) {
   const native = w.transport === "browser";
   const status = w.connected ? `<span class="badge ok">oturum kayıtlı</span>` : `<span class="badge fw">giriş gerekli</span>`;
   const edit = native ? `<button class="ghost" onclick="openWebProvider('${w.provider}','${w.model}')">Ayarla</button>` : "";
-  const detail = native ? `${w.provider} · ${w.account} · ${w.headless ? "arka plan" : "görünür tarayıcı"}` : w.endpoint;
+  const mode = WINDOW_MODES[w.window_mode];
+  const detail = native ? `${w.provider} · ${w.account} · ${mode ? mode.label : "görünmez"}` : w.endpoint;
+  const windowNotice = native && w.window_notice ? `<div class="notice" role="status">${escapeHtml(w.window_notice)}</div>` : "";
   return `<div class="pcard"><div class="pcard-head"><span class="name">${w.model}</span>${status}</div>
-    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${detail}</div>
+    <div class="meta" style="margin:var(--space-2) 0 var(--space-3);word-break:break-all">${detail}</div>${windowNotice}
     <div class="row">${edit}<button class="danger" onclick="delWebSession('${w.model}')">Sil</button></div></div>`;
 }
 

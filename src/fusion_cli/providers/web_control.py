@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 from ..config.keys import environ_snapshot
 from ..config.models import Config, WebSessionConfig
 from ..core.types import ModelSpec
+from ..core.window_mode import WindowMode
 from .web_browser import WEB_BROWSER_PROVIDERS, browser_profile_dir, normalize_account
+from .web_shared_browser import read_window_notice
 
 if TYPE_CHECKING:  # pragma: no cover - yalnız tip denetimi
     from ..core.protocols import LlmProvider
@@ -192,7 +194,10 @@ def register_session(
         # sınadığında bu alan taşınmadığı için tercih sessizce `true`ya döndü,
         # görünür pencere hiç açılmadı ve aynı hata tekrar alındı — sebebi
         # hiçbir yerde görünmüyordu.
-        headless=getattr(mevcut, "headless", varsayilan.headless),
+        # Yeni oturum sağlayıcının ÖLÇÜLMÜŞ önerilen kipiyle başlar (ChatGPT: gizli).
+        headless=getattr(
+            mevcut, "headless", WEB_BROWSER_PROVIDERS[provider].recommended_window_mode
+        ),
         timeout_s=getattr(mevcut, "timeout_s", varsayilan.timeout_s),
         enabled=True,
     )
@@ -478,6 +483,11 @@ def provider_cards(
                 "arac_destegi": getattr(session, "tool_support", "none"),
                 "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
                 "etkin": bool(getattr(session, "enabled", False)),
+                # Pencere kipi ve (varsa) son pencere uyarısı — ör. gizleme izni yok.
+                "pencere_kipi": WindowMode(
+                    getattr(session, "headless", definition.recommended_window_mode)
+                ).slug,
+                "pencere_uyarisi": read_window_notice(_profile_dir(provider_id, account)),
             }
         )
     return cards

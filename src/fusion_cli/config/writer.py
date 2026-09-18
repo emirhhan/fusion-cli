@@ -37,6 +37,7 @@ import yaml
 
 from ..core.errors import ConfigError
 from ..core.types import ModelSpec
+from ..core.window_mode import WindowMode
 from .models import Config, McpTransport
 from .paths import user_config_candidates, user_config_dir
 
@@ -159,7 +160,9 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                     # yeniden ölçülmeden mutation iznini kaybetmemeli.
                     "tool_eval_passed": session.tool_eval_passed,
                     "login_verified": session.login_verified,
-                    "headless": session.headless,
+                    # Kip metne/boolean'a normalize edilerek yazılır: eski iki kip
+                    # boolean kalır, yalnız `hidden` metin olarak yazılır.
+                    "headless": WindowMode(session.headless).as_config_value,
                     "timeout_s": session.timeout_s,
                     "enabled": session.enabled,
                 }.items()

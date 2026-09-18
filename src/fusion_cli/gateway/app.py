@@ -38,6 +38,7 @@ from ..core.protocols import LlmProvider
 from ..core.redaction import redact
 from ..core.routing_strategy import RoutingStrategy, order_models
 from ..core.types import CompletionRequest, ModelResult, ModelSpec, StreamDone, TextChunk
+from ..core.window_mode import WindowMode
 from ..mcp_bridge.client import McpConnectionStatus
 from ..providers.factory import build_provider
 from ..providers.key_pool import KeyPoolRegistry
@@ -394,7 +395,14 @@ class GatewayApp:
         token = str(body.get("token", "")).strip()
         cookie = str(body.get("cookie", "")).strip()
         tool_support = str(body.get("tool_support", "emulated")).strip() or "emulated"
-        headless = bool(body.get("headless", True))
+        definition = WEB_BROWSER_PROVIDERS.get(provider)
+        window_mode = _window_mode(
+            body,
+            fallback=definition.recommended_window_mode if definition else WindowMode.HEADLESS,
+        )
+        if window_mode is None:
+            await _json(send, _error_body(_WINDOW_MODE_ERROR), status=400)
+            return
         try:
             timeout_s = float(body.get("timeout_s", 180.0))
         except (TypeError, ValueError):
@@ -428,7 +436,7 @@ class GatewayApp:
                 transport="browser",
                 credential_ref=credential_ref,
                 tool_support="emulated" if tool_support != "none" else "none",
-                headless=headless,
+                headless=window_mode,
                 timeout_s=timeout_s,
                 enabled=True,
             )
@@ -720,6 +728,7 @@ class GatewayApp:
 
     def _web_session_json(self, session: WebSessionConfig) -> dict[str, Any]:
         from ..providers.web_browser import browser_profile_dir
+        from ..providers.web_shared_browser import read_window_notice
 
         secret_saved = False
         if session.credential_ref and self._secret_store.available:
@@ -739,7 +748,16 @@ class GatewayApp:
             "account": session.account,
             "transport": session.transport,
             "tool_support": session.tool_support,
-            "headless": session.headless,
+            # Panelin eski anahtarı korunur (pencere kullanıcının önünde mi?);
+            # üç kipin tamamı `window_mode` ile bildirilir.
+            "headless": WindowMode(session.headless).is_offscreen,
+            "window_mode": WindowMode(session.headless).slug,
+            # Pencere kipiyle ilgili son uyarı (ör. macOS gizleme izni yok); yoksa None.
+            "window_notice": (
+                read_window_notice(browser_profile_dir(session.provider, session.account))
+                if session.transport == "browser"
+                else None
+            ),
             "timeout_s": session.timeout_s,
             "enabled": session.enabled,
             "secret_saved": secret_saved,
@@ -1188,6 +1206,33 @@ _CATEGORY_BY_KIND = {
     "oauth": "OAuth",
     "cli_oauth": "OAuth",
 }
+
+
+_WINDOW_MODE_ERROR = (
+    "geçersiz pencere kipi; izin verilen: "
+    + ", ".join(mode.slug for mode in WindowMode)
+    + " (eski istemciler için headless: true/false)"
+)
+
+
+def _window_mode(body: dict[str, Any], *, fallback: WindowMode) -> WindowMode | None:
+    """İstek gövdesinden pencere kipini çöz; tanınmayan değerde None.
+
+    Yeni panel `window_mode: "visible" | "headless" | "hidden"` gönderir. Eski
+    panelin alanı (`headless: true/false`) desteklenmeye devam eder. İkisi de
+    yoksa sağlayıcının ölçülmüş önerilen kipi kullanılır (ChatGPT: gizli).
+    Tanınmayan değer sessizce varsayılana çevrilmez: kullanıcı yanlış kipte
+    çalıştığını fark etmezdi.
+    """
+    raw = body.get("window_mode", body.get("headless", fallback))
+    # `True`/`False` IntEnum değerine oturur; başka sayı (ör. 2) kabul edilmez,
+    # sayı kodu bir API sözleşmesi değildir.
+    if isinstance(raw, int) and not isinstance(raw, bool | WindowMode):
+        return None
+    try:
+        return WindowMode(raw)
+    except ValueError:
+        return None
 
 
 def _web_auth_env(model: str) -> str:

@@ -19,14 +19,23 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import os
 import sys
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import httpx
+
+from ..core.window_mode import WindowMode, resolve_window_mode
+from .macos_window import (
+    UNSUPPORTED_MESSAGE,
+    WindowHideResult,
+    hide_profile_window,
+    supports_window_hiding,
+)
 
 if sys.platform != "win32":
     import fcntl
@@ -40,6 +49,15 @@ LEASE_DIR = ".fusion-leases"
 #: Kilit ve port dosyası yoklama aralığı. Yalnız bekleme sıklığıdır; toplam
 #: bekleme süresini çağıranın tarayıcı tur bütçesi belirler.
 POLL_INTERVAL_S = 0.1
+#: Çalışan Chrome'un HANGİ kipte açıldığı. Profil başka bir sekmenin açtığı
+#: Chrome'la paylaşılır; görünmez açılmış bir Chrome'u "gizlemeye" çalışmak hem
+#: anlamsız hem de sahte bir izin uyarısı üretirdi.
+WINDOW_MODE_FILE = ".fusion-window-mode"
+#: Pencere kipiyle ilgili kullanıcıya gösterilecek son uyarı (ör. gizleme izni yok).
+#: Dosyada durur çünkü turu çalıştıran süreç ile paneli çizen süreç farklıdır.
+WINDOW_NOTICE_FILE = ".fusion-window-notice"
+
+_logger = logging.getLogger(__name__)
 
 
 class SharedBrowserError(RuntimeError):
@@ -58,6 +76,39 @@ class SharedBrowserHooks:
     is_alive: Callable[[str], Awaitable[bool]]
     #: Uç noktadaki Chrome'u düzgünce kapat.
     close: Callable[[str], Awaitable[None]]
+    #: Açık pencereyi kullanıcının ekranından gizle (yalnız `WindowMode.HIDDEN`).
+    #: Varsayılanı gerçek macOS uygulamasıdır; testler sahtesini verir. Başarısızlık
+    #: turu düşürmez, sonuç nesnesiyle bildirilir.
+    hide_window: Callable[[Path], Awaitable[WindowHideResult]] = field(default=hide_profile_window)
+    #: Bu platform pencereyi gizleyebilir mi? Gizleyemiyorsa gizli kip görünmez
+    #: kipe düşer (bkz. `resolve_window_mode`).
+    can_hide_window: bool = field(default_factory=supports_window_hiding)
+
+
+def read_window_notice(profile: Path) -> str | None:
+    """Profilin son pencere uyarısı; yoksa None. Panel bunu kullanıcıya gösterir."""
+    try:
+        notice = (profile / WINDOW_NOTICE_FILE).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return notice or None
+
+
+def _write_window_notice(profile: Path, notice: str | None) -> None:
+    path = profile / WINDOW_NOTICE_FILE
+    if notice:
+        path.write_text(notice, encoding="utf-8")
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _running_window_mode(profile: Path) -> WindowMode | None:
+    """Çalışan Chrome'un açıldığı kip; kayıt yoksa ya da bozuksa None."""
+    try:
+        slug = (profile / WINDOW_MODE_FILE).read_text(encoding="utf-8").strip()
+        return WindowMode[slug.upper()]
+    except (OSError, KeyError):
+        return None
 
 
 def read_endpoint(profile: Path) -> str | None:
@@ -88,22 +139,41 @@ class SharedProfileBrowser:
         self._hooks = hooks
         self._owner_pid = owner_pid
 
-    async def acquire(self, *, headless: bool, timeout_s: float) -> str:
+    async def acquire(self, *, headless: bool | WindowMode, timeout_s: float) -> str:
         """Çalışan Chrome'u kirala; yoksa başlat. CDP adresini döndür.
 
         Profil başka bir modda açıksa (ör. görünür) o Chrome kullanılır: tek
         profil aynı anda iki Chrome'a verilemez.
+
+        `headless` üç kipi de alır. Eski `True`/`False` çağrıları sırasıyla
+        `WindowMode.HEADLESS` ve `WindowMode.VISIBLE` anlamına gelir.
         """
+        requested = WindowMode(headless)
+        mode = resolve_window_mode(requested, can_hide=self._hooks.can_hide_window)
         deadline = time.monotonic() + timeout_s
         self._profile.mkdir(parents=True, exist_ok=True)
         async with self._locked(deadline):
             endpoint = await self._running_endpoint()
             if endpoint is None:
-                endpoint = await self._launch(headless=headless, deadline=deadline)
+                endpoint = await self._launch(mode=mode, deadline=deadline)
+            await self._settle_window(requested=requested, mode=mode)
             leases = self._profile / LEASE_DIR
             leases.mkdir(exist_ok=True)
             (leases / str(self._owner_pid)).touch()
             return endpoint
+
+    async def reassert_window(self, *, headless: bool | WindowMode) -> None:
+        """Yeni sekme açıldıktan sonra pencereyi yeniden kipine oturt.
+
+        Ölçüldü (18 Eylül, macOS, Chrome 153): CDP ile yeni sekme açmak
+        (`Target.createTarget`) Chrome'u öne getirir ve gizli pencere yeniden
+        görünür olur. Fusion her yeni sohbet için yeni sekme açtığından gizleme
+        bu noktada yinelenmelidir; aksi hâlde pencere ilk sohbetten sonra ekranda kalır.
+        """
+        requested = WindowMode(headless)
+        mode = resolve_window_mode(requested, can_hide=self._hooks.can_hide_window)
+        if mode is WindowMode.HIDDEN:
+            await self._settle_window(requested=requested, mode=mode)
 
     async def release(self, *, force: bool, timeout_s: float) -> None:
         """Kirayı bırak; son kiracıysa ya da `force` verildiyse Chrome'u kapat.
@@ -129,13 +199,41 @@ class SharedProfileBrowser:
             return endpoint
         return None
 
-    async def _launch(self, *, headless: bool, deadline: float) -> str:
+    async def _settle_window(self, *, requested: WindowMode, mode: WindowMode) -> None:
+        """Pencereyi kipine oturt ve kullanıcıya gösterilecek uyarıyı güncelle.
+
+        Hiçbir durum turu DÜŞÜRMEZ; ama sessizce de yutulmaz: uyarı profil
+        dizinine yazılır ve panel onu kullanıcıya gösterir.
+        """
+        if mode is not requested:
+            _logger.warning(
+                "Gizli pencere kipi bu platformda yok; görünmez kip kullanılıyor (profil=%s)",
+                self._profile,
+            )
+            _write_window_notice(self._profile, UNSUPPORTED_MESSAGE)
+            return
+        if mode is not WindowMode.HIDDEN:
+            _write_window_notice(self._profile, None)
+            return
+        if _running_window_mode(self._profile) is WindowMode.HEADLESS:
+            # Profil başka bir sekmenin görünmez açtığı Chrome'da: gizlenecek
+            # pencere yok. Kip değişikliği panelden kaydedilince Chrome yeniden açılır.
+            return
+        # Gizleme HER kiralamada yinelenir: kullanıcı pencereyi elle öne
+        # çıkardıysa bir sonraki kullanımda yeniden gizlenir.
+        result = await self._hooks.hide_window(self._profile)
+        _write_window_notice(self._profile, None if result.is_hidden else result.message)
+
+    async def _launch(self, *, mode: WindowMode, deadline: float) -> str:
         # Canlı Chrome yoksa eski kiralar da geçersizdir: sahipleri artık yok.
         self._clear_leases()
         self._hooks.prepare_launch(self._profile)
         with contextlib.suppress(FileNotFoundError):
             (self._profile / DEVTOOLS_PORT_FILE).unlink()
-        await self._hooks.launch(self._profile, headless)
+        (self._profile / WINDOW_MODE_FILE).write_text(mode.slug, encoding="utf-8")
+        # Gizli kip Chrome'u headless BAYRAĞI OLMADAN açar; pencere açıldıktan
+        # sonra işletim sistemi düzeyinde gizlenir.
+        await self._hooks.launch(self._profile, mode is WindowMode.HEADLESS)
         while time.monotonic() < deadline:
             endpoint = await self._running_endpoint()
             if endpoint is not None:
@@ -239,13 +337,19 @@ async def endpoint_alive(endpoint: str) -> bool:
     return response.status_code == 200
 
 
-def chrome_launch_arguments(executable: str, profile: Path, *, headless: bool) -> list[str]:
+def chrome_launch_arguments(
+    executable: str, profile: Path, *, headless: bool | WindowMode
+) -> list[str]:
     """Paylaşılan Chrome'un komut satırı.
 
     Port 0: işletim sistemi boş port seçer, Chrome onu `DevToolsActivePort`'a
     yazar. Chrome hata ayıklama portunu yalnız loopback'e bağlar. Otomasyon
     bayrağı yoktur; işletim sistemi anahtarlığı normal Chrome'daki gibi kullanılır.
+
+    `headless` üç kipi de alır; eski `True`/`False` çağrıları `WindowMode.HEADLESS`
+    ve `WindowMode.VISIBLE` demektir.
     """
+    mode = WindowMode(headless)
     arguments = [
         executable,
         f"--user-data-dir={profile}",
@@ -259,18 +363,17 @@ def chrome_launch_arguments(executable: str, profile: Path, *, headless: bool) -
         "--disable-backgrounding-occluded-windows",
         "--disable-renderer-backgrounding",
     ]
-    if headless:
+    if mode is WindowMode.HEADLESS:
         arguments.append("--headless=new")
     else:
-        # GÖRÜNÜR kip. Pencere ekran dışına ALINMAYA ÇALIŞILIR ama buna
-        # güvenilemez: ölçüldü (13 Eylül, macOS, Chrome 152) — Chrome hem bu
-        # bayrağı hem CDP'nin `Browser.setWindowBounds` çağrısını yok sayıp
-        # pencereyi ekranda `maximized` bırakıyor. Yani görünür kipte pencere
-        # kullanıcının önündedir ve bunu gizlemenin güvenilir bir yolu yoktur.
+        # GERÇEK pencere açılır (görünür ve gizli kip). Pencere ekran dışına
+        # ALINMAYA ÇALIŞILIR ama buna güvenilemez: ölçüldü (13 Eylül, macOS,
+        # Chrome 152) — Chrome hem bu bayrağı hem CDP'nin `Browser.setWindowBounds`
+        # çağrısını yok sayıp pencereyi ekranda `maximized` bırakıyor.
         #
-        # Tek gerçek çözüm headless kiptir; varsayılan da odur
-        # (`WebSessionConfig.headless`). Bu bayrak yalnız görünür kipi
-        # bilerek seçmiş kurulumlarda pencereyi kenara itmeye çalışır.
+        # Bu yüzden gizli kip pencereyi bayrakla değil, açıldıktan sonra işletim
+        # sistemi düzeyinde gizler (`macos_window.hide_profile_window`). Görünür
+        # kipte pencere kullanıcının önünde kalır; o kip bunu bilerek seçer.
         arguments.append("--window-position=-32000,-32000")
     arguments.append("about:blank")
     return arguments

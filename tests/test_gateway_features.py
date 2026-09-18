@@ -6,6 +6,7 @@ import os
 from dataclasses import replace as _dc_replace
 
 import httpx
+import pytest
 
 from fusion_cli.core.compression import compress_messages, compress_text, saved_chars
 from fusion_cli.core.routing_strategy import RoutingStrategy, order_models
@@ -393,6 +394,78 @@ async def test_native_web_session_cookie_sifreli_kaydedilir_ve_model_listesine_g
     config_text = (tmp_path / "config.yaml").read_text()
     assert "very-secret" not in config_text
     assert "WEB_SECRET::chatgpt_web::main" in config_text
+
+
+async def _post_web_session(tmp_path, monkeypatch, **fields):
+    """Tarayıcı oturumu kaydet; (yanıt, /api/state içindeki oturum) döndür."""
+    from dataclasses import replace
+
+    monkeypatch.setattr(
+        "fusion_cli.config.writer.user_config_candidates", lambda: (tmp_path / "config.yaml",)
+    )
+    monkeypatch.setattr("fusion_cli.config.writer.user_config_dir", lambda: tmp_path)
+    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
+    app = _app(tmp_path)
+    app._config = replace(app._config, source=tmp_path / "config.yaml")
+    async with _client(app) as client:
+        response = await client.post(
+            "/api/web_sessions",
+            json={"provider": "chatgpt_web", "account": "main", **fields},
+        )
+        state = (await client.get("/api/state")).json()
+    session = next(
+        (item for item in state["web_sessions"] if item["provider"] == "chatgpt_web"), None
+    )
+    return response, session
+
+
+@pytest.mark.parametrize(
+    ("fields", "kip", "headless"),
+    [
+        ({"window_mode": "hidden"}, "hidden", True),
+        ({"window_mode": "visible"}, "visible", False),
+        ({"window_mode": "headless"}, "headless", True),
+        # Eski panel yalnız boolean gönderir; anlamı değişmez.
+        ({"headless": True}, "headless", True),
+        ({"headless": False}, "visible", False),
+        # Kip hiç gelmezse ChatGPT'nin ölçülmüş önerisi (gizli) kullanılır.
+        ({}, "hidden", True),
+    ],
+)
+async def test_web_oturumu_pencere_kipini_kaydeder_ve_bildirir(
+    tmp_path, monkeypatch, fields, kip, headless
+):
+    response, session = await _post_web_session(tmp_path, monkeypatch, **fields)
+
+    assert response.status_code == 200, response.text
+    assert session["window_mode"] == kip
+    assert session["headless"] is headless
+    assert session["window_notice"] is None
+
+
+@pytest.mark.parametrize("deger", ["gorunmez", 2, None])
+async def test_web_oturumu_gecersiz_pencere_kipini_reddeder(tmp_path, monkeypatch, deger):
+    """Tanınmayan kip varsayılana çevrilmez; kullanıcı yanlış kipte çalıştığını bilmezdi."""
+    response, session = await _post_web_session(tmp_path, monkeypatch, window_mode=deger)
+
+    assert response.status_code == 400
+    assert "pencere kipi" in response.text
+    assert session is None
+
+
+async def test_web_oturumu_gizleme_uyarisini_panele_tasir(tmp_path, monkeypatch):
+    from fusion_cli.providers.macos_window import HIDE_FAILED_MESSAGE
+    from fusion_cli.providers.web_browser import browser_profile_dir
+    from fusion_cli.providers.web_shared_browser import WINDOW_NOTICE_FILE
+
+    monkeypatch.setattr("fusion_cli.providers.web_browser.user_data_dir", lambda: tmp_path / "data")
+    profil = browser_profile_dir("chatgpt_web", "main")
+    profil.mkdir(parents=True)
+    (profil / WINDOW_NOTICE_FILE).write_text(HIDE_FAILED_MESSAGE, encoding="utf-8")
+
+    _response, session = await _post_web_session(tmp_path, monkeypatch, window_mode="hidden")
+
+    assert session["window_notice"] == HIDE_FAILED_MESSAGE
 
 
 async def test_api_ready_native_web_oturumuyla_true(tmp_path):

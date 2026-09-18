@@ -308,9 +308,15 @@
           </details>
           <div class="two-col">
             <label class="fld">Zaman aşımı (saniye)<input id="nativeWebTimeout" type="number" min="30" max="600" value="180" /></label>
-            <label class="fld" style="justify-content:flex-end"><span class="checkline"><input id="nativeWebHeadless" type="checkbox" checked />
-              Normal kullanımda tarayıcıyı arka planda çalıştır</span></label>
+            <label class="fld">Tarayıcı penceresi
+              <select id="nativeWebWindowMode">
+                <option value="visible">Görünür</option>
+                <option value="headless">Görünmez</option>
+                <option value="hidden">Gizli (önerilen: ChatGPT)</option>
+              </select>
+              <span class="fhint" id="nativeWebWindowHint"></span></label>
           </div>
+          <div class="notice" id="nativeWebWindowNotice" role="status" hidden></div>
           <details style="margin-top:var(--space-2)"><summary class="subtle" style="cursor:pointer">Gelişmiş / güvenlik notları</summary>
             <div class="hint">Fusion normal Chrome profilini okumaz. Her sağlayıcı/oturum için ayrı profil kullanır.
               Cookie, config.yaml veya loglara yazılmaz. Web modeli araç çağrısını metin olarak üretir; dosya, shell,

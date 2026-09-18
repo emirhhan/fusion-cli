@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from fusion_cli.core.window_mode import WindowMode
+from fusion_cli.providers.macos_window import UNSUPPORTED_MESSAGE, WindowHideResult
 from fusion_cli.providers.web_shared_browser import (
     DEVTOOLS_PORT_FILE,
     LEASE_DIR,
@@ -17,20 +19,29 @@ from fusion_cli.providers.web_shared_browser import (
     SharedProfileBrowser,
     chrome_launch_arguments,
     read_endpoint,
+    read_window_notice,
 )
 
 
 class _FakeChrome:
     """Başlatılınca port dosyası yazan, kapatılınca ölen sahte Chrome."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, hide_message: str | None = None, can_hide: bool = True) -> None:
         self.launches = 0
         self.closed: list[str] = []
         self.alive = False
+        #: Her başlatmada Chrome'a headless bayrağı verildi mi?
+        self.headless_launches: list[bool] = []
+        #: Pencere gizleme hangi profiller için çağrıldı?
+        self.hidden: list[Path] = []
+        #: Doluysa gizleme bu kullanıcı metniyle başarısız olur (ör. izin yok).
+        self._hide_message = hide_message
+        self._can_hide = can_hide
 
     def hooks(self, *, prepare=lambda _profile: None) -> SharedBrowserHooks:
-        async def launch(profile: Path, _headless: bool) -> None:
+        async def launch(profile: Path, headless: bool) -> None:
             self.launches += 1
+            self.headless_launches.append(headless)
             # Gerçek Chrome gibi portu biraz gecikmeyle yazar.
             await asyncio.sleep(0.01)
             (profile / DEVTOOLS_PORT_FILE).write_text("41234\n/devtools/browser/x\n")
@@ -43,8 +54,19 @@ class _FakeChrome:
             self.closed.append(endpoint)
             self.alive = False
 
+        async def hide_window(profile: Path) -> WindowHideResult:
+            self.hidden.append(profile)
+            if self._hide_message is not None:
+                return WindowHideResult(is_hidden=False, message=self._hide_message)
+            return WindowHideResult(is_hidden=True)
+
         return SharedBrowserHooks(
-            prepare_launch=prepare, launch=launch, is_alive=is_alive, close=close
+            prepare_launch=prepare,
+            launch=launch,
+            is_alive=is_alive,
+            close=close,
+            hide_window=hide_window,
+            can_hide_window=self._can_hide,
         )
 
 
@@ -181,6 +203,83 @@ def test_port_dosyasi_bozuksa_uc_nokta_yoktur(tmp_path):
     assert read_endpoint(tmp_path) is None
 
 
+async def test_gizli_kip_chromeu_headless_bayragi_olmadan_acar(tmp_path):
+    """Ölçüldü (17 Eylül): headless Chrome Cloudflare doğrulamasına takılıyor."""
+    chrome = _FakeChrome()
+
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    assert chrome.headless_launches == [False]
+    assert chrome.hidden == [tmp_path]
+
+
+async def test_gizleme_her_kiralamada_yinelenir(tmp_path):
+    """Kullanıcı pencereyi elle öne çıkarırsa sonraki kullanımda yeniden gizlenir."""
+    chrome = _FakeChrome()
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    await _browser(tmp_path, chrome, os.getppid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    assert chrome.launches == 1, "çalışan Chrome yeniden başlatıldı"
+    assert chrome.hidden == [tmp_path, tmp_path]
+
+
+async def test_gizleme_basarisiz_olsa_da_tur_devam_eder_ve_uyari_birakir(tmp_path):
+    """Otomasyon izni yoksa pencere görünür kalır; tur düşmez ama sebep sessizce yutulmaz."""
+    chrome = _FakeChrome(hide_message="izin yok: Otomasyon ayarını aç")
+
+    endpoint = await _browser(tmp_path, chrome, os.getpid()).acquire(
+        headless=WindowMode.HIDDEN, timeout_s=2
+    )
+
+    assert endpoint == "http://127.0.0.1:41234"
+    assert chrome.hidden == [tmp_path]
+    assert read_window_notice(tmp_path) == "izin yok: Otomasyon ayarını aç"
+
+
+async def test_gizleme_basarili_olunca_eski_uyari_silinir(tmp_path):
+    await _browser(tmp_path, _FakeChrome(hide_message="izin yok"), os.getpid()).acquire(
+        headless=WindowMode.HIDDEN, timeout_s=2
+    )
+
+    await _browser(tmp_path, _FakeChrome(), os.getpid()).acquire(
+        headless=WindowMode.HIDDEN, timeout_s=2
+    )
+
+    assert read_window_notice(tmp_path) is None
+
+
+async def test_gizlenemeyen_platformda_gizli_kip_gorunmeze_duser(tmp_path):
+    """macOS dışında sessizce görünür pencere açılmaz; görünmez kip + açık uyarı."""
+    chrome = _FakeChrome(can_hide=False)
+
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    assert chrome.headless_launches == [True], "gizlenemeyen pencere açıldı"
+    assert chrome.hidden == []
+    assert read_window_notice(tmp_path) == UNSUPPORTED_MESSAGE
+
+
+async def test_gorunmez_acilmis_chrome_gizlenmeye_calisilmaz(tmp_path):
+    """Başka sekme profili görünmez açtıysa gizlenecek pencere yoktur; sahte uyarı çıkmaz."""
+    chrome = _FakeChrome(hide_message="izin yok")
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=True, timeout_s=2)
+
+    await _browser(tmp_path, chrome, os.getppid()).acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    assert chrome.hidden == []
+    assert read_window_notice(tmp_path) is None
+
+
+async def test_headless_kipte_pencere_gizleme_cagrilmaz(tmp_path):
+    chrome = _FakeChrome()
+
+    await _browser(tmp_path, chrome, os.getpid()).acquire(headless=True, timeout_s=2)
+
+    assert chrome.headless_launches == [True]
+    assert chrome.hidden == []
+
+
 def test_chrome_komutu_otomasyon_bayragi_tasimaz_ve_portu_isletim_sistemine_birakir(tmp_path):
     arguments = chrome_launch_arguments("/chrome", tmp_path, headless=True)
 
@@ -189,3 +288,25 @@ def test_chrome_komutu_otomasyon_bayragi_tasimaz_ve_portu_isletim_sistemine_bira
     assert "--remote-debugging-port=0" in arguments
     assert "--headless=new" in arguments
     assert not any("enable-automation" in argument for argument in arguments)
+
+
+async def test_yeni_sekmeden_sonra_gizli_pencere_yeniden_gizlenir(tmp_path):
+    """Ölçüldü: CDP ile yeni sekme açmak gizli Chrome penceresini öne getiriyor."""
+    chrome = _FakeChrome()
+    shared = _browser(tmp_path, chrome, os.getpid())
+    await shared.acquire(headless=WindowMode.HIDDEN, timeout_s=2)
+
+    await shared.reassert_window(headless=WindowMode.HIDDEN)
+
+    assert chrome.hidden == [tmp_path, tmp_path]
+
+
+@pytest.mark.parametrize("kip", [WindowMode.HEADLESS, WindowMode.VISIBLE])
+async def test_gizli_olmayan_kipte_yeni_sekme_pencereye_dokunmaz(tmp_path, kip):
+    chrome = _FakeChrome()
+    shared = _browser(tmp_path, chrome, os.getpid())
+    await shared.acquire(headless=kip, timeout_s=2)
+
+    await shared.reassert_window(headless=kip)
+
+    assert chrome.hidden == []

@@ -17,6 +17,7 @@ from ..core.execution_mode import ExecutionMode
 from ..core.reasoning import ReasoningEffort
 from ..core.routing_strategy import RoutingStrategy
 from ..core.types import ModelSpec
+from ..core.window_mode import WindowMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,8 +287,12 @@ class WebSessionConfig:
     tool_eval_passed: bool = False
     #: Son gerçek küçük istek başarıyla tamamlandı mı? Profil klasörü bunu kanıtlamaz.
     login_verified: bool = False
-    #: Browser transport görünmeden çalışsın mı? Sorunda panelden kapatılabilir.
-    headless: bool = True
+    #: Tur tarayıcısının pencere kipi: `visible`, `headless` ya da `hidden`.
+    #:
+    #: Alan adı `headless` OLARAK KALIR ve eski dosyalar bozulmaz: `WindowMode` bir
+    #: `IntEnum` olduğu için `headless: true` → `HEADLESS`, `headless: false` →
+    #: `VISIBLE` diye okunur. Üçüncü kip `headless: hidden` yazılarak seçilir.
+    headless: WindowMode = WindowMode.HEADLESS
     #: Web UI çağrısı için üst süre sınırı.
     timeout_s: float = 180.0
     #: Kullanıcı bu oturumu geçici olarak kapatabilir.
