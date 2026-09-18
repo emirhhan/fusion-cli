@@ -19,12 +19,19 @@ from __future__ import annotations
 
 import shlex
 
+from .command_paths import escapes_project
+from .inline_python import is_inert_python
+
 #: Yan etkisi olmayan, yalnızca okuyan/gösteren komutlar.
+#:
+#: `env` ve `printenv` bilinçli olarak YOK: argümansız çağrıldıklarında ortamı —
+#: API anahtarları dahil — modele döker; `env sh -c "..."` ise ARDINDAKİ komutu
+#: çalıştırır ve okuyucu kılığında her şeyi geçirirdi.
 _READ_ONLY = frozenset(
     {
         "ls", "dir", "pwd", "cat", "bat", "head", "tail", "wc", "file", "stat",
         "grep", "egrep", "fgrep", "rg", "ag", "find", "fd", "tree", "which", "type",
-        "echo", "printf", "date", "whoami", "hostname", "uname", "env", "printenv",
+        "echo", "printf", "date", "whoami", "hostname", "uname",
         "diff", "cmp", "sort", "uniq", "cut", "awk", "sed", "jq", "column",
         "du", "df", "ps", "top", "uptime", "id", "groups", "basename", "dirname",
         "realpath", "readlink", "true", "false", "test",
@@ -130,13 +137,19 @@ READONLY_GIT_SUBCOMMANDS = frozenset(
     }
 )
 
-#: Komutu parçalara bölen kabuk operatörleri. Zincirin HER parçası güvenli olmalı:
-#: `ls && rm -rf build` ilk parçasına bakılarak geçirilemez.
-_SEPARATORS = ("&&", "||", "|", ";", "\n")
+#: Komutu parçalara bölen iki karakterlik kabuk operatörleri. Zincirin HER parçası
+#: güvenli olmalı: `ls && rm -rf build` ilk parçasına bakılarak geçirilemez.
+_DOUBLE_SEPARATORS = ("&&", "||")
+_SINGLE_SEPARATORS = frozenset({"|", ";", "\n"})
 
-#: Kabuk metakarakterleri: yönlendirme dosyayı sıfırlar, ikame beyaz listeyi
-#: tamamen anlamsız kılar (`ls $(rm -rf /)` içindeki asıl komut gizlidir).
-_UNSAFE_TOKENS = (">", "<", "$(", "`", "${", "&")
+#: Tırnak DIŞINDA görüldüğünde komutu belirsiz kılan metakarakterler: yönlendirme
+#: dosyayı sıfırlar, `&` arka plana atar. Tırnak içindeki `>` düz metindir
+#: (`grep ">" a.txt`, `python3 -c "print(1 > 0)"`) ve sayılmaz.
+_UNQUOTED_UNSAFE = frozenset({">", "<", "&"})
+
+#: Çift tırnak İÇİNDE de açılan ikameler: `ls "$(rm -rf /)"` içindeki asıl komut
+#: gizlidir ve beyaz listeyi anlamsız kılar. Yalnız tek tırnak bunları durdurur.
+_EXPANSIONS = ("$(", "${", "`")
 
 #: `find` için silme/çalıştırma bayrakları — komutun kendisi okuyucu olsa da bunlar
 #: onu yıkıcı yapar.
@@ -151,16 +164,47 @@ def is_unattended_safe(command: str) -> bool:
     """
     if not command.strip():
         return False
-    if any(token in command for token in _UNSAFE_TOKENS):
+    segments = _split(command)
+    if segments is None:
         return False
-    return all(_segment_safe(segment) for segment in _split(command))
+    return all(_segment_safe(segment) for segment in segments)
 
 
-def _split(command: str) -> list[str]:
-    parcalar = [command]
-    for separator in _SEPARATORS:
-        parcalar = [alt for parca in parcalar for alt in parca.split(separator)]
-    return [parca.strip() for parca in parcalar if parca.strip()]
+def _split(command: str) -> list[str] | None:
+    """Komutu tırnaklara saygı göstererek zincir parçalarına böl.
+
+    Düz `str.split` tırnak içini de bölüyordu: `python3 -c "import sys; print(1)"`
+    noktalı virgülden ikiye ayrılıyor, kapanmamış tırnak yüzünden onaya düşüyordu.
+    Kabuğun yorumlayacağı bir yönlendirme/ikame görülürse None döner (sorulur).
+    """
+    segments: list[str] = []
+    current: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(command):
+        char, pair = command[index], command[index : index + 2]
+        step = 1
+        if quote == "'":
+            quote = "" if char == "'" else quote
+        elif char == "\\":
+            step = 2
+        elif pair.startswith(_EXPANSIONS):
+            return None
+        elif quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif pair in _DOUBLE_SEPARATORS or char in _SINGLE_SEPARATORS:
+            segments.append("".join(current))
+            current = []
+            index += len(pair) if pair in _DOUBLE_SEPARATORS else 1
+            continue
+        elif char in _UNQUOTED_UNSAFE:
+            return None
+        current.append(command[index : index + step])
+        index += step
+    segments.append("".join(current))
+    return [segment.strip() for segment in segments if segment.strip()]
 
 
 def _segment_safe(segment: str) -> bool:
@@ -175,6 +219,10 @@ def _segment_safe(segment: str) -> bool:
     name = parts[0].rsplit("/", 1)[-1]
     arguments = parts[1:]
 
+    # Salt-okur komut da proje dışını okuyabilir (`cat ~/.ssh/id_rsa`): önce NEREYE
+    # dokunduğuna bakılır, sonra komutun kendisine.
+    if escapes_project(name, arguments):
+        return False
     if name == "git":
         return bool(arguments) and arguments[0] in READONLY_GIT_SUBCOMMANDS
     if name == "find":
@@ -186,7 +234,7 @@ def _segment_safe(segment: str) -> bool:
     if name in _VERSION_ONLY:
         if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
             return True
-        return name in _SCRIPT_RUNNERS and _script_safe(arguments)
+        return name in _SCRIPT_RUNNERS and _script_safe(name, arguments)
     return name in _READ_ONLY
 
 
@@ -203,23 +251,24 @@ def _godot_verify_safe(arguments: list[str]) -> bool:
     )
 
 
-def _script_safe(arguments: list[str]) -> bool:
+def _script_safe(name: str, arguments: list[str]) -> bool:
     """Yorumlayıcı çağrısı PROJE İÇİ bir dosyayı mı çalıştırıyor?
 
-    İlk argüman göreli bir yol olmalı ve kökün dışına çıkmamalı. Mutlak yol, `..`
-    ve `~` reddedilir: bunlar projenin kodu değildir. Satır içi kod bayrakları da
-    reddedilir — `python -c "..."` yeni kod enjekte etmektir, var olan bir dosyayı
-    çalıştırmak değil.
+    İlk argüman göreli bir yol olmalı; kökün dışına çıkan yol (mutlak, `..`, `~`)
+    `_segment_safe` içinde zaten elenmiştir. Satır içi kod bayrakları reddedilir —
+    `python -c "..."` yeni kod enjekte etmektir — TEK istisna, ayrıştırılıp yalnız
+    bilgi yazdırdığı kanıtlanan Python kodudur (`inline_python`).
     """
     if not arguments:
         return False
+    if name.startswith("python") and len(arguments) == 2 and arguments[0] == "-c":
+        return is_inert_python(arguments[1])
     if any(argument in _INLINE_CODE_FLAGS for argument in arguments):
         return False
     if arguments[0] == "-m":
         # `python -m <modül>`: yalnızca tanınan kalite/test modülleri onaysız geçer.
         return len(arguments) > 1 and arguments[1].split(".")[0] in _MODULE_RUNNERS
-    hedef = arguments[0]
-    return not (hedef.startswith(("-", "/", "~")) or ".." in hedef.split("/"))
+    return not arguments[0].startswith("-")
 
 
 def _tooling_safe(name: str, arguments: list[str]) -> bool:

@@ -190,3 +190,106 @@ def test_headless_olmayan_ya_da_yazan_godot_onay_ister():
     assert not is_unattended_safe("godot --path . --quit")
     assert not is_unattended_safe("godot --headless --path . --export-release mac oyun.dmg")
     assert not is_unattended_safe("godot --headless --script sil.gd")
+
+
+# --- Proje dışına çıkan yol (17 Eylül denetimi, F1) --------------------------- #
+#
+# `read_file` proje dışını engelliyordu ama aynı dosya kabuktan `cat` ile okunuyor
+# ve `cat` salt-okur olduğu için auto kipte SORULMADAN çalışıyordu. Yollar gerçek
+# değildir; komutlar çalıştırılmaz, yalnız karar sınanır.
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "cat ~/.ssh/id_rsa",
+        "cat ../.env",
+        "cat ../../baska-proje/.env",
+        "cat src/../../disari.txt",
+        "cat $HOME/.env",
+        "head -5 ~/notlar.txt",
+        "ls /",
+        "ls ..",
+        "cat /etc/hosts",
+        "grep -r anahtar ~/",
+        "grep -e x /etc/hosts",
+        "sort -o /tmp/cikti a.txt",
+        "python main.py --girdi=/etc/hosts",
+        "git diff --no-index /etc/hosts a.txt",
+        "ls && cat ~/.aws/credentials",
+    ],
+)
+def test_proje_disina_cikan_yol_onay_ister(komut):
+    assert is_unattended_safe(komut) is False
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "cat src/x.py",
+        "cat src/../README.md",
+        "git diff HEAD~1",
+        "git diff HEAD..main",
+        'grep "^/api" src',
+        "awk '/hata/ {print $1}' log.txt",
+        "rg 'son$' src",
+        "sed -n 1,5p a.py",
+        'find . -name "*.py"',
+        'grep ">" a.txt',
+    ],
+)
+def test_proje_ici_zararsiz_komutlar_hala_onaysiz(komut):
+    """Yol denetimi yanlış pozitife meyillidir ama günlük proje komutlarını düşürmez."""
+    assert is_unattended_safe(komut) is True
+
+
+def test_proje_ici_env_okumasi_onaysiz_kalir():
+    """Fusion kullanıcının KENDİ projesindeki `.env`i okur (CLAUDE.md "Sırlar");
+    `read_file` de engellemez. Kabuk yolu aynı güven seviyesinde kalır."""
+    assert is_unattended_safe("cat .env") is True
+
+
+@pytest.mark.parametrize("komut", ["env", "printenv", "env sh -c 'rm -rf x'", "printenv HOME"])
+def test_ortam_dokumu_ve_env_ile_komut_calistirma_onay_ister(komut):
+    """`env` ortamı (API anahtarları dahil) döker ya da ardındaki komutu çalıştırır."""
+    assert is_unattended_safe(komut) is False
+
+
+def test_tirnak_icindeki_ikame_yine_yakalanir():
+    """Çift tırnak ikameyi durdurmaz; tırnak içindeki `>` ve `;` ise düz metindir."""
+    assert is_unattended_safe('echo "$(rm -rf x)"') is False
+    assert is_unattended_safe('echo "a > b; c"') is True
+
+
+# --- Kanıtlanabilir zararsız `python -c` (17 Eylül denetimi, B6) -------------- #
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        'python3 -c "print(1 + 1)"',
+        'python3 -c "import sys; print(sys.version)"',
+        "python -c 'import platform; print(platform.python_version())'",
+        'python3 -c "import sys; print(sys.version_info >= (3, 11))"',
+    ],
+)
+def test_yalniz_yazdiran_python_tek_satiri_onaysiz(komut):
+    assert is_unattended_safe(komut) is True
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "python3 -c \"print(open('a.txt').read())\"",
+        'python3 -c "import os; print(os.getcwd())"',
+        'python3 -c "import sys; sys.exit(0)"',
+        "python3 -c \"print(__import__('os').system('ls'))\"",
+        "python3 -c \"import sys; print(sys.modules['os'])\"",
+        'python3 -c "import sys as s; print(s.version)"',
+        'python3 -c "x = 1; print(x)"',
+        "python3 -c \"print(open('/etc/hosts').read())\"",
+        'node -e "console.log(1)"',
+    ],
+)
+def test_kanitlanamayan_satir_ici_kod_hala_onay_ister(komut):
+    assert is_unattended_safe(komut) is False
