@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Protocol
 from ...core.execution_plan import ExecutionPlan
 from .plan_coverage import coverage_instruction, missing_deliverables
 from .plan_parser import PlanParseError, parse_execution_plan
-from .promotion import PromotionContext
 
 if TYPE_CHECKING:
     from ...core.types import Message
@@ -53,7 +52,6 @@ async def generate_plan(
     deps: AgentDeps,
     run_agent: RunAgent,
     limit: int,
-    promotion: PromotionContext | None,
     *,
     check_coverage: bool = False,
     history: list[Message] | None = None,
@@ -74,8 +72,6 @@ async def generate_plan(
     path = Path(__file__).parent / "prompts" / "execution_plan.md"
     template = await asyncio.to_thread(path.read_text, encoding="utf-8")
     prompt = template.replace("{task}", task)
-    if promotion is not None:
-        prompt = f"{promotion.render()}\n\n{prompt}"
     original_prompt = prompt
     calls = 0
     error = "Planlama bütçesi tükendi."

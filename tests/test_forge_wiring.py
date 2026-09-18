@@ -27,6 +27,7 @@ def _deps(tmp_path, **ek):
         "code_index": None,
         "asker": None,
         "home": None,
+        "lessons": None,
         "config": SimpleNamespace(vision=None),
         "publisher": SimpleNamespace(publish=lambda event: None),
     }

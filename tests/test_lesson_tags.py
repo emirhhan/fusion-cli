@@ -50,28 +50,9 @@ def test_taninmayan_dizin_etiketsizdir(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# Hatırlama bütçesi
-# --------------------------------------------------------------------------- #
-
-
-def test_karmasik_gorev_daha_cok_ders_hatirlar():
-    """Ölçüldü: 320 dersten tur başına yalnız 2'si enjekte ediliyordu.
-
-    Godot görevinde 38 alakalı ders varken 2'si giriyordu. Basit sohbette 2 doğru
-    (dikkat bütçesi), ama çok araçlı bir yürütme adımında bu, öğrenilen bilginin
-    neredeyse tamamını israf eder.
-    """
-    from fusion_cli.engines.agent.learning_steps import (
-        AUTO_RECALL_LIMIT,
-        COMPLEX_RECALL_LIMIT,
-        recall_limit_for,
-    )
-
-    assert recall_limit_for(complex_task=False) == AUTO_RECALL_LIMIT
-    assert recall_limit_for(complex_task=True) == COMPLEX_RECALL_LIMIT
-    assert COMPLEX_RECALL_LIMIT > AUTO_RECALL_LIMIT
-
-
+# Hatırlama bütçesi — kaldırıldı (B5): dersler artık tur başında kendiliğinden
+# enjekte edilmiyor, `recall_lessons` aracıyla modelin isteğiyle geliyor; bkz.
+# `test_single_loop_routing.py::test_dersler_kendiliginden_hatirlanmaz_ama_aracla_istenebilir`.
 # --------------------------------------------------------------------------- #
 # Hazır derslerin güveni
 # --------------------------------------------------------------------------- #

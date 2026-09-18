@@ -65,7 +65,6 @@ from .plan_context import (
 from .plan_generation import RunAgent, generate_plan
 from .plan_phase_repair import repair_discovery_phase
 from .progress import progress_fingerprint
-from .promotion import PromotionContext
 from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
 from .replan import merge_replanned_plan
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
@@ -898,7 +897,7 @@ class _PlanRun:
                 son_hata = "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
                 break
             generated = await generate_plan(
-                istek, self.deps, self.agent, kalan, None, history=self.messages
+                istek, self.deps, self.agent, kalan, history=self.messages
             )
             self.planning_calls += generated.calls
             if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
@@ -1197,7 +1196,6 @@ async def run_execution_plan(
     run_agent: RunAgent,
     *,
     plan: ExecutionPlan | None = None,
-    promotion: PromotionContext | None = None,
     self_review: bool | None = None,
     uncovered: tuple[str, ...] = (),
     conversation: list[Message] | None = None,
@@ -1244,7 +1242,6 @@ async def run_execution_plan(
             deps,
             run_agent,
             limits.planning,
-            promotion,
             check_coverage=True,
             history=conversation,
         )

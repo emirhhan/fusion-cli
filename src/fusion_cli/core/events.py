@@ -286,16 +286,9 @@ class TurnBudgetExhausted(Event):
 
 @dataclass(frozen=True, slots=True)
 class ExecutionRouteSelected(Event):
-    """Kök görev için hızlı ya da planlı yürütme yolu seçildi."""
+    """Kök görev için tek döngü ya da plan motoru seçildi."""
 
     route: str
-    reasons: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionPromoted(Event):
-    """Hızlı başlayan görev çalışma sırasında planlı yola yükseltildi."""
-
     reasons: tuple[str, ...]
 
 

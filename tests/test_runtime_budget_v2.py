@@ -4,7 +4,6 @@ import pytest
 
 from fusion_cli.core.budget import BudgetStop, TurnBudget
 from fusion_cli.core.types import ModelSpec
-from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import policy_for
 
 from .fakes import make_config
@@ -86,41 +85,26 @@ def test_next_timeout_en_yakin_deadline_i_secer():
     assert b.next_timeout_s() == pytest.approx(3.0)
 
 
-def test_web_policy_hard_ve_idle_limitlerini_ayirir():
+def test_web_politikasi_gorev_turunden_bagimsiz_tek_kademedir():
+    """B2/B5: politika artık görev METNİNE bakmaz; tek kademe uygulanır.
+
+    Eskiden `TaskKind`'e göre üç ayrı hard-cap/idle kademesi vardı; kısa bir
+    "klasörü listele" isteğiyle "tüm projeyi kapsamlı düzelt" farklı bütçe
+    alıyordu. Kelime sınıflandırıcısı karar yolundan çıkınca (bkz.
+    `tests/test_single_loop_routing.py::test_yurutme_politikasi_gorev_turune_bakmaz`)
+    kademe ayrımı da anlamını yitirdi: durdurma yetkisi SABİT SAYIDA değil,
+    boşta kalma süresindedir. Ölçüldü (Godot koşusu): 1800 sn / 28 çağrılık
+    eski sınır gerçek bir oyun projesini tam ilerlerken kesiyordu.
+    """
     config = make_config(
         agent=ModelSpec(name="agent", model="gemini_web/main/auto"),
         task_model_map={},
     )
     spec = config.agent
 
-    simple = policy_for(
-        config,
-        spec,
-        TaskKind.EXPLORE,
-        "klasörü listele",
-    )
-    complex_ = policy_for(
-        config,
-        spec,
-        TaskKind.BUGFIX,
-        "hatayı düzelt",
-    )
-    extended = policy_for(
-        config,
-        spec,
-        TaskKind.BUGFIX,
-        "tüm projeyi kapsamlı düzelt",
-    )
+    simple = policy_for(config, spec, "klasörü listele")
+    complex_ = policy_for(config, spec, "hatayı düzelt")
+    extended = policy_for(config, spec, "tüm projeyi kapsamlı düzelt")
 
-    assert simple.total_timeout_s == 240.0
-    assert simple.idle_timeout_s == 120.0
-
-    # Karmaşık ve uzun işlerde durdurma yetkisi SABİT SAYIDA değil, boşta
-    # kalma süresindedir: ilerleyen tur çalışmaya devam eder, ilerlemeyen tur
-    # dakikalar içinde durur. Ölçüldü (Godot koşusu): 1800 sn / 28 çağrılık
-    # sınır gerçek bir oyun projesini tam ilerlerken kesiyordu.
-    assert complex_.total_timeout_s == 5400.0
-    assert complex_.idle_timeout_s == 300.0
-
-    assert extended.total_timeout_s == 10_800.0
-    assert extended.idle_timeout_s == 420.0
+    assert simple.total_timeout_s == complex_.total_timeout_s == extended.total_timeout_s == 5400.0
+    assert simple.idle_timeout_s == complex_.idle_timeout_s == extended.idle_timeout_s == 300.0

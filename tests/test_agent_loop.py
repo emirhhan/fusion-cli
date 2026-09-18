@@ -5,9 +5,7 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.events import (
-    CapabilityActivated,
     ContextCompressed,
-    ExecutionPromoted,
     SelfReviewFinished,
     SelfReviewStarted,
     SubAgentFinished,
@@ -16,14 +14,12 @@ from fusion_cli.core.events import (
     ToolOutcome,
     TurnBudgetExhausted,
 )
-from fusion_cli.core.execution_mode import ExecutionMode
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import (
     AgentDeps,
-    AgentOutcome,
     _parse_arguments_checked,
     run_agent,
 )
@@ -105,106 +101,6 @@ async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
 
     assert sonuc.final_text == "iste cevap"
     assert sonuc.tool_calls_made == 0
-
-
-async def test_otomatik_mod_karmasik_gorevi_plan_runnera_yonlendirir(monkeypatch, tmp_path, sink):
-    seen: list[str] = []
-
-    async def fake_runner(task, deps, run_agent, **kwargs):
-        del deps, run_agent
-        seen.append(task)
-        return AgentOutcome(final_text="planlı sonuç", messages=[])
-
-    monkeypatch.setattr(agent_loop, "run_execution_plan", fake_runner)
-    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
-
-    sonuc = await run_agent("yeni özellik ekle", deps)
-
-    assert sonuc.final_text == "planlı sonuç"
-    assert seen == ["yeni özellik ekle"]
-
-
-@pytest.mark.parametrize("enabled", [True, False])
-async def test_planli_akis_oz_denetime_yapilandirmayi_aktarir(monkeypatch, tmp_path, sink, enabled):
-    from unittest.mock import AsyncMock
-
-    runner = AsyncMock(return_value=AgentOutcome(final_text="planlı sonuç", messages=[]))
-    monkeypatch.setattr(agent_loop, "run_execution_plan", runner)
-    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
-    await run_agent("yeni özellik ekle", deps, self_review=enabled)
-    assert runner.call_args.kwargs["self_review"] is enabled
-
-
-class _PlanCasusu:
-    """`run_execution_plan` yerine geçip devredilen görev ve bağlamı kaydeder."""
-
-    def __init__(self):
-        self.cagrilar = []
-
-    async def __call__(self, task, deps, run_agent, *, plan=None, promotion=None, self_review=None):
-        del deps, run_agent, plan
-        self.cagrilar.append((task, promotion))
-        return AgentOutcome(final_text="planlı sonuç", messages=[])
-
-
-async def test_hizli_yol_yarim_kalinca_kanitla_planli_yola_yukselir(monkeypatch, tmp_path, sink):
-    _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=(tool_call("read_file", path="yok.txt"),)),
-                model_result("yarım kaldı", ok=False),
-            ]
-        ),
-    )
-    casus = _PlanCasusu()
-    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
-    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
-
-    sonuc = await run_agent("şuna bir bak", deps)
-
-    assert sonuc.final_text == "planlı sonuç"
-    gorev, baglam = casus.cagrilar[0]
-    assert gorev == "şuna bir bak"
-    assert "teşhis ve onarım gerektiren hata" in baglam.reasons
-    assert any("read_file" in kanit for kanit in baglam.tool_evidence)
-    assert baglam.task_summary == "şuna bir bak"
-    yukseltme = [e for e in sink.events if isinstance(e, ExecutionPromoted)]
-    assert yukseltme and "teşhis ve onarım gerektiren hata" in yukseltme[0].reasons
-
-
-async def test_temiz_biten_hizli_tur_yeniden_calistirilmaz(monkeypatch, tmp_path, sink):
-    """Tamamlanan basit iş, sinyal görünse bile ikinci kez yapılmaz."""
-    (tmp_path / "a.txt").write_text("içerik", encoding="utf-8")
-    _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=(tool_call("read_file", path="a.txt"),)),
-                model_result(TAM_CEVAP),
-            ]
-        ),
-    )
-    casus = _PlanCasusu()
-    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
-    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
-
-    sonuc = await run_agent("şuna bir bak", deps)
-
-    assert casus.cagrilar == []
-    assert sonuc.final_text == TAM_CEVAP
-
-
-async def test_kanitsiz_yarim_tur_bos_yere_planlanmaz(monkeypatch, tmp_path, sink):
-    """Yarım kalmak tek başına yükseltme gerekçesi değildir; büyüme kanıtı gerekir."""
-    _kur(monkeypatch, ScriptedProvider([model_result("yarım", ok=False)]))
-    casus = _PlanCasusu()
-    monkeypatch.setattr(agent_loop, "run_execution_plan", casus)
-    deps = _deps(tmp_path, sink, runtime={"workflow_mode": ExecutionMode.AUTO})
-
-    await run_agent("şuna bir bak", deps)
-
-    assert casus.cagrilar == []
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):
@@ -888,64 +784,6 @@ async def test_plan_modunda_kapi_calismaz(monkeypatch, tmp_path, sink):
     assert deps.verifier.calls == 0
 
 
-async def test_sistem_promptu_ilgili_uzmanligi_dogrudan_enjekte_eder(
-    monkeypatch,
-    tmp_path,
-    sink,
-):
-    """İlgili skill modele tool-discovery prosedürü olmadan doğrudan verilir."""
-
-    from fusion_cli.tools.capabilities import CapabilityRegistry
-
-    skill_dir = tmp_path / ".fusion" / "skills" / "frontend-design"
-    skill_dir.mkdir(parents=True)
-
-    (skill_dir / "SKILL.md").write_text(
-        """---
-name: frontend-design
-description: frontend design css responsive ui web page
----
-
-TEST_UI_SKILL_MARKER
-
-Responsive arayüzlerde görsel hiyerarşiyi ve bileşen tutarlılığını koru.
-""",
-        encoding="utf-8",
-    )
-
-    provider = _kur(
-        monkeypatch,
-        ScriptedProvider([model_result(TAM_CEVAP)]),
-    )
-
-    deps = _deps(
-        tmp_path,
-        sink,
-        runtime={"self_review": False},
-    )
-    deps.capabilities = CapabilityRegistry(
-        home=tmp_path / "empty-home",
-        root=tmp_path,
-    )
-
-    await run_agent("arayüz yap", deps)
-
-    sistem = provider.seen_messages[0][0]
-
-    assert sistem.role == "system"
-
-    # Diet V1: modele skill keşif prosedürü öğretmiyoruz.
-    assert "find_skill" not in sistem.content
-
-    # Recall V2: uygun uzmanlığı doğrudan context'e koyuyoruz.
-    assert "# Uzmanlık talimatı: frontend-design" in sistem.content
-    assert "TEST_UI_SKILL_MARKER" in sistem.content
-    activated = next(event for event in sink.events if isinstance(event, CapabilityActivated))
-    assert activated.name == "frontend-design"
-    assert activated.source == "proje"
-    assert activated.automatic is True
-
-
 async def test_duzeltici_turdan_sonra_kapi_bir_kez_daha_calisir(monkeypatch, tmp_path, sink):
     """Düzeltici turun KENDİ kırdığı şey yakalanmalı.
 
@@ -1379,18 +1217,6 @@ async def test_okuma_hatasi_duzenleme_dongusu_sayilmaz(monkeypatch, tmp_path, si
     sonuc = await run_agent("oku", _deps(tmp_path, sink))
 
     assert not [m for m in sonuc.messages if "[düzenleme-döngüsü]" in m.content]
-
-
-def test_devam_et_ilk_gorevin_butcesini_miras_alir():
-    """Kısa devam mesajı, sürdürdüğü büyük görevin bütçesini almalı."""
-    from fusion_cli.core.types import Message as Msg
-    from fusion_cli.engines.agent.classify import TaskKind, classify_task
-    from fusion_cli.engines.agent.loop import _scoped_task
-
-    gecmis = [Msg("user", "dashboard'ı çalışır hale getir ve eksik dosyaları oluştur")]
-
-    assert classify_task(_scoped_task("devam et", gecmis)) is TaskKind.FEATURE
-    assert classify_task("devam et") is not TaskKind.FEATURE
 
 
 # --- cevap öğrenmeden ÖNCE duyurulur --------------------------------------- #

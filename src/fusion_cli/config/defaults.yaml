@@ -209,9 +209,10 @@ runtime:
   # döngüsü yerine o akış çalışır — daha az model çağrısı, öngörülebilir sonuç.
   # KAPALI (varsayılan): mevcut agent davranışı birebir korunur.
   playbooks: false
-  # Basit görevleri hızlı, karmaşık görevleri planlı ve doğrulanmış akışta yürütür.
-  # AUTO tüm kurulumlarda varsayılandır; kullanıcı ayrıca özellik açmaz.
-  workflow_mode: auto
+  # off: tek ajan döngüsü; çok adımlı işte planı model todo_write ile tutar.
+  # always: her kök tur plan motorunda yürür. Tek tur için /plan-yurut kullanılır.
+  # Eski "auto" değeri off olarak okunur.
+  workflow_mode: "off"
   workflow_max_model_calls: 12
   # Profesyonel yürütmenin bağımsız çağrı zarfları. Bir adımın taşması planlama veya
   # final doğrulama hakkını tüketmez; sınır aşımında checkpoint alınarak duraklanır.

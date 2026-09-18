@@ -1,8 +1,13 @@
 """Sağlayıcıya göre agent yürütme bütçesi.
 
 API sağlayıcılarının mevcut davranışı korunur. Tarayıcı/oturum tabanlı Web AI
-sağlayıcılarında ise tek bir küçük görevin onlarca web isteğine dönüşmesini önlemek
-için görev büyüklüğüne göre dinamik ama cömert üst sınırlar uygulanır.
+sağlayıcılarında tek bir üst sınır kademesi uygulanır; kaçak turu sabit çağrı
+sayısı değil ilerleme kapısı ve boşta-kalma süresi durdurur.
+
+Politika görev TÜRÜNE bakmaz. Ölçüldü: kelime sınıflandırıcısıyla seçilen bütçe
+kademesi "devam et" gibi kısa bir mesajı beş araç turuna indirip büyük işi
+yarıda kesiyordu. Bu turun metninden yalnız `required_effect` (açık dış etki)
+çıkarılır; o da yönlendirmez, kanıt kapısını besler.
 """
 
 from __future__ import annotations
@@ -12,40 +17,35 @@ from dataclasses import dataclass
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
-from ...core.model_capability import EditFormat
 from ...core.types import ModelSpec
 from ..effects.detect import required_effect_for
-from .classify import TaskKind
 
 _WEB_PROVIDER_IDS = frozenset(
     {"chatgpt_web", "claude_web", "gemini_web", "copilot_web", "perplexity_web"}
 )
-_COMPLEX_KINDS = frozenset(
-    {TaskKind.BUGFIX, TaskKind.REFACTOR, TaskKind.TEST, TaskKind.WEBSITE, TaskKind.FEATURE}
-)
 #: Değişiklik ürettiği kesin olan etki sözleşmeleri.
 #
-# Görev türü anahtar kelime SAYIMIYLA bulunur ve "incele ve eksikleri tamamla"
-# gibi bir istekte keşif kelimeleri (incele) değişiklik kelimelerini bastırıp
-# EXPLORE kazanabiliyor. O zaman görev 5 araç turu alıyor — bir projeyi tanımaya
-# bile yetmez — ve yazmaya iten kapıların hiçbiri kurulmuyor.
-#
-# Etki tespiti bu boşluğu kapatır: metin gerçek bir değişiklik istiyorsa görev
-# türü ne olursa olsun karmaşık bütçeye alınır.
+# Metin gerçek bir değişiklik istiyorsa (dosya yaz, komut çalıştır, commit, push)
+# tur "karmaşık" sayılır: kanıt kapısı ve değişiklik gerektiren denetimler buna
+# bakar.
 _MUTATING_EFFECTS = frozenset({"workspace_mutation", "shell_action", "git_push", "git_commit"})
-_EXTENDED_MARKERS = (
-    "kapsamlı",
-    "kapsamli",
-    "baştan sona",
-    "bastan sona",
-    "tüm proje",
-    "tum proje",
-    "derin araştır",
-    "derin arastir",
-    "eksiksiz",
-    "tamamını",
-    "tamamini",
-)
+
+#: Web AI turunun tek bütçe kademesi: model çağrısı, araç turu, toplam süre (sn),
+#: boşta kalma süresi (sn).
+#
+# Ölçüldü (Godot koşusu, kullanıcı makinesi): gerçek bir oyun projesi
+# `project.godot` + birkaç sahne + birkaç script + asset indirme demek; bu,
+# onlarca okuma ve yazma eder. Daha dar sınırlar işi TAM İLERLERKEN kesiyor ve
+# kullanıcıya yarım bir iskelet bırakıyordu. Bu değerler o koşuda ölçülen
+# "karmaşık iş" kademesidir.
+#
+# Kaçak koruması sayıdan değil iki yerden gelir: ilerlemesiz tur sayacı
+# (`max_idle_rounds`) ve boşta-kalma zaman aşımı. "Merhaba" bütçe tüketmez;
+# model tek çağrıda cevaplar.
+WEB_MAX_MODEL_CALLS = 90
+WEB_MAX_TOOL_ROUNDS = 75
+WEB_TOTAL_TIMEOUT_S = 5_400.0
+WEB_IDLE_TIMEOUT_S = 300.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,12 +70,7 @@ class ExecutionPolicy:
     # doğrulanır; kanıt yoksa model bir kez araç çağrısına zorlanır.
     requires_tool_evidence: bool = False
     required_effect: str | None = None
-    #: Görev türü kod değiştirmeyi gerektiren cinsten mi (BUGFIX, TEST, FEATURE…).
-    #
-    # `required_effect` metinden çıkarılır ve dar kalıplara bakar; "testleri geçir"
-    # gibi bir görevde boş kalıyor. O zaman kanıt kapısı hiç kurulmuyor ve model
-    # yalnızca okuyup düzyazıyla durunca tur bitmiş sayılıyordu (ölçüldü: üç
-    # koşunun ikisi böyle düştü). Bu alan o boşluğu görev TÜRÜNDEN kapatır.
+    #: Bu turun metni açık bir değişiklik etkisi istiyor mu (`_MUTATING_EFFECTS`).
     complex_task: bool = False
     max_evidence_reprompts: int = 1
     # Bu modelin dosya/shell değiştirmesine izin var mı? Doğrulanmamış taklit-araç
@@ -85,16 +80,14 @@ class ExecutionPolicy:
     mutation_block_reason: str = ""
     #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
     allowed_tool_names: frozenset[str] | None = None
-    #: Modele sunulacak düzenleme sözleşmesi; örtüşen araçlar birlikte sunulmaz.
-    edit_format: EditFormat = EditFormat.LINE_RANGE
     #: Bu adım kaçıncı kez deneniyor; yedek zinciri o kadar yukarı kaydırır.
     escalation: int = 0
     #: Kurtarma gözlemi sınıflandırma kaynaklı değişiklik zorlaması almamalı.
     observe_only: bool = False
 
 
-def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> ExecutionPolicy:
-    """Seçilen model ve görev türü için yürütme politikasını döndür.
+def policy_for(config: Config, spec: ModelSpec, task: str) -> ExecutionPolicy:
+    """Seçilen model ve BU TURUN metni için yürütme politikasını döndür.
 
     Kısa mesaj otomatik olarak “sohbet” değildir. “Repoyu pushla”, “paketi kur” veya
     “dosyayı sil” gibi birkaç kelimelik görevler gerçek bir etki ister ve araçsız
@@ -106,8 +99,9 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
     explicit_no_tools = _explicit_no_tools(lowered)
     # Kullanıcı “araç kullanma” dese bile gerçek bir dış etki talebi ortadan
     # kalkmaz. Araçlar kapalı tutulur ama iş yapılmış gibi raporlanamaz.
-    required_effect = required_effect_for(task, kind)
+    required_effect = required_effect_for(task)
     requires_evidence = required_effect is not None
+    complex_task = required_effect in _MUTATING_EFFECTS
     # Yetenek kararı `strict` kısa devresinden BAĞIMSIZ verilir: panelden zorunlu
     # model seçmek güvenlik kapısını atlamak anlamına gelemez.
     mutation = mutation_policy_for_model(config, spec.model)
@@ -123,44 +117,19 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
             max_evidence_reprompts=0 if explicit_no_tools else 1,
-            complex_task=kind in _COMPLEX_KINDS or required_effect in _MUTATING_EFFECTS,
+            complex_task=complex_task,
         )
 
-    extended = any(marker in lowered for marker in _EXTENDED_MARKERS)
-    # Tür ya da ETKİ: ikisinden biri değişiklik istiyorsa iş karmaşıktır.
-    complex_task = kind in _COMPLEX_KINDS or required_effect in _MUTATING_EFFECTS
-    simple_chat = _is_genuine_simple_chat(task, kind, required_effect)
-
-    # DURDURMA YETKİSİ sabit çağrı sayısında DEĞİL, ilerleme kapısındadır.
-    #
-    # Ölçüldü (Godot koşusu, kullanıcı makinesi): gerçek bir oyun projesi
-    # `project.godot` + birkaç sahne + birkaç script + asset indirme demek; bu,
-    # onlarca okuma ve yazma eder. 28 çağrılık sınır işi TAM İLERLERKEN kesiyor
-    # ve kullanıcıya yarım bir iskelet bırakıyordu. Sayılar bu yüzden gerçek
-    # işin boyuna göre açıldı.
-    #
-    # Kaçak koruması sayıdan değil iki yerden gelir ve ikisi de KORUNDU:
-    # ilerlemesiz tur sayacı (`max_idle_rounds`) ve boşta-kalma zaman aşımı.
-    # İlerleyen bir tur çalışmaya devam eder, ilerlemeyen tur dakikalar içinde
-    # durur — asıl istenen davranış budur.
-    if extended:
-        max_calls, max_rounds, timeout, idle_timeout = 150, 130, 10_800.0, 420.0
-    elif complex_task:
-        max_calls, max_rounds, timeout, idle_timeout = 90, 75, 5_400.0, 300.0
-    else:
-        # Kısa sohbet açılmaz: buradaki dar sınır maliyeti değil, basit bir
-        # soruya onlarca web turu harcanmasını engeller.
-        max_calls, max_rounds, timeout, idle_timeout = 8, 5, 240.0, 120.0
-
+    simple_chat = _is_genuine_simple_chat(task, required_effect)
     return ExecutionPolicy(
         is_web=True,
         allow_mutation=mutation.ok,
         mutation_block_reason=mutation.reason,
-        max_model_calls=max_calls,
-        max_tool_rounds=max_rounds,
+        max_model_calls=WEB_MAX_MODEL_CALLS,
+        max_tool_rounds=WEB_MAX_TOOL_ROUNDS,
         max_same_tool_without_change=2,
-        total_timeout_s=timeout,
-        idle_timeout_s=idle_timeout,
+        total_timeout_s=WEB_TOTAL_TIMEOUT_S,
+        idle_timeout_s=WEB_IDLE_TIMEOUT_S,
         # Web yanıtında kısa ama geçerli final metnini "yarım" sanıp fazladan
         # çağrı açma. Gerçek truncation ve bekleyen todo hâlâ devam ettirilir.
         heuristic_auto_continue=False,
@@ -169,18 +138,13 @@ def policy_for(config: Config, spec: ModelSpec, kind: TaskKind, task: str) -> Ex
         conditional_self_review=True,
         # Salt-okuma web turlarından ayrı bir model çağrısıyla ders çıkarma.
         learn_read_only_turns=False,
-        # Basit sohbet veya kullanıcının açıkça araç istemediği bir turda onlarca
-        # araç şemasını browser prompt'una eklemek hem gecikme hem geçici web hatası
-        # üretir. API sağlayıcıları yukarıdaki erken dönüşle aynen korunur.
+        # Taşıma optimizasyonu, yönlendirme değil: selamlaşmada ya da kullanıcının
+        # açıkça araç istemediği turda onlarca araç şemasını tarayıcı istemine
+        # eklemek hem gecikme hem geçici web hatası üretir.
         offer_tools=not explicit_no_tools and (requires_evidence or not simple_chat),
         requires_tool_evidence=requires_evidence,
         required_effect=required_effect,
         max_evidence_reprompts=0 if explicit_no_tools else 1,
-        # Web yolunda araç çağrısı METİNDEN ayrıştırılır: satır numarası ve hunk
-        # uzunluğu tutturmak zorunda olmayan search/replace sözleşmesi burada daha
-        # dayanıklıdır (aider ölçümü: aynı modelde %20 → %61). API sağlayıcıları
-        # yukarıdaki erken dönüşle satır aralığında kalır.
-        edit_format=EditFormat.SEARCH_REPLACE,
     )
 
 
@@ -220,7 +184,7 @@ def _explicit_no_tools(lowered: str) -> bool:
     return False
 
 
-def _is_genuine_simple_chat(task: str, kind: TaskKind, required_effect: str | None) -> bool:
+def _is_genuine_simple_chat(task: str, required_effect: str | None) -> bool:
     """Araç şeması taşımaya değmeyen gerçek kısa sohbeti tanı.
 
     Eski `GENERAL + <=240 karakter` kuralı operasyonları da sohbet sanıyordu. Burada
@@ -258,7 +222,3 @@ def is_web_model(config: Config, model: str) -> bool:
     if provider in _WEB_PROVIDER_IDS or provider.endswith("_web"):
         return True
     return any(session.model == model for session in config.web_sessions)
-
-
-def is_complex_kind(kind: TaskKind) -> bool:
-    return kind in _COMPLEX_KINDS

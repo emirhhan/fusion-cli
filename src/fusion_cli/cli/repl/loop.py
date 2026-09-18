@@ -319,6 +319,7 @@ async def _drive_agent(
     plan_mode: bool,
     extra_system: str,
     step_limit: int | None,
+    workflow: bool = False,
 ) -> AgentOutcome:
     """Agent turunu çalıştır; MCP sunucuları tanımlıysa dış araçları da bağla.
 
@@ -330,6 +331,7 @@ async def _drive_agent(
         "plan_mode": plan_mode,
         "extra_system": extra_system,
         "step_limit": step_limit,
+        "workflow": workflow,
     }
     if not state.config.mcp_servers and not state.config.hosted_connectors:
         return await run_agent(line, deps, **kwargs)
@@ -455,6 +457,7 @@ async def _agent_turn(
                 plan_mode=state.approval.value == "plan",
                 extra_system=turn_extra_system,
                 step_limit=macros.mode_step_limit(mode),
+                workflow=macros.mode_workflow(mode),
             )
             # Turun değişiklik kaydı `/undo` için saklanır; bir sonraki tur onu ezer.
             state.last_changes = tool_context.changes

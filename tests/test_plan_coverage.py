@@ -138,7 +138,7 @@ async def test_eksik_kapsam_onarim_istemiyle_yeniden_sorulur(monkeypatch):
         return AgentOutcome(final_text=cevaplar[len(istemler) - 1], messages=[], model_calls_made=1)
 
     sonuc = await plan_generation.generate_plan(
-        GOREV, object(), _sahte_agent, 4, None, check_coverage=True
+        GOREV, object(), _sahte_agent, 4, check_coverage=True
     )
 
     assert len(istemler) == 2
@@ -160,7 +160,7 @@ async def test_onarim_da_eksik_kalirsa_plan_calisir_ama_eksik_bildirilir(monkeyp
         )
 
     sonuc = await plan_generation.generate_plan(
-        GOREV, object(), _sahte_agent, 4, None, check_coverage=True
+        GOREV, object(), _sahte_agent, 4, check_coverage=True
     )
 
     assert sonuc.plan is not None
@@ -187,7 +187,7 @@ async def test_yeniden_planlamada_kapsama_kapisi_calismaz():
             model_calls_made=1,
         )
 
-    sonuc = await plan_generation.generate_plan(GOREV, object(), _sahte_agent, 4, None)
+    sonuc = await plan_generation.generate_plan(GOREV, object(), _sahte_agent, 4)
 
     assert cagri == 1
     assert sonuc.plan is not None

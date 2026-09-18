@@ -1088,6 +1088,7 @@ class AppSession:
                 capabilities=self._state.capabilities,
                 conversation_id=self._conversation_id or "app",
                 step_limit=macros.mode_step_limit(turn_mode),
+                workflow=macros.mode_workflow(turn_mode),
                 approval_memory=self._state.approval_memory,
             )
         )

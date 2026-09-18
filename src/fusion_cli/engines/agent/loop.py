@@ -44,7 +44,6 @@ from ...core.events import (
     Channel,
     ContextCompressed,
     EventPublisher,
-    ExecutionPromoted,
     ExecutionRouteSelected,
     MutationUnavailable,
     SelfReviewFinished,
@@ -56,12 +55,12 @@ from ...core.events import (
     TurnBudgetExhausted,
     VerificationFailed,
 )
+from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
-from ...core.memory import CodeIndex, LessonMemory
-from ...core.model_capability import EditFormat
+from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.steering import SteeringQueue
-from ...core.tools import TodoStatus, Tool, ToolContext, ToolResult
+from ...core.tools import Tool, ToolContext, ToolResult
 from ...core.types import (
     CompletionRequest,
     Message,
@@ -74,7 +73,6 @@ from ...core.types import (
 )
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
-from ...memory.lessons import as_prompt_block
 from ...providers.capabilities import TaskRequirements, infer_task_requirements
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
@@ -84,23 +82,15 @@ from ...tools.emulation import coerce_arguments, render_tool_example, validate_a
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, history, learning_steps, reflexion, review, skill_recall
+from . import compaction, denial, history, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
 from .chat_mode import chat_execution, chat_tool_names
-from .classify import TaskClassification, TaskKind, classify_task_details, recall_scope, scope_of
 from .engine_tools import UserAsker, build_agent_registry
-from .execution_policy import ExecutionPolicy, is_complex_kind, policy_for
+from .execution_policy import ExecutionPolicy, policy_for
 from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
-from .promotion import (
-    PromotionContext,
-    ToolUse,
-    TurnObservation,
-    should_promote,
-    signals_from_turn,
-)
 from .repo_context import repo_map_block
 from .workspace_hint import find_workspace_for
 
@@ -320,6 +310,9 @@ class AgentDeps:
     conversation_id: str = ""
     #: İlk dış turda çıkarılan zorunlu model yetenekleri; iç turlar aynı kararı taşır.
     task_requirements: TaskRequirements | None = None
+    #: Bu turda `recall_lessons` ile hatırlanan dersler. Tur sonunda güvenleri
+    #: turun sonucuna göre güncellenir (`learning_steps.reinforce_recalled`).
+    recalled_lessons: list[Lesson] = field(default_factory=list)
 
     def require_budget(self) -> TurnBudget:
         """Bütçeyi döndür; kurulmamışsa programlama hatasıdır.
@@ -349,6 +342,7 @@ async def run_agent(
     require_local_mutation: bool = False,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
+    workflow: bool = False,
 ) -> AgentOutcome:
     """Bir görevi araçlarla çalıştır. Döndürülen geçmiş bir sonraki tura beslenir.
 
@@ -358,6 +352,11 @@ async def run_agent(
 
     `chat_mode` sohbet turudur: model okur ve cevaplar, çalışma alanını
     DEĞİŞTİRMEZ ve plan motoruna girmez (bkz. `chat_mode.py`).
+
+    Varsayılan yol tek ReAct döngüsüdür; ne zaman araç kullanacağına ve çok
+    adımlı işte `todo_write` ile plan tutacağına model karar verir. Plan motoru
+    yalnız `workflow=True` (kullanıcı `/plan-yurut` seçti) ya da
+    `workflow_mode: always` ile çalışır ve kök konuşmanın tamamını alır.
     """
     # Bütçe turun EN BAŞINDA bir kez kurulur ve buradan sonra her iç içe çağrı aynı
     # nesneyi görür. Öz-denetim ve doğrulama kapısı `run_agent`'ı yeniden çağırdığı
@@ -372,14 +371,6 @@ async def run_agent(
             return played
 
     registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
-    # Sınıflandırma ve bütçe, TURUN metnine değil GÖREVİN tamamına bakar.
-    #
-    # Ölçüldü: kullanıcı turu durdurup "devam et" yazdı. O iki kelime GENERAL'e
-    # düştü, bütçe beş araç turuna indi ve iş "araç turu sınırına ulaşıldı (5)"
-    # ile yarıda kesildi — oysa sürdürülen görev aynı büyük görevdi. Aynı hata
-    # onay istemine yazılan tek harfle de yaşandı.
-    classification = classify_task_details(_scoped_task(task, history))
-    kind = classification.primary
     if deps.task_requirements is None and depth == 0:
         deps.task_requirements = infer_task_requirements(
             task,
@@ -409,28 +400,21 @@ async def run_agent(
             model_calls_made=0,
         )
 
-    auto_context = skill_recall.should_auto_context(classification)
-    recalled = learning_steps.recall_lessons(
-        task,
-        deps,
-        scope=recall_scope(kind),
-        enabled=auto_context,
-        limit=learning_steps.recall_limit_for(complex_task=is_complex_kind(kind)),
-    )
-    remembered = as_prompt_block(recalled)
-    expertise = _recall_skill(task, classification, deps, depth=depth)
+    # Dersler ve beceri metinleri tur başında sisteme BASILMAZ; model onları
+    # `recall_lessons` / `find_skill` + `read_skill` ile ister. Ölçüldü: görev
+    # türüne göre seçilen uzmanlık ve dersler yanlış türde yanlış bağlamı
+    # taşıyordu (WEBSITE sanılan bir turda 21 KB'lık web referansı eklendi).
     proje_ve_dis_bellek = read_all_instructions(deps.tool_context.root, deps.home)
-    # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Yalnız çok
-    # adımlı işlerde ve kökte kod varsa eklenir; sohbete sembol listesi iliştirmek
-    # bağlamı boşuna şişirir.
-    harita = repo_map_block(deps.tool_context.root, kind) if depth == 0 else ""
+    # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
+    # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
+    harita = repo_map_block(deps.tool_context.root) if depth == 0 and not chat_mode else ""
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
             part
-            for part in (proje_ve_dis_bellek, harita, remembered, expertise, extra_system)
+            for part in (proje_ve_dis_bellek, harita, extra_system)
             if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
@@ -452,17 +436,13 @@ async def run_agent(
             return AgentOutcome(final_text=str(error), messages=messages, ok=False)
         # Politikaya BU TURUN metni verilir, geçmişle birleştirilmiş hali değil.
         #
-        # `kind` yukarıda geçmişle birlikte hesaplandı ve öyle kalır: bütçe ve
-        # karmaşıklık kararlarının süreklilik görmesi doğrudur ("devam et" turu
-        # büyük görevin bütçesini miras almalı).
-        #
-        # Ama `policy_for` bir de `required_effect` çıkarır ve o, turu BAŞARISIZ
-        # ilan eden tek kapıdır. Ölçüldü: oturumun ilk mesajı "oyun yap, index.html
+        # `policy_for` `required_effect` çıkarır ve o, turu BAŞARISIZ ilan eden
+        # tek kapıdır. Ölçüldü: oturumun ilk mesajı "oyun yap, index.html
         # oluştur" olduğunda, sonraki "merhaba" turu birleştirilmiş metinden
         # `workspace_mutation` etiketi alıyor ve kapı, kullanıcının o turda hiç
         # istemediği bir dosya değişikliğinin kanıtını arayıp turu düşürüyordu.
         # Bir kapı turu reddediyorsa dayandığı iddia O TURDA söylenmiş olmalı.
-        deps.execution = policy_for(deps.config, selected_spec, kind, task)
+        deps.execution = policy_for(deps.config, selected_spec, task)
     execution = deps.execution
     if chat_mode:
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
@@ -488,13 +468,11 @@ async def run_agent(
     # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
     # model çağrısı harcamadan dururuz — hiçbir tur bu kısıtı aşamaz.
     if not execution.allow_mutation and not plan_mode:
-        # Görev türü de bağlayıcıdır. `required_effect` metinden çıkarılır ve dar
-        # kalabilir: "envanter.py'deki hataları düzelt ve eksik modülü yaz" hiçbir
-        # desene uymuyordu, bu yüzden tur salt-okunur kipte beş çağrı harcayıp
-        # hiçbir şey yapamadan bitti. BUGFIX/FEATURE gibi bir tür zaten doğası
-        # gereği değişiklik ister; ayrıca metinden kanıt aramaya gerek yok.
+        # Yalnız bu turun metni açık bir etki istiyorsa model çağrılmadan durulur.
+        # Aksi hâlde model okuyup cevaplayabilir; değiştirici araçlar zaten
+        # sunulmaz ve kullanıcı `MutationUnavailable` ile nedenini görür.
         blocking = not execution.observe_only and (
-            execution.required_effect is not None or is_complex_kind(kind)
+            execution.required_effect is not None or execution.complex_task
         )
         deps.publisher.publish(
             MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
@@ -509,19 +487,17 @@ async def run_agent(
             )
 
     if not plan_mode and not chat_mode and depth == 0:
-        route = choose_execution_route(
-            task,
-            classification,
-            execution,
-            deps.config.runtime.workflow_mode,
-        )
+        route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
         deps.publisher.publish(
             ExecutionRouteSelected(route=route.route.value, reasons=route.reasons)
         )
         if route.route is ExecutionRoute.WORKFLOW:
-            return await run_execution_plan(task, deps, run_agent, self_review=self_review)
-    else:
-        route = None
+            # Plan motoru KÖK konuşmayı alır: sistem + önceki sohbet + bu turun
+            # mesajı. Geçmişsiz plan her adımda kullanıcının önceki söylediklerini
+            # kaybediyordu (gizli kelime vakası).
+            return await run_execution_plan(
+                task, deps, run_agent, conversation=messages, self_review=self_review
+            )
 
     outcome = await _drive(
         messages,
@@ -534,14 +510,6 @@ async def run_agent(
         internal=internal,
         require_local_mutation=require_local_mutation,
     )
-
-    if route is not None and route.route is ExecutionRoute.FAST_PROMOTABLE:
-        promoted = _promotion_context(task, outcome, deps, budget)
-        if promoted is not None:
-            deps.publisher.publish(ExecutionPromoted(reasons=promoted.reasons))
-            return await run_execution_plan(
-                task, deps, run_agent, promotion=promoted, self_review=self_review
-            )
 
     verification = None
     # Doğrulama turu hakkı da tur genelidir: iç içe bir düzeltme kendi kapı bütçesini
@@ -588,7 +556,7 @@ async def run_agent(
     if outcome.wrong_workspace:
         should_review = False
     if should_review and execution.conditional_self_review:
-        should_review = _web_self_review_needed(task, kind, outcome, deps)
+        should_review = _web_self_review_needed(task, execution, outcome, deps)
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
@@ -606,12 +574,14 @@ async def run_agent(
         outcome,
         deps,
         plan_mode=plan_mode,
-        scope=scope_of(kind),
         allow_read_only=execution.learn_read_only_turns,
     )
-    await learning_steps.reinforce_recalled(
-        recalled, outcome, deps, plan_mode=plan_mode, verification=verification
-    )
+    # Hatırlanan derslerin kaydı turun TAMAMINA aittir; iç içe düzeltici turlar
+    # onu erkenden tüketip kendi (ara) sonucuyla pekiştirmemeli.
+    if depth == 0 and not internal:
+        await learning_steps.reinforce_recalled(
+            outcome, deps, plan_mode=plan_mode, verification=verification
+        )
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     # Özetleme sayısı turun sonucuna taşınır: plan yürütücüsü onu checkpoint'e
     # yazar ve devam eden tur neyin özetlendiğini bilir.
@@ -1115,57 +1085,6 @@ def _publish_budget_stop(deps: AgentDeps, budget: TurnBudget, state: _State) -> 
     )
 
 
-#: Yükseltme bağlamına taşınan görev özetinin üst sınırı. Plan istemi görevin
-#: TAMAMINI zaten ayrıca alır; buradaki özet yalnız bağlamı adlandırır.
-PROMOTION_SUMMARY_CHARS = 500
-
-
-def _promotion_context(
-    task: str,
-    outcome: AgentOutcome,
-    deps: AgentDeps,
-    budget: TurnBudget,
-) -> PromotionContext | None:
-    """Hızlı tur büyüyerek yarım kaldıysa planlı yürütmenin başlangıç bağlamını üret.
-
-    İki kapı arka arkaya çalışır ve ikisi de gereklidir:
-
-    1. **Tur yarım kalmış olmalı.** Tamamlanmış bir hızlı turu plana devretmek aynı
-       işi ikinci kez yaptırır; ölçülen kazanç değil, yinelenen yan etkidir.
-    2. **Büyüme kanıtlanmış olmalı.** Yalnızca "model hata verdi" demek yeni bir
-       planı hak etmez; kanıtsız yükseltme her düşen turu planlama maliyetine sokar.
-
-    Yükseltme tek yönlüdür: dönen `run_execution_plan` çağrısı kök turu bitirir,
-    plan yolundan hızlı yola geri düşülmez.
-    """
-    interrupted = not outcome.ok or outcome.hit_step_limit or budget.stop is not None
-    if not interrupted:
-        return None
-    todos = deps.tool_context.todos
-    observation = TurnObservation(
-        tool_uses=outcome.tool_uses,
-        pending_todos=todos.pending_count,
-        # Sıralı ve tekrarsız: kanıt bloğu turdan tura aynı görünmelidir.
-        touched_paths=tuple(sorted({str(path) for path in deps.tool_context.touched})),
-        hit_step_limit=outcome.hit_step_limit,
-        budget_stopped=budget.stop is not None,
-    )
-    decision = should_promote(signals_from_turn(observation))
-    if not decision.should_promote:
-        return None
-    return PromotionContext(
-        task_summary=task[:PROMOTION_SUMMARY_CHARS],
-        reasons=decision.reasons,
-        touched_paths=observation.touched_paths,
-        pending_todos=tuple(
-            item.content for item in todos.items if item.status is not TodoStatus.COMPLETED
-        ),
-        tool_evidence=tuple(
-            f"{use.name}: {'başarılı' if use.ok else 'başarısız'}" for use in observation.tool_uses
-        ),
-    )
-
-
 def _note_tool_use(
     state: _State,
     name: str,
@@ -1175,7 +1094,7 @@ def _note_tool_use(
     arguments: dict[str, object] | None = None,
     output: str = "",
 ) -> None:
-    """Denenen araç çağrısını sırayla kaydet (yükseltme kanıtı)."""
+    """Denenen araç çağrısını sırayla kaydet (adım ve tur kanıtı)."""
     state.tool_uses.append(
         ToolUse(
             name=name,
@@ -1312,7 +1231,7 @@ async def _call_model(
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=(
-            tuple(registry.schemas(_permitted(allowed_tools, registry, execution, for_schema=True)))
+            tuple(registry.schemas(_permitted(allowed_tools, registry, execution)))
             if offer_tools
             else ()
         ),
@@ -1350,38 +1269,25 @@ async def _call_model(
 
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
 #: ya da belirsizliği gideremez.
-ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill"})
+ALWAYS_ALLOWED = frozenset(
+    {"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"}
+)
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
 WEB_READ_WINDOW = 100
-
-
-#: Düzenleme biçimine göre SUNULMAYAN araçlar.
-#
-# Ölçüldü (aider): aynı model, farklı düzenleme biçimiyle %20'den %61'e çıkıyor.
-# Örtüşen dört düzenleme aracını birlikte görmek zayıf modelde seçim hatası üretir;
-# bu yüzden bir turda TEK sözleşme sunulur. Yeni dosya yazmak her biçimde açıktır:
-# `write_file` olmadan sıfırdan dosya üretilemez.
-_EDIT_TOOLS_HIDDEN: dict[EditFormat, frozenset[str]] = {
-    EditFormat.SEARCH_REPLACE: frozenset({"replace_range"}),
-    EditFormat.LINE_RANGE: frozenset(),
-    EditFormat.WHOLE_FILE: frozenset({"replace_range", "edit_file", "multi_edit"}),
-}
 
 
 def _permitted(
     allowed_tools: set[str] | None,
     registry: ToolRegistry,
     execution: ExecutionPolicy,
-    *,
-    for_schema: bool = False,
 ) -> set[str] | None:
-    """Modele sunulacak araç adlarını belirle.
+    """Modele sunulacak ve çalıştırılabilecek araç adlarını belirle.
 
     Mutation izni yoksa değiştirici araçların ŞEMASI hiç gönderilmez: modele
     yapamayacağı bir yeteneği göstermek, denemesine ve turu boşa harcamasına yol açar.
-    Aynı gerekçe düzenleme biçimi için de geçerlidir: örtüşen araçlar birlikte
-    sunulmaz.
+    Düzenleme sözleşmesi tüm sağlayıcılarda aynıdır (`edit_file` / `multi_edit` /
+    `write_file`); sağlayıcıya göre şema daraltılmaz.
     """
     if allowed_tools is not None and not allowed_tools:
         return set()
@@ -1392,13 +1298,6 @@ def _permitted(
     )
     if execution.allowed_tool_names is not None:
         names &= execution.allowed_tool_names
-    if for_schema:
-        # Biçim tercihi ŞEMAYI daraltır, YETENEĞİ kapatmaz. Ölçüldü (6 Eylül canlı
-        # koşusu): `replace_range` dispatcher'da da kapatılınca model onu yine
-        # çağırdı, "kapsam dışı" cevabını aldı ve üç görev bu yüzden düştü.
-        # Şemadan çıkarmak "önermiyorum", engellemek "yapamazsın" demektir; ikincisi
-        # yalnız adım kapsamı ve mutasyon izni için geçerlidir.
-        names -= _EDIT_TOOLS_HIDDEN.get(execution.edit_format, frozenset())
     if not execution.allow_mutation:
         names = {
             name
@@ -2304,7 +2203,7 @@ def _tool_contract_abort_message(detail: str) -> str:
 
 
 def _web_self_review_needed(
-    task: str, kind: TaskKind, outcome: AgentOutcome, deps: AgentDeps
+    task: str, execution: ExecutionPolicy, outcome: AgentOutcome, deps: AgentDeps
 ) -> bool:
     """Run Web-AI review only when it can improve a valid model answer.
 
@@ -2364,7 +2263,7 @@ def _web_self_review_needed(
         if not any(marker in lowered for marker in risky_markers):
             return False
 
-    if is_complex_kind(kind):
+    if execution.complex_task:
         return True
     # Güvenlik kipinde kullanıcı her değişikliği tek tek onaylamıştır; araç çalışan
     # bir turu denetimsiz bırakmak o kipin amacına aykırı olurdu.
@@ -2445,41 +2344,6 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     correction.failed_tool_calls += outcome.failed_tool_calls
     correction.model_calls_made += outcome.model_calls_made
     return correction
-
-
-def _recall_skill(
-    task: str,
-    classification: TaskClassification,
-    deps: AgentDeps,
-    *,
-    depth: int,
-) -> str:
-    """Confidence-gated uzmanlık context'ini yalnız ana tura ekle.
-
-    Alt-ajan kendi dar göreviyle çalışır. Ana turda da yanlış/kararsız expertise
-    enjeksiyonu yerine hiç enjeksiyon tercih edilir.
-    """
-    if depth > 0:
-        return ""
-
-    skills = deps.capabilities.skills() if deps.capabilities is not None else ()
-
-    # Duyurulan skill ile prompta giren skill AYNI seçimden gelir; ikisi ayrı
-    # seçilirse kullanıcı modele hiç verilmemiş bir uzmanlığı etkin sanır.
-    selected = skill_recall.auto_skill(classification, skills, task)
-    if selected is not None:
-        from ...core.events import CapabilityActivated
-
-        deps.publisher.publish(
-            CapabilityActivated(
-                kind="beceri",
-                name=selected.name,
-                source=selected.source,
-                automatic=True,
-            )
-        )
-
-    return skill_recall.auto_expertise_block(classification, skills, task)
 
 
 async def _verify(
@@ -2629,17 +2493,6 @@ async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Mess
         deps.publisher.publish(ContextCompressed(before=before, after=len(compressed)))
         deps.condensations += 1
     return compressed
-
-
-def _scoped_task(task: str, history: list[Message] | None) -> str:
-    """Sınıflandırma ve bütçe için görevin TAMAMINI temsil eden metin.
-
-    Geçmişteki İLK kullanıcı mesajı asıl hedefi taşır; bu turun metni ("devam et")
-    yalnızca onun devamıdır. İkisi birleştirilir — prompta değil, YALNIZCA tür ve
-    bütçe kararına girer.
-    """
-    ilk = next((mesaj.content for mesaj in history or () if mesaj.role == "user"), "")
-    return f"{ilk}\n{task}".strip() if ilk else task
 
 
 def _initial_messages(

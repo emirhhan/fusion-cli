@@ -1,4 +1,11 @@
-"""Kök görevi hızlı veya profesyonel yürütme yoluna yönlendir."""
+"""Kök görevi tek döngüye ya da plan motoruna yönlendir.
+
+Karar görev METNİNE bakmaz. Ölçüldü: kelime sınıflandırıcısıyla verilen rota,
+oturumun ilk mesajının türünü sonraki "Tamam yaz" mesajına miras bıraktı ve iki
+kelimelik bir onay plan motoruna girdi. Plan motoru artık yalnız açık bir seçimle
+çalışır: yapılandırmada `workflow_mode: always` ya da kullanıcının `/plan-yurut`
+makrosu. Çok adımlı işte planı model `todo_write` ile kendisi tutar.
+"""
 
 from __future__ import annotations
 
@@ -6,72 +13,31 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ...core.execution_mode import ExecutionMode
-from .classify import TaskClassification
-from .execution_policy import ExecutionPolicy
-from .loops import wants_plan
 
 
 class ExecutionRoute(Enum):
-    """Bir kök görevin başlangıç yürütme yolu."""
+    """Bir kök görevin yürütme yolu."""
 
     FAST = "fast"
-    FAST_PROMOTABLE = "fast_promotable"
     WORKFLOW = "workflow"
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionRouteDecision:
-    """Seçilen rota ve kullanıcıya açıklanabilir deterministik gerekçeler."""
+    """Seçilen rota ve kullanıcıya açıklanabilir gerekçe."""
 
     route: ExecutionRoute
     reasons: tuple[str, ...]
 
 
-def choose_execution_route(
-    task: str,
-    classification: TaskClassification,
-    policy: ExecutionPolicy,
-    mode: ExecutionMode,
-) -> ExecutionRouteDecision:
-    """Görev kanıtlarından başlangıç rotasını seç.
+def choose_execution_route(mode: ExecutionMode, *, requested: bool) -> ExecutionRouteDecision:
+    """Yapılandırma ve kullanıcı seçiminden rotayı belirle.
 
-    ``task`` gelecek kapsam sinyalleri için sözleşmede tutulur. İlk sürüm kararı
-    mevcut sınıflandırma ve etki politikasının kanıtlarına dayandırır.
+    `requested`, kullanıcının bu tur için plan yürütmeyi açıkça seçtiğini söyler
+    (`/plan-yurut`).
     """
-    del task
-    if mode is ExecutionMode.OFF:
-        return ExecutionRouteDecision(ExecutionRoute.FAST, ("workflow_mode=off",))
+    if requested:
+        return ExecutionRouteDecision(ExecutionRoute.WORKFLOW, ("kullanıcı plan yürütmeyi seçti",))
     if mode is ExecutionMode.ALWAYS:
         return ExecutionRouteDecision(ExecutionRoute.WORKFLOW, ("workflow_mode=always",))
-    if policy.required_effect is not None:
-        return ExecutionRouteDecision(
-            ExecutionRoute.WORKFLOW,
-            (f"doğrulanması gereken dış etki: {policy.required_effect}",),
-        )
-    if policy.complex_task:
-        # Görev türü planlamayı hak etmiyorsa "karmaşık" etiketi tek başına ağır
-        # yola sokmaz: mini-swe-agent'ın ölçümü, basit işte sade yolun daha iyi
-        # olduğunu söylüyor ve keşif/doküman turları planlama maliyetini ödemesin.
-        if not wants_plan(classification.primary):
-            return ExecutionRouteDecision(
-                ExecutionRoute.FAST_PROMOTABLE,
-                (f"görev türü sade yolda kalır (primitif seçimi): {classification.primary.value}",),
-            )
-        return ExecutionRouteDecision(
-            ExecutionRoute.WORKFLOW,
-            (f"karmaşık görev türü: {classification.primary.value}",),
-        )
-    if not policy.offer_tools and classification.confidence > 0:
-        return ExecutionRouteDecision(
-            ExecutionRoute.FAST,
-            ("araç gerektirmeyen basit görev",),
-        )
-    if classification.confidence <= 0:
-        return ExecutionRouteDecision(
-            ExecutionRoute.FAST_PROMOTABLE,
-            ("görev kapsamı çalışma sırasında netleşecek",),
-        )
-    return ExecutionRouteDecision(
-        ExecutionRoute.FAST_PROMOTABLE,
-        ("araç kullanan görev çalışma sırasında büyüyebilir",),
-    )
+    return ExecutionRouteDecision(ExecutionRoute.FAST, ("tek ajan döngüsü",))

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus, ToolUse
 from fusion_cli.core.execution_plan import (
     ExecutionPlan,
     PlanStep,
@@ -15,7 +15,6 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.verification import UNVERIFIABLE_COMMAND_PREFIX, VerificationResult
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, AgentOutcome
-from fusion_cli.engines.agent.promotion import ToolUse
 from fusion_cli.engines.agent.step_verification import (
     verify_plan_acceptance,
     verify_step,

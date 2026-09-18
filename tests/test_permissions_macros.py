@@ -155,8 +155,13 @@ def test_kipsiz_makro_prompt_uretmez():
 
 
 def test_tum_makrolar_gorev_ya_da_sablon_tasir():
+    """Kip-yalnız makro (`plan-yurut`) ne `task` ne `template` taşır: argümanı
+
+    ZORUNLU kılıp kullanıcının yazdığı metni olduğu gibi göreve çevirir; onun
+    işi rotayı değiştirmektir, hazır metin sağlamak değil.
+    """
     for name, macro in macros.MACROS.items():
-        assert macro.task or macro.template, name
+        assert macro.task or macro.template or macro.argument_required, name
 
 
 # --- Oturum içi model değişimi -------------------------------------------------- #

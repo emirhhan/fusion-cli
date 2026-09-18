@@ -25,7 +25,7 @@ from ...ui import banner, messages, theme
 from ...ui.picker import Choice
 from ...ui.renderer import ConsoleRenderer
 from ..session import run_agent_task, run_task
-from . import help_view, history_view, model_flows
+from . import help_view, history_view, macros, model_flows
 from .commands import RENDERED_COMMANDS, RESUME_LIST_LIMIT, build_registry, parse, resume_choices
 from .state import Engine, ReplState
 from .transcript_store import TranscriptStore
@@ -302,9 +302,9 @@ class _TuiSession:
         self._sync_status()
         if not self._state.running:
             return
-        pending, _mode = self._state.take_pending()
+        pending, mode = self._state.take_pending()
         if pending:
-            await self._turn(pending)
+            await self._turn(pending, workflow=macros.mode_workflow(mode))
 
     async def _resolve_resume_argument(self, command_name: str) -> str | None:
         """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
@@ -366,7 +366,7 @@ class _TuiSession:
         self._echo(f"[{theme.DIM}]{result.message}[/{theme.DIM}]")
         self._sync_status()
 
-    async def _turn(self, line: str) -> None:
+    async def _turn(self, line: str, *, workflow: bool = False) -> None:
         work = WorkLineSink(interrupt_hint=messages.WORK_INTERRUPT_ESC)
         # Satırı TUI çeker (her spinner karesinde), sink itmez: süre böyle akar.
         self._tui.set_work_source(work.render)
@@ -414,6 +414,7 @@ class _TuiSession:
                     background=self._background,
                     tool_context=tool_context,
                     approval_memory=self._state.approval_memory,
+                    workflow=workflow,
                 )
                 self._state.history = outcome.messages
                 self._state.last_changes = tool_context.changes

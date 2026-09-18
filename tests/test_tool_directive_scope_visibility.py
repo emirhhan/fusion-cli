@@ -3,7 +3,6 @@ from __future__ import annotations
 from fusion_cli.cli import session
 from fusion_cli.core.events import ErrorOccurred
 from fusion_cli.core.types import Message, ModelSpec
-from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import (
     _explicit_no_tools,
     policy_for,
@@ -29,7 +28,6 @@ def test_scoped_no_tool_directives_do_not_disable_requested_tools() -> None:
     policy = policy_for(
         config,
         config.agent,
-        TaskKind.GENERAL,
         A2_TASK,
     )
 
@@ -46,7 +44,6 @@ def test_global_no_tool_directive_still_disables_tools() -> None:
     policy = policy_for(
         config,
         config.agent,
-        TaskKind.GENERAL,
         task,
     )
 

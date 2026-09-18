@@ -63,7 +63,7 @@ def test_istek_kod_degistiren_is_olarak_taninir():
 
 def test_kanit_ve_karmasiklik_kapilari_acilir():
     config = make_config()
-    policy = policy_for(config, config.agent, classify_task(GERCEK_ISTEK), GERCEK_ISTEK)
+    policy = policy_for(config, config.agent, GERCEK_ISTEK)
 
     assert policy.requires_tool_evidence is True
     assert policy.complex_task is True

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Protocol
 from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...memory.code_index import format_matches
+from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
     Capability,
     CapabilityRegistry,
@@ -30,6 +31,7 @@ from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
 from ...ui import messages
+from . import learning_steps
 from .image_view import DEFAULT_QUESTION, describe_image
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
@@ -88,6 +90,8 @@ def build_agent_registry(
         extended.register(_view_image_tool(deps))
     if deps.code_index is not None:
         extended.register(_search_codebase_tool(deps))
+    if deps.lessons is not None and deps.config.runtime.lessons:
+        extended.register(_recall_lessons_tool(deps))
     if deps.asker is not None:
         extended.register(_ask_user_tool(deps.asker, deps))
     if deps.home is not None:
@@ -287,6 +291,37 @@ def _search_codebase_tool(deps: AgentDeps) -> Tool:
         parameters={
             "type": "object",
             "properties": {"query": {**_STRING, "description": "kavramsal arama sorgusu"}},
+            "required": ["query"],
+        },
+        run=_run,
+    )
+
+
+def _recall_lessons_tool(deps: AgentDeps) -> Tool:
+    """Öğrenilmiş dersleri modelin İSTEĞİYLE getiren salt-okunur araç.
+
+    Dersler tur başında sisteme basılmaz: görev türüne göre seçilen dersler yanlış
+    türde yanlış bağlamı taşıyordu. Model bir teknolojide ya da hatada geçmiş
+    deneyime ihtiyaç duyduğunda burada arar.
+    """
+
+    def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        query = str(args.get("query", "")).strip()
+        if not query:
+            return ToolResult.failure(messages.RECALL_LESSONS_EMPTY_QUERY)
+        recalled = learning_steps.recall_lessons(query, deps)
+        return ToolResult(as_prompt_block(recalled) or messages.RECALL_LESSONS_NONE)
+
+    return Tool(
+        name="recall_lessons",
+        description=(
+            "Bu projede ve kullandığı teknolojilerde daha önce ÖĞRENİLMİŞ dersleri "
+            "ara (kaçınılacak hatalar, işe yarayan yollar). Tanıdık bir hata ya da "
+            "araç tuhaflığıyla karşılaşınca çağır."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {"query": {**_STRING, "description": "konu, hata ya da teknoloji"}},
             "required": ["query"],
         },
         run=_run,

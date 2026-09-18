@@ -49,9 +49,9 @@ def test_kullanici_dosyasi_varsayilanin_uzerine_derin_birlestirilir(tmp_path):
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
-        (False, ExecutionMode.AUTO),
+        (False, ExecutionMode.OFF),
         (True, ExecutionMode.ALWAYS),
-        ("auto", ExecutionMode.AUTO),
+        ("auto", ExecutionMode.OFF),
         ("always", ExecutionMode.ALWAYS),
         ("off", ExecutionMode.OFF),
     ],
@@ -64,8 +64,8 @@ def test_workflow_mode_eski_ve_yeni_degerleri_normalize_eder(tmp_path, raw, expe
     assert config.runtime.workflow_mode is expected
 
 
-def test_workflow_mode_varsayilan_olarak_otomatiktir():
-    assert load_config().runtime.workflow_mode is ExecutionMode.AUTO
+def test_workflow_mode_varsayilan_olarak_tek_dongudur():
+    assert load_config().runtime.workflow_mode is ExecutionMode.OFF
 
 
 def test_workflow_butce_zarflari_profesyonel_varsayilanlarla_gelir():
@@ -115,7 +115,7 @@ def test_adim_zarflari_tek_alt_turun_harcamasini_karsilar():
 def test_workflow_mode_bilinmeyen_degeri_reddeder(tmp_path):
     path = _yaz(tmp_path, {"runtime": {"workflow_mode": "rastgele"}})
 
-    with pytest.raises(ConfigError, match="İzin verilen: auto, always, off"):
+    with pytest.raises(ConfigError, match="İzin verilen: always, off"):
         load_config(path)
 
 

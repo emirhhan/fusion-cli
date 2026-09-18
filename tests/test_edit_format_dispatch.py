@@ -1,49 +1,33 @@
-"""Düzenleme biçimi ŞEMAYI daraltır, YETENEĞİ kapatmaz.
+"""Araç engellemesi yalnız adım kapsamı ve mutasyon izni içindir.
 
-Ölçüldü (6 Eylül canlı koşusu): web yolunda `search_replace` biçimi seçilince
-`replace_range` şemadan çıkarıldı — buraya kadar doğru, amaç seçim kalabalığını
-azaltmak. Ama araç dispatcher'da da kapandı ve model onu yine çağırdığında
-"araç bu adımın izin verilen kapsamında değil" cevabını aldı; `bozuk-json-veriyi-onar`,
-`mevcut-projeye-uy` ve `regresyon-testi-yaz` görevleri bu yüzden düştü.
-
-Ayrım nettir: şemadan çıkarmak "bunu ÖNERMİYORUM" demektir, engellemek "bunu
-YAPAMAZSIN". İkincisi yalnız adım kapsamı ve mutasyon izni için geçerlidir.
+Ölçüldü (6 Eylül canlı koşusu): bir düzenleme aracı dispatcher'da da kapatılınca
+model onu yine çağırdı, "araç bu adımın izin verilen kapsamında değil" cevabını
+aldı ve üç görev bu yüzden düştü. Düzenleme sözleşmesi artık tüm sağlayıcılarda
+tek olduğundan biçime göre gizleme de kalktı; engelleme yalnız gerçek kısıtlardan
+(adım kapsamı, mutasyon izni) gelir.
 """
 
 from __future__ import annotations
 
-from fusion_cli.core.model_capability import EditFormat
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _permitted
 from fusion_cli.tools import build_registry
 
 
 def _policy() -> ExecutionPolicy:
-    return ExecutionPolicy(is_web=True, edit_format=EditFormat.SEARCH_REPLACE)
+    return ExecutionPolicy(is_web=True)
 
 
-def test_semada_onerilmeyen_bicim_gizlenir():
-    sema = _permitted(None, build_registry(), _policy(), for_schema=True) or set()
+def test_sema_ve_dispatcher_ayni_duzenleme_araclarini_acar():
+    calistirilabilir = _permitted(None, build_registry(), _policy()) or set()
 
-    assert "replace_range" not in sema
-    assert "edit_file" in sema
-
-
-def test_dispatcher_gizlenen_araci_engellemez():
-    policy = ExecutionPolicy(is_web=True, edit_format=EditFormat.WHOLE_FILE)
-
-    sema = _permitted(None, build_registry(), policy, for_schema=True) or set()
-    calistirilabilir = _permitted(None, build_registry(), policy) or set()
-
-    assert "edit_file" not in sema
-    assert "edit_file" in calistirilabilir
+    assert {"edit_file", "multi_edit", "write_file"} <= calistirilabilir
 
 
 def test_adim_kapsami_hala_engeller():
-    """Gerçek kapsam kısıtı korunur: gevşetme yalnız BİÇİM tercihine aittir."""
+    """Gerçek kapsam kısıtı korunur."""
     policy = ExecutionPolicy(
         is_web=True,
-        edit_format=EditFormat.SEARCH_REPLACE,
         allowed_tool_names=frozenset({"read_file"}),
     )
 
@@ -63,4 +47,3 @@ def test_mutasyon_kapaliyken_yazma_araclari_yine_kapali():
 
 def test_bos_arac_kumesi_planlamaya_yonetim_araci_sizdirmaz():
     assert _permitted(set(), build_registry(), _policy()) == set()
-    assert _permitted(set(), build_registry(), _policy(), for_schema=True) == set()

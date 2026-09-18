@@ -19,7 +19,6 @@ from __future__ import annotations
 from fusion_cli.core.execution_plan import PlanPhase, PlanStep, RetrySafety
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.plan_context import step_deps
 
@@ -62,9 +61,7 @@ def _step(**extra: object) -> PlanStep:
 def test_adim_hakki_zarftan_gelir_gorev_kademesi_tavan_degildir(tmp_path):
     """Sohbet kademesi (8) bir plan adımını 8 çağrıda kesmemeli."""
     config = make_config(agent=ModelSpec(name="agent", model="gemini_web/main/auto"))
-    policy = policy_for(
-        config, ModelSpec(name="a", model="gemini_web/main/auto"), TaskKind.EXPLORE, "kısa iş"
-    )
+    policy = policy_for(config, ModelSpec(name="a", model="gemini_web/main/auto"), "kısa iş")
     deps = _deps(config, policy, tmp_path)
 
     scoped = step_deps(deps, _step(), remaining=40, observe=False)
@@ -75,9 +72,7 @@ def test_adim_hakki_zarftan_gelir_gorev_kademesi_tavan_degildir(tmp_path):
 def test_kalan_zarf_adim_hakkini_yine_de_sinirlar(tmp_path):
     """Zarf tükenmeye yakınsa adım kalanla yetinir; sınır yukarı değil aşağı çalışır."""
     config = make_config(agent=ModelSpec(name="agent", model="gemini_web/main/auto"))
-    policy = policy_for(
-        config, ModelSpec(name="a", model="gemini_web/main/auto"), TaskKind.FEATURE, "kapsamlı iş"
-    )
+    policy = policy_for(config, ModelSpec(name="a", model="gemini_web/main/auto"), "kapsamlı iş")
     deps = _deps(config, policy, tmp_path)
 
     scoped = step_deps(deps, _step(), remaining=3, observe=False)
@@ -88,9 +83,7 @@ def test_kalan_zarf_adim_hakkini_yine_de_sinirlar(tmp_path):
 def test_gozlem_turu_dar_hakkini_korur(tmp_path):
     """Gözlem turu tek çağrılık sondayla açılır; zarf onu genişletmemeli."""
     config = make_config(agent=ModelSpec(name="agent", model="gemini_web/main/auto"))
-    policy = policy_for(
-        config, ModelSpec(name="a", model="gemini_web/main/auto"), TaskKind.FEATURE, "kapsamlı iş"
-    )
+    policy = policy_for(config, ModelSpec(name="a", model="gemini_web/main/auto"), "kapsamlı iş")
     deps = _deps(config, policy, tmp_path)
 
     scoped = step_deps(deps, _step(), remaining=1, observe=True)

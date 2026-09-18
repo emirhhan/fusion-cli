@@ -153,8 +153,11 @@ async def run_agent_task(
     step_limit: int | None = None,
     approval_memory: ApprovalMemory | None = None,
     chat_mode: bool = False,
+    workflow: bool = False,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
+
+    `workflow` kullanıcının bu tur için plan motorunu seçtiğini söyler (`/plan-yurut`).
 
     `interactive` False ise `ask_user` aracı modele HİÇ sunulmaz: cevaplanamayacak
     soru sormak turu boşa harcar. `history` verilirse çok-turlu sohbet sürdürülür.
@@ -219,6 +222,7 @@ async def run_agent_task(
             images=images,
             step_limit=step_limit,
             chat_mode=chat_mode,
+            workflow=workflow,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -264,6 +268,7 @@ async def _run_agent_with_mcp(
     images: tuple[str, ...] = (),
     step_limit: int | None = None,
     chat_mode: bool = False,
+    workflow: bool = False,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -287,6 +292,7 @@ async def _run_agent_with_mcp(
             system_prompt=system_prompt,
             images=images,
             step_limit=step_limit,
+            workflow=workflow,
         )
 
     if not config.mcp_servers and not config.hosted_connectors:

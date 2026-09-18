@@ -1,70 +1,38 @@
-"""Düzenleme biçimi modele göre seçilir.
+"""Düzenleme sözleşmesi tüm sağlayıcılarda tektir.
 
-Aider'ın ölçümü: aynı model, farklı düzenleme biçimiyle %20 → %61. Search/replace
-blokları satır numarası ve uzunluk tutturmayı gerektirmediği için zayıf modelde
-daha sağlam; dört örtüşen düzenleme aracını aynı anda görmek ise seçim hatası
-üretir. Bu yüzden modele TEK bir biçim sunulur.
+Eskiden API yolu satır aralığı (`replace_range`), web yolu search/replace alıyordu ve
+şema sağlayıcıya göre daraltılıyordu. Satır aralığı aracı silinen satırı sessizce
+kaybettirdi (A2) ve kaldırıldı; artık her sağlayıcı aynı üç aracı görür:
+`edit_file` / `multi_edit` (benzersiz tam metin) ve `write_file`.
 """
 
 from __future__ import annotations
 
-from fusion_cli.core.model_capability import EditFormat
 from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
 from fusion_cli.engines.agent.loop import _permitted
 from fusion_cli.tools import build_registry
 
-
-def _names(edit_format: EditFormat) -> set[str]:
-    """Modele SUNULAN araçlar: biçim tercihi şemayı daraltır.
-
-    Dispatcher tarafı ayrıdır ve `test_edit_format_dispatch.py` içinde sınanır:
-    gizlenen araç yine ÇALIŞTIRILABİLİR, çünkü şemadan çıkarmak "önermiyorum"
-    demektir, "yapamazsın" değil.
-    """
-    policy = ExecutionPolicy(is_web=False, edit_format=edit_format)
-    return _permitted(None, build_registry(), policy, for_schema=True) or set()
+DUZENLEME_ARACLARI = {"edit_file", "multi_edit", "write_file"}
 
 
-def test_search_replace_biciminde_satir_araligi_sunulmaz():
-    names = _names(EditFormat.SEARCH_REPLACE)
-
-    assert "edit_file" in names
-    assert "write_file" in names
-    assert "replace_range" not in names
+def _names(policy: ExecutionPolicy) -> set[str]:
+    return _permitted(None, build_registry(), policy) or set()
 
 
-def test_satir_araligi_biciminde_tum_duzenleme_araclari_acik():
-    names = _names(EditFormat.LINE_RANGE)
+def test_api_ve_web_ayni_duzenleme_araclarini_gorur():
+    api = _names(ExecutionPolicy(is_web=False))
+    web = _names(ExecutionPolicy(is_web=True))
 
-    assert {"edit_file", "multi_edit", "write_file"} <= names
-
-
-def test_tam_dosya_biciminde_yalniz_yazma_sunulur():
-    names = _names(EditFormat.WHOLE_FILE)
-
-    assert "write_file" in names
-    assert "edit_file" not in names
-    assert "replace_range" not in names
+    assert api >= DUZENLEME_ARACLARI
+    assert web >= DUZENLEME_ARACLARI
+    assert api == web
 
 
-def test_okuma_araclari_bicimden_etkilenmez():
-    for bicim in EditFormat:
-        assert "read_file" in _names(bicim)
+def test_satir_araligi_araci_hic_sunulmaz():
+    assert "replace_range" not in _names(ExecutionPolicy(is_web=False))
+    assert "replace_range" not in _names(ExecutionPolicy(is_web=True))
 
 
-def test_web_modeli_varsayilan_olarak_search_replace_alir():
-    """Web sağlayıcıda araç çağrısı metinden ayrıştırılır; en dayanıklı biçim seçilir."""
-    from fusion_cli.config.loader import load_config
-    from fusion_cli.core.types import ModelSpec
-    from fusion_cli.engines.agent.classify import TaskKind
-    from fusion_cli.engines.agent.execution_policy import policy_for
-
-    config = load_config()
-    policy = policy_for(
-        config,
-        ModelSpec(name="ana", model="gemini_web/main/auto"),
-        TaskKind.FEATURE,
-        "dosyayı düzelt",
-    )
-
-    assert policy.edit_format is EditFormat.SEARCH_REPLACE
+def test_okuma_araclari_her_saglayicida_acik():
+    for policy in (ExecutionPolicy(is_web=False), ExecutionPolicy(is_web=True)):
+        assert "read_file" in _names(policy)

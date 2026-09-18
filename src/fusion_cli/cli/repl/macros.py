@@ -8,6 +8,9 @@ Kipler ayrı tutulur çünkü davranışı değiştirirler:
 
 - **goal** — hedefe ulaşana kadar pes etmez, adım sınırı yükselir.
 - **grill-me** — kod yazmadan önce gereksinimleri sorularla netleştirir.
+- **plan-yurut** — görevi tek döngü yerine plan motorunda (adım kanıtı,
+  checkpoint/devam, final kabulü) yürütür. Varsayılan yol tek döngüdür; plan
+  motoru yalnız bu seçimle ya da `workflow_mode: always` ile çalışır.
 
 Diğer makrolar (bug, commit, review, browser) yalnızca hazır görev metnidir; agent'ın
 davranışını değiştirmezler.
@@ -25,6 +28,7 @@ class Mode(Enum):
     NONE = "none"
     GOAL = "goal"
     GRILL = "grill"
+    WORKFLOW = "workflow"
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +108,11 @@ MACROS: dict[str, Macro] = {
         template="Şunu code review yap: {argument}. Güvenlik, doğruluk ve mimari "
         "açısından incele, dosya:satır referansı ver.",
     ),
+    "plan-yurut": Macro(
+        task="",
+        mode=Mode.WORKFLOW,
+        argument_required=True,
+    ),
     "browser": Macro(
         task="",
         template="Web'de araştır: {argument}. `web_search` ile ara, `web_fetch` ile "
@@ -125,3 +134,8 @@ def mode_prompt(mode: Mode) -> str:
 def mode_step_limit(mode: Mode) -> int | None:
     """Kipin adım sınırı; kip sınır değiştirmiyorsa None (varsayılan bütçe)."""
     return MODE_STEP_LIMITS.get(mode)
+
+
+def mode_workflow(mode: Mode) -> bool:
+    """Kip bu turu plan motorunda yürütmeyi mi istiyor?"""
+    return mode is Mode.WORKFLOW

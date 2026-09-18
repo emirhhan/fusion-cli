@@ -6,8 +6,13 @@ from fusion_cli.core.events import SelfReviewStarted, ToolExecuted, ToolOutcome
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.classify import TaskKind, classify_task
-from fusion_cli.engines.agent.execution_policy import policy_for
+from fusion_cli.engines.agent.execution_policy import (
+    WEB_IDLE_TIMEOUT_S,
+    WEB_MAX_MODEL_CALLS,
+    WEB_MAX_TOOL_ROUNDS,
+    WEB_TOTAL_TIMEOUT_S,
+    policy_for,
+)
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 
 from .fakes import (
@@ -54,24 +59,28 @@ def _patch_provider(monkeypatch, provider):
     monkeypatch.setattr(agent_loop, "build_provider", _build)
 
 
-def test_web_policy_is_task_aware():
+def test_web_politikasi_gorev_turune_gore_kademelenmez():
+    """Web bütçesi TEK kademedir; tür tahmini bütçeyi daraltamaz.
+
+    Ölçüldü: türe göre 8/5'lik "basit" kademe, "devam et" gibi kısa bir mesajı
+    beş araç turuna indirip büyük işi yarıda kesiyordu. Kaçak turu sabit sayı
+    değil ilerleme kapısı ve boşta-kalma süresi durdurur.
+    """
     config = _config()
     spec = config.agent
-    simple = policy_for(config, spec, TaskKind.EXPLORE, "klasörü listele")
-    complex_ = policy_for(config, spec, TaskKind.BUGFIX, "hatayı düzelt")
-    extended = policy_for(config, spec, TaskKind.BUGFIX, "tüm projeyi kapsamlı düzelt")
+    politikalar = [
+        policy_for(config, spec, "klasörü listele"),
+        policy_for(config, spec, "hatayı düzelt"),
+        policy_for(config, spec, "tüm projeyi kapsamlı düzelt"),
+    ]
 
-    # Asıl değişmez SIRALAMADIR: basit < karmaşık < genişletilmiş.
-    assert simple.is_web and simple.max_model_calls == 8
-    assert simple.max_model_calls < complex_.max_model_calls < extended.max_model_calls
-    assert simple.heuristic_auto_continue is False
-
-    # Karmaşık iş için tur sayısı AKIŞA yetmeli. Sözleşme yanıt başına tek araç
-    # çağrısı ve var olan dosyada hedefli düzenleme istiyor; ikisi de tur sayısını
-    # mekanik olarak artırır. Ölçüldü: dört dosyalık bir görev ~6 okuma + ~6
-    # düzenleme + doğrulama harcıyor ve eski 12 turluk sınır işi tam ilerlerken
-    # kesiyordu ("araç turu sınırına ulaşıldı").
-    assert complex_.max_tool_rounds is not None and complex_.max_tool_rounds >= 20
+    for policy in politikalar:
+        assert policy.is_web
+        assert policy.max_model_calls == WEB_MAX_MODEL_CALLS
+        assert policy.max_tool_rounds == WEB_MAX_TOOL_ROUNDS
+        assert policy.total_timeout_s == WEB_TOTAL_TIMEOUT_S
+        assert policy.idle_timeout_s == WEB_IDLE_TIMEOUT_S
+        assert policy.heuristic_auto_continue is False
 
 
 async def test_web_short_final_does_not_trigger_wasteful_auto_continue(monkeypatch, tmp_path):
@@ -265,7 +274,6 @@ def test_short_git_push_is_not_classified_as_simple_chat():
     policy = policy_for(
         config,
         config.agent,
-        TaskKind.GENERAL,
         "emirhhan/fusion_cli reposunu GitHub'a pushla",
     )
 
@@ -367,7 +375,6 @@ def test_action_with_explicit_no_tools_keeps_honest_evidence_guard():
     policy = policy_for(
         config,
         config.agent,
-        TaskKind.GENERAL,
         "repoyu GitHub'a pushla ama araç kullanma",
     )
 
@@ -404,30 +411,28 @@ def test_echo_git_push_is_not_execution_evidence():
 
 
 def test_kesif_kelimeleri_degisiklik_istegini_bastiramaz():
-    """ "incele ve eksikleri tamamla" 5 turluk keşif bütçesine düşmemeli.
+    """ "incele ve eksikleri tamamla" değişiklik isteği olarak tanınır.
 
-    Görev türü anahtar kelime SAYIMIYLA bulunur; keşif kelimeleri (incele, bul,
-    kontrol et) değişiklik kelimelerini bastırıp EXPLORE kazanabiliyor. O zaman
-    görev 5 araç turu alıyor — bir projeyi tanımaya bile yetmez — ve yazmaya iten
-    kapıların hiçbiri kurulmuyor. Etki tespiti bu boşluğu kapatır.
+    Keşif kelimeleri (incele, bul, kontrol et) değişiklik isteğini gizleyemez:
+    karmaşıklık yalnız bu turun metnindeki etkiden çıkarılır.
     """
     config = _config()
     istek = "bağlı projeleri incele, kontrol et ve dashboard'daki eksik dosyaları oluştur"
 
-    policy = policy_for(config, config.agent, classify_task(istek), istek)
+    policy = policy_for(config, config.agent, istek)
 
     assert policy.complex_task is True
     assert policy.max_tool_rounds is not None and policy.max_tool_rounds > 5
 
 
-def test_gercek_kesif_isteği_kucuk_butcede_kalir():
-    """Değişiklik istemeyen keşif hâlâ küçük bütçe alır; genişletmek israftır."""
+def test_gercek_kesif_istegi_karmasik_sayilmaz():
+    """Değişiklik istemeyen keşif karmaşık değildir; bütçe yine tek kademedir."""
     config = _config()
 
-    policy = policy_for(config, config.agent, TaskKind.EXPLORE, "klasörü listele")
+    policy = policy_for(config, config.agent, "klasörü listele")
 
     assert policy.complex_task is False
-    assert policy.max_model_calls == 8
+    assert policy.max_model_calls == WEB_MAX_MODEL_CALLS
 
 
 async def test_selamlama_onceki_turun_mutasyon_hedefini_miras_almaz(monkeypatch, tmp_path):

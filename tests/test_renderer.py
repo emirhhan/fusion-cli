@@ -10,7 +10,6 @@ from fusion_cli.core.events import (
     Channel,
     ErrorOccurred,
     ExecutionCompleted,
-    ExecutionPromoted,
     ModelCallFinished,
     ModelCallStarted,
     NoFileChanges,
@@ -997,18 +996,6 @@ def test_degisen_dosyalar_kanittan_basilir():
     assert "app/page.tsx" in cikti
     assert "lib/gate.ts" in cikti
     assert "değişen dosyalar" in cikti
-
-
-def test_hizli_turun_yukseltilmesi_kullaniciya_gerekcesiyle_bildirilir():
-    """Kullanıcı işin neden planlı yola geçtiğini GÖRMELİ; sessiz yükseltme olmaz."""
-    renderer, buffer = _renderer()
-
-    renderer.handle(ExecutionPromoted(reasons=("teşhis ve onarım gerektiren hata",)))
-    renderer.handle(TurnFinished())
-
-    cikti = buffer.getvalue()
-    assert "planlı yürütmeye yükseltildi" in cikti
-    assert "teşhis ve onarım gerektiren hata" in cikti
 
 
 def test_plan_tamamlandiginda_kanitlanmayan_davranis_uyarisi_basilir():

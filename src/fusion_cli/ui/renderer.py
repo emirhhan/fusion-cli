@@ -39,7 +39,6 @@ from ..core.events import (
     ExecutionCompleted,
     ExecutionPaused,
     ExecutionPlanCreated,
-    ExecutionPromoted,
     ExecutionRetryScheduled,
     ExecutionRouteSelected,
     ExecutionStepStarted,
@@ -186,8 +185,6 @@ class ConsoleRenderer:
         elif isinstance(event, ExecutionRouteSelected):
             yol = "planlı" if event.route == "workflow" else "hızlı"
             self._status(f"Yürütme yolu: {yol} — {'; '.join(event.reasons)}")
-        elif isinstance(event, ExecutionPromoted):
-            self._status(f"Görev planlı yürütmeye yükseltildi — {'; '.join(event.reasons)}")
         elif isinstance(event, ExecutionPlanCreated):
             self._status(f"Plan hazır: {event.total_steps} doğrulanabilir adım")
         elif isinstance(event, ExecutionStepStarted):

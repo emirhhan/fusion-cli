@@ -22,7 +22,6 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.classify import TaskKind
 from fusion_cli.engines.agent.execution_policy import policy_for
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 from fusion_cli.engines.effects.detect import required_effect_for
@@ -86,7 +85,7 @@ def test_strict_secim_guvenlik_kapisini_atlayamaz():
     config = _config()
     strict_spec = ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))
 
-    execution = policy_for(config, strict_spec, TaskKind.FEATURE, "dosyayı düzelt")
+    execution = policy_for(config, strict_spec, "dosyayı düzelt")
 
     assert execution.allow_mutation is False
     assert execution.mutation_block_reason
@@ -96,7 +95,7 @@ def test_eval_gecmisse_yurutme_politikasi_izin_verir():
     config = _config(tool_eval_passed=True)
     spec = ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))
 
-    execution = policy_for(config, spec, TaskKind.FEATURE, "dosyayı düzelt")
+    execution = policy_for(config, spec, "dosyayı düzelt")
 
     assert execution.allow_mutation is True
 
@@ -105,7 +104,7 @@ def test_api_modeli_varsayilan_olarak_mutation_yapabilir():
     config = make_config()
     spec = ModelSpec(name="agent", model="nvidia_nim/x")
 
-    execution = policy_for(config, spec, TaskKind.FEATURE, "dosyayı düzelt")
+    execution = policy_for(config, spec, "dosyayı düzelt")
 
     assert execution.allow_mutation is True
 

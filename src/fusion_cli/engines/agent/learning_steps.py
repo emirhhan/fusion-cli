@@ -1,8 +1,10 @@
-"""Agent turunun ders/bellek adımları: hatırla, pekiştir, çıkar, sakla.
+"""Agent turunun ders/bellek adımları: hatırla, çıkar, sakla.
 
-Bu adımlar döngünün kendisinden ayrıdır: ana döngü modele araç çağırtırken, buradaki
-işler turdan ÖNCE (ilgili dersleri hatırla) ve turdan SONRA (dersin güvenini güncelle,
-yeni ders çıkar) çalışır. `loop.py` yalnızca bunları çağırır; ayrıntı burada durur.
+Bu adımlar döngünün kendisinden ayrıdır. Dersler tur başında kendiliğinden
+enjekte EDİLMEZ: model ihtiyaç duyduğunda `recall_lessons` aracıyla ister
+(`engine_tools.py`). Ölçüldü: görev türüne göre seçilen dersler yanlış türde
+yanlış bağlamı sisteme basıyordu. Turdan SONRA yeni ders çıkarılır; `loop.py`
+yalnızca bunları çağırır, ayrıntı burada durur.
 """
 
 from __future__ import annotations
@@ -10,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable
-from dataclasses import replace
 
 # Döngüsel import'tan kaçınmak için tip yalnızca kontrol anında içe alınır.
 from typing import TYPE_CHECKING
@@ -24,24 +25,12 @@ from .verification import resolve_turn_success
 
 logger = logging.getLogger(__name__)
 
-#: Otomatik sistem-prompt recall bütçesi.
-#:
-#: Bellek katmanı alaka/güven filtresi uygulasa da dört ayrı ders bir turda dikkat
-#: bütçesini gereksiz büyütebilir. Agent loop en fazla iki geçmiş gözlem taşır.
-AUTO_RECALL_LIMIT = 2
-
-#: Karmaşık (çok adımlı, araç kullanan) görevlerde recall bütçesi.
+#: `recall_lessons` aracının bir çağrıda döndürdüğü en fazla ders.
 #:
 #: Ölçüldü: bellekte 320 ders, Godot görevinde 38'i alakalıyken tur başına yalnız
 #: 2'si enjekte ediliyordu — öğrenilen bilginin neredeyse tamamı israf oluyordu.
-#: Basit sohbette 2 doğru: orada dikkat bütçesi dar ve ders zaten az alakalı.
-#: Karmaşık görevde istem hâlihazırda uzun; birkaç ders daha oranı bozmaz.
-COMPLEX_RECALL_LIMIT = 6
-
-
-def recall_limit_for(*, complex_task: bool) -> int:
-    """Görevin karmaşıklığına göre recall bütçesi."""
-    return COMPLEX_RECALL_LIMIT if complex_task else AUTO_RECALL_LIMIT
+#: Dersi artık model açıkça istiyor; birkaç ders daha dikkat bütçesini bozmaz.
+RECALL_LIMIT = 6
 
 
 if TYPE_CHECKING:
@@ -75,61 +64,53 @@ def lesson_tags(deps: AgentDeps) -> tuple[str, ...]:
     return tuple(sorted({*project_kinds(context.root), *(f"mcp:{s}" for s in sunucular)}))
 
 
-def recall_lessons(
-    task: str,
-    deps: AgentDeps,
-    *,
-    scope: str | None,
-    enabled: bool = True,
-    limit: int = AUTO_RECALL_LIMIT,
-) -> tuple[Lesson, ...]:
-    """Göreve benzer ve kapsamına uyan az sayıdaki dersi hatırla.
+def recall_lessons(query: str, deps: AgentDeps, *, limit: int = RECALL_LIMIT) -> tuple[Lesson, ...]:
+    """Sorguya benzer, bu projeye ve teknolojilere uyan az sayıdaki dersi hatırla.
 
-    `enabled=False`, classifier'ın yeterince güvenmediği turda bellek sorgusunu bile
-    çalıştırmaz. Böylece yanlış scope'tan context prompt'a sızmaz.
+    Hatırlanan dersler turun kaydına (`deps.recalled_lessons`) eklenir; tur
+    sonunda güvenleri turun sonucuna göre güncellenir (`reinforce_recalled`).
     """
-    if not enabled:
-        return ()
     if deps.lessons is None or not deps.config.runtime.lessons:
         return ()
     recalled = deps.lessons.recall(
-        task,
+        query,
         limit=limit,
-        scope=scope,
         workspace=_workspace(deps),
         tags=lesson_tags(deps),
     )
     if recalled:
+        deps.recalled_lessons.extend(recalled)
         deps.publisher.publish(LessonsRecalled(count=len(recalled)))
     return recalled
 
 
 async def reinforce_recalled(
-    recalled: tuple[Lesson, ...],
     outcome: AgentOutcome,
     deps: AgentDeps,
     *,
     plan_mode: bool,
     verification: VerificationResult | None = None,
 ) -> None:
-    """Enjekte edilen derslerin güvenini turun sonucuna göre güncelle.
+    """Bu turda hatırlanan derslerin güvenini turun sonucuna göre güncelle.
 
     Tur başarısı: model temiz bitti, adım sınırına dayanılmadı ve (doğrulama kapısı
     devredeyse) kapı geçti. Böylece "doğrulamadan bitirme" gibi kurallar dekoratif
-    kalmaz, gerçekten uygulanır.
+    kalmaz, gerçekten uygulanır. Aynı ders turda iki kez istendiyse bir kez
+    pekiştirilir.
 
     `verification` DIŞARIDAN gelir: kapı tur başına bir kez çalışır ve aynı sonuç hem
-    modele düzeltme talimatı olur hem buraya sinyal olarak düşer. Burada ikinci kez
-    çalıştırmak hem israftı hem de iki farklı cevap alma riskiydi.
+    modele düzeltme talimatı olur hem buraya sinyal olarak düşer.
     """
     if deps.lessons is None or not deps.config.runtime.lessons:
         return
-    if plan_mode or not recalled:
+    if plan_mode or not deps.recalled_lessons:
         return
     success = resolve_turn_success(
         outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
     )
-    deps.lessons.reinforce(tuple(lesson.text for lesson in recalled), success=success)
+    texts = tuple(dict.fromkeys(lesson.text for lesson in deps.recalled_lessons))
+    deps.recalled_lessons.clear()
+    deps.lessons.reinforce(texts, success=success)
 
 
 def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: bool = True) -> bool:
@@ -170,7 +151,6 @@ async def learn(
     deps: AgentDeps,
     *,
     plan_mode: bool,
-    scope: str,
     allow_read_only: bool = True,
 ) -> None:
     """Turdan ders çıkar ve belleğe yaz. Kapı kararı `should_learn`'dedir."""
@@ -179,7 +159,7 @@ async def learn(
     if not should_learn(outcome, plan_mode=plan_mode, allow_read_only=allow_read_only):
         return
 
-    work = _bounded(_extract_and_store(task, list(outcome.messages), deps, scope=scope))
+    work = _bounded(_extract_and_store(task, list(outcome.messages), deps))
     if deps.background is None:
         await work
     else:
@@ -206,9 +186,7 @@ async def _bounded(work: Awaitable[None]) -> None:
         logger.debug("ders çıkarımı %.0f saniyede bitmedi, atlandı", LEARN_TIMEOUT_S)
 
 
-async def _extract_and_store(
-    task: str, messages: list[Message], deps: AgentDeps, *, scope: str
-) -> None:
+async def _extract_and_store(task: str, messages: list[Message], deps: AgentDeps) -> None:
     """Ders çıkarımının asıl işi. Arka planda çalışabilmesi için ayrı tutulur."""
     if deps.lessons is None:
         return
@@ -227,9 +205,8 @@ async def _extract_and_store(
         deps.lessons.all(),
         has_evidence=learning.has_measurable_evidence(messages),
     )
-    # Öğrenilen ders, görevin kapsamıyla etiketlenir: benzer kapsamda daha isabetli
-    # geri çağrılır, alakasız kapsamda enjekte edilmez.
-    scoped = tuple(replace(lesson, scope=scope) for lesson in screened)
-    stored = learning.store_lessons(scoped, deps.lessons)
+    # Ders görev-türü kapsamı olmadan (genel) saklanır: tür artık hesaplanmıyor.
+    # Proje ve teknoloji süzgeci `workspace` ve `tags` ile zaten korunuyor.
+    stored = learning.store_lessons(screened, deps.lessons)
     if stored:
         deps.publisher.publish(LessonsLearned(count=stored))

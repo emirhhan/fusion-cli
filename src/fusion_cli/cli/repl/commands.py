@@ -755,6 +755,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("commit", messages.CMD_COMMIT),
             ("review", messages.CMD_REVIEW),
             ("browser", messages.CMD_BROWSER),
+            ("plan-yurut", messages.CMD_PLAN_RUN),
         )
     ),
     SlashCommand("schedule", messages.CMD_SCHEDULE, _schedule, group="Makro", usage="<saniye>"),
