@@ -42,6 +42,7 @@ from ..config.paths import credentials_file
 from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
+from ..engines.agent.execution_policy import is_web_model
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
 from ..history.sanitize import sanitize_message
 from ..memory.factory import build_memory
@@ -62,6 +63,7 @@ from .connectors import (
     remove_connector,
     status_payload,
 )
+from .context_gauge import baglam_olcusu
 from .control import (
     connect_web_session,
     delete_secret,
@@ -866,7 +868,19 @@ class AppSession:
             "kip": self._workspace_mode,
             "mod": self._state.approval.value,
             "motor": self._state.engine.value,
+            # Sıkıştırma sürpriz olmasın: kullanıcı bağlamın dolduğunu görsün.
+            "baglam": baglam_olcusu(
+                self._state.history,
+                web=self._uses_web_threshold(),
+            ),
         }
+
+    def _uses_web_threshold(self) -> bool:
+        """Döngünün sıkıştırma eşiğiyle aynı kural (`loop._maybe_compress`)."""
+        config = self._state.config
+        return is_web_model(config, config.agent.model) or any(
+            session.enabled for session in config.web_sessions or ()
+        )
 
     def _gateway_status(self) -> dict[str, Any]:
         if self._gateway_process_id is None:
