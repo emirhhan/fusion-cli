@@ -67,6 +67,8 @@ async def test_http_baglanti_eklenince_giris_arka_planda_baslar(tmp_path, monkey
 async def test_stdio_baglanti_sirlarini_sifreli_depo_ve_ortama_yazar(tmp_path, monkeypatch):
     session, _fake = _session(tmp_path)
     monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", lambda _config: None)
+    # Test makinenin PATH'ine bağlı kalmasın: komut "kurulu" sayılır.
+    monkeypatch.setattr("fusion_cli.appserver.connectors.shutil.which", lambda c: f"/bin/{c}")
     stored: dict[str, str] = {}
 
     class _Store:
@@ -116,6 +118,7 @@ async def test_baglanti_dogrula_arac_sayisini_dondurur(tmp_path):
         "arac_sayisi": 5,
         "gecikme_ms": 0,
         "mesaj": None,
+        "hata_turu": None,
     }
 
 
