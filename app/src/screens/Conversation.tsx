@@ -13,9 +13,15 @@ export interface MesajEki {
   path: string;
 }
 
+/** Canlı görev listesindeki tek madde. */
+export interface GorevMaddesi {
+  durum: "bekliyor" | "yapiliyor" | "bitti";
+  metin: string;
+}
+
 export interface Mesaj {
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
   /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
@@ -24,6 +30,8 @@ export interface Mesaj {
   diff?: string;
   /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
   akan?: boolean;
+  /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */
+  gorevler?: GorevMaddesi[];
 }
 
 /**
@@ -77,6 +85,31 @@ function AssistantMessage({ text, onOpenFile }: { text: string; onOpenFile?: (pa
   );
 }
 
+/**
+ * Modelin güncel görev listesi.
+ *
+ * Claude'daki canlı plan kartının karşılığı: kullanıcı işin neresinde olunduğunu
+ * tek bakışta görür. Liste akışta TEK kart olarak durur (bkz. `olayAkisi`).
+ */
+function TaskList({ gorevler }: { gorevler: GorevMaddesi[] }) {
+  const bitti = gorevler.filter((gorev) => gorev.durum === "bitti").length;
+  return (
+    <section aria-label="Görev listesi" className="conversation__tasks">
+      <header>
+        Görevler <span>{bitti}/{gorevler.length}</span>
+      </header>
+      <ul>
+        {gorevler.map((gorev) => (
+          <li data-durum={gorev.durum} key={gorev.metin}>
+            <span aria-hidden="true">{gorev.durum === "bitti" ? "✓" : gorev.durum === "yapiliyor" ? "▶" : "○"}</span>
+            {gorev.metin}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export interface ConversationProps {
   mesajlar: Mesaj[];
   /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
@@ -109,6 +142,13 @@ export function Conversation({ mesajlar, onOpenFile, showSteps = false }: Conver
             return (
               <div className="conversation__message conversation__message--change" key={index}>
                 <DiffCard diff={message.diff ?? ""} onOpenFile={onOpenFile} path={message.metin} />
+              </div>
+            );
+          }
+          if (message.rol === "gorevler") {
+            return (
+              <div className="conversation__message conversation__message--tasks" key={index}>
+                <TaskList gorevler={message.gorevler ?? []} />
               </div>
             );
           }

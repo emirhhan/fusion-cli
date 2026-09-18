@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Conversation } from "./Conversation";
 
@@ -157,4 +157,26 @@ describe("Conversation — gönderilen ekler", () => {
     render(<Conversation mesajlar={[{ rol: "kullanici", metin: "merhaba" }]} />);
     expect(screen.queryByLabelText("Gönderilen ekler")).toBeNull();
   });
+});
+
+it("görev listesi kart olarak çizilir ve ilerleme sayısını gösterir", () => {
+  render(
+    <Conversation
+      mesajlar={[
+        {
+          rol: "gorevler",
+          metin: "Görevler",
+          gorevler: [
+            { durum: "bitti", metin: "testleri çalıştır" },
+            { durum: "yapiliyor", metin: "hatayı düzelt" },
+            { durum: "bekliyor", metin: "doğrula" },
+          ],
+        },
+      ]}
+    />,
+  );
+
+  const liste = screen.getByLabelText("Görev listesi");
+  expect(within(liste).getByText("1/3")).toBeTruthy();
+  expect(within(liste).getByText("hatayı düzelt")).toBeTruthy();
 });

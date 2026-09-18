@@ -1,4 +1,4 @@
-import type { Mesaj } from "../screens/Conversation";
+import type { GorevMaddesi, Mesaj } from "../screens/Conversation";
 import { olayAdimi, type OlayAdimi } from "./olayMetni";
 
 /**
@@ -14,6 +14,9 @@ import { olayAdimi, type OlayAdimi } from "./olayMetni";
 export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
   const akanSonuc = akanCevap(messages, event);
   if (akanSonuc) return akanSonuc;
+
+  const gorevSonuc = gorevListesi(messages, event);
+  if (gorevSonuc) return gorevSonuc;
 
   const adim = olayAdimi(event);
   if (!adim) return messages;
@@ -32,6 +35,37 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
   const adimlar = [...(son.adimlar ?? []), adim];
   const guncel: Mesaj[] = [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
   return adim.diff ? [...guncel, degisiklikMesaji(adim)] : guncel;
+}
+
+/** Araç çıktısındaki işaretlerin durum karşılığı. */
+const GOREV_DURUMU: Record<string, GorevMaddesi["durum"]> = {
+  "☐": "bekliyor",
+  "▶": "yapiliyor",
+  "☒": "bitti",
+};
+
+/**
+ * Modelin görev listesini canlı kart olarak göster.
+ *
+ * `todo_write` aracı çalışıyordu ama çıktısı akışta sıradan bir "araç çalıştı"
+ * satırıydı: kullanıcı planın neresinde olunduğunu göremiyordu. Liste TEK kart
+ * olarak durur ve her güncellemede yerine geçer; çoğalması planı okunmaz yapardı.
+ */
+function gorevListesi(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "ToolExecuted" || event.name !== "todo_write") return null;
+  if (event.outcome !== undefined && event.outcome !== "ok") return null;
+  const cikti = typeof event.output === "string" ? event.output : "";
+  const gorevler: GorevMaddesi[] = [];
+  for (const satir of cikti.split("\n")) {
+    const kirpik = satir.trim();
+    const durum = GOREV_DURUMU[kirpik.slice(0, 1)];
+    if (!durum) continue;
+    const metin = kirpik.slice(1).trim();
+    if (metin) gorevler.push({ durum, metin });
+  }
+  if (gorevler.length === 0) return messages;
+  const eskisiz = messages.filter((mesaj) => mesaj.rol !== "gorevler");
+  return [...eskisiz, { rol: "gorevler", metin: "Görevler", gorevler }];
 }
 
 /**
