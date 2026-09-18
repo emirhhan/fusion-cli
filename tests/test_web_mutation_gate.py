@@ -185,6 +185,38 @@ async def test_salt_okunur_kip_sohbet_turunda_da_bildirilir(tmp_path, monkeypatc
     assert olay.blocking is False
 
 
+async def test_salt_okuma_istegi_degistiremeyen_modelde_de_cevaplanir(tmp_path, monkeypatch):
+    """Okuma isteği, değişiklik yapamayan modelde erken bitmemeli.
+
+    Ölçüldü (19 Eylül G7 gerçek koşusu): "siparis.py'deki akışı incele ve anlat"
+    `workspace_read` etkisi aldığı için kapı turu model çağırmadan bitirdi ve
+    kullanıcıya "dosya/sistem değişikliği gerektiriyor" dedi. Okuma değişiklik
+    değildir: model çağrılır, yalnız değiştirici araçlar sunulmaz.
+    """
+    sink = RecordingSink()
+    monkeypatch.setattr(
+        agent_loop,
+        "build_provider",
+        lambda spec, **kw: ScriptedProvider([model_result("Akış sepetten kargoya gider.")]),
+    )
+    deps = AgentDeps(
+        config=_config(agent=ModelSpec(name="web", model=WEB_MODEL, tags=("strict",))),
+        publisher=_Publisher(sink),
+        policy=build_policy(ApprovalMode.AUTO, AlwaysApprove()),
+        tool_context=ToolContext(root=tmp_path),
+    )
+
+    sonuc = await run_agent("siparis.py dosyasındaki sipariş akışını incele ve anlat", deps)
+
+    # Erken "değişiklik gerekiyor" cevabı YOK; model çağrıldı. Modelin dosyayı
+    # okumadan cevaplaması ayrı bir kapıdır (okuma kanıtı) ve burada sınanmaz.
+    assert "Araç yeteneğini ölç" not in sonuc.final_text
+    assert "Hiçbir değişiklik yapılmadı" not in sonuc.final_text
+    assert sonuc.model_calls_made >= 1
+    olay = next(e for e in sink.events if isinstance(e, MutationUnavailable))
+    assert olay.blocking is False
+
+
 # --- Ölçüm sonucu ve tür temelli engelleme ------------------------------------ #
 
 

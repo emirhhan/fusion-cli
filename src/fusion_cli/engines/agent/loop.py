@@ -470,12 +470,12 @@ async def run_agent(
     # bunu ve nasıl kaldıracağını GÖRMELİ. Görev zaten gerçek bir etki istiyorsa
     # model çağrısı harcamadan dururuz — hiçbir tur bu kısıtı aşamaz.
     if not execution.allow_mutation and not plan_mode:
-        # Yalnız bu turun metni açık bir etki istiyorsa model çağrılmadan durulur.
-        # Aksi hâlde model okuyup cevaplayabilir; değiştirici araçlar zaten
-        # sunulmaz ve kullanıcı `MutationUnavailable` ile nedenini görür.
-        blocking = not execution.observe_only and (
-            execution.required_effect is not None or execution.complex_task
-        )
+        # Yalnız bu turun metni açık bir DEĞİŞİKLİK istiyorsa model çağrılmadan
+        # durulur. Okuma ve web araması etkisi değişiklik değildir: model okuyup
+        # cevaplayabilir; değiştirici araçlar zaten sunulmaz ve kullanıcı
+        # `MutationUnavailable` ile nedenini görür. Ölçüldü (19 Eylül G7): "akışı
+        # incele ve anlat" `workspace_read` aldığı için model hiç çağrılmıyordu.
+        blocking = not execution.observe_only and execution.complex_task
         deps.publisher.publish(
             MutationUnavailable(reason=execution.mutation_block_reason, blocking=blocking)
         )
