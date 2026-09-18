@@ -20,8 +20,17 @@ class FakeConnections:
         self.status = McpConnectionStatus(server=config.name, state="bagli", tool_count=5)
         return self.status
 
+    async def verify(self, config):
+        # Uzak OAuth sunucusu yoklamada "giriş gerekli" döner; yerel sunucu bağlanır.
+        if config.transport.value == "streamable_http" and not config.token_env:
+            self.status = McpConnectionStatus(server=config.name, state="giris_gerekli")
+            return self.status
+        return await self.test(config)
+
     def start_login(self, config):
+        # Gerçek servis gibi: giriş arka planda başlar, durum "bekleniyor" olur.
         self.started.append(config.name)
+        self.status = McpConnectionStatus(server=config.name, state="giris_bekleniyor")
         return self.status
 
     def login_status(self, name):
@@ -184,3 +193,31 @@ async def test_tokenli_http_baglanti_giris_penceresi_acmaz(tmp_path, monkeypatch
     assert stored == {"FUSION_MCP_TOKEN_META_ADS": "gizli-token"}
     sunucu = session._state.config.mcp_servers[0]
     assert sunucu.token_env == "FUSION_MCP_TOKEN_META_ADS"
+
+
+async def test_yoklamasi_basarisiz_baglanti_kaydedilmez(tmp_path, monkeypatch):
+    """Var olmayan alan adı "eklendi" olmamalı: yoklama düşerse hiçbir şey yazılmaz."""
+    session, fake = _session(tmp_path)
+    yazilan: list[object] = []
+    monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", yazilan.append)
+
+    async def _dusen(config):
+        return McpConnectionStatus(
+            server=config.name, state="hata", message="Alan adı çözülemedi."
+        )
+
+    fake.verify = _dusen
+
+    result = await session._dispatch(
+        Request(
+            "1",
+            "baglanti.ekle",
+            {"ad": "bozuk", "tasima": "streamable_http", "url": "https://yok.example.invalid/mcp"},
+        )
+    )
+
+    assert result["ok"] is False
+    assert "çözülemedi" in result["metin"]
+    assert yazilan == []
+    assert all(server.name != "bozuk" for server in session._state.config.mcp_servers)
+    assert fake.started == []

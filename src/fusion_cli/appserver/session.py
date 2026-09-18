@@ -45,6 +45,7 @@ from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.execution_policy import is_web_model
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
 from ..history.sanitize import sanitize_message
+from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
@@ -57,7 +58,7 @@ from .commands import (
     run_command,
 )
 from .connectors import (
-    add_connector,
+    add_connector_verified,
     connector_secret_values,
     list_connectors,
     remove_connector,
@@ -769,20 +770,25 @@ class AppSession:
         except Exception as error:
             self._restore_connector_secrets(previous)
             return {"ok": False, "metin": f"MCP sırrı kaydedilemedi: {error}"}
-        yeni, sonuc = add_connector(self._state.config, data)
+        # Yoklama sırları ortamdan okur; bu yüzden kayıttan ÖNCE yüklenir.
+        os.environ.update(secrets)
+        # Ölçüldü (17 Eylül): var olmayan alan adı ve geçersiz token "eklendi"
+        # oluyordu. Önce bağlanılır; yalnız çalışan ya da giriş bekleyen kaydedilir.
+        yeni, sonuc = await add_connector_verified(
+            self._state.config, data, probe=self._mcp_connections.verify
+        )
         if yeni is None:
+            for name in secrets:
+                os.environ.pop(name, None)
             self._restore_connector_secrets(previous)
             return sonuc
-        os.environ.update(secrets)
         self._state.config = yeni
-        server = yeni.mcp_servers[-1]
-        # Token'lı uzak sunucuda OAuth yoktur: giriş penceresi beklemek yerine
-        # bağlantı doğrudan denenir ve sonuç hemen görünür.
-        if server.transport.value == "streamable_http" and not server.token_env:
-            status = self._mcp_connections.start_login(server)
-        else:
-            status = await self._mcp_connections.test(server)
-        return {**sonuc, **status_payload(status), "ok": True}
+        if sonuc.get("durum") == STATE_LOGIN_REQUIRED:
+            # Sunucu sağlam, yalnız OAuth girişi bekliyor: giriş penceresini
+            # hemen aç ki kullanıcı ikinci bir düğmeye basmak zorunda kalmasın.
+            status = self._mcp_connections.start_login(yeni.mcp_servers[-1])
+            return {**sonuc, **status_payload(status), "ok": True}
+        return sonuc
 
     async def _open_connector_panel(self, data: object) -> dict[str, Any]:
         """`baglanti.panel_ac`: sağlayıcının connector ekranını izole profilde aç.
