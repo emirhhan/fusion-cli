@@ -58,6 +58,13 @@ class ApprovalAnswer(Enum):
     ONCE = "once"
     SESSION = "session"
     DENY = "deny"
+    #: Kimseye SORULAMADI (oturum etkileşimsiz — TTY yok, boru hattı, CI).
+    #:
+    #: Kullanıcının gerçekten "hayır" demesiyle (`DENY`) KARIŞTIRILMAMALI: ikisi
+    #: `Decision`de de ayrı sonuçlara gider (`_ask_and_remember`). Reddeden bir
+    #: insan turu durdurur; sorulamayan bir oturum turu SÜRDÜRÜR ve modele başka
+    #: bir yol denemesi söylenir.
+    UNAVAILABLE = "unavailable"
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,6 +223,12 @@ async def _ask_and_remember(
         return Decision.ALLOW
     if answer is ApprovalAnswer.ONCE or answer is True:
         return Decision.ALLOW
+    if answer is ApprovalAnswer.UNAVAILABLE:
+        # Kimseye SORULAMADI — bu insanın "hayır" demesiyle AYNI şey değildir.
+        # `BLOCKED`, model açısından "bu yoldan olmaz, başka dene" demektir ve
+        # turu durdurmaz; `DENIED` ise artık YALNIZCA gerçek bir insan reddini
+        # taşır ve turu durdurur (bkz. `engines/agent/denial.py`, `loop._drive`).
+        return Decision.BLOCKED
     return Decision.DENIED
 
 

@@ -247,7 +247,15 @@ async def test_arac_calistirmasi_olay_yayinlar(monkeypatch, tmp_path, sink):
 
 
 async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
-    _kur(
+    """B3: gerçek bir insan reddi turu DURDURUR; model bir daha çağrılmaz.
+
+    Eskiden red sonrası model TEKRAR çağrılır ve başka bir yol denemesi
+    beklenirdi (script'teki ikinci `TAM_CEVAP` o zaman tüketilirdi). Artık bu
+    davranışın TAM TERSİ doğrudur: kullanıcının "hayır" dediği bir işi model
+    başka bir yoldan yapmaya çalışırsa kararı yok saymış olur (bkz.
+    `tests/test_user_denial_stops_turn.py`, B3).
+    """
+    provider = _kur(
         monkeypatch,
         ScriptedProvider(
             [
@@ -262,11 +270,17 @@ async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
     )
 
     assert not (tmp_path / "a.txt").exists()
+    # Model BİR DAHA çağrılmadı: script'teki ikinci sonuç (`TAM_CEVAP`) hiç
+    # tüketilmedi, tur reddedilen çağrının hemen ardından durdu.
+    assert provider.calls == 1
+    assert sonuc.model_calls_made == 1
+    assert sonuc.ok is True
     arac_mesaji = next(m for m in sonuc.messages if m.role == "tool")
-    assert "onaylanmadı" in arac_mesaji.content
-    # Reddedilen adımın verisini uydurma uyarısı: canlı izde model reddi kabul
-    # edip yine de teslim dosyasına ezberden "gerçek" görünen değer yazmıştı.
-    assert "UYDUR" in arac_mesaji.content
+    assert "reddetti" in arac_mesaji.content
+    # Kullanıcıya sorulan nihai cevap reddedilen aracı adlandırır ve nasıl
+    # devam edileceğini sorar.
+    assert "write_file" in sonuc.final_text
+    assert "nasıl devam edeyim" in sonuc.final_text.lower()
     # Reddetme refleksiyon notu tetiklememeli.
     assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
     olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
@@ -2143,11 +2157,19 @@ async def test_json_metni_olarak_gelen_dizi_argumani_araci_dusurmez(monkeypatch,
 
 
 async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_path, sink):
-    """Ölçüldü (Godot koşusu): `run_shell` onay alamadı ve `denied` döndü.
-
-    Sonraki denemede AYNI komut "bunu zaten yaptın ve o zamandan beri bir şey
+    """Ölçüldü (Godot koşusu, ORİJİNAL bulgu): oturum etkileşimsizdi, `run_shell`
+    onay ALAMADI (bugünkü karşılığı: `Decision.BLOCKED`, `ApprovalAnswer.UNAVAILABLE`)
+    ve sonraki denemede AYNI komut "bunu zaten yaptın ve o zamandan beri bir şey
     değişmedi" diyen tekrar kapısına takıldı. Oysa komut hiç çalışmamıştı;
     doğrulama adımı böylece hiçbir zaman kanıt üretemedi.
+
+    B3 bu senaryoyu ikiye ayırdı: `AlwaysReject` artık GERÇEK bir insan reddini
+    temsil eder ve turu tek denemeden sonra DURDURUR (bkz.
+    `test_reddedilen_onay_hata_sayilmaz`); tekrar denemeye izin veren asıl
+    "onay alınamadı" durumu `tests/test_user_denial_stops_turn.py` içinde
+    `_EtkilesimsizOnayci` ile ayrıca sınanır. Bu test artık yalnız DENIED sonrası
+    turun GERÇEKTEN durduğunu (ikinci `run_shell` denemesinin hiç yapılmadığını)
+    kilitler.
     """
     _kur(
         monkeypatch,
@@ -2164,7 +2186,7 @@ async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_pa
     await run_agent("görev", deps)
 
     sonuclar = [olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)]
-    assert sonuclar == [ToolOutcome.DENIED, ToolOutcome.DENIED]
+    assert sonuclar == [ToolOutcome.DENIED]
 
 
 async def test_ilk_yazmadan_sonraki_uzun_kesif_yeniden_uyarilir(monkeypatch, tmp_path, sink):

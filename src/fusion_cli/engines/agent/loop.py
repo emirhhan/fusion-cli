@@ -84,7 +84,7 @@ from ...tools.emulation import coerce_arguments, render_tool_example, validate_a
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, history, learning_steps, reflexion, review, skill_recall
+from . import compaction, denial, history, learning_steps, reflexion, review, skill_recall
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
 from .chat_mode import chat_execution, chat_tool_names
 from .classify import TaskClassification, TaskKind, classify_task_details, recall_scope, scope_of
@@ -147,27 +147,6 @@ MAX_READ_ONLY_ROUNDS = 4
 MAX_EXPLORE_PUSHES = 2
 
 
-#: Kullanıcı reddettiğinde modele dönen açıklama. Hata DEĞİLDİR; refleksiyon tetiklemez.
-#: Onay alınamadı. İKİ durumu birden anlatır ve bu bilinçlidir: kullanıcı
-#: reddetmiş olabilir ya da oturum etkileşimsizdir ve kimseye sorulamamıştır.
-#: Eski metin ("kullanıcı bu işlemi onaylamadı") ikinci durumda yanlıştı —
-#: ölçüldü: boru hattında çalışan bir turda kimse reddetmemişti, model yine de
-#: reddedildiğini sandı ve ne yapacağını bilemeden turu tüketti.
-#:
-#: Son cümle (UYDURMA UYARISI) sonradan eklendi. Ölçüldü: reddedilen adım gerçek
-#: veri getirecekti (ör. `git clone` sonrası dosya okuma); model reddi metinde
-#: kabul etti ama ÇIKTI DOSYASINA yine de ezberden "gerçek" görünen değerler
-#: yazdı — kullanıcı çıktıyı kaynağa dayalı sandı. "Adımı neden atladığını yaz"
-#: talimatı SOHBETİ kapsıyordu, TESLİM EDİLEN dosyayı değil; bu satır o boşluğu
-#: doğrudan, reddin olduğu anda (en yüksek dikkat anında) kapatır.
-DENIED_MESSAGE = (
-    "Bu işlem onaylanmadı — kullanıcı reddetmiş ya da oturum etkileşimsiz olduğu "
-    "için onay alınamamış olabilir. Onay GEREKTİRMEYEN bir yol dene (dosya "
-    "araçları onay istemez); mümkün değilse bu adımı neden atladığını açıkça yaz. "
-    "Bu adımın getireceği veriyi (dosya içeriği, sayı, açıklama…) ASLA ezberden ya "
-    "da tahminle üretip teslim ettiğin dosyaya/cevaba yazma — reddedilen adımı "
-    "atladığını söylemek yeterli değildir, UYDURULMUŞ değeri de yazmamalısın."
-)
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
 BLOCKED_MESSAGE = "PLAN MODU: değişiklik yapılamaz. Sorma, yalnızca planı sun."
 #: Görev gerçek bir etki istiyor ama model bunu yapamıyor. Kullanıcıya NE YAPACAĞINI
@@ -186,14 +165,28 @@ MUTATION_BLOCKED_MESSAGE = (
     "yaz; uygulamayı kullanıcı ya da araç yetenekli bir model üstlenecek."
 )
 
-_DECISION_MESSAGES = {
-    Decision.DENIED: DENIED_MESSAGE,
-    Decision.BLOCKED: BLOCKED_MESSAGE,
-}
 _DECISION_OUTCOMES = {
     Decision.DENIED: ToolOutcome.DENIED,
     Decision.BLOCKED: ToolOutcome.BLOCKED,
 }
+
+
+def _decision_message(decision: Decision, *, plan_mode: bool) -> str:
+    """Reddedilen/engellenen çağrı için modele dönecek metni seç.
+
+    `Decision.BLOCKED` İKİ ayrı sebepten gelebilir ve ikisinin metni FARKLI
+    olmalıdır: plan modunda hiç sorulmaz (`BLOCKED_MESSAGE`); auto/security
+    modunda ise oturum etkileşimsiz olduğu için sorulAMAMIŞTIR
+    (`denial.APPROVAL_UNAVAILABLE_MESSAGE`) — tur ikisinde de sürer ama sebep
+    kullanıcıya değil ortama aittir. `Decision.DENIED` ise artık YALNIZCA gerçek
+    bir insan reddini taşır; o turu durdurduğu için kısa bir iz mesajı yeter
+    (bkz. `loop._drive`, `denial.DENIAL_STOP_ANSWER`).
+    """
+    if decision is Decision.DENIED:
+        return denial.DENIED_TOOL_RESULT
+    if plan_mode:
+        return BLOCKED_MESSAGE
+    return denial.APPROVAL_UNAVAILABLE_MESSAGE
 
 
 def _new_budget(config: Config) -> TurnBudget:
@@ -572,6 +565,16 @@ async def run_agent(
     # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
     # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
     should_review = deps.config.runtime.self_review if self_review is None else self_review
+    # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
+    # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
+    # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
+    # ederdi. Diğer bütçe durdurmaları (sözleşme onarılamadı, zaman aşımı…) bunun
+    # dışındadır: gerçek bir mutasyon olmuşsa öz-denetim yine de çalışmalı — onu
+    # kapatmak `test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz`
+    # ile ölçülen davranışı (geç bir sözleşme hatası yazılmış artefaktı denetimsiz
+    # bırakmamalı) bozardı.
+    if budget.stop is BudgetStop.USER_DENIED:
+        should_review = False
     # Hiç artefakt üretmeyen provider/transport veya kanıtsız eylem sonucu cevap
     # kalitesi değildir. Ancak başarılı bir mutasyondan SONRA gelen geç sözleşme/
     # transport hatası diskteki artefaktı ortadan kaldırmaz; onu denetimsiz bırakmak
@@ -772,6 +775,10 @@ class _State:
     successful_file_reads: int = 0
     #: Yanlış dizin uyarısı verildi mi?
     warned_wrong_workspace: bool = False
+    #: Kullanıcının GERÇEKTEN reddettiği son aracın adı. `_drive` turu bu isimle
+    #: durdurur (bkz. `denial.DENIAL_STOP_ANSWER`); yalnızca `budget.stop is
+    #: BudgetStop.USER_DENIED` iken anlamlıdır.
+    denied_tool_name: str | None = None
 
 
 async def _drive(
@@ -801,6 +808,18 @@ async def _drive(
     local_calls = 0
 
     while True:
+        if budget.stop is BudgetStop.USER_DENIED:
+            # Kullanıcı ÖNCEKİ araç turunda GERÇEKTEN "hayır" dedi (`_run_tools`).
+            # Bu bir bütçe olayı DEĞİLDİR: `_halt`/`_halt_local`'ın aksine
+            # `TurnBudgetExhausted` YAYINLANMAZ ve tur `ok=True` ile biter — model
+            # bir hata yapmadı, kullanıcı bir karar verdi. Model bir DAHA
+            # ÇAĞRILMAZ: aksi hâlde reddedilen işi başka bir yoldan yine
+            # denenebilir ve kullanıcının kararı yok sayılmış olurdu.
+            return _outcome(
+                denial.DENIAL_STOP_ANSWER.format(tool=state.denied_tool_name or "araç"),
+                messages,
+                state,
+            )
         # Kullanıcının araya girdiği yönerge, sıradaki model çağrısından ÖNCE girer:
         # tur bittikten sonra iletmek onu bir sonraki göreve, hiç iletmemek ise
         # kullanıcıyı turu öldürmeye zorlardı.
@@ -924,7 +943,13 @@ async def _drive(
         before = _progress_marker(deps, state)
         mutations_before = state.mutating_tool_calls_made
         errored = await _run_tools(
-            result.tool_calls, messages, deps, registry, state, execution=execution
+            result.tool_calls,
+            messages,
+            deps,
+            registry,
+            state,
+            execution=execution,
+            plan_mode=plan_mode,
         )
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
         # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
@@ -1785,6 +1810,7 @@ async def _run_tools(
     state: _State,
     *,
     execution: ExecutionPolicy,
+    plan_mode: bool = False,
 ) -> bool:
     """Çalıştırmadan ÖNCE doğrula; bozuk ve tekrar eden çağrı zincirini kes.
 
@@ -1798,6 +1824,28 @@ async def _run_tools(
 
     budget = deps.require_budget()
     for call in calls:
+        if budget.stop is BudgetStop.USER_DENIED:
+            # Bu TUR'daki önceki bir çağrı AZ ÖNCE reddedildi (aşağıda). Aynı model
+            # yanıtındaki kalan çağrılar hiç çalıştırılmaz — kullanıcının kararı bir
+            # sonraki çağrıda yok sayılmamalı. Sağlayıcı sözleşmesi yine de her
+            # `tool_call`'a bir sonuç ister; bu yüzden "atlandı" mesajı gönderilir.
+            output = denial.SKIPPED_TOOL_RESULT
+            deps.publisher.publish(
+                ToolExecuted(
+                    name=call.name,
+                    args={},
+                    outcome=ToolOutcome.DENIED,
+                    output=output,
+                    diff=None,
+                )
+            )
+            messages.append(
+                Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
+            )
+            state.failed_tool_calls += 1
+            errored = True
+            continue
+
         args, parse_error = _parse_arguments_checked(call.arguments)
         tool = registry.get(call.name)
         function_schema = tool.schema().get("function") if tool is not None else None
@@ -1931,7 +1979,9 @@ async def _run_tools(
             continue
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
-        result, outcome = await _execute(call, args, deps, registry, execution=execution)
+        result, outcome = await _execute(
+            call, args, deps, registry, execution=execution, plan_mode=plan_mode
+        )
         _note_tool_use(
             state,
             call.name,
@@ -1948,9 +1998,16 @@ async def _run_tools(
             #
             # Ölçüldü (Godot koşusu): doğrulama adımındaki
             # `godot --headless --path . --quit` etkileşimsiz oturumda onay
-            # alamayıp `denied` döndü; ikinci deneme `TOOL_CALL_DUPLICATE` ile
+            # alınamayıp `blocked` döndü; ikinci deneme `TOOL_CALL_DUPLICATE` ile
             # engellendi ve adım hiçbir zaman kanıt üretemedi.
             budget.forget_call(signature)
+        if outcome is ToolOutcome.DENIED:
+            # Bu bir hata ya da bütçe olayı DEĞİLDİR — insan GERÇEKTEN "hayır"
+            # dedi. Tur burada durur (`_drive` bir sonraki döngü başında bunu
+            # görüp modeli bir daha çağırmadan döner); aynı yanıttaki KALAN
+            # çağrılar döngünün başındaki kontrolle atlanır.
+            state.denied_tool_name = call.name
+            budget.halt(BudgetStop.USER_DENIED)
         # Duvar ve ulaşılamaz kaynak, kanıt kapısı açısından AYNI durumdur: iş bu
         # araçla yapılamadı. Modeli kanıt üretmeye zorlamak onu uydurmaya iter.
         if result.output.startswith((CAPABILITY_WALL_PREFIX, UNREACHABLE_RESOURCE_PREFIX)):
@@ -2043,6 +2100,7 @@ async def _execute(
     registry: ToolRegistry,
     *,
     execution: ExecutionPolicy,
+    plan_mode: bool = False,
 ) -> tuple[ToolResult, ToolOutcome]:
     """Onaydan geçir ve çalıştır. Bilinmeyen araç da kayıt defterinin sorunu."""
     tool = registry.get(call.name)
@@ -2066,9 +2124,11 @@ async def _execute(
     if tool is not None and tool.mutating:
         decision = await deps.policy.decide(build_request(tool, args, deps.allowed_commands))
         if decision is not Decision.ALLOW:
-            # Reddetme ve engelleme HATA DEĞİLDİR: refleksiyon tetiklenmemeli,
-            # model yalnızca farklı bir yol denemeli.
-            return ToolResult.failure(_DECISION_MESSAGES[decision]), _DECISION_OUTCOMES[decision]
+            # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
+            # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı
+            # bir sınıftır: turu durdurur (bkz. `_run_tools`, `_drive`).
+            message = _decision_message(decision, plan_mode=plan_mode)
+            return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
     result = await registry.execute(call.name, args, deps.tool_context)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED

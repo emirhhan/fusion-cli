@@ -20,7 +20,7 @@ from rich.prompt import Prompt
 from rich.text import Text
 
 from ..core.tools import ToolContext
-from ..engines.agent.approval import ApprovalRequest
+from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..tools.preview import preview_change
 from ..ui import messages, theme
@@ -51,7 +51,7 @@ class ConsolePrompter:
         self._suspend = suspend
         self._interactive = sys.stdin.isatty()
 
-    async def confirm(self, request: ApprovalRequest) -> bool:
+    async def confirm(self, request: ApprovalRequest) -> bool | ApprovalAnswer:
         with self._suspended():
             await self._drain()
             self._render_preview(request)
@@ -62,9 +62,11 @@ class ConsolePrompter:
                 )
             answer = self._ask(messages.CONFIRM_QUESTION)
         # Boş cevap iki anlama gelir: kullanıcı Enter'a bastı (onay) ya da ortam
-        # etkileşimsiz (cevap yok). İkincisinde onay varsaymak kabul edilemez.
+        # etkileşimsiz (cevap yok). İkincisi kullanıcının REDDİ değildir — kimseye
+        # SORULAMADI; bunu insanın "hayır" demesiyle aynı saymak, hiç sorulmamış
+        # bir kararı kullanıcıya mal ederdi (bkz. `ApprovalAnswer.UNAVAILABLE`).
         if not answer and not self._interactive:
-            return False
+            return ApprovalAnswer.UNAVAILABLE
         return _is_affirmative(answer)
 
     async def ask(

@@ -47,6 +47,12 @@ class BudgetStop(Enum):
     REPEATED_CALL = "repeated_call"
     CONTRACT_UNREPAIRABLE = "contract_unrepairable"
     EMPTY_RESPONSES = "empty_responses"
+    #: Kullanıcı bir değiştirici araç çağrısını GERÇEKTEN reddetti (insan "hayır"
+    #: dedi — oturumun etkileşimsiz olup kimseye sorulamaması değil). Diğer
+    #: sebeplerin aksine bu bir BÜTÇE olayı değildir: `TurnBudgetExhausted`
+    #: yayınlanmaz, tur `ok=True` ile biter ve kullanıcıya nasıl devam edileceği
+    #: sorulur (bkz. `engines/agent/denial.py`).
+    USER_DENIED = "user_denied"
 
 
 #: Bir araç çağrısının tekrar tespitinde kullanılan imza.

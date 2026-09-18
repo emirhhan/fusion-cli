@@ -70,6 +70,25 @@ async def test_security_modda_onay_verilirse_gecer():
     assert await politika.decide(build_request(_arac(), {})) is Decision.ALLOW
 
 
+async def test_onay_alinamayan_oturum_reddedilmis_sayilmaz():
+    """UNAVAILABLE (kimseye sorulamadı) BLOCKED'a gider, DENIED'a değil.
+
+    B3: yalnızca gerçek bir insan reddi (`DENY`/`False`) `Decision.DENIED`
+    olmalı ve turu durdurmalı. Oturum etkileşimsiz olduğu için kimseye
+    sorulamamış olmak farklı bir sonuçtur: model başka bir yol dener, tur sürer.
+    """
+
+    class _EtkilesimsizOnayci:
+        async def confirm(self, request):
+            return ApprovalAnswer.UNAVAILABLE
+
+    politika = build_policy(ApprovalMode.SECURITY, _EtkilesimsizOnayci())
+
+    karar = await politika.decide(build_request(_arac(), {"path": "a.txt"}))
+
+    assert karar is Decision.BLOCKED
+
+
 async def test_oturum_izni_ayni_araci_tekrar_sormaz():
     class _OturumOnayi:
         def __init__(self):

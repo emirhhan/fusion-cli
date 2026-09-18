@@ -8,7 +8,7 @@ from rich.console import Console
 
 from fusion_cli.cli.prompter import ConsolePrompter
 from fusion_cli.core.tools import Tool, ToolContext
-from fusion_cli.engines.agent.approval import build_request
+from fusion_cli.engines.agent.approval import ApprovalAnswer, build_request
 
 
 def _prompter(tmp_path, *, flush=None):
@@ -21,13 +21,18 @@ def _arac(ad="write_file"):
     return Tool(name=ad, description="", parameters={}, run=lambda a, c: None, mutating=True)
 
 
-async def test_etkilesimsiz_ortamda_onay_reddedilir(tmp_path):
-    """Cevap alınamadıysa 'evet' varsaymak kabul edilemez."""
+async def test_etkilesimsiz_ortamda_onay_alinamaz(tmp_path):
+    """Cevap alınamadıysa 'evet' varsaymak kabul edilemez.
+
+    Eskiden bu durum `False` (insanın "hayır" demesiyle AYNI değer) döndürüyordu.
+    B3: kimseye SORULAMAMIŞ olmak, bir insanın GERÇEKTEN reddetmesinden ayrı bir
+    sonuçtur (`ApprovalAnswer.UNAVAILABLE`) — ilki turu sürdürür, ikincisi durdurur.
+    """
     prompter, _ = _prompter(tmp_path)
 
     onay = await prompter.confirm(build_request(_arac(), {"path": "a.txt", "content": "x"}))
 
-    assert onay is False
+    assert onay is ApprovalAnswer.UNAVAILABLE
 
 
 async def test_etkilesimsiz_ortamda_soru_anlasilir_cevap_doner(tmp_path):
