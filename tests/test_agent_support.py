@@ -87,33 +87,6 @@ def test_iz_hatali_sonuclari_isaretler():
     assert "⟵ HATA" in iz
 
 
-# --- Yarım kalma sezgiseli --------------------------------------------------- #
-
-
-def test_tamamlanmamis_todo_isi_yarim_yapar():
-    assert reflexion.looks_unfinished("bitti", tool_calls_last_turn=0, has_pending_todos=True)
-
-
-def test_arac_sonrasi_kisa_cevap_yarim_sayilir():
-    assert reflexion.looks_unfinished("bak", tool_calls_last_turn=2, has_pending_todos=False)
-
-
-def test_kod_iceren_kisa_cevap_yarim_sayilmaz():
-    assert not reflexion.looks_unfinished(
-        "`x = 1`", tool_calls_last_turn=2, has_pending_todos=False
-    )
-
-
-def test_uzun_cevap_yarim_sayilmaz():
-    assert not reflexion.looks_unfinished(
-        "u" * 100, tool_calls_last_turn=2, has_pending_todos=False
-    )
-
-
-def test_arac_cagrilmadiysa_kisa_cevap_yarim_sayilmaz():
-    assert not reflexion.looks_unfinished("evet", tool_calls_last_turn=0, has_pending_todos=False)
-
-
 def test_israrci_not_farkli_metin_kullanir():
     assert reflexion.note(persistent=True).content != reflexion.note(persistent=False).content
 
@@ -196,27 +169,6 @@ async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
 
     assert len(sonuc) < len(mesajlar)
     assert sonuc[0].content.startswith("[önceki konuşmanın özeti]")
-
-
-def test_dosya_satir_referansi_somut_teslim_sayilir():
-    """Kısa ama tam bir cevap ("src/app.py:42") yarım sanılıp tekrarlatılmamalı."""
-    assert not reflexion.looks_unfinished(
-        "src/fusion_cli/observability/bus.py:24",
-        tool_calls_last_turn=2,
-        has_pending_todos=False,
-    )
-
-
-def test_dosya_yolu_iceren_kisa_cevap_somut_sayilir():
-    assert not reflexion.looks_unfinished(
-        "Tanım src/core/events.py dosyasında.",
-        tool_calls_last_turn=1,
-        has_pending_todos=False,
-    )
-
-
-def test_somut_isaret_tasimayan_kisa_cevap_hala_yarim():
-    assert reflexion.looks_unfinished("bakiyorum", tool_calls_last_turn=1, has_pending_todos=False)
 
 
 def test_iz_sinira_dayaninca_en_son_adimlari_korur():

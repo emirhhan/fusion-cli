@@ -215,41 +215,6 @@ async def test_refleksiyon_kapatilabilir(monkeypatch, tmp_path, sink):
     assert not _icerir(sonuc, reflexion.STANDARD_NOTE)
 
 
-async def test_yarim_kalan_is_bir_kez_devam_ettirilir(monkeypatch, tmp_path, sink):
-    provider = _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("list_dir", path=".")]),
-                model_result("bak"),  # kisa, teslimsiz -> yarim gorunur
-                model_result("iste tam cevap `kod` ile birlikte"),
-            ]
-        ),
-    )
-
-    sonuc = await run_agent("yap", _deps(tmp_path, sink))
-
-    assert provider.calls == 3
-    assert _icerir(sonuc, reflexion.AUTO_CONTINUE_NOTE)
-
-
-async def test_otomatik_devam_en_fazla_bir_kez_calisir(monkeypatch, tmp_path, sink):
-    provider = _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("list_dir", path=".")]),
-                model_result("kisa"),
-                model_result("yine kisa"),
-            ]
-        ),
-    )
-
-    await run_agent("yap", _deps(tmp_path, sink))
-
-    assert provider.calls == 3
-
-
 async def test_adim_siniri_turu_sonlandirir(monkeypatch, tmp_path, sink):
     # Her tur FARKLI bir yol okunur: çağrılar tekrar etmediği için tekrar kapısı
     # devreye girmez ve turu gerçekten adım sınırı bitirir.
@@ -1000,51 +965,6 @@ async def test_israrli_bos_cevapta_sonsuz_donguye_girilmez(monkeypatch, tmp_path
     await run_agent("bir sey yap", deps)
 
     assert provider.calls <= 3, f"boş cevap {provider.calls} kez denendi — sınır aşıldı"
-
-
-# --- iş yapmadan kullanıcıya soru sorma ------------------------------------ #
-#
-# Gözlemlendi (Gemini web): model sekiz araç çağırıp dizin yapısını okudu, sonra
-# hiçbir şey değiştirmeden "ne yapmak istediğinizi belirtin" diyerek turu bitirdi.
-# Kullanıcı görevi zaten vermişti. Eski kapı (`_stopped_without_acting`) bunu
-# yakalayamıyordu: yalnızca BUGFIX/FEATURE gibi türlerde çalışıyor, "analiz et"
-# sınıfına düşen istek kapının tamamen dışında kalıyordu.
-
-
-async def test_is_yapmadan_soru_soran_tur_bir_kez_devam_ettirilir(monkeypatch, tmp_path, sink):
-    provider = _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("list_dir", path=".")]),
-                model_result("Dizin yapısı `src/app.py` altında incelendi. Ne yapmamı istersiniz?"),
-                model_result(TAM_CEVAP),
-            ]
-        ),
-    )
-
-    sonuc = await run_agent("projeyi analiz et", _deps(tmp_path, sink))
-
-    assert provider.calls == 3
-    assert _icerir(sonuc, reflexion.ASKED_INSTEAD_OF_ACTING_NOTE)
-
-
-async def test_ask_user_cagiran_tur_zorlanmaz(monkeypatch, tmp_path, sink):
-    """Model doğru aracı kullandıysa kapı susar; soru meşrudur."""
-    provider = _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("ask_user", question="hangisi?")]),
-                model_result("Seçime göre `src/app.py:10` güncellenecek. Onaylar mısınız?"),
-            ]
-        ),
-    )
-
-    sonuc = await run_agent("yap", _deps(tmp_path, sink, asker=ScriptedAsker("ilki")))
-
-    assert provider.calls == 2
-    assert not _icerir(sonuc, reflexion.ASKED_INSTEAD_OF_ACTING_NOTE)
 
 
 async def test_soru_isareti_olmayan_salt_okuma_cevabi_zorlanmaz(monkeypatch, tmp_path, sink):
@@ -2013,31 +1933,6 @@ async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_pa
 
     sonuclar = [olay.outcome for olay in sink.events if isinstance(olay, ToolExecuted)]
     assert sonuclar == [ToolOutcome.DENIED]
-
-
-async def test_ilk_yazmadan_sonraki_uzun_kesif_yeniden_uyarilir(monkeypatch, tmp_path, sink):
-    """Tek dosya yazmak, sonraki arama döngüsünün uyarısını kapatmamalı."""
-    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
-
-    for i in range(4):
-        (tmp_path / f"kaynak{i}.txt").write_text(f"kaynak {i}")
-    provider = ScriptedProvider(
-        [
-            model_result(tool_calls=(tool_call("write_file", path="ilk.txt", content="ilk"),)),
-            *[
-                model_result(tool_calls=(tool_call("read_file", path=f"kaynak{i}.txt"),))
-                for i in range(4)
-            ],
-            model_result(TAM_CEVAP),
-        ]
-    )
-    _kur(monkeypatch, provider)
-    deps = _deps(tmp_path, sink)
-    deps.execution = ExecutionPolicy(is_web=False, complex_task=True)
-    sonuc = await run_agent(
-        "dosyaları tamamla", deps, depth=1, internal=True, self_review=False, verify=False
-    )
-    assert any("[dur-ve-yap]" in m.content for m in sonuc.messages if m.harness_note)
 
 
 async def test_salt_okuma_turunda_kapi_calismaz(monkeypatch, tmp_path, sink):

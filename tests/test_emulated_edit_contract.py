@@ -264,7 +264,7 @@ def test_buyuk_dosyaya_toptan_yazma_normalde_engellenir(tmp_path):
         "write_file", {"path": "cart.js"}, deps, _web_execution(), _durum(0)
     )
 
-    assert hatalar and "replace_range" in hatalar[0]
+    assert hatalar and "edit_file" in hatalar[0]
 
 
 def test_duzenleme_tekrar_tekrar_dustuyse_ve_dosya_okunduysa_yazmaya_izin_verilir(tmp_path):

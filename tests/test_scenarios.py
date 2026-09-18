@@ -127,33 +127,21 @@ async def test_hata_mesajinda_yol_goreli(root):
     assert "/private/var" not in run.transcript
 
 
-async def test_okumaya_gomulen_model_yazmaya_itilir(root):
-    """Dördüncü keşif turundan sonra modele 'dur-ve-yap' notu gitmeli."""
-    import json
+async def test_okuyup_sonunda_yazan_model_dogru_dosyayi_degistirir(root):
+    """Birkaç okuma turundan sonra model yazmaya geçer; artık zorlayan bir kapı yok.
 
-    from fusion_cli.engines.agent import reflexion
+    Eskiden dördüncü keşif turundan sonra bir 'dur-ve-yap' notu enjekte edilirdi
+    (B4/A13 — G5'te kaldırıldı): model ne zaman okumayı bırakıp yazacağına kendi
+    karar verir. Bu senaryodaki betiklenmiş yanıtlar zaten sonunda `edit_file`
+    çağırıyor; burada ölçülen tek şey gerçek değişikliğin diske düştüğüdür.
+    """
+    import json
 
     from .scenarios import OKUYUP_YAZMAYAN
 
-    run = await run_scenario(OKUYUP_YAZMAYAN, root)
+    await run_scenario(OKUYUP_YAZMAYAN, root)
 
-    notlar = [
-        mesaj.content
-        for mesaj in run.outcome.messages
-        if mesaj.role == "user" and "[dur-ve-yap]" in mesaj.content
-    ]
-    assert notlar, "keşif kapısı hiç konuşmadı"
     assert json.loads((root / "config.json").read_text())["host"] == "0.0.0.0"
-    assert reflexion.ENOUGH_EXPLORING_NOTE.split("{")[0] in notlar[0]
-
-
-async def test_salt_okuma_gorevinde_kesif_kapisi_susar(root):
-    """'Açıkla' türü bir işte okumak doğru davranış; dürtmek turu bozar."""
-    from .scenarios import SALT_OKUMA_BASARILI
-
-    run = await run_scenario(SALT_OKUMA_BASARILI, root)
-
-    assert not [m for m in run.outcome.messages if "[dur-ve-yap]" in m.content]
 
 
 async def test_planli_genis_iste_kayit_ve_kapanis_uyusur(root):

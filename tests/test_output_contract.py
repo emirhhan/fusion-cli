@@ -113,20 +113,23 @@ async def test_degisiklik_yapilmayan_tur_isaretlenir(monkeypatch, tmp_path):
 
 
 # --- 3. iş yapmadan soru sorarak bitirilmez -------------------------------- #
+#
+# Ayrı bir "iş yapmadan sordu" kapısı (G5'te kaldırıldı, B4/A13) artık yok: model
+# ne zaman soracağına kendi karar verir. Gerçek bir etki isteyen görevde (bu
+# koşudaki gibi) kanıtsız teslim yine de kanıt kapısıyla durdurulur; etki
+# istemeyen salt-okuma bir soruda ("bu dizini açıkla" gibi) soruyla bitirmek
+# artık zorlanmaz — bu meşru bir cevaptır.
 
 
-#: Modeli tekrar iş başına gönderen düzeltici notlar. Hangisinin devreye gireceği
-#: göreve bağlıdır (kanıt kapısı, otomatik devam, "iş yapmadan sordu"); sözleşme
-#: belirli bir notu değil, TURUN ORADA BİTMEMESİNİ şart koşar.
-_DUZELTICI_NOTLAR = (
-    reflexion.ASKED_INSTEAD_OF_ACTING_NOTE,
-    reflexion.AUTO_CONTINUE_NOTE,
-)
+#: Modeli tekrar iş başına gönderen düzeltici not. Kanıt kapısı belirli bir notu
+#: değil, TURUN ORADA BİTMEMESİNİ şart koşar.
+_DUZELTICI_NOTLAR = (reflexion.AUTO_CONTINUE_NOTE,)
 
 SORU_CEVABI = "Dizin yapısı incelendi. Ne yapmak istediğinizi belirtin?"
 
 
 async def test_ne_yapayim_sorusu_turu_bitirmez(monkeypatch, tmp_path):
+    """Gerçek bir etki isteyen görevde kanıt kapısı soruyla bitirmeyi durdurur."""
     sink = RecordingSink()
     provider = install_provider(
         monkeypatch,
@@ -149,30 +152,6 @@ async def test_ne_yapayim_sorusu_turu_bitirmez(monkeypatch, tmp_path):
         if mesaj.role == "user"
     )
     assert duzeltildi, "model tekrar iş başına gönderilmedi"
-
-
-async def test_soru_kapisi_kanit_kapisi_olmadan_da_calisir(monkeypatch, tmp_path):
-    """Kanıt kapısı kurulmayan bir görevde soru kapısı tek başına tutmalı.
-
-    İki kapı üst üste bindiği için asıl kapının çalıştığı görünmüyordu; burada
-    etki sözleşmesi üretmeyen bir istekle yalnız bırakılıyor.
-    """
-    sink = RecordingSink()
-    provider = install_provider(
-        monkeypatch,
-        _Scripted(
-            [
-                model_result(tool_calls=[tool_call("list_dir", path=".")]),
-                model_result(SORU_CEVABI),
-                model_result("`app/page.tsx` içeriği şu şekilde."),
-            ]
-        ),
-    )
-
-    sonuc = await run_agent("projedeki dizinlere bak", web_deps(tmp_path, sink))
-
-    assert provider.calls >= 3
-    assert any(mesaj.content == reflexion.ASKED_INSTEAD_OF_ACTING_NOTE for mesaj in sonuc.messages)
 
 
 # --- 4. öncü metin görünür, çerçeve sızmaz --------------------------------- #

@@ -9,18 +9,8 @@ bir davranış düzeltmesidir.
 
 from __future__ import annotations
 
-import re
-
 from ...core.tool_emulation import PAYLOAD_EXAMPLE, PAYLOAD_RULES, render_call
 from ...core.types import Message
-
-#: Somut teslim işaretleri: kod parçası, dosya:satır referansı ya da dosya yolu.
-#: Kısa ama SOMUT bir cevap ("src/app.py:42") yarım kalmış sayılmamalıdır.
-_CONCRETE_MARKERS = (
-    re.compile(r"`"),  # satır içi kod ya da kod bloğu
-    re.compile(r"\S+\.\w{1,6}:\d+"),  # dosya:satır referansı
-    re.compile(r"\S+/\S+\.\w{1,6}"),  # dosya yolu
-)
 
 STANDARD_NOTE = (
     "[refleksiyon] Son araç çağrılarından en az biri HATA döndürdü. Kısaca ne yanlış "
@@ -34,64 +24,10 @@ PERSISTENT_NOTE = (
     "ask_user ile kullanıcıdan destek iste."
 )
 
-#: Bu uzunluğun altındaki cevaplar "somut teslim" içermiyorsa yarım sayılır.
-SHORT_ANSWER_CHARS = 80
-
 AUTO_CONTINUE_NOTE = (
     "[otomatik-devam] İşi yarım bıraktın gibi görünüyor. Niyet beyan etmek yerine ya bir "
     "araç çağırıp devam et ya da somut nihai teslimi ver. Zaten bittiyse tek cümleyle teyit et."
 )
-
-
-#: Model hiç araç çağırmadan turu kapatmaya çalıştığında gönderilen not.
-#
-# Ölçüldü: model "somut bir görev almadım, dizin içeriğini listeliyorum" deyip
-# hiçbir araç çağırmadan üç tur döndü ve tur başarılı sayıldı. Not, görevi
-# yeniden okumasını ve TEK bir somut adım atmasını ister — genel bir "devam et"
-# dürtüsü burada işe yaramıyor, çünkü model işi yarım bırakmış değil hiç
-# başlamamıştır.
-NEVER_ACTED_NOTE = (
-    "[hic-arac-yok] Bu turda hiçbir araç çağırmadın ve hiçbir şey değişmedi. "
-    "Görev promptun sonundaki 'GÖREV (yapılacak iş budur)' bloğunda yazılı — onu "
-    "yeniden oku. Şimdi TEK bir somut adım at: ilgili dosyayı read_file ile aç ya "
-    "da değişikliği edit_file ile yap. Görevi gerçekten anlamadıysan ask_user "
-    "çağır; düzyazıyla 'görev belirtilmedi' deyip durma."
-)
-
-
-ASKED_INSTEAD_OF_ACTING_NOTE = (
-    "[otomatik-devam] Hiçbir şey değiştirmeden turu bir soruyla bitirdin. Kullanıcı "
-    "görevini zaten verdi; ne yapman gerektiğini ona geri sorma. Elindeki araçlarla "
-    "cevabını bulabiliyorsan bul ve devam et. Soru gerçekten kullanıcının kararıysa "
-    "(yıkıcı işlem, birbirini dışlayan iki gereksinim) ask_user aracını çağır — "
-    "düzyazıyla sorup durma."
-)
-
-
-#: Modelin okumaktan çıkıp değiştirmeye geçmesini isteyen not.
-#
-# Ölçüldü (Gemini web, aynı görev üç koşu): model dizin listeledi, dosya okudu,
-# başka dizin listeledi, başka dosya okudu… ve tur bütçesi keşifle doldu. Tek bir
-# satır bile değişmedi. Model tembel değildi — hiçbir yerde "yeterince gördün,
-# şimdi yap" diyen bir sinyal yoktu ve keşif kendi kendini besliyordu.
-#
-# Kapı tur SONUNDA değil ORTASINDA konuşur: sonda söylemek, bütçe zaten bittiği
-# için işe yaramıyordu.
-ENOUGH_EXPLORING_NOTE = (
-    "[dur-ve-yap] Son {rounds} turdur yalnızca okuyorsun. Mevcut kanıtlarla "
-    "yapılabilen sıradaki somut işi tamamla. Dosya düzenlenecekse uygun düzenleme "
-    "aracını; dış asset indirilecekse gözlediğin gerçek URL ile download_file "
-    "aracını, erişimin varsa kullan. Tüm kaynakları bulmayı beklemeden bulunan "
-    "kaynağı işle; URL veya dosya içeriği uydurma. Yeni dosya KEŞFETME; ama "
-    "değiştireceğin dosyayı okumak keşif değildir — 'old' metnini tutturmak için "
-    "onu okumak serbesttir ve gerekirse yapmalısın. Hangi dosyayı değiştireceğini "
-    "bilmiyorsan bunu açıkça söyle ve dur."
-)
-
-
-def enough_exploring_note(rounds: int) -> Message:
-    """Okumaktan yazmaya geçir."""
-    return Message("user", ENOUGH_EXPLORING_NOTE.format(rounds=rounds), harness_note=True)
 
 
 #: Aynı düzenleme aynı hatayla üst üste düşünce gönderilen not.
@@ -205,58 +141,6 @@ def integrity_note(integrity: object) -> Message | None:
     return Message("user", metin, harness_note=True) if metin else None
 
 
-def never_acted_note() -> Message:
-    """Hiç araç çağırmadan turu kapatan modele TEK bir somut adım attır."""
-    return Message("user", NEVER_ACTED_NOTE, harness_note=True)
-
-
-def asked_instead_of_acting_note() -> Message:
-    return Message("user", ASKED_INSTEAD_OF_ACTING_NOTE, harness_note=True)
-
-
-def ends_with_question(final_text: str) -> bool:
-    """Cevap kullanıcıya sorulan bir soruyla mı bitiyor?
-
-    Ölçüt DİL DEĞİL noktalamadır: soru işareti Türkçede de İngilizcede de aynıdır,
-    oysa "ne yapmamı istersiniz" kalıbını tanımaya çalışmak dile ve ifadeye bağımlı
-    olurdu (bkz. `loop._stopped_without_acting` — duyuru metni bilinçli olarak
-    dilsel yolla tanınmaz).
-
-    Kapanış cümlesindeki soru işaretine bakılır, metnin herhangi bir yerindekine
-    değil: gövdesinde retorik soru geçen dolu dolu bir teslim, soru sorarak
-    bitirilmiş bir tur değildir.
-    """
-    return final_text.rstrip().endswith("?")
-
-
-def looks_unfinished(
-    final_text: str, *, tool_calls_last_turn: int, has_pending_todos: bool
-) -> bool:
-    """Model araçsız bitirdi ama iş açıkça yarım mı?
-
-    Dil-bağımsız sezgiseller:
-    - Tamamlanmamış todo maddesi varsa iş bitmemiştir.
-    - Bu turda araç çağrıldıysa ve nihai metin hem KISA hem de SOMUT bir teslim
-      içermiyorsa, model işe başlayıp bitirmeden durmuş olabilir.
-
-    "Somut teslim" kontrolü kritik: `src/app.py:42` gibi kısa ama tam bir cevabı
-    yarım sanıp modeli tekrar konuşturmak, aynı cevabın iki kez basılmasına yol açar.
-    """
-    if has_pending_todos:
-        return True
-    text = final_text.strip()
-    return (
-        tool_calls_last_turn > 0
-        and len(text) < SHORT_ANSWER_CHARS
-        and not has_concrete_deliverable(text)
-    )
-
-
-def has_concrete_deliverable(text: str) -> bool:
-    """Metin somut bir teslim taşıyor mu? (kod, dosya yolu ya da dosya:satır)"""
-    return any(marker.search(text) for marker in _CONCRETE_MARKERS)
-
-
 #: Boş cevap sonrası modele verilen dürtü. Suçlayıcı değil yönlendirici: model
 #: cevabı neden düşürdüğünü bilmiyor, tekrar denemesi isteniyor.
 EMPTY_RESPONSE_NOTE = (
@@ -336,8 +220,8 @@ def verification_action_required_note() -> Message:
         "çözülmedi. Doğrulama/test komutunu tekrar ÇALIŞTIRMA; sonucu zaten biliyoruz "
         "ve kapı kod değişikliğinden sonra otomatik tekrar çalışacak. İlgili dosyayı "
         "gerekirse read_file/search_code ile incele. Mevcut dosyada hedefli düzeltme "
-        "için replace_range(path, start_line, end_line, new) kullan; yalnız uygun "
-        "durumda write_file kullan. Mutlaka bir DEĞİŞTİRİCİ aracı gerçekten çağır. "
+        "için edit_file(path, old, new) kullan; yalnız uygun durumda write_file "
+        "kullan. Mutlaka bir DEĞİŞTİRİCİ aracı gerçekten çağır. "
         "run_shell ile yalnız doğrulamayı tekrar etmek çözüm değildir. Araç çağrısını "
         "düz metin JSON veya kod bloğu olarak yazma; gerçekten çalıştır.",
     )

@@ -53,8 +53,6 @@ def test_refleksiyon_notlari_isaretli_uretilir() -> None:
         reflexion.note(persistent=False),
         reflexion.note(persistent=True),
         reflexion.auto_continue_note(),
-        reflexion.asked_instead_of_acting_note(),
-        reflexion.enough_exploring_note(rounds=3),
         reflexion.repeated_edit_note(count=2),
         reflexion.change_log_note(("a.py",)),
         reflexion.wrong_workspace_note(root="/x"),

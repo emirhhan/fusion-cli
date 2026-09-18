@@ -84,7 +84,7 @@ from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, history, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
-from .chat_mode import chat_execution, chat_tool_names
+from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, policy_for
 from .execution_route import ExecutionRoute, choose_execution_route
@@ -125,16 +125,6 @@ MAX_EMPTY_RETRIES = 2
 # tekrarlayan model zaten `seen >= 1` kuralıyla ayrıca durdurulur ve ilerleme
 # üretmeyen turları "ilerleme yok" kapısı bitirir.
 MAX_TOOL_CONTRACT_REPAIRS = 4
-
-#: Değişiklik isteyen bir görevde arka arkaya kaç keşif turuna izin verilir.
-#
-# Ölçüldü: model dizin listeledi, dosya okudu, başka dizin listeledi… ve bütçe
-# keşifle doldu; tek satır değişmedi. Dört tur, bir projeyi tanımaya yeter
-# (list_dir + iki okuma + bir arama); beşincide artık yazılacak yer bellidir.
-MAX_READ_ONLY_ROUNDS = 4
-#: Keşif kapısının bir turda en fazla kaç kez konuşacağı. Israr etmek yerine
-#: kanıt kapısına ve tur bütçesine bırakılır; sonsuz dürtme çağrı yakar.
-MAX_EXPLORE_PUSHES = 2
 
 
 #: Plan modunda değiştirici araç hiç çalıştırılmaz ve kullanıcıya sorulmaz.
@@ -448,6 +438,17 @@ async def run_agent(
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
         execution = chat_execution(execution)
         allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
+    elif (
+        not plan_mode
+        and execution.allow_mutation
+        and execution.required_effect == "workspace_read"
+    ):
+        # Kod kipinde de gözlem kilidi: turun METNİ yalnızca okuma/inceleme
+        # istiyorsa model o turda yazamaz. Plan modu zaten kendi onay
+        # politikasıyla (`PlanApproval`) her değişikliği engeller; model gerçek
+        # bir yetenek kısıtına (`allow_mutation=False`) çarpmışsa o kısıt
+        # önceliklidir, buradaki gözlem gerekçesiyle EZİLMEZ.
+        execution = observe_execution(execution, WORKSPACE_READ_REASON)
     if allowed_tools is not None:
         names = frozenset(_permitted(allowed_tools, registry, execution) or ())
         execution = replace(execution, allowed_tool_names=names)
@@ -726,10 +727,6 @@ class _State:
     capability_wall: bool = False
     #: Bu çağrıda nihai cevap metni GERÇEKTEN aktı mı? `TurnAnswered` buna bakar.
     answer_streamed: bool = False
-    #: Arka arkaya kaç araç turu HİÇBİR değişiklik üretmedi. Keşif kapısı buna bakar.
-    read_only_rounds: int = 0
-    #: Keşif kapısı bu turda kaç kez konuştu.
-    explore_pushes: int = 0
     #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
     failed_mutations_in_row: int = 0
     #: Döngü kapısı bu turda kaç kez konuştu.
@@ -911,7 +908,6 @@ async def _drive(
             return _halt_local(final_text, messages, state, budget, BudgetStop.TOOL_ROUNDS, deps)
 
         before = _progress_marker(deps, state)
-        mutations_before = state.mutating_tool_calls_made
         errored = await _run_tools(
             result.tool_calls,
             messages,
@@ -922,10 +918,6 @@ async def _drive(
             plan_mode=plan_mode,
         )
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
-        # Keşif sayacı: değiştirici bir araç çalıştığı anda sıfırlanır.
-        state.read_only_rounds = (
-            0 if state.mutating_tool_calls_made > mutations_before else (state.read_only_rounds + 1)
-        )
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
@@ -935,7 +927,7 @@ async def _drive(
         # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
         # başarısız bir araç deneyebilir; bu durumda sınırlı bir mutation reprompt'u
         # daha verilir. Hak bittiğinde normal idle kapısı tekrar otoritedir.
-        if state.require_local_mutation and _never_acted(state, execution):
+        if _never_acted(state, execution):
             state.never_acted_prompts += 1
             note = _spend(deps, reflexion.verification_action_required_note())
             if note is not None:
@@ -963,10 +955,6 @@ async def _drive(
                 )
             )
         _record_changes(messages, deps, state)
-        if _needs_push_to_act(state, plan_mode=plan_mode, execution=execution):
-            state.explore_pushes += 1
-            state.read_only_rounds = 0
-            messages.append(reflexion.enough_exploring_note(MAX_READ_ONLY_ROUNDS))
 
 
 def apply_steering(messages: list[Message], queue: SteeringQueue | None) -> int:
@@ -1335,35 +1323,14 @@ def _auto_continue_note(
     tasima_notu = reflexion.integrity_note(butunluk)
     if tasima_notu is not None:
         return _spend(deps, tasima_notu)
-    # ÖZGÜL TEŞHİS GENELDEN ÖNCE GELİR. "İş yapmadan soru sordu" turu çoğu zaman
-    # kısa da olur ve `looks_unfinished` onu önce yakalayıp "işi yarım bıraktın"
-    # notunu gönderiyordu. İki not da modeli çalıştırır ama yanlış olanı yanlış
-    # şeyi düzeltmesini söyler: model yarım kalan işi arar, oysa sorun kullanıcıya
-    # geri sormasıdır.
-    if _asked_instead_of_acting(final_text, state, deps.require_budget()):
-        return _spend(deps, reflexion.asked_instead_of_acting_note())
-    # "Hiç araç çağırmadı" en özgül teşhistir ve genel sezgisellerden ÖNCE gelir:
-    # model işi yarım bırakmış değil, hiç başlamamıştır.
+    # Bloklayan doğrulama düzeltmesi araçsız kapanamaz; bu tek dal korunur (bkz.
+    # `_never_acted`). Kapsamı büyüten genel dürtme kapıları (hiç çağrı yapmadan
+    # soru sorma, keşifte takılma, "yarım kalmış gibi görünme") kaldırıldı: model
+    # ne zaman araç kullanacağına, ne zaman bitireceğine kendi karar verir.
     if _never_acted(state, execution):
         state.never_acted_prompts += 1
-        note = (
-            reflexion.verification_action_required_note()
-            if state.require_local_mutation
-            else reflexion.never_acted_note()
-        )
-        return _spend(deps, note)
-    if not execution.heuristic_auto_continue:
-        # Web modellerinde kısa ama geçerli ".env / README" gibi cevaplar eski
-        # sezgisel tarafından yarım sanılıyordu. Bekleyen todo yoksa ek çağrı açma.
-        wanted = deps.tool_context.todos.has_pending
-    else:
-        wanted = reflexion.looks_unfinished(
-            final_text,
-            tool_calls_last_turn=state.tool_calls_last_turn,
-            has_pending_todos=deps.tool_context.todos.has_pending,
-        )
-    if not wanted:
-        wanted = _stopped_without_acting(state, deps.require_budget(), execution=execution)
+        return _spend(deps, reflexion.verification_action_required_note())
+    wanted = deps.tool_context.todos.has_pending
     return _spend(deps, reflexion.auto_continue_note()) if wanted else None
 
 
@@ -1375,36 +1342,6 @@ def _spend(deps: AgentDeps, note: Message) -> Message | None:
     """
     bekleyen = deps.tool_context.todos.pending_count
     return note if deps.require_budget().take_auto_continue(pending_todos=bekleyen) else None
-
-
-def _asked_instead_of_acting(final_text: str, state: _State, budget: TurnBudget) -> bool:
-    """Model iş yapmadan turu kullanıcıya soru sorarak mı bitirdi?
-
-    Gözlemlendi (Gemini web): model sekiz araç çağırıp dizin yapısını okudu, hiçbir
-    şey değiştirmeden "ne yapmak istediğinizi belirtin" dedi ve tur bitti sayıldı.
-    Kullanıcı görevi zaten vermişti.
-
-    `_stopped_without_acting` bunu yakalayamıyor çünkü yalnızca BUGFIX/FEATURE gibi
-    türlerde çalışır; "analiz et" sınıfına düşen istek kapının dışında kalır. Bu kapı
-    o şartı GENİŞLETMEZ — genişletmek "şu dosyayı açıkla" gibi meşru salt-okuma
-    turlarına da bedava bir devam çağrısı yaptırırdı. Bunun yerine dar ve doğrudan
-    belirtiye bakar: iş yok + kapanışta soru işareti.
-
-    `ask_user` çağıran tur DIŞARIDADIR: model doğru aracı kullanmışsa soru meşrudur
-    ve cevabı zaten geçmişe girmiştir.
-    """
-    if state.tool_calls_made == 0 or state.mutating_tool_calls_made > 0:
-        return False
-    if not reflexion.ends_with_question(final_text):
-        return False
-    return not any(
-        name in _ASKING_TOOLS or name in _DELEGATION_TOOLS
-        for name, _, _ in budget.successful_tool_evidence
-    )
-
-
-#: Kullanıcıya soruyu DOĞRU yoldan soran araç. Çağrıldıysa tur zorlanmaz.
-_ASKING_TOOLS = frozenset({"ask_user"})
 
 
 #: Aynı turda kaç başarısız değiştirici çağrıdan sonra çıkış yolu gösterilir.
@@ -1489,94 +1426,29 @@ def _record_changes(messages: list[Message], deps: AgentDeps, state: _State) -> 
     )
 
 
-def _needs_push_to_act(state: _State, *, plan_mode: bool, execution: ExecutionPolicy) -> bool:
-    """Model okumaktan çıkıp yazmaya itilmeli mi?
+def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
+    """Bloklayan doğrulama düzeltmesi HİÇ araç çağırmadan turu kapatıyor mu?
 
-    Yalnızca görev GERÇEKTEN değişiklik istiyorsa konuşur (`requires_tool_evidence`
-    ya da karmaşık görev türü); "şu dosyayı açıkla" gibi bir işte okumak zaten
-    doğru davranıştır ve dürtmek turu bozardı.
+    Yalnızca `require_local_mutation` (blocking verification correction) dalı
+    kalır: bu alt tur gerçek bir mutation ÜRETMEK ZORUNDADIR, dış turun eski
+    kanıtıyla kapanamaz. Genel "karmaşık görevde hiç araç çağırmadı" dürtüsü
+    kaldırıldı (B4/A13): model ne zaman araç kullanacağına kendi karar verir ve
+    araçsız bitirdiği bir tur, aksini gerektiren bir kapıya (kanıt kapısı,
+    doğrulama düzeltmesi) çarpmıyorsa geçerli bir teslimdir.
 
-    Ölçüt yapısaldır: arka arkaya kaç araç turu hiçbir mutasyon üretmedi. Metne
-    bakılmaz, niyet tahmin edilmez.
+    BİR KEZ değil İKİ KEZ konuşur (blocking correction'a özeldir): model ikinci
+    kez de araçsız gelirse zorlamak çağrı harcamaktır; o noktada cevabı olduğu
+    gibi teslim etmek dürüst olandır.
     """
-    if plan_mode or not execution.allow_mutation:
+    if not state.require_local_mutation:
         return False
-    if not (execution.requires_tool_evidence or execution.complex_task):
-        return False
-    if state.explore_pushes >= MAX_EXPLORE_PUSHES:
-        return False
-    return state.read_only_rounds >= MAX_READ_ONLY_ROUNDS
-
-
-def _stopped_without_acting(
-    state: _State, budget: TurnBudget, *, execution: ExecutionPolicy
-) -> bool:
-    """Model kod değiştirmesi gereken bir işte yalnızca OKUYUP durdu mu?
-
-    Ölçüldü (Gemini web, aynı görev üç kez): iki koşuda model dosyaları okudu, sonra
-    araç çağrısı ÜRETMEDEN düzyazı yazdı — birinde kodu markdown bloğu olarak döktü,
-    ötekinde "ilgili dosyaları okuma aracını çağırıyorum" deyip hiç çağırmadı.
-    Fusion ikisini de nihai cevap sayıp turu bitirdi; hiçbir dosya değişmedi.
-
-    Kanıt kapısı bunu yakalayamıyordu çünkü `required_effect` dar metin kalıplarına
-    bakar ve "testleri geçir" ifadesinde boş kalır. Burada karar GÖREV TÜRÜNDEN
-    verilir: iş kod değiştirmeyi gerektiren cinstense ve tur boyunca hiçbir şey
-    değişmediyse, düzyazı bir teslim değildir.
-
-    Duyuru metnini dilsel olarak tanımaya çalışmaz — o yol dile ve kalıba bağımlıdır.
-    Bakılan tek şey yapısaldır: iş başlamış (araç çağrılmış) ama hiçbir mutasyon
-    olmamıştır. Hak `max_auto_continues` ile sınırlıdır; model ısrar ederse tur biter.
-
-    Devretme bu kuralın DIŞINDADIR: işi alt-ajana veren bir turun kendisi dosya
-    değiştirmez ve değiştirmesi de beklenmez. Alt-ajanın kendi bütçesi ve kapıları
-    zaten oradadır; ana turu ikinci kez zorlamak yalnızca çağrı harcar.
-    """
-    if not execution.complex_task or state.tool_calls_made == 0:
-        return False
+    # Blocking verification correction dış turun eski evidence'ı ile kapanamaz;
+    # BU alt tur gerçek bir mutation üretmelidir.
     if state.mutating_tool_calls_made > 0:
         return False
-    return not any(name in _DELEGATION_TOOLS for name, _, _ in budget.successful_tool_evidence)
-
-
-#: İşi devreden araçlar — bunları çağıran tur "hiçbir şey yapmadı" sayılmaz.
-_DELEGATION_TOOLS = frozenset({"spawn_agent", "invoke_subagent"})
-
-
-def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
-    """Karmaşık bir görevde model HİÇ araç çağırmadan turu kapatıyor mu?
-
-    Ölçüldü (canlı koşu): model üç tur boyunca "somut bir görev almadım, dizin
-    içeriğini listeliyorum" tarzı düz yazı üretti, tek satır değişmedi ve tur
-    `ok=True` ile kapandı. Hiçbir kapı konuşmadı çünkü var olan iki kapı da
-    (`_stopped_without_acting`, `_asked_instead_of_acting`) sıfır çağrıyı
-    dışarıda bırakıyor — ikisi de "araç çağırdı ama değiştirmedi" için yazılmış.
-    En kötü durum ise "hiç çağırmadı"dır ve tam olarak o kapsam dışıydı.
-
-    Kanıt kapısı bu boşluğu doldurmuyor: yalnızca görevden somut bir etki
-    çıkarılabildiğinde (`required_effect`) açılıyor, yani her görevde değil.
-
-    BİR KEZ konuşur. Model ikinci kez de araçsız gelirse zorlamak çağrı harcamaktır;
-    o noktada cevabı olduğu gibi teslim etmek dürüst olandır.
-    """
-    if state.require_local_mutation:
-        # Blocking verification correction dış turun eski evidence'ı ile
-        # kapanamaz; BU alt tur gerçek bir mutation üretmelidir.
-        if state.mutating_tool_calls_made > 0:
-            return False
-        if not execution.offer_tools:
-            return False
-        return state.never_acted_prompts < 2
-
-    if not execution.complex_task or state.internal:
+    if not execution.offer_tools:
         return False
-    if state.tool_calls_made > 0:
-        return False
-    # Kullanıcı "araç kullanma" dediyse ya da araçlar hiç sunulmadıysa araçsız tur
-    # BEKLENEN davranıştır. `max_evidence_reprompts` bu durumda zaten sıfırlanıyor;
-    # aynı sinyal burada da geçerlidir, ikinci bir bayrak icat edilmez.
-    if not execution.offer_tools or execution.max_evidence_reprompts <= 0:
-        return False
-    return state.never_acted_prompts < 1
+    return state.never_acted_prompts < 2
 
 
 def _targeted_edit_required(
@@ -1628,21 +1500,22 @@ def _targeted_edit_required(
         # Küçük dosyada çıkış yolu VARDIR ve söylenmelidir: tamamını okuduktan
         # sonra toptan yazma serbest (bkz. `_rewrite_is_last_resort`).
         #
-        # Ölçüldü (13 Eylül, koşu 27): mesaj yalnız `replace_range` öneriyordu.
-        # Model `scenes/main.tscn` için `write_file` denedi, engellendi, `edit_file`
-        # ile boş 'old' gönderdi, tekrar `write_file` denedi ve tekrar kapısına
-        # takıldı; adım bütçesi doldu, sahne hiç yazılamadı. Sahne dosyası
-        # satır satır yamanacak bir metin değildir, yeniden üretilir.
+        # Ölçüldü (13 Eylül, koşu 27): mesaj yalnız kaldırılan `replace_range`
+        # aracını öneriyordu. Model `scenes/main.tscn` için `write_file` denedi,
+        # engellendi, `edit_file` ile boş 'old' gönderdi, tekrar `write_file`
+        # denedi ve tekrar kapısına takıldı; adım bütçesi doldu, sahne hiç
+        # yazılamadı. Sahne dosyası satır satır yamanacak bir metin değildir,
+        # yeniden üretilir.
         return [
             f"'{raw}' zaten var ({satir} satır) ve İÇERİĞİNİ BU ADIMDA OKUMADIN. "
             "Önce `read_file` ile TAMAMINI oku; tamamını gördükten sonra `write_file` "
             "ile yeniden yazmana izin verilir. Yalnız küçük bir parça değişecekse "
-            "`replace_range` ile o aralığı gönder."
+            "`edit_file` ile o parçayı gönder."
         ]
     return [
         f"'{raw}' zaten var ve {satir} satır. Var olan dosyayı toptan yeniden yazma — "
-        "önce read_file ile ilgili satırları gör, sonra replace_range ile YALNIZCA yeni "
-        "parçayı gönder. Kısa exact-text değişimi dışında edit_file'a düşme."
+        "önce read_file ile ilgili satırları gör, sonra edit_file ile YALNIZCA değişecek "
+        "parçayı gönder."
     ]
 
 
@@ -2123,7 +1996,7 @@ def _duplicate_call_message() -> str:
         "sorunuysa yolu değiştir (ör. 'res://' ekini kaldır ya da ekle, göreli "
         "yol yerine tam yol ver).\n"
         "2) Aynı işi yapan BAŞKA bir aracı dene.\n"
-        "3) Dosya işi ise: yeni dosyada write_file, mevcut dosyada replace_range, "
+        "3) Dosya işi ise: yeni dosyada write_file, mevcut dosyada edit_file, "
         "başka bir dosyayı read_file ile oku.\n"
         "4) Eksik bilgi varsa ask_user ile sor.\n"
         "5) İş bittiyse sonucu söyle."
@@ -2167,7 +2040,7 @@ def _suggested_tool_schema(
     """Hata metninde ADIYLA önerilen BAŞKA aracın şeması; yoksa None.
 
     Metinde birden çok araç anılıyorsa EN SONA yazılan seçilir: öneriler sıra
-    halinde yazılıyor ("önce read_file ile gör, sonra replace_range ile gönder")
+    halinde yazılıyor ("önce read_file ile gör, sonra edit_file ile gönder")
     ve modelin yanlış yaptığı adım zincirin sonundaki YAZMA adımıdır.
     """
     if registry is None:
@@ -2427,7 +2300,7 @@ def _verification_correction_task(task: str, verification: VerificationResult) -
         "Doğrulama/test komutunu şimdi TEKRAR ÇALIŞTIRMA; kapı sen değişiklik "
         "yaptıktan sonra otomatik olarak yeniden çalışacak. Gerekirse ilgili dosyayı "
         "oku, fakat ardından en az bir gerçek değiştirici araç çağır "
-        "(replace_range/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
+        "(edit_file/write_file vb.). Salt açıklama, plan, JSON veya kod bloğu "
         "düzeltme değildir. Düzeltemeyeceğin varsa nedenini tek cümleyle yaz. "
         f"\n\n{findings}"
     )
