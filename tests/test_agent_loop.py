@@ -492,26 +492,63 @@ async def test_ask_user_onerilen_secenekleri_askere_gecirir(monkeypatch, tmp_pat
 
 
 async def test_oz_denetim_sorun_yoksa_ikinci_tur_acmaz(monkeypatch, tmp_path, sink):
-    provider = _kur(monkeypatch, ScriptedProvider([model_result("temiz cevap")]))
+    """Öz-denetim yalnız GERÇEK mutasyon olan turda çalışır (bkz. B2 gecikmesi)."""
+    provider = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("temiz cevap"),
+            ]
+        ),
+    )
     monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim(""))
 
     await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": True}))
 
-    assert provider.calls == 1
+    assert provider.calls == 2
     olay = next(e for e in sink.events if isinstance(e, SelfReviewFinished))
     assert not olay.issue_found
 
 
 async def test_oz_denetim_sorun_bulursa_duzeltici_tur_calisir(monkeypatch, tmp_path, sink):
     provider = _kur(
-        monkeypatch, ScriptedProvider([model_result("eksik cevap"), model_result("duzeltilmis")])
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("eksik cevap"),
+                model_result("duzeltilmis"),
+            ]
+        ),
     )
     monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("testleri calistirmadin"))
 
     sonuc = await run_agent("gorev", _deps(tmp_path, sink, runtime={"self_review": True}))
 
-    assert provider.calls == 2
-    assert sonuc.final_text == "duzeltilmis"
+    assert provider.calls == 3
+    assert sonuc.final_text.endswith("duzeltilmis")
+
+
+async def test_oz_denetim_yalniz_degisiklik_yapilan_turda_calisir(monkeypatch, tmp_path, sink):
+    """Araçsız/mutasyonsuz bir tur ("merhaba") hakem çağrısı harcamamalı (B2)."""
+    provider = _kur(monkeypatch, ScriptedProvider([model_result("merhaba")]))
+    denetim_cagrildi = False
+
+    async def _izlenen_denetim(*args, **kwargs):
+        nonlocal denetim_cagrildi
+        denetim_cagrildi = True
+        return ""
+
+    monkeypatch.setattr(agent_loop.review, "review_turn", _izlenen_denetim)
+
+    sonuc = await run_agent(
+        "Sadece 'merhaba' yaz", _deps(tmp_path, sink, runtime={"self_review": True})
+    )
+
+    assert provider.calls == 1
+    assert denetim_cagrildi is False
+    assert sonuc.final_text == "merhaba"
 
 
 async def test_mutasyondan_sonraki_arac_sozlesmesi_hatasi_oz_denetimi_atlamaz(
@@ -869,7 +906,7 @@ async def test_kapi_bulgusuz_basarisizlikta_da_duzeltir(monkeypatch, tmp_path, s
     sonuc = await run_agent("test yaz", deps)
 
     assert dogrulayici.calls == 2, "kapı düzeltmeden sonra bir kez daha bakmalı"
-    assert sonuc.final_text == "duzeltme yapildi"
+    assert sonuc.final_text.endswith("duzeltme yapildi")
 
 
 async def test_kapi_sonsuz_dongu_yapmaz(monkeypatch, tmp_path, sink):
@@ -955,7 +992,7 @@ async def test_bos_cevapta_bir_kez_daha_denenir(monkeypatch, tmp_path, sink):
 
     assert provider.calls == 3, "boş cevaptan sonra devam edilmeli"
     assert (tmp_path / "a.py").exists(), "iş yapılmalı"
-    assert sonuc.final_text == TAM_CEVAP
+    assert sonuc.final_text.endswith(TAM_CEVAP)
 
 
 async def test_israrli_bos_cevapta_sonsuz_donguye_girilmez(monkeypatch, tmp_path, sink):
@@ -1029,38 +1066,36 @@ async def test_araçsiz_sohbet_turu_rozet_kosulunu_tetiklemez(monkeypatch, tmp_p
     assert sonuc.made_no_changes is False
 
 
-# --- düzeltici tur görevi taşır ve cevabı iki kez basmaz -------------------- #
+# --- düzeltme turu sahte bir kullanıcı mesajı gibi davranmaz ---------------- #
 #
-# Gerçek koşu: öz-denetim "sorun bulundu" dedi, düzeltici tur açıldı ve model
-# dizini baştan listeleyip "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek
-# turu bitirdi — birinci turda yapılmış işi de götürerek. Talimat yalnızca
-# "bir öz-denetim şu sorunu işaret etti" diyordu; hedef hiçbir yerde yoktu.
-#
-# Aynı koşuda cevap ekrana YAPIŞIK İKİ KEZ düştü: düzeltici tur `depth=0`
-# olduğu için o da nihai cevabını yayınlıyordu.
+# Eski davranış: talimat "Kullanıcının görevi şuydu: …" diye görevi BAŞTAN
+# anlatıyordu. Tek konuşma geçmişi ilkesiyle (görev zaten paylaşılan geçmişte
+# duruyor) bu ikinci, SAHTE bir kullanıcı mesajı gibi davranıyordu ve model onu
+# görevin yeniden verildiği sanıp "iş henüz verilmedi, ne yapmamı istiyorsunuz"
+# diyerek turu bitirebiliyordu — birinci turda yapılmış işi de götürerek.
 
 
-def test_duzeltici_tur_talimati_kullanicinin_gorevini_tasir():
-    from fusion_cli.core.budget import TurnBudget
-    from fusion_cli.core.clock import SystemClock
-    from fusion_cli.engines.agent.loop import _correction_task
+def test_duzeltme_turu_gorevi_sahte_kullanici_mesajiyla_tekrarlamaz():
+    from fusion_cli.engines.agent.loop import CORRECTION_NOTE_PREFIX, _correction_task
 
-    butce = TurnBudget(
-        clock=SystemClock(),
-        max_model_calls=10,
-        max_verify_rounds=1,
-        max_empty_retries=1,
-        max_contract_repairs=1,
-        max_auto_continues=1,
-        max_idle_rounds=3,
-    )
-    butce.successful_tool_evidence.append(("read_file", {"path": "app/page.tsx"}, True))
-    metin = _correction_task("dashboard'ı çalışır hale getir", "hiçbir dosya değişmedi", butce)
+    metin = _correction_task("hiçbir dosya değişmedi")
 
-    assert "dashboard'ı çalışır hale getir" in metin
-    assert "sıfırdan başlamıyorsun" in metin
+    assert metin.startswith(CORRECTION_NOTE_PREFIX)
     assert "hiçbir dosya değişmedi" in metin
-    assert "read_file(app/page.tsx)" in metin, "zaten yapılanlar hatırlatılmalı"
+    assert "Kullanıcının görevi şuydu" not in metin
+
+
+def test_dogrulama_duzeltmesi_de_gorevi_sahte_kullanici_mesajiyla_tekrarlamaz():
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.loop import CORRECTION_NOTE_PREFIX, _verification_correction_task
+
+    metin = _verification_correction_task(
+        VerificationResult(ok=False, summary="x", findings=("boş bağlantı",))
+    )
+
+    assert metin.startswith(CORRECTION_NOTE_PREFIX)
+    assert "boş bağlantı" in metin
+    assert "Kullanıcının görevi şuydu" not in metin
 
 
 async def test_ic_tur_nihai_cevabi_yayinlamaz(monkeypatch, tmp_path, sink):
@@ -1984,3 +2019,115 @@ async def test_degistiren_turda_kapi_calisir(monkeypatch, tmp_path, sink):
     await run_agent("dosya yaz", deps)
 
     assert deps.verifier.calls == 1
+
+
+# --- tur raporu: gerçek çıktıya bağlanır (Görev 6) -------------------------- #
+
+
+async def test_degisiklik_yoksa_rapor_eklenmez(monkeypatch, tmp_path, sink):
+    """D4: okuma turu ya da araçsız sohbet turu final metne hiçbir şey eklemez."""
+    _kur(monkeypatch, ScriptedProvider([model_result("merhaba")]))
+
+    sonuc = await run_agent(
+        "Sadece 'merhaba' yaz", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert sonuc.final_text == "merhaba"
+
+
+async def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_gelir(
+    monkeypatch, tmp_path, sink
+):
+    """A12: model 'hiçbir dosya değiştirmedim' dese bile rapor GERÇEK kaydı listeler."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    tool_calls=[
+                        tool_call("write_file", path="a.py", content="a"),
+                        tool_call("write_file", path="b.py", content="b"),
+                    ]
+                ),
+                model_result("Hiçbir dosya değiştirmedim."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "iki dosya oluştur", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "a.py" in sonuc.final_text
+    assert "b.py" in sonuc.final_text
+    assert "Hiçbir dosya değiştirmedim." in sonuc.final_text
+
+
+async def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar(
+    monkeypatch, tmp_path, sink
+):
+    """A1: hiçbir doğrulama komutu çalışmadıysa rapor bunu dürüstçe söyler."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("Tüm testler geçti."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py yaz", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert "ÇALIŞTIRILMADI" in sonuc.final_text
+    assert sonuc.ok is True, "kanıt eksikliği turu başarısız SAYMAZ; dürüst bir uyarıdır"
+
+
+async def test_son_degisiklikten_sonra_basarisiz_test_turu_basarisiz_yapar(
+    monkeypatch, tmp_path, sink
+):
+    """`run_shell("pytest -q")` çıkış kodu 1 dönerse rapor 'başarısız' der ve ok=False olur."""
+    # Gerçek `pytest` kurulu olmayabilir/farklı çıkış kodu dönebilir; deterministik
+    # çıkış kodu için yerel bir `pytest` betiği kullanılır — `is_behavioral_command`
+    # yalnızca PROGRAM adına bakar (`./pytest` → `pytest`), gerçek pakete değil.
+    sahte_pytest = tmp_path / "pytest"
+    sahte_pytest.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    sahte_pytest.chmod(0o755)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result(tool_calls=[tool_call("run_shell", command="./pytest -q")]),
+                model_result("Test çalıştırdım."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "a.py yaz ve dogrula", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "başarısız" in sonuc.final_text
+    assert "çıkış 1" in sonuc.final_text
+    assert sonuc.ok is False
+
+
+async def test_degisiklikten_once_calisan_test_kanit_sayilmaz(monkeypatch, tmp_path, sink):
+    """Mutasyondan ÖNCE geçen bir test o mutasyonu kanıtlamaz."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command="python -c \"exit(0)\"")]),
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("Tamamlandı."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "once test sonra yaz", _deps(tmp_path, sink, runtime={"self_review": False})
+    )
+
+    assert "ÇALIŞTIRILMADI" in sonuc.final_text

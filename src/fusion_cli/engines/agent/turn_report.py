@@ -1,0 +1,191 @@
+"""Tur raporu: başarı beyanı gerçek araç kaydına ve komut çıktısına bağlanır.
+
+Ölçülen sorun: agent "tüm testler geçti" ya da "hiçbir dosya değiştirmedim"
+diyebiliyordu ve bu cümle modelin kendi beyanıydı — gerçek değişiklik kaydına
+(`ChangeSet`) ya da gerçekten çalışan bir komuta bakılmıyordu. Bu modül modelin
+sözünü değil, turda GERÇEKTEN dokunulan dosyaları ve GERÇEKTEN çalışan kabuk
+komutlarının çıkış kodunu okur.
+
+Saf modül: ağır bağımlılık yok, yalnızca `ToolUse`/`VerificationResult` tiplerini
+ve `verify_discovery.is_behavioral_command` sınıflandırıcısını tüketir.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ...core.evidence import ToolUse
+from ...core.verification import VerificationResult
+from .verify_discovery import is_behavioral_command
+
+#: Kabuk komutu çalıştıran tek araç. Diğer değiştirici araçlar (edit_file,
+#: write_file, multi_edit…) DOSYA mutasyonu sayılır; bu isim mutasyon sırasını
+#: hesaplarken bilinçli olarak DIŞLANIR (bkz. `_last_mutation_index`).
+RUN_SHELL_TOOL = "run_shell"
+
+#: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
+#: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
+_EXIT_CODE_PREFIX = "(çıkış kodu "
+
+
+@dataclass(frozen=True, slots=True)
+class CommandRun:
+    """Turda denenen tek `run_shell` çağrısının doğrulama açısından kaydı."""
+
+    command: str
+    #: Çıkış kodu okunabildiyse; okunamadıysa (zaman aşımı, ayrıştırılamayan
+    #: çıktı) `None` — bu bir başarı KANITI değildir.
+    exit_code: int | None
+    #: Bu komut, turdaki SON dosya mutasyonundan SONRA mı çalıştı?
+    #:
+    #: Sıra önemlidir: mutasyondan ÖNCE geçen bir test, o mutasyonu kanıtlamaz.
+    after_last_mutation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TurnReport:
+    """Bir turun (ya da bir plan yürütmesinin) doğrulanabilir özeti."""
+
+    changed_paths: tuple[str, ...] = ()
+    command_runs: tuple[CommandRun, ...] = ()
+    #: Deterministik kalite kapısının (ruff/mypy/verifier) sonucu; yoksa `None`.
+    gate: VerificationResult | None = None
+
+    @property
+    def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
+        """Son mutasyondan SONRA çalışan, davranışı KANITLAYAN komutlar."""
+        return tuple(
+            run
+            for run in self.command_runs
+            if run.after_last_mutation and is_behavioral_command(run.command)
+        )
+
+    @property
+    def is_verified(self) -> bool | None:
+        """`None` = değişiklik yok, sorulacak bir şey yok.
+
+        Değişiklik varsa: son mutasyondan sonra çalışan davranış kanıtı YOKSA
+        veya kanıtlardan biri başarısızsa `False`; hepsi başarılıysa `True`.
+        """
+        if not self.changed_paths:
+            return None
+        evidence = self._behavioral_evidence
+        if not evidence:
+            return False
+        return all(run.exit_code == 0 for run in evidence)
+
+    @property
+    def blocks_success(self) -> bool:
+        """Turu BAŞARISIZ ilan etmeyi gerektiren somut bir kanıt var mı.
+
+        Eksik kanıt (hiçbir doğrulama komutu çalışmadı) turu başarısız SAYMAZ —
+        bu dürüst bir uyarıdır, hata değildir (bkz. plan §6, karar 3). Yalnız
+        GERÇEKTEN düşen bir kalite kapısı ya da GERÇEKTEN sıfırdan farklı çıkış
+        koduyla biten bir komut turu düşürür.
+        """
+        if self.gate is not None and not self.gate.ok:
+            return True
+        return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence)
+
+    def render(self) -> str:
+        """Türkçe, kısa bir rapor metni üret; değişiklik yoksa boş döner (D4)."""
+        if not self.changed_paths:
+            return ""
+        blocks = [*self._gate_blocks(), self._evidence_block()]
+        return "\n\n".join(block for block in blocks if block) + "\n\n"
+
+    def _gate_blocks(self) -> tuple[str, ...]:
+        gate = self.gate
+        if gate is None:
+            return ()
+        if not gate.ok:
+            findings = "\n".join(f"- {finding}" for finding in gate.findings[:5])
+            return (
+                "⚠ DOĞRULAMA GEÇMEDİ — yapılan değişiklikler projeyi kırıyor olabilir.\n"
+                f"{gate.summary}\n{findings}\n"
+                "Değişiklikleri gözden geçir; gerekirse `/undo` ile geri al.",
+            )
+        if gate.has_notes:
+            notes = "\n".join(
+                (
+                    *(f"- [uyarı] {finding}" for finding in gate.warnings[:5]),
+                    *(f"- [öneri] {finding}" for finding in gate.advisories[:5]),
+                )
+            )
+            return (f"⚠ Doğrulama notları — işi engellemiyor:\n{notes}",)
+        return ()
+
+    def _evidence_block(self) -> str:
+        dosyalar = ", ".join(self.changed_paths)
+        evidence = self._behavioral_evidence
+        if not evidence:
+            return (
+                f"ⓘ Değişen dosyalar: {dosyalar}\n"
+                "Son değişiklikten sonra bir doğrulama komutu ÇALIŞTIRILMADI; "
+                "sonuç doğrulanmadı."
+            )
+        basarisiz = tuple(run for run in evidence if run.exit_code != 0)
+        if basarisiz:
+            komutlar = "; ".join(f"`{run.command}` (çıkış {run.exit_code})" for run in basarisiz)
+            return f"✗ Doğrulama başarısız: {komutlar}\nDeğişen dosyalar: {dosyalar}"
+        komutlar = "; ".join(f"`{run.command}`" for run in evidence)
+        return f"✓ Doğrulandı: {komutlar} başarıyla çalıştı.\nDeğişen dosyalar: {dosyalar}"
+
+
+def build_turn_report(
+    changed_paths: tuple[str, ...],
+    tool_uses: tuple[ToolUse, ...],
+    gate: VerificationResult | None,
+) -> TurnReport:
+    """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
+    last_mutation = _last_mutation_index(tool_uses)
+    command_runs = tuple(
+        _command_run(use, after=last_mutation is not None and index > last_mutation)
+        for index, use in enumerate(tool_uses)
+        if use.name == RUN_SHELL_TOOL
+    )
+    return TurnReport(changed_paths=changed_paths, command_runs=command_runs, gate=gate)
+
+
+def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
+    """Son BAŞARILI dosya mutasyonunun sırası; `run_shell` mutasyon SAYILMAZ.
+
+    `run_shell` onay gerektirdiği için `mutating=True` işaretlidir ama bir dosya
+    DEĞİŞTİRDİĞİNİN kanıtı değildir (ör. `pytest -q`). Onu mutasyon sayarsak
+    doğrulama komutunun kendisi "son mutasyon" olur ve hiçbir komut ondan SONRA
+    saymaz.
+    """
+    for index in range(len(tool_uses) - 1, -1, -1):
+        use = tool_uses[index]
+        if use.mutating and use.ok and use.name != RUN_SHELL_TOOL:
+            return index
+    return None
+
+
+def _command_run(use: ToolUse, *, after: bool) -> CommandRun:
+    return CommandRun(
+        command=_command_text(use), exit_code=_exit_code(use), after_last_mutation=after
+    )
+
+
+def _command_text(use: ToolUse) -> str:
+    value = use.arguments.get("command") if isinstance(use.arguments, dict) else None
+    return value if isinstance(value, str) else ""
+
+
+def _exit_code(use: ToolUse) -> int | None:
+    """`run_shell` çıktısındaki `(çıkış kodu N)` önekinden çıkış kodunu oku.
+
+    TEK yardımcı: çıkış kodu tespiti burada toplanır, ikinci bir ayrıştırma
+    yolu açılmaz (RULES "hata tespiti tek yardımcı fonksiyondan geçer").
+    """
+    output = use.output
+    if not output.startswith(_EXIT_CODE_PREFIX):
+        return None
+    closing = output.find(")", len(_EXIT_CODE_PREFIX))
+    if closing == -1:
+        return None
+    try:
+        return int(output[len(_EXIT_CODE_PREFIX) : closing])
+    except ValueError:
+        return None

@@ -83,7 +83,7 @@ from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, history, learning_steps, reflexion, review
-from .approval import ApprovalPolicy, Decision, SecurityApproval, build_request
+from .approval import ApprovalPolicy, Decision, build_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import ExecutionPolicy, policy_for
@@ -92,6 +92,7 @@ from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .repo_context import repo_map_block
+from .turn_report import build_turn_report
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -528,12 +529,19 @@ async def run_agent(
         # uzun bir web turunun sonunda bulunan hata, düzeltici model daha araç
         # çağırmadan eski hareketsizlik süresine takılıyordu.
         budget.record_progress()
-        outcome = await _fix_findings(task, verification, outcome, deps)
+        outcome = await _fix_findings(verification, outcome, deps)
 
     # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
     # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
     # hatanın bütçe kapanınca verifier'a hiç ulaşmamasına yol açıyordu.
     should_review = deps.config.runtime.self_review if self_review is None else self_review
+    # Öz-denetim yalnız GERÇEK bir dosya mutasyonu olduğunda çalışır. Ölçüldü
+    # (B2 gecikmesi): "Sadece 'merhaba' yaz" gibi araçsız bir tur, eski koşulda
+    # (web taşımasında regex tabanlı `_web_self_review_needed`, API taşımasında
+    # koşulsuz) yine de bir hakem çağrısı harcıyordu. Koşul artık YAPISAL: metne
+    # bakmaz, yalnızca turda GERÇEKTEN mutasyon olup olmadığına bakar.
+    if outcome.mutating_tool_calls_made == 0:
+        should_review = False
     # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
     # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
     # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
@@ -544,25 +552,20 @@ async def run_agent(
     # bırakmamalı) bozardı.
     if budget.stop is BudgetStop.USER_DENIED:
         should_review = False
-    # Hiç artefakt üretmeyen provider/transport veya kanıtsız eylem sonucu cevap
-    # kalitesi değildir. Ancak başarılı bir mutasyondan SONRA gelen geç sözleşme/
-    # transport hatası diskteki artefaktı ortadan kaldırmaz; onu denetimsiz bırakmak
-    # gerçek kod kusurlarını gizler.
-    if should_review and not outcome.ok and outcome.mutating_tool_calls_made == 0:
-        should_review = False
     # Yanlış dizinde düzeltilecek bir şey YOKTUR. Ölçüldü: öz-denetim düzeltici
     # turu tam bu durumda görevi terk edip kendine yeni iş uydurdu (o projenin
     # README'sini okuyup "test paketini çalıştır" diye plan yazdı). Doğru cevap
     # "bu dizinde o dosyalar yok" demektir; onu ikinci bir tur iyileştiremez.
     if outcome.wrong_workspace:
         should_review = False
-    if should_review and execution.conditional_self_review:
-        should_review = _web_self_review_needed(task, execution, outcome, deps)
     if should_review and not plan_mode and depth == 0 and outcome.final_text.strip():
         outcome = await _self_review(task, outcome, deps)
 
-    _mark_verification_notes(outcome, verification)
-    _mark_unverified(outcome, verification)
+    # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
+    # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
+    # turunda yazma tamamen kapalı olmalı").
+    if not chat_mode:
+        _apply_turn_report(outcome, deps, gate=verification)
 
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
     # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
@@ -596,58 +599,34 @@ async def run_agent(
     return outcome
 
 
-#: Doğrulama düzeltilemediğinde cevabın başına eklenen uyarı.
-#
-# Ölçüldü: model `app/page.tsx`'e yinelenen fonksiyon tanımları ekledi, doğrulama
-# kapısı bunu YAKALADI, düzeltici tur açıldı, düzeltme de tutmadı ve kapı hakkı
-# bitti. Tur yine de BAŞARI özetiyle kapandı ("bileşenleri ekleyip eksik
-# tanımları tamamladım") ve kullanıcının projesi 8 derleme hatasıyla bozuk kaldı.
-#
-# Bildiğimiz bir bozukluğu başarı diye teslim etmek, hiç yazmamaktan kötüdür.
-UNVERIFIED_WARNING = (
-    "⚠ DOĞRULAMA GEÇMEDİ — yapılan değişiklikler projeyi kırıyor olabilir.\n"
-    "{summary}\n{findings}\n"
-    "Değişiklikleri gözden geçir; gerekirse `/undo` ile geri al.\n\n"
-)
-
-
-def _mark_unverified(outcome: AgentOutcome, verification: VerificationResult | None) -> None:
-    """Doğrulama düzeltilemediyse turu BAŞARI olarak kapatma.
-
-    Kapı hakkı bittiğinde sonuç sessizce yutuluyordu: elimizde "bu değişiklik
-    projeyi kırıyor" bilgisi varken kullanıcıya başarı özeti gidiyordu.
-    """
-    if verification is None or verification.ok:
-        return
-    bulgular = "\n".join(f"- {finding}" for finding in verification.findings[:5])
-    outcome.final_text = (
-        UNVERIFIED_WARNING.format(summary=verification.summary, findings=bulgular)
-        + outcome.final_text
-    )
-    outcome.ok = False
-
-
-VERIFICATION_NOTES = "⚠ Doğrulama notları — işi engellemiyor:\n{notes}\n\n"
-
-
-def _mark_verification_notes(
-    outcome: AgentOutcome,
-    verification: VerificationResult | None,
+def _apply_turn_report(
+    outcome: AgentOutcome, deps: AgentDeps, *, gate: VerificationResult | None
 ) -> None:
-    """Non-blocking doğrulama notlarını final cevaba ekle.
+    """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
 
-    Bunlar correction agent açmaz, `outcome.ok` değerini değiştirmez ve öğrenme
-    sisteminde başarısız tur sayılmaz.
+    Ölçüldü: model "hiçbir dosya değiştirmedim" ya da "tüm testler geçti"
+    diyebiliyordu ve bu cümle onun kendi sözüydü — gerçek değişiklik kaydına
+    (`deps.tool_context.changes`, A12) ya da gerçekten çalışan bir `run_shell`
+    çağrısının çıkış koduna (A1) hiç bakılmıyordu. `build_turn_report` yalnız bu
+    ikisine bakar; hiçbir mutasyon yoksa (D4) rapor boş kalır.
+
+    Bilinen bir bozukluğu (`gate.ok is False`) ya da GERÇEKTEN başarısız biten
+    bir doğrulama komutunu başarı diye teslim etmek hiç yazmamaktan kötüdür; bu
+    yüzden `report.blocks_success` turu `ok=False` yapar. Eksik kanıt (hiçbir
+    komut çalışmadı) bunun dışındadır — dürüst bir uyarıdır, hata değildir.
     """
-    if verification is None or not verification.has_notes:
+    from ...tools.files import display_path
+
+    changed_paths = tuple(
+        display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
+    )
+    report = build_turn_report(changed_paths, outcome.tool_uses, gate)
+    text = report.render()
+    if not text:
         return
-
-    lines = [
-        *(f"- [uyarı] {finding}" for finding in verification.warnings[:5]),
-        *(f"- [öneri] {finding}" for finding in verification.advisories[:5]),
-    ]
-
-    outcome.final_text = VERIFICATION_NOTES.format(notes="\n".join(lines)) + outcome.final_text
+    outcome.final_text = text + outcome.final_text
+    if report.blocks_success:
+        outcome.ok = False
 
 
 def _announce_answer(outcome: AgentOutcome, deps: AgentDeps, *, depth: int, internal: bool) -> None:
@@ -2075,122 +2054,27 @@ def _tool_contract_abort_message(detail: str) -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _web_self_review_needed(
-    task: str, execution: ExecutionPolicy, outcome: AgentOutcome, deps: AgentDeps
-) -> bool:
-    """Run Web-AI review only when it can improve a valid model answer.
+#: Öz-denetim / doğrulama kapısı düzeltmesi turlarına eklenen notların ortak
+#: öneki. Bu bir kullanıcı mesajı DEĞİLDİR; modelin bunu görevin yeniden
+#: verildiği sanmaması için Fusion'ın kendi sesiyle işaretlenir.
+CORRECTION_NOTE_PREFIX = "[Fusion doğrulama]"
 
-    Provider/authentication/timeout failures are transport failures, not answer-quality
-    problems. Sending them to the same model for review hides the real error and creates
-    two extra browser calls. Tool failures remain reviewable after the model produces a
-    usable final answer.
+
+def _correction_task(feedback: str) -> str:
+    """Öz-denetim düzeltmesi için KISA not üret.
+
+    Ölçüldü: eski talimat kullanıcının görevini BAŞTAN anlatıyordu
+    ("Kullanıcının görevi şuydu: …") ve model bunu SAHTE bir yeni kullanıcı
+    mesajı sanıp "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek turu
+    bitiriyordu — birinci turda yapılmış işi de götürerek. Tek konuşma geçmişi
+    ilkesi burada da geçerlidir: görev zaten paylaşılan geçmişte duruyor,
+    tekrar anlatmaya gerek yok; yalnız hangi sorunun düzeltileceği söylenir.
     """
-    if not outcome.ok and outcome.mutating_tool_calls_made == 0:
-        return False
-    if outcome.hit_step_limit or outcome.failed_tool_calls > 0:
-        return True
-    if outcome.mutating_tool_calls_made > 0:
-        return True
-
-    lowered = task.lower()
-    explicit_no_tools = any(
-        marker in lowered
-        for marker in (
-            "araç kullanma",
-            "arac kullanma",
-            "tool kullanma",
-            "araç çağırma",
-            "arac cagirma",
-        )
+    return (
+        f"{CORRECTION_NOTE_PREFIX} Bir öz-denetim şu sorunu işaret etti. Gerekiyorsa "
+        "düzelt; haklı değilsen kısaca neden sorun olmadığını açıkla.\n\n"
+        f"{feedback}"
     )
-    direct_response = bool(
-        re.search(
-            r"^\s*(?:sadece|yalnızca|yalnizca)\b.{0,220}\b"
-            r"(?:yaz|söyle|soyle|cevapla|döndür|dondur)\b",
-            lowered,
-            re.DOTALL,
-        )
-    )
-    if outcome.tool_calls_made == 0 and (explicit_no_tools or direct_response):
-        return False
-
-    if outcome.tool_calls_made == 0 and len(task.strip()) <= 160:
-        risky_markers = (
-            "kod",
-            "python",
-            "javascript",
-            "typescript",
-            "dosya",
-            "proje",
-            "test",
-            "hata",
-            "bug",
-            "düzelt",
-            "duzelt",
-            "sil",
-            "değiştir",
-            "degistir",
-            "uygula",
-            "patch",
-        )
-        if not any(marker in lowered for marker in risky_markers):
-            return False
-
-    if execution.complex_task:
-        return True
-    # Güvenlik kipinde kullanıcı her değişikliği tek tek onaylamıştır; araç çalışan
-    # bir turu denetimsiz bırakmak o kipin amacına aykırı olurdu.
-    return isinstance(deps.policy, SecurityApproval) and outcome.tool_calls_made > 0
-
-
-#: Düzeltici tura verilen talimat. Kullanıcının ASIL GÖREVİ tekrar edilir.
-#
-# Ölçüldü: talimat yalnızca "bir öz-denetim şu sorunu işaret etti" diyordu ve
-# düzeltici tur görevi kaybediyordu. Model dizini baştan listeledi, dosyaları
-# yeniden okudu ve "iş henüz verilmedi, ne yapmamı istiyorsunuz" diyerek turu
-# bitirdi — birinci turda yapılmış işi de götürerek. Düzeltici tur bir ARA
-# adımdır; hedefi kendi başına taşımalıdır.
-_CORRECTION_TASK = (
-    "Kullanıcının görevi şuydu:\n{task}\n\n"
-    "Bu göreve devam ediyorsun; sıfırdan başlamıyorsun ve kullanıcıya görevi geri "
-    "sormuyorsun.{done}\n"
-    "Bir öz-denetim aşağıdaki sorunu işaret etti. Gerekiyorsa düzelt; haklı değilse "
-    "kısaca neden sorun olmadığını açıkla.\n\n{feedback}"
-)
-
-#: Düzeltici tura verilen "zaten yaptıkların" özeti.
-#
-# Ölçüldü: düzeltici tur dizini baştan listeledi, package.json'ı yeniden okudu,
-# app ve components dizinlerini gezdi ve ancak beşinci turda düzenlemeye geldi.
-# Geçmiş prompta gönderiliyor ama model onu KENDİ hafızası değil bir döküm gibi
-# okuyor. Ne yaptığını açıkça söylemek o beş turu geri kazandırır.
-_ALREADY_DONE = "\n\nBu turda ZATEN yaptıkların (tekrarlama):\n{items}"
-#: Özette gösterilecek en fazla adım. Amaç hatırlatmak, izi baştan sona dökmek değil.
-MAX_DONE_ITEMS = 12
-
-
-def _already_done_block(budget: TurnBudget) -> str:
-    """Turda başarıyla çalışan araçları kısa bir liste olarak yaz."""
-    gorulen: list[str] = []
-    for name, args, _ in budget.successful_tool_evidence:
-        hedef = next(
-            (
-                str(args[alan])
-                for alan in ("path", "command", "pattern", "query")
-                if isinstance(args.get(alan), str)
-            ),
-            "",
-        )
-        satir = f"- {name}({hedef})" if hedef else f"- {name}"
-        if satir not in gorulen:
-            gorulen.append(satir)
-    if not gorulen:
-        return ""
-    return _ALREADY_DONE.format(items="\n".join(gorulen[:MAX_DONE_ITEMS]))
-
-
-def _correction_task(task: str, feedback: str, budget: TurnBudget) -> str:
-    return _CORRECTION_TASK.format(task=task, feedback=feedback, done=_already_done_block(budget))
 
 
 async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> AgentOutcome:
@@ -2203,7 +2087,7 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
         return outcome
 
     correction = await run_agent(
-        _correction_task(task, feedback, deps.require_budget()),
+        _correction_task(feedback),
         deps,
         history=outcome.messages,
         self_review=False,
@@ -2244,7 +2128,7 @@ async def _verify(
 
 
 async def _fix_findings(
-    task: str, verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
+    verification: VerificationResult, outcome: AgentOutcome, deps: AgentDeps
 ) -> AgentOutcome:
     """Somut bulguları modele düzeltme talimatı olarak ver ve TEK düzeltici tur aç.
 
@@ -2255,7 +2139,7 @@ async def _fix_findings(
     deps.publisher.publish(
         VerificationFailed(summary=verification.summary, findings=verification.findings)
     )
-    correction_task = _verification_correction_task(task, verification)
+    correction_task = _verification_correction_task(verification)
     correction_deps = _verification_correction_deps(deps)
     correction = await _run_verification_correction_attempt(
         correction_task,
@@ -2287,15 +2171,16 @@ async def _fix_findings(
     return correction
 
 
-def _verification_correction_task(task: str, verification: VerificationResult) -> str:
+def _verification_correction_task(verification: VerificationResult) -> str:
     # Bulgu yoksa özet tek başına talimat olur: elde bundan fazlası yok, ama
     # "doğrulama düştü" bilgisi bile modele hiçbir şey söylememekten iyidir.
     details = verification.findings or ((verification.summary,) if verification.summary else ())
     findings = "\n".join(f"- {finding}" for finding in details)
-    # Görev tekrar edilir: düzeltici tur bir ARA adımdır, hedefi kendi başına taşır.
+    # Görev TEKRAR EDİLMEZ: paylaşılan geçmiş zaten taşıyor. Talimat sahte bir
+    # kullanıcı mesajı gibi davranıp modelin "görev yeniden mi verildi" sanmasına
+    # yol açmasın diye Fusion'ın kendi sesiyle (`CORRECTION_NOTE_PREFIX`) işaretlenir.
     return (
-        f"Kullanıcının görevi şuydu:\n{task}\n\n"
-        "Bu göreve devam ediyorsun. Doğrulama kapısı üretilen çıktıda şu somut "
+        f"{CORRECTION_NOTE_PREFIX} Doğrulama kapısı üretilen çıktıda şu somut "
         "sorunları buldu. Bunları gerçek kod değişiklikleriyle düzelt. "
         "Doğrulama/test komutunu şimdi TEKRAR ÇALIŞTIRMA; kapı sen değişiklik "
         "yaptıktan sonra otomatik olarak yeniden çalışacak. Gerekirse ilgili dosyayı "

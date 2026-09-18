@@ -109,6 +109,49 @@ async def test_runner_bagimli_adimlari_sirayla_calistirir(tmp_path):
     assert "patch tamamlandı" in result.final_text
 
 
+async def test_plan_sonucu_ayni_raporu_kullanir(tmp_path):
+    """`finish` de `run_agent`'taki turlarla AYNI raporu (gerçek değişiklik kaydı)
+    kullanır: son adımın "değiştirmedim" cümlesi rapordaki gerçek dosya listesiyle
+    çelişse bile dosyalar görünür (A12)."""
+    plan = ExecutionPlan(
+        plan_id="p",
+        task="özellik ekle",
+        steps=(_step("inspect"), _step("patch", depends_on=("inspect",))),
+    )
+
+    @dataclass
+    class _IddialiAgent:
+        prompts: list[str] = field(default_factory=list)
+
+        async def __call__(self, task, deps, **kwargs):
+            del kwargs
+            self.prompts.append(task)
+            if "inspect işini" in task:
+                return AgentOutcome(
+                    final_text="inspect tamamlandı",
+                    messages=[Message("assistant", "inspect tamamlandı")],
+                    tool_calls_made=1,
+                    model_calls_made=1,
+                )
+            hedef = deps.tool_context.root / "a.py"
+            hedef.write_text("x", encoding="utf-8")
+            deps.tool_context.changes.record_created(hedef)
+            return AgentOutcome(
+                final_text="hiçbir dosya değiştirmedim",
+                messages=[Message("assistant", "hiçbir dosya değiştirmedim")],
+                tool_calls_made=1,
+                model_calls_made=1,
+            )
+
+    result = await run_execution_plan(
+        "özellik ekle", _FakeDeps(ToolContext(root=tmp_path)), _IddialiAgent(), plan=plan
+    )
+
+    assert result.ok is True
+    assert "a.py" in result.final_text
+    assert "hiçbir dosya değiştirmedim" in result.final_text
+
+
 async def test_runner_basarisiz_adimdan_sonra_bagimli_adimi_calistirmaz(tmp_path):
     plan = ExecutionPlan(
         plan_id="p",

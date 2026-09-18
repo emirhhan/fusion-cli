@@ -238,13 +238,17 @@ async def test_ozdenetim_turu_ana_turun_butcesini_devralir(monkeypatch, tmp_path
     Kurgu: ana tur TEMİZ biter (iki model çağrısı), sonra denetçi bir sorun bulur ve
     düzeltici tur açılır. Paylaşılan bütçede düzeltici tura yalnızca KALAN hak kadar
     çağrı düşer.
+
+    Ana turda bir MUTASYON (`write_file`) olmalı: öz-denetim artık yalnız gerçek
+    bir değişiklik olduğunda çalışır (bkz. `test_oz_denetim_yalniz_degisiklik_
+    yapilan_turda_calisir`, B2 gecikmesi).
     """
     provider = _kur(
         monkeypatch,
         ScriptedProvider(
             [
-                # Ana tur: bir araç çağrısı, sonra tamamlanmış görünen nihai cevap.
-                model_result(tool_calls=[tool_call("list_dir", path="alt-0")]),
+                # Ana tur: bir mutasyon, sonra tamamlanmış görünen nihai cevap.
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
                 model_result(TAM_CEVAP),
                 # Düzeltici tur: bütçe izin verdiği sürece araç çağırmayı sürdürür.
                 *[

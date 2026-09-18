@@ -68,6 +68,7 @@ from .progress import progress_fingerprint
 from .recovery import can_repair_local_inventory, choose_recovery, classify_failure
 from .replan import merge_replanned_plan
 from .step_verification import StepVerificationResult, verify_plan_acceptance, verify_step
+from .turn_report import build_turn_report
 
 if TYPE_CHECKING:
     from .loop import AgentDeps, AgentOutcome
@@ -306,6 +307,24 @@ class _PlanRun:
             )
         )
 
+    def _turn_report_text(self) -> str:
+        """Kök `ChangeSet` ve tüm adımların araç kaydından KISA bir rapor kur.
+
+        `engines/agent/loop.py::_apply_turn_report` ile aynı kaynağı kullanır:
+        modelin "hiçbir dosya değiştirmedim" demesi değil, GERÇEKTEN dokunulan
+        dosyalar (A12). Kapı burada verilmez: `finish`/`pause` metni zaten kendi
+        uyarılarını (`warnings`, duraklama nedeni) üretir; ikinci bir uyarı bloğu
+        açmak aynı bulguyu iki kez göstermek olurdu.
+        """
+        from ...tools.files import display_path
+
+        changed_paths = tuple(
+            display_path(self.deps.tool_context, path)
+            for path in self.deps.tool_context.changes.paths
+        )
+        tool_uses = tuple(use for item in self.outcomes for use in item.tool_uses)
+        return build_turn_report(changed_paths, tool_uses, gate=None).render()
+
     def outcome(self, text: str, *, ok: bool, budget_stopped: bool = False) -> AgentOutcome:
         """Tüm çıkış yollarında gerçek alt tur sayaçlarını topla.
 
@@ -341,7 +360,7 @@ class _PlanRun:
         self.current = replace(self.current, status=PlanStatus.PAUSED)
         self.save()
         self.deps.publisher.publish(ExecutionPaused(plan_id=self.current.plan_id, reason=text))
-        return self.outcome(text, ok=False, budget_stopped=budget)
+        return self.outcome(self._turn_report_text() + text, ok=False, budget_stopped=budget)
 
     async def execute(
         self,
@@ -1146,7 +1165,7 @@ class _PlanRun:
         text = self.outcomes[-1].final_text if self.outcomes else "Yürütme planı tamamlandı."
         if warnings:
             text += "\n\n" + "\n".join(f"UYARI: {warning}" for warning in warnings)
-        return self.outcome(text, ok=True)
+        return self.outcome(self._turn_report_text() + text, ok=True)
 
     async def run(self) -> AgentOutcome:
         """Adımları ve final onarımını aynı zarf yaşam döngüsü içinde yürüt."""
