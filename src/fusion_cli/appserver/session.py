@@ -76,6 +76,7 @@ from .control import (
     web_login_state,
     web_provider_cards,
 )
+from .conversation_title import conversation_title
 from .history import (
     PreparedResume,
     list_sessions,
@@ -251,6 +252,13 @@ class _MeteredSink:
 FALLBACK_CONVERSATION_ID = "varsayilan"
 
 
+def _title_payload(message: object) -> dict[str, Any]:
+    """`sohbet.baslik`: ilk mesajdan başlık. Model çağrılmaz (bkz. `conversation_title`)."""
+    if not isinstance(message, str):
+        return {"ok": False, "metin": "Başlık için mesaj metni zorunludur."}
+    return {"ok": True, "baslik": conversation_title(message)}
+
+
 class AppSession:
     """Uygulamanın sürdüğü tek oturum."""
 
@@ -345,6 +353,8 @@ class AppSession:
             return await self._delete_conversation(request.data)
         if request.name == "sohbet.listele":
             return self._list_conversations()
+        if request.name == "sohbet.baslik":
+            return _title_payload(request.data.get("metin"))
         if request.name == "kademe.listele":
             return list_tiers(self._state.config)
         if request.name == "kademe.sec":
@@ -625,7 +635,9 @@ class AppSession:
                 {
                     "sohbet_id": ref.conversation_id,
                     "kok": str(self._root.expanduser().resolve()),
-                    "baslik": ref.title,
+                    # Diskte ilk mesajın ilk satırı durur; liste de sekmeyle
+                    # AYNI sezgiselle adlandırılır, ikisi ayrışmasın.
+                    "baslik": conversation_title(ref.title) or ref.title,
                     "guncelleme": ref.updated_at,
                     "mesaj_sayisi": ref.message_count,
                 }

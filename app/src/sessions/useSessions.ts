@@ -7,7 +7,7 @@ import type { Mesaj } from "../screens/Conversation";
 import { initialSessionState, sessionReducer } from "./store";
 import { loadSessionView, saveSessionView } from "./persistence";
 import { isProjectRoot, projectName } from "./projectRoots";
-import { DEFAULT_TITLE, titleFromTask } from "./title";
+import { DEFAULT_TITLE } from "./title";
 import type {
   BackendSessionSnapshot,
   NewSession,
@@ -392,7 +392,17 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         });
       }
       if (session.title === DEFAULT_TITLE) {
-        dispatch({ type: "titleChanged", id, title: titleFromTask(task) });
+        // Başlık çekirdekten TURDAN ÖNCE istenir: model çağrılmaz, saf bir
+        // sezgiseldir ve tur sürerken de hemen cevaplanır. İstek başarısız
+        // olursa sekme varsayılan adında kalır.
+        void session.client
+          .request("sohbet.baslik", { metin: task })
+          .then((result) => {
+            if (result.ok === true && typeof result.baslik === "string") {
+              dispatch({ type: "titleSuggested", id, title: result.baslik });
+            }
+          })
+          .catch(() => undefined);
       }
       baslatRef.current?.(id, task, attachments);
       return true;

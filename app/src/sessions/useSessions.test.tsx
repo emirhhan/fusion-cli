@@ -1,6 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useSessions } from "./useSessions";
+import { initialSessionState, sessionReducer } from "./store";
+import { DEFAULT_TITLE } from "./title";
 import type { SessionClosedEvent, SessionLineEvent, SessionTransport } from "./types";
 
 afterEach(() => localStorage.clear());
@@ -12,6 +14,7 @@ function fakeTransport(
   baglamlar: Record<string, number>[] = [],
 ) {
   const durumIstekleri: string[] = [];
+  const baslikIstekleri: string[] = [];
   let lineHandler: ((event: SessionLineEvent) => void) | null = null;
   let closedHandler: ((event: SessionClosedEvent) => void) | null = null;
   const sent: { id: string; line: string }[] = [];
@@ -44,6 +47,18 @@ function fakeTransport(
             tip: "sonuc",
             id: request.id,
             veri: { ok: true, baglam: baglamlar.shift() ?? { kullanilan: 0, sinir: 24000, yuzde: 0 } },
+          }),
+        }));
+        return;
+      }
+      if (request.ad === "sohbet.baslik") {
+        baslikIstekleri.push(String(request.veri?.metin ?? ""));
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({
+            tip: "sonuc",
+            id: request.id,
+            veri: { ok: true, baslik: "Tarayıcı oyunu yaz" },
           }),
         }));
         return;
@@ -84,6 +99,7 @@ function fakeTransport(
     sent,
     basladi,
     durumIstekleri,
+    baslikIstekleri,
     emitLine: (event: SessionLineEvent) => lineHandler?.(event),
     emitResult: (sessionId: string, requestId: string, veri: Record<string, unknown>) => lineHandler?.({
       oturum_id: sessionId,
@@ -414,13 +430,44 @@ describe("useSessions", () => {
     expect(fake.basladi.map((k) => k.sohbet)).toEqual(["varsayilan", "ikinci"]);
   });
 
-  it("ilk mesajdan kısa başlık üretir, tüm mesajı kesmez", async () => {
+  it("ilk mesajda başlığı çekirdekten ister ve yalnız bir kez uygular", async () => {
+    // Başlık tek yerde (çekirdekte) üretilir; saklı sohbet listesiyle ayrışmaz.
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
     await waitFor(() => expect(result.current.activeSession).not.toBeNull());
 
-    act(() => result.current.send("varsayilan", "bana bir tarayıcı oyunu yaz lütfen"));
+    act(() => { result.current.send("varsayilan", "merhaba, bana bir tarayıcı oyunu yaz lütfen"); });
 
-    expect(result.current.state.sessions.varsayilan.title).toBe("bana bir tarayıcı oyunu");
+    await waitFor(() => expect(result.current.state.sessions.varsayilan.title).toBe("Tarayıcı oyunu yaz"));
+    expect(fake.baslikIstekleri).toEqual(["merhaba, bana bir tarayıcı oyunu yaz lütfen"]);
+    // Başlık isteği turdan ÖNCE gider; tur çekirdeğe yine tek istek olarak ulaşır.
+    expect(fake.sent.map((item) => JSON.parse(item.line).ad)).toEqual(["tur.calistir"]);
+  });
+
+  it("verilmiş başlığı ezmez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    await act(async () => {
+      await result.current.create({ id: "adli", title: "Kendi başlığım", root: "/aktif" });
+    });
+
+    act(() => { result.current.send("adli", "başka bir iş"); });
+
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    expect(fake.baslikIstekleri).toEqual([]);
+    expect(result.current.state.sessions.adli.title).toBe("Kendi başlığım");
+  });
+
+  it("öneri gelene kadar sekme adlandırıldıysa öneriyi uygulamaz", () => {
+    // Öneri eşzamansızdır; arada verilen ad kullanıcınındır.
+    const client = {} as never;
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "a", title: DEFAULT_TITLE, source: "fusion", root: "/p", client },
+    });
+    state = sessionReducer(state, { type: "titleChanged", id: "a", title: "Elle verilen" });
+    state = sessionReducer(state, { type: "titleSuggested", id: "a", title: "Önerilen" });
+    expect(state.sessions.a.title).toBe("Elle verilen");
   });
 });

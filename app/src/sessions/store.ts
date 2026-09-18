@@ -3,6 +3,7 @@ import type { BaglamOlcusu, Soru } from "../protocol/types";
 import type { Mesaj } from "../screens/Conversation";
 import type { SessionModel, SessionSource, SessionState, SessionStatus } from "./types";
 import { olayEkle } from "../protocol/olayAkisi";
+import { canApplySuggestedTitle } from "./title";
 
 export const initialSessionState: SessionState = {
   activeId: null,
@@ -26,6 +27,7 @@ export type SessionAction =
   | { type: "historyLoaded"; id: string; messages: Mesaj[] }
   | { type: "selected"; id: string }
   | { type: "titleChanged"; id: string; title: string }
+  | { type: "titleSuggested"; id: string; title: string }
   | { type: "messageAdded"; id: string; message: Mesaj }
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
@@ -82,6 +84,13 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return state.sessions[action.id] ? { ...state, activeId: action.id } : state;
     case "titleChanged":
       return updateSession(state, action.id, (session) => ({ ...session, title: action.title, updatedAt: Date.now() }));
+    case "titleSuggested":
+      // Öneri eşzamansız gelir; o arada sekme adlandırıldıysa dokunulmaz.
+      return updateSession(state, action.id, (session) =>
+        canApplySuggestedTitle(session.title, action.title)
+          ? { ...session, title: action.title.trim() }
+          : session,
+      );
     case "messageAdded":
       return updateSession(state, action.id, (session) => ({
         ...session,

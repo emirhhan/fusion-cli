@@ -470,6 +470,7 @@ describe("SessionUygulama", () => {
   });
 
   it("yeni konuşma açar ve aktif konuşmanın kendi mesajlarını gösterir", async () => {
+    let lineHandler: ((event: { oturum_id: string; satir: string }) => void) | null = null;
     const transport: SessionTransport = {
       create: vi.fn(async (id) => ({
         oturum_id: id,
@@ -478,10 +479,18 @@ describe("SessionUygulama", () => {
         durum: "calisiyor",
         kapanis_nedeni: null,
       })),
-      send: vi.fn(async () => undefined),
+      // Yalnız başlık cevaplanır; tur bilerek açık kalır. Başlığı çekirdek verir.
+      send: vi.fn(async (id, line) => {
+        const request = JSON.parse(line);
+        if (request.ad !== "sohbet.baslik") return;
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true, baslik: request.veri.metin } }),
+        }));
+      }),
       close: vi.fn(async () => undefined),
       list: vi.fn(async () => []),
-      onLine: vi.fn(async () => () => undefined),
+      onLine: vi.fn(async (handler) => { lineHandler = handler; return () => undefined; }),
       onClosed: vi.fn(async () => () => undefined),
     };
     render(<SessionUygulama transport={transport} />);

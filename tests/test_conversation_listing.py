@@ -77,7 +77,8 @@ async def test_protokol_sohbetleri_dondurur(tmp_path):
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is True
     assert [item["sohbet_id"] for item in veri["sohbetler"]] == ["sekme-a"]
-    assert veri["sohbetler"][0]["baslik"] == "oyun yaz"
+    # Liste, sekmeyle aynı başlık sezgiselinden geçer (bkz. `conversation_title`).
+    assert veri["sohbetler"][0]["baslik"] == "Oyun yaz"
 
 
 def test_silinen_sohbet_liste_ve_baglama_geri_donmez(tmp_path):
