@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -41,6 +42,31 @@ def validate_remote_mcp_url(url: str) -> None:
 
 class McpLoginRequiredError(RuntimeError):
     """Sunucu giriş istiyor ama bu bağlamda giriş penceresi açılamaz."""
+
+
+#: SDK'nın OAuth akışındaki her hatayı yığın dökümüyle yazdığı logger.
+_SDK_OAUTH_LOGGER = "mcp.client.auth.oauth2"
+
+
+class _ExpectedLoginFilter(logging.Filter):
+    """BEKLENEN "giriş gerekli" durumunun yığın dökümünü bastır.
+
+    Ölçüldü (17 Eylül): girişi yapılmamış Notion için SDK her turda
+    `logger.exception("OAuth flow error")` ile tam yığın dökümü basıyordu. Bu bir
+    hata değil, kullanıcının henüz "Bağlan" demediği bir bağlantıdır; durum zaten
+    `giris_gerekli` olarak arayüzde görünür. Diğer OAuth hataları olduğu gibi kalır.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        error = record.exc_info[1] if record.exc_info else None
+        return not isinstance(error, McpLoginRequiredError)
+
+
+def _silence_expected_login_errors() -> None:
+    """Filtreyi SDK logger'ına bir kez ekle (tekrar çağrı etkisizdir)."""
+    logger = logging.getLogger(_SDK_OAUTH_LOGGER)
+    if not any(isinstance(item, _ExpectedLoginFilter) for item in logger.filters):
+        logger.addFilter(_ExpectedLoginFilter())
 
 
 class LoopbackOAuthCallback:
@@ -198,6 +224,8 @@ async def oauth_provider_for(
 ) -> OAuthBundle:
     """Yapılandırma için SDK OAuth sağlayıcısı ve yaşam döngüsü kaynaklarını kur."""
     validate_remote_mcp_url(config.url)
+    if not interactive:
+        _silence_expected_login_errors()
     callback = LoopbackOAuthCallback(on_waiting=on_waiting, interactive=interactive)
     await callback.start()
     storage = KeyringTokenStorage(config.url)

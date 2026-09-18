@@ -86,7 +86,7 @@ async def test_token_varken_oauth_akisi_hic_baslatilmaz(monkeypatch):
         return None
 
     @asynccontextmanager
-    async def open_stream(_config, *, auth=None) -> AsyncIterator[tuple[None, None]]:
+    async def open_stream(_config, *, auth=None, **_kwargs) -> AsyncIterator[tuple[None, None]]:
         assert auth is None
         yield None, None
 

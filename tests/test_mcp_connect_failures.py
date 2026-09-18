@@ -60,7 +60,9 @@ async def test_kayit_reddi_giris_durumunu_client_id_mesajiyla_hataya_dusurur(mon
         )
 
     @asynccontextmanager
-    async def rejecting_stream(_config, *, auth=None) -> AsyncIterator[tuple[None, None]]:
+    async def rejecting_stream(
+        _config, *, auth=None, **_kwargs
+    ) -> AsyncIterator[tuple[None, None]]:
         async def reject() -> None:
             await anyio.lowlevel.checkpoint()
             raise OAuthRegistrationError("Registration failed: 400 invalid_client_metadata")
@@ -85,7 +87,7 @@ async def test_kayit_reddi_giris_durumunu_client_id_mesajiyla_hataya_dusurur(mon
 
 async def test_dis_iptal_mcp_baglantisinda_yutulmaz(monkeypatch):
     @asynccontextmanager
-    async def open_stream(_config, *, auth=None) -> AsyncIterator[tuple[None, None]]:
+    async def open_stream(_config, *, auth=None, **_kwargs) -> AsyncIterator[tuple[None, None]]:
         yield None, None
 
     monkeypatch.setattr(client_module, "open_mcp_stream", open_stream)
@@ -113,7 +115,7 @@ async def test_kullanici_girisi_beklenirken_baglanti_zaman_asimi_islemez(monkeyp
         return SimpleNamespace(auth=None, callback=callback)
 
     @asynccontextmanager
-    async def login_stream(_config, *, auth=None) -> AsyncIterator[tuple[None, None]]:
+    async def login_stream(_config, *, auth=None, **_kwargs) -> AsyncIterator[tuple[None, None]]:
         callback = callbacks[0]
         await callback.open_redirect("https://login.example.com")
         # Kullanıcı giriş yapıyor: bağlantı süresinin (0.1 sn) üç katı.

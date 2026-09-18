@@ -18,18 +18,21 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+import tempfile
 import time
-from collections.abc import Awaitable, Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import TextIO, cast
 
 from mcp import ClientSession
-from mcp.client.auth.exceptions import OAuthRegistrationError
 
 from ..config.models import McpServerConfig, McpTransport
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
 from .content import normalize_call_result
+from .failures import STATE_CONNECTED, classify_failure
 from .tool_effect import effect_from_annotations
 from .transport import open_mcp_stream
 
@@ -40,13 +43,9 @@ _LOG = logging.getLogger(__name__)
 #: Uzak aracı Fusion'a bağlayan çalıştırıcı (async ToolExecutor).
 _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
 
-MESSAGE_TIMEOUT = "MCP başlatma zaman aşımına uğradı."
-MESSAGE_FAILED = "MCP sunucusu başlatılamadı."
-MESSAGE_REGISTRATION_REJECTED = (
-    "Bu MCP sunucusu Fusion'ın kendini otomatik kaydetmesine izin vermiyor, bu yüzden "
-    "giriş sayfası açılamadı. Sağlayıcının verdiği bir client_id ile bağlantıyı "
-    "yeniden ekle."
-)
+#: Stdio sunucusunun stderr'inden sınıflandırma için okunan en fazla bayt.
+#: npm'in E404 bloğu ~600 bayttır; kuyruğun birkaç katı yeter, tüm dosya okunmaz.
+_STDERR_TAIL_BYTES = 4096
 
 
 @dataclass(slots=True)
@@ -69,6 +68,8 @@ class McpConnectionStatus:
     tool_count: int = 0
     latency_ms: int = 0
     message: str | None = None
+    #: Başarısızlık türü (`failures.McpFailureKind` değeri); başarıda None.
+    kind: str | None = None
 
 
 async def _close_failed_stack(stack: AsyncExitStack, error: BaseException) -> BaseException | None:
@@ -94,24 +95,26 @@ async def _close_failed_stack(stack: AsyncExitStack, error: BaseException) -> Ba
     return error if is_internal_cancel else None
 
 
-def _leaf_errors(error: BaseException) -> Iterator[BaseException]:
-    if isinstance(error, BaseExceptionGroup):
-        for inner in error.exceptions:
-            yield from _leaf_errors(inner)
-    else:
-        yield error
+def _read_tail(capture: TextIO) -> str:
+    """Geçici stderr dosyasının son kısmını oku (bloklayan; thread'de çağrılır)."""
+    capture.flush()
+    size = capture.seek(0, os.SEEK_END)
+    capture.seek(max(0, size - _STDERR_TAIL_BYTES))
+    return capture.read()
 
 
-def _failure_status(server: str, error: BaseException, *, latency_ms: int) -> McpConnectionStatus:
+def failure_status(
+    config: McpServerConfig, error: BaseException, *, latency_ms: int, stderr_tail: str = ""
+) -> McpConnectionStatus:
     """Başarısızlığı kullanıcının üzerine eylem yapabileceği duruma çevir."""
-    leaves = tuple(_leaf_errors(error))
-    if any(isinstance(leaf, OAuthRegistrationError) for leaf in leaves):
-        state, message = "hata", MESSAGE_REGISTRATION_REJECTED
-    elif any(isinstance(leaf, TimeoutError) for leaf in leaves):
-        state, message = "zaman_asimi", MESSAGE_TIMEOUT
-    else:
-        state, message = "hata", MESSAGE_FAILED
-    return McpConnectionStatus(server=server, state=state, latency_ms=latency_ms, message=message)
+    failure = classify_failure(error, config, stderr_tail=stderr_tail)
+    return McpConnectionStatus(
+        server=config.name,
+        state=failure.state,
+        latency_ms=latency_ms,
+        message=failure.message,
+        kind=failure.kind.value,
+    )
 
 
 class McpClient:
@@ -150,7 +153,20 @@ class McpClient:
     async def _connect_server(self, config: McpServerConfig) -> None:
         started = time.monotonic()
         stack = AsyncExitStack()
+        stderr_capture: TextIO | None = None
         try:
+            if config.transport is McpTransport.STDIO:
+                # Sunucunun stderr'i geçici dosyaya: paket bulunamadığında asıl
+                # neden yalnız orada görünür. Dosya bağlantıyla birlikte kapanır
+                # ve silinir.
+                # `TemporaryFile` metin kipinde TextIO döner; stub genel `IO[str]` der.
+                stderr_capture = cast(
+                    TextIO,
+                    await asyncio.to_thread(
+                        tempfile.TemporaryFile, "w+", encoding="utf-8", errors="replace"
+                    ),
+                )
+                stack.callback(stderr_capture.close)
             async with asyncio.timeout(self._timeout_seconds) as deadline:
                 auth = None
                 # Token yolu OAuth'u tamamen atlar: istek başlığı yeter, giriş
@@ -165,27 +181,37 @@ class McpClient:
                     )
                     auth = bundle.auth
                     stack.push_async_callback(bundle.callback.close)
-                read, write = await stack.enter_async_context(open_mcp_stream(config, auth=auth))
+                read, write = await stack.enter_async_context(
+                    open_mcp_stream(config, auth=auth, errlog=stderr_capture)
+                )
                 session = await stack.enter_async_context(ClientSession(read, write))
                 await session.initialize()
                 self._sessions[config.name] = session
                 self._stacks[config.name] = stack
                 self._statuses[config.name] = McpConnectionStatus(
                     server=config.name,
-                    state="bagli",
+                    state=STATE_CONNECTED,
                     latency_ms=int((time.monotonic() - started) * 1000),
                 )
         except BaseException as error:
+            stderr_tail = ""
+            if stderr_capture is not None and not stderr_capture.closed:
+                stderr_tail = await asyncio.to_thread(_read_tail, stderr_capture)
             failure = await _close_failed_stack(stack, error)
             if failure is None:
                 raise
+            status = failure_status(
+                config,
+                failure,
+                latency_ms=int((time.monotonic() - started) * 1000),
+                stderr_tail=stderr_tail,
+            )
+            # Sunucu çıktısı LOG'A YAZILMAZ: sır (bağlantı adresi, token) taşıyabilir.
             _LOG.warning(
                 "MCP bağlantısı kurulamadı",
-                extra={"sunucu": config.name, "hata": type(failure).__name__},
+                extra={"sunucu": config.name, "hata": type(failure).__name__, "tur": status.kind},
             )
-            self._statuses[config.name] = _failure_status(
-                config.name, failure, latency_ms=int((time.monotonic() - started) * 1000)
-            )
+            self._statuses[config.name] = status
 
     def _deadline_pause(self, deadline: asyncio.Timeout) -> Callable[[bool], None]:
         """Kullanıcı tarayıcıda giriş yaparken bağlantı süresini durdur.
@@ -252,13 +278,7 @@ class McpClient:
             tools = await self.list_tools(server)
             current = self._statuses.get(server)
             if current is not None:
-                self._statuses[server] = McpConnectionStatus(
-                    server=server,
-                    state=current.state,
-                    tool_count=len(tools),
-                    latency_ms=current.latency_ms,
-                    message=current.message,
-                )
+                self._statuses[server] = replace(current, tool_count=len(tools))
             for remote in tools:
                 fusion_name = f"{server}__{remote.name}"
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter

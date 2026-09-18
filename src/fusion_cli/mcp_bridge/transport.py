@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, TextIO
 
 import httpx
 from mcp import StdioServerParameters
@@ -78,9 +79,17 @@ def resolve_bearer_headers(
 
 @asynccontextmanager
 async def open_mcp_stream(
-    config: McpServerConfig, *, auth: httpx.Auth | None = None
+    config: McpServerConfig,
+    *,
+    auth: httpx.Auth | None = None,
+    errlog: TextIO | None = None,
 ) -> AsyncIterator[tuple[Any, Any]]:
-    """Yapılandırılmış taşımanın okuma/yazma akışlarını aç."""
+    """Yapılandırılmış taşımanın okuma/yazma akışlarını aç.
+
+    `errlog` stdio sunucusunun stderr'ini alır. İstemci bunu geçici bir dosyaya
+    yönlendirir: paket bulunamadığında SDK yalnız "Connection closed" der, asıl
+    neden (npm E404) yalnız sürecin kendi çıktısındadır (bkz. `failures.py`).
+    """
     if config.transport is McpTransport.STDIO:
         if not config.command:
             raise ValueError("stdio MCP bağlantısı için komut gerekli")
@@ -90,7 +99,7 @@ async def open_mcp_stream(
             # Boş sözlük yerine None: SDK varsayılan ortamı kendisi kurar.
             env=resolve_stdio_env(config) or None,
         )
-        async with stdio_client(params) as streams:
+        async with stdio_client(params, errlog=errlog or sys.stderr) as streams:
             yield streams
         return
 

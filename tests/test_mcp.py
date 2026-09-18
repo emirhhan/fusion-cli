@@ -91,7 +91,7 @@ async def test_stdio_akisi_ortam_degiskenlerini_sunucu_surecine_verir(monkeypatc
     yakalanan = {}
 
     @asynccontextmanager
-    async def _sahte_stdio_client(params):
+    async def _sahte_stdio_client(params, **_kwargs):
         yakalanan["env"] = params.env
         yield ("okuma", "yazma")
 
@@ -155,6 +155,7 @@ async def test_bozuk_bir_sunucu_saglam_sunucunun_araclarini_dusurmez(tmp_path):
         name="bozuk",
         transport=McpTransport.STDIO,
         command="kesinlikle-bulunmayan-fusion-komutu",
+        args=("--gizli-arguman",),
     )
     registry = ToolRegistry()
 
@@ -164,8 +165,13 @@ async def test_bozuk_bir_sunucu_saglam_sunucunun_araclarini_dusurmez(tmp_path):
 
     assert any(name.startswith("fusion__") for name in eklenen)
     assert durumlar["bozuk"].state == "hata"
+    assert durumlar["bozuk"].kind == "komut_yok"
     assert durumlar["fusion"].state == "bagli"
-    assert "kesinlikle-bulunmayan" not in (durumlar["bozuk"].message or "")
+    mesaj = durumlar["bozuk"].message or ""
+    # Eksik program ADIYLA söylenir ki kullanıcı neyi kuracağını bilsin; ama
+    # argümanlar sır taşıyabileceği için mesaja girmez.
+    assert "kesinlikle-bulunmayan-fusion-komutu" in mesaj
+    assert "--gizli-arguman" not in mesaj
 
 
 # --- fusion agent (tek-atış CLI) MCP'ye bağlanır ---------------------------- #

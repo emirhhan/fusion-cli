@@ -61,7 +61,7 @@ async def test_etkilesimsiz_kipte_tarayici_acilmaz(monkeypatch):
         return SimpleNamespace(auth=None, callback=callback)
 
     @asynccontextmanager
-    async def open_stream(_config, *, auth=None) -> AsyncIterator[tuple[None, None]]:
+    async def open_stream(_config, *, auth=None, **_kwargs) -> AsyncIterator[tuple[None, None]]:
         yield None, None
 
     monkeypatch.setattr(oauth_module, "oauth_provider_for", sahte_saglayici)
