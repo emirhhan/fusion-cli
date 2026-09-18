@@ -11,6 +11,8 @@ from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
 from fusion_cli.ui import messages
@@ -822,6 +824,105 @@ async def test_web_cikis_oturumu_kaldirir(tmp_path):
 
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is True
+    assert oturum._state.config.web_sessions == ()
+
+
+async def _bagli_chatgpt(tmp_path, satirlar, monkeypatch):
+    """Kayıtlı ChatGPT oturumu olan appserver; tarayıcı kapatma çağrıları kaydedilir."""
+    from dataclasses import replace
+
+    kapatilan: list[tuple[str, str]] = []
+
+    async def kapat(provider, account):
+        kapatilan.append((provider, account))
+
+    monkeypatch.setattr("fusion_cli.providers.web_browser.close_browser_session", kapat)
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.config = replace(oturum._state.config, source=tmp_path / "config.yaml")
+    await oturum.handle(
+        Request(id="1", name="web.baglan", data={"saglayici": "chatgpt_web", "hesap": "main"})
+    )
+    kapatilan.clear()
+    return oturum, kapatilan
+
+
+async def test_web_pencere_kipi_yazilir_ve_tarayici_yeni_kip_icin_kapatilir(
+    tmp_path, monkeypatch
+):
+    """Çalışan Chrome açıldığı kipte kalır; yeni kip ancak yeniden açılınca uygulanır."""
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.core.window_mode import WindowMode
+
+    satirlar: list[str] = []
+    oturum, kapatilan = await _bagli_chatgpt(tmp_path, satirlar, monkeypatch)
+
+    await oturum.handle(
+        Request(
+            id="2",
+            name="web.pencere_kipi",
+            data={"saglayici": "chatgpt_web", "hesap": "main", "kip": "visible"},
+        )
+    )
+
+    veri = _sonuc(satirlar, "2")
+    assert veri["ok"] is True, veri
+    assert veri["pencere_kipi"] == "visible"
+    assert oturum._state.config.web_sessions[0].headless is WindowMode.VISIBLE
+    assert load_config(tmp_path / "config.yaml").web_sessions[0].headless is WindowMode.VISIBLE
+    assert kapatilan == [("chatgpt_web", "main")]
+
+
+async def test_web_pencere_kipi_degismediyse_tarayici_kapatilmaz(tmp_path, monkeypatch):
+    satirlar: list[str] = []
+    oturum, kapatilan = await _bagli_chatgpt(tmp_path, satirlar, monkeypatch)
+    # Yeni ChatGPT oturumu zaten gizli kiple başlar.
+    await oturum.handle(
+        Request(
+            id="2",
+            name="web.pencere_kipi",
+            data={"saglayici": "chatgpt_web", "hesap": "main", "kip": "hidden"},
+        )
+    )
+
+    assert _sonuc(satirlar, "2")["ok"] is True
+    assert kapatilan == []
+
+
+@pytest.mark.parametrize("kip", ["gorunmez", True, 2, None])
+async def test_web_pencere_kipi_gecersiz_kipi_reddeder(tmp_path, monkeypatch, kip):
+    satirlar: list[str] = []
+    oturum, kapatilan = await _bagli_chatgpt(tmp_path, satirlar, monkeypatch)
+    once = oturum._state.config
+
+    await oturum.handle(
+        Request(
+            id="2",
+            name="web.pencere_kipi",
+            data={"saglayici": "chatgpt_web", "hesap": "main", "kip": kip},
+        )
+    )
+
+    veri = _sonuc(satirlar, "2")
+    assert veri["ok"] is False
+    assert "hidden" in veri["metin"]
+    assert oturum._state.config is once
+    assert kapatilan == []
+
+
+async def test_web_pencere_kipi_kayitsiz_oturumda_uydurmaz(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(
+        Request(
+            id="1",
+            name="web.pencere_kipi",
+            data={"saglayici": "chatgpt_web", "hesap": "main", "kip": "visible"},
+        )
+    )
+
+    veri = _sonuc(satirlar, "1")
+    assert veri["ok"] is False
     assert oturum._state.config.web_sessions == ()
 
 

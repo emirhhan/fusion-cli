@@ -554,6 +554,8 @@ class AppSession:
             return self._change_web_session(
                 connect_web_session, request.data.get("saglayici"), request.data.get("hesap")
             )
+        if request.name == "web.pencere_kipi":
+            return await self._change_web_window_mode(request.data)
         if request.name == "web.cikis":
             return self._change_web_session(
                 disconnect_web_session, request.data.get("saglayici"), request.data.get("hesap")
@@ -732,6 +734,28 @@ class AppSession:
         if yeni is not None:
             self._state.config = yeni
         return sonuc
+
+    async def _change_web_window_mode(self, data: dict[str, Any]) -> dict[str, Any]:
+        """`web.pencere_kipi`: kipi yaz; değiştiyse o sağlayıcının Chrome'unu kapat.
+
+        Çalışan Chrome açıldığı kipte kalır; yeni kip ancak yeniden açılınca
+        uygulanır. Kapatılan tarayıcı bir sonraki turda yeni kiple açılır.
+        """
+        from ..providers.web_browser import close_browser_session, normalize_account
+        from ..providers.web_window_setting import set_window_mode
+
+        saglayici = str(data.get("saglayici") or "")
+        hesap = normalize_account(str(data.get("hesap") or "main"))
+        sonuc = set_window_mode(self._state.config, saglayici, hesap, data.get("kip"))
+        if sonuc.config is not None:
+            self._state.config = sonuc.config
+        if sonuc.is_changed:
+            await close_browser_session(saglayici, hesap)
+        return {
+            "ok": sonuc.ok,
+            "metin": sonuc.message,
+            "pencere_kipi": sonuc.mode.slug if sonuc.mode is not None else None,
+        }
 
     def _change_connectors(
         self,
