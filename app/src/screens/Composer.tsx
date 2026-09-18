@@ -131,7 +131,7 @@ export function Composer({
   };
   const send = () => {
     const task = draft.trim();
-    if (!task || running) return;
+    if (!task) return;
     setDraft("");
     onSend(task);
   };
@@ -142,6 +142,13 @@ export function Composer({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Esc çalışan turu durdurur (Claude'daki davranış). Boş kutuda da çalışır;
+    // kullanıcı durdurmak için fareye uzanmak zorunda kalmamalı.
+    if (event.key === "Escape" && running) {
+      event.preventDefault();
+      onStop();
+      return;
+    }
     // IME adayını onaylayan Enter ve composition sırasında basılan diğer
     // kısayollar, Fusion komutu veya izin modu eylemi değildir.
     if (event.nativeEvent.isComposing) return;
@@ -225,7 +232,6 @@ export function Composer({
         {attachmentError && <p aria-live="polite" className="composer__attachment-error">{attachmentError}</p>}
         <textarea
           aria-label="Mesaj"
-          disabled={running}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
           placeholder="Fusion'a bir görev ver"
@@ -279,7 +285,17 @@ export function Composer({
             )}
           </div>
           {running ? (
-            <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />
+            <span className="composer__actions">
+              {/* Çalışırken de gönderilebilir: mesaj sıraya girer (bkz. useSessions). */}
+              <Button
+                aria-label="Sıraya ekle"
+                disabled={!draft.trim()}
+                icon="send"
+                iconOnly
+                onClick={send}
+              />
+              <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />
+            </span>
           ) : (
             <span className="composer__actions">
               {onVoice && (

@@ -59,6 +59,12 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const lineHandlers = useRef(new Map<string, (line: string) => void>());
   const requestedClose = useRef(new Set<string>());
   const runningRequests = useRef(new Set<string>());
+  //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
+  //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
+  const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[] }[]>());
+  //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
+  const oturumlarRef = useRef(state.sessions);
+  oturumlarRef.current = state.sessions;
   const mounted = useRef(false);
   const [stored, setStored] = useState<StoredConversation[]>([]);
   const storedRef = useRef<StoredConversation[]>([]);
@@ -329,10 +335,26 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   const send = useCallback(
     (id: string, task: string, attachments: SessionAttachment[] = [], recordMessage = true) => {
       const session = state.sessions[id];
-      if (
-        !session || !task.trim() || session.status !== "ready" ||
-        session.running || runningRequests.current.has(id)
-      ) return false;
+      if (!session || !task.trim() || session.status !== "ready") return false;
+      if (session.running || runningRequests.current.has(id)) {
+        // Zaten çalışıyor: mesaj sıraya girer (aşağıda), tur bitince sürülür.
+        // Sıraya al ve kullanıcıya YAZDIĞINI GÖSTER: bekleyen mesajın görünmemesi
+        // "gitti mi, gitmedi mi?" sorusunu doğuruyordu.
+        const bekleyen = kuyruk.current.get(id) ?? [];
+        kuyruk.current.set(id, [...bekleyen, { task, attachments }]);
+        if (recordMessage) {
+          dispatch({
+            type: "messageAdded",
+            id,
+            message: {
+              rol: "kullanici",
+              metin: task,
+              ...(attachments.length > 0 ? { ekler: attachments } : {}),
+            },
+          });
+        }
+        return true;
+      }
       runningRequests.current.add(id);
       dispatch({ type: "runningChanged", id, running: true });
       // Ekler mesajla birlikte KAYDEDİLİR: gönderdikten sonra composer temizlenir
@@ -370,11 +392,50 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         .finally(() => {
           runningRequests.current.delete(id);
           dispatch({ type: "runningChanged", id, running: false });
+          const bekleyen = kuyruk.current.get(id) ?? [];
+          const sonraki = bekleyen.shift();
+          kuyruk.current.set(id, bekleyen);
+          // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
+          // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
+          // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
+          if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
         });
       return true;
     },
     [state.sessions],
   );
+
+  //: Kuyruğu süren iç başlatıcı; `send` içinde tanımlanan akışı yeniden kullanır.
+  const baslatRef = useRef<
+    ((id: string, task: string, attachments: SessionAttachment[]) => void) | null
+  >(null);
+  baslatRef.current = (id, task, attachments) => {
+    const session = oturumlarRef.current[id];
+    if (!session || session.status !== "ready") return;
+    runningRequests.current.add(id);
+    dispatch({ type: "runningChanged", id, running: true });
+    void session.client
+      .request("tur.calistir", { gorev: task, ekler: attachments })
+      .then((result) => {
+        const text = typeof result.metin === "string" ? result.metin : "";
+        if (text) dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: text } });
+      })
+      .catch((reason) => {
+        dispatch({
+          type: "messageAdded",
+          id,
+          message: { rol: "asistan", metin: `Hata: ${String(reason)}` },
+        });
+      })
+      .finally(() => {
+        runningRequests.current.delete(id);
+        dispatch({ type: "runningChanged", id, running: false });
+        const bekleyen = kuyruk.current.get(id) ?? [];
+        const sonraki = bekleyen.shift();
+        kuyruk.current.set(id, bekleyen);
+        if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
+      });
+  };
 
   const runCommand = useCallback(
     async (id: string, input: string, recordInput = true) => {

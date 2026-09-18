@@ -93,7 +93,10 @@ describe("useSessions", () => {
     ]));
   });
 
-  it("aynı oturum çalışırken ikinci turu çekirdeğe ve mesaja eklemez", async () => {
+  it("çalışırken yazılan mesajı KUYRUĞA alır, tur bitince gönderir", async () => {
+    // Claude'daki davranış: iş sürerken yazılan mesaj kaybolmaz, sıraya girer.
+    // Ölçüldü (17 Eylül denetimi): ikinci mesaj "zaten çalışan bir tur var" ile
+    // reddediliyor ve kullanıcının yazdığı kayboluyordu.
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));
     await waitFor(() => expect(result.current.activeSession).not.toBeNull());
@@ -103,9 +106,25 @@ describe("useSessions", () => {
       result.current.send("varsayilan", "ikinci görev");
     });
 
+    // İkisi de kullanıcı mesajı olarak görünür; çekirdeğe sırayla gider.
+    expect(result.current.state.sessions.varsayilan.messages.map((m) => m.metin)).toEqual([
+      "ilk görev",
+      "ikinci görev",
+    ]);
+    // İlk tur çekirdeğe gitti; ikincisi sırada bekliyor.
     await waitFor(() => expect(fake.sent).toHaveLength(1));
-    expect(result.current.state.sessions.varsayilan.messages).toHaveLength(1);
-    expect(result.current.state.sessions.varsayilan.messages[0].metin).toBe("ilk görev");
+    expect(JSON.parse(fake.sent[0].line).veri.gorev).toBe("ilk görev");
+
+    // İlk tur bitince kuyruktaki mesaj kendiliğinden gönderilir.
+    const ilkIstek = JSON.parse(fake.sent[0].line) as { id: string };
+    act(() => fake.emitResult("varsayilan", ilkIstek.id, { ok: true, metin: "ilk cevap" }));
+
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    expect(JSON.parse(fake.sent[1].line).veri.gorev).toBe("ikinci görev");
+    // Kuyruktaki mesaj ikinci kez kullanıcı mesajı olarak eklenmez.
+    expect(
+      result.current.state.sessions.varsayilan.messages.filter((m) => m.rol === "kullanici"),
+    ).toHaveLength(2);
   });
 
   it("ek yollarını yalnız çekirdek görev bağlamına ekler, kullanıcı mesajını temiz tutar", async () => {

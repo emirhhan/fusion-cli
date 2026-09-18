@@ -244,3 +244,24 @@ describe("Composer — izin modu", () => {
     expect(secilen).toEqual(["security"]);
   });
 });
+
+it("iş sürerken yazılabilir ve mesaj sıraya eklenir", () => {
+  const gonderilen: string[] = [];
+  render(<Composer onSend={(task) => gonderilen.push(task)} running />);
+
+  const kutu = screen.getByLabelText("Mesaj") as HTMLTextAreaElement;
+  expect(kutu.disabled).toBe(false);
+  fireEvent.change(kutu, { target: { value: "sıradaki iş" } });
+  fireEvent.click(screen.getByLabelText("Sıraya ekle"));
+
+  expect(gonderilen).toEqual(["sıradaki iş"]);
+});
+
+it("Esc çalışan turu durdurur", () => {
+  let durduruldu = false;
+  render(<Composer onSend={() => undefined} onStop={() => { durduruldu = true; }} running />);
+
+  fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Escape" });
+
+  expect(durduruldu).toBe(true);
+});
