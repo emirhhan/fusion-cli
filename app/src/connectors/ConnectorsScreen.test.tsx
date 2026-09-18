@@ -306,7 +306,7 @@ describe("ConnectorsScreen", () => {
     await waitFor(() =>
       expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
         ad: "brave-search",
-        komut: "npx -y @modelcontextprotocol/server-brave-search",
+        komut: "npx -y @brave/brave-search-mcp-server",
         ortam: { BRAVE_API_KEY: "brave-gizli" },
       }),
     );
@@ -329,9 +329,8 @@ describe("ConnectorsScreen", () => {
     await waitFor(() =>
       expect(client.request).toHaveBeenCalledWith("baglanti.ekle", {
         ad: "postgres",
-        komut: "npx -y @modelcontextprotocol/server-postgres",
-        argumanlar: ["__FUSION_SECRET__:POSTGRES_URL"],
-        ortam: { POSTGRES_URL: "postgresql://user:secret@localhost/db" },
+        komut: "uvx postgres-mcp --access-mode=restricted",
+        ortam: { DATABASE_URI: "postgresql://user:secret@localhost/db" },
       }),
     );
   });
@@ -509,5 +508,52 @@ describe("ConnectorsScreen — silme", () => {
 
     await waitFor(() => expect(istekler).toContain("baglanti.sil"));
     expect(istekler).not.toContain("baglanti.saglayici_sil");
+  });
+
+  it("giriş gereken bağlantıyı hata değil 'Bağlan' düğmesiyle gösterir", async () => {
+    const client = fakeClient([
+      {
+        ad: "higgsfield",
+        durum: "giris_gerekli",
+        tasima: "streamable_http",
+        url: "https://mcp.higgsfield.ai/mcp",
+      },
+    ]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.listele", {}));
+
+    fireEvent.click(screen.getByRole("tab", { name: /Bağlı/ }));
+    const row = (await screen.findByText("Giriş gerekli")).closest("li")!;
+    expect(within(row).queryByText("Bağlantı hatası")).toBeNull();
+    fireEvent.click(within(row).getByRole("button", { name: "Bağlan" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.giris", { ad: "higgsfield" }),
+    );
+  });
+
+  it("katalogdaki giriş gereken girişin Bağlan düğmesi girişi başlatır", async () => {
+    const client = fakeClient([
+      { ad: "linear", durum: "giris_gerekli", tasima: "streamable_http", url: "https://mcp.linear.app/mcp" },
+    ]);
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.listele", {}));
+
+    const row = screen.getByText("Linear").closest("tr")!;
+    expect(within(row).getByText("Giriş gerekli")).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Bağlan" }));
+
+    await waitFor(() =>
+      expect(client.request).toHaveBeenCalledWith("baglanti.giris", { ad: "linear" }),
+    );
+  });
+
+  it("uvx isteyen katalog girişinde gereken çalıştırıcıyı adıyla söyler", async () => {
+    const client = fakeClient();
+    render(<ConnectorsScreen client={client} onClose={() => undefined} />);
+    await waitFor(() => expect(client.request).toHaveBeenCalled());
+
+    const row = screen.getByText("Fetch").closest("tr")!;
+    expect(within(row).getByText(/uvx gerekir/)).toBeTruthy();
   });
 });

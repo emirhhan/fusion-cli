@@ -11,6 +11,7 @@ import {
   allConnectors,
   catalogConnectors,
   featuredConnectors,
+  requiredRunner,
   type CatalogEntry,
   type ConnectorTransport,
 } from "./catalog";
@@ -43,6 +44,9 @@ interface RpcResult {
 const STATE_LABELS: Record<string, string> = {
   bagli: "Bağlı",
   giris_bekleniyor: "Giriş bekleniyor",
+  // Sunucu sağlam, yalnız kullanıcının girişini bekliyor: "hata" DEĞİL.
+  giris_gerekli: "Giriş gerekli",
+  kopya: "Kopya",
   hata: "Bağlantı hatası",
   kapali: "Bağlı değil",
   yapilandirildi: "Test edilmedi",
@@ -184,7 +188,12 @@ export function ConnectorsScreen({
         await run("baglanti.ekle", addPayloadFor(entry), `add:${entry.id}`);
         return;
       }
-      if (entry.transport === "streamable_http" && entry.oauth) {
+      // "Giriş gerekli" durumu backend'den gelir; katalog OAuth işaretlemese bile
+      // sunucunun kendisi giriş istediğini söylemiştir.
+      if (
+        entry.transport === "streamable_http" &&
+        (entry.oauth || existing.durum === "giris_gerekli")
+      ) {
         await run("baglanti.giris", { ad: entry.id }, `login:${entry.id}`);
       }
     },
@@ -406,6 +415,8 @@ export function ConnectorsScreen({
                 const row = rowByName.get(entry.id);
                 const connected = row?.durum === "bagli";
                 const pending = row?.durum === "giris_bekleniyor";
+                const loginNeeded = row?.durum === "giris_gerekli";
+                const runner = requiredRunner(entry);
                 return (
                   <tr key={entry.id}>
                     <td>
@@ -421,6 +432,7 @@ export function ConnectorsScreen({
                       <span className="connectors__type">
                         {entry.transport === "stdio" ? "Yerel" : "Uzak"}
                         {entry.oauth ? " · OAuth" : ""}
+                        {runner ? ` · ${runner} gerekir` : ""}
                       </span>
                     </td>
                     <td>
@@ -430,6 +442,8 @@ export function ConnectorsScreen({
                         </span>
                       ) : pending ? (
                         <span className="connectors__status">Giriş bekleniyor</span>
+                      ) : loginNeeded ? (
+                        <span className="connectors__status">Giriş gerekli</span>
                       ) : (
                         <span className="connectors__status connectors__status--muted">—</span>
                       )}
@@ -499,7 +513,11 @@ export function ConnectorsScreen({
                           onClick={() => void run("baglanti.giris", { ad: row.ad }, `login:${row.ad}`)}
                           type="button"
                         >
-                          {pending ? "Giriş bekleniyor…" : "Giriş yap"}
+                          {pending
+                            ? "Giriş bekleniyor…"
+                            : row.durum === "giris_gerekli"
+                              ? "Bağlan"
+                              : "Giriş yap"}
                         </button>
                       )}
                       <button
