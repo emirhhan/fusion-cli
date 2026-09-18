@@ -18,6 +18,7 @@ from ..core.constants import MAX_OUTPUT_CHARS
 from ..core.errors import FusionError, PathAccessError
 from ..core.tools import Tool, ToolArgs, ToolContext, ToolExecutor, ToolResult
 from .args import ArgumentError
+from .injection import flag_injection
 
 
 class _CancellationEvent(Event):
@@ -118,7 +119,7 @@ class ToolRegistry:
         try:
             if inspect.iscoroutinefunction(tool.run):
                 outcome = tool.run(args, context)
-                return _offload(await outcome, name, context)  # coroutine ToolResult döndürür
+                return _finish(await outcome, name, context)  # coroutine ToolResult döndürür
             # Senkron executor: bloklamaması için thread'e alınır.
             # İptal belirteci çağrıya özeldir. Oturum bağlamındaki aynı Event'i
             # kullanmak, iptal edilen bir aramadan sonraki bütün araçları zehirler;
@@ -129,7 +130,7 @@ class ToolRegistry:
             except asyncio.CancelledError:
                 invocation_context.cancelled.set()
                 raise
-            return _offload(sonuc, name, context)
+            return _finish(sonuc, name, context)
         except (ArgumentError, PathAccessError) as exc:
             return ToolResult.failure(str(exc))
         # Geniş yakalama bilinçli: burası araç sınırıdır. Beklenmedik bir hata turu
@@ -144,6 +145,16 @@ class ToolRegistry:
 
     def __len__(self) -> int:
         return len(self._tools)
+
+
+def _finish(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
+    """Araç sonucunu modele gitmeye hazırla: diske al, enjeksiyon notunu ekle.
+
+    Not her araç için eklenir: dosya, web sayfası, komut çıktısı ve uzak araç
+    yanıtı aynı güvensiz veridir. Tarama TAM çıktı üzerinde, not ise diske alma
+    SONRASINDA yapılır — kısaltılan önizlemede de görünsün diye.
+    """
+    return flag_injection(_offload(result, name, context), result.output)
 
 
 def _offload(result: ToolResult, name: str, context: ToolContext) -> ToolResult:
