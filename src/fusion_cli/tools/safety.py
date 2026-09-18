@@ -27,6 +27,15 @@ def _rule(expression: str, reason: str) -> DangerRule:
     return DangerRule(pattern=re.compile(expression), reason=reason)
 
 
+def _dot_path(name: str) -> str:
+    """Yol bileşeni olarak geçen gizli dizin/dosya: `~/.ssh/x`, `/Users/a/.ssh`, `.ssh`.
+
+    Öncesinde yol ayırıcı ya da kelime sınırı, sonrasında yol ayırıcı ya da bitiş
+    aranır; `.sshd_config` gibi başka adlar eşleşmez.
+    """
+    return rf"(^|[\s'\"=:/]){name}(/|$|[\s'\"])"
+
+
 #: Tehlikeli kabuk komutu desenleri. Sıra önemsizdir; ilk eşleşen gerekçe gösterilir.
 DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf]", "özyinelemeli/zorlamalı dosya silme"),
@@ -38,7 +47,16 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     _rule(r">\s*/dev/sd", "ham diske yönlendirme"),
     _rule(r"\b(shutdown|reboot|halt)\b", "sistemi kapatma/yeniden başlatma"),
     _rule(r"\bchmod\s+-R\s+000\b", "özyinelemeli yetki sıfırlama"),
-    _rule(r"\bgit\s+push\b.*(--force|-f)\b", "uzak geçmişi ezen force push"),
+    # `git -C yol push`, birleşik bayrak (`-uf`) ve `+dal` refspec'i de force push'tur.
+    _rule(
+        r"\bgit\b[^|;&\n]*\bpush\b[^|;&\n]*\s(--force\b|--force-with-lease\b|"
+        r"-[a-zA-Z]*f[a-zA-Z]*\b|\+\S)",
+        "uzak geçmişi ezen force push",
+    ),
+    _rule(
+        r"\bgit\b[^|;&\n]*\bpush\b[^|;&\n]*\s(--delete\b|-d\b|--mirror\b|:\S)",
+        "uzak dalı/etiketi silen ya da aynalayan push",
+    ),
     _rule(r"\bgit\s+reset\s+--hard\b", "commit'lenmemiş çalışmayı yok etme"),
     _rule(r"\bgit\s+clean\s+-[a-zA-Z]*f", "izlenmeyen dosyaları kalıcı silme"),
     _rule(r"\bgit\s+checkout\s+--\s+\.", "tüm yerel değişiklikleri geri alma"),
@@ -62,6 +80,48 @@ DANGER_RULES: tuple[DangerRule, ...] = (
     ),
     # Dosyayı sıfırlama: truncate -s 0.
     _rule(r"\btruncate\b.*-s\s*0\b", "dosya içeriğini sıfırlama"),
+    # --- Geri alınamayan dış etkiler (17 Eylül denetimi, F2) ---
+    # Yayınlanan paket sürümü geri çekilemez; kayıt defteri aynı sürümü bir daha
+    # kabul etmez. `npm publish` zaten sorulurdu ama oturum izniyle hatırlanabiliyordu.
+    _rule(
+        r"\b(npm|pnpm|yarn|cargo|poetry|flit|hatch|bun)\b[^|;&\n]*\bpublish\b",
+        "paketi herkese açık kayıt defterine yayınlama",
+    ),
+    _rule(r"\btwine\s+upload\b", "paketi herkese açık kayıt defterine yayınlama"),
+    _rule(r"\bgem\s+push\b", "paketi herkese açık kayıt defterine yayınlama"),
+    _rule(r"\bgh\s+release\s+(create|upload|edit|delete)\b", "GitHub sürümü yayınlama"),
+    # Çöp kutusu son kurtarma noktasıdır; boşaltmak silmeyi kalıcı yapar.
+    _rule(r"\brm\b[^|;&\n]*\.Trash\b", "çöp kutusunu kalıcı boşaltma"),
+    _rule(r"(?i)\bempty\s+(the\s+)?trash\b", "çöp kutusunu kalıcı boşaltma"),
+    # --- Sır okuma (17 Eylül denetimi, F1/F2) ---
+    # Okunan sır modele, oradan sağlayıcıya gider; sızıntı geri alınamaz. Bu yüzden
+    # salt-okur olsa da her kipte sorulur ve oturum iznine dönüşmez.
+    _rule(
+        r"\bsecurity\s+(dump-keychain|export)\b|"
+        r"\bsecurity\s+find-(generic|internet)-password\b[^|;&\n]*\s-[a-zA-Z]*[wg][a-zA-Z]*\b",
+        "anahtar zincirinden parola okuma",
+    ),
+    _rule(r"Library/Keychains\b|\.keychain(-db)?\b", "anahtar zinciri dosyasına erişim"),
+    _rule(_dot_path(r"\.ssh"), "SSH anahtarlarına erişim (~/.ssh)"),
+    _rule(_dot_path(r"\.aws"), "AWS kimlik bilgilerine erişim (~/.aws)"),
+    _rule(_dot_path(r"\.gnupg"), "GPG anahtarlarına erişim (~/.gnupg)"),
+    _rule(
+        _dot_path(r"\.(netrc|git-credentials)") + r"|\.config/(\S*credentials|gh/hosts\.yml)",
+        "düz metin kimlik bilgisi dosyasına erişim",
+    ),
+    _rule(
+        r"Library/(Application.{1,2}Support/(Google/Chrome|Chromium|BraveSoftware|Firefox|"
+        r"Microsoft.{1,2}Edge|Arc)|Safari|Cookies)\b|\.mozilla/|"
+        r"\.config/(google-chrome|chromium|BraveSoftware)\b",
+        "tarayıcı profiline (çerez/parola) erişim",
+    ),
+    # PROJE İÇİ `.env` bilinçli olarak burada YOK: Fusion kullanıcının kendi
+    # projesindeki `.env`i okur ve istendiğinde modele iletir (CLAUDE.md "Sırlar";
+    # `read_file` de engellemez). Proje DIŞINDAKİ `.env` başka bir projenin sırrıdır.
+    _rule(
+        r"(~|\$\{?HOME\}?|\.\.)/(\S*/)?\.env(?![\w-])|(^|[\s'\"=])/\S*/\.env(?![\w-])",
+        "proje dışındaki .env dosyasına (sırlar) erişim",
+    ),
 )
 
 

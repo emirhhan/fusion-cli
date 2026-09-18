@@ -424,3 +424,76 @@ def test_okunamayan_dosya_onizlemesi_istisna_firlatmaz(tmp_path):
     context = ToolContext(root=tmp_path)
 
     preview_change("write_file", {"path": "ikili.bin", "content": "yeni"}, context)
+
+
+# --- Her kipte sorulan dış etkiler ve sır okuma (17 Eylül denetimi, F1/F2) ---- #
+#
+# Yollar sahtedir; hiçbir komut çalıştırılmaz, yalnız tespit sınanır.
+
+
+@pytest.mark.parametrize(
+    ("komut", "gerekce"),
+    [
+        ("git -C . push -f", "uzak geçmişi ezen force push"),
+        ("git push -uf origin main", "uzak geçmişi ezen force push"),
+        ("git push origin +main", "uzak geçmişi ezen force push"),
+        ("git push --force-with-lease", "uzak geçmişi ezen force push"),
+        ("git push origin --delete eski", "uzak dalı/etiketi silen ya da aynalayan push"),
+        ("git push origin :eski", "uzak dalı/etiketi silen ya da aynalayan push"),
+        ("git push --mirror", "uzak dalı/etiketi silen ya da aynalayan push"),
+        ("npm publish", "paketi herkese açık kayıt defterine yayınlama"),
+        ("cargo publish --allow-dirty", "paketi herkese açık kayıt defterine yayınlama"),
+        ("yarn npm publish", "paketi herkese açık kayıt defterine yayınlama"),
+        ("twine upload dist/*", "paketi herkese açık kayıt defterine yayınlama"),
+        ("gem push x.gem", "paketi herkese açık kayıt defterine yayınlama"),
+        ("gh release create v1.0.0", "GitHub sürümü yayınlama"),
+        ("rm ~/.Trash/*", "çöp kutusunu kalıcı boşaltma"),
+        (
+            "osascript -e 'tell application \"Finder\" to empty trash'",
+            "çöp kutusunu kalıcı boşaltma",
+        ),
+        ("security find-generic-password -s servis -w", "anahtar zincirinden parola okuma"),
+        ("security find-internet-password -gs ornek.com", "anahtar zincirinden parola okuma"),
+        ("security dump-keychain", "anahtar zincirinden parola okuma"),
+        ("cp ~/Library/Keychains/login.keychain-db .", "anahtar zinciri dosyasına erişim"),
+        ("cat ~/.ssh/id_rsa", "SSH anahtarlarına erişim (~/.ssh)"),
+        ("cat /Users/sahte/.ssh/config", "SSH anahtarlarına erişim (~/.ssh)"),
+        ("cat ~/.aws/credentials", "AWS kimlik bilgilerine erişim (~/.aws)"),
+        ("ls ~/.gnupg", "GPG anahtarlarına erişim (~/.gnupg)"),
+        ("cat ~/.netrc", "düz metin kimlik bilgisi dosyasına erişim"),
+        ("cat ~/.config/gcloud/credentials.db", "düz metin kimlik bilgisi dosyasına erişim"),
+        (
+            "ls ~/Library/Application\\ Support/Google/Chrome/Default",
+            "tarayıcı profiline (çerez/parola) erişim",
+        ),
+        ("cat ../.env", "proje dışındaki .env dosyasına (sırlar) erişim"),
+        ("cat ~/.env.local", "proje dışındaki .env dosyasına (sırlar) erişim"),
+        ("cat $HOME/proje/.env", "proje dışındaki .env dosyasına (sırlar) erişim"),
+        ("cat /Users/sahte/baska/.env", "proje dışındaki .env dosyasına (sırlar) erişim"),
+    ],
+)
+def test_geri_alinamayan_dis_etki_ve_sir_okuma_her_kipte_sorulur(komut, gerekce):
+    assert danger_reason("run_shell", {"command": komut}) == gerekce
+
+
+@pytest.mark.parametrize(
+    "komut",
+    [
+        "git push",
+        "git push -u origin main",
+        "git push origin feature-fix",
+        "git push --follow-tags",
+        "npm run build",
+        "gh release list",
+        "security find-generic-password -s servis",
+        "cat .env",
+        "cat config/.env",
+        "cat .envrc",
+        "ls .sshd",
+        "grep -rn ssh src",
+    ],
+)
+def test_yeni_desenler_gunluk_komutlari_yakalamaz(komut):
+    """Proje içi `.env` bilinçli olarak serbest: Fusion kullanıcının kendi projesinde
+    `.env` okur (CLAUDE.md "Sırlar"); `read_file` de engellemez."""
+    assert danger_reason("run_shell", {"command": komut}) is None
