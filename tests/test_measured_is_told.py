@@ -75,7 +75,7 @@ def test_olculen_her_hedef_adim_istemine_yazilir(effects, kind):
     if not validate_plan(ExecutionPlan(plan_id="p", task="iş", steps=(adim,))).ok:
         pytest.skip("plan zaten geçersiz; bu biçim adıma hiç ulaşmaz")
 
-    istem = step_prompt("iş", adim, {})
+    istem = step_prompt(adim, {})
 
     for hedef in _olculen_hedefler(adim):
         assert hedef in istem

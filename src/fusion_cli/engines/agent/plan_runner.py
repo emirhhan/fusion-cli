@@ -75,19 +75,48 @@ if TYPE_CHECKING:
 
 
 def _step_context(context: ToolContext, root: Path | None = None) -> ToolContext:
-    """Bir alt turun değişken araç durumunu diğer adımlardan ayır."""
+    """Bir alt turun değişken araç durumunu diğer adımlardan ayır.
+
+    `fully_read` KOPYALANIR, sıfırlanmaz: paylaşılan konuşma geçmişinde (bkz.
+    `_PlanRun.messages`) model bu dosyaları zaten okumuş görünür; sıfırlamak onu
+    aynı dosyayı ikinci kez okumaya zorlardı. `touched`, `changes`, `todos` ve
+    `browser` adım başına ayrı kalır: adım kanıtı ve geri alma buna dayanır.
+    """
     return replace(
         context,
         root=root or context.root,
         todos=TodoList(),
         touched=set(),
-        fully_read=set(),
-        read_revisions={},
+        fully_read=set(context.fully_read),
         pending=PendingWrite(),
         browser=BrowserSession(),
         changes=ChangeSet(),
         available_tools=set(context.available_tools),
     )
+
+
+#: Düşen bir denemenin geri aldığı yazmaları geçmişe OLGU olarak kaydet.
+#
+# Adım paylaşılan konuşmayı miras alıyor; sonraki deneme aynı dosyayı "az önce
+# yazdım" sanıp atlamamalı. Not, `reflexion.CHANGE_LOG_NOTE` ile aynı deseni
+# izler: harness'ın kendi gözlemidir, model beyanı değildir.
+_ROLLBACK_NOTE = "[Fusion] Şu değişiklikler geri alındı: {paths}"
+
+
+def _rollback_note(paths: tuple[str, ...]) -> Message:
+    """Geri alınan yolları modele olgu olarak hatırlat."""
+    return Message("user", _ROLLBACK_NOTE.format(paths=", ".join(paths)), harness_note=True)
+
+
+def _display_paths(root: Path, paths: tuple[Path, ...]) -> tuple[str, ...]:
+    """Geri alınan yolları kullanıcıya ve modele okunur, kısa biçimde göster."""
+    isimler: list[str] = []
+    for path in paths:
+        try:
+            isimler.append(path.relative_to(root).as_posix())
+        except ValueError:
+            isimler.append(path.name)
+    return tuple(isimler)
 
 
 #: Başarısız bir adım en çok kaç kez DAHA KÜÇÜK parçalara bölünmeye çalışılır.
@@ -172,6 +201,13 @@ class _PlanRun:
     current: ExecutionPlan
     limits: WorkflowBudget
     ledger: BudgetLedger
+    #: Kök konuşma + o ana kadarki tüm adım turlarının PAYLAŞILAN geçmişi.
+    #:
+    #: Ölçüldü ("gizli kelime" vakası): her adım kendi taze geçmişiyle çalışıyordu
+    #: ve kullanıcının kök turda söylediği bir şeyi (gizli kelime, tercih, kısıt)
+    #: ikinci adım hiç görmüyordu. Adımlar artık aynı konuşmanın DEVAMI: bir
+    #: sonraki adım öncekinin asistan ve araç mesajlarını miras alır.
+    messages: list[Message] = field(default_factory=list)
     evidence: dict[str, StepCheckpointEvidence] = field(default_factory=dict)
     outcomes: list[AgentOutcome] = field(default_factory=list)
     spent: dict[tuple[BudgetEnvelope, str], int] = field(default_factory=dict)
@@ -272,15 +308,20 @@ class _PlanRun:
         )
 
     def outcome(self, text: str, *, ok: bool, budget_stopped: bool = False) -> AgentOutcome:
-        """Tüm çıkış yollarında gerçek alt tur sayaçlarını topla."""
+        """Tüm çıkış yollarında gerçek alt tur sayaçlarını topla.
+
+        Geçmiş artık `self.messages`'ta paylaşılan konuşmanın kendisidir; ayrı
+        ayrı adım çıktılarını yeniden birleştirmeye gerek yok. Son mesaj zaten
+        aynı metni taşıyorsa (adımın kendi asistan cevabı) tekrar eklenmez.
+        """
         from .loop import AgentOutcome
 
+        messages = list(self.messages)
+        if not messages or messages[-1].role != "assistant" or messages[-1].content != text:
+            messages.append(Message("assistant", text))
         return AgentOutcome(
             final_text=text,
-            messages=[
-                *(message for outcome in self.outcomes for message in outcome.messages),
-                Message("assistant", text),
-            ],
+            messages=messages,
             ok=ok,
             tool_calls_made=sum(item.tool_calls_made for item in self.outcomes),
             model_calls_made=self.planning_calls
@@ -345,7 +386,6 @@ class _PlanRun:
                     "create_file",
                     "edit_file",
                     "multi_edit",
-                    "replace_range",
                 }
             )
             deps = replace(
@@ -357,7 +397,6 @@ class _PlanRun:
                 ),
             )
         prompt = step_prompt(
-            self.task,
             running,
             self.evidence,
             workspace=workspace_block(self.deps.tool_context),
@@ -376,6 +415,7 @@ class _PlanRun:
                 internal=True,
                 plan_mode=observe,
                 allowed_tools=set(allowed or ()),
+                history=self.messages,
             )
         except BaseException:
             deps.tool_context.changes.restore()
@@ -465,7 +505,6 @@ class _PlanRun:
                 try:
                     outcome = await self.agent(
                         step_prompt(
-                            self.task,
                             running,
                             self.evidence,
                             workspace=workspace_block(aday_baglam),
@@ -480,6 +519,7 @@ class _PlanRun:
                         self_review=False,
                         verify=False,
                         internal=True,
+                        history=self.messages,
                     )
                 finally:
                     if aday_baglam.browser.is_open:
@@ -518,6 +558,7 @@ class _PlanRun:
             # Model çağrıları yukarıda bütün adaylar için ayrıca sayıldı. Kazananın
             # araç ve mutasyon kanıtlarını korurken çağrısını iki kez sayma.
             self.outcomes.append(replace(secilen[2], model_calls_made=0))
+            self.messages = secilen[2].messages
         self.current = replace_step(self.current, tamam)
         self.evidence[step.step_id] = await capture_evidence(
             tamam, secilen[2], checked, self.deps.tool_context.root
@@ -663,6 +704,11 @@ class _PlanRun:
                     budget=True,
                 )
             running, outcome, turn_deps = executed
+            # Konuşma geçmişi BAŞARI/BAŞARISIZLIK fark etmeksizin güncellenir: model
+            # ne denediğini bir sonraki denemede de bilmeli. Okuma bilgisi de aynı
+            # şekilde kalıcıdır (bkz. `_step_context`).
+            self.messages = outcome.messages
+            self.deps.tool_context.fully_read.update(turn_deps.tool_context.fully_read)
             geri_alma = StepRollback(turn_deps.tool_context.changes)
             try:
                 verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)
@@ -679,7 +725,30 @@ class _PlanRun:
             # Geri alınan yazmalar tekrar kaydından da düşmelidir: aksi halde model
             # AYNI doğru düzenlemeyi tekrar denediğinde "bunu zaten yaptın" cevabını
             # alır ve adım hiç ilerleyemez (ölçüldü, 7 Eylül 42 görevlik set).
-            self.forget_rolled_back(geri_alma.discard())
+            rolled_back = geri_alma.discard()
+            self.forget_rolled_back(rolled_back)
+            gorunen_yollar: tuple[str, ...] = ()
+            if rolled_back:
+                # Geri alınan dosya artık ESKİ hâlinde: "zaten okudum" bilgisi geçersiz.
+                self.deps.tool_context.fully_read.difference_update(rolled_back)
+                gorunen_yollar = _display_paths(self.deps.tool_context.root, rolled_back)
+                self.messages.append(_rollback_note(gorunen_yollar))
+            # Kullanıcı bu turu zaten durdurdu (ör. bir aracı reddetti): kör kurtarma
+            # denemek yerine turun durma nedeniyle doğrudan duraklat.
+            stop = getattr(self.deps.budget, "stop", None)
+            if stop is not None:
+                self.current = replace_step(
+                    self.current, replace(running, status=StepStatus.BLOCKED)
+                )
+                return self.pause(
+                    _pause_text(
+                        step.step_id,
+                        f"Tur durduruldu: {getattr(stop, 'value', stop)}.",
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
             if observe and can_repair_local_inventory(running, self.deps.tool_context.root):
                 # Persist the one repair allowance before enabling local writes.
                 step = replace(running, revision=running.revision + 1)
@@ -693,7 +762,11 @@ class _PlanRun:
             if local_repair:
                 return self.pause(
                     _pause_text(
-                        running.step_id, "Yerel asset onarımı başarısız.", verification, outcome
+                        running.step_id,
+                        "Yerel asset onarımı başarısız.",
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
                     )
                 )
             fingerprint = progress_fingerprint(running, outcome, verification)
@@ -726,7 +799,15 @@ class _PlanRun:
                         last_progress_fingerprint=fingerprint,
                     ),
                 )
-                return self.pause(_pause_text(step.step_id, reason, verification, outcome))
+                return self.pause(
+                    _pause_text(
+                        step.step_id,
+                        reason,
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
             if recovery.action is RecoveryAction.PAUSE or observe:
                 self.current = replace_step(
                     self.current,
@@ -736,7 +817,15 @@ class _PlanRun:
                         last_progress_fingerprint=fingerprint,
                     ),
                 )
-                return self.pause(_pause_text(step.step_id, recovery.reason, verification, outcome))
+                return self.pause(
+                    _pause_text(
+                        step.step_id,
+                        recovery.reason,
+                        verification,
+                        outcome,
+                        rolled_back=gorunen_yollar,
+                    )
+                )
             self.deps.publisher.publish(
                 ExecutionRetryScheduled(
                     step_id=step.step_id,
@@ -808,7 +897,9 @@ class _PlanRun:
             if kalan <= 0:
                 son_hata = "Yeniden planlama için ayrılan kurtarma bütçesi tükendi."
                 break
-            generated = await generate_plan(istek, self.deps, self.agent, kalan, None)
+            generated = await generate_plan(
+                istek, self.deps, self.agent, kalan, None, history=self.messages
+            )
             self.planning_calls += generated.calls
             if not self.charge(BudgetEnvelope.RECOVERY, generated.calls, step.step_id):
                 son_hata = "Yeniden planlama kurtarma bütçesini aştı."
@@ -977,7 +1068,7 @@ class _PlanRun:
                 correction = await self.agent(
                     f"ASIL KULLANICI GÖREVİ:\n{self.task}\n\nÖZ DENETİM DÜZELTMESİ:\n{feedback}",
                     correction_deps,
-                    history=candidate.messages,
+                    history=self.messages,
                     depth=1,
                     self_review=False,
                     verify=False,
@@ -987,6 +1078,7 @@ class _PlanRun:
                 if correction_deps.tool_context.browser.is_open:
                     await correction_deps.tool_context.browser.close()
             self.outcomes.append(correction)
+            self.messages = correction.messages
             self.condensations += correction.condensations
             allowed = self.charge(BudgetEnvelope.RECOVERY, correction.model_calls_made, scope)
             if not allowed or not correction.ok:
@@ -1108,11 +1200,16 @@ async def run_execution_plan(
     promotion: PromotionContext | None = None,
     self_review: bool | None = None,
     uncovered: tuple[str, ...] = (),
+    conversation: list[Message] | None = None,
 ) -> AgentOutcome:
     """Plan üretimi, kanıtlı devam ve final onarımı için ortak giriş noktası.
 
     `uncovered`, hazır bir plan verildiğinde (test ya da checkpoint) kapsanmayan
     teslimatları taşır; plan burada üretilirse değer `generate_plan`'dan gelir.
+
+    `conversation`, sistem mesajıyla başlayan ve bu turun kullanıcı mesajıyla
+    biten KÖK konuşmadır. Verilirse plan üretimi ve HER adım bu geçmişi görür
+    (bkz. `_PlanRun.messages`); `None` ise bugünkü davranış korunur.
     """
     limits = workflow_budget(deps)
     checkpoint = None
@@ -1134,6 +1231,7 @@ async def run_execution_plan(
         current or ExecutionPlan("", task, ()),
         limits,
         BudgetLedger(limits),
+        messages=list(conversation) if conversation is not None else [],
     )
     run.self_review = (
         getattr(getattr(getattr(deps, "config", None), "runtime", None), "self_review", False)
@@ -1142,7 +1240,13 @@ async def run_execution_plan(
     )
     if current is None:
         generated = await generate_plan(
-            task, deps, run_agent, limits.planning, promotion, check_coverage=True
+            task,
+            deps,
+            run_agent,
+            limits.planning,
+            promotion,
+            check_coverage=True,
+            history=conversation,
         )
         run.planning_calls = generated.calls
         allowed = run.charge(BudgetEnvelope.PLANNING, generated.calls)
@@ -1190,6 +1294,7 @@ def _pause_text(
     reason: str,
     verification: StepVerificationResult,
     outcome: AgentOutcome,
+    rolled_back: tuple[str, ...] = (),
 ) -> str:
     """Duraklatma mesajını kur: NEDEN duraklatıldığı + NE OLDUĞU birlikte.
 
@@ -1202,6 +1307,10 @@ def _pause_text(
     Bulgu ile açıklama farklı sorulara cevap verir ve biri diğerinin yerine
     geçemez: bulgu kapının neden kapandığını, açıklama işin neden yapılamadığını
     söyler.
+
+    `rolled_back` düşen denemenin GERİ ALDIĞI dosyalardır (bkz. A9): geri alma
+    sessizce olursa kullanıcı "adım duraklatıldı" görür ama diskteki dosyanın
+    neden kaybolduğunu hiç öğrenemez.
     """
     bulgular = "; ".join(verification.findings)
     parcalar = [f"Plan adımı duraklatıldı: {step_id}.", reason]
@@ -1210,4 +1319,6 @@ def _pause_text(
     anlatim = outcome.final_text.strip()
     if anlatim and anlatim not in bulgular:
         parcalar.append(anlatim)
+    if rolled_back:
+        parcalar.append("Geri alınan değişiklikler: " + ", ".join(rolled_back))
     return " ".join(parca for parca in parcalar if parca)

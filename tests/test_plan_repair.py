@@ -90,7 +90,9 @@ async def test_final_bozulan_adimi_onarir_bagimsizi_korur(tmp_path, recovery, ex
     called = []
 
     async def agent(task, agent_deps, **kwargs):
-        name = next(step.step_id for step in plan.steps if f"[{step.step_id}]" in task)
+        name = next(
+            step.step_id for step in plan.steps if f"[Plan adımı {step.step_id}]" in task
+        )
         called.append(name)
         path = {"create": "a.txt", "independent": "b.txt", "finish": "c.txt"}[name]
         (tmp_path / path).write_text("sağlam")
@@ -138,7 +140,7 @@ async def test_never_final_hatasi_yan_etkiyi_tekrarlamaz(tmp_path):
     called = []
 
     async def agent(task, agent_deps, **kwargs):
-        name = "create" if "[create]" in task else "finish"
+        name = "create" if "[Plan adımı create]" in task else "finish"
         called.append(name)
         (tmp_path / ("a.txt" if name == "create" else "b.txt")).write_text("sağlam")
         if name == "finish":

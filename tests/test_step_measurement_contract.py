@@ -84,6 +84,6 @@ def test_kontrat_adim_istemine_giriyor():
         VerificationCheck("koşul", VerificationCheckKind.FILE_EXISTS, "scripts/game_manager.gd")
     )
 
-    istem = step_prompt("iş", adim, {})
+    istem = step_prompt(adim, {})
 
     assert "scripts/game_manager.gd" in istem

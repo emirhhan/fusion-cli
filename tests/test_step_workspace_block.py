@@ -67,7 +67,7 @@ def test_blok_adim_istemine_giriyor(tmp_path):
     """Yardımcının var olması yetmez: istemin İÇİNE girdiği kanıtlanmalı."""
     blok = workspace_block(_baglam(tmp_path, okunan=("paket/cli.py",)))
 
-    istem = step_prompt("iş", _step("adim"), {}, workspace=blok)
+    istem = step_prompt(_step("adim"), {}, workspace=blok)
 
     assert "paket/cli.py" in istem
     assert "ÇALIŞMA ALANI" in istem
@@ -88,10 +88,10 @@ def test_gozlem_turu_istemi_yazma_araclarinin_kapali_oldugunu_soyler():
     Ölçüldü (Dead Cells koşusu): kurtarma turu `run_shell` ve `write_file` çağırdı,
     ikisi de kapsam dışıydı; adım "dosya bulunamadı" ile duraklatıldı.
     """
-    istem = step_prompt("iş", _step("adim"), {}, observe=True)
+    istem = step_prompt(_step("adim"), {}, observe=True)
 
     assert "GÖZLEM TURU" in istem
 
 
 def test_normal_adim_istemi_gozlem_notu_tasimaz():
-    assert "GÖZLEM TURU" not in step_prompt("iş", _step("adim"), {})
+    assert "GÖZLEM TURU" not in step_prompt(_step("adim"), {})

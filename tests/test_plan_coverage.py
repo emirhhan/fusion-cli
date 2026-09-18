@@ -215,7 +215,7 @@ def test_asset_adimina_sira_talimati_eklenir():
     )
 
     assert asset_step(adim)
-    istem = step_prompt(GOREV, adim, {})
+    istem = step_prompt(adim, {})
     assert "ASSET SIRASI" in istem
     assert "manifesti EN SON" in istem
     assert '"files"' in istem
@@ -227,7 +227,7 @@ def test_asset_olmayan_adima_sira_talimati_eklenmez():
     adim = _adim("code", "Oynanışı kodla", etki="file:scripts/player.gd")
 
     assert not asset_step(adim)
-    assert "ASSET SIRASI" not in step_prompt(GOREV, adim, {})
+    assert "ASSET SIRASI" not in step_prompt(adim, {})
 
 
 def test_gozlem_turunda_sira_talimati_verilmez():
@@ -236,7 +236,7 @@ def test_gozlem_turunda_sira_talimati_verilmez():
 
     adim = _adim("assets", "Assetleri topla", etki="file:ASSETS.json")
 
-    assert "ASSET SIRASI" not in step_prompt(GOREV, adim, {}, observe=True)
+    assert "ASSET SIRASI" not in step_prompt(adim, {}, observe=True)
 
 
 async def test_planlanamayan_teslimat_turu_tamamlandi_saymaz(tmp_path):

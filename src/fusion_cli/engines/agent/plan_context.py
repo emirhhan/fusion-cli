@@ -240,27 +240,31 @@ def asset_step(step: PlanStep) -> bool:
 
 
 def step_prompt(
-    task: str,
     step: PlanStep,
     evidence: dict[str, StepCheckpointEvidence],
     *,
     workspace: str = "",
     observe: bool = False,
 ) -> str:
-    """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret."""
+    """Dar adım istemini yalnız gerçek bağımlılık kanıtlarıyla üret.
+
+    Ana görev metni burada TEKRAR EDİLMEZ: adımlar artık kök konuşmayı miras
+    alıyor (bkz. `plan_runner._PlanRun.messages`) ve görev zaten geçmişte durur.
+    Bu metin kendisi bir kullanıcı mesajı olarak geçmişe eklenir; `[Plan adımı
+    …]` öneki hangi adımın çalıştığını konuşma içinde görünür kılar.
+    """
     return (
-        f"ŞİMDİ YÜRÜTÜLECEK PLAN ADIMI [{step.step_id}]:\n{step.goal}\n\n"
+        f"[Plan adımı {step.step_id}] {step.goal}\n\n"
         f"ADIM EVRESİ: {step.phase.value}\n"
         + (OBSERVE_NOTE if observe else "")
         + (ASSET_ORDER_NOTE if not observe and asset_step(step) else "")
         + "Yalnız bu adımı yürüt; ana görevi yeniden planlama veya başka adımlara geçme.\n\n"
-        f"ANA GÖREV (kapsam ve kısıtlar korunacak):\n{task}\n\n"
         f"{workspace}"
         f"BAĞIMLILIK KANITLARI:\n{dependency_text(step, evidence)}\n\nBAŞARI KOŞULLARI:\n"
         + "\n".join(f"- {criterion}" for criterion in step.success_criteria)
         + f"\n\nDOĞRULAMA İPUCU:\n{step.verification_hint}\n\n"
         + measurement_block(step)
-        + "Yalnızca bu adımı tamamla. Sonuçta yaptığını ve gözlediğin kanıtı açıkça yaz."
+        + "Adım bitince tek cümleyle ne yaptığını söyle."
     )
 
 

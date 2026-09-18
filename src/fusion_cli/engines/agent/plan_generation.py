@@ -56,6 +56,7 @@ async def generate_plan(
     promotion: PromotionContext | None,
     *,
     check_coverage: bool = False,
+    history: list[Message] | None = None,
 ) -> PlanGeneration:
     """Şemayı bir kez onar; her iki gerçek çağrının maliyetini koru.
 
@@ -63,6 +64,10 @@ async def generate_plan(
     planlama tek bir başarısız adımın yerine küçük bir dal üretir; oradaki plan
     görevin bütün teslimatlarını kapsamak zorunda değildir ve kapsama kapısını
     orada çalıştırmak her yeniden planlamaya gereksiz bir onarım turu ekler.
+
+    `history` verilirse plan üretimi de paylaşılan konuşmayı görür: kullanıcının
+    kök turda söylediği bir kısıt ya da tercih, plan üretiminden hiç haberdar
+    olmayan bir model için kaybolmaz.
     """
     import asyncio
 
@@ -89,6 +94,7 @@ async def generate_plan(
             verify=False,
             internal=True,
             allowed_tools=set(),
+            history=history,
         )
         calls += outcome.model_calls_made
         if not outcome.ok:

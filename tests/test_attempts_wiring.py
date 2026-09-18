@@ -178,7 +178,7 @@ async def test_sonraki_basarisiz_adim_onceki_aday_ciktisini_geri_almaz(tmp_path)
 
     async def agent(task, agent_deps, **kwargs):
         del kwargs
-        ad = "a" if "[a]" in task else "b"
+        ad = "a" if "[Plan adımı a]" in task else "b"
         yol = agent_deps.tool_context.root / f"{ad}.py"
         agent_deps.tool_context.changes.record(yol)
         yol.write_text("sağlam\n" if ad == "a" else "yanlış\n", encoding="utf-8")

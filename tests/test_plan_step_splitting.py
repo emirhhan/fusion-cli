@@ -98,7 +98,7 @@ class TestBolmeDongusu:
     ) -> None:
         istekler: list[str] = []
 
-        async def sahte_plan(task, deps, agent, remaining, _):  # type: ignore[no-untyped-def]
+        async def sahte_plan(task, deps, agent, remaining, _, **kwargs):  # type: ignore[no-untyped-def]
             istekler.append(task)
             return PlanGeneration(plan=_plan(_adim()), calls=1, error="")
 
@@ -132,7 +132,7 @@ class TestBolmeDongusu:
             _adim("step-1a", "Yalnız dizini listele", StepStatus.PENDING)
         )
 
-        async def sahte_plan(task, deps, agent, remaining, _):  # type: ignore[no-untyped-def]
+        async def sahte_plan(task, deps, agent, remaining, _, **kwargs):  # type: ignore[no-untyped-def]
             istekler.append(task)
             return PlanGeneration(plan=bolunmus, calls=1, error="")
 
