@@ -149,4 +149,22 @@ describe("ProviderList — web oturumu", () => {
 
     expect(await screen.findByText(/giriş yarım kalmış olabilir/i)).toBeTruthy();
   });
+
+  it("web oturumunun pencere kipini ve gizleme uyarısını gösterir", async () => {
+    // Gizleme izni yoksa ChatGPT penceresi ekranda kalır; kullanıcı SEBEBİNİ görmeli.
+    const uyari = "Fusion'ın tarayıcı penceresi gizlenemedi. Otomasyon iznini aç.";
+    const satirlar = [
+      { ...SATIRLAR[0], bagli: true, pencere_kipi: "hidden", pencere_uyarisi: uyari },
+      { ...SATIRLAR[1], pencere_kipi: "headless", pencere_uyarisi: null },
+    ];
+    render(<ProviderList client={client({ "saglayici.katalog": { ok: true, saglayicilar: satirlar } })} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Web/ }));
+    expect(await screen.findByText("Tarayıcı penceresi: Gizli")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe(uyari);
+
+    fireEvent.click(screen.getByRole("button", { name: /Gemini Web/ }));
+    expect(await screen.findByText("Tarayıcı penceresi: Görünmez")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
 });

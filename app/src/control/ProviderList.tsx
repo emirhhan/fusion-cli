@@ -25,7 +25,20 @@ interface ProviderRow {
   tur: "web" | "anahtar";
   /** Taklit araç ölçümü geçildi mi — geçmediyse model DOSYA YAZAMAZ. */
   olcum_gecti?: boolean;
+  /** Tur tarayıcısının pencere kipi (yalnız web sağlayıcıları). */
+  pencere_kipi?: PencereKipi;
+  /** Pencereyle ilgili son uyarı — ör. macOS gizleme izni verilmemiş. */
+  pencere_uyarisi?: string | null;
 }
+
+type PencereKipi = "visible" | "headless" | "hidden";
+
+/** Kiplerin kullanıcıya görünen adları; gateway panelindeki seçimle aynı. */
+const PENCERE_KIPLERI: Record<PencereKipi, string> = {
+  visible: "Görünür",
+  headless: "Görünmez",
+  hidden: "Gizli",
+};
 
 const YOKLAMA_MS = 1500;
 const GIRIS_SURESI_MS = 15 * 60 * 1000;
@@ -288,6 +301,18 @@ export function ProviderList({ client, onChanged = () => undefined }: {
                       Kendi aboneliğinle çalışır; anahtar gerekmez. Giriş ayrı bir pencerede
                       yapılır ve oturum bu bilgisayarda kalır.
                     </p>
+                    {row.pencere_kipi && (
+                      <p className="provider-list__meta">
+                        Tarayıcı penceresi: {PENCERE_KIPLERI[row.pencere_kipi] ?? row.pencere_kipi}
+                      </p>
+                    )}
+                    {/* Gizleme başarısız olursa pencere ekranda kalır; sebebi
+                        ve çözümü burada yazar, sessizce yutulmaz. */}
+                    {row.pencere_uyarisi && (
+                      <p className="provider-list__warn" role="status">
+                        {row.pencere_uyarisi}
+                      </p>
+                    )}
                     {!row.bagli && row.profil_var && (
                       <p className="provider-list__warn">
                         Tarayıcı profili var ama oturum kayıtlı değil — giriş yarım kalmış
