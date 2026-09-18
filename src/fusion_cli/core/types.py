@@ -154,6 +154,38 @@ def is_rate_limit_error(detail: str | None) -> bool:
     return any(marker in lowered for marker in _RATE_LIMIT_MARKERS)
 
 
+#: Modelin HİÇ cevap veremediğini gösteren işaretler.
+#
+# Ayrım ürün kararıdır: "kötü cevap" ile "cevap yok" aynı şey değildir. Kullanıcı
+# bir modeli açıkça seçtiyse (strict) kalite için başka modele kayılmaz; ama seçili
+# model oturum, doğrulama ya da kota yüzünden hiç cevap veremiyorsa alternatifi
+# hiç cevap alamamaktır. Ölçüldü (17 Eylül): ChatGPT oturumu captcha'ya takıldı ve
+# girişi yapılmış ikinci oturum dururken yedi tur üst üste düştü.
+_UNAVAILABLE_MARKERS = (
+    "authentication:",
+    "captcha",
+    "insan doğrulaması",
+    "oturum açık değil",
+    "oturumu açık değil",
+    "süresi dolmuş",
+    "giriş gerekli",
+)
+
+
+def is_unavailable_error(detail: str | None) -> bool:
+    """Hata metni "bu model şu an hiç cevap veremiyor" mu diyor?
+
+    Kota ve hız sınırı da buraya girer: beklemek yerine elde çalışan başka bir
+    sağlayıcı varsa kullanıcıyı boş bekletmenin anlamı yok.
+    """
+    if not detail:
+        return False
+    lowered = detail.lower()
+    if is_rate_limit_error(detail) or is_daily_quota_error(detail):
+        return True
+    return any(marker in lowered for marker in _UNAVAILABLE_MARKERS)
+
+
 #: Beklemenin HİÇBİR ŞEYİ değiştirmeyeceği hataların işaretleri.
 #
 # Yeniden deneme yalnızca GEÇİCİ arıza için anlamlıdır. Olmayan bir modeli ya da

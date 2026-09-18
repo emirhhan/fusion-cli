@@ -87,9 +87,12 @@ def build_provider(
                 )
         return LiteLlmProvider(model, role=spec.name, clock=clock)
 
-    # `strict` tek-model seçimini gerçekten katı yapar. Fallback config'te korunur
-    # ama bu çağrı yolunda devreye sokulmaz; panelden strict kapatılınca yeniden aktif olur.
-    model_ids = (spec.model,) if spec.strict else spec.models
+    # `strict` seçimi KALİTE için katı yapar: kullanıcının seçtiği model cevap
+    # verebildiği sürece başka modele kayılmaz. Ama hiç cevap veremiyorsa (oturum
+    # kapalı, captcha, kota) zincir yine de ilerler — ölçüldü (17 Eylül): seçili
+    # web oturumu doğrulamaya takıldı, girişi yapılmış ikinci oturum dururken yedi
+    # tur üst üste düştü. Sessiz kalmak kullanıcıya yardım etmiyordu.
+    model_ids = spec.models
     models = [_leaf(model) for model in model_ids]
     retrying = wrap_with_retry(models, delays_s=retry_delays_s, sleeper=sleeper)
     # `health` verilirse her modelin yeniden-deneme katmanı circuit breaker ile sarılır:
@@ -110,6 +113,7 @@ def build_provider(
         role=spec.name,
         publisher=publisher,
         background=background,
+        only_when_unavailable=spec.strict,
     )
     if publisher is None:
         return inner

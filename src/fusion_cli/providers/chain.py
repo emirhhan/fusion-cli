@@ -33,7 +33,13 @@ from collections.abc import AsyncIterator, Sequence
 from ..core.errors import ProviderError
 from ..core.events import EventPublisher, ModelFallbackActivated
 from ..core.protocols import LlmProvider
-from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem
+from ..core.types import (
+    CompletionRequest,
+    ModelResult,
+    StreamDone,
+    StreamItem,
+    is_unavailable_error,
+)
 
 
 class FallbackProvider:
@@ -46,6 +52,7 @@ class FallbackProvider:
         role: str,
         publisher: EventPublisher | None = None,
         background: bool = False,
+        only_when_unavailable: bool = False,
     ) -> None:
         if not providers:
             raise ProviderError(f"'{role}' için tanımlı model yok.")
@@ -53,6 +60,9 @@ class FallbackProvider:
         self._role = role
         self._publisher = publisher
         self._background = background
+        #: Kullanıcı modeli açıkça seçtiyse (strict) zincir YALNIZCA model hiç
+        #: cevap veremediğinde ilerler; kötü cevap yedeğe geçiş sebebi değildir.
+        self._only_when_unavailable = only_when_unavailable
 
     @property
     def label(self) -> str:
@@ -76,6 +86,8 @@ class FallbackProvider:
             if result.is_usable:
                 return result
             failures.append(result)
+            if self._only_when_unavailable and not is_unavailable_error(result.error):
+                break
         return self._all_failed(failures)
 
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
@@ -91,6 +103,8 @@ class FallbackProvider:
                 # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
                 failures.append(first.result)
                 await _close(stream)
+                if self._only_when_unavailable and not is_unavailable_error(first.result.error):
+                    break
                 continue
             yield first
             if isinstance(first, StreamDone):

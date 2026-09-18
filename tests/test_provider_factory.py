@@ -48,8 +48,14 @@ def test_zincir_spec_sirasini_korur():
     assert provider.label == "nvidia_nim/z-ai/glm-5.2"
 
 
-def test_strict_spec_fallback_tanimli_olsa_da_tek_yaprak_kurar():
-    """Tek-model seçimi config'te kalmış yedek yüzünden sessizce değişmemeli."""
+def test_strict_spec_zinciri_kurar_ama_yalniz_kullanilamazlikta_ilerler():
+    """Tek-model seçimi KALİTE için katıdır, erişilemezlik için değil.
+
+    Ölçüldü (17 Eylül denetimi): strict işaretli web oturumu captcha'ya takıldı ve
+    yedi tur üst üste düştü; aynı makinede girişi yapılmış ikinci oturum duruyordu.
+    Zincir kurulur, ama yalnız model HİÇ cevap veremediğinde ilerler
+    (bkz. `FallbackProvider.only_when_unavailable`).
+    """
     strict = ModelSpec(
         name="secilen",
         model="gemini_web/main/auto",
@@ -59,7 +65,9 @@ def test_strict_spec_fallback_tanimli_olsa_da_tek_yaprak_kurar():
 
     halkalar = _halkalar(strict, ())
 
-    assert len(halkalar) == 1
+    assert len(halkalar) == 2
+    zincir = build_provider(strict, publisher=None, retry_delays_s=())
+    assert zincir._only_when_unavailable is True
 
 
 def test_web_session_modeli_api_yerine_web_adaptoruyle_kurulur():
