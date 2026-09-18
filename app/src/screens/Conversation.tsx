@@ -22,6 +22,8 @@ export interface Mesaj {
   ekler?: MesajEki[];
   /** Yalnız `rol === "degisiklik"` için: dosyaya uygulanan unified diff. */
   diff?: string;
+  /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
+  akan?: boolean;
 }
 
 /**

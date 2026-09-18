@@ -91,3 +91,45 @@ describe("değişiklik kartı", () => {
     expect(sonuc.some((mesaj) => mesaj.rol === "degisiklik")).toBe(false);
   });
 });
+
+describe("akan cevap", () => {
+  const PARCA = (text: string, extra: Record<string, unknown> = {}) => ({
+    olay: "TokenReceived",
+    channel: "main",
+    text,
+    ...extra,
+  });
+
+  it("gelen parçaları tek bir asistan balonunda biriktirir", () => {
+    let mesajlar = olayEkle([], PARCA("Kask seçerken "));
+    mesajlar = olayEkle(mesajlar, PARCA("önce sertifikaya bak."));
+
+    const akan = mesajlar.filter((mesaj) => mesaj.rol === "asistan");
+    expect(akan).toHaveLength(1);
+    expect(akan[0].metin).toBe("Kask seçerken önce sertifikaya bak.");
+    expect(akan[0].akan).toBe(true);
+  });
+
+  it("yeni model çağrısı başlayınca biriken metin sıfırlanır", () => {
+    let mesajlar = olayEkle([], PARCA("ilk cevabın taslağı"));
+    mesajlar = olayEkle(mesajlar, DUSUNUYOR);
+    mesajlar = olayEkle(mesajlar, PARCA("ikinci cevap"));
+
+    const akan = mesajlar.filter((mesaj) => mesaj.rol === "asistan");
+    expect(akan).toHaveLength(1);
+    expect(akan[0].metin).toBe("ikinci cevap");
+  });
+
+  it("arka plan çağrısının metni akışa girmez", () => {
+    const mesajlar = olayEkle([], PARCA("ders çıkarımı", { channel: "background" }));
+
+    expect(mesajlar.filter((mesaj) => mesaj.rol === "asistan")).toHaveLength(0);
+  });
+
+  it("tur bitince akan balon kalkar: nihai cevabı uygulama ekler", () => {
+    let mesajlar = olayEkle([], PARCA("yazılıyor..."));
+    mesajlar = olayEkle(mesajlar, { olay: "TurnFinished" });
+
+    expect(mesajlar.filter((mesaj) => mesaj.rol === "asistan")).toHaveLength(0);
+  });
+});
