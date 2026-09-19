@@ -697,6 +697,86 @@ async def test_oturum_izni_masaustunde_sonraki_turda_yeniden_sorulmaz(tmp_path, 
     assert sorular == ["godot__add_node"]
 
 
+async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdurur(
+    tmp_path, monkeypatch
+):
+    """AppSession'ın GERÇEK tel akışında (`ProtocolPrompter` + `oturum.resolve_reply`)
+    tek-ajan (FAST rota, `_drive`) yolunun red sözleşmesini kilitler.
+
+    `test_user_denial_stops_turn.py` aynı reddi SAF `run_agent` düzeyinde zaten
+    doğru sınıyor. Bu test onu appserver'ın gerçek `ApprovalAnswer` eşlemesi ve
+    `oturum.resolve_reply` üzerinden bir daha doğrular. Kök neden bu yolda
+    DEĞİL, WORKFLOW (plan) rotasındaydı — bkz. `tests/test_plan_runner.py::
+    test_reddedilen_adimdan_sonra_sonraki_adim_calistirilmaz` ve
+    `engines/agent/plan_runner.py::_PlanRun.run_step`.
+    """
+    from fusion_cli.appserver.protocol import Reply
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    from .fakes import ScriptedProvider, model_result, tool_call
+
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=[tool_call("list_dir", path=".")]),
+            model_result(tool_calls=[tool_call("run_shell", command="rm -rf build")]),
+            model_result("model ÜÇÜNCÜ kez ÇAĞRILMAMALI"),
+        ]
+    )
+
+    def _sahte_saglayici(spec, **kwargs):
+        del spec, kwargs
+        return provider
+
+    monkeypatch.setattr(agent_loop, "build_provider", _sahte_saglayici)
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    # `mcp_servers`/`web_sessions` bu makinenin GERÇEK kullanıcı config'inden
+    # gelir (`load_config()`); testin taklit modeli EMULATED/doğrulanmamış bir
+    # web oturumuyla eşleşirse mutasyon hiç sorulmadan (yetenek kapısı) engellenir.
+    # Test, model kimliğinden bağımsız olmalı: `agent.model`i hiçbir web
+    # oturumuyla eşleşmeyen bir isimle değiştirip bu kapıyı devre dışı bırakır.
+    oturum._state.config = replace(
+        oturum._state.config,
+        mcp_servers=(),
+        web_sessions=(),
+        agent=replace(oturum._state.config.agent, model="test/scripted-model"),
+    )
+    # Kod kipi: sohbet kipi mutasyonu hiç sormadan (BLOCKED) reddeder; masaüstü
+    # uygulamasındaki "build klasörünü sil" senaryosu kod kipinde geçer.
+    oturum._workspace_mode = "kod"
+
+    gorev = asyncio.ensure_future(
+        oturum.handle(
+            Request(id="1", name="tur.calistir", data={"gorev": "build klasörünü sil"})
+        )
+    )
+
+    async def _soru_bekle() -> dict:
+        for _ in range(500):
+            for satir in satirlar:
+                veri = json.loads(satir)
+                if veri.get("tip") == "soru":
+                    return veri
+            await asyncio.sleep(0.01)
+        raise AssertionError("onay sorusu hiç gelmedi")
+
+    soru = await _soru_bekle()
+    assert soru["veri"]["arac"] == "run_shell"
+
+    reddedildi = oturum.resolve_reply(Reply(id=soru["id"], data={"secim": "deny"}))
+    assert reddedildi is True
+
+    await gorev
+
+    # Ölçülen hata: `provider.calls == 3` (model reddi görmezden gelip yeniden
+    # denedi). Doğru davranışta model YALNIZCA iki kez çağrılır: `list_dir` ve
+    # reddedilen `run_shell`; tur üçüncü çağrı olmadan durur.
+    assert provider.calls == 2
+    sonuc = _sonuc(satirlar, "1")
+    assert "nasıl devam edeyim" in sonuc["metin"].lower()
+
+
 async def test_c4_oturum_baslat_onay_modu_ve_motoru_kurar(tmp_path, monkeypatch):
     """C4: `oturum.baslat` isteği spec'te tanımlı ama hiç uygulanmamıştı.
 

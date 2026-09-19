@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from ...core.assets import UNUSED_ASSETS_PREFIX, is_asset_inventory
 from ...core.browser_session import BrowserSession
+from ...core.budget import BudgetStop
 from ...core.changeset import ChangeSet
 from ...core.checkpoint import StepCheckpointEvidence, WorkflowBudgetUsage, WorkflowCheckpoint
 from ...core.clock import SystemClock
@@ -727,6 +728,25 @@ class _PlanRun:
             # şekilde kalıcıdır (bkz. `_step_context`).
             self.messages = outcome.messages
             self.deps.tool_context.fully_read.update(turn_deps.tool_context.fully_read)
+            if getattr(getattr(turn_deps, "budget", None), "stop", None) is BudgetStop.USER_DENIED:
+                # Kullanıcı bu adımda bir aracı GERÇEKTEN reddetti (bkz. `denial.py`).
+                # `_drive` bu turda modeli bir daha ÇAĞIRMADAN zaten durdu (`outcome.ok`
+                # `True`, metin `denial.DENIAL_STOP_ANSWER`), ama plan motoru bunu hiç
+                # sormadan adımı sıradan bir "başarısız deneme" sayıp doğrulama ve
+                # kurtarma için modeli YENİDEN çağırıyordu — kullanıcının kararı bir
+                # sonraki adımda yok sayılıyordu.
+                #
+                # Ölçüldü (masaüstü `fusion app`, `appserver/session.py` yolu):
+                # "build klasörünü sil" görevinde `list_dir` sonrası reddedilen
+                # `run_shell("rm -rf build")` turu durdurmuyor, model 3. kez
+                # çağrılıyordu. Doğrulama/kurtarma hiç BAŞLAMADAN iş akışı burada
+                # durmalı; `outcome` zaten kullanıcıya gösterilecek nihai cevabı taşıyor.
+                self.current = replace(self.current, status=PlanStatus.PAUSED)
+                self.save()
+                self.deps.publisher.publish(
+                    ExecutionPaused(plan_id=self.current.plan_id, reason=outcome.final_text)
+                )
+                return outcome
             geri_alma = StepRollback(turn_deps.tool_context.changes)
             try:
                 verification = await self.verify(running, outcome, observe=observe, deps=turn_deps)

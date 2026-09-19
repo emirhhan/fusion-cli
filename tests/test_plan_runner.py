@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 
+from fusion_cli.core.budget import BudgetStop
 from fusion_cli.core.events import (
     ExecutionCompleted,
     ExecutionPlanCreated,
@@ -596,3 +597,59 @@ async def test_bos_dizinde_komut_kontrollu_kesif_atlanmaz(tmp_path):
     )
 
     assert cagrilar, "komut kontrollü keşif adımı modele hiç gitmedi"
+
+
+async def test_reddedilen_adimdan_sonra_sonraki_adim_calistirilmaz(tmp_path):
+    """B3 plan motoru boşluğu: kullanıcı bir adımda GERÇEKTEN "hayır" dedi.
+
+    Ölçülen hata (masaüstü `fusion app`, `appserver/session.py` yolu): "build
+    klasörünü sil" görevinde `list_dir` sonrası reddedilen `run_shell("rm -rf
+    build")` turu durdurmuyor, model 3. kez çağrılıyordu. Kök neden bu dosyada:
+    `_drive` reddi doğru algılayıp modeli BİR DAHA çağırmadan durur
+    (`tests/test_user_denial_stops_turn.py`), ama plan motoru bunu hiç sormadan
+    reddedilen adımın (kontrolsüz/boş `verification_checks`) doğrulamasını
+    "geçti" sayıp bağımlı bir SONRAKİ adım için modeli yeniden çağırıyordu.
+
+    Üç adımlı plan: `list` (normal biter), `delete` (kullanıcı reddeder, ikinci
+    adım `list`e bağlı), `after` (`delete`e bağlı — HİÇ çalışmamalı).
+    """
+    plan = ExecutionPlan(
+        plan_id="p",
+        task="build klasörünü sil",
+        steps=(
+            _step("list"),
+            _step("delete", depends_on=("list",)),
+            _step("after", depends_on=("delete",)),
+        ),
+    )
+    calls: list[str] = []
+    budget = SimpleNamespace(stop=None, record_progress=lambda: None)
+
+    async def agent(task, agent_deps, **kwargs):
+        del kwargs
+        calls.append(task)
+        if "delete işini" in task:
+            # `_drive`nın gerçek davranışı: kullanıcı reddedince `budget.halt`
+            # çağrılır ve tur `ok=True` ile, reddi anlatan bir metinle biter
+            # (bkz. `denial.DENIAL_STOP_ANSWER`).
+            agent_deps.budget.stop = BudgetStop.USER_DENIED
+            return AgentOutcome(
+                final_text="`run_shell` çağrısını onaylamadınız; tur burada durduruldu. "
+                "Nasıl devam edeyim?",
+                messages=[],
+                model_calls_made=1,
+                ok=True,
+            )
+        return AgentOutcome(final_text=f"{task} tamamlandı", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "build klasörünü sil",
+        _FakeDeps(ToolContext(root=tmp_path), budget=budget),
+        agent,
+        plan=plan,
+    )
+
+    assert len(calls) == 2, f"agent 2 kez çağrılmalıydı, {len(calls)} kez çağrıldı: {calls}"
+    assert not any("after işini" in prompt for prompt in calls)
+    assert result.ok is True
+    assert "onaylamadınız" in result.final_text
