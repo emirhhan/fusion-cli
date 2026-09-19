@@ -113,6 +113,24 @@ _FILENAME = (
     r"\b[\w/-]+[\s.](?:py|js|mjs|ts|tsx|jsx|html?|css|scss|json|ya?ml|md|txt|toml|ini|cfg|"
     r"sh|sql|go|rs|java|kt|rb|php|swift|c|cc|cpp|h|hpp)\b"
 )
+#: "adını yaz" / "ismini yaz" gibi CEVAP BİÇİMİ yönergeleri dosya değişikliği
+#: değildir: kullanıcı metinde bir BİLGİ istiyordur, cümlede bir mutasyon nesnesi
+#: (`kod`, `proje`…) geçse bile.
+#
+# Ölçüldü (18 Eylül, `/plan-yurut` duraklamasından sonraki tur): "Projenin kod
+# adı neydi? Yalnız kod adını yaz." turu `kod` nesnesi + `yaz` fiili yüzünden
+# workspace_mutation sayıldı — ikisi arasında 50 karaktere kadar herhangi bir
+# metne izin veren `_FILE_MUTATION_PATTERNS` deseni `kod`u `yaz`ın nesnesi
+# sandı, oysa gerçek nesne `adını`ydı. Kanıt kapısı gerçek bir dosya değişikliği
+# istedi ve model soruyu cevaplamak yerine ilgisiz bir dosyayı düzenleyip
+# "kanıt" üretmeye çalıştı. Bu, `_MUTATION_OBJECTS`'ten "cevap" kelimesinin
+# dışarıda bırakılmasıyla aynı gerekçeye dayanır (bkz. `_matches` çağrılarından
+# önceki temizlik): yalnızca `yaz`ın DOĞRUDAN nesnesi bir isim/cevap kalıbıysa
+# temizlenir; "kodunu yaz" gibi gerçek mutasyonlar etkilenmez.
+_ANSWER_FORMAT_PATTERN = re.compile(
+    r"\b(?:ad[ıi]n[ıi]|ad[ıi]|isim|ismi|ismini)\s+(?:yaz|söyle|soyle)\b",
+    re.IGNORECASE,
+)
 #: Dosya/proje üreten ya da değiştiren fiiller.
 _MUTATION_VERBS = (
     r"(?:sil|kaldır|kaldir|taşı|tasi|kopyala|yeniden adlandır|yeniden adlandir|"
@@ -254,6 +272,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     lowered = _positive_action_clauses(lowered)
     if not lowered:
         return None
+    lowered = _ANSWER_FORMAT_PATTERN.sub(" ", lowered)
     if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
         return None
     if _matches(lowered, _GIT_PUSH_PATTERNS):

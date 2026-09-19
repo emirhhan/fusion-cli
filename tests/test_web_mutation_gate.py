@@ -304,3 +304,23 @@ def test_nesnesiz_duzelt_fiili_de_mutasyon_sayilir():
 def test_cok_anlamli_fiiller_listede_degil():
     """ "cevap yaz" bir dosya değişikliği değildir; liste dar tutulur."""
     assert required_effect_for("kısa bir cevap yaz") != "workspace_mutation"
+
+
+def test_ad_soyleme_istegi_mutasyon_sayilmaz():
+    """ "kod adını yaz" bir SORU cevabı istemidir, dosya değişikliği değildir.
+
+    Ölçüldü (18 Eylül, `/plan-yurut` duraklamasından sonraki tur): kullanıcı
+    "Projenin kod adı neydi? Yalnız kod adını yaz." dedi. `kod` nesnesi
+    (`_MUTATION_OBJECTS` içinde, çünkü "kod ekle/düzelt" GERÇEK bir mutasyondur)
+    cümlede `yaz` fiilinden 50 karakter önce geçtiği için tur workspace_mutation
+    sayıldı; kanıt kapısı gerçek bir dosya değişikliği istedi ve model soruyu
+    cevaplamak yerine ilgisiz bir dosyayı düzenleyip "kanıt" üretmeye çalıştı.
+    Asıl fiilin nesnesi `kod` değil `adını` (bir isim/cevap istemi).
+    """
+    assert required_effect_for("Projenin kod adı neydi? Yalnız kod adını yaz.") != (
+        "workspace_mutation"
+    )
+    assert required_effect_for("sadece projenin ismini yaz") != "workspace_mutation"
+    # Gerçek kod-yazma isteği hâlâ mutasyon sayılmalı: fiilin nesnesi burada
+    # "adı" değil doğrudan "kod"un kendisi.
+    assert required_effect_for("bu fonksiyonun kodunu yaz") == "workspace_mutation"
