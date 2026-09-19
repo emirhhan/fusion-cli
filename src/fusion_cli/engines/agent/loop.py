@@ -60,7 +60,7 @@ from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.steering import SteeringQueue
-from ...core.tools import Tool, ToolContext, ToolResult
+from ...core.tools import Tool, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import (
     CompletionRequest,
     Message,
@@ -1125,16 +1125,16 @@ def _tool_evidence_satisfied(execution: ExecutionPolicy, budget: TurnBudget) -> 
     evidence = budget.successful_tool_evidence
     if effect == "git_push":
         return any(
-            name == "run_shell" and _shell_contains_git_action(args, "push")
+            tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "push")
             for name, args, _ in evidence
         )
     if effect == "git_commit":
         return any(
-            name == "run_shell" and _shell_contains_git_action(args, "commit")
+            tool_family(name) is ToolFamily.SHELL and _shell_contains_git_action(args, "commit")
             for name, args, _ in evidence
         )
     if effect == "shell_action":
-        return any(name == "run_shell" for name, _, _ in evidence)
+        return any(tool_family(name) is ToolFamily.SHELL for name, _, _ in evidence)
     if effect == "workspace_mutation":
         return any(mutating for _, _, mutating in evidence)
     if effect == "web_lookup":
@@ -1548,17 +1548,26 @@ def _line_count(path: Path) -> int:
 #: Dosyanın tamamını değiştiren araçlar.
 _FULL_WRITE_TOOLS = frozenset({"write_file"})
 
-#: Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araçlar.
-#
-# Tekrar imzasında değiştirici araçların çağı sıfırlanır ("aynı yazma iki kez
-# istenmez"). `run_shell` bu kuralın altında yanlış kalıyordu: doğrulama komutu
-# tam olarak tekrarlanmak İÇİN vardır. Ölçüldü — model kodu düzeltti, `npm test`
-# çalıştırmak istedi ve TOOL_CALL_DUPLICATE ile engellendi; düzeltmenin işe
-# yarayıp yaramadığını doğrulayamadı.
-#
-# Çağa bağlanmak doğru davranışı verir: değişiklik olmadan aynı komutu tekrar
-# etmek yine tekrardır, değişiklikten SONRA tekrar etmek yeni bilgidir.
-_RERUNNABLE_TOOLS = frozenset({"run_shell"})
+def _is_rerunnable(name: str) -> bool:
+    """Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araç mı.
+
+    Tekrar imzasında değiştirici araçların çağı sıfırlanır ("aynı yazma iki kez
+    istenmez"). `run_shell` bu kuralın altında yanlış kalıyordu: doğrulama komutu
+    tam olarak tekrarlanmak İÇİN vardır. Ölçüldü — model kodu düzeltti, `npm test`
+    çalıştırmak istedi ve TOOL_CALL_DUPLICATE ile engellendi; düzeltmenin işe
+    yarayıp yaramadığını doğrulayamadı.
+
+    Çağa bağlanmak doğru davranışı verir: değişiklik olmadan aynı komutu tekrar
+    etmek yine tekrardır, değişiklikten SONRA tekrar etmek yeni bilgidir.
+
+    Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur, burada ikinci
+    bir ad listesi açılmaz. Ölçüldü (masaüstü uygulaması, API modeli): model
+    doğrulama komutunu `run_shell` yerine takma adı `bash` ile çağırdı; birebir
+    ad karşılaştırması `"bash" != "run_shell"` olduğu için bu istisnayı hiç
+    görmedi ve tam da çözmek için var olduğu ölü kilit takma ad altında geri
+    geldi (bkz. `engines/agent/turn_report.py::_is_shell_call`, aynı yaklaşım).
+    """
+    return tool_family(name) is ToolFamily.SHELL
 
 
 # --------------------------------------------------------------------------- #
@@ -1625,7 +1634,7 @@ async def _run_tools(
         signature = budget.signature(
             call.name,
             _encode_arguments(args),
-            mutating=tool is not None and tool.mutating and call.name not in _RERUNNABLE_TOOLS,
+            mutating=tool is not None and tool.mutating and not _is_rerunnable(call.name),
         )
         seen = budget.count_call(signature)
 
@@ -1792,8 +1801,8 @@ async def _run_tools(
                 # Çağı yalnızca DOSYA değişikliği ilerletir. `run_shell` başarılı
                 # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
                 # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
-                # bırakıyordu (bkz. `_RERUNNABLE_TOOLS`).
-                if call.name not in _RERUNNABLE_TOOLS:
+                # bırakıyordu (bkz. `_is_rerunnable`).
+                if not _is_rerunnable(call.name):
                     budget.record_mutation()
         elif outcome is ToolOutcome.FAILED:
             state.failed_tool_calls += 1

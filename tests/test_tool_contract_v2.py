@@ -249,3 +249,42 @@ async def test_second_identical_mutation_is_stopped(tmp_path) -> None:
     assert "TOOL_CALL_DUPLICATE" in messages[-1].content
     assert state.mutating_tool_calls_made == 1
     assert not state.tool_contract_abort
+
+
+@pytest.mark.asyncio
+async def test_run_shell_takma_adiyla_cagrilinca_yeniden_calistirilabilir(tmp_path) -> None:
+    """`bash` (run_shell'in takma adı) de doğrulama komutunu tekrar çalıştırabilmeli.
+
+    Ölçüldü (`_RERUNNABLE_TOOLS = frozenset({"run_shell"})` birebir ad
+    karşılaştırıyordu): model doğrulama komutunu `run_shell` yerine `bash` adıyla
+    çağırdığında, aradaki dosya değişikliğine RAĞMEN aynı komutun tekrarı
+    `TOOL_CALL_DUPLICATE` ile engelleniyordu — tam da bu istisnanın çözmek için
+    var olduğu ölü kilit, takma ad altında geri geliyordu. Sınıflandırma
+    `core.tools.tool_family`/`ToolFamily.SHELL` üzerinden yapılmalı, ikinci bir
+    ad listesi açılmamalı.
+    """
+    registry = build_registry()
+    deps = _deps(tmp_path)
+    state = _State()
+    messages: list[Message] = []
+    execution = ExecutionPolicy(is_web=True, max_same_tool_without_change=2)
+    komut = json.dumps({"command": "python3 -c 'print(1)'"})
+
+    ilk_komut = ToolCall(id="1", name="bash", arguments=komut)
+    yazma_icerigi = "def duzeltildi():\n    return 1\n"
+    yazma = ToolCall(
+        id="2",
+        name="write_file",
+        arguments=json.dumps({"path": "duzeltme.py", "content": yazma_icerigi}),
+    )
+    ikinci_komut = ToolCall(id="3", name="bash", arguments=komut)
+
+    assert not await _run_tools((ilk_komut,), messages, deps, registry, state, execution=execution)
+    assert not await _run_tools((yazma,), messages, deps, registry, state, execution=execution)
+    # Aradaki başarılı dosya yazımı çalışma alanını ilerletti; aynı doğrulama
+    # komutunun tekrarı artık YENİ bilgidir ve engellenmemelidir.
+    engellendi = await _run_tools(
+        (ikinci_komut,), messages, deps, registry, state, execution=execution
+    )
+    assert not engellendi
+    assert "TOOL_CALL_DUPLICATE" not in messages[-1].content

@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Protocol
 
 from ...config.permissions import is_allowed
-from ...core.tools import Tool, ToolArgs, ToolEffect
+from ...core.tools import Tool, ToolArgs, ToolEffect, ToolFamily, tool_family
 from ...tools.command_policy import is_unattended_safe
 from ...tools.safety import danger_reason
 
@@ -193,7 +193,10 @@ def build_request(
     çalışabiliyordu.
     """
     command = args.get("command")
-    kabuk = tool.name == "run_shell" and isinstance(command, str)
+    # Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur: birebir ad
+    # karşılaştırması `bash`/`shell`/`execute_command` takma adıyla çağrılan bir
+    # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
+    kabuk = tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str)
     pre_allowed = kabuk and is_allowed(str(command), allowed_commands)
     danger = danger_reason(tool.name, args)
     if danger is None and tool.effect is ToolEffect.REMOTE_DESTRUCTIVE:
@@ -233,7 +236,14 @@ async def _ask_and_remember(
 
 
 def _scope(request: ApprovalRequest) -> str:
-    """Oturum izninin dar kapsamı: araç ya da aynı shell komutu."""
-    if request.tool.name == "run_shell":
+    """Oturum izninin dar kapsamı: araç ya da aynı shell komutu.
+
+    Kabuk ailesi TEK KAYNAKTAN (`core.tools.tool_family`) tanınır ve kapsam
+    anahtarı her zaman kanonik `run_shell:` öneki ile üretilir: aksi hâlde
+    `bash` takma adıyla verilen bir oturum izni `run_shell:komut` anahtarından
+    farklı bir anahtara düşer, komuta özgü daralma kaybolur ve izin aracın TÜM
+    komutlarını kapsayacak kadar genişler.
+    """
+    if tool_family(request.tool.name) is ToolFamily.SHELL:
         return f"run_shell:{str(request.args.get('command', '')).strip()}"
     return request.tool.name

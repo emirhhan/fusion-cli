@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ..core.tools import ToolArgs
+from ..core.tools import ToolArgs, ToolFamily, tool_family
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,8 +130,13 @@ def danger_reason(tool_name: str, args: ToolArgs) -> str | None:
 
     Şu an yalnızca kabuk komutları denetlenir: dosya yazma/düzenleme geri alınabilir
     (diff önizlemesi gösterilir, sürüm kontrolü kurtarır), kabuk komutu değildir.
+
+    Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur: `run_shell`
+    birebir adla karşılaştırılsaydı model komutu `bash`/`shell`/`execute_command`
+    takma adıyla çağırdığında yıkıcı komut tespiti TAMAMEN DEVRE DIŞI kalırdı —
+    `rm -rf`, `git push --force` gibi desenler hiç görülmeden çalışırdı.
     """
-    if tool_name != "run_shell":
+    if tool_family(tool_name) is not ToolFamily.SHELL:
         return None
     command = args.get("command")
     if not isinstance(command, str):

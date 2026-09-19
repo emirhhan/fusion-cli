@@ -34,6 +34,7 @@ from ...core.execution_plan import (
     VerificationCheckKind,
 )
 from ...core.file_lookup import locate_by_name
+from ...core.tools import ToolFamily, tool_family
 from ...core.verification import (
     TIMEOUT_FINDING_PREFIX,
     VerificationResult,
@@ -129,18 +130,11 @@ def _successful_tool_evidence(outcome: AgentOutcome, effect: str) -> CriterionEv
         if not use.ok:
             continue
         command = _tool_command(use)
+        kabuk = tool_family(use.name) is ToolFamily.SHELL
         matches = (
-            (effect == "shell_action" and use.name == "run_shell")
-            or (
-                effect == "git_commit"
-                and use.name == "run_shell"
-                and _contains_git_action(command, "commit")
-            )
-            or (
-                effect == "git_push"
-                and use.name == "run_shell"
-                and _contains_git_action(command, "push")
-            )
+            (effect == "shell_action" and kabuk)
+            or (effect == "git_commit" and kabuk and _contains_git_action(command, "commit"))
+            or (effect == "git_push" and kabuk and _contains_git_action(command, "push"))
         )
         if matches:
             return CriterionEvidence(
@@ -183,7 +177,7 @@ def _command_evidence(
     verification: VerificationResult | None,
 ) -> CriterionEvidence | None:
     for use in outcome.tool_uses:
-        if use.ok and use.name == "run_shell" and _tool_command(use) == command:
+        if use.ok and tool_family(use.name) is ToolFamily.SHELL and _tool_command(use) == command:
             return CriterionEvidence(
                 criterion_id=command,
                 kind=VerificationCheckKind.COMMAND,
@@ -522,7 +516,7 @@ def _behavioral_runs(outcome: AgentOutcome) -> tuple[CriterionEvidence, ...]:
     """
     runs: dict[str, CriterionEvidence] = {}
     for use in outcome.tool_uses:
-        if not use.ok or use.name != "run_shell":
+        if not use.ok or tool_family(use.name) is not ToolFamily.SHELL:
             continue
         command = _tool_command(use)
         if command in runs or not is_behavioral_command(command):
