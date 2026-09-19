@@ -133,6 +133,76 @@ async def test_observe_first_kurtarmasi_yalniz_okuma_yapar(tmp_path):
     assert "read_file" in seen[1][1]
 
 
+async def test_kesif_adimi_ilk_denemede_de_gozlemle_calisir(tmp_path):
+    """DISCOVERY fazındaki bir adım İLK denemesinde de salt-okunur olmalı.
+
+    Ölçüldü (`/plan-yurut ... indirim_uygula ekle` koşusu, 18 Eylül): `observe`
+    yalnız `step.retry_safety is OBSERVE_FIRST and recovering` ile hesaplanıyordu;
+    adımın `phase is PlanPhase.DISCOVERY` olması hiç bakılmıyordu. Sonuç: bir
+    okuma adımı (`read_stok`, attempts=0, kurtarma değil) tam yetkiyle -- `edit_file`
+    ve `write_file` dahil -- açılıyor ve model bir okuma adımında dosya
+    değiştirebiliyordu.
+    """
+    (tmp_path / "stok.py").write_text("# mevcut dosya")
+    step = replace(
+        _step("read_stok"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files",),
+    )
+    deps = _deps(tmp_path)
+    seen = []
+
+    async def agent(task, agent_deps, **kwargs):
+        seen.append((agent_deps.execution.allow_mutation, kwargs.get("allowed_tools")))
+        return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,))
+    )
+    assert result.ok
+    assert len(seen) == 1
+    allow_mutation, allowed_tools = seen[0]
+    assert allow_mutation is False
+    assert "write_file" not in allowed_tools
+    assert "edit_file" not in allowed_tools
+    assert "read_file" in allowed_tools
+
+
+async def test_kesif_adimi_istemi_gozlem_notu_tasir(tmp_path):
+    """DISCOVERY adımının istemi de GÖZLEM TURU notunu taşımalı.
+
+    Ölçüldü: `run_step` içindeki `observe` bayrağı yalnız
+    `retry_safety is OBSERVE_FIRST and recovering` ile hesaplanıp `execute()`'a
+    öyle geçiyordu; `step_deps` içindeki `observe or phase is DISCOVERY`
+    düzeltmesi yalnız ARAÇ KÜMESİNE uygulanıyor, `step_prompt`'a giden `observe`
+    değeri düzeltilmeden kalıyordu. Sonuç: model yazma araçlarının kapalı
+    olduğunu HİÇ öğrenmeden `edit_file` denemeye devam ediyor, her ret bir
+    "ilerleme yok" cezası biriktiriyor ve adım gerçek bir okuma yapmasına rağmen
+    `no_progress` ile düşüyordu.
+    """
+    (tmp_path / "stok.py").write_text("# mevcut dosya")
+    step = replace(
+        _step("read_stok"),
+        phase=PlanPhase.DISCOVERY,
+        expected_effects=(),
+        allowed_tool_families=("files",),
+    )
+    deps = _deps(tmp_path)
+    seen_prompts = []
+
+    async def agent(task, agent_deps, **kwargs):
+        seen_prompts.append(task)
+        return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
+
+    result = await run_execution_plan(
+        "iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,))
+    )
+    assert result.ok
+    assert len(seen_prompts) == 1
+    assert "GÖZLEM TURU" in seen_prompts[0]
+
+
 async def test_never_final_hatasi_yan_etkiyi_tekrarlamaz(tmp_path):
     step = replace(_file_step("create", "a.txt"), retry_safety=RetrySafety.NEVER)
     plan = ExecutionPlan("never", "iş", (step, _file_step("finish", "b.txt")))

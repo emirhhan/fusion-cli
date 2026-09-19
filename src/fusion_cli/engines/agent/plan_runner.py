@@ -382,6 +382,17 @@ class _PlanRun:
         self.save()
         turn_deps = replace(self.deps, tool_context=_step_context(self.deps.tool_context))
         deps = step_deps(turn_deps, running, remaining, observe=observe)
+        # `step_deps` KEŞİF fazındaki adımı `observe` parametresi ne olursa olsun
+        # salt-okunur açar (`observe or step.phase is PlanPhase.DISCOVERY`); araç
+        # kümesi buna göre daralır. Ama bu satırdan ÖNCEKİ `observe` değişkeni
+        # `step_prompt`'a ve `plan_mode`'a hâlâ ESKİ (düzeltilmemiş) hâliyle
+        # gidiyordu. Sonuç: model GÖZLEM TURU notunu hiç görmeden `edit_file`
+        # denemeye devam ediyor, her ret bütçeye "ilerleme yok" olarak yazılıyor
+        # ve gerçekten okuma yapmış bir adım `no_progress` ile düşüyordu. Tek
+        # kaynak `deps.execution.observe_only` olmalı; ikinci bir hesaplama
+        # eklenmez (RULES.md "Genel Tasarım" — aynı işi yapan ikinci yol açılmaz).
+        if deps.execution is not None:
+            observe = deps.execution.observe_only
         if local_repair and deps.execution is not None:
             permitted = frozenset(
                 {
