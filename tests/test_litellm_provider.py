@@ -11,8 +11,10 @@ reasoning modelleriyle çalışırken ortaya çıkan iki sessiz kaybı sabitler:
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
+from fusion_cli.core.tool_emulation import CALL_OPEN
 from fusion_cli.core.types import StreamDone
 from fusion_cli.providers.litellm_provider import LiteLlmProvider
 
@@ -92,6 +94,36 @@ async def test_arac_cagrisi_varsa_bos_content_hata_degildir(monkeypatch):
 
     assert sonuc.ok
     assert sonuc.tool_calls[0].name == "read_file"
+
+
+async def test_yerlesik_cagrida_taklit_isaretcisi_ad_olarak_sizmaz(monkeypatch):
+    """Model, yerleşik (native) araç çağrısının `name` alanına taklit protokolünün
+    sınırlayıcısını (`FUSION_TOOL_CALL`) yazarsa, gerçek çağrı KAYBOLMAMALI.
+
+    Ölçüldü (masaüstü uygulaması, nvidia_nim/nemotron): bir turdaki `ToolExecuted`
+    olayının araç adı `FUSION_TOOL_CALL` çıktı — kayıt defterinde böyle bir araç
+    yok, çağrı "bilinmeyen araç" ile düşer. Ama `function.arguments` alanında
+    modelin GERÇEKTEN istediği çağrı (`{"name": ..., "arguments": ...}`) hâlâ
+    duruyordu; niyet kayıp değil, yanlış yere yazılmıştı. `_response_tool_calls`
+    bunu sözleşme hatası saymadan önce taklit gövdesi olarak ayrıştırmalı.
+    """
+    gomulu = json.dumps({"name": "read_file", "arguments": {"path": "a.py"}})
+    message = SimpleNamespace(
+        content="",
+        tool_calls=[
+            SimpleNamespace(id="1", function=SimpleNamespace(name=CALL_OPEN, arguments=gomulu))
+        ],
+    )
+    yanit = SimpleNamespace(
+        choices=[SimpleNamespace(message=message, finish_reason="tool_calls")], usage=None
+    )
+    _sdk(monkeypatch, yanit)
+
+    sonuc = await _saglayici().complete(request())
+
+    assert sonuc.ok
+    assert sonuc.tool_calls[0].name == "read_file"
+    assert json.loads(sonuc.tool_calls[0].arguments) == {"path": "a.py"}
 
 
 async def test_akista_reasoning_parcalari_metne_karismaz(monkeypatch):

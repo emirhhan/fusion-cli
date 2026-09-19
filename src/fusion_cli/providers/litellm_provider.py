@@ -20,6 +20,7 @@ from typing import Any
 from ..core.clock import SystemClock
 from ..core.protocols import Clock
 from ..core.redaction import redact
+from ..core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
 from ..core.types import (
     CompletionRequest,
     Message,
@@ -290,16 +291,43 @@ def _response_tool_calls(response: Any) -> tuple[ToolCall, ...]:
     calls: list[ToolCall] = []
     for item in raw:
         try:
-            calls.append(
-                ToolCall(
-                    id=str(item.id),
-                    name=str(item.function.name),
-                    arguments=str(item.function.arguments or "{}"),
-                )
-            )
+            call_id = str(item.id)
+            name = str(item.function.name)
+            arguments = str(item.function.arguments or "{}")
         except AttributeError:
             continue
+        name, arguments = _unwrap_emulation_leak(name, arguments)
+        calls.append(ToolCall(id=call_id, name=name, arguments=arguments))
     return tuple(calls)
+
+
+def _unwrap_emulation_leak(name: str, arguments: str) -> tuple[str, str]:
+    """Taklit protokolü sınırlayıcısı yerleşik çağrının ADI olarak sızarsa onar.
+
+    Ölçüldü (masaüstü uygulaması, API modeli nvidia_nim/nemotron — yerleşik
+    (native) araç çağrısı yapan bir model): bir turdaki `ToolExecuted` olayının
+    araç adı `FUSION_TOOL_CALL` çıktı. Bu, metin tabanlı taklit protokolünün
+    (`core/tool_emulation.py`) sınırlayıcısıdır; model onu native çağrının
+    fonksiyon ADI olarak göndermiş, GERÇEK çağrıyı (`{"name": …, "arguments": …}`)
+    argüman gövdesine yazmıştı.
+
+    Bunu bilinmeyen araç sayıp modele bir onarım turu harcatmak (kayıt defteri
+    zaten "bilinmeyen araç" hatasını üretebiliyorken) niyet AÇIKÇA belliyken
+    israftır — tıpkı `tools/builtin.py::_ALIASES` tahminlerinde olduğu gibi.
+    Gövde zaten taklit protokolünün kendi sözdizimidir; ikinci bir ayrıştırıcı
+    açmak yerine `parse_tool_calls` ile çözülüp GERÇEK çağrı çalıştırılır.
+
+    Sınırlayıcı adla eşleşmiyorsa ya da gövde ayrıştırılamıyorsa isim/argüman
+    OLDUĞU GİBİ döner; sözleşme denetimi bunu normal şekilde "bilinmeyen araç"
+    olarak raporlar.
+    """
+    if name not in (CALL_OPEN, CALL_CLOSE):
+        return name, arguments
+    parsed = parse_tool_calls(f"{CALL_OPEN}\n{arguments}\n{CALL_CLOSE}")
+    if not parsed.calls:
+        return name, arguments
+    real = parsed.calls[0]
+    return real.name, real.arguments
 
 
 def _to_wire(message: Message) -> dict[str, Any]:
