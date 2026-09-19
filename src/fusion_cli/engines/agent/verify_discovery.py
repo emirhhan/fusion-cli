@@ -175,8 +175,44 @@ _QUERY_FLAGS = frozenset({"--version", "-V", "--help", "-h", "--collect-only", "
 #: Koşucunun çıkış kodunu kabuğa ulaştırmayan işleçler.
 #:
 #: `pytest || true` ve `pytest | tail` kırmızı testte de sıfır döner; başarılı araç
-#: çağrısı olarak kaydedilen bu komut davranışı kanıtlamaz.
+#: çağrısı olarak kaydedilen bu komut davranışı kanıtlamaz. `&&` ve zincirin
+#: BAŞINDAKİ `;` burada YOKTUR — onlar `_strip_setup_prefix` tarafından ayrıca ele
+#: alınır; ikisi de çıkış kodunu maskelemez, yalnızca sıralı çalıştırır.
 _EXIT_MASKING_OPERATORS = frozenset({"||", "|", ";", "&"})
+
+#: Ortam değişkeni ataması: `FOO=1`, `DEBUG=true` gibi bir öneki tanır.
+_ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+#: Zincirin başında davranışı DEĞİŞTİRMEYEN, yalnızca ortam kuran komutlar.
+#:
+#: `cd X && pytest` ile `pytest` aynı davranışı kanıtlar; `cd` yalnızca çalışma
+#: dizinini değiştirir. Bu yüzden `token in _EXIT_MASKING_OPERATORS` kontrolüne
+#: girmeden ÖNCE bu önek ayıklanır — aksi hâlde gerçek bir doğrulama komutu, önüne
+#: `cd` eklendi diye kanıtsız sayılırdı.
+_SETUP_PREFIX_COMMANDS = frozenset({"cd", "source", "."})
+
+
+def _strip_setup_prefix(tokens: tuple[str, ...]) -> tuple[str, ...]:
+    """Zincirin başındaki zararsız kurulum önekini (cd/source/ortam değişkeni) at.
+
+    Ölçüldü: `cd /proje && python -m pytest tests/ -v` kullanıcı tarafından
+    onaylanıp çıkış kodu 0 ile bitti, ama tanıma yalnızca ilk token'a (`cd`)
+    bakıp komutu davranış kanıtı SAYMADI. `cd`, `source`/`.` ve ortam değişkeni
+    ataması (`FOO=1 …`) asıl komutun ÇALIŞTIĞI programı değiştirmez; yalnızca
+    zincirin geri kalanının önündeki önektir.
+    """
+    remaining = tokens
+    while remaining:
+        if remaining[0] in _SETUP_PREFIX_COMMANDS:
+            if len(remaining) >= 3 and remaining[2] in {"&&", ";"}:
+                remaining = remaining[3:]
+                continue
+            break
+        if _ENV_ASSIGNMENT.match(remaining[0]):
+            remaining = remaining[1:]
+            continue
+        break
+    return remaining
 
 
 def is_behavioral_command(command: str) -> bool:
@@ -193,10 +229,16 @@ def is_behavioral_command(command: str) -> bool:
     biri koşucuyu hiç çağırmaz, diğeri tek satır test koşmaz.
     """
     try:
-        tokens = shlex.split(command)
+        # `punctuation_chars` ile `;`/`&`/`|` bitişik oldukları kelimeden (`S3;`
+        # gibi) ayrı token olarak çıkar; düz `shlex.split` bunları harf gibi
+        # yutar ve `cd yol;` önekini asla `;` token'ına dönüştürmezdi.
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
     except ValueError:
         # Tırnağı kapanmayan komut ayrıştırılamaz; kanıt saymak uydurma olurdu.
         return False
+    tokens = list(_strip_setup_prefix(tuple(tokens)))
     if not tokens or any(
         token in _QUERY_FLAGS or token in _EXIT_MASKING_OPERATORS for token in tokens
     ):

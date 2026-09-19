@@ -328,3 +328,21 @@ def test_modul_olarak_calistirilan_pytest_davranis_kaniti_sayilir():
     assert is_behavioral_command("python -m pytest -q") is True
     assert is_behavioral_command("python3 -m pytest tests/") is True
     assert is_behavioral_command("python main.py") is False
+
+
+def test_dizin_degistiren_onekle_calisan_komut_davranis_kaniti_sayilir():
+    """`cd X && …` gerçek bir davranış komutunu gizlemez.
+
+    Ölçüldü: kullanıcı `cd /proje/w-api-S3 && python -m pytest tests/ -v`
+    çalıştırdı, onayladı, çıkış kodu 0'dı — ama tanıma yalnızca ilk token'a
+    (`cd`) bakıp bunu davranış komutu SAYMADI. Aynı komut `cd` öneki olmadan
+    çalışınca doğru tanınıyordu; önek işin niteliğini değiştirmez.
+    """
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && python -m pytest tests/ -v") is True
+    assert is_behavioral_command("cd /Users/x/w-api-S3; python -m pytest tests/ -v") is True
+    assert (
+        is_behavioral_command("source .venv/bin/activate && pytest -q tests/") is True
+    )
+    assert is_behavioral_command("FOO=1 pytest -q") is True
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && cargo build") is False
+    assert is_behavioral_command("cd /Users/x/w-api-S3 && pytest -q || true") is False
