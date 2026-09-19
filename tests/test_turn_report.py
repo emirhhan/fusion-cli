@@ -21,6 +21,19 @@ def _write(path: str) -> ToolUse:
     return ToolUse(name="write_file", ok=True, mutating=True, arguments={"path": path})
 
 
+def _shell_alias(command: str, *, exit_code: int, name: str) -> ToolUse:
+    """`run_shell`'in `tools/builtin.py::_ALIASES` içindeki bir takma adıyla
+    (`shell`/`bash`/`execute_command`) yapılan çağrı — API modelleri sık sık
+    `run_shell` yerine bu adları kullanır."""
+    return ToolUse(
+        name=name,
+        ok=exit_code == 0,
+        mutating=True,
+        arguments={"command": command},
+        output=f"(çıkış kodu {exit_code})\nçıktı",
+    )
+
+
 def test_degisiklik_yoksa_rapor_eklenmez():
     report = build_turn_report((), (), gate=None)
 
@@ -137,3 +150,28 @@ def test_dusen_kapi_turu_basarisiz_sayar():
     report = build_turn_report(("a.py",), (_write("a.py"),), gate=gate)
 
     assert report.blocks_success is True
+
+
+def test_run_shell_takma_adiyla_cagrilan_python_pytest_dogrulandi_sayilir():
+    """Ölçülen hata (masaüstü uygulaması, API model): model `run_shell`'i `bash`
+    takma adıyla çağırdı, komut onaylanıp sıfır çıkış koduyla bitti — ama rapor
+    yalnız TAM `run_shell` adına baktığı için bu kanıtı hiç görmedi ve "doğrulama
+    komutu ÇALIŞTIRILMADI" dedi. `python -m pytest` gerçek bir davranış komutudur;
+    hangi takma adla çağrılırsa çağrılsın "doğrulandı" sayılmalı.
+    """
+    tool_uses = (_write("a.py"), _shell_alias("python -m pytest", exit_code=0, name="bash"))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is True
+    assert "Doğrulandı" in report.render()
+
+
+def test_run_shell_takma_adiyla_calisan_davranissal_olmayan_komut_kanit_sayilmaz():
+    """Takma ad tanınsa bile komutun kendisi davranış KANITLAMIYORSA (ör. `ls`,
+    `cat`) rapor hâlâ "kanıt yok" demeli — takma ad tanıma, komut sınıflandırma
+    kuralını gevşetmez."""
+    tool_uses = (_write("a.py"), _shell_alias("ls -la", exit_code=0, name="shell"))
+    report = build_turn_report(("a.py",), tool_uses, gate=None)
+
+    assert report.is_verified is False
+    assert "ÇALIŞTIRILMADI" in report.render()

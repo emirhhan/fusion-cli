@@ -6,8 +6,9 @@ diyebiliyordu ve bu cümle modelin kendi beyanıydı — gerçek değişiklik ka
 sözünü değil, turda GERÇEKTEN dokunulan dosyaları ve GERÇEKTEN çalışan kabuk
 komutlarının çıkış kodunu okur.
 
-Saf modül: ağır bağımlılık yok, yalnızca `ToolUse`/`VerificationResult` tiplerini
-ve `verify_discovery.is_behavioral_command` sınıflandırıcısını tüketir.
+Saf modül: ağır bağımlılık yok, yalnızca `ToolUse`/`VerificationResult`
+tiplerini, `core.tools.tool_family` sınıflandırmasını ve
+`verify_discovery.is_behavioral_command` sınıflandırıcısını tüketir.
 """
 
 from __future__ import annotations
@@ -15,13 +16,34 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ...core.evidence import ToolUse
+from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
 from .verify_discovery import is_behavioral_command
 
-#: Kabuk komutu çalıştıran tek araç. Diğer değiştirici araçlar (edit_file,
-#: write_file, multi_edit…) DOSYA mutasyonu sayılır; bu isim mutasyon sırasını
-#: hesaplarken bilinçli olarak DIŞLANIR (bkz. `_last_mutation_index`).
+#: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
+#: amaçlı. Bir çağrının kabuk aracı OLUP OLMADIĞI artık bu sabitle birebir
+#: string karşılaştırmasıyla değil `_is_shell_call` ile (bkz. aşağı) tespit
+#: edilir.
 RUN_SHELL_TOOL = "run_shell"
+
+
+def _is_shell_call(name: str) -> bool:
+    """Bu çağrı `run_shell`'in KENDİSİ ya da bir takma adı mı.
+
+    Ölçülen hata (masaüstü uygulaması, API model): model `run_shell`'i
+    `bash` takma adıyla çağırdı (bkz. `tools/builtin.py::_ALIASES`) — komut
+    onaylandı, sıfır çıkış koduyla bitti, ama rapor `use.name == "run_shell"`
+    birebir karşılaştırmasında `"bash" != "run_shell"` olduğu için bu çağrıyı
+    HİÇ GÖRMEDİ ve "doğrulama komutu çalıştırılmadı" dedi — komut gerçekten
+    çalışmışken.
+
+    Takma ad listesi burada YİNELENMEZ: `core.tools.tool_family` zaten TEK
+    KAYNAK olarak `run_shell`/`shell`/`bash`/`execute_command` adlarının
+    tümünü `ToolFamily.SHELL` altında topluyor (aynı liste onay ve araç ailesi
+    sınıflandırmasında da kullanılıyor); ikinci bir takma ad listesi açmak
+    RULES "aynı işi yapan ikinci bir yol açılmaz" ilkesini ihlal ederdi.
+    """
+    return tool_family(name) is ToolFamily.SHELL
 
 #: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
 #: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
@@ -142,7 +164,7 @@ def build_turn_report(
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
         for index, use in enumerate(tool_uses)
-        if use.name == RUN_SHELL_TOOL
+        if _is_shell_call(use.name)
     )
     return TurnReport(changed_paths=changed_paths, command_runs=command_runs, gate=gate)
 
@@ -157,7 +179,7 @@ def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:
     """
     for index in range(len(tool_uses) - 1, -1, -1):
         use = tool_uses[index]
-        if use.mutating and use.ok and use.name != RUN_SHELL_TOOL:
+        if use.mutating and use.ok and not _is_shell_call(use.name):
             return index
     return None
 
