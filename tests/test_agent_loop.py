@@ -2131,3 +2131,40 @@ async def test_degisiklikten_once_calisan_test_kanit_sayilmaz(monkeypatch, tmp_p
     )
 
     assert "ÇALIŞTIRILMADI" in sonuc.final_text
+
+
+async def test_oz_denetim_duzeltmesi_tur_raporunu_ikiye_katlamaz(monkeypatch, tmp_path, sink):
+    """Ölçülen hata: kök tur ve öz-denetimin açtığı iç düzeltici tur, İKİSİ de
+    `_apply_turn_report` çalıştırdığı için aynı "✓ Doğrulandı" bloğunu ayrı ayrı
+    ekliyordu — kullanıcı aynı metni art arda iki kez görüyordu. Düzeltme
+    `internal=True` iç turlarda raporu atlar, yalnız kök tur ekler.
+    """
+    sahte_pytest = tmp_path / "pytest"
+    sahte_pytest.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    sahte_pytest.chmod(0o755)
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="stok.py", content="x")]),
+                model_result("ilk cevap"),
+                # Öz-denetim bir sorun buluyor → düzeltici (internal=True) tur açılır;
+                # o tur KENDİ mutasyonunu yapıp ARDINDAN gerçek bir doğrulama komutu
+                # çalıştırır — gerçek koşudaki "magaza/stok.py, tests/test_stok.py
+                # değişti, pytest çalıştı" şeklini birebir yansıtır.
+                model_result(
+                    tool_calls=[tool_call("write_file", path="tests/test_stok.py", content="t")]
+                ),
+                model_result(tool_calls=[tool_call("run_shell", command="./pytest -q")]),
+                model_result("duzeltildi"),
+            ]
+        ),
+    )
+    monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("testi calistirmadin"))
+
+    sonuc = await run_agent(
+        "stok.py yaz", _deps(tmp_path, sink, runtime={"self_review": True})
+    )
+
+    assert sonuc.final_text.count("✓ Doğrulandı") == 1
+    assert sonuc.final_text.endswith("duzeltildi")

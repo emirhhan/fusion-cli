@@ -564,7 +564,20 @@ async def run_agent(
     # Sohbet/gözlem turunda rapor yoktur: çalışma alanı zaten değiştirilemez,
     # dolayısıyla doğrulanacak bir şey de yoktur (bkz. modül docstring "Gözlem
     # turunda yazma tamamen kapalı olmalı").
-    if not chat_mode:
+    #
+    # Rapor yalnız KÖK turda uygulanır — `_announce_answer`'daki
+    # `internal or depth != 0` erken çıkışıyla AYNI gerekçe. Öz-denetim
+    # (`_self_review`) ve doğrulama düzeltmesi (`_fix_findings`) `run_agent`'ı
+    # `internal=True` ile YENİDEN çağırır ve o iç çağrı da buraya, kendi
+    # sonunda, ayrıca gelir. Koşul olmadan aynı "✓ Doğrulandı" bloğu ÖNCE iç
+    # düzeltici turda (kendi `final_text`'inin başına), SONRA kök turda
+    # (düzeltmenin döndürdüğü `outcome` üzerinde bir daha) eklenir ve kullanıcı
+    # aynı metni art arda iki kez görür (ölçüldü). `plan_runner.py` da adım
+    # çağrılarını `internal=True` ile yapıp KENDİ konsolide raporunu
+    # (`_turn_report_text`) tüm adımların `tool_uses`'ından ayrıca kurduğu için
+    # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
+    # da önler.
+    if not chat_mode and not internal and depth == 0:
         _apply_turn_report(outcome, deps, gate=verification)
 
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
