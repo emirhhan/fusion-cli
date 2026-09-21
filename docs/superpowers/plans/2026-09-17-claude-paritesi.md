@@ -13,7 +13,7 @@ web sağlayıcıya DOSYA olarak yüklenir (ölçüldü: 74 bin karakter 8 sn, do
 Her faz sonunda kalite kapısı çalışır (`ruff check` + `mypy` + `pytest`), sonra Türkçe
 conventional commit atılır. Faz bitmeden sonrakine geçilmez.
 
-### Faz 1 — Görünür hasarı durdur (bulgular D1, D2, A7, B1, C1, C2)
+### Faz 1 — Görünür hasarı durdur · TAMAM (21 Eyl 2026, bkz. reports/2026-09-21-claude-paritesi-faz1-faz2-sonuc.md) (bulgular D1, D2, A7, B1, C1, C2)
 
 1. **Cevap biçimini koru (D1).** Web cevabı `innerText` yerine HTML'den Markdown'a
    çevrilerek okunur. Yeni saf modül + testleri.
@@ -24,14 +24,14 @@ conventional commit atılır. Faz bitmeden sonrakine geçilmez.
 5. **Sağlayıcı sağlığı (C1, C2).** Varsayılan model ölçümü geçmiş olan olur; oturum
    hatasında yedeğe geçilir; web oturumu için gizli pencere kipi eklenir.
 
-### Faz 2 — Tek ajan döngüsü (A1, A2, A4, B2, B3, B4)
+### Faz 2 — Tek ajan döngüsü · TAMAM (21 Eyl 2026, ayrıntılı plan: plans/2026-09-18-tek-ajan-dongusu.md) (A1, A2, A4, B2, B3, B4)
 
 1. Plan adımları tek konuşma geçmişini paylaşır; geçmişsiz alt tur kaldırılır.
 2. Düzenleme tam metin eşleşmesiyle yapılır, sonucunda diff modele döner.
 3. Başarı beyanı yalnız projenin kendi test/build komutuna bağlanır.
 4. Onay reddi turu durdurur; gözlem turunda yazma tümden kapalıdır.
 
-### Faz 3 — Çırak katmanı (C5, C6, C9, C10)
+### Faz 3 — Çırak katmanı · SIRADA (C5, C6, C9, C10)
 
 1. Araç işleri ücretsiz API modeline taşınır (yerleşik araç çağrısı, akış).
 2. Model zinciri ve hız sınırı yönetimi (429'da sıradaki modele geçiş).
