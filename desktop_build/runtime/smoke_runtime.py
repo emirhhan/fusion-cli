@@ -173,14 +173,16 @@ def _workspace_smoke(executable: Path, env: dict[str, str]) -> None:
         # Kontrol sözleşmesi sır değerlerini asla paketli süreçten dışarı çıkarmaz.
         assert _DUMMY_SECRET_ENV["FUSION_SECRET_KEY"] not in json.dumps(control)
 
-        # Dersler paketli ikilide de çalışmalı: ekran bu iki isteğin üstünde duruyor.
-        lessons = _request(process, "lessons", "ders.listele", {})
-        assert lessons["ok"] is True and len(lessons["dersler"]) == 8
-        lesson = _request(process, "lesson", "ders.getir", {"id": lessons["dersler"][0]["id"]})
-        assert lesson["ok"] is True and lesson["adimlar"]
-        # Ders adımı yürütülebilir komut taşımaz; paketli sürümde de taşımamalı.
-        for step in lesson["adimlar"]:
-            assert step["eylem"]["tur"] in ("composer", "sekme")
+        # Sohbet başlığı ve kalan bağlam göstergesi paketli ikilide de çalışmalı:
+        # ikisi de arayüzün her turda gösterdiği bilgi. (Ders kataloğu 12 Eylül'de
+        # arayüzden tümden kaldırıldı; buradaki eski `ders.*` kontrolü onunla
+        # birlikte düştü ve yayın hattını kırmıştı.)
+        title = _request(process, "title", "sohbet.baslik", {"metin": "merhaba, stok raporu al"})
+        assert title["ok"] is True and title["baslik"].strip()
+        status = _request(process, "status", "oturum.durum", {})
+        assert status["ok"] is True
+        gauge = status["baglam"]
+        assert gauge["sinir"] > 0 and 0 <= gauge["yuzde"] <= 100
 
         assert process.stdin is not None
         process.stdin.close()
