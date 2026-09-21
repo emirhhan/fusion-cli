@@ -49,5 +49,7 @@ class ModelCapability:
     context_window: int = 0
     #: Model reasoning/thinking yeteneğini beyan ediyor mu?
     reasoning: bool = False
-    #: Görüntü girdisi kabul ediyor mu? Etiketten türetilemez; ihtiyatlı `False`.
+    #: Görüntü girdisi kabul ediyor mu? Yalnız CANLI ölçümle doğrulanmış `vision`
+    #: etiketinden türetilir (bkz. `config/eligibility.py::capability_from_spec`);
+    #: etiket yoksa ihtiyatlı `False` kalır — "muhtemelen görür" varsayılmaz.
     vision: bool = False

@@ -34,6 +34,11 @@ _NO_TOOL_TAG = "no-tools"
 _EMULATED_TOOL_TAG = "emulated-tools"
 #: Reasoning beyan eden etiket.
 _REASONING_TAG = "reasoning"
+#: Görüntü girdisi kabul ettiği CANLI ölçümle doğrulanmış modele konan etiket
+#: (bkz. `defaults.yaml` — yalnız gerçek bir görsel + gerçek bir araç çağrısı
+#: turuyla doğrulanan model bu etiketi taşır). Uydurulmuş bir "muhtemelen görür"
+#: varsayımı DEĞİLDİR; ölçülmemiş model bu etiketi almaz ve `vision=False` kalır.
+_VISION_TAG = "vision"
 
 
 def _tool_support_of(spec: ModelSpec) -> ToolSupport:
@@ -55,6 +60,7 @@ def capability_from_spec(spec: ModelSpec, context_window: int = 0) -> ModelCapab
         tool_support=_tool_support_of(spec),
         context_window=context_window,
         reasoning=_REASONING_TAG in spec.tags,
+        vision=_VISION_TAG in spec.tags,
     )
 
 

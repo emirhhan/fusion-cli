@@ -258,6 +258,20 @@ candidates:
     model: openrouter/openai/gpt-oss-20b:free
     tags: [code, agent]
     fallback: []
+  # 2026-09-22 EKLENDİ (C4): mesaja doğrudan eklenen bir görsel `select_compatible_model`'e
+  # `images=True` gereksinimiyle geliyordu ama hiçbir agent adayı `vision` etiketi
+  # taşımıyordu; istek model hiç çağrılmadan `ConfigError` ile ölüyordu. Bu model
+  # `LiteLlmProvider` ile canlı ölçüldü (gerçek araç şeması + 200x200 düz kırmızı PNG):
+  #   nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning        → araç çağrısı 6.13s (doğru), görsel 3.11s ("kırmızı", doğru)
+  #   openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free  → araç çağrısı 6.34s (doğru), görsel 3.51s ("kırmızı", doğru)
+  # Ayrı `vision:` rolündeki `llama-3.2-11b-vision-instruct` yalnızca `view_image`
+  # aracı için kullanılır ve araç çağırmaz; bu aday AGENT turunda hem araç hem
+  # görsel gerektiren işi tek modelle karşılar.
+  - name: goz-cirak
+    model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
+    tags: [agent, vision]
+    fallback:
+      - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
 
 # Hakem + sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
 judge:
