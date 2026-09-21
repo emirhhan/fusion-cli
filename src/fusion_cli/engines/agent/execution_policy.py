@@ -28,6 +28,13 @@ _WEB_PROVIDER_IDS = frozenset(
 # Metin gerçek bir değişiklik istiyorsa (dosya yaz, komut çalıştır, commit, push)
 # tur "karmaşık" sayılır: kanıt kapısı ve değişiklik gerektiren denetimler buna
 # bakar.
+#
+# `"bulk_count"` (toplu sayma/filtreleme, bkz. `effects/detect.py`) BİLEREK bu
+# kümeye eklenmez: sayma bir dosyayı değiştirmiyor, yalnızca doğru araç kanıtı
+# istiyor. Kod okunarak doğrulandı: `policy_for` aşağıda `requires_tool_evidence`i
+# `required_effect is not None` üzerinden kurar — bu, `_MUTATING_EFFECTS` kümesine
+# girmeyen her etki adı için de zaten True olur. Bu yüzden yeni etkinin kanıt
+# kapısını açması için bu dosyada BAŞKA bir değişikliğe gerek yoktur.
 _MUTATING_EFFECTS = frozenset({"workspace_mutation", "shell_action", "git_push", "git_commit"})
 
 #: Web AI turunun tek bütçe kademesi: model çağrısı, araç turu, toplam süre (sn),

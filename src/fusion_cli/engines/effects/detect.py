@@ -184,6 +184,35 @@ _FILE_MUTATION_PATTERNS = (
         r")[a-zçğıöşü]*"
     ),
 )
+#: `required_effect_for`'un mutasyon/etki KÜMESİNE (`EffectKind`) ait olmayan tek
+#: dize sabiti. 17 Eylül denetiminde ölçüldü: 74 bin karakterlik bir ürün
+#: dökümünde "Motoplus tedarikçili, sayımı 0 olan kaç ürün var?" sorusuna model
+#: metni gözüyle tarayıp "5" dedi; doğrusu 3'tü ve tedarikçisi farklı iki ürünü
+#: de listeye katmıştı. Çırağın elinde zaten `run_shell` (`grep -c`, `wc -l`) ve
+#: `search_code` var — eksik olan kanıt zorunluluğuydu. `EffectKind`e EKLENMEZ:
+#: bu bir workflow sözleşmesi (`CONTRACTS`) değil, yalnızca kanıt kapısını
+#: (`requires_tool_evidence`) tetikleyen bir etiket; `detect_contract` bilinmeyen
+#: etki adında `None` döner ve normal agent akışı bozulmadan devam eder.
+_BULK_COUNT_EFFECT = "bulk_count"
+#: Sayma sorusunun geçtiği ölçülebilir nesne kelimeleri. Liste DAR tutulur:
+#: "kaç yaşındasın", "kaç para eder", "saat kaç" gibi sıradan sohbet soruları
+#: buradaki kelimelerin hiçbirini taşımadığı için eşleşmez.
+_COUNTABLE_NOUNS = (
+    r"(?:tane|adet|ürün|urun|dosya|kayıt|kayit|satır|satir|eşleşme|eslesme|"
+    r"sonuç|sonuc|madde|kelime|karakter|öğe|oge|eleman|sipariş|siparis)"
+)
+_BULK_COUNT_PATTERNS = (
+    # "kaç <ölçülebilir nesne> var" — miktar sorusu. Ölçüldü: gerçek denetim
+    # örneği tam olarak bu kalıptaydı ("... kaç ürün var?") ve `dosya`/`listele`
+    # gibi başka bir tetikleyici kelime YOKTU; bu yüzden önceki desenlerin
+    # hiçbiri (`_WORKSPACE_READ_PATTERNS` dahil) eşleşmiyordu.
+    rf"\bkaç\s+{_COUNTABLE_NOUNS}[a-zçğıöşü]*\b[^.!?\n]{{0,60}}\bvar\b",
+    # Doğrudan sayma emri: "sayısını çıkar/bul/ver".
+    r"\b(?:sayısını|sayisini|adedini)\s+(?:say|bul|çıkar|cikar|ver)[a-zçğıöşü]*\b",
+    # "filtrele" ile sayma/listeleme bağlamı bir arada geçiyorsa (iki yönde de).
+    r"\bfiltrele[a-zçğıöşü]*\b[^.!?\n]{0,60}\b(?:kaç|say|listele)[a-zçğıöşü]*\b",
+    r"\b(?:kaç|say)[a-zçğıöşü]*\b[^.!?\n]{0,60}\bfiltrele[a-zçğıöşü]*\b",
+)
 _WEB_LOOKUP_PATTERNS = (
     r"\b(?:web|internet|online)[’'a-z]*.{0,25}\b(?:ara|araştır|arastir|bul|kontrol et)\b",
     r"\b(?:güncel|guncel|son durum|latest).{0,30}\b(?:ara|araştır|arastir|bul|kontrol et)\b",
@@ -283,6 +312,8 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         return EffectKind.SHELL_ACTION.value
     if _matches(lowered, _FILE_MUTATION_PATTERNS):
         return EffectKind.WORKSPACE_MUTATION.value
+    if _matches(lowered, _BULK_COUNT_PATTERNS):
+        return _BULK_COUNT_EFFECT
     if _matches(lowered, _WEB_LOOKUP_PATTERNS):
         return EffectKind.WEB_LOOKUP.value
     if _matches(lowered, _WORKSPACE_READ_PATTERNS):
