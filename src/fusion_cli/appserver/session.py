@@ -34,6 +34,7 @@ from ..cli.repl.transcript_store import (
     list_conversations,
     load_transcript_messages,
 )
+from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
@@ -47,6 +48,7 @@ from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
+from ..providers.capabilities import apprentice_active
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
@@ -70,6 +72,7 @@ from .control import (
     delete_secret,
     disconnect_web_session,
     provider_catalog_rows,
+    reset_apprentice_default,
     save_secret,
     snapshot,
     start_web_login,
@@ -445,6 +448,13 @@ class AppSession:
             key = environ_snapshot().get(definition.auth_env or "", "") if definition else ""
             validation = await validate_api_key(provider_id, key)
             return {"ok": validation.ok, "metin": validation.message}
+        if request.name == "kontrol.cirak_varsayilanina_don":
+            # `yeni` bu metotta BAŞKA dallarda `Config | None` döndüren yardımcılarla
+            # paylaşılan bir isim (mypy tek metotta tek tip çıkarır); bu dal her zaman
+            # dolu bir `Config` döndürdüğü için çakışmayı önlemek üzere ayrı adlandırıldı.
+            guncel_config, sonuc = reset_apprentice_default(self._state.config)
+            self._state.config = guncel_config
+            return sonuc
         if request.name == "kontrol.gateway_baslat":
             return await self._start_gateway()
         if request.name == "kontrol.gateway_durdur":
@@ -941,7 +951,7 @@ class AppSession:
         }
 
     def _control_status(self) -> dict[str, Any]:
-        return snapshot(
+        durum = snapshot(
             self._state.config,
             self._secret_store,
             root=str(self._state.root),
@@ -949,6 +959,22 @@ class AppSession:
             engine=self._state.engine.value,
             gateway=self._gateway_status(),
         )
+        durum["model"]["cirak_bildirim_goster"] = self._cirak_bildirimi_gerekli_mi()
+        return durum
+
+    def _cirak_bildirimi_gerekli_mi(self) -> bool:
+        """Faz 3, Görev 2 (§6.1): web kilidiyken TEK SEFERLİK bildirim.
+
+        `kontrol.durum` panel açılışında ilk çağrılan uçtur; agent bir web
+        oturumuna kilitliyse VE bildirim daha önce hiç gösterilmediyse `True`
+        döner ve işareti KALICI olarak koyar — bir daha, bu makinede hiçbir
+        oturumda tekrar çıkmaz. Hiçbir arka plan kodu bunun ÖTESİNDE bir şey
+        yapmaz; kullanıcı yine de mevcut web modeliyle çalışmaya devam eder.
+        """
+        if apprentice_active(self._state.config) or apprentice_notice_shown():
+            return False
+        mark_apprentice_notice_shown()
+        return True
 
     async def _start_gateway(self) -> dict[str, Any]:
         if self._gateway_status()["durum"] == "calisiyor":

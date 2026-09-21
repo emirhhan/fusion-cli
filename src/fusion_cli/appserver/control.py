@@ -6,7 +6,11 @@ import os
 from typing import Any, Protocol
 
 from ..config.keys import environ_snapshot
+from ..config.model_select import reset_to_apprentice_default
 from ..config.models import Config
+from ..config.writer import write_model_section
+from ..core.errors import ConfigError
+from ..providers.capabilities import apprentice_active
 from ..providers.registry import BUILTIN_PROVIDERS, ProviderDefinition
 
 
@@ -163,6 +167,15 @@ def provider_rows(store: SecretStore) -> list[dict[str, Any]]:
     ]
 
 
+def _onerilen_cirak_model(config: Config) -> str | None:
+    """Kullanıcı "çırağa dön" derse hangi model çalışacak?
+
+    Panel bunu yalnız GÖSTERİR; kullanıcı düğmeye basmadan hiçbir şeyi değiştirmez.
+    """
+    tier = config.tier_by_name("low")
+    return tier.agent.model if tier is not None else None
+
+
 def snapshot(
     config: Config,
     store: SecretStore,
@@ -181,6 +194,11 @@ def snapshot(
             "adaylar": [candidate.model for candidate in config.candidates],
             "saglayici": config.runtime.provider,
             "yogunluk": config.runtime.reasoning_effort.value,
+            # Faz 3, Görev 2 (C5/C9): agent şu an ücretsiz API çırağıyla mı
+            # çalışıyor, yoksa bir web oturumuna mı kilitli? Panel bu iki alanla
+            # "ücretsiz çırağa dön" CTA'sını gösterip göstermeyeceğine karar verir.
+            "cirak_aktif": apprentice_active(config),
+            "onerilen_cirak": _onerilen_cirak_model(config),
         },
         "izin": {
             "mod": approval,
@@ -217,3 +235,32 @@ def delete_secret(store: SecretStore, provider_id: str) -> dict[str, Any]:
         store.delete(definition.auth_env or "")
     os.environ.pop(definition.auth_env or "", None)
     return {"ok": True, "saglayici": definition.id, "kurulu": False}
+
+
+def reset_apprentice_default(config: Config) -> tuple[Config, dict[str, Any]]:
+    """`kontrol.cirak_varsayilanina_don`: web kilidini kaldır, çırağa dön, kalıcılaştır.
+
+    Yalnızca kullanıcı panelde düğmeye ya da CLI'de karşılık gelen komuta
+    BASTIĞINDA çağrılır; hiçbir arka plan kodu bunu kendiliğinden tetiklemez
+    (bkz. Faz 3, Görev 2, §6.1). Kalıcılaştırma başarısız olursa (ör. yapılandırma
+    dosyası yazılamıyor) oturumdaki değişiklik yine de uygulanır — kullanıcı
+    yeniden başlatana kadar çırakla çalışmaya devam eder, yalnızca bir sonraki
+    açılışta eski seçim geri gelir; bu yüzden hata SÖYLENİR, akış durdurulmaz.
+    """
+    yeni = reset_to_apprentice_default(config)
+    try:
+        write_model_section(yeni)
+    except ConfigError as error:
+        return yeni, {
+            "ok": True,
+            "kalicilastirildi": False,
+            "metin": f"Çırağa dönüldü ama kalıcılaştırılamadı: {error}",
+            "cirak_aktif": apprentice_active(yeni),
+            "onerilen_cirak": _onerilen_cirak_model(yeni),
+        }
+    return yeni, {
+        "ok": True,
+        "kalicilastirildi": True,
+        "cirak_aktif": apprentice_active(yeni),
+        "onerilen_cirak": _onerilen_cirak_model(yeni),
+    }

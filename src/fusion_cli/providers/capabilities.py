@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..config.eligibility import capability_from_spec
-from ..config.models import WebSessionConfig
+from ..config.models import Config, WebSessionConfig
 from ..core.errors import ConfigError
 from ..core.model_capability import ToolSupport
 from ..core.types import ModelSpec
@@ -79,6 +79,24 @@ def capabilities_for(
         if capability.tool_support is not ToolSupport.UNKNOWN
         else "unknown",
     )
+
+
+def apprentice_active(config: Config) -> bool:
+    """Agent rolü şu an ücretsiz API çırağıyla mı çalışıyor, yoksa bir web
+    oturumuna mı kilitli?
+
+    Kurulum ve panel bu tek fonksiyona bakarak "ücretsiz çırağa dön" CTA'sını
+    gösterip göstermeyeceğine karar verir (Faz 3, Görev 2, §6.2 — bu fonksiyon
+    `config` katmanına DEĞİL buraya konur: `config` katmanı `providers`'ı import
+    edemez, tersi yön RULES'daki katman tablosuyla tutarlıdır).
+
+    `exclusive_session` alanı zaten TEK doğru kaynaktır: `capabilities_for` bunu
+    yalnızca tarayıcı tabanlı web oturumları ve web-önekli modeller (`chatgpt_web/…`)
+    için `True` üretir — C5'in birebir kaynağı olan "her tur web arayüzüne gidiyor"
+    durumu budur. Aynı ayrım burada tekrar yazılmaz (RULES "aynı işi yapan ikinci
+    bir yol açılmaz").
+    """
+    return not capabilities_for(config.agent, config.web_sessions).exclusive_session
 
 
 def compatibility_issues(

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ...engines.agent.loop import AgentDeps, AgentOutcome
 
 from ...config import model_select, profile
+from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
 from ...core.events import ErrorOccurred, FilesChanged, NoFileChanges, TurnFinished
@@ -37,6 +38,7 @@ from ...engines.agent.compaction import compress
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
+from ...providers.capabilities import apprentice_active
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
@@ -48,6 +50,22 @@ from .state import Engine, Reminder, ReplState
 
 #: Komut geçmişinin saklandığı dosya adı.
 HISTORY_FILE = "repl_history"
+
+
+def apprentice_switch_notice(config: Config) -> str | None:
+    """Faz 3, Görev 2 (§6.1): agent web'e kilitliyse TEK SEFERLİK açılış bildirimi.
+
+    Yalnızca BİLGİLENDİRİR; hiçbir yapılandırmayı sessizce değiştirmez. Kullanıcı
+    `/level cirak` ile dönebilir. Bildirim kalıcı bir işaretle bir daha çıkmaz
+    (`config/apprentice_notice.py`); işaret bu çağrının YAN ETKİSİDİR — metni
+    gösterip göstermeyeceğine çağıran karar verir ama işaret burada konur.
+    """
+    if apprentice_active(config) or apprentice_notice_shown():
+        return None
+    mark_apprentice_notice_shown()
+    tier = config.tier_by_name(model_select.APPRENTICE_TIER_NAME)
+    onerilen = tier.agent.model if tier is not None else "?"
+    return messages.APPRENTICE_SWITCH_NOTICE.format(model=config.agent.model, onerilen=onerilen)
 
 
 def _build_health(config: Config) -> HealthRegistry:
@@ -111,6 +129,10 @@ async def run_repl(
         background.spawn(_warm_up(state))
 
     banner.print_welcome(console, session_info(state))
+    bildirim = apprentice_switch_notice(state.config)
+    if bildirim:
+        console.print(bildirim)
+        console.print()
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         console.print(recent, highlight=False)

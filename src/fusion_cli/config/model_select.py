@@ -122,6 +122,45 @@ def apply_tier(config: Config, name: str) -> Config:
 #: `/development` ile seçilen tek modelin havuzdaki adı.
 SINGLE_MODEL_NAME = "secilen"
 
+#: Çırağın (ücretsiz API modeli) varsayılan kademesi. `defaults.yaml`'da paketin
+#: gömülü ilk kademesi budur (bkz. Faz 3, Görev 2) — kullanıcı "çırağa dön"
+#: dediğinde döneceği yer burasıdır. Ad `defaults.yaml`'daki kademe adıyla
+#: birebir eşleşir; başka bir yerde tekrar yazılmaz.
+APPRENTICE_TIER_NAME = "low"
+
+
+def reset_to_apprentice_default(config: Config) -> Config:
+    """Web kilidini kaldırıp agent'ı ücretsiz API çırağının varsayılan kademesine döndür.
+
+    Kullanıcı `/development` ile bilerek TEK bir web modeline (`tags: [strict]`)
+    kilitlenmiş olabilir; bu geçmişte yapılmış, geri dönüşü olmayan bir seçimdi
+    (bkz. Faz 3 denetim bulguları C5/C9). Bu fonksiyon o geri dönüş yoludur —
+    ama yalnızca kullanıcı onu AÇIKÇA çağırdığında (panelde düğme ya da CLI
+    komutu): hiçbir arka plan kodu kullanıcının seçimini kendiliğinden değiştirmez.
+
+    Uygulama `apply_tier` üzerinden yapılır (RULES "Genel Tasarım": aynı işi
+    yapan ikinci bir yol açılmaz); `apply_tier` agent/hakem/aday havuzunun
+    TAMAMINI kademenin taze `ModelSpec`'leriyle değiştirdiği için eski `strict`
+    etiketi de bu değişimle birlikte düşer, ayrıca kaldırmaya gerek yoktur.
+    """
+    return apply_tier(config, APPRENTICE_TIER_NAME)
+
+
+#: `/level cirak` — kullanıcının hatırlaması gereken CLI takma adı. `defaults.yaml`
+#: kademe adı `low`dur ve DEĞİŞTİRİLMEZ (tek kaynak); bu yalnızca komut satırında
+#: "ücretsiz çırak" kavramını `low` gibi soyut bir isimden daha görünür kılar.
+APPRENTICE_TIER_ALIAS = "cirak"
+
+
+def normalize_tier_name(name: str) -> str:
+    """`/level` argümanındaki çırak takma adını gerçek kademe adına çevir.
+
+    İkinci bir kademe tanımı AÇILMAZ (RULES "Genel Tasarım"): yalnızca bir isim
+    eşlemesidir, `apply_tier` hâlâ TEK kademe kaynağını (`config.tiers`) okur.
+    """
+    wanted = name.strip().lower()
+    return APPRENTICE_TIER_NAME if wanted == APPRENTICE_TIER_ALIAS else wanted
+
 
 def apply_single_model(config: Config, model_id: str) -> Config:
     """Tek bir modeli agent, hakem ve havuzun TAMAMINA uygula.

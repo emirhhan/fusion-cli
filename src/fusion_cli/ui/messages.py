@@ -448,6 +448,17 @@ LEVEL_APPLIED = "kademe → {name}  ·  agent: {model}"
 LEVEL_SAVED = "kaydedildi: {path}"
 LEVEL_SAVE_FAILED = "kademe uygulandı ama kaydedilemedi: {error}"
 
+#: Faz 3, Görev 2 (C5/C9) — kullanıcı bir web modeline (`/development`) kilitliyken
+#: bir sonraki açılışta TEK SEFERLİK gösterilen bilgilendirme. Ton: web modelini
+#: kötülemez ("web modelin de çalışıyor" der), somut kazanımı söyler (hız + gerçek
+#: araç çağrısı), tek komutla geri dönüşü gösterir.
+APPRENTICE_SWITCH_NOTICE = (
+    "Şu an web modeline ({model}) bağlısın — bu çalışıyor, ama her tur tarayıcıya "
+    "gidip araç çağrısını taklit ediyor. Paketin ücretsiz API çırağı ({onerilen}) "
+    "gerçek araç çağrısı yapıyor ve çok daha hızlı yanıt veriyor. Denemek istersen: "
+    "/level cirak"
+)
+
 # --- Profil editörü (/profiles) -------------------------------------------- #
 PROFILES_HEADER = "profiller (kademe · baş model):"
 PROFILES_ROW = "  {name}  →  {model}"
@@ -603,7 +614,7 @@ CMD_SKILLS = "keşfedilen skill'leri listele veya ara"
 CMD_AGENTS = "keşfedilen uzman agent'ları listele veya ara"
 SKILLS_EMPTY = "Eşleşen skill bulunamadı."
 AGENTS_EMPTY = "Eşleşen uzman agent bulunamadı."
-CMD_LEVEL = "model kademesi seç: low · medium · high · ultra · premium"
+CMD_LEVEL = "model kademesi seç: low (cirak) · medium · high · ultra · premium"
 CMD_DEVELOPMENT = "kaynak seçerek model değiştir (ücretsiz/ücretli katalog ya da özel alias)"
 CMD_GOAL = "hedef kipi: görev bitene kadar pes etme"
 CMD_GRILL = "mülakat kipi: kod yazmadan önce gereksinimleri sor"

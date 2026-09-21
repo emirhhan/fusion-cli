@@ -295,6 +295,7 @@ def _level(state: ReplState, argument: str) -> str:
     if not wanted:
         result = model_flows.choose_level(state.config)
     else:
+        wanted = model_select.normalize_tier_name(wanted)
         try:
             updated = model_select.apply_tier(state.config, wanted)
         except ConfigError as error:

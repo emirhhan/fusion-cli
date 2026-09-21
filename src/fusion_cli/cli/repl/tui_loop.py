@@ -430,9 +430,12 @@ def _print_startup(session: _TuiSession, state: ReplState) -> None:
     Liste boşsa (kayıtlı oturum yoksa) hiçbir şey basılmaz — düz konsol
     yüzeyindeki `history_view.render_recent` davranışıyla birebir aynı kural.
     """
-    from .loop import session_info
+    from .loop import apprentice_switch_notice, session_info
 
     banner.print_welcome(session.tui.console, session_info(state), clear=False, pad=False)
+    bildirim = apprentice_switch_notice(state.config)
+    if bildirim:
+        session.tui.console.print(bildirim)
     recent = history_view.render_recent(state.home, state.root)
     if recent:
         session.tui.console.print(recent, highlight=False)
