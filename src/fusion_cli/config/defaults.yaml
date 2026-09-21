@@ -18,6 +18,18 @@
 #   1) NIM kotası dolarsa aynı model OpenRouter'dan gelir,
 #   2) o model tamamen erişilemezse bambaşka bir aile (gpt-oss) devralır.
 # Böylece tek nokta arızası kalmaz.
+#
+# 2026-09-22 EKLENMESİ: zincir buraya kadar hep AYNI kademedeki modeller
+# arasında dolaşıyordu (120B sınıfı → 120B sınıfı). Denetim (17 Eylül) bunun
+# "kademe yükselten" bir zincir OLMADIĞINI, yalnız aynı seviyenin sağlayıcı
+# kopyaları arasında gezindiğini bulmuştu (C6). `nemotron-3-ultra-550b-a55b`
+# (550B/55B, `tiers: ultra`'nın baş modeli) canlı ölçümle GERÇEKTEN farklı bir
+# kademe olarak zincire eklendi — ölçüm bu görev sırasında `LiteLlmProvider`
+# ile gerçek bir araç çağrısı turu yapılarak tekrarlandı:
+#   nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b        → 3.01s, araç çağrısı doğru
+#   openrouter/nvidia/nemotron-3-ultra-550b-a55b:free   → 21.75s, araç çağrısı doğru (yavaş ama çalışıyor)
+# gpt-oss-20b'den ÖNCE eklendi: gpt-oss-20b (20B) ultra'dan (550B/55B) daha
+# küçük bir modeldir, tükenmeden önce daha yetenekli kademeye çıkmak mantıklı.
 agent:
   name: nemotron-super
   model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
@@ -30,6 +42,8 @@ agent:
   fallback:
     - nvidia_nim/openai/gpt-oss-120b
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+    - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
     - openrouter/openai/gpt-oss-20b:free
 
 # Çalışma zamanı davranışı.
@@ -349,9 +363,16 @@ tiers:
       name: nemotron-super
       model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       tags: [code, agent, reasoning]
+      # 2026-09-22: `agent:` üst rolüyle AYNI zincir (bkz. yukarıdaki gerekçe) —
+      # `low` kademesi paketin gömülü varsayılanı olduğu için ikisi ayrışırsa
+      # kademe seçmeyen kullanıcıyla `apply_tier("low")` çağıran kullanıcı
+      # farklı dayanıklılık görür. `nemotron-3-ultra` GERÇEKTEN farklı bir
+      # kademeye yükselen adımdır (120B/12B → 550B/55B).
       fallback:
         - nvidia_nim/openai/gpt-oss-120b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
         - openrouter/openai/gpt-oss-20b:free
     judge:
       name: hakem

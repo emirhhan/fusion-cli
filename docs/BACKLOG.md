@@ -883,3 +883,19 @@ mevcut hatalar:
 - `workspace.visual.ts:78`: `string | undefined` doğrulanmadan kullanılıyor.
 
 Bunlar ayrı bir işte toplanıp `e2e` kalıcı olarak tip kapısına alınmalı.
+
+## Faz 3 Görev 1 (C6) — 17 Eylül denetimindeki 21 modelin tamamı zincire girmedi (2026-09-22)
+
+17 Eylül denetimi OpenRouter ücretsiz katmanında araç çağrısı yapan 21 model
+bulmuştu. Bu görev yalnız zincire GERÇEKTEN kademe yükselten bir adım eklemeyi
+hedefliyordu; bu yüzden yalnız `nemotron-3-ultra-550b-a55b` bu oturumda
+(`LiteLlmProvider` ile gerçek araç çağrısı turu) yeniden ölçüldü ve zincire
+eklendi (NIM 3.01s, OpenRouter 21.75s — ikisi de doğru araç çağrısı yaptı).
+
+Kalan ~19 model (deepseek-v4-flash zaten `high` kademesinde ölçülü; qwen,
+glm-5.2 zaten `premium`'da) bu görevde tek tek yeniden ölçülmedi — model
+kimliği uydurmama kuralı gereği, ölçülmeyen hiçbiri zincire eklenmedi. 429/403
+gördüğü bildirilen üç model de (adları bu görevde doğrulanmadığı için) hâlâ
+adaylık listesinde değil. Kademe/aday havuzuna ek model eklemek istenirse önce
+bu görevde kullanılan yöntemle (gerçek `run_agent`/`LiteLlmProvider` turu,
+gerçek araç şeması) tek tek doğrulanmalı.
