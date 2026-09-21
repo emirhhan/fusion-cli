@@ -72,7 +72,7 @@ import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
 import { Onboarding, type OnboardingValue } from "./onboarding";
-import type { DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
+import type { ApprenticeStatus, DiscoveredSource, ProviderSummary, SampleProject } from "./onboarding";
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
@@ -375,24 +375,16 @@ function ConnectedOnboarding({
     { kind: "hermes", status: "not-found" },
   ]);
   const [providers, setProviders] = useState<ProviderSummary[]>([]);
+  // Faz 3, Görev 2 (C5/C9): agent şu an ücretsiz API çırağıyla mı çalışıyor?
+  // Kaynak `kontrol.durum`'un `model.cirak_aktif`/`model.onerilen_cirak` alanları
+  // — bu bileşen kendi başına HESAPLAMAZ (tek kaynak `providers/capabilities.py`).
+  const [apprentice, setApprentice] = useState<ApprenticeStatus>({
+    active: true,
+    recommendedModel: null,
+  });
 
-  useEffect(() => {
-    let alive = true;
-    void Promise.all([
-      client.request("gecmis.kaynaklar", {}),
-      client.request("kontrol.durum", {}),
-    ]).then(([history, control]) => {
-      if (!alive) return;
-      const found = new Set(
-        Array.isArray(history.kaynaklar)
-          ? history.kaynaklar.map((item) => String((item as Record<string, unknown>).ad ?? ""))
-          : [],
-      );
-      setSources((["claude", "codex", "hermes"] as const).map((kind) => ({
-        kind,
-        status: found.has(kind) ? "found" : "not-found",
-        itemCount: found.has(kind) ? 1 : 0,
-      })));
+  const refreshControlStatus = useCallback(() => {
+    return client.request("kontrol.durum", {}).then((control) => {
       const rows = Array.isArray(control.saglayicilar) ? control.saglayicilar : [];
       setProviders(rows.slice(0, 8).map((raw) => {
         const row = raw as Record<string, unknown>;
@@ -404,14 +396,50 @@ function ConnectedOnboarding({
           status: configured ? "ready" : "needs-setup",
         };
       }));
+      const model = (control.model ?? {}) as Record<string, unknown>;
+      setApprentice({
+        active: model.cirak_aktif !== false,
+        recommendedModel:
+          typeof model.onerilen_cirak === "string" ? model.onerilen_cirak : null,
+      });
+      return control;
+    });
+  }, [client]);
+
+  useEffect(() => {
+    let alive = true;
+    void Promise.all([
+      client.request("gecmis.kaynaklar", {}),
+      refreshControlStatus(),
+    ]).then(([history]) => {
+      if (!alive) return;
+      const found = new Set(
+        Array.isArray(history.kaynaklar)
+          ? history.kaynaklar.map((item) => String((item as Record<string, unknown>).ad ?? ""))
+          : [],
+      );
+      setSources((["claude", "codex", "hermes"] as const).map((kind) => ({
+        kind,
+        status: found.has(kind) ? "found" : "not-found",
+        itemCount: found.has(kind) ? 1 : 0,
+      })));
     }).catch(() => undefined);
     return () => { alive = false; };
-  }, [client]);
+  }, [client, refreshControlStatus]);
+
+  const handleResetToApprentice = useCallback(() => {
+    // Kalıcılaştırma ve gerçek geçiş SUNUCUDA olur (`kontrol.cirak_varsayilanina_don`
+    // → `config/model_select.py::reset_to_apprentice_default`); burada yalnızca
+    // isteği yollayıp güncel durumu yeniden okuruz.
+    void client.request("kontrol.cirak_varsayilanina_don", {}).then(() => refreshControlStatus());
+  }, [client, refreshControlStatus]);
 
   return (
     <Onboarding
+      apprentice={apprentice}
       onChange={setValue}
       onComplete={({ selectedProjectId }) => onFinish(selectedProjectId)}
+      onResetToApprentice={handleResetToApprentice}
       onSkip={() => onFinish(null)}
       projects={projects}
       providers={providers}

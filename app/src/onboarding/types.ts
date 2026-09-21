@@ -29,6 +29,17 @@ export interface ProviderSummary {
   status: "ready" | "needs-setup" | "unavailable";
 }
 
+/**
+ * Agent şu an ücretsiz API çırağıyla mı çalışıyor, yoksa bir web oturumuna mı
+ * kilitli? (Faz 3, Görev 2 — C5/C9). `kontrol.durum`'un `model` alanından gelir;
+ * kaynak `providers/capabilities.py::apprentice_active`'dir, burada TEKRAR
+ * hesaplanmaz.
+ */
+export interface ApprenticeStatus {
+  active: boolean;
+  recommendedModel: string | null;
+}
+
 export interface SampleProject {
   description: string;
   id: string;

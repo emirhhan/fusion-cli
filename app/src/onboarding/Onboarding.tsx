@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import type {
+  ApprenticeStatus,
   DiscoveredSource,
   OnboardingCompletion,
   OnboardingStepId,
@@ -61,8 +62,12 @@ function redactExternalText(value: string): string {
 }
 
 export interface OnboardingProps {
+  /** Ücretsiz API çırağı şu an etkin mi? Yoksa: `providers` sağlayıcı butonuyla döner. */
+  apprentice: ApprenticeStatus;
   onChange: (value: OnboardingValue) => void;
   onComplete: (completion: OnboardingCompletion) => void;
+  /** Kullanıcı "ücretsiz çırağa dön" düğmesine bastığında; kalıcılaştırma çağıranın işidir. */
+  onResetToApprentice: () => void;
   onSkip: (value: OnboardingValue) => void;
   projects: SampleProject[];
   providers: ProviderSummary[];
@@ -126,13 +131,63 @@ function SourcesStep({ sources }: { sources: DiscoveredSource[] }) {
   );
 }
 
-function ProvidersStep({ providers }: { providers: ProviderSummary[] }) {
+function ApprenticeStatusRow({
+  apprentice,
+  onResetToApprentice,
+}: {
+  apprentice: ApprenticeStatus;
+  onResetToApprentice: () => void;
+}) {
+  // Faz 3, Görev 2 (C5/C9): agent bir web modeline kilitliyken bunu SESSİZCE
+  // değiştirmeyiz (bkz. `config/model_select.py::reset_to_apprentice_default`
+  // docstring'i) — yalnızca burada, panelde kalıcı bir düğme sunarız. Web
+  // modeli kötülenmez: çalıştığı söylenir, somut fark (hız + gerçek araç
+  // çağrısı) belirtilir.
+  if (apprentice.active) {
+    return (
+      <StatusRow
+        description="Her tur gerçek araç çağrısı yapan ücretsiz bir API modeli çalışıyor."
+        label="Ücretsiz API çırağı"
+        status="Etkin"
+        tone="success"
+      />
+    );
+  }
+  return (
+    <StatusRow
+      action={
+        <Button onClick={onResetToApprentice} variant="secondary">
+          Ücretsiz çırağa dön
+        </Button>
+      }
+      description={
+        apprentice.recommendedModel
+          ? `Şu an web modeline bağlısın — çalışıyor, ama her tur tarayıcıya gidip araç çağrısını taklit ediyor. Ücretsiz çırak (${apprentice.recommendedModel}) gerçek araç çağrısı yapıyor ve daha hızlı yanıt veriyor.`
+          : "Şu an web modeline bağlısın — çalışıyor, ama her tur tarayıcıya gidip araç çağrısını taklit ediyor."
+      }
+      label="Ücretsiz API çırağı"
+      status="Kullanılmıyor"
+      tone="warning"
+    />
+  );
+}
+
+function ProvidersStep({
+  apprentice,
+  onResetToApprentice,
+  providers,
+}: {
+  apprentice: ApprenticeStatus;
+  onResetToApprentice: () => void;
+  providers: ProviderSummary[];
+}) {
   return (
     <>
       <p className="onboarding__eyebrow">Bağlantılar</p>
       <h1>Sağlayıcı durumu</h1>
       <p className="onboarding__lead">Anahtar değerleri Fusion onboarding arayüzüne aktarılmaz veya gösterilmez.</p>
       <div className="onboarding__status-list">
+        <ApprenticeStatusRow apprentice={apprentice} onResetToApprentice={onResetToApprentice} />
         {providers.map((provider) => {
           const status = PROVIDER_STATUSES[provider.status];
           return (
@@ -199,8 +254,10 @@ function CompleteStep({ project }: { project?: SampleProject }) {
 }
 
 export function Onboarding({
+  apprentice,
   onChange,
   onComplete,
+  onResetToApprentice,
   onSkip,
   projects,
   providers,
@@ -244,7 +301,13 @@ export function Onboarding({
     welcome: <WelcomeStep />,
     runtime: <RuntimeStep runtime={runtime} />,
     sources: <SourcesStep sources={sources} />,
-    providers: <ProvidersStep providers={providers} />,
+    providers: (
+      <ProvidersStep
+        apprentice={apprentice}
+        onResetToApprentice={onResetToApprentice}
+        providers={providers}
+      />
+    ),
     project: (
       <ProjectStep
         onSelect={(selectedProjectId) => onChange({ ...value, selectedProjectId })}

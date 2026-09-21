@@ -28,10 +28,14 @@ const projects = [
   { id: "blank", name: "Boş proje", description: "Temiz bir klasörle başlayın" },
 ];
 
+const apprenticeActive = { active: true, recommendedModel: null };
+
 function renderAt(step: OnboardingValue["step"], overrides: Partial<OnboardingProps> = {}) {
   const props: OnboardingProps = {
+    apprentice: apprenticeActive,
     onChange: vi.fn(),
     onComplete: vi.fn(),
+    onResetToApprentice: vi.fn(),
     onSkip: vi.fn(),
     projects,
     providers,
@@ -52,8 +56,10 @@ function ControlledOnboarding({ onSkip = vi.fn() }: { onSkip?: (value: Onboardin
 
   return (
     <Onboarding
+      apprentice={apprenticeActive}
       onChange={setValue}
       onComplete={vi.fn()}
+      onResetToApprentice={vi.fn()}
       onSkip={onSkip}
       projects={[]}
       providers={[]}
@@ -114,6 +120,29 @@ describe("Onboarding", () => {
     expect(screen.getByText("Kullanılamıyor")).toBeTruthy();
   });
 
+  it("saglayicilar adimi cirak durumunu gosterir (Faz 3, Görev 2 — C5/C9)", () => {
+    const onResetToApprentice = vi.fn();
+    renderAt("providers", {
+      apprentice: { active: false, recommendedModel: "nvidia_nim/nvidia/nemotron-3-super-120b-a12b" },
+      onResetToApprentice,
+    });
+
+    expect(screen.getByText("Ücretsiz API çırağı")).toBeTruthy();
+    expect(screen.getByText("Kullanılmıyor")).toBeTruthy();
+    expect(screen.getByText(/nvidia_nim\/nvidia\/nemotron-3-super-120b-a12b/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ücretsiz çırağa dön" }));
+    expect(onResetToApprentice).toHaveBeenCalledTimes(1);
+  });
+
+  it("cirak zaten aktifken donus dugmesi yerine etkin durumu gosterir", () => {
+    renderAt("providers", { apprentice: apprenticeActive });
+
+    expect(screen.getByText("Ücretsiz API çırağı")).toBeTruthy();
+    expect(screen.getByText("Etkin")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Ücretsiz çırağa dön" })).toBeNull();
+  });
+
   it("örnek proje seçimini kontrollü değer olarak dışarı bildirir", () => {
     const { onChange } = renderAt("project");
 
@@ -167,8 +196,10 @@ describe("Onboarding", () => {
 
     const { container } = render(
       <Onboarding
+        apprentice={apprenticeActive}
         onChange={vi.fn()}
         onComplete={vi.fn()}
+        onResetToApprentice={vi.fn()}
         onSkip={vi.fn()}
         projects={projects}
         providers={[unsafeProvider]}
