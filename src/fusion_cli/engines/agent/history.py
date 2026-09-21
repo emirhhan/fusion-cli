@@ -67,6 +67,38 @@ def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGE
     return 0 if start >= len(messages) else start
 
 
+def root_anchor_length(messages: Sequence[Message]) -> int:
+    """Kök konuşmanın (sistem mesajı + ilk kullanıcı turu) mesaj sayısı.
+
+    Bu bölüm sıkıştırmaya asla girmez. Ölçüldü ("MAVİ-KEDİ" vakası): uzun bir
+    plan turunda sıkıştırma eşiği aşılınca kesim noktasından ÖNCEKİ HER ŞEY
+    (sistem mesajı ve kullanıcının kök turda söylediği "hatırla" talimatı
+    dahil) TEK bir olasılıksal özetleyici çağrısına emanet ediliyordu.
+    Özetleyici bir LLM'dir ve gördüğü ayrıntıyı yazmayı GARANTİ ETMEZ; kök
+    talimat özete girmeyince telafisiz kayboluyordu. Sistem kimliği de aynı
+    kaderi paylaşıyor, `[önceki konuşmanın özeti]` diye bir `user` mesajıyla
+    değiştiriliyordu.
+
+    İKİNCİ `user` mesajına kadarki her şey (sistem + ilk soru + o turun
+    asistan/araç mesajları) kök turdur ve özetleyiciye değil, olduğu gibi
+    kalır. Hiç ikinci `user` yoksa (kısa konuşma) TÜM liste kök turdur.
+
+    Yalnız gerçek bir kök konuşma varsa (mesaj `system` ile başlıyorsa) devreye
+    girer: sistem mesajı olmayan bir dizi (ör. iç bir alt-tur izi) korunacak bir
+    "kimlik" taşımaz, orada anchor açmak sıradan içeriği de sıkıştırmadan
+    muaf tutardı.
+    """
+    if not messages or messages[0].role != "system":
+        return 0
+    kullanici_sayisi = 0
+    for index, message in enumerate(messages):
+        if message.role == "user":
+            kullanici_sayisi += 1
+            if kullanici_sayisi == 2:
+                return index
+    return len(messages)
+
+
 #: İz sınıra sığmadığında başa konan işaret. Denetçi eksik bilgiyle çalıştığını bilmeli.
 ELISION_NOTE = "[… önceki adımlar atlandı …]"
 

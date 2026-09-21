@@ -1122,3 +1122,137 @@ async def test_makro_olmayan_komut_gorev_dondurmez(tmp_path):
     await oturum.handle(Request(id="1", name="komut.calistir", data={"ad": "level", "arguman": ""}))
 
     assert "gorev" not in _sonuc(satirlar, "1")
+
+
+async def test_plan_yurut_turundan_sonra_kok_konusma_korunur(tmp_path, monkeypatch):
+    """Plan motorundan geçen tur, ondan ÖNCEKİ kök konuşmayı silmemeli.
+
+    Ölçüldü: (1) "Hatırla: bu projenin kod adı MAVİ-KEDİ." hızlı yoldan cevaplandı,
+    (2) `/plan-yurut <görev>` plan motorunda (WORKFLOW rotası) 39 model çağrısıyla
+    çalıştı, (3) "Projenin kod adı neydi?" hızlı yoldan tekrar soruldu ve cevap
+    "S3plan" (çalışma klasörünün adı) oldu — 1. turdaki kod adı kaybolmuştu. Aynı
+    akış plan motoru olmadan doğru cevap veriyordu.
+
+    Kök neden `run_execution_plan(..., conversation=...)` bağlantısında DEĞİL
+    (o zaten kök konuşmayı alıyor, bkz. `plan_runner.py::_PlanRun.messages`);
+    uzun bir plan turunda bağlam sıkıştırması (`compaction.compress`) devreye
+    girince görülüyor. Sıkıştırma, eşiği aşan geçmişi TEK bir özet mesajına
+    indirirken kesme noktasından ÖNCEKİ HER ŞEYİ (sistem mesajı dahil, kullanıcının
+    kök turda söylediği "hatırla" talimatı dahil) tek bir olasılıksal özetleyici
+    çağrısına emanet ediyordu; özetleyici o ayrıntıyı hiç yazmayabilir ve bilgi
+    telafisiz kaybolur.
+
+    Bu testte iki adımlı bir plan (birinci adım birkaç araç turu yapar) kısık bir
+    sıkıştırma eşiğiyle çalıştırılır ki 39 model çağrısı yerine küçük ölçekte AYNI
+    sıkıştırma tetiklensin. Üçüncü tur için SAĞLAYICIYA GİDEN mesajların birinci
+    turun kullanıcı mesajını içerdiği doğrulanır — gerçek model koşusu yapılmaz,
+    sahte `ScriptedProvider` kullanılır.
+    """
+    from fusion_cli.engines.agent import compaction as agent_compaction
+    from fusion_cli.engines.agent import history as agent_history
+    from fusion_cli.engines.agent import loop as agent_loop
+
+    from .fakes import ScriptedProvider, model_result, tool_call
+
+    ilk_gorev = "Hatırla: bu projenin kod adı MAVİ-KEDİ."
+    plan_json = """{
+  "plan_id": "plan-1",
+  "task": "kucuk bir inceleme yap",
+  "steps": [
+    {
+      "step_id": "adim1",
+      "goal": "dosyalari listele",
+      "depends_on": [],
+      "expected_effects": [],
+      "allowed_tool_families": ["files"],
+      "success_criteria": ["listelendi"],
+      "verification_hint": "listeyi anlat",
+      "retry_safety": "never"
+    },
+    {
+      "step_id": "adim2",
+      "goal": "sonucu ozetle",
+      "depends_on": ["adim1"],
+      "expected_effects": [],
+      "allowed_tool_families": ["files"],
+      "success_criteria": ["ozetlendi"],
+      "verification_hint": "ozeti anlat",
+      "retry_safety": "never"
+    }
+  ]
+}"""
+    tool_rounds = 8
+    for i in range(tool_rounds):
+        (tmp_path / f"sub{i}").mkdir(exist_ok=True)
+
+    results = [
+        model_result("Not aldım: kod adı MAVİ-KEDİ."),  # 1. tur (hızlı yol)
+        model_result(plan_json),  # 2. tur: plan üretimi
+        *[
+            model_result(tool_calls=[tool_call("list_dir", path=f"sub{i}")])
+            for i in range(tool_rounds)
+        ],
+        model_result("Adım 1 tamamlandı."),  # adım 1 final
+        model_result("Adım 2 tamamlandı."),  # adım 2 final
+        model_result("Kod adı: S3plan"),  # 3. tur (hızlı yol) — YANLIŞ cevap riski
+    ]
+    provider = ScriptedProvider(results)
+    ozetleyici = ScriptedProvider(
+        [model_result("Özet: proje inceleniyor, dosyalar listeleniyor.") for _ in range(5)]
+    )
+
+    def _sahte_saglayici(spec, **kwargs):
+        del spec, kwargs
+        return provider
+
+    def _sahte_ozetleyici(spec, **kwargs):
+        del spec, kwargs
+        return ozetleyici
+
+    monkeypatch.setattr(agent_loop, "build_provider", _sahte_saglayici)
+    monkeypatch.setattr(agent_compaction, "build_provider", _sahte_ozetleyici)
+    # Gerçek eşik (177.000 karakter) 39 model çağrısı gerektirir; test küçük
+    # ölçekte AYNI mekanizmayı tetiklemek için eşiği düşürür.
+    monkeypatch.setattr(agent_history, "COMPRESS_THRESHOLD_CHARS", 500)
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.config = replace(
+        oturum._state.config,
+        mcp_servers=(),
+        web_sessions=(),
+        agent=replace(oturum._state.config.agent, model="test/scripted-model"),
+    )
+    oturum._workspace_mode = "kod"
+
+    # 1. tur — hızlı yol.
+    await oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": ilk_gorev}))
+    assert _sonuc(satirlar, "1")["ok"] is True
+
+    # 2. tur — `/plan-yurut <görev>`: önce komut hazırlanır, sonra tur çalıştırılır.
+    await oturum.handle(
+        Request(
+            id="2",
+            name="komut.calistir",
+            data={"ad": "plan-yurut", "arguman": "kucuk bir inceleme yap"},
+        )
+    )
+    gorev2 = _sonuc(satirlar, "2")["gorev"]
+    await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": gorev2}))
+    assert _sonuc(satirlar, "3")["ok"] is True
+
+    # 3. tur — hızlı yol, kod adı yeniden sorulur.
+    await oturum.handle(
+        Request(
+            id="4",
+            name="tur.calistir",
+            data={"gorev": "Projenin kod adı neydi? Yalnız kod adını yaz."},
+        )
+    )
+    assert _sonuc(satirlar, "4")["ok"] is True
+
+    ucuncu_tur_mesajlari = provider.seen_messages[-1]
+    assert any(ilk_gorev in mesaj.content for mesaj in ucuncu_tur_mesajlari), (
+        "3. turda sağlayıcıya giden mesajlar 1. turun kullanıcı mesajını içermiyor "
+        f"(gönderilen: {[m.content[:80] for m in ucuncu_tur_mesajlari]})"
+    )

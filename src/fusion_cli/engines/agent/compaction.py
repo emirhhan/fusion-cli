@@ -44,7 +44,15 @@ async def compress(
     if cut == 0:
         return messages
 
-    old, recent = messages[:cut], messages[cut:]
+    # Kök tur (sistem mesajı + ilk kullanıcı sorusu) özetleyiciye asla verilmez.
+    # Ölçüldü ("MAVİ-KEDİ" vakası): kesim sistem mesajını ve kullanıcının kök
+    # turda söylediği talimatı da `old`'a alıyor, özetleyici o ayrıntıyı hiç
+    # yazmayabiliyordu — bilgi telafisiz kayboluyordu. Kök tur burada anchor
+    # olarak ayrılır ve `recent` gibi BİREBİR korunur.
+    anchor_len = history.root_anchor_length(messages)
+    anchor, old, recent = messages[:anchor_len], messages[anchor_len:cut], messages[cut:]
+    if not old:
+        return messages
     trace = history.transcript(old, limit=TRACE_CHARS)
     if not trace.strip():
         return messages
@@ -52,7 +60,7 @@ async def compress(
     summary = await _summarize(trace, config, publisher)
     if not summary:
         return messages
-    return [Message("user", f"[önceki konuşmanın özeti]\n{summary}"), *recent]
+    return [*anchor, Message("user", f"[önceki konuşmanın özeti]\n{summary}"), *recent]
 
 
 async def _summarize(trace: str, config: Config, publisher: EventPublisher | None) -> str:

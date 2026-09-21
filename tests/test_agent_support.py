@@ -171,6 +171,49 @@ async def test_ozet_uretilirse_eski_turlar_tek_nota_iner(monkeypatch):
     assert sonuc[0].content.startswith("[önceki konuşmanın özeti]")
 
 
+async def test_sikistirma_kok_konusmayi_ozetleyiciye_emanet_etmez(monkeypatch):
+    """Sistem mesajı ve kullanıcının kök turda söylediği talimat asla özetlenmez.
+
+    Ölçüldü ("MAVİ-KEDİ" vakası): uzun bir plan turunda sıkıştırma eşiği aşılınca
+    kesim noktasından ÖNCEKİ HER ŞEY (sistem mesajı ve kullanıcının kök turda
+    verdiği "hatırla" talimatı dahil) tek bir olasılıksal özetleyici çağrısına
+    emanet ediliyordu. Özetleyici bir LLM'dir ve gördüğü ayrıntıyı yazmayı
+    GARANTİ ETMEZ; sahte özetleyici burada bilinçli olarak kök talimattan hiç
+    bahsetmeyen bir özet döndürüyor — düzeltme bu özetin İÇERİĞİNE değil, kök
+    turun hiç özetin İÇİNE girmemesine dayanır.
+    """
+
+    async def _alakasiz_ozet(trace, config, publisher):
+        del trace, config, publisher
+        return "Özet: kullanıcı bir proje inceledi, dosyalar listelendi."
+
+    monkeypatch.setattr(compaction, "_summarize", _alakasiz_ozet)
+    dolgu_sayisi = history.KEEP_RECENT_MESSAGES + 4
+    mesajlar = [
+        Message("system", "<kimlik> sistem talimatı"),
+        Message("user", "Hatırla: bu projenin kod adı MAVİ-KEDİ."),
+        Message("assistant", "Not aldım: kod adı MAVİ-KEDİ."),
+        Message("user", "ikinci görev"),
+        *[
+            Message(
+                "user" if i % 4 == 0 else "assistant",
+                "x" * (history.COMPRESS_THRESHOLD_CHARS // dolgu_sayisi + 1),
+            )
+            for i in range(dolgu_sayisi)
+        ],
+    ]
+
+    sonuc = await compaction.compress(mesajlar, config=make_config())
+
+    assert len(sonuc) < len(mesajlar)
+    assert sonuc[0] == mesajlar[0]
+    assert any(
+        "MAVİ-KEDİ" in mesaj.content
+        for mesaj in sonuc
+        if mesaj.role in {"system", "user", "assistant"}
+    ), f"kök konuşma özetin içine düşmüş: {[m.content[:60] for m in sonuc]}"
+
+
 def test_iz_sinira_dayaninca_en_son_adimlari_korur():
     """Denetçi işin sonucunu görmeli; başlangıçtaki keşif çağrılarını değil.
 
