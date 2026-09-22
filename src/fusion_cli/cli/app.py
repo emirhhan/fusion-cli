@@ -582,6 +582,34 @@ def config_show() -> None:
     _print_config(config)
 
 
+@config_app.command("teacherless")
+def config_teacherless(
+    enabled: bool = typer.Argument(..., help="true|false — öğretmensiz kipi aç/kapat"),
+) -> None:
+    """Öğretmensiz çalış: `ask_teacher` aracı modele hiç sunulmaz."""
+    from ..config.writer import write_runtime_flag
+
+    config = load_config()
+    write_runtime_flag(config, "teacherless", enabled)
+    console.print(messages.CONFIG_TEACHERLESS_SET.format(state=_acik_kapali(enabled)))
+
+
+@config_app.command("teacher-lesson-sync")
+def config_teacher_lesson_sync(
+    enabled: bool = typer.Argument(..., help="true|false — öğretmen derslerini ders belleğine yaz"),
+) -> None:
+    """Öğretmen cevaplarından çıkan dersler ders belleğine (`recall_lessons`) de yazılsın mı?"""
+    from ..config.writer import write_runtime_flag
+
+    config = load_config()
+    write_runtime_flag(config, "teacher_lesson_sync", enabled)
+    console.print(messages.CONFIG_TEACHER_LESSON_SYNC_SET.format(state=_acik_kapali(enabled)))
+
+
+def _acik_kapali(enabled: bool) -> str:
+    return "açık" if enabled else "kapalı"
+
+
 def _print_config(config: Config) -> None:
     source = (
         messages.CONFIG_SOURCE_FILE.format(path=config.source)

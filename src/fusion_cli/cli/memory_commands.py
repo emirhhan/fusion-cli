@@ -30,6 +30,7 @@ _SOURCE_LABELS = {
     LessonSource.SEED: messages.LESSON_SOURCE_SEED,
     LessonSource.LEARNED: messages.LESSON_SOURCE_LEARNED,
     LessonSource.MANUAL: messages.LESSON_SOURCE_MANUAL,
+    LessonSource.TEACHER: messages.LESSON_SOURCE_TEACHER,
 }
 
 

@@ -205,6 +205,13 @@ runtime:
   # Her görevden ders çıkarılır ve benzer görevlerde sistem promptunda hatırlatılır.
   # Öz-gelişimin çekirdeği; bir model çağrısı ekler.
   lessons: true
+  # `ask_teacher` aracı modele hiç sunulmaz (`config.teacher` tanımlı olsa bile).
+  # `council` bundan etkilenmez — ayrı, çoklu-API-model bir araçtır (Faz 4, Görev 3).
+  teacherless: false
+  # Öğretmen cevabından çıkan ders `ChromaLessonMemory`'ye de yazılsın mı (model
+  # `recall_lessons` ile geri çağırabilsin)? Çakışan bir ders bulunursa zaten
+  # yazılmaz; bu bayrak kullanıcının kendi tercihiyle tamamen kapatması içindir.
+  teacher_lesson_sync: true
   # Kod değiştiren tur sonrası çalıştırılacak doğrulama komutları. Boş = KAPALI
   # (varsayılan): mevcut davranış korunur. Doldurulursa (ör. ["ruff check", "pytest -q"])
   # kapının sonucu ders güvenini besler — "doğrulamadan bitirme" kuralı gerçekten uygulanır.

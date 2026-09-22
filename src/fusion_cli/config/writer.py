@@ -123,6 +123,34 @@ def write_theme(config: Config, theme: str, path: Path | None = None) -> Path:
     return target
 
 
+#: `runtime:` altında bu fonksiyonla yazılabilecek boolean bayraklar. Rastgele bir
+#: anahtarın yanlışlıkla ezilmesini önleyen beyaz liste — `write_theme`'deki
+#: `THEME_VALUES` denetimiyle aynı gerekçe.
+_BOOLEAN_RUNTIME_FLAGS = ("teacherless", "teacher_lesson_sync")
+
+
+def write_runtime_flag(config: Config, key: str, value: bool, path: Path | None = None) -> Path:
+    """Tek bir boolean `runtime:` bayrağını yaz; diğer ayarlar KORUNUR.
+
+    Yalnızca `_BOOLEAN_RUNTIME_FLAGS`'teki anahtarlar kabul edilir (Faz 4,
+    Görev 3 — "öğretmensiz çalış" ve "öğretmen dersleri ders belleğine
+    yazılsın mı" tercihlerini kalıcılaştırmak için).
+    """
+    if key not in _BOOLEAN_RUNTIME_FLAGS:
+        raise ValueError(
+            f"Bilinmeyen runtime bayrağı: {key}. Seçenekler: {', '.join(_BOOLEAN_RUNTIME_FLAGS)}"
+        )
+    target = path or _target_path(config)
+    with _config_lock(target):
+        existing = _read_existing(target)
+        runtime = existing.get("runtime")
+        updated = dict(runtime) if isinstance(runtime, dict) else {}
+        updated[key] = value
+        existing["runtime"] = updated
+        _atomic_write(target, existing)
+    return target
+
+
 def write_provider(config: Config, provider: str, path: Path | None = None) -> Path:
     """Sağlayıcı tercihini `runtime:` altına yaz; yazılan yolu döndür.
 

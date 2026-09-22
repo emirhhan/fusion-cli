@@ -207,25 +207,35 @@ başlıkları dahil) bir kerede okundu — içerik değil yalnız BAŞLIKLAR, am
 amaçlanmamış bir genişlik. Sonraki denemeler yalnızca composer'ın kendi
 kapsayıcısına daraltıldı.
 
-### Görev 3: Ders defteri + görev defteri + öğretmensiz kip (C7, C8)
+### Görev 3: Ders defteri + görev defteri + öğretmensiz kip (C7, C8) — TAMAM (22 Eylül)
 
-**Olası dosyalar:** yeni `.fusion/ogretmen.md` yazıcı modülü, config'e
-`teacherless` bayrağı (`providers/capabilities.py` ya da `config/models.py`,
-Faz 3'teki `apprentice_active` deseniyle tutarlı yerde).
+**Dosyalar:** yeni `engines/agent/teacher_notebook.py`, `engines/agent/teacher_lessons.py`;
+`config/models.py` (`RuntimeConfig.teacherless`, `.teacher_lesson_sync`),
+`config/writer.py` (`write_runtime_flag`), `cli/app.py` (`fusion config
+teacherless` / `teacher-lesson-sync`), `core/memory.py` (`LessonSource.TEACHER`).
 
-- [ ] §6.3 kararına göre: `.fusion/ogretmen.md` yalnız insan-okunur DENETİM
-      GÜNLÜĞÜ müdür, yoksa önemli dersler `ChromaLessonMemory`'ye de mi
-      yazılır? İKİ PARALEL DERS SİSTEMİ açılmaz — karar burada netleşir.
-- [ ] "Görev defteri" ayrı bir dosya mı yoksa `ogretmen.md`'nin bir bölümü mü
-      (bkz. §6.4) — kesinleşince tek bir yazıcı fonksiyonu kullanılır.
-- [ ] `teacherless` kipinde `ask_teacher`/`council` (Görev 1'de netleşen isim)
-      aracı modele HİÇ SUNULMAZ (`allowed_tools` filtrelemesi, mevcut
-      `chat_mode`'daki araç kısıtlama deseniyle aynı yerde —
-      `engines/agent/loop.py` `chat_tool_names`).
-- [ ] CLI'de eşdeğer komut (`fusion config` ailesine ya da `/development`
-      ailesine "öğretmensiz çalış" seçeneği) — Faz 3 Görev 2'deki "reset
-      RPC + CLI komutu" deseniyle aynı, ikinci bir paralel komut ağacı
-      AÇILMAZ.
+- [x] §6.3: `.fusion/ogretmen.md` HER ZAMAN yazılır (insan-okunur günlük,
+      modele geri beslenmez). Ayrıca `runtime.teacher_lesson_sync` (varsayılan
+      AÇIK) ile `ChromaLessonMemory`'ye de yazılır — yeni `LessonSource.TEACHER`
+      etiketiyle. Çakışma kontrolü: `memory.recall(question, limit=3)` (VAR OLAN
+      sorgu, yeni bir arama motoru İCAT EDİLMEDİ) ile benzer dersler çekilir;
+      tam biri olumsuzlama işareti taşıyıp diğeri taşımıyorsa (`değil, yapma,
+      kullanma, etme, asla, sakın, olmaz, yanlış` — kaba ama belirsizlikte
+      YAZAN bir sezgi) yazılmaz, `.fusion/ogretmen.md`'ye gerekçesiyle düşülür
+      VE `ask_teacher`'ın döndürdüğü metne kullanıcıya görünür bir not eklenir
+      (`fusion config teacher-lesson-sync false` ile kapatma yolu gösterilir).
+- [x] §6.4 kararı uygulandı: ayrı bir "görev defteri" AÇILMADI (BACKLOG'da
+      kaldı), `.fusion/ogretmen.md` yalnız öğretmen oturumlarının günlüğü.
+- [x] `teacherless=true` iken `ask_teacher` `build_agent_registry`'de hiç
+      kaydedilmez (`deps.config.teacher is not None and not
+      deps.config.runtime.teacherless`); `council` bundan ETKİLENMEZ — ayrı
+      test bunu kilitler (`test_teacherless_kapaliyken_council_etkilenmez`).
+- [x] CLI: `fusion config teacherless true|false` ve `fusion config
+      teacher-lesson-sync true|false`, `write_runtime_flag` üzerinden `runtime:`
+      bölümüne kalıcılaşır (diğer ayarlar korunur — `write_theme` ile AYNI
+      desen). **Düzeltme:** plandaki "Faz 3 Görev 2'deki RPC+CLI deseni"
+      varsayımı YANLIŞ çıktı — o özelliğin yalnızca masaüstü RPC'si vardı,
+      terminal CLI komutu hiç yoktu; bu görev o boşluğu da kapattı.
 
 ### Görev 4: Kademe düşme bildirimi + günlük çağrı bütçesi (A11)
 

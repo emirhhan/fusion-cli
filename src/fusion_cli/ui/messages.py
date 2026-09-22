@@ -55,6 +55,8 @@ CONFIG_HEADING_JUDGE = "Hakem / sentez"
 CONFIG_HEADING_AGENT = "Agent modeli"
 CONFIG_HEADING_RUNTIME = "Çalışma zamanı"
 CONFIG_FALLBACK_NONE = "(yedek tanımlı değil)"
+CONFIG_TEACHERLESS_SET = "öğretmensiz kip: {state}"
+CONFIG_TEACHER_LESSON_SYNC_SET = "öğretmen → ders belleği eşitleme: {state}"
 
 # --- Fusion --------------------------------------------------------------- #
 FUSION_CANDIDATES = "{count} model düşünüyor · {names}"
@@ -200,6 +202,7 @@ LESSON_KIND_SUCCESS = "uygula"
 LESSON_SOURCE_SEED = "hazır"
 LESSON_SOURCE_LEARNED = "öğrenildi"
 LESSON_SOURCE_MANUAL = "elle"
+LESSON_SOURCE_TEACHER = "öğretmen"
 
 # --- Onay ----------------------------------------------------------------- #
 APPROVAL_TITLE = "onay gerekiyor · {tool}"

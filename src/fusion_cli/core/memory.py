@@ -35,6 +35,7 @@ class LessonSource(Enum):
     LEARNED = "learned"  # bir oturumdan çıkarıldı
     SEED = "seed"  # küratörlü başlangıç bilgisi
     MANUAL = "manual"  # kullanıcı elle öğretti
+    TEACHER = "teacher"  # web öğretmene danışmadan (Faz 4, Görev 3)
 
 
 #: Bir dersin başlangıç güveni. Yeni ve eski (alan taşınmadan yazılmış) kayıtlar

@@ -90,7 +90,9 @@ def build_agent_registry(
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
-    if deps.config.teacher is not None:
+    # `teacherless` yalnız `ask_teacher`'ı kapatır; `council` bundan ETKİLENMEZ
+    # (Faz 4, Görev 3 — §6.1 kararı: ikisi bilinçli olarak ayrı araçlar).
+    if deps.config.teacher is not None and not deps.config.runtime.teacherless:
         extended.register(_ask_teacher_tool(deps))
     if deps.capabilities is not None:
         _register_capability_tools(extended, deps, depth=depth, run_agent=run_agent)
@@ -248,6 +250,38 @@ def _council_tool(deps: AgentDeps) -> Tool:
     )
 
 
+def _sync_and_log_teacher_answer(
+    deps: AgentDeps, context: ToolContext, *, question: str, durum: str, answer: str
+) -> tuple[bool, str]:
+    """`.fusion/ogretmen.md`'ye HER ZAMAN yaz; ders belleğine yalnız açıksa dene.
+
+    `(yazıldı_mı, atlama_gerekçesi)` döner — yalnız çağıranın kullanıcıya görünür
+    bir not eklemesi gerekip gerekmediğine karar vermesi için.
+    """
+    from datetime import UTC, datetime
+
+    from . import teacher_notebook
+    from .teacher_lessons import sync_teacher_lesson
+
+    lesson_written = False
+    skip_reason = ""
+    if deps.lessons is not None and deps.config.runtime.teacher_lesson_sync:
+        lesson_written, skip_reason = sync_teacher_lesson(
+            deps.lessons, question=question, answer=answer
+        )
+    timestamp = datetime.now(UTC).isoformat(timespec="seconds")
+    teacher_notebook.append_entry(
+        context.root,
+        timestamp=timestamp,
+        question=question,
+        durum=durum,
+        answer=answer,
+        lesson_written=lesson_written,
+        lesson_skip_reason=skip_reason,
+    )
+    return lesson_written, skip_reason
+
+
 def _ask_teacher_tool(deps: AgentDeps) -> Tool:
     """Web öğretmene (ChatGPT/Gemini web) tek-soru danışma (Faz 4, Görev 1).
 
@@ -275,8 +309,10 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
-        durum = args.get("durum")
-        denenenler = args.get("denenenler")
+        durum_ham = args.get("durum")
+        denenenler_ham = args.get("denenenler")
+        durum = durum_ham if isinstance(durum_ham, str) else ""
+        denenenler = denenenler_ham if isinstance(denenenler_ham, str) else ""
 
         # "İlgili kod" modelin BEYANI değil, turun merkezi kaydından gelir —
         # model unutabilir/yanlış hatırlayabilir, bu küme unutmaz.
@@ -284,8 +320,8 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             display_path(context, yol) for yol in (context.touched | context.fully_read)
         )
         brief = compile_brief(
-            durum=durum if isinstance(durum, str) else "",
-            denenenler=denenenler if isinstance(denenenler, str) else "",
+            durum=durum,
+            denenenler=denenenler,
             question=question,
             touched_paths=touched_paths,
         )
@@ -308,7 +344,20 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         result = await provider.complete(request)
         if not result.ok or not result.text:
             return ToolResult.failure(f"Öğretmene ulaşılamadı: {result.error or 'bilinmeyen hata'}")
-        return ToolResult(f"[öğretmen · {result.model}]\n{result.text}")
+
+        _lesson_written, skip_reason = _sync_and_log_teacher_answer(
+            deps, context, question=question, durum=durum, answer=result.text
+        )
+        cevap = f"[öğretmen · {result.model}]\n{result.text}"
+        if skip_reason and "çelişebilir" in skip_reason:
+            # Yalnız ÇAKIŞMA durumunda kullanıcıya görünür bir not eklenir —
+            # "zaten kayıtlı" gibi sıradan atlama sessiz kalır (bkz. §6.3).
+            cevap += (
+                f"\n\n[not: bu cevaptan çıkan ders belleğe YAZILMADI, {skip_reason}. "
+                "Yanlış pozitif olabilir; istersen `fusion config teacher-lesson-sync "
+                "false` ile bu eşitlemeyi tamamen kapatabilirsin.]"
+            )
+        return ToolResult(cevap)
 
     return Tool(
         name="ask_teacher",

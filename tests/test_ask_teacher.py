@@ -143,6 +143,124 @@ async def test_dokunulan_dosyalar_brief_e_otomatik_eklenir(tmp_path, monkeypatch
     assert "b.py" in gonderilen
 
 
+class _SahteDersBellegi:
+    def __init__(self, *, recall_sonucu=()):
+        self._recall_sonucu = recall_sonucu
+        self.eklenenler = []
+
+    def add(self, lesson):
+        self.eklenenler.append(lesson)
+        return True
+
+    def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
+        return self._recall_sonucu
+
+    def reinforce(self, texts, *, success):
+        raise AssertionError("reinforce çağrılmamalı")
+
+
+def test_teacherless_acikken_arac_hic_sunulmaz(tmp_path):
+    deps = _deps(
+        tmp_path,
+        teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"),
+        runtime={"teacherless": True},
+    )
+
+    assert _registry(deps).get("ask_teacher") is None
+
+
+def test_teacherless_kapaliyken_council_etkilenmez(tmp_path):
+    """`teacherless` yalnız `ask_teacher`'ı kapatır; `council` HER ZAMAN sunulur."""
+    deps = _deps(tmp_path, teacher=None, runtime={"teacherless": True})
+
+    assert _registry(deps).get("council") is not None
+
+
+async def test_basarili_cevap_ogretmen_defterine_yazilir(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+
+    await _registry(deps).execute(
+        "ask_teacher", {"question": "soru", "durum": "ÖZEL_DURUM"}, deps.tool_context
+    )
+
+    gunluk = tmp_path / ".fusion" / "ogretmen.md"
+    assert gunluk.exists()
+    icerik = gunluk.read_text(encoding="utf-8")
+    assert "soru" in icerik
+    assert "ÖZEL_DURUM" in icerik
+
+
+async def test_lessons_yoksa_defter_yine_yazilir_cokme_olmaz(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+    assert deps.lessons is None
+
+    sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert sonuc.ok is True
+    assert (tmp_path / ".fusion" / "ogretmen.md").exists()
+
+
+async def test_lesson_sync_acikken_derse_yazilir(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici(text="wc -l ile satır say")
+    _ogretmen(monkeypatch, saglayici)
+    bellek = _SahteDersBellegi()
+    deps = _deps(
+        tmp_path,
+        teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"),
+        runtime={"teacher_lesson_sync": True},
+    )
+    deps.lessons = bellek
+
+    await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert len(bellek.eklenenler) == 1
+    icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
+    assert "Ders belleğe kaydedildi" in icerik
+
+
+async def test_lesson_sync_kapaliyken_derse_yazilmaz(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    bellek = _SahteDersBellegi()
+    deps = _deps(
+        tmp_path,
+        teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"),
+        runtime={"teacher_lesson_sync": False},
+    )
+    deps.lessons = bellek
+
+    await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert bellek.eklenenler == []
+
+
+async def test_catisma_bulununca_kullaniciya_gorunur_not_eklenir(tmp_path, monkeypatch):
+    from fusion_cli.core.memory import Lesson, LessonKind, LessonSource
+
+    saglayici = _OgretmenSaglayici(text="run_shell KULLANMA, riskli")
+    _ogretmen(monkeypatch, saglayici)
+    mevcut = Lesson(text="run_shell kullan", kind=LessonKind.SUCCESS, source=LessonSource.LEARNED)
+    bellek = _SahteDersBellegi(recall_sonucu=(mevcut,))
+    deps = _deps(
+        tmp_path,
+        teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"),
+        runtime={"teacher_lesson_sync": True},
+    )
+    deps.lessons = bellek
+
+    sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert bellek.eklenenler == []
+    assert "çelişebilir" in sonuc.output
+    assert "teacher-lesson-sync" in sonuc.output
+    icerik = (tmp_path / ".fusion" / "ogretmen.md").read_text(encoding="utf-8")
+    assert "kaydedilmedi" in icerik
+
+
 async def test_ogretmene_ulasilamazsa_anlasilir_hata_doner(tmp_path, monkeypatch):
     class _Basarisiz:
         @property

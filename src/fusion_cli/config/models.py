@@ -93,6 +93,17 @@ class RuntimeConfig:
     reflexion: bool
     #: Agent: her görevden ders çıkarılır ve benzer görevlerde promptta hatırlatılır.
     lessons: bool
+    #: `ask_teacher` aracı modele HİÇ SUNULMAZ — `config.teacher` tanımlı olsa
+    #: bile. Kullanıcının "öğretmensiz çalış" tercihi (Faz 4, Görev 3); `council`
+    #: bundan ETKİLENMEZ, o ayrı ve çoklu-API-model bir araçtır.
+    teacherless: bool = False
+    #: `ask_teacher`'ın öğretmen cevabından çıkardığı ders `ChromaLessonMemory`'ye
+    #: de yazılsın mı (model `recall_lessons` ile geri çağırabilsin)? Varsayılan
+    #: AÇIK. Çakışan bir ders bulunursa (bkz. `engine_tools._ogretmen_dersi_yaz`)
+    #: yazılmaz ve kullanıcıya bunu kapatma seçeneği sunulur — açıp kapamak bu
+    #: bayrakla olur, `.fusion/ogretmen.md` günlüğü bundan ETKİLENMEZ, o her
+    #: zaman yazılır.
+    teacher_lesson_sync: bool = True
     #: Agent: kod değiştiren tur sonrası çalıştırılacak doğrulama komutları (ruff/mypy/
     #: pytest ya da alt kümesi). Boş = doğrulama kapalı; sonuç ders güvenini besler.
     verification_commands: tuple[str, ...] = ()
