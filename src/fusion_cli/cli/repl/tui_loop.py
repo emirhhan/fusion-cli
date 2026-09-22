@@ -304,7 +304,7 @@ class _TuiSession:
             return
         pending, mode = self._state.take_pending()
         if pending:
-            await self._turn(pending, workflow=macros.mode_workflow(mode))
+            await self._turn(pending, mode=mode)
 
     async def _resolve_resume_argument(self, command_name: str) -> str | None:
         """`/resume<kaynak>` için uygulama-içi seçim (nested picker YERİNE).
@@ -366,7 +366,14 @@ class _TuiSession:
         self._echo(f"[{theme.DIM}]{result.message}[/{theme.DIM}]")
         self._sync_status()
 
-    async def _turn(self, line: str, *, workflow: bool = False) -> None:
+    async def _turn(self, line: str, *, mode: macros.Mode = macros.Mode.NONE) -> None:
+        """Turu çalıştır. Makro kipi turun ÜÇ ayarını birden belirler.
+
+        Buraya eskiden yalnız `workflow` geçiyordu; `/goal` çağrıldığında kipin
+        sistem promptu ("pes etme, ask_user ile müdahale iste") ve yükseltilmiş
+        adım sınırı (100) sessizce düşüyordu. Düz konsol yüzeyi (`loop.py`)
+        üçünü de geçiyordu; iki yüzey ayrışmıştı.
+        """
         work = WorkLineSink(interrupt_hint=messages.WORK_INTERRUPT_ESC)
         # Satırı TUI çeker (her spinner karesinde), sink itmez: süre böyle akar.
         self._tui.set_work_source(work.render)
@@ -398,6 +405,14 @@ class _TuiSession:
                     extra_roots=self._state.extra_roots,
                     restrict_to_root=self._state.config.runtime.restrict_to_root,
                 )
+                # Digest TEK SEFERLİK okunur; bu yüzden yalnız onu gerçekten
+                # kullanan agent dalında tüketilir. Kip promptuyla aynı metinde
+                # birleşir (`loop.py` ile aynı sıra).
+                turn_extra_system = "\n\n".join(
+                    part
+                    for part in (macros.mode_prompt(mode), self._state.take_pending_digest())
+                    if part
+                )
                 outcome = await run_agent_task(
                     line,
                     self._state.config,
@@ -407,14 +422,15 @@ class _TuiSession:
                     task_type=self._state.task_type,
                     root=self._state.root,
                     home=self._state.home,
-                    extra_system=self._state.take_pending_digest(),
+                    extra_system=turn_extra_system,
                     interactive=True,
                     memory=self._state.memory,
                     history=self._state.history,
                     background=self._background,
                     tool_context=tool_context,
                     approval_memory=self._state.approval_memory,
-                    workflow=workflow,
+                    step_limit=macros.mode_step_limit(mode),
+                    workflow=macros.mode_workflow(mode),
                 )
                 self._state.history = outcome.messages
                 self._state.last_changes = tool_context.changes

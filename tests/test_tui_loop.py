@@ -362,3 +362,50 @@ class _Onaylayan:
 
     async def ask(self, question):
         return ""
+
+
+async def test_goal_kipi_tui_de_prompt_ve_adim_sinirini_tasir(tmp_path, monkeypatch) -> None:
+    """`/goal` TUI'de kipin ÜÇ ayarını da taşımalı.
+
+    Buraya eskiden yalnız `workflow` geçiyordu: hedef kipinin sistem promptu
+    ("pes etme, ask_user ile müdahale iste") ve yükseltilmiş adım sınırı (100)
+    sessizce düşüyordu. Düz konsol yüzeyi (`loop.py`) üçünü de geçiriyordu.
+    """
+    from fusion_cli.cli.repl import macros
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("hedefi tamamla", mode=macros.Mode.GOAL)
+
+    assert calls[0]["step_limit"] == macros.MODE_STEP_LIMITS[macros.Mode.GOAL]
+    assert "HEDEF KİPİNDESİN" in str(calls[0]["extra_system"])
+    assert calls[0]["workflow"] is False
+
+
+async def test_kipsiz_turda_varsayilan_butce_korunur(tmp_path, monkeypatch) -> None:
+    """Makro yoksa adım sınırı yükseltilmez; varsayılan bütçe geçerlidir."""
+    from fusion_cli.engines.agent import AgentOutcome
+
+    state = _state(tmp_path)
+    session = _TuiSession(state)
+    calls: list[dict[str, object]] = []
+
+    async def _fake_run_agent_task(task, config, **kwargs):
+        calls.append(kwargs)
+        return AgentOutcome("bitti", [], 0, ok=True)
+
+    monkeypatch.setattr("fusion_cli.cli.repl.tui_loop.run_agent_task", _fake_run_agent_task)
+
+    await session._turn("sıradan görev")
+
+    assert calls[0]["step_limit"] is None
+    assert calls[0]["extra_system"] == ""
