@@ -124,6 +124,49 @@ def test_basarili_model_cagrisi_sure_ve_token_gosterir():
     assert "2.9s" in cikti and "10" in cikti
 
 
+def test_show_thinking_acikken_yapili_reasoning_alani_basilir():
+    """`ModelResult.reasoning` (litellm'in `reasoning_content`'ı) `<think>` etiketiyle
+    AYNI `--show-thinking` bayrağını ve AYNI sönük stili kullanır (Faz 5, Görev 4)."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_thinking=True)
+    result = ModelResult(
+        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        reasoning="önce X'i dene, olmazsa Y",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "önce X'i dene, olmazsa Y" in buffer.getvalue()
+
+
+def test_show_thinking_kapaliyken_yapili_reasoning_basilmaz():
+    renderer, buffer = _renderer()
+    result = ModelResult(
+        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        reasoning="gizli düşünme",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "gizli düşünme" not in buffer.getvalue()
+
+
+def test_reasoning_kose_parantez_icerse_bile_bozulmaz():
+    """`console.out(highlight=False)` kullanılmazsa `[...]` Rich markup sanılırdı."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
+    renderer = ConsoleRenderer(console, show_thinking=True)
+    result = ModelResult(
+        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        reasoning="liste: [a, b, c]",
+    )
+
+    renderer.handle(ModelCallFinished(role="agent", result=result))
+
+    assert "[a, b, c]" in buffer.getvalue()
+
+
 def test_agent_modunda_adim_ayrintisi_basilmaz():
     """Her adım için satır basmak tur özetiyle çakışıyor ve gürültü oluyor."""
     renderer, buffer = _renderer()

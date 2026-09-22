@@ -12,6 +12,9 @@ function fakeTransport(
   resumedHistory = initialHistory,
   //: Sırayla dönecek `oturum.durum` ölçüleri; biterse boş ölçü döner.
   baglamlar: Record<string, number>[] = [],
+  //: Sırayla dönecek maliyetler (USD); biterse `undefined` döner (eski
+  //: çekirdek alanı hiç göndermeyebilir, `maliyetOku` bunu `null` okur).
+  maliyetler: (number | undefined)[] = [],
 ) {
   const durumIstekleri: string[] = [];
   const baslikIstekleri: string[] = [];
@@ -46,7 +49,11 @@ function fakeTransport(
           satir: JSON.stringify({
             tip: "sonuc",
             id: request.id,
-            veri: { ok: true, baglam: baglamlar.shift() ?? { kullanilan: 0, sinir: 24000, yuzde: 0 } },
+            veri: {
+              ok: true,
+              baglam: baglamlar.shift() ?? { kullanilan: 0, sinir: 24000, yuzde: 0 },
+              maliyet_usd: maliyetler.shift(),
+            },
           }),
         }));
         return;
@@ -180,6 +187,27 @@ describe("useSessions", () => {
 
     await waitFor(() => expect(result.current.activeSession?.baglam?.yuzde).toBe(92));
     expect(fake.durumIstekleri).toHaveLength(2);
+  });
+
+  it("açılışta ve tur bitince toplam maliyeti de yeniden okur", async () => {
+    const fake = fakeTransport([], [], [], [0.01, 0.05]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession?.maliyetUsd).toBe(0.01));
+
+    act(() => { result.current.send("varsayilan", "iş"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const tur = JSON.parse(fake.sent[0].line) as { id: string };
+    act(() => fake.emitResult("varsayilan", tur.id, { ok: true, metin: "bitti" }));
+
+    await waitFor(() => expect(result.current.activeSession?.maliyetUsd).toBe(0.05));
+  });
+
+  it("çekirdek maliyet alanını hiç göndermezse null kalır, yanlış sıfır göstermez", async () => {
+    const fake = fakeTransport([], [], [], [undefined]);
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(fake.durumIstekleri.length).toBeGreaterThan(0));
+
+    expect(result.current.activeSession?.maliyetUsd).toBeNull();
   });
 
   it("ek yollarını yalnız çekirdek görev bağlamına ekler, kullanıcı mesajını temiz tutar", async () => {

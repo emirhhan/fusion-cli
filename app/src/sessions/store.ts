@@ -32,7 +32,7 @@ export type SessionAction =
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
-  | { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null }
+  | { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null; maliyetUsd: number | null }
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
   | { type: "crashed"; id: string; reason: string }
   | { type: "cleared"; id: string }
@@ -66,6 +66,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         messages: [],
         question: null,
         baglam: null,
+        maliyetUsd: null,
       };
       return {
         ...state,
@@ -118,6 +119,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
       return updateSession(state, action.id, (session) => ({
         ...session,
         baglam: action.baglam,
+        maliyetUsd: action.maliyetUsd,
       }));
     case "statusChanged":
       return updateSession(state, action.id, (session) => ({

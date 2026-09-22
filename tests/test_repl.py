@@ -306,6 +306,57 @@ async def test_birden_cok_is_paralel_tamamlanir():
     assert sorted(sonuclar) == [0, 1, 2, 3, 4]
 
 
+# --- Durum çubuğu (Faz 5, Görev 2 — arka plan işleri sayacı) ---------------- #
+
+
+def test_durum_cubugu_arka_plan_bossa_sayaci_eklemez(tmp_path, state):
+    from fusion_cli.cli.repl.input import ReplInput
+    from fusion_cli.cli.repl.loop import _sync_status_bar
+
+    reader = ReplInput(tmp_path / "history", ["/help"], mode=ApprovalMode.AUTO)
+    tasks = BackgroundTasks()
+
+    _sync_status_bar(reader, state, tasks)
+
+    assert "arka plan" not in reader.context
+
+
+def test_durum_cubugu_background_verilmezse_hata_vermez(tmp_path, state):
+    from fusion_cli.cli.repl.input import ReplInput
+    from fusion_cli.cli.repl.loop import _sync_status_bar
+
+    reader = ReplInput(tmp_path / "history", ["/help"], mode=ApprovalMode.AUTO)
+
+    _sync_status_bar(reader, state)
+
+    assert "arka plan" not in reader.context
+
+
+async def test_durum_cubugu_bekleyen_isi_sayar(tmp_path, state):
+    import asyncio
+
+    from fusion_cli.cli.repl.input import ReplInput
+    from fusion_cli.cli.repl.loop import _sync_status_bar
+
+    reader = ReplInput(tmp_path / "history", ["/help"], mode=ApprovalMode.AUTO)
+    tasks = BackgroundTasks()
+    baslasin = asyncio.Event()
+
+    async def _bekleyen_is():
+        await baslasin.wait()
+
+    tasks.spawn(_bekleyen_is())
+    await asyncio.sleep(0)  # spawn edilen görev başlasın
+
+    _sync_status_bar(reader, state, tasks)
+    assert "1 arka plan işi" in reader.context
+
+    baslasin.set()
+    await tasks.drain()
+    _sync_status_bar(reader, state, tasks)
+    assert "arka plan" not in reader.context
+
+
 # --- Giriş katmanı ----------------------------------------------------------- #
 
 

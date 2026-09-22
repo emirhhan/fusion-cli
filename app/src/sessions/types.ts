@@ -53,6 +53,10 @@ export interface SessionModel {
   question: SessionQuestion | null;
   /** Son okunan kalan bağlam ölçüsü; henüz okunmadıysa `null`. */
   baglam: BaglamOlcusu | null;
+  /** Oturumun toplam maliyeti (USD); `baglam` ile AYNI `oturum.durum`
+   * yanıtından gelir (bkz. `useSessions.ts::olcuyuTazele`), henüz
+   * okunmadıysa `null`. */
+  maliyetUsd: number | null;
   client: ProtocolClient;
 }
 

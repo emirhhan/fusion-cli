@@ -137,7 +137,7 @@ async def run_repl(
     if recent:
         console.print(recent, highlight=False)
         console.print()
-    _sync_status_bar(reader, state)
+    _sync_status_bar(reader, state, background)
 
     try:
         while state.running:
@@ -216,7 +216,7 @@ async def _handle(
 ) -> None:
     if state.refresh_config():
         reader.mode = state.approval
-        _sync_status_bar(reader, state)
+        _sync_status_bar(reader, state, background)
         console.print(
             f"[{theme.DIM}]Kontrol paneli ayarları yüklendi · "
             f"{state.config.agent.model} · config {state.config_revision.value}[/{theme.DIM}]"
@@ -234,8 +234,12 @@ async def _handle(
         task, mode = state.take_pending()
         if task:
             await _run_turn(task, state, console, background, mode=mode)
+            # Tur bir arka plan ders çıkarımı BAŞLATMIŞ olabilir; bir sonraki
+            # istemde sayaç GÜNCEL görünsün (bkz. `_sync_status_bar`).
+            _sync_status_bar(reader, state, background)
         return
     await _run_turn(line, state, console, background)
+    _sync_status_bar(reader, state, background)
 
 
 async def _run_command(
@@ -551,9 +555,21 @@ async def _shutdown(background: BackgroundTasks, console: Console) -> None:
     console.print(f"[{theme.DIM}]{messages.REPL_GOODBYE}[/{theme.DIM}]")
 
 
-def _sync_status_bar(reader: ReplInput, state: ReplState) -> None:
-    """Durum çubuğundaki bağlamı güncel tut (motor, görev tipi, model)."""
-    reader.context = f"{state.engine.value} · {state.task_type} · {state.config.agent.model}"
+def _sync_status_bar(
+    reader: ReplInput, state: ReplState, background: BackgroundTasks | None = None
+) -> None:
+    """Durum çubuğundaki bağlamı güncel tut (motor, görev tipi, model, arka plan işleri).
+
+    Arka plan sayacı (Faz 5, Görev 2): CANLI ilerleme hâlâ basılmaz (bilinçli
+    tasarım, `ui/renderer.py`'deki `if not event.background` ile aynı ruh) —
+    yalnız `BackgroundTasks.pending` zaten hesapladığı TOPLU sayı gösterilir,
+    yeni bir sayaç İCAT EDİLMEDİ. `background=None` (ör. slash komutlarından
+    sonra) verilirse sessizce eklenmez, hata VERMEZ.
+    """
+    parts = [state.engine.value, state.task_type, state.config.agent.model]
+    if background is not None and background.pending:
+        parts.append(f"{background.pending} arka plan işi")
+    reader.context = " · ".join(parts)
 
 
 def session_info(state: ReplState) -> banner.SessionInfo:

@@ -20,7 +20,6 @@ import {
   type ApprovalMode,
   type ComposerAttachment,
   type ComposerCommand,
-  type WorkspaceMode,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import type { ModelOption } from "./screens/ModelPicker";
@@ -494,13 +493,9 @@ export function SessionUygulama({
   // kod kartı aynı seçimi değiştirir.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const showSteps = useShowSteps();
-  // Varsayılan SOHBET: boş bir pencerede "merhaba" yazmak proje taraması
-  // başlatmamalı. Kod kipine geçiş kullanıcının açık kararıdır.
-  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("sohbet");
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [approval, setApproval] = useState<ApprovalMode>("auto");
-  const [modeBusy, setModeBusy] = useState(false);
   const [closeAsked, setCloseAsked] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const voiceRequest = useRef<{
@@ -535,7 +530,6 @@ export function SessionUygulama({
       const root = await desktopDir();
       await controller.create({ root });
       setPage("chat");
-      setWorkspaceMode("sohbet");
     } catch {
       setNewTaskError("Desktop klasörü açılamadı. Yeniden dene veya bir klasör seç.");
     }
@@ -1029,7 +1023,6 @@ export function SessionUygulama({
       await controller.create({ root });
       localStorage.setItem("fusion.last-project-root", root);
       setPage("chat");
-      setWorkspaceMode("kod");
       setNewTaskOpen(false);
     } catch {
       setNewTaskError("Klasör açılamadı. Erişimi kontrol edip yeniden dene.");
@@ -1062,7 +1055,7 @@ export function SessionUygulama({
           attachmentError={attachmentError ?? commandError}
           commands={composerCommands}
           context={active.baglam}
-          mode={workspaceMode}
+          costUsd={active.maliyetUsd}
           onAttach={() => {
             setAttachmentError(null);
             void selectFiles(active.root).then((paths) => {
@@ -1090,29 +1083,6 @@ export function SessionUygulama({
               return;
             }
             setAttachments((current) => ({ ...current, [active.id]: [...(current[active.id] ?? []), ...additions] }));
-          }}
-          modeBusy={modeBusy}
-          onModeChange={(next) => {
-            const onceki = workspaceMode;
-            if (next === onceki) return;
-            // Kip ÖNCE iyimser değişir (tıklama anında görünür), çekirdek
-            // reddederse geri alınır. Sessizce eski kipte kalmak, kullanıcının
-            // kod kipinde sandığı bir sohbeti sürdürmesine yol açıyordu.
-            setWorkspaceMode(next);
-            setModeBusy(true);
-            setCommandError(null);
-            void active.client
-              .request("oturum.baslat", { kip: next })
-              .then((sonuc) => {
-                if (sonuc.ok === true) return;
-                setWorkspaceMode(onceki);
-                setCommandError(String(sonuc.metin ?? "Kip değiştirilemedi."));
-              })
-              .catch(() => {
-                setWorkspaceMode(onceki);
-                setCommandError("Kip değiştirilemedi. Bağlantıyı kontrol et.");
-              })
-              .finally(() => setModeBusy(false));
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}
@@ -1179,7 +1149,6 @@ export function SessionUygulama({
               setNewTaskOpen(false);
               setNewTaskError(null);
               setPage("chat");
-              setWorkspaceMode("sohbet");
               void controller.create();
             }}
             onFolder={requestTaskFolder}

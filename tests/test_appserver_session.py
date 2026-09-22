@@ -823,6 +823,18 @@ async def test_oturum_baslat_gecersiz_mod_hata_doner(tmp_path):
     assert sonuc["ok"] is False
 
 
+async def test_oturum_durum_varsayilan_kip_koddur(tmp_path):
+    """Faz 5, Görev 5 — 'tek kutu': arayüzdeki manuel kip düğmesi kaldırıldı,
+    varsayılan artık her zaman `kod` (tam yetenek), `sohbet` DEĞİL."""
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="oturum.durum", data={}))
+
+    veri = _sonuc(satirlar, "1")
+    assert veri["kip"] == "kod"
+
+
 async def test_oturum_durum_motor_alanini_dondurur(tmp_path):
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
@@ -831,6 +843,48 @@ async def test_oturum_durum_motor_alanini_dondurur(tmp_path):
 
     veri = _sonuc(satirlar, "1")
     assert veri["motor"] == "agent"
+
+
+async def test_oturum_durum_maliyet_baslangicta_sifirdir(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="oturum.durum", data={}))
+
+    veri = _sonuc(satirlar, "1")
+    assert veri["maliyet_usd"] == 0.0
+
+
+async def test_oturum_durum_maliyet_kullanim_meter_ile_ayni_kaynaktan_gelir(tmp_path):
+    """Composer rozeti ile Ayarlar paneli (`kullanim.durum`) AYNI sayacı okumalı
+    — ikinci bir maliyet toplayıcısı İCAT EDİLMEDİ (bkz. `_status` yorumu)."""
+    from fusion_cli.core.events import ModelCallFinished
+    from fusion_cli.core.types import ModelResult, TokenUsage
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._usage.observe(
+        ModelCallFinished(
+            role="agent",
+            result=ModelResult(
+                name="a",
+                model="a",
+                text="x",
+                latency_ms=1,
+                ok=True,
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=5, cost_usd=0.0123),
+            ),
+            background=False,
+        )
+    )
+
+    await oturum.handle(Request(id="1", name="oturum.durum", data={}))
+    durum = _sonuc(satirlar, "1")
+    await oturum.handle(Request(id="2", name="kullanim.durum", data={}))
+    kullanim = _sonuc(satirlar, "2")
+
+    assert durum["maliyet_usd"] == 0.0123
+    assert kullanim["kullanim"]["maliyet_usd"] == 0.0123
 
 
 async def test_tur_kes_calisan_turu_gercekten_iptal_eder(tmp_path, monkeypatch):

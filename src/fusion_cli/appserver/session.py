@@ -294,9 +294,14 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             config.memory_dir, root, conversation_id=FALLBACK_CONVERSATION_ID
         )
-        #: "sohbet" ya da "kod". Varsayılan SOHBET: kullanıcı boş bir pencerede
-        #: "merhaba" yazdığında Fusion proje taramasıyla başlamamalı.
-        self._workspace_mode = "sohbet"
+        #: "sohbet" ya da "kod". Varsayılan artık KOD (Faz 5, Görev 5 — "tek
+        #: kutu"): arayüzdeki manuel kip düğmesi kaldırıldı, kullanıcı artık
+        #: hiçbir seçim yapmıyor. Eski gerekçe ("merhaba"da proje taranmasın)
+        #: geçerliliğini KORUYOR ama artık bir DEĞİŞ TOKUŞ: basit bir selamda
+        #: bile proje köküne bağlanılır. Mekanizmanın kendisi (`_apply_
+        #: workspace_mode`, `chat_mode`) SİLİNMEDİ — yalnızca varsayılan
+        #: değişti; programatik istemciler hâlâ `kip: "sohbet"` gönderebilir.
+        self._workspace_mode = "kod"
         self._workspace_journal = WorkspaceJournal()
         self._processes = ProcessManager(self._state.root, writer)
         self._gateway_process_id: str | None = None
@@ -925,6 +930,10 @@ class AppSession:
                 self._state.history,
                 web=self._uses_web_threshold(),
             ),
+            # Composer'ın yanındaki sürekli-görünür rozet içindir (Faz 5,
+            # Görev 1) — ikinci bir sayaç DEĞİL, `kullanim.durum`u da besleyen
+            # AYNI `self._usage`'dan okunur.
+            "maliyet_usd": round(self._usage.total.cost_usd, 4),
         }
 
     def _uses_web_threshold(self) -> bool:

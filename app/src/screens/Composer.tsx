@@ -1,6 +1,5 @@
 import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Button } from "../ui/Button";
-import { Icon } from "../ui/Icon";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
@@ -8,24 +7,16 @@ import { ModelPicker, type ModelOption } from "./ModelPicker";
 import { ContextGauge } from "./ContextGauge";
 import type { BaglamOlcusu } from "../protocol/types";
 
-/** Kipler tek yerde tanımlanır: etiket, simge ve ne yaptığı birlikte durur. */
-const MODES = [
-  {
-    aciklama: "Kendiliğinden dosya taraması yapmaz; soru sorup konuşursun.",
-    etiket: "Sohbet",
-    id: "sohbet",
-    simge: "chat",
-  },
-  {
-    aciklama: "Proje köküne bağlanır; dosyaları okur, yazar ve komut çalıştırır.",
-    etiket: "Kod",
-    id: "kod",
-    simge: "files",
-  },
-] as const;
-
-/** Çalışma kipi: sohbet kendiliğinden proje taramaz, kod proje köküne bağlıdır. */
-export type WorkspaceMode = "sohbet" | "kod";
+/**
+ * Maliyet rozetinin görünür metni. Ölçü yoksa ya da `$0` ise `null` —
+ * `ContextGauge`'daki "yanlış/gürültülü bir sıfır göstermek, hiç
+ * göstermemekten kötüdür" ilkesiyle AYNI (bkz. o dosyanın yorumu): ücretsiz
+ * modellerin çoğu turu tam olarak `$0` üretir, her seferinde basmak gürültüdür.
+ */
+export function maliyetRozetMetni(costUsd: number | null): string | null {
+  if (costUsd === null || costUsd <= 0) return null;
+  return `$${costUsd.toFixed(costUsd < 0.01 ? 4 : 2)}`;
+}
 
 /** İzin modu — çekirdekteki `ApprovalMode` ile aynı değerler. */
 export type ApprovalMode = "auto" | "plan" | "security";
@@ -70,12 +61,12 @@ interface ComposerProps {
   commands?: ComposerCommand[];
   /** Kalan bağlam ölçüsü; yoksa gösterge çizilmez. */
   context?: BaglamOlcusu | null;
-  mode?: WorkspaceMode;
-  /** Kip isteği sürerken düğmeler kilitlenir; çift tıklama iki istek yollardı. */
-  modeBusy?: boolean;
+  /** Oturumun toplam maliyeti (USD); yoksa ya da sıfırsa rozet çizilmez —
+   *  çoğu ücretsiz model turu `$0` üretir, sıfırı her seferinde göstermek
+   *  gürültüdür (bkz. `ContextGauge`'un "ölçü yoksa çizilmez" ilkesi). */
+  costUsd?: number | null;
   onAttach?: () => void;
   onDropFiles?: (files: File[]) => void;
-  onModeChange?: (mode: WorkspaceMode) => void;
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
   onRemoveAttachment?: (path: string) => void;
@@ -99,12 +90,10 @@ export function Composer({
   attachmentError = null,
   commands = [],
   context = null,
-  mode = "sohbet",
-  modeBusy = false,
+  costUsd = null,
   onApprovalChange,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
-  onModeChange,
   onVoice,
   onRemoveAttachment = () => undefined,
   onSend,
@@ -245,32 +234,6 @@ export function Composer({
         />
         <div className="composer__toolbar">
           <div className="composer__tools">
-            {onModeChange && (
-              <div
-                aria-label="Çalışma kipi"
-                className="composer__mode"
-                data-mode={mode}
-                role="group"
-              >
-                {MODES.map((item) => (
-                  <button
-                    aria-pressed={mode === item.id}
-                    className="composer__mode-item"
-                    disabled={modeBusy}
-                    key={item.id}
-                    onClick={() => {
-                      if (modeBusy) return;
-                      onModeChange(item.id);
-                    }}
-                    title={item.aciklama}
-                    type="button"
-                  >
-                    <Icon name={item.simge} size={15} />
-                    {item.etiket}
-                  </button>
-                ))}
-              </div>
-            )}
             <span>
               <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
             </span>
@@ -292,6 +255,9 @@ export function Composer({
           {running ? (
             <span className="composer__actions">
               <ContextGauge olcu={context} />
+              {maliyetRozetMetni(costUsd) && (
+                <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
+              )}
               {/* Çalışırken de gönderilebilir: mesaj sıraya girer (bkz. useSessions). */}
               <Button
                 aria-label="Sıraya ekle"
@@ -305,6 +271,9 @@ export function Composer({
           ) : (
             <span className="composer__actions">
               <ContextGauge olcu={context} />
+              {maliyetRozetMetni(costUsd) && (
+                <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
+              )}
               {onVoice && (
                 <button
                   aria-label="Konuşarak anlat"

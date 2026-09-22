@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Composer } from "./Composer";
+import { Composer, maliyetRozetMetni } from "./Composer";
 
 afterEach(cleanup);
 
@@ -27,6 +27,32 @@ describe("Composer", () => {
   it("ölçü yokken bağlam göstergesi çizmez", () => {
     render(<Composer onSend={vi.fn()} />);
     expect(screen.queryByRole("meter")).toBeNull();
+  });
+
+  it("maliyet yokken ya da sıfırken rozet çizmez", () => {
+    const { rerender } = render(<Composer onSend={vi.fn()} />);
+    expect(screen.queryByText(/^\$/)).toBeNull();
+    rerender(<Composer costUsd={0} onSend={vi.fn()} />);
+    expect(screen.queryByText(/^\$/)).toBeNull();
+  });
+
+  it("maliyet varsa hem boşta hem iş sürerken rozet gösterir", () => {
+    const { rerender } = render(<Composer costUsd={0.12} onSend={vi.fn()} />);
+    expect(screen.getByText("$0.12")).toBeTruthy();
+    rerender(<Composer costUsd={0.12} onSend={vi.fn()} running />);
+    expect(screen.getByText("$0.12")).toBeTruthy();
+  });
+
+  it("çok küçük maliyeti dört basamakla gösterir, sıfıra yuvarlamaz", () => {
+    render(<Composer costUsd={0.0042} onSend={vi.fn()} />);
+    expect(screen.getByText("$0.0042")).toBeTruthy();
+  });
+
+  it("manuel Sohbet/Kod kip düğmesi artık hiç çizilmez (Faz 5, Görev 5 — tek kutu)", () => {
+    render(<Composer onSend={vi.fn()} />);
+    expect(screen.queryByRole("group", { name: "Çalışma kipi" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sohbet" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Kod" })).toBeNull();
   });
 
   it("Shift+Enter ile yeni satıra izin verir", () => {
@@ -74,46 +100,11 @@ describe("Composer", () => {
   });
 });
 
-describe("Composer — çalışma kipi", () => {
-  it("sohbet ve kod arasında geçiş yapar; varsayılan sohbettir", () => {
-    const secilen: string[] = [];
-    render(<Composer onModeChange={(m) => secilen.push(m)} onSend={() => undefined} />);
-
-    const sohbet = screen.getByRole("button", { name: "Sohbet" });
-    const kod = screen.getByRole("button", { name: "Kod" });
-    expect(sohbet.getAttribute("aria-pressed")).toBe("true");
-    expect(kod.getAttribute("aria-pressed")).toBe("false");
-
-    fireEvent.click(kod);
-    expect(secilen).toEqual(["kod"]);
-  });
-
-  it("her kip ne yaptığını anlatır ve etkin kip gruptan okunur", () => {
-    // Kullanıcı iki düz düğmeyi "kırılgan" buldu: hangi kipin ne yaptığı
-    // yazmıyordu ve seçili olan yeterince belli değildi.
-    render(<Composer mode="kod" onModeChange={() => undefined} onSend={() => undefined} />);
-    const grup = screen.getByRole("group", { name: "Çalışma kipi" });
-
-    expect(grup.getAttribute("data-mode")).toBe("kod");
-    expect(screen.getByRole("button", { name: "Sohbet" }).getAttribute("title")).toMatch(/tarama/i);
-    expect(screen.getByRole("button", { name: "Kod" }).getAttribute("title")).toMatch(/proje/i);
-  });
-
-  it("kip değişimi sürerken düğmeler kilitlenir", () => {
-    const onModeChange = vi.fn();
-    render(<Composer modeBusy mode="sohbet" onModeChange={onModeChange} onSend={() => undefined} />);
-    const kod = screen.getByRole("button", { name: "Kod" }) as HTMLButtonElement;
-
-    expect(kod.disabled).toBe(true);
-    fireEvent.click(kod);
-    expect(onModeChange).not.toHaveBeenCalled();
-  });
-
-  it("kip değiştirici verilmediğinde hiç çizilmez", () => {
-    render(<Composer onSend={() => undefined} />);
-    expect(screen.queryByRole("group", { name: "Çalışma kipi" })).toBeNull();
-  });
-
+// Faz 5, Görev 5 ("tek kutu"): manuel Sohbet/Kod kip düğmesi kaldırıldı,
+// backend artık her zaman `kod` (tam yetenek) varsayılanıyla başlıyor
+// (bkz. `appserver/session.py`). Bu describe eskiden kip düğmelerini de
+// test ediyordu; o testler silindi, klavye kısayolu testleri kaldı.
+describe("Composer — izin modu klavye kısayolları", () => {
   it("Shift+Tab İZİN modunu döndürür, normal Tab dolaşımını engellemez", () => {
     // Kullanıcı terminaldeki davranışı bekliyor: Shift+Tab izin modunu döndürür.
     // Çalışma kipi (Sohbet/Kod) ayrı düğmelerdedir; ikisini aynı tuşa bindirmek
@@ -277,4 +268,23 @@ it("Esc çalışan turu durdurur", () => {
   fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Escape" });
 
   expect(durduruldu).toBe(true);
+});
+
+describe("maliyetRozetMetni", () => {
+  it("null için null döner", () => {
+    expect(maliyetRozetMetni(null)).toBeNull();
+  });
+
+  it("sıfır ya da negatif için null döner", () => {
+    expect(maliyetRozetMetni(0)).toBeNull();
+    expect(maliyetRozetMetni(-1)).toBeNull();
+  });
+
+  it("normal tutarı iki basamakla biçimlendirir", () => {
+    expect(maliyetRozetMetni(1.5)).toBe("$1.50");
+  });
+
+  it("bir sentin altındaki tutarı dört basamakla biçimlendirir", () => {
+    expect(maliyetRozetMetni(0.0042)).toBe("$0.0042");
+  });
 });

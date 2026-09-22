@@ -48,14 +48,31 @@ export const tauriSessionTransport: SessionTransport = {
  * tur sonunda, komutla (`/compact`, `/clear`) ya da devralmayla değişir ve her
  * seferinde aynı yoldan okunur.
  */
+/** Ham `oturum.durum` sayısını doğrula; negatif/sonsuz/eksikse `null`. */
+function maliyetOku(deger: unknown): number | null {
+  return typeof deger === "number" && Number.isFinite(deger) && deger >= 0 ? deger : null;
+}
+
 function olcuyuTazele(
   id: string,
   client: ProtocolClient,
-  dispatch: (action: { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null }) => void,
+  dispatch: (action: {
+    type: "contextMeasured";
+    id: string;
+    baglam: BaglamOlcusu | null;
+    maliyetUsd: number | null;
+  }) => void,
 ): void {
   void client
     .request("oturum.durum", {})
-    .then((result) => dispatch({ type: "contextMeasured", id, baglam: baglamOlcusuOku(result.baglam) }))
+    .then((result) =>
+      dispatch({
+        type: "contextMeasured",
+        id,
+        baglam: baglamOlcusuOku(result.baglam),
+        maliyetUsd: maliyetOku(result.maliyet_usd),
+      }),
+    )
     // Çekirdek kapandıysa gösterge son ölçüde kalır; kapanış ayrıca bildirilir.
     .catch(() => undefined);
 }

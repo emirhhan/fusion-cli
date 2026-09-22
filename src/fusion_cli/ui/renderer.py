@@ -152,6 +152,15 @@ class ConsoleRenderer:
                 self._work.update(
                     model=format_served_model(event.result.model, event.result.served_by)
                 )
+            # Bazı sağlayıcılar düşünmeyi metne gömülü `<think>` yerine YAPILI bir
+            # alanda döner (`ModelResult.reasoning`, litellm'in `reasoning_content`
+            # alanından — bkz. `providers/litellm_provider.py`). İKİ AYRI kanal
+            # farklı ürettiği için birleştirilmedi; `--show-thinking` AÇIKKEN ikisi
+            # de görünür olsun diye bu kanal da AYNI bayrağı ve AYNI sönük stili
+            # kullanır (yeni bir bayrak İCAT EDİLMEDİ). `show_call_details`'tan
+            # BAĞIMSIZDIR — düşünme bir ayrıntı seviyesi değil, ayrı bir bayrak.
+            if not event.background and self._show_thinking and event.result.reasoning:
+                self._print_structured_reasoning(event.result.reasoning)
             if not event.background and (self._show_call_details or not event.result.ok):
                 self._model_finished(event)
         elif isinstance(event, ModelFallbackActivated):
@@ -461,6 +470,20 @@ class ConsoleRenderer:
             else:
                 self._emit_visible(channel, fresh)
         self._shown[channel] = cursor
+
+    def _print_structured_reasoning(self, reasoning: str) -> None:
+        """`ModelResult.reasoning`i `<think>` bloğuyla AYNI stille bas (bkz. `_emit_thinking`).
+
+        `console.out(..., highlight=False)` KULLANILIR, `print()` DEĞİL: model
+        metni `[köşeli parantez]` içerebilir ve `print()` bunu Rich markup
+        sanıp yorumlar/bozar — `_write_stream`'deki aynı gerekçe geçerli.
+        """
+        self._close_line()
+        self._console.print(
+            f"[{theme.DIM}]{theme.ICON_SPARKLE} {messages.THINKING_HEADER}[/{theme.DIM}]"
+        )
+        self._console.out(reasoning.strip(), highlight=False, style=f"{theme.DIM} italic")
+        self._active_channel = None
 
     def _emit_thinking(self, channel: Channel, fresh: str, *, new_block: bool) -> None:
         """Düşünme metnini sönük italik olarak bas; blok başında başlık koy."""
