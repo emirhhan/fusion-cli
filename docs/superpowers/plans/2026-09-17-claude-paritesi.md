@@ -37,7 +37,7 @@ conventional commit atılır. Faz bitmeden sonrakine geçilmez.
 2. Model zinciri ve hız sınırı yönetimi (429'da sıradaki modele geçiş).
 3. Görsel okuma ücretsiz görsel modelleriyle açılır.
 
-### Faz 4 — Öğretmen protokolü (A3, A5, A6, A11, C7, C8)
+### Faz 4 — Öğretmen protokolü · TAMAM (22 Eyl 2026, ayrıntılı plan: plans/2026-09-22-ogretmen-protokolu.md, sonuç: reports/2026-09-22-ogretmen-protokolu-sonuc.md) (A3, A5, A6, A11, C7, C8)
 
 1. Brief derleyici: durum + ilgili kod + denenenler + tek soru, en fazla 25 bin karakter.
 2. Dosya yükleme (uzun metin, ekran görüntüsü) ve kırpma bildirimi.

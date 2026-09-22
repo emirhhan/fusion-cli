@@ -268,19 +268,32 @@ teacherless` / `teacher-lesson-sync`), `core/memory.py` (`LessonSource.TEACHER`)
       ulaşınca `ask_teacher` sağlayıcıyı HİÇ ÇAĞIRMADAN `ToolResult.failure`
       döner (test: `test_butce_dolunca_aga_hic_baglanilmaz`).
 
-### Görev 5: Gerçek koşuyla doğrulama (tüm görevler bitince)
+### Görev 5: Gerçek koşuyla doğrulama — TAMAM (22 Eylül)
 
-- [ ] Kalite kapısı: `ruff check . && mypy && pytest -q`.
-- [ ] **(AĞ GEREKİR)** Gerçekten takılan bir görevde (ör. var olmayan bir API'yi
-      çağırmaya çalışan bir görev) brief'in gerçekten öğretmene gittiği, gerçek
-      bir cevap döndüğü, turun bundan yararlandığı uçtan uca doğrulanır.
-      Gerçek dosya yükleme senaryosu (Görev 2) ayrıca doğrulanır.
-      Kademe düşürme bildirimi gerçek bir "Flash-Lite'a düştü" anında (ya da
-      taklit edilerek) gözlemlenir.
-- [ ] **(AĞ GEREKMEZ)** `teacherless` kipte `ask_teacher`/`council` aracının
-      GERÇEKTEN sunulmadığı sahte sağlayıcıyla doğrulanır. Günlük sayaç
-      sınırına ulaşınca gerçek bir ağ çağrısı YAPILMADIĞI (sahte sağlayıcı
-      hiç çağrılmadığı) doğrulanır.
+- [x] Kalite kapısı: `ruff check . && mypy && pytest -q` — tam paket yeşil
+      (her görev sonunda ayrıca koşuldu, bkz. commit'ler).
+- [x] **(AĞ GEREKİR, canlı ölçüldü)** `ask_teacher` gerçek üretim yolundan
+      (`build_agent_registry` + `ToolRegistry.execute`, izole `FUSION_CONFIG`
+      + kullanıcının GERÇEK giriş yapılmış Gemini web oturumu, `~/.config/
+      fusion-cli/config.yaml`'a DOKUNULMADI) uçtan uca koşuldu:
+      - Brief gerçekten gitti (`TeacherConsulted` olayı, gerçek bir soru).
+      - Gerçek Gemini cevabı döndü ("foobarbaz123 gerçek bir pip paketi
+        değildir…", `served_by="Flash-Lite"` — hesabın GERÇEK o anki kademesi).
+      - `.fusion/ogretmen.md`'ye gerçekten yazıldı, bütçe sayacı arttı.
+      - `teacher.model`'i kasıtlı `gemini_web/main/pro` yaparak (gerçekte
+        hesap Flash-Lite'ta), `TierDegraded(expected_tier="pro",
+        served_by="Flash-Lite")` CANLI tetiklendi; tur yine `ok=True` bitti —
+        "bilgilendirir, düşürmez" davranışı gerçek koşuda doğrulandı.
+      - Gerçek dosya yükleme (Görev 2) zaten 22 Eylül'de ayrı bir canlı
+        oturumda doğrulanmıştı (105.032 karakter, model içeriği doğru okudu).
+- [x] **(AĞ GEREKMEZ)** `teacherless` kipte `ask_teacher`'ın hiç sunulmadığı
+      ve `council`'ın etkilenmediği (`test_teacherless_acikken_arac_hic_
+      sunulmaz`, `test_teacherless_kapaliyken_council_etkilenmez`), günlük
+      bütçe dolunca sahte sağlayıcının HİÇ çağrılmadığı
+      (`test_butce_dolunca_aga_hic_baglanilmaz`) sahte sağlayıcıyla kilitlendi.
+
+**Faz 4 TAMAMLANDI.** Sonuç raporu: `docs/superpowers/reports/
+2026-09-22-ogretmen-protokolu-sonuc.md`.
 
 ---
 
