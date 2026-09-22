@@ -13,11 +13,22 @@ Ayrıştırma dile göre REGEX'tir, tam bir çözümleyici değil: tree-sitter b
 paketli runtime'ı büyütür ve harita "kesin doğru" olmak zorunda değildir — yönlendirir,
 karar vermez. Yanlış bir satır modeli yanlış dosyaya yollamaz, yalnız sıralamayı
 gürültülendirir.
+
+Başarım (22 Eylül 2026'da fusion-cli deposunun kendisinde ölçüldü): ilk yazımda
+referans sayımı her sembol için ayrı regex derleyip BÜTÜN dosya metinlerini
+tarıyordu — `O(sembol × toplam_karakter)`. 13.889 sembol × 75 milyon karakter =
+**164,6 dakika**. Harita her kök agent turunda üretildiği için Fusion gerçek
+boyutta hiçbir depoda çalışamıyordu. Üç şey değişti: (1) sayım tek kelime
+geçişine indi, (2) gürültü dizinlerine artık HİÇ girilmiyor (eskiden yürüyüş
+içeri giriyor, sonra yolu atıyordu), (3) pahalı çözümleme dosya imzasına göre
+önbelleğe alındı.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from collections import Counter
 from pathlib import Path
 
@@ -34,65 +45,227 @@ _DEFINITIONS: dict[str, re.Pattern[str]] = {
 }
 
 #: Taranmayan dizinler: üretilmiş çıktı ve bağımlılık ağaçları haritayı boğar.
+#
+# Nokta ile başlayan dizinlerin TAMAMI ayrıca atlanır (`_is_skipped`). Bu liste
+# zaten `.git`, `.venv`, `.mypy_cache`, `.pytest_cache` sayıyordu — yani niyet
+# baştan buydu; genel kural onları kapsar ve ölçülen gerçek maliyeti de alır:
+# bu depodaki `.worktrees` 3,0 GB ve isimle sayılmıyordu.
 _SKIP = frozenset(
     {
-        ".git",
-        ".venv",
         "node_modules",
         "__pycache__",
-        ".mypy_cache",
-        ".pytest_cache",
         "dist",
         "build",
         "target",
+        "vendor",
+        "site-packages",
     }
 )
 #: Tek bir dosyadan alınacak en fazla tanım: bir dev modül haritanın tamamını yemesin.
 _MAX_PER_FILE = 12
 
+#: Aynı ADIN haritada en fazla kaç kez görüneceği.
+#
+# Sıralama sembolün referans sayısına bakar, o yüzden en sık kullanılan isim
+# bütün bütçeyi yiyordu: ölçüldü, bu deponun haritasının ilk dokuz satırı
+# dokuz ayrı test dosyasındaki `config` fixture'ıydı. Aynı gerekçe
+# `_MAX_PER_FILE` için de geçerli — tek bir şey haritayı ele geçirmesin.
+_MAX_PER_SYMBOL = 2
+
+#: Çözümlemeye alınacak en fazla kaynak dosya ve en fazla toplam karakter.
+#
+# Ölçüm (fusion-cli deposu, 22 Eylül): 4.789 dosya / 75.069.360 karakter, yeni
+# uygulamayla 9,2 sn. Tavanlar bu ölçümün ~2 katına konuldu — bu depo rahatça
+# altında kalsın, ama patolojik bir ağaç (tek dizine boşaltılmış bir veri kümesi)
+# turu askıda bırakmasın. Tavan aşılırsa harita ÜRETİLİR ve kısmi olduğunu söyler.
+_MAX_FILES = 10_000
+_MAX_TOTAL_CHARS = 150_000_000
+
+#: `git ls-files` için üst süre. Ölçüldü: bu depoda 0,014 sn. Takılı bir git
+# (ağ dosya sistemi, kilitli index) turu askıda bırakmasın diye yine de sınırlı.
+_GIT_TIMEOUT_SECONDS = 5.0
+
+#: Referans sayımında kullanılan tanımlayıcı deseni.
+#
+# Eski `\bAD\b` regex'iyle DAVRANIŞÇA aynıdır: tanım adları her zaman
+# `[A-Za-z_]\w*` biçiminde olduğu için `oran2`, `_oran` gibi komşular iki yolda da
+# eşleşmez. Fark yalnız maliyettedir — sembol başına değil, dosya başına bir geçiş.
+_IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
+
+#: (kök, imza) → sıralanmış tanım listesi. Pahalı olan okuma+sayımdır; yürüyüş
+# ucuzdur, o yüzden imza her çağrıda yeniden hesaplanır ve önbellek doğru kalır.
+_CACHE: dict[str, tuple[tuple[int, int, int], list[tuple[str, str]], bool]] = {}
+#: Önbellekte tutulan en fazla kök. Fusion birden çok projeyi aynı anda açabiliyor.
+_CACHE_LIMIT = 4
+
 
 def build_repo_map(root: Path, *, budget_chars: int = 2_000) -> str:
     """Bütçeye sığan depo haritasını üret; proje boşsa boş metin."""
+    yollar, kisitli = _source_files(root)
+    if not yollar:
+        return ""
+
+    anahtar = str(root.resolve())
+    imza = _signature(yollar)
+    onbellek = _CACHE.get(anahtar)
+    if onbellek is not None and onbellek[0] == imza:
+        return _render(onbellek[1], budget_chars, onbellek[2])
+
+    sirali, asildi = _analyze(root, yollar)
+    if not sirali:
+        return ""
+    kisitli = kisitli or asildi
+    if len(_CACHE) >= _CACHE_LIMIT:
+        _CACHE.pop(next(iter(_CACHE)))
+    _CACHE[anahtar] = (imza, sirali, kisitli)
+    return _render(sirali, budget_chars, kisitli)
+
+
+def _is_skipped(ad: str) -> bool:
+    """Bu dizin adına hiç girilmez mi?"""
+    return ad in _SKIP or ad.startswith(".")
+
+
+def _source_files(root: Path) -> tuple[list[Path], bool]:
+    """Haritaya girecek kaynak dosyalar ve dosya tavanının aşılıp aşılmadığı.
+
+    Önce git'e sorulur. Ölçüm (fusion-cli deposu, 22 Eylül): elle yürüyüş 4.373
+    dosya buluyordu, `git ls-files` 811. Aradaki 3.562 dosya `.gitignore`'daki
+    paketli runtime kopyasıydı (`app/src-tauri/resources/runtime/unpacked/`) ve
+    haritanın İLK SIRALARINI yiyordu — en çok başvurulan altı sembol litellm ile
+    httpx'ten geliyor, projenin kendi kodu listeye giremiyordu. Üstelik o ağaç
+    `fusion_cli`'ın kopyasını da taşıdığı için her sembol iki kez sayılıyordu.
+
+    Git yoksa ya da burası depo değilse elle yürüyüşe düşülür; budama o zaman da
+    YÜRÜYÜŞ SIRASINDA yapılır (`rglob` gürültü ağacının içine girip her yolu
+    üretiyor, sonra atıyordu).
+    """
+    izlenen = _git_source_files(root)
+    if izlenen is not None:
+        if len(izlenen) > _MAX_FILES:
+            return izlenen[:_MAX_FILES], True
+        return izlenen, False
+
+    yollar: list[Path] = []
+    for klasor, dizinler, dosyalar in os.walk(root, topdown=True):
+        dizinler[:] = sorted(ad for ad in dizinler if not _is_skipped(ad))
+        taban = Path(klasor)
+        for ad in sorted(dosyalar):
+            if Path(ad).suffix in _DEFINITIONS:
+                yollar.append(taban / ad)
+                if len(yollar) >= _MAX_FILES:
+                    return yollar, True
+    return yollar, False
+
+
+def _git_source_files(root: Path) -> list[Path] | None:
+    """Git'in bildiği kaynak dosyalar; burası depo değilse ya da git yoksa None.
+
+    `--cached --others --exclude-standard`: izlenen dosyalar ARTI yeni yazılmış
+    ama yok sayılmamış dosyalar. İkincisi şart — agent'ın az önce oluşturduğu
+    dosya haritada görünmezse harita turun gerisinde kalır.
+    """
+    try:
+        sonuc = subprocess.run(
+            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            cwd=root,
+            capture_output=True,
+            timeout=_GIT_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if sonuc.returncode != 0:
+        return None
+    yollar: list[Path] = []
+    for ham in sonuc.stdout.decode("utf-8", "replace").split("\0"):
+        if not ham or Path(ham).suffix not in _DEFINITIONS:
+            continue
+        aday = root / ham
+        if aday.is_file():
+            yollar.append(aday)
+    return sorted(yollar)
+
+
+def _signature(yollar: list[Path]) -> tuple[int, int, int]:
+    """Dosya kümesinin ucuz parmak izi: sayı, toplam boyut, toplam değişim zamanı.
+
+    Üçü birden değişmeden kalan bir ağaçta harita da değişmez. `stat` yürüyüşün
+    yanında ucuzdur; asıl maliyet 75 MB kaynağı okuyup saymaktır ve önbellek tam
+    onu atlar.
+    """
+    sayi = 0
+    boyut = 0
+    zaman = 0
+    for yol in yollar:
+        try:
+            bilgi = yol.stat()
+        except OSError:
+            continue
+        sayi += 1
+        boyut += bilgi.st_size
+        zaman += bilgi.st_mtime_ns
+    return sayi, boyut, zaman
+
+
+def _analyze(root: Path, yollar: list[Path]) -> tuple[list[tuple[str, str]], bool]:
+    """Dosyaları okuyup tanımları çıkar ve referansa göre sırala."""
     tanimlar: list[tuple[str, str]] = []
-    metinler: dict[Path, str] = {}
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or path.suffix not in _DEFINITIONS:
-            continue
-        if any(part in _SKIP for part in path.relative_to(root).parts):
-            continue
+    metinler: list[str] = []
+    toplam_karakter = 0
+    asildi = False
+    for path in yollar:
         try:
             kaynak = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        metinler[path] = kaynak
+        toplam_karakter += len(kaynak)
+        if toplam_karakter > _MAX_TOTAL_CHARS:
+            asildi = True
+            break
+        metinler.append(kaynak)
         goreli = str(path.relative_to(root))
         for eslesme in list(_DEFINITIONS[path.suffix].finditer(kaynak))[:_MAX_PER_FILE]:
             tanimlar.append((goreli, eslesme.group("ad")))
     if not tanimlar:
-        return ""
+        return [], asildi
 
     referanslar = _reference_counts(metinler, [ad for _, ad in tanimlar])
     sirali = sorted(tanimlar, key=lambda item: (-referanslar[item[1]], item[0], item[1]))
-    return _render(sirali, budget_chars)
+    return sirali, asildi
 
 
-def _reference_counts(metinler: dict[Path, str], adlar: list[str]) -> Counter[str]:
-    """Her sembolün bütün dosyalarda kaç kez geçtiğini say."""
-    sayac: Counter[str] = Counter()
-    for ad in set(adlar):
-        desen = re.compile(rf"\b{re.escape(ad)}\b")
-        sayac[ad] = sum(len(desen.findall(kaynak)) for kaynak in metinler.values())
-    return sayac
+def _reference_counts(metinler: list[str], adlar: list[str]) -> Counter[str]:
+    """Her sembolün bütün dosyalarda kaç kez geçtiğini say.
+
+    Her dosya BİR KEZ kelimelere ayrılır. Eski uygulama sembol başına bir regex
+    derleyip bütün metinleri baştan tarıyordu; bu depoda 164,6 dakika ediyordu.
+    """
+    toplam: Counter[str] = Counter()
+    for kaynak in metinler:
+        toplam.update(_IDENTIFIER.findall(kaynak))
+    return Counter({ad: toplam.get(ad, 0) for ad in set(adlar)})
 
 
-def _render(sirali: list[tuple[str, str]], budget: int) -> str:
+def _render(sirali: list[tuple[str, str]], budget: int, kisitli: bool = False) -> str:
     """Bütçeyi AŞMADAN en önemli tanımlardan liste üret."""
     satirlar: list[str] = []
     uzunluk = 0
+    if kisitli:
+        # Kısmi olduğunu SÖYLEMEK, sessizce eksik harita vermekten iyidir: model
+        # "bu listede yoksa dosya yoktur" diye düşünmesin.
+        uyari = "(depo tavanı aşıldı: harita kısmi)"
+        if len(uyari) + 1 <= budget:
+            satirlar.append(uyari)
+            uzunluk = len(uyari) + 1
+    gorulen: Counter[str] = Counter()
     for dosya, ad in sirali:
+        if gorulen[ad] >= _MAX_PER_SYMBOL:
+            continue
         satir = f"{dosya}: {ad}"
         if uzunluk + len(satir) + 1 > budget:
             break
         satirlar.append(satir)
         uzunluk += len(satir) + 1
+        gorulen[ad] += 1
     return "\n".join(satirlar)
