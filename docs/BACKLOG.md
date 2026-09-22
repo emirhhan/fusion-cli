@@ -899,3 +899,38 @@ gördüğü bildirilen üç model de (adları bu görevde doğrulanmadığı iç
 adaylık listesinde değil. Kademe/aday havuzuna ek model eklemek istenirse önce
 bu görevde kullanılan yöntemle (gerçek `run_agent`/`LiteLlmProvider` turu,
 gerçek araç şeması) tek tek doğrulanmalı.
+
+## RULES.md 400 satır sınırını aşan 11 modül (2026-09-22)
+
+Kapanış fazları oturumunda ölçüldü. `RULES.md` "Bir dosya tek bir sorumluluk
+taşır. 400 satırı aşan modül bölünür" diyor; aşağıdakiler aşıyor:
+
+| Modül | Satır |
+|---|---|
+| `engines/agent/loop.py` | 2357 |
+| `providers/web_browser.py` | 2343 |
+| `gateway/app.py` | 1433 |
+| `engines/agent/plan_runner.py` | 1371 |
+| `appserver/session.py` | 1257 |
+| `memory/seed.py` | 1173 |
+| `ui/renderer.py` | 901 |
+| `engines/agent/engine_tools.py` | 838 |
+| `engines/agent/step_verification.py` | 780 |
+| `cli/repl/commands.py` | 778 |
+| `core/tool_emulation.py` | 768 |
+
+Bilerek ertelendi: gerçek bir borç ama kullanıcının hedeflerinin (kendi deposunda
+çalışma, reklam yönetimi, tarayıcı işi) hiçbirini bloke etmiyor ve bölme işi
+agent'ın en kritik kod yolunda gerileme riski taşıyor. Bölünürken her modül
+kendi testleriyle birlikte taşınmalı.
+
+## `fusion mcp-add` yalnız stdio sunucusu ekliyor (2026-09-22)
+
+`mcp-add name command args` imzası HTTP + Bearer token yolunu sunmuyor; oysa
+`McpServerConfig.token_env` ve `transport.resolve_bearer_headers` bu yolu
+destekliyor ve masaüstü paneli (`appserver/connectors.py`) kullanıyor.
+
+Pratik sonucu: Meta Ads MCP'ye ChatGPT web oturumuna hiç uğramadan, System User
+token'ıyla doğrudan bağlanmak TERMİNALDEN mümkün değil. `--url` ve `--token`
+seçenekleri eklenmeli; token yine `token_env_name` ile türetilen ortam
+değişkenine bağlanmalı, `config.yaml`'a asla yazılmamalı.

@@ -50,17 +50,29 @@ Akış, düşünme bloğu, görev listesi, onayda diff önizlemesi, Esc ile kesm
 anma, bağlam/maliyet göstergesi, takip önerileri, başlık üretimi, tek kutu (kip ayrımının
 kaldırılması), arka plan işleri, alt ajan kartları.
 
-### Faz 6 — Bağlayıcılar (E1–E7)
+### Faz 6 — Bağlayıcılar · TAMAM (22 Eyl 2026, bkz. plans/2026-09-22-baglayicilar.md, reports/2026-09-22-baglayicilar-sonuc.md) (E1–E7)
 
 Hata sınıflandırma, kaydetmeden doğrulama, kayıt defteri araması, gerektiğinde başlatma,
 ChatGPT connector köprüsünün doğrulanması.
 
-### Faz 7 — Ölçüm
+### Faz 7 — Ölçüm · TAMAM (22 Eyl 2026, bkz. plans/2026-09-22-kapanis-fazlari.md, reports/2026-09-22-kapanis-fazlari-sonuc.md)
 
 Denetimdeki 74 tur `evals/` altına senaryo olarak girer. Kabul eşiği: doğru tur oranı
 %70 üstü, yalan başarı 0, uzun oturumda 21/21 tamamlanma, ortalama tur 90 saniyenin altı.
 
+**Yapıldı, bir sapmayla:** 74 turluk kaynak dosya (`fusion-denetim.html`) kayıp —
+depoda, diskte ve git geçmişinde arandı, bulunamadı. Set bulgu kimliklerinden
+yeniden kuruldu (`evals/suite/parite.yaml`, 14 gerileme senaryosu). Dört eşik
+`evals/acceptance.py` ile makine-okunur oldu ve `--enforce` ile çıkış koduna
+bağlandı. Yalan başarı bugüne kadar hiç ölçülmüyordu; ölçüm hattına eklendi.
+
 ## Açık kalan ölçümler
 
-- ChatGPT üzerinden dosya yükleme ve connector köprüsü (oturum engeli kalkınca).
+- ChatGPT üzerinden dosya yükleme ve connector köprüsü. **Kök neden bulundu**
+  (22 Eyl): kullanıcının ChatGPT hesabı bir kerelik insan doğrulaması istiyor.
+  Kod tarafı çalışıyor; tek adım `python -m fusion_cli.providers.web_login
+  chatgpt_web main`. CAPTCHA otomatik aşılamaz.
 - Uzun oturumun son 5 turu.
+- `parite.yaml`'ın canlı koşusu: birincil web oturumu doğrulanana kadar her tur
+  yedeğe düşüyor ve ortalama tur süresi 90 sn eşiğinin üstünde kalıyor
+  (ölçüldü: önemsiz bir okuma turu 2 dk 54 sn).
