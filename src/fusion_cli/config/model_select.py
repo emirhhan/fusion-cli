@@ -255,7 +255,7 @@ def _validated(model_id: str) -> str:
     if "/" not in cleaned:
         raise ConfigError(
             f"Geçersiz model kimliği: '{cleaned}'. Biçim: <sağlayıcı>/<model> "
-            "(ör. openrouter/openai/gpt-oss-20b:free). Liste için: fusion models --fetch"
+            "(ör. openrouter/qwen/qwen3.8-27b:free). Liste için: fusion models --fetch"
         )
     return cleaned
 

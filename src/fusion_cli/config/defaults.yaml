@@ -30,6 +30,23 @@
 #   openrouter/nvidia/nemotron-3-ultra-550b-a55b:free   → 21.75s, araç çağrısı doğru (yavaş ama çalışıyor)
 # gpt-oss-20b'den ÖNCE eklendi: gpt-oss-20b (20B) ultra'dan (550B/55B) daha
 # küçük bir modeldir, tükenmeden önce daha yetenekli kademeye çıkmak mantıklı.
+#
+# 2026-09-22 DÜZELTME: `openai/gpt-oss` ailesinin İKİ üyesi de gerçek koşuda
+# öldü — uydurma değil, gerçek turlarda yakalandı:
+#   nvidia_nim/openai/gpt-oss-120b       → 410 Gone, "reached its end of life
+#                                          on 2026-09-03T08:00:00Z"
+#   openrouter/openai/gpt-oss-20b:free   → 404, "This model is unavailable
+#                                          for free. The paid version is
+#                                          available now"
+# "Bambaşka bir aile" rolünü artık `qwen3.8-27b` üstleniyor — canlı ölçüldü
+# (gerçek `run_agent` turu, gerçek araç çağrısı, `wc -l` sonucu doğru):
+#   openrouter/qwen/qwen3.8-27b:free    → basit çağrı 3.9s, araç çağrısı 5.3s,
+#                                          ikisi de doğru
+# NIM kataloğunda (82 model, canlı çekildi) Qwen yok; denenen NIM adayları
+# (mistral-large-2-instruct, ai21labs/jamba-1.5-large-instruct) 404 döndü,
+# moonshotai/kimi-k3 7+ dakika hiç yanıt vermedi (CPU boşta, bağlantı asılı) —
+# hiçbiri zincire GİRMEDİ. Bu yüzden bu basamakta NIM/OpenRouter çifti yok,
+# tek OpenRouter girdisi var.
 agent:
   name: nemotron-super
   model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
@@ -40,11 +57,10 @@ agent:
   # rol, o model kısıtlanınca tamamen ölür ve kullanıcı "kotam bitti" sanır.
   # `/provider` ile tek sağlayıcıya kilitlenen kullanıcı da yedeksiz kalmamalı.
   fallback:
-    - nvidia_nim/openai/gpt-oss-120b
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
     - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-    - openrouter/openai/gpt-oss-20b:free
+    - openrouter/qwen/qwen3.8-27b:free
 
 # Çalışma zamanı davranışı.
 runtime:
@@ -254,10 +270,16 @@ candidates:
     tags: [general]
     fallback:
       - nvidia_nim/nvidia/nemotron-3-nano-30b-a3b
-  - name: gpt-oss
-    model: openrouter/openai/gpt-oss-20b:free
+  # 2026-09-22 DÜZELTME: `openrouter/openai/gpt-oss-20b:free` gerçek koşuda 404
+  # döndü ("unavailable for free"). Yerine canlı ölçülen `qwen3.8-27b` geçti
+  # (bkz. üstteki `agent:` yorumundaki ölçüm). Önceki adayın yedeği YOKTU
+  # (`fallback: []`) — bu da düzeltildi, tek sağlayıcılı bir aday artık yedeksiz
+  # kalmıyor.
+  - name: qwen
+    model: openrouter/qwen/qwen3.8-27b:free
     tags: [code, agent]
-    fallback: []
+    fallback:
+      - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
   # 2026-09-22 EKLENDİ (C4): mesaja doğrudan eklenen bir görsel `select_compatible_model`'e
   # `images=True` gereksinimiyle geliyordu ama hiçbir agent adayı `vision` etiketi
   # taşımıyordu; istek model hiç çağrılmadan `ConfigError` ile ölüyordu. Bu model
@@ -274,14 +296,24 @@ candidates:
       - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
 
 # Hakem + sentez rolü. Hızlı olmalı ve JSON'a sadık kalmalıdır.
+#
+# 2026-09-22 DÜZELTME: birincil `nvidia_nim/openai/gpt-oss-120b` 410 Gone
+# (EOL, bkz. üstteki `agent:` yorumu) — her hakem çağrısında boşa bir
+# başarısız deneme gidiyordu. Zaten kanıtlanmış bir yedek (`nemotron-super`,
+# bu oturumdaki gerçek turlarda defalarca doğru JSON/"TAMAM" üretti) birincile
+# yükseltildi; ölü model YEDEKTEN de çıkarıldı, "bambaşka aile" rolünü
+# `qwen3.8-27b` üstlendi.
 judge:
   name: hakem
   # Kademelerdeki hakemle aynı desen: her sağlayıcıdan iki model (bkz. `agent:`).
-  model: nvidia_nim/openai/gpt-oss-120b
+  # NIM'den ikinci girdi (`nemotron-3-ultra`) `/provider nvidia` ile tek
+  # sağlayıcıya kilitlenen kullanıcının da yedeksiz kalmaması için var —
+  # `test_her_rol_her_saglayici_tercihinde_yedekli_kalir` bunu zorunlu kılar.
+  model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
   fallback:
-    - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-    - openrouter/openai/gpt-oss-20b:free
+    - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
     - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+    - openrouter/qwen/qwen3.8-27b:free
 
 # Görme yetenekli model — `view_image` aracı ve görsel doğrulama kapısı için.
 #
@@ -363,7 +395,11 @@ embedding:
 # Aşağıdakilerin hepsi gerçek bir çağrıyla doğrulandı; parantezdeki süre ölçümdür.
 #
 #   low     nemotron-3-super-120b-a12b  (0.5s)  120B/12B — paketin varsayılanı
-#   medium  gpt-oss-120b                (1.1s)  farklı aile, akıl yürütme
+#   medium  deepseek-v4.1-flash         (6.4s)  2026-09-22'de gpt-oss-120b'nin
+#                                                (410 Gone, EOL) yerine canlı
+#                                                ölçüldü — high'la aynı vendor,
+#                                                bu hesapta çalışan TEK NIM
+#                                                alternatifiydi (bkz. `tiers:`)
 #   high    deepseek-v4-flash           (6.5s)  kodlamada güçlü aile
 #   ultra   nemotron-3-ultra-550b-a55b  (5.8s)  550B/55B
 #   premium glm-5.2                     (38s)   1M bağlam — havuzun en yetenekli modeli
@@ -383,20 +419,22 @@ tiers:
       # farklı dayanıklılık görür. `nemotron-3-ultra` GERÇEKTEN farklı bir
       # kademeye yükselen adımdır (120B/12B → 550B/55B).
       fallback:
-        - nvidia_nim/openai/gpt-oss-120b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
-        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/qwen/qwen3.8-27b:free
     judge:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
-      model: nvidia_nim/openai/gpt-oss-120b
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       fallback:
-        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
     candidates:
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
@@ -408,29 +446,50 @@ tiers:
         fallback: [openrouter/poolside/laguna-xs-2.1:free]
 
   - name: medium
-    label: GPT-OSS 120B — farklı aile, akıl yürütmeye ayarlı (~1s)
+    # 2026-09-22 DÜZELTME: bu kademenin tüm kimliği `gpt-oss-120b`'ydi — hem NIM
+    # birincili hem OpenRouter yedeği ölmüştü (bkz. üst seviye `agent:` yorumu).
+    # Yerine GERÇEKTEN farklı bir aile aranarak yedi NIM adayı canlı denendi:
+    #   mistral-large-2-instruct, ai21labs/jamba-1.5-large-instruct,
+    #   mistralai/mixtral-8x22b-v0.1, google/gemma-4-31b-it,
+    #   nvidia/llama-3.1-nemotron-70b-instruct → 404 (bu hesapta dağıtılmamış)
+    #   moonshotai/kimi-k3, google/gemma-4-31b-it → 45s+ hiç yanıt vermedi
+    # `NIM omurga` kısıtı (bkz. `tiers:` üstündeki yorum, `/provider nvidia`
+    # yedeği zorunluluğu) yüzünden OpenRouter-öncelikli bir birincil KABUL
+    # EDİLEMEZ — `test_kademelerin_omurgasi_nim_modelleridir` bunu zorunlu kılar.
+    # Bu hesapta gerçekten çalışan TEK farklı NIM modeli `deepseek-v4.1-flash`
+    # oldu (gerçek `run_agent` turu, gerçek araç çağrısı — glob + run_shell,
+    # `wc -l` sonucu doğru: 4.1s / 5.4s / 9.5s). DÜRÜSTLÜK NOTU: bu, `high`
+    # kademesindeki `deepseek-v4-flash` ile AYNI vendor'ın farklı bir sürümü —
+    # mimari olarak tam bağımsız bir "aile" değil, ama bu hesapta doğrulanmış
+    # tek NIM alternatifi budur. `qwen3.8-27b` (OpenRouter, canlı ölçüldü:
+    # basit çağrı 3.9s, araç çağrısı 5.3s, ikisi de doğru) gerçekten farklı
+    # aile olarak yedekte kalıyor.
+    label: DeepSeek V4.1 Flash — NIM'de doğrulanan tek alternatif (~6.4s)
     agent:
-      name: gpt-oss-120b
-      model: nvidia_nim/openai/gpt-oss-120b
+      name: deepseek-v4.1-flash
+      model: nvidia_nim/deepseek-ai/deepseek-v4.1-flash
       tags: [code, agent, reasoning]
       fallback:
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - openrouter/qwen/qwen3.8-27b:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
-      model: nvidia_nim/openai/gpt-oss-120b
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       fallback:
-        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: gpt-oss-120b
-        model: nvidia_nim/openai/gpt-oss-120b
+      - name: deepseek-v4.1-flash
+        model: nvidia_nim/deepseek-ai/deepseek-v4.1-flash
         tags: [reasoning, general]
-        fallback: [openrouter/openai/gpt-oss-20b:free]
+        fallback: [openrouter/qwen/qwen3.8-27b:free]
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         tags: [code, agent]
@@ -450,11 +509,14 @@ tiers:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
-      model: nvidia_nim/openai/gpt-oss-120b
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       fallback:
-        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
     candidates:
       - name: deepseek-v4-flash
         model: nvidia_nim/deepseek-ai/deepseek-v4-flash
@@ -479,11 +541,14 @@ tiers:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
-      model: nvidia_nim/openai/gpt-oss-120b
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       fallback:
-        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
     candidates:
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
@@ -508,11 +573,14 @@ tiers:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
       # (ölçüldü), yani tek modelli bir rol o model kısıtlanınca tamamen ölür.
-      model: nvidia_nim/openai/gpt-oss-120b
+      # 2026-09-22: birincil `gpt-oss-120b` 410 Gone (EOL) — bkz. üst seviye
+      # `judge:` yorumu. Aynı düzeltme burada da uygulandı; ikinci NIM girdisi
+      # `/provider nvidia` yedeği için gerekli.
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       fallback:
-        - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/openai/gpt-oss-20b:free
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
+        - openrouter/qwen/qwen3.8-27b:free
     candidates:
       - name: glm-5.2
         model: nvidia_nim/z-ai/glm-5.2

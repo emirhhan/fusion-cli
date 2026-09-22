@@ -18,8 +18,12 @@ from ...core.types import Message
 #: Geçmiş bu karakter sayısını aşınca sıkıştırma denenir.
 #:
 #: Değer havuzun EN DAR bağlam penceresinden türetilir; en genişinden değil, çünkü
-#: yedeğe düşen tur da aynı geçmişi taşır. En dar pencere gpt-oss-20b'de 131.072
-#: token (karşılaştırma: nemotron-3-super 262.144–1.000.000).
+#: yedeğe düşen tur da aynı geçmişi taşır. En dar pencere ÖLÇÜLDÜĞÜNDE (2026-07-25)
+#: gpt-oss-20b'de 131.072 token idi (karşılaştırma: nemotron-3-super 262.144–1.000.000).
+#: 2026-09-22: gpt-oss-20b havuzdan çıkarıldı (OpenRouter'da 404, ücretsiz slug
+#: kaldırılmış — bkz. `config/defaults.yaml`). Yerine geçen `qwen3.8-27b:free`
+#: penceresi 262.144 token, yani DAHA GENİŞ — değer hâlâ ihtiyatlı tarafta,
+#: küçültülmesi gerekmiyor.
 #:
 #:   kullanılabilir ≈ 131.072 − çıktı bütçesi (8.192) − sistem promptu + araç şemaları (~4.000)
 #:                  ≈ 119.000 token
