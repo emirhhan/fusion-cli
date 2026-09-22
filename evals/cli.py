@@ -18,6 +18,8 @@ import tempfile
 from dataclasses import replace
 from pathlib import Path
 
+from evals.acceptance import AcceptanceVerdict
+from evals.acceptance import evaluate as evaluate_acceptance
 from evals.compare import compare_reports
 from evals.executor import AgentTaskExecutor
 from evals.loader import load_tasks
@@ -56,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     matrix_parser.add_argument("--repeat", type=int, default=3)
     run_parser.add_argument(
         "--workspace", type=Path, default=None, help="Çalışma dizinlerinin kökü (varsayılan: tmp)"
+    )
+    run_parser.add_argument(
+        "--enforce",
+        action="store_true",
+        help="Kabul eşiğinin altında kalan koşuda sıfırdan farklı çıkış kodu döndür",
     )
     run_parser.add_argument(
         "--repeat",
@@ -111,10 +118,14 @@ def _run(args: argparse.Namespace) -> int:
         ),
     )
     _print_summary(report)
+    hukum = evaluate_acceptance(report)
+    _print_acceptance(hukum)
     if args.out is not None:
         write_report(report, args.out)
         print(f"\nRapor yazıldı: {args.out}")
-    return 0
+    # Eşiğin altında kalan koşu SIFIR DÖNMEZ. Eşik yalnız raporun dipnotunda
+    # yazdığı sürece koşu "yeşil" görünüp altında kalabiliyordu.
+    return 0 if hukum.passed or not args.enforce else 1
 
 
 async def _run_suite_and_close(
@@ -192,6 +203,16 @@ def _compare(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_acceptance(hukum: AcceptanceVerdict) -> None:
+    """Kabul eşiklerini tek tek yaz; hangi eşiğin tutmadığı görünsün."""
+    print("\nKabul eşikleri:")
+    for kontrol in hukum.checks:
+        isaret = "GEÇTİ" if kontrol.passed else "KALDI"
+        print(f"  [{isaret}] {kontrol.name:<22} {kontrol.detail}")
+    if not hukum.passed:
+        print("\n  KOŞU KABUL EŞİĞİNİN ALTINDA.")
+
+
 def _print_summary(report: RunReport) -> None:
     print("\nÖzet:")
     print(f"  görev sayısı           : {report.task_count}")
@@ -202,6 +223,7 @@ def _print_summary(report: RunReport) -> None:
     print(f"  toplam yeniden deneme  : {report.total_retries}")
     print(f"  ort. model çağrısı     : {report.mean_model_calls:.2f}")
     print(f"  ort. süre (sn)         : {report.mean_duration_seconds:.2f}")
+    print(f"  yalan başarı           : {report.false_success_count}")
 
     kararsiz = [item for item in report.results if not item.kararli]
     if kararsiz:

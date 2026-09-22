@@ -26,6 +26,7 @@ def _result_to_dict(result: TaskResult) -> dict[str, object]:
         "model_calls": result.model_calls,
         "duration_seconds": result.duration_seconds,
         "stable": result.kararli,
+        "false_success": result.false_success,
     }
 
 
@@ -39,6 +40,10 @@ def _summary(report: RunReport) -> dict[str, object]:
         "total_retries": report.total_retries,
         "mean_model_calls": report.mean_model_calls,
         "mean_duration_seconds": report.mean_duration_seconds,
+        # Eşiği sıfır olan metrik: agent "bitti" dedi, ölçüt tutmadı.
+        "false_success_count": report.false_success_count,
+        "false_success_tasks": list(report.false_success_tasks),
+        "completion_rate": report.completion_rate,
         # Kararsız görev, ölçülen farkın gürültü olabileceğini söyler: bir ayarın
         # etkisini değerlendirirken önce bu listeye bakılır.
         "unstable_tasks": [result.task_id for result in report.results if not result.kararli],
@@ -100,6 +105,7 @@ def _result_from_dict(item: object) -> TaskResult:
         retries=int(item["retries"]),
         model_calls=int(item["model_calls"]),
         duration_seconds=float(item["duration_seconds"]),
+        false_success=bool(item.get("false_success", False)),
     )
 
 

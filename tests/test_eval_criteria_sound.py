@@ -323,6 +323,21 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
             "    return _birlestir(VARSAYILAN, kullanici)\n"
         )
     },
+    # --- Claude paritesi gerileme seti ---------------------------------- #
+    # Bunlar "agent böyle yazmalı" demek değil: ölçütün makul bir doğru
+    # çözümü KABUL ettiğini gösterir. Ölçüt fazla darsa burada kırılır.
+    "parite-a2-tam-metin-duzenleme": {
+        "hesap.py": "KDV = 0.20\n\n\ndef kdvli(tutar):\n    return tutar * (1 + KDV)\n"
+    },
+    "parite-a2-tek-satir-degisir-digerleri-durur": {"ayar.py": "SURE = 30\nDENEME = 3\n"},
+    "parite-c5-okuyup-duzelt": {
+        "bolme.py": "def bol(a, b):\n    if b == 0:\n        return None\n    return a / b\n"
+    },
+    "parite-c6-cok-dosyali-degisiklik": {
+        "sabit.py": 'AD = "fusion"\nVERSIYON = "2.0"\n',
+        "surum.py": "from sabit import VERSIYON\n\n\ndef surum():\n    return VERSIYON\n",
+    },
+    "parite-c1-tur-urun-verir": {"selam.py": 'print("selam")\n'},
 }
 
 

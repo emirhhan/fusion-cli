@@ -19,6 +19,7 @@ from fusion_cli.core.errors import EvalError
 _CRITERION_FIELDS: dict[CriterionKind, tuple[str, str]] = {
     CriterionKind.EXIT_CODE: ("expected_exit_code", "int"),
     CriterionKind.FILE_CHANGED: ("expected_path", "str"),
+    CriterionKind.FILE_UNCHANGED: ("expected_path", "str"),
     CriterionKind.KEYWORD: ("keyword", "str|list"),
 }
 
@@ -94,6 +95,10 @@ def _parse_criterion(raw: object) -> SuccessCriterion:
         kind = CriterionKind(str(raw["kind"]))
     except ValueError as exc:
         raise EvalError(f"bilinmeyen ölçüt türü: {raw['kind']!r}") from exc
+
+    if kind is CriterionKind.WORKSPACE_UNCHANGED:
+        # Alansız ölçüt: "hiçbir dosya değişmemeli" iddiası parametre almaz.
+        return SuccessCriterion(kind=kind)
 
     field, field_type = _CRITERION_FIELDS[kind]
     if field not in raw:

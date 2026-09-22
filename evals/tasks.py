@@ -17,6 +17,8 @@ class CriterionKind(Enum):
 
     EXIT_CODE = "exit_code"  # çalıştırılan komutun çıkış kodu beklenene eşit mi
     FILE_CHANGED = "file_changed"  # beklenen yol değişen dosyalar arasında mı
+    FILE_UNCHANGED = "file_unchanged"  # yol DEĞİŞMEMİŞ olmalı
+    WORKSPACE_UNCHANGED = "workspace_unchanged"  # HİÇBİR dosya değişmemiş olmalı
     KEYWORD = "keyword"  # anahtar kelime çıktı metninde geçiyor mu
 
 
@@ -34,7 +36,14 @@ class SuccessCriterion:
     #: EXIT_CODE için, görev sonrası çalıştırılıp çıkış kodu ölçülecek komut.
     #: Verilmezse çıkış kodu agent turunun kendi sonucundan gelir (0 = temiz bitti).
     command: str | None = None
-    #: FILE_CHANGED için değişmesi beklenen dosya yolu.
+    #: FILE_CHANGED için değişmesi beklenen, FILE_UNCHANGED için DEĞİŞMEMESİ
+    #: beklenen dosya yolu.
+    #
+    # Olumsuz ölçüt şart: paritenin en pahalı bulgularının bir kısmı "şu olmamalı"
+    # biçiminde. Sohbet kipinin çalışma alanına dosya yazması (B1), gözlem turunda
+    # yazma (B4), onay alınmadan yapılan iş (F1-F3) yalnız olumlu ölçütle
+    # ölçülemez: hiçbir dosya beklemediğimiz için `file_changed` hep "kaldı" der
+    # ve doğru davranışı da yanlış davranışı da aynı gösterir.
     expected_path: str | None = None
     #: KEYWORD için çıktıda aranan metin.
     keyword: str | None = None

@@ -83,5 +83,12 @@ eval-refactor:
 eval-hata:
 	$(PY) -m evals run evals/suite/hata.yaml --out eval-hata.json --repeat 3
 
+# Claude paritesi gerileme seti: 17 Eylül denetiminin bulgu kimliklerine bağlı
+# senaryolar. `--enforce`, kabul eşiğinin (evals/acceptance.py) altında kalan
+# koşuda sıfırdan farklı çıkış kodu döndürür — eşik yalnız raporun dipnotunda
+# yazdığı sürece koşu "yeşil" görünüp altında kalabiliyordu.
+eval-parite:
+	$(PY) -m evals run evals/suite/parite.yaml --out eval-parite.json --enforce
+
 clean:
 	rm -rf .venv .pytest_cache .ruff_cache .mypy_cache src/*.egg-info

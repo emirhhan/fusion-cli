@@ -137,6 +137,7 @@ class FusionAgentRunner:
             retries=publisher.retries,
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
+            claimed_success=outcome.ok and not outcome.hit_step_limit,
         )
 
 
@@ -209,6 +210,7 @@ class MinimalAgentRunner(FusionAgentRunner):
             retries=publisher.retries,
             rate_limited=kota,
             rate_limit_detail=outcome.final_text if kota else "",
+            claimed_success=outcome.ok and not outcome.hit_step_limit,
         )
 
 

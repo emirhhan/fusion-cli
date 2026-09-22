@@ -34,5 +34,7 @@ class TaskExecution:
     #: Kota hatasının HAM metni. Günlük kota mı geçici sınır mı ayrımı buradan
     #: yapılır; sağlayıcılar bunu farklı söyler ve tepkiler zıttır.
     rate_limit_detail: str = ""
+    #: Agent turu BİTTİĞİNİ beyan etti mi? (bkz. `AgentRunObservation.claimed_success`)
+    claimed_success: bool = True
     #: Görevin baştan sona sürdüğü süre (saniye).
     duration_seconds: float = 0.0

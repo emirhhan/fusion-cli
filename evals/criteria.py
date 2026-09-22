@@ -19,6 +19,15 @@ def evaluate_criterion(criterion: SuccessCriterion, execution: TaskExecution) ->
     if criterion.kind is CriterionKind.FILE_CHANGED:
         return criterion.expected_path in execution.changed_files
 
+    if criterion.kind is CriterionKind.FILE_UNCHANGED:
+        return criterion.expected_path not in execution.changed_files
+
+    if criterion.kind is CriterionKind.WORKSPACE_UNCHANGED:
+        # Tek bir yol adlandırmak yetmez: "sohbet turu dosya yazmamalı" iddiası
+        # agent'ın HANGİ adı seçeceğini bilmeyi gerektirirdi. Ölçülen şey
+        # çalışma alanına hiç dokunulmamış olmasıdır.
+        return not execution.changed_files
+
     if criterion.kind is CriterionKind.KEYWORD:
         # Büyük/küçük harf ayrımı DAVRANIŞ ölçmez: canlı koşuda cevap cümleye
         # "Erişilemeyen kaynağın..." diye başladı ve küçük harfli anahtar tutmadı.

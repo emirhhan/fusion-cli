@@ -33,6 +33,13 @@ class TaskResult:
     runs: int = 1
     #: Kaç koşuda geçtiği.
     passes: int = 1
+    #: Agent "bitti" dedi ama ölçüt TUTMADI mı?
+    #
+    # Sıradan başarısızlıktan ayrı sayılır ve kabul eşiği SIFIRDIR: başarısız bir
+    # tur kullanıcıyı yalnız oyalar, yalan başarı ise yanlış bilgiyle bırakır —
+    # kullanıcı işin bittiğine inanıp üstüne inşa eder. 17 Eylül denetiminin en
+    # pahalı bulgu sınıfı buydu ve o güne kadar HİÇ ölçülmüyordu.
+    false_success: bool = False
 
     @property
     def pass_rate(self) -> float:
@@ -64,6 +71,9 @@ def score_task(task: EvalTask, execution: TaskExecution) -> TaskResult:
         passes=1 if success else 0,
         rate_limited=execution.rate_limited,
         rate_limit_detail=execution.rate_limit_detail,
+        # Kota yüzünden ölçülemeyen tur yalan başarı DEĞİLDİR: agent orada
+        # bitirdiğini iddia etmiyor, sağlayıcı turu kesiyor.
+        false_success=execution.claimed_success and not success and not execution.rate_limited,
     )
 
 
@@ -86,6 +96,9 @@ def merge_runs(results: list[TaskResult]) -> TaskResult:
         runs=len(results),
         passes=gecen,
         rate_limited=any(item.rate_limited for item in results),
+        # Tek koşuda bile yalan başarı verdiyse görev yalan başarı sayılır:
+        # eşiği sıfır olan bir metrik çoğunluğa yuvarlanamaz.
+        false_success=any(item.false_success for item in results),
     )
 
 
@@ -140,3 +153,26 @@ class RunReport:
     @property
     def mean_duration_seconds(self) -> float:
         return _mean([r.duration_seconds for r in self.results])
+
+    @property
+    def false_success_tasks(self) -> tuple[str, ...]:
+        """Agent'ın bitirdiğini söylediği ama ölçütün tutmadığı görevler."""
+        return tuple(result.task_id for result in self.results if result.false_success)
+
+    @property
+    def false_success_count(self) -> int:
+        return len(self.false_success_tasks)
+
+    @property
+    def measured_task_count(self) -> int:
+        """Kota yüzünden ölçülemeyenler DIŞINDA kalan görev sayısı."""
+        return sum(1 for result in self.results if not result.rate_limited)
+
+    @property
+    def completion_rate(self) -> float:
+        """Ölçülebilen görevlerin, tamamı içindeki oranı.
+
+        Uzun oturum kabulü ("21/21 tamamlanma") bunu okur: bir tur sağlayıcı
+        kotasına takılıp hiç ölçülemediyse oturum tamamlanmamıştır.
+        """
+        return _mean([1.0 if not r.rate_limited else 0.0 for r in self.results])

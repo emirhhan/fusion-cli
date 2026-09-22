@@ -52,6 +52,13 @@ class AgentRunObservation:
     rate_limited: bool = False
     #: Kota hatasının ham metni (günlük kota / geçici sınır ayrımı için).
     rate_limit_detail: str = ""
+    #: Agent turu BİTTİĞİNİ beyan etti mi?
+    #
+    # "Yalan başarı" ölçümünün girdisi: agent temiz bitirdiğini söylediği hâlde
+    # ölçüt tutmuyorsa, bu sıradan bir başarısızlık değildir — kullanıcıya iş
+    # bitti denmiştir. Kota hatası ve adım sınırına dayanma beyan SAYILMAZ:
+    # ikisinde de agent bitirdiğini iddia etmiyor.
+    claimed_success: bool = True
 
 
 class AgentRunner(Protocol):
@@ -117,6 +124,7 @@ class AgentTaskExecutor:
             rate_limit_detail=observation.rate_limit_detail,
             model_calls=observation.model_calls,
             retries=observation.retries,
+            claimed_success=observation.claimed_success,
             duration_seconds=duration,
         )
 
