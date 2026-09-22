@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -472,6 +473,7 @@ def format_browser_prompt(
     *,
     continuation: bool = False,
     full_history: Sequence[Message] | None = None,
+    trim: bool = True,
 ) -> str:
     """Kanonik Fusion mesajlarını tarayıcıya gönderilecek metne dök.
 
@@ -502,13 +504,20 @@ def format_browser_prompt(
     düşüyordu ve model onu kaybediyordu. Ayrıca başlık `read_file {"path": "x.py"}`
     biçimindeydi — bu bir araç ÇAĞRISINA benziyor ve model onu taklit ediyordu.
     Tanımlayıcı bilgi korunur ama çağrı biçiminde değil.
+
+    `trim=False` verilirse (Faz 4, Görev 2) sonuç KIRPILMADAN döner — çağıran
+    taraf (`_send_turn`) `page`'e erişebildiği için taşan promptu göndermeden
+    önce ÖNCE dosya yüklemeyi dener, olmazsa YİNE bu modüldeki
+    `trim_to_prompt_budget`'a düşer. Varsayılan `True` mevcut davranışı
+    birebir korur.
     """
     # Görev hatırlatması TAM geçmişten okunur. Devam kipinde `messages` yalnızca
     # gönderilmemiş yeni mesajlardır ve kullanıcının görevi o dilimde YOKTUR;
     # ölçüldü — hatırlatma bloğu boş kalıyor ya da harness notunu gösteriyordu.
     gecmis = full_history if full_history is not None else messages
     if continuation:
-        return trim_to_prompt_budget(_format_continuation(messages, gecmis))
+        govde = _format_continuation(messages, gecmis)
+        return trim_to_prompt_budget(govde) if trim else govde
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     rendered: list[str] = []
     for message in messages:
@@ -536,7 +545,8 @@ def format_browser_prompt(
         f"ya yeni bir araç çağır ya da işi bitirip nihai cevabı ver.\n{_ANSWER_CONTRACT}"
     )
     rendered.append(_task_reminder(messages))
-    return trim_to_prompt_budget("\n\n".join(part for part in rendered if part))
+    govde = "\n\n".join(part for part in rendered if part)
+    return trim_to_prompt_budget(govde) if trim else govde
 
 
 def _task_reminder(messages: Sequence[Message]) -> str:
@@ -1216,8 +1226,10 @@ async def _deliver_turn(
     )
 
     if resumable and state is not None:
+        # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
+        # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
-            messages[state.sent_count :], continuation=True, full_history=messages
+            messages[state.sent_count :], continuation=True, full_history=messages, trim=False
         )
         answer = await _send_turn(
             state.page, definition, prompt, previous=state.last_answer, limit_s=limit_s
@@ -1232,7 +1244,7 @@ async def _deliver_turn(
         ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
-        prompt = format_browser_prompt(messages)
+        prompt = format_browser_prompt(messages, trim=False)
         answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
 
     # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
@@ -1468,7 +1480,8 @@ async def _send_turn(
         raise WebBrowserAuthError(_login_required_message(definition))
 
     before = await _response_snapshot(page, definition.response_selectors)
-    await _fill_editor(input_locator, prompt)
+    composer_metni = await _prepare_prompt_for_composer(page, definition, prompt)
+    await _fill_editor(input_locator, composer_metni)
     send = await _first_visible(page, definition.send_selectors, timeout_ms=2_000)
     if send is not None:
         await send.click()
@@ -1476,8 +1489,91 @@ async def _send_turn(
         await input_locator.press("Enter")
 
     return await _wait_for_response(
-        page, definition, before, previous=previous, sent_prompt=prompt, limit_s=limit_s
+        page, definition, before, previous=previous, sent_prompt=composer_metni, limit_s=limit_s
     )
+
+
+#: Yükleme menüsünü açan düğme. `jslog` Google'ın Angular şablonuna gömülü dahili
+#: analytics kodudur ve GÖRÜNTÜ METNİNDEN (dolayısıyla arayüz dilinden) BAĞIMSIZDIR
+#: — `aria-label` "Yükleme ve araçlar" gibi yerelleştirilmiş bir metinken bu değişmez.
+#: Ölçüldü (22 Eylül, gerçek Gemini web oturumu, TR arayüz).
+_GEMINI_UPLOAD_MENU_TRIGGER = "button[jslog^='300142']"
+#: Menüdeki "Dosya yükleyin" seçeneği. `data-test-id` Google'ın kendi test
+#: altyapısına ait, KARARLI bir öznitelik — `aria-label` metni (TR'de "Dosya
+#: yükleyin. Belgeler, veriler, kod dosyaları") yerelleştirilmiş, bu değil.
+#: Ölçüldü (22 Eylül); yalnız TR arayüzde doğrulandı, başka dillerde aynı
+#: `data-test-id`'nin kullanıldığı VARSAYILIR ama ölçülmedi.
+_GEMINI_UPLOAD_OPTION = "[data-test-id='local-images-files-uploader-button']"
+#: Dosya seçildikten sonra sayfanın onu işlemesi için beklenen süre. Ölçüldü
+#: (105.032 karakterlik gerçek dosya, aynı oturum): 3 sn yeterliydi, modelin
+#: dosyayı GERÇEKTEN okuduğu aynı canlı turda doğrulandı.
+_UPLOAD_SETTLE_MS = 3_000
+_UPLOAD_NOTICE = (
+    "Görev metni {chars} karakter olduğu için mesaj kutusuna sığmıyor; tam metin "
+    "ekli dosyada. Dosyayı oku, göreve ondan devam et."
+)
+
+
+async def _prepare_prompt_for_composer(
+    page: Any, definition: BrowserProviderDefinition, prompt: str
+) -> str:
+    """Taşan promptu göndermeden önce DOSYA olarak yüklemeyi dene; olmazsa kırp.
+
+    Yalnız Gemini için ölçüldü ve uygulandı (Faz 4, Görev 2 — 22 Eylül): 105.032
+    karakterlik gerçek bir dosya canlı bir oturumda yüklendi, model içeriği
+    doğru okudu (`FUSION_PROBE_ISARETI_...` işaretini birebir aktardı).
+
+    ChatGPT web'de DENENMEZ: `recommended_window_mode` alanındaki 17 Eylül
+    ölçümü (headless Chrome'da Cloudflare doğrulaması, 7 turun 7'si düştü) bu
+    oturumun headless kipte otomasyona kapalı olduğunu zaten belgeliyor; bugünkü
+    canlı deneme ("Bir dakika lütfen…" sayfasında takıldı) bunu doğruladı.
+
+    Yükleme İSTEĞE BAĞLI bir iyileştirmedir — hiçbir adımda (seçici bulunamadı,
+    tıklama zaman aşımına uğradı, ...) turu DÜŞÜRMEZ; her arıza türünde sessizce
+    mevcut `trim_to_prompt_budget` davranışına geri döner.
+    """
+    if len(prompt) <= MAX_WEB_PROMPT_CHARS:
+        return prompt
+    if definition.id != "gemini_web":
+        return trim_to_prompt_budget(prompt)
+    if not await _try_gemini_file_upload(page, prompt):
+        return trim_to_prompt_budget(prompt)
+    return _UPLOAD_NOTICE.format(chars=len(prompt))
+
+
+async def _try_gemini_file_upload(page: Any, content: str) -> bool:
+    """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
+    gecici_yol: str | None = None
+    try:
+        tetikleyici = await _first_visible(
+            page, (_GEMINI_UPLOAD_MENU_TRIGGER,), timeout_ms=3_000
+        )
+        if tetikleyici is None:
+            return False
+        await tetikleyici.click()
+        secenek = await _first_visible(page, (_GEMINI_UPLOAD_OPTION,), timeout_ms=3_000)
+        if secenek is None:
+            return False
+        await secenek.click()
+        dosya_girisleri = await page.query_selector_all("input[type=file]")
+        if not dosya_girisleri:
+            return False
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(content)
+            gecici_yol = tmp.name
+        # Menü SON açıldığında eklenen giriş sondadır; öncekiler önceki
+        # turlardan kalma gizli/yardımcı girişler olabilir (ölçüldü: 3 giriş).
+        await dosya_girisleri[-1].set_input_files(gecici_yol)
+        await page.wait_for_timeout(_UPLOAD_SETTLE_MS)
+        return True
+    except Exception:
+        return False
+    finally:
+        if gecici_yol is not None:
+            with contextlib.suppress(OSError):
+                Path(gecici_yol).unlink()  # noqa: ASYNC240 - küçük geçici dosya, engellemez
 
 
 async def _editor_icerigi(locator: Any) -> str | None:

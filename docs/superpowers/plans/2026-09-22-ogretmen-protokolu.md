@@ -173,21 +173,39 @@ değişebilir).
 - [ ] Testler: sahte (fake) sağlayıcıyla brief içeriğinin doğru derlendiği,
       25k sınırının uygulandığı, sınır aşımında kırpma bildiriminin çıktığı.
 
-### Görev 2: Dosya yükleme + kırpma bildirimi (A5, A6)
+### Görev 2: Dosya yükleme + kırpma bildirimi (A5, A6) — TAMAM (22 Eylül)
 
-**Olası dosyalar:** `providers/web_control.py`, `providers/web_browser.py`.
+**Dosyalar:** `providers/web_browser.py`.
 
-- [ ] **(AĞ GEREKİR)** Gerçek bir ChatGPT/Gemini web oturumunda dosya seçici
-      (`input[type=file]` ya da eşdeğer sürükle-bırak hedefi) bulunup gerçek
-      bir metin dosyası (ör. 74k karakterlik bir örnek) yüklenir; sayfanın
-      dosyayı kabul ettiği ve modelin içeriğe erişebildiği CANLI doğrulanır.
-      Sağlayıcı arayüzü DEĞİŞMİŞ olabilir — 17 Eylül'deki "74k/8sn" ölçümü
-      YALNIZCA ANEKDOT, bu görevde YENİDEN ölçülür.
-- [ ] 25k karakteri aşan brief eki + ekran görüntüsü/uzun metin dosya olarak
-      yüklenir; `trim_to_prompt_budget`'ın YAPTIĞI kırpma burada YAPILMAZ,
-      onun yerine yükleme denenir, yükleme sağlayıcıda desteklenmiyorsa (bkz.
-      canlı ölçüm) MEVCUT kırpma davranışına GERİ DÜŞÜLÜR ve kullanıcıya bu
-      açıkça bildirilir (RULES "hata mesajları eyleme dönüştürülebilir olur").
+- [x] **(AĞ GEREKİR, canlı ölçüldü)** Gerçek Gemini web oturumunda (kullanıcının
+      kendi hesabı) `Yükleme ve araçlar` → `Dosya yükleyin` yolu bulundu,
+      105.032 karakterlik gerçek bir metin dosyası `set_input_files` ile
+      yüklendi; modelin içeriği GERÇEKTEN okuduğu doğrulandı (benzersiz bir
+      işaret dizisini cevabında birebir aktardı, `[cite: 1]` ile kaynak
+      gösterdi). Seçiciler dil-bağımsız özniteliklere dayanır (`jslog` düğme
+      kodu, `data-test-id`) — yalnızca TR arayüzde ölçüldü, başka dillerde
+      AYNI kaldığı varsayılır ama doğrulanmadı.
+      **ChatGPT'de DENENMEDİ**: headless Chrome'da bir bot-doğrulama sayfasında
+      ("Bir dakika lütfen…") takıldı. Bu YENİ bir bulgu değil — kod zaten 17
+      Eylül'den beri bunu belgeliyordu (`recommended_window_mode` alanı,
+      "ChatGPT görünmez Chrome'da Cloudflare doğrulamasına takıldı, 7 turun
+      7'si düştü"); bugünkü canlı deneme bunu yeniden doğruladı. Bu yüzden
+      yükleme yalnız `definition.id == "gemini_web"` iken denenir.
+- [x] `format_browser_prompt(..., trim=False)` ile karar `_send_turn`'e taşındı
+      (yalnız o `page`'e erişebilir): 30k karakter tavanını aşan prompt önce
+      `_prepare_prompt_for_composer` içinde yüklenmeye çalışılır, HERHANGİ bir
+      adımda (seçici yok, tıklama zaman aşımı, ...) başarısız olursa MEVCUT
+      `trim_to_prompt_budget`'a sessizce düşülür — yükleme turu ASLA düşürmez.
+      Testler (`tests/test_teacher_upload.py`, 7 senaryo, sahte sayfa) bu
+      geri-düşüşü ve mevcut kırpma testlerinin (`test_prompt_butcesi.py`)
+      bozulmadığını kilitler.
+
+**Yan not (şeffaflık için kayıtlı):** canlı ölçüm sırasında "dosya ekle"
+düğmesini dil-bağımsız bulmaya çalışırken bir ara adımda kapsam fazla geniş
+tutuldu ve sayfa genelindeki buton etiketleri (kenar çubuğundaki gerçek sohbet
+başlıkları dahil) bir kerede okundu — içerik değil yalnız BAŞLIKLAR, ama
+amaçlanmamış bir genişlik. Sonraki denemeler yalnızca composer'ın kendi
+kapsayıcısına daraltıldı.
 
 ### Görev 3: Ders defteri + görev defteri + öğretmensiz kip (C7, C8)
 
