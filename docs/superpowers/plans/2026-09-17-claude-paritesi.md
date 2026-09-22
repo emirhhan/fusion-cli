@@ -44,7 +44,7 @@ conventional commit atılır. Faz bitmeden sonrakine geçilmez.
 3. Ders defteri `.fusion/ogretmen.md`, görev defteri, öğretmensiz kip.
 4. Kademe doğrulama (Flash-Lite'a düşerse bildir), günlük çağrı bütçesi.
 
-### Faz 5 — Arayüz paritesi (H1–H13, D3, D4, D5)
+### Faz 5 — Arayüz paritesi · TAMAM (22 Eyl 2026, ayrıntılı plan: plans/2026-09-22-arayuz-paritesi.md, sonuç: reports/2026-09-22-arayuz-paritesi-sonuc.md — G6/G7 ve G3/G4'ün masaüstü tarafı BACKLOG'da) (H1–H13, D3, D4, D5)
 
 Akış, düşünme bloğu, görev listesi, onayda diff önizlemesi, Esc ile kesme, `@` ile dosya
 anma, bağlam/maliyet göstergesi, takip önerileri, başlık üretimi, tek kutu (kip ayrımının
