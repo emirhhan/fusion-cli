@@ -46,7 +46,7 @@ from ..tools import ToolRegistry
 from .client import McpClient, McpConnectionStatus, failure_status
 from .failures import STATE_CONNECTED, STATE_LOGIN_REQUIRED, is_permanent_kind
 from .hosted import AskSession
-from .identity import duplicate_of, unique_configs
+from .identity import duplicate_of, unique_configs, unique_hosted_configs
 
 __all__ = [
     "McpToolPool",
@@ -381,7 +381,11 @@ async def ensure_hosted_tools(config: Config, registry: ToolRegistry) -> tuple[s
         return ()
     from .hosted import HostedConnectorClient
 
-    client = HostedConnectorClient(config.hosted_connectors, ask=_hosted_channel(config))
+    # Kopya connector ayıklanır. `mcp_servers` bu korumayı `unique_configs` ile
+    # zaten alıyordu; barındırmalı connector'lar dışarıda kalmıştı ve aynı Meta
+    # Ads adresi iki kez kayıt defterine giriyordu (ölçüldü, 22 Eylül).
+    benzersiz = unique_hosted_configs(config.hosted_connectors)
+    client = HostedConnectorClient(benzersiz, ask=_hosted_channel(config))
     return await client.register_into(registry)
 
 

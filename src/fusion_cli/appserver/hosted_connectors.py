@@ -18,6 +18,7 @@ from typing import Any
 from ..config.models import Config, HostedConnectorConfig, hosted_connector_ready
 from ..config.writer import write_hosted_connectors
 from ..core.constants import HOSTED_VERIFY_TIMEOUT_S
+from ..mcp_bridge.identity import hosted_identity
 from ..mcp_bridge.oauth import validate_remote_mcp_url
 from ..providers.web_browser import WEB_BROWSER_PROVIDERS, provider_definition
 
@@ -119,6 +120,22 @@ def add_hosted_connector(config: Config, data: object) -> tuple[Config | None, d
     if any(item.name == ad for item in config.hosted_connectors):
         return None, {"ok": False, "metin": f"'{ad}' adlı bağlantı zaten var."}
     connector = HostedConnectorConfig(name=ad, url=url, provider=saglayici, account=hesap)
+    # Ad kontrolü tek başına yetmiyordu: kullanıcının gerçek ayarında aynı Meta
+    # Ads adresi "META ADS" ve "Meta Ads" olarak iki kez duruyordu (ölçüldü,
+    # 22 Eylül). Aynı sunucuya ikinci bir kayıt yetenek eklemez, yalnız her
+    # keşifte iki kat oturum turu yaktırır.
+    kimlik = hosted_identity(connector)
+    mevcut = next(
+        (item for item in config.hosted_connectors if hosted_identity(item) == kimlik), None
+    )
+    if mevcut is not None:
+        return None, {
+            "ok": False,
+            "metin": (
+                f"Bu adres aynı oturumda '{mevcut.name}' adıyla zaten bağlı. "
+                "Yeni kayıt yerine onu kullan ya da önce onu kaldır."
+            ),
+        }
     if not hosted_connector_ready(config, connector):
         return None, {
             "ok": False,

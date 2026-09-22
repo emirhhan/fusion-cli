@@ -210,3 +210,27 @@ def test_barindirmali_satir_liste_sozlesmesine_uyar():
     assert stdio_ornegi <= set(hosted), f"eksik alanlar: {stdio_ornegi - set(hosted)}"
     assert isinstance(hosted["argumanlar"], list)
     assert isinstance(hosted["komut"], str)
+
+def test_ayni_adres_farkli_adla_ikinci_kez_eklenemez():
+    """Ad kontrolü yetmiyordu: aynı adres yalnız harf farkıyla iki kez giriyordu.
+
+    Ölçüldü (22 Eylül): kullanıcının gerçek ayarında aynı Meta Ads MCP adresi
+    "META ADS" ve "Meta Ads" olarak iki kez duruyordu; ikisi de doğrulanmamıştı.
+    """
+    mevcut = HostedConnectorConfig(
+        name="META ADS",
+        url="https://mcp.facebook.com/ads",
+        provider="claude_web",
+        account="main",
+    )
+    config = replace(make_config(), web_sessions=(_session(),), hosted_connectors=(mevcut,))
+
+    yeni, sonuc = add_hosted_connector(
+        config,
+        # Aynı sunucu: yalnız yazım farkı (harf durumu, sondaki eğik çizgi).
+        {"ad": "Meta Ads", "url": "HTTPS://MCP.Facebook.com/ads/", "saglayici": "claude_web"},
+    )
+
+    assert sonuc["ok"] is False
+    assert yeni is None
+    assert "META ADS" in sonuc["metin"]
