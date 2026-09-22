@@ -145,3 +145,30 @@ async def test_loopback_callback_bekleme_durumunu_bildirir(monkeypatch):
     await callback.wait_for_code()
 
     assert states == [True, False]
+
+
+@pytest.mark.anyio
+async def test_baglanti_yokken_arac_listesi_anlasilir_hata_verir() -> None:
+    """Bağlantı kurulamamışsa `list_tools` ham `KeyError` değil, açıklama fırlatır.
+
+    Faz 1/2 raporunun açık kalanlar listesinden: kullanıcı sunucu adından ibaret,
+    hiçbir şey anlatmayan bir hata görüyordu.
+    """
+    client = McpClient((_remote(),))
+
+    with pytest.raises(client_module.McpNotConnectedError) as hata:
+        await client.list_tools("meta")
+
+    assert "meta" in str(hata.value)
+    assert "KeyError" not in str(hata.value)
+
+
+@pytest.mark.anyio
+async def test_tanimsiz_sunucu_ayri_mesaj_verir() -> None:
+    """Hiç tanımlanmamış sunucu, bağlanamamış sunucudan farklı şekilde söylenir."""
+    client = McpClient((_remote(),))
+
+    with pytest.raises(client_module.McpNotConnectedError) as hata:
+        await client.list_tools("olmayan")
+
+    assert "tanımlı değil" in str(hata.value)

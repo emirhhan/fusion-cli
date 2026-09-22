@@ -48,6 +48,16 @@ _ToolRun = Callable[[ToolArgs, ToolContext], Awaitable[ToolResult]]
 _STDERR_TAIL_BYTES = 4096
 
 
+class McpNotConnectedError(RuntimeError):
+    """İstenen MCP sunucusuna bağlantı yok: araç listelenemez, çağrılamaz.
+
+    Eskiden bu durumda oturum sözlüğü ham `KeyError` fırlatıyordu; kullanıcı
+    sunucu adından ibaret, hiçbir şey anlatmayan bir hata görüyordu. Bağlantı
+    neden kurulamadıysa (`_statuses`) mesaj onu söyler — sınıflandırılmış
+    bağlantı hatası zaten orada duruyor.
+    """
+
+
 @dataclass(slots=True)
 class RemoteTool:
     """Uzak bir MCP aracının Fusion'a taşınan tanımı."""
@@ -229,6 +239,20 @@ class McpClient:
 
         return on_waiting
 
+    def _session(self, server: str) -> ClientSession:
+        """Bağlı oturumu getir; yoksa nedenini söyleyen hata fırlat."""
+        session = self._sessions.get(server)
+        if session is not None:
+            return session
+        if not any(config.name == server for config in self._configs):
+            raise McpNotConnectedError(f"MCP sunucusu tanımlı değil: {server}.")
+        durum = self._statuses.get(server)
+        neden = durum.message if durum is not None and durum.message else ""
+        raise McpNotConnectedError(
+            f"MCP sunucusuna bağlantı yok: {server}."
+            + (f" {neden}" if neden else " Bağlantıyı kontrol edip yeniden dene.")
+        )
+
     async def list_tools(self, server: str) -> list[RemoteTool]:
         """Bir sunucunun araçlarını keşfet."""
         remote: list[RemoteTool] = []
@@ -236,9 +260,9 @@ class McpClient:
         seen: set[str] = set()
         while True:
             if cursor is None:
-                result = await self._sessions[server].list_tools()
+                result = await self._session(server).list_tools()
             else:
-                result = await self._sessions[server].list_tools(cursor)
+                result = await self._session(server).list_tools(cursor)
             remote.extend(
                 RemoteTool(
                     server=server,
@@ -265,7 +289,7 @@ class McpClient:
         engelliyor ve tur yarım bitiyordu — kullanıcı boş bir hata mesajıyla
         "görev başarısız" görüyordu.
         """
-        result = await self._sessions[server].call_tool(name, args)
+        result = await self._session(server).call_tool(name, args)
         return normalize_call_result(result)
 
     async def register_into(self, registry: ToolRegistry) -> tuple[str, ...]:
