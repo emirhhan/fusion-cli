@@ -31,7 +31,7 @@ conventional commit atılır. Faz bitmeden sonrakine geçilmez.
 3. Başarı beyanı yalnız projenin kendi test/build komutuna bağlanır.
 4. Onay reddi turu durdurur; gözlem turunda yazma tümden kapalıdır.
 
-### Faz 3 — Çırak katmanı · SIRADA (C5, C6, C9, C10)
+### Faz 3 — Çırak katmanı · TAMAM (22 Eyl 2026, bkz. reports/2026-09-22-cirak-katmani-sonuc.md) (C5, C6, C9, C10)
 
 1. Araç işleri ücretsiz API modeline taşınır (yerleşik araç çağrısı, akış).
 2. Model zinciri ve hız sınırı yönetimi (429'da sıradaki modele geçiş).
