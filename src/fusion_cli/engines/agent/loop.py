@@ -86,7 +86,7 @@ from . import compaction, denial, history, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .engine_tools import UserAsker, build_agent_registry
-from .execution_policy import ExecutionPolicy, policy_for
+from .execution_policy import ExecutionPolicy, policy_for, refresh_mutation_policy
 from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
@@ -822,6 +822,9 @@ async def _drive(
 
         state.model_calls_made += 1
         budget.record_model_call()
+        # Yedek zinciri BAŞKA bir modele düşmüş olabilir; yetenek kapısı turun
+        # başında yapılandırılmış modele göre kapanmıştı. Kapı yalnız açılır.
+        execution = refresh_mutation_policy(execution, result.served_by, deps.config)
         if _is_tool_contract_error(result.error):
             if budget.take_contract_repair():
                 if result.text.strip():

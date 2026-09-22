@@ -13,7 +13,7 @@ yarıda kesiyordu. Bu turun metninden yalnız `required_effect` (açık dış et
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ...config.models import Config
 from ...config.tool_policy import mutation_policy_for_model
@@ -85,6 +85,13 @@ class ExecutionPolicy:
     allow_mutation: bool = True
     #: İzin yoksa kullanıcıya ve modele gösterilecek gerekçe.
     mutation_block_reason: str = ""
+    #: Engel MODEL YETENEĞİNDEN mi geliyor (kip kararından değil)?
+    #
+    # Ayrım şart: sohbet ve gözlem turları da `allow_mutation=False` kurar ama
+    # onların gerekçesi bu turun KARARIDIR, modelin yeteneği değil. Yedek zinciri
+    # başka bir modele düştüğünde yalnız YETENEK kaynaklı engel gözden geçirilir;
+    # kip kararı asla geri alınmaz.
+    mutation_blocked_by_capability: bool = False
     #: Şema ve gerçek dispatcher için aynı kesin araç sınırı.
     allowed_tool_names: frozenset[str] | None = None
     #: Bu adım kaçıncı kez deneniyor; yedek zinciri o kadar yukarı kaydırır.
@@ -120,6 +127,7 @@ def policy_for(config: Config, spec: ModelSpec, task: str) -> ExecutionPolicy:
             is_web=False,
             allow_mutation=mutation.ok,
             mutation_block_reason=mutation.reason,
+            mutation_blocked_by_capability=not mutation.ok,
             offer_tools=not explicit_no_tools,
             requires_tool_evidence=requires_evidence,
             required_effect=required_effect,
@@ -132,6 +140,7 @@ def policy_for(config: Config, spec: ModelSpec, task: str) -> ExecutionPolicy:
         is_web=True,
         allow_mutation=mutation.ok,
         mutation_block_reason=mutation.reason,
+        mutation_blocked_by_capability=not mutation.ok,
         max_model_calls=WEB_MAX_MODEL_CALLS,
         max_tool_rounds=WEB_MAX_TOOL_ROUNDS,
         max_same_tool_without_change=2,
@@ -229,3 +238,32 @@ def is_web_model(config: Config, model: str) -> bool:
     if provider in _WEB_PROVIDER_IDS or provider.endswith("_web"):
         return True
     return any(session.model == model for session in config.web_sessions)
+
+
+def refresh_mutation_policy(
+    execution: ExecutionPolicy, served_by: str, config: Config
+) -> ExecutionPolicy:
+    """Turu GERÇEKTE karşılayan modele göre yetenek kapısını tazele.
+
+    Ölçüldü (22 Eylül, kullanıcının kendi kurulumunda): birincil `chatgpt_web`
+    oturumu insan doğrulamasına takılınca zincir `nvidia_nim/...` modeline düştü,
+    ama tur sonuna kadar SALT-OKUNUR kaldı. Engelin gerekçesi ("chatgpt_web
+    taklit aracı ölçülmedi") artık işi yapan modele ait değildi; kullanıcı ise
+    hiçbir dosyanın neden yazılamadığını göremiyordu.
+
+    Kapı yalnız AÇILIR, hiç kapanmaz. Turun ortasında aracı elinden alınan model
+    yarım iş bırakır; daraltma kararı turun başında verilir. Kip kaynaklı engel
+    (sohbet, gözlem) buraya hiç girmez — `mutation_blocked_by_capability` False'tur.
+    """
+    if execution.allow_mutation or not execution.mutation_blocked_by_capability:
+        return execution
+    if not served_by:
+        return execution
+    if not mutation_policy_for_model(config, served_by).ok:
+        return execution
+    return replace(
+        execution,
+        allow_mutation=True,
+        mutation_block_reason="",
+        mutation_blocked_by_capability=False,
+    )

@@ -22,7 +22,7 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelSpec
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
-from fusion_cli.engines.agent.execution_policy import policy_for
+from fusion_cli.engines.agent.execution_policy import policy_for, refresh_mutation_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
 from fusion_cli.engines.effects.detect import required_effect_for
 
@@ -324,3 +324,76 @@ def test_ad_soyleme_istegi_mutasyon_sayilmaz():
     # Gerçek kod-yazma isteği hâlâ mutasyon sayılmalı: fiilin nesnesi burada
     # "adı" değil doğrudan "kod"un kendisi.
     assert required_effect_for("bu fonksiyonun kodunu yaz") == "workspace_mutation"
+
+
+# --- yedeğe düşen tur ------------------------------------------------------ #
+
+
+def _web_policy(**session_overrides):
+    """Web oturumu birincilken kurulan tur politikası."""
+    return policy_for(
+        _config(**session_overrides), ModelSpec(name="web", model=WEB_MODEL), "dosyayı düzenle"
+    )
+
+
+def test_yedege_dusen_tur_yazabilen_modele_gecince_kapi_acilir():
+    """Zincir yazabilen bir modele düştüyse salt-okunur kilit kalkar.
+
+    Ölçüldü (22 Eylül, kullanıcının kendi kurulumunda): birincil `chatgpt_web`
+    oturumu insan doğrulamasına takılınca zincir `nvidia_nim/...` modeline düştü
+    ve tur sonuna kadar SALT-OKUNUR kaldı — oysa engelin gerekçesi artık işi
+    yapan modele ait değildi.
+    """
+    config = _config()
+    politika = _web_policy()
+    assert politika.allow_mutation is False
+
+    tazelenmis = refresh_mutation_policy(
+        politika, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
+    )
+
+    assert tazelenmis.allow_mutation is True
+    assert tazelenmis.mutation_block_reason == ""
+
+
+def test_ayni_yeteneksiz_model_karsiladiysa_kapi_kapali_kalir():
+    config = _config()
+
+    tazelenmis = refresh_mutation_policy(_web_policy(), WEB_MODEL, config)
+
+    assert tazelenmis.allow_mutation is False
+    assert "eval" in tazelenmis.mutation_block_reason
+
+
+def test_hizmet_veren_model_bilinmiyorsa_kapi_kapali_kalir():
+    """`served_by` boşsa tahmin edilmez: ölçülmemiş yeteneğe yazma izni verilmez."""
+    config = _config()
+
+    assert refresh_mutation_policy(_web_policy(), "", config).allow_mutation is False
+
+
+def test_gozlem_turunun_kilidi_yedek_degisikligiyle_acilmaz():
+    """Kip kararı yetenek kararı DEĞİLDİR: gözlem turu yazmaya açılamaz."""
+    from fusion_cli.engines.agent.chat_mode import observe_execution
+
+    config = _config()
+    gozlem = observe_execution(_web_policy(), "bu adım yalnız gözlemler")
+
+    tazelenmis = refresh_mutation_policy(
+        gozlem, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
+    )
+
+    assert tazelenmis.allow_mutation is False
+
+
+def test_sohbet_turunun_kilidi_yedek_degisikligiyle_acilmaz():
+    from fusion_cli.engines.agent.chat_mode import chat_execution
+
+    config = _config()
+    sohbet = chat_execution(_web_policy())
+
+    tazelenmis = refresh_mutation_policy(
+        sohbet, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
+    )
+
+    assert tazelenmis.allow_mutation is False

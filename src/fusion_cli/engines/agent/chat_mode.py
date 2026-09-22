@@ -52,6 +52,9 @@ def observe_execution(execution: ExecutionPolicy, reason: str) -> ExecutionPolic
         execution,
         allow_mutation=False,
         mutation_block_reason=reason,
+        # Bu engel turun KARARIDIR, modelin yeteneği değil: yedek zinciri başka
+        # bir modele düşse de gözlem turu yazmaya açılmaz.
+        mutation_blocked_by_capability=False,
         requires_tool_evidence=False,
         required_effect=None,
         complex_task=False,
