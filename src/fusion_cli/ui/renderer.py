@@ -59,6 +59,7 @@ from ..core.events import (
     SubAgentFinished,
     SubAgentStarted,
     TeacherConsulted,
+    TierDegraded,
     TokenReceived,
     ToolCallRepaired,
     ToolExecuted,
@@ -163,6 +164,15 @@ class ConsoleRenderer:
                         reason=summarize_error(event.reason),
                     )
                 )
+        elif isinstance(event, TierDegraded):
+            # Yalnız BİLGİLENDİRİR — turu ASLA düşürmez (bkz. olayın docstring'i).
+            self._status(
+                messages.TIER_DEGRADED.format(
+                    expected=event.expected_tier,
+                    served=event.served_by,
+                    model=format_model(event.model),
+                )
+            )
         elif isinstance(event, CandidatesStarted):
             self._status(
                 messages.FUSION_CANDIDATES.format(

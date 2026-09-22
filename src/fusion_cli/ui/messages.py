@@ -21,6 +21,7 @@ STATUS_THINKING = "düşünüyor…"
 MODEL_CALL_OK = "{model} · {duration} · {tokens} token"
 MODEL_CALL_FAILED = "{model} · {error}"
 MODEL_FALLBACK = "yedek devrede: {requested} → {fallback} · {reason}"
+TIER_DEGRADED = "kademe düştü: {expected} istendi, {served} geldi ({model})"
 
 # --- Hata ----------------------------------------------------------------- #
 ERROR_PREFIX = "hata"

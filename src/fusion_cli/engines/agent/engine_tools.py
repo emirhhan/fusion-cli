@@ -309,6 +309,19 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
+
+        from time import time as _simdi
+
+        from .teacher_budget import check_and_spend
+
+        butce = check_and_spend(context.root, now=_simdi())
+        if not butce.allowed:
+            dakika = round(butce.reset_in_s / 60)
+            return ToolResult.failure(
+                f"Öğretmen çağrı bütçesi bu saat için doldu ({butce.limit}/saat). "
+                f"~{dakika} dakika sonra sıfırlanır. Ağa HİÇ ÇIKILMADI."
+            )
+
         durum_ham = args.get("durum")
         denenenler_ham = args.get("denenenler")
         durum = durum_ham if isinstance(durum_ham, str) else ""

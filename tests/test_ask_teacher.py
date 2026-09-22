@@ -261,6 +261,36 @@ async def test_catisma_bulununca_kullaniciya_gorunur_not_eklenir(tmp_path, monke
     assert "kaydedilmedi" in icerik
 
 
+async def test_basarili_cagri_butce_dosyasi_olusturur(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+
+    await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert (tmp_path / ".fusion" / "ogretmen-butce.json").exists()
+
+
+async def test_butce_dolunca_aga_hic_baglanilmaz(tmp_path, monkeypatch):
+    import fusion_cli.engines.agent.teacher_budget as teacher_budget
+    from fusion_cli.engines.agent.teacher_budget import BudgetCheck
+
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    monkeypatch.setattr(
+        teacher_budget,
+        "check_and_spend",
+        lambda *a, **k: BudgetCheck(allowed=False, used=60, limit=60, reset_in_s=120.0),
+    )
+    deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+
+    sonuc = await _registry(deps).execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert sonuc.ok is False
+    assert "bütçe" in sonuc.output.lower()
+    assert saglayici.seen == []
+
+
 async def test_ogretmene_ulasilamazsa_anlasilir_hata_doner(tmp_path, monkeypatch):
     class _Basarisiz:
         @property

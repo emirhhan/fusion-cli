@@ -209,6 +209,21 @@ class TeacherConsulted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TierDegraded(Event):
+    """Kullanıcının açıkça seçtiği web kademesi gelmedi (Faz 4, Görev 4).
+
+    Yalnız `core.tier.expected_tier(model)` boş DEĞİLKEN (kullanıcı `/auto`
+    değil, belirli bir kademe seçtiğinde) yayınlanır. BİLGİLENDİRİR, turu
+    ASLA düşürmez (bkz. `web_browser.py:1865` civarındaki geçmiş hata: bir
+    kademe-değişim banner'ı turu yanlışlıkla iptal etmişti).
+    """
+
+    model: str
+    expected_tier: str
+    served_by: str
+
+
+@dataclass(frozen=True, slots=True)
 class SelfReviewStarted(Event):
     """Tur sonrası öz-denetim başladı."""
 

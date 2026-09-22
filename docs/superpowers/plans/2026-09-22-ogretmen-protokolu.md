@@ -237,26 +237,36 @@ teacherless` / `teacher-lesson-sync`), `core/memory.py` (`LessonSource.TEACHER`)
       varsayımı YANLIŞ çıktı — o özelliğin yalnızca masaüstü RPC'si vardı,
       terminal CLI komutu hiç yoktu; bu görev o boşluğu da kapattı.
 
-### Görev 4: Kademe düşme bildirimi + günlük çağrı bütçesi (A11)
+### Görev 4: Kademe düşme bildirimi + günlük çağrı bütçesi (A11) — TAMAM (22 Eylül)
 
-**Olası dosyalar:** `providers/web_browser.py` (`observed_tier` çağrı yeri),
-`ui/renderer.py`/`ui/text.py` (bildirim), yeni küçük bir sayaç modülü
-(`.fusion-`  önekli dosya deseniyle, `web_shared_browser.py`'deki kira
-dosyalarına benzer).
+**Dosyalar:** yeni `core/tier.py`, `engines/agent/teacher_budget.py`;
+`core/events.py` (`TierDegraded`), `providers/eventing.py`, `ui/renderer.py`,
+`ui/messages.py`, `engines/agent/engine_tools.py`.
 
-- [ ] "Beklenen kademe" nereden gelir: model kimliğinden mi (`/auto` sonekli
-      olanlarda beklenmez, açık kademe seçilmişse ondan) çıkarılır? Karar
-      §6.5'te netleşir.
-- [ ] `observed_tier()` sonucu beklenenle KARŞILAŞTIRILIR; düşükse
-      `TierDegraded` gibi yeni bir olay yayınlanır (mevcut `CouncilConsulted`
-      desenindeki gibi), UI'da GÖRÜNÜR bir satır olarak basılır (yalnız log
-      değil). `web_browser.py:1865-1868`'deki geçmiş hatadan ders çıkarılır:
-      bu bildirim turu DÜŞÜRMEZ, yalnız BİLGİLENDİRİR.
-- [ ] Günlük öğretmen-çağrı sayacı: **(AĞ GEREKMEZ, ama sabit gerekçelendirilir
-      — bkz. §6.6)** `.fusion/` altında tarihe göre sıfırlanan küçük bir sayaç
-      dosyası; sınıra ulaşınca yeni öğretmen çağrısı YAPILMADAN önce kullanıcıya
-      söylenir (RULES "sabitler uydurulmaz" — günlük limit değeri kullanıcıya
-      sorulacak, bkz. §6.6).
+- [x] §6.5: "beklenen kademe" yalnız WEB oturumu kimliklerinde (`<sağlayıcı>_web/
+      <hesap>/<kademe>`) ve kademe `auto` DEĞİLSE anlamlıdır
+      (`core/tier.py::expected_tier`). **Ölçülen düzeltme:** ilk yazımda normal
+      API kimlikleri de (ör. `nvidia_nim/nvidia/nemotron-3-super-120b-a12b`)
+      3 parçalıydı ve yanlışlıkla "kademe" sayılıyordu — test bunu yakaladı,
+      sağlayıcı öneki `_web` ile bitmiyorsa artık hiç beklenti üretilmez.
+- [x] Karşılaştırma TAM bir kademe SIRALAMASI (pro > flash > flash-lite) KURMADI
+      — bu ölçülmedi. Bunun yerine: beklenen kademe adı gözlenen etikette
+      GEÇMİYORSA uyuşmazlık sayılır. `EventingProvider._publish_finished`
+      `ModelCallFinished`'ın YANINA (yerine değil) `TierDegraded` yayınlar;
+      renderer'da GÖRÜNÜR bir durum satırı basılır, tur ASLA düşmez (JSON
+      çıktısı zaten jenerik dataclass serileştirmesinden geçtiği için ayrıca
+      dokunulmadı).
+- [x] Günlük öğretmen bütçesi **saatlik** (`.fusion/ogretmen-butce.json`).
+      Kasıtlı CAPTCHA testi YAPILMADI (§6.6, güvenli yol). Koddaki belgelenmiş
+      eşik bulundu: `ConversationPacer` (`NEW_CONVERSATION_BURST=3`,
+      `NEW_CONVERSATION_INTERVAL_S=30s`) azami saatte 120 yeni sohbete izin
+      verir; aynı dosyadaki 13 Eylül ölçümü ~14 yeni sohbetin birkaç dakikada
+      bot sayılıp `modal-conversation-history-rate-limit`e yol açtığını
+      gösteriyor (sürekliye yayılırsa ~168/sa). Seçilen sınır: **60/saat** —
+      pacer azamisinin YARISI, ölçülen tehlike eşiğinin belirgin altında,
+      kullanıcının istediği "saatte 25 üstü" ölçütünü karşılıyor. Sınıra
+      ulaşınca `ask_teacher` sağlayıcıyı HİÇ ÇAĞIRMADAN `ToolResult.failure`
+      döner (test: `test_butce_dolunca_aga_hic_baglanilmaz`).
 
 ### Görev 5: Gerçek koşuyla doğrulama (tüm görevler bitince)
 
