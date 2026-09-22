@@ -354,6 +354,11 @@ class Config:
     #: Görme yetenekli model (görsel doğrulama kapısı). Tanımlı değilse kapı hiç
     #: kurulmaz; görme opsiyoneldir.
     vision: ModelSpec | None = None
+    #: Öğretmen rolü — `ask_teacher` aracının danıştığı web oturumu (ChatGPT/Gemini
+    #: web). Kullanıcının kendi web girişine bağlı olduğu için opsiyoneldir; tanımlı
+    #: değilse ya da eşleşen `web_sessions` girişi giriş yapılmamışsa araç
+    #: `ConfigError` ile anlaşılır bir mesaj verir (bkz. `engine_tools.py`).
+    teacher: ModelSpec | None = None
     #: Seçilebilir model kademeleri, `defaults.yaml`'daki yazım SIRASIYLA. Sıra
     #: anlamlıdır: seçim ekranı bu sırayı gösterir ve renk geçişini buna yayar.
     tiers: tuple[TierSpec, ...] = ()

@@ -52,6 +52,7 @@ _SECTIONS = (
     "extra_candidates",
     "judge",
     "vision",
+    "teacher",
     "task_model_map",
     "runtime",
     "embedding",
@@ -160,6 +161,8 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         judge=_build(ModelSpec, merged["judge"], "judge"),
         # Görme opsiyoneldir: tanımlı değilse görsel kapı hiç kurulmaz.
         vision=_build(ModelSpec, merged["vision"], "vision") if merged.get("vision") else None,
+        # Öğretmen de görme gibi opsiyoneldir: kullanıcının web girişine bağlıdır.
+        teacher=_build(ModelSpec, merged["teacher"], "teacher") if merged.get("teacher") else None,
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build_runtime(merged["runtime"]),
         embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),

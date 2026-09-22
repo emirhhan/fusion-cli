@@ -1896,6 +1896,34 @@ def test_ayni_arac_ayni_hatayi_yinelerse_fusion_uyarir():
     assert "res://" in not_, "yol biçimi somut örnekle anlatılmalı"
 
 
+def test_ogretmen_tanimsizken_oneri_basilmaz():
+    """`teacher` yapılandırılmamışsa model elinde olmayan bir araca yönlendirilmez."""
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn"
+
+    not_ = _repeated_failure_note("godot__add_node", hata, 3, teacher_available=False)
+
+    assert not_ is not None
+    assert "ask_teacher" not in not_
+
+
+def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
+    """Aynı hata temel notun eşiğini de AŞARSA (bir tur daha) öğretmen önerilir."""
+    from fusion_cli.engines.agent.loop import _repeated_failure_note
+
+    hata = "Scene file does not exist: res://main.tscn"
+
+    # Temel eşikte (2) henüz öğretmen önerilmez — yalnız "farklı argüman" notu.
+    erken = _repeated_failure_note("godot__add_node", hata, 2, teacher_available=True)
+    assert erken is not None
+    assert "ask_teacher" not in erken
+
+    gec = _repeated_failure_note("godot__add_node", hata, 3, teacher_available=True)
+    assert gec is not None
+    assert "ask_teacher" in gec
+
+
 def test_farkli_hatalar_yineleme_sayilmaz():
     """Aynı araç FARKLI hatalar veriyorsa model ilerliyordur; uyarı verilmez."""
     from fusion_cli.engines.agent.loop import _failure_signature

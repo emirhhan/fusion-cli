@@ -197,6 +197,18 @@ class CouncilConsulted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TeacherConsulted(Event):
+    """Web öğretmene (`ask_teacher`) danışıldı (Faz 4, Görev 1).
+
+    `council`'dan (çoklu-API-model) AYRI bir olay: öğretmen tek, özel bir web
+    oturumudur ve brief'in kırpılıp kırpılmadığı ayrıca izlenmeye değer.
+    """
+
+    question: str
+    brief_truncated: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SelfReviewStarted(Event):
     """Tur sonrası öz-denetim başladı."""
 

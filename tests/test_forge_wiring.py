@@ -28,7 +28,7 @@ def _deps(tmp_path, **ek):
         "asker": None,
         "home": None,
         "lessons": None,
-        "config": SimpleNamespace(vision=None),
+        "config": SimpleNamespace(vision=None, teacher=None),
         "publisher": SimpleNamespace(publish=lambda event: None),
     }
     temel.update(ek)

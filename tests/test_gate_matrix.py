@@ -74,6 +74,7 @@ def _budget() -> TurnBudget:
 
 def _deps(tmp_path: Path, budget: TurnBudget) -> SimpleNamespace:
     return SimpleNamespace(
+        config=SimpleNamespace(teacher=None),
         publisher=_Publisher(),
         tool_context=ToolContext(tmp_path),
         policy=_Allow(),

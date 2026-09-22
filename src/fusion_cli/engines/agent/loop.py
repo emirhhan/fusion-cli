@@ -1837,7 +1837,12 @@ async def _run_tools(
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
-            not_ = _repeated_failure_note(call.name, result.output, state.repeated_failures[imza])
+            not_ = _repeated_failure_note(
+                call.name,
+                result.output,
+                state.repeated_failures[imza],
+                teacher_available=deps.config.teacher is not None,
+            )
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"
         messages.append(
@@ -1928,6 +1933,15 @@ def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
 #: daha yükseği turu döngüde tutar. Ölçülen vakada hata üç kez yinelendi.
 _YINELENEN_HATA_ESIGI = 2
 
+#: Öğretmene danışma ÖNERİSİNİN eşiği (Faz 4, Görev 1).
+#:
+#: Yeni bir sayı UYDURULMADI: temel "farklı argümanlarla dene" notu zaten
+#: `_YINELENEN_HATA_ESIGI`'de veriliyor. Öğretmen önerisi o notun bile işe
+#: yaramadığı, yani AYNI hatanın bir kez daha yinelendiği durumdur — bu yüzden
+#: mevcut eşiğin üzerine bir tur eklenir, sıfırdan bir eşik seçilmez
+#: (bkz. `docs/superpowers/plans/2026-09-22-ogretmen-protokolu.md` §6.2).
+_OGRETMEN_ONERI_ESIGI = _YINELENEN_HATA_ESIGI + 1
+
 
 def _failure_signature(output: str) -> str:
     """Hata metnini karşılaştırılabilir bir imzaya indir.
@@ -1939,7 +1953,9 @@ def _failure_signature(output: str) -> str:
     return output.strip().splitlines()[0].strip() if output.strip() else ""
 
 
-def _repeated_failure_note(tool_name: str, output: str, count: int) -> str | None:
+def _repeated_failure_note(
+    tool_name: str, output: str, count: int, *, teacher_available: bool = False
+) -> str | None:
     """Aynı araç aynı hatayı yineliyorsa modele Fusion'ın notu; yoksa `None`.
 
     Ölçülen hata: `godot__add_node` üç kez "Scene file does not exist" verdi ve
@@ -1950,16 +1966,26 @@ def _repeated_failure_note(tool_name: str, output: str, count: int) -> str | Non
     Tekrar kapısı burada yardım etmez: çağrılar birbirinin aynısı değildir
     (araçlar dönüşümlü çağrılıyor). Bu yüzden ölçüt çağrı imzası değil HATA
     imzasıdır.
+
+    `teacher_available` yalnızca `config.teacher` tanımlıysa `True` gelir
+    (bkz. çağıran yer); tanımsızken öneri BASILMAZ — model elinde olmayan bir
+    aracı çağırmaya yönlendirilmez.
     """
     if count < _YINELENEN_HATA_ESIGI:
         return None
-    return (
+    not_ = (
         f"FUSION_NOT: `{tool_name}` aynı hatayı {count} kez verdi ve aracın kendi "
         "önerisi işe yaramadı. Aynı yolu tekrar deneme; FARKLI ARGÜMANLARLA çağır. "
         "Sık karşılaşılan sebep yol biçimidir: 'res://' ekini kaldırmayı ya da "
         "eklemeyi, göreli yol yerine tam yol vermeyi dene. Bu da olmazsa başka bir "
         "araçla aynı sonuca ulaşmayı dene."
     )
+    if teacher_available and count >= _OGRETMEN_ONERI_ESIGI:
+        not_ += (
+            " Bu hata FARKLI yaklaşımlara rağmen sürüyorsa `ask_teacher` ile web "
+            "öğretmene danışmayı düşün — turu bu döngüde harcamak yerine."
+        )
+    return not_
 
 
 #: Tekrarlanan OKUMA çağrısında sonucun önüne konan not.

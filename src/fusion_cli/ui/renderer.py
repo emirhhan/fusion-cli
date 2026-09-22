@@ -58,6 +58,7 @@ from ..core.events import (
     StatusChanged,
     SubAgentFinished,
     SubAgentStarted,
+    TeacherConsulted,
     TokenReceived,
     ToolCallRepaired,
     ToolExecuted,
@@ -218,6 +219,9 @@ class ConsoleRenderer:
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
             self._resume_work(messages.WORK_COUNCIL)
+        elif isinstance(event, TeacherConsulted):
+            self._status(messages.AGENT_TEACHER)
+            self._resume_work(messages.WORK_TEACHER)
         elif isinstance(event, SelfReviewStarted):
             # Ayrı satır basılmaz; sonucu hemen ardından geliyor.
             self._resume_work(messages.WORK_REVIEW)

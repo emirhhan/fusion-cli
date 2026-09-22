@@ -15,7 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from ...core.events import Channel, CouncilConsulted, SubAgentFinished, SubAgentStarted
+from ...core.events import (
+    Channel,
+    CouncilConsulted,
+    SubAgentFinished,
+    SubAgentStarted,
+    TeacherConsulted,
+)
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
@@ -84,6 +90,8 @@ def build_agent_registry(
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
+    if deps.config.teacher is not None:
+        extended.register(_ask_teacher_tool(deps))
     if deps.capabilities is not None:
         _register_capability_tools(extended, deps, depth=depth, run_agent=run_agent)
     if deps.config.vision is not None:
@@ -233,6 +241,92 @@ def _council_tool(deps: AgentDeps) -> Tool:
             "type": "object",
             "properties": {
                 "question": {**_STRING, "description": "danışılacak zor soru ya da karar"}
+            },
+            "required": ["question"],
+        },
+        run=_run,
+    )
+
+
+def _ask_teacher_tool(deps: AgentDeps) -> Tool:
+    """Web öğretmene (ChatGPT/Gemini web) tek-soru danışma (Faz 4, Görev 1).
+
+    `council`'dan (çoklu-API-model oylama) BİLİNÇLİ olarak AYRI: öğretmen tek,
+    özel bir web oturumudur (`config.teacher`, kullanıcının kendi girişine
+    bağlıdır) ve amacı oylama değil, takılan bir işte tek bir dış görüş almaktır
+    (bkz. `docs/superpowers/plans/2026-09-22-ogretmen-protokolu.md` §6.1).
+    """
+
+    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
+        from ...core.types import CompletionRequest, Message
+        from ...providers.factory import build_provider
+        from ...providers.web_registry import web_registry_for
+        from .teacher_brief import compile_brief
+
+        teacher = deps.config.teacher
+        if teacher is None:
+            # Araç `config.teacher is not None` iken sunulur (bkz.
+            # `build_agent_registry`); buraya düşmek programlama hatasıdır ama
+            # yine de anlaşılır bir mesajla biter — sessiz kırılma yok.
+            return ToolResult.failure(
+                "Öğretmen yapılandırılmamış. `config.yaml`'a bir `teacher:` bölümü "
+                "eklemen gerekir (örnek: `defaults.yaml`'daki `teacher:` yorumu)."
+            )
+        question = args.get("question")
+        if not isinstance(question, str) or not question.strip():
+            return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
+        durum = args.get("durum")
+        denenenler = args.get("denenenler")
+
+        # "İlgili kod" modelin BEYANI değil, turun merkezi kaydından gelir —
+        # model unutabilir/yanlış hatırlayabilir, bu küme unutmaz.
+        touched_paths = sorted(
+            display_path(context, yol) for yol in (context.touched | context.fully_read)
+        )
+        brief = compile_brief(
+            durum=durum if isinstance(durum, str) else "",
+            denenenler=denenenler if isinstance(denenenler, str) else "",
+            question=question,
+            touched_paths=touched_paths,
+        )
+        deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
+
+        runtime = deps.config.runtime
+        request = CompletionRequest(
+            messages=(Message("user", brief.text),),
+            temperature=runtime.temperature,
+            max_tokens=runtime.max_tokens,
+            timeout_s=runtime.request_timeout_s,
+            max_retries=runtime.max_retries,
+        )
+        provider = build_provider(
+            teacher,
+            publisher=deps.publisher,
+            retry_delays_s=runtime.retry_delays_s,
+            web_sessions=web_registry_for(deps.config),
+        )
+        result = await provider.complete(request)
+        if not result.ok or not result.text:
+            return ToolResult.failure(f"Öğretmene ulaşılamadı: {result.error or 'bilinmeyen hata'}")
+        return ToolResult(f"[öğretmen · {result.model}]\n{result.text}")
+
+    return Tool(
+        name="ask_teacher",
+        description="Takıldığın bir işte web öğretmene (ChatGPT/Gemini web oturumu) TEK "
+        "bir soru sor. `council`'dan farklıdır: oylama yapmaz, tek dış görüş alır. Aynı "
+        "hata birkaç farklı yaklaşımdan sonra bile sürüyorsa kullan; ilk denemede DEĞİL.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "question": {**_STRING, "description": "öğretmene sorulacak TEK, net soru"},
+                "durum": {
+                    **_STRING,
+                    "description": "kısa durum özeti: ne yapmaya çalışıyorsun, nerede takıldın",
+                },
+                "denenenler": {
+                    **_STRING,
+                    "description": "hangi yaklaşımları denedin ve neden işe yaramadı",
+                },
             },
             "required": ["question"],
         },

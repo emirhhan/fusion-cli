@@ -330,6 +330,21 @@ vision:
   name: goz
   model: nvidia_nim/meta/llama-3.2-11b-vision-instruct
 
+# Öğretmen — `ask_teacher` aracının danıştığı web oturumu (Faz 4, 22 Eylül).
+#
+# Görme gibi OPSİYONELDİR ve BURADA VARSAYILAN YOK: hangi web sağlayıcısının
+# kullanılacağı kullanıcının KENDİ girişine bağlıdır (`web_sessions`), paket
+# adına bir hesap varsayamaz. Tanımsızsa `ask_teacher` aracı modele hiç
+# sunulmaz. Kullanıcı kendi `config.yaml`'ında örnek:
+#
+# teacher:
+#   name: ogretmen
+#   model: chatgpt_web/main/auto     # ya da gemini_web/main/auto
+#
+# Model kimliği ilgili `web_sessions` girişiyle (aynı `provider`+`account`)
+# eşleşmeli ve o oturum giriş yapılmış (`login_verified`) olmalıdır; değilse
+# araç çağrıldığında `ConfigError` ile anlaşılır bir mesaj döner.
+
 # Görev tipine göre kullanılacak model. Yalnızca yukarıda tanımlı bir aday adı yazılabilir;
 # tanınmayan ad sessizce `agent:` rolüne düşer.
 #
