@@ -397,13 +397,19 @@ def mcp(
     asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
 
 
-@app.command(name="web-login", hidden=True)
+@app.command(name="web-login")
 def web_login(provider: str, account: str = "main") -> None:
-    """Web sağlayıcısı için giriş tarayıcısını aç (panel tarafından çağrılır).
+    """Web sağlayıcısı için görünür giriş tarayıcısını aç.
 
     Paketlenmiş ikilide `python -m fusion_cli.providers.web_login` ÇALIŞMAZ:
-    `sys.executable` Fusion ikilisidir ve `-m` bayrağını tanımaz. Panel bu
-    komutu çağırır; iki kurulum biçiminde de aynı pencere açılır.
+    `sys.executable` Fusion ikilisidir ve `-m` bayrağını tanımaz. Kaynak
+    kurulumda da kabuğun varsayılan `python`'u venv değilse modülü bulamaz.
+    Bu komut iki kurulumda da aynı pencereyi açar.
+
+    ARTIK GİZLİ DEĞİL: oturum insan doğrulaması istediğinde kullanıcıya
+    gösterilen çözüm adımı bu komutu söylüyor (`providers/web_browser.py::
+    _cozum_adimlari`). Hata metninin önerdiği ama `--help`'te görünmeyen bir
+    komut, adını hatırlamayan kullanıcı için çıkışsız bir yol demekti.
     """
     import asyncio
 

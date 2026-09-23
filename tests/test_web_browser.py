@@ -322,7 +322,7 @@ def test_insan_dogrulamasi_mesaji_calistirilabilir_komut_icerir():
     tanim = WEB_BROWSER_PROVIDERS["gemini_web"]
     mesaj = _human_verification_message(tanim, "verify you are human")
 
-    assert "python -m fusion_cli.providers.web_login gemini_web" in mesaj
+    assert "fusion web-login gemini_web" in mesaj
     assert "fusion serve" in mesaj
     assert "captcha" in mesaj.lower()
 
@@ -332,14 +332,93 @@ def test_oturum_kapali_mesaji_da_ayni_cikisi_gosterir():
 
     mesaj = _login_required_message(WEB_BROWSER_PROVIDERS["gemini_web"])
 
-    assert "python -m fusion_cli.providers.web_login gemini_web" in mesaj
+    assert "fusion web-login gemini_web" in mesaj
 
 
 def test_cozum_adimlari_saglayiciya_gore_degisir():
     """Komut sabit metin değil; oturumun sağlayıcı kimliğini taşır."""
     from fusion_cli.providers.web_browser import _cozum_adimlari
 
-    assert "web_login chatgpt_web" in _cozum_adimlari(WEB_BROWSER_PROVIDERS["chatgpt_web"])
+    assert "fusion web-login chatgpt_web" in _cozum_adimlari(
+        WEB_BROWSER_PROVIDERS["chatgpt_web"]
+    )
+
+
+def _web_login_ayristir(argv: list[str]) -> None:
+    """Komutu `fusion web-login`'in KENDİ ayrıştırıcısına ver.
+
+    Grup seviyesinde `make_context` alt komutun argümanlarını ayrıştırmaz ve her
+    şeyi kabul ediyormuş gibi görünür — bu yüzden alt komut doğrudan çözülür.
+    Yalnız ayrıştırma yapılır; geri çağırım çalışmaz, tarayıcı açılmaz.
+    """
+    from typer.main import get_command
+
+    from fusion_cli.cli.app import app
+
+    grup = get_command(app)
+    with grup.make_context("fusion", [], resilient_parsing=True) as ctx:
+        alt = grup.get_command(ctx, "web-login")
+        assert alt is not None
+        alt.make_context("web-login", list(argv), parent=ctx, resilient_parsing=False)
+
+
+def test_cozum_adimlarindaki_komut_gercekten_ayristirilabilir():
+    """Mesajdaki komut CLI ayrıştırıcısından GEÇMELİ.
+
+    Ölçülen hata: mesaj `fusion web-login <saglayici> <hesap>` yazıyordu ama
+    `account` konumsal DEĞİL, seçenek. Kullanıcı komutu birebir kopyaladı ve
+    "Got unexpected extra argument(s)" aldı. Doğru komut ADINI taşımak yetmiyor;
+    sözdiziminin de tutması gerekiyor.
+    """
+    import shlex
+
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    for tanim in WEB_BROWSER_PROVIDERS.values():
+        satir = next(
+            parca.strip()
+            for parca in _cozum_adimlari(tanim).splitlines()
+            if parca.strip().startswith("fusion web-login")
+        )
+        # `fusion` önekini at; geriye alt komut adı ve argümanları kalır.
+        _web_login_ayristir(shlex.split(satir)[2:])
+
+
+def test_hesabi_konumsal_veren_komut_reddedilir():
+    """Ayrıştırma sınaması gerçekten ayırt ediyor mu?
+
+    Bu olmadan yukarıdaki test her şeyi kabul eden bir ayrıştırıcıya da
+    "geçti" derdi; nitekim ilk yazımda grup seviyesinde çağrıldığı için
+    hatalı sözdizimi de geçiyordu.
+    """
+    with pytest.raises(Exception, match="unexpected extra argument"):
+        _web_login_ayristir(["chatgpt_web", "main"])
+
+
+def test_cozum_adimlari_calismayan_python_m_komutunu_onermez():
+    """Önerilen komut iki kurulumda da çalışmalı.
+
+    Kullanıcı bunu gerçekten yaşadı: mesajın söylediği
+    `python -m fusion_cli.providers.web_login` kabuğun varsayılan Python'uyla
+    ModuleNotFoundError verdi. Paketlenmiş ikilide de çalışmaz — `sys.executable`
+    Fusion'ın kendisidir ve `-m` bayrağını tanımaz (bkz. `cli/app.py::web_login`).
+    """
+    from fusion_cli.providers.web_browser import _cozum_adimlari
+
+    for tanim in WEB_BROWSER_PROVIDERS.values():
+        assert "python -m" not in _cozum_adimlari(tanim)
+
+
+def test_web_login_komutu_yardimda_gorunur():
+    """Hata metninin önerdiği komut `--help`'te bulunabilmeli.
+
+    Komut `hidden=True` idi: adını hatırlamayan kullanıcı için çıkışsız bir yol.
+    """
+    from fusion_cli.cli.app import app
+
+    komut = next(item for item in app.registered_commands if item.name == "web-login")
+
+    assert not komut.hidden
 
 
 # --------------------------------------------------------------------------- #
@@ -619,3 +698,30 @@ async def test_anonim_composer_acik_olsa_da_istem_gonderilmeden_giris_istenir(mo
     with pytest.raises(WebBrowserAuthError):
         await browser._send_turn(page, WEB_BROWSER_PROVIDERS["gemini_web"], "kullanıcı görevi")
     fill.assert_not_awaited()
+
+
+def test_chatgpt_composer_prosemirror_secicisini_once_dener():
+    """ChatGPT composer'ı ProseMirror; ölçülmüş seçici ilk sırada olmalı.
+
+    Ölçüldü (22 Eylül 2026, gerçek Plus oturumu, TR arayüz): oturum açık ve
+    sayfa yüklüyken eski BEŞ giriş seçicisinin hepsi 0 eşleşme verdi; sayfadaki
+    tek composer `div.ProseMirror[contenteditable="true"]` idi. Yani CAPTCHA
+    olmasa bile her ChatGPT turu "mesaj alanı bulunamadı" ile ölüyordu.
+    """
+    tanim = WEB_BROWSER_PROVIDERS["chatgpt_web"]
+
+    assert tanim.input_selectors[0] == 'div.ProseMirror[contenteditable="true"]'
+    # Eskiler yedekte KALMALI: başka sürüm/arayüz varyantı onları kullanabilir.
+    assert "#prompt-textarea" in tanim.input_selectors
+
+
+def test_chatgpt_gonder_secicisi_dil_bagimsiz_olani_once_dener():
+    """Aynı ölçüm: `form button[type=submit]` tuttu, `data-testid` tutmadı.
+
+    `aria-label` yerelleştirilmiş ("gönder"), ona güvenilemez — arayüz dili
+    değişince sessizce Enter yoluna düşer ve tur başına 2 saniye yakar.
+    """
+    tanim = WEB_BROWSER_PROVIDERS["chatgpt_web"]
+
+    assert tanim.send_selectors[0] == 'form button[type="submit"]'
+    assert tanim.send_selectors[0].islower() or "aria-label" not in tanim.send_selectors[0]

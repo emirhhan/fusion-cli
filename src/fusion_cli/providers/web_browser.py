@@ -183,14 +183,27 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
         home_url="https://chatgpt.com/",
         new_chat_url="https://chatgpt.com/",
         cookie_urls=("https://chatgpt.com/", "https://openai.com/"),
+        # Sıra ÖLÇÜME göre (22 Eylül 2026, kullanıcının gerçek Plus oturumu, TR
+        # arayüz): ChatGPT composer'ı Lexical'dan ProseMirror'a geçmiş ve eski beş
+        # seçicinin HEPSİ 0 eşleşme veriyordu. Oturum açıktı, sayfa yüklüydü, hata
+        # yalnız "mesaj alanı bulunamadı" idi — yani her ChatGPT turu, CAPTCHA
+        # olmasa bile burada ölüyordu. ProseMirror seçicisi dil-bağımsızdır;
+        # `aria-label` ("ChatGPT'ye mesaj gönder") yerelleştirilmiş, ona güvenilmez.
+        # Eskiler yedekte kalır: başka sürüm/arayüz varyantı onları kullanabilir.
         input_selectors=(
+            'div.ProseMirror[contenteditable="true"]',
             "#prompt-textarea",
             '[data-testid="prompt-textarea"]',
             'div[contenteditable="true"][data-lexical-editor="true"]',
             'textarea[placeholder*="Message"]',
             "textarea",
         ),
+        # Aynı ölçümde: `data-testid="send-button"` 0, `form button[type=submit]`
+        # 1 ve görünür. Submit düğmesi composer'da metin varken belirir, bu yüzden
+        # boş sayfada aranırsa bulunamaz. Düğme hiç bulunamazsa kod zaten Enter'a
+        # düşer (`_send_turn`), ama o yol her turda 2 saniyelik boş bekleme yakar.
         send_selectors=(
+            'form button[type="submit"]',
             'button[data-testid="send-button"]',
             'button[aria-label*="Send" i]',
             'button[aria-label*="Gönder" i]',
@@ -1995,12 +2008,20 @@ def _cozum_adimlari(definition: BrowserProviderDefinition) -> str:
     Eskiden mesaj yalnızca "görünür giriş tarayıcısında tamamla" diyordu ve bunun
     NASIL açılacağını hiçbir yerde söylemiyordu. RULES.md: hata mesajı ne olduğunu,
     nedenini ve kullanıcının NE YAPABİLECEĞİNİ söyler. Komut buraya yazılır.
+
+    Komut `fusion web-login`'dir, `python -m ...` DEĞİL. İkincisi iki yaygın
+    durumda birden başarısız oluyordu ve kullanıcı bunu gerçekten yaşadı:
+    paketlenmiş ikilide `sys.executable` Fusion'ın kendisidir ve `-m` bayrağını
+    tanımaz (bkz. `cli/app.py::web_login`); kaynak kurulumda ise kabuğun
+    varsayılan `python`'u venv olmadığı sürece `fusion_cli`'ı bulamaz.
+    `fusion web-login` her iki kurulumda da aynı pencereyi açar.
     """
     return (
         "Çözüm — görünür tarayıcıda doğrulamayı tamamla (aynı izole profil kullanılır, "
         "bittiğinde arka plan modu yeniden çalışır):\n"
-        f"  python -m fusion_cli.providers.web_login {definition.id} <hesap>\n"
-        "Hesap adı `/model` çıktısındaki model kimliğinin ortasındadır "
+        f"  fusion web-login {definition.id}\n"
+        "Varsayılan hesap `main`. Başka bir hesap için `--account <ad>` ekle; "
+        "hesap adı `/model` çıktısındaki model kimliğinin ortasındadır "
         f"(ör. `{definition.id}/main/auto` → hesap `main`).\n"
         "Ya da: `fusion serve` → Sağlayıcılar → ilgili oturum → 'Tarayıcıyla giriş yap'.\n"
         "Tarayıcı açılınca doğrulamayı yap ve pencereyi KAPAT; oturum kaydedilir."
