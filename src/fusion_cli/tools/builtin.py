@@ -66,7 +66,15 @@ _TOOLS: tuple[Tool, ...] = (
             {
                 # Açıklamada sıra vurgulanır: içerik büyükse model küçük alanı sona
                 # bırakıp bazen hiç üretmiyor ve tur boşa gidiyor.
-                "path": {**_STRING, "description": "Dosya yolu. İLK bu alanı yaz."},
+                "path": {
+                    **_STRING,
+                    "description": (
+                        "Dosya yolu. Kısıtlı çalışma alanında proje köküne göreli yaz "
+                        "(ör. index.html veya src/app.py); /index.html gibi / ile "
+                        "başlayan yol işletim sisteminin köküdür ve reddedilir. "
+                        "İLK bu alanı yaz."
+                    ),
+                },
                 "content": {
                     **_STRING,
                     "description": "Dosyanın yeni tam içeriği. 'path' YAZILDIKTAN SONRA gelir.",
@@ -270,7 +278,10 @@ _TOOLS: tuple[Tool, ...] = (
         description="Bir adresi GERÇEK tarayıcıda aç ve sayfanın görünür metnini oku. "
         "web_fetch'in yetmediği yerde kullan: şifre/giriş arkasındaki sayfa, "
         "JavaScript ile dolan içerik, tıklama gerektiren akış. Sayfa tur boyunca "
-        "AÇIK kalır; sonraki browser_* çağrıları aynı sayfada çalışır.",
+        "AÇIK kalır; sonraki browser_* çağrıları aynı sayfada çalışır. "
+        "Bu araç dış adresler içindir; file://, localhost ve 127.0.0.1 adresleri "
+        "güvenlik nedeniyle reddedilir. Yerel uygulamayı doğrulamak için projenin "
+        "test/acceptance komutunu run_shell ile çalıştır.",
         parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
         run=browser.browser_open,
     ),
