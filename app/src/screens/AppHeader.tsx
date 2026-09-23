@@ -5,6 +5,7 @@ interface AppHeaderProps {
   inspectorOpen: boolean;
   onToggleInspector: () => void;
   onToggleSidebar: () => void;
+  onShare?: () => void;
   projectName?: string;
   sidebarCollapsed: boolean;
   status?: string;
@@ -15,6 +16,7 @@ export function AppHeader({
   inspectorOpen,
   onToggleInspector,
   onToggleSidebar,
+  onShare,
   projectName,
   sidebarCollapsed,
   status = "Hazır",
@@ -35,7 +37,8 @@ export function AppHeader({
         {projectName && <span className="app-header__project">{projectName}</span>}
       </div>
       <div className="app-header__actions">
-        <span className="app-header__status"><span aria-hidden="true" />{status}</span>
+        {status === "Bağlantı kesildi" && <span className="app-header__status" role="alert">{status}</span>}
+        {onShare && <Button aria-label="Sohbeti paylaş" icon="share" iconOnly onClick={onShare} />}
         {/* Tema değiştirici başlıktan KALDIRILDI: tema bir tercihtir ve yeri
             Ayarlar'dır. Ana ekranda durması hem gereksiz yer kaplıyor hem
             günlük kullanımda yanlışlıkla değiştirilmesine yol açıyordu. */}

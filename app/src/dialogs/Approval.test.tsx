@@ -50,6 +50,7 @@ describe("Approval", () => {
     const onCevap = vi.fn();
     render(<Approval soru={temel} onCevap={onCevap} />);
     expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    expect(screen.getByRole("dialog").hasAttribute("aria-modal")).toBe(false);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onCevap).toHaveBeenCalledWith({ secim: "deny" });
   });

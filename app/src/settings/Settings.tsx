@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
-import { PageHeader } from "../ui/PageHeader";
 import { UpdatePanel } from "../control/UpdatePanel";
 import { Instructions } from "./Instructions";
+import { MemoryPanel } from "./MemoryPanel";
 import { UsagePanel } from "./UsagePanel";
 import { VoicePreferences } from "./VoicePreferences";
 import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
@@ -25,11 +25,12 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "modeller" | "izinler" | "guncellemeler" | "gelismis";
+type BolumId = "genel" | "hesap" | "kisisellestirme" | "modeller" | "izinler" | "guncellemeler" | "gelismis";
 
 const BOLUMLER: { id: BolumId; etiket: string }[] = [
   { id: "genel", etiket: "Genel" },
   { id: "hesap", etiket: "Hesap" },
+  { id: "kisisellestirme", etiket: "Kişiselleştirme" },
   { id: "modeller", etiket: "Modeller" },
   { id: "izinler", etiket: "İzinler" },
   { id: "guncellemeler", etiket: "Güncellemeler" },
@@ -69,6 +70,41 @@ export function Settings({
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
   const [gatewayBusy, setGatewayBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    previousFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement : null;
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialogRef.current) return;
+      const controls = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href]',
+      )).filter((item) => item.getClientRects().length > 0);
+      if (!controls.length) return;
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previousFocus.current?.focus();
+    };
+  }, [onClose]);
 
   const load = useCallback(async () => {
     try {
@@ -114,18 +150,16 @@ export function Settings({
   };
 
   return (
-    <section aria-label="Ayarlar" className="settings">
-      <PageHeader
-        actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
-        description="Görünüm, hesap, modeller ve izinler."
-        title="Ayarlar"
-      />
-
-      {error && <p className="settings__error" role="status">{error}</p>}
-
-      <div className="settings__workspace">
-        <nav aria-label="Ayar bölümleri" className="settings__nav">
-          {BOLUMLER.map((item) => (
+    <section className="settings" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" ref={dialogRef} role="dialog">
+        <div className="settings__navcol">
+          <h2 className="settings__sr-only" id="settings-title">Ayarlar</h2>
+          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} ref={closeRef} type="button">×</button>
+          <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
+          <nav aria-label="Ayar bölümleri" className="settings__nav">
+            {BOLUMLER.filter((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))).map((item) => (
             <button
               aria-current={bolum === item.id ? "page" : undefined}
               key={item.id}
@@ -134,10 +168,13 @@ export function Settings({
             >
               {item.etiket}
             </button>
-          ))}
-        </nav>
+            ))}
+          </nav>
+        </div>
 
         <div className="settings__panel">
+          <h3 className="settings__section-heading">{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
+          {error && <p className="settings__error" role="status">{error}</p>}
           {bolum === "genel" && (
             <General
               historyOpen={historyOpen}
@@ -169,6 +206,8 @@ export function Settings({
             <Models model={control?.model ?? null} onRunCommand={onRunCommand} />
           )}
 
+          {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+
           {bolum === "izinler" && (
             <Permissions
               kok={control?.kok ?? ""}
@@ -189,7 +228,6 @@ export function Settings({
                 mesgul={gatewayBusy}
                 onToggle={toggleGateway}
               />
-              <Instructions client={client} />
               <UsagePanel client={client} />
               <VoicePreferences client={client} />
             </>

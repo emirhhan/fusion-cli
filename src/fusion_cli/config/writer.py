@@ -193,6 +193,7 @@ def write_web_sessions(config: Config, path: Path | None = None) -> Path:
                     "headless": WindowMode(session.headless).as_config_value,
                     "timeout_s": session.timeout_s,
                     "enabled": session.enabled,
+                    "selected_model": session.selected_model,
                 }.items()
                 if value is not None and value != ""
             }

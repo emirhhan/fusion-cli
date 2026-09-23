@@ -99,6 +99,8 @@ describe("Uygulama", () => {
   it("olayları konuşma akışında gösterir", async () => {
     const fake = fakeClient();
     render(<Uygulama istemci={fake.client} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Dosya oluştur" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
     fake.receive(JSON.stringify({ tip: "olay", veri: { olay: "ToolExecuted", name: "write_file" } }));
     await waitFor(() => expect(screen.getByText(/write_file/)).toBeTruthy());
   });

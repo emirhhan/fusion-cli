@@ -364,6 +364,151 @@ WEB_BROWSER_PROVIDERS: dict[str, BrowserProviderDefinition] = {
     ),
 }
 
+# Yalnız arayüzde gerçek seçim düğmesi gözlenebilen sağlayıcılar. Bir menü
+# bulunamazsa model adı uydurulmaz; kullanıcıya sadece otomatik kip sunulur.
+MODEL_MENU_BUTTONS: dict[str, tuple[str, ...]] = {
+    "gemini_web": ('button[data-test-id="bard-mode-menu-button"]',),
+    "chatgpt_web": (
+        'button[data-testid="model-switcher-dropdown-button"]',
+        'button[aria-label*="model seç" i]',
+        'button[aria-label*="select model" i]',
+    ),
+    "claude_web": (
+        'button[data-testid="model-selector-dropdown"]',
+        'button[aria-label*="select model" i]',
+    ),
+}
+
+
+def _model_label(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _model_choice_matches_observed(choice: str, observed: str) -> bool:
+    """Menü sürüm adını, seçici ise kısa kademe adını gösterebilir."""
+    normalized = _model_label(choice).casefold()
+    visible = _model_label(observed).casefold()
+    short = re.sub(r"^\d+(?:\.\d+)*\s+", "", normalized)
+    if re.search(rf"(?<![\w.]){re.escape(normalized)}(?![\w.])", visible):
+        return True
+    # Gemini düğmesi "3.1 Pro" yerine yalnız "Pro" diyor. Bu kısaltmayı
+    # ancak düğmede BAŞKA bir sürüm sayısı yoksa kabul et; "3.6 Pro"yu "3.1
+    # Pro" seçimi sanmak kullanıcının tam model tercihini ihlal eder.
+    return (
+        short != normalized
+        and not re.search(r"\d+(?:\.\d+)*", visible)
+        and re.search(rf"(?<![\w.]){re.escape(short)}(?![\w.])", visible) is not None
+    )
+
+
+async def _model_menu(
+    page: Any, definition: BrowserProviderDefinition, *, wait_ms: int = 0
+) -> Any | None:
+    selectors = MODEL_MENU_BUTTONS.get(definition.id, ())
+    for selector in selectors:
+        try:
+            button = page.locator(selector).first
+            if wait_ms:
+                await button.wait_for(state="visible", timeout=max(1000, wait_ms // len(selectors)))
+            if await button.count() and await button.is_visible():
+                await button.click(timeout=3000)
+                return button
+        except Exception:
+            continue
+    return None
+
+
+async def _visible_model_options(
+    page: Any, definition: BrowserProviderDefinition
+) -> tuple[tuple[str, Any], ...]:
+    """Açık model menüsündeki gerçek seçenekleri oku; sayfa içeriğini tarama."""
+    containers = page.locator(
+        '[role="menu"]:visible, [role="listbox"]:visible, '
+        '[data-radix-menu-content]:visible, .mat-mdc-menu-panel:visible'
+    )
+    try:
+        await containers.first.wait_for(state="visible", timeout=5000)
+    except Exception:
+        return ()
+    if not await containers.count():
+        return ()
+    menu = containers.last
+    # Gemini aynı menüde "Genişletilmiş düşünme" ayarını da gösteriyor. Bu bir
+    # model değil; yalnız model seçeneklerine ait test kimlikleri alınır.
+    option_selector = (
+        'gem-menu-item[data-test-id^="bard-mode-option-"]'
+        if definition.id == "gemini_web"
+        else '[role="menuitemradio"], [role="menuitem"], [role="option"], mat-option'
+    )
+    options = menu.locator(option_selector)
+    result: list[tuple[str, Any]] = []
+    for index in range(min(await options.count(), 30)):
+        item = options.nth(index)
+        try:
+            label = _model_label((await item.inner_text()).split("\n", 1)[0])
+            if label and len(label) <= 80 and await item.is_visible():
+                result.append((label, item))
+        except Exception:
+            continue
+    return tuple(result)
+
+
+async def model_choices_on_page(
+    page: Any, definition: BrowserProviderDefinition
+) -> tuple[str, ...]:
+    """Sağlayıcının hesapta gösterdiği model seçenekleri; yoksa boş liste."""
+    if await _model_menu(page, definition) is None:
+        return ()
+    return tuple(dict.fromkeys(
+        label for label, _ in await _visible_model_options(page, definition)
+    ))
+
+
+async def ensure_model_choice(
+    page: Any, definition: BrowserProviderDefinition, choice: str
+) -> str:
+    """Seçilen modeli mesajdan ÖNCE uygula; bulunamazsa mesajı gönderme."""
+    if not choice:
+        return ""
+    button = await _model_menu(page, definition, wait_ms=12000)
+    if button is None:
+        raise WebBrowserSelectorError(f"{definition.name} model seçicisi bulunamadı")
+    matches = [
+        item for label, item in await _visible_model_options(page, definition)
+        if _model_label(label).casefold() == _model_label(choice).casefold()
+    ]
+    if len(matches) != 1:
+        raise WebBrowserSelectorError(
+            f"{definition.name} hesabında '{choice}' modeli artık seçilebilir değil"
+        )
+    await matches[0].click(timeout=5000)
+    visible = _model_label(
+        " ".join(((await button.inner_text()), (await button.get_attribute("aria-label")) or ""))
+    )
+    if not _model_choice_matches_observed(choice, visible):
+        raise WebBrowserSelectorError(
+            f"{definition.name} model seçimini doğrulayamadı: {choice}"
+        )
+    return choice
+
+
+async def discover_browser_models(
+    session: WebSessionConfig, credential: WebSessionCredential | None = None
+) -> tuple[str, ...]:
+    """Fusion'ın izole profilinden canlı menüyü oku; sohbet göndermeden kapat."""
+    definition = provider_definition(session.provider)
+    lock = _POOL.lock_for(session.provider, session.account)
+    async with lock:
+        context = await _POOL.context_for(session, credential or WebSessionCredential())
+        page = await context.new_page()
+        try:
+            await _open_conversation(page, definition)
+            if await _first_visible(page, definition.input_selectors, timeout_ms=12_000) is None:
+                raise WebBrowserAuthError(f"{definition.name} oturumu hazır değil")
+            return await model_choices_on_page(page, definition)
+        finally:
+            await page.close()
+
 
 def normalize_account(account: str) -> str:
     """Kullanıcının yazdığı hesap etiketini model kimliği/yol/HTML için normalize et."""
@@ -1144,7 +1289,7 @@ def build_browser_transport(
     async def _transport(
         credential: WebSessionCredential, messages: tuple[Message, ...], model: str
     ) -> WebTurn:
-        del model  # Tarayıcı arayüzü hesabın kendi seçili modelini kullanır.
+        del model  # Model kimliği oturumu bulur; seçili web kipi aşağıda uygulanır.
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
             context = await manager.context_for(session, credential)
@@ -1239,6 +1384,7 @@ async def _deliver_turn(
     )
 
     if resumable and state is not None:
+        await ensure_model_choice(state.page, definition, session.selected_model)
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
@@ -1257,6 +1403,7 @@ async def _deliver_turn(
         ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
         await _open_conversation(page, definition)
+        await ensure_model_choice(page, definition, session.selected_model)
         prompt = format_browser_prompt(messages, trim=False)
         answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
 
@@ -1265,6 +1412,16 @@ async def _deliver_turn(
     answer = strip_role_headers(answer)
 
     kademe = await observed_tier(state.page, definition)
+    if (
+        session.selected_model
+        and kademe
+        and not _model_choice_matches_observed(session.selected_model, kademe)
+    ):
+        raise WebBrowserError(
+            f"{definition.name} seçili modelden farklı bir kademeye geçti: {kademe}"
+        )
+    if not kademe and session.selected_model:
+        kademe = session.selected_model
     if kademe and kademe != state.tier:
         # Kademe DEĞİŞTİĞİNDE yazılır: her tur aynı satırı basmak günlüğü doldurur,
         # oysa bilgi olan şey değişimin kendisidir (oturum düştü, kullanıcı kip

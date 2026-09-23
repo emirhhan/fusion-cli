@@ -29,6 +29,12 @@ describe("ModelPicker", () => {
     expect(dugme.getAttribute("title")).toBe("openrouter/openai/gpt-oss-20b:free");
   });
 
+  test("seçilen web modelinin gerçek etiketini otomatik kimliği yerine gösterir", () => {
+    render(<ModelPicker active="gemini_web/main/auto" activeLabel="Gemini · 3.1 Pro" onSelect={vi.fn()} options={[]} />);
+    const button = screen.getByRole("button", { name: /Gemini · 3.1 Pro/ });
+    expect(button.textContent).toContain("Gemini · 3.1 Pro");
+  });
+
   test("liste kapalıyken seçenek çizilmez", () => {
     render(<ModelPicker active="a" onSelect={vi.fn()} options={SECENEKLER} />);
 
@@ -80,5 +86,20 @@ describe("ModelPicker", () => {
     fireEvent.keyDown(document, { key: "Escape" });
 
     expect(screen.queryByRole("listbox")).toBeNull();
+  });
+
+  test("görev büyüklüğüne göre gruplar ve aramayla daraltır", () => {
+    const options: ModelOption[] = [
+      { deger: "/development uygula openrouter-free openrouter/fast", etiket: "Hızlı", grup: "low" },
+      { deger: "/development uygula openrouter-free openrouter/deep", etiket: "Derin", grup: "high" },
+    ];
+    render(<ModelPicker active="openrouter/fast" onSelect={vi.fn()} options={options} />);
+    fireEvent.click(screen.getByRole("button", { name: /Model:/ }));
+
+    expect(screen.getByText("Basit ve hızlı görevler")).toBeTruthy();
+    expect(screen.getByText("Büyük ve karmaşık görevler")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Model ara" }), { target: { value: "Derin" } });
+    expect(screen.queryByText("Hızlı")).toBeNull();
+    expect(screen.getByText("Derin")).toBeTruthy();
   });
 });

@@ -127,6 +127,18 @@
 .conversation__text { font-size: 0.98rem; line-height: 1.65; }
 .conversation__message--assistant .conversation__article { padding: 0 8px; }
 
+/* Canlı durum yalnız ekran okuyucuya duyurulur; görsel durum ActivityLine'da
+   zaten bir kez gösterilir. Bu kural eksik olduğunda sayfanın solunda ikinci
+   bir “Çalışıyor” satırı beliriyordu. */
+.conversation__live-status {
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
 @container conversation-workspace (max-width: 640px) {
   .conversation__stream { width: calc(100% - 28px); }
   .conversation__bubble { max-width: 92%; }

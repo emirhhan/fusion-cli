@@ -34,6 +34,8 @@ class CatalogEntry:
     model_id: str
     provider: str
     context_length: int = 0
+    #: Canlı katalog araç çağrısını açıkça bildiriyorsa; NIM bu bilgiyi vermez.
+    supports_tools: bool | None = None
 
 
 def fetch_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntry, ...]:
@@ -44,6 +46,7 @@ def fetch_openrouter_free(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntr
             model_id=f"openrouter/{item['id']}",
             provider="openrouter",
             context_length=_as_int(item.get("context_length")),
+            supports_tools=_supports_tools(item),
         )
         for item in data
         if _is_free(item) and item.get("id")
@@ -63,6 +66,7 @@ def fetch_openrouter_paid(timeout_s: float = WEB_TIMEOUT_S) -> tuple[CatalogEntr
             model_id=f"openrouter/{item['id']}",
             provider="openrouter",
             context_length=_as_int(item.get("context_length")),
+            supports_tools=_supports_tools(item),
         )
         for item in data
         if item.get("id") and not _is_free(item)
@@ -91,11 +95,19 @@ def _as_int(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
+def _supports_tools(item: dict[str, object]) -> bool:
+    parameters = item.get("supported_parameters")
+    return isinstance(parameters, list) and "tools" in parameters
+
+
 def _is_free(item: dict[str, object]) -> bool:
     pricing = item.get("pricing")
     if not isinstance(pricing, dict):
         return False
-    return str(pricing.get("prompt", "")).strip() in _FREE_PRICES
+    return all(
+        str(pricing.get(field, "")).strip() in _FREE_PRICES
+        for field in ("prompt", "completion")
+    )
 
 
 def _get_json(

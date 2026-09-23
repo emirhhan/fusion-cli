@@ -73,6 +73,19 @@ afterEach(() => {
 });
 
 describe("Settings — yapı", () => {
+  it("sohbetin üstünde aranan ve Escape ile kapanan pencere açar", async () => {
+    const onClose = vi.fn();
+    ciz({ onClose });
+    expect(await screen.findByRole("dialog", { name: "Ayarlar" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Ayarları ara" }), {
+      target: { value: "model" },
+    });
+    expect(screen.getByRole("button", { name: "Modeller" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Genel" })).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("bölümleri sol menüde listeler ve Genel ile açılır", async () => {
     ciz();
 
@@ -230,7 +243,7 @@ describe("Settings — Gelişmiş", () => {
 
   it("kalıcı talimatı yükler ve kaydeder", async () => {
     const fake = ciz();
-    bolum("Gelişmiş");
+    bolum("Kişiselleştirme");
 
     const alan = (await screen.findByLabelText("Kalıcı talimat")) as HTMLTextAreaElement;
     expect(alan.value).toBe("Kısa yaz.");

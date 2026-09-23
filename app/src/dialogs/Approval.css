@@ -1,12 +1,14 @@
 .approval-backdrop {
-  align-items: center;
-  background: var(--surface-overlay);
+  align-items: flex-end;
+  background: linear-gradient(transparent, var(--surface-canvas));
   display: flex;
-  inset: 0;
+  inset: auto 0 0;
   justify-content: center;
-  padding: var(--space-6);
-  position: fixed;
-  z-index: var(--z-dialog);
+  max-height: 100%;
+  padding: 32px var(--space-6) var(--space-4);
+  pointer-events: none;
+  position: absolute;
+  z-index: var(--z-overlay);
 }
 
 .approval {
@@ -14,9 +16,12 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-overlay);
-  max-width: 520px;
+  max-height: min(70vh, 540px);
+  max-width: 760px;
   outline: 0;
-  padding: var(--space-6);
+  overflow: auto;
+  padding: var(--space-5);
+  pointer-events: auto;
   width: 100%;
 }
 

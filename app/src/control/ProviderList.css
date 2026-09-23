@@ -174,3 +174,21 @@
   padding: 18px 4px;
   text-align: center;
 }
+.provider-list__model-choice {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  max-width: 380px;
+}
+
+.provider-list__model-choice select {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  min-height: 38px;
+  padding: 6px 10px;
+}
+
+.provider-list__model-choice small { color: var(--text-secondary); }

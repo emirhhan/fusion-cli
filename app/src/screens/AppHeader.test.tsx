@@ -5,7 +5,7 @@ import { AppHeader } from "./AppHeader";
 afterEach(cleanup);
 
 describe("AppHeader", () => {
-  it("konuşma, proje ve çalışma durumunu açıkça gösterir", () => {
+  it("konuşma ve projeyi gösterir; üst köşede yinelenen çalışma yazısı yoktur", () => {
     render(
       <AppHeader
         inspectorOpen
@@ -19,7 +19,15 @@ describe("AppHeader", () => {
     );
     expect(screen.getByRole("heading", { name: "macOS uygulaması" })).toBeTruthy();
     expect(screen.getByText("fusion-cli")).toBeTruthy();
-    expect(screen.getByText("Çalışıyor")).toBeTruthy();
+    expect(screen.queryByText("Çalışıyor")).toBeNull();
+  });
+
+  it("paylaş düğmesini bağlar ve bağlantı hatasını görünür tutar", () => {
+    const onShare = vi.fn();
+    render(<AppHeader inspectorOpen={false} onShare={onShare} onToggleInspector={vi.fn()} onToggleSidebar={vi.fn()} sidebarCollapsed={false} status="Bağlantı kesildi" title="Sohbet" />);
+    fireEvent.click(screen.getByRole("button", { name: "Sohbeti paylaş" }));
+    expect(onShare).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert").textContent).toBe("Bağlantı kesildi");
   });
 
   it("iki panel düğmesinin açık durumunu erişilebilir biçimde taşır", () => {

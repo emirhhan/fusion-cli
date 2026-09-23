@@ -46,6 +46,7 @@
 
 .app-shell__workspace {
   display: grid;
+  grid-column: 2;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
@@ -64,6 +65,7 @@
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 /* Ana alan esnek kutu olduğundan çocuk, kendi genişliğini içeriğinden alır.
@@ -79,6 +81,51 @@
   background: var(--surface-canvas);
   min-width: 0;
   overflow-x: clip;
+}
+
+/* Yeni sohbette başlık, yazma alanı ve öneriler aynı orta eksene oturur. */
+.app-shell__welcome {
+  align-content: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-items: center;
+  min-height: 0;
+  overflow: auto;
+  padding: 26vh 24px 24px;
+  width: 100%;
+}
+
+.app-shell__welcome .empty-state,
+.app-shell__welcome .empty-state__content { display: contents; }
+.app-shell__welcome .empty-state__character,
+.app-shell__welcome .empty-state p { display: none; }
+.app-shell__welcome .empty-state h2 {
+  font-size: 24px;
+  font-weight: 500;
+  margin: 0 0 26px;
+  text-align: center;
+}
+.app-shell__welcome .app-shell__composer {
+  background: transparent;
+  max-width: 680px;
+  width: 100%;
+}
+.app-shell__welcome .empty-state__suggestions {
+  gap: 6px;
+  margin: 10px auto 0;
+  max-width: 700px;
+  order: 3;
+  width: 100%;
+}
+.app-shell__welcome .empty-state__suggestions button {
+  border: 0;
+  color: var(--text-secondary);
+  min-height: 40px;
+}
+.app-shell__welcome .composer__hint { display: none; }
+
+@media (max-width: 620px) {
+  .app-shell__welcome { padding: 20vh 16px 24px; }
 }
 
 .app-shell__inspector {
@@ -104,30 +151,25 @@
   z-index: var(--z-overlay);
 }
 
-/* Dar pencerede kenar çubuğu SÜTUN KAPLAMAZ; içeriğin üstüne biner ve arkası
-   karartılır. Eskiden ikon şeridine inip kalıcı bir sütun tutuyordu: 1024px
-   altında sohbet için kalan yer zaten dardı ve o şerit hiçbir iş görmüyordu. */
+.app-shell__sidebar-backdrop {
+  background: var(--surface-overlay);
+  border: 0;
+  display: none;
+  inset: var(--header-height) 0 0;
+  padding: 0;
+  position: fixed;
+  z-index: var(--z-overlay);
+}
+
+/* Orta genişlikte ChatGPT gibi gezinme kendi sütununda kalır. Denetçi bu
+   genişlikte ayrı bir sütun yerine sohbetin üstüne açılır. */
 @media (max-width: 1023px) {
-  .app-shell,
-  .app-shell[data-inspector-open="true"],
-  .app-shell[data-sidebar-collapsed="false"],
-  .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
-    grid-template-columns: 0 minmax(0, 1fr);
+  .app-shell[data-inspector-open="true"] {
+    grid-template-columns: var(--kenar-cubugu-genislik) minmax(0, 1fr) 0;
   }
 
-  .app-shell__sidebar {
-    bottom: 0;
-    box-shadow: var(--shadow-overlay);
-    position: fixed;
-    top: var(--header-height);
-    width: var(--kenar-cubugu-genislik);
-    z-index: var(--z-overlay);
-  }
-
-  .app-shell[data-sidebar-collapsed="true"] .app-shell__sidebar {
-    /* Üste binen çubuk kapalıyken ekran dışına çekilir: sıfır genişlik burada
-       yetmez, konumu sabit. */
-    transform: translateX(-100%);
+  .app-shell[data-sidebar-collapsed="true"][data-inspector-open="true"] {
+    grid-template-columns: 0 minmax(0, 1fr) 0;
   }
 
   .app-shell__inspector {
@@ -145,6 +187,30 @@
     display: block;
     left: 0;
     top: var(--header-height);
+  }
+}
+
+@media (max-width: 620px) {
+  .app-shell,
+  .app-shell[data-inspector-open="true"],
+  .app-shell[data-sidebar-collapsed="false"],
+  .app-shell[data-sidebar-collapsed="false"][data-inspector-open="true"] {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .app-shell__sidebar {
+    bottom: 0;
+    box-shadow: var(--shadow-overlay);
+    position: fixed;
+    top: var(--header-height);
+    width: var(--kenar-cubugu-genislik);
+    z-index: calc(var(--z-overlay) + 1);
+  }
+
+  .app-shell__sidebar-backdrop { display: block; }
+
+  .app-shell[data-sidebar-collapsed="true"] .app-shell__sidebar {
+    transform: translateX(-100%);
   }
 }
 

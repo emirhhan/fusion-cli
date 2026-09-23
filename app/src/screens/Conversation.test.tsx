@@ -59,6 +59,15 @@ describe("Conversation", () => {
     expect(container.querySelector("details")).toBeNull();
   });
 
+  it("tur kesilince gerideki çalışan olayın sayacını ve durumunu kaldırır", () => {
+    const mesajlar = [{ rol: "olay" as const, metin: "düşünüyor", adimlar: [{ metin: "düşünüyor" }] }];
+    const { container, rerender } = render(<Conversation mesajlar={mesajlar} running />);
+    expect(container.querySelector('[data-state="running"]')).not.toBeNull();
+    rerender(<Conversation mesajlar={mesajlar} running={false} />);
+    expect(container.querySelector('[data-state="running"]')).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
   /* Kullanıcının ölçülmüş şikayeti: basit bir soruda bile cevabın üstünde yeşil
      tikli bir "Tamamlandı" bloğu kalıyordu. Biten iş iz BIRAKMAMALI. */
   it("tamamlanan iş hiçbir iz bırakmaz", () => {

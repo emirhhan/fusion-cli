@@ -53,12 +53,14 @@ function useMediaQuery(query: string) {
 interface ShellProps {
   composer?: ReactNode;
   content: ReactNode;
+  emptyChat?: boolean;
   header?: ReactNode;
   inspector?: ReactNode;
   inspectorCollapsed?: boolean;
   inspectorOpen?: boolean;
   inspectorWidth?: number;
   onInspectorClose?: () => void;
+  onSidebarClose?: () => void;
   sidebar: ReactNode;
   sidebarCollapsed?: boolean;
   /** Çalışma paneli sağda mı, görev kutusunun altında mı. */
@@ -68,12 +70,14 @@ interface ShellProps {
 export function Shell({
   composer,
   content,
+  emptyChat = false,
   header,
   inspector,
   inspectorCollapsed = false,
   inspectorOpen = Boolean(inspector),
   inspectorWidth = 420,
   onInspectorClose,
+  onSidebarClose,
   sidebar,
   sidebarCollapsed = false,
   inspectorPlacement = "right",
@@ -82,7 +86,9 @@ export function Shell({
   const overlayOwnsFocus = useRef(false);
   const previousFocus = useRef<HTMLElement | null>(null);
   const inspectorOverlay = useMediaQuery(inspectorOverlayQuery);
+  const sidebarOverlay = useMediaQuery("(max-width: 620px)");
   const inspectorModal = inspectorOpen && inspectorOverlay && !inspectorCollapsed;
+  const sidebarModal = sidebarOverlay && !sidebarCollapsed && !inspectorModal;
   const inspectorTrackWidth = inspectorCollapsed ? 56 : inspectorWidth;
   const restorePreviousFocus = useCallback(() => {
     const previous = previousFocus.current;
@@ -126,6 +132,15 @@ export function Shell({
   }, [inspectorModal, inspectorOpen, onInspectorClose]);
 
   useEffect(() => {
+    if (!sidebarModal || !onSidebarClose) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onSidebarClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onSidebarClose, sidebarModal]);
+
+  useEffect(() => {
     if (inspectorModal && !overlayOwnsFocus.current) {
       const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       previousFocus.current = active && !inspectorRef.current?.contains(active) ? active : null;
@@ -167,6 +182,7 @@ export function Shell({
       data-inspector-overlay={inspectorOverlay}
       data-inspector-placement={inspectorPlacement}
       data-sidebar-collapsed={sidebarCollapsed}
+      data-empty-chat={emptyChat}
       style={{ "--inspector-width": `${inspectorTrackWidth}px` } as CSSProperties}
     >
       <aside aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
@@ -174,8 +190,19 @@ export function Shell({
       </aside>
       <section className="app-shell__workspace">
         {header && <header className="app-shell__header">{header}</header>}
-        <main className="app-shell__main">{content}</main>
-        {composer && <footer className="app-shell__composer">{composer}</footer>}
+        {emptyChat && composer ? (
+          <main className="app-shell__main">
+            <div className="app-shell__welcome">
+              {content}
+              <div className="app-shell__composer">{composer}</div>
+            </div>
+          </main>
+        ) : (
+          <>
+            <main className="app-shell__main">{content}</main>
+            {composer && <footer className="app-shell__composer">{composer}</footer>}
+          </>
+        )}
       </section>
       {inspector && (
         <aside
@@ -195,6 +222,14 @@ export function Shell({
           aria-label="Denetçiyi kapat"
           className="app-shell__backdrop"
           onClick={onInspectorClose}
+          type="button"
+        />
+      )}
+      {sidebarModal && onSidebarClose && (
+        <button
+          aria-label="Navigasyonu kapat"
+          className="app-shell__sidebar-backdrop"
+          onClick={onSidebarClose}
           type="button"
         />
       )}

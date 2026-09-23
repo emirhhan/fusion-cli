@@ -21,6 +21,7 @@ function client(overrides: Record<string, unknown> = {}) {
       if (name === "web.giris_durumu") return { ok: true, acik: false };
       if (name === "web.baglan") return { ok: true };
       if (name === "web.dogrula") return { ok: true, gecikme_ms: 120 };
+      if (name === "web.model_secenekleri") return { ok: true, secili: "Otomatik", secenekler: ["Otomatik", "Flash", "Pro"] };
       return { ok: true };
     }),
   } as unknown as ProtocolClient;
@@ -80,6 +81,29 @@ describe("ProviderList", () => {
 });
 
 describe("ProviderList — web oturumu", () => {
+  it("canlı web model menüsünü gösterir ve seçimi kaydeder", async () => {
+    const fake = client();
+    render(<ProviderList client={fake} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini Web/ }));
+    const picker = await screen.findByRole("combobox", { name: "Gemini Web web modeli" });
+    await waitFor(() => expect(picker.hasAttribute("disabled")).toBe(false));
+    fireEvent.change(picker, { target: { value: "Pro" } });
+    await waitFor(() => expect(fake.request).toHaveBeenCalledWith("web.model_sec", {
+      saglayici: "gemini_web", hesap: "main", secim: "Pro",
+    }));
+  });
+
+  it("artık sunulmayan seçili modeli açıkça gösterir", async () => {
+    const rows = SATIRLAR.map((row) => row.id === "gemini_web"
+      ? { ...row, secili_model: "Eski Pro" } : row);
+    render(<ProviderList client={client({
+      "saglayici.katalog": { ok: true, saglayicilar: rows },
+    })} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Gemini Web/ }));
+    expect(await screen.findByText(/Seçili model artık yok/)).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Eski Pro \(artık sunulmuyor\)/ })).toBeTruthy();
+  });
+
   it("giriş isteği hata verirse Sürüyor durumunda takılı kalmaz", async () => {
     const failing = {
       request: vi.fn(async (name: string) => {

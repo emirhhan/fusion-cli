@@ -17,16 +17,12 @@ import { applyTheme, type ThemePreference } from "../src/theme/theme";
 import { FileExplorer } from "../src/workspace/FileExplorer";
 import { ChangesPanel } from "../src/workspace/ChangesPanel";
 import { PreviewPanel } from "../src/workspace/PreviewPanel";
-import { TestsPanel } from "../src/workspace/TestsPanel";
 import { TerminalPanel } from "../src/processes/TerminalPanel";
 import type { TerminalRuntime, TerminalSession } from "../src/processes/terminalBridge";
-import { ProcessesPanel } from "../src/processes/ProcessesPanel";
-import type { ProcessController } from "../src/processes/useProcesses";
 import type { ProtocolClient } from "../src/protocol/client";
 import { SkillsCatalog } from "../src/capabilities/SkillsCatalog";
 import { ControlPanel } from "../src/control/ControlPanel";
 import { ConnectorsScreen } from "../src/connectors/ConnectorsScreen";
-import { Lessons } from "../src/lessons/Lessons";
 import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
@@ -53,26 +49,6 @@ const composerCommands = [
 const composerAttachments = [
   { kind: "file" as const, name: "arayuz-notlari.md", path: "/Projects/fusion-cli/docs/arayuz-notlari.md" },
 ];
-
-const workspaceProcesses = [
-  {
-    surec_id: "dev-server", komut: "npm run dev", cwd: ".", pid: 4311,
-    durum: "calisiyor" as const, cikis_kodu: null,
-    cikti: "VITE ready in 412 ms\n➜ Local: http://127.0.0.1:4174/",
-    baslangic: 1_787_999_900,
-  },
-  {
-    surec_id: "visual-tests", komut: "npm test", cwd: ".", pid: 4312,
-    durum: state === "workspace-error" ? "hata" as const : "bitti" as const,
-    cikis_kodu: state === "workspace-error" ? 1 : 0,
-    cikti: state === "workspace-error" ? "FAIL src/App.test.tsx\n1 test failed" : "100 tests passed\n✓ production build ready",
-    baslangic: 1_788_000_000,
-  },
-];
-const processController = {
-  busy: false, error: null, processes: workspaceProcesses,
-  refresh: async () => undefined, start: async () => undefined, stop: async () => undefined,
-} as ProcessController;
 
 function terminalFixture(terminalState: string): TerminalRuntime {
   const output = terminalState === "ansi"
@@ -232,8 +208,6 @@ function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, 
         files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
         changes: <ChangesPanel client={workspaceClient} revision={0} />,
         terminal: <TerminalPanel cwd="/Projects/fusion-cli" runtime={terminalFixture(terminalState)} />,
-        processes: <ProcessesPanel controller={processController} />,
-        tests: <TestsPanel client={workspaceClient} processes={processController} />,
         preview: <PreviewPanel client={workspaceClient} selectedPath={selected} />,
         context: <div><strong>Aktif bağlam</strong><p>CLAUDE.md · 4 skill · 2 MCP sunucusu</p></div>,
       }}
@@ -309,7 +283,6 @@ function Preview() {
   const control = state === "control";
   const connectors = state === "connectors";
   const onboarding = state === "onboarding";
-  const lessons = state === "lessons" || state === "lessons-step";
   const settings = state === "settings";
   const voice = state.startsWith("voice-");
   const voiceMini = params.get("voiceMode") === "mini";
@@ -360,7 +333,8 @@ function Preview() {
   return (
     <>
       <Shell
-        composer={capabilities || control || lessons || settings ? undefined : (
+        emptyChat={state === "empty"}
+        composer={capabilities || control || settings ? undefined : (
           <Composer
             approval="auto"
             attachments={state === "composer-attachment" ? composerAttachments : []}
@@ -373,15 +347,17 @@ function Preview() {
             value={composerValue}
           />
         )}
-        content={settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : lessons ? <Lessons client={workspaceClient} onClose={() => undefined} onOpenTab={() => undefined} onUseComposer={() => undefined} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} />}
-        header={<AppHeader inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" themePreference={theme} title={settings ? "Ayarlar" : lessons ? "Dersler" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
-        inspector={capabilities || control || lessons || settings ? undefined : inspector}
+        content={<>
+          {settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} running={false} />}
+          {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
+        </>}
+        header={<AppHeader inspectorOpen={!capabilities && !control && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control || settings ? undefined : inspector}
         inspectorCollapsed={inspectorCollapsed}
-        inspectorOpen={!capabilities && !control && !lessons && !settings && inspectorOpen}
+        inspectorOpen={!capabilities && !control && !settings && inspectorOpen}
         inspectorWidth={inspectorWidth}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />
-      {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
       {state.startsWith("history-") && (
         <HistoryPicker
           history={historyFixture()}

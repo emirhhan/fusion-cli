@@ -25,7 +25,7 @@ describe("tema sözleşmesi", () => {
 
   it("geçersiz saklı değeri sistem tercihi kabul eder", () => {
     localStorage.setItem(THEME_STORAGE_KEY, "gecersiz");
-    expect(readThemePreference()).toBe("system");
+    expect(readThemePreference()).toBe("dark");
   });
 
   it("çözülen temayı belge köküne ve color-scheme alanına uygular", () => {

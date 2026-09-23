@@ -308,6 +308,8 @@ class WebSessionConfig:
     timeout_s: float = 180.0
     #: Kullanıcı bu oturumu geçici olarak kapatabilir.
     enabled: bool = True
+    #: Sağlayıcının kendi arayüzünde doğrulanmış model/kip etiketi. Boşsa otomatik.
+    selected_model: str = ""
 
 
 @dataclass(frozen=True, slots=True)

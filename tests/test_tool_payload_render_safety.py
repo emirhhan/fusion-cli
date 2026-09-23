@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 
 from fusion_cli.core.model_capability import ToolSupport
-from fusion_cli.core.tool_emulation import PAYLOAD_OPEN, parse_tool_calls, render_tool_instructions
+from fusion_cli.core.tool_emulation import (
+    PAYLOAD_OPEN,
+    PAYLOAD_SENTINEL,
+    parse_tool_calls,
+    render_tool_instructions,
+)
 from fusion_cli.core.types import CompletionRequest, Message, StreamDone, TextChunk
 from fusion_cli.engines.agent.reflexion import tool_contract_repair_note
 from fusion_cli.providers.web_session import WebProviderAdapter, WebSessionCredential, WebTurn
@@ -112,6 +117,22 @@ def test_browser_rendered_payload_without_fence_remains_supported() -> None:
     assert not parsed.errors
     arguments = json.loads(parsed.calls[0].arguments)
     assert arguments["content"] == source
+
+
+def test_web_kod_blogundan_sonraki_bos_satirlar_payloadi_bozmaz() -> None:
+    source = "<!doctype html>\n<script>window.ready = true</script>"
+    raw = (
+        f'{PAYLOAD_OPEN} id="index-1"\n\n'
+        f"```html\n{PAYLOAD_SENTINEL}\n{source}\n```\n\n"
+        "FUSION_PAYLOAD_END FUSION_TOOL_CALL\n\n"
+        '```json\n{"name":"write_file","arguments":{"path":"index.html",'
+        '"content":{"$ref":"index-1"}}}\n```\nFUSION_TOOL_CALL_END'
+    )
+    parsed = parse_tool_calls(raw)
+
+    assert parsed.errors == ()
+    assert len(parsed.calls) == 1
+    assert json.loads(parsed.calls[0].arguments)["content"] == source
 
 
 def test_unclosed_payload_code_fence_is_rejected() -> None:

@@ -30,7 +30,6 @@ export function Approval({ soru, onCevap }: ApprovalProps) {
     <div className="approval-backdrop">
       <section
         aria-labelledby="approval-title"
-        aria-modal="true"
         className="approval"
         onKeyDown={onKeyDown}
         ref={dialogRef}

@@ -36,14 +36,14 @@ describe("tasarım token'ları", () => {
 
   it("koyu temayı marka yüzeylerine bağlar", () => {
     const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
-    expect(koyuTema).toContain("--surface-canvas: #212121");
-    expect(koyuTema).toContain("--surface-sidebar: #171717");
+    expect(koyuTema).toContain("--surface-canvas: #050505");
+    expect(koyuTema).toContain("--surface-sidebar: #111111");
     expect(koyuTema).toContain("--text-primary: #f3f5f6");
     expect(koyuTema).toContain("--focus-ring: var(--brand-signal)");
   });
 
   it("ölçülmüş kenar çubuğu genişliğini taşır", () => {
-    expect(css).toContain("--kenar-cubugu-genislik: 280px");
+    expect(css).toContain("--kenar-cubugu-genislik: 260px");
   });
 
   it("ekranların kullandığı ana metin rengini tanımlar", () => {

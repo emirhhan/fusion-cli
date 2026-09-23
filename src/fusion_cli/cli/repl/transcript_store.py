@@ -11,6 +11,7 @@ import contextlib
 import dataclasses
 import hashlib
 import json
+import os
 import time
 import uuid
 from enum import Enum
@@ -89,6 +90,59 @@ def delete_conversation(base_dir: Path, root: Path, conversation_id: str) -> Non
     deleted = directory / "deleted"
     deleted.mkdir(parents=True, exist_ok=True, mode=0o700)
     (deleted / _conversation_digest(conversation_id)).touch(mode=0o600, exist_ok=True)
+
+
+def move_conversation(
+    base_dir: Path, source_root: Path, target_root: Path, conversation_id: str
+) -> None:
+    """Bir sohbetin olaylarını hedef projeye taşı; özgün kaydı sonra gizle.
+
+    Hedefe tam yazılmadan kaynak tombstone oluşturulmaz. Çökme durumunda iki
+    listede görünmesi, konuşma kaybına tercih edilir. Çağıran açık turu kapatır.
+    """
+    if source_root.resolve() == target_root.resolve():
+        return
+    if not target_root.is_dir():
+        raise ValueError("Hedef proje klasörü bulunamadı.")
+    base = base_dir.expanduser().resolve() / "transcripts"
+    source = base / _workspace_digest(source_root)
+    destination = base / _workspace_digest(target_root)
+    if _conversation_digest(conversation_id) in _deleted_conversations(source):
+        raise ValueError("Kaynak sohbet silinmiş.")
+    if not any(
+        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, source_root)
+    ):
+        raise ValueError("Kaynak sohbet bulunamadı.")
+    if _conversation_digest(conversation_id) in _deleted_conversations(destination):
+        raise ValueError("Hedef projede bu sohbet kimliği daha önce silinmiş.")
+    if any(
+        ref.conversation_id == conversation_id
+        for ref in list_conversations(base_dir, target_root)
+    ):
+        raise ValueError("Hedef projede aynı kimlikli sohbet zaten var.")
+    try:
+        lines = (source / "events.jsonl").read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise ValueError("Kaynak sohbet okunamadı.") from error
+    selected: list[str] = []
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("session_id") == conversation_id:
+            selected.append(line)
+    if not selected:
+        raise ValueError("Taşınacak sohbet olayı bulunamadı.")
+    destination.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = destination / "events.jsonl"
+    with target.open("a", encoding="utf-8") as stream:
+        stream.write("\n".join(selected) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    with contextlib.suppress(OSError):
+        target.chmod(0o600)
+    delete_conversation(base_dir, source_root, conversation_id)
 
 
 def _workspace_digest(root: Path) -> str:

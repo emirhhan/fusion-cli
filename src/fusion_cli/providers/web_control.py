@@ -200,6 +200,7 @@ def register_session(
         ),
         timeout_s=getattr(mevcut, "timeout_s", varsayilan.timeout_s),
         enabled=True,
+        selected_model=getattr(mevcut, "selected_model", ""),
     )
     digerleri = tuple(
         item
@@ -330,6 +331,68 @@ def set_login_verified(
     except Exception:
         return None
     return updated
+
+
+async def session_model_choices(
+    config: Config, provider: str, account: str = "main"
+) -> dict[str, Any]:
+    """Hesabın gerçek web menüsünden model seçeneklerini oku."""
+    from .web_browser import discover_browser_models
+    from .web_registry import web_registry_for
+
+    session = _session_for(tuple(config.web_sessions), provider, account)
+    if session is None or not session.enabled or not session.login_verified:
+        return {"ok": False, "metin": "Önce web oturumunu bağla ve doğrula."}
+    registry = web_registry_for(config)
+    try:
+        choices = await discover_browser_models(
+            session, registry.credential_for(session) if registry else None
+        )
+    except Exception as error:
+        return {"ok": False, "metin": f"Model menüsü okunamadı: {error}"}
+    return {
+        "ok": True,
+        "secili": session.selected_model or "Otomatik",
+        "secenekler": ["Otomatik", *(item for item in choices if item.casefold() != "otomatik")],
+    }
+
+
+async def set_session_model_choice(
+    config: Config, provider: str, account: str, choice: str
+) -> tuple[Config | None, dict[str, Any]]:
+    """Yalnız hesabın canlı menüsünde bulunan seçimi kalıcı kıl."""
+    from dataclasses import replace as _replace
+
+    from ..config.writer import write_web_sessions
+
+    session = _session_for(tuple(config.web_sessions), provider, account)
+    if session is None or not session.enabled:
+        return None, {"ok": False, "metin": "Etkin web oturumu bulunamadı."}
+    selected = "" if choice == "Otomatik" else choice.strip()
+    if selected:
+        options = await session_model_choices(config, provider, account)
+        if not options.get("ok"):
+            return None, options
+        if selected not in options["secenekler"]:
+            return None, {"ok": False, "metin": "Model bu hesapta seçilebilir değil."}
+    updated = _replace(
+        config,
+        web_sessions=tuple(
+            _replace(
+                item,
+                selected_model=selected,
+                tool_eval_passed=(
+                    item.tool_eval_passed if selected == item.selected_model else False
+                ),
+            ) if item is session else item
+            for item in config.web_sessions
+        ),
+    )
+    try:
+        write_web_sessions(updated)
+    except Exception as error:
+        return None, {"ok": False, "metin": f"Model tercihi kaydedilemedi: {error}"}
+    return updated, {"ok": True, "secili": selected or "Otomatik"}
 
 
 async def validate_session(config: Config, provider: str, account: str = "main") -> dict[str, Any]:
@@ -480,6 +543,7 @@ def provider_cards(
                 and bool(getattr(session, "login_verified", False)),
                 "profil_var": profil_var,
                 "model": getattr(session, "model", None),
+                "secili_model": getattr(session, "selected_model", "") or "Otomatik",
                 "arac_destegi": getattr(session, "tool_support", "none"),
                 "olcum_gecti": bool(getattr(session, "tool_eval_passed", False)),
                 "etkin": bool(getattr(session, "enabled", False)),

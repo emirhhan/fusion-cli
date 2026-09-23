@@ -29,6 +29,7 @@ interface ProviderRow {
   pencere_kipi?: PencereKipi;
   /** Pencereyle ilgili son uyarı — ör. macOS gizleme izni verilmemiş. */
   pencere_uyarisi?: string | null;
+  secili_model?: string;
 }
 
 type PencereKipi = "visible" | "headless" | "hidden";
@@ -53,6 +54,9 @@ export function ProviderList({ client, onChanged = () => undefined }: {
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [modelChoices, setModelChoices] = useState<Record<string, string[]>>({});
+  const [modelLoading, setModelLoading] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
   const timers = useRef<number[]>([]);
   const run = async (operation: () => Promise<void>) => {
     try {
@@ -98,6 +102,51 @@ export function ProviderList({ client, onChanged = () => undefined }: {
     if (!q) return rows;
     return rows.filter((row) => row.ad.toLocaleLowerCase("tr").includes(q));
   }, [query, rows]);
+
+  useEffect(() => {
+    const row = rows.find((item) => item.id === open);
+    if (!row?.bagli || row.tur !== "web") return;
+    let alive = true;
+    setModelLoading(row.id);
+    setModelError(null);
+    void client.request("web.model_secenekleri", {
+      saglayici: row.id,
+      hesap: row.hesap ?? "main",
+    }).then((result) => {
+      if (!alive) return;
+      if (result.ok && Array.isArray(result.secenekler)) {
+        setModelChoices((current) => ({
+          ...current,
+          [row.id]: (result.secenekler as unknown[]).filter(
+            (value): value is string => typeof value === "string",
+          ),
+        }));
+      } else {
+        setModelError(String(result.metin ?? "Web model menüsü okunamadı."));
+      }
+    }).catch(() => {
+      if (alive) setModelError("Web model menüsü okunamadı.");
+    }).finally(() => {
+      if (alive) setModelLoading(null);
+    });
+    return () => { alive = false; };
+  // Yalnız açılan kart veya bağlantı değişince canlı menü yeniden okunur.
+  }, [client, open, rows]);
+
+  const selectWebModel = async (row: ProviderRow, choice: string) => {
+    setBusy(row.id);
+    const result = await client.request("web.model_sec", {
+      saglayici: row.id,
+      hesap: row.hesap ?? "main",
+      secim: choice,
+    });
+    setBusy(null);
+    setNotice(String(result.metin ?? (result.ok ? `${row.ad}: ${choice} seçildi.` : "Model seçilemedi.")));
+    if (result.ok) {
+      await load();
+      onChanged();
+    }
+  };
 
   /**
    * Web girişini aç; pencere kapanınca oturumu KAYDET ve gerçekten sına.
@@ -305,6 +354,33 @@ export function ProviderList({ client, onChanged = () => undefined }: {
                       <p className="provider-list__meta">
                         Tarayıcı penceresi: {PENCERE_KIPLERI[row.pencere_kipi] ?? row.pencere_kipi}
                       </p>
+                    )}
+                    {row.bagli && (
+                      <label className="provider-list__model-choice">
+                        <span>Bu web oturumunda kullanılacak model</span>
+                        <select
+                          aria-label={`${row.ad} web modeli`}
+                          disabled={busy === row.id || modelLoading === row.id || !modelChoices[row.id]}
+                          onChange={(event) => void run(() => selectWebModel(row, event.target.value))}
+                          value={row.secili_model ?? "Otomatik"}
+                        >
+                          {row.secili_model && modelChoices[row.id]
+                            && !modelChoices[row.id].includes(row.secili_model) && (
+                              <option disabled value={row.secili_model}>
+                                {row.secili_model} (artık sunulmuyor)
+                              </option>
+                            )}
+                          {(modelChoices[row.id] ?? [row.secili_model ?? "Otomatik"]).map((choice) => (
+                            <option key={choice} value={choice}>{choice}</option>
+                          ))}
+                        </select>
+                        <small>{modelError ?? (modelLoading === row.id
+                          ? "Hesabındaki seçenekler okunuyor…"
+                          : row.secili_model && modelChoices[row.id]
+                            && !modelChoices[row.id].includes(row.secili_model)
+                            ? "Seçili model artık yok. Devam etmek için kullanılabilir bir model seç."
+                            : "Yalnız bu hesabın canlı menüsünde bulunan modeller gösterilir.")}</small>
+                      </label>
                     )}
                     {/* Gizleme başarısız olursa pencere ekranda kalır; sebebi
                         ve çözümü burada yazar, sessizce yutulmaz. */}

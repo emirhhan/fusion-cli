@@ -29,6 +29,7 @@ from evals.report import read_report, write_report
 from evals.runner import EvaluationUnavailableError, RateLimitedError, TaskExecutor, run_suite
 from evals.tasks import EvalTask
 from fusion_cli.config.loader import load_config
+from fusion_cli.config.model_select import apply_single_model
 from fusion_cli.core.clock import SystemClock
 from fusion_cli.providers.web_browser import close_all_browser_sessions
 
@@ -40,6 +41,10 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser("run", help="Seti koştur ve metrik topla")
     run_parser.add_argument("suite", type=Path, help="Görev seti (YAML) yolu")
     run_parser.add_argument("--out", type=Path, default=None, help="Raporun yazılacağı JSON")
+    run_parser.add_argument(
+        "--model", default=None,
+        help="Yalnız bu değerlendirme için model kimliği; kayıtlı seçimi değiştirmez",
+    )
     run_parser.add_argument(
         "--seed", type=Path, default=None, help="Her görev dizinine kopyalanacak tohum dizini"
     )
@@ -56,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     matrix_parser.add_argument("--seed", type=Path, default=None)
     matrix_parser.add_argument("--workspace", type=Path, default=None)
     matrix_parser.add_argument("--repeat", type=int, default=3)
+    matrix_parser.add_argument("--model", default=None)
     run_parser.add_argument(
         "--workspace", type=Path, default=None, help="Çalışma dizinlerinin kökü (varsayılan: tmp)"
     )
@@ -90,6 +96,8 @@ def _run(args: argparse.Namespace) -> int:
     workspace_root.mkdir(parents=True, exist_ok=True)
 
     config = load_config()
+    if args.model:
+        config = apply_single_model(config, args.model)
     executor = AgentTaskExecutor(
         build_runner(args.profile, config),
         workspace_root=workspace_root,
@@ -149,6 +157,7 @@ def _matrix(args: argparse.Namespace) -> int:
             workspace=workspace / profile.value,
             repeat=args.repeat,
             profile=profile,
+            model=args.model,
         )
         code = _run(run_args)
         if code:

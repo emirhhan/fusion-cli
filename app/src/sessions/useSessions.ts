@@ -568,6 +568,56 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [close, connect, state.sessions],
   );
 
+  const move = useCallback(async (id: string, targetRoot: string) => {
+    const session = state.sessions[id];
+    const known = storedRef.current.find((item) => item.id === id);
+    const sourceRoot = session?.root ?? known?.root;
+    if (!sourceRoot || sourceRoot === targetRoot) throw new Error("Farklı bir hedef proje seç.");
+    if (session?.running || kuyruk.current.get(id)?.length) {
+      throw new Error("Çalışan veya sırada görevi olan sohbet taşınamaz.");
+    }
+    const title = session?.title ?? known?.title ?? DEFAULT_TITLE;
+    const wasOpen = Boolean(session && clients.current.has(id));
+    if (wasOpen) await close(id);
+    let temporary: Awaited<ReturnType<typeof connect>> | null = null;
+    let moved = false;
+    try {
+      const peer = Object.values(state.sessions).find((item) =>
+        item.id !== id && item.status === "ready" && clients.current.has(item.id),
+      );
+      temporary = peer ? null : await connect({ root: sourceRoot }, false);
+      const client = peer?.client ?? temporary!.client;
+      const result = await client.request("sohbet.tasi", {
+        sohbet_id: id,
+        kaynak_kok: sourceRoot,
+        hedef_kok: targetRoot,
+      });
+      if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet taşınamadı."));
+      moved = true;
+      setStored((rows) => {
+        const others = rows.filter((item) => item.id !== id);
+        return [{
+          id,
+          root: targetRoot,
+          title,
+          updatedAt: Date.now() / 1000,
+          messageCount: known?.messageCount ?? session?.messages.length ?? 0,
+        }, ...others];
+      });
+      if (wasOpen) await connect({ id, root: targetRoot, title });
+    } catch (error) {
+      // Taşıma diskte tamamlandıysa kaynakta yeniden açmak boş bir sohbet
+      // yaratır ve taşınan geçmişi görünmez kılar.
+      if (wasOpen) {
+        const root = moved ? targetRoot : sourceRoot;
+        await connect({ id, root, title }).catch(() => undefined);
+      }
+      throw error;
+    } finally {
+      if (temporary) await close(temporary.id).catch(() => undefined);
+    }
+  }, [close, connect, state.sessions]);
+
   const activeSession = state.activeId ? state.sessions[state.activeId] ?? null : null;
   const sessions = useMemo(
     () => state.order.map((id) => state.sessions[id]).filter(Boolean),
@@ -602,6 +652,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     resume,
     recentProjects,
     remove,
+    move,
     runCommand,
     send,
     sessions,

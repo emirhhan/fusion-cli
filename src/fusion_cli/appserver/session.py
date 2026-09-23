@@ -33,6 +33,7 @@ from ..cli.repl.transcript_store import (
     delete_conversation,
     list_conversations,
     load_transcript_messages,
+    move_conversation,
 )
 from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ..config.credentials import FernetSecretStore
@@ -44,7 +45,7 @@ from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.execution_policy import is_web_model
-from ..engines.agent.loop import CHAT_SYSTEM_PROMPT
+from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
@@ -97,6 +98,8 @@ from .hosted_connectors import (
     verify_hosted_connector,
 )
 from .instructions import get_instructions, instruction_block, save_instructions
+from .model_catalog import list_selectable_models
+from .personal_memory import PersonalMemory
 from .processes import ProcessManager
 from .project_status import git_status, suggested_commands
 from .protocol import Reply, Request, encode_event, encode_result
@@ -273,6 +276,7 @@ class AppSession:
         self._home = home
         config = load_config()
         self._secret_store = FernetSecretStore(credentials_file(), secret_key=secret_key())
+        self._personal_memory = PersonalMemory(config.memory_dir)
         self.pending = PendingQuestions()
         self._registry = build_registry(home)
         self._state = ReplState(
@@ -363,6 +367,8 @@ class AppSession:
             }
         if request.name == "sohbet.sil":
             return await self._delete_conversation(request.data)
+        if request.name == "sohbet.tasi":
+            return await self._move_conversation(request.data)
         if request.name == "sohbet.listele":
             return self._list_conversations()
         if request.name == "sohbet.baslik":
@@ -562,6 +568,26 @@ class AppSession:
             return provider_catalog_rows(self._state.config, self._secret_store)
         if request.name == "web.saglayicilar":
             return web_provider_cards(self._state.config)
+        if request.name == "web.model_secenekleri":
+            from ..providers.web_control import session_model_choices
+
+            return await session_model_choices(
+                self._state.config,
+                str(request.data.get("saglayici") or ""),
+                str(request.data.get("hesap") or "main"),
+            )
+        if request.name == "web.model_sec":
+            from ..providers.web_control import set_session_model_choice
+
+            yeni, sonuc = await set_session_model_choice(
+                self._state.config,
+                str(request.data.get("saglayici") or ""),
+                str(request.data.get("hesap") or "main"),
+                str(request.data.get("secim") or ""),
+            )
+            if yeni is not None:
+                self._state.config = yeni
+            return sonuc
         if request.name == "web.giris":
             from ..providers.web_browser import close_browser_session, normalize_account
 
@@ -615,6 +641,18 @@ class AppSession:
             return await self._run_command(request.data)
         if request.name == "komut.secenekler":
             return self._command_options(request.data)
+        if request.name == "model.katalog":
+            return await list_selectable_models(self._state.config)
+        if request.name == "bellek.listele":
+            return await asyncio.to_thread(self._personal_memory.list)
+        if request.name == "bellek.ekle":
+            return await asyncio.to_thread(self._personal_memory.add, request.data.get("metin"))
+        if request.name == "bellek.sil":
+            return await asyncio.to_thread(self._personal_memory.delete, request.data.get("id"))
+        if request.name == "bellek.etkinlestir":
+            return await asyncio.to_thread(
+                self._personal_memory.set_enabled, request.data.get("etkin")
+            )
         if request.name == "tur.calistir":
             attachment_context, attachment_error = _attachment_context(request.data.get("ekler"))
             if attachment_error:
@@ -645,6 +683,36 @@ class AppSession:
             self._cancel_turn()
             self._state.history = []
         return {"ok": True, "sohbet_id": conversation_id}
+
+    async def _move_conversation(self, data: dict[str, Any]) -> dict[str, Any]:
+        conversation_id = data.get("sohbet_id")
+        source_value = data.get("kaynak_kok")
+        target_value = data.get("hedef_kok")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            conversation_id, source_value, target_value
+        )):
+            return {"ok": False, "metin": "Sohbet ve iki proje kökü zorunludur."}
+        assert isinstance(conversation_id, str)
+        assert isinstance(source_value, str)
+        assert isinstance(target_value, str)
+        source = await asyncio.to_thread(lambda: Path(source_value).expanduser().resolve())
+        target = await asyncio.to_thread(lambda: Path(target_value).expanduser().resolve())
+        current_root = await asyncio.to_thread(self._root.resolve)
+        if source == current_root and conversation_id == self._transcript_store.session_id:
+            return {"ok": False, "metin": "Açık sohbeti taşıyabilmek için önce kapat."}
+        if source == target:
+            return {"ok": False, "metin": "Sohbet zaten bu projede."}
+        try:
+            await asyncio.to_thread(
+                move_conversation,
+                self._state.config.memory_dir,
+                source,
+                target,
+                conversation_id,
+            )
+        except (ValueError, OSError) as error:
+            return {"ok": False, "metin": str(error)}
+        return {"ok": True, "sohbet_id": conversation_id, "hedef_kok": str(target)}
 
     def _list_conversations(self) -> dict[str, Any]:
         """Bu proje kökünde diskte duran sohbetleri listele.
@@ -1100,19 +1168,24 @@ class AppSession:
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
-        extra_system = "\n\n".join(
-            part
-            for part in (
-                macros.mode_prompt(turn_mode),
-                inherited_context,
-                capability_context,
-                attachment_context,
-                instruction_block(),
+        async def execute_turn() -> AgentOutcome:
+            # Belleği okumak diske gider. Beklemeyi çalışan tur nesnesi
+            # oluşturulduktan SONRA yap; aksi halde aynı anda gelen ikinci
+            # istek ilk tur henüz görünmediği için üst üste başlayabilir.
+            memory_block = await asyncio.to_thread(self._personal_memory.prompt_block)
+            extra_system = "\n\n".join(
+                part
+                for part in (
+                    macros.mode_prompt(turn_mode),
+                    inherited_context,
+                    capability_context,
+                    attachment_context,
+                    instruction_block(),
+                    memory_block,
+                )
+                if part
             )
-            if part
-        )
-        self._turn = asyncio.ensure_future(
-            run_agent_task(
+            return await run_agent_task(
                 task,
                 config,
                 sinks=(sink,),
@@ -1135,7 +1208,8 @@ class AppSession:
                 workflow=macros.mode_workflow(turn_mode),
                 approval_memory=self._state.approval_memory,
             )
-        )
+
+        self._turn = asyncio.ensure_future(execute_turn())
         try:
             outcome = await self._turn
         except asyncio.CancelledError:

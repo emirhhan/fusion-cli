@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from fusion_cli.appserver.protocol import Request
@@ -82,6 +83,30 @@ async def test_kontrol_durumu_model_izin_gateway_ve_sir_adlarini_guvenli_donduru
     assert result["gateway"]["durum"] == "kapali"
     assert any(item["id"] == "openrouter" and item["kurulu"] for item in result["saglayicilar"])
     assert "sk-cok-gizli-deger" not in encoded
+
+
+async def test_kontrol_durumu_secili_web_modelini_dogru_etiketler(tmp_path: Path):
+    from fusion_cli.config.models import WebSessionConfig
+
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    web = WebSessionConfig(
+        model="gemini_web/main/auto", provider="gemini_web",
+        transport="browser", selected_model="3.1 Pro", login_verified=True,
+    )
+    config = session._state.config
+    session._state.config = replace(
+        config,
+        agent=replace(config.agent, model=web.model),
+        web_sessions=(web,),
+    )
+    try:
+        result = await _request(session, lines, "kontrol.durum", {})
+    finally:
+        await session.close()
+
+    assert result["model"]["agent"] == web.model
+    assert result["model"]["agent_label"] == "Gemini · 3.1 Pro"
 
 
 async def test_kontrol_anahtar_kaydeder_ama_degeri_yanitlamaz(tmp_path: Path, monkeypatch):

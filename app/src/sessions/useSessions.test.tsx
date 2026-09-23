@@ -77,6 +77,14 @@ function fakeTransport(
         }));
         return;
       }
+      if (request.ad === "sohbet.tasi") {
+        sent.push({ id, line });
+        queueMicrotask(() => lineHandler?.({
+          oturum_id: id,
+          satir: JSON.stringify({ tip: "sonuc", id: request.id, veri: { ok: true } }),
+        }));
+        return;
+      }
       if (request.ad === "oturum.gecmis") {
         queueMicrotask(() => lineHandler?.({
           oturum_id: id,
@@ -119,6 +127,19 @@ function fakeTransport(
 }
 
 describe("useSessions", () => {
+  it("açık sohbeti kapatıp hedef projede aynı kimlikle yeniden açar", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    await act(async () => { await result.current.create({ id: "chat-1", root: "/Projects/source" }); });
+    await act(async () => { await result.current.move("chat-1", "/Projects/target"); });
+    const moved = fake.sent.find(({ line }) => JSON.parse(line).ad === "sohbet.tasi");
+    expect(JSON.parse(moved!.line).veri).toEqual({
+      sohbet_id: "chat-1", kaynak_kok: "/Projects/source", hedef_kok: "/Projects/target",
+    });
+    expect(result.current.state.sessions["chat-1"].root).toBe("/Projects/target");
+  });
+
   it("proje Fusion geçmişini varsayılan masaüstü konuşmasına yükler", async () => {
     const fake = fakeTransport([
       { rol: "kullanici", metin: "Eski oyun sorusu" },

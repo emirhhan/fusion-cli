@@ -58,6 +58,37 @@
   font-size: var(--text-xs);
 }
 
+/* Boş sohbetin tek satırlık ChatGPT ölçüsü. Görev yazıldığında araçlar yerinde
+   kalır; uzun metin kutusu içerik kadar büyür. */
+.app-shell__welcome .composer {
+  align-items: center;
+  box-shadow: none;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  min-height: 54px;
+  padding: 5px 8px;
+}
+.app-shell__welcome .composer textarea {
+  grid-column: 2;
+  grid-row: 1;
+  min-height: 26px;
+  padding: 2px 4px;
+}
+.app-shell__welcome .composer__toolbar,
+.app-shell__welcome .composer__tools { display: contents; }
+.app-shell__welcome .composer__tools > span { grid-column: 1; grid-row: 1; }
+.app-shell__welcome .composer__approval { grid-column: 3; grid-row: 1; }
+.app-shell__welcome .composer__actions { grid-column: 4; grid-row: 1; }
+.app-shell__welcome .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
+.app-shell__welcome .composer__voice { border: 0; height: 32px; width: 32px; }
+.app-shell__welcome .composer__voice--conversation {
+  background: #4f8df7;
+  color: #fff;
+  height: 36px;
+  width: 36px;
+}
+
 .composer__agent {
   margin-left: var(--space-1);
 }
@@ -139,6 +170,9 @@
   transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
 }
 .composer__voice:hover { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.composer__voice[data-listening="true"] { background: var(--surface-accent-subtle); border-color: var(--accent-text); color: var(--accent-text); }
+.composer__voice--conversation { background: var(--control-primary); border-color: var(--control-primary); color: var(--surface-canvas); }
+.composer__voice--conversation:hover { background: var(--text-primary); border-color: var(--text-primary); color: var(--surface-canvas); }
 .composer__voice:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) { .composer__voice { transition: none; } }

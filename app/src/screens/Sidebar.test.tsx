@@ -285,13 +285,13 @@ describe("Sidebar yeni düzen", () => {
     render(<Sidebar etkin={null} oturumlar={many} onYeni={vi.fn()} onSec={vi.fn()} />);
     expect(screen.queryByText("Sohbet 0")).toBeNull();
     expect(screen.getByText("Sohbet 6")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sohbetler: Daha fazla göster" }));
     expect(screen.getByText("Sohbet 0")).toBeTruthy();
   });
   it("sabitlemeyi yeniden açılışta korur ve eski sohbeti ilk beşe taşır", () => {
     const props = { etkin: null, oturumlar: many, onYeni: vi.fn(), onSec: vi.fn() };
     const view = render(<Sidebar {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Desktop: Daha fazla göster" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sohbetler: Daha fazla göster" }));
     fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitle" }));
     view.unmount(); render(<Sidebar {...props} />);
     expect(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitlemekten çıkar" }).getAttribute("aria-pressed")).toBe("true");
@@ -303,6 +303,42 @@ describe("Sidebar yeni düzen", () => {
     fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
     expect(navigate.mock.calls).toEqual([["image-create"], ["video-create"]]);
   });
+});
+
+it("projeyi yeniden adlandırır, listeden kaldırır ve geri ekler", () => {
+  const project = { root: "/Projects/voltiva", name: "voltiva", pinned: false, updated_at: 1 };
+  render(<Sidebar etkin={null} oturumlar={[{
+    session_id: "chat", source: "fusion", title: "Site planı", project: "voltiva",
+    projectRoot: project.root,
+  }]} projeler={[project]} onYeni={vi.fn()} onSec={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "voltiva için proje seçeneklerini aç" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Projeyi yeniden adlandır" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Proje adı" }), { target: { value: "Yeni ad" } });
+  fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+  expect(screen.getByRole("button", { name: "Yeni ad projesini aç" })).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("button", { name: "Yeni ad için proje seçeneklerini aç" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Projeyi sil" }));
+  expect(screen.getByText(/klasörler ve sohbet kayıtları korunur/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
+  expect(screen.queryByRole("button", { name: "Yeni ad projesini aç" })).toBeNull();
+  expect(screen.getByRole("region", { name: "Sohbetler" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "voltiva projesini geri ekle" }));
+  expect(screen.getByRole("button", { name: "Yeni ad projesini aç" })).toBeTruthy();
+});
+
+it("sohbet için diğer projeleri taşınabilir hedef olarak gösterir", async () => {
+  const move = vi.fn(async () => undefined);
+  render(<Sidebar etkin={null} oturumlar={[{
+    session_id: "chat", source: "fusion", title: "Plan",
+    project: "Bir", projectRoot: "/Projects/bir",
+  }]} projeler={[
+    { root: "/Projects/bir", name: "Bir", pinned: false, updated_at: 2 },
+    { root: "/Projects/iki", name: "İki", pinned: false, updated_at: 1 },
+  ]} onMove={move} onYeni={vi.fn()} onSec={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Plan sohbetini projeye taşı" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "İki" }));
+  await waitFor(() => expect(move).toHaveBeenCalledWith("chat", "/Projects/iki"));
 });
 
 it("silme hatasını gösterir ve sabitlemeyi yalnız başarılı silmede kaldırır", async () => {

@@ -513,6 +513,10 @@ def _normalize_payload_body(body: str) -> str:
         body = body[:-1]
 
     if body.startswith("```"):
+        # Web arayüzü kapanış çitinden sonra fazladan boş satır bırakabiliyor.
+        # Çitin içindeki kaynak aynen korunur; yalnız DIŞ çerçevenin sonundaki
+        # satır sonları atılır. Tek satır temizliği iki boş satırda yetmiyordu.
+        body = body.rstrip("\r\n")
         fenced = re.fullmatch(
             r"```[^\r\n]*\r?\n(?P<body>.*)\r?\n```[ \t]*",
             body,

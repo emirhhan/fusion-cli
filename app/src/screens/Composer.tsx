@@ -86,10 +86,15 @@ interface ComposerProps {
   fileSuggestions?: DosyaOnerisi[];
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
+  /** Metni kutuya yazan dikte; konuşma kipinden ayrıdır. */
+  onDictation?: () => void;
+  dictating?: boolean;
+  dictationError?: string | null;
   onRemoveAttachment?: (path: string) => void;
   onSend: (task: string) => void;
   /** Etkin ajan modeli. Boşsa seçici çizilmez. */
   activeModel?: string;
+  activeModelLabel?: string;
   /** Seçilebilir modeller; liste açılınca tembel yüklenir. */
   modelOptions?: ModelOption[];
   modelsBusy?: boolean;
@@ -114,12 +119,16 @@ export function Composer({
   onFileQuery,
   fileSuggestions = [],
   onVoice,
+  onDictation,
+  dictating = false,
+  dictationError = null,
   onRemoveAttachment = () => undefined,
   onSend,
   onStop = () => undefined,
   onValueChange,
   running = false,
   activeModel = "",
+  activeModelLabel,
   modelOptions = [],
   modelsBusy = false,
   onModelMenuOpen,
@@ -315,7 +324,7 @@ export function Composer({
             ))}
           </div>
         )}
-        {attachmentError && <p aria-live="polite" className="composer__attachment-error">{attachmentError}</p>}
+        {(attachmentError || dictationError) && <p aria-live="polite" className="composer__attachment-error">{attachmentError || dictationError}</p>}
         <textarea
           aria-label="Mesaj"
           onChange={(event) => setDraft(event.target.value, event.target.selectionStart)}
@@ -369,19 +378,27 @@ export function Composer({
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}
-              {onVoice && (
+              {onDictation && (
                 <button
-                  aria-label="Konuşarak anlat"
+                  aria-label={dictating ? "Dikteyi durdur" : "Dikte et"}
+                  aria-pressed={dictating}
                   className="composer__voice"
-                  onClick={onVoice}
+                  data-listening={dictating}
+                  onClick={onDictation}
                   type="button"
                 >
                   <MicIcon size={18} />
                 </button>
               )}
+              {onVoice && (
+                <button aria-label="Sesli konuşmayı aç" className="composer__voice composer__voice--conversation" onClick={onVoice} type="button">
+                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeWidth="2" viewBox="0 0 24 24" width="18"><path d="M3 10v4M7 6v12M11 3v18M15 7v10M19 5v14M23 10v4" /></svg>
+                </button>
+              )}
               {onModelSelect && activeModel && (
                 <ModelPicker
                   active={activeModel}
+                  activeLabel={activeModelLabel}
                   busy={modelsBusy}
                   onOpen={onModelMenuOpen}
                   onSelect={onModelSelect}

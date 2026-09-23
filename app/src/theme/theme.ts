@@ -9,9 +9,9 @@ const isThemePreference = (value: string | null): value is ThemePreference =>
 export function readThemePreference(storage: Pick<Storage, "getItem"> = localStorage): ThemePreference {
   try {
     const value = storage.getItem(THEME_STORAGE_KEY);
-    return isThemePreference(value) ? value : "system";
+    return isThemePreference(value) ? value : "dark";
   } catch {
-    return "system";
+    return "dark";
   }
 }
 

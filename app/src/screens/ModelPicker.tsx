@@ -20,11 +20,14 @@ export interface ModelOption {
   deger: string;
   etiket: string;
   aciklama?: string;
+  grup?: string;
+  modelId?: string;
 }
 
 export interface ModelPickerProps {
   /** Etkin ajan modeli; liste açılmadan da görünür. */
   active: string;
+  activeLabel?: string;
   options: ModelOption[];
   /** Liste açılırken çağrılır; seçenekler tembel yüklenir. */
   onOpen?: () => void;
@@ -39,9 +42,29 @@ export function shortModelName(model: string): string {
   return parcalar[parcalar.length - 1] || model;
 }
 
-export function ModelPicker({ active, busy = false, onOpen, onSelect, options }: ModelPickerProps) {
+export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options }: ModelPickerProps) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const kutu = useRef<HTMLDivElement>(null);
+  const groupLabels: Record<string, string> = {
+    low: "Basit ve hızlı görevler",
+    medium: "Orta düzey görevler",
+    high: "Büyük ve karmaşık görevler",
+    ultra: "Derin araştırma ve geliştirme",
+    premium: "En güçlü modeller",
+    web: "Bağlı web oturumları",
+    diger: "Diğer etkin modeller",
+  };
+  const visible = options.filter((option) =>
+    `${option.etiket} ${option.aciklama ?? ""} ${option.deger}`
+      .toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")),
+  );
+  const grouped = new Map<string, ModelOption[]>();
+  for (const option of visible) {
+    const group = option.grup ?? "diger";
+    grouped.set(group, [...(grouped.get(group) ?? []), option]);
+  }
+  const groups = [...grouped.entries()];
 
   useEffect(() => {
     if (!open) return;
@@ -61,7 +84,10 @@ export function ModelPicker({ active, busy = false, onOpen, onSelect, options }:
 
   const ac = () => {
     setOpen((current) => {
-      if (!current) onOpen?.();
+      if (!current) {
+        setQuery("");
+        onOpen?.();
+      }
       return !current;
     });
   };
@@ -71,38 +97,54 @@ export function ModelPicker({ active, busy = false, onOpen, onSelect, options }:
       <button
         aria-expanded={open}
         aria-haspopup="listbox"
-        aria-label={`Model: ${active || "seçilmedi"}. Değiştirmek için tıkla.`}
+        aria-label={`Model: ${activeLabel || active || "seçilmedi"}. Değiştirmek için tıkla.`}
         className="model-picker__trigger"
         onClick={ac}
-        title={active}
+        title={activeLabel || active}
         type="button"
       >
-        <span className="model-picker__name">{shortModelName(active)}</span>
+        <span className="model-picker__name">{activeLabel || shortModelName(active)}</span>
         <Icon name="chevron" size={14} />
       </button>
       {open && (
         <div aria-label="Model listesi" className="model-picker__menu" role="listbox">
+          <input
+            aria-label="Model ara"
+            className="model-picker__search"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Model ara"
+            type="search"
+            value={query}
+          />
           {busy && <p className="model-picker__state">Modeller okunuyor…</p>}
           {!busy && options.length === 0 && (
             <p className="model-picker__state">
               Seçilebilir model yok. Ayarlar'dan bir sağlayıcıya bağlan.
             </p>
           )}
-          {options.map((option) => (
-            <button
-              aria-selected={option.etiket === active || option.deger === active}
-              className="model-picker__option"
-              key={option.deger}
-              onClick={() => {
-                setOpen(false);
-                onSelect(option.deger);
-              }}
-              role="option"
-              type="button"
-            >
-              <strong>{option.etiket}</strong>
-              {option.aciklama && <small>{option.aciklama}</small>}
-            </button>
+          {!busy && options.length > 0 && visible.length === 0 && (
+            <p className="model-picker__state">Aramayla eşleşen etkin model yok.</p>
+          )}
+          {!busy && groups.map(([group, entries]) => (
+            <div className="model-picker__group" key={group} role="presentation">
+              <p className="model-picker__group-title">{groupLabels[group] ?? group}</p>
+              {entries?.map((option) => (
+                <button
+                  aria-selected={option.modelId === active || option.deger === active}
+                  className="model-picker__option"
+                  key={option.deger}
+                  onClick={() => {
+                    setOpen(false);
+                    onSelect(option.deger);
+                  }}
+                  role="option"
+                  type="button"
+                >
+                  <strong>{option.etiket}</strong>
+                  {option.aciklama && <small>{option.aciklama}</small>}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
       )}

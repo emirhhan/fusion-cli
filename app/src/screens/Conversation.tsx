@@ -125,6 +125,8 @@ function TaskList({ gorevler }: { gorevler: GorevMaddesi[] }) {
 
 export interface ConversationProps {
   mesajlar: Mesaj[];
+  /** Çekirdeğin gerçek tur durumu; iptalden sonra eski olayın saati işlemez. */
+  running?: boolean;
   /** Kod kartındaki dosya adına tıklanınca çağrılır; çalışma paneli o dosyayı açar. */
   onOpenFile?: (path: string) => void;
   /** Ayarlardaki "adımları göster" tercihi. */
@@ -137,10 +139,15 @@ export function Conversation({
   mesajlar,
   onOpenFile,
   onOneriSec,
+  running = true,
   showSteps = false,
 }: ConversationProps) {
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
+  const sonCalisanOlay = mesajlar.reduce((last, message, index) => (
+    message.rol === "olay" && activityState(message.adimlar ?? []) === "running"
+      ? index : last
+  ), -1);
   const kutuRef = useRef<HTMLDivElement>(null);
   const icerikRef = useRef<HTMLDivElement>(null);
   // Son mesaj kullanıcınınsa az önce gönderdi demektir: her durumda en alta in.
@@ -205,12 +212,7 @@ export function Conversation({
             // yalnız son çalışan gösterge görünür; eski çağrı göstergeleri
             // cevap gelince ekranda kalıp "düşünüyor 32 sn / 18 sn" gibi
             // birbirinden kopuk sayaçlar oluşturamaz.
-            const sonCalisanOlay = [...mesajlar].map((item, itemIndex) =>
-              item.rol === "olay" && activityState(item.adimlar ?? []) === "running"
-                ? itemIndex
-                : -1,
-            ).reduce((son, itemIndex) => Math.max(son, itemIndex), -1);
-            if (activityState(message.adimlar ?? []) === "running" && index !== sonCalisanOlay) {
+            if (activityState(message.adimlar ?? []) === "running" && (!running || index !== sonCalisanOlay)) {
               return null;
             }
             return (
@@ -230,7 +232,7 @@ export function Conversation({
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek
           gürültüdür ve görsel tarafta da kaldırıldı. */}
       <div aria-atomic="true" aria-live="polite" className="conversation__live-status" role="status">
-        {sonDurum === "running" ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
+        {sonDurum === "running" && running ? "Çalışıyor" : sonDurum === "failed" ? "Tamamlanamadı" : ""}
       </div>
     </div>
   );

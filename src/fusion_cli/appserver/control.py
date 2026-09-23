@@ -185,11 +185,21 @@ def snapshot(
     engine: str,
     gateway: dict[str, Any],
 ) -> dict[str, Any]:
+    web_session = next(
+        (session for session in config.web_sessions if session.model == config.agent.model),
+        None,
+    )
+    agent_label = (
+        f"{web_session.provider.removesuffix('_web').title()} · "
+        f"{web_session.selected_model or 'otomatik'}"
+        if web_session is not None else ""
+    )
     return {
         "ok": True,
         "kok": root,
         "model": {
             "agent": config.agent.model,
+            "agent_label": agent_label,
             "hakem": config.judge.model,
             "adaylar": [candidate.model for candidate in config.candidates],
             "saglayici": config.runtime.provider,

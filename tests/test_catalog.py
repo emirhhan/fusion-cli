@@ -32,9 +32,13 @@ def test_yalnizca_ucretsiz_modeller_dondurulur(monkeypatch):
         monkeypatch,
         {
             "data": [
-                {"id": "a/free", "pricing": {"prompt": "0"}, "context_length": 1000},
+                {
+                    "id": "a/free",
+                    "pricing": {"prompt": "0", "completion": "0"},
+                    "context_length": 1000,
+                },
                 {"id": "b/paid", "pricing": {"prompt": "0.002"}},
-                {"id": "c/free", "pricing": {"prompt": "0.00"}},
+                {"id": "c/free", "pricing": {"prompt": "0.00", "completion": "0.00"}},
             ]
         },
     )
@@ -45,7 +49,9 @@ def test_yalnizca_ucretsiz_modeller_dondurulur(monkeypatch):
 
 
 def test_litellm_kimlik_onekleri_eklenir(monkeypatch):
-    _sahte_yanit(monkeypatch, {"data": [{"id": "x/y", "pricing": {"prompt": "0"}}]})
+    _sahte_yanit(
+        monkeypatch, {"data": [{"id": "x/y", "pricing": {"prompt": "0", "completion": "0"}}]}
+    )
 
     assert catalog.fetch_openrouter_free()[0].model_id.startswith("openrouter/")
 
@@ -53,7 +59,15 @@ def test_litellm_kimlik_onekleri_eklenir(monkeypatch):
 def test_baglam_uzunlugu_okunur(monkeypatch):
     _sahte_yanit(
         monkeypatch,
-        {"data": [{"id": "a/b", "pricing": {"prompt": "0"}, "context_length": 262144}]},
+        {
+            "data": [
+                {
+                    "id": "a/b",
+                    "pricing": {"prompt": "0", "completion": "0"},
+                    "context_length": 262144,
+                }
+            ]
+        },
     )
 
     assert catalog.fetch_openrouter_free()[0].context_length == 262144
@@ -62,7 +76,15 @@ def test_baglam_uzunlugu_okunur(monkeypatch):
 def test_bozuk_baglam_uzunlugu_sifira_duser(monkeypatch):
     _sahte_yanit(
         monkeypatch,
-        {"data": [{"id": "a/b", "pricing": {"prompt": "0"}, "context_length": "cok"}]},
+        {
+            "data": [
+                {
+                    "id": "a/b",
+                    "pricing": {"prompt": "0", "completion": "0"},
+                    "context_length": "cok",
+                }
+            ]
+        },
     )
 
     assert catalog.fetch_openrouter_free()[0].context_length == 0
@@ -86,6 +108,16 @@ def test_fiyat_bilgisi_olmayan_model_ucretsiz_sayilmaz(monkeypatch):
     assert catalog.fetch_openrouter_free() == ()
 
 
+def test_sadece_girdisi_ucretsiz_olan_model_ucretsiz_sayilmaz(monkeypatch):
+    _sahte_yanit(
+        monkeypatch,
+        {"data": [{"id": "a/b", "pricing": {"prompt": "0", "completion": "0.01"}}]},
+    )
+
+    assert catalog.fetch_openrouter_free() == ()
+    assert catalog.fetch_openrouter_paid()[0].model_id == "openrouter/a/b"
+
+
 def test_nim_anahtarsiz_bos_doner(monkeypatch):
     monkeypatch.delenv("NVIDIA_NIM_API_KEY", raising=False)
 
@@ -101,7 +133,9 @@ def test_nim_anahtarla_katalog_getirir(monkeypatch):
 
 @pytest.mark.parametrize("fiyat", ["0", "0.0", "0.00"])
 def test_ucretsiz_fiyat_bicimleri_taninir(monkeypatch, fiyat):
-    _sahte_yanit(monkeypatch, {"data": [{"id": "a/b", "pricing": {"prompt": fiyat}}]})
+    _sahte_yanit(
+        monkeypatch, {"data": [{"id": "a/b", "pricing": {"prompt": fiyat, "completion": fiyat}}]}
+    )
 
     assert len(catalog.fetch_openrouter_free()) == 1
 
@@ -112,7 +146,11 @@ def test_ucretli_liste_ucretsizlerin_tumleyenidir(monkeypatch):
         monkeypatch,
         {
             "data": [
-                {"id": "a/free", "pricing": {"prompt": "0"}, "context_length": 1000},
+                {
+                    "id": "a/free",
+                    "pricing": {"prompt": "0", "completion": "0"},
+                    "context_length": 1000,
+                },
                 {"id": "b/paid", "pricing": {"prompt": "0.5"}, "context_length": 2000},
             ]
         },

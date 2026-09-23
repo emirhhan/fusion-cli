@@ -59,6 +59,22 @@ describe("Shell", () => {
     );
   });
 
+  it("mobil gezinmenin örtüsü sohbeti yeniden erişilebilir kılar", () => {
+    setNarrowViewport(true);
+    const onSidebarClose = vi.fn();
+    const view = render(
+      <Shell content="İçerik" onSidebarClose={onSidebarClose} sidebar="Gezinme" />,
+    );
+    screen.getByRole("button", { name: "Navigasyonu kapat" }).click();
+    expect(onSidebarClose).toHaveBeenCalledOnce();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onSidebarClose).toHaveBeenCalledTimes(2);
+    view.rerender(
+      <Shell content="İçerik" onSidebarClose={onSidebarClose} sidebar="Gezinme" sidebarCollapsed />,
+    );
+    expect(screen.queryByRole("button", { name: "Navigasyonu kapat" })).toBeNull();
+  });
+
   it("açık denetçiyi Escape ve örtü tıklamasıyla kapatır", () => {
     const onInspectorClose = vi.fn();
     render(

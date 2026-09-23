@@ -97,3 +97,43 @@ async def test_eval_runner_chrome_profili_aciksa_sifir_basari_raporlamaz(
 
     with pytest.raises(EvaluationUnavailableError, match="Chrome profili"):
         await runner.run("görev", root=tmp_path)
+
+
+async def test_eval_runner_arac_olcumu_olmayan_modeli_basarisiz_gorev_saymaz(
+    monkeypatch, tmp_path
+):
+    async def fake_run_agent(request, deps):
+        return AgentOutcome(
+            final_text="Seçilen model bu görevle uyumsuz: araç desteği.",
+            messages=[],
+            ok=False,
+            model_calls_made=0,
+        )
+
+    monkeypatch.setattr(agent_runner, "run_agent", fake_run_agent)
+    monkeypatch.setattr(agent_runner, "build_verifier", lambda *args, **kwargs: None)
+    runner = object.__new__(FusionAgentRunner)
+    runner._config = object()
+
+    with pytest.raises(EvaluationUnavailableError, match="hiç çalışmadı"):
+        await runner.run("görev", root=tmp_path)
+
+
+async def test_eval_runner_saglayici_asiri_yuklenmesini_basarisiz_gorev_saymaz(
+    monkeypatch, tmp_path
+):
+    async def fake_run_agent(request, deps):
+        return AgentOutcome(
+            final_text="APIConnectionError: Service temporarily overloaded",
+            messages=[],
+            ok=False,
+            model_calls_made=2,
+        )
+
+    monkeypatch.setattr(agent_runner, "run_agent", fake_run_agent)
+    monkeypatch.setattr(agent_runner, "build_verifier", lambda *args, **kwargs: None)
+    runner = object.__new__(FusionAgentRunner)
+    runner._config = object()
+
+    with pytest.raises(EvaluationUnavailableError, match="aşırı yüklü"):
+        await runner.run("görev", root=tmp_path)

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Approval } from "./dialogs/Approval";
 import { CloseConfirm } from "./dialogs/CloseConfirm";
+import { ShareDialog } from "./dialogs/ShareDialog";
 import { HistoryPicker } from "./dialogs/HistoryPicker";
 import { NewTaskDialog } from "./dialogs/NewTaskDialog";
 import {
   CommandSelector,
-  continuation,
   type CommandSelectorPayload,
 } from "./dialogs/CommandSelector";
 import { useHistory } from "./history/useHistory";
@@ -76,6 +76,7 @@ import type { ApprenticeStatus, DiscoveredSource, ProviderSummary, SampleProject
 import { selectDirectory, selectFiles as selectLocalFiles } from "./platform/dialog";
 import { PermissionPrompt } from "./permissions/PermissionPrompt";
 import { usePermissions } from "./permissions/usePermissions";
+import { useDictation } from "./voice/useDictation";
 import type { PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
@@ -295,7 +296,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
     conversation.clear();
   };
   const content = conversation.messages.length > 0 ? (
-    <Conversation mesajlar={conversation.messages} showSteps={showSteps} />
+    <Conversation mesajlar={conversation.messages} running={conversation.running} showSteps={showSteps} />
   ) : (
     <EmptyState onSelectPrompt={setDraft} />
   );
@@ -343,6 +344,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
       inspectorOpen={layout.inspectorOpen}
       inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
+      onSidebarClose={layout.toggleSidebar}
       sidebar={
         <Sidebar
           collapsed={layout.sidebarCollapsed}
@@ -480,6 +482,7 @@ export function SessionUygulama({
   const [commandError, setCommandError] = useState<string | null>(null);
   const [commands, setCommands] = useState<ComposerCommand[]>([]);
   const [activeModel, setActiveModel] = useState("");
+  const [activeModelLabel, setActiveModelLabel] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [modelsBusy, setModelsBusy] = useState(false);
   const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
@@ -487,6 +490,7 @@ export function SessionUygulama({
   //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
   const fileQuerySeq = useRef(0);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
@@ -511,6 +515,12 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  const dictation = useDictation((id, text) =>
+    setDrafts((current) => ({ ...current, [id]: text })),
+  );
+  useEffect(() => {
+    if (dictation.listening) void dictation.stop();
+  }, [active?.id]);
   // Hesap kapısı onboarding'den ÖNCE gelir: kimin kurulum yaptığı belli olmalı.
   const account = useAccount(active?.client ?? null);
   const etkinHesap =
@@ -565,6 +575,9 @@ export function SessionUygulama({
               // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
               // kullanıcıya orada açıkça söylüyoruz.
               setPage("settings");
+
+            } else if (destination === "new-project") {
+              requestTaskFolder();
 
             } else if (destination.startsWith("resume:")) {
               setPage("chat");
@@ -655,8 +668,10 @@ export function SessionUygulama({
       .request("kontrol.durum", {})
       .then((payload) => {
         if (!alive || payload.ok !== true) return;
-        const model = (payload.model as { agent?: unknown } | undefined)?.agent;
+        const modelState = payload.model as { agent?: unknown; agent_label?: unknown } | undefined;
+        const model = modelState?.agent;
         if (typeof model === "string") setActiveModel(model);
+        setActiveModelLabel(typeof modelState?.agent_label === "string" ? modelState.agent_label : "");
       })
       .catch(() => undefined);
     return () => {
@@ -664,29 +679,27 @@ export function SessionUygulama({
     };
   }, [active, controlRevision]);
 
-  /**
-   * Model listesini `/model` komutunun KENDİ seçeneklerinden oku.
-   *
-   * Ayrı bir "modelleri listele" ucu açılmadı: `/model` akışı zaten testli ve
-   * sağlayıcıya göre doğru listeyi üretiyor. İkinci bir yol açmak, biri
-   * düzeltilirken ötekinin eskimesi demekti (RULES "Genel Tasarım").
-   */
+  /** Etkin sağlayıcıların canlı katalogda bulunan modellerini oku. */
   const loadModelOptions = useCallback(async () => {
     if (!active) return;
     setModelsBusy(true);
+    setModelOptions([]);
     try {
-      const sonuc = await active.client.request("komut.secenekler", { ad: "model", arguman: "" });
-      const secici = commandSelectorFrom(sonuc?.secici);
-      if (!secici) {
-        setModelOptions([]);
-        return;
-      }
+      const sonuc = await active.client.request("model.katalog", {});
+      const modeller = Array.isArray(sonuc.modeller) ? sonuc.modeller : [];
       setModelOptions(
-        secici.secenekler.map((secenek) => ({
-          deger: continuation(secici, secenek.deger),
-          etiket: secenek.etiket,
-          aciklama: secenek.aciklama,
-        })),
+        modeller.flatMap((raw) => {
+          if (!raw || typeof raw !== "object") return [];
+          const row = raw as Record<string, unknown>;
+          if (typeof row.model !== "string" || !row.model || typeof row.kaynak !== "string") return [];
+          return [{
+            deger: `/development uygula ${row.kaynak} ${row.model}`,
+            modelId: row.model,
+            etiket: typeof row.etiket === "string" ? row.etiket : row.model,
+            aciklama: typeof row.aciklama === "string" ? row.aciklama : "",
+            grup: typeof row.grup === "string" ? row.grup : "diger",
+          }];
+        }),
       );
     } catch {
       setModelOptions([]);
@@ -883,7 +896,8 @@ export function SessionUygulama({
       header={<AppHeader title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
       content={<>{page === "image-create" || page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
       sidebarCollapsed={layout.sidebarCollapsed}
-      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
+      onSidebarClose={layout.toggleSidebar}
+      sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
     />;
   }
 
@@ -918,7 +932,8 @@ export function SessionUygulama({
   // Ölçüldü: Ayarlar açıkken ekranda "Ayarlar" iki kez yazıyordu ve erişilebilirlik
   // ağacında aynı adla iki başlık düğümü oluşuyordu. Şerit bu sayfalarda çalışma
   // alanını gösterir; sayfanın kimliği sayfanın kendi başlığındadır.
-  const headerTitle = SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
+  const headerTitle = page === "settings" ? active.title
+    : SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
     ? projectName(active.root)
     : page === "image-create" ? "Görsel oluştur"
       : page === "video-create" ? "Video oluştur"
@@ -966,6 +981,7 @@ export function SessionUygulama({
   const conversationContent = active.messages.length > 0 ? (
     <Conversation
       mesajlar={active.messages}
+      running={active.running}
       showSteps={showSteps}
       onOneriSec={(gorev) => send(gorev)}
       onOpenFile={(path) => {
@@ -1016,7 +1032,7 @@ export function SessionUygulama({
         )
       : page === "settings"
         ? (
-          <Settings
+          <>{conversationContent}<Settings
             client={active.client}
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
@@ -1024,7 +1040,7 @@ export function SessionUygulama({
             onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}
-          />
+          /></>
         )
       : page === "help"
         ? (
@@ -1072,10 +1088,12 @@ export function SessionUygulama({
 
   return (
     <Shell
-      composer={page === "chat" ? (
+      emptyChat={(page === "chat" || page === "settings") && active.messages.length === 0 && !active.running}
+      composer={page === "chat" || page === "settings" ? (
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <Composer
           activeModel={activeModel}
+          activeModelLabel={activeModelLabel}
           modelOptions={modelOptions}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
@@ -1122,6 +1140,16 @@ export function SessionUygulama({
           }}
           onSend={send}
           onVoice={() => void openVoiceWindow()}
+          dictating={dictation.listening}
+          dictationError={dictation.error}
+          onDictation={() => {
+            if (dictation.listening) { void dictation.stop(); return; }
+            void (async () => {
+              if (!(await permissions.ensure("microphone"))) return;
+              if (!(await permissions.ensure("speech"))) return;
+              await dictation.start(active.id, draft);
+            })();
+          }}
           onRemoveAttachment={(path) => setAttachments((current) => ({
             ...current,
             [active.id]: (current[active.id] ?? []).filter((attachment) => attachment.path !== path),
@@ -1156,6 +1184,13 @@ export function SessionUygulama({
               onCancel={() => setCloseAsked(false)}
               onConfirm={() => void invoke("kapatmayi_onayla")}
               running={active.running}
+            />
+          )}
+          {shareOpen && (
+            <ShareDialog
+              messages={active.messages}
+              onClose={() => setShareOpen(false)}
+              title={active.title}
             />
           )}
           {active.question && (
@@ -1222,6 +1257,7 @@ export function SessionUygulama({
       header={
         <AppHeader
           inspectorOpen={layout.inspectorOpen}
+          onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}
           sidebarCollapsed={layout.sidebarCollapsed}
@@ -1229,7 +1265,7 @@ export function SessionUygulama({
           title={headerTitle}
         />
       }
-      inspector={page === "chat" ? (
+      inspector={page === "chat" || page === "settings" ? (
         <ProjectInspector
           activeTab={inspectorLayout.activeTab}
           client={active.client}
@@ -1246,7 +1282,7 @@ export function SessionUygulama({
       ) : undefined}
       inspectorCollapsed={inspectorLayout.collapsed}
       inspectorPlacement={inspectorPlacement}
-      inspectorOpen={page === "chat" && layout.inspectorOpen}
+      inspectorOpen={(page === "chat" || page === "settings") && layout.inspectorOpen}
       inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
       sidebar={
@@ -1255,6 +1291,7 @@ export function SessionUygulama({
           availableSources={history.sources.map((source) => source.ad)}
           etkin={active.id}
           onSil={(id) => controller.remove(id)}
+          onMove={(id, root) => controller.move(id, root)}
           onNavigate={(destination) => void navigateSidebar(destination)}
           onSec={(id) => {
             setPage("chat");
@@ -1303,6 +1340,7 @@ export function SessionUygulama({
         />
       }
       sidebarCollapsed={layout.sidebarCollapsed}
+      onSidebarClose={layout.toggleSidebar}
     />
   );
 }

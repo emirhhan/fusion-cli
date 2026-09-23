@@ -114,6 +114,24 @@ async def test_ikinci_tur_yeni_sohbet_acmaz(pool, log):
     assert pool.fake_context.pages_created == 1
 
 
+async def test_secili_web_modeli_gonderimden_once_uygulanir(pool, log, monkeypatch):
+    from dataclasses import replace
+
+    selected = replace(_session(), selected_model="Thinking")
+    applied: list[str] = []
+
+    async def apply(page, definition, choice):
+        applied.append(choice)
+        raise web_browser.WebBrowserError("model arayüzünde yok")
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", apply)
+    transport = build_browser_transport(selected, pool=pool)
+    with pytest.raises(web_browser.WebBrowserError, match="model arayüzünde yok"):
+        await transport(WebSessionCredential(), _messages(2), selected.model)
+    assert applied == ["Thinking"]
+    assert not [entry for entry in log if entry[0] == "send"]
+
+
 async def test_havuz_kapatildiktan_sonra_eski_sohbet_sayfasina_devam_etmez(pool, log):
     transport = build_browser_transport(_session(), pool=pool)
     credential = WebSessionCredential()

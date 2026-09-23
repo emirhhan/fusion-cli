@@ -124,7 +124,7 @@ class FusionAgentRunner:
         finally:
             if kayit is not None:
                 kayit.close()
-        _ensure_provider_available(outcome.ok, outcome.final_text)
+        _ensure_provider_available(outcome.ok, outcome.final_text, publisher.model_calls)
         # Kota hatası görev başarısızlığı değildir; ayırt edilmezse ölçüm sessizce
         # bozulur (ölçüldü: kota tükenirken model çağrısı 8.6→5.8→1.0'a düştü ve
         # düşüş yanlışlıkla bir kod değişikliğine atfedildi).
@@ -202,7 +202,7 @@ class MinimalAgentRunner(FusionAgentRunner):
         finally:
             if kayit is not None:
                 kayit.close()
-        _ensure_provider_available(outcome.ok, outcome.final_text)
+        _ensure_provider_available(outcome.ok, outcome.final_text, publisher.model_calls)
         kota = not outcome.ok and is_rate_limit_error(outcome.final_text)
         return AgentRunObservation(
             output_text=outcome.final_text,
@@ -214,8 +214,18 @@ class MinimalAgentRunner(FusionAgentRunner):
         )
 
 
-def _ensure_provider_available(ok: bool, detail: str) -> None:
+def _ensure_provider_available(ok: bool, detail: str, model_calls: int = 0) -> None:
     """Kalıcı sağlayıcı arızasını yanlış bir benchmark başarısızlığına çevirme."""
+    if not ok and model_calls == 0 and detail.startswith((
+        "Seçilen model bu görevle uyumsuz:", "Model havuzu bu görevle uyumsuz:"
+    )):
+        raise EvaluationUnavailableError(
+            f"Ölçüm için uygun model seçilmedi; görev hiç çalışmadı: {detail}"
+        )
+    if not ok and "service temporarily overloaded" in detail.casefold():
+        raise EvaluationUnavailableError(
+            f"Sağlayıcı aşırı yüklü; koşu model yeteneğini ölçemedi: {detail}"
+        )
     if ok or not is_permanent_error(detail) or is_rate_limit_error(detail):
         return
     raise EvaluationUnavailableError(

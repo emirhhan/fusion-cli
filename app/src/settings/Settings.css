@@ -157,6 +157,11 @@
 }
 
 .settings__panel { display: grid; gap: var(--space-4); align-content: start; }
+.settings__memory-add { display: flex; gap: var(--space-2); }
+.settings__memory-add input { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); flex: 1; min-width: 0; padding: var(--space-2) var(--space-3); }
+.settings__memory-list { display: grid; gap: var(--space-2); list-style: none; margin: 0; padding: 0; }
+.settings__memory-list li { align-items: center; border-top: 1px solid var(--border-subtle); display: flex; gap: var(--space-3); justify-content: space-between; padding-top: var(--space-2); }
+.settings__memory-list li span { overflow-wrap: anywhere; }
 
 .settings__card-head {
   align-items: center;
@@ -213,4 +218,126 @@
 @media (max-width: 899px) {
   .settings__workspace { grid-template-columns: minmax(0, 1fr); }
   .settings__nav { display: flex; flex-wrap: wrap; position: static; }
+}
+
+/* Konuşmanın üstünde açılan ayar penceresi. İç bölümler Fusion'a özgü
+   kontrolleri korur; dış yerleşim sohbet akışını değiştirmez. */
+.settings {
+  align-items: center;
+  background: rgb(0 0 0 / 68%);
+  display: flex;
+  height: 100dvh;
+  inset: 0;
+  justify-content: center;
+  overflow: hidden;
+  padding: 24px;
+  position: fixed;
+  z-index: 80;
+}
+:root[data-theme="light"] .settings {
+  background: rgb(0 0 0 / 42%);
+}
+.settings__dialog {
+  background: var(--settings-dialog-bg);
+  border: 1px solid var(--settings-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 35%);
+  color: var(--settings-text);
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  height: min(600px, calc(100dvh - 48px));
+  max-width: 100%;
+  overflow: hidden;
+  width: 680px;
+}
+.settings__navcol {
+  border-right: 1px solid var(--settings-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  padding: 12px 8px;
+}
+.settings__close {
+  align-items: center;
+  background: var(--settings-selected);
+  border: 1px solid var(--settings-border);
+  border-radius: 10px;
+  color: var(--settings-text);
+  cursor: pointer;
+  display: flex;
+  font-size: 24px;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+.settings__search {
+  background: var(--settings-input-bg);
+  border: 1px solid var(--settings-border);
+  border-radius: 20px;
+  color: var(--settings-text);
+  font: inherit;
+  font-size: 14px;
+  min-height: 36px;
+  padding: 0 13px;
+  width: 100%;
+}
+.settings__search::placeholder { color: var(--settings-muted); }
+.settings__nav {
+  align-content: start;
+  display: grid;
+  gap: 2px;
+  overflow-y: auto;
+  position: static;
+}
+.settings__nav button { color: var(--settings-text); font-size: 14px; min-height: 34px; padding: 7px 11px; }
+.settings__nav button[aria-current="page"] { background: var(--settings-selected); color: var(--settings-text); }
+.settings__panel {
+  align-content: start;
+  display: block;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 15px 16px 28px;
+}
+.settings__section-heading {
+  border-bottom: 1px solid var(--settings-border);
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 6px;
+  padding: 2px 0 22px;
+}
+.settings__panel .settings__card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  gap: 0;
+  padding: 0;
+}
+.settings__panel .settings__card:hover { border-color: transparent; }
+.settings__panel .settings__card + .settings__card { margin-top: 18px; }
+.settings__panel .settings__card h3 { font-size: 13px; font-weight: 500; margin: 16px 0 2px; }
+.settings__panel .settings__row {
+  border-bottom: 1px solid var(--settings-border);
+  min-height: 59px;
+}
+.settings__panel .settings__row > span { color: var(--settings-text); font-size: 14px; }
+.settings__panel .settings__row select {
+  background: transparent;
+  border: 0;
+  color: var(--settings-text);
+  max-width: 190px;
+  text-align: right;
+}
+.settings__panel .settings__hint { color: var(--settings-muted); margin: 6px 0 0; }
+.settings__close:focus-visible, .settings__search:focus-visible,
+.settings__nav button:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
+@media (max-width: 700px) {
+  .settings { padding: 12px; }
+  .settings__dialog { grid-template-columns: 150px minmax(0, 1fr); height: min(600px, calc(100dvh - 24px)); }
+}
+@media (max-width: 520px) {
+  .settings__dialog { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .settings__navcol { border-bottom: 1px solid var(--settings-border); border-right: 0; }
+  .settings__nav { display: flex; overflow-x: auto; }
+  .settings__nav button { white-space: nowrap; }
 }

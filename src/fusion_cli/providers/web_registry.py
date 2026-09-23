@@ -56,6 +56,10 @@ class WebSessionRegistry:
     def session_for(self, model: str) -> WebSessionConfig | None:
         return self._by_model.get(model)
 
+    def credential_for(self, session: WebSessionConfig) -> WebSessionCredential:
+        """Canlı model menüsü gibi salt-okunur profil işlemlerinin kimliği."""
+        return self._credential(session)
+
     def build(
         self,
         model: str,

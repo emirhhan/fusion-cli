@@ -20,6 +20,16 @@ export interface ProjeSatiri {
   updated_at: number;
 }
 
+interface ProjectPreference { hidden?: boolean; name?: string; pinned?: boolean }
+
+function readProjectPreferences(): Record<string, ProjectPreference> {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.projects.v1") ?? "{}");
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as Record<string, ProjectPreference> : {};
+  } catch { return {}; }
+}
+
 type HistorySource = "fusion" | "claude" | "codex" | "hermes";
 
 interface SidebarProps {
@@ -29,6 +39,7 @@ interface SidebarProps {
   onNavigate?: (destination: string) => void;
   onSec: (id: string) => void;
   onSil?: (id: string) => void | Promise<void>;
+  onMove?: (id: string, targetRoot: string) => Promise<void>;
   onYeni: () => void;
   oturumlar: OturumSatiri[];
   projeler?: ProjeSatiri[];
@@ -64,16 +75,19 @@ function NavItem({ icon, label, onClick }: NavItemProps) {
   );
 }
 
-function SessionButton({ session, active, onSelect, onDelete, pinned, onPin }: {
+function SessionButton({ session, active, onSelect, onDelete, onMove, moveTargets, pinned, onPin }: {
   pinned: boolean;
   onPin: () => void;
   session: OturumSatiri;
   active: boolean;
   onSelect: () => void;
   onDelete?: () => void | Promise<void>;
+  onMove?: (root: string) => Promise<void>;
+  moveTargets: ProjeSatiri[];
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   return (
     <div className="sidebar__session-row">
       <button
@@ -110,6 +124,16 @@ function SessionButton({ session, active, onSelect, onDelete, pinned, onPin }: {
         }}
         type="button"
       ><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg></button>}
+      {onMove && moveTargets.length > 0 && <div className="sidebar__move-wrap">
+        <button aria-expanded={moveOpen} aria-label={`${session.title} sohbetini projeye taşı`} className="sidebar__session-move" onClick={() => setMoveOpen((open) => !open)} type="button">···</button>
+        {moveOpen && <div aria-label="Hedef proje" className="sidebar__move-menu" role="menu">
+          <strong>Projeye taşı</strong>
+          {moveTargets.map((project) => <button key={project.root} onClick={() => {
+            setMoveOpen(false);
+            void onMove(project.root).catch((error: unknown) => setDeleteError(String(error)));
+          }} role="menuitem" type="button">{project.name}</button>)}
+        </div>}
+      </div>}
       {deleteError && <span role="alert">{deleteError}</span>}
     </div>
   );
@@ -122,6 +146,7 @@ export function Sidebar({
   onNavigate = () => undefined,
   onSec,
   onSil,
+  onMove,
   onYeni,
   oturumlar,
   projeler = [],
@@ -135,6 +160,20 @@ export function Sidebar({
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [projectPreferences, setProjectPreferences] = useState(readProjectPreferences);
+  const [projectMenu, setProjectMenu] = useState<string | null>(null);
+  const [projectDialog, setProjectDialog] = useState<{ root: string; kind: "rename" | "remove" } | null>(null);
+  const [projectDraft, setProjectDraft] = useState("");
+  useEffect(() => {
+    try { localStorage.setItem("fusion.sidebar.projects.v1", JSON.stringify(projectPreferences)); }
+    catch { /* Geçici görünüm bu oturumda kullanılabilir kalır. */ }
+  }, [projectPreferences]);
+  const updateProject = (root: string, patch: ProjectPreference) => {
+    setProjectPreferences((current) => ({
+      ...current,
+      [root]: { ...current[root], ...patch },
+    }));
+  };
   const [pinnedSessions, setPinnedSessions] = useState<string[]>(() => {
     try {
       const saved: unknown = JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1") ?? "[]");
@@ -170,23 +209,32 @@ export function Sidebar({
   }, [oturumlar, query]);
   const filteredProjects = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
+    const available = projeler
+      .filter((project) => !projectPreferences[project.root]?.hidden && project.name !== "Desktop")
+      .map((project) => ({
+        ...project,
+        name: projectPreferences[project.root]?.name || project.name,
+        pinned: projectPreferences[project.root]?.pinned ?? project.pinned,
+      }));
     const matches = normalized
-      ? projeler.filter((project) =>
+      ? available.filter((project) =>
           `${project.name} ${project.root}`.toLocaleLowerCase("tr").includes(normalized),
         )
-      : projeler;
+      : available;
     return [...matches].sort((left, right) => {
       if (left.pinned !== right.pinned) return left.pinned ? -1 : 1;
       return right.updated_at - left.updated_at;
     });
-  }, [projeler, query]);
+  }, [projectPreferences, projeler, query]);
   const sessionGroups = useMemo(() => {
     const groups = new Map<string, { name: string; root?: string; sessions: OturumSatiri[] }>();
     for (const project of filteredProjects) groups.set(project.root, { name: project.name, root: project.root, sessions: [] });
     for (const session of filteredSessions) {
-      const project = projeler.find((item) => session.projectRoot ? item.root === session.projectRoot : item.name === session.project);
-      const key = session.projectRoot ?? project?.root ?? session.project ?? "Sohbetler";
-      if (!groups.has(key)) groups.set(key, { name: session.project || "Sohbetler", root: session.projectRoot ?? project?.root, sessions: [] });
+      const project = filteredProjects.find((item) => session.projectRoot ? item.root === session.projectRoot : item.name === session.project);
+      const looseName = !session.projectRoot && session.project !== "Desktop"
+        ? session.project : undefined;
+      const key = project?.root ?? looseName ?? "Sohbetler";
+      if (!groups.has(key)) groups.set(key, { name: project?.name ?? looseName ?? "Sohbetler", root: project?.root, sessions: [] });
       groups.get(key)!.sessions.push(session);
     }
     for (const group of groups.values()) group.sessions.sort((a, b) => {
@@ -194,7 +242,7 @@ export function Sidebar({
       return pinOrder || (b.updated_at ?? 0) - (a.updated_at ?? 0);
     });
     return [...groups.entries()];
-  }, [filteredProjects, filteredSessions, pinnedSessions, projeler]);
+  }, [filteredProjects, filteredSessions, pinnedSessions]);
   const hasHistory = sessionGroups.length > 0 || availableSources.length > 0;
   const toggleHistory = () => setHistoryExpanded((current) => {
     const next = !current;
@@ -272,11 +320,25 @@ export function Sidebar({
             </button>
             {historyExpanded && (
               <div className="sidebar__history-body">
+                <div className="sidebar__projects-heading">
+                  <span>Projeler</span>
+                  <button aria-label="Yeni proje" onClick={() => onNavigate("new-project")} type="button">+</button>
+                </div>
+                {projeler.filter((project) => projectPreferences[project.root]?.hidden).map((project) => (
+                  <button className="sidebar__restore-project" key={project.root} onClick={() => updateProject(project.root, { hidden: false })} type="button">{project.name} projesini geri ekle</button>
+                ))}
                 {sessionGroups.map(([groupKey, group]) => (
                   <section aria-label={group.name} className="sidebar__section" key={groupKey}>
-                    <h2 className="sidebar__section-title">{group.root ? <button aria-label={`${group.name} projesini aç`} className="sidebar__project" onClick={() => onNavigate(`project:${group.root}`)} type="button"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" /></svg><span className="sidebar__label">{group.name}</span></button> : group.name}</h2>
+                    <h2 className="sidebar__section-title">{group.root ? <span className="sidebar__project-row"><button aria-label={`${group.name} projesini aç`} className="sidebar__project" onClick={() => onNavigate(`project:${group.root}`)} type="button"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2-2V7h18" /></svg><span className="sidebar__label">{group.name}</span></button><button aria-expanded={projectMenu === group.root} aria-label={`${group.name} için proje seçeneklerini aç`} className="sidebar__project-options" onClick={() => setProjectMenu(projectMenu === group.root ? null : group.root!)} type="button">···</button></span> : group.name}</h2>
+                    {group.root && projectMenu === group.root && <div aria-label={`${group.name} proje seçenekleri`} className="sidebar__project-menu" role="menu">
+                      <button onClick={() => { setProjectDraft(group.name); setProjectDialog({ root: group.root!, kind: "rename" }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi yeniden adlandır</button>
+                      <button onClick={() => { updateProject(group.root!, { pinned: !projectPreferences[group.root!]?.pinned }); setProjectMenu(null); }} role="menuitem" type="button">{projectPreferences[group.root]?.pinned ? "Sabitlemeyi kaldır" : "Projeyi sabitle"}</button>
+                      <button onClick={() => { setProjectDialog({ root: group.root!, kind: "remove" }); setProjectMenu(null); }} role="menuitem" type="button">Projeyi sil</button>
+                    </div>}
                     {(expandedGroups.has(groupKey) || query.trim() ? group.sessions : group.sessions.slice(0, 5)).map((session) => (
                       <SessionButton
+                        moveTargets={filteredProjects.filter((project) => project.root !== group.root)}
+                        onMove={onMove ? (root) => onMove(session.session_id, root) : undefined}
                         pinned={pinnedSessions.includes(pinKey(session))}
                         onPin={() => togglePin(session)}
                         active={session.session_id === etkin}
@@ -314,6 +376,14 @@ export function Sidebar({
           </section>
         )}
       </div>
+
+      {projectDialog && <div className="sidebar__project-backdrop" role="presentation">
+        <div aria-label={projectDialog.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"} aria-modal="true" className="sidebar__project-dialog" role="dialog">
+          <h2>{projectDialog.kind === "rename" ? "Projeyi yeniden adlandır" : "Projeyi sil"}</h2>
+          {projectDialog.kind === "rename" ? <input aria-label="Proje adı" autoFocus maxLength={80} onChange={(event) => setProjectDraft(event.target.value)} value={projectDraft} /> : <p>Proje Fusion listesinden kaldırılır. Bilgisayarındaki klasörler ve sohbet kayıtları korunur.</p>}
+          <div><button onClick={() => setProjectDialog(null)} type="button">Vazgeç</button><button disabled={projectDialog.kind === "rename" && !projectDraft.trim()} onClick={() => { updateProject(projectDialog.root, projectDialog.kind === "rename" ? { name: projectDraft.trim() } : { hidden: true }); setProjectDialog(null); }} type="button">{projectDialog.kind === "rename" ? "Kaydet" : "Listeden kaldır"}</button></div>
+        </div>
+      </div>}
 
       <div className="sidebar__bottom">
         {/* Güncelleme şeridi profilin HEMEN ÜSTÜNDE durur: kullanıcı yeni sürümü
