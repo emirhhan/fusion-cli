@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,6 +32,31 @@ def test_production_suite_bes_gercek_senaryo_ailesini_icerir():
     assert any("buyuk-artifact" in item for item in ids)
     assert any("sohbet-izolasyonu" in item for item in ids)
     assert EvalProfile.PRODUCTION.value == "production"
+
+
+def test_mcp_kabul_olcutu_cagrilabilir_betik_istemiyor(tmp_path):
+    tasks = load_tasks(ROOT / "evals" / "suite" / "production.yaml")
+    task = next(item for item in tasks if item.id == "oauth-mcp-yasam-dongusu")
+    (tmp_path / "oauth_mcp_server.py").write_text(
+        'TOOLS = {"ping": lambda: "pong"}\n', encoding="utf-8"
+    )
+    (tmp_path / "smoke_test.py").write_text(
+        "from oauth_mcp_server import TOOLS\n"
+        "print('Araçlar:', ', '.join(TOOLS))\n"
+        "print('ping:', TOOLS['ping']())\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        task.criterion.command,
+        cwd=tmp_path,
+        shell=True,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_rapor_tekil_kosu_ile_kati_guvenilirligi_ayri_yazar():

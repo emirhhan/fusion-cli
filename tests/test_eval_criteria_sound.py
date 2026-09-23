@@ -40,7 +40,11 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
     },
     "oauth-mcp-yasam-dongusu": {
         "smoke_test.py": (
-            "from oauth_mcp_server import TOOLS\n\ndef call(name):\n    return TOOLS[name]()\n"
+            "from oauth_mcp_server import TOOLS\n"
+            "\n"
+            "if __name__ == '__main__':\n"
+            "    print('Araçlar:', ', '.join(TOOLS))\n"
+            "    print('ping:', TOOLS['ping']())\n"
         )
     },
     "yanlis-hedefte-yeniden-planla": {"config.json": '{"enabled": true}'},

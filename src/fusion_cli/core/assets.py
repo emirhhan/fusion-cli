@@ -122,21 +122,31 @@ def _document_level_entries(raw: dict[str, object]) -> dict[str, object] | None:
 
 
 def _manifest_entries(raw: object) -> dict[str, object]:
+    if isinstance(raw, list):
+        return _asset_list_entries(raw)
     if not isinstance(raw, dict):
         return {}
     if isinstance(raw.get("assets"), dict):
         return cast("dict[str, object]", raw["assets"])
     if isinstance(raw.get("assets"), list):
-        items = raw["assets"]
-        if any(
-            not isinstance(item, dict) or not isinstance(item.get("path"), str) for item in items
-        ):
-            return {}
-        return {item["path"]: item for item in items}
+        return _asset_list_entries(raw["assets"])
     belge = _document_level_entries(raw)
     if belge is not None:
         return belge
     return cast("dict[str, object]", raw)
+
+
+def _asset_list_entries(items: list[object]) -> dict[str, object]:
+    """Liste manifestlerinde `path` ve `file` alanlarını aynı dosya yolu say."""
+    entries: dict[str, object] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return {}
+        path = item.get("path") or item.get("file")
+        if not isinstance(path, str) or not path:
+            return {}
+        entries[path] = item
+    return entries
 
 
 def is_asset_inventory(path: Path) -> bool:

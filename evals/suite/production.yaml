@@ -11,7 +11,7 @@ tasks:
     criterion:
       kind: exit_code
       expected_exit_code: 0
-      command: python -c "import json, pathlib; p=pathlib.Path('assets/player.png'); m=json.load(open('assets/ASSETS.json')); assert p.read_bytes().startswith(b'\\x89PNG'); assert m['player.png']['source_url'].startswith('http'); assert m['player.png']['license']"
+      command: python -c "from pathlib import Path; from fusion_cli.core.assets import inspect_image_asset, validate_asset_manifest; p=Path('assets/player.png'); assert inspect_image_asset(p).valid; assert not validate_asset_manifest(p, Path('.'))"
 
   - id: oauth-mcp-yasam-dongusu
     request: >-
@@ -23,7 +23,7 @@ tasks:
     criterion:
       kind: exit_code
       expected_exit_code: 0
-      command: python -c "import smoke_test; assert smoke_test.call('ping') == 'pong'"
+      command: python -c "import subprocess,sys; r=subprocess.run([sys.executable,'smoke_test.py'],capture_output=True,text=True); assert r.returncode==0 and 'ping' in r.stdout.lower() and 'pong' in r.stdout.lower()"
 
   - id: yanlis-hedefte-yeniden-planla
     request: >-

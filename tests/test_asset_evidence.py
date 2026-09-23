@@ -71,6 +71,50 @@ def test_gercek_png_kaynak_ve_lisans_manifestiyle_kabul_edilir(tmp_path):
     assert validate_asset_manifest(target, tmp_path) == ()
 
 
+def test_assets_listesinde_file_anahtariyla_kaydedilen_gorsel_kabul_edilir(tmp_path):
+    target = tmp_path / "assets" / "player.png"
+    target.parent.mkdir()
+    target.write_bytes(_png(8, 12))
+    (target.parent / "ASSETS.json").write_text(
+        json.dumps(
+            {
+                "assets": [
+                    {
+                        "file": "player.png",
+                        "source_url": "https://example.com/player",
+                        "license": "CC0",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert validate_asset_manifest(target, tmp_path) == ()
+    assert validate_asset_inventory(target.parent / "ASSETS.json", tmp_path) == ()
+
+
+def test_kok_listede_file_anahtariyla_kaydedilen_gorsel_kabul_edilir(tmp_path):
+    target = tmp_path / "assets" / "player.png"
+    target.parent.mkdir()
+    target.write_bytes(_png(8, 12))
+    (target.parent / "ASSETS.json").write_text(
+        json.dumps(
+            [
+                {
+                    "file": "player.png",
+                    "source_url": "https://example.com/player",
+                    "license": "CC0",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert validate_asset_manifest(target, tmp_path) == ()
+    assert validate_asset_inventory(target.parent / "ASSETS.json", tmp_path) == ()
+
+
 def test_manifest_olmadan_gorsel_asset_kanitlanmis_sayilmaz(tmp_path):
     target = tmp_path / "assets" / "player.png"
     target.parent.mkdir()
