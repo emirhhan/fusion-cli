@@ -70,8 +70,7 @@ bağlandı. Yalan başarı bugüne kadar hiç ölçülmüyordu; ölçüm hattın
 
 - ChatGPT üzerinden dosya yükleme ve connector köprüsü. **Kök neden bulundu**
   (22 Eyl): kullanıcının ChatGPT hesabı bir kerelik insan doğrulaması istiyor.
-  Kod tarafı çalışıyor; tek adım `python -m fusion_cli.providers.web_login
-  chatgpt_web main`. CAPTCHA otomatik aşılamaz.
+  Kod tarafı çalışıyor; tek adım `fusion web-login chatgpt_web main`. CAPTCHA otomatik aşılamaz.
 - Uzun oturumun son 5 turu.
 - `parite.yaml`'ın canlı koşusu: birincil web oturumu doğrulanana kadar her tur
   yedeğe düşüyor ve ortalama tur süresi 90 sn eşiğinin üstünde kalıyor

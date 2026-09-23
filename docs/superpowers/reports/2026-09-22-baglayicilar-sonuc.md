@@ -39,7 +39,7 @@ CAPTCHA'yı otomatik aşmak YASAK (güvenlik kuralı) — kod da doğru şekilde
 reddedip kullanıcıya net bir çözüm veriyor:
 
 ```
-python -m fusion_cli.providers.web_login chatgpt_web main
+fusion web-login chatgpt_web main
 ```
 
 **Sonuç:** Köprünün kendisi (kimlik bulma, `HIDDEN` kipe geçiş, connector

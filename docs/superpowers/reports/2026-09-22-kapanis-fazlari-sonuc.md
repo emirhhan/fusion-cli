@@ -159,11 +159,81 @@ Terminalden aynı bağlantıyı kurmak bugün mümkün değil.
 
 1. **ChatGPT web oturumu insan doğrulaması bekliyor.** Canlı koşuda görüldü:
    `authentication: ChatGPT Web (Plus/Pro)`. CAPTCHA'yı otomatik aşmak yasak.
-   Tek yol: `python -m fusion_cli.providers.web_login chatgpt_web main`.
+   Tek yol: `fusion web-login chatgpt_web main`.
    Bu tamamlanana kadar birincil model her turda yedeğe düşüyor.
 
 2. **Ölü bağlayıcı kaydı.** `meta ads` → `mcp.facebook.ads.com` silinmeli;
    kullanıcının verisi olduğu için dokunulmadı.
+
+
+## ChatGPT web oturumu — canlı oturumda ölçülen üç ayrı arıza (22-23 Eylül)
+
+Kullanıcı `web-login` ile giriş yaptıktan sonra sıra sıra ortaya çıktılar.
+
+### 1. Kurtarma komutu ÇALIŞMIYORDU
+
+İnsan doğrulaması mesajı kullanıcıya `python -m fusion_cli.providers.web_login`
+demeyi öneriyordu. Bu komut iki yaygın durumda birden başarısız:
+
+- paketlenmiş ikilide `sys.executable` Fusion'ın kendisidir ve `-m` bayrağını
+  tanımaz — kod bunu `cli/app.py::web_login` içinde ZATEN not etmişti;
+- kaynak kurulumda kabuğun varsayılan `python`'u venv değilse `fusion_cli`
+  bulunamaz. Kullanıcı tam olarak bunu yaşadı (`ModuleNotFoundError`).
+
+Çalışan komut (`fusion web-login`) zaten vardı ama `hidden=True` idi: hata
+metninin önerdiği ama `--help`'te görünmeyen bir komut, adını hatırlamayan
+kullanıcı için çıkışsız bir yoldu. Mesaj düzeltildi, komut görünür yapıldı.
+İkinci bir hata daha vardı ve o da ölçüldü: düzeltilmiş mesaj önce
+`fusion web-login <saglayici> <hesap>` yazıyordu, oysa `account` konumsal değil
+SEÇENEK — kullanıcı komutu birebir kopyalayıp "Got unexpected extra argument(s)"
+aldı. Artık test, mesajdaki komutu alt komutun KENDİ ayrıştırıcısına veriyor ve
+ayrı bir test de hatalı sözdiziminin reddedildiğini kanıtlıyor (ilk yazımda
+ayrıştırma grup seviyesinde yapıldığı için her şeyi kabul ediyordu).
+
+### 2. Pencere kipi öneriyle ÇELİŞİYORDU
+
+`chatgpt_web` sağlayıcısı `WindowMode.HIDDEN` öneriyor (17 Eylül'de ölçülmüş),
+ama kullanıcının oturumu `headless=1` (HEADLESS) ile yapılandırılmıştı ve
+`web_control.py:199` açık değeri öneriye TERCİH EDİYOR. Kullanıcı onayıyla
+`hidden` yapıldı; paylaşılan Chrome'un gerçekten o kipte koştuğu doğrulandı
+(`.fusion-window-mode` = `hidden`, süreçlerde `--headless` yok).
+
+### 3. Composer seçicilerinin HEPSİ bayattı
+
+Canlı ölçüm (22 Eylül, gerçek Plus oturumu, TR arayüz): oturum açık, sayfa
+yüklü, kullanıcı adı ve sohbet listesi görünür durumdayken
+
+| Seçici | Eşleşme |
+|---|---|
+| `#prompt-textarea` | 0 |
+| `[data-testid="prompt-textarea"]` | 0 |
+| `div[contenteditable][data-lexical-editor]` | 0 |
+| `textarea[placeholder*="Message"]` | 0 |
+| `textarea` | 0 |
+| **`div.ProseMirror[contenteditable="true"]`** | **1, görünür** |
+
+ChatGPT composer'ı Lexical'dan ProseMirror'a geçmiş. Yani CAPTCHA hiç olmasa
+bile her ChatGPT turu "mesaj alanı bulunamadı" ile ölüyordu. Gönder düğmesi de
+aynı ölçümde: `data-testid="send-button"` 0, `form button[type=submit]` 1 ve
+görünür (dil-bağımsız; `aria-label` TR'ye bağlı olduğu için tercih edilmedi).
+
+**Düzeltmenin işe yaradığı KANITLANDI:** seçici değişikliğinden sonra araç
+ölçümünün hatası "mesaj alanı bulunamadı"dan "zaman aşımına uğradı (read_file
+senaryosu)"na taşındı — composer bulunuyor ve mesaj gönderiliyor.
+
+### Kalan: cevap seçicileri ölçülemedi
+
+Cevabın okunamaması (`response_selectors` da bayat olabilir) ölçülemedi.
+Sebebi dürüstçe: arka arkaya altı otomatik oturum açıldı (iki araç ölçümü +
+dört teşhis) ve Cloudflare bunu bot trafiği sayıp "Bir dakika lütfen…"
+sayfasını göstermeye başladı. Proje kuralı zaten kasıtlı CAPTCHA tetiklemesini
+yasaklıyor; sondaj burada DURDURULDU. Hesap soğuduktan sonra tek bir ölçümle
+`response_selectors` / `history_selectors` aynı yöntemle doğrulanmalı — güçlü
+şüphe: onlar da (`data-message-author-role`, `conversation-turn`) ProseMirror
+geçişinde değişti.
+
+Bu arada ChatGPT web'e bağımlı OLMAYAN yollar çalışıyor: `gemini_web` araç
+ölçümünü geçmiş durumda (dosya yazabiliyor) ve NIM API zinciri ayakta.
 
 ## Kapsam dışı bırakılanlar (gerekçesiyle)
 
