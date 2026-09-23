@@ -52,7 +52,7 @@ interface SettingsProps {
   /** Hesabım ekranını açar. Verilmezse hesap bölümü yalnız bilgi gösterir. */
   onOpenAccount?: () => void;
   onChangeRoot?: () => void;
-  onRunCommand?: (command: string) => void;
+  onRunCommand?: (command: string) => void | Promise<void>;
 }
 
 export function Settings({
@@ -104,6 +104,13 @@ export function Settings({
       .then(() => load())
       .catch(() => setError("Yerel API ucu değiştirilemedi."))
       .finally(() => setGatewayBusy(false));
+  };
+
+  const selectMode = (command: string) => {
+    if (!onRunCommand) return;
+    void Promise.resolve(onRunCommand(command))
+      .then(load)
+      .catch(() => setError("Çalışma modu değiştirilemedi."));
   };
 
   return (
@@ -168,7 +175,7 @@ export function Settings({
               kokleSinirli={control?.izin?.kokle_sinirli !== false}
               mod={control?.izin?.mod ?? "auto"}
               onChangeRoot={onChangeRoot}
-              onRunCommand={onRunCommand}
+              onSelectMode={onRunCommand ? selectMode : undefined}
             />
           )}
 

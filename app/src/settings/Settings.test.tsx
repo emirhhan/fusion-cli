@@ -191,6 +191,17 @@ describe("Settings — İzinler", () => {
 
     expect(onChangeRoot).toHaveBeenCalledTimes(1);
   });
+
+  it("çalışma modu kartına basınca ilgili komutu gönderir", async () => {
+    const onRunCommand = vi.fn();
+    ciz({ onRunCommand });
+    bolum("İzinler");
+    await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Her işlemde sor/ }));
+
+    expect(onRunCommand).toHaveBeenCalledWith("/security");
+  });
 });
 
 describe("Settings — Gelişmiş", () => {

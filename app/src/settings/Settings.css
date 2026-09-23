@@ -189,12 +189,19 @@
 .settings__choices { display: grid; gap: var(--space-2); }
 
 .settings__choice {
+  background: var(--surface-sidebar);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
   display: grid;
+  font: inherit;
   gap: 2px;
   padding: var(--space-3);
+  text-align: start;
+  width: 100%;
 }
+.settings__choice:disabled { cursor: default; }
 .settings__choice[data-active="true"] {
   background: var(--surface-accent-subtle);
   border-color: var(--accent-text);

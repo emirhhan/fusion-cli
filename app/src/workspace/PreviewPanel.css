@@ -33,7 +33,7 @@
 .preview-panel__web,
 .preview-panel__file { min-height: 0; min-width: 0; }
 .preview-panel__web { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.preview-panel__chrome { min-width: 0; }
+.preview-panel__chrome { container-type: inline-size; min-width: 0; }
 
 .preview-panel__toolbar {
   align-items: center;
@@ -89,6 +89,16 @@
 .preview-panel__toolbar button:active:not(:disabled),
 .preview-panel__frame-error button:active { transform: scale(0.96); }
 .preview-panel__toolbar button:disabled { opacity: 0.35; }
+
+/* Denetçi daraltıldığında dört sütun 320px'e sığmıyordu; adres ve boyut
+   seçicisi panelin dışına taşıyordu. Kırılım pencereye değil panele bağlıdır. */
+@container (max-width: 440px) {
+  .preview-panel__toolbar { grid-template-columns: minmax(0, 1fr) auto; }
+  .preview-panel__navigation { grid-column: 1; grid-row: 1; }
+  .preview-panel__toolbar select { grid-column: 2; grid-row: 1; }
+  .preview-panel__toolbar form { grid-column: 1; grid-row: 2; }
+  .preview-panel__toolbar > button { grid-column: 2; grid-row: 2; }
+}
 
 .preview-panel__address-error {
   color: var(--text-danger);

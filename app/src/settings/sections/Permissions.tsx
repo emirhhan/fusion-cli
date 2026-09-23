@@ -10,7 +10,7 @@ import { Button } from "../../ui/Button";
 
 export const PERMISSION_MODES = [
   {
-    id: "ask",
+    id: "security",
     etiket: "Her işlemde sor",
     aciklama: "Değiştiren her işlem için ayrı ayrı onay ister.",
   },
@@ -31,13 +31,13 @@ export function Permissions({
   kok,
   kokleSinirli,
   onChangeRoot,
-  onRunCommand,
+  onSelectMode,
 }: {
   mod: string;
   kok: string;
   kokleSinirli: boolean;
   onChangeRoot?: () => void;
-  onRunCommand?: (command: string) => void;
+  onSelectMode?: (command: string) => void;
 }) {
   return (
     <>
@@ -45,23 +45,20 @@ export function Permissions({
         <h3>Çalışma modu</h3>
         <div className="settings__choices" role="group">
           {PERMISSION_MODES.map((secenek) => (
-            <div
+            <button
+              aria-pressed={secenek.id === mod}
               className="settings__choice"
               data-active={secenek.id === mod}
+              disabled={!onSelectMode}
               key={secenek.id}
+              onClick={() => onSelectMode?.(`/${secenek.id}`)}
+              type="button"
             >
               <strong>{secenek.etiket}</strong>
               <small>{secenek.aciklama}</small>
-            </div>
+            </button>
           ))}
         </div>
-        {onRunCommand && (
-          <div className="settings__actions">
-            <Button onClick={() => onRunCommand("/security")} variant="secondary">
-              Modu değiştir
-            </Button>
-          </div>
-        )}
         <p className="settings__hint">
           Sohbet ekranında Shift+Tab ile de değiştirebilirsin.
         </p>

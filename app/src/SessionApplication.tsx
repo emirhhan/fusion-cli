@@ -1021,7 +1021,7 @@ export function SessionUygulama({
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}
-            onRunCommand={(command) => void executeCommand(command, false)}
+            onRunCommand={(command) => executeCommand(command, false)}
             onThemeChange={changeTheme}
             themePreference={themePreference}
           />
