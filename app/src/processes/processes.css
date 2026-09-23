@@ -1,7 +1,32 @@
+/* Terminalin yüksekliği SINIRLI olmak zorunda.
+ *
+ * Ölçüldü (23 Eylül, gerçek CSS zinciriyle): kök yalnız `min-height: 360px`
+ * taşıyordu ve yüksekliği içeriğe göre uzuyordu. xterm yazdıkça kutu bir satır
+ * uzuyor → ResizeObserver → `fit` bir satır fazla sayıyor → çekirdeğe resize →
+ * kabuk (zsh, SIGWINCH) prompt'u yeniden basıyor → kutu bir satır daha
+ * uzuyor. Açılıştan 8 saniye sonra 45 boyut olayı, satırlar 25→69, kutu 1079
+ * piksel (panel 712). Kullanıcının gördüğü onlarca boş prompt satırı ve
+ * "Terminal" başlığının kaybolması bu döngüydü. Kök artık paneli doldurur ve
+ * paneli AŞAMAZ.
+ *
+ * `position: relative` şart: `.terminal-tabs__probe` mutlak konumlu ve ilk
+ * kabuk boyutunu o ölçüyor. Göreli ata yokken tüm denetçiye göre konumlanıp
+ * yanlış alanı ölçüyordu (ölçüldü: 58×52 dedi, terminal 55 sütunda oturdu);
+ * kabuk yanlış sütun sayısıyla doğuyor, zsh satır başına `<` basıyordu. */
 .terminal-tabs {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
-  min-height: 360px;
+  min-height: 0;
+  position: relative;
+}
+
+/* Terminali taşıyan panel, terminal varken sütun esnek kutu olur ve KAYMAZ:
+ * terminal kendi içinde kayar. Aksi hâlde panel kayar ve başlık yukarı itilir. */
+.inspector__panel:has(> .terminal-tabs) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .terminal-tabs__strip {
@@ -224,8 +249,17 @@
 }
 
 .terminal-tabs > [role="tabpanel"] {
+  display: flex;
   flex: 1 1 auto;
+  flex-direction: column;
   min-height: 0;
+}
+
+/* Yazar kuralı `display: flex`, tarayıcının `[hidden] { display: none }`
+ * kuralını ezer; bu olmadan pasif sekmelerin terminalleri de görünürdü. */
+.terminal-tabs > [role="tabpanel"][hidden],
+.xterm-session[hidden] {
+  display: none;
 }
 
 .xterm-session {
@@ -233,10 +267,12 @@
   border: 1px solid rgb(255 255 255 / 9%);
   border-radius: var(--radius-md);
   display: grid;
+  flex: 1 1 auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  height: 100%;
   margin-top: var(--space-3);
-  min-height: 300px;
+  /* `height: 100%` + `margin-top` kutuyu kenar boşluğu kadar taşırıyordu;
+     esnek doldurma ikisini birlikte hesaba katar. */
+  min-height: 0;
   overflow: hidden;
 }
 

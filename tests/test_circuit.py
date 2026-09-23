@@ -8,6 +8,8 @@ from __future__ import annotations
 import pytest
 
 from fusion_cli.core.health import CircuitPhase, HealthRegistry, ModelHealth
+from fusion_cli.core.types import StreamDone
+from fusion_cli.providers.chain import FallbackProvider
 from fusion_cli.providers.circuit import CIRCUIT_OPEN_ERROR, CircuitBreakingProvider
 from fusion_cli.providers.factory import build_provider
 
@@ -90,6 +92,51 @@ async def test_acik_devrede_stream_ic_saglayiciyi_cagirmaz():
     ogeler = [item async for item in sarmal.stream(request())]
     assert inner.started is False
     assert len(ogeler) == 1  # yalnızca hızlı-başarısız StreamDone
+
+
+async def test_kati_zincir_acik_devreyi_atlayip_yedegi_cagirir():
+    saglik = _health(threshold=1)
+    saglik.record(ok=False)
+    birincil = FakeProvider("birincil", chunks=("yanlis",), ok=True)
+    yedek = FakeProvider("yedek", chunks=("cevap",), ok=True)
+    zincir = FallbackProvider(
+        (CircuitBreakingProvider(birincil, health=saglik, role="agent"), yedek),
+        role="agent",
+        only_when_unavailable=True,
+    )
+
+    sonuc = await zincir.complete(request())
+
+    assert birincil.started is False
+    assert yedek.started is True
+    assert sonuc.text == "cevap"
+
+
+async def test_dogrulama_hatasi_oturum_boyunca_birincili_atlar():
+    saglik = _health()
+    birincil = FakeProvider("web", ok=False, error="authentication: insan doğrulaması gerekiyor")
+    sarmal = CircuitBreakingProvider(birincil, health=saglik, role="agent")
+
+    ilk = await sarmal.complete(request())
+    ikinci = await sarmal.complete(request())
+
+    assert ilk.error.startswith("authentication:")
+    assert ikinci.error == CIRCUIT_OPEN_ERROR
+    assert saglik.phase is CircuitPhase.OPEN
+    assert saglik.allow() is False
+
+
+async def test_akista_dogrulama_hatasi_sonraki_cagriyi_atlar():
+    saglik = _health()
+    birincil = FakeProvider("web", ok=False, error="authentication: giriş gerekli")
+    sarmal = CircuitBreakingProvider(birincil, health=saglik, role="agent")
+
+    ilk = [item async for item in sarmal.stream(request())]
+    ikinci = [item async for item in sarmal.stream(request())]
+
+    assert isinstance(ilk[-1], StreamDone)
+    assert isinstance(ikinci[-1], StreamDone)
+    assert ikinci[-1].result.error == CIRCUIT_OPEN_ERROR
 
 
 async def test_factory_saglik_verilmezse_breaker_kurulmaz():

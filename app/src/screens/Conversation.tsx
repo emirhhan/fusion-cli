@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { Button } from "../ui/Button";
 import "./Conversation.css";
 
@@ -6,6 +8,7 @@ import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
+import { useStickToBottom } from "./useStickToBottom";
 
 export interface MesajEki {
   kind: "image" | "file";
@@ -138,9 +141,14 @@ export function Conversation({
 }: ConversationProps) {
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
+  const kutuRef = useRef<HTMLDivElement>(null);
+  const icerikRef = useRef<HTMLDivElement>(null);
+  // Son mesaj kullanıcınınsa az önce gönderdi demektir: her durumda en alta in.
+  const kullaniciGonderdi = mesajlar[mesajlar.length - 1]?.rol === "kullanici";
+  useStickToBottom(kutuRef, icerikRef, mesajlar, kullaniciGonderdi);
   return (
-    <div className="conversation">
-      <div className="conversation__stream">
+    <div className="conversation" ref={kutuRef}>
+      <div className="conversation__stream" ref={icerikRef}>
         {mesajlar.map((message, index) => {
           if (message.rol === "kullanici") {
             return (

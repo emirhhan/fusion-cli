@@ -162,6 +162,7 @@ def is_rate_limit_error(detail: str | None) -> bool:
 # hiç cevap alamamaktır. Ölçüldü (17 Eylül): ChatGPT oturumu captcha'ya takıldı ve
 # girişi yapılmış ikinci oturum dururken yedi tur üst üste düştü.
 _UNAVAILABLE_MARKERS = (
+    "devre açık:",
     "authentication:",
     "captcha",
     "insan doğrulaması",
@@ -170,6 +171,11 @@ _UNAVAILABLE_MARKERS = (
     "süresi dolmuş",
     "giriş gerekli",
 )
+
+
+def is_authentication_error(detail: str | None) -> bool:
+    """Oturum/giriş sorunu yeniden denemeyle geçmez; kullanıcı müdahalesi gerekir."""
+    return bool(detail and detail.lower().startswith("authentication:"))
 
 
 def is_unavailable_error(detail: str | None) -> bool:

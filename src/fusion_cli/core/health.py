@@ -68,6 +68,8 @@ class ModelHealth:
         self._consecutive_failures = 0
         #: Art arda gelen kota hatası sayısı; geri çekilmenin katsayısıdır.
         self._rate_limit_streak = 0
+        #: Oturum/doğrulama hatası sağlık kaydı sıfırlanana kadar kalıcıdır.
+        self._auth_blocked = False
         self._opened_at = 0.0
         #: Yeni model iyimser başlar: tek bir geçici arıza onu dışlamasın.
         self._score = initial_score
@@ -95,6 +97,8 @@ class ModelHealth:
 
     def allow(self) -> bool:
         """Bu modele çağrı yapılabilir mi? Cooldown dolduysa yarı-açığa geçer."""
+        if self._auth_blocked:
+            return False
         if self._phase is not CircuitPhase.OPEN:
             return True
         if self._clock.monotonic() - self._opened_at >= self._current_cooldown():
@@ -115,11 +119,19 @@ class ModelHealth:
         carpan = min(2 ** (self._rate_limit_streak - 1), RATE_LIMIT_MAX_MULTIPLIER)
         return float(self._cooldown_s * RATE_LIMIT_BASE_MULTIPLIER * carpan)
 
-    def record(self, ok: bool, *, latency_ms: int = 0, rate_limited: bool = False) -> None:
+    def record(
+        self,
+        ok: bool,
+        *,
+        latency_ms: int = 0,
+        rate_limited: bool = False,
+        auth_blocked: bool = False,
+    ) -> None:
         """Bir çağrının sonucunu işle: skoru + gecikmeyi güncelle, devreyi aç/kapat."""
         self._score = self._alpha * (1.0 if ok else 0.0) + (1.0 - self._alpha) * self._score
         self._samples += 1
         if ok:
+            self._auth_blocked = False
             if latency_ms > 0:
                 # Yalnızca başarılı çağrının gecikmesi ölçülür; ilk ölçüm doğrudan alınır.
                 prev = self._avg_latency_ms or float(latency_ms)
@@ -131,6 +143,11 @@ class ModelHealth:
             self._phase = CircuitPhase.CLOSED
             return
         self._consecutive_failures += 1
+        if auth_blocked:
+            self._auth_blocked = True
+            self._phase = CircuitPhase.OPEN
+            self._opened_at = self._clock.monotonic()
+            return
         if rate_limited:
             # Eşik BEKLENMEZ: sağlayıcı zaten kapasitesi olmadığını söyledi. Aynı
             # kapıya art arda çarpmak tur bütçesini yakar.

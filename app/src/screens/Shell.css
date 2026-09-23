@@ -66,6 +66,15 @@
   overflow: hidden;
 }
 
+/* Ana alan esnek kutu olduğundan çocuk, kendi genişliğini içeriğinden alır.
+   Ayarlar, Beceriler, Bağlayıcılar ve Yardım kökünde `flex` yoktu: Ayarlar'da
+   her sekme farklı genişlikte açılıyor, "Kapat" düğmesi 1235-1910px arasında
+   zıplıyordu. Hangi sayfa gelirse gelsin ana alanı tam doldurur. */
+.app-shell__main > * {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .app-shell__composer {
   background: var(--surface-canvas);
   min-width: 0;

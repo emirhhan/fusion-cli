@@ -18,7 +18,14 @@ from collections.abc import AsyncIterator
 
 from ..core.health import ModelHealth
 from ..core.protocols import LlmProvider
-from ..core.types import CompletionRequest, ModelResult, StreamDone, StreamItem, TextChunk
+from ..core.types import (
+    CompletionRequest,
+    ModelResult,
+    StreamDone,
+    StreamItem,
+    TextChunk,
+    is_authentication_error,
+)
 
 #: Devre açıkken dönen sonucun hata metni. `FallbackProvider` bunu görüp sıradakine geçer.
 CIRCUIT_OPEN_ERROR = "devre açık: model geçici olarak sağlıksız, atlanıyor"
@@ -47,6 +54,7 @@ class CircuitBreakingProvider:
             ok=result.is_usable,
             latency_ms=result.latency_ms,
             rate_limited=result.is_rate_limited,
+            auth_blocked=is_authentication_error(result.error),
         )
         return result
 
@@ -64,6 +72,7 @@ class CircuitBreakingProvider:
                     ok=item.result.is_usable,
                     latency_ms=item.result.latency_ms,
                     rate_limited=item.result.is_rate_limited,
+                    auth_blocked=is_authentication_error(item.result.error),
                 )
                 recorded = True
             yield item
