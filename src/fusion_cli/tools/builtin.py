@@ -203,7 +203,9 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="run_shell",
         description="Bir kabuk komutu çalıştır ve çıktısını al. Kod değiştirdiysen "
-        "test/lint/build çalıştırarak işini DOĞRULA. Değiştirici — onay gerekir.",
+        "test/lint/build çalıştırarak işini DOĞRULA. Sürekli çalışan sunucuyu veya "
+        "izleyiciyi ön planda başlatma; doğrulama için bitecek komut kullan. "
+        "Değiştirici — onay gerekir.",
         parameters=_schema({"command": _STRING}, ["command"]),
         run=shell.run_shell,
         mutating=True,

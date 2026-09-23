@@ -111,3 +111,29 @@ Rapor: `/tmp/fusion-site-acceptance-20260923-v5.json`.
 
 Bu bulgular tamamlanmadan ürünün Claude düzeyinde bütün işleri yaptığı sonucu
 çıkarılamaz.
+
+## Uzun görev koşusu — arena davranış benchmarkı
+
+Kısa web görevinin yanına gerçek davranış testi eklendi: Fusion’dan tarayıcıda
+çalışan bir arena oyunu üretmesi istendi; kabul komutu oyuncu mermisinin gerçek
+hasarı, düşman ölümü ve XP düşüşü, oyuncu hasarı, XP ile seviye atlama ve temiz
+tarayıcı konsolunu ayrı ayrı kontrol etti. NIM Ultra koşusu **31 model çağrısı,
+551,48 saniye** sürdü; ilk denemede geçti ve beş kabul kontrolünün tamamı geçti.
+Bu, uzun ve araç yoğun görevde doğru ürün üretilebildiğini gösterir; aynı koşu
+mutlak `/index.html` yazma denemesi, iki yerel tarayıcı adresi reddi ve uzun bir
+ön planda sunucu komutu nedeniyle gereksiz süre de harcadı. İlk iki yönlendirme
+artık araç açıklamalarında açıkça belirtiliyor; sürekli süreçlerin ön planda
+çalıştırılmaması da `run_shell` sözleşmesine eklendi. Rapor:
+`/tmp/fusion-arena-baseline-20260923.json`.
+
+## Gerçek kullanıcı iş akışından alınan görev bağlamı
+
+Yerel Claude geçmişindeki GATE HOLDING özeti incelendi. Gerçek görev; yedi
+modüllü Next.js kontrol merkezi, gerçek WooCommerce/Meta/Google Ads verileri,
+ödeme akışı, dashboard grafiklerinin görsel sadakati ve üretim test/build
+kapılarıydı. Bu bağlamdan izole bir Gate Holding kopyası üzerinde uzun koşu
+başlatıldı; kopyaya `.env`, `node_modules`, `.next` ve git geçmişi alınmadı.
+İlk gözlemde bağımlılık kurulumu olmadan test çalışmadı ve model `npx` komutuna
+geçerek etkileşimsiz onay kapısına takıldı; bu koşu yayın başarısı sayılmadı.
+
+İzole Gate koşusu yaklaşık 10 dakika ve 70 model çağrısına ulaştı; BarChart legend koşulu düzeltildi ve doğrulama komutları denendi. Son aşamadaki bağımsız öz-denetim sağlayıcı çağrısı uzun süre yanıt vermediği için koşu iptal edildi; bu nedenle Gate koşusu başarı ölçümüne dahil edilmedi. Bu sonuç, uzun görevlerde öz-denetim için zaman bütçesi ve sağlayıcı zaman aşımı görünürlüğünün ayrıca iyileştirilmesi gerektiğini gösteriyor.
