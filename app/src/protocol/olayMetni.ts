@@ -25,6 +25,17 @@ export interface OlayAdimi {
   diff?: string;
   /** `diff` varsa değişen dosyanın yolu. */
   yol?: string;
+  /** Adım bir ALT AJAN turuna ait mi? Arayüz onu ayrı işaretler.
+   *
+   *  CLI'de bu ayrım `┌ alt-ajan` başlığıyla zaten vardı; masaüstünde alt
+   *  ajanın adımları ana turun adımlarına karışıyordu ve kullanıcı hangi işin
+   *  kim tarafından yapıldığını göremiyordu. */
+  altAjan?: boolean;
+  /** Modelin düşünme metni (varsa). Yalnız "adımları göster" açıkken çizilir.
+   *
+   *  Veri zaten akışta taşınıyordu (`ModelCallFinished.result.reasoning`) ama
+   *  masaüstünde hiç okunmuyordu; CLI'de `--show-thinking` ile görünüyordu. */
+  dusunme?: string;
 }
 
 /** Araç argümanlarından okunabilir tek satır çıkar. */
@@ -74,6 +85,28 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       return {
         metin: "düşünüyor",
         ayrinti: [rol, model].filter(Boolean).join(" · ") || undefined,
+      };
+    }
+    case "ModelCallFinished": {
+      // Arka plan çağrıları akışa girmez (`ModelCallStarted` ile aynı gerekçe).
+      if (veri.background === true) return null;
+      const sonuc = veri.result as { reasoning?: unknown } | undefined;
+      const dusunme = typeof sonuc?.reasoning === "string" ? sonuc.reasoning.trim() : "";
+      // Düşünme YOKSA adım da yok: her model çağrısı için boş bir satır açmak
+      // akışı ikiye katlar ("düşünüyor" zaten `ModelCallStarted`'da basılıyor).
+      if (!dusunme) return null;
+      return { metin: "düşündü", dusunme };
+    }
+    case "SubAgentStarted": {
+      const gorev = typeof veri.task === "string" ? veri.task : "";
+      return { metin: "alt ajan başladı", ayrinti: gorev || undefined, altAjan: true };
+    }
+    case "SubAgentFinished": {
+      const cagri = typeof veri.tool_calls === "number" ? veri.tool_calls : null;
+      return {
+        metin: "alt ajan bitti",
+        ayrinti: cagri === null ? undefined : `${cagri} araç çağrısı`,
+        altAjan: true,
       };
     }
     case "ModelFallbackActivated":

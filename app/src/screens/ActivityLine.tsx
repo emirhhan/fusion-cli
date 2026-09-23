@@ -53,13 +53,18 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
       <summary>{adimlar.length} adım · detaylar</summary>
       <ol>
         {adimlar.map((adim, index) => (
-          <li key={index}>
+          // Alt ajan adımları ana turun adımlarıyla aynı listede durur ama
+          // İŞARETLİDİR: kullanıcı hangi işi kimin yaptığını görebilmeli.
+          // CLI'de bu ayrım `┌ alt-ajan` başlığıyla zaten vardı.
+          <li data-sub-agent={adim.altAjan ? "true" : undefined} key={index}>
+            {adim.altAjan && <span className="activity__step-badge">alt ajan</span>}
             <span className="activity__step-title">{adim.metin}</span>
             {adim.kaynak ? (
               <a href={adim.kaynak} rel="noreferrer noopener" target="_blank">{adim.kaynak}</a>
             ) : (
               adim.ayrinti && <span className="activity__step-detail">{adim.ayrinti}</span>
             )}
+            {adim.dusunme && <pre className="activity__step-thinking">{adim.dusunme}</pre>}
           </li>
         ))}
       </ol>
