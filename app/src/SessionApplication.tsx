@@ -944,11 +944,11 @@ export function SessionUygulama({
   const draft = drafts[active.id] ?? "";
   const activeAttachments = attachments[active.id] ?? [];
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
-  const executeCommand = async (input: string, recordInput = true) => {
+  const executeCommand = async (input: string, recordInput = true, recordOutput = true) => {
     setCommandBusy(true);
     setCommandError(null);
     try {
-      const result = await controller.runCommand(active.id, input, recordInput);
+      const result = await controller.runCommand(active.id, input, recordInput, recordOutput);
       const next = commandSelectorFrom(result.secici);
       setCommandSelector(next);
       // Çekirdek `/clear` için EKRAN temizleme sinyali döner; afiş basmaz.
@@ -1097,7 +1097,7 @@ export function SessionUygulama({
           modelOptions={modelOptions}
           modelsBusy={modelsBusy}
           onModelMenuOpen={() => void loadModelOptions()}
-          onModelSelect={(komut) => void executeCommand(komut, false)}
+          onModelSelect={(komut) => void executeCommand(komut, false, false)}
           approval={approval}
           onApprovalChange={(next) => {
             setApproval(next);

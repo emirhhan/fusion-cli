@@ -466,6 +466,17 @@ describe("useSessions", () => {
     });
     expect(result.current.activeSession?.messages.at(-1)?.metin).not.toBe("Komut tamamlandı.");
   });
+  it("model seçicisi değişikliği sohbet dökümüne komut cevabı eklemez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    const command = result.current.runCommand("varsayilan", "/development uygula web gemini_web/main/auto", false, false);
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line) as { id: string };
+    act(() => fake.emitResult("varsayilan", request.id, { ok: true, metin: "model değiştirildi" }));
+    await act(async () => { await command; });
+    expect(result.current.activeSession?.messages).toEqual([]);
+  });
   it("her sekmeyi kendi sohbet kimliğiyle çekirdeğe tanıtır", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

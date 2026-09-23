@@ -65,6 +65,8 @@ değildir: her düğme gerçek bir işlem yapmalı ve işlem sonucunu göstermel
   kurulu 0.4.3 sürümü geri alınabilir biçimde Çöp'e taşınarak 0.4.4 kuruldu.
   Gerçek uygulama penceresi açıldı; model menüsü ve Gemini hesabının canlı
   seçenekleri görüntülendi. Eski masaüstü yedek uygulamaları ve DMG Çöp'te.
+- [x] 0.4.5 için composer model değişimi sohbet dökümüne teknik komut cevabı
+  yazmayacak biçimde düzeltildi ve davranış testi geçti. Paket ve kurulum bekliyor.
 - [ ] Ürün eşliği kapısı hâlâ açık: ChatGPT'nin yan menüdeki kitaplık,
   zamanlanmış işler ve bazı diğer akışlarının Fusion'da eşdeğer işlemleri yok.
   Fusion'daki görsel/video oluşturma düğmeleri şu anda yalnız "Daha sonra"

@@ -466,7 +466,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   };
 
   const runCommand = useCallback(
-    async (id: string, input: string, recordInput = true) => {
+    async (id: string, input: string, recordInput = true, recordOutput = true) => {
       const session = state.sessions[id];
       const trimmed = input.trim();
       if (!session || !trimmed.startsWith("/") || session.status !== "ready") {
@@ -483,7 +483,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
       const text = typeof result.metin === "string" ? result.metin : "";
-      if (text || !result.secici) {
+      if (recordOutput && (text || !result.secici)) {
         dispatch({
           type: "messageAdded",
           id,
