@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 
-from .web_interactions import inert_buttons
+from .web_interactions import empty_form_actions, inert_buttons
 
 #: Kapanmış ya da güvenilmez placeholder görsel servisleri. Model bunların öldüğünü
 #: bilemez; eğitim verisinde çalışıyorlardı. Ağa çıkmadan, liste ile yakalanır.
@@ -63,6 +63,7 @@ def inspect_web_output_by_severity(
     blocking.extend(_olu_gorseller(html))
     blocking.extend(_bos_baglantilar(html))
     blocking.extend(inert_buttons(html, js))
+    blocking.extend(empty_form_actions(html, js))
     blocking.extend(_stilsiz_siniflar(html, css))
     blocking.extend(_tutarsiz_tutarlar(html, js))
     blocking.extend(_baglanmamis_dosyalar(files, html, js))

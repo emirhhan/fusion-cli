@@ -578,6 +578,50 @@ def test_transkript_arac_cagrilarini_ve_sonuclarini_kaydeder(tmp_path):
     assert satirlar[1]["model"] == "m"
 
 
+def test_transkript_model_ve_arac_suresini_ayirmak_icin_zaman_kaydeder(tmp_path):
+    from evals.transcript import TranscriptRecorder
+
+    from fusion_cli.core.events import (
+        ModelCallFinished,
+        ModelCallStarted,
+        ToolExecuted,
+        ToolOutcome,
+    )
+    from fusion_cli.core.types import ModelResult, TokenUsage
+
+    zamanlar = iter((10.0, 10.1, 11.1, 11.4))
+    yol = tmp_path / "transkript.jsonl"
+    kayit = TranscriptRecorder(yol, clock=lambda: next(zamanlar))
+    kayit.publish(ModelCallStarted(role="agent", model="m"))
+    kayit.publish(
+        ModelCallFinished(
+            role="agent",
+            result=ModelResult(
+                name="a",
+                model="m",
+                text="",
+                latency_ms=900,
+                ok=True,
+                usage=TokenUsage(prompt_tokens=10, completion_tokens=20),
+            ),
+        )
+    )
+    kayit.publish(ToolExecuted(name="read_file", args={}, outcome=ToolOutcome.OK, output="ok"))
+    kayit.close()
+
+    satirlar = [json.loads(s) for s in yol.read_text(encoding="utf-8").splitlines()]
+
+    assert [satir["event"] for satir in satirlar] == [
+        "ModelCallStarted",
+        "ModelCallFinished",
+        "ToolExecuted",
+    ]
+    assert [satir["elapsed_ms"] for satir in satirlar] == [100, 1100, 1400]
+    assert satirlar[1]["latency_ms"] == 900
+    assert satirlar[1]["prompt_tokens"] == 10
+    assert satirlar[1]["completion_tokens"] == 20
+
+
 def test_transkript_token_gurultusunu_yazmaz(tmp_path):
     """Akış parçaları binlerce satır üretir ve teşhise katkısı yoktur."""
     from evals.transcript import TranscriptRecorder

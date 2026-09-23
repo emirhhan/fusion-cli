@@ -16,6 +16,7 @@ class _InteractionParser(HTMLParser):
         self.script = False
         self.form_depth = 0
         self.inert_count = 0
+        self.empty_form_count = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in {"html", "body"}:
@@ -24,6 +25,11 @@ class _InteractionParser(HTMLParser):
             self.script = True
         if tag == "form":
             self.form_depth += 1
+            attributes = {name.casefold(): value for name, value in attrs}
+            if (attributes.get("action") or "").strip() == "#" and not any(
+                name.startswith(("on", "hx-", "x-on", "@")) for name in attributes
+            ):
+                self.empty_form_count += 1
         if tag != "button":
             return
 
@@ -60,4 +66,20 @@ def inert_buttons(html: str, javascript: str) -> tuple[str, ...]:
         f"{parser.inert_count} eylemsiz düğme var: statik sayfada bu düğmelerin "
         "form, JavaScript veya yerel tarayıcı eylemi yok. Gerçek hedefe bağlantı "
         "ver ya da çalışan bir eylem bağla; boş bağlantıyı yalnız düğmeye çevirme.",
+    )
+
+
+def empty_form_actions(html: str, javascript: str) -> tuple[str, ...]:
+    """JS'siz tam sayfada yalnız ``#`` hedefine gönderilen formları bul."""
+    if javascript.strip():
+        return ()
+    parser = _InteractionParser()
+    parser.feed(html)
+    parser.close()
+    if parser.script or not parser.document or not parser.empty_form_count:
+        return ()
+    return (
+        f'{parser.empty_form_count} form action="#" ile gönderiliyor: gönderim '
+        "gerçek bir alıcıya ulaşmıyor. Çalışan bir uç nokta veya istemci tarafı "
+        "gönderim akışı kur; alıcı yoksa formu çalışan bir iletişim bağlantısıyla değiştir.",
     )

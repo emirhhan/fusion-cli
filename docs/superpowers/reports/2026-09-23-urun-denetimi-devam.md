@@ -37,6 +37,9 @@
 - Güncel paket `/Applications/Fusion.app` konumuna kuruldu ve yeniden açıldı.
   Kurulu uygulamada terminal, ayarlar, izinler ve web önizlemesi görsel olarak
   denetlendi.
+- Statik web form kapısı eklendikten sonra macOS uygulaması yeniden paketlenip
+  `/Applications/Fusion.app` üzerine kuruldu. Kod imzası ve paket runtime
+  arşivinin manifest SHA-256 değeri doğrulandı; uygulama yeniden açıldı.
 
 ## Açık ürün işleri
 
@@ -52,6 +55,8 @@
    90 saniyelik üretim süre eşiğini kaçırdı. Ekran görüntüsünde düzen mobilde
    taşmıyor, ancak metin jenerik ve örnek iletişim bilgileri içeriyor. Bu çıktı
    yayınlanabilir profesyonel site olarak kabul edilmedi.
+6. Üretilen sitelerin gerçek içerik, doğrulanmış işletme bilgisi ve çalışan
+   iletişim akışı bakımından insan kabulü hâlâ gerekiyor.
 
 ## Üretim değerlendirmesi
 
@@ -84,6 +89,25 @@ tekrar 6 model çağrısında 228,07 saniyede yapısal ölçütü geçti; eylems
 ve yatay taşma yoktu. Üretim süre eşiği yine geçilemedi; örnek iletişim bilgisi,
 genel metin ve eksik `<main>` bulgusu sürüyor. Rapor:
 `/tmp/fusion-site-acceptance-20260923-v2.json`.
+
+Üçüncü bağımsız koşu 13 model çağrısıyla 219,27 saniye sürdü. Çağrı kayıtlarına
+göre toplam model yanıt süresi 186,36 saniye (%85); kalan yaklaşık 32,91 saniye
+başlangıç, araç, doğrulama ve diğer işlemlerdi. En uzun CSS üreten tek çağrı
+87,15 saniye ve 2.674 çıktı tokenı gerektirdi. Bu örnekte yavaşlığın başlıca
+kaynağı model üretimidir; bu ölçüm başka sağlayıcı ve görevlere genellenemez.
+Çıktıda `action="#" method="post"` formu vardı; gönderim için gerçek alıcı
+tanımlanmadığından site yapısal testi geçse de iletişim akışı çalışmıyordu.
+Statik web teslim kapısı artık bu tür formları da engelliyor. Bu yeni kapıdan
+sonra yeniden canlı kabul koşusu yapıldı. Rapor:
+`/tmp/fusion-site-acceptance-20260923-v3.json`.
+
+Yeni kapıyla dördüncü gerçek koşu 14 model çağrısı ve 160,22 saniye sürdü;
+model yanıtlarının toplamı 144,34 saniyeydi. Alıcısı olmayan form yerine
+`mailto:` bağlantısı üretildi, fakat iletişim adresi ve telefonu örnek,
+“20+ yıl”, “%30 daha düşük enerji tüketimi” ve “24/7 teknik destek” gibi
+işletme iddiaları kullanıcı tarafından verilmedi/doğrulanmadı. Dolayısıyla
+mekanik kabul geçse de yayın kabulü yok; 90 saniyelik eşik de geçilmedi.
+Rapor: `/tmp/fusion-site-acceptance-20260923-v5.json`.
 
 Bu bulgular tamamlanmadan ürünün Claude düzeyinde bütün işleri yaptığı sonucu
 çıkarılamaz.

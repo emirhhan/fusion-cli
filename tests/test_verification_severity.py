@@ -101,6 +101,23 @@ async def test_web_verifier_eylemsiz_dugmeyi_engeller(tmp_path):
     assert any("eylemsiz düğme" in item for item in result.findings)
 
 
+async def test_web_verifier_alicisi_olmayan_formu_engeller(tmp_path):
+    path = tmp_path / "index.html"
+    path.write_text(
+        '<html><body><main><form action="#" method="post">'
+        '<button type="submit">Gönder</button></form></main></body></html>',
+        encoding="utf-8",
+    )
+
+    context = ToolContext(root=tmp_path)
+    context.touched.add(path)
+
+    result = await WebVerifier(context).verify()
+
+    assert not result.ok
+    assert any('form action="#"' in item for item in result.findings)
+
+
 class _StaticVerifier:
     def __init__(self, result: VerificationResult) -> None:
         self._result = result

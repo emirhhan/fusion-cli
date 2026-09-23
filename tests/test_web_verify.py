@@ -58,11 +58,7 @@ def test_gercek_capa_baglantisi_bos_sayilmaz():
 
 
 def test_statik_sayfada_eylemsiz_dugme_yakalanir():
-    html = (
-        "<html><body><main>"
-        '<button class="btn">Detaylar</button>'
-        "</main></body></html>"
-    )
+    html = '<html><body><main><button class="btn">Detaylar</button></main></body></html>'
 
     bulgular = inspect_web_output({"index.html": html})
 
@@ -91,8 +87,7 @@ def test_oznitelik_degerindeki_buyuktur_isareti_olay_isleyicisini_gizlemez():
 def test_form_ve_bagli_javascript_dugmeleri_eylemsiz_sayilmaz():
     form = "<html><body><form action='/ara'><button>Ara</button></form></body></html>"
     script = (
-        "<html><body><main><button>Menü</button></main>"
-        '<script src="app.js"></script></body></html>'
+        '<html><body><main><button>Menü</button></main><script src="app.js"></script></body></html>'
     )
 
     assert not _bulgu_var(inspect_web_output({"index.html": form}), "eylemsiz düğme")
@@ -104,7 +99,7 @@ def test_olay_isleyicisi_ve_yerel_popover_dugmesi_eylemsiz_sayilmaz():
         "<html><body><main>"
         '<button onclick="openMenu()">Menü</button>'
         '<button popovertarget="yardim">Yardım</button>'
-        '<button disabled>Bekle</button>'
+        "<button disabled>Bekle</button>"
         "</main></body></html>"
     )
 
@@ -120,6 +115,25 @@ def test_form_ozniteligine_bagli_gonder_dugmesi_eylemsiz_sayilmaz():
     )
 
     assert not _bulgu_var(inspect_web_output({"index.html": html}), "eylemsiz düğme")
+
+
+def test_alicisi_olmayan_statik_form_engellenir():
+    html = (
+        '<html><body><main><form action="#" method="post">'
+        '<input name="email"><button type="submit">Gönder</button>'
+        "</form></main></body></html>"
+    )
+
+    assert _bulgu_var(inspect_web_output({"index.html": html}), 'form action="#"')
+
+
+def test_alicisi_veya_olay_isleyicisi_olan_form_engellenmez():
+    endpoint = '<html><body><form action="/iletisim" method="post"></form></body></html>'
+    handler = '<html><body><form action="#" onsubmit="send(event)"></form></body></html>'
+    script = '<html><body><form action="#"></form><script src="app.js"></script></body></html>'
+
+    for html in (endpoint, handler, script):
+        assert not _bulgu_var(inspect_web_output({"index.html": html}), 'form action="#"')
 
 
 # --- Semantic HTML ----------------------------------------------------------- #
