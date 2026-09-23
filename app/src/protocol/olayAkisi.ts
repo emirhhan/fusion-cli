@@ -1,4 +1,4 @@
-import type { GorevMaddesi, Mesaj } from "../screens/Conversation";
+import type { GorevMaddesi, Mesaj, TakipOnerisi } from "../screens/Conversation";
 import { olayAdimi, type OlayAdimi } from "./olayMetni";
 
 /**
@@ -17,6 +17,9 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
 
   const gorevSonuc = gorevListesi(messages, event);
   if (gorevSonuc) return gorevSonuc;
+
+  const oneriSonuc = takipOnerileri(messages, event);
+  if (oneriSonuc) return oneriSonuc;
 
   const adim = olayAdimi(event);
   if (!adim) return messages;
@@ -110,4 +113,24 @@ function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] |
  */
 function degisiklikMesaji(adim: OlayAdimi): Mesaj {
   return { rol: "degisiklik", metin: adim.yol ?? "", diff: adim.diff };
+}
+
+
+/**
+ * Tur sonundaki takip önerilerini akışa ekle.
+ *
+ * Öneriler adım DEĞİLDİR: çalışma bloğuna katılmaz, turun kapanışının ardına
+ * kendi satırında düşer. Boş liste hiç mesaj açmaz — kanıt yoksa öneri de yok
+ * (bkz. `core/followups.py`).
+ */
+function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "FollowupsSuggested") return null;
+  const ham = Array.isArray(event.items) ? event.items : [];
+  const oneriler: TakipOnerisi[] = ham
+    .filter((item): item is [string, string] =>
+      Array.isArray(item) && typeof item[0] === "string" && typeof item[1] === "string",
+    )
+    .map(([etiket, gorev]) => ({ etiket, gorev }));
+  if (oneriler.length === 0) return messages;
+  return [...messages, { rol: "oneriler", metin: "", oneriler }];
 }

@@ -25,11 +25,13 @@ from ..core.events import (
     ErrorOccurred,
     EventSink,
     FilesChanged,
+    FollowupsSuggested,
     FusionCompleted,
     NoFileChanges,
     TurnFinished,
     TurnOutcome,
 )
+from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
 from ..core.tools import ToolContext
 from ..core.types import (
@@ -42,6 +44,7 @@ from ..core.types import (
 from ..engines.agent import AgentOutcome, run_agent
 from ..engines.agent.approval import ApprovalMemory, ApprovalMode, build_policy
 from ..engines.agent.loop import AgentDeps
+from ..engines.agent.turn_evidence import evidence_from_turn
 from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
 from ..memory.checkpoint_store import JsonCheckpointStore
@@ -250,6 +253,19 @@ async def run_agent_task(
             status = "completed"
         else:
             status = "partial" if tool_context.changes.paths else "failed"
+        # Takip önerileri: YENİ MODEL ÇAĞRISI YOK, turun kendi kanıtından.
+        # Kanıt yoksa olay hiç yayınlanmaz (bkz. `core/followups.py`).
+        oneriler = suggest_followups(
+            evidence_from_turn(
+                outcome,
+                tool_context,
+                verification_command=next(iter(config.runtime.verification_commands), ""),
+            )
+        )
+        if oneriler:
+            bus.publish(
+                FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
+            )
         bus.publish(TurnOutcome(status=status, elapsed_s=time.monotonic() - started_at))
         bus.publish(TurnFinished())
         return outcome

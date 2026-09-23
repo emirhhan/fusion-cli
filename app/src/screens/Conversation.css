@@ -229,3 +229,59 @@
 .conversation__tasks li[data-durum="yapiliyor"] {
   font-weight: 600;
 }
+
+/* Takip önerileri: turun kapanışının ardına düşen tıklanabilir rozetler.
+   Cevabın parçası gibi görünmemeli — sönük ve kenarlıklı dururlar. */
+.conversation__followups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding-block: var(--space-1);
+}
+
+.conversation__followup {
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0.3em 0.9em;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.conversation__followup:hover,
+.conversation__followup:focus-visible {
+  background: var(--surface-raised);
+  border-color: var(--border-strong, var(--border-subtle));
+  color: var(--text-primary);
+}
+
+/* Alt ajan adımı: ana turun adımlarından ayırt edilebilmeli.
+   CLI'de bu ayrım `┌ alt-ajan` başlığıyla zaten vardı; masaüstünde alt ajanın
+   adımları ana turun adımlarına karışıyordu. */
+.activity__steps li[data-sub-agent="true"] {
+  border-left: 2px solid var(--border-subtle);
+  padding-left: var(--space-1);
+}
+
+.activity__step-badge {
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 0.75em;
+  margin-right: 0.4em;
+  padding: 0.05em 0.4em;
+}
+
+/* Modelin düşünme metni. Cevap DEĞİLDİR: sönük, küçük ve katlanabilir
+   listenin içinde durur; kullanıcı onu cevapla karıştırmamalı. */
+.activity__step-thinking {
+  color: var(--text-secondary);
+  font-size: 0.85em;
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

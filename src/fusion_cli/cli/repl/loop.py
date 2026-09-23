@@ -30,11 +30,19 @@ from ...config import model_select, profile
 from ...config.apprentice_notice import apprentice_notice_shown, mark_apprentice_notice_shown
 from ...config.models import Config
 from ...core.concurrency import BackgroundTasks
-from ...core.events import ErrorOccurred, FilesChanged, NoFileChanges, TurnFinished
+from ...core.events import (
+    ErrorOccurred,
+    FilesChanged,
+    FollowupsSuggested,
+    NoFileChanges,
+    TurnFinished,
+)
+from ...core.followups import suggest_followups
 from ...core.health import HealthRegistry
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
 from ...engines.agent.compaction import compress
+from ...engines.agent.turn_evidence import evidence_from_turn
 from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
@@ -495,6 +503,20 @@ async def _agent_turn(
                 bus.publish(NoFileChanges())
             elif tool_context.changes.paths:
                 bus.publish(FilesChanged(_changed_names(tool_context)))
+            # Takip önerileri: yeni model çağrısı YOK, turun kendi kanıtından.
+            oneriler = suggest_followups(
+                evidence_from_turn(
+                    outcome,
+                    tool_context,
+                    verification_command=next(
+                        iter(state.config.runtime.verification_commands), ""
+                    ),
+                )
+            )
+            if oneriler:
+                bus.publish(
+                    FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
+                )
             bus.publish(TurnFinished())
         finally:
             # İptal/hata halinde TurnFinished yayınlanmaz; canlı gösterge yine de durmalı.

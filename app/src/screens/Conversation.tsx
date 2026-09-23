@@ -13,6 +13,14 @@ export interface MesajEki {
   path: string;
 }
 
+/** Tur sonunda gösterilen tek takip önerisi. */
+export interface TakipOnerisi {
+  /** Rozette yazan kısa metin. */
+  etiket: string;
+  /** Tıklanınca gönderilecek tam görev. */
+  gorev: string;
+}
+
 /** Canlı görev listesindeki tek madde. */
 export interface GorevMaddesi {
   durum: "bekliyor" | "yapiliyor" | "bitti";
@@ -21,7 +29,7 @@ export interface GorevMaddesi {
 
 export interface Mesaj {
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
   /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
@@ -32,6 +40,8 @@ export interface Mesaj {
   akan?: boolean;
   /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */
   gorevler?: GorevMaddesi[];
+  /** Yalnız `rol === "oneriler"` için: turun kanıtından türeyen sonraki adımlar. */
+  oneriler?: TakipOnerisi[];
 }
 
 /**
@@ -116,9 +126,16 @@ export interface ConversationProps {
   onOpenFile?: (path: string) => void;
   /** Ayarlardaki "adımları göster" tercihi. */
   showSteps?: boolean;
+  /** Takip önerisine tıklanınca çağrılır. Verilmezse rozetler çizilmez. */
+  onOneriSec?: (gorev: string) => void;
 }
 
-export function Conversation({ mesajlar, onOpenFile, showSteps = false }: ConversationProps) {
+export function Conversation({
+  mesajlar,
+  onOpenFile,
+  onOneriSec,
+  showSteps = false,
+}: ConversationProps) {
   const sonOlay = [...mesajlar].reverse().find((message) => message.rol === "olay");
   const sonDurum = sonOlay ? activityState(sonOlay.adimlar ?? []) : null;
   return (
@@ -149,6 +166,29 @@ export function Conversation({ mesajlar, onOpenFile, showSteps = false }: Conver
             return (
               <div className="conversation__message conversation__message--tasks" key={index}>
                 <TaskList gorevler={message.gorevler ?? []} />
+              </div>
+            );
+          }
+          if (message.rol === "oneriler") {
+            // Geri çağırım yoksa rozetler tıklanamaz olurdu; sessizce çizmemek
+            // tıklanmayan bir düğme göstermekten iyidir.
+            const oneriler = message.oneriler ?? [];
+            if (!onOneriSec || oneriler.length === 0) return null;
+            return (
+              <div className="conversation__message conversation__message--followups" key={index}>
+                <div aria-label="Sıradaki adım önerileri" className="conversation__followups">
+                  {oneriler.map((oneri) => (
+                    <button
+                      className="conversation__followup"
+                      key={oneri.gorev}
+                      onClick={() => onOneriSec(oneri.gorev)}
+                      title={oneri.gorev}
+                      type="button"
+                    >
+                      {oneri.etiket}
+                    </button>
+                  ))}
+                </div>
               </div>
             );
           }

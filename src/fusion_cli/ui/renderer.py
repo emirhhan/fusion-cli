@@ -44,6 +44,7 @@ from ..core.events import (
     ExecutionStepStarted,
     ExecutionStepVerified,
     FilesChanged,
+    FollowupsSuggested,
     FusionCompleted,
     JudgingStarted,
     LessonsLearned,
@@ -279,6 +280,8 @@ class ConsoleRenderer:
             self._console.print(
                 f"[{theme.DIM}]{theme.ICON_STATUS} {escape(messages.NO_FILE_CHANGES)}[/{theme.DIM}]"
             )
+        elif isinstance(event, FollowupsSuggested):
+            self._followups(event)
         elif isinstance(event, TurnFinished):
             self._flush_streams()
             self._close_line()
@@ -287,6 +290,21 @@ class ConsoleRenderer:
             self._finish_work()
         elif isinstance(event, TurnOutcome):
             self._turn_outcome(event)
+
+    def _followups(self, event: FollowupsSuggested) -> None:
+        """Sıradaki adımları turun ardına, numaralı ve sönük bas.
+
+        Numara kozmetik değil: kullanıcı `/devam 2` gibi bir şey yazmasa da
+        öneriyi tarif ederken ona atıfta bulunabiliyor. Cevabı BÖLMEZ — akan
+        metin önce kapatılır.
+        """
+        if not event.items:
+            return
+        self._flush_streams()
+        self._close_line()
+        self._console.print(f"[{theme.DIM}]{escape(messages.FOLLOWUPS_TITLE)}[/{theme.DIM}]")
+        for sira, (etiket, _gorev) in enumerate(event.items, start=1):
+            self._console.print(f"[{theme.DIM}]  {sira}. {escape(etiket)}[/{theme.DIM}]")
 
     def print_user_message(self, text: str) -> None:
         """Kullanıcının mesajını Claude Code diziliminde `> metin` olarak bas.

@@ -445,6 +445,19 @@ class NoFileChanges(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class FollowupsSuggested(Event):
+    """Turun kanıtından türetilen "sıradaki adım" önerileri.
+
+    Öneriler için YENİ MODEL ÇAĞRISI AÇILMAZ; hepsi `core/followups.py`'de
+    turun sayaçlarından üretilir. Kanıt yoksa bu olay HİÇ yayınlanmaz — boş bir
+    turun altına öneri basmak gürültüdür.
+    """
+
+    #: (etiket, tıklanınca gidecek görev) çiftleri.
+    items: tuple[tuple[str, str], ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TurnOutcome(Event):
     """Runtime'ın kesin tur sonucu; modelin doğal dil iddiasından bağımsızdır.
 
