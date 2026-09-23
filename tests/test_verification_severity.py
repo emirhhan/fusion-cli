@@ -85,6 +85,22 @@ async def test_web_verifier_sadece_main_icin_turu_dusurmez(tmp_path):
     assert any("<main>" in item for item in result.warnings)
 
 
+async def test_web_verifier_eylemsiz_dugmeyi_engeller(tmp_path):
+    path = tmp_path / "index.html"
+    path.write_text(
+        "<html><body><main><button>Detaylar</button></main></body></html>",
+        encoding="utf-8",
+    )
+
+    context = ToolContext(root=tmp_path)
+    context.touched.add(path)
+
+    result = await WebVerifier(context).verify()
+
+    assert not result.ok
+    assert any("eylemsiz düğme" in item for item in result.findings)
+
+
 class _StaticVerifier:
     def __init__(self, result: VerificationResult) -> None:
         self._result = result

@@ -57,6 +57,71 @@ def test_gercek_capa_baglantisi_bos_sayilmaz():
     assert not _bulgu_var(inspect_web_output({"index.html": html}), "boş bağlantı")
 
 
+def test_statik_sayfada_eylemsiz_dugme_yakalanir():
+    html = (
+        "<html><body><main>"
+        '<button class="btn">Detaylar</button>'
+        "</main></body></html>"
+    )
+
+    bulgular = inspect_web_output({"index.html": html})
+
+    assert _bulgu_var(bulgular, "eylemsiz düğme")
+
+
+def test_yorumdaki_script_eylemsiz_dugmeyi_gizlemez():
+    html = (
+        "<html><body><!-- <script src='app.js'></script> -->"
+        "<main><button>Detaylar</button></main></body></html>"
+    )
+
+    assert _bulgu_var(inspect_web_output({"index.html": html}), "eylemsiz düğme")
+
+
+def test_oznitelik_degerindeki_buyuktur_isareti_olay_isleyicisini_gizlemez():
+    html = (
+        "<html><body><main>"
+        '<button title="1 > 0" onclick="openMenu()">Menü</button>'
+        "</main></body></html>"
+    )
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "eylemsiz düğme")
+
+
+def test_form_ve_bagli_javascript_dugmeleri_eylemsiz_sayilmaz():
+    form = "<html><body><form action='/ara'><button>Ara</button></form></body></html>"
+    script = (
+        "<html><body><main><button>Menü</button></main>"
+        '<script src="app.js"></script></body></html>'
+    )
+
+    assert not _bulgu_var(inspect_web_output({"index.html": form}), "eylemsiz düğme")
+    assert not _bulgu_var(inspect_web_output({"index.html": script}), "eylemsiz düğme")
+
+
+def test_olay_isleyicisi_ve_yerel_popover_dugmesi_eylemsiz_sayilmaz():
+    html = (
+        "<html><body><main>"
+        '<button onclick="openMenu()">Menü</button>'
+        '<button popovertarget="yardim">Yardım</button>'
+        '<button disabled>Bekle</button>'
+        "</main></body></html>"
+    )
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "eylemsiz düğme")
+
+
+def test_form_ozniteligine_bagli_gonder_dugmesi_eylemsiz_sayilmaz():
+    html = (
+        "<html><body><main>"
+        '<form id="arama" action="/ara"><input name="q"></form>'
+        '<button form="arama" type="submit">Ara</button>'
+        "</main></body></html>"
+    )
+
+    assert not _bulgu_var(inspect_web_output({"index.html": html}), "eylemsiz düğme")
+
+
 # --- Semantic HTML ----------------------------------------------------------- #
 
 

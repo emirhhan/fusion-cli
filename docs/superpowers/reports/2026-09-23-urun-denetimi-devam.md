@@ -78,5 +78,12 @@ iletişim adresi, jenerik içerik ve dil tutarsızlığı insan düzenlemesi ger
 Yapısal testin geçmesi profesyonel yayın kalitesinin kanıtı değildir. Rapor:
 `/tmp/fusion-site-acceptance-20260923.json`.
 
+Sonraki koşuda statik sayfadaki eylemsiz düğmeleri engelleyen doğrulama eklendi.
+Önceki çıktının üç sahte “Detaylar” düğmesi bu kapıda yakalanıyor. Bağımsız
+tekrar 6 model çağrısında 228,07 saniyede yapısal ölçütü geçti; eylemsiz düğme
+ve yatay taşma yoktu. Üretim süre eşiği yine geçilemedi; örnek iletişim bilgisi,
+genel metin ve eksik `<main>` bulgusu sürüyor. Rapor:
+`/tmp/fusion-site-acceptance-20260923-v2.json`.
+
 Bu bulgular tamamlanmadan ürünün Claude düzeyinde bütün işleri yaptığı sonucu
 çıkarılamaz.
