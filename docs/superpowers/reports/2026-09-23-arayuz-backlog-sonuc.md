@@ -77,7 +77,41 @@ Mevcut `.activity__*` kurallarının yanına (`Conversation.css`) taşındı.
 Backend: `ruff check .` temiz, `mypy` 362 dosyada temiz, tam `pytest` yeşil.
 Masaüstü: `tsc --noEmit` temiz, **676 test yeşil** (89 dosya).
 
-**Görsel QA sınırı — açıkça belirtilir:** `tauri dev` bu ortamda pratik
-değildi. Masaüstü değişiklikleri birim testleriyle doğrulandı; ekranda
-görülmedi. "Test ettim" demek ile "gözümle gördüm" demek aynı şey değil ve
-ikincisi yapılmadı.
+## Görsel doğrulama — YAPILDI
+
+Önceki fazlarda "bu ortamda pratik değil" denip atlanmıştı; bu turda gerçekten
+yapıldı ve varsayım yanlış çıktı.
+
+**1. Tarayıcı paneli (gerçek bileşen kodu, sahte veri).** `npm run dev` ile
+Vite sunucusu açıldı. Uygulamanın tamamı Tauri köprüsü olmadan açılmıyor
+(`transformCallback` hatası, beklenen), bu yüzden geçici bir kontrol sayfası
+`Composer` ve `Conversation`'ı gerçek kodlarıyla çizdi. Görülenler: takip
+önerisi rozetleri hap biçiminde, alt ajan adımları rozet + sol kenar
+çizgisiyle ayrık, düşünme metni sönük ve küçük puntoyla. Sayfa kontrolden
+sonra SİLİNDİ (commit edilmedi).
+
+Bu sırada iki kendi hatam yakalandı: stilleri hiçbir yerden import edilmeyen
+yeni bir `ActivityLine.css` dosyasına yazmıştım (ölü kalacaktı, taşındı) ve
+sahte verideki adım listesinde sonuç adımı yoktu, bu yüzden bileşen "çalışıyor"
+halinde kalıp adım listesini hiç çizmiyordu.
+
+**2. Kurulu uygulama (gerçek uçtan uca).** `Fusion.app` açıldı ve AppleScript
+ile sürüldü. `@comp` yazıldığında liste kullanıcının GERÇEK çalışma alanından
+gerçek dosyalarla açıldı:
+
+```
+@Composer.test.tsx   01-Projeler/fusion-cli/app/src/screens/Composer.test.tsx
+@compression.py      01-Projeler/fusion-cli/src/fusion_cli/core/compression.py
+@compaction.py       01-Projeler/fusion-cli/src/fusion_cli/engines/agent/compaction.py
+@components.css      .../gateway/static/components.css
+```
+
+React → `proje.dosya_ara` → `project_files` → `file_match` → geri: tam zincir
+canlı çalıştı.
+
+**Doğrulanamayan:** kurulu uygulamada TAM bir tur koşturulamadı. Birincil
+sağlayıcı (`chatgpt_web`) insan doğrulaması beklediği için tur başlamadan
+duruyor ve arayüz "Sağlayıcı doğrulama istiyor" diyalogunu gösteriyor. Bu
+yüzden takip önerisi rozetleri GERÇEK bir turun ardından görülmedi — yalnız
+bileşen düzeyinde doğrulandı. Kullanıcı `fusion web-login chatgpt_web` ile
+doğrulamayı tamamladıktan sonra bu da görülebilir.
