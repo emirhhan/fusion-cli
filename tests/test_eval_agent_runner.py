@@ -76,3 +76,24 @@ async def test_eval_runner_saglayici_oturumu_yoksa_olcum_yazmaz(
 
     with pytest.raises(EvaluationUnavailableError, match="oturumu"):
         await runner.run("görev", root=tmp_path)
+
+
+async def test_eval_runner_chrome_profili_aciksa_sifir_basari_raporlamaz(
+    monkeypatch, tmp_path
+):
+    async def fake_run_agent(request, deps):
+        return AgentOutcome(
+            final_text="web oturumu hatası: Bu Fusion Chrome profili hâlâ açık.",
+            messages=[],
+            ok=False,
+            model_calls_made=0,
+        )
+
+    monkeypatch.setattr(agent_runner, "run_agent", fake_run_agent)
+    monkeypatch.setattr(agent_runner, "build_verifier", lambda *args, **kwargs: None)
+
+    runner = object.__new__(FusionAgentRunner)
+    runner._config = object()
+
+    with pytest.raises(EvaluationUnavailableError, match="Chrome profili"):
+        await runner.run("görev", root=tmp_path)

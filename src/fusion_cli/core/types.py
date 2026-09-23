@@ -163,6 +163,7 @@ def is_rate_limit_error(detail: str | None) -> bool:
 # girişi yapılmış ikinci oturum dururken yedi tur üst üste düştü.
 _UNAVAILABLE_MARKERS = (
     "devre açık:",
+    "chrome profili hâlâ açık",
     "authentication:",
     "captcha",
     "insan doğrulaması",
@@ -175,7 +176,7 @@ _UNAVAILABLE_MARKERS = (
 
 def is_authentication_error(detail: str | None) -> bool:
     """Oturum/giriş sorunu yeniden denemeyle geçmez; kullanıcı müdahalesi gerekir."""
-    return bool(detail and detail.lower().startswith("authentication:"))
+    return bool(detail and "authentication:" in detail.lower())
 
 
 def is_unavailable_error(detail: str | None) -> bool:
@@ -199,6 +200,7 @@ def is_unavailable_error(detail: str | None) -> bool:
 # geç almaktan başka bir şey yapmaz — kullanıcı bu süre boyunca sebepsiz bekler.
 # Bu hatalarda zincir doğrudan bir sonraki modele geçer.
 _PERMANENT_MARKERS = (
+    "chrome profili hâlâ açık",
     "notfound",
     "not found",
     "404",

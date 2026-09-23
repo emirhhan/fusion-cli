@@ -12,7 +12,7 @@ alternatifi hiç cevap alamamaktır.
 
 from __future__ import annotations
 
-from fusion_cli.core.types import is_unavailable_error
+from fusion_cli.core.types import is_permanent_error, is_unavailable_error
 
 
 def test_captcha_kullanilamaz_sayilir() -> None:
@@ -28,6 +28,12 @@ def test_oturum_kapali_kullanilamaz_sayilir() -> None:
 
 def test_kota_kullanilamaz_sayilir() -> None:
     assert is_unavailable_error("rate limit exceeded")
+
+
+def test_acik_chrome_profili_yeniden_denenmeden_yedege_gecer() -> None:
+    hata = "web oturumu hatası: Bu Fusion Chrome profili hâlâ açık."
+    assert is_unavailable_error(hata)
+    assert is_permanent_error(hata)
 
 
 def test_normal_model_hatasi_kullanilamaz_sayilmaz() -> None:

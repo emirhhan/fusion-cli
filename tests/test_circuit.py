@@ -114,13 +114,15 @@ async def test_kati_zincir_acik_devreyi_atlayip_yedegi_cagirir():
 
 async def test_dogrulama_hatasi_oturum_boyunca_birincili_atlar():
     saglik = _health()
-    birincil = FakeProvider("web", ok=False, error="authentication: insan doğrulaması gerekiyor")
+    birincil = FakeProvider(
+        "web", ok=False, error="web oturumu hatası: authentication: insan doğrulaması gerekiyor"
+    )
     sarmal = CircuitBreakingProvider(birincil, health=saglik, role="agent")
 
     ilk = await sarmal.complete(request())
     ikinci = await sarmal.complete(request())
 
-    assert ilk.error.startswith("authentication:")
+    assert "authentication:" in ilk.error
     assert ikinci.error == CIRCUIT_OPEN_ERROR
     assert saglik.phase is CircuitPhase.OPEN
     assert saglik.allow() is False
