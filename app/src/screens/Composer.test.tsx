@@ -288,3 +288,91 @@ describe("maliyetRozetMetni", () => {
     expect(maliyetRozetMetni(0.0042)).toBe("$0.0042");
   });
 });
+
+describe("Composer — @ ile dosya anma", () => {
+  const ONERILER = [
+    { yol: "app/src/screens/Composer.tsx" },
+    { yol: "src/fusion_cli/core/repo_map.py" },
+  ];
+
+  /** `@` yazılmış, önerileri gelmiş bir composer. */
+  function anmaliComposer(overrides: Record<string, unknown> = {}) {
+    const onFileQuery = vi.fn();
+    const onSend = vi.fn();
+    const utils = render(
+      <Composer
+        fileSuggestions={ONERILER}
+        onFileQuery={onFileQuery}
+        onSend={onSend}
+        {...overrides}
+      />,
+    );
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" }) as HTMLTextAreaElement;
+    fireEvent.change(textbox, { target: { value: "@comp", selectionStart: 5 } });
+    return { ...utils, onFileQuery, onSend, textbox };
+  }
+
+  it("@ yazılınca sorguyu üst katmana bildirir", () => {
+    const { onFileQuery } = anmaliComposer();
+    expect(onFileQuery).toHaveBeenCalledWith("comp");
+  });
+
+  it("önerileri listeler", () => {
+    anmaliComposer();
+    const liste = screen.getByRole("listbox", { name: "Dosya önerileri" });
+    expect(liste).toBeTruthy();
+    expect(screen.getByRole("option", { name: "app/src/screens/Composer.tsx" })).toBeTruthy();
+  });
+
+  it("tıklayınca anmayı seçilen yolla değiştirir", () => {
+    const { textbox } = anmaliComposer();
+    fireEvent.click(screen.getByRole("option", { name: "src/fusion_cli/core/repo_map.py" }));
+    expect(textbox.value).toBe("@src/fusion_cli/core/repo_map.py ");
+  });
+
+  it("Enter listeyi seçer, mesajı GÖNDERMEZ", () => {
+    // Anma açıkken Enter'ın turu başlatması, kullanıcının yarım yazdığı
+    // dosya adını göreve çevirirdi.
+    const { onSend, textbox } = anmaliComposer();
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(textbox.value).toBe("@app/src/screens/Composer.tsx ");
+  });
+
+  it("ok tuşlarıyla seçim gezinir", () => {
+    const { textbox } = anmaliComposer();
+    fireEvent.keyDown(textbox, { key: "ArrowDown" });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(textbox.value).toBe("@src/fusion_cli/core/repo_map.py ");
+  });
+
+  it("Esc listeyi kapatır", () => {
+    const { textbox } = anmaliComposer();
+    fireEvent.keyDown(textbox, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+    expect(textbox.value).toBe("@comp");
+  });
+
+  it("onFileQuery verilmezse anma hiç açılmaz", () => {
+    render(<Composer fileSuggestions={ONERILER} onSend={vi.fn()} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "@comp", selectionStart: 5 } });
+    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+  });
+
+  it("öneri yoksa liste çizilmez", () => {
+    render(<Composer fileSuggestions={[]} onFileQuery={vi.fn()} onSend={vi.fn()} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "@zzz", selectionStart: 4 } });
+    expect(screen.queryByRole("listbox", { name: "Dosya önerileri" })).toBeNull();
+  });
+
+  it("anma kapalıyken Enter normal gönderime döner", () => {
+    const onSend = vi.fn();
+    render(<Composer fileSuggestions={ONERILER} onFileQuery={vi.fn()} onSend={onSend} />);
+    const textbox = screen.getByRole("textbox", { name: "Mesaj" });
+    fireEvent.change(textbox, { target: { value: "sıradan görev", selectionStart: 13 } });
+    fireEvent.keyDown(textbox, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("sıradan görev");
+  });
+});

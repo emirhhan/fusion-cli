@@ -1,4 +1,5 @@
-import { useMemo, useState, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
+import { anmayiBul, anmayiDegistir } from "./dosyaAnmasi";
 import { Button } from "../ui/Button";
 import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
@@ -13,6 +14,12 @@ import type { BaglamOlcusu } from "../protocol/types";
  * göstermemekten kötüdür" ilkesiyle AYNI (bkz. o dosyanın yorumu): ücretsiz
  * modellerin çoğu turu tam olarak `$0` üretir, her seferinde basmak gürültüdür.
  */
+/** Yolun son parçası. Liste dar; kullanıcı önce dosya adını arar. */
+function dosyaAdi(yol: string): string {
+  const parcalar = yol.split("/");
+  return parcalar[parcalar.length - 1] || yol;
+}
+
 export function maliyetRozetMetni(costUsd: number | null): string | null {
   if (costUsd === null || costUsd <= 0) return null;
   return `$${costUsd.toFixed(costUsd < 0.01 ? 4 : 2)}`;
@@ -44,6 +51,12 @@ export interface ComposerCommand {
   destekleniyor: boolean;
 }
 
+export interface DosyaOnerisi {
+  yol: string;
+  /** Eşleşen harflerin konumları; arayüz onları kalınlaştırır. */
+  vurgu?: number[];
+}
+
 export interface ComposerAttachment {
   kind: "file" | "image";
   name: string;
@@ -67,6 +80,10 @@ interface ComposerProps {
   costUsd?: number | null;
   onAttach?: () => void;
   onDropFiles?: (files: File[]) => void;
+  /** `@` yazılınca aranacak sorgu. Verilmezse dosya anma kapalıdır. */
+  onFileQuery?: (sorgu: string) => void;
+  /** `onFileQuery` sonucunda gelen öneriler. */
+  fileSuggestions?: DosyaOnerisi[];
   /** Konuşma kipini aç. Verilmezse mikrofon düğmesi çizilmez. */
   onVoice?: () => void;
   onRemoveAttachment?: (path: string) => void;
@@ -94,6 +111,8 @@ export function Composer({
   onApprovalChange,
   onAttach = () => undefined,
   onDropFiles = () => undefined,
+  onFileQuery,
+  fileSuggestions = [],
   onVoice,
   onRemoveAttachment = () => undefined,
   onSend,
@@ -109,7 +128,15 @@ export function Composer({
 }: ComposerProps) {
   const [internalValue, setInternalValue] = useState("");
   const [activeCommand, setActiveCommand] = useState(0);
+  const [activeMention, setActiveMention] = useState(0);
+  const [caret, setCaret] = useState(0);
+  /** Kullanıcı Esc ile listeyi kapattı mı? Sorgu değişince kendiliğinden sıfırlanır. */
+  const [mentionDismissed, setMentionDismissed] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draft = value ?? internalValue;
+  // İmleç metnin sonundan geride olabilir; anma imlecin ÖNÜNDEKİ parçaya bakar.
+  const mention = onFileQuery ? anmayiBul(draft, Math.min(caret, draft.length)) : null;
+  const mentionOpen = mention !== null && !mentionDismissed && fileSuggestions.length > 0;
   const filteredCommands = useMemo(() => {
     if (!draft.startsWith("/") || draft.includes("\n")) return [];
     const query = draft.slice(1).trim().toLocaleLowerCase("tr");
@@ -118,10 +145,35 @@ export function Composer({
     ).slice(0, 8);
   }, [commands, draft]);
   const paletteOpen = filteredCommands.length > 0;
-  const setDraft = (next: string) => {
+  const mentionQuery = mention?.sorgu ?? null;
+  useEffect(() => {
+    // Anma kapalıyken sorgu gönderilmez: kapanır kapanmaz istek akışı da durur.
+    if (mentionQuery === null) return;
+    onFileQuery?.(mentionQuery);
+    setActiveMention(0);
+    // Sorgu değiştiyse kullanıcı yazmaya devam ediyor demektir: Esc ile
+    // kapatılmış liste yeniden açılmalı.
+    setMentionDismissed(false);
+  }, [mentionQuery, onFileQuery]);
+  const setDraft = (next: string, nextCaret?: number) => {
     if (value === undefined) setInternalValue(next);
     onValueChange?.(next);
     setActiveCommand(0);
+    setCaret(nextCaret ?? next.length);
+  };
+  /** Seçilen yolu anmanın yerine koy ve imleci yolun ardına taşı. */
+  const chooseMention = (yol: string) => {
+    if (!mention) return;
+    const sonuc = anmayiDegistir(draft, mention, Math.min(caret, draft.length), yol);
+    setDraft(sonuc.metin, sonuc.imlec);
+    // React değeri yazdıktan SONRA imleci koymak gerekiyor; aksi hâlde tarayıcı
+    // imleci metnin sonuna atar ve kullanıcı cümlenin ortasına dönemez.
+    requestAnimationFrame(() => {
+      const alan = textareaRef.current;
+      if (!alan) return;
+      alan.focus();
+      alan.setSelectionRange(sonuc.imlec, sonuc.imlec);
+    });
   };
   const send = () => {
     const task = draft.trim();
@@ -152,6 +204,29 @@ export function Composer({
     if (event.key === "Tab" && event.shiftKey && onApprovalChange) {
       event.preventDefault();
       onApprovalChange(nextApproval());
+      return;
+    }
+    // Anma paleti açıkken ok/Enter/Esc ONA aittir; komut paleti `/` ile
+    // başlar ve ikisi aynı anda açılamaz, ama sıra yine de belirli olmalı.
+    if (mentionOpen && event.key === "Escape") {
+      event.preventDefault();
+      setMentionDismissed(true);
+      return;
+    }
+    if (mentionOpen && event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveMention((current) => (current + 1) % fileSuggestions.length);
+      return;
+    }
+    if (mentionOpen && event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveMention((current) => (current - 1 + fileSuggestions.length) % fileSuggestions.length);
+      return;
+    }
+    if (mentionOpen && (event.key === "Enter" || event.key === "Tab") && !event.shiftKey) {
+      event.preventDefault();
+      const secili = fileSuggestions[activeMention];
+      if (secili) chooseMention(secili.yol);
       return;
     }
     if (paletteOpen && event.key === "ArrowDown") {
@@ -212,6 +287,23 @@ export function Composer({
             ))}
           </div>
         )}
+        {mentionOpen && (
+          <div aria-label="Dosya önerileri" className="composer__palette" role="listbox">
+            {fileSuggestions.map((oneri, index) => (
+              <button
+                aria-label={oneri.yol}
+                aria-selected={index === activeMention}
+                key={oneri.yol}
+                onClick={() => chooseMention(oneri.yol)}
+                role="option"
+                type="button"
+              >
+                <code>@{dosyaAdi(oneri.yol)}</code>
+                <span>{oneri.yol}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {attachments.length > 0 && (
           <div aria-label="Ekler" className="composer__attachments">
             {attachments.map((attachment) => (
@@ -226,9 +318,12 @@ export function Composer({
         {attachmentError && <p aria-live="polite" className="composer__attachment-error">{attachmentError}</p>}
         <textarea
           aria-label="Mesaj"
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => setDraft(event.target.value, event.target.selectionStart)}
+          onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
+          onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           placeholder="Fusion'a bir görev ver"
+          ref={textareaRef}
           rows={1}
           value={draft}
         />

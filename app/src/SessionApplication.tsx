@@ -20,6 +20,7 @@ import {
   type ApprovalMode,
   type ComposerAttachment,
   type ComposerCommand,
+  type DosyaOnerisi,
 } from "./screens/Composer";
 import { Conversation, type Mesaj } from "./screens/Conversation";
 import type { ModelOption } from "./screens/ModelPicker";
@@ -481,6 +482,10 @@ export function SessionUygulama({
   const [activeModel, setActiveModel] = useState("");
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [modelsBusy, setModelsBusy] = useState(false);
+  const [fileSuggestions, setFileSuggestions] = useState<DosyaOnerisi[]>([]);
+  //: En son gönderilen `@` sorgusunun sırası. Geç gelen cevap yenisini EZMEZ:
+  //: kullanıcı yazmaya devam ettiğinde eski sorgunun sonucu listeyi geri almamalı.
+  const fileQuerySeq = useRef(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
@@ -574,6 +579,34 @@ export function SessionUygulama({
       setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
     }
   };
+  /** `@` sorgusunu sunucuya ilet ve gelen öneriyi listeye yaz. */
+  const searchProjectFiles = useCallback(
+    (sorgu: string) => {
+      // Oturum henüz açılmadıysa arama yapılmaz; `@` listesi boş kalır.
+      if (!active) return;
+      const sira = ++fileQuerySeq.current;
+      void active.client
+        .request("proje.dosya_ara", { sorgu, limit: 12 })
+        .then((cevap) => {
+          if (sira !== fileQuerySeq.current) return;
+          const veri = cevap as { sonuclar?: unknown };
+          const ham = Array.isArray(veri.sonuclar) ? veri.sonuclar : [];
+          setFileSuggestions(
+            ham
+              .map((item) => item as { yol?: unknown; vurgu?: unknown })
+              .filter((item): item is { yol: string; vurgu?: number[] } => typeof item.yol === "string")
+              .map((item) => ({ yol: item.yol, vurgu: Array.isArray(item.vurgu) ? item.vurgu : [] })),
+          );
+        })
+        .catch(() => {
+          // Arama başarısızlığı turu ETKİLEMEZ: liste boş kalır, kullanıcı
+          // dosyayı elle yazmaya devam edebilir.
+          if (sira === fileQuerySeq.current) setFileSuggestions([]);
+        });
+    },
+    [active],
+  );
+
   const composerCommands = useMemo<ComposerCommand[]>(() => [
     FOLDER_COMMAND,
     ...commands.filter((command) => !command.ad.toLocaleLowerCase("tr").startsWith("resume")),
@@ -934,6 +967,7 @@ export function SessionUygulama({
     <Conversation
       mesajlar={active.messages}
       showSteps={showSteps}
+      onOneriSec={(gorev) => send(gorev)}
       onOpenFile={(path) => {
         setSelectedPath(path);
         // Dosyanın İÇERİĞİNİ gösteren sekme önizlemedir; ağaç sekmesi yalnız
@@ -1054,6 +1088,8 @@ export function SessionUygulama({
           attachments={activeAttachments}
           attachmentError={attachmentError ?? commandError}
           commands={composerCommands}
+          fileSuggestions={fileSuggestions}
+          onFileQuery={searchProjectFiles}
           context={active.baglam}
           costUsd={active.maliyetUsd}
           onAttach={() => {

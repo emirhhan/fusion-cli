@@ -26,11 +26,11 @@ içeri giriyor, sonra yolu atıyordu), (3) pahalı çözümleme dosya imzasına 
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
 from collections import Counter
 from pathlib import Path
+
+from .project_files import project_files
 
 #: Dosya uzantısı → tanım deseni. Yeni dil eklemek buraya bir satır eklemektir.
 _DEFINITIONS: dict[str, re.Pattern[str]] = {
@@ -44,23 +44,6 @@ _DEFINITIONS: dict[str, re.Pattern[str]] = {
     ".go": re.compile(r"^func\s+(?:\([^)]*\)\s*)?(?P<ad>[A-Za-z_]\w*)", re.MULTILINE),
 }
 
-#: Taranmayan dizinler: üretilmiş çıktı ve bağımlılık ağaçları haritayı boğar.
-#
-# Nokta ile başlayan dizinlerin TAMAMI ayrıca atlanır (`_is_skipped`). Bu liste
-# zaten `.git`, `.venv`, `.mypy_cache`, `.pytest_cache` sayıyordu — yani niyet
-# baştan buydu; genel kural onları kapsar ve ölçülen gerçek maliyeti de alır:
-# bu depodaki `.worktrees` 3,0 GB ve isimle sayılmıyordu.
-_SKIP = frozenset(
-    {
-        "node_modules",
-        "__pycache__",
-        "dist",
-        "build",
-        "target",
-        "vendor",
-        "site-packages",
-    }
-)
 #: Tek bir dosyadan alınacak en fazla tanım: bir dev modül haritanın tamamını yemesin.
 _MAX_PER_FILE = 12
 
@@ -81,9 +64,6 @@ _MAX_PER_SYMBOL = 2
 _MAX_FILES = 10_000
 _MAX_TOTAL_CHARS = 150_000_000
 
-#: `git ls-files` için üst süre. Ölçüldü: bu depoda 0,014 sn. Takılı bir git
-# (ağ dosya sistemi, kilitli index) turu askıda bırakmasın diye yine de sınırlı.
-_GIT_TIMEOUT_SECONDS = 5.0
 
 #: Referans sayımında kullanılan tanımlayıcı deseni.
 #
@@ -121,70 +101,18 @@ def build_repo_map(root: Path, *, budget_chars: int = 2_000) -> str:
     return _render(sirali, budget_chars, kisitli)
 
 
-def _is_skipped(ad: str) -> bool:
-    """Bu dizin adına hiç girilmez mi?"""
-    return ad in _SKIP or ad.startswith(".")
-
-
 def _source_files(root: Path) -> tuple[list[Path], bool]:
     """Haritaya girecek kaynak dosyalar ve dosya tavanının aşılıp aşılmadığı.
 
-    Önce git'e sorulur. Ölçüm (fusion-cli deposu, 22 Eylül): elle yürüyüş 4.373
-    dosya buluyordu, `git ls-files` 811. Aradaki 3.562 dosya `.gitignore`'daki
-    paketli runtime kopyasıydı (`app/src-tauri/resources/runtime/unpacked/`) ve
-    haritanın İLK SIRALARINI yiyordu — en çok başvurulan altı sembol litellm ile
-    httpx'ten geliyor, projenin kendi kodu listeye giremiyordu. Üstelik o ağaç
-    `fusion_cli`'ın kopyasını da taşıdığı için her sembol iki kez sayılıyordu.
-
-    Git yoksa ya da burası depo değilse elle yürüyüşe düşülür; budama o zaman da
-    YÜRÜYÜŞ SIRASINDA yapılır (`rglob` gürültü ağacının içine girip her yolu
-    üretiyor, sonra atıyordu).
+    Dosya listesini `core.project_files` üretir (git biliyorsa ondan, yoksa
+    budamalı yürüyüşten); burada yalnız uzantı süzgeci uygulanır. Aynı mantık
+    `@` ile dosya anmada da kullanılıyor, o yüzden tek yerde durur.
     """
-    izlenen = _git_source_files(root)
-    if izlenen is not None:
-        if len(izlenen) > _MAX_FILES:
-            return izlenen[:_MAX_FILES], True
-        return izlenen, False
-
-    yollar: list[Path] = []
-    for klasor, dizinler, dosyalar in os.walk(root, topdown=True):
-        dizinler[:] = sorted(ad for ad in dizinler if not _is_skipped(ad))
-        taban = Path(klasor)
-        for ad in sorted(dosyalar):
-            if Path(ad).suffix in _DEFINITIONS:
-                yollar.append(taban / ad)
-                if len(yollar) >= _MAX_FILES:
-                    return yollar, True
-    return yollar, False
-
-
-def _git_source_files(root: Path) -> list[Path] | None:
-    """Git'in bildiği kaynak dosyalar; burası depo değilse ya da git yoksa None.
-
-    `--cached --others --exclude-standard`: izlenen dosyalar ARTI yeni yazılmış
-    ama yok sayılmamış dosyalar. İkincisi şart — agent'ın az önce oluşturduğu
-    dosya haritada görünmezse harita turun gerisinde kalır.
-    """
-    try:
-        sonuc = subprocess.run(
-            ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
-            cwd=root,
-            capture_output=True,
-            timeout=_GIT_TIMEOUT_SECONDS,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if sonuc.returncode != 0:
-        return None
-    yollar: list[Path] = []
-    for ham in sonuc.stdout.decode("utf-8", "replace").split("\0"):
-        if not ham or Path(ham).suffix not in _DEFINITIONS:
-            continue
-        aday = root / ham
-        if aday.is_file():
-            yollar.append(aday)
-    return sorted(yollar)
+    tumu, kisitli = project_files(root, limit=_MAX_FILES * 8)
+    yollar = [yol for yol in tumu if yol.suffix in _DEFINITIONS]
+    if len(yollar) > _MAX_FILES:
+        return yollar[:_MAX_FILES], True
+    return yollar, kisitli
 
 
 def _signature(yollar: list[Path]) -> tuple[int, int, int]:

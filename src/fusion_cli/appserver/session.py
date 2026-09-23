@@ -81,6 +81,7 @@ from .control import (
     web_provider_cards,
 )
 from .conversation_title import conversation_title
+from .file_search import FileSearchIndex, search_project_files
 from .history import (
     PreparedResume,
     list_sessions,
@@ -304,6 +305,8 @@ class AppSession:
         self._workspace_mode = "kod"
         self._workspace_journal = WorkspaceJournal()
         self._processes = ProcessManager(self._state.root, writer)
+        #: `@` ile dosya anmanın kısa ömürlü dosya listesi önbelleği.
+        self._file_search = FileSearchIndex()
         self._gateway_process_id: str | None = None
         executable = shlex.quote(sys.executable)
         self._gateway_command = (
@@ -390,6 +393,8 @@ class AppSession:
             return workspace_status(self._state.root)
         if request.name == "proje.listele":
             return list_entries(self._state.root, request.data)
+        if request.name == "proje.dosya_ara":
+            return search_project_files(self._file_search, self._state.root, request.data)
         if request.name == "proje.oku":
             return read_entry(self._state.root, request.data)
         if request.name == "proje.onizle":
@@ -700,6 +705,10 @@ class AppSession:
             self._state.root = self._root
             self._workspace_journal.clear()
             self._processes.update_root(self._root)
+            # Önbellek kökle anahtarlı, ama eski kökün girdisi bellekte
+            # kalmasın: kullanıcı projeler arasında gidip gelirken bayat bir
+            # listeyle karşılaşmamalı.
+            self._file_search.invalidate()
             capability_roots_changed = True
         if capability_roots_changed or conversation_changed:
             self._rebind_transcript()
