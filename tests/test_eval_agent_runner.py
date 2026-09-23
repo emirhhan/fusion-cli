@@ -99,12 +99,20 @@ async def test_eval_runner_chrome_profili_aciksa_sifir_basari_raporlamaz(
         await runner.run("görev", root=tmp_path)
 
 
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "Seçilen model bu görevle uyumsuz: araç desteği.",
+        "Bu görev dosya/sistem değişikliği gerektiriyor ama seçili model bunu yapamıyor: "
+        "taklit araç desteği henüz eval eşiğinden geçmedi: mutation'a giremez.",
+    ],
+)
 async def test_eval_runner_arac_olcumu_olmayan_modeli_basarisiz_gorev_saymaz(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, detail
 ):
     async def fake_run_agent(request, deps):
         return AgentOutcome(
-            final_text="Seçilen model bu görevle uyumsuz: araç desteği.",
+            final_text=detail,
             messages=[],
             ok=False,
             model_calls_made=0,

@@ -217,7 +217,9 @@ class MinimalAgentRunner(FusionAgentRunner):
 def _ensure_provider_available(ok: bool, detail: str, model_calls: int = 0) -> None:
     """Kalıcı sağlayıcı arızasını yanlış bir benchmark başarısızlığına çevirme."""
     if not ok and model_calls == 0 and detail.startswith((
-        "Seçilen model bu görevle uyumsuz:", "Model havuzu bu görevle uyumsuz:"
+        "Seçilen model bu görevle uyumsuz:",
+        "Model havuzu bu görevle uyumsuz:",
+        "Bu görev dosya/sistem değişikliği gerektiriyor ama seçili model bunu yapamıyor:",
     )):
         raise EvaluationUnavailableError(
             f"Ölçüm için uygun model seçilmedi; görev hiç çalışmadı: {detail}"
