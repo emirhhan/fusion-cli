@@ -201,6 +201,18 @@ export function Conversation({
             );
           }
           if (message.rol === "olay") {
+            // Her model çağrısı ayrı bir yaşam döngüsü olayı üretir. Akışta
+            // yalnız son çalışan gösterge görünür; eski çağrı göstergeleri
+            // cevap gelince ekranda kalıp "düşünüyor 32 sn / 18 sn" gibi
+            // birbirinden kopuk sayaçlar oluşturamaz.
+            const sonCalisanOlay = [...mesajlar].map((item, itemIndex) =>
+              item.rol === "olay" && activityState(item.adimlar ?? []) === "running"
+                ? itemIndex
+                : -1,
+            ).reduce((son, itemIndex) => Math.max(son, itemIndex), -1);
+            if (activityState(message.adimlar ?? []) === "running" && index !== sonCalisanOlay) {
+              return null;
+            }
             return (
               <div className="conversation__message conversation__message--event" key={index}>
                 <ActivityLine adimlar={message.adimlar ?? []} showSteps={showSteps} />
