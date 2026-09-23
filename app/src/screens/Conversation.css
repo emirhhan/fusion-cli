@@ -9,7 +9,7 @@
 
 .conversation__stream {
   margin: 0 auto;
-  width: min(760px, calc(100% - 48px));
+  width: min(800px, calc(100% - 48px));
 }
 
 .conversation__message {
@@ -112,6 +112,20 @@
 }
 
 .conversation__sent .conversation__bubble { max-width: 100%; }
+
+/* ChatGPT tarzı akış: rol etiketleri yerine boşluk ve hizalama konuşmacıyı
+   ayırır; kullanıcı balonu sağda, asistan metni geniş okuma kolonunda kalır. */
+.conversation__role { display: none; }
+.conversation__message { margin-bottom: 24px; }
+.conversation__message--user { padding-left: 72px; }
+.conversation__bubble {
+  background: var(--surface-message-user);
+  border-radius: 18px;
+  font-size: 0.95rem;
+  padding: 10px 16px;
+}
+.conversation__text { font-size: 0.98rem; line-height: 1.65; }
+.conversation__message--assistant .conversation__article { padding: 0 8px; }
 
 @container conversation-workspace (max-width: 640px) {
   .conversation__stream { width: calc(100% - 28px); }

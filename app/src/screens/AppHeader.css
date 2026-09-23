@@ -8,7 +8,7 @@
   min-width: 0;
   min-height: var(--header-height);
   overflow: hidden;
-  padding: 0 18px;
+  padding: 0 20px;
 }
 
 .app-header__identity {

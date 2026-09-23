@@ -60,11 +60,11 @@
   --tehlike: var(--text-danger);
   --ters-metin: var(--text-inverse);
 
-  --kenar-cubugu-genislik: 280px;
+  --kenar-cubugu-genislik: 260px;
   --inspector-width: 420px;
   --sidebar-rail-width: 68px;
-  --icerik-en-fazla: 768px;
-  --header-height: 52px;
+  --icerik-en-fazla: 800px;
+  --header-height: 56px;
 
   --space-1: 4px;
   --space-2: 8px;
