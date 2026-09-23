@@ -119,6 +119,15 @@ MACROS: dict[str, Macro] = {
         "kaynakları oku, bulguları kaynak bağlantılarıyla özetle.",
         argument_required=True,
     ),
+    "btw": Macro(
+        task="",
+        template=(
+            "Ana görevi değiştirmeden şu yan soruyu kısa ve doğrudan yanıtla: {argument}. "
+            "Yanıtı ana görevin çalışma planına veya dosya değişikliklerine uygulama; "
+            "kullanıcı ayrıca isterse ana göreve dön."
+        ),
+        argument_required=True,
+    ),
 }
 
 

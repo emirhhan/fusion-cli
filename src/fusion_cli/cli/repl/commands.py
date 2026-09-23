@@ -756,6 +756,7 @@ _COMMANDS: tuple[SlashCommand, ...] = (
             ("commit", messages.CMD_COMMIT),
             ("review", messages.CMD_REVIEW),
             ("browser", messages.CMD_BROWSER),
+            ("btw", messages.CMD_BTW),
             ("plan-yurut", messages.CMD_PLAN_RUN),
         )
     ),
