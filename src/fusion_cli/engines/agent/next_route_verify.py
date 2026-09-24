@@ -1,7 +1,7 @@
-"""Catch-all Next API istemcisinin sunucu karşılığını denetle.
+"""Değişen Next istemci ve rotalarında eksik entegrasyon ile yetkili proxy'yi denetle.
 
-Yalnız bu turda değişen istemcide sabit bir API tabanı dinamik yola ekleniyorsa
-çalışır. Derleme ve sahte fetch testleri eksik route'u göremediğinden gerekir.
+Derleme ve sahte fetch testleri eksik route'u, koşulsuz başarıyı ya da yetki
+kontrolü olmayan yerel servis proxy'sini göremediğinden gerekir.
 """
 
 from __future__ import annotations
@@ -22,6 +22,15 @@ _STATIC_SUCCESS = re.compile(
     r"(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)?\s*\}\s*\)"
 )
 _LOCAL_IMPORT = re.compile(r"\bfrom\s*[\"'](?:@/|\.{1,2}/)")
+_NAMED_LOCAL_IMPORT = re.compile(
+    r"\bimport\s*\{(?P<names>[^}]+)\}\s*from\s*[\"']"
+    r"(?P<module>@/[^\"']+|\.{1,2}/[^\"']+)[\"']"
+)
+_CALLER_AUTH = re.compile(
+    r"\b(?:auth|getServerSession|requireAuth|verifySession|authenticate)\s*\("
+)
+_PRIVILEGED_STOCK_HEADER = re.compile(r"[\"']X-MG-Panel[\"']\s*:", re.IGNORECASE)
+_EXPORT_DECLARATION = re.compile(r"\bexport\s+(?:async\s+)?(?:function|const)\s+\w+\b")
 
 
 class NextRouteVerifier:
@@ -49,6 +58,12 @@ class NextRouteVerifier:
                     f"{source.relative_to(self._root)}: POST rotası yerel servis veya "
                     "veri işlemi olmadan koşulsuz başarı döndürüyor."
                 )
+            if _is_unprotected_privileged_proxy(self._root, source, content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: POST rotası yetkili yerel servis "
+                    "başlığıyla işlem yapıyor ama çağıran kullanıcı için açık yetki "
+                    "kontrolü görünmüyor."
+                )
             bases = {match.group("base") for match in _INLINE_DYNAMIC.finditer(content)}
             for match in _BASE.finditer(content):
                 name, base = match.group("name", "base")
@@ -65,7 +80,7 @@ class NextRouteVerifier:
         if findings:
             return VerificationResult(
                 ok=False,
-                summary="Next API bağlantısı doğrulanamadı",
+                summary="Next API bağlantısı veya yetkisi doğrulanamadı",
                 findings=tuple(findings),
             )
         return VerificationResult(ok=True)
@@ -82,6 +97,61 @@ def _is_stub_post(relative: Path, content: str) -> bool:
         and not _LOCAL_IMPORT.search(content)
         and not re.search(r"\b(?:fetch|writeFile|prisma)\s*[.(]", content)
     )
+
+
+def _is_unprotected_privileged_proxy(root: Path, source: Path, content: str) -> bool:
+    relative = source.relative_to(root)
+    post_declaration = next(
+        (
+            match
+            for match in _EXPORT_DECLARATION.finditer(content)
+            if match.group().split()[-1] == "POST"
+        ),
+        None,
+    )
+    if (
+        relative.name not in {"route.ts", "route.js"}
+        or not any(
+            relative.parts[index : index + 2] == ("app", "api")
+            for index in range(len(relative.parts) - 1)
+        )
+        or post_declaration is None
+    ):
+        return False
+    rest = content[post_declaration.end() :]
+    following = _EXPORT_DECLARATION.search(rest)
+    post_body = rest[: following.start()] if following else rest
+    if _CALLER_AUTH.search(post_body):
+        return False
+    for imported in _NAMED_LOCAL_IMPORT.finditer(content):
+        names = imported.group("names").split(",")
+        used = any(
+            re.search(rf"\b{re.escape(name.strip().split(' as ')[-1])}\s*\(", post_body)
+            for name in names
+            if name.strip()
+        )
+        if not used:
+            continue
+        module = imported.group("module")
+        bases = (
+            (root / module.removeprefix("@/"), root / "src" / module.removeprefix("@/"))
+            if module.startswith("@/")
+            else (source.parent / module,)
+        )
+        for base in bases:
+            for suffix in (".ts", ".tsx", ".js"):
+                helper = base.with_suffix(suffix).resolve()
+                if not helper.is_relative_to(root) or not helper.is_file():
+                    continue
+                try:
+                    helper_content = helper.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    continue
+                if "127.0.0.1" in helper_content and _PRIVILEGED_STOCK_HEADER.search(
+                    helper_content
+                ):
+                    return True
+    return False
 
 
 def _has_route(root: Path, base: str) -> bool:

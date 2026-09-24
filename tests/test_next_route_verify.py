@@ -87,6 +87,66 @@ async def test_yeni_yazma_rotasinin_kosulsuz_basarisi_gercek_islem_sayilmaz(tmp_
 
 
 @pytest.mark.asyncio
+async def test_yetkili_helper_sadece_get_icinse_post_proxy_bulgusu_yok(tmp_path):
+    helper = tmp_path / "lib/stok/client.ts"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        'export const stokFetch = () => fetch("http://127.0.0.1:4455", '
+        '{ headers: { "X-MG-Panel": "1" } });\n',
+        encoding="utf-8",
+    )
+    route = tmp_path / "app/api/stok/route.ts"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        'import { stokFetch } from "@/lib/stok/client";\n'
+        "export async function GET() { return stokFetch(); }\n"
+        'export async function POST() { return new Response("ok"); }\n',
+        encoding="utf-8",
+    )
+
+    assert (await NextRouteVerifier(tmp_path, (route,)).verify()).ok
+
+
+@pytest.mark.asyncio
+async def test_yetkili_yerel_servis_basligini_ekleyen_post_proxy_korunmalidir(tmp_path):
+    helper = tmp_path / "lib/stok/client.ts"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        'const STOK_URL = "http://127.0.0.1:4455";\n'
+        "export const stokFetch = (path: string) => fetch(`${STOK_URL}/${path}`, "
+        '{ headers: { "X-MG-Panel": "1" } });\n',
+        encoding="utf-8",
+    )
+    route = tmp_path / "app/api/stok/[...path]/route.ts"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        'import { stokFetch } from "@/lib/stok/client";\n'
+        "export async function POST(req: Request) {\n"
+        '  const response = await stokFetch("candidates/import");\n'
+        "  return new Response(await response.text());\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (route,)).verify()
+
+    assert result.ok is False
+    assert "yetki" in result.findings[0].lower()
+
+    route.write_text(
+        'import { stokFetch } from "@/lib/stok/client";\n'
+        'import { auth } from "@/lib/auth";\n'
+        "export async function POST(req: Request) {\n"
+        "  if (!await auth()) return new Response('Unauthorized', { status: 401 });\n"
+        '  const response = await stokFetch("candidates/import");\n'
+        "  return new Response(await response.text());\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    assert (await NextRouteVerifier(tmp_path, (route,)).verify()).ok
+
+
+@pytest.mark.asyncio
 async def test_eksik_route_turun_gercek_kalite_kapisini_dusurur(tmp_path):
     client = _client(tmp_path)
     context = ToolContext(root=tmp_path)
