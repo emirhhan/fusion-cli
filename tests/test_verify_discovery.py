@@ -309,6 +309,15 @@ def test_farkli_yazilmis_pytest_komutu_davranis_kaniti_sayilir():
     assert is_behavioral_command("npm test") is True
 
 
+def test_dogrudan_calisan_node_test_kosuculari_davranis_kaniti_sayilir():
+    assert is_behavioral_command("npx vitest run components/stok/__tests__/stokApi.test.ts")
+    assert is_behavioral_command("./node_modules/.bin/vitest run")
+    assert is_behavioral_command("npx jest --runInBand")
+    assert not is_behavioral_command("npx vitest --version")
+    assert not is_behavioral_command("npx tsc --noEmit")
+    assert not is_behavioral_command("npx vitest list")
+
+
 def test_kodu_calistirmayan_komut_davranis_kaniti_sayilmaz():
     """Gevşetme düz metin aramasına indirgenmemelidir."""
     assert is_behavioral_command("pytest --version") is False

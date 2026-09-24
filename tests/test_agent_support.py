@@ -312,7 +312,7 @@ async def test_yarim_kalan_denetim_talimati_uygulanmaz(monkeypatch):
 
     geri = await review.review_turn("görev", "bitti", [Message("user", "x")], config=make_config())
 
-    assert geri == ""
+    assert geri is None
 
 
 # --- Alt-ajan değişiklikleri ana kapıya girer -------------------------------- #

@@ -23,6 +23,16 @@ A reviewer follow-up added a production-mode POST restriction, an absolute shop 
 
 Both tests failed. The tests are in the isolated worktree at `app/api/stok/__tests__/security.acceptance.test.ts`; they are not changes to the user's original GATE HOLDING checkout.
 
+## Mixed-provider long-task replay
+
+A second, fresh isolated GATE HOLDING worktree used Gemini web as the coding agent and ChatGPT web as the independent reviewer. The task ran for 527 seconds, with eight agent-model calls, 16 tool calls and six mutations. Its focused mock-fetch tests and TypeScript check passed. The reviewer emitted `issue_found=False`, and Fusion returned `ok=true`. Independent acceptance then failed **3/3** checks (`components/stok/__tests__/integration.acceptance.test.ts` in that worktree):
+
+1. The new client calls `/api/stok/*`, but there is no matching Next route or rewrite. Those requests would return 404.
+2. `ImportPanel` uses supplier codes `em` and `moy`, but the generated label table contains neither; the UI would show missing labels.
+3. The “Sitede aç” link is relative `/urun/1234` on the GATE HOLDING app, not a public MotoGate store URL.
+
+The agent's own four tests assert its invented URL and mock fetch responses. They do not exercise the server path. The reviewer likely timed out: the old implementation returned an empty string on timeout, then published the same `issue_found=False` event as an explicit clean verdict. A timeout is now reported separately as incomplete, and `npx vitest run` is now recognized as a behavioral command. A new Next route verifier is included in the automatic quality gate. Running it against the real isolated output produces a blocking finding for the missing `/api/stok/*` endpoint. This prevents that specific broken artifact from being reported as a clean successful turn.
+
 ## Fusion fixes shipped to the working branch
 
 Commit `1a22755` fixes project search stopping on large generated files, the API agent context gauge being narrowed by an unrelated enabled web session, NVIDIA Nemotron 3 tool-call request formatting, and reporting when a model claims success despite failed verification. It also gives the reviewer explicit checks for privileged proxy routes and cross-site links. The source and focused tests passed Ruff and mypy.

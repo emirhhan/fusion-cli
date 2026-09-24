@@ -625,6 +625,16 @@ def test_ozet_son_durum_satirinin_yanina_parantezle_girer():
     assert "öz-denetim" in satirlar[-1]
 
 
+def test_tamamlanmayan_denetim_sorun_yok_diye_gosterilmez():
+    renderer, buffer = _renderer()
+
+    renderer.handle(SelfReviewFinished(issue_found=False, completed=False))
+    renderer.handle(TurnFinished())
+
+    assert "tamamlanamadı" in buffer.getvalue()
+    assert "sorun yok" not in buffer.getvalue()
+
+
 def test_durum_satiri_yoksa_ozet_kendi_satirinda_basilir():
     renderer, buffer = _renderer()
 

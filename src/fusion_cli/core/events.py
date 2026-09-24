@@ -230,9 +230,10 @@ class SelfReviewStarted(Event):
 
 @dataclass(frozen=True, slots=True)
 class SelfReviewFinished(Event):
-    """Öz-denetim bitti. `issue_found` ise düzeltici tur çalışacak."""
+    """Öz-denetim bitti. `completed=False` ise güvenilir hüküm alınamadı."""
 
     issue_found: bool
+    completed: bool = True
 
 
 @dataclass(frozen=True, slots=True)

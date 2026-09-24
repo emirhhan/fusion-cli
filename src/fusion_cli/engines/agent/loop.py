@@ -2138,7 +2138,9 @@ async def _self_review(task: str, outcome: AgentOutcome, deps: AgentDeps) -> Age
     feedback = await review.review_turn(
         task, outcome.final_text, outcome.messages, config=deps.config, publisher=deps.publisher
     )
-    deps.publisher.publish(SelfReviewFinished(issue_found=bool(feedback)))
+    deps.publisher.publish(
+        SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
+    )
     if not feedback:
         return outcome
 

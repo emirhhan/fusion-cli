@@ -28,4 +28,4 @@ async def test_web_denetci_istegi_zaman_asiminda_turu_bekletmez(monkeypatch, tmp
         timeout=3,
     )
 
-    assert result == ""
+    assert result is None

@@ -153,6 +153,10 @@ def _is_test_command(command: str) -> bool:
 #: `printf pytest` de "pytest" içerir ama çalıştırdığı program bambaşkadır.
 _BEHAVIORAL_RUNNERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("pytest", ()),
+    ("vitest", ("run",)),
+    ("jest", ()),
+    ("npx", ("vitest", "run")),
+    ("npx", ("jest",)),
     # `python -m pytest`: `-m` bayrak olarak ayıklanır, geriye `pytest` kalır.
     ("python", ("pytest",)),
     ("python3", ("pytest",)),

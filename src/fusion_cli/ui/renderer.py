@@ -247,9 +247,13 @@ class ConsoleRenderer:
             self._resume_work(messages.WORK_REVIEW)
         elif isinstance(event, SelfReviewFinished):
             self._status(
-                messages.AGENT_SELF_REVIEW_ISSUE
-                if event.issue_found
-                else messages.AGENT_SELF_REVIEW_CLEAN
+                messages.AGENT_SELF_REVIEW_UNAVAILABLE
+                if not event.completed
+                else (
+                    messages.AGENT_SELF_REVIEW_ISSUE
+                    if event.issue_found
+                    else messages.AGENT_SELF_REVIEW_CLEAN
+                )
             )
         elif isinstance(event, LessonsRecalled):
             self._status(messages.AGENT_LESSONS_RECALLED.format(count=event.count))

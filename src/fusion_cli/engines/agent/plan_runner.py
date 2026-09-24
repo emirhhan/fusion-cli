@@ -1077,7 +1077,7 @@ class _PlanRun:
         scope = "$quality-review"
         text = self.outcomes[-1].final_text if self.outcomes else "Bekleyen kalite düzeltmesi."
         candidate = self.outcome(text, ok=True)
-        feedback = self.quality_feedback
+        feedback: str | None = self.quality_feedback
         if not feedback:
             if not self.self_review or not self.outcomes or not self.outcomes[-1].ok:
                 return None
@@ -1095,7 +1095,9 @@ class _PlanRun:
                 config=self.deps.config,
                 publisher=self.deps.publisher,
             )
-            self.deps.publisher.publish(SelfReviewFinished(issue_found=bool(feedback)))
+            self.deps.publisher.publish(
+                SelfReviewFinished(issue_found=bool(feedback), completed=feedback is not None)
+            )
             if not feedback:
                 return None
             self.quality_feedback = feedback

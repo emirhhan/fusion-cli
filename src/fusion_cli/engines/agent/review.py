@@ -4,8 +4,8 @@ Denetçi "TAMAM" derse hiçbir şey olmaz. Somut bir sorun bulursa tek paragrafl
 düzeltme talimatı üretir ve motor agent'a TEK bir düzeltici tur verir. Sonsuz
 düzeltme döngüsü bilinçli olarak yoktur: ikinci bir denetim yapılmaz.
 
-Denetim başarısız olursa (zaman aşımı, bozuk yanıt) sessizce atlanır — öz-eleştiri
-bir iyileştirmedir, turu düşürmesi kabul edilemez.
+Denetim başarısız olursa (zaman aşımı, bozuk yanıt) düzeltme atlanır; bu durum
+"sorun yok" kararından ayrı bildirilir.
 """
 
 from __future__ import annotations
@@ -61,11 +61,11 @@ async def review_turn(
     *,
     config: Config,
     publisher: EventPublisher | None = None,
-) -> str:
-    """Turu denetle. Düzeltme gerekiyorsa talimatı, gerekmiyorsa boş metin döner."""
+) -> str | None:
+    """Düzeltme talimatı, açık temiz karar için boş metin, denetim yoksa None döner."""
     trace = history.transcript(messages, TRACE_CHARS, message_chars=TRACE_MESSAGE_CHARS)
     if not trace.strip() and not final_text.strip():
-        return ""
+        return None
 
     prompt = (
         _PROMPT.replace("{task}", task)
@@ -79,11 +79,16 @@ async def review_turn(
     except TimeoutError:
         # Web taşıması istek zaman aşımını her zaman uygulamıyor. Öz-denetim
         # kullanıcının tamamlanmış görevini dakikalarca bekletemez.
-        return ""
+        return None
     if not result.ok or result.truncated:
         # Yarım kalmış talimat, hiç talimattan KÖTÜDÜR: agent eksik bir cümleye göre
         # düzeltme yapmaya kalkar. Sıkıştırmadaki "yarım özet" kuralıyla aynı duruş.
-        return ""
+        return None
+    if not result.text.strip() or (
+        len(result.text.strip()) < MIN_INSTRUCTION_CHARS
+        and result.text.strip().upper() != CLEAN_VERDICT
+    ):
+        return None
     return parse_feedback(result.text)
 
 

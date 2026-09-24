@@ -45,6 +45,7 @@ from .javascript_verify import (
     NodeJavaScriptSyntaxChecker,
     find_node_executable,
 )
+from .next_route_verify import NextRouteVerifier
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
@@ -137,6 +138,10 @@ def build_verifier(
     # onu göremez (o betik derleme sırasında çalışmaz).
     if (root / "package.json").is_file():
         verifiers.append(ScriptPathVerifier(root))
+    if tool_context is not None and any(
+        (root / name).is_file() for name in ("next.config.js", "next.config.mjs", "next.config.ts")
+    ):
+        verifiers.append(NextRouteVerifier(root, tool_context.changes.paths))
     if config.runtime.web_verification and tool_context is not None:
         node_path = find_node_executable()
         javascript_checker = (

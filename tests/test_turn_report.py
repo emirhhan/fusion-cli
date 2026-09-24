@@ -78,6 +78,17 @@ def test_son_degisiklikten_sonra_basarili_test_dogrulandi_yazar():
     assert "Doğrulandı" in report.render()
 
 
+def test_npx_vitest_kosusu_gercek_dogrulama_olarak_raporlanir():
+    runs = (
+        _write("components/stok/stokApi.ts"),
+        _shell("npx vitest run components/stok", exit_code=0),
+    )
+    report = build_turn_report(("components/stok/stokApi.ts",), runs, gate=None)
+
+    assert report.is_verified is True
+    assert "Doğrulandı" in report.render()
+
+
 def test_degisiklikten_once_calisan_test_kanit_sayilmaz():
     tool_uses = (_shell("pytest -q", exit_code=0), _write("a.py"))
     report = build_turn_report(("a.py",), tool_uses, gate=None)
