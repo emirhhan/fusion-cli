@@ -59,6 +59,7 @@ from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
+from ...core.redaction import redact
 from ...core.steering import SteeringQueue
 from ...core.tools import Tool, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import (
@@ -287,6 +288,8 @@ class AgentDeps:
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Verilirse sağlıksız model turlar arası atlanır. Verilmezse breaker kurulmaz.
     health: HealthRegistry | None = None
+    #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
+    auto_teacher_used: bool = False
     #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
     #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
     #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
@@ -522,6 +525,7 @@ async def run_agent(
         step_limit=step_limit,
         execution=execution,
         internal=internal,
+        auto_teacher=depth == 0 and not internal,
         require_local_mutation=require_local_mutation,
     )
 
@@ -764,6 +768,7 @@ async def _drive(
     step_limit: int | None = None,
     execution: ExecutionPolicy,
     internal: bool = False,
+    auto_teacher: bool = False,
     require_local_mutation: bool = False,
 ) -> AgentOutcome:
     state = _State(
@@ -942,6 +947,14 @@ async def _drive(
         if exploration_note is not None:
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
+            if (
+                auto_teacher
+                and not deps.auto_teacher_used
+                and registry.get("ask_teacher") is not None
+                and (allowed_tools is None or "ask_teacher" in allowed_tools)
+            ):
+                deps.auto_teacher_used = True
+                await _consult_teacher_on_plateau(messages, deps, registry, state)
 
         # Blocking verification correction gerçek bir mutation üretmeden
         # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
@@ -1481,15 +1494,16 @@ def _exploration_note(
     """İstenen değişiklikte uzun salt-okuma döngüsünü bir kez kır."""
     if (
         plan_mode
+        or state.internal
         or not execution.complex_task
         or not execution.allow_mutation
         or state.mutating_tool_calls_made
-        or state.tool_calls_made < 10
+        or state.tool_calls_made < 5
         or state.exploration_pushes
     ):
         return None
     note = (
-        "FUSION_NOT: Bu görevde en az 10 başarılı araç çağrısı yaptın ama henüz "
+        "FUSION_NOT: Bu görevde en az 5 araç çağrısı yaptın ama henüz "
         "hiç dosya değiştirmedin. Daha fazla genel dizin taraması yapma. "
         "İncelediğin dosyalardan ilk somut değişikliği seç ve uygula."
     )
@@ -1499,6 +1513,69 @@ def _exploration_note(
             "`ask_teacher` ile tek somut soru sor, cevabı değerlendir, ardından uygula."
         )
     return note
+
+
+async def _consult_teacher_on_plateau(
+    messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State
+) -> None:
+    """Ask the configured web teacher once when a complex task stalls in reading.
+
+    The task excerpt is bounded and redacted; source file contents are not copied
+    into the brief. The existing ``teacherless`` setting disables the tool.
+    """
+    original_task = next(
+        (
+            message.content
+            for message in reversed(messages)
+            if message.role == "user" and not message.harness_note
+        ),
+        "",
+    )
+    args: dict[str, object] = {
+        "question": (
+            "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
+            "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
+        ),
+        "durum": f"Görev özeti: {redact(original_task)[:700]}",
+        "denenenler": (
+            f"Ajan {state.tool_calls_made} araç çağrısı yaptı; dosya değişikliği yok. "
+            "Okuma/arama adımlarında kaldı."
+        ),
+    }
+    call = ToolCall(
+        id=f"fusion-auto-teacher-{state.model_calls_made}",
+        name="ask_teacher",
+        arguments=json.dumps(args, ensure_ascii=False),
+    )
+    messages.append(Message("assistant", "", tool_calls=(call,)))
+    try:
+        async with asyncio.timeout(max(1.0, deps.config.runtime.request_timeout_s)):
+            result = await registry.execute("ask_teacher", args, deps.tool_context)
+    except TimeoutError:
+        result = ToolResult.failure("Öğretmen yanıtı süre sınırında tamamlanmadı.")
+    state.tool_calls_made += 1
+    state.tool_rounds += 1
+    if not result.ok:
+        state.failed_tool_calls += 1
+    _note_tool_use(
+        state,
+        "ask_teacher",
+        registry.get("ask_teacher"),
+        ok=result.ok,
+        arguments=args,
+        output=result.output,
+    )
+    deps.publisher.publish(
+        ToolExecuted(
+            name="ask_teacher",
+            args={"question": args["question"]},
+            outcome=ToolOutcome.OK if result.ok else ToolOutcome.FAILED,
+            output=result.output,
+        )
+    )
+    messages.append(
+        Message("tool", result.output, tool_call_id=call.id, name="ask_teacher", ok=result.ok)
+    )
 
 
 def _targeted_edit_required(

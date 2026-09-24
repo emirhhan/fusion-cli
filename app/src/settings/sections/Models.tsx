@@ -42,7 +42,7 @@ export function Models({
         </p>
         <p className="settings__hint">
           Öğretmen: {model.ogretmen_etiket || model.ogretmen || "bağlı değil"}.
-          Bağlıysa ajan karmaşık işlerde bu web oturumundan görüş isteyebilir.
+          Bağlıysa ajan uzun kod görevinde takıldığında bu web oturumuna bir kez danışır.
         </p>
         {onRunCommand && (
           <div className="settings__actions">

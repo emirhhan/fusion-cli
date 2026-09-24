@@ -81,6 +81,7 @@ def redact(text: str) -> str:
             "gh",
             "xox",
             "akia",
+            "@",
         )
     ):
         return text

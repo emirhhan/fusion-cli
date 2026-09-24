@@ -17,6 +17,7 @@ from fusion_cli.core.events import (
     TurnBudgetExhausted,
 )
 from fusion_cli.core.tools import ToolContext
+from fusion_cli.core.types import ModelResult, ModelSpec
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
@@ -131,6 +132,54 @@ async def test_model_akisi_surekli_acik_kalsa_da_cagri_suresi_sinirlanir(
     assert result.ok is False
     assert "0.08 saniyede tamamlanmadı" in result.final_text
     assert provider.cancelled
+
+
+async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path, sink):
+    paths = [f"src/part_{index}.py" for index in range(10)]
+    (tmp_path / "src").mkdir()
+    for path in paths:
+        (tmp_path / path).write_text("x = 1\n", encoding="utf-8")
+    provider = ScriptedProvider([
+        *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in paths],
+        model_result(TAM_CEVAP),
+    ])
+    _kur(monkeypatch, provider)
+    seen = []
+
+    class TeacherProvider:
+        async def complete(self, request):
+            seen.append(request)
+            return ModelResult(
+                name="teacher", model="gemini_web/main/auto",
+                text="Önce route testi yaz.", latency_ms=1, ok=True,
+            )
+
+    monkeypatch.setattr(
+        "fusion_cli.providers.factory.build_provider",
+        lambda *_args, **_kwargs: TeacherProvider(),
+    )
+    deps = _deps(
+        tmp_path, sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        runtime={"agent_max_idle_rounds": 20, "agent_max_steps": 16},
+    )
+
+    await run_agent(
+        "Implement a coherent stock import flow with server routes and tests. "
+        "Contact owner@example.com only if needed.",
+        deps,
+        step_limit=11,
+    )
+
+    teacher_events = [
+        event for event in sink.events
+        if isinstance(event, ToolExecuted) and event.name == "ask_teacher"
+    ]
+    assert len(teacher_events) == 1
+    assert deps.auto_teacher_used is True
+    assert len(seen) == 1
+    assert "Önce route testi yaz." in teacher_events[0].output
+    assert "owner@example.com" not in seen[0].messages[0].content
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):
@@ -1959,7 +2008,7 @@ def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
     from fusion_cli.engines.agent.loop import _exploration_note, _State
 
     policy = ExecutionPolicy(is_web=False, complex_task=True)
-    state = _State(tool_calls_made=10)
+    state = _State(tool_calls_made=5)
     note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
 
     assert note is not None
