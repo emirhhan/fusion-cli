@@ -93,6 +93,10 @@ class RuntimeConfig:
     reflexion: bool
     #: Agent: her görevden ders çıkarılır ve benzer görevlerde promptta hatırlatılır.
     lessons: bool
+    #: Karmaşık bir değişiklik görevinde öğretmen yanıtı alınmışken toplam araç
+    #: çağrısı bu sınıra ulaşıp dosya hâlâ değişmemişse web öğretmeni devralır.
+    #: 0 devralmayı kapatır; açıkça seçilen zorunlu model hiçbir zaman değişmez.
+    agent_teacher_takeover_tools: int = 10
     #: `ask_teacher` aracı modele HİÇ SUNULMAZ — `config.teacher` tanımlı olsa
     #: bile. Kullanıcının "öğretmensiz çalış" tercihi (Faz 4, Görev 3); `council`
     #: bundan ETKİLENMEZ, o ayrı ve çoklu-API-model bir araçtır.

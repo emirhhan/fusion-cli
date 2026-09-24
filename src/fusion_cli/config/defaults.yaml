@@ -178,6 +178,10 @@ runtime:
   synthesis: true
 
   # --- Agent davranışı ---
+  # NIM ajanı öğretmene danıştıktan sonra da toplam 10 araç çağrısına kadar
+  # değişiklik yapmadan okursa, araç sınamasını geçmiş web öğretmeni devralır.
+  # 0 = kapalı. Kullanıcının zorunlu/tek model seçimi bu yolla değiştirilmez.
+  agent_teacher_takeover_tools: 10
   # Ardışık araç turu üst sınırı. Model bir döngüye takılırsa tur burada kesilir.
   # Yalnızca patolojik döngüye karşı emniyet supabı; normal uzun işleri kesmemesi
   # için yüksek tutulur (25 pratikte çok işi yarıda kesiyordu).

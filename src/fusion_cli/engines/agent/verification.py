@@ -141,7 +141,7 @@ def build_verifier(
     if tool_context is not None and any(
         (root / name).is_file() for name in ("next.config.js", "next.config.mjs", "next.config.ts")
     ):
-        verifiers.append(NextRouteVerifier(root, tool_context.changes.paths))
+        verifiers.append(NextRouteVerifier(root, tool_context.changes))
     if config.runtime.web_verification and tool_context is not None:
         node_path = find_node_executable()
         javascript_checker = (

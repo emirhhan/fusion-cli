@@ -75,6 +75,12 @@ afterEach(() => {
 });
 
 describe("Settings — yapı", () => {
+  it("profil kısayolundan doğrudan bellek ve kalıcı talimatları açar", async () => {
+    ciz({ initialSection: "kisisellestirme" });
+    expect(await screen.findByLabelText("Kalıcı talimat")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kişiselleştirme" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("bağlı web öğretmenini modeller bölümünde gösterir", async () => {
     ciz();
     bolum("Modeller");

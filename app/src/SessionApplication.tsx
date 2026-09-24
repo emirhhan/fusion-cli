@@ -511,6 +511,7 @@ export function SessionUygulama({
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
   const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "help" | "settings" | "account" | "image-create" | "video-create">("chat");
+  const [settingsSection, setSettingsSection] = useState<"genel" | "kisisellestirme">("genel");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
   const [controlTitle, setControlTitle] = useState("Kontrol Paneli");
@@ -579,6 +580,10 @@ export function SessionUygulama({
             } else if (destination === "help") {
               setPage("help");
             } else if (destination === "settings") {
+              setSettingsSection("genel");
+              setPage("settings");
+            } else if (destination === "personalization") {
+              setSettingsSection("kisisellestirme");
               setPage("settings");
             } else if (destination === "control-panel") {
               setControlTitle("Kontrol Paneli");
@@ -590,6 +595,7 @@ export function SessionUygulama({
             } else if (destination === "language") {
               // Dil tercihi Ayarlar'da yaşar; şimdilik tek dil var ve bunu
               // kullanıcıya orada açıkça söylüyoruz.
+              setSettingsSection("genel");
               setPage("settings");
 
             } else if (destination === "new-project") {
@@ -1053,6 +1059,7 @@ export function SessionUygulama({
         ? (
           <>{conversationContent}<Settings
             client={active.client}
+            initialSection={settingsSection}
             onChangeRoot={() => void requestTaskFolder()}
             onClose={() => setPage("chat")}
             onOpenAccount={() => setPage("account")}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 
@@ -10,6 +11,7 @@ from fusion_cli.core.events import (
     ContextCompressed,
     SelfReviewFinished,
     SelfReviewStarted,
+    StatusChanged,
     SubAgentFinished,
     SubAgentStarted,
     ToolExecuted,
@@ -139,10 +141,12 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
     (tmp_path / "src").mkdir()
     for path in paths:
         (tmp_path / path).write_text("x = 1\n", encoding="utf-8")
-    provider = ScriptedProvider([
-        *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in paths],
-        model_result(TAM_CEVAP),
-    ])
+    provider = ScriptedProvider(
+        [
+            *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in paths],
+            model_result(TAM_CEVAP),
+        ]
+    )
     _kur(monkeypatch, provider)
     seen = []
 
@@ -150,8 +154,11 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
         async def complete(self, request):
             seen.append(request)
             return ModelResult(
-                name="teacher", model="gemini_web/main/auto",
-                text="Önce route testi yaz.", latency_ms=1, ok=True,
+                name="teacher",
+                model="gemini_web/main/auto",
+                text="Önce route testi yaz.",
+                latency_ms=1,
+                ok=True,
             )
 
     monkeypatch.setattr(
@@ -159,7 +166,8 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
         lambda *_args, **_kwargs: TeacherProvider(),
     )
     deps = _deps(
-        tmp_path, sink,
+        tmp_path,
+        sink,
         teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
         runtime={"agent_max_idle_rounds": 20, "agent_max_steps": 16},
     )
@@ -172,7 +180,8 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
     )
 
     teacher_events = [
-        event for event in sink.events
+        event
+        for event in sink.events
         if isinstance(event, ToolExecuted) and event.name == "ask_teacher"
     ]
     assert len(teacher_events) == 1
@@ -180,6 +189,122 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
     assert len(seen) == 1
     assert "Önce route testi yaz." in teacher_events[0].output
     assert "owner@example.com" not in seen[0].messages[0].content
+
+
+async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
+    monkeypatch, tmp_path, sink
+):
+    from fusion_cli.config.models import WebSessionConfig
+
+    target = tmp_path / "src" / "app.py"
+    target.parent.mkdir()
+    target.write_text("value = 1\n", encoding="utf-8")
+    read_paths = ["src/app.py", *[f"src/part_{index}.py" for index in range(8)]]
+    for path in read_paths[1:]:
+        (tmp_path / path).write_text("value = 1\n", encoding="utf-8")
+    nim = ModelSpec("nim", "nvidia_nim/test", tags=("agent",))
+    teacher = ModelSpec("teacher", "gemini_web/main/auto")
+    session = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=True,
+    )
+    nim_provider = ScriptedProvider(
+        [
+            *[model_result(tool_calls=[tool_call("read_file", path=path)]) for path in read_paths],
+        ]
+    )
+    web_provider = ScriptedProvider(
+        [
+            model_result("İlk değişiklik: test yaz ve uygula."),
+            model_result(
+                tool_calls=[
+                    tool_call(
+                        "edit_file",
+                        path="src/app.py",
+                        old="value = 1",
+                        new="value = 2",
+                    )
+                ]
+            ),
+            model_result(TAM_CEVAP),
+        ]
+    )
+
+    def agent_provider(spec, **_kwargs):
+        return web_provider if spec.model == teacher.model else nim_provider
+
+    monkeypatch.setattr(agent_loop, "build_provider", agent_provider)
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", agent_provider)
+    deps = _deps(
+        tmp_path,
+        sink,
+        agent=nim,
+        candidates=(nim,),
+        task_model_map={"general": "nim"},
+        teacher=teacher,
+        web_sessions=(session,),
+        runtime={"agent_max_steps": 15, "agent_teacher_takeover_tools": 10},
+    )
+
+    outcome = await run_agent(
+        "Implement a coherent multi-file stock import flow and verify it.",
+        deps,
+        step_limit=13,
+    )
+
+    assert target.read_text(encoding="utf-8") == "value = 2\n"
+    assert outcome.mutating_tool_calls_made == 1
+    assert deps.active_model_override is not None
+    assert deps.active_model_override.model == teacher.model
+    assert web_provider.calls == 3
+    assert any(
+        isinstance(event, StatusChanged) and "devraldı" in event.message for event in sink.events
+    )
+
+
+def test_zorunlu_model_ve_dogrulanmamis_ogretmen_gorevi_devralamaz(tmp_path, sink):
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _State, _teacher_takeover_spec
+
+    teacher = ModelSpec("teacher", "gemini_web/main/auto")
+    session = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=False,
+    )
+    state = _State(tool_calls_made=12, teacher_advice_ok=True)
+    policy = ExecutionPolicy(is_web=False, complex_task=True)
+    deps = _deps(tmp_path, sink, teacher=teacher, web_sessions=(session,))
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
+
+    verified = WebSessionConfig(
+        model=teacher.model,
+        provider="gemini_web",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=True,
+    )
+    strict = ModelSpec("chosen", "nvidia_nim/test", tags=("strict", "agent"))
+    deps = _deps(tmp_path, sink, agent=strict, teacher=teacher, web_sessions=(verified,))
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
+
+    deps = _deps(tmp_path, sink, teacher=teacher, web_sessions=(verified,))
+    read_only = replace(policy, allowed_tool_names=frozenset({"read_file"}))
+    assert _teacher_takeover_spec(deps, state, read_only, auto_teacher=True) is None
+    state.capability_wall = True
+    assert _teacher_takeover_spec(deps, state, policy, auto_teacher=True) is None
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):
@@ -2246,7 +2371,7 @@ async def test_degisiklikten_once_calisan_test_kanit_sayilmaz(monkeypatch, tmp_p
         monkeypatch,
         ScriptedProvider(
             [
-                model_result(tool_calls=[tool_call("run_shell", command="python -c \"exit(0)\"")]),
+                model_result(tool_calls=[tool_call("run_shell", command='python -c "exit(0)"')]),
                 model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
                 model_result("Tamamlandı."),
             ]
@@ -2289,9 +2414,7 @@ async def test_oz_denetim_duzeltmesi_tur_raporunu_ikiye_katlamaz(monkeypatch, tm
     )
     monkeypatch.setattr(agent_loop.review, "review_turn", _sabit_denetim("testi calistirmadin"))
 
-    sonuc = await run_agent(
-        "stok.py yaz", _deps(tmp_path, sink, runtime={"self_review": True})
-    )
+    sonuc = await run_agent("stok.py yaz", _deps(tmp_path, sink, runtime={"self_review": True}))
 
     assert sonuc.final_text.count("✓ Doğrulandı") == 1
     assert sonuc.final_text.endswith("duzeltildi")

@@ -161,6 +161,35 @@ async def test_eksik_route_turun_gercek_kalite_kapisini_dusurur(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_kapi_kurulduktan_sonra_degisen_route_dogrulamada_gorulur(tmp_path):
+    (tmp_path / "next.config.mjs").write_text("export default {};\n", encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    verifier = build_verifier(make_config(), root=tmp_path, tool_context=context)
+    assert verifier is not None
+
+    helper = tmp_path / "lib/stok/client.ts"
+    helper.parent.mkdir(parents=True)
+    helper.write_text(
+        'export const stokFetch = () => fetch("http://127.0.0.1:4455", '
+        '{ headers: { "X-MG-Panel": "1" } });\n',
+        encoding="utf-8",
+    )
+    route = tmp_path / "app/api/stok/[...path]/route.ts"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        'import { stokFetch } from "@/lib/stok/client";\n'
+        "export async function POST() { return stokFetch(); }\n",
+        encoding="utf-8",
+    )
+    context.changes.record_created(route)
+
+    result = await verifier.verify()
+
+    assert result.ok is False
+    assert any("yetki" in finding for finding in result.findings)
+
+
+@pytest.mark.asyncio
 async def test_mevcut_route_veya_rewrite_gecer(tmp_path):
     client = _client(tmp_path)
     route = tmp_path / "app/api/stok/[...path]/route.ts"

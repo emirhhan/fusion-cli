@@ -49,6 +49,7 @@ describe("Sidebar", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onSec={vi.fn()} onYeni={vi.fn()} />);
     expect(screen.getByRole("button", { name: /yeni sohbet/i })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    expect(screen.getByRole("menuitem", { name: /kişiselleştirme/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /hesabım/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^ayarlar$/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /yardım/i })).toBeTruthy();
@@ -70,6 +71,17 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("connectors");
+    expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
+  });
+
+  it("profil menüsünden bellek ve talimatların olduğu bölüme gider", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /kişiselleştirme/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith("personalization");
     expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
   });
 

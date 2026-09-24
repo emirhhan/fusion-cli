@@ -47,6 +47,7 @@ interface ControlSnapshot {
 
 interface SettingsProps {
   client: ProtocolClient;
+  initialSection?: BolumId;
   onClose: () => void;
   onThemeChange: (preference: ThemePreference) => void;
   themePreference: ThemePreference;
@@ -58,6 +59,7 @@ interface SettingsProps {
 
 export function Settings({
   client,
+  initialSection = "genel",
   onChangeRoot,
   onClose,
   onOpenAccount,
@@ -65,7 +67,7 @@ export function Settings({
   onThemeChange,
   themePreference,
 }: SettingsProps) {
-  const [bolum, setBolum] = useState<BolumId>("genel");
+  const [bolum, setBolum] = useState<BolumId>(initialSection);
   const [control, setControl] = useState<ControlSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(readHistoryOpen);
@@ -74,6 +76,8 @@ export function Settings({
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => setBolum(initialSection), [initialSection]);
 
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement

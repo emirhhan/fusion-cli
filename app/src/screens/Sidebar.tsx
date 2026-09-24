@@ -412,6 +412,7 @@ export function Sidebar({
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
+              <button onClick={() => navigateFromProfile("personalization")} role="menuitem" type="button"><Icon name="user" /><span>Kişiselleştirme</span></button>
               <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="user" /><span>Hesabım</span></button>
               <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
               <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>

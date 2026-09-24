@@ -30,6 +30,7 @@ from pathlib import Path
 from ...config.eligibility import effort_for_spec
 from ...config.model_select import escalated_spec, select_agent_spec
 from ...config.models import Config
+from ...config.tool_policy import mutation_policy_for_model
 from ...core.budget import BudgetStop, TurnBudget
 from ...core.checkpoint import CheckpointStore
 from ...core.clock import SystemClock
@@ -48,6 +49,7 @@ from ...core.events import (
     MutationUnavailable,
     SelfReviewFinished,
     SelfReviewStarted,
+    StatusChanged,
     ToolCallRepaired,
     ToolExecuted,
     ToolOutcome,
@@ -290,6 +292,9 @@ class AgentDeps:
     health: HealthRegistry | None = None
     #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
     auto_teacher_used: bool = False
+    #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
+    #: yapılandırma dosyasında değiştirmez.
+    active_model_override: ModelSpec | None = None
     #: TURUN TAMAMI için tek sayaç otoritesi. `run_agent` bunu tur başında bir kez
     #: kurar; öz-denetim ve doğrulama kapısının açtığı iç içe çağrılara AYNI nesne
     #: devredilir. `None` bırakılırsa ilk `run_agent` çağrısı kurar.
@@ -363,6 +368,8 @@ async def run_agent(
     # hata tam olarak buydu.
     if deps.budget is None:
         deps.budget = _new_budget(deps.config)
+    if depth == 0 and not internal:
+        deps.active_model_override = None
 
     if not plan_mode and not chat_mode and depth == 0:
         played = await maybe_run_playbook(task, deps)
@@ -419,9 +426,7 @@ async def run_agent(
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
-            part
-            for part in (proje_ve_dis_bellek, harita, teacher_hint, extra_system)
-            if part
+            part for part in (proje_ve_dis_bellek, harita, teacher_hint, extra_system) if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
@@ -455,9 +460,7 @@ async def run_agent(
         execution = chat_execution(execution)
         allowed_tools = set(chat_tool_names(registry)) if allowed_tools is None else allowed_tools
     elif (
-        not plan_mode
-        and execution.allow_mutation
-        and execution.required_effect == "workspace_read"
+        not plan_mode and execution.allow_mutation and execution.required_effect == "workspace_read"
     ):
         # Kod kipinde de gözlem kilidi: turun METNİ yalnızca okuma/inceleme
         # istiyorsa model o turda yazamaz. Plan modu zaten kendi onay
@@ -721,6 +724,8 @@ class _State:
     never_acted_prompts: int = 0
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
     exploration_pushes: int = 0
+    #: Otomatik öğretmen danışması gerçekten yanıt verdi mi?
+    teacher_advice_ok: bool = False
     #: Bu tur bir İÇ düzeltici tur mu (öz-denetim, doğrulama kapısı)? İç turlar
     #: araçsız bitebilir ve bu meşrudur: asıl işi dış tur zaten yapmıştır, iç tur
     #: yalnızca düzeltir ya da açıklar.
@@ -811,8 +816,10 @@ async def _drive(
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
         remaining = budget.next_timeout_s()
-        call_timeout = min(deps.config.runtime.request_timeout_s, remaining) if remaining else (
-            deps.config.runtime.request_timeout_s
+        call_timeout = (
+            min(deps.config.runtime.request_timeout_s, remaining)
+            if remaining
+            else (deps.config.runtime.request_timeout_s)
         )
 
         try:
@@ -955,6 +962,35 @@ async def _drive(
             ):
                 deps.auto_teacher_used = True
                 await _consult_teacher_on_plateau(messages, deps, registry, state)
+        takeover = _teacher_takeover_spec(deps, state, execution, auto_teacher=auto_teacher)
+        if takeover is not None:
+            deps.active_model_override = takeover
+            original_task = next(
+                (
+                    item.content
+                    for item in reversed(messages)
+                    if item.role == "user" and not item.harness_note
+                ),
+                "",
+            )
+            execution = policy_for(deps.config, takeover, original_task)
+            deps.execution = execution
+            if deps.tool_context.read_window is None:
+                deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
+            if execution.max_model_calls is not None:
+                local_limit = min(
+                    local_limit or execution.max_model_calls, execution.max_model_calls
+                )
+            messages.append(
+                Message(
+                    "user",
+                    "FUSION_NOT: Öğretmen yanıtına rağmen dosya değişikliği yapılmadı. "
+                    "Doğrulanmış öğretmen şimdi aynı görevi devralıyor. Önceki okumaları "
+                    "kullan; ilk somut değişikliği uygula, ardından istenen testlerle doğrula.",
+                    harness_note=True,
+                )
+            )
+            deps.publisher.publish(StatusChanged("Doğrulanmış web öğretmeni görevi devraldı."))
 
         # Blocking verification correction gerçek bir mutation üretmeden
         # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
@@ -1241,7 +1277,7 @@ async def _call_model(
     runtime = deps.config.runtime
     # Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
     # zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
-    spec = escalated_spec(
+    spec = deps.active_model_override or escalated_spec(
         select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements),
         execution.escalation,
     )
@@ -1290,9 +1326,7 @@ async def _call_model(
 
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
 #: ya da belirsizliği gideremez.
-ALWAYS_ALLOWED = frozenset(
-    {"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"}
-)
+ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).
 WEB_READ_WINDOW = 100
@@ -1515,6 +1549,48 @@ def _exploration_note(
     return note
 
 
+def _teacher_takeover_spec(
+    deps: AgentDeps, state: _State, execution: ExecutionPolicy, *, auto_teacher: bool
+) -> ModelSpec | None:
+    """Başarılı öğütten sonra süren salt-okuma döngüsünü doğrulanmış modele devret."""
+    threshold = deps.config.runtime.agent_teacher_takeover_tools
+    if (
+        not auto_teacher
+        or not state.teacher_advice_ok
+        or state.internal
+        or (deps.budget is not None and deps.budget.stop is not None)
+        or state.capability_wall
+        or not execution.complex_task
+        or not execution.allow_mutation
+        or state.mutating_tool_calls_made
+        or state.tool_calls_made < threshold
+        or threshold <= 0
+        or deps.active_model_override is not None
+        or (
+            execution.allowed_tool_names is not None
+            and not execution.allowed_tool_names.intersection(
+                {"write_file", "edit_file", "multi_edit", "run_shell"}
+            )
+        )
+    ):
+        return None
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    teacher = deps.config.teacher
+    if selected.strict or teacher is None or selected.model == teacher.model:
+        return None
+    verified = any(
+        session.model == teacher.model
+        and session.enabled
+        and session.login_verified
+        and session.tool_support == "emulated"
+        and session.tool_eval_passed
+        for session in deps.config.web_sessions
+    )
+    if not verified or not mutation_policy_for_model(deps.config, teacher.model).ok:
+        return None
+    return ModelSpec(name="ogretmen-agent", model=teacher.model, tags=("strict",))
+
+
 async def _consult_teacher_on_plateau(
     messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State
 ) -> None:
@@ -1557,6 +1633,8 @@ async def _consult_teacher_on_plateau(
     state.tool_rounds += 1
     if not result.ok:
         state.failed_tool_calls += 1
+    else:
+        state.teacher_advice_ok = True
     _note_tool_use(
         state,
         "ask_teacher",
@@ -1683,6 +1761,7 @@ def _line_count(path: Path) -> int:
 #: Dosyanın tamamını değiştiren araçlar.
 _FULL_WRITE_TOOLS = frozenset({"write_file"})
 
+
 def _is_rerunnable(name: str) -> bool:
     """Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araç mı.
 
@@ -1747,9 +1826,7 @@ async def _run_tools(
                     diff=None,
                 )
             )
-            messages.append(
-                Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
-            )
+            messages.append(Message("tool", output, tool_call_id=call.id, name=call.name, ok=False))
             state.failed_tool_calls += 1
             errored = True
             continue
@@ -2425,9 +2502,7 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
-    selected = select_agent_spec(
-        deps.config, deps.task_type, requirements=deps.task_requirements
-    )
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
     threshold = (
         history.WEB_COMPRESS_THRESHOLD_CHARS
         if uses_web_context(deps.config, selected)

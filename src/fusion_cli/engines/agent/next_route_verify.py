@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ...core.changeset import ChangeSet
 from ...core.verification import VerificationResult
 
 _SOURCE_SUFFIXES = frozenset({".ts", ".tsx", ".js", ".jsx"})
@@ -34,13 +35,18 @@ _EXPORT_DECLARATION = re.compile(r"\bexport\s+(?:async\s+)?(?:function|const)\s+
 
 
 class NextRouteVerifier:
-    def __init__(self, root: Path, changed_paths: tuple[Path, ...]) -> None:
+    def __init__(self, root: Path, changed_paths: ChangeSet | tuple[Path, ...]) -> None:
         self._root = root.resolve()
         self._changed_paths = changed_paths
 
     async def verify(self) -> VerificationResult:
         findings: list[str] = []
-        for path in self._changed_paths:
+        paths = (
+            self._changed_paths.paths
+            if isinstance(self._changed_paths, ChangeSet)
+            else self._changed_paths
+        )
+        for path in paths:
             source = path.resolve()
             if (
                 not source.is_relative_to(self._root)
