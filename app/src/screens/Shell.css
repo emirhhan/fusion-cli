@@ -122,8 +122,6 @@
   color: var(--text-secondary);
   min-height: 40px;
 }
-.app-shell__welcome .composer__hint { display: none; }
-
 @media (max-width: 620px) {
   .app-shell__welcome { padding: 20vh 16px 24px; }
 }

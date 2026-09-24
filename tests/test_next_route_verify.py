@@ -39,6 +39,54 @@ async def test_eksik_next_catchall_route_derleme_gecse_de_yakalanir(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_sablon_dizisinde_dogrudan_yazilan_api_yolu_da_yakalanir(tmp_path):
+    client = tmp_path / "components/stok/stokApi.ts"
+    client.parent.mkdir(parents=True)
+    client.write_text(
+        "export async function stokGet(path: string) {\n"
+        "  return fetch(`/api/candidates/${path}`);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (client,)).verify()
+
+    assert result.ok is False
+    assert "/api/candidates/*" in result.findings[0]
+
+
+@pytest.mark.asyncio
+async def test_yeni_yazma_rotasinin_kosulsuz_basarisi_gercek_islem_sayilmaz(tmp_path):
+    route = tmp_path / "app/api/candidates/[action]/route.ts"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        'import { NextResponse } from "next/server";\n'
+        "export async function POST(request: Request, "
+        "{ params }: { params: Promise<{ action: string }> }) {\n"
+        "  const { action } = await params;\n"
+        "  return NextResponse.json({ success: true, action });\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (route,)).verify()
+
+    assert result.ok is False
+    assert "koşulsuz" in result.findings[0]
+
+    route.write_text(
+        'import { NextResponse } from "next/server";\n'
+        'import { importCandidates } from "@/services/stok/import";\n'
+        "export async function POST(request: Request) {\n"
+        "  await importCandidates(await request.json());\n"
+        "  return NextResponse.json({ success: true });\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    assert (await NextRouteVerifier(tmp_path, (route,)).verify()).ok
+
+
+@pytest.mark.asyncio
 async def test_eksik_route_turun_gercek_kalite_kapisini_dusurur(tmp_path):
     client = _client(tmp_path)
     context = ToolContext(root=tmp_path)

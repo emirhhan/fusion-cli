@@ -12,6 +12,13 @@
   width: min(var(--icerik-en-fazla), calc(100% - 48px));
 }
 
+.conversation__disclaimer {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  margin: var(--space-5) 0;
+  text-align: center;
+}
+
 .conversation__message {
   display: flex;
   /* Satır arası daraltıldı: paragraflar arasındaki boşluk okumayı bölüyordu. */

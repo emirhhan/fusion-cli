@@ -5,6 +5,16 @@ import { Composer, maliyetRozetMetni } from "./Composer";
 afterEach(cleanup);
 
 describe("Composer", () => {
+  it("kısa konuşmada tek satır, çok satırlı metin ve eklerde geniş düzen kullanır", () => {
+    const { container, rerender } = render(<Composer onSend={vi.fn()} />);
+    expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("compact");
+    expect(screen.getByRole("textbox", { name: "Mesaj" }).getAttribute("placeholder")).toBe("İstediğin bir şeyi sor");
+    rerender(<Composer onSend={vi.fn()} value={"Birinci satır\nİkinci satır"} />);
+    expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("expanded");
+    rerender(<Composer attachments={[{ kind: "file", name: "notlar.md", path: "/tmp/notlar.md" }]} onSend={vi.fn()} />);
+    expect(container.querySelector(".composer")?.getAttribute("data-layout")).toBe("expanded");
+  });
+
   it("Enter ile gönderir, boş girdiyi göndermez", () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

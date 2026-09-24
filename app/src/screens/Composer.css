@@ -64,15 +64,13 @@
 .composer__mode:hover { background: var(--surface-selected); }
 .composer__mode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-.composer__agent,
-.composer__hint {
+.composer__agent {
   color: var(--text-secondary);
   font-size: var(--text-xs);
 }
 
-/* Boş sohbetin tek satırlık ChatGPT ölçüsü. Görev yazıldığında araçlar yerinde
-   kalır; uzun metin kutusu içerik kadar büyür. */
-.app-shell__welcome .composer {
+/* Kısa mesajlar yeni sohbette ve açık konuşmada aynı tek satırlık düzende kalır. */
+.composer[data-layout="compact"] {
   align-items: center;
   box-shadow: none;
   display: grid;
@@ -81,25 +79,36 @@
   min-height: 54px;
   padding: 5px 8px;
 }
-.app-shell__welcome .composer textarea {
+.composer[data-layout="compact"] textarea {
   grid-column: 2;
   grid-row: 1;
   min-height: 26px;
   padding: 2px 4px;
 }
-.app-shell__welcome .composer__toolbar,
-.app-shell__welcome .composer__tools { display: contents; }
-.app-shell__welcome .composer__tools > span { grid-column: 1; grid-row: 1; }
-.app-shell__welcome .composer__mode { grid-column: 3; grid-row: 1; }
-.app-shell__welcome .composer__approval { grid-column: 4; grid-row: 1; }
-.app-shell__welcome .composer__actions { grid-column: 5; grid-row: 1; }
-.app-shell__welcome .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
-.app-shell__welcome .composer__voice { border: 0; height: 32px; width: 32px; }
-.app-shell__welcome .composer__voice--conversation {
+.composer[data-layout="compact"] .composer__toolbar,
+.composer[data-layout="compact"] .composer__tools { display: contents; }
+.composer[data-layout="compact"] .composer__tools > span { grid-column: 1; grid-row: 1; }
+.composer[data-layout="compact"] .composer__mode { grid-column: 3; grid-row: 1; }
+.composer[data-layout="compact"] .composer__approval { grid-column: 4; grid-row: 1; }
+.composer[data-layout="compact"] .composer__actions { grid-column: 5; grid-row: 1; }
+.composer[data-layout="compact"] .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
+.composer[data-layout="compact"] .composer__voice { border: 0; height: 32px; width: 32px; }
+.composer[data-layout="compact"] .composer__voice--conversation {
   background: #4f8df7;
   color: #fff;
   height: 36px;
   width: 36px;
+}
+
+@media (max-width: 700px) {
+  .composer[data-layout="compact"] {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+  }
+  .composer[data-layout="compact"] .composer__toolbar,
+  .composer[data-layout="compact"] .composer__tools { display: flex; }
+  .composer[data-layout="compact"] .composer__toolbar { justify-content: space-between; }
+  .composer[data-layout="compact"] textarea { width: 100%; }
 }
 
 .composer__agent {
@@ -112,14 +121,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-.composer__hint {
-  margin: var(--space-2) 0 0;
-  text-align: center;
-}
-
 @media (max-width: 620px) {
-  .composer__agent,
-  .composer__hint {
+  .composer__agent {
     display: none;
   }
 }

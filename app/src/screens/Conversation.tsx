@@ -227,6 +227,7 @@ export function Conversation({
             </div>
           );
         })}
+        <p className="conversation__disclaimer">Fusion hata yapabilir. Önemli değişiklikleri ve test kanıtlarını kontrol et.</p>
       </div>
       {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek

@@ -31,6 +31,7 @@ export type ApprovalMode = "auto" | "plan" | "security";
 
 /** Sıra, Shift+Tab'ın döneceği sıradır: terminaldeki davranışın aynısı. */
 const APPROVAL_ORDER: ApprovalMode[] = ["auto", "plan", "security"];
+const COMPACT_MESSAGE_CHARACTER_LIMIT = 90;
 
 const APPROVAL_LABEL: Record<ApprovalMode, string> = {
   auto: "Otomatik",
@@ -148,6 +149,8 @@ export function Composer({
   const [mentionDismissed, setMentionDismissed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draft = value ?? internalValue;
+  const compactLayout = attachments.length === 0 && !attachmentError && !dictationError
+    && !draft.includes("\n") && draft.length < COMPACT_MESSAGE_CHARACTER_LIMIT;
   // İmleç metnin sonundan geride olabilir; anma imlecin ÖNÜNDEKİ parçaya bakar.
   const mention = onFileQuery ? anmayiBul(draft, Math.min(caret, draft.length)) : null;
   const mentionOpen = mention !== null && !mentionDismissed && fileSuggestions.length > 0;
@@ -280,7 +283,7 @@ export function Composer({
 
   return (
     <div className="composer-wrap">
-      <div className="composer" onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+      <div className="composer" data-layout={compactLayout ? "compact" : "expanded"} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
         {paletteOpen && (
           <div aria-label="Komut önerileri" className="composer__palette" role="listbox">
             {filteredCommands.map((command, index) => (
@@ -336,7 +339,7 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
-          placeholder={workspaceMode === "sohbet" ? "İstediğin bir şeyi sor" : "Fusion'a bir görev ver"}
+          placeholder="İstediğin bir şeyi sor"
           ref={textareaRef}
           rows={1}
           value={draft}
@@ -426,7 +429,6 @@ export function Composer({
           )}
         </div>
       </div>
-      <p className="composer__hint">Fusion hata yapabilir. Önemli değişiklikleri ve test kanıtlarını kontrol et.</p>
     </div>
   );
 }

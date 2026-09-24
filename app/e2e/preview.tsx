@@ -307,11 +307,13 @@ function Preview() {
   const account = state === "account";
   const voice = state.startsWith("voice-");
   const voiceMini = params.get("voiceMode") === "mini";
-  const composerValue = state === "composer-menu"
+  const fullComposer = params.get("fullComposer") === "1";
+  const initialComposerValue = state === "composer-menu"
     ? "/m"
     : state === "composer-attachment"
       ? "Bu dosyayı incele"
-      : undefined;
+      : "";
+  const [composerValue, setComposerValue] = React.useState(initialComposerValue);
   const [onboardingValue, setOnboardingValue] = React.useState<OnboardingValue>({ step: "sources", selectedProjectId: "/Projects/fusion-cli" });
   if (onboarding) return <Onboarding value={onboardingValue} onChange={setOnboardingValue} onSkip={() => undefined} onComplete={() => undefined}
     runtime={{ status: "ready", version: "0.3.0a1" }}
@@ -367,6 +369,12 @@ function Preview() {
             onModeChange={() => undefined}
             onSend={() => undefined}
             onVoice={() => undefined}
+            onDictation={fullComposer ? () => undefined : undefined}
+            activeModel={fullComposer ? "nvidia_nim/deepseek-v3" : undefined}
+            activeModelLabel={fullComposer ? "DeepSeek V3" : undefined}
+            onModelSelect={fullComposer ? () => undefined : undefined}
+            modelOptions={fullComposer ? [{ deger: "/model deepseek-v3", etiket: "DeepSeek V3", grup: "high" }] : undefined}
+            onValueChange={setComposerValue}
             value={composerValue}
           />
         )}
