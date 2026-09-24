@@ -65,6 +65,9 @@ def test_son_degisiklikten_sonra_basarisiz_test_turu_basarisiz_yapar():
     metin = report.render()
     assert "başarısız" in metin
     assert "çıkış 1" in metin
+    summary = report.render_with_model_text("Görevi başarıyla tamamladım.")
+    assert "Ajanın açıklaması (doğrulanmamış):" in summary
+    assert summary.index("Doğrulama başarısız") < summary.index("Görevi başarıyla")
 
 
 def test_son_degisiklikten_sonra_basarili_test_dogrulandi_yazar():

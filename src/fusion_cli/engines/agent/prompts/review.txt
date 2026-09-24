@@ -4,6 +4,11 @@ EKSİKSİZ yaptı mı? Şunlara bak:
 - Somut bir HATA var mı: yanlış iddia, kırık kod, doğrulanmamış değişiklik,
   gözden kaçan gereksinim?
 - Test/derleme gerekliyken atlandı mı?
+- Yeni bir HTTP rotası yazma işlemini yerel veya ayrıcalıklı bir servise iletiyorsa,
+  gerçek erişim kontrolünü izle. İstemcinin koyduğu başlık veya yalnız üretim kipinde
+  engelleme kimlik doğrulaması sayılmaz; testin yalnız olumlu yolu sınaması da yetmez.
+- Kullanıcıyı başka siteye götüren bağlantıda üretilen URL'nin hedef alan adını ve
+  istenen sayfa türünü (genel ürün sayfası, yönetim ekranı vb.) doğrula.
 
 GÖREVDE AÇIKÇA SAYILAN ŞEYLERİ TEK TEK KONTROL ET. Görev belirli renk kodları,
 sayılar, bölüm adları, dosya adları ya da davranışlar sıralıyorsa bunların izde

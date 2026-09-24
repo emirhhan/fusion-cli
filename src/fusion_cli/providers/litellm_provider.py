@@ -126,6 +126,13 @@ class LiteLlmProvider:
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             kwargs["tool_choice"] = "auto"
+            # Nemotron 3 can emit an empty content field alongside a tool call.
+            # NVIDIA's coding-agent guidance requires this chat-template option
+            # so the server parses reasoning and tool calls together.
+            if self._model.startswith("nvidia_nim/nvidia/nemotron-3-"):
+                kwargs["extra_body"] = {
+                    "chat_template_kwargs": {"force_nonempty_content": True}
+                }
         if self._api_key is not None:
             # Havuzdan gelen anahtar ortam değişkenini geçersiz kılar (çok-hesap).
             kwargs["api_key"] = self._api_key

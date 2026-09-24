@@ -86,7 +86,12 @@ from . import compaction, denial, history, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .engine_tools import UserAsker, build_agent_registry
-from .execution_policy import ExecutionPolicy, policy_for, refresh_mutation_policy
+from .execution_policy import (
+    ExecutionPolicy,
+    policy_for,
+    refresh_mutation_policy,
+    uses_web_context,
+)
 from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
@@ -637,7 +642,7 @@ def _apply_turn_report(
     text = report.render()
     if not text:
         return
-    outcome.final_text = text + outcome.final_text
+    outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
 
@@ -2289,10 +2294,12 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
+    selected = select_agent_spec(
+        deps.config, deps.task_type, requirements=deps.task_requirements
+    )
     threshold = (
         history.WEB_COMPRESS_THRESHOLD_CHARS
-        if (deps.execution and deps.execution.is_web)
-        or (deps.config.web_sessions and any(s.enabled for s in deps.config.web_sessions))
+        if uses_web_context(deps.config, selected)
         else history.COMPRESS_THRESHOLD_CHARS
     )
     compressed = await compaction.compress(

@@ -310,6 +310,8 @@ PAYLOAD_RULES = (
 
 _GENERAL_RULES = (
     "- name ve arguments zorunludur; arguments JSON nesnesidir ve şemaya uymalıdır.",
+    "- Kullanıcının verdiği dosya yolu, komut ve arama desenini arguments içinde "
+    "BİREBİR koru; yeniden adlandırma, genişletme veya başka alana taşıma.",
     "- Çağrı gövdesini ```json kod bloğunun İÇİNE yaz. Kod bloğu dışındaki metin "
     "arayüzde Markdown olarak biçimlendiriliyor ve `__init__.py` gibi adlardaki alt "
     "çizgiler siliniyor.",

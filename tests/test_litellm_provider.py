@@ -251,6 +251,26 @@ def test_call_kwargs_reasoning_effort_gonderir():
     assert kwargs["reasoning_effort"] == "high"
 
 
+def test_nemotron_3_arac_cagrisinda_sunucu_sablon_secimi_gonderilir():
+    from fusion_cli.core.types import CompletionRequest, Message
+
+    istek = CompletionRequest(
+        messages=(Message("user", "Dosyayı incele"),),
+        temperature=0.3,
+        max_tokens=8192,
+        timeout_s=30.0,
+        tools=({"type": "function", "function": {"name": "read_file"}},),
+    )
+    kwargs = LiteLlmProvider(
+        "nvidia_nim/nvidia/nemotron-3-super-120b-a12b", role="agent"
+    )._call_kwargs(istek, stream=False)
+
+    assert kwargs["extra_body"] == {
+        "chat_template_kwargs": {"force_nonempty_content": True}
+    }
+    assert "extra_body" not in _saglayici()._call_kwargs(istek, stream=False)
+
+
 def test_call_kwargs_effort_yoksa_parametre_konmaz():
     from fusion_cli.core.types import CompletionRequest, Message
 

@@ -39,12 +39,13 @@ from ..config.apprentice_notice import apprentice_notice_shown, mark_apprentice_
 from ..config.credentials import FernetSecretStore
 from ..config.keys import secret_key
 from ..config.loader import load_config
+from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
 from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
-from ..engines.agent.execution_policy import is_web_model
+from ..engines.agent.execution_policy import uses_web_context
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
@@ -1016,9 +1017,7 @@ class AppSession:
     def _uses_web_threshold(self) -> bool:
         """Döngünün sıkıştırma eşiğiyle aynı kural (`loop._maybe_compress`)."""
         config = self._state.config
-        return is_web_model(config, config.agent.model) or any(
-            session.enabled for session in config.web_sessions or ()
-        )
+        return uses_web_context(config, select_agent_spec(config, self._state.task_type))
 
     def _gateway_status(self) -> dict[str, Any]:
         if self._gateway_process_id is None:

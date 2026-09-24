@@ -240,6 +240,12 @@ def is_web_model(config: Config, model: str) -> bool:
     return any(session.model == model for session in config.web_sessions)
 
 
+def uses_web_context(config: Config, spec: ModelSpec) -> bool:
+    """Use the narrow history limit only if the selected chain can reach web AI."""
+    models = (spec.model,) if spec.strict else spec.models
+    return any(is_web_model(config, model) for model in models)
+
+
 def refresh_mutation_policy(
     execution: ExecutionPolicy, served_by: str, config: Config
 ) -> ExecutionPolicy:

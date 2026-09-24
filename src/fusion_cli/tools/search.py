@@ -87,6 +87,8 @@ class _SearchScan:
     started: float
     candidates: int = 0
     stopped: str | None = None
+    truncated_files: int = 0
+    oversized_lines: int = 0
 
     def should_stop(self) -> bool:
         if self.context.cancelled.is_set():
@@ -100,12 +102,23 @@ class _SearchScan:
 
 def _bounded_result(lines: list[str], scan: _SearchScan, empty: str) -> ToolResult:
     if scan.stopped is None:
-        return ToolResult("\n".join(lines) if lines else empty)
+        output = "\n".join(lines) if lines else empty
+        if scan.truncated_files or scan.oversized_lines:
+            limits = []
+            if scan.truncated_files:
+                limits.append(f"{scan.truncated_files} dosyanın yalnız başlangıcı tarandı")
+            if scan.oversized_lines:
+                limits.append(f"{scan.oversized_lines} uzun satır kısaltıldı")
+            output += (
+                f"\n\nArama sınırları: {'; '.join(limits)}. "
+                "Bu dosyaların tamamı gerekirse proje kökünde 'rg' ile ayrıca aranmalı."
+            )
+        return ToolResult(output)
     partial = "\n".join(lines) if lines else "(bu sınır içinde eşleşme bulunmadı)"
     return ToolResult.failure(
         f"{partial}\n\nArama {scan.stopped}; {scan.candidates} dosya adayı incelendi. "
         "Bu sonuç kısmidir ve tekrar denenebilir: aynı geniş aramayı yinelemek yerine "
-        "'path' alanını Desktop, Documents veya belirli bir proje klasörüyle daraltın."
+        "'path' alanını proje içindeki ilgili klasör veya dosyayla daraltın."
     )
 
 
@@ -265,13 +278,13 @@ def _matching_lines(
     except OSError:
         return
     if len(data) > MAX_SEARCH_SCAN_BYTES:
-        scan.stopped = f"tek dosya {MAX_SEARCH_SCAN_BYTES} bayt okuma sınırına ulaştı"
+        scan.truncated_files += 1
     text = data[:MAX_SEARCH_SCAN_BYTES].decode("utf-8", errors="ignore")
     for number, line in enumerate(text.splitlines(), 1):
         if scan.should_stop():
             return
         if len(line.encode("utf-8")) > MAX_SEARCH_LINE_BYTES:
-            scan.stopped = f"tek satır {MAX_SEARCH_LINE_BYTES} bayt eşleme sınırına ulaştı"
+            scan.oversized_lines += 1
             line = _truncate_utf8(line, MAX_SEARCH_LINE_BYTES)
         if regex.search(line):
             yield number, line

@@ -41,6 +41,7 @@ def test_talimat_arac_adlarini_icerir():
     metin = render_tool_instructions([_SCHEMA])
     assert "edit_file" in metin
     assert CALL_OPEN in metin
+    assert "dosya yolu, komut ve arama desenini arguments içinde BİREBİR koru" in metin
 
 
 def test_gecerli_blok_cagriya_ayristirilir():

@@ -276,9 +276,9 @@ async def test_search_code_buyuk_dosyayi_bounded_okuyup_kismi_sonuc_doner(
 
     sonuc = await _calistir(registry, context, "search_code", pattern="başlangıç|yok")
 
-    assert not sonuc.ok
-    assert "tek dosya" in sonuc.output
-    assert "tekrar denenebilir" in sonuc.output
+    assert sonuc.ok
+    assert "başlangıç" in sonuc.output
+    assert "1 dosyanın yalnız başlangıcı" in sonuc.output
 
 
 async def test_search_code_turkce_satiri_byte_sinirinda_gecerli_utf8_ile_kirpar(
@@ -290,11 +290,24 @@ async def test_search_code_turkce_satiri_byte_sinirinda_gecerli_utf8_ile_kirpar(
 
     sonuc = await _calistir(registry, context, "search_code", pattern="hedef", path="turkce.txt")
 
-    assert not sonuc.ok
-    assert "kısmi" in sonuc.output
+    assert sonuc.ok
+    assert "1 uzun satır kısaltıldı" in sonuc.output
     rendered = sonuc.output.split("\n", 1)[0].split(": ", 1)[1]
     assert len(rendered.encode("utf-8")) <= search_tools.MAX_SEARCH_LINE_BYTES
     rendered.encode("utf-8").decode("utf-8")
+
+
+async def test_search_code_uzun_satirdan_sonra_diger_dosyalarda_arama_surer(
+    registry, context, tmp_path
+):
+    (tmp_path / "a-minified.js").write_text("x" * 20_000, encoding="utf-8")
+    (tmp_path / "z-source.ts").write_text("hedef\n", encoding="utf-8")
+
+    sonuc = await _calistir(registry, context, "search_code", pattern="hedef")
+
+    assert sonuc.ok
+    assert "z-source.ts:1: hedef" in sonuc.output
+    assert "uzun satır kısaltıldı" in sonuc.output
 
 
 async def test_search_code_gercek_esleme_sirasinda_iptal_edilir_ve_sonraki_cagri_temizdir(

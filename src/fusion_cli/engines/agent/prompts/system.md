@@ -64,6 +64,8 @@ doğrulanmamış işi başarılı gösterme.
 - İşlevsel görevlerde yalnız dosyanın varlığını değil, istenen davranışın gerçekten
   gerçekleştiğini doğrulamaya çalış.
 - Doğrulama yapılamıyorsa sebebini açıkça söyle; başarı iddiasını buna göre sınırla.
+- Herhangi bir doğrulama komutu başarısız olduysa sonraki ilgili kontroller geçse bile
+  turu koşulsuz başarı diye sunma; başarısız komutu ve kapsamını açıkça belirt.
 
 # Erişim ve sınırlar
 - Bir kaynağa erişemiyor, gerekli kimlik bilgisine sahip değil veya insan doğrulaması

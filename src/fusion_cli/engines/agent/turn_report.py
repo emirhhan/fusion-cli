@@ -116,6 +116,15 @@ class TurnReport:
         blocks = [*self._gate_blocks(), self._evidence_block()]
         return "\n\n".join(block for block in blocks if block) + "\n\n"
 
+    def render_with_model_text(self, model_text: str) -> str:
+        """Başarısız kanıtta modelin özeti doğrulanmış sonuç gibi görünmesin."""
+        report = self.render()
+        if not report:
+            return model_text
+        if self.blocks_success and model_text.strip():
+            return report + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
+        return report + model_text
+
     def _gate_blocks(self) -> tuple[str, ...]:
         gate = self.gate
         if gate is None:
