@@ -10,6 +10,7 @@ bir iyileştirmedir, turu düşürmesi kabul edilemez.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from ...config.models import Config
@@ -71,7 +72,14 @@ async def review_turn(
         .replace("{trace}", trace)
         .replace("{final}", final_text[:FINAL_TEXT_CHARS])
     )
-    result = await _ask(prompt, config, publisher)
+    try:
+        result = await asyncio.wait_for(
+            _ask(prompt, config, publisher), timeout=config.runtime.judge_timeout_s + 2.0
+        )
+    except TimeoutError:
+        # Web taşıması istek zaman aşımını her zaman uygulamıyor. Öz-denetim
+        # kullanıcının tamamlanmış görevini dakikalarca bekletemez.
+        return ""
     if not result.ok or result.truncated:
         # Yarım kalmış talimat, hiç talimattan KÖTÜDÜR: agent eksik bir cümleye göre
         # düzeltme yapmaya kalkar. Sıkıştırmadaki "yarım özet" kuralıyla aynı duruş.
