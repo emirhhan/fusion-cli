@@ -152,6 +152,16 @@ def test_kanit_eksikligi_turu_basarisiz_saymaz():
     assert report.blocks_success is False
 
 
+def test_kanit_eksikken_modelin_tamamlandi_sozu_dogrulanmamis_yazar():
+    report = build_turn_report(("a.py",), (_write("a.py"),), gate=None)
+
+    result = report.render_with_model_text("Görev tamamlandı.")
+
+    assert "sonuç doğrulanmadı" in result
+    assert "Ajanın açıklaması (doğrulanmamış):" in result
+    assert result.index("doğrulanmadı") < result.index("Görev tamamlandı")
+
+
 def test_basarisiz_komut_turu_basarisiz_sayar():
     tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=1))
     report = build_turn_report(("a.py",), tool_uses, gate=None)

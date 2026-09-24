@@ -117,11 +117,11 @@ class TurnReport:
         return "\n\n".join(block for block in blocks if block) + "\n\n"
 
     def render_with_model_text(self, model_text: str) -> str:
-        """Başarısız kanıtta modelin özeti doğrulanmış sonuç gibi görünmesin."""
+        """Eksik veya başarısız kanıtta modelin özeti doğrulanmış gibi görünmesin."""
         report = self.render()
         if not report:
             return model_text
-        if self.blocks_success and model_text.strip():
+        if self.is_verified is False and model_text.strip():
             return report + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
 

@@ -33,6 +33,8 @@ A second, fresh isolated GATE HOLDING worktree used Gemini web as the coding age
 
 The agent's own four tests assert its invented URL and mock fetch responses. They do not exercise the server path. The reviewer likely timed out: the old implementation returned an empty string on timeout, then published the same `issue_found=False` event as an explicit clean verdict. A timeout is now reported separately as incomplete, and `npx vitest run` is now recognized as a behavioral command. A new Next route verifier is included in the automatic quality gate. Running it against the real isolated output produces a blocking finding for the missing `/api/stok/*` endpoint. This prevents that specific broken artifact from being reported as a clean successful turn.
 
+When no post-mutation behavioral test runs, the report also now labels the agent's accompanying completion claim as unverified. The outcome flag still follows the existing policy that missing evidence alone is a warning rather than a failed turn; the release acceptance gate remains stricter.
+
 ## Fusion fixes shipped to the working branch
 
 Commit `1a22755` fixes project search stopping on large generated files, the API agent context gauge being narrowed by an unrelated enabled web session, NVIDIA Nemotron 3 tool-call request formatting, and reporting when a model claims success despite failed verification. It also gives the reviewer explicit checks for privileged proxy routes and cross-site links. The source and focused tests passed Ruff and mypy.
