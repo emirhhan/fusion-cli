@@ -31,7 +31,7 @@ export interface AccountController {
     avatar: string;
   }) => Promise<KayitSonucu | null>;
   giris: (kimlik: string, parola: string) => Promise<boolean>;
-  cikis: () => Promise<void>;
+  cikis: () => Promise<boolean>;
   kurtar: (kimlik: string, kod: string, yeniParola: string) => Promise<boolean>;
   guncelle: (hesap: Hesap) => Promise<boolean>;
   sil: (kimlik: string) => Promise<boolean>;
@@ -105,9 +105,8 @@ export function useAccount(client: ProtocolClient | null): AccountController {
     },
     giris: async (kimlik, parola) =>
       (await cagir("hesap.giris", { kimlik, parola }, "Giriş yapılamadı.")) !== null,
-    cikis: async () => {
-      await cagir("hesap.cikis", {}, "Çıkış yapılamadı.");
-    },
+    cikis: async () =>
+      (await cagir("hesap.cikis", {}, "Çıkış yapılamadı.")) !== null,
     kurtar: async (kimlik, kurtarma_kodu, yeni_parola) =>
       (await cagir(
         "hesap.kurtar",

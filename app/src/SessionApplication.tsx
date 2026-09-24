@@ -12,7 +12,7 @@ import { useHistory } from "./history/useHistory";
 import { ProtocolClient } from "./protocol/client";
 import { olayEkle } from "./protocol/olayAkisi";
 import type { Soru } from "./protocol/types";
-import { useSessions } from "./sessions/useSessions";
+import { useSessions, saveWorkspaceMode, storedWorkspaceMode, type WorkspaceMode } from "./sessions/useSessions";
 import type { SessionTransport } from "./sessions/types";
 import { AppHeader } from "./screens/AppHeader";
 import {
@@ -226,10 +226,13 @@ function ProjectInspector({
   activeTab,
   client,
   collapsed,
+  height,
   onActiveTabChange,
   onCollapsedChange,
+  onHeightChange,
   onSelectPath,
   onWidthChange,
+  placement,
   root,
   selectedPath,
   width,
@@ -237,11 +240,14 @@ function ProjectInspector({
   activeTab: InspectorTabId;
   client: ProtocolClient;
   collapsed: boolean;
+  height: number;
   onActiveTabChange: (tab: InspectorTabId) => void;
   onCollapsedChange: (collapsed: boolean) => void;
+  onHeightChange: (height: number) => void;
   /** Seçili dosya DIŞARIDAN yönetilir: sohbetteki kod kartı da bir dosya açar. */
   onSelectPath: (path: string | null) => void;
   onWidthChange: (width: number) => void;
+  placement: "right" | "bottom";
   root: string;
   selectedPath: string | null;
   width: number;
@@ -261,9 +267,12 @@ function ProjectInspector({
     <Inspector
       activeTab={activeTab}
       collapsed={collapsed}
+      height={height}
       onActiveTabChange={onActiveTabChange}
       onCollapsedChange={onCollapsedChange}
+      onHeightChange={onHeightChange}
       onWidthChange={onWidthChange}
+      placement={placement}
       width={width}
       content={{
         files: <FileExplorer client={client} key={revision} onChanged={changed} onSelected={onSelectPath} root={root} />,
@@ -287,6 +296,7 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
   const conversation = useConversation(istemci);
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
+  const inspectorPlacement = useInspectorPlacement();
   const [draft, setDraft] = useState("");
   const showSteps = useShowSteps();
   // Tema yalnız UYGULANIR; değiştirme Ayarlar ekranındadır.
@@ -334,14 +344,19 @@ export function Uygulama({ istemci }: { istemci: ProtocolClient }) {
         <Inspector
           activeTab={inspectorLayout.activeTab}
           collapsed={inspectorLayout.collapsed}
+          height={inspectorLayout.height}
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
+          onHeightChange={inspectorLayout.setHeight}
           onWidthChange={inspectorLayout.setWidth}
+          placement={inspectorPlacement}
           width={inspectorLayout.width}
         />
       }
       inspectorCollapsed={inspectorLayout.collapsed}
+      inspectorHeight={inspectorLayout.height}
       inspectorOpen={layout.inspectorOpen}
+      inspectorPlacement={inspectorPlacement}
       inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
       onSidebarClose={layout.toggleSidebar}
@@ -474,6 +489,7 @@ export function SessionUygulama({
   const layout = useLayout();
   const inspectorLayout = useInspectorLayout();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [workspaceModes, setWorkspaceModes] = useState<Record<string, WorkspaceMode>>({});
   const [attachments, setAttachments] = useState<Record<string, ComposerAttachment[]>>({});
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [commandSelector, setCommandSelector] = useState<CommandSelectorPayload | null>(null);
@@ -586,7 +602,7 @@ export function SessionUygulama({
               void history.openSource(source);
             } else if (destination.startsWith("project:")) {
               setPage("chat");
-              await controller.create({ root: destination.slice("project:".length) });
+              await controller.create({ root: destination.slice("project:".length), mode: "kod" });
             }
     } catch {
       setNewTaskError("Sayfa veya proje açılamadı. Yeniden dene.");
@@ -920,7 +936,7 @@ export function SessionUygulama({
         onFinish={(projectId) => {
           setShowOnboarding(false);
           onOnboardingComplete();
-          if (projectId && projectId !== active.root) void controller.create({ root: projectId });
+          if (projectId && projectId !== active.root) void controller.create({ root: projectId, mode: "kod" });
         }}
         projects={projects}
         runtimeVersion={runtimeVersion}
@@ -932,7 +948,8 @@ export function SessionUygulama({
   // Ölçüldü: Ayarlar açıkken ekranda "Ayarlar" iki kez yazıyordu ve erişilebilirlik
   // ağacında aynı adla iki başlık düğümü oluşuyordu. Şerit bu sayfalarda çalışma
   // alanını gösterir; sayfanın kimliği sayfanın kendi başlığındadır.
-  const headerTitle = page === "settings" ? active.title
+  const headerTitle = page === "account" ? "Hesabım"
+    : page === "settings" ? active.title
     : SAYFA_KENDI_BASLIGINI_TASIR.includes(page)
     ? projectName(active.root)
     : page === "image-create" ? "Görsel oluştur"
@@ -942,6 +959,7 @@ export function SessionUygulama({
             : active.title;
 
   const draft = drafts[active.id] ?? "";
+  const workspaceMode = workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod";
   const activeAttachments = attachments[active.id] ?? [];
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
   const executeCommand = async (input: string, recordInput = true, recordOutput = true) => {
@@ -993,7 +1011,7 @@ export function SessionUygulama({
       }}
     />
   ) : (
-    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} onSelectPrompt={setDraft} />
+    <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
   const content = page === "image-create" || page === "video-create"
     ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
@@ -1015,6 +1033,7 @@ export function SessionUygulama({
         ? (
           <AccountScreen
             account={account}
+            client={active.client}
             onClose={() => setPage("chat")}
             onPickAvatarFile={async () => {
               // Dosya seçimi KABUKTAN, kopyalama ÇEKİRDEKTEN gelir: arayüz
@@ -1070,7 +1089,7 @@ export function SessionUygulama({
         setNewTaskError("Kök dizin yerine çalışacağın proje klasörünü seç.");
         return;
       }
-      await controller.create({ root });
+      await controller.create({ root, mode: "kod" });
       localStorage.setItem("fusion.last-project-root", root);
       setPage("chat");
       setNewTaskOpen(false);
@@ -1088,10 +1107,19 @@ export function SessionUygulama({
 
   return (
     <Shell
-      emptyChat={(page === "chat" || page === "settings") && active.messages.length === 0 && !active.running}
-      composer={page === "chat" || page === "settings" ? (
-        <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
+      emptyChat={page === "chat" && active.messages.length === 0 && !active.running}
+      composer={page === "chat" ? (
+        <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
         <Composer
+          workspaceMode={workspaceMode}
+          onWorkspaceModeChange={(mode) => {
+            void active.client.request("oturum.baslat", { kip: mode }).then((result) => {
+              if (result.ok === false) throw new Error(String(result.metin ?? "Kip değiştirilemedi."));
+              saveWorkspaceMode(active.id, mode);
+              setWorkspaceModes((current) => ({ ...current, [active.id]: mode }));
+              setCommandError(null);
+            }).catch(() => setCommandError("Sohbet kipi değiştirilemedi. Yeniden dene."));
+          }}
           activeModel={activeModel}
           activeModelLabel={activeModelLabel}
           modelOptions={modelOptions}
@@ -1256,6 +1284,7 @@ export function SessionUygulama({
       }
       header={
         <AppHeader
+          inspectorAvailable={page === "chat"}
           inspectorOpen={layout.inspectorOpen}
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
           onToggleInspector={layout.toggleInspector}
@@ -1265,24 +1294,28 @@ export function SessionUygulama({
           title={headerTitle}
         />
       }
-      inspector={page === "chat" || page === "settings" ? (
+      inspector={page === "chat" ? (
         <ProjectInspector
           activeTab={inspectorLayout.activeTab}
           client={active.client}
           collapsed={inspectorLayout.collapsed}
+          height={inspectorLayout.height}
           key={active.id}
           onActiveTabChange={inspectorLayout.setActiveTab}
           onCollapsedChange={inspectorLayout.setCollapsed}
+          onHeightChange={inspectorLayout.setHeight}
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
+          placement={inspectorPlacement}
           root={active.root}
           selectedPath={selectedPath}
           width={inspectorLayout.width}
         />
       ) : undefined}
       inspectorCollapsed={inspectorLayout.collapsed}
+      inspectorHeight={inspectorLayout.height}
       inspectorPlacement={inspectorPlacement}
-      inspectorOpen={(page === "chat" || page === "settings") && layout.inspectorOpen}
+      inspectorOpen={page === "chat" && layout.inspectorOpen}
       inspectorWidth={inspectorLayout.width}
       onInspectorClose={layout.closeInspector}
       sidebar={
@@ -1335,7 +1368,7 @@ export function SessionUygulama({
           onCikis={() => {
             // Çıkış sonrası pencere yeniden yüklenir: hesabın yapılandırması
             // ancak yeni bir çekirdek sürecinde bırakılabilir.
-            void account.cikis().then(() => window.location.reload());
+            void account.cikis().then((tamam) => { if (tamam) window.location.reload(); });
           }}
         />
       }

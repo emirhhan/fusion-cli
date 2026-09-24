@@ -7,6 +7,7 @@ import { AttachmentChip } from "./AttachmentChip";
 import { ModelPicker, type ModelOption } from "./ModelPicker";
 import { ContextGauge } from "./ContextGauge";
 import type { BaglamOlcusu } from "../protocol/types";
+import type { WorkspaceMode } from "../sessions/useSessions";
 
 /**
  * Maliyet rozetinin görünür metni. Ölçü yoksa ya da `$0` ise `null` —
@@ -64,6 +65,8 @@ export interface ComposerAttachment {
 }
 
 interface ComposerProps {
+  workspaceMode?: WorkspaceMode;
+  onWorkspaceModeChange?: (mode: WorkspaceMode) => void;
   /** Seçili izin modu. Sabit metin BASILMAZ: kullanıcı security'ye geçtiğinde
    *  görev kutusunun altı da değişmeli — eskiden hep "Otomatik" yazıyordu. */
   approval?: ApprovalMode;
@@ -107,6 +110,8 @@ interface ComposerProps {
 }
 
 export function Composer({
+  workspaceMode = "kod",
+  onWorkspaceModeChange,
   approval = "auto",
   attachments = [],
   attachmentError = null,
@@ -331,7 +336,7 @@ export function Composer({
           onClick={(event) => setCaret(event.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
-          placeholder="Fusion'a bir görev ver"
+          placeholder={workspaceMode === "sohbet" ? "İstediğin bir şeyi sor" : "Fusion'a bir görev ver"}
           ref={textareaRef}
           rows={1}
           value={draft}
@@ -341,7 +346,18 @@ export function Composer({
             <span>
               <Button aria-label="Dosya veya klasör ekle" icon="attach" iconOnly onClick={onAttach} />
             </span>
-            {onApprovalChange ? (
+            {onWorkspaceModeChange && (
+              <button
+                aria-label={`Çalışma kipi: ${workspaceMode === "sohbet" ? "Sohbet" : "Çalışma"}. Değiştirmek için tıkla.`}
+                className="composer__mode"
+                onClick={() => onWorkspaceModeChange(workspaceMode === "sohbet" ? "kod" : "sohbet")}
+                title={workspaceMode === "sohbet" ? "Gündelik sorular ve fikirler" : "Dosya, terminal ve araçlarla çalışma"}
+                type="button"
+              >
+                {workspaceMode === "sohbet" ? "Sohbet" : "Çalışma"}
+              </button>
+            )}
+            {workspaceMode === "sohbet" && onWorkspaceModeChange ? null : onApprovalChange ? (
               <button
                 aria-label={`İzin modu: ${APPROVAL_LABEL[approval]}. Değiştirmek için tıkla ya da Shift+Tab.`}
                 className="composer__approval"

@@ -26,11 +26,15 @@ import { ConnectorsScreen } from "../src/connectors/ConnectorsScreen";
 import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
+import { AccountScreen } from "../src/account/AccountScreen";
+import type { AccountController } from "../src/account/useAccount";
 
 const params = new URLSearchParams(location.search);
 const theme = (params.get("theme") ?? "light") as ThemePreference;
 const state = params.get("state") ?? "conversation";
 const inspectorOpen = params.get("inspector") !== "0";
+const inspectorPlacement = params.get("inspectorPlacement") === "bottom" ? "bottom" : "right";
+const inspectorHeight = Number(params.get("inspectorHeight") ?? 280);
 applyTheme(theme);
 
 const messages = [
@@ -197,6 +201,19 @@ const workspaceClient = {
   },
 } as unknown as ProtocolClient;
 
+const accountPreview = {
+  durum: { hesaplar: [{ kimlik: "preview", kullanici_adi: "Emirhan", eposta: "emirhan@example.com", avatar: "", olusturuldu: 0 }], etkin: "preview", kurulum_gerekli: false },
+  yukleniyor: false,
+  hata: null,
+  kayit: async () => null,
+  giris: async () => false,
+  cikis: async () => true,
+  kurtar: async () => false,
+  guncelle: async () => true,
+  sil: async () => false,
+  tazele: async () => undefined,
+} as AccountController;
+
 function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, terminalState = "active", width = 420 }) {
   const [selected, setSelected] = React.useState<string | null>(null);
   const [activeTab, setActiveTab] = React.useState<React.ComponentProps<typeof Inspector>["activeTab"]>(initialTab);
@@ -204,6 +221,8 @@ function WorkspaceInspector({ collapsed = false, initialTab = "files" as const, 
     <Inspector
       activeTab={activeTab}
       collapsed={collapsed}
+      height={inspectorHeight}
+      placement={inspectorPlacement}
       content={{
         files: <FileExplorer client={workspaceClient} onSelected={setSelected} root="/Projects/fusion-cli" />,
         changes: <ChangesPanel client={workspaceClient} revision={0} />,
@@ -270,6 +289,7 @@ function historyFixture(): HistoryController {
 }
 
 function Preview() {
+  const [previewMode, setPreviewMode] = React.useState<"sohbet" | "kod">(params.get("mode") === "chat" ? "sohbet" : "kod");
   const inspectorCollapsed = params.get("inspectorLayout") === "collapsed";
   const inspectorWidth = Number(params.get("inspectorWidth") ?? "420");
   const requestedInspectorTab = params.get("inspectorTab");
@@ -278,12 +298,13 @@ function Preview() {
     : state === "workspace-error" || state === "workspace-terminal" ? "terminal" : "files";
   const inspector = state.startsWith("workspace-")
     ? <WorkspaceInspector collapsed={inspectorCollapsed} initialTab={inspectorTab} terminalState={params.get("terminalState") ?? (state === "workspace-error" ? "closed" : "active")} width={inspectorWidth} />
-    : <Inspector collapsed={inspectorCollapsed} width={inspectorWidth} />;
+    : <Inspector collapsed={inspectorCollapsed} height={inspectorHeight} placement={inspectorPlacement} width={inspectorWidth} />;
   const capabilities = state === "capabilities";
   const control = state === "control";
   const connectors = state === "connectors";
   const onboarding = state === "onboarding";
   const settings = state === "settings";
+  const account = state === "account";
   const voice = state.startsWith("voice-");
   const voiceMini = params.get("voiceMode") === "mini";
   const composerValue = state === "composer-menu"
@@ -334,8 +355,10 @@ function Preview() {
     <>
       <Shell
         emptyChat={state === "empty"}
-        composer={capabilities || control || settings ? undefined : (
+        composer={capabilities || control || settings || account ? undefined : (
           <Composer
+            workspaceMode={previewMode}
+            onWorkspaceModeChange={setPreviewMode}
             approval="auto"
             attachments={state === "composer-attachment" ? composerAttachments : []}
             commands={composerCommands}
@@ -348,13 +371,15 @@ function Preview() {
           />
         )}
         content={<>
-          {settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState /> : <Conversation mesajlar={messages} running={false} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={messages} running={false} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
-        header={<AppHeader inspectorOpen={!capabilities && !control && !settings && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
-        inspector={capabilities || control || settings ? undefined : inspector}
+        header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}
+        inspector={capabilities || control || settings || account ? undefined : inspector}
         inspectorCollapsed={inspectorCollapsed}
-        inspectorOpen={!capabilities && !control && !settings && inspectorOpen}
+        inspectorHeight={inspectorHeight}
+        inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen}
+        inspectorPlacement={inspectorPlacement}
         inspectorWidth={inspectorWidth}
         sidebar={<Sidebar availableSources={["claude", "codex"]} etkin="1" onSec={() => undefined} onYeni={() => undefined} oturumlar={[{ session_id: "1", source: "fusion", title: "macOS uygulaması" }, { session_id: "2", source: "claude", title: "Fusion CLI testleri" }]} />}
       />

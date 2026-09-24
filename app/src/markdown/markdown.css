@@ -66,13 +66,15 @@
 /* Geniş tablo SAYFAYI değil kendi kutusunu kaydırır. */
 .markdown__table-scroll { margin: 0 0 var(--space-4); overflow-x: auto; }
 
-.markdown table { border-collapse: collapse; font-size: 0.94em; width: 100%; }
+.markdown table { border-collapse: collapse; font-size: 0.94em; min-width: 700px; width: 100%; }
 .markdown th,
 .markdown td {
   border: 1px solid var(--border-subtle);
   padding: var(--space-2) var(--space-3);
   text-align: start;
 }
+.markdown th:first-child,
+.markdown td:first-child { white-space: nowrap; }
 .markdown th { background: var(--surface-hover); font-weight: 600; }
 
 /* --- Kod kartı -------------------------------------------------------- */

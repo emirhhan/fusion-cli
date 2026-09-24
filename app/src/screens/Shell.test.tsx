@@ -76,6 +76,7 @@ describe("Shell", () => {
   });
 
   it("açık denetçiyi Escape ve örtü tıklamasıyla kapatır", () => {
+    setNarrowViewport(true);
     const onInspectorClose = vi.fn();
     render(
       <Shell
@@ -400,5 +401,18 @@ describe("Shell", () => {
     window.dispatchEvent(tab);
     expect(tab.defaultPrevented).toBe(false);
     expect(document.activeElement).toBe(workspace);
+  });
+
+  it("altta sabitlenen paneli dar ekranda modal yapmaz ve yüksekliği ayrı satıra taşır", () => {
+    setNarrowViewport(true);
+    const { container } = render(
+      <Shell content="Sohbet" inspector="Dosyalar" inspectorHeight={340} inspectorOpen inspectorPlacement="bottom" sidebar="Gezinme" />,
+    );
+    const shell = container.querySelector<HTMLElement>(".app-shell");
+    expect(shell?.getAttribute("data-inspector-placement")).toBe("bottom");
+    expect(shell?.style.getPropertyValue("--inspector-bottom-height")).toBe("min(60dvh, 340px)");
+    expect(screen.getByRole("complementary", { name: "Denetçi" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Denetçi" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Denetçiyi kapat" })).toBeNull();
   });
 });

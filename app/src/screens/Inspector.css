@@ -32,6 +32,25 @@
   background: var(--focus-ring);
 }
 
+.inspector[data-placement="bottom"] .inspector__resize-handle {
+  bottom: auto;
+  cursor: row-resize;
+  height: 10px;
+  left: 0;
+  right: 0;
+  top: -5px;
+  width: auto;
+}
+
+.inspector[data-placement="bottom"] .inspector__resize-handle::after {
+  bottom: auto;
+  height: 2px;
+  left: 0;
+  right: 0;
+  top: 4px;
+  width: auto;
+}
+
 .inspector__topbar {
   align-items: center;
   border-bottom: 1px solid var(--border-subtle);
@@ -170,6 +189,29 @@
 
 .inspector[data-collapsed="true"] .inspector__collapse svg {
   transform: none;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__topbar,
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs {
+  flex-direction: row;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs {
+  overflow: auto hidden;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__collapse {
+  margin: 0 var(--space-2);
+  order: 0;
+}
+
+.inspector[data-collapsed="true"][data-placement="bottom"] .inspector__tabs button[aria-selected="true"]::after {
+  bottom: -8px;
+  height: 2px;
+  left: var(--space-2);
+  right: var(--space-2);
+  top: auto;
+  width: auto;
 }
 
 .inspector__panel {

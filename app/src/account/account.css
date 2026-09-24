@@ -223,31 +223,37 @@
 
 /* --- Hesabım ekranı ---------------------------------------------------- */
 
-.account-screen { display: grid; gap: var(--space-4); padding: var(--space-6); }
+.account-screen { align-content: start; display: grid; gap: var(--space-4); min-height: 100%; overflow: auto; padding: var(--space-6); }
+.account-screen__toolbar { display: flex; justify-content: flex-end; width: 100%; }
+.account-screen__content { display: grid; gap: 12px; margin: 0 auto 56px; max-width: 720px; width: 100%; }
+.account-screen__hero { align-items: center; display: flex; flex-direction: column; padding: 24px 16px 34px; text-align: center; }
+.account-screen__hero-avatar .account-avatar__trigger { height: 88px; overflow: visible; width: 88px; }
+.account-screen__hero-avatar .account-avatar__image { height: 88px; width: 88px; }
+.account-screen__hero-avatar .account-avatar__badge { bottom: -17px; border-radius: 999px; font-size: 10px; padding: 3px 9px; }
+.account-screen__hero h2 { font-size: 28px; letter-spacing: -0.035em; margin: 22px 0 3px; }
+.account-screen__hero p { color: var(--text-secondary); margin: 0; }
+.account-screen__local { background: var(--surface-accent-subtle); border-radius: 999px; color: var(--text-secondary); font-size: 12px; margin-top: 14px; padding: 5px 12px; }
+.account-screen__stats { border-top: 1px solid var(--border-subtle); display: flex; gap: 56px; justify-content: center; margin: 28px 0 0; padding-top: 24px; width: 100%; }
+.account-screen__stats div { display: flex; flex-direction: column-reverse; gap: 3px; }
+.account-screen__stats dt { color: var(--text-secondary); font-size: 12px; }
+.account-screen__stats dd { font-size: 22px; font-weight: 650; margin: 0; }
+.account-screen__section { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: 14px; }
+.account-screen__section summary { cursor: pointer; font-size: 15px; font-weight: 600; list-style: none; padding: 18px 22px; }
+.account-screen__section summary::-webkit-details-marker { display: none; }
+.account-screen__section summary::after { color: var(--text-secondary); content: '⌄'; float: right; }
+.account-screen__section[open] summary { border-bottom: 1px solid var(--border-subtle); }
+.account-screen__section[open] summary::after { content: '⌃'; }
+.account-screen__section-body { display: grid; gap: var(--space-2); padding: 20px 22px 22px; }
+.account-screen__section-body h3 { font-size: 14px; margin: 0 0 8px; }
+.account-screen__section--danger summary { color: var(--text-danger); }
 
-.account-screen__card {
-  background: var(--surface-raised);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-5);
-}
-
-.account-screen__card h3 { font-size: 1rem; margin: 0 0 var(--space-2); }
-
-.account-screen__card--danger { border-color: color-mix(in srgb, var(--text-danger) 35%, transparent); }
-
-.account-screen__identity,
 .account-screen__list li {
   align-items: center;
   display: flex;
   gap: var(--space-3);
 }
 
-.account-screen__identity div,
 .account-screen__list div { display: grid; }
-.account-screen__identity small,
 .account-screen__list small { color: var(--text-secondary); font-size: var(--text-xs); }
 
 .account-screen__avatar {
@@ -267,9 +273,9 @@
 .account-screen__list { display: grid; gap: var(--space-3); list-style: none; margin: 0; padding: 0; }
 .account-screen__list li > :last-child { margin-inline-start: auto; }
 
-.account-screen__card label { color: var(--text-secondary); font-size: var(--text-xs); margin-top: var(--space-2); }
+.account-screen__section label { color: var(--text-secondary); font-size: var(--text-xs); margin-top: var(--space-2); }
 
-.account-screen__card input {
+.account-screen__section input {
   background: var(--surface-canvas);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
@@ -278,7 +284,8 @@
   padding: var(--space-2) var(--space-3);
 }
 
-.account-screen__card button { justify-self: start; margin-top: var(--space-3); }
+.account-screen__section button { justify-self: start; margin-top: var(--space-3); }
+@media (max-width: 640px) { .account-screen { padding: 16px; } .account-screen__stats { gap: 28px; } }
 
 /* --- Avatar seçici ------------------------------------------------------ */
 

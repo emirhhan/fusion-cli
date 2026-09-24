@@ -127,6 +127,20 @@ function fakeTransport(
 }
 
 describe("useSessions", () => {
+  it("yeni sohbeti konuşma kipinde, eski görevi kod kipinde başlatır", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+    let newId = "";
+    await act(async () => { newId = await result.current.create({ root: "/Projects/example" }); });
+    await act(async () => { await result.current.create({ id: "old-task", root: "/Projects/example" }); });
+    const starts = vi.mocked(fake.transport.send).mock.calls.map(([, line]) => JSON.parse(line))
+      .filter((request) => request.ad === "oturum.baslat");
+    expect(starts.find((request) => request.veri.sohbet_id === newId)?.veri.kip).toBe("sohbet");
+    expect(starts.find((request) => request.veri.sohbet_id === "old-task")?.veri.kip).toBe("kod");
+    expect(localStorage.getItem(`fusion.session-mode.${newId}`)).toBe("sohbet");
+  });
+
   it("açık sohbeti kapatıp hedef projede aynı kimlikle yeniden açar", async () => {
     const fake = fakeTransport();
     const { result } = renderHook(() => useSessions(fake.transport));

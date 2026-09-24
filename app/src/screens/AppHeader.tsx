@@ -2,6 +2,7 @@ import { Button } from "../ui/Button";
 import "./AppHeader.css";
 
 interface AppHeaderProps {
+  inspectorAvailable?: boolean;
   inspectorOpen: boolean;
   onToggleInspector: () => void;
   onToggleSidebar: () => void;
@@ -13,6 +14,7 @@ interface AppHeaderProps {
 }
 
 export function AppHeader({
+  inspectorAvailable = true,
   inspectorOpen,
   onToggleInspector,
   onToggleSidebar,
@@ -42,14 +44,14 @@ export function AppHeader({
         {/* Tema değiştirici başlıktan KALDIRILDI: tema bir tercihtir ve yeri
             Ayarlar'dır. Ana ekranda durması hem gereksiz yer kaplıyor hem
             günlük kullanımda yanlışlıkla değiştirilmesine yol açıyordu. */}
-        <Button
+        {inspectorAvailable && <Button
           aria-controls="fusion-inspector"
           aria-expanded={inspectorOpen}
           aria-label={inspectorOpen ? "Denetçiyi kapat" : "Denetçiyi aç"}
           icon="panel"
           iconOnly
           onClick={onToggleInspector}
-        />
+        />}
       </div>
     </div>
   );

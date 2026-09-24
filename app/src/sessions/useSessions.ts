@@ -27,6 +27,18 @@ const DEFAULT_SESSION_ID = "varsayilan";
 // sohbet listesinden tek tıkla açılır.
 const MAX_RESTORED_SESSIONS = 8;
 const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı.";
+export type WorkspaceMode = "sohbet" | "kod";
+
+export function storedWorkspaceMode(id: string): WorkspaceMode | null {
+  try {
+    const value = localStorage.getItem(`fusion.session-mode.${id}`);
+    return value === "sohbet" || value === "kod" ? value : null;
+  } catch { return null; }
+}
+
+export function saveWorkspaceMode(id: string, mode: WorkspaceMode): void {
+  try { localStorage.setItem(`fusion.session-mode.${id}`, mode); } catch { /* Private storage can be unavailable. */ }
+}
 
 export const tauriSessionTransport: SessionTransport = {
   create: (id, root) =>
@@ -141,7 +153,11 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // Sekme kimliği HER bağlanmada bildirilir. Ölçüldü (kullanıcının diski):
       // `resume` yolu kimliği hiç göndermiyordu, çekirdek de rastgele bir kimlik
       // üretiyordu; o konuşmalara bir daha ulaşılamıyordu.
-      const baslatildi = client.request("oturum.baslat", { sohbet_id: id }).catch(() => undefined);
+      // Yeni masaüstü sohbetleri konuşma kipinde açılır. Geri yüklenen eski
+      // görevler kod kipini korur; kullanıcı her sohbette kipi değiştirebilir.
+      const workspaceMode = storedWorkspaceMode(id) ?? input.mode ?? (input.id ? "kod" : "sohbet");
+      saveWorkspaceMode(id, workspaceMode);
+      const baslatildi = client.request("oturum.baslat", { sohbet_id: id, kip: workspaceMode }).catch(() => undefined);
       if (publish) {
         dispatch({
           type: "created",
@@ -258,7 +274,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       .slice(-MAX_RESTORED_SESSIONS);
     if (restorable.length === 0) {
       // Boş kayıt, son sohbetin silindiğini gösterir; eski sabit kimliği diriltme.
-      await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID });
+      await create(persistedView.current ? {} : { id: DEFAULT_SESSION_ID, mode: "sohbet" });
       return;
     }
     for (const session of restorable) {
@@ -557,6 +573,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         const result = await client.request("sohbet.sil", { sohbet_id: id, kok: root });
         if (result.ok !== true) throw new Error(String(result.metin ?? "Sohbet silinemedi."));
         deletedIds.current.add(id);
+        try { localStorage.removeItem(`fusion.session-mode.${id}`); } catch { /* Storage is optional. */ }
         setStored((rows) => rows.filter((item) => item.id !== id));
         dispatch({ type: "removed", id });
         // Diskte silme tamamlandı; çökmüş sürecin kapanma hatası bunu geri alamaz.

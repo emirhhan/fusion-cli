@@ -28,7 +28,7 @@ function denetleyici(hesaplar: Hesap[], ekle: Partial<AccountController> = {}): 
     hata: null,
     kayit: vi.fn(async () => null),
     giris: vi.fn(async () => false),
-    cikis: vi.fn(async () => undefined),
+    cikis: vi.fn(async () => true),
     kurtar: vi.fn(async () => false),
     guncelle: vi.fn(async () => true),
     sil: vi.fn(async () => false),
@@ -41,9 +41,10 @@ describe("AccountScreen", () => {
   test("etkin hesabın bilgilerini gösterir", () => {
     render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
 
-    // Ad hem profil başlığında hem silme onayında geçer; ikisi de beklenen.
+    // Profil özeti açık, düzenleme formu isteğe bağlıdır.
     expect(screen.getAllByText("emirhan").length).toBeGreaterThan(0);
     expect(screen.getByText("e@ornek.com")).toBeTruthy();
+    fireEvent.click(screen.getByText("Profili düzenle"));
     expect(screen.getByLabelText("Kullanıcı adı")).toHaveProperty("value", "emirhan");
   });
 
@@ -51,21 +52,33 @@ describe("AccountScreen", () => {
     const guncelle = vi.fn(async () => true);
     render(<AccountScreen account={denetleyici([EMIRHAN], { guncelle })} onClose={vi.fn()} />);
 
+    fireEvent.click(screen.getByText("Profili düzenle"));
     fireEvent.change(screen.getByLabelText("Kullanıcı adı"), { target: { value: "emir" } });
     fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
 
     expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ kullanici_adi: "emir" }));
   });
 
+  test("avatar seçimi düzenleme bölümü kapalıyken de kaydedilir", async () => {
+    const guncelle = vi.fn(async () => true);
+    render(<AccountScreen account={denetleyici([EMIRHAN], { guncelle })} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
+    expect(guncelle).toHaveBeenCalledWith(expect.objectContaining({ avatar: "🚀" }));
+  });
+
   test("tek hesap varken değiştirilecek hesap olmadığı söylenir", () => {
     render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
 
+    fireEvent.click(screen.getByText("Hesap yönetimi"));
     expect(screen.getByText(/başka hesap yok/i)).toBeTruthy();
   });
 
   test("diğer hesaplar listelenir", () => {
     render(<AccountScreen account={denetleyici([EMIRHAN, IKINCI])} onClose={vi.fn()} />);
 
+    fireEvent.click(screen.getByText("Hesap yönetimi"));
     expect(screen.getByText("ikinci")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Bu hesaba geç" })).toBeTruthy();
   });
@@ -76,6 +89,7 @@ describe("AccountScreen", () => {
     const sil = vi.fn(async () => true);
     render(<AccountScreen account={denetleyici([EMIRHAN], { sil })} onClose={vi.fn()} />);
 
+    fireEvent.click(screen.getByText("Hesabı sil"));
     const dugme = screen.getByRole("button", { name: /kalıcı olarak sil/i });
     expect(dugme.hasAttribute("disabled")).toBe(true);
 
@@ -89,6 +103,7 @@ describe("AccountScreen", () => {
   test("silmenin neyi götürdüğünü açıkça yazar", () => {
     render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
 
+    fireEvent.click(screen.getByText("Hesabı sil"));
     expect(screen.getByText(/kalıcı olarak silinir/i)).toBeTruthy();
     expect(screen.getByText(/geri alınamaz/i)).toBeTruthy();
   });

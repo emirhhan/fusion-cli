@@ -57,6 +57,7 @@ interface ShellProps {
   header?: ReactNode;
   inspector?: ReactNode;
   inspectorCollapsed?: boolean;
+  inspectorHeight?: number;
   inspectorOpen?: boolean;
   inspectorWidth?: number;
   onInspectorClose?: () => void;
@@ -74,6 +75,7 @@ export function Shell({
   header,
   inspector,
   inspectorCollapsed = false,
+  inspectorHeight = 280,
   inspectorOpen = Boolean(inspector),
   inspectorWidth = 420,
   onInspectorClose,
@@ -87,7 +89,7 @@ export function Shell({
   const previousFocus = useRef<HTMLElement | null>(null);
   const inspectorOverlay = useMediaQuery(inspectorOverlayQuery);
   const sidebarOverlay = useMediaQuery("(max-width: 620px)");
-  const inspectorModal = inspectorOpen && inspectorOverlay && !inspectorCollapsed;
+  const inspectorModal = inspectorOpen && inspectorPlacement === "right" && inspectorOverlay && !inspectorCollapsed;
   const sidebarModal = sidebarOverlay && !sidebarCollapsed && !inspectorModal;
   const inspectorTrackWidth = inspectorCollapsed ? 56 : inspectorWidth;
   const restorePreviousFocus = useCallback(() => {
@@ -183,7 +185,10 @@ export function Shell({
       data-inspector-placement={inspectorPlacement}
       data-sidebar-collapsed={sidebarCollapsed}
       data-empty-chat={emptyChat}
-      style={{ "--inspector-width": `${inspectorTrackWidth}px` } as CSSProperties}
+      style={{
+        "--inspector-width": `${inspectorTrackWidth}px`,
+        "--inspector-bottom-height": inspectorCollapsed ? "56px" : `min(60dvh, ${inspectorHeight}px)`,
+      } as CSSProperties}
     >
       <aside aria-label="Ana navigasyon" className="app-shell__sidebar" id="fusion-sidebar" role="navigation">
         {sidebar}
@@ -217,7 +222,7 @@ export function Shell({
           {inspector}
         </aside>
       )}
-      {inspector && inspectorOpen && !inspectorCollapsed && (
+      {inspector && inspectorModal && (
         <button
           aria-label="Denetçiyi kapat"
           className="app-shell__backdrop"

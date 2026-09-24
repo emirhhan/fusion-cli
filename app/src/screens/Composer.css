@@ -52,6 +52,18 @@
   gap: var(--space-1);
 }
 
+.composer__mode {
+  background: var(--surface-hover);
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  padding: 6px 10px;
+}
+.composer__mode:hover { background: var(--surface-selected); }
+.composer__mode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
 .composer__agent,
 .composer__hint {
   color: var(--text-secondary);
@@ -65,7 +77,7 @@
   box-shadow: none;
   display: grid;
   gap: 6px;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto auto;
   min-height: 54px;
   padding: 5px 8px;
 }
@@ -78,8 +90,9 @@
 .app-shell__welcome .composer__toolbar,
 .app-shell__welcome .composer__tools { display: contents; }
 .app-shell__welcome .composer__tools > span { grid-column: 1; grid-row: 1; }
-.app-shell__welcome .composer__approval { grid-column: 3; grid-row: 1; }
-.app-shell__welcome .composer__actions { grid-column: 4; grid-row: 1; }
+.app-shell__welcome .composer__mode { grid-column: 3; grid-row: 1; }
+.app-shell__welcome .composer__approval { grid-column: 4; grid-row: 1; }
+.app-shell__welcome .composer__actions { grid-column: 5; grid-row: 1; }
 .app-shell__welcome .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
 .app-shell__welcome .composer__voice { border: 0; height: 32px; width: 32px; }
 .app-shell__welcome .composer__voice--conversation {

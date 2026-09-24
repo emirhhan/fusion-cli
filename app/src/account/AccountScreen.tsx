@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { ProtocolClient } from "../protocol/client";
 import { Button } from "../ui/Button";
 import { PageHeader } from "../ui/PageHeader";
 import { AvatarPicker, AvatarView } from "./AvatarPicker";
@@ -16,10 +17,12 @@ import "./account.css";
 
 export function AccountScreen({
   account,
+  client,
   onClose,
   onPickAvatarFile,
 }: {
   account: AccountController;
+  client?: ProtocolClient;
   onClose: () => void;
   /** Dosya seçtirip hesabın dizinine kopyalar; kaydedilen yolu döndürür. */
   onPickAvatarFile?: () => Promise<string | null>;
@@ -29,6 +32,23 @@ export function AccountScreen({
   const [taslak, setTaslak] = useState<Hesap | null>(etkin);
   const [silOnayi, setSilOnayi] = useState("");
   const [bilgi, setBilgi] = useState<string | null>(null);
+  const [usage, setUsage] = useState<{ cagri: number; toplam_token: number } | null>(null);
+
+  useEffect(() => {
+    setTaslak(etkin);
+  // Reset the edit draft when the active account changes, not during each keystroke.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [etkin?.kimlik]);
+
+  useEffect(() => {
+    if (!client) return;
+    let alive = true;
+    void client.request("kullanim.durum", {}).then((value) => {
+      const result = value as { ok?: boolean; kullanim?: { cagri: number; toplam_token: number } };
+      if (alive && result.ok && result.kullanim) setUsage(result.kullanim);
+    }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [client]);
 
   if (!durum || !etkin || !taslak) {
     return (
@@ -47,31 +67,45 @@ export function AccountScreen({
 
   return (
     <main className="account-screen">
-      <PageHeader
-        actions={<Button onClick={onClose} variant="secondary">Kapat</Button>}
-        description="Hesabın yalnız bu bilgisayarda tutulur; hiçbir bilgi sunucuya gitmez."
-        eyebrow="Hesap"
-        title="Hesabım"
-      />
+      <div className="account-screen__toolbar">
+        <Button onClick={onClose} variant="secondary">Kapat</Button>
+      </div>
 
       {account.hata && <p className="account__error" role="alert">{account.hata}</p>}
       {bilgi && <p className="account__notice" role="status">{bilgi}</p>}
 
-      <section className="account-screen__card">
-        <h3>Profil</h3>
-        <div className="account-screen__identity">
+      <div className="account-screen__content">
+      <section className="account-screen__hero" aria-label="Profil">
+        <div className="account-screen__hero-avatar">
           {/* Avatar TIKLANABİLİR: seçim burada yapılır, kayıt formunda değil. */}
           <AvatarPicker
             avatar={taslak.avatar}
             kullaniciAdi={taslak.kullanici_adi}
-            onSelect={(avatar) => setTaslak({ ...taslak, avatar })}
+            onSelect={(avatar) => {
+              const previousAvatar = taslak.avatar;
+              setTaslak({ ...taslak, avatar });
+              void account.guncelle({ ...etkin, avatar }).then((tamam) => {
+                if (tamam) setBilgi("Avatar güncellendi.");
+                else setTaslak((current) => current ? { ...current, avatar: previousAvatar } : current);
+              });
+            }}
             onUpload={onPickAvatarFile ?? (async () => null)}
           />
-          <div>
-            <strong>{etkin.kullanici_adi}</strong>
-            <small>{etkin.eposta}</small>
-          </div>
         </div>
+        <h2>{etkin.kullanici_adi}</h2>
+        <p>{etkin.eposta}</p>
+        <span className="account-screen__local">Bu bilgisayardaki hesap</span>
+        {usage && (
+          <dl className="account-screen__stats" aria-label="Bu oturumdaki kullanım">
+            <div><dt>Model çağrısı</dt><dd>{usage.cagri.toLocaleString("tr-TR")}</dd></div>
+            <div><dt>Token</dt><dd>{usage.toplam_token.toLocaleString("tr-TR")}</dd></div>
+          </dl>
+        )}
+      </section>
+
+      <details className="account-screen__section">
+        <summary>Profili düzenle</summary>
+        <div className="account-screen__section-body">
         <label htmlFor="hesap-duzenle-ad">Kullanıcı adı</label>
         <input
           id="hesap-duzenle-ad"
@@ -95,9 +129,12 @@ export function AccountScreen({
         >
           Kaydet
         </Button>
-      </section>
+        </div>
+      </details>
 
-      <section className="account-screen__card">
+      <details className="account-screen__section">
+        <summary>Hesap yönetimi</summary>
+        <div className="account-screen__section-body">
         <h3>Hesap değiştir</h3>
         {digerHesaplar.length === 0 ? (
           <p className="account__hint">
@@ -117,7 +154,7 @@ export function AccountScreen({
                 {/* Geçiş çıkıştan geçer: her hesabın kendi yapılandırması var ve
                     o ancak yeni bir çekirdek sürecinde okunur. */}
                 <Button
-                  onClick={() => void account.cikis().then(() => window.location.reload())}
+                  onClick={() => void account.cikis().then((tamam) => { if (tamam) window.location.reload(); })}
                   variant="secondary"
                 >
                   Bu hesaba geç
@@ -126,10 +163,12 @@ export function AccountScreen({
             ))}
           </ul>
         )}
-      </section>
+        </div>
+      </details>
 
-      <section className="account-screen__card account-screen__card--danger">
-        <h3>Hesabı sil</h3>
+      <details className="account-screen__section account-screen__section--danger">
+        <summary>Hesabı sil</summary>
+        <div className="account-screen__section-body">
         <p className="account__hint">
           Hesap ve ona ait ayarlar (sağlayıcı oturumları, MCP bağlantıları, model
           tercihleri) kalıcı olarak silinir. Geri alınamaz.
@@ -153,7 +192,9 @@ export function AccountScreen({
         >
           Hesabı kalıcı olarak sil
         </Button>
-      </section>
+        </div>
+      </details>
+      </div>
     </main>
   );
 }

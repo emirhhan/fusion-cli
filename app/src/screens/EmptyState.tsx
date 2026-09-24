@@ -1,10 +1,16 @@
 import "./EmptyState.css";
 import { FusionAvatar, type AvatarState } from "../voice/FusionAvatar";
+import type { WorkspaceMode } from "../sessions/useSessions";
 
-const suggestions = [
+const workSuggestions = [
   "Yeni bir web projesi oluştur",
   "Bu projeyi incele ve eksikleri açıkla",
   "Claude veya Codex sohbetini sürdür",
+];
+const chatSuggestions = [
+  "Bugünümü daha iyi planlamama yardım et",
+  "Bir fikri birlikte geliştirelim",
+  "Kısa ve anlaşılır bir açıklama yap",
 ];
 
 /**
@@ -17,10 +23,12 @@ const suggestions = [
 export function EmptyState({
   durum = "idle",
   projectName,
+  workspaceMode = "kod",
   onSelectPrompt = () => undefined,
 }: {
   durum?: AvatarState;
   projectName?: string;
+  workspaceMode?: WorkspaceMode;
   onSelectPrompt?: (prompt: string) => void;
 }) {
   return (
@@ -29,10 +37,10 @@ export function EmptyState({
         <div className="empty-state__character empty-state__character--uncropped">
           <FusionAvatar scale={1.35} state={durum} />
         </div>
-        <h2>{projectName ? `${projectName} içinde ne üzerinde çalışıyoruz?` : "Bugün ne üzerinde çalışıyoruz?"}</h2>
-        <p>Bir proje üret, mevcut kodu geliştir veya kaldığın konuşmayı sürdür.</p>
+        <h2>{workspaceMode === "sohbet" ? "Nasıl yardımcı olabilirim?" : projectName ? `${projectName} içinde ne üzerinde çalışıyoruz?` : "Bugün ne üzerinde çalışıyoruz?"}</h2>
+        <p>{workspaceMode === "sohbet" ? "Aklındaki soruyu sor veya bir fikirle başla." : "Bir proje üret, mevcut kodu geliştir veya kaldığın konuşmayı sürdür."}</p>
         <div aria-label="Başlangıç önerileri" className="empty-state__suggestions">
-          {suggestions.map((suggestion) => (
+          {(workspaceMode === "sohbet" ? chatSuggestions : workSuggestions).map((suggestion) => (
             <button key={suggestion} onClick={() => onSelectPrompt(suggestion)} type="button">
               {suggestion}
             </button>

@@ -55,6 +55,14 @@ describe("Composer", () => {
     expect(screen.queryByRole("button", { name: "Kod" })).toBeNull();
   });
 
+  it("sohbet kipi seçildiğinde gündelik soru dili ve çalışma geçişini gösterir", () => {
+    const onWorkspaceModeChange = vi.fn();
+    render(<Composer onSend={vi.fn()} onWorkspaceModeChange={onWorkspaceModeChange} workspaceMode="sohbet" />);
+    expect(screen.getByRole("textbox", { name: "Mesaj" }).getAttribute("placeholder")).toBe("İstediğin bir şeyi sor");
+    fireEvent.click(screen.getByRole("button", { name: /Çalışma kipi: Sohbet/ }));
+    expect(onWorkspaceModeChange).toHaveBeenCalledWith("kod");
+  });
+
   it("Shift+Enter ile yeni satıra izin verir", () => {
     const onSend = vi.fn();
     render(<Composer onSend={onSend} />);

@@ -54,6 +54,20 @@ describe("Inspector", () => {
     fireEvent.pointerUp(window);
   });
 
+  it("alttaki panelin yüksekliğini yukarı/aşağı tuşları ve sürüklemeyle ayarlar", () => {
+    const onHeightChange = vi.fn();
+    render(<Inspector height={280} onHeightChange={onHeightChange} placement="bottom" />);
+    const separator = screen.getByRole("separator", { name: "Çalışma panelini yeniden boyutlandır" });
+    expect(separator.getAttribute("aria-orientation")).toBe("horizontal");
+    expect(separator.getAttribute("aria-valuenow")).toBe("280");
+    fireEvent.keyDown(separator, { key: "ArrowUp" });
+    expect(onHeightChange).toHaveBeenLastCalledWith(296);
+    fireEvent.pointerDown(separator, { button: 0, clientY: 500 });
+    fireEvent.pointerMove(window, { clientY: 450 });
+    expect(onHeightChange).toHaveBeenLastCalledWith(330);
+    fireEvent.pointerUp(window);
+  });
+
   it("sürükleme dinleyicilerini unmount sırasında temizler", () => {
     const onWidthChange = vi.fn();
     const view = render(<Inspector onWidthChange={onWidthChange} width={420} />);

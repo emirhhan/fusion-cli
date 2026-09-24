@@ -9,7 +9,7 @@
 
 .conversation__stream {
   margin: 0 auto;
-  width: min(800px, calc(100% - 48px));
+  width: min(var(--icerik-en-fazla), calc(100% - 48px));
 }
 
 .conversation__message {

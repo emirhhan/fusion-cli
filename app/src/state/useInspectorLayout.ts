@@ -6,24 +6,34 @@ export const INSPECTOR_MIN_WIDTH = 320;
 export const INSPECTOR_MAX_WIDTH = 680;
 export const INSPECTOR_DEFAULT_WIDTH = 420;
 export const INSPECTOR_COLLAPSED_WIDTH = 56;
+export const INSPECTOR_MIN_HEIGHT = 160;
+export const INSPECTOR_MAX_HEIGHT = 620;
+export const INSPECTOR_DEFAULT_HEIGHT = 280;
 
 const inspectorTabs = new Set<InspectorTabId>(["files", "changes", "terminal", "preview"]);
 
 interface InspectorLayoutState {
   activeTab: InspectorTabId;
   collapsed: boolean;
+  height: number;
   width: number;
 }
 
 const defaults: InspectorLayoutState = {
   activeTab: "files",
   collapsed: false,
+  height: INSPECTOR_DEFAULT_HEIGHT,
   width: INSPECTOR_DEFAULT_WIDTH,
 };
 
 export function clampInspectorWidth(value: number): number {
   if (!Number.isFinite(value)) return INSPECTOR_DEFAULT_WIDTH;
   return Math.min(INSPECTOR_MAX_WIDTH, Math.max(INSPECTOR_MIN_WIDTH, Math.round(value)));
+}
+
+export function clampInspectorHeight(value: number): number {
+  if (!Number.isFinite(value)) return INSPECTOR_DEFAULT_HEIGHT;
+  return Math.min(INSPECTOR_MAX_HEIGHT, Math.max(INSPECTOR_MIN_HEIGHT, Math.round(value)));
 }
 
 function readInspectorLayout(): InspectorLayoutState {
@@ -36,6 +46,7 @@ function readInspectorLayout(): InspectorLayoutState {
         ? parsed?.activeTab as InspectorTabId
         : defaults.activeTab,
       collapsed: typeof parsed?.collapsed === "boolean" ? parsed.collapsed : defaults.collapsed,
+      height: clampInspectorHeight(typeof parsed?.height === "number" ? parsed.height : defaults.height),
       width: clampInspectorWidth(typeof parsed?.width === "number" ? parsed.width : defaults.width),
     };
   } catch {
@@ -64,11 +75,16 @@ export function useInspectorLayout() {
     const next = clampInspectorWidth(width);
     setLayout((current) => current.width === next ? current : { ...current, width: next });
   }, []);
+  const setHeight = useCallback((height: number) => {
+    const next = clampInspectorHeight(height);
+    setLayout((current) => current.height === next ? current : { ...current, height: next });
+  }, []);
 
   return {
     ...layout,
     setActiveTab,
     setCollapsed,
+    setHeight,
     setWidth,
   };
 }

@@ -61,6 +61,7 @@ export interface SessionModel {
 }
 
 export interface NewSession {
+  mode?: "sohbet" | "kod";
   updatedAt?: number;
   id?: string;
   title?: string;

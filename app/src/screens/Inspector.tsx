@@ -7,9 +7,13 @@ import {
   type ReactNode,
 } from "react";
 import {
+  clampInspectorHeight,
   clampInspectorWidth,
+  INSPECTOR_DEFAULT_HEIGHT,
   INSPECTOR_DEFAULT_WIDTH,
+  INSPECTOR_MAX_HEIGHT,
   INSPECTOR_MAX_WIDTH,
+  INSPECTOR_MIN_HEIGHT,
   INSPECTOR_MIN_WIDTH,
 } from "../state/useInspectorLayout";
 import type { IconName } from "../ui/Icon";
@@ -40,9 +44,12 @@ interface InspectorProps {
   collapsed?: boolean;
   content?: Partial<Record<InspectorTabId, ReactNode>>;
   errorMessage?: string;
+  height?: number;
   onActiveTabChange?: (tab: InspectorTabId) => void;
   onCollapsedChange?: (collapsed: boolean) => void;
+  onHeightChange?: (height: number) => void;
   onWidthChange?: (width: number) => void;
+  placement?: "right" | "bottom";
   status?: InspectorStatus;
   width?: number;
 }
@@ -52,9 +59,12 @@ export function Inspector({
   collapsed = false,
   content = {},
   errorMessage = "Denetçi yüklenemedi",
+  height = INSPECTOR_DEFAULT_HEIGHT,
   onActiveTabChange,
   onCollapsedChange,
+  onHeightChange,
   onWidthChange,
+  placement = "right",
   status = "ready",
   width = INSPECTOR_DEFAULT_WIDTH,
 }: InspectorProps) {
@@ -93,24 +103,36 @@ export function Inspector({
   };
   const active = tabs[activeIndex];
   const safeWidth = clampInspectorWidth(width);
+  const safeHeight = clampInspectorHeight(height);
   const onResizeKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     let next: number | null = null;
-    if (event.key === "ArrowLeft") next = safeWidth - 16;
-    else if (event.key === "ArrowRight") next = safeWidth + 16;
-    else if (event.key === "Home") next = INSPECTOR_MIN_WIDTH;
-    else if (event.key === "End") next = INSPECTOR_MAX_WIDTH;
+    if (placement === "bottom") {
+      if (event.key === "ArrowDown") next = safeHeight - 16;
+      else if (event.key === "ArrowUp") next = safeHeight + 16;
+      else if (event.key === "Home") next = INSPECTOR_MIN_HEIGHT;
+      else if (event.key === "End") next = INSPECTOR_MAX_HEIGHT;
+    } else {
+      if (event.key === "ArrowLeft") next = safeWidth - 16;
+      else if (event.key === "ArrowRight") next = safeWidth + 16;
+      else if (event.key === "Home") next = INSPECTOR_MIN_WIDTH;
+      else if (event.key === "End") next = INSPECTOR_MAX_WIDTH;
+    }
     if (next === null) return;
     event.preventDefault();
-    onWidthChange?.(clampInspectorWidth(next));
+    if (placement === "bottom") onHeightChange?.(clampInspectorHeight(next));
+    else onWidthChange?.(clampInspectorWidth(next));
   };
   const onResizePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!onWidthChange || event.button !== 0) return;
+    if (!(placement === "bottom" ? onHeightChange : onWidthChange) || event.button !== 0) return;
     event.preventDefault();
     resizeCleanup.current();
     const startX = event.clientX;
+    const startY = event.clientY;
     const startWidth = safeWidth;
+    const startHeight = safeHeight;
     const move = (nextEvent: PointerEvent) => {
-      onWidthChange(clampInspectorWidth(startWidth + startX - nextEvent.clientX));
+      if (placement === "bottom") onHeightChange?.(clampInspectorHeight(startHeight + startY - nextEvent.clientY));
+      else onWidthChange?.(clampInspectorWidth(startWidth + startX - nextEvent.clientX));
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -125,14 +147,14 @@ export function Inspector({
   };
 
   return (
-    <div className="inspector" data-collapsed={collapsed}>
+    <div className="inspector" data-collapsed={collapsed} data-placement={placement}>
       {!collapsed && (
         <div
           aria-label="Çalışma panelini yeniden boyutlandır"
-          aria-orientation="vertical"
-          aria-valuemax={INSPECTOR_MAX_WIDTH}
-          aria-valuemin={INSPECTOR_MIN_WIDTH}
-          aria-valuenow={safeWidth}
+          aria-orientation={placement === "bottom" ? "horizontal" : "vertical"}
+          aria-valuemax={placement === "bottom" ? INSPECTOR_MAX_HEIGHT : INSPECTOR_MAX_WIDTH}
+          aria-valuemin={placement === "bottom" ? INSPECTOR_MIN_HEIGHT : INSPECTOR_MIN_WIDTH}
+          aria-valuenow={placement === "bottom" ? safeHeight : safeWidth}
           className="inspector__resize-handle"
           onKeyDown={onResizeKeyDown}
           onPointerDown={onResizePointerDown}

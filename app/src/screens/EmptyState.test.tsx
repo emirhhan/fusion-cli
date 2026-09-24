@@ -26,6 +26,12 @@ describe("EmptyState", () => {
     expect(onSelectPrompt).toHaveBeenCalledWith("Yeni bir web projesi oluştur");
   });
 
+  it("sohbet kipinde gündelik sorulara uygun karşılama gösterir", () => {
+    render(<EmptyState projectName="Desktop" workspaceMode="sohbet" />);
+    expect(screen.getByRole("heading", { name: "Nasıl yardımcı olabilirim?" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bugünümü daha iyi planlamama yardım et" })).toBeTruthy();
+  });
+
   it("yüksek çözünürlüklü karakteri kırpmayan kapsayıcıda gösterir", () => {
     render(<EmptyState />);
     expect(
