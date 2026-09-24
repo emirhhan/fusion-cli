@@ -339,10 +339,10 @@ vision:
 
 # Öğretmen — `ask_teacher` aracının danıştığı web oturumu (Faz 4, 22 Eylül).
 #
-# Görme gibi OPSİYONELDİR ve BURADA VARSAYILAN YOK: hangi web sağlayıcısının
-# kullanılacağı kullanıcının KENDİ girişine bağlıdır (`web_sessions`), paket
-# adına bir hesap varsayamaz. Tanımsızsa `ask_teacher` aracı modele hiç
-# sunulmaz. Kullanıcı kendi `config.yaml`'ında örnek:
+# Görme gibi OPSİYONELDİR ve BURADA VARSAYILAN YOK. Açık `teacher:` seçimi
+# yapılmamışsa giriş doğrulanmış ChatGPT/Gemini web oturumu otomatik seçilir;
+# seçilmiş modeli olan oturum önceliklidir. Hiçbiri yoksa `ask_teacher` sunulmaz.
+# Kullanıcı belirli bir oturumu kendi `config.yaml`'ında seçebilir:
 #
 # teacher:
 #   name: ogretmen
@@ -408,8 +408,10 @@ embedding:
 # Bu yüzden her kademenin agent rolü NIM'den başlar; OpenRouter modelleri YEDEKTİR
 # ve yalnızca NIM anahtarı olmayan kullanıcıda ya da NIM arızasında devreye girer.
 #
-# MODELLER YOKLANARAK SEÇİLDİ (2026-07-26, canlı NIM uçları, gerçek çağrı).
-# Katalogda listelenmek çalışmak DEĞİLDİR; ölçüm bunu açıkça gösterdi:
+# MODELLER YOKLANARAK SEÇİLDİ. 2026-09-24'te bu hesapta canlı NIM
+# kataloğunda 82 kayıt vardı; bunların bir bölümü chat dışı ya da 404 dönüyor.
+# Yüksek kademedeki GLM 5.3 ailesi, Nemotron Lightning ve Mistral Nemotron
+# gerçek araç çağrısıyla doğrulandı. Katalogda listelenmek çalışmak DEĞİLDİR:
 #   qwen3.5-397b, kimi-k2.6, mistral-large-2, nemotron-nano-3-30b → NotFound
 #   deepseek-v4-pro, mistral-medium-3.5 → zaman aşımı
 #   llama-3.3-70b → ServiceUnavailable
@@ -417,14 +419,10 @@ embedding:
 # Aşağıdakilerin hepsi gerçek bir çağrıyla doğrulandı; parantezdeki süre ölçümdür.
 #
 #   low     nemotron-3-super-120b-a12b  (0.5s)  120B/12B — paketin varsayılanı
-#   medium  deepseek-v4.1-flash         (6.4s)  2026-09-22'de gpt-oss-120b'nin
-#                                                (410 Gone, EOL) yerine canlı
-#                                                ölçüldü — high'la aynı vendor,
-#                                                bu hesapta çalışan TEK NIM
-#                                                alternatifiydi (bkz. `tiers:`)
-#   high    deepseek-v4-flash           (6.5s)  kodlamada güçlü aile
+#   medium  deepseek-v4.1-flash         2026-09-22'de canlı ölçüldü
+#   high    glm-5.3-flash              2026-09-24'te araç çağrısı doğru
 #   ultra   nemotron-3-ultra-550b-a55b  (5.8s)  550B/55B
-#   premium glm-5.2                     (38s)   1M bağlam — havuzun en yetenekli modeli
+#   premium glm-5.3                    2026-09-24'te araç çağrısı doğru
 #
 # `premium` bilinçli olarak YAVAŞTIR ve etiketi bunu söyler: en yetenekli model
 # aynı zamanda en hızlısı değildir ve kullanıcı bu takası bilerek yapmalıdır.
@@ -466,6 +464,10 @@ tiers:
         model: nvidia_nim/poolside/laguna-xs-2.1
         tags: [code, agent]
         fallback: [openrouter/poolside/laguna-xs-2.1:free]
+      - name: nemotron-lightning
+        model: nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b
+        tags: [general, agent]
+        fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: medium
     # 2026-09-22 DÜZELTME: bu kademenin tüm kimliği `gpt-oss-120b`'ydi — hem NIM
@@ -478,15 +480,10 @@ tiers:
     # `NIM omurga` kısıtı (bkz. `tiers:` üstündeki yorum, `/provider nvidia`
     # yedeği zorunluluğu) yüzünden OpenRouter-öncelikli bir birincil KABUL
     # EDİLEMEZ — `test_kademelerin_omurgasi_nim_modelleridir` bunu zorunlu kılar.
-    # Bu hesapta gerçekten çalışan TEK farklı NIM modeli `deepseek-v4.1-flash`
-    # oldu (gerçek `run_agent` turu, gerçek araç çağrısı — glob + run_shell,
-    # `wc -l` sonucu doğru: 4.1s / 5.4s / 9.5s). DÜRÜSTLÜK NOTU: bu, `high`
-    # kademesindeki `deepseek-v4-flash` ile AYNI vendor'ın farklı bir sürümü —
-    # mimari olarak tam bağımsız bir "aile" değil, ama bu hesapta doğrulanmış
-    # tek NIM alternatifi budur. `qwen3.8-27b` (OpenRouter, canlı ölçüldü:
-    # basit çağrı 3.9s, araç çağrısı 5.3s, ikisi de doğru) gerçekten farklı
-    # aile olarak yedekte kalıyor.
-    label: DeepSeek V4.1 Flash — NIM'de doğrulanan tek alternatif (~6.4s)
+    # 2026-09-24'te Mistral Nemotron basit araç sondasını geçti ama izole GATE
+    # görevinin ilk yanıtı 261 sn sürdü ve hiç araç çağırmadan bitti; bu yüzden
+    # uzun kod görevleri için otomatik aday havuzuna eklenmedi.
+    label: DeepSeek V4.1 Flash — NIM orta kademe
     agent:
       name: deepseek-v4.1-flash
       model: nvidia_nim/deepseek-ai/deepseek-v4.1-flash
@@ -518,15 +515,16 @@ tiers:
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: high
-    label: DeepSeek V4 Flash — kodlamada güçlü aile (~6s)
+    label: GLM 5.3 Flash — güncel NIM modeli
     agent:
-      name: deepseek-v4-flash
-      model: nvidia_nim/deepseek-ai/deepseek-v4-flash
+      name: glm-5.3-flash
+      model: nvidia_nim/z-ai/glm-5.3-flash
       tags: [code, agent, reasoning]
       fallback:
-        - nvidia_nim/poolside/laguna-xs-2.1
-        - openrouter/poolside/laguna-s-2.1:free
-        - openrouter/poolside/laguna-xs-2.1:free
+        - nvidia_nim/z-ai/glm-5.3
+        - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
+        - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
+        - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
       # Zincirde HER sağlayıcıdan İKİ model var: NIM'in hız sınırı model başınadır
@@ -540,14 +538,14 @@ tiers:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: deepseek-v4-flash
-        model: nvidia_nim/deepseek-ai/deepseek-v4-flash
+      - name: glm-5.3-flash
+        model: nvidia_nim/z-ai/glm-5.3-flash
         tags: [code, agent]
-        fallback: [openrouter/poolside/laguna-s-2.1:free]
-      - name: laguna-xs
-        model: nvidia_nim/poolside/laguna-xs-2.1
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+      - name: glm-5.3
+        model: nvidia_nim/z-ai/glm-5.3
         tags: [code, agent]
-        fallback: [openrouter/poolside/laguna-xs-2.1:free]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
 
   - name: ultra
     label: Nemotron 3 Ultra 550B — 550B/55B, ağır işler (~6s)
@@ -576,16 +574,16 @@ tiers:
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
-      - name: deepseek-v4-flash
-        model: nvidia_nim/deepseek-ai/deepseek-v4-flash
+      - name: glm-5.3-flash
+        model: nvidia_nim/z-ai/glm-5.3-flash
         tags: [code, agent]
-        fallback: [openrouter/poolside/laguna-s-2.1:free]
+        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
 
   - name: premium
-    label: GLM 5.2 — 1M bağlam, en yetenekli ama YAVAŞ (~40s)
+    label: GLM 5.3 — güncel büyük NIM modeli
     agent:
-      name: glm-5.2
-      model: nvidia_nim/z-ai/glm-5.2
+      name: glm-5.3
+      model: nvidia_nim/z-ai/glm-5.3
       tags: [code, agent, reasoning]
       fallback:
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
@@ -604,8 +602,8 @@ tiers:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: glm-5.2
-        model: nvidia_nim/z-ai/glm-5.2
+      - name: glm-5.3
+        model: nvidia_nim/z-ai/glm-5.3
         tags: [reasoning, code]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
       - name: nemotron-ultra

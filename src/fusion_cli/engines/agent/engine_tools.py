@@ -374,9 +374,10 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
 
     return Tool(
         name="ask_teacher",
-        description="Takıldığın bir işte web öğretmene (ChatGPT/Gemini web oturumu) TEK "
-        "bir soru sor. `council`'dan farklıdır: oylama yapmaz, tek dış görüş alır. Aynı "
-        "hata birkaç farklı yaklaşımdan sonra bile sürüyorsa kullan; ilk denemede DEĞİL.",
+        description="Karmaşık çok dosyalı işte mimari risk veya bağımsız doğrulama "
+        "konusunda web öğretmene (ChatGPT/Gemini) TEK somut soru sor. "
+        "Tekrarlanan hatalarda da kullan. `council` oylamasından farklıdır; "
+        "basit görevde gereksiz yere çağırma. Gizli bilgileri soruya ekleme.",
         parameters={
             "type": "object",
             "properties": {

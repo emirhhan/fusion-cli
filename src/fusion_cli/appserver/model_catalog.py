@@ -1,4 +1,4 @@
-"""Composer için yalnız bağlı ve canlı katalogda bulunan model seçenekleri."""
+"""Composer için bağlı kaynakların canlı model kataloğu."""
 
 from __future__ import annotations
 
@@ -53,6 +53,8 @@ async def list_selectable_models(config: Config) -> dict[str, Any]:
 
     Tarayıcı oturumu yalnız ``auto`` modelini gerçekten destekliyorsa o gösterilir.
     Web arayüzünde henüz uygulanamayan bir model adı burada uydurulmaz.
+    NIM katalog kaydı tek başına kullanılabilirlik kanıtı değildir: seçim anında
+    gerçek araç çağrısı doğrulaması yapılır.
     """
     sources = _allowed_sources(config)
     fetched = await asyncio.gather(
@@ -73,18 +75,21 @@ async def list_selectable_models(config: Config) -> dict[str, Any]:
         for entry in result:
             if not isinstance(entry, CatalogEntry) or entry.model_id in seen:
                 continue
-            # Composer ajan görevi başlatır: katalogda araç desteği açıkça
-            # olmayan model ya da amaç dışı NIM modeli seçenek değildir.
+            # Composer ajan görevi başlatır: araçsız olduğu bilinen model seçenek
+            # değildir. NIM kataloğu araç yeteneği bildirmez; seçim anında canlı
+            # araç sondası çalışır (commands._apply_development).
             if entry.supports_tools is False:
                 continue
-            if source.key == "nim-free" and entry.model_id not in curated_nim:
-                continue
             seen.add(entry.model_id)
+            unverified_nim = source.key == "nim-free" and entry.model_id not in curated_nim
             rows.append({
                 "model": entry.model_id,
                 "kaynak": source.key,
                 "etiket": entry.model_id.split("/")[-1],
-                "aciklama": source.label,
+                "aciklama": (
+                    "NIM kataloğunda; seçerken araç yeteneği doğrulanır"
+                    if unverified_nim else source.label
+                ),
                 "grup": _tier(config, entry.model_id),
             })
     for session in config.web_sessions:

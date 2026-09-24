@@ -259,6 +259,17 @@ def test_calisir_hale_getirme_workspace_mutation_ister():
     assert required_effect_for("iki projeyi entegre et") == "workspace_mutation"
 
 
+def test_ingilizce_uzun_kod_gorevi_de_degisim_kaniti_ister():
+    task = (
+        "Investigate the existing stock types and tests. Implement a coherent "
+        "stock import flow with missing modules and route changes. Run TypeScript."
+    )
+    assert required_effect_for(task) == "workspace_mutation"
+    assert required_effect_for("How to implement a stock import flow?") is None
+    assert required_effect_for("What steps would implement a stock import flow?") is None
+    assert required_effect_for("Can you implement a stock import flow?") == "workspace_mutation"
+
+
 def test_calisir_hale_getirme_sorusu_etki_istemez():
     assert required_effect_for("bu panel nasıl çalışır hale getirilir") is None
 

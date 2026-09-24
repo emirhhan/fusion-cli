@@ -131,7 +131,17 @@ def display_path(context: ToolContext, path: Path) -> str:
 
 
 def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
-    path = resolve_path(context, require_str(args, "path"))
+    raw_path = require_str(args, "path")
+    try:
+        path = resolve_path(context, raw_path)
+    except PathAccessError:
+        # Offloaded tool output may live under memory_dir outside the project.
+        # This exception applies to read_file only and to an exact artifact that
+        # this session's store wrote; write/edit tools keep the root boundary.
+        candidate = Path(raw_path).expanduser()
+        if context.artifacts is None or not context.artifacts.owns(candidate):
+            raise
+        path = candidate.resolve()
     if not path.exists():
         # Çıkışsız hata mesajı kilitlenme üretir: model ne yapacağını bilemez ve
         # aynı çağrıyı tekrarlar. Her engelleme yasal bir sonraki hamle göstermeli.
@@ -153,7 +163,16 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
             f"Metin dosyası değil (UTF-8 çözülemedi): {display_path(context, path)}"
         )
 
+    is_artifact = context.artifacts is not None and context.artifacts.owns(path)
     lines = text.splitlines()
+    if is_artifact:
+        # Tool output can contain one enormous line. Split only artifacts into
+        # bounded display segments so reading one cannot offload itself again.
+        lines = [
+            line[i : i + 6_000]
+            for line in lines
+            for i in range(0, len(line), 6_000)
+        ]
     if not lines:
         return ToolResult("(boş dosya)")
 
@@ -167,6 +186,15 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
         )
 
     pencere = lines[offset - 1 : offset - 1 + limit]
+    if is_artifact:
+        total = 0
+        bounded: list[str] = []
+        for line in pencere:
+            if bounded and total + len(line) > 15_000:
+                break
+            bounded.append(line)
+            total += len(line)
+        pencere = bounded
     son = offset + len(pencere) - 1
     numbered = "\n".join(f"{index:>5}\t{line}" for index, line in enumerate(pencere, offset))
     kalan = len(lines) - son

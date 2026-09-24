@@ -51,6 +51,7 @@ from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..providers.capabilities import apprentice_active
+from ..providers.catalog import fetch_nim, probe_nim_tools
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
@@ -137,6 +138,11 @@ def _build_health(config: Config) -> HealthRegistry:
         cooldown_s=runtime.circuit_cooldown_s,
         alpha=runtime.reliability_alpha,
     )
+
+
+def _refresh_teacher(config: Config) -> Config:
+    """Refresh web teacher without losing unsaved in-session model choices."""
+    return replace(config, teacher=load_config(config.source).teacher)
 
 
 #: Modele gönderilecek tek görselin üst sınırı. Büyük bir görsel isteği şişirir,
@@ -587,7 +593,7 @@ class AppSession:
                 str(request.data.get("secim") or ""),
             )
             if yeni is not None:
-                self._state.config = yeni
+                self._state.config = _refresh_teacher(yeni)
             return sonuc
         if request.name == "web.giris":
             from ..providers.web_browser import close_browser_session, normalize_account
@@ -632,7 +638,8 @@ class AppSession:
                 sonuc.get("ok") is True,
             )
             if yeni is not None:
-                self._state.config = yeni
+                # Doğrulanmış web oturumu öğretmeni aynı çalışan oturumda açar.
+                self._state.config = _refresh_teacher(yeni)
             return sonuc
         if request.name == "web.giris_durumu":
             return web_login_state(request.data.get("pid"))
@@ -825,7 +832,9 @@ class AppSession:
         """Web oturumunu yaz/sil ve BAŞARILIYSA oturumun yapılandırmasını güncelle."""
         yeni, sonuc = action(self._state.config, saglayici, hesap)
         if yeni is not None:
-            self._state.config = yeni
+            # Bağlama/çıkış öğretmen seçimini de etkiler. Dosya yazıldıktan sonra
+            # tek yapılandırma kaynağından yeniden çöz.
+            self._state.config = _refresh_teacher(yeni)
         return sonuc
 
     async def _change_web_window_mode(self, data: dict[str, Any]) -> dict[str, Any]:
@@ -1105,6 +1114,16 @@ class AppSession:
                 "ok": True,
                 "metin": await render_command_text(self._registry, self._state, command.name),
             }
+        if command is not None and command.name == "development":
+            prefix = "uygula nim-free "
+            if argument.startswith(prefix):
+                model_id = argument.removeprefix(prefix).strip()
+                live = await asyncio.to_thread(fetch_nim)
+                if model_id not in {entry.model_id for entry in live}:
+                    return {"ok": False, "metin": "Model canlı NIM kataloğunda bulunamadı."}
+                verified, reason = await asyncio.to_thread(probe_nim_tools, model_id)
+                if not verified:
+                    return {"ok": False, "metin": reason}
         result = run_command(
             self._registry, self._state, name, argument, secret_store=self._secret_store
         )

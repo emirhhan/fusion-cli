@@ -31,6 +31,39 @@ def _sonuc(satirlar, kimlik):
     raise AssertionError(f"kimlik için sonuç bulunamadı: {kimlik}")
 
 
+async def test_nim_secimi_katalog_ve_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
+    from fusion_cli.providers.catalog import CatalogEntry
+
+    monkeypatch.setattr(
+        "fusion_cli.appserver.session.fetch_nim",
+        lambda: (CatalogEntry("nvidia_nim/z-ai/glm-5.3", "nvidia_nim"),),
+    )
+    called: list[str] = []
+
+    def probe(model_id):
+        called.append(model_id)
+        return False, "Araç çağrısı doğrulanmadı."
+
+    monkeypatch.setattr("fusion_cli.appserver.session.probe_nim_tools", probe)
+    session = _session(tmp_path, [])
+    missing = await session._run_command({"ad": "development", "arguman":
+                                          "uygula nim-free nvidia_nim/eksik"})
+    rejected = await session._run_command({"ad": "development", "arguman":
+                                           "uygula nim-free nvidia_nim/z-ai/glm-5.3"})
+
+    assert missing["ok"] is False
+    assert rejected == {"ok": False, "metin": "Araç çağrısı doğrulanmadı."}
+    assert called == ["nvidia_nim/z-ai/glm-5.3"]
+
+    monkeypatch.setattr("fusion_cli.appserver.session.probe_nim_tools",
+                        lambda _model: (True, ""))
+    monkeypatch.setattr("fusion_cli.appserver.session.run_command",
+                        lambda *_args, **_kwargs: {"ok": True, "metin": "uygulandı"})
+    accepted = await session._run_command({"ad": "development", "arguman":
+                                           "uygula nim-free nvidia_nim/z-ai/glm-5.3"})
+    assert accepted == {"ok": True, "metin": "uygulandı"}
+
+
 async def test_bilinmeyen_istek_hata_sonucu_doner(tmp_path):
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
@@ -957,6 +990,38 @@ async def test_web_cikis_oturumu_kaldirir(tmp_path):
     veri = json.loads(satirlar[-1])["veri"]
     assert veri["ok"] is True
     assert oturum._state.config.web_sessions == ()
+
+
+async def test_web_dogrulama_ogretmeni_ayni_oturumda_acar(tmp_path, monkeypatch):
+    from fusion_cli.config.model_select import apply_single_model
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    selected = apply_single_model(oturum._state.config, "nvidia_nim/z-ai/glm-5.3")
+    oturum._state.config = replace(
+        selected, source=tmp_path / "config.yaml",
+        web_sessions=(), teacher=None,
+    )
+    await oturum.handle(Request("1", "web.baglan", {
+        "saglayici": "gemini_web", "hesap": "main"
+    }))
+
+    async def verified(*_args):
+        return {"ok": True}
+
+    monkeypatch.setattr("fusion_cli.appserver.session.verify_web_session", verified)
+    await oturum.handle(Request("2", "web.dogrula", {
+        "saglayici": "gemini_web", "hesap": "main"
+    }))
+
+    assert oturum._state.config.teacher is not None
+    assert oturum._state.config.teacher.model == "gemini_web/main/auto"
+    assert oturum._state.config.agent.model == "nvidia_nim/z-ai/glm-5.3"
+    assert oturum._state.config.agent.strict is True
+    await oturum.handle(Request("3", "web.cikis", {
+        "saglayici": "gemini_web", "hesap": "main"
+    }))
+    assert oturum._state.config.teacher is None
 
 
 async def _bagli_chatgpt(tmp_path, satirlar, monkeypatch):

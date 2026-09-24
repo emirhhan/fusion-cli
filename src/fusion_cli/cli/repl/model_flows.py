@@ -192,6 +192,10 @@ def choose_development(
     )
     if model_id is None:
         return FlowResult(config, reason)
+    if source.key == "nim-free":
+        verified, reason = catalog.probe_nim_tools(model_id)
+        if not verified:
+            return FlowResult(config, reason)
 
     return apply_development_model(config, model_id, paid=source.paid)
 

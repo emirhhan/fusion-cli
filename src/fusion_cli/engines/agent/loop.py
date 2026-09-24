@@ -404,13 +404,20 @@ async def run_agent(
     # Depo haritası: model doğru dosyayı aramak için tur harcamasın. Kod kipinde
     # kök turda eklenir; sohbet kipi çalışma dizinini taramaz.
     harita = repo_map_block(deps.tool_context.root) if depth == 0 and not chat_mode else ""
+    teacher_hint = (
+        "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
+        "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
+        "Sırları ve özel verileri öğretmene gönderme."
+        if depth == 0 and not chat_mode and registry.get("ask_teacher") is not None
+        else ""
+    )
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
             part
-            for part in (proje_ve_dis_bellek, harita, extra_system)
+            for part in (proje_ve_dis_bellek, harita, teacher_hint, extra_system)
             if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
@@ -708,6 +715,8 @@ class _State:
     evidence_reprompts: int = 0
     #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
     never_acted_prompts: int = 0
+    #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
+    exploration_pushes: int = 0
     #: Bu tur bir İÇ düzeltici tur mu (öz-denetim, doğrulama kapısı)? İç turlar
     #: araçsız bitebilir ve bu meşrudur: asıl işi dış tur zaten yapmıştır, iç tur
     #: yalnızca düzeltir ya da açıklar.
@@ -797,9 +806,14 @@ async def _drive(
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
         remaining = budget.next_timeout_s()
+        call_timeout = min(deps.config.runtime.request_timeout_s, remaining) if remaining else (
+            deps.config.runtime.request_timeout_s
+        )
 
         try:
-            if remaining is None:
+            # Transport idle timeouts do not bound a stream that keeps trickling
+            # tokens forever. Bound the complete model call as well.
+            async with asyncio.timeout(max(0.01, call_timeout)):
                 result = await _call_model(
                     messages,
                     deps,
@@ -808,22 +822,19 @@ async def _drive(
                     state=state,
                     execution=execution,
                     offer_tools=execution.offer_tools,
+                    timeout_s=call_timeout,
                 )
-            else:
-                async with asyncio.timeout(max(1.0, remaining)):
-                    result = await _call_model(
-                        messages,
-                        deps,
-                        registry,
-                        allowed_tools,
-                        state=state,
-                        execution=execution,
-                        offer_tools=execution.offer_tools,
-                        timeout_s=min(deps.config.runtime.request_timeout_s, remaining),
-                    )
         except TimeoutError:
-            reason = budget.time_stop_reason() or BudgetStop.DEADLINE
-            return _halt(final_text, messages, state, budget, reason, deps)
+            reason = budget.time_stop_reason()
+            if reason is not None:
+                return _halt(final_text, messages, state, budget, reason, deps)
+            return _outcome(
+                f"Model yanıtı {call_timeout:g} saniyede tamamlanmadı. "
+                "Bu çağrı durduruldu; farklı bir model seçip yeniden deneyebilirsin.",
+                messages,
+                state,
+                ok=False,
+            )
 
         state.model_calls_made += 1
         budget.record_model_call()
@@ -922,6 +933,15 @@ async def _drive(
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
             return _outcome(state.tool_contract_abort, messages, state, ok=False)
+        exploration_note = _exploration_note(
+            state,
+            execution,
+            plan_mode=plan_mode,
+            teacher_available=registry.get("ask_teacher") is not None,
+        )
+        if exploration_note is not None:
+            state.exploration_pushes += 1
+            messages.append(Message("user", exploration_note, harness_note=True))
 
         # Blocking verification correction gerçek bir mutation üretmeden
         # NO_PROGRESS'a düşmemeli. Model önce read_file yapabilir veya yanlış/
@@ -1451,6 +1471,36 @@ def _never_acted(state: _State, execution: ExecutionPolicy) -> bool:
     return state.never_acted_prompts < 2
 
 
+def _exploration_note(
+    state: _State,
+    execution: ExecutionPolicy,
+    *,
+    plan_mode: bool,
+    teacher_available: bool,
+) -> str | None:
+    """İstenen değişiklikte uzun salt-okuma döngüsünü bir kez kır."""
+    if (
+        plan_mode
+        or not execution.complex_task
+        or not execution.allow_mutation
+        or state.mutating_tool_calls_made
+        or state.tool_calls_made < 10
+        or state.exploration_pushes
+    ):
+        return None
+    note = (
+        "FUSION_NOT: Bu görevde en az 10 başarılı araç çağrısı yaptın ama henüz "
+        "hiç dosya değiştirmedin. Daha fazla genel dizin taraması yapma. "
+        "İncelediğin dosyalardan ilk somut değişikliği seç ve uygula."
+    )
+    if teacher_available:
+        note += (
+            " Mimari karar veya doğrulama konusunda bir belirsizlik kaldıysa "
+            "`ask_teacher` ile tek somut soru sor, cevabı değerlendir, ardından uygula."
+        )
+    return note
+
+
 def _targeted_edit_required(
     name: str,
     args: dict[str, object],
@@ -1849,7 +1899,9 @@ async def _run_tools(
                 call.name,
                 result.output,
                 state.repeated_failures[imza],
-                teacher_available=deps.config.teacher is not None,
+                teacher_available=(
+                    deps.config.teacher is not None and not deps.config.runtime.teacherless
+                ),
             )
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"

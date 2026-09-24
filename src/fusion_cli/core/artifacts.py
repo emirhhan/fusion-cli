@@ -30,6 +30,7 @@ class ArtifactStore:
     def __init__(self, root: Path) -> None:
         self._root = root
         self._counter = 0
+        self._written: set[Path] = set()
 
     @property
     def root(self) -> Path:
@@ -45,7 +46,16 @@ class ArtifactStore:
         self._counter += 1
         path = self._root / f"{self._counter:03d}-{_SAFE.sub('-', name)}.txt"
         path.write_text(redact(content), encoding="utf-8")
+        self._written.add(path.resolve())
         return path
+
+    def owns(self, path: Path) -> bool:
+        """Only expose artifacts written by this store in the current session.
+
+        Checking the directory alone would let a model read arbitrary files placed
+        next to an artifact when the workspace root is restricted.
+        """
+        return not path.is_symlink() and path.resolve() in self._written
 
 
 def offload_output(

@@ -8,6 +8,8 @@ from pathlib import Path
 
 from fusion_cli.appserver.protocol import Request
 from fusion_cli.appserver.session import AppSession
+from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.types import ModelSpec
 
 
 class _MemorySecrets:
@@ -107,6 +109,26 @@ async def test_kontrol_durumu_secili_web_modelini_dogru_etiketler(tmp_path: Path
 
     assert result["model"]["agent"] == web.model
     assert result["model"]["agent_label"] == "Gemini · 3.1 Pro"
+
+
+async def test_kontrol_durumu_ogretmen_oturumunu_gosterir(tmp_path: Path):
+    lines: list[str] = []
+    session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
+    web = WebSessionConfig(
+        model="gemini_web/main/auto", provider="gemini_web",
+        transport="browser", selected_model="3.1 Pro", login_verified=True,
+    )
+    config = session._state.config
+    session._state.config = replace(
+        config, teacher=ModelSpec("ogretmen", web.model), web_sessions=(web,)
+    )
+    try:
+        result = await _request(session, lines, "kontrol.durum", {})
+    finally:
+        await session.close()
+
+    assert result["model"]["ogretmen"] == web.model
+    assert result["model"]["ogretmen_etiket"] == "Gemini · 3.1 Pro"
 
 
 async def test_kontrol_anahtar_kaydeder_ama_degeri_yanitlamaz(tmp_path: Path, monkeypatch):

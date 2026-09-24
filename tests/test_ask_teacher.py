@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
+from fusion_cli.config.loader import load_config
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelResult, ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
@@ -70,6 +73,18 @@ def test_ogretmen_yoksa_arac_hic_sunulmaz(tmp_path):
 
 def test_ogretmen_varsa_arac_sunulur(tmp_path):
     deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+
+    assert _registry(deps).get("ask_teacher") is not None
+
+
+def test_kayitli_web_oturumu_ajanin_ogretmen_aracini_acar(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"web_sessions": [{
+        "provider": "gemini_web", "model": "gemini_web/main/auto",
+        "login_verified": True, "enabled": True,
+    }]}), encoding="utf-8")
+    deps = _deps(tmp_path)
+    deps.config = load_config(path)
 
     assert _registry(deps).get("ask_teacher") is not None
 

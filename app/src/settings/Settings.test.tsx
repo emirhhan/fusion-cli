@@ -16,6 +16,8 @@ function client() {
           hakem: "openrouter/hakem",
           adaylar: ["hizli", "derin"],
           saglayici: "gemini_web",
+          ogretmen: "gemini_web/main/auto",
+          ogretmen_etiket: "Gemini · 3.1 Pro",
         },
         saglayicilar: [{ id: "openrouter", ad: "OpenRouter", kurulu: true }],
       };
@@ -73,6 +75,12 @@ afterEach(() => {
 });
 
 describe("Settings — yapı", () => {
+  it("bağlı web öğretmenini modeller bölümünde gösterir", async () => {
+    ciz();
+    bolum("Modeller");
+    expect(await screen.findByText(/Öğretmen: Gemini · 3.1 Pro/)).toBeTruthy();
+  });
+
   it("sohbetin üstünde aranan ve Escape ile kapanan pencere açar", async () => {
     const onClose = vi.fn();
     ciz({ onClose });

@@ -60,7 +60,7 @@ async def test_canli_model_ve_dogrulanmis_web_oturumu_listelenir(monkeypatch):
     assert result["modeller"][1]["kaynak"] == "web-subscriptions"
 
 
-async def test_aracsiz_ve_kademede_olmayan_nim_modeli_composera_girmez(monkeypatch):
+async def test_aracsiz_model_gizlenir_diger_canli_nim_modelleri_kesfe_acilir(monkeypatch):
     from fusion_cli.config.models import ModelSpec
 
     source = Source(
@@ -84,7 +84,10 @@ async def test_aracsiz_ve_kademede_olmayan_nim_modeli_composera_girmez(monkeypat
 
     result = await model_catalog.list_selectable_models(config)
 
-    assert [row["model"] for row in result["modeller"]] == ["nvidia_nim/selected"]
+    assert [row["model"] for row in result["modeller"]] == [
+        "nvidia_nim/selected", "nvidia_nim/old"
+    ]
+    assert "doğrulanır" in result["modeller"][1]["aciklama"]
 
 
 def test_yedek_model_birincil_oldugu_buyuk_gorev_grubunda_gorunur():

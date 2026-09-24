@@ -184,6 +184,16 @@ _FILE_MUTATION_PATTERNS = (
         r")[a-zçğıöşü]*"
     ),
 )
+
+# İngilizce kod görevleri de aynı kanıt kapısına girmeli. GATE HOLDING uzun
+# koşusundaki "Implement a coherent stock import flow" hiçbir Türkçe fiile
+# uymadığı için mutasyon gereksinimi kurulmamış, ajan salt keşifte oyalanmıştı.
+_EN_FILE_MUTATION_PATTERNS = (
+    r"\b(?:implement|repair|fix|create|modify|update|add)\b.{0,80}"
+    r"\b(?:module|route|service|test|file|integration|feature|flow|bug|code|"
+    r"website|app|import)\b",
+    r"\bwrite\b.{0,40}\b(?:file|module|test|code|route)\b",
+)
 #: `required_effect_for`'un mutasyon/etki KÜMESİNE (`EffectKind`) ait olmayan tek
 #: dize sabiti. 17 Eylül denetiminde ölçüldü: 74 bin karakterlik bir ürün
 #: dökümünde "Motoplus tedarikçili, sayımı 0 olan kaç ürün var?" sorusuna model
@@ -311,6 +321,15 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     if _matches(lowered, _SHELL_ACTION_PATTERNS):
         return EffectKind.SHELL_ACTION.value
     if _matches(lowered, _FILE_MUTATION_PATTERNS):
+        return EffectKind.WORKSPACE_MUTATION.value
+    if not re.match(
+        r"^(?:how\b|what\b|why\b|when\b|where\b|should i\b|can i\b|"
+        r"could i\b|would i\b|is it\b|do you think\b|explain\b|describe\b|"
+        r"tell me how\b)",
+        lowered,
+    ) and _matches(
+        lowered, _EN_FILE_MUTATION_PATTERNS
+    ):
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
         return _BULK_COUNT_EFFECT

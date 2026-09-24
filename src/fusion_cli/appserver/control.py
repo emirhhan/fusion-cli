@@ -194,12 +194,29 @@ def snapshot(
         f"{web_session.selected_model or 'otomatik'}"
         if web_session is not None else ""
     )
+    teacher_session = next(
+        (session for session in config.web_sessions
+         if config.teacher is not None and session.model == config.teacher.model),
+        None,
+    )
+    teacher_label = (
+        f"{teacher_session.provider.removesuffix('_web').title()} · "
+        f"{teacher_session.selected_model or 'otomatik'}"
+        if teacher_session is not None else ""
+    )
     return {
         "ok": True,
         "kok": root,
         "model": {
             "agent": config.agent.model,
             "agent_label": agent_label,
+            "ogretmen": (
+                config.teacher.model
+                if config.teacher is not None and not config.runtime.teacherless else ""
+            ),
+            "ogretmen_etiket": (
+                teacher_label if not config.runtime.teacherless else ""
+            ),
             "hakem": config.judge.model,
             "adaylar": [candidate.model for candidate in config.candidates],
             "saglayici": config.runtime.provider,

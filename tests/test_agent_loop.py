@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from fusion_cli.core.events import (
@@ -101,6 +103,34 @@ async def test_araçsiz_yanit_dogrudan_dondurulur(monkeypatch, tmp_path, sink):
 
     assert sonuc.final_text == "iste cevap"
     assert sonuc.tool_calls_made == 0
+
+
+async def test_model_akisi_surekli_acik_kalsa_da_cagri_suresi_sinirlanir(
+    monkeypatch, tmp_path, sink
+):
+    class NeverEndingProvider:
+        cancelled = False
+
+        async def stream(self, request):
+            from fusion_cli.core.types import TextChunk
+
+            try:
+                while True:
+                    yield TextChunk("hala düşünüyor")
+                    await asyncio.sleep(0.02)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    provider = NeverEndingProvider()
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.08})
+
+    result = await asyncio.wait_for(run_agent("açıkla", deps), timeout=1)
+
+    assert result.ok is False
+    assert "0.08 saniyede tamamlanmadı" in result.final_text
+    assert provider.cancelled
 
 
 async def test_arac_cagrisi_calisir_ve_sonuc_gecmise_eklenir(monkeypatch, tmp_path, sink):
@@ -1922,6 +1952,26 @@ def test_ogretmen_tanimliyken_esik_asilinca_onerilir():
     gec = _repeated_failure_note("godot__add_node", hata, 3, teacher_available=True)
     assert gec is not None
     assert "ask_teacher" in gec
+
+
+def test_uzun_okuma_dongusu_degisim_ve_ogretmen_yonlendirmesi_alir():
+    from fusion_cli.engines.agent.execution_policy import ExecutionPolicy
+    from fusion_cli.engines.agent.loop import _exploration_note, _State
+
+    policy = ExecutionPolicy(is_web=False, complex_task=True)
+    state = _State(tool_calls_made=10)
+    note = _exploration_note(state, policy, plan_mode=False, teacher_available=True)
+
+    assert note is not None
+    assert "ilk somut değişikliği" in note
+    assert "ask_teacher" in note
+    state.exploration_pushes = 1
+    assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
+    state.exploration_pushes = 0
+    state.mutating_tool_calls_made = 1
+    assert _exploration_note(state, policy, plan_mode=False, teacher_available=True) is None
+    state.mutating_tool_calls_made = 0
+    assert _exploration_note(state, policy, plan_mode=True, teacher_available=True) is None
 
 
 def test_farkli_hatalar_yineleme_sayilmaz():

@@ -155,14 +155,19 @@ def load_config(path: str | Path | None = None) -> Config:
 def _assemble(merged: dict[str, object], source: Path | None) -> Config:
     """Birleştirilmiş sözlüğü doğrulayıp `Config` kur."""
     _reject_unknown(merged, _SECTIONS, "yapılandırma kökü")
+    web_sessions = _build_web_sessions(merged.get("web_sessions"))
+    teacher = (
+        _build(ModelSpec, merged["teacher"], "teacher")
+        if merged.get("teacher")
+        else _verified_web_teacher(web_sessions)
+    )
     return Config(
         agent=_build(ModelSpec, merged["agent"], "agent"),
         candidates=_build_candidates(merged["candidates"], merged.get("extra_candidates")),
         judge=_build(ModelSpec, merged["judge"], "judge"),
         # Görme opsiyoneldir: tanımlı değilse görsel kapı hiç kurulmaz.
         vision=_build(ModelSpec, merged["vision"], "vision") if merged.get("vision") else None,
-        # Öğretmen de görme gibi opsiyoneldir: kullanıcının web girişine bağlıdır.
-        teacher=_build(ModelSpec, merged["teacher"], "teacher") if merged.get("teacher") else None,
+        teacher=teacher,
         task_model_map=_build_task_map(merged["task_model_map"], merged["candidates"]),
         runtime=_build_runtime(merged["runtime"]),
         embedding=_build(EmbeddingConfig, merged["embedding"], "embedding"),
@@ -172,8 +177,25 @@ def _assemble(merged: dict[str, object], source: Path | None) -> Config:
         profile_eligibility=_build_eligibility(merged.get("profile_eligibility")),
         mcp_servers=_build_mcp_servers(merged.get("mcp_servers")),
         hosted_connectors=_build_hosted_connectors(merged.get("hosted_connectors")),
-        web_sessions=_build_web_sessions(merged.get("web_sessions")),
+        web_sessions=web_sessions,
     )
+
+
+def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec | None:
+    """Açık bir öğretmen seçilmediyse doğrulanmış web oturumunu kullan.
+
+    Seçilmiş modeli olan oturum önceliklidir; böylece otomatik web kipindeki
+    belirsiz model yerine kullanıcının gerçekten seçtiği model danışılır.
+    """
+    supported = {"chatgpt_web", "gemini_web"}
+    available = [
+        session for session in sessions
+        if session.provider in supported and session.enabled and session.login_verified
+    ]
+    if not available:
+        return None
+    selected = next((session for session in available if session.selected_model), available[0])
+    return ModelSpec(name="ogretmen", model=selected.model)
 
 
 def _build_runtime(raw: object) -> RuntimeConfig:

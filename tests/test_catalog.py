@@ -8,6 +8,40 @@ import pytest
 from fusion_cli.providers import catalog
 
 
+@pytest.mark.parametrize(("status", "tool_calls", "expected"), [
+    (200, [{"function": {"name": "sum", "arguments": '{"a":2,"b":3}'}}], True),
+    (200, [], False),
+    (404, [], False),
+])
+def test_nim_modeli_secmeden_once_arac_cagrisi_dogrulanir(
+    monkeypatch, status, tool_calls, expected
+):
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "test-key")
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def post(self, url, *, headers, json):
+            assert headers == {"Authorization": "Bearer test-key"}
+            assert json["model"] == "z-ai/glm-5.3"
+            return httpx.Response(status, json={"choices": [{"message": {
+                "tool_calls": tool_calls
+            }}]}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(catalog.httpx, "Client", Client)
+    ok, reason = catalog.probe_nim_tools("nvidia_nim/z-ai/glm-5.3")
+
+    assert ok is expected
+    assert bool(reason) is not expected
+
+
 def _sahte_yanit(monkeypatch, payload, *, hata=None):
     class _Client:
         def __init__(self, **kwargs):

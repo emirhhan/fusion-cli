@@ -18,6 +18,8 @@ export interface ModelState {
   hakem: string;
   adaylar: string[];
   saglayici: string;
+  ogretmen?: string;
+  ogretmen_etiket?: string;
 }
 
 export function Models({
@@ -37,6 +39,10 @@ export function Models({
         <p className="settings__hint">
           Ajan modunda çalışan tek model budur. Sohbet ekranında, görev kutusunun
           sağındaki seçiciden de değiştirebilirsin.
+        </p>
+        <p className="settings__hint">
+          Öğretmen: {model.ogretmen_etiket || model.ogretmen || "bağlı değil"}.
+          Bağlıysa ajan karmaşık işlerde bu web oturumundan görüş isteyebilir.
         </p>
         {onRunCommand && (
           <div className="settings__actions">
