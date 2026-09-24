@@ -51,12 +51,14 @@ describe("Sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
     expect(screen.getByRole("menuitem", { name: /hesabım/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^ayarlar$/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /yardım/i })).toBeTruthy();
+    expect(screen.getByRole("menuitem", { name: /^giriş yap$/i })).toBeTruthy();
+    expect(screen.queryByRole("menuitem", { name: /çıkış yap/i })).toBeNull();
+    fireEvent.click(screen.getByRole("menuitem", { name: /daha fazla/i }));
     expect(screen.getByRole("menuitem", { name: /kontrol paneli/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /beceriler ve ajanlar/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /mcp bağlantıları/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /yardım/i })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /^dil$/i })).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /çıkış yap/i })).toBeTruthy();
   });
 
   it("profil menüsünden hedefe gider ve menüyü kapatır", () => {
@@ -64,6 +66,7 @@ describe("Sidebar", () => {
     render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /daha fazla/i }));
     fireEvent.click(screen.getByRole("menuitem", { name: /mcp bağlantıları/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("connectors");
@@ -77,6 +80,16 @@ describe("Sidebar", () => {
       "Giriş yapılmadı",
     );
     expect(screen.queryByText("Emir")).toBeNull();
+  });
+
+  it("giriş yapılmamış hesap menüsündeki giriş eylemi hesap ekranını açar", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /^giriş yap$/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith("account");
   });
 
   it("giriş yapan hesabı sol altta gerçek kullanıcı olarak gösterir", () => {

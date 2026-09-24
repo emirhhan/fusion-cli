@@ -156,6 +156,7 @@ export function Sidebar({
   onGuncellemeAc,
 }: SidebarProps) {
   const [profileOpen, setProfileOpen] = useState(false);
+  const [profileMoreOpen, setProfileMoreOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -253,10 +254,16 @@ export function Sidebar({
   useEffect(() => {
     if (!profileOpen) return;
     const closeOnOutside = (event: MouseEvent) => {
-      if (!profileRef.current?.contains(event.target as Node)) setProfileOpen(false);
+      if (!profileRef.current?.contains(event.target as Node)) {
+        setProfileOpen(false);
+        setProfileMoreOpen(false);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setProfileOpen(false);
+      if (event.key === "Escape") {
+        setProfileOpen(false);
+        setProfileMoreOpen(false);
+      }
     };
     document.addEventListener("mousedown", closeOnOutside);
     document.addEventListener("keydown", closeOnEscape);
@@ -268,6 +275,7 @@ export function Sidebar({
 
   const navigateFromProfile = (destination: string) => {
     setProfileOpen(false);
+    setProfileMoreOpen(false);
     onNavigate(destination);
   };
   const profileName = hesap?.kullanici_adi ?? "Hesap yok";
@@ -404,15 +412,20 @@ export function Sidebar({
                 <Icon className="sidebar__profile-chevron" name="chevron" size={20} />
               </button>
               <div className="sidebar__profile-separator" />
-              <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="settings" /><span>Hesabım</span></button>
+              <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="user" /><span>Hesabım</span></button>
               <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
-              <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
-              <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
-              <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
               <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
-              <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="lessons" /><span>Dil</span></button>
+              <button aria-expanded={profileMoreOpen} onClick={() => setProfileMoreOpen((open) => !open)} role="menuitem" type="button"><Icon name="panel" /><span>Daha fazla</span><Icon name="chevron" size={16} /></button>
+              {profileMoreOpen && <div aria-label="Ek araçlar" className="sidebar__profile-more" role="group">
+                <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>
+                <button onClick={() => navigateFromProfile("skills")} role="menuitem" type="button"><Icon name="skills" /><span>Beceriler ve Ajanlar</span></button>
+                <button onClick={() => navigateFromProfile("connectors")} role="menuitem" type="button"><Icon name="terminal" /><span>MCP bağlantıları</span></button>
+                <button onClick={() => navigateFromProfile("language")} role="menuitem" type="button"><Icon name="lessons" /><span>Dil</span></button>
+              </div>}
               <div className="sidebar__profile-separator" />
-              <button onClick={() => { setProfileOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="help" /><span>Çıkış yap</span></button>
+              {hesap
+                ? <button onClick={() => { setProfileOpen(false); setProfileMoreOpen(false); onCikis?.(); }} role="menuitem" type="button"><Icon name="logout" /><span>Çıkış yap</span></button>
+                : <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="logout" /><span>Giriş yap</span></button>}
             </div>
           )}
           <button
@@ -420,7 +433,7 @@ export function Sidebar({
             aria-haspopup="menu"
             aria-label={profileMenuLabel}
             className="sidebar__profile-trigger"
-            onClick={() => setProfileOpen((open) => !open)}
+            onClick={() => { setProfileOpen((open) => !open); setProfileMoreOpen(false); }}
             type="button"
           >
             <span className="sidebar__avatar">{profileInitials}</span>

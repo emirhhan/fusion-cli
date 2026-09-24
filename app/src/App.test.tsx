@@ -529,6 +529,7 @@ describe("SessionUygulama", () => {
     };
     render(<SessionUygulama transport={transport} />);
     fireEvent.click(await screen.findByRole("button", { name: "Hesap menüsü" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Daha fazla" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Beceriler ve Ajanlar" }));
     expect(await screen.findByRole("heading", { name: "Beceriler ve Ajanlar", level: 1 })).toBeTruthy();
     expect(screen.queryByPlaceholderText("Fusion'a bir görev ver")).toBeNull();

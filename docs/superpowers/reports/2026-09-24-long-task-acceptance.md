@@ -44,3 +44,7 @@ A further fix limits web-provider self-review to the configured judge timeout; t
 ## Release decision
 
 The acceptance gate requires a completed multi-file task, focused and build verification, a correct public link, a rejected unauthorized stock mutation, and an honest final status. It has not passed. Do not install or publish a replacement release based on this run.
+
+## Direct UI comparison
+
+The source preview and a signed-in ChatGPT conversation were inspected at the same 1280×720 viewport in dark mode. The current Fusion conversation composer still uses a tall two-row layout where ChatGPT uses a compact single-row pill, and the navigation sections and response layout remain visibly different. The installed Fusion app is older than this source preview, so its screen is not evidence that the new source is installed. The account menu was also checked interactively: before the fix it showed “Çıkış yap” while signed out and eight main entries extending far up the sidebar. The menu now shows “Giriş yap” while signed out and keeps Control Panel, Skills, MCP and Language under an expandable “Daha fazla” entry; those routes remained reachable in the live source preview. This is a targeted improvement, not full visual or functional parity.
