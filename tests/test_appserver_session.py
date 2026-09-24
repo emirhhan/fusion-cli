@@ -747,9 +747,7 @@ async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdur
     oturum._workspace_mode = "kod"
 
     gorev = asyncio.ensure_future(
-        oturum.handle(
-            Request(id="1", name="tur.calistir", data={"gorev": "build klasörünü sil"})
-        )
+        oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "build klasörünü sil"}))
     )
 
     async def _soru_bekle() -> dict:
@@ -980,9 +978,7 @@ async def _bagli_chatgpt(tmp_path, satirlar, monkeypatch):
     return oturum, kapatilan
 
 
-async def test_web_pencere_kipi_yazilir_ve_tarayici_yeni_kip_icin_kapatilir(
-    tmp_path, monkeypatch
-):
+async def test_web_pencere_kipi_yazilir_ve_tarayici_yeni_kip_icin_kapatilir(tmp_path, monkeypatch):
     """Çalışan Chrome açıldığı kipte kalır; yeni kip ancak yeniden açılınca uygulanır."""
     from fusion_cli.config.loader import load_config
     from fusion_cli.core.window_mode import WindowMode
@@ -1167,6 +1163,25 @@ async def test_goal_makrosu_gorevi_dondurur_ve_sonraki_tura_hedef_kipini_tasir(
     await oturum.handle(Request(id="3", name="tur.calistir", data={"gorev": "sıradan iş"}))
     assert macros.GOAL_PROMPT not in yakalanan["kwargs"]["extra_system"]
     assert yakalanan["kwargs"]["step_limit"] is None
+
+
+async def test_btw_komutu_masaustu_listesinde_desteklenir_ve_yan_soruyu_hazirlar(tmp_path):
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    await oturum.handle(Request(id="1", name="komut.listele", data={}))
+    komutlar = _sonuc(satirlar, "1")["komutlar"]
+    assert next(komut for komut in komutlar if komut["ad"] == "btw")["destekleniyor"]
+
+    await oturum.handle(
+        Request(
+            id="2", name="komut.calistir", data={"ad": "btw", "arguman": "Bu dosya ne yapıyor?"}
+        )
+    )
+    yan_soru = _sonuc(satirlar, "2")
+    assert yan_soru["ok"] is True
+    assert "Bu dosya ne yapıyor?" in yan_soru["gorev"]
+    assert "Ana görevi değiştirmeden" in yan_soru["gorev"]
 
 
 async def test_makro_olmayan_komut_gorev_dondurmez(tmp_path):

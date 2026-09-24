@@ -18,6 +18,7 @@ Araç desteği:
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 
@@ -93,7 +94,20 @@ class WebProviderAdapter:
         messages = self._prepared_messages(request)
         start = self._clock.monotonic()
         try:
-            raw = await self._transport(self._credential, messages, self._model)
+            raw = await asyncio.wait_for(
+                self._transport(self._credential, messages, self._model),
+                timeout=request.timeout_s,
+            )
+        except TimeoutError:
+            latency = int((self._clock.monotonic() - start) * 1000)
+            return ModelResult(
+                name=self._model,
+                model=self._model,
+                text="",
+                latency_ms=latency,
+                ok=False,
+                error="web oturumu zaman aşımı",
+            )
         except Exception as error:
             # hata fırlatılmaz, `ok=False` sonuç taşınır. Web transport'ları çok çeşitli
             # biçimde başarısız olur (ağ, oturum süresi, biçim); hepsi sonuca çevrilir.

@@ -306,6 +306,31 @@ describe("useSessions", () => {
       .filter((message) => message.rol === "kullanici")
       .map((message) => message.metin);
     expect(userMessages).toEqual(["/goal oyunu bitir"]);
+    expect(result.current.state.sessions.varsayilan.messages.some(
+      (message) => message.rol === "asistan" && message.metin === "goal çalıştırılıyor…",
+    )).toBe(false);
+  });
+
+  it("/btw yan sorusu için ara komut mesajı göstermez", async () => {
+    const fake = fakeTransport();
+    const { result } = renderHook(() => useSessions(fake.transport));
+    await waitFor(() => expect(result.current.activeSession).not.toBeNull());
+
+    let command!: Promise<Record<string, unknown>>;
+    act(() => { command = result.current.runCommand("varsayilan", "/btw Bu dosya ne yapıyor?"); });
+    await waitFor(() => expect(fake.sent).toHaveLength(1));
+    const request = JSON.parse(fake.sent[0].line);
+    act(() => fake.emitResult("varsayilan", request.id, {
+      ok: true,
+      metin: "btw çalıştırılıyor…",
+      gorev: "Ana görevi değiştirmeden şu yan soruyu yanıtla: Bu dosya ne yapıyor?",
+    }));
+    await act(async () => { await command; });
+
+    await waitFor(() => expect(fake.sent).toHaveLength(2));
+    expect(JSON.parse(fake.sent[1].line).ad).toBe("tur.calistir");
+    expect(result.current.state.sessions.varsayilan.messages.map((message) => message.metin))
+      .toEqual(["/btw Bu dosya ne yapıyor?"]);
   });
 
   it("her protokol satırını yalnız ait olduğu oturuma yönlendirir", async () => {

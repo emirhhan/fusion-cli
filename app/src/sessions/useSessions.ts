@@ -499,7 +499,9 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // `/compact`, `/clear` geçmişi; `/model` web eşiğini değiştirebilir.
       olcuyuTazele(id, session.client, dispatch);
       const text = typeof result.metin === "string" ? result.metin : "";
-      if (recordOutput && (text || !result.secici)) {
+      const preparedTask = typeof result.gorev === "string" && result.gorev.trim()
+        ? result.gorev : null;
+      if (recordOutput && !preparedTask && (text || !result.secici)) {
         dispatch({
           type: "messageAdded",
           id,
@@ -512,8 +514,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       // Makro (`/goal` …) görevi yalnız hazırlar; çekirdek görevi geri verir ve
       // tur burada normal gönderim yolundan başlar. Aksi hâlde komut
       // "çalıştırılıyor…" deyip hiçbir iş yapmıyordu.
-      if (typeof result.gorev === "string" && result.gorev.trim()) {
-        send(id, result.gorev, [], false);
+      if (preparedTask) {
+        send(id, preparedTask, [], false);
       }
       return result;
     },

@@ -52,7 +52,7 @@ def test_prompt_paralel_arac_cagrimayi_tesvik_eder():
 
 def test_prompt_arac_adini_kullaniciya_soylemeyi_yasaklar():
     # Kullanıcı araçları değil yapılan işi görmeli ("edit_file çalıştıracağım" dememeli).
-    assert "araçların adını" in SYSTEM_PROMPT.lower()
+    assert "araç adları yerine yapılan işi anlat" in SYSTEM_PROMPT.lower()
 
 
 def test_prompt_kutuphane_varligini_dogrulatir():

@@ -6,6 +6,7 @@ mock-provider senaryolarını karşılar.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 from fusion_cli.config.tool_policy import can_be_mutation_agent
@@ -47,6 +48,25 @@ async def test_web_saglayici_duz_sohbet_uretir():
     assert sonuc.ok is True
     assert sonuc.text == "Merhaba, ben web modeli."
     assert sonuc.tool_calls == ()
+
+
+async def test_web_saglayici_cagri_suresi_sinirini_uygular():
+    async def slow_transport(credential, messages, model):
+        await asyncio.sleep(1)
+        return WebTurn("geç yanıt")
+
+    adapter = WebProviderAdapter(model="mock-web", credential=_cred(), transport=slow_transport)
+    request = CompletionRequest(
+        messages=(Message("user", "selam"),),
+        temperature=0.0,
+        max_tokens=64,
+        timeout_s=0.01,
+    )
+
+    result = await adapter.complete(request)
+
+    assert result.ok is False
+    assert "zaman aşımı" in (result.error or "")
 
 
 async def test_web_saglayici_stream_metin_ve_done_verir():
