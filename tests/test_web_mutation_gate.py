@@ -270,6 +270,21 @@ def test_ingilizce_uzun_kod_gorevi_de_degisim_kaniti_ister():
     assert required_effect_for("Can you implement a stock import flow?") == "workspace_mutation"
 
 
+def test_ingilizce_kimlik_dogrulama_uygulama_gorevi_de_degisim_kaniti_ister():
+    task = (
+        "Continue the stock integration. Implement a real fail-closed caller "
+        "authorization scheme appropriate to the existing architecture. "
+        "Do not expose a server secret in browser code."
+    )
+    assert required_effect_for(task) == "workspace_mutation"
+    assert required_effect_for("How to implement a caller authentication scheme?") is None
+    assert required_effect_for("Do not implement authentication, just explain the design.") is None
+    assert required_effect_for("Never add an authorization guard; describe options.") is None
+    assert required_effect_for("Do not implement authentication, but add route tests.") == (
+        "workspace_mutation"
+    )
+
+
 def test_calisir_hale_getirme_sorusu_etki_istemez():
     assert required_effect_for("bu panel nasıl çalışır hale getirilir") is None
 
@@ -359,9 +374,7 @@ def test_yedege_dusen_tur_yazabilen_modele_gecince_kapi_acilir():
     politika = _web_policy()
     assert politika.allow_mutation is False
 
-    tazelenmis = refresh_mutation_policy(
-        politika, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
-    )
+    tazelenmis = refresh_mutation_policy(politika, "nvidia_nim/nemotron-3-ultra-550b-a55b", config)
 
     assert tazelenmis.allow_mutation is True
     assert tazelenmis.mutation_block_reason == ""
@@ -390,9 +403,7 @@ def test_gozlem_turunun_kilidi_yedek_degisikligiyle_acilmaz():
     config = _config()
     gozlem = observe_execution(_web_policy(), "bu adım yalnız gözlemler")
 
-    tazelenmis = refresh_mutation_policy(
-        gozlem, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
-    )
+    tazelenmis = refresh_mutation_policy(gozlem, "nvidia_nim/nemotron-3-ultra-550b-a55b", config)
 
     assert tazelenmis.allow_mutation is False
 
@@ -403,8 +414,6 @@ def test_sohbet_turunun_kilidi_yedek_degisikligiyle_acilmaz():
     config = _config()
     sohbet = chat_execution(_web_policy())
 
-    tazelenmis = refresh_mutation_policy(
-        sohbet, "nvidia_nim/nemotron-3-ultra-550b-a55b", config
-    )
+    tazelenmis = refresh_mutation_policy(sohbet, "nvidia_nim/nemotron-3-ultra-550b-a55b", config)
 
     assert tazelenmis.allow_mutation is False

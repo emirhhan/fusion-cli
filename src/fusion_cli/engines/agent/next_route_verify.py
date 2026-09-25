@@ -70,6 +70,12 @@ class NextRouteVerifier:
                     "başlığıyla işlem yapıyor ama çağıran kullanıcı için açık yetki "
                     "kontrolü görünmüyor."
                 )
+            if _exposes_privileged_header_to_browser(source.relative_to(self._root), content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: tarayıcı isteğine sabit X-MG-Panel "
+                    "başlığı eklenmiş. Her ziyaretçi bu değeri kopyalayabilir; "
+                    "sunucuda gerçek çağıran yetkisi gerekir."
+                )
             bases = {match.group("base") for match in _INLINE_DYNAMIC.finditer(content)}
             for match in _BASE.finditer(content):
                 name, base = match.group("name", "base")
@@ -102,6 +108,15 @@ def _is_stub_post(relative: Path, content: str) -> bool:
         _STATIC_SUCCESS.search(content)
         and not _LOCAL_IMPORT.search(content)
         and not re.search(r"\b(?:fetch|writeFile|prisma)\s*[.(]", content)
+    )
+
+
+def _exposes_privileged_header_to_browser(relative: Path, content: str) -> bool:
+    if relative.name in {"route.ts", "route.js"} or '"use server"' in content:
+        return False
+    return bool(
+        _PRIVILEGED_STOCK_HEADER.search(content)
+        and re.search(r"\bfetch\s*\(\s*(?:`|[\"'])/api/", content)
     )
 
 

@@ -147,6 +147,22 @@ async def test_yetkili_yerel_servis_basligini_ekleyen_post_proxy_korunmalidir(tm
 
 
 @pytest.mark.asyncio
+async def test_tarayıcıya_kopyalanabilen_yetkili_baslik_dogrulama_sayilmaz(tmp_path):
+    client = tmp_path / "components/stok/stokApi.ts"
+    client.parent.mkdir(parents=True)
+    client.write_text(
+        'export function stokPost() { return fetch("/api/stok/run", '
+        '{ method: "POST", headers: { "X-MG-Panel": "1" } }); }\n',
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (client,)).verify()
+
+    assert result.ok is False
+    assert any("kopyalayabilir" in finding for finding in result.findings)
+
+
+@pytest.mark.asyncio
 async def test_eksik_route_turun_gercek_kalite_kapisini_dusurur(tmp_path):
     client = _client(tmp_path)
     context = ToolContext(root=tmp_path)

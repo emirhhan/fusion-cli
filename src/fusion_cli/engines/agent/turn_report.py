@@ -45,6 +45,7 @@ def _is_shell_call(name: str) -> bool:
     """
     return tool_family(name) is ToolFamily.SHELL
 
+
 #: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
 #: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
 _EXIT_CODE_PREFIX = "(çıkış kodu "
@@ -72,6 +73,8 @@ class TurnReport:
     command_runs: tuple[CommandRun, ...] = ()
     #: Deterministik kalite kapısının (ruff/mypy/verifier) sonucu; yoksa `None`.
     gate: VerificationResult | None = None
+    #: Çok dosyalı uzun kod görevinde son değişiklikten sonra davranış kanıtı zorunludur.
+    require_behavioral_evidence: bool = False
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -100,12 +103,12 @@ class TurnReport:
     def blocks_success(self) -> bool:
         """Turu BAŞARISIZ ilan etmeyi gerektiren somut bir kanıt var mı.
 
-        Eksik kanıt (hiçbir doğrulama komutu çalışmadı) turu başarısız SAYMAZ —
-        bu dürüst bir uyarıdır, hata değildir (bkz. plan §6, karar 3). Yalnız
-        GERÇEKTEN düşen bir kalite kapısı ya da GERÇEKTEN sıfırdan farklı çıkış
-        koduyla biten bir komut turu düşürür.
+        Basit değişikliklerde eksik kanıt uyarıdır. Uzun kod görevinde son
+        değişiklikten sonra test yoksa başarı iddiası için gereken kanıt eksiktir.
         """
         if self.gate is not None and not self.gate.ok:
+            return True
+        if self.require_behavioral_evidence and self.is_verified is False:
             return True
         return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence)
 
@@ -167,6 +170,8 @@ def build_turn_report(
     changed_paths: tuple[str, ...],
     tool_uses: tuple[ToolUse, ...],
     gate: VerificationResult | None,
+    *,
+    require_behavioral_evidence: bool = False,
 ) -> TurnReport:
     """Turda denenen araç çağrılarından ve değişiklik kaydından raporu kur."""
     last_mutation = _last_mutation_index(tool_uses)
@@ -175,7 +180,12 @@ def build_turn_report(
         for index, use in enumerate(tool_uses)
         if _is_shell_call(use.name)
     )
-    return TurnReport(changed_paths=changed_paths, command_runs=command_runs, gate=gate)
+    return TurnReport(
+        changed_paths=changed_paths,
+        command_runs=command_runs,
+        gate=gate,
+        require_behavioral_evidence=require_behavioral_evidence,
+    )
 
 
 def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:

@@ -44,8 +44,9 @@ doğrulanmamış işi başarılı gösterme.
 - Projenin bağımlılık, stil, isimlendirme ve mimari desenlerine uy; var olmayan
   kütüphane veya API varsayma.
 - En küçük doğru değişikliği yap. İlgisiz refactor, yeni dosya veya dokümantasyon ekleme.
-- Sahte entegrasyon yazma: API rotası sabit boş veri veya koşulsuz başarı
-  dönmesin; gerçek servis ve yetkiye bağla, yapamıyorsan bildir.
+- Sahte entegrasyon yazma: sabit veri/koşulsuz başarı dönmesin;
+  gerçek servise bağla. Yetkili başlığı tarayıcıya koyma, çağıranı
+  sunucuda doğrula; altyapı yoksa bildir.
 - Kısmi değişiklikte yalnız gerekli bölgeyi düzenle; tüm dosyayı gereksiz yere yeniden
   üretme. Düzenleme araçlarının kendi sözleşmesine uy.
 - Düzenleme sonucunda dönen diff'i oku; silinmesini istemediğin bir `-` satırı

@@ -152,6 +152,27 @@ def test_kanit_eksikligi_turu_basarisiz_saymaz():
     assert report.blocks_success is False
 
 
+def test_uzun_kod_gorevinde_son_degisim_dogrulanmadan_basarili_sayilmaz():
+    runs = (
+        _write("route.ts"),
+        _shell("npx vitest run", exit_code=0),
+        _write("route.ts"),
+    )
+    report = build_turn_report(("route.ts",), runs, gate=None, require_behavioral_evidence=True)
+
+    assert report.is_verified is False
+    assert report.blocks_success is True
+    assert "ÇALIŞTIRILMADI" in report.render()
+
+    verified = build_turn_report(
+        ("route.ts",),
+        (*runs, _shell("npx vitest run", exit_code=0)),
+        gate=None,
+        require_behavioral_evidence=True,
+    )
+    assert verified.blocks_success is False
+
+
 def test_kanit_eksikken_modelin_tamamlandi_sozu_dogrulanmamis_yazar():
     report = build_turn_report(("a.py",), (_write("a.py"),), gate=None)
 

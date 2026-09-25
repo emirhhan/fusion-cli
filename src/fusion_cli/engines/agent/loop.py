@@ -597,7 +597,14 @@ async def run_agent(
     # buradaki iç turların atlanması onu bozmaz, aksine aynı çiftlenmeyi orada
     # da önler.
     if not chat_mode and not internal and depth == 0:
-        _apply_turn_report(outcome, deps, gate=verification)
+        _apply_turn_report(
+            outcome,
+            deps,
+            gate=verification,
+            require_behavioral_evidence=(
+                verify and execution.complex_task and len(deps.tool_context.changes.paths) > 1
+            ),
+        )
 
     # Cevap ÖĞRENMEDEN ÖNCE duyurulur. Ölçüldü: iş bir dakikada bitti, cevap
     # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
@@ -632,7 +639,11 @@ async def run_agent(
 
 
 def _apply_turn_report(
-    outcome: AgentOutcome, deps: AgentDeps, *, gate: VerificationResult | None
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    gate: VerificationResult | None,
+    require_behavioral_evidence: bool = False,
 ) -> None:
     """Turun raporunu MODELİN BEYANINDAN değil gerçek kayıttan kur ve ekle.
 
@@ -644,15 +655,21 @@ def _apply_turn_report(
 
     Bilinen bir bozukluğu (`gate.ok is False`) ya da GERÇEKTEN başarısız biten
     bir doğrulama komutunu başarı diye teslim etmek hiç yazmamaktan kötüdür; bu
-    yüzden `report.blocks_success` turu `ok=False` yapar. Eksik kanıt (hiçbir
-    komut çalışmadı) bunun dışındadır — dürüst bir uyarıdır, hata değildir.
+    yüzden `report.blocks_success` turu `ok=False` yapar. Birden fazla dosya
+    değiştiren uzun kod görevinde son değişiklikten sonra davranış testi eksikse
+    de tamamlanma kanıtı yoktur.
     """
     from ...tools.files import display_path
 
     changed_paths = tuple(
         display_path(deps.tool_context, path) for path in deps.tool_context.changes.paths
     )
-    report = build_turn_report(changed_paths, outcome.tool_uses, gate)
+    report = build_turn_report(
+        changed_paths,
+        outcome.tool_uses,
+        gate,
+        require_behavioral_evidence=require_behavioral_evidence,
+    )
     text = report.render()
     if not text:
         return

@@ -2313,6 +2313,7 @@ async def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_ge
     assert "a.py" in sonuc.final_text
     assert "b.py" in sonuc.final_text
     assert "Hiçbir dosya değiştirmedim." in sonuc.final_text
+    assert sonuc.ok is False, "çok dosyalı uzun görev son değişiklikten sonra doğrulanmalıdır"
 
 
 async def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar(

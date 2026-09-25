@@ -43,7 +43,12 @@ _NEGATED_ACTION_WORDS = (
 # gerçek görev bu yoldan geçiyor.
 _ACTION_CLAUSE_SPLIT = re.compile(
     r"(?:[.!?;](?=\s|$)|[!?;\n]+"
-    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra)\b)",
+    r"|\b(?:ama|fakat|ancak|lakin|ve|veya|ardından|ardindan|sonra|but|however)\b)",
+    re.IGNORECASE,
+)
+
+_EN_NEGATED_MUTATION = re.compile(
+    r"\b(?:do\s+not|don't|never)\s+(?:implement|repair|fix|create|modify|update|add|write)\b",
     re.IGNORECASE,
 )
 
@@ -191,7 +196,8 @@ _FILE_MUTATION_PATTERNS = (
 _EN_FILE_MUTATION_PATTERNS = (
     r"\b(?:implement|repair|fix|create|modify|update|add)\b.{0,80}"
     r"\b(?:module|route|service|test|file|integration|feature|flow|bug|code|"
-    r"website|app|import)\b",
+    r"website|app|import|authorization|authentication|access control|"
+    r"security guard|permission check)\b",
     r"\bwrite\b.{0,40}\b(?:file|module|test|code|route)\b",
 )
 #: `required_effect_for`'un mutasyon/etki KÜMESİNE (`EffectKind`) ait olmayan tek
@@ -327,9 +333,7 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
         r"could i\b|would i\b|is it\b|do you think\b|explain\b|describe\b|"
         r"tell me how\b)",
         lowered,
-    ) and _matches(
-        lowered, _EN_FILE_MUTATION_PATTERNS
-    ):
+    ) and _matches(lowered, _EN_FILE_MUTATION_PATTERNS):
         return EffectKind.WORKSPACE_MUTATION.value
     if _matches(lowered, _BULK_COUNT_PATTERNS):
         return _BULK_COUNT_EFFECT
@@ -386,7 +390,10 @@ def _positive_action_clauses(text: str) -> str:
     """
     clauses = [part.strip() for part in _ACTION_CLAUSE_SPLIT.split(text) if part.strip()]
     positive = [
-        clause for clause in clauses if not any(word in clause for word in _NEGATED_ACTION_WORDS)
+        clause
+        for clause in clauses
+        if not any(word in clause for word in _NEGATED_ACTION_WORDS)
+        and not _EN_NEGATED_MUTATION.search(clause)
     ]
     return " ".join(positive)
 
