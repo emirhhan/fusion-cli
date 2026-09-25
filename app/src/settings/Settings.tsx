@@ -160,7 +160,7 @@ export function Settings({
       <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" ref={dialogRef} role="dialog">
         <div className="settings__navcol">
           <h2 className="settings__sr-only" id="settings-title">Ayarlar</h2>
-          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} ref={closeRef} type="button">×</button>
+          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} ref={closeRef} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
           <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
           <nav aria-label="Ayar bölümleri" className="settings__nav">
             {BOLUMLER.filter((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))).map((item) => (

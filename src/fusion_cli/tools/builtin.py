@@ -50,28 +50,27 @@ def build_registry() -> ToolRegistry:
 _TOOLS: tuple[Tool, ...] = (
     Tool(
         name="desktop_apps",
-        description="macOS'ta çalışan uygulamaların adlarını listele.",
+        description="Çalışan macOS uygulamalarını listele.",
         parameters=_schema({}, []),
         run=desktop.desktop_apps,
     ),
     Tool(
         name="desktop_open",
-        description="macOS uygulamasını adıyla aç ve öne getir.",
+        description="macOS uygulamasını öne getir.",
         parameters=_schema({"app": _STRING}, ["app"]),
         run=desktop.desktop_open,
         mutating=True,
     ),
     Tool(
         name="desktop_screenshot",
-        description="macOS ekranını PNG olarak kaydet ve görseli incele. Ekran Kaydı izni gerekir.",
+        description="macOS ekranını görsel olarak oku.",
         parameters=_schema({"path": _STRING}, []),
         run=desktop.desktop_screenshot,
         mutating=True,
     ),
     Tool(
         name="desktop_click",
-        description="macOS ekranında x/y noktasına tıkla. Erişilebilirlik izni gerekir; "
-        "gerçek uygulamada değişiklik yapabilir.",
+        description="macOS ekranında x/y noktasına tıkla.",
         parameters=_schema({"x": _INTEGER, "y": _INTEGER}, ["x", "y"]),
         run=desktop.desktop_click,
         mutating=True,
@@ -79,8 +78,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_type",
-        description="Odaklı macOS uygulamasına metin yaz. Erişilebilirlik izni gerekir; "
-        "hassas alanlara yazabilir.",
+        description="Odaklı macOS uygulamasına metin yaz.",
         parameters=_schema({"text": _STRING}, ["text"]),
         run=desktop.desktop_type,
         mutating=True,
@@ -88,8 +86,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_key",
-        description="Odaklı macOS uygulamasında Enter, Escape, ok tuşu veya "
-        "Command kısayolu gönder.",
+        description="macOS'a özel tuş veya Command kısayolu gönder.",
         parameters=_schema(
             {"key": _STRING, "command": {"type": "boolean"}, "shift": {"type": "boolean"}},
             ["key"],
@@ -100,8 +97,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="desktop_scroll",
-        description="Odaklı macOS penceresinde kaydır; pozitif yukarı, negatif aşağı "
-        "satır sayısıdır.",
+        description="macOS penceresini kaydır; pozitif yukarıdır.",
         parameters=_schema({"lines": _INTEGER}, ["lines"]),
         run=desktop.desktop_scroll,
         mutating=True,
@@ -109,10 +105,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="read_file",
-        description="Bir dosyanın içeriğini satır numaralarıyla oku. Bir dosyayı "
-        "değiştirmeden ÖNCE mutlaka oku; kör düzenleme yapma. Uzun dosya parça "
-        "parça okunur: sonuç kesildiğini söylerse 'offset' ile DEVAM ET, aynı "
-        "çağrıyı tekrarlama.",
+        description="Dosyayı satır numaralarıyla oku. Düzenlemeden önce kullan; "
+        "kesilen çıktıda offset ile devam et.",
         parameters=_schema(
             {
                 "path": {**_STRING, "description": "Dosya yolu"},
@@ -129,9 +123,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="write_file",
-        description="Bir dosyayı verilen içerikle oluştur ya da TAMAMEN üzerine yaz. "
-        "Var olan dosyanın bir kısmını değiştireceksen bunu değil edit_file kullan. "
-        "Var olan dosyada sonuç, eski içerikle farkı (diff) gösterir.",
+        description="Dosyayı oluştur veya TAMAMEN üzerine yaz. Kısmi değişiklikte "
+        "edit_file kullan; sonuç diff gösterir.",
         parameters=_schema(
             {
                 # Açıklamada sıra vurgulanır: içerik büyükse model küçük alanı sona
@@ -157,14 +150,10 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="edit_file",
-        description="TERCİH EDİLEN kısmi düzenleme aracı. Önce read_file ile oku; "
-        "sonra dosyadaki 'old' metnini 'new' ile değiştir. 'old' dosyadakiyle BİREBİR "
-        "(girinti dahil) ve BENZERSİZ olmalı; değilse düzenleme reddedilir ve dosya "
-        "değişmez. EKLEME yapıyorsan eklemenin yapılacağı yerdeki mevcut satırı 'old' "
-        "olarak ver ve 'new' içinde o satırı AYNEN tekrar edip yeni kodu ekle. Tekrar "
-        "eden bir metnin HEPSİNİ değiştireceksen replace_all: true kullan. Sonuç "
-        "değişikliğin diff'ini döner: silinmesini istemediğin bir '-' satırı görürsen "
-        "hemen geri ekle.",
+        description="TERCİH EDİLEN kısmi düzenleme. Önce read_file ile oku. 'old' "
+        "metni BİREBİR ve BENZERSİZ olmalı. Eklemede mevcut satırı 'old' yap, "
+        "'new' içinde koruyup ekle. Tüm eşleşmeler için replace_all: true. "
+        "Diff'teki istenmeyen silmeleri geri al.",
         parameters=_schema(
             {
                 "path": _STRING,
@@ -212,12 +201,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="scaffold_web",
-        description="SIFIRDAN yeni bir web arayüzü kurarken kullan: hazır tasarım "
-        "token'ları (tokens.css), test edilmiş biçimlendiriciler (format.js) ve doğru "
-        "sıralı sayfa iskeletini (index.html) diske yazar. Var olan dosyayı EZMEZ; "
-        "sonra bu dosyaları doldurursun. Dizinde zaten bir site varsa, var olan bir "
-        "sayfayı düzeltiyorsan ya da belirli bir kaynağı (URL, tasarım) taklit "
-        "ediyorsan bunu ÇAĞIRMA — önce list_dir/read_file ile ne olduğunu gör.",
+        description="Sıfırdan web sitesi kur: tokens.css, format.js ve index.html "
+        "iskeleti yazar; dosya ezmez. Var olan siteyi düzenlerken kullanma.",
         parameters=_schema({"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []),
         run=scaffold_tool.scaffold_web,
         mutating=True,
@@ -272,12 +257,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="run_shell",
-        description="Bir kabuk komutu çalıştır ve çıktısını al. Kod değiştirdiysen "
-        "test/lint/build çalıştırarak işini DOĞRULA. Sürekli çalışan sunucuyu veya "
-        "izleyiciyi ön planda başlatma; doğrulama için bitecek komut kullan. "
-        "Komut zaten seçili proje kökünde çalışır; başına cd ekleme. "
-        "Dosya aramak için önce search_code/glob araçlarını kullan. "
-        "Değiştirici — onay gerekir.",
+        description="Proje kökünde kabuk komutu çalıştır. Koddan sonra test/lint/build "
+        "ile doğrula. Sürekli çalışan komutları ön planda başlatma. Onay gerekir.",
         parameters=_schema({"command": _STRING}, ["command"]),
         run=shell.run_shell,
         mutating=True,
@@ -349,13 +330,9 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_open",
-        description="Bir adresi GERÇEK tarayıcıda aç ve sayfanın görünür metnini oku. "
-        "web_fetch'in yetmediği yerde kullan: şifre/giriş arkasındaki sayfa, "
-        "JavaScript ile dolan içerik, tıklama gerektiren akış. Sayfa tur boyunca "
-        "AÇIK kalır; sonraki browser_* çağrıları aynı sayfada çalışır. "
-        "Bu araç dış adresler içindir; file://, localhost ve 127.0.0.1 adresleri "
-        "güvenlik nedeniyle reddedilir. Yerel uygulamayı doğrulamak için projenin "
-        "test/acceptance komutunu run_shell ile çalıştır.",
+        description="Dış URL'yi gerçek tarayıcıda aç, görünür metni oku. Girişli veya "
+        "JavaScript sayfalarında kullan; oturum tur boyunca açık kalır. file:// "
+        "ve localhost engellenir. Yerel uygulamayı run_shell testleriyle doğrula.",
         parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
         run=browser.browser_open,
     ),
@@ -442,12 +419,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_mirror",
-        description="Açık tarayıcı sayfasını YÜKLEDİĞİ kaynaklarla (CSS/JS/görsel/font) "
-        "birlikte diske indir. Bir siteyi 'kopyalama' isteğinin karşılığı budur; "
-        "şifre kapısını browser_type ile geçtiysen ayna da o oturumu görür. "
-        "url verilmezse ETKİN sayfa aynalanır. Tek sayfa iner ve JavaScript ile "
-        "çekilen veri yerelde çalışmaz — sonucu 'eksiksiz kopya' diye sunma. "
-        "Değiştirici (çok sayıda dosya yazar).",
+        description="Açık sayfayı CSS/JS/görselleriyle diske aynala; giriş oturumu "
+        "korunur. Tek sayfa iner, dinamik veri yerelde çalışmayabilir.",
         parameters=_schema(
             {
                 "path": {**_STRING, "description": "Hedef dizin (varsayılan: ayna)"},

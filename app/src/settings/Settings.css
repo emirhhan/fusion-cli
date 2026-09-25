@@ -224,53 +224,55 @@
    kontrolleri korur; dış yerleşim sohbet akışını değiştirmez. */
 .settings {
   align-items: center;
-  background: rgb(0 0 0 / 68%);
-  display: flex;
+  background: var(--settings-dialog-bg);
+  display: block;
   height: 100dvh;
   inset: 0;
-  justify-content: center;
   overflow: hidden;
-  padding: 24px;
+  padding: 0;
   position: fixed;
   z-index: 80;
 }
 :root[data-theme="light"] .settings {
-  background: rgb(0 0 0 / 42%);
+  background: var(--settings-dialog-bg);
 }
 .settings__dialog {
   background: var(--settings-dialog-bg);
-  border: 1px solid var(--settings-border);
-  border-radius: 16px;
-  box-shadow: 0 24px 72px rgb(0 0 0 / 35%);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   color: var(--settings-text);
   display: grid;
-  grid-template-columns: 208px minmax(0, 1fr);
-  height: min(600px, calc(100dvh - 48px));
-  max-width: 100%;
+  grid-template-columns: 240px minmax(0, 1fr);
+  height: 100dvh;
   overflow: hidden;
-  width: 680px;
+  width: 100%;
 }
 .settings__navcol {
+  background: var(--surface-sidebar);
   border-right: 1px solid var(--settings-border);
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
-  padding: 12px 8px;
+  padding: 42px 8px 16px;
 }
 .settings__close {
   align-items: center;
-  background: var(--settings-selected);
-  border: 1px solid var(--settings-border);
-  border-radius: 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
   color: var(--settings-text);
   cursor: pointer;
   display: flex;
-  font-size: 24px;
-  height: 38px;
-  justify-content: center;
-  width: 38px;
+  font-size: 14px;
+  gap: 10px;
+  min-height: 38px;
+  padding: 0 10px;
+  text-align: left;
+  width: 100%;
 }
+.settings__close:hover { background: var(--settings-selected); }
 .settings__search {
   background: var(--settings-input-bg);
   border: 1px solid var(--settings-border);
@@ -297,7 +299,7 @@
   display: block;
   min-height: 0;
   overflow-y: auto;
-  padding: 15px 16px 28px;
+  padding: 54px max(24px, calc((100% - 760px) / 2)) 48px;
 }
 .settings__section-heading {
   border-bottom: 1px solid var(--settings-border);
@@ -332,12 +334,13 @@
 .settings__close:focus-visible, .settings__search:focus-visible,
 .settings__nav button:focus-visible { outline: 2px solid var(--settings-ring); outline-offset: 2px; }
 @media (max-width: 700px) {
-  .settings { padding: 12px; }
-  .settings__dialog { grid-template-columns: 150px minmax(0, 1fr); height: min(600px, calc(100dvh - 24px)); }
+  .settings__dialog { grid-template-columns: 180px minmax(0, 1fr); }
+  .settings__panel { padding: 44px 22px; }
 }
 @media (max-width: 520px) {
   .settings__dialog { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
   .settings__navcol { border-bottom: 1px solid var(--settings-border); border-right: 0; }
   .settings__nav { display: flex; overflow-x: auto; }
   .settings__nav button { white-space: nowrap; }
+  .settings__panel { padding: 24px 18px; }
 }

@@ -6,7 +6,7 @@ Bu liste kullanıcı isteğinin kabul sözleşmesidir. Bir satırın kaynak kodd
 | --- | --- | --- | --- |
 | Referans | Codex geniş/dar pencere; kenar çubuğu, başlık, sohbet, ayarlar, hesap, proje ve panel ekranlarının ölçümü | Aynı çözünürlükte referans ve Fusion görüntüleri, etkileşim notları | Kısmi: kullanıcının ekran kaydı ayarlar, hesap ve sol gezinmeyi gösteriyor; sohbet ve proje etkileşimlerinin tamamı görünmüyor |
 | Yerleşim | Simge, düğme, boşluk, tipografi, dar ekran ve panel konumlarını düzelt | Görsel farklar ve çalışan kontroller | Kısmi: proje/sohbet seçenekleri fareyle üzerine gelince açılır |
-| Hesap/ayar | Tüm menü hedefleri, kişiselleştirme, hafıza, model, izin ve tema | Paketli uygulamada aç/kaydet/yeniden aç akışları | Kısmi; yinelenen Hesap başlığı kaldırıldı |
+| Hesap/ayar | Tüm menü hedefleri, kişiselleştirme, hafıza, model, izin ve tema | Paketli uygulamada aç/kaydet/yeniden aç akışları | Kısmi; yinelenen Hesap başlığı kaldırıldı, ayarlar video referansındaki tam sayfa düzenine taşındı; tüm video bölümleri işlevsel eşdeğer değil |
 | Sohbet | Mesaj, düşünme, durdurma, kod/diff, paylaşma, ekler | Gerçek tur ve erişilebilirlik kontrolü | Açık |
 | Bağlam | Seçilen model zincirine göre özetleme bütçesi; gerçek token penceresi bilinmiyorsa belirsizliği göster | Farklı model pencereleri, yedek ve web modeli için davranış testleri | Kısmi; yerel model metadatası ve ortak sıkıştırma eşiği kullanılıyor, son ajan çağrısının gerçek girdi tokenı ayrı gösteriliyor; mevcut geçmişin tam token sayımı yok |
 | Projeler | Oluştur/taşı/sil, geçmiş ve veri korunumu | Yeniden başlatma sonrası aynı veri | Açık |
