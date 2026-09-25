@@ -2290,7 +2290,7 @@ async def test_degisiklik_yoksa_rapor_eklenmez(monkeypatch, tmp_path, sink):
 async def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_gelir(
     monkeypatch, tmp_path, sink
 ):
-    """A12: model 'hiçbir dosya değiştirmedim' dese bile rapor GERÇEK kaydı listeler."""
+    """A12: modelin yanlış beyanı saklanır, rapor GERÇEK kaydı listeler."""
     _kur(
         monkeypatch,
         ScriptedProvider(
@@ -2312,7 +2312,8 @@ async def test_degisen_dosyalar_modelin_beyanindan_degil_degisiklik_kaydindan_ge
 
     assert "a.py" in sonuc.final_text
     assert "b.py" in sonuc.final_text
-    assert "Hiçbir dosya değiştirmedim." in sonuc.final_text
+    assert "Hiçbir dosya değiştirmedim." not in sonuc.final_text
+    assert "açıklaması gösterilmedi" in sonuc.final_text
     assert sonuc.ok is False, "çok dosyalı uzun görev son değişiklikten sonra doğrulanmalıdır"
 
 

@@ -27,11 +27,12 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "guncellemeler" | "gelismis";
+type BolumId = "genel" | "hesap" | "ses" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "guncellemeler" | "gelismis";
 
 const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
   { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
   { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
+  { id: "ses", etiket: "Ses", ikon: "mic", grup: "Kişisel" },
   { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
   { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
   { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
@@ -217,6 +218,8 @@ export function Settings({
             <Models model={control?.model ?? null} onRunCommand={onRunCommand} />
           )}
 
+          {bolum === "ses" && <VoicePreferences client={client} />}
+
           {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
 
           {bolum === "tarayici" && <ChromeBrowser client={client} />}
@@ -242,7 +245,6 @@ export function Settings({
                 onToggle={toggleGateway}
               />
               <UsagePanel client={client} />
-              <VoicePreferences client={client} />
             </>
           )}
         </div>

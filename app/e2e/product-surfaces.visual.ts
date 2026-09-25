@@ -40,11 +40,10 @@ for (const visualCase of [
   test(visualCase.name, async ({ page }) => {
     await page.setViewportSize({ width: visualCase.width, height: 900 });
     await page.goto("/e2e/preview.html?state=settings&theme=light");
-    const grid = page.locator(".settings__grid");
-    await expect(grid).toBeVisible();
-    await grid.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
+    const panel = page.locator(".settings__panel");
+    await expect(panel).toBeVisible();
+    await page.getByRole("button", { name: "Gelişmiş" }).click();
+    await expect(panel.getByRole("heading", { name: "Gelişmiş" })).toBeVisible();
     await expect(page).toHaveScreenshot(`${visualCase.name}.png`);
   });
 }

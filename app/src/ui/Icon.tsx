@@ -14,6 +14,7 @@ export type IconName =
   | "lessons"
   | "new"
   | "logout"
+  | "mic"
   | "panel"
   | "preview"
   | "search"
@@ -41,6 +42,7 @@ const paths: Record<IconName, ReactNode> = {
   lessons: <><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v17H6.5A2.5 2.5 0 0 0 4 22.5z" /><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v17h4.5a2.5 2.5 0 0 1 2.5 2.5z" /></>,
   new: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
   logout: <><path d="M10 5H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h5" /><path d="m14 8 4 4-4 4" /><path d="M8 12h10" /></>,
+  mic: <><rect x="9" y="2" width="6" height="13" rx="3" /><path d="M5 10a7 7 0 0 0 14 0M12 17v5m-4 0h8" /></>,
   panel: <><rect width="18" height="16" x="3" y="4" rx="2" /><path d="M15 4v16" /></>,
   preview: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6" /><circle cx="12" cy="12" r="2.5" /></>,
   search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></>,

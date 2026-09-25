@@ -104,10 +104,20 @@ describe("Settings — yapı", () => {
     ciz();
 
     expect(await screen.findByRole("heading", { name: "Ayarlar" })).toBeTruthy();
-    for (const etiket of ["Genel", "Hesap", "Modeller", "İzinler", "Güncellemeler", "Gelişmiş"]) {
+    for (const etiket of ["Genel", "Hesap", "Ses", "Modeller", "İzinler", "Güncellemeler", "Gelişmiş"]) {
       expect(screen.getByRole("button", { name: etiket })).toBeTruthy();
     }
     expect(screen.getByRole("button", { name: "Genel" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("ses tercihlerini kendi bölümünde açar", async () => {
+    const fake = ciz();
+    bolum("Ses");
+
+    expect(await screen.findByText(/Konuşma hızı, tını/)).toBeTruthy();
+    expect(vi.mocked(fake.request)).toHaveBeenCalledWith("ses.durum", {});
+    bolum("Gelişmiş");
+    expect(screen.queryByText(/Konuşma hızı, tını/)).toBeNull();
   });
 
   /* Kullanıcının ölçülmüş şikayeti: "Fusion for macOS" eyebrow'u ve "Çalışma

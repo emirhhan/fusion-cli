@@ -183,6 +183,22 @@ def test_kanit_eksikken_modelin_tamamlandi_sozu_dogrulanmamis_yazar():
     assert result.index("doğrulanmadı") < result.index("Görev tamamlandı")
 
 
+def test_degisen_dosyalar_ve_modelin_degistirmedim_sozu_celismez():
+    report = build_turn_report(
+        ("inventory/api.py",),
+        (_write("inventory/api.py"), _shell("pytest -q", exit_code=0)),
+        gate=None,
+    )
+
+    result = report.render_with_model_text(
+        "Hiçbir dosyada değişiklik yapamadım. Kodu kendiniz ekleyin."
+    )
+
+    assert "inventory/api.py" in result
+    assert "açıklaması gösterilmedi" in result
+    assert "Kodu kendiniz ekleyin" not in result
+
+
 def test_basarisiz_komut_turu_basarisiz_sayar():
     tool_uses = (_write("a.py"), _shell("pytest -q", exit_code=1))
     report = build_turn_report(("a.py",), tool_uses, gate=None)

@@ -13,6 +13,7 @@ tiplerini, `core.tools.tool_family` sınıflandırmasını ve
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ...core.evidence import ToolUse
@@ -49,6 +50,15 @@ def _is_shell_call(name: str) -> bool:
 #: `run_shell` çıktısının başındaki çıkış kodu öneki — TEK KAYNAK (`tools/shell.py`
 #: ile aynı biçim). Üreten taraf değiştirilirse bu sabit de güncellenmelidir.
 _EXIT_CODE_PREFIX = "(çıkış kodu "
+
+_NO_CHANGE_CLAIMS = re.compile(
+    r"(?:hiçbir|herhangi bir) dosya(?:da|yı|yı\s+doğrudan)?\s+"
+    r"(?:değiştir(?:medim|emedim)|düzenle(?:medim|yemedim))"
+    r"|dosya(?:da|larda)?\s+değişiklik\s+yap(?:madım|amadım)"
+    r"|(?:no files? (?:was|were) (?:changed|modified)"
+    r"|i (?:did not|could not) (?:change|edit) files?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +134,11 @@ class TurnReport:
         report = self.render()
         if not report:
             return model_text
+        if self.changed_paths and _NO_CHANGE_CLAIMS.search(model_text):
+            return (
+                report + "⚠ Ajanın dosya değişikliği beyanı araç kaydıyla çeliştiği için "
+                "açıklaması gösterilmedi."
+            )
         if self.is_verified is False and model_text.strip():
             return report + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
