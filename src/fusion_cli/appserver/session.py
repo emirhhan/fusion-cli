@@ -45,7 +45,7 @@ from ..config.paths import credentials_file
 from ..core.events import Event
 from ..core.health import HealthRegistry
 from ..engines.agent.approval import ApprovalMode
-from ..engines.agent.execution_policy import uses_web_context
+from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
@@ -1019,18 +1019,16 @@ class AppSession:
             # Sıkıştırma sürpriz olmasın: kullanıcı bağlamın dolduğunu görsün.
             "baglam": baglam_olcusu(
                 self._state.history,
-                web=self._uses_web_threshold(),
+                budget=context_budget(
+                    self._state.config,
+                    select_agent_spec(self._state.config, self._state.task_type),
+                ),
             ),
             # Composer'ın yanındaki sürekli-görünür rozet içindir (Faz 5,
             # Görev 1) — ikinci bir sayaç DEĞİL, `kullanim.durum`u da besleyen
             # AYNI `self._usage`'dan okunur.
             "maliyet_usd": round(self._usage.total.cost_usd, 4),
         }
-
-    def _uses_web_threshold(self) -> bool:
-        """Döngünün sıkıştırma eşiğiyle aynı kural (`loop._maybe_compress`)."""
-        config = self._state.config
-        return uses_web_context(config, select_agent_spec(config, self._state.task_type))
 
     def _gateway_status(self) -> dict[str, Any]:
         if self._gateway_process_id is None:

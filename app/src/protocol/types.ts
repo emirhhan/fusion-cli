@@ -37,13 +37,15 @@ export interface Soru {
 /**
  * Kalan bağlam ölçüsü (`oturum.durum` → `baglam`).
  *
- * `sinir`, çekirdeğin geçmişi özetlemeye başladığı karakter eşiğidir; web
- * oturumunda çok daha düşüktür. `yuzde` 0–100 arasına kırpılmış doluluktur.
+ * `sinir` geçmişin özetleme eşiğidir; modelin tam token penceresi değildir.
+ * Model penceresi yalnız doğrulanabilirse ayrıca bildirilir.
  */
 export interface BaglamOlcusu {
   kullanilan: number;
   sinir: number;
   yuzde: number;
+  model?: string | null;
+  model_siniri_token?: number | null;
 }
 
 /**
@@ -52,14 +54,20 @@ export interface BaglamOlcusu {
  */
 export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
   if (!deger || typeof deger !== "object") return null;
-  const { kullanilan, sinir, yuzde } = deger as Record<string, unknown>;
+  const { kullanilan, sinir, yuzde, model, model_siniri_token } = deger as Record<string, unknown>;
   const sayilar = [kullanilan, sinir, yuzde];
   if (!sayilar.every((sayi) => typeof sayi === "number" && Number.isFinite(sayi) && sayi >= 0)) {
     return null;
   }
+  if (model !== undefined && model !== null && typeof model !== "string") return null;
+  if (model_siniri_token !== undefined && model_siniri_token !== null && (
+    typeof model_siniri_token !== "number" || !Number.isInteger(model_siniri_token) || model_siniri_token <= 0
+  )) return null;
   return {
     kullanilan: kullanilan as number,
     sinir: sinir as number,
     yuzde: Math.min(100, yuzde as number),
+    ...(model !== undefined ? { model: model as string | null } : {}),
+    ...(model_siniri_token !== undefined ? { model_siniri_token: model_siniri_token as number | null } : {}),
   };
 }

@@ -26,7 +26,7 @@ describe("baglamSeviyesi", () => {
 describe("baglamEtiketi", () => {
   it("normalde metin yazmaz, uyarıda kalanı, kritikte özetleme ipucunu yazar", () => {
     expect(baglamEtiketi(40)).toBeNull();
-    expect(baglamEtiketi(75)).toBe("Bağlam %25 kaldı");
+    expect(baglamEtiketi(75)).toBe("Özetlemeye %25 kaldı");
     expect(baglamEtiketi(95)).toBe("Yakında özetlenecek");
   });
 });
@@ -42,7 +42,7 @@ describe("ContextGauge", () => {
     const meter = screen.getByRole("meter");
     expect(meter.getAttribute("aria-valuenow")).toBe("30");
     expect(meter.getAttribute("data-seviye")).toBe("normal");
-    expect(meter.getAttribute("aria-label")).toMatch(/Bağlam doluluğu: %30/);
+    expect(meter.getAttribute("aria-label")).toMatch(/Geçmişin özetleme eşiğine doluluğu: %30/);
     expect(meter.textContent).toBe("");
   });
 
@@ -50,7 +50,7 @@ describe("ContextGauge", () => {
     render(<ContextGauge olcu={olcu(82)} />);
     const meter = screen.getByRole("meter");
     expect(meter.getAttribute("data-seviye")).toBe("uyari");
-    expect(meter.textContent).toBe("Bağlam %18 kaldı");
+    expect(meter.textContent).toBe("Özetlemeye %18 kaldı");
   });
 
   it("%90 üstünde yakında özetleneceğini söyler", () => {
@@ -58,5 +58,12 @@ describe("ContextGauge", () => {
     const meter = screen.getByRole("meter");
     expect(meter.getAttribute("data-seviye")).toBe("kritik");
     expect(meter.textContent).toBe("Yakında özetlenecek");
+  });
+
+  it("doğrulanmış model penceresini ayrı, bilinmeyen pencereyi belirsiz gösterir", () => {
+    const view = render(<ContextGauge olcu={{ ...olcu(30), model: "openrouter/model", model_siniri_token: 65536 }} />);
+    expect(screen.getByRole("meter").getAttribute("title")).toMatch(/65\.536 token/);
+    view.rerender(<ContextGauge olcu={{ ...olcu(30), model: "nvidia_nim/model", model_siniri_token: null }} />);
+    expect(screen.getByRole("meter").getAttribute("title")).toMatch(/penceresi doğrulanamadı/);
   });
 });

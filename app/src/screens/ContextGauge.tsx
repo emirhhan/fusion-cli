@@ -4,7 +4,7 @@ import "./ContextGauge.css";
 /**
  * Bu doluluktan sonra gösterge uyarı rengine geçer ve kalan payı yazar.
  *
- * Gerekçe: web oturumunun sınırı 24.000 karakter; tek bir dosya okuması ya da
+ * Gerekçe: web oturumunun özetleme eşiği 24.000 karakter; tek bir dosya okuması ya da
  * uzun bir cevap 5–7 bin karakter (≈%25–30) ekleyebiliyor. %70'te kullanıcının
  * bir-iki turluk payı kalır — konuyu bölmeye ya da yeni sohbet açmaya karar
  * verebileceği son rahat an.
@@ -37,7 +37,7 @@ export function baglamSeviyesi(yuzde: number): BaglamSeviyesi {
 export function baglamEtiketi(yuzde: number): string | null {
   const seviye = baglamSeviyesi(yuzde);
   if (seviye === "kritik") return "Yakında özetlenecek";
-  if (seviye === "uyari") return `Bağlam %${100 - yuzde} kaldı`;
+  if (seviye === "uyari") return `Özetlemeye %${100 - yuzde} kaldı`;
   return null;
 }
 
@@ -54,7 +54,10 @@ export function ContextGauge({ olcu }: { olcu: BaglamOlcusu | null }) {
   const yuzde = Math.round(olcu.yuzde);
   const seviye = baglamSeviyesi(yuzde);
   const etiket = baglamEtiketi(yuzde);
-  const aciklama = `Bağlam doluluğu: %${yuzde}. Sınıra ulaşınca eski mesajlar özetlenir.`;
+  const pencere = olcu.model_siniri_token
+    ? `${olcu.model ?? "Seçili model"} girdi penceresi: ${olcu.model_siniri_token.toLocaleString("tr-TR")} token.`
+    : "Modelin token penceresi doğrulanamadı.";
+  const aciklama = `Geçmişin özetleme eşiğine doluluğu: %${yuzde} (${olcu.kullanilan.toLocaleString("tr-TR")}/${olcu.sinir.toLocaleString("tr-TR")} karakter). ${pencere} Bu yüzde model penceresinin doluluğu değildir.`;
   return (
     <span
       aria-label={aciklama}

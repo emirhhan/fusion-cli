@@ -5,7 +5,8 @@ sıkıştırıldı ve kullanıcı bunu ancak modelin daha önce konuşulanı unu
 anladı. Arayüzde kalan bağlam görünürse, kullanıcı ya konuyu böler ya da yeni
 sohbet açar; sürpriz olmaz.
 
-Saftır: yalnız mesajlara ve eşiğe bakar.
+Saftır: geçmişe ve seçilen zincirin özetleme bütçesine bakar. Yüzde, modelin
+tam token penceresi değildir; bu iki kavram tel üstünde ayrı alanlarda kalır.
 """
 
 from __future__ import annotations
@@ -13,18 +14,32 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from ..core.types import Message
+from ..engines.agent.context_budget import ContextBudget
 from ..engines.agent.history import COMPRESS_THRESHOLD_CHARS, WEB_COMPRESS_THRESHOLD_CHARS
 
 __all__ = ["baglam_olcusu"]
 
 
-def baglam_olcusu(messages: Sequence[Message], *, web: bool) -> dict[str, int]:
-    """Kullanılan karakter, sıkıştırma eşiği ve doluluk yüzdesi.
+def baglam_olcusu(
+    messages: Sequence[Message], *, web: bool = False, budget: ContextBudget | None = None
+) -> dict[str, int | str | None]:
+    """Geçmişin özetleme eşiğine yaklaşmasını göster; model sınırını ayrı bildir.
 
-    Eşik sağlayıcıya göre değişir: web oturumunda mesaj kutusu dar olduğu için
-    geçmiş çok daha erken özetlenir (bkz. `engines/agent/history`).
+    Eşik seçilen bütçeden gelir. Eski çağıranlar için ``web`` yolu korunur.
     """
-    sinir = WEB_COMPRESS_THRESHOLD_CHARS if web else COMPRESS_THRESHOLD_CHARS
+    sinir = (
+        budget.compression_chars
+        if budget is not None
+        else WEB_COMPRESS_THRESHOLD_CHARS
+        if web
+        else COMPRESS_THRESHOLD_CHARS
+    )
     kullanilan = sum(len(message.content) for message in messages)
     yuzde = min(100, round(kullanilan * 100 / sinir)) if sinir else 0
-    return {"kullanilan": kullanilan, "sinir": sinir, "yuzde": yuzde}
+    return {
+        "kullanilan": kullanilan,
+        "sinir": sinir,
+        "yuzde": yuzde,
+        "model": budget.model if budget is not None else None,
+        "model_siniri_token": budget.window_tokens if budget is not None else None,
+    }

@@ -85,7 +85,7 @@ from ...tools.emulation import coerce_arguments, render_tool_example, validate_a
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ..effects.runner import maybe_run_effect_workflow
-from . import compaction, denial, history, learning_steps, reflexion, review
+from . import compaction, denial, learning_steps, reflexion, review
 from .approval import ApprovalPolicy, Decision, build_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .engine_tools import UserAsker, build_agent_registry
@@ -93,7 +93,6 @@ from .execution_policy import (
     ExecutionPolicy,
     policy_for,
     refresh_mutation_policy,
-    uses_web_context,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
@@ -2520,11 +2519,9 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:
     before = len(messages)
     selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
-    threshold = (
-        history.WEB_COMPRESS_THRESHOLD_CHARS
-        if uses_web_context(deps.config, selected)
-        else history.COMPRESS_THRESHOLD_CHARS
-    )
+    from .context_budget import context_budget
+
+    threshold = context_budget(deps.config, selected).compression_chars
     compressed = await compaction.compress(
         messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
     )

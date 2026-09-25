@@ -8,6 +8,7 @@ Bu liste kullanıcı isteğinin kabul sözleşmesidir. Bir satırın kaynak kodd
 | Yerleşim | Simge, düğme, boşluk, tipografi, dar ekran ve panel konumlarını düzelt | Görsel farklar ve çalışan kontroller | Kısmi: proje/sohbet seçenekleri fareyle üzerine gelince açılır |
 | Hesap/ayar | Tüm menü hedefleri, kişiselleştirme, hafıza, model, izin ve tema | Paketli uygulamada aç/kaydet/yeniden aç akışları | Kısmi; yinelenen Hesap başlığı kaldırıldı |
 | Sohbet | Mesaj, düşünme, durdurma, kod/diff, paylaşma, ekler | Gerçek tur ve erişilebilirlik kontrolü | Açık |
+| Bağlam | Seçilen model zincirine göre özetleme bütçesi; gerçek token penceresi bilinmiyorsa belirsizliği göster | Farklı model pencereleri, yedek ve web modeli için davranış testleri | Kısmi; yerel model metadatası ve ortak sıkıştırma eşiği kullanılıyor, gerçek token sayımı yok |
 | Projeler | Oluştur/taşı/sil, geçmiş ve veri korunumu | Yeniden başlatma sonrası aynı veri | Açık |
 | Masaüstü | Kurulu uygulamaları listele/aç, pencereyi seç, erişilebilirlik ağacını oku, ekran görüntüsü, fare/klavye | İzinli uygulamada uçtan uca görev, reddedilen iznin açık hatası | Kod yok |
 | Chrome | Kullanıcının mevcut sekmelerine site izniyle bağlan, yan panel, sekme/düğme/form/ekran/console/network | Kurulu Manifest V3 eklentisi ve paketli Fusion arasında gerçek Chrome oturumu | Kısmi; ayrı Playwright oturumunda sekme desteği var, Chrome eklentisi yok |
