@@ -532,6 +532,9 @@ export function SessionUygulama({
   const activeVoiceTurn = useRef<VoiceTurnHandle | null>(null);
   const pendingBargeIn = useRef(false);
   const active = controller.activeSession;
+  const workspaceMode = active
+    ? workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod"
+    : "kod";
   const dictation = useDictation((id, text) =>
     setDrafts((current) => ({ ...current, [id]: text })),
   );
@@ -707,7 +710,7 @@ export function SessionUygulama({
     setModelsBusy(true);
     setModelOptions([]);
     try {
-      const sonuc = await active.client.request("model.katalog", {});
+      const sonuc = await active.client.request("model.katalog", { kip: workspaceMode });
       const modeller = Array.isArray(sonuc.modeller) ? sonuc.modeller : [];
       setModelOptions(
         modeller.flatMap((raw) => {
@@ -728,7 +731,7 @@ export function SessionUygulama({
     } finally {
       setModelsBusy(false);
     }
-  }, [active]);
+  }, [active, workspaceMode]);
 
   useEffect(() => {
     if (!active) return;
@@ -965,7 +968,6 @@ export function SessionUygulama({
             : active.title;
 
   const draft = drafts[active.id] ?? "";
-  const workspaceMode = workspaceModes[active.id] ?? storedWorkspaceMode(active.id) ?? "kod";
   const activeAttachments = attachments[active.id] ?? [];
   const setDraft = (value: string) => setDrafts((current) => ({ ...current, [active.id]: value }));
   const executeCommand = async (input: string, recordInput = true, recordOutput = true) => {

@@ -87,6 +87,65 @@ async def test_yeni_yazma_rotasinin_kosulsuz_basarisi_gercek_islem_sayilmaz(tmp_
 
 
 @pytest.mark.asyncio
+async def test_yazma_rotasi_her_istegi_reddederse_islevsel_kabul_gecmez(tmp_path):
+    route = tmp_path / "app/api/stok/[...path]/route.ts"
+    route.parent.mkdir(parents=True)
+    route.write_text(
+        'import { getCurrentUserId } from "@/lib/db/user";\n'
+        "export async function POST(request: Request) {\n"
+        "  try { await getCurrentUserId(); } catch (error) {}\n"
+        "  // Gerçek oturum yok; tüm istekleri reddet.\n"
+        '  return Response.json({ error: "Unauthorized" }, { status: 401 });\n'
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (route,)).verify()
+
+    assert result.ok is False
+    assert any("yetkili işlem yolu yok" in finding for finding in result.findings)
+
+    route.write_text(
+        "export async function POST(request: Request) {\n"
+        "  if (!await auth()) return Response.json({}, { status: 401 });\n"
+        "  return importProducts(await request.json());\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    assert (await NextRouteVerifier(tmp_path, (route,)).verify()).ok
+
+
+@pytest.mark.asyncio
+async def test_sabit_oturum_anahtari_ve_genis_localhost_kokeni_reddedilir(tmp_path):
+    helper = tmp_path / "lib/session.ts"
+    helper.parent.mkdir()
+    helper.write_text(
+        'const SECRET = process.env.SESSION_SECRET || "dev_secret";\n'
+        "export function verifyOrigin(originUrl: URL, host: string) {\n"
+        '  return originUrl.host === host || ["localhost", "127.0.0.1"]'
+        ".includes(originUrl.hostname);\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    result = await NextRouteVerifier(tmp_path, (helper,)).verify()
+
+    assert result.ok is False
+    assert any("sabit gizli anahtar" in finding for finding in result.findings)
+    assert any("Host değerinden bağımsız" in finding for finding in result.findings)
+
+    helper.write_text(
+        "const secret = process.env.SESSION_SECRET;\n"
+        "if (!secret) throw new Error('Oturum anahtarı eksik');\n"
+        "export function verifyOrigin(originUrl: URL, host: string) {\n"
+        "  return originUrl.host === host;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    assert (await NextRouteVerifier(tmp_path, (helper,)).verify()).ok
+
+
+@pytest.mark.asyncio
 async def test_yetkili_helper_sadece_get_icinse_post_proxy_bulgusu_yok(tmp_path):
     helper = tmp_path / "lib/stok/client.ts"
     helper.parent.mkdir(parents=True)

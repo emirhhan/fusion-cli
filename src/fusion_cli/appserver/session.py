@@ -650,7 +650,10 @@ class AppSession:
         if request.name == "komut.secenekler":
             return self._command_options(request.data)
         if request.name == "model.katalog":
-            return await list_selectable_models(self._state.config)
+            return await list_selectable_models(
+                self._state.config,
+                workspace_mode=str(request.data.get("kip") or "sohbet"),
+            )
         if request.name == "bellek.listele":
             return await asyncio.to_thread(self._personal_memory.list)
         if request.name == "bellek.ekle":
@@ -696,9 +699,10 @@ class AppSession:
         conversation_id = data.get("sohbet_id")
         source_value = data.get("kaynak_kok")
         target_value = data.get("hedef_kok")
-        if not all(isinstance(value, str) and value.strip() for value in (
-            conversation_id, source_value, target_value
-        )):
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in (conversation_id, source_value, target_value)
+        ):
             return {"ok": False, "metin": "Sohbet ve iki proje kökü zorunludur."}
         assert isinstance(conversation_id, str)
         assert isinstance(source_value, str)
@@ -1184,6 +1188,7 @@ class AppSession:
         capability_context = self._take_capability_context()
         inherited_context = self._state.take_pending_digest()
         turn_mode, self._next_turn_mode = self._next_turn_mode, macros.Mode.NONE
+
         # Kullanıcının kalıcı talimatı da bağlama girer. Sistem istemi
         # DEĞİŞTİRİLMEZ: kimlik ve onay sözleşmesi orada durur.
         async def execute_turn() -> AgentOutcome:

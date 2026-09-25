@@ -8,6 +8,7 @@ from typing import Any
 from ..cli.repl import model_flows
 from ..config.keys import ProviderPreference, detect
 from ..config.models import Config
+from ..config.tool_policy import mutation_policy_for_model
 from ..providers.catalog import CatalogEntry
 
 
@@ -48,7 +49,9 @@ def _tier(config: Config, model_id: str) -> str:
     return "diger"
 
 
-async def list_selectable_models(config: Config) -> dict[str, Any]:
+async def list_selectable_models(
+    config: Config, *, workspace_mode: str = "sohbet"
+) -> dict[str, Any]:
     """Etkin anahtarı ve canlı katalog kaydı olmayan API modelini sunma.
 
     Tarayıcı oturumu yalnız ``auto`` modelini gerçekten destekliyorsa o gösterilir.
@@ -82,27 +85,34 @@ async def list_selectable_models(config: Config) -> dict[str, Any]:
                 continue
             seen.add(entry.model_id)
             unverified_nim = source.key == "nim-free" and entry.model_id not in curated_nim
-            rows.append({
-                "model": entry.model_id,
-                "kaynak": source.key,
-                "etiket": entry.model_id.split("/")[-1],
-                "aciklama": (
-                    "NIM kataloğunda; seçerken araç yeteneği doğrulanır"
-                    if unverified_nim else source.label
-                ),
-                "grup": _tier(config, entry.model_id),
-            })
+            rows.append(
+                {
+                    "model": entry.model_id,
+                    "kaynak": source.key,
+                    "etiket": entry.model_id.split("/")[-1],
+                    "aciklama": (
+                        "NIM kataloğunda; seçerken araç yeteneği doğrulanır"
+                        if unverified_nim
+                        else source.label
+                    ),
+                    "grup": _tier(config, entry.model_id),
+                }
+            )
     for session in config.web_sessions:
         if not session.enabled or not session.login_verified or session.model in seen:
+            continue
+        if workspace_mode == "kod" and not mutation_policy_for_model(config, session.model).ok:
             continue
         seen.add(session.model)
         provider_name = session.provider.removesuffix("_web").title()
         model_name = session.selected_model or "otomatik"
-        rows.append({
-            "model": session.model,
-            "kaynak": "web-subscriptions",
-            "etiket": f"{provider_name} · {model_name}",
-            "aciklama": f"{session.account} web oturumu",
-            "grup": "web",
-        })
+        rows.append(
+            {
+                "model": session.model,
+                "kaynak": "web-subscriptions",
+                "etiket": f"{provider_name} · {model_name}",
+                "aciklama": f"{session.account} web oturumu",
+                "grup": "web",
+            }
+        )
     return {"ok": True, "modeller": rows}

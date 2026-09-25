@@ -60,33 +60,66 @@ async def test_canli_model_ve_dogrulanmis_web_oturumu_listelenir(monkeypatch):
     assert result["modeller"][1]["kaynak"] == "web-subscriptions"
 
 
+async def test_kod_kipinde_arac_olcumu_gecmemis_web_modeli_secilemez(monkeypatch):
+    monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(False, False))
+    monkeypatch.setattr(model_catalog.model_flows, "sources", lambda _config: ())
+    unverified = WebSessionConfig(
+        model="chatgpt_web/main/auto",
+        provider="chatgpt_web",
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=False,
+    )
+    verified = WebSessionConfig(
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        login_verified=True,
+        tool_support="emulated",
+        tool_eval_passed=True,
+    )
+    config = _config(sessions=(unverified, verified))
+
+    coding = await model_catalog.list_selectable_models(config, workspace_mode="kod")
+    chat = await model_catalog.list_selectable_models(config, workspace_mode="sohbet")
+
+    assert [row["model"] for row in coding["modeller"]] == ["gemini_web/main/auto"]
+    assert [row["model"] for row in chat["modeller"]] == [
+        "chatgpt_web/main/auto",
+        "gemini_web/main/auto",
+    ]
+
+
 async def test_aracsiz_model_gizlenir_diger_canli_nim_modelleri_kesfe_acilir(monkeypatch):
     from fusion_cli.config.models import ModelSpec
 
     source = Source(
-        "nim-free", "NIM", lambda: (
+        "nim-free",
+        "NIM",
+        lambda: (
             CatalogEntry("nvidia_nim/selected", "nvidia_nim"),
             CatalogEntry("nvidia_nim/old", "nvidia_nim"),
         ),
     )
     paid = Source(
-        "openrouter-free", "OpenRouter", lambda: (
-            CatalogEntry("openrouter/chat-only", "openrouter", supports_tools=False),
-        ),
+        "openrouter-free",
+        "OpenRouter",
+        lambda: (CatalogEntry("openrouter/chat-only", "openrouter", supports_tools=False),),
     )
     monkeypatch.setattr(model_catalog.model_flows, "sources", lambda _config: (source, paid))
     monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(True, True))
     config = _config()
-    config.tiers = (SimpleNamespace(
-        name="high", agent=ModelSpec("agent", "nvidia_nim/selected"),
-        judge=ModelSpec("judge", "nvidia_nim/selected"), candidates=(),
-    ),)
+    config.tiers = (
+        SimpleNamespace(
+            name="high",
+            agent=ModelSpec("agent", "nvidia_nim/selected"),
+            judge=ModelSpec("judge", "nvidia_nim/selected"),
+            candidates=(),
+        ),
+    )
 
     result = await model_catalog.list_selectable_models(config)
 
-    assert [row["model"] for row in result["modeller"]] == [
-        "nvidia_nim/selected", "nvidia_nim/old"
-    ]
+    assert [row["model"] for row in result["modeller"]] == ["nvidia_nim/selected", "nvidia_nim/old"]
     assert "doğrulanır" in result["modeller"][1]["aciklama"]
 
 

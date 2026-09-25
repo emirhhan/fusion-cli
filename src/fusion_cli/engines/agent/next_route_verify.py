@@ -32,6 +32,15 @@ _CALLER_AUTH = re.compile(
 )
 _PRIVILEGED_STOCK_HEADER = re.compile(r"[\"']X-MG-Panel[\"']\s*:", re.IGNORECASE)
 _EXPORT_DECLARATION = re.compile(r"\bexport\s+(?:async\s+)?(?:function|const)\s+\w+\b")
+_RETURN = re.compile(r"\breturn\b")
+_DENIAL = re.compile(r"\bstatus\s*:\s*(?:401|403)\b")
+_COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+_SESSION_SECRET_FALLBACK = re.compile(
+    r"process\.env\.(?:SESSION_SECRET|AUTH_SECRET)\s*(?:\|\||\?\?)\s*[\"'`]"
+)
+_LOCAL_ORIGIN_BYPASS = re.compile(
+    r"\b(?:originUrl|originURL)\.hostname\s*\)"
+)
 
 
 class NextRouteVerifier:
@@ -64,6 +73,11 @@ class NextRouteVerifier:
                     f"{source.relative_to(self._root)}: POST rotası yerel servis veya "
                     "veri işlemi olmadan koşulsuz başarı döndürüyor."
                 )
+            if _is_denial_only_post(source.relative_to(self._root), content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: POST rotası bütün istekleri "
+                    "401/403 ile reddediyor; yetkili işlem yolu yok."
+                )
             if _is_unprotected_privileged_proxy(self._root, source, content):
                 findings.append(
                     f"{source.relative_to(self._root)}: POST rotası yetkili yerel servis "
@@ -75,6 +89,18 @@ class NextRouteVerifier:
                     f"{source.relative_to(self._root)}: tarayıcı isteğine sabit X-MG-Panel "
                     "başlığı eklenmiş. Her ziyaretçi bu değeri kopyalayabilir; "
                     "sunucuda gerçek çağıran yetkisi gerekir."
+                )
+            if _SESSION_SECRET_FALLBACK.search(content):
+                findings.append(
+                    f"{source.relative_to(self._root)}: oturum imzası için sabit "
+                    "gizli anahtar yedeği var. Anahtar eksikse işlem kapalı kalmalı."
+                )
+            if _LOCAL_ORIGIN_BYPASS.search(content) and re.search(
+                r"[\"'](?:localhost|127\.0\.0\.1)[\"']", content
+            ):
+                findings.append(
+                    f"{source.relative_to(self._root)}: Origin doğrulaması "
+                    "localhost adresini istek Host değerinden bağımsız kabul ediyor."
                 )
             bases = {match.group("base") for match in _INLINE_DYNAMIC.finditer(content)}
             for match in _BASE.finditer(content):
@@ -109,6 +135,29 @@ def _is_stub_post(relative: Path, content: str) -> bool:
         and not _LOCAL_IMPORT.search(content)
         and not re.search(r"\b(?:fetch|writeFile|prisma)\s*[.(]", content)
     )
+
+
+def _is_denial_only_post(relative: Path, content: str) -> bool:
+    """Tek dönüşü açık ret olan bir POST rotasında başarılı işlem yolu yoktur."""
+    if relative.name not in {"route.ts", "route.js"} or not any(
+        relative.parts[index : index + 2] == ("app", "api")
+        for index in range(len(relative.parts) - 1)
+    ):
+        return False
+    declaration = next(
+        (
+            match
+            for match in _EXPORT_DECLARATION.finditer(content)
+            if match.group().split()[-1] == "POST"
+        ),
+        None,
+    )
+    if declaration is None:
+        return False
+    rest = content[declaration.end() :]
+    following = _EXPORT_DECLARATION.search(rest)
+    post_body = _COMMENTS.sub("", rest[: following.start()] if following else rest)
+    return len(_RETURN.findall(post_body)) == 1 and bool(_DENIAL.search(post_body))
 
 
 def _exposes_privileged_header_to_browser(relative: Path, content: str) -> bool:
