@@ -1,4 +1,4 @@
-"""Eklenti köprüsü yalnız eşleştirilmiş Chrome origin'inden komut kabul eder."""
+"""Eklenti köprüsü yalnız doğru anahtarlı, güvenli istekleri kabul eder."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ async def test_yalniz_eklenti_origin_ve_anahtari_kabul_edilir() -> None:
     state = await bridge.start()
     address = f"http://127.0.0.1:{state['port']}"
     async with httpx.AsyncClient(trust_env=False) as client:
-        assert (await client.get(f"{address}/status")).status_code == 403
+        assert (await client.get(f"{address}/status")).status_code == 401
         assert (
             await client.get(f"{address}/status", headers={"Origin": "https://example.com"})
         ).status_code == 403
@@ -36,6 +36,12 @@ async def test_yalniz_eklenti_origin_ve_anahtari_kabul_edilir() -> None:
         assert response.status_code == 200
         assert response.json()["bagli"] is True
         assert "anahtar" in response.json() and response.json()["anahtar"] is None
+        # Chrome uzantı sayfasının ayrıcalıklı fetch'i GET'te Origin göndermeyebilir.
+        response = await client.get(
+            f"{address}/status", headers={"Authorization": f"Bearer {state['anahtar']}"}
+        )
+        assert response.status_code == 200
+        assert (await client.options(f"{address}/status")).status_code == 403
     await bridge.close()
 
 

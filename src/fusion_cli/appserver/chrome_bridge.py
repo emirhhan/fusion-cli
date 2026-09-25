@@ -1,7 +1,8 @@
 """Chrome yan paneli ile bu uygulama oturumu arasındaki yerel, izinli köprü.
 
 Sunucu yalnız 127.0.0.1'e bağlanır. Her istek rastgele oturum anahtarını ve
-Chrome eklentisi Origin başlığını taşır; sayfa JavaScript'i bu başlığı üretemez.
+Chrome eklentisi Origin başlığını taşıyabilir; bazı Chrome uzantı isteklerinde
+bu başlık bulunmaz. Her istekte rastgele oturum anahtarı zorunludur.
 Köprü yalnız açıkken komut kuyruğu yaşar ve kapanınca bekleyen araçları çözer.
 """
 
@@ -95,10 +96,13 @@ class ChromeBridge:
             headers = {key.lower().strip(): value.strip() for key, value in headers.items()}
             origin = headers.get("origin", "")
             parsed = urlsplit(origin)
-            if parsed.scheme != "chrome-extension" or not parsed.netloc or parsed.path:
+            if origin and (parsed.scheme != "chrome-extension" or not parsed.netloc or parsed.path):
                 await self._reply(writer, 403, {"hata": "Yalnız Chrome eklentisi erişebilir."})
                 return
             if method == "OPTIONS":
+                if not origin:
+                    await self._reply(writer, 403, {"hata": "Origin gerekli."})
+                    return
                 await self._reply(writer, 204, {}, origin=origin)
                 return
             valid_token = secrets.compare_digest(
