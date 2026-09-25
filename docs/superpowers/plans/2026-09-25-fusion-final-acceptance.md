@@ -10,7 +10,7 @@ Bu liste kullanıcı isteğinin kabul sözleşmesidir. Bir satırın kaynak kodd
 | Sohbet | Mesaj, düşünme, durdurma, kod/diff, paylaşma, ekler | Gerçek tur ve erişilebilirlik kontrolü | Açık |
 | Bağlam | Seçilen model zincirine göre özetleme bütçesi; gerçek token penceresi bilinmiyorsa belirsizliği göster | Farklı model pencereleri, yedek ve web modeli için davranış testleri | Kısmi; yerel model metadatası ve ortak sıkıştırma eşiği kullanılıyor, son ajan çağrısının gerçek girdi tokenı ayrı gösteriliyor; mevcut geçmişin tam token sayımı yok |
 | Projeler | Oluştur/taşı/sil, geçmiş ve veri korunumu | Yeniden başlatma sonrası aynı veri | Açık |
-| Masaüstü | Kurulu uygulamaları listele/aç, pencereyi seç, erişilebilirlik ağacını oku, ekran görüntüsü, fare/klavye | İzinli uygulamada uçtan uca görev, reddedilen iznin açık hatası | Kod yok |
+| Masaüstü | Kurulu uygulamaları listele/aç, pencereyi seç, erişilebilirlik ağacını oku, ekran görüntüsü, fare/klavye | İzinli uygulamada uçtan uca görev, reddedilen iznin açık hatası | Kısmi; çalışan uygulama listesi, açma, görüntü, tık, metin, tuş ve kaydırma araçları kaynakta var; pencere/ağaç ve paketli canlı kabul yok |
 | Chrome | Kullanıcının mevcut sekmelerine site izniyle bağlan, yan panel, sekme/düğme/form/ekran/console/network | Kurulu Manifest V3 eklentisi ve paketli Fusion arasında gerçek Chrome oturumu | Kısmi; ayrı Playwright oturumunda sekme desteği var, Chrome eklentisi yok |
 | Model/ajan | Canlı model, web modeli, öğretmen, alt ajan, `/btw` | Seçilen modelin gerçek çağrısı ve uzun görev etkisi | Kısmi; önceki uzun görev kabulü başarısız |
 | Ses | Mikrofon, dikte, konuşma, kesme, yeniden başlatma | Fiziksel sesli paketli uygulama testi | Açık |

@@ -9,8 +9,19 @@ seçileceğini anlatır. Model doğru aracı seçemezse en iyi executor bile iş
 
 from __future__ import annotations
 
-from ..core.tools import Tool
-from . import archive, browser, download, files, planning, scaffold_tool, search, shell, web
+from ..core.tools import Tool, ToolEffect
+from . import (
+    archive,
+    browser,
+    desktop,
+    download,
+    files,
+    planning,
+    scaffold_tool,
+    search,
+    shell,
+    web,
+)
 from .registry import ToolRegistry
 
 #: JSON Schema parçası. İç içe geçtiği için değer tipi serbest bırakılır; bu yapı
@@ -37,6 +48,65 @@ def build_registry() -> ToolRegistry:
 
 
 _TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="desktop_apps",
+        description="macOS'ta çalışan uygulamaların adlarını listele.",
+        parameters=_schema({}, []),
+        run=desktop.desktop_apps,
+    ),
+    Tool(
+        name="desktop_open",
+        description="macOS uygulamasını adıyla aç ve öne getir.",
+        parameters=_schema({"app": _STRING}, ["app"]),
+        run=desktop.desktop_open,
+        mutating=True,
+    ),
+    Tool(
+        name="desktop_screenshot",
+        description="macOS ekranını PNG olarak kaydet ve görseli incele. Ekran Kaydı izni gerekir.",
+        parameters=_schema({"path": _STRING}, []),
+        run=desktop.desktop_screenshot,
+        mutating=True,
+    ),
+    Tool(
+        name="desktop_click",
+        description="macOS ekranında x/y noktasına tıkla. Erişilebilirlik izni gerekir; "
+        "gerçek uygulamada değişiklik yapabilir.",
+        parameters=_schema({"x": _INTEGER, "y": _INTEGER}, ["x", "y"]),
+        run=desktop.desktop_click,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="desktop_type",
+        description="Odaklı macOS uygulamasına metin yaz. Erişilebilirlik izni gerekir; "
+        "hassas alanlara yazabilir.",
+        parameters=_schema({"text": _STRING}, ["text"]),
+        run=desktop.desktop_type,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="desktop_key",
+        description="Odaklı macOS uygulamasında Enter, Escape, ok tuşu veya "
+        "Command kısayolu gönder.",
+        parameters=_schema(
+            {"key": _STRING, "command": {"type": "boolean"}, "shift": {"type": "boolean"}},
+            ["key"],
+        ),
+        run=desktop.desktop_key,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="desktop_scroll",
+        description="Odaklı macOS penceresinde kaydır; pozitif yukarı, negatif aşağı "
+        "satır sayısıdır.",
+        parameters=_schema({"lines": _INTEGER}, ["lines"]),
+        run=desktop.desktop_scroll,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
     Tool(
         name="read_file",
         description="Bir dosyanın içeriğini satır numaralarıyla oku. Bir dosyayı "

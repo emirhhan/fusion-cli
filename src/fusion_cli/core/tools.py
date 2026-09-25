@@ -45,6 +45,7 @@ class ToolFamily(Enum):
     SHELL = "shell"
     VCS = "vcs"
     BROWSER = "browser"
+    DESKTOP = "desktop"
     WEB = "web"
     DELEGATION = "delegation"
     #: MCP sunucuları ve tanımadığımız eklenti araçları.
@@ -76,6 +77,13 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "execute_command": ToolFamily.SHELL,
     "git": ToolFamily.VCS,
     "browser_open": ToolFamily.BROWSER,
+    "desktop_apps": ToolFamily.DESKTOP,
+    "desktop_open": ToolFamily.DESKTOP,
+    "desktop_screenshot": ToolFamily.DESKTOP,
+    "desktop_click": ToolFamily.DESKTOP,
+    "desktop_type": ToolFamily.DESKTOP,
+    "desktop_key": ToolFamily.DESKTOP,
+    "desktop_scroll": ToolFamily.DESKTOP,
     "browser_read": ToolFamily.BROWSER,
     "browser_tabs_list": ToolFamily.BROWSER,
     "browser_tab_select": ToolFamily.BROWSER,
