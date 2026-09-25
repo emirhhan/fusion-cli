@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fusion Browser</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <main>
+      <header><strong>Fusion Browser</strong><span id="status">Bağlı değil</span></header>
+      <section id="pairing">
+        <p>Fusion uygulamasında Ayarlar → Tarayıcı bölümünden bağlantıyı başlatın.</p>
+        <label>Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
+        <label>Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
+        <button id="connect">Bağlan</button>
+      </section>
+      <section id="session" hidden>
+        <p id="tab-label">Sekme seçilmedi</p>
+        <button id="select-tab">Bu sekmeye izin ver</button>
+        <button id="read-tab">Sayfayı oku</button>
+        <pre id="snapshot" hidden></pre>
+        <label>Fusion'a görev ver <textarea id="prompt" rows="4" placeholder="Bu sayfayı özetle..."></textarea></label>
+        <button id="send">Gönder</button>
+        <div id="response" role="status"></div>
+        <button id="disconnect" class="quiet">Bağlantıyı kes</button>
+      </section>
+      <p id="error" role="alert"></p>
+    </main>
+    <script src="panel.js" type="module"></script>
+  </body>
+</html>

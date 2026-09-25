@@ -68,9 +68,10 @@ describe("ContextGauge", () => {
   });
 
   it("son model çağrısının gerçek token kullanımını özetleme yüzdesinden ayrı belirtir", () => {
-    render(<ContextGauge olcu={{ ...olcu(30), son_girdi_token: 1234, son_girdi_model: "openrouter/model" }} />);
+    render(<ContextGauge olcu={{ ...olcu(30), son_girdi_token: 1234, son_girdi_model: "openrouter/model", son_girdi_pencere_token: 10000, son_girdi_pencere_yuzde: 12 }} />);
     const title = screen.getByRole("meter").getAttribute("title") ?? "";
     expect(title).toMatch(/1\.234 girdi tokenı/);
+    expect(title).toMatch(/penceresinin %12'si/);
     expect(title).toMatch(/Bu yüzde model penceresinin doluluğu değildir/);
   });
 });

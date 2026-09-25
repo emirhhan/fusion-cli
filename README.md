@@ -21,6 +21,21 @@ sınayabilir veya web sağlayıcısında ayrı Chrome profiliyle giriş yapabili
 Güncellemenin sunulması için imzalı Release dosyaları yayımlanmış olmalıdır.
 [Güncelleme ve dağıtım kılavuzu](docs/UPDATES.md).
 
+### Chrome'daki açık sekmeyle çalışma
+
+Fusion'da **Ayarlar → Tarayıcı → Bağlantıyı başlat** yolundan yerel portu ve
+eşleştirme anahtarını alın. Chrome'da `chrome://extensions` sayfasını açın,
+geliştirici modunu etkinleştirip **Paketlenmemiş öğe yükle** ile uygulamanın
+gösterdiği `chrome-extension` klasörünü seçin. Fusion Browser simgesi yan paneli
+açar. Portu ve anahtarı girip **Bu sekmeye izin ver** düğmesiyle yalnız çalışmak
+istediğiniz siteye izin verin.
+
+Yan panelden Fusion'a görev gönderebilir, izinli sekmeyi okuyabilir ve sayfayla
+etkileşebilirsiniz. Fusion'ın `chrome_page`, `chrome_click`, `chrome_type`,
+`chrome_navigate` ve `chrome_screenshot` araçları aynı sekmeyi kullanır. Site
+değişirse yeni site için tekrar izin gerekir. Parola, tek kullanımlık kod ve
+kart alanlarına yazma engellenir. Chrome'un kendi özel sayfaları bağlanmaz.
+
 ## Terminal sürümü
 
 Aşağıdaki komutlar masaüstünden bağımsız terminal sürümünü kurar.

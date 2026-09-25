@@ -6,7 +6,12 @@
     "resources": {
       "resources/runtime/runtime-manifest.json": "runtime/runtime-manifest.json",
       "resources/runtime/fusion-runtime.tar.gz": "runtime/fusion-runtime.tar.gz",
-      "resources/fusion-listen.exe": "fusion-listen.exe"
+      "resources/fusion-listen.exe": "fusion-listen.exe",
+      "../../chrome-extension/manifest.json": "chrome-extension/manifest.json",
+      "../../chrome-extension/background.js": "chrome-extension/background.js",
+      "../../chrome-extension/panel.html": "chrome-extension/panel.html",
+      "../../chrome-extension/panel.css": "chrome-extension/panel.css",
+      "../../chrome-extension/panel.js": "chrome-extension/panel.js"
     },
     "windows": {
       "nsis": {

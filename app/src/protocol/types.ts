@@ -48,6 +48,8 @@ export interface BaglamOlcusu {
   model_siniri_token?: number | null;
   son_girdi_token?: number | null;
   son_girdi_model?: string | null;
+  son_girdi_pencere_token?: number | null;
+  son_girdi_pencere_yuzde?: number | null;
 }
 
 /**
@@ -56,7 +58,10 @@ export interface BaglamOlcusu {
  */
 export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
   if (!deger || typeof deger !== "object") return null;
-  const { kullanilan, sinir, yuzde, model, model_siniri_token, son_girdi_token, son_girdi_model } = deger as Record<string, unknown>;
+  const {
+    kullanilan, sinir, yuzde, model, model_siniri_token, son_girdi_token,
+    son_girdi_model, son_girdi_pencere_token, son_girdi_pencere_yuzde,
+  } = deger as Record<string, unknown>;
   const sayilar = [kullanilan, sinir, yuzde];
   if (!sayilar.every((sayi) => typeof sayi === "number" && Number.isFinite(sayi) && sayi >= 0)) {
     return null;
@@ -69,6 +74,12 @@ export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
     typeof son_girdi_token !== "number" || !Number.isInteger(son_girdi_token) || son_girdi_token < 0
   )) return null;
   if (son_girdi_model !== undefined && son_girdi_model !== null && typeof son_girdi_model !== "string") return null;
+  if (son_girdi_pencere_token !== undefined && son_girdi_pencere_token !== null && (
+    typeof son_girdi_pencere_token !== "number" || !Number.isInteger(son_girdi_pencere_token) || son_girdi_pencere_token <= 0
+  )) return null;
+  if (son_girdi_pencere_yuzde !== undefined && son_girdi_pencere_yuzde !== null && (
+    typeof son_girdi_pencere_yuzde !== "number" || !Number.isFinite(son_girdi_pencere_yuzde) || son_girdi_pencere_yuzde < 0 || son_girdi_pencere_yuzde > 100
+  )) return null;
   return {
     kullanilan: kullanilan as number,
     sinir: sinir as number,
@@ -77,5 +88,7 @@ export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
     ...(model_siniri_token !== undefined ? { model_siniri_token: model_siniri_token as number | null } : {}),
     ...(son_girdi_token !== undefined ? { son_girdi_token: son_girdi_token as number | null } : {}),
     ...(son_girdi_model !== undefined ? { son_girdi_model: son_girdi_model as string | null } : {}),
+    ...(son_girdi_pencere_token !== undefined ? { son_girdi_pencere_token: son_girdi_pencere_token as number | null } : {}),
+    ...(son_girdi_pencere_yuzde !== undefined ? { son_girdi_pencere_yuzde: son_girdi_pencere_yuzde as number | null } : {}),
   };
 }

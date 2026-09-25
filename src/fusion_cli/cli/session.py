@@ -33,7 +33,7 @@ from ..core.events import (
 )
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
-from ..core.tools import ToolContext
+from ..core.tools import ChromeControl, ToolContext
 from ..core.types import (
     CompletionRequest,
     FusionResult,
@@ -149,6 +149,7 @@ async def run_agent_task(
     history: list[Message] | None = None,
     background: BackgroundTasks | None = None,
     tool_context: ToolContext | None = None,
+    chrome_bridge: ChromeControl | None = None,
     capabilities: CapabilityRegistry | None = None,
     system_prompt: str | None = None,
     images: tuple[str, ...] = (),
@@ -187,6 +188,7 @@ async def run_agent_task(
         # değişiklik yok" diyordu, oysa dosyalar değişmişti).
         tool_context = tool_context or ToolContext(
             root=root or Path.cwd(),
+            chrome=chrome_bridge,
             extra_roots=extra_roots,
             restrict_to_root=config.runtime.restrict_to_root,
             # Bağlamı şişiren araç çıktısı kırpılmak yerine diske alınır: bilgi

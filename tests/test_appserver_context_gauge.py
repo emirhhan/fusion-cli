@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from fusion_cli.appserver import context_gauge
 from fusion_cli.appserver.context_gauge import baglam_olcusu
 from fusion_cli.config.loader import load_config
 from fusion_cli.config.models import WebSessionConfig
@@ -63,3 +64,13 @@ def test_yuzde_yuzu_asamaz() -> None:
 
     assert olcu["yuzde"] == 100
     assert olcu["kullanilan"] == 90_000
+
+
+def test_olculen_son_girdi_model_penceresiyle_ayri_oranlanir(monkeypatch) -> None:
+    monkeypatch.setattr(context_gauge, "input_window_tokens", lambda model: 10_000)
+
+    olcu = baglam_olcusu([], last_prompt_tokens=2_500, last_prompt_model="model")
+
+    assert olcu["yuzde"] == 0
+    assert olcu["son_girdi_pencere_token"] == 10_000
+    assert olcu["son_girdi_pencere_yuzde"] == 25

@@ -16,6 +16,7 @@ from collections.abc import Sequence
 from ..core.types import Message
 from ..engines.agent.context_budget import ContextBudget
 from ..engines.agent.history import COMPRESS_THRESHOLD_CHARS, WEB_COMPRESS_THRESHOLD_CHARS
+from ..providers.context_window import input_window_tokens
 
 __all__ = ["baglam_olcusu"]
 
@@ -41,6 +42,12 @@ def baglam_olcusu(
     )
     kullanilan = sum(len(message.content) for message in messages)
     yuzde = min(100, round(kullanilan * 100 / sinir)) if sinir else 0
+    last_window = input_window_tokens(last_prompt_model) if last_prompt_model else None
+    last_percent = (
+        min(100, round(last_prompt_tokens * 100 / last_window))
+        if last_window and last_prompt_tokens is not None
+        else None
+    )
     return {
         "kullanilan": kullanilan,
         "sinir": sinir,
@@ -49,4 +56,6 @@ def baglam_olcusu(
         "model_siniri_token": budget.window_tokens if budget is not None else None,
         "son_girdi_token": last_prompt_tokens,
         "son_girdi_model": last_prompt_model,
+        "son_girdi_pencere_token": last_window,
+        "son_girdi_pencere_yuzde": last_percent,
     }

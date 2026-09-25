@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Event
-from typing import Protocol
+from typing import Any, Protocol
 
 from .artifacts import ArtifactStore
 from .browser_session import BrowserSession
@@ -30,6 +30,12 @@ from .tool_content import ToolContent, ToolContentType
 #: Modelin araca verdiği ham argümanlar. JSON'dan geldiği için tipsizdir;
 #: `tools.args` yardımcıları bunları doğrulayarak okur.
 ToolArgs = Mapping[str, object]
+
+
+class ChromeControl(Protocol):
+    """Bağlı Chrome eklentisine komut gönderen oturum arayüzü."""
+
+    async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]: ...
 
 
 class ToolFamily(Enum):
@@ -77,7 +83,15 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "execute_command": ToolFamily.SHELL,
     "git": ToolFamily.VCS,
     "browser_open": ToolFamily.BROWSER,
+    "chrome_page": ToolFamily.BROWSER,
+    "chrome_click": ToolFamily.BROWSER,
+    "chrome_type": ToolFamily.BROWSER,
+    "chrome_navigate": ToolFamily.BROWSER,
+    "chrome_screenshot": ToolFamily.BROWSER,
     "desktop_apps": ToolFamily.DESKTOP,
+    "desktop_windows": ToolFamily.DESKTOP,
+    "desktop_window_focus": ToolFamily.DESKTOP,
+    "desktop_accessibility": ToolFamily.DESKTOP,
     "desktop_open": ToolFamily.DESKTOP,
     "desktop_screenshot": ToolFamily.DESKTOP,
     "desktop_click": ToolFamily.DESKTOP,
@@ -272,6 +286,8 @@ class ToolContext:
     #: Tur boyunca açık kalan tarayıcı. Etkileşimli tarayıcı araçları buraya bağlanır:
     #: "alana yaz → gönder → açılan sayfayı oku" üç ayrı çağrıdır ve aynı sayfayı görmeli.
     browser: BrowserSession = field(default_factory=BrowserSession)
+    #: Kullanıcının açık Chrome sekmelerine, yalnız eşleştirilen eklentiyle erişim.
+    chrome: ChromeControl | None = None
     #: True ise dosya araçları yalnızca `root` (ve `extra_roots`) altında çalışır;
     #: dışarı çıkan yol, `..` ile taşan yol ve dışarı sızdıran symlink reddedilir.
     #:

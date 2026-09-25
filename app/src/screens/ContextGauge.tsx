@@ -58,7 +58,9 @@ export function ContextGauge({ olcu }: { olcu: BaglamOlcusu | null }) {
     ? `${olcu.model ?? "Seçili model"} girdi penceresi: ${olcu.model_siniri_token.toLocaleString("tr-TR")} token.`
     : "Modelin token penceresi doğrulanamadı.";
   const sonGirdi = olcu.son_girdi_token != null
-    ? `Son başarılı ajan çağrısı: ${olcu.son_girdi_token.toLocaleString("tr-TR")} girdi tokenı (${olcu.son_girdi_model ?? "model bilinmiyor"}).`
+    ? `Son başarılı ajan çağrısı: ${olcu.son_girdi_token.toLocaleString("tr-TR")} girdi tokenı (${olcu.son_girdi_model ?? "model bilinmiyor"})${olcu.son_girdi_pencere_yuzde != null && olcu.son_girdi_pencere_token != null
+      ? `; doğrulanmış ${olcu.son_girdi_pencere_token.toLocaleString("tr-TR")} token penceresinin %${olcu.son_girdi_pencere_yuzde}'si.`
+      : "."}`
     : "Son ajan çağrısının gerçek token ölçümü henüz yok.";
   const aciklama = `Geçmişin özetleme eşiğine doluluğu: %${yuzde} (${olcu.kullanilan.toLocaleString("tr-TR")}/${olcu.sinir.toLocaleString("tr-TR")} karakter). ${pencere} ${sonGirdi} Bu yüzde model penceresinin doluluğu değildir.`;
   return (

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ProtocolClient } from "../protocol/client";
 import type { ThemePreference } from "../theme/theme";
 import { Button } from "../ui/Button";
+import { Icon, type IconName } from "../ui/Icon";
 import { UpdatePanel } from "../control/UpdatePanel";
 import { Instructions } from "./Instructions";
 import { MemoryPanel } from "./MemoryPanel";
@@ -11,6 +12,7 @@ import { General, readHistoryOpen, HISTORY_KEY } from "./sections/General";
 import { Models, type ModelState } from "./sections/Models";
 import { Permissions } from "./sections/Permissions";
 import { Advanced } from "./sections/Advanced";
+import { ChromeBrowser } from "./ChromeBrowser";
 import "./Settings.css";
 
 /**
@@ -25,16 +27,17 @@ import "./Settings.css";
  * ayarlanabilir yanı.
  */
 
-type BolumId = "genel" | "hesap" | "kisisellestirme" | "modeller" | "izinler" | "guncellemeler" | "gelismis";
+type BolumId = "genel" | "hesap" | "kisisellestirme" | "modeller" | "tarayici" | "izinler" | "guncellemeler" | "gelismis";
 
-const BOLUMLER: { id: BolumId; etiket: string }[] = [
-  { id: "genel", etiket: "Genel" },
-  { id: "hesap", etiket: "Hesap" },
-  { id: "kisisellestirme", etiket: "Kişiselleştirme" },
-  { id: "modeller", etiket: "Modeller" },
-  { id: "izinler", etiket: "İzinler" },
-  { id: "guncellemeler", etiket: "Güncellemeler" },
-  { id: "gelismis", etiket: "Gelişmiş" },
+const BOLUMLER: { id: BolumId; etiket: string; ikon: IconName; grup: string }[] = [
+  { id: "genel", etiket: "Genel", ikon: "settings", grup: "Kişisel" },
+  { id: "hesap", etiket: "Hesap", ikon: "user", grup: "Kişisel" },
+  { id: "kisisellestirme", etiket: "Kişiselleştirme", ikon: "lessons", grup: "Kişisel" },
+  { id: "modeller", etiket: "Modeller", ikon: "skills", grup: "Entegrasyonlar" },
+  { id: "tarayici", etiket: "Tarayıcı", ikon: "preview", grup: "Entegrasyonlar" },
+  { id: "izinler", etiket: "İzinler", ikon: "help", grup: "Entegrasyonlar" },
+  { id: "guncellemeler", etiket: "Güncellemeler", ikon: "changes", grup: "Sistem" },
+  { id: "gelismis", etiket: "Gelişmiş", ikon: "terminal", grup: "Sistem" },
 ];
 
 interface ControlSnapshot {
@@ -74,7 +77,6 @@ export function Settings({
   const [gatewayBusy, setGatewayBusy] = useState(false);
   const [search, setSearch] = useState("");
   const dialogRef = useRef<HTMLDivElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
 
   useEffect(() => setBolum(initialSection), [initialSection]);
@@ -82,7 +84,7 @@ export function Settings({
   useEffect(() => {
     previousFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement : null;
-    closeRef.current?.focus();
+    dialogRef.current?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
@@ -157,22 +159,28 @@ export function Settings({
     <section className="settings" onMouseDown={(event) => {
       if (event.target === event.currentTarget) onClose();
     }}>
-      <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" ref={dialogRef} role="dialog">
+      <div aria-labelledby="settings-title" aria-modal="true" className="settings__dialog" ref={dialogRef} role="dialog" tabIndex={-1}>
         <div className="settings__navcol">
           <h2 className="settings__sr-only" id="settings-title">Ayarlar</h2>
-          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} ref={closeRef} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
+          <button aria-label="Ayarları kapat" className="settings__close" onClick={onClose} type="button"><span aria-hidden="true">←</span> Uygulamaya geri dön</button>
           <input aria-label="Ayarları ara" className="settings__search" onChange={(event) => setSearch(event.target.value)} placeholder="Ayarları ara" type="search" value={search} />
           <nav aria-label="Ayar bölümleri" className="settings__nav">
-            {BOLUMLER.filter((item) => item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr"))).map((item) => (
-            <button
-              aria-current={bolum === item.id ? "page" : undefined}
-              key={item.id}
-              onClick={() => setBolum(item.id)}
-              type="button"
-            >
-              {item.etiket}
-            </button>
-            ))}
+            {["Kişisel", "Entegrasyonlar", "Sistem"].map((grup) => {
+              const items = BOLUMLER.filter((item) => item.grup === grup && item.etiket.toLocaleLowerCase("tr").includes(search.trim().toLocaleLowerCase("tr")));
+              if (!items.length) return null;
+              return <div className="settings__nav-group" key={grup}>
+                <span className="settings__nav-label">{grup}</span>
+                {items.map((item) => <button
+                  aria-current={bolum === item.id ? "page" : undefined}
+                  key={item.id}
+                  onClick={() => setBolum(item.id)}
+                  type="button"
+                >
+                  <Icon name={item.ikon} size={16} />
+                  <span>{item.etiket}</span>
+                </button>)}
+              </div>;
+            })}
           </nav>
         </div>
 
@@ -210,6 +218,8 @@ export function Settings({
           )}
 
           {bolum === "kisisellestirme" && <><MemoryPanel client={client} /><Instructions client={client} /></>}
+
+          {bolum === "tarayici" && <ChromeBrowser client={client} />}
 
           {bolum === "izinler" && (
             <Permissions

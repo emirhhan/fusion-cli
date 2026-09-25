@@ -56,6 +56,7 @@ from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_ski
 from ..ui import messages
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
+from .chrome_bridge import ChromeBridge
 from .commands import (
     command_choices,
     list_commands,
@@ -332,6 +333,7 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
+        self._chrome = ChromeBridge(self._chrome_turn)
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -355,7 +357,19 @@ class AppSession:
             data = {"ok": False, "metin": str(error)}
         self._writer(encode_result(request.id, data))
 
+    async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
+        """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
+        request = Request(id="chrome", name="tur.calistir", data={"gorev": prompt})
+        return await self._dispatch(request)
+
     async def _dispatch(self, request: Request) -> dict[str, Any]:
+        if request.name == "chrome.baslat":
+            return {"ok": True, **await self._chrome.start()}
+        if request.name == "chrome.durum":
+            return {"ok": True, **self._chrome.status()}
+        if request.name == "chrome.durdur":
+            await self._chrome.close()
+            return {"ok": True}
         if request.name == "oturum.baslat":
             return self._start_session(request.data)
         if request.name == "oturum.durum":
@@ -1217,6 +1231,7 @@ class AppSession:
                 root=self._state.root,
                 home=self._state.home,
                 history=self._state.history,
+                chrome_bridge=self._chrome,
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
@@ -1357,6 +1372,7 @@ class AppSession:
         self._panel_tasks.clear()
         await close_mcp_pool()
         await self._mcp_connections.close()
+        await self._chrome.close()
         await self._processes.close()
         await close_all_browser_sessions()
         stop_all_login_processes()

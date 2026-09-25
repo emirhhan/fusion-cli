@@ -13,7 +13,9 @@ from ..core.tools import Tool, ToolEffect
 from . import (
     archive,
     browser,
+    chrome,
     desktop,
+    desktop_inspect,
     download,
     files,
     planning,
@@ -48,6 +50,61 @@ def build_registry() -> ToolRegistry:
 
 
 _TOOLS: tuple[Tool, ...] = (
+    Tool(
+        name="desktop_windows",
+        description="macOS pencerelerini uygulama ve adla listele.",
+        parameters=_schema({}, []),
+        run=desktop_inspect.desktop_windows,
+    ),
+    Tool(
+        name="desktop_window_focus",
+        description="macOS penceresini adına göre öne getir.",
+        parameters=_schema({"app": _STRING, "window": _STRING}, ["app"]),
+        run=desktop_inspect.desktop_window_focus,
+        mutating=True,
+    ),
+    Tool(
+        name="desktop_accessibility",
+        description="Öndeki macOS penceresinin erişilebilir öğelerini oku.",
+        parameters=_schema({}, []),
+        run=desktop_inspect.desktop_accessibility,
+    ),
+    Tool(
+        name="chrome_page",
+        description="İzinli Chrome sekmesini oku; öğe ref'lerini al.",
+        parameters=_schema({}, []),
+        run=chrome.chrome_page,
+    ),
+    Tool(
+        name="chrome_click",
+        description="Chrome öğesine ref ile tıkla.",
+        parameters=_schema({"ref": _STRING}, ["ref"]),
+        run=chrome.chrome_click,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="chrome_type",
+        description="Chrome alanına ref ile yaz.",
+        parameters=_schema({"ref": _STRING, "text": _STRING}, ["ref", "text"]),
+        run=chrome.chrome_type,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="chrome_navigate",
+        description="Chrome sekmesini URL'ye götür.",
+        parameters=_schema({"url": _STRING}, ["url"]),
+        run=chrome.chrome_navigate,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+    ),
+    Tool(
+        name="chrome_screenshot",
+        description="İzinli etkin Chrome sekmesini görsel olarak oku.",
+        parameters=_schema({}, []),
+        run=chrome.chrome_screenshot,
+    ),
     Tool(
         name="desktop_apps",
         description="Çalışan macOS uygulamalarını listele.",
@@ -297,19 +354,15 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="download_file",
-        description="Kamuya açık bir URL'den gerçek dosyayı proje içine indir (en fazla 256 MiB). "
-        "PNG/JPEG, ses, font ve ZIP assetleri için kullan; web_fetch ikili dosya kaydetmez. "
-        "Mevcut dosyanın üzerine yazmaz. İndirmeden önce lisansı kaynak sayfasından doğrula; "
-        "sonrasında ASSETS.json kaydını oluştur. Arşivleri kendiliğinden açmaz.",
+        description="Kamuya açık dosyayı projeye indir; mevcut dosyayı ezmez. "
+        "Önce lisansı doğrula, ardından ASSETS.json kaydı oluştur. Arşivi ayrı aç.",
         parameters=_schema({"url": _STRING, "path": _STRING}, ["url", "path"]),
         run=download.download_file,
         mutating=True,
     ),
     Tool(
         name="extract_archive",
-        description="İndirilen ZIP/TAR arşivini proje içine aç. Asset paketleri sıkıştırılmış "
-        "gelir; açmadan içindeki PNG/ses dosyalarına referans veremezsin. Arşiv dışına çıkan "
-        "yol ve bağlantı içeren üyeler açılmaz. `dest` verilmezse arşivin bulunduğu dizine açar.",
+        description="ZIP/TAR arşivini projeye aç; dest yoksa arşivin dizinini kullanır.",
         parameters=_schema(
             {
                 "path": {**_STRING, "description": "Açılacak arşiv (proje içi yol)"},
@@ -322,25 +375,20 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="web_fetch",
-        description="Bir URL'nin içeriğini çek ve metnini oku (HTML temizlenir). "
-        "web_search sonucundaki bir sayfayı okumak için kullan. Form dolduramaz ve "
-        "oturum açamaz; sayfa şifre/giriş arkasındaysa browser_open kullan.",
+        description="URL içeriğini metin olarak oku. Girişli/formlu sayfada browser_open kullan.",
         parameters=_schema({"url": _STRING}, ["url"]),
         run=web.web_fetch,
     ),
     Tool(
         name="browser_open",
-        description="Dış URL'yi gerçek tarayıcıda aç, görünür metni oku. Girişli veya "
-        "JavaScript sayfalarında kullan; oturum tur boyunca açık kalır. file:// "
-        "ve localhost engellenir. Yerel uygulamayı run_shell testleriyle doğrula.",
+        description="Dış URL'yi tarayıcıda aç ve oku; girişli/JS sayfası için. "
+        "Oturum tur boyunca açık kalır; localhost engellenir.",
         parameters=_schema({"url": {**_STRING, "description": "Açılacak adres"}}, ["url"]),
         run=browser.browser_open,
     ),
     Tool(
         name="browser_read",
-        description="Açık tarayıcı sayfasının GÜNCEL adresini, başlığını ve metnini oku. "
-        "Bir tıklama/yazma sonrası sayfanın ne olduğunu görmek ve seçici doğrulamak "
-        "için kullan.",
+        description="Açık sayfanın güncel adresini, başlığını ve metnini oku.",
         parameters=_schema({}, []),
         run=browser.browser_read,
     ),
@@ -364,9 +412,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_type",
-        description="Açık sayfada bir alana metin yaz (CSS seçici ile). Şifre kutusu, "
-        "arama alanı, form girdisi. submit: true verirsen ardından Enter'a basar. "
-        "Değiştirici — gerçek dünyada etki yaratır, onay gerekir.",
+        description="Açık sayfadaki CSS alanına yaz; submit true ise Enter gönderir. "
+        "Form değişikliği için onay gerekir.",
         parameters=_schema(
             {
                 "selector": {

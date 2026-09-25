@@ -249,12 +249,13 @@
   width: 100%;
 }
 .settings__navcol {
-  background: var(--surface-sidebar);
+  background: var(--settings-nav-bg);
   border-right: 1px solid var(--settings-border);
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+  min-width: 0;
   padding: 42px 8px 16px;
 }
 .settings__close {
@@ -292,12 +293,16 @@
   overflow-y: auto;
   position: static;
 }
-.settings__nav button { color: var(--settings-text); font-size: 14px; min-height: 34px; padding: 7px 11px; }
+.settings__nav-group { display: grid; gap: 2px; margin: 4px 0 10px; }
+.settings__nav-label { color: var(--settings-muted); font-size: 12px; padding: 7px 11px 4px; }
+.settings__nav button { align-items: center; color: var(--settings-text); display: flex; font-size: 14px; gap: 10px; min-height: 34px; padding: 7px 11px; }
+.settings__nav button svg { flex: none; }
 .settings__nav button[aria-current="page"] { background: var(--settings-selected); color: var(--settings-text); }
 .settings__panel {
   align-content: start;
   display: block;
   min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   padding: 54px max(24px, calc((100% - 760px) / 2)) 48px;
 }
@@ -338,9 +343,11 @@
   .settings__panel { padding: 44px 22px; }
 }
 @media (max-width: 520px) {
-  .settings__dialog { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .settings__dialog { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   .settings__navcol { border-bottom: 1px solid var(--settings-border); border-right: 0; }
-  .settings__nav { display: flex; overflow-x: auto; }
+  .settings__nav { display: flex; flex-wrap: nowrap; overflow-x: auto; }
+  .settings__nav-group { display: flex; flex: none; margin: 0; }
+  .settings__nav-label { display: none; }
   .settings__nav button { white-space: nowrap; }
   .settings__panel { padding: 24px 18px; }
 }

@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Fusion Browser",
+  "version": "0.1.0",
+  "description": "Fusion'ı izin verdiğiniz açık Chrome sekmesine bağlar.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "storage", "scripting", "activeTab"],
+  "host_permissions": ["http://127.0.0.1/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "background": { "service_worker": "background.js" },
+  "side_panel": { "default_path": "panel.html" },
+  "action": { "default_title": "Fusion Browser" }
+}

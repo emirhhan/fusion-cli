@@ -25,6 +25,7 @@
   --surface-hover: #f2f2f3;
   --surface-overlay: rgb(0 0 0 / 32%);
   --settings-dialog-bg: #ffffff;
+  --settings-nav-bg: #f9f9fa;
   --settings-border: #e0e0e0;
   --settings-text: #202020;
   --settings-muted: #666666;
@@ -152,12 +153,13 @@
   --surface-menu: #333333;
   --surface-hover: #2a2a2a;
   --surface-overlay: rgb(0 0 0 / 64%);
-  --settings-dialog-bg: #232323;
-  --settings-border: #3a3a3a;
+  --settings-dialog-bg: #181818;
+  --settings-nav-bg: #382724;
+  --settings-border: #34302e;
   --settings-text: #f5f5f5;
-  --settings-muted: #a7a7a7;
-  --settings-input-bg: #2b2b2b;
-  --settings-selected: #363636;
+  --settings-muted: #a39a97;
+  --settings-input-bg: #47332f;
+  --settings-selected: #4b3935;
   --settings-ring: #a8c6ff;
   --text-primary: #f3f5f6;
   --text-secondary: #b4b4b4;
