@@ -190,7 +190,6 @@ export function Settings({
 
           {bolum === "hesap" && (
             <article className="settings__card">
-              <h3>Hesap</h3>
               <p className="settings__hint">
                 Hesabın, parolan ve avatarın bu bilgisayarda tutulur. Hiçbir bilgi
                 sunucuya gönderilmez; hesabı silersen ya da Fusion'ı kaldırırsan

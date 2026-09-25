@@ -28,6 +28,10 @@ class _SahteSayfa:
         self.basilan: list[str] = []
         self.goruntu_yollari: list[str] = []
         self.hedef_bulunur = True
+        self.closed = False
+
+    def is_closed(self) -> bool:
+        return self.closed
 
     async def goto(self, url: str, **_: object) -> None:
         self.gidilen.append(url)
@@ -129,6 +133,60 @@ async def test_kapatma_bir_adim_patlasa_bile_devam_eder():
 
     assert tarayici.kapandi, "sayfa hatası tarayıcının kapatılmasını engelledi"
     assert oturum.is_open is False
+
+
+async def test_sekmeler_listelenir_ve_secim_sonraki_okumayi_degistirir(tmp_path):
+    first = _SahteSayfa(url="https://bir.test", govde="Birinci sayfa")
+    second = _SahteSayfa(url="https://iki.test", govde="İkinci sayfa")
+    context = _acik_context(tmp_path, first)
+
+    class _Context:
+        def __init__(self) -> None:
+            self.pages = [first, second]
+
+    class _Browser:
+        def __init__(self) -> None:
+            self.contexts = [_Context()]
+
+    context.browser.browser = _Browser()
+    context.browser.context = context.browser.browser.contexts[0]
+    listed = await browser.browser_tabs_list({}, context)
+    selected = await browser.browser_tab_select({"index": 2}, context)
+    reread = await browser.browser_read({}, context)
+
+    assert listed.ok and "* 1." in listed.output and "2." in listed.output
+    assert selected.ok and "İkinci sayfa" in selected.output
+    assert reread.ok and "İkinci sayfa" in reread.output
+    assert not (await browser.browser_tab_select({"index": 3}, context)).ok
+
+
+async def test_yeni_sekme_giris_baglamini_paylasir_ve_adres_kapisi_korunur(tmp_path, monkeypatch):
+    first = _SahteSayfa(url="https://bir.test")
+    context = _acik_context(tmp_path, first)
+
+    class _Context:
+        def __init__(self) -> None:
+            self.pages = [first]
+
+        async def new_page(self) -> _SahteSayfa:
+            page = _SahteSayfa()
+            self.pages.append(page)
+            return page
+
+    context.browser.context = _Context()
+    monkeypatch.setattr(browser, "url_block_reason", lambda url: None)
+
+    result = await browser.browser_tab_open({"url": "https://iki.test"}, context)
+
+    assert result.ok
+    assert len(context.browser.context.pages) == 2
+    assert context.browser.page is context.browser.context.pages[1]
+    assert context.browser.page.url == "https://iki.test"
+
+    monkeypatch.setattr(browser, "url_block_reason", lambda url: "yerel adres")
+    blocked = await browser.browser_tab_open({"url": "http://127.0.0.1"}, context)
+    assert not blocked.ok
+    assert len(context.browser.context.pages) == 2
 
 
 # --------------------------------------------------------------------------- #

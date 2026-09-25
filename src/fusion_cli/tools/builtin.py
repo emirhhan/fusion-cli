@@ -298,6 +298,24 @@ _TOOLS: tuple[Tool, ...] = (
         run=browser.browser_read,
     ),
     Tool(
+        name="browser_tabs_list",
+        description="Bu turdaki açık tarayıcı sekmelerini listele; yıldız etkin sekmeyi gösterir.",
+        parameters=_schema({}, []),
+        run=browser.browser_tabs_list,
+    ),
+    Tool(
+        name="browser_tab_select",
+        description="browser_tabs_list içindeki numarayla başka açık sekmeye geç ve onu oku.",
+        parameters=_schema({"index": _INTEGER}, ["index"]),
+        run=browser.browser_tab_select,
+    ),
+    Tool(
+        name="browser_tab_open",
+        description="Aynı oturumda sekme aç; giriş durumu sekmelerde paylaşılır.",
+        parameters=_schema({"url": _STRING}, ["url"]),
+        run=browser.browser_tab_open,
+    ),
+    Tool(
         name="browser_type",
         description="Açık sayfada bir alana metin yaz (CSS seçici ile). Şifre kutusu, "
         "arama alanı, form girdisi. submit: true verirsen ardından Enter'a basar. "

@@ -124,6 +124,55 @@ async def browser_read(args: ToolArgs, context: ToolContext) -> ToolResult:
     return await _sayfa_ozeti(page, "okundu")
 
 
+async def browser_tabs_list(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Turun tarayıcısındaki sekmeleri ve etkin sekmeyi listele."""
+    del args
+    if not context.browser.is_open:
+        return ToolResult.failure("Açık bir tarayıcı yok — önce browser_open kullan.")
+    pages = await context.browser.pages()
+    rows: list[str] = []
+    for index, page in enumerate(pages, start=1):
+        title = await page.title()
+        marker = "*" if page is context.browser.page else " "
+        rows.append(f"{marker} {index}. {title} — {page.url}")
+    return ToolResult("\n".join(rows) if rows else "Açık sekme yok.")
+
+
+async def browser_tab_select(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Listelenen sekmeye geç ve güncel sayfayı oku."""
+    raw_index = args.get("index")
+    if not isinstance(raw_index, int) or isinstance(raw_index, bool) or raw_index < 1:
+        return ToolResult.failure("'index' 1'den başlayan bir tam sayı olmalı.")
+    pages = await context.browser.pages()
+    if raw_index > len(pages):
+        return ToolResult.failure(f"{raw_index} numaralı sekme yok; browser_tabs_list kullan.")
+    context.browser.page = pages[raw_index - 1]
+    return await _sayfa_ozeti(context.browser.page, "sekme seçildi")
+
+
+async def browser_tab_open(args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Aynı oturumda yeni sekme aç ve izin verilen adrese git."""
+    url = require_str(args, "url")
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url}"
+    reason = url_block_reason(url)
+    if reason is not None:
+        return ToolResult.failure(f"Bu adrese erişilemez: {reason}")
+    page, error = await _sayfa(context)
+    if page is None:
+        return ToolResult.failure(error)
+    new_page = None
+    try:
+        new_page = await context.browser.context.new_page()
+        await new_page.goto(url, wait_until="domcontentloaded", timeout=PAGE_TIMEOUT_MS)
+    except Exception as exc:
+        if new_page is not None:
+            await new_page.close()
+        return ToolResult.failure(f"Sekme açılamadı ({type(exc).__name__}: {exc})")
+    context.browser.page = new_page
+    return await _sayfa_ozeti(new_page, "sekme açıldı")
+
+
 async def browser_screenshot(args: ToolArgs, context: ToolContext) -> ToolResult:
     """Açık sayfanın ekran görüntüsünü diske yaz.
 
@@ -270,7 +319,8 @@ async def _sayfa(context: ToolContext, *, baslatma: bool = True) -> tuple[Any, s
     try:
         oturum.playwright = await async_playwright().start()
         oturum.browser = await oturum.playwright.chromium.launch(headless=True)
-        oturum.page = await oturum.browser.new_page()
+        oturum.context = await oturum.browser.new_context()
+        oturum.page = await oturum.context.new_page()
     except Exception as exc:
         await oturum.close()
         return None, (

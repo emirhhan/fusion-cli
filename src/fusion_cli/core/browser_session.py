@@ -28,6 +28,7 @@ class BrowserSession:
         #: ve tanısaydı zorunlu bağımlılık olurdu.
         self.playwright: Any = None
         self.browser: Any = None
+        self.context: Any = None
         self.page: Any = None
 
     @property
@@ -42,6 +43,7 @@ class BrowserSession:
         """
         for nesne, yontem in (
             (self.page, "close"),
+            (self.context, "close"),
             (self.browser, "close"),
             (self.playwright, "stop"),
         ):
@@ -55,4 +57,11 @@ class BrowserSession:
                 continue
         self.playwright = None
         self.browser = None
+        self.context = None
         self.page = None
+
+    async def pages(self) -> tuple[Any, ...]:
+        """Aynı tarayıcı bağlamındaki açık sayfaları sırayla döndür."""
+        if self.context is None:
+            return ()
+        return tuple(page for page in self.context.pages if not page.is_closed())
