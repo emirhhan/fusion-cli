@@ -29,6 +29,13 @@ data directory have not been replaced or removed.
 - Settings were visually inspected at default and 390-pixel widths; the voice
   controls now have a dedicated navigation entry. Sidebar options appear on
   hover as requested in the supplied recording.
+- The source UI was clicked through Settings voice, account, models, and browser
+  navigation. Sidebar/account tests and a new extension panel integration test
+  covered 42 button-flow assertions; the browser settings test passed one more.
+  The panel test exercises connect, site permission, page read, prompt send,
+  disconnect, and invalid pairing against mocked Chrome and loopback responses.
+  TypeScript/Vite build passed after adding the test. These checks do not prove
+  the packaged app or installed Chrome extension works end to end.
 
 ## Open live gates
 
