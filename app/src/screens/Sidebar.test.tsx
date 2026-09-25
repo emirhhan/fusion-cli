@@ -352,6 +352,22 @@ it("projeyi yeniden adlandırır, listeden kaldırır ve geri ekler", () => {
   expect(screen.getByRole("button", { name: "Yeni ad projesini aç" })).toBeTruthy();
 });
 
+it("proje seçeneklerini satırda gizler ve menü açıkken görünür tutar", () => {
+  const style = document.createElement("style");
+  style.dataset.testSidebarStyles = "true";
+  style.textContent = sidebarStyles;
+  document.head.append(style);
+  render(<Sidebar etkin={null} oturumlar={[]} projeler={[{
+    root: "/Projects/fusion", name: "Fusion", pinned: false, updated_at: 1,
+  }]} onYeni={vi.fn()} onSec={vi.fn()} />);
+
+  const options = screen.getByRole("button", { name: "Fusion için proje seçeneklerini aç" });
+  expect(getComputedStyle(options).opacity).toBe("0");
+  fireEvent.click(options);
+  expect(getComputedStyle(options).opacity).toBe("1");
+  expect(screen.getByRole("menu", { name: "Fusion proje seçenekleri" })).toBeTruthy();
+});
+
 it("sohbet için diğer projeleri taşınabilir hedef olarak gösterir", async () => {
   const move = vi.fn(async () => undefined);
   render(<Sidebar etkin={null} oturumlar={[{
