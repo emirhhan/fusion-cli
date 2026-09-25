@@ -57,7 +57,10 @@ export function ContextGauge({ olcu }: { olcu: BaglamOlcusu | null }) {
   const pencere = olcu.model_siniri_token
     ? `${olcu.model ?? "Seçili model"} girdi penceresi: ${olcu.model_siniri_token.toLocaleString("tr-TR")} token.`
     : "Modelin token penceresi doğrulanamadı.";
-  const aciklama = `Geçmişin özetleme eşiğine doluluğu: %${yuzde} (${olcu.kullanilan.toLocaleString("tr-TR")}/${olcu.sinir.toLocaleString("tr-TR")} karakter). ${pencere} Bu yüzde model penceresinin doluluğu değildir.`;
+  const sonGirdi = olcu.son_girdi_token != null
+    ? `Son başarılı ajan çağrısı: ${olcu.son_girdi_token.toLocaleString("tr-TR")} girdi tokenı (${olcu.son_girdi_model ?? "model bilinmiyor"}).`
+    : "Son ajan çağrısının gerçek token ölçümü henüz yok.";
+  const aciklama = `Geçmişin özetleme eşiğine doluluğu: %${yuzde} (${olcu.kullanilan.toLocaleString("tr-TR")}/${olcu.sinir.toLocaleString("tr-TR")} karakter). ${pencere} ${sonGirdi} Bu yüzde model penceresinin doluluğu değildir.`;
   return (
     <span
       aria-label={aciklama}

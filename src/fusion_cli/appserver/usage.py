@@ -28,6 +28,8 @@ class UsageMeter:
     total: TokenUsage = field(default_factory=TokenUsage)
     calls: int = 0
     by_model: dict[str, TokenUsage] = field(default_factory=dict)
+    last_agent_prompt_tokens: int | None = None
+    last_agent_model: str | None = None
 
     def observe(self, event: Event) -> None:
         """Olay bir model çağrısının bitişiyse tüketimi topla."""
@@ -40,6 +42,14 @@ class UsageMeter:
         self.total = self.total + usage
         self.calls += 1
         self.by_model[model] = self.by_model.get(model, TokenUsage()) + usage
+        if (
+            event.role == "agent"
+            and not event.background
+            and event.result.ok
+            and usage.prompt_tokens > 0
+        ):
+            self.last_agent_prompt_tokens = usage.prompt_tokens
+            self.last_agent_model = model
 
     def payload(self) -> dict[str, Any]:
         return {

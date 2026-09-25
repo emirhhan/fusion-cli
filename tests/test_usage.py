@@ -44,6 +44,27 @@ def test_model_kirilimi_cok_harcayandan_baslar():
     assert modeller[0]["model"] == "cok/model"
 
 
+def test_son_ajan_girdi_tokenu_yalniz_basarili_ana_cagridan_alinir():
+    olcer = UsageMeter()
+    olcer.observe(_bitis("a/model", 120, 30))
+    olcer.observe(
+        ModelCallFinished(
+            role="judge",
+            result=ModelResult(
+                name="judge",
+                model="b/model",
+                text="x",
+                latency_ms=10,
+                ok=True,
+                usage=TokenUsage(prompt_tokens=999, completion_tokens=1),
+            ),
+        )
+    )
+
+    assert olcer.last_agent_prompt_tokens == 120
+    assert olcer.last_agent_model == "a/model"
+
+
 def test_model_disi_olay_sayaci_bozmaz():
     olcer = UsageMeter()
 

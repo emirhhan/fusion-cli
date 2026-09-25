@@ -46,6 +46,8 @@ export interface BaglamOlcusu {
   yuzde: number;
   model?: string | null;
   model_siniri_token?: number | null;
+  son_girdi_token?: number | null;
+  son_girdi_model?: string | null;
 }
 
 /**
@@ -54,7 +56,7 @@ export interface BaglamOlcusu {
  */
 export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
   if (!deger || typeof deger !== "object") return null;
-  const { kullanilan, sinir, yuzde, model, model_siniri_token } = deger as Record<string, unknown>;
+  const { kullanilan, sinir, yuzde, model, model_siniri_token, son_girdi_token, son_girdi_model } = deger as Record<string, unknown>;
   const sayilar = [kullanilan, sinir, yuzde];
   if (!sayilar.every((sayi) => typeof sayi === "number" && Number.isFinite(sayi) && sayi >= 0)) {
     return null;
@@ -63,11 +65,17 @@ export function baglamOlcusuOku(deger: unknown): BaglamOlcusu | null {
   if (model_siniri_token !== undefined && model_siniri_token !== null && (
     typeof model_siniri_token !== "number" || !Number.isInteger(model_siniri_token) || model_siniri_token <= 0
   )) return null;
+  if (son_girdi_token !== undefined && son_girdi_token !== null && (
+    typeof son_girdi_token !== "number" || !Number.isInteger(son_girdi_token) || son_girdi_token < 0
+  )) return null;
+  if (son_girdi_model !== undefined && son_girdi_model !== null && typeof son_girdi_model !== "string") return null;
   return {
     kullanilan: kullanilan as number,
     sinir: sinir as number,
     yuzde: Math.min(100, yuzde as number),
     ...(model !== undefined ? { model: model as string | null } : {}),
     ...(model_siniri_token !== undefined ? { model_siniri_token: model_siniri_token as number | null } : {}),
+    ...(son_girdi_token !== undefined ? { son_girdi_token: son_girdi_token as number | null } : {}),
+    ...(son_girdi_model !== undefined ? { son_girdi_model: son_girdi_model as string | null } : {}),
   };
 }

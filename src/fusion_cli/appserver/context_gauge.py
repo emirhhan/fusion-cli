@@ -21,7 +21,12 @@ __all__ = ["baglam_olcusu"]
 
 
 def baglam_olcusu(
-    messages: Sequence[Message], *, web: bool = False, budget: ContextBudget | None = None
+    messages: Sequence[Message],
+    *,
+    web: bool = False,
+    budget: ContextBudget | None = None,
+    last_prompt_tokens: int | None = None,
+    last_prompt_model: str | None = None,
 ) -> dict[str, int | str | None]:
     """Geçmişin özetleme eşiğine yaklaşmasını göster; model sınırını ayrı bildir.
 
@@ -42,4 +47,6 @@ def baglam_olcusu(
         "yuzde": yuzde,
         "model": budget.model if budget is not None else None,
         "model_siniri_token": budget.window_tokens if budget is not None else None,
+        "son_girdi_token": last_prompt_tokens,
+        "son_girdi_model": last_prompt_model,
     }

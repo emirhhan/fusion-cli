@@ -66,4 +66,11 @@ describe("ContextGauge", () => {
     view.rerender(<ContextGauge olcu={{ ...olcu(30), model: "nvidia_nim/model", model_siniri_token: null }} />);
     expect(screen.getByRole("meter").getAttribute("title")).toMatch(/penceresi doğrulanamadı/);
   });
+
+  it("son model çağrısının gerçek token kullanımını özetleme yüzdesinden ayrı belirtir", () => {
+    render(<ContextGauge olcu={{ ...olcu(30), son_girdi_token: 1234, son_girdi_model: "openrouter/model" }} />);
+    const title = screen.getByRole("meter").getAttribute("title") ?? "";
+    expect(title).toMatch(/1\.234 girdi tokenı/);
+    expect(title).toMatch(/Bu yüzde model penceresinin doluluğu değildir/);
+  });
 });

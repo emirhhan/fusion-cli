@@ -1023,6 +1023,8 @@ class AppSession:
                     self._state.config,
                     select_agent_spec(self._state.config, self._state.task_type),
                 ),
+                last_prompt_tokens=self._usage.last_agent_prompt_tokens,
+                last_prompt_model=self._usage.last_agent_model,
             ),
             # Composer'ın yanındaki sürekli-görünür rozet içindir (Faz 5,
             # Görev 1) — ikinci bir sayaç DEĞİL, `kullanim.durum`u da besleyen
