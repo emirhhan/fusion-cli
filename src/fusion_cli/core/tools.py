@@ -88,6 +88,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "chrome_type": ToolFamily.BROWSER,
     "chrome_navigate": ToolFamily.BROWSER,
     "chrome_screenshot": ToolFamily.BROWSER,
+    "chrome_action": ToolFamily.BROWSER,
     "desktop_apps": ToolFamily.DESKTOP,
     "desktop_windows": ToolFamily.DESKTOP,
     "desktop_window_focus": ToolFamily.DESKTOP,
@@ -333,7 +334,7 @@ ToolExecutor = Callable[[ToolArgs, ToolContext], ToolResult | Awaitable[ToolResu
 
 
 #: Çağrının argümanından etkiyi bulan eşzamansız çözücü (bkz. `Tool.effect_resolver`).
-EffectResolver = Callable[[ToolArgs], Awaitable["ToolEffect | None"]]
+EffectResolver = Callable[[ToolArgs, "ToolContext | None"], Awaitable["ToolEffect | None"]]
 
 
 @dataclass(frozen=True, slots=True)

@@ -1040,6 +1040,17 @@ def conversation_digest(messages: Sequence[Message]) -> str:
     return digest.hexdigest()
 
 
+#: Web oturumu bu kadar süre kullanılmazsa bu sürecin tarayıcı kirası bırakılır.
+#:
+#: Ölçüldü (26 Eylül): Fusion açık kaldıkça gizli Chrome da açık kalıyor, macOS
+#: kullanıcının Dock'taki Chrome tıklamasında bu görünmez kopyayı öne getiriyordu
+#: (kullanıcı "Chrome açılmıyor, eklentilerim yok" gördü). Ajan turu içindeki model
+#: çağrıları saniyeler arayla gelir; kullanıcının iki mesajı arası çoğunlukla birkaç
+#: dakikadır. 5 dakika sohbet sürekliliğini korur; sonra tarayıcı kapanır ve sonraki
+#: istekte birkaç saniyede yeniden açılır (sohbet yeni başlar, geçmiş yeniden gider).
+IDLE_RELEASE_S = 300.0
+
+
 class BrowserSessionPool:
     """Paylaşılan Chrome'a açılan süreç-yerel bağlantılar; sağlayıcı/hesap başına bir tane.
 
@@ -1047,7 +1058,9 @@ class BrowserSessionPool:
     havuz yalnız bu sürecin CDP bağlantısını, bağlamını ve sohbet sayfalarını tutar.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, idle_release_s: float | None = None) -> None:
+        self._idle_release_s = IDLE_RELEASE_S if idle_release_s is None else idle_release_s
+        self._idle_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         self._playwright: Any | None = None
         self._contexts: dict[tuple[str, str], Any] = {}
         #: Bağlamların geldiği CDP bağlantıları; kapatmak Chrome'u değil bağlantıyı bırakır.
@@ -1065,6 +1078,34 @@ class BrowserSessionPool:
         #: Hesap başına yeni-sohbet hız kovası (bkz. `ConversationPacer`).
         self._pacers: dict[tuple[str, str], ConversationPacer] = {}
         self._guard = asyncio.Lock()
+
+    def schedule_idle_release(self, provider: str, account: str) -> None:
+        """Oturum boşta kalırsa bu sürecin tarayıcı kirasını bırak (bkz. `IDLE_RELEASE_S`).
+
+        Her kullanım süreyi sıfırlar. Son kiracı da bırakınca paylaşılan Chrome kapanır.
+        """
+        key = (provider, account)
+        eski = self._idle_timers.pop(key, None)
+        if eski is not None:
+            eski.cancel()
+        loop = asyncio.get_running_loop()
+        self._idle_timers[key] = loop.call_later(
+            self._idle_release_s, lambda: loop.create_task(self._release_idle(key))
+        )
+
+    async def _release_idle(self, key: tuple[str, str]) -> None:
+        self._idle_timers.pop(key, None)
+        if self.lock_for(*key).locked():
+            # Tur sürüyor: bırakma, kullanım bitince süre yeniden başlar.
+            self.schedule_idle_release(*key)
+            return
+        await self.drop_account_conversations(*key)
+        await self.flush_closed()
+        await self._disconnect(key)
+        with contextlib.suppress(WebBrowserError, SharedBrowserError, OSError):
+            await _shared_profile_browser(self._playwright, browser_profile_dir(*key)).release(
+                force=False, timeout_s=MIN_BROWSER_TURN_S
+            )
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
@@ -1287,6 +1328,14 @@ def build_browser_transport(
         credential: WebSessionCredential, messages: tuple[Message, ...], model: str
     ) -> WebTurn:
         del model  # Model kimliği oturumu bulur; seçili web kipi aşağıda uygulanır.
+        try:
+            return await _locked_transport(credential, messages)
+        finally:
+            manager.schedule_idle_release(session.provider, session.account)
+
+    async def _locked_transport(
+        credential: WebSessionCredential, messages: tuple[Message, ...]
+    ) -> WebTurn:
         lock = manager.lock_for(session.provider, session.account)
         async with lock:
             context = await manager.context_for(session, credential)

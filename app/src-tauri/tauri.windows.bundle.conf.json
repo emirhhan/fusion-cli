@@ -11,7 +11,10 @@
       "../../chrome-extension/background.js": "chrome-extension/background.js",
       "../../chrome-extension/panel.html": "chrome-extension/panel.html",
       "../../chrome-extension/panel.css": "chrome-extension/panel.css",
-      "../../chrome-extension/panel.js": "chrome-extension/panel.js"
+      "../../chrome-extension/panel.js": "chrome-extension/panel.js",
+      "../../chrome-extension/core.js": "chrome-extension/core.js",
+      "../../chrome-extension/offscreen.html": "chrome-extension/offscreen.html",
+      "../../chrome-extension/offscreen.js": "chrome-extension/offscreen.js"
     },
     "windows": {
       "nsis": {

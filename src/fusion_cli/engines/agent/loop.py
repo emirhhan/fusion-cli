@@ -2149,7 +2149,13 @@ async def _execute(
         )
     if tool is not None and tool.mutating:
         decision = await deps.policy.decide(
-            await resolve_request(tool, args, deps.allowed_commands, root=deps.tool_context.root)
+            await resolve_request(
+                tool,
+                args,
+                deps.allowed_commands,
+                root=deps.tool_context.root,
+                context=deps.tool_context,
+            )
         )
         if decision is not Decision.ALLOW:
             # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model

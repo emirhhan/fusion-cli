@@ -55,6 +55,10 @@ def izole_kullanici_yapilandirmasi(monkeypatch, tmp_path):
     user_data = tmp_path.parent / f".{tmp_path.name}-fusion-data"
     monkeypatch.setenv("XDG_DATA_HOME", str(user_data))
     monkeypatch.setenv("LOCALAPPDATA", str(user_data))
+    # Chrome köprüsü açılınca eşleşme dosyası yapılandırma köküne yazılır ve
+    # Chrome'a yerel mesajlaşma sunucusu tanıtılır; testler gerçek dizinlere dokunmaz.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path.parent / f".{tmp_path.name}-fusion-config"))
+    monkeypatch.setenv("FUSION_NO_NATIVE_HOST", "1")
 
 
 @pytest.fixture(autouse=True)

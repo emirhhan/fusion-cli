@@ -9,12 +9,20 @@ Köprü yalnız açıkken komut kuyruğu yaşar ve kapanınca bekleyen araçlar�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import secrets
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
+
+from .chrome_host import (
+    candidate_extension_ids,
+    clear_bridge_state,
+    install_native_host,
+    write_bridge_state,
+)
 
 MAX_REQUEST_BYTES = 4_194_304
 COMMAND_TIMEOUT_SECONDS = 30
@@ -56,11 +64,18 @@ class ChromeBridge:
             self._token = secrets.token_urlsafe(32)
             self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
             self._port = self._server.sockets[0].getsockname()[1]
+            # Eklenti Fusion'ı yerel mesajlaşmayla KENDİSİ bulur (bkz. `chrome_host`);
+            # yazılamazsa elle eşleştirme yolu yine çalışır.
+            with contextlib.suppress(OSError):
+                write_bridge_state(self._port, self._token)
+                await asyncio.to_thread(install_native_host, candidate_extension_ids())
         return self.status(reveal_token=True)
 
     async def close(self) -> None:
         server, self._server = self._server, None
         if server is not None:
+            with contextlib.suppress(OSError):
+                clear_bridge_state()
             server.close()
             await server.wait_closed()
         for future in self._pending.values():

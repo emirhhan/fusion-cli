@@ -71,9 +71,18 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_page",
-        description="İzinli Chrome sekmesini oku; öğe ref'lerini al.",
-        parameters=_schema({}, []),
+        description="Chrome sekmesini oku; query ile öğe bul.",
+        parameters=_schema({"query": _STRING}, []),
         run=chrome.chrome_page,
+    ),
+    Tool(
+        name="chrome_action",
+        description="scroll|wait|key|select|tabs|open|tab|screenshot",
+        parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
+        run=chrome.chrome_action,
+        mutating=True,
+        effect=ToolEffect.REMOTE_WRITE,
+        effect_resolver=chrome.chrome_action_effect,
     ),
     Tool(
         name="chrome_click",
@@ -82,6 +91,7 @@ _TOOLS: tuple[Tool, ...] = (
         run=chrome.chrome_click,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
+        effect_resolver=chrome.chrome_click_effect,
     ),
     Tool(
         name="chrome_type",
@@ -90,6 +100,7 @@ _TOOLS: tuple[Tool, ...] = (
         run=chrome.chrome_type,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
+        effect_resolver=chrome.chrome_read_effect,
     ),
     Tool(
         name="chrome_navigate",
@@ -98,12 +109,7 @@ _TOOLS: tuple[Tool, ...] = (
         run=chrome.chrome_navigate,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
-    ),
-    Tool(
-        name="chrome_screenshot",
-        description="İzinli etkin Chrome sekmesini görsel olarak oku.",
-        parameters=_schema({}, []),
-        run=chrome.chrome_screenshot,
+        effect_resolver=chrome.chrome_read_effect,
     ),
     Tool(
         name="desktop_apps",
@@ -433,8 +439,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_click",
-        description="Açık sayfada bir öğeye tıkla (CSS seçici ile). Değiştirici — "
-        "tıklama geri alınamaz bir işlem başlatabilir, onay gerekir.",
+        description="Açık sayfada öğeye CSS seçiciyle tıkla (onay gerekir).",
         parameters=_schema(
             {
                 "selector": {
@@ -449,8 +454,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_screenshot",
-        description="Açık sayfanın ekran görüntüsünü diske yaz. Bir siteyi taklit "
-        "ederken yerleşimi metinden değil GÖRÜNTÜDEN anlarsın. Değiştirici (dosya yazar).",
+        description="Açık sayfanın ekran görüntüsünü diske yaz; yerleşimi görüntüden anla.",
         parameters=_schema(
             {
                 "path": {**_STRING, "description": "Hedef dosya (varsayılan: ekran-goruntusu.png)"},

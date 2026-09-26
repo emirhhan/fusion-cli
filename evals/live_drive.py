@@ -113,21 +113,16 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
         limit=16 * 1024 * 1024,
     )
     assert process.stdin and process.stdout
-    kayit: dict[str, Any] = {"izinler": [], "sorular": [], "araclar": [], "sonuc": None}
+    kayit: dict[str, Any] = {"izinler": [], "sorular": [], "araclar": [], "turlar": []}
+    bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}
 
     def gonder(payload: dict[str, Any]) -> None:
         assert process.stdin
         process.stdin.write((json.dumps(payload, ensure_ascii=False) + "\n").encode())
 
-    baslat = {"kok": args.kok, "mod": args.mod, "kip": "kod"}
-    gonder({"tip": "istek", "id": "baslat", "ad": "oturum.baslat", "veri": baslat})
-    gonder({"tip": "istek", "id": "tur", "ad": "tur.calistir", "veri": {"gorev": args.gorev}})
-    basla = time.monotonic()
-    try:
-        while True:
-            line = await asyncio.wait_for(process.stdout.readline(), timeout=args.sure)
-            if not line:
-                break
+    async def oku() -> None:
+        assert process.stdout
+        while line := await process.stdout.readline():
             try:
                 mesaj = json.loads(line)
             except ValueError:
@@ -135,17 +130,57 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
             tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
             if tip == "olay" and veri.get("olay") == "ToolExecuted":
                 kayit["araclar"].append(veri.get("name"))
-            if tip == "soru":
+            elif tip == "soru":
                 gonder({"tip": "cevap", "id": mesaj["id"], "veri": _cevap(veri, args, kayit)})
-            if tip == "sonuc" and mesaj.get("id") == "tur":
-                kayit["sonuc"] = {"ok": veri.get("ok"), "metin": str(veri.get("metin", ""))[:1500]}
-                break
-    except TimeoutError:
-        kayit["sonuc"] = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}
+            elif tip == "sonuc" and mesaj.get("id") in bekleyen:
+                bekleyen.pop(mesaj["id"]).set_result(veri)
+
+    async def istek(ad: str, veri: dict[str, Any], sure: float) -> dict[str, Any]:
+        kimlik = f"{ad}-{len(kayit['turlar'])}-{time.monotonic_ns()}"
+        bekleyen[kimlik] = asyncio.get_running_loop().create_future()
+        gonder({"tip": "istek", "id": kimlik, "ad": ad, "veri": veri})
+        return await asyncio.wait_for(bekleyen[kimlik], timeout=sure)
+
+    okuyucu = asyncio.create_task(oku())
+    try:
+        await istek("oturum.baslat", {"kok": args.kok, "mod": args.mod, "kip": "kod"}, 60)
+        if args.chrome:
+            bilgi = await istek("chrome.baslat", {}, 30)
+            eslesme = json.dumps({"port": bilgi.get("port"), "anahtar": bilgi.get("anahtar")})
+            await asyncio.to_thread(Path(args.chrome).write_text, eslesme, encoding="utf-8")
+            bitis = time.monotonic() + args.eslestirme_suresi
+            while time.monotonic() < bitis:
+                if (await istek("chrome.durum", {}, 30)).get("bagli"):
+                    break
+                await asyncio.sleep(3)
+            else:
+                kayit["hata"] = "Chrome eklentisi eşleştirilmedi."
+                return kayit
+        for gorev in args.gorev:
+            basla = time.monotonic()
+            try:
+                sonuc = await istek("tur.calistir", {"gorev": gorev}, args.sure)
+                ozet = {"ok": sonuc.get("ok"), "metin": str(sonuc.get("metin", ""))[:2000]}
+            except TimeoutError:
+                ozet = {"ok": False, "metin": f"zaman aşımı ({args.sure} sn)"}
+            kayit["turlar"].append(
+                {"gorev": gorev[:120], **ozet, "sure_sn": round(time.monotonic() - basla, 1)}
+            )
     finally:
-        kayit["sure_sn"] = round(time.monotonic() - basla, 1)
-        process.kill()
-        await process.wait()
+        okuyucu.cancel()
+        # Önce girişi kapat: çekirdek düzgün çıkıp tarayıcı kirasını bırakır. Zorla
+        # öldürmek paylaşılan Chrome'u sahipsiz bırakıyordu.
+        if process.stdin is not None:
+            process.stdin.close()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=20)
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+    # Tek görevli eski çağıranlar için kısayol.
+    if len(kayit["turlar"]) == 1:
+        kayit["sonuc"] = {k: kayit["turlar"][0][k] for k in ("ok", "metin")}
+        kayit["sure_sn"] = kayit["turlar"][0]["sure_sn"]
     return kayit
 
 
@@ -153,12 +188,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--kok", required=True)
     parser.add_argument("--mod", default="auto", choices=["auto", "plan", "security"])
-    parser.add_argument("--gorev", required=True)
+    parser.add_argument("--gorev", required=True, action="append")
     parser.add_argument("--soru-cevabi", default="ilk", choices=["ilk", "atla"])
     parser.add_argument("--onay", default="once", choices=["once", "deny"])
     parser.add_argument("--sure", type=float, default=900)
     parser.add_argument("--stderr", default="")
     parser.add_argument("--log", action="store_true")
+    parser.add_argument("--chrome", default="", help="eşleştirme bilgisinin yazılacağı dosya")
+    parser.add_argument("--eslestirme-suresi", type=float, default=900)
     args = parser.parse_args()
     Path(args.kok).mkdir(parents=True, exist_ok=True)
     with contextlib.ExitStack() as stack:

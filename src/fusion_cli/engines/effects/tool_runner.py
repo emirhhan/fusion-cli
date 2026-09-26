@@ -48,7 +48,11 @@ class EffectToolRunner:
         if tool.mutating:
             decision = await self.deps.policy.decide(
                 await resolve_request(
-                    tool, args, self.deps.allowed_commands, root=self.deps.tool_context.root
+                    tool,
+                    args,
+                    self.deps.allowed_commands,
+                    root=self.deps.tool_context.root,
+                    context=self.deps.tool_context,
                 )
             )
             if decision is not Decision.ALLOW:

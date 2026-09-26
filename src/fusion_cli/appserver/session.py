@@ -129,10 +129,10 @@ from .workspace import (
 
 CHROME_TURN_TOOLS = {
     "chrome_page",
+    "chrome_action",
     "chrome_click",
     "chrome_type",
     "chrome_navigate",
-    "chrome_screenshot",
 }
 
 

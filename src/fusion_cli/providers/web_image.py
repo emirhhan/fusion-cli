@@ -156,6 +156,7 @@ async def generate_images(
             return await _wait_and_extract(page, definition, selectors, out_dir, wait_s)
         finally:
             await page.close()
+            manager.schedule_idle_release(session.provider, session.account)
 
 
 async def _wait_and_extract(

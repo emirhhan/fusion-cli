@@ -935,6 +935,18 @@ export function SessionUygulama({
       setPlanHazir(active.id);
     }
   }, [active?.running, active?.id, approval]);
+  // Chrome eklentisi Fusion'ı yerel mesajlaşmayla kendisi bulur; köprü ETKİN sohbet
+  // sekmesinde açık tutulur. Sekme değişince önceki köprü kapanır, eklenti yeni
+  // sekmenin köprüsüne kendiliğinden geçer (bkz. chrome_host.py, offscreen.js).
+  const chromeIstemcisi = useRef<{ request: (ad: string, veri: Record<string, unknown>) => Promise<unknown> } | null>(null);
+  useEffect(() => {
+    const client = active?.client;
+    if (!client || active?.status !== "ready") return;
+    const onceki = chromeIstemcisi.current;
+    if (onceki && onceki !== client) void onceki.request("chrome.durdur", {}).catch(() => undefined);
+    chromeIstemcisi.current = client;
+    void client.request("chrome.baslat", {}).catch(() => undefined);
+  }, [active?.client, active?.status]);
   const soruTuruRef = useRef<string | undefined>(undefined);
   soruTuruRef.current = active?.question?.data.tur;
   useEffect(() => {

@@ -77,7 +77,7 @@ export function ChromeBrowser({ client }: { client: ProtocolClient }) {
           <input id="chrome-key" readOnly value={state.anahtar} />
         </div>
       )}
-      <p className="settings__hint">Chrome → Uzantılar → Geliştirici modu → Paketlenmemiş öğe yükle yolundan Fusion Browser klasörünü seçin; ardından uzantı simgesini açıp port ve anahtarı girin.</p>
+      <p className="settings__hint">İlk kurulum: Chrome → Uzantılar → Geliştirici modu → Paketlenmemiş öğe yükle yolundan Fusion Browser klasörünü seçin ve eklenti panelinde bir kez “Chrome iznini iste” ile sitelere izin verin. Sonrasında Fusion açıkken eklenti kendiliğinden bağlanır; port ve anahtar yalnız elle bağlanmak için gerekir.</p>
       {extensionPath && <p className="settings__hint">Paketli eklenti klasörü: <code>{extensionPath}</code></p>}
       {error && <p className="settings__inline-error" role="alert">{error}</p>}
     </article>

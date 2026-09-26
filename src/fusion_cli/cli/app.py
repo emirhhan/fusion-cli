@@ -397,6 +397,14 @@ def mcp(
     asyncio.run(run_stdio(Path.cwd(), expose_mutating=write))
 
 
+@app.command(name="chrome-host", hidden=True)
+def chrome_host() -> None:
+    """Chrome eklentisinin yerel mesajlaşma sunucusu (Chrome başlatır, elle değil)."""
+    from ..appserver.chrome_host import main as host_main
+
+    host_main()
+
+
 @app.command(name="web-login")
 def web_login(provider: str, account: str = "main") -> None:
     """Web sağlayıcısı için görünür giriş tarayıcısını aç.

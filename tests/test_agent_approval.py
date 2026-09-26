@@ -334,7 +334,7 @@ async def test_resolve_request_cagri_bazli_etkiyi_kullanir():
     from fusion_cli.core.tools import ToolEffect
     from fusion_cli.engines.agent.approval import resolve_request
 
-    async def okuma(_args):
+    async def okuma(_args, _context=None):
         return ToolEffect.REMOTE_READ
 
     istek = await resolve_request(_uzak_arac(okuma), {"ability_name": "woocommerce/products-query"})
@@ -358,10 +358,10 @@ async def test_plan_kipi_uzak_okumaya_izin_verir_yazmayi_engeller():
     from fusion_cli.core.tools import ToolEffect
     from fusion_cli.engines.agent.approval import Decision, PlanApproval, resolve_request
 
-    async def okuma(_args):
+    async def okuma(_args, _context=None):
         return ToolEffect.REMOTE_READ
 
-    async def yazma(_args):
+    async def yazma(_args, _context=None):
         return ToolEffect.REMOTE_WRITE
 
     plan = PlanApproval()

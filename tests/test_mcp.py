@@ -612,8 +612,8 @@ async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
     arac = registry.get("motogate__mcp-adapter-execute-ability")
 
     assert arac.effect_resolver is not None
-    okuma = await arac.effect_resolver({"ability_name": "woocommerce/products-query"})
-    yazma = await arac.effect_resolver({"ability_name": "woocommerce/product-update"})
+    okuma = await arac.effect_resolver({"ability_name": "woocommerce/products-query"}, None)
+    yazma = await arac.effect_resolver({"ability_name": "woocommerce/product-update"}, None)
     assert okuma is ToolEffect.REMOTE_READ
     assert yazma is ToolEffect.REMOTE_DESTRUCTIVE
     assert registry.get("motogate__mcp-adapter-get-ability-info").effect_resolver is None

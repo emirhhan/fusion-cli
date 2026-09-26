@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 
-from ..core.tools import EffectResolver, ToolArgs, ToolEffect
+from ..core.tools import EffectResolver, ToolArgs, ToolContext, ToolEffect
 
 #: WordPress `mcp-adapter` eklentisinin standart araç adları.
 EXECUTE_ABILITY = "mcp-adapter-execute-ability"
@@ -44,7 +44,7 @@ def ability_gateway_resolver(info: AbilityInfo) -> EffectResolver:
     """`ability_name` argümanına göre etkiyi bulan, önbellekli çözücü."""
     cache: dict[str, ToolEffect | None] = {}
 
-    async def resolve(args: ToolArgs) -> ToolEffect | None:
+    async def resolve(args: ToolArgs, _context: ToolContext | None = None) -> ToolEffect | None:
         name = args.get("ability_name")
         if not isinstance(name, str) or not name.strip():
             return None

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ...config.permissions import is_allowed
-from ...core.tools import Tool, ToolArgs, ToolEffect, ToolFamily, tool_family
+from ...core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolFamily, tool_family
 from ...tools.command_policy import is_unattended_safe
 from ...tools.safety import danger_reason
 
@@ -197,12 +197,13 @@ async def resolve_request(
     allowed_commands: frozenset[str] = frozenset(),
     *,
     root: Path | None = None,
+    context: ToolContext | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini, araç çağrı bazlı etki bildiriyorsa o etkiyle kur.
 
     Çözücü `None` dönerse ya da yoksa aracın kendi etkisi geçerlidir.
     """
-    effect = await tool.effect_resolver(args) if tool.effect_resolver is not None else None
+    effect = await tool.effect_resolver(args, context) if tool.effect_resolver is not None else None
     return build_request(tool, args, allowed_commands, effect=effect, root=root)
 
 

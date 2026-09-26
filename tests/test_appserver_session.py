@@ -53,10 +53,10 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert kwargs_seen["system_prompt"] is None
     assert kwargs_seen["allowed_tools"] == {
         "chrome_page",
+        "chrome_action",
         "chrome_click",
         "chrome_type",
         "chrome_navigate",
-        "chrome_screenshot",
     }
     assert oturum._workspace_mode == "sohbet"
 
