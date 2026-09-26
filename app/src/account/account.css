@@ -223,7 +223,7 @@
 
 /* --- Hesabım ekranı ---------------------------------------------------- */
 
-.account-screen { align-content: start; display: grid; gap: var(--space-4); min-height: 100%; overflow: auto; padding: var(--space-6); }
+.account-screen { align-content: start; color: var(--text-primary); display: grid; gap: var(--space-4); min-height: 100%; overflow: auto; padding: var(--space-6); }
 .account-screen__toolbar { display: flex; justify-content: flex-end; width: 100%; }
 .account-screen__content { display: grid; gap: 12px; margin: 0 auto 56px; max-width: 720px; width: 100%; }
 .account-screen__hero { align-items: center; display: flex; flex-direction: column; padding: 24px 16px 34px; text-align: center; }

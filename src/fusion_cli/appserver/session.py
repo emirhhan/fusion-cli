@@ -333,7 +333,7 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
-        self._chrome = ChromeBridge(self._chrome_turn)
+        self._chrome = ChromeBridge(self._chrome_turn, self._cancel_turn)
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()

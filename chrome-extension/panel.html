@@ -8,21 +8,39 @@
   </head>
   <body>
     <main>
-      <header><strong>Fusion Browser</strong><span id="status">Bağlı değil</span></header>
+      <header>
+        <div class="brand-lockup">
+          <span class="brand-mark" aria-hidden="true">F</span>
+          <div><strong>Fusion Browser</strong><span class="eyebrow">Açık sekme araçları</span></div>
+        </div>
+        <span id="status" data-state="offline"><i aria-hidden="true"></i>Bağlı değil</span>
+      </header>
       <section id="pairing">
-        <p>Fusion uygulamasında Ayarlar → Tarayıcı bölümünden bağlantıyı başlatın.</p>
-        <label>Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
-        <label>Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
-        <button id="connect">Bağlan</button>
+        <div class="intro">
+          <h1>Fusion’a bağlan</h1>
+          <p>Fusion uygulamasında Ayarlar → Tarayıcı bölümünden bağlantıyı başlatın.</p>
+        </div>
+        <div class="field-stack">
+          <label for="port">Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
+          <label for="token">Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
+        </div>
+        <button id="connect" class="primary">Bağlan<span aria-hidden="true">↗</span></button>
       </section>
       <section id="session" hidden>
-        <p id="tab-label">Sekme seçilmedi</p>
-        <button id="select-tab">Bu sekmeye izin ver</button>
-        <button id="read-tab">Sayfayı oku</button>
+        <div class="intro">
+          <h1>Sekmeni bağla</h1>
+          <p id="tab-label">Sekme seçilmedi</p>
+        </div>
+        <div class="button-row">
+          <button id="select-tab" class="primary">Bu sekmeye izin ver<span aria-hidden="true">↗</span></button>
+          <button id="read-tab" class="secondary">Sayfayı oku</button>
+        </div>
         <pre id="snapshot" hidden></pre>
-        <label>Fusion'a görev ver <textarea id="prompt" rows="4" placeholder="Bu sayfayı özetle..."></textarea></label>
-        <button id="send">Gönder</button>
-        <div id="response" role="status"></div>
+        <div class="task-box">
+          <label for="prompt">Fusion’a görev ver <textarea id="prompt" rows="4" placeholder="Bu sayfayı özetle..."></textarea></label>
+          <div class="send-row"><button id="send" class="primary">Gönder<span aria-hidden="true">↗</span></button><button id="cancel" class="secondary" hidden>Durdur</button></div>
+        </div>
+        <div id="response" role="status" aria-live="polite"></div>
         <button id="disconnect" class="quiet">Bağlantıyı kes</button>
       </section>
       <p id="error" role="alert"></p>

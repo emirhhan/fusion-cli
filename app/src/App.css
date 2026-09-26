@@ -2,6 +2,20 @@
   isolation: isolate;
 }
 
+html[data-fusion-native-main="true"] #root {
+  padding-top: 32px;
+}
+
+.fusion-native-titlebar {
+  background: var(--surface-sidebar);
+  height: 32px;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+  z-index: 1000;
+}
+
 .app-status-screen {
   align-items: center;
   background: var(--surface-canvas);

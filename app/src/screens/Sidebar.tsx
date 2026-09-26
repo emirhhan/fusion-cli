@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon, type IconName } from "../ui/Icon";
 import { Logo } from "../brand/Logo";
 import { SourceIcon } from "../brand/SourceIcon";
@@ -87,7 +88,41 @@ function SessionButton({ session, active, onSelect, onDelete, onMove, moveTarget
 }) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [moveOpen, setMoveOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPopupRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!menuOpen || !menuButtonRef.current || !menuPopupRef.current) return;
+    const button = menuButtonRef.current.getBoundingClientRect();
+    const menu = menuPopupRef.current;
+    const below = button.bottom + 4;
+    const above = button.top - menu.offsetHeight - 4;
+    menu.style.top = `${Math.max(8, Math.min(
+      below + menu.offsetHeight <= window.innerHeight - 8 ? below : above,
+      window.innerHeight - menu.offsetHeight - 8,
+    ))}px`;
+    menu.style.left = `${Math.max(8, Math.min(
+      button.right - menu.offsetWidth,
+      window.innerWidth - menu.offsetWidth - 8,
+    ))}px`;
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)
+        && !menuPopupRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [menuOpen]);
   return (
     <div className="sidebar__session-row">
       <button
@@ -110,30 +145,27 @@ function SessionButton({ session, active, onSelect, onDelete, onMove, moveTarget
           {session.source === "fusion" ? "" : session.source}
         </span>
       </button>
-      <button aria-label={`${session.title} sohbetini ${pinned ? "sabitlemekten çıkar" : "sabitle"}`} aria-pressed={pinned} className="sidebar__session-pin" onClick={onPin} type="button"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill={pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6"><path d="m16 3 5 5-4 2-2 5-3 1-4-4 1-3 5-2zM9 15l-6 6" /></svg></button>
-      {onDelete && <button
-        aria-label={`${session.title} sohbetini sil`}
-        className="sidebar__session-delete"
-        disabled={deleting}
-        onClick={() => {
-          setDeleting(true);
-          setDeleteError(null);
-          void Promise.resolve().then(onDelete)
-            .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
-            .finally(() => setDeleting(false));
-        }}
-        type="button"
-      ><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" /></svg></button>}
-      {onMove && moveTargets.length > 0 && <div className="sidebar__move-wrap">
-        <button aria-expanded={moveOpen} aria-label={`${session.title} sohbetini projeye taşı`} className="sidebar__session-move" onClick={() => setMoveOpen((open) => !open)} type="button">···</button>
-        {moveOpen && <div aria-label="Hedef proje" className="sidebar__move-menu" role="menu">
-          <strong>Projeye taşı</strong>
-          {moveTargets.map((project) => <button key={project.root} onClick={() => {
-            setMoveOpen(false);
-            void onMove(project.root).catch((error: unknown) => setDeleteError(String(error)));
-          }} role="menuitem" type="button">{project.name}</button>)}
-        </div>}
-      </div>}
+      <div className="sidebar__move-wrap" ref={menuRef}>
+        <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__session-move" onClick={() => setMenuOpen((open) => !open)} ref={menuButtonRef} type="button">···</button>
+        {menuOpen && createPortal(<div aria-label={`${session.title} sohbet seçenekleri`} className="sidebar__move-menu" ref={menuPopupRef} role="menu">
+          <button aria-checked={pinned} onClick={() => { onPin(); setMenuOpen(false); }} role="menuitemcheckbox" type="button">{pinned ? "Sabitlemeyi kaldır" : "Sabitle"}</button>
+          {onMove && moveTargets.length > 0 && <>
+            <strong>Projeye taşı</strong>
+            {moveTargets.map((project) => <button key={project.root} onClick={() => {
+              setMenuOpen(false);
+              void onMove(project.root).catch((error: unknown) => setDeleteError(String(error)));
+            }} role="menuitem" type="button">{project.name}</button>)}
+          </>}
+          {onDelete && <button className="sidebar__menu-danger" disabled={deleting} onClick={() => {
+            setMenuOpen(false);
+            setDeleting(true);
+            setDeleteError(null);
+            void Promise.resolve().then(onDelete)
+              .catch(() => setDeleteError("Sohbet silinemedi. Yeniden dene."))
+              .finally(() => setDeleting(false));
+          }} role="menuitem" type="button">Sil</button>}
+        </div>, document.body)}
+      </div>
       {deleteError && <span role="alert">{deleteError}</span>}
     </div>
   );

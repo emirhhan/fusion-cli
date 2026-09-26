@@ -23,6 +23,21 @@ export function findVoiceAnswer(messages: Mesaj[], afterIndex: number): string |
   return null;
 }
 
+/** Kısa selamlaşmalar model turu beklemeden aynı TTS hattından yanıtlanır. */
+export function cannedVoiceAnswer(text: string): string | null {
+  const normalized = text.toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (/^(merhaba|selam)( fusion)?$/.test(normalized)) return "merhabalar abi buyur";
+  if (/^nasilsin( fusion)?$/.test(normalized)) {
+    return "iyidir çok şükür sen nasılsın yok bir yaramazlık inşallah";
+  }
+  return null;
+}
+
 export async function speakVoiceAnswer(
   client: VoiceClient,
   text: string,

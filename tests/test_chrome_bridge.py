@@ -108,3 +108,23 @@ async def test_kapat_ac_eski_komutu_yeni_eklentiye_vermez() -> None:
         response = await client.post(f"{address}/poll", headers=headers, json={})
         assert response.json() == {}
     await bridge.close()
+
+
+async def test_panel_calisan_turu_durdurabilir() -> None:
+    cancelled: list[bool] = []
+
+    def cancel() -> dict[str, object]:
+        cancelled.append(True)
+        return {"ok": True, "metin": "Durduruldu"}
+
+    bridge = ChromeBridge(on_cancel=cancel)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        response = await client.post(f"{address}/cancel", headers=headers, json={})
+        assert response.json() == {"ok": True, "metin": "Durduruldu"}
+        assert cancelled == [True]
+        denied = await client.post(f"{address}/cancel", headers={"Origin": ORIGIN}, json={})
+        assert denied.status_code == 401
+    await bridge.close()

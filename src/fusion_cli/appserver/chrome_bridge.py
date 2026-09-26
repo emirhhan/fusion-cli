@@ -22,7 +22,11 @@ CONNECTION_STALE_SECONDS = 35
 
 
 class ChromeBridge:
-    def __init__(self, on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None) -> None:
+    def __init__(
+        self,
+        on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+        on_cancel: Callable[[], dict[str, Any]] | None = None,
+    ) -> None:
         self._server: asyncio.AbstractServer | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -31,6 +35,7 @@ class ChromeBridge:
         self._connected = False
         self._last_seen = 0.0
         self._on_turn = on_turn
+        self._on_cancel = on_cancel
 
     @property
     def running(self) -> bool:
@@ -145,6 +150,8 @@ class ChromeBridge:
                 if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 20_000:
                     raise ValueError("Geçersiz görev metni")
                 result = await self._on_turn(prompt.strip())
+            elif method == "POST" and target == "/cancel" and self._on_cancel is not None:
+                result = self._on_cancel()
             elif method == "POST" and target == "/disconnect":
                 self._connected = False
                 self._last_seen = 0.0

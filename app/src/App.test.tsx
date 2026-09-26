@@ -672,12 +672,14 @@ it("son sohbet silinince yeni Desktop sohbeti açılabilir ve eski kimlik geri g
   render(<SessionUygulama transport={fake.transport} />);
   await screen.findByRole("heading", { name: "Yeni görev" });
   const deletedId = vi.mocked(fake.transport.create).mock.calls[0][0];
-  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sabitle" }));
-  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
   expect(screen.queryByText("Hazırlanıyor…")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Yeni görev sohbetini sil" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Yeni görev sohbet seçenekleri" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Yeni sohbet" }));
   await waitFor(() => expect(fake.transport.create).toHaveBeenCalledTimes(2));
   expect(vi.mocked(fake.transport.create).mock.calls[1][0]).not.toBe(deletedId);
@@ -689,14 +691,16 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [{ sohbet_id: "sakli", baslik: "Saklı sohbet", kok: "/proje", guncelleme: 1, mesaj_sayisi: 1 }] } });
   render(<SessionUygulama transport={fake.transport} />);
   await screen.findByRole("button", { name: "Saklı sohbet" });
-  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbetini sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
   expect(screen.getByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
   expect(screen.getByText("Daha sonra")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
   expect(screen.getByRole("heading", { name: "Video oluştur" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbetini sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());
   expect(fake.requests.some((request) => request.ad === "sohbet.sil" && request.veri.sohbet_id === "sakli")).toBe(true);
 });
@@ -704,7 +708,8 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
 it("boş shell profil hedefi için yeni çekirdek açıp istenen sayfaya gider", async () => {
   const fake = composerTransport({ "sohbet.sil": { ok: true }, "sohbet.listele": { ok: true, sohbetler: [] } });
   render(<SessionUygulama transport={fake.transport} />);
-  fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbetini sil" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Yeni görev sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Hesap menüsü" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Ayarlar" }));

@@ -40,6 +40,7 @@ beforeEach(async () => {
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     const path = new URL(url).pathname;
     calls.push(path);
+    if (path === "/poll") return new Promise(() => undefined);
     const result = path === "/turn" ? { ok: true, metin: "Görev tamamlandı" } : {};
     return { ok: true, json: async () => result };
   }));
@@ -83,5 +84,30 @@ describe("Chrome extension panel buttons", () => {
     fireEvent.click(document.getElementById("connect")!);
     await waitFor(() => expect(document.getElementById("error")?.textContent).toContain("portunu"));
     expect(calls).toEqual([]);
+  });
+
+  it("running task exposes a working stop control", async () => {
+    let resolveTurn!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
+    const pendingTurn = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => { resolveTurn = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      calls.push(path);
+      if (path === "/poll") return new Promise(() => undefined);
+      if (path === "/turn") return pendingTurn;
+      return { ok: true, json: async () => path === "/cancel" ? { ok: true, metin: "Durduruldu" } : {} };
+    }));
+    (document.getElementById("port") as HTMLInputElement).value = "8765";
+    (document.getElementById("token") as HTMLInputElement).value = "secret";
+    fireEvent.click(document.getElementById("connect")!);
+    await waitFor(() => expect(document.getElementById("status")?.textContent).toBe("Bağlı"));
+    fireEvent.click(document.getElementById("select-tab")!);
+    await waitFor(() => expect(document.getElementById("tab-label")?.textContent).toContain("Example"));
+    (document.getElementById("prompt") as HTMLTextAreaElement).value = "Uzun görev";
+    fireEvent.click(document.getElementById("send")!);
+    await waitFor(() => expect(document.getElementById("cancel")?.hidden).toBe(false));
+    fireEvent.click(document.getElementById("cancel")!);
+    await waitFor(() => expect(calls).toContain("/cancel"));
+    resolveTurn({ ok: true, json: async () => ({ ok: false, metin: "Durduruldu" }) });
+    await waitFor(() => expect(document.getElementById("cancel")?.hidden).toBe(true));
   });
 });

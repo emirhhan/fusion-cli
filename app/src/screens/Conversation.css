@@ -42,6 +42,7 @@
 
 .conversation__bubble {
   background: var(--surface-message-user);
+  color: var(--text-primary);
   border-radius: var(--radius-lg);
   max-width: 82%;
   overflow-wrap: anywhere;

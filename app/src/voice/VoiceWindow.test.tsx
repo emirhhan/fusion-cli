@@ -350,13 +350,13 @@ describe("VoiceWindow — aynı sohbet ve mikrofon yaşam döngüsü", () => {
     expect(fake.runtime.emitMessage).toHaveBeenCalledWith({ kaynak: "kullanici", metin: "yeni mesaj" });
   });
 
-  it("mini ve normal görünüm geçişinde recognition sürecini kesmez", async () => {
+  it("mini menü açılıp kapanırken recognition sürecini kesmez", async () => {
     const fake = fakeRuntime();
     render(<VoiceWindow runtime={fake.runtime} />);
     await waitFor(() => expect(fake.runtime.startRecognition).toHaveBeenCalledOnce());
 
-    fireEvent.click(screen.getByRole("button", { name: "Paneli küçült" }));
-    fireEvent.click(screen.getByRole("button", { name: "Paneli büyüt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Konuşma menüsü" }));
+    fireEvent.click(screen.getByRole("button", { name: "Konuşma menüsü" }));
 
     expect(fake.runtime.stopRecognition).not.toHaveBeenCalled();
     expect(fake.runtime.startRecognition).toHaveBeenCalledOnce();

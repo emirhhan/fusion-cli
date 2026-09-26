@@ -1,11 +1,11 @@
 import type { VoiceWindowGeometry, VoiceWindowSnapshot } from "./windowBridge";
 
-export const VOICE_GEOMETRY_KEY = "fusion.talk.window.v1";
+export const VOICE_GEOMETRY_KEY = "fusion.talk.window.v2";
 export const DEFAULT_VOICE_GEOMETRY: VoiceWindowGeometry = {
   normalHeight: 460,
   normalWidth: 380,
   onTop: true,
-  wide: true,
+  wide: false,
   x: null,
   y: null,
 };
@@ -21,8 +21,8 @@ export function readVoiceGeometry(storage: Storage): VoiceWindowGeometry {
     return {
       normalHeight: finite(raw.normalHeight, DEFAULT_VOICE_GEOMETRY.normalHeight),
       normalWidth: finite(raw.normalWidth, DEFAULT_VOICE_GEOMETRY.normalWidth),
-      onTop: typeof raw.onTop === "boolean" ? raw.onTop : true,
-      wide: typeof raw.wide === "boolean" ? raw.wide : true,
+      onTop: true,
+      wide: false,
       x: typeof raw.x === "number" && Number.isFinite(raw.x) ? raw.x : null,
       y: typeof raw.y === "number" && Number.isFinite(raw.y) ? raw.y : null,
     };

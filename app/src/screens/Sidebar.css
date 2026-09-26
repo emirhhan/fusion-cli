@@ -351,11 +351,6 @@
 
 .sidebar[data-collapsed="true"] .sidebar__session-title { display: none; }
 
-.sidebar[data-collapsed="true"] .sidebar__session-delete,
-.sidebar[data-collapsed="true"] .sidebar__session-confirm {
-  display: none;
-}
-
 .sidebar[data-collapsed="true"] .sidebar__project .sidebar__label {
   background: var(--surface-hover);
   border-radius: var(--radius-sm);
@@ -384,17 +379,8 @@
   color: var(--text-primary);
 }
 
-/* Sohbet satırı: seçim, sabitleme ve doğrudan silme. */
-.sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) auto auto; }
-.sidebar__session-delete { background: transparent; border: 0; border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-md); line-height: 1; opacity: 0; padding: 6px 8px; }
-.sidebar__session-row:hover .sidebar__session-delete,
-.sidebar__session-delete:focus-visible { opacity: 1; }
-.sidebar__session-delete:hover { background: var(--surface-hover); color: var(--text-danger); }
-.sidebar__session-delete:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.sidebar__session-confirm { display: flex; gap: 4px; }
-.sidebar__session-confirm button { background: transparent; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--text-xs); padding: 4px 8px; }
-.sidebar__session-confirm button:first-child { border-color: var(--text-danger); color: var(--text-danger); }
-.sidebar__session-confirm button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+/* Tek seçenek düğmesi sohbet başlığının hizasında sağ kenarda durur. */
+.sidebar__session-row { align-items: center; display: grid; gap: 2px; grid-template-columns: minmax(0, 1fr) 28px; position: relative; }
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar__history-body { animation: none; }
@@ -402,19 +388,15 @@
 }
 
 .sidebar__brand .fusion-wordmark { flex: 1; font-size: var(--text-lg); }
-.sidebar__search-trigger, .sidebar__session-pin, .sidebar__more { background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; }
+.sidebar__search-trigger, .sidebar__more { background: transparent; border: 0; color: var(--text-secondary); cursor: pointer; }
 .sidebar__search-trigger { padding: 7px; border-radius: var(--radius-sm); display: flex; }
-.sidebar__search-trigger:hover, .sidebar__session-pin:hover, .sidebar__more:hover { background: var(--surface-hover); color: var(--text-primary); }
-.sidebar__session-pin { padding: 6px; border-radius: var(--radius-xs); opacity: 0; display: flex; }
-.sidebar__session-row:hover .sidebar__session-pin, .sidebar__session-pin:focus-visible, .sidebar__session-pin[aria-pressed="true"] { opacity: 1; }
-.sidebar__session-delete { display: flex; }
+.sidebar__search-trigger:hover, .sidebar__more:hover { background: var(--surface-hover); color: var(--text-primary); }
 .sidebar__section-title:has(.sidebar__project) { padding: 0; }
 .sidebar__project { font-weight: 500; }
 .sidebar__more { text-align: left; font: inherit; font-size: var(--text-sm); padding: 9px 8px 9px 34px; border-radius: var(--radius-sm); }
-.sidebar[data-collapsed="true"] .sidebar__session-pin, .sidebar[data-collapsed="true"] .sidebar__more { display: none; }
+.sidebar[data-collapsed="true"] .sidebar__more { display: none; }
 .sidebar[data-collapsed="true"] .sidebar__brand { flex-wrap: wrap; height: auto; }
 .sidebar[data-collapsed="true"] .sidebar__section-title:has(.sidebar__project) { display: block; }
-@media (hover: none) { .sidebar__session-pin, .sidebar__session-delete { opacity: 1; } }
 
 .sidebar__session-source:empty { display: none; }
 .sidebar__session { align-items: center; }
@@ -448,7 +430,7 @@
   height: 6px;
   width: 6px;
 }
-.sidebar__move-wrap { position: relative; }
+.sidebar__move-wrap { position: relative; width: 28px; }
 .sidebar__session-move {
   background: transparent;
   border: 0;
@@ -456,6 +438,8 @@
   color: var(--text-secondary);
   font-size: 18px;
   height: 28px;
+  line-height: 1;
+  padding: 0;
   width: 28px;
 }
 .sidebar__session-move:hover { background: var(--surface-hover); }
@@ -463,17 +447,19 @@
 .sidebar__session-row:hover .sidebar__session-move,
 .sidebar__session-row:focus-within .sidebar__session-move,
 .sidebar__session-move[aria-expanded="true"] { opacity: 1; }
+.sidebar[data-collapsed="true"] .sidebar__move-wrap { display: none; }
 .sidebar__move-menu {
   background: var(--surface-menu, var(--surface-raised));
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-overlay);
   display: grid;
+  max-height: calc(100dvh - 16px);
+  max-width: calc(100vw - 16px);
   min-width: 180px;
+  overflow-y: auto;
   padding: 6px;
-  position: absolute;
-  right: 0;
-  top: 30px;
+  position: fixed;
   z-index: var(--z-dialog);
 }
 .sidebar__move-menu strong {
@@ -490,6 +476,9 @@
   text-align: left;
 }
 .sidebar__move-menu button:hover { background: var(--surface-hover); }
+.sidebar__move-menu .sidebar__menu-danger { color: var(--text-danger); }
+.sidebar__move-menu button:focus-visible,
+.sidebar__session-move:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 .sidebar__projects-heading {
   align-items: center;

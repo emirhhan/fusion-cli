@@ -82,6 +82,7 @@ export function VoiceMode({
   wide = true,
 }: VoiceModeProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const startWindowDrag = (event: PointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     event.preventDefault();
@@ -90,15 +91,14 @@ export function VoiceMode({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        if (menuOpen) setMenuOpen(false);
+        else onClose();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  useEffect(() => {
-    if (!wide) setSettingsOpen(false);
-  }, [wide]);
+  }, [menuOpen, onClose]);
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -121,7 +121,7 @@ export function VoiceMode({
       role="region"
     >
       <header className="voice-panel__head">
-        <span aria-label="Pencere denetimleri" className="voice-panel__window-controls">
+        {wide && <span aria-label="Pencere denetimleri" className="voice-panel__window-controls">
           <button aria-label="Konuşma kipini kapat" className="voice-panel__close" onClick={onClose} type="button"><TrafficGlyph kind="close" /></button>
           <button aria-label="Pencereyi simge durumuna küçült" className="voice-panel__minimize" onClick={onMinimize} type="button"><TrafficGlyph kind="minimize" /></button>
           {onWideChange && (
@@ -135,12 +135,13 @@ export function VoiceMode({
               <TrafficGlyph kind="size" />
             </button>
           )}
-        </span>
+        </span>}
         <span className="voice-panel__drag voice-panel__drag--left" data-tauri-drag-region onPointerDown={startWindowDrag} />
         <span className="voice-panel__drag voice-panel__drag--center" data-tauri-drag-region onPointerDown={startWindowDrag}>
           <strong className="voice-panel__title" data-tauri-drag-region>Fusion Talk</strong>
         </span>
         <span className="voice-panel__drag voice-panel__drag--right" data-tauri-drag-region onPointerDown={startWindowDrag} />
+        {!wide && <button aria-expanded={menuOpen} aria-label="Konuşma menüsü" className="voice-panel__menu-toggle" onClick={() => setMenuOpen((open) => !open)} type="button">···</button>}
       </header>
 
       <div className="voice-panel__stage">
@@ -160,7 +161,7 @@ export function VoiceMode({
             </div>
           )}
           {!ask && <p aria-live="polite" className="voice-panel__status">{DURUM_METNI[state]}</p>}
-          {wide && transcript && <p className="voice-panel__transcript">{transcript}</p>}
+          {transcript && <p className="voice-panel__transcript">{transcript}</p>}
         </div>
       </div>
 
@@ -191,6 +192,10 @@ export function VoiceMode({
         </>}
       </footer>
 
+      {!wide && menuOpen && <div aria-label="Konuşma menüsü" className="voice-panel__menu" role="menu">
+        <button onClick={() => { setMenuOpen(false); onMinimize(); }} role="menuitem" type="button">Simge durumuna küçült</button>
+        <button onClick={() => { setMenuOpen(false); onClose(); }} role="menuitem" type="button">Konuşmayı kapat</button>
+      </div>}
       {wide && settingsOpen && onPrefsChange && onTopChange && (
         <div className="voice-panel__settings-popover">
           <VoiceSettings

@@ -262,7 +262,8 @@ describe("Sidebar — sohbet silme ve projeye gruplama", () => {
   it("çöp kutusu tek tıkta silmeyi başlatır", async () => {
     const sil = vi.fn();
     render(<Sidebar oturumlar={gruplu} etkin="1" onSec={vi.fn()} onSil={sil} onYeni={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: "oyun sohbetini sil" }));
+    fireEvent.click(screen.getByRole("button", { name: "oyun sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
     await waitFor(() => expect(sil).toHaveBeenCalledWith("1"));
     expect(screen.queryByRole("button", { name: "Silmekten vazgeç" })).toBeNull();
   });
@@ -317,9 +318,11 @@ describe("Sidebar yeni düzen", () => {
     const props = { etkin: null, oturumlar: many, onYeni: vi.fn(), onSec: vi.fn() };
     const view = render(<Sidebar {...props} />);
     fireEvent.click(screen.getByRole("button", { name: "Sohbetler: Daha fazla göster" }));
-    fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
     view.unmount(); render(<Sidebar {...props} />);
-    expect(screen.getByRole("button", { name: "Sohbet 0 sohbetini sabitlemekten çıkar" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Sohbet 0 sohbet seçenekleri" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: "Sabitlemeyi kaldır" }).getAttribute("aria-checked")).toBe("true");
   });
   it("oluşturma sayfalarına yönlendirir", () => {
     const navigate = vi.fn();
@@ -377,19 +380,31 @@ it("sohbet için diğer projeleri taşınabilir hedef olarak gösterir", async (
     { root: "/Projects/bir", name: "Bir", pinned: false, updated_at: 2 },
     { root: "/Projects/iki", name: "İki", pinned: false, updated_at: 1 },
   ]} onMove={move} onYeni={vi.fn()} onSec={vi.fn()} />);
-  fireEvent.click(screen.getByRole("button", { name: "Plan sohbetini projeye taşı" }));
+  fireEvent.click(screen.getByRole("button", { name: "Plan sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "İki" }));
   await waitFor(() => expect(move).toHaveBeenCalledWith("chat", "/Projects/iki"));
+});
+
+it("sohbet menüsünü kaydırma alanı dışında açar ve Escape ile kapatır", () => {
+  render(<Sidebar etkin={null} oturumlar={[sessions[0]]} onYeni={vi.fn()} onSec={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+  const menu = screen.getByRole("menu", { name: "İlk iş sohbet seçenekleri" });
+  expect(menu.parentElement).toBe(document.body);
+  fireEvent.keyDown(document, { key: "Escape" });
+  expect(screen.queryByRole("menu", { name: "İlk iş sohbet seçenekleri" })).toBeNull();
 });
 
 it("silme hatasını gösterir ve sabitlemeyi yalnız başarılı silmede kaldırır", async () => {
   const remove = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValueOnce(undefined);
   render(<Sidebar etkin={null} oturumlar={[sessions[0]]} onYeni={vi.fn()} onSec={vi.fn()} onSil={remove} />);
-  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sabitle" }));
-  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("alert");
   expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sil" }));
+  fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await waitFor(() => expect(JSON.parse(localStorage.getItem("fusion.sidebar.pinned-sessions.v1")!)).toEqual([]));
 });
 
@@ -397,8 +412,10 @@ it("StrictMode ve depolama hatasında sabitleme arayüzünü çalışır tutar",
   const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
   try {
     render(<StrictMode><Sidebar etkin={null} oturumlar={[sessions[0]]} onYeni={vi.fn()} onSec={vi.fn()} /></StrictMode>);
-    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbetini sabitle" }));
-    expect(screen.getByRole("button", { name: "İlk iş sohbetini sabitlemekten çıkar" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Sabitle" }));
+    fireEvent.click(screen.getByRole("button", { name: "İlk iş sohbet seçenekleri" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: "Sabitlemeyi kaldır" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("alert").textContent).toContain("kaydedilemedi");
   } finally { write.mockRestore(); }
 });

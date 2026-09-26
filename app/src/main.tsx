@@ -9,9 +9,12 @@ import "./App.css";
 import { applyTheme, readThemePreference } from "./theme/theme";
 
 applyTheme(readThemePreference());
+const nativeMainWindow = "__TAURI_INTERNALS__" in window && !isVoiceWindow();
+if (nativeMainWindow) document.documentElement.dataset.fusionNativeMain = "true";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
+    {nativeMainWindow && <div aria-hidden="true" className="fusion-native-titlebar" data-tauri-drag-region />}
     {isVoiceWindow() ? <VoiceWindow /> : <App />}
   </React.StrictMode>,
 );

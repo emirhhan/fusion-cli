@@ -1,19 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { mergeVoiceSnapshot, readVoiceGeometry, saveVoiceGeometry } from "./geometry";
+import { mergeVoiceSnapshot, readVoiceGeometry, saveVoiceGeometry, VOICE_GEOMETRY_KEY } from "./geometry";
 
 describe("Talk pencere hafızası", () => {
   it("bozuk kayıtta profesyonel varsayılana döner", () => {
-    localStorage.setItem("fusion.talk.window.v1", "{");
+    localStorage.setItem(VOICE_GEOMETRY_KEY, "{");
     expect(readVoiceGeometry(localStorage)).toMatchObject({
       normalHeight: 460,
       normalWidth: 380,
       onTop: true,
-      wide: true,
+      wide: false,
     });
   });
 
   it("normal boyut ve konumu korur; mini sabit boyutu normal hafızaya yazmaz", () => {
-    const normal = mergeVoiceSnapshot(readVoiceGeometry(localStorage), {
+    const normal = mergeVoiceSnapshot({ ...readVoiceGeometry(localStorage), wide: true }, {
       height: 620,
       width: 470,
       x: 100,

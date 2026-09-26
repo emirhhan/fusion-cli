@@ -67,7 +67,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
@@ -170,6 +170,15 @@ type TemaIstemcisi = Pick<ProtocolClient, "request">;
 function useAppTheme(client?: TemaIstemcisi) {
   const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
 
+  const syncWindowColor = (theme: "light" | "dark") => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    void import("@tauri-apps/api/window")
+      .then(({ getCurrentWindow }) => getCurrentWindow().setBackgroundColor(
+        theme === "dark" ? [17, 17, 17] : [249, 249, 250],
+      ))
+      .catch((error: unknown) => console.warn("Pencere çerçeve rengi ayarlanamadı", error));
+  };
+
   // Tercih YAPILANDIRMADAN okunur; `localStorage` yalnız ilk boyamayı hızlandıran
   // önbellektir. Ölçüldü (11 Eylül): webview'in LocalStorage deposu kullanıcının
   // kurulumunda hiç yazılmıyordu (0 bayt) ve yazma hatası yutulduğu için tercih
@@ -195,10 +204,10 @@ function useAppTheme(client?: TemaIstemcisi) {
   }, [client]);
 
   useEffect(() => {
-    applyTheme(themePreference);
+    syncWindowColor(applyTheme(themePreference));
     if (themePreference !== "system" || !window.matchMedia) return;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const update = () => applyTheme("system", document.documentElement, media.matches);
+    const update = () => syncWindowColor(applyTheme("system", document.documentElement, media.matches));
     media.addEventListener?.("change", update);
     return () => media.removeEventListener?.("change", update);
   }, [themePreference]);
@@ -785,6 +794,17 @@ export function SessionUygulama({
     if (!active) return;
     const cikar = onVoiceMessage((mesaj) => {
       if (mesaj.kaynak !== "kullanici") return;
+      const canned = mesaj.kesilen ? null : cannedVoiceAnswer(mesaj.metin);
+      if (canned) {
+        void speakVoiceAnswer(active.client, canned, publishVoiceRuntimeState)
+          .then((turn) => {
+            activeVoiceTurn.current = turn;
+            void turn.finished.finally(() => {
+              if (activeVoiceTurn.current === turn) activeVoiceTurn.current = null;
+            }).catch(() => undefined);
+          }).catch(() => undefined);
+        return;
+      }
       // Sözü kesildiyse modele NE söylerken kesildiği de gider. Bu bağlam
       // olmadan model yarım bıraktığı cevabı bilmez ve kullanıcının
       // düzeltmesini yeni bir soru sanar.

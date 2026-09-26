@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import { findVoiceAnswer, speakVoiceAnswer } from "./voiceTurn";
+import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer } from "./voiceTurn";
+
+describe("hazır Talk yanıtları", () => {
+  it("selamlaşmaları doğrudan karşılar", () => {
+    expect(cannedVoiceAnswer("Merhaba!" )).toBe("merhabalar abi buyur");
+    expect(cannedVoiceAnswer("Nasılsın Fusion?" )).toBe("iyidir çok şükür sen nasılsın yok bir yaramazlık inşallah");
+    expect(cannedVoiceAnswer("Nasılsın diye bir şiir yaz")).toBeNull();
+  });
+});
 
 describe("Talk yanıt yaşam döngüsü", () => {
   it("yalnız sesli turun ardından eklenen asistan yanıtını seçer", () => {

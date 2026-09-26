@@ -26,6 +26,7 @@ function showConnected() {
   $("pairing").hidden = Boolean(connection);
   $("session").hidden = !connection;
   status(connection ? "Bağlı" : "Bağlı değil");
+  $("status").dataset.state = connection ? "online" : "offline";
 }
 
 async function connect() {
@@ -42,6 +43,7 @@ async function connect() {
     throw cause;
   }
   await chrome.storage.session.set({ fusionConnection: connection });
+  error();
   showConnected();
   poll();
 }
@@ -59,6 +61,7 @@ async function selectTab() {
   selected = { id: tab.id, origin: url.origin };
   $("tab-label").textContent = `${tab.title || url.hostname} — ${url.origin}`;
   await chrome.storage.session.set({ fusionTab: selected });
+  error();
 }
 
 async function checkedTab() {
@@ -185,6 +188,7 @@ async function sendPrompt() {
   const prompt = $("prompt").value.trim();
   if (!prompt) return;
   $("send").disabled = true;
+  $("cancel").hidden = false;
   $("response").textContent = "Fusion çalışıyor…";
   try {
     const result = await request("/turn", { prompt });
@@ -192,13 +196,24 @@ async function sendPrompt() {
     if (result.ok) $("prompt").value = "";
   } finally {
     $("send").disabled = false;
+    $("cancel").hidden = true;
   }
 }
 
 for (const [id, handler] of [
   ["connect", connect], ["select-tab", selectTab], ["send", sendPrompt],
+  ["cancel", async () => {
+    $("cancel").disabled = true;
+    try {
+      const result = await request("/cancel");
+      $("response").textContent = result.metin || "Görev durduruluyor…";
+    } finally {
+      $("cancel").disabled = false;
+    }
+  }],
   ["read-tab", async () => {
     const data = await execute({ islem: "snapshot", veri: {} });
+    error();
     $("snapshot").hidden = false;
     $("snapshot").textContent = `${data.title}\n${data.url}\n\n${data.text}`;
   }],

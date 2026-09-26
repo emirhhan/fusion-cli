@@ -275,16 +275,14 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
         mevcut.show().map_err(|e| e.to_string())?;
         mevcut.set_focus().map_err(|e| e.to_string())?;
     } else {
-        WebviewWindowBuilder::new(
+        let voice = WebviewWindowBuilder::new(
             &app,
             SES_PENCERESI,
             WebviewUrl::App("index.html?pencere=ses".into()),
         )
         .title("Fusion ile konuş")
-        .inner_size(SES_NORMAL_BOYUT.0, SES_NORMAL_BOYUT.1)
-        .min_inner_size(SES_NORMAL_MIN_BOYUT.0, SES_NORMAL_MIN_BOYUT.1)
-        .max_inner_size(SES_NORMAL_MAX_BOYUT.0, SES_NORMAL_MAX_BOYUT.1)
-        .resizable(true)
+        .inner_size(SES_MINI_BOYUT.0, SES_MINI_BOYUT.1)
+        .resizable(false)
         .always_on_top(true)
         .decorations(false)
         .transparent(true)
@@ -292,6 +290,17 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
         .center()
         .build()
         .map_err(|error| format!("konuşma penceresi açılamadı: {error}"))?;
+        if let Some(monitor) = voice.current_monitor().map_err(|error| error.to_string())? {
+            let scale = monitor.scale_factor();
+            let size = monitor.size();
+            let origin = monitor.position();
+            let x = (origin.x as f64 + size.width as f64) / scale - SES_MINI_BOYUT.0 - 24.0;
+            let y = (origin.y as f64 + size.height as f64 / 2.0) / scale
+                - SES_MINI_BOYUT.1 / 2.0;
+            voice
+                .set_position(tauri::LogicalPosition::new(x, y))
+                .map_err(|error| error.to_string())?;
+        }
     }
     // Ana pencere simge durumuna küçülür; kapanmaz. Kapatmak, çalışan turu ve
     // oturumları da sonlandırırdı.

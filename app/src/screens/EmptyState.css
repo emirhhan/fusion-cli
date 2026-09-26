@@ -1,5 +1,6 @@
 .empty-state {
   align-items: center;
+  color: var(--text-primary);
   display: flex;
   flex: 1;
   justify-content: center;
