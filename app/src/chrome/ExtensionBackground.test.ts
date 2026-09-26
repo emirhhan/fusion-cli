@@ -16,6 +16,7 @@ describe("Chrome eklenti arka planı", () => {
       sidePanel: { open: vi.fn(async () => undefined) },
       offscreen: { hasDocument: vi.fn(async () => false), createDocument },
       runtime: {
+        getManifest: () => ({ version: "0.2.0" }),
         onMessage: { addListener: (l: typeof onMessage) => { onMessage = l; } },
         onStartup: { addListener: vi.fn() },
         onInstalled: { addListener: vi.fn() },
@@ -37,6 +38,10 @@ describe("Chrome eklenti arka planı", () => {
     const sonuc = vi.fn();
     expect(onMessage({ type: "fusion.exec", command: { islem: "tabs" } }, {}, sonuc)).toBe(true);
     await vi.waitFor(() => expect(sonuc.mock.calls[0][0].ok).toBe(true));
+
+    const surum = vi.fn();
+    onMessage({ type: "fusion.ping" }, {}, surum);
+    expect(surum).toHaveBeenCalledWith({ ok: true, surum: "0.2.0" });
 
     const goruntu = vi.fn();
     onMessage({ type: "fusion.captureVisibleTab", windowId: 3 }, {}, goruntu);

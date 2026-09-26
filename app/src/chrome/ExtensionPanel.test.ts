@@ -71,6 +71,12 @@ describe("Chrome eklenti paneli", () => {
     await waitFor(() => expect(calls).toContain("/turn"));
   });
 
+  it("arka plan eski sürümde kaldıysa eklentiyi yenilemeyi söyler", async () => {
+    kit = chromeKit({ backgroundVersion: null });
+    await loadPanel();
+    await waitFor(() => expect(document.getElementById("error")?.textContent).toContain("yenileyin"));
+  });
+
   it("geçersiz eşleştirmeyi Fusion'a sormadan reddeder", async () => {
     await loadPanel();
     click("connect");

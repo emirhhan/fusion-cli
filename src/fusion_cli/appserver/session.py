@@ -127,6 +127,16 @@ from .workspace import (
     write_entry,
 )
 
+#: Chrome bağlıyken ajana verilen tarayıcı ilkesi. Ölçüldü (26 Eylül, Google Ads):
+#: model hesap seçim ekranında durup "hesap seçmemi ister misin?" diye sordu; salt
+#: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
+CHROME_NOTE = (
+    "Chrome sekmesi bağlı. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
+    "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
+    "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
+    "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle."
+)
+
 CHROME_TURN_TOOLS = {
     "chrome_page",
     "chrome_action",
@@ -1230,9 +1240,12 @@ class AppSession:
             # oluşturulduktan SONRA yap; aksi halde aynı anda gelen ikinci
             # istek ilk tur henüz görünmediği için üst üste başlayabilir.
             memory_block = await asyncio.to_thread(self._personal_memory.prompt_block)
+            # Chrome bağlıyken tarayıcı işlerinin sınırı (bkz. `CHROME_NOTE`).
+            chrome_note = CHROME_NOTE if self._chrome.status()["bagli"] else ""
             extra_system = "\n\n".join(
                 part
                 for part in (
+                    chrome_note,
                     macros.mode_prompt(turn_mode),
                     inherited_context,
                     capability_context,

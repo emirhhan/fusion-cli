@@ -131,3 +131,11 @@ chrome.storage.onChanged?.addListener((changes, area) => {
   if (area === "session" && (changes.fusionAuto || changes.fusionTab)) void render();
 });
 await render();
+
+// Panel her açılışta diskten yeni kodu yükler, arka plan hizmeti ise ancak eklenti
+// yenilenince güncellenir. Eski arka plan otomatik bağlantıyı bilmez: kullanıcıya söyle.
+const ping = chrome.runtime.sendMessage({ type: "fusion.ping" }).catch(() => null);
+const cevap = await Promise.race([ping, new Promise((resolve) => setTimeout(() => resolve(null), 1500))]);
+if (cevap?.surum !== chrome.runtime.getManifest().version) {
+  error("Otomatik bağlantı için chrome://extensions sayfasında Fusion Browser'ı yenileyin (⟳).");
+}

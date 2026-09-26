@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 
 /** Eklenti testleri için durumlu, en küçük Chrome API taklidi. */
-export function chromeKit(options: { granted?: (origin: string) => boolean } = {}) {
+export function chromeKit(options: { granted?: (origin: string) => boolean; backgroundVersion?: string | null } = {}) {
   const session = new Map<string, unknown>();
   const listeners: ((changes: Record<string, unknown>, area: string) => void)[] = [];
   const tabs = [
@@ -9,7 +9,12 @@ export function chromeKit(options: { granted?: (origin: string) => boolean } = {
     { id: 8, url: "https://ads.google.com/aw/campaigns", title: "Google Ads", active: false, status: "complete", windowId: 1 },
   ];
   const granted = options.granted ?? (() => true);
+  const backgroundVersion = options.backgroundVersion === undefined ? "0.2.0" : options.backgroundVersion;
   const chromeMock = {
+    runtime: {
+      getManifest: () => ({ version: "0.2.0" }),
+      sendMessage: vi.fn(async () => (backgroundVersion ? { ok: true, surum: backgroundVersion } : undefined)),
+    },
     storage: {
       session: {
         get: vi.fn(async (key: string | string[]) => {

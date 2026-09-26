@@ -45,6 +45,10 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
       .catch((cause) => reply({ ok: false, hata: String(cause?.message || cause) }));
     return true;
   }
+  if (message?.type === "fusion.ping") {
+    reply({ ok: true, surum: chrome.runtime.getManifest().version });
+    return false;
+  }
   if (message?.type === "fusion.status") {
     chrome.storage.session.set({ fusionAuto: message.status }).then(() => reply({ ok: true }));
     return true;
