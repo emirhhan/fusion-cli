@@ -308,3 +308,62 @@ async def test_ortak_onay_hafizasi_yikici_cagriyi_turlar_arasinda_hatirlamaz():
     await build_policy(ApprovalMode.AUTO, onayci, hafiza).decide(build_request(arac, {"id": 1}))
 
     assert onayci.soru_sayisi == 2
+
+
+# --- Çağrı bazlı etki (WordPress MCP adaptörü) ------------------------------ #
+
+
+def _uzak_arac(effect_resolver=None):
+    from fusion_cli.core.tools import Tool, ToolEffect, ToolResult
+
+    async def _run(_args, _context):
+        return ToolResult("tamam")
+
+    return Tool(
+        name="motogate__mcp-adapter-execute-ability",
+        description="",
+        parameters={},
+        run=_run,
+        mutating=True,
+        effect=ToolEffect.REMOTE_DESTRUCTIVE,
+        effect_resolver=effect_resolver,
+    )
+
+
+async def test_resolve_request_cagri_bazli_etkiyi_kullanir():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import resolve_request
+
+    async def okuma(_args):
+        return ToolEffect.REMOTE_READ
+
+    istek = await resolve_request(_uzak_arac(okuma), {"ability_name": "woocommerce/products-query"})
+
+    assert istek.effect is ToolEffect.REMOTE_READ
+    assert istek.danger is None
+    assert istek.unattended_safe is True
+
+
+async def test_resolve_request_cozucu_yoksa_aracin_etkisini_korur():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import resolve_request
+
+    istek = await resolve_request(_uzak_arac(), {"ability_name": "x"})
+
+    assert istek.effect is ToolEffect.REMOTE_DESTRUCTIVE
+    assert istek.danger is not None
+
+
+async def test_plan_kipi_uzak_okumaya_izin_verir_yazmayi_engeller():
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import Decision, PlanApproval, resolve_request
+
+    async def okuma(_args):
+        return ToolEffect.REMOTE_READ
+
+    async def yazma(_args):
+        return ToolEffect.REMOTE_WRITE
+
+    plan = PlanApproval()
+    assert await plan.decide(await resolve_request(_uzak_arac(okuma), {})) is Decision.ALLOW
+    assert await plan.decide(await resolve_request(_uzak_arac(yazma), {})) is Decision.BLOCKED

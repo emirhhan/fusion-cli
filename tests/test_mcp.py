@@ -560,3 +560,60 @@ async def test_uzak_arac_basarisi_basari_kalir():
 
     assert sonuc.ok is True
     assert sonuc.output == "4.7.1"
+
+
+class _YetenekOturumu(_SayfaliOturum):
+    """WordPress `mcp-adapter`: tek çalıştır aracı + yetenek bilgisi aracı."""
+
+    def __init__(self) -> None:
+        from mcp.types import ToolAnnotations
+
+        super().__init__(
+            {
+                None: SimpleNamespace(
+                    tools=[
+                        _SahteArac(
+                            "mcp-adapter-execute-ability", ToolAnnotations(destructiveHint=True)
+                        ),
+                        _SahteArac(
+                            "mcp-adapter-get-ability-info", ToolAnnotations(readOnlyHint=True)
+                        ),
+                    ],
+                    nextCursor=None,
+                )
+            }
+        )
+        self.sorulan: list[str] = []
+
+    async def call_tool(self, name, args):
+        self.sorulan.append(args["ability_name"])
+        okur = args["ability_name"].endswith("query")
+        return SimpleNamespace(
+            content=[],
+            structuredContent={
+                "meta": {"annotations": {"readonly": okur, "destructive": not okur}}
+            },
+            isError=False,
+        )
+
+
+async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
+    """Ölçüldü (Motogate/Novamira): 63 yetenek tek `execute-ability` aracından
+    geçiyor; etki araçtan okunursa ürün aramak bile yıkıcı sayılıyordu."""
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.tools import ToolRegistry
+
+    session = _YetenekOturumu()
+    client = McpClient(())
+    client._sessions["motogate"] = session
+    registry = ToolRegistry()
+
+    await client.register_into(registry)
+    arac = registry.get("motogate__mcp-adapter-execute-ability")
+
+    assert arac.effect_resolver is not None
+    okuma = await arac.effect_resolver({"ability_name": "woocommerce/products-query"})
+    yazma = await arac.effect_resolver({"ability_name": "woocommerce/product-update"})
+    assert okuma is ToolEffect.REMOTE_READ
+    assert yazma is ToolEffect.REMOTE_DESTRUCTIVE
+    assert registry.get("motogate__mcp-adapter-get-ability-info").effect_resolver is None

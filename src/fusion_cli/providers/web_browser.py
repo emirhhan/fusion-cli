@@ -424,7 +424,7 @@ async def _visible_model_options(
     """Açık model menüsündeki gerçek seçenekleri oku; sayfa içeriğini tarama."""
     containers = page.locator(
         '[role="menu"]:visible, [role="listbox"]:visible, '
-        '[data-radix-menu-content]:visible, .mat-mdc-menu-panel:visible'
+        "[data-radix-menu-content]:visible, .mat-mdc-menu-panel:visible"
     )
     try:
         await containers.first.wait_for(state="visible", timeout=5000)
@@ -459,14 +459,12 @@ async def model_choices_on_page(
     """Sağlayıcının hesapta gösterdiği model seçenekleri; yoksa boş liste."""
     if await _model_menu(page, definition) is None:
         return ()
-    return tuple(dict.fromkeys(
-        label for label, _ in await _visible_model_options(page, definition)
-    ))
+    return tuple(
+        dict.fromkeys(label for label, _ in await _visible_model_options(page, definition))
+    )
 
 
-async def ensure_model_choice(
-    page: Any, definition: BrowserProviderDefinition, choice: str
-) -> str:
+async def ensure_model_choice(page: Any, definition: BrowserProviderDefinition, choice: str) -> str:
     """Seçilen modeli mesajdan ÖNCE uygula; bulunamazsa mesajı gönderme."""
     if not choice:
         return ""
@@ -474,7 +472,8 @@ async def ensure_model_choice(
     if button is None:
         raise WebBrowserSelectorError(f"{definition.name} model seçicisi bulunamadı")
     matches = [
-        item for label, item in await _visible_model_options(page, definition)
+        item
+        for label, item in await _visible_model_options(page, definition)
         if _model_label(label).casefold() == _model_label(choice).casefold()
     ]
     if len(matches) != 1:
@@ -486,9 +485,7 @@ async def ensure_model_choice(
         " ".join(((await button.inner_text()), (await button.get_attribute("aria-label")) or ""))
     )
     if not _model_choice_matches_observed(choice, visible):
-        raise WebBrowserSelectorError(
-            f"{definition.name} model seçimini doğrulayamadı: {choice}"
-        )
+        raise WebBrowserSelectorError(f"{definition.name} model seçimini doğrulayamadı: {choice}")
     return choice
 
 
@@ -1384,6 +1381,7 @@ async def _deliver_turn(
     )
 
     if resumable and state is not None:
+        await _raise_if_blocked_early(state.page, definition)
         await ensure_model_choice(state.page, definition, session.selected_model)
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
@@ -1402,7 +1400,7 @@ async def _deliver_turn(
             None, browser_profile_dir(session.provider, session.account)
         ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
-        await _open_conversation(page, definition)
+        await _open_ready_conversation(page, definition)
         await ensure_model_choice(page, definition, session.selected_model)
         prompt = format_browser_prompt(messages, trim=False)
         answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
@@ -1609,9 +1607,35 @@ async def _open_conversation(page: Any, definition: BrowserProviderDefinition) -
     await page.goto(definition.new_chat_url, wait_until="domcontentloaded", timeout=60_000)
 
 
+async def _open_ready_conversation(page: Any, definition: BrowserProviderDefinition) -> None:
+    """Yeni sohbeti aç ve cevabı İMKÂNSIZ kılan durumu HEMEN bildir.
+
+    Ölçüldü (26 Eylül, chatgpt_web): sayfa Cloudflare'in "Bir dakika lütfen…"
+    ekranındayken model menüsü 12 sn bekleniyor, seçici hatası yeniden
+    deneniyor ve 120 sn'lik dış sınır doluyordu; kullanıcı yalnız "zaman aşımı"
+    görüyor, arayüzdeki "Giriş penceresini aç" bildirimi hiç tetiklenmiyordu.
+    """
+    await _open_conversation(page, definition)
+    await _raise_if_blocked_early(page, definition)
+
+
+async def _raise_if_blocked_early(page: Any, definition: BrowserProviderDefinition) -> None:
+    """Erken engel kontrolü: yalnız GERÇEK oturum/doğrulama engeli turu keser.
+
+    Sayfayı incelemek başka bir nedenle hata verirse (sayfa henüz hazır değil,
+    bağlam kapandı) tur düşmez; asıl bekleme yolu kendi kontrollerini yapar.
+    """
+    try:
+        await _raise_if_blocked(page, definition)
+    except WebBrowserError:
+        raise
+    except Exception as error:
+        _logger.debug("erken engel kontrolü atlandı: %s", error)
+
+
 async def _run_page(page: Any, definition: BrowserProviderDefinition, prompt: str) -> str:
     """Yeni sohbet açıp tek tur çalıştır (sohbet sürekliliği kullanılmayan yol)."""
-    await _open_conversation(page, definition)
+    await _open_ready_conversation(page, definition)
     return strip_role_headers(await _send_turn(page, definition, prompt))
 
 
@@ -1715,9 +1739,7 @@ async def _try_gemini_file_upload(page: Any, content: str) -> bool:
     """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
     gecici_yol: str | None = None
     try:
-        tetikleyici = await _first_visible(
-            page, (_GEMINI_UPLOAD_MENU_TRIGGER,), timeout_ms=3_000
-        )
+        tetikleyici = await _first_visible(page, (_GEMINI_UPLOAD_MENU_TRIGGER,), timeout_ms=3_000)
         if tetikleyici is None:
             return False
         await tetikleyici.click()
@@ -1728,9 +1750,7 @@ async def _try_gemini_file_upload(page: Any, content: str) -> bool:
         dosya_girisleri = await page.query_selector_all("input[type=file]")
         if not dosya_girisleri:
             return False
-        with tempfile.NamedTemporaryFile(
-            "w", suffix=".txt", delete=False, encoding="utf-8"
-        ) as tmp:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
             tmp.write(content)
             gecici_yol = tmp.name
         # Menü SON açıldığında eklenen giriş sondadır; öncekiler önceki

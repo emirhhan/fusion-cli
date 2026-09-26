@@ -15,6 +15,7 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata
 from pydantic import AnyUrl
 
 from ..config.models import McpServerConfig
+from .oauth_page import callback_page
 from .tokens import KeyringTokenStorage
 
 #: Loopback OAuth dönüşünün SABİT portu.
@@ -158,17 +159,27 @@ class LoopbackOAuthCallback:
             code = query.get("code", [None])[0]
             if parsed.path != "/oauth/callback" or (not code and not error):
                 self._set_error(RuntimeError("Geçersiz OAuth callback isteği."))
-                status, message = "400 Bad Request", "Geçersiz OAuth dönüşü."
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False, title="Geçersiz dönüş", message="Bu adres bir giriş dönüşü değil."
+                )
             elif error:
                 self._set_error(RuntimeError("OAuth girişi reddedildi veya iptal edildi."))
-                status, message = "400 Bad Request", "Fusion bağlantı izni verilmedi."
+                status = "400 Bad Request"
+                page = callback_page(
+                    ok=False,
+                    title="Bağlantı izni verilmedi",
+                    message="Giriş reddedildi ya da iptal edildi; Fusion bağlanmadı.",
+                )
             else:
                 self._set_result((str(code), state))
-                status, message = (
-                    "200 OK",
-                    "Fusion bağlantısı alındı. Bu pencereyi kapatabilirsiniz.",
+                status = "200 OK"
+                page = callback_page(
+                    ok=True,
+                    title="Bağlantı kuruldu",
+                    message="Fusion izni aldı ve hesabına bağlandı.",
                 )
-            body = f"<html><body><h1>Fusion</h1><p>{message}</p></body></html>".encode()
+            body = page.encode()
             headers = (
                 f"HTTP/1.1 {status}\r\n"
                 "Content-Type: text/html; charset=utf-8\r\n"

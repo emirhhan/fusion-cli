@@ -16,9 +16,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from ...core.evidence import ToolUse
+from ...core.evidence import EvidenceStatus, ToolUse
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
+from ...ui.text import strip_thinking
 from .verify_discovery import is_behavioral_command
 
 #: Kabuk komutu çalıştıran KANONİK araç adı — yalnız görüntüleme/dokümantasyon
@@ -106,8 +107,20 @@ class TurnReport:
             return None
         evidence = self._behavioral_evidence
         if not evidence:
-            return False
+            return self._gate_passed_evidence is not None
         return all(run.exit_code == 0 for run in evidence)
+
+    @property
+    def _gate_passed_evidence(self) -> str | None:
+        """Kapının KENDİSİNİN çalıştırıp geçtiği davranış kontrolü (ör. sayfaları
+        tarayıcıda açmak). Ölçüldü (26 Eylül): statik site 5 sayfası tarayıcıda
+        açılıp denetlendiği hâlde "doğrulama komutu çalıştırılmadı" deniyordu."""
+        gate = self.gate
+        if gate is None or not gate.ok or not gate.evidence:
+            return None
+        if any(item.status is not EvidenceStatus.PASSED for item in gate.evidence):
+            return None
+        return "; ".join(item.summary for item in gate.evidence)
 
     @property
     def blocks_success(self) -> bool:
@@ -131,6 +144,9 @@ class TurnReport:
 
     def render_with_model_text(self, model_text: str) -> str:
         """Eksik veya başarısız kanıtta modelin özeti doğrulanmış gibi görünmesin."""
+        # Düşünme, rapor eklenmeden ÖNCE ayıklanır: açılışsız `</think>` sonradan
+        # ayıklansaydı kapanıştan önceki rapor da düşünme sanılıp silinirdi.
+        model_text = strip_thinking(model_text).strip()
         report = self.render()
         if not report:
             return model_text
@@ -167,6 +183,9 @@ class TurnReport:
     def _evidence_block(self) -> str:
         dosyalar = ", ".join(self.changed_paths)
         evidence = self._behavioral_evidence
+        kapi_kaniti = self._gate_passed_evidence
+        if not evidence and kapi_kaniti:
+            return f"✓ Doğrulandı: {kapi_kaniti}.\nDeğişen dosyalar: {dosyalar}"
         if not evidence:
             return (
                 f"ⓘ Değişen dosyalar: {dosyalar}\n"

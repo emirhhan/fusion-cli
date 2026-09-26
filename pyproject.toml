@@ -130,6 +130,8 @@ ignore = [
 "src/fusion_cli/engines/agent/browser_verify.py" = ["ANN401"]
 # Native web providers wrap optional Playwright objects; Any stays inside this adapter.
 "src/fusion_cli/providers/web_browser.py" = ["ANN401"]
+# Görsel üretimi aynı Playwright Page sınırında çalışır; dışarı yalnız dosya yolu çıkar.
+"src/fusion_cli/providers/web_image.py" = ["ANN401"]
 # Etkileşimli tarayıcı araçları da playwright Page/Browser sınırında çalışır; `Any`
 # bu dosyanın dışına çıkmaz, sonuçlar `ToolResult` olarak döner.
 "src/fusion_cli/tools/browser.py" = ["ANN401"]

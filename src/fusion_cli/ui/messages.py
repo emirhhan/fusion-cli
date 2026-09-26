@@ -254,11 +254,11 @@ TUI_CONFIRM_HINT = "onay: ↑/↓ seç · Enter uygula · esc reddet"
 #: Onay önizlemesinin başındaki etiket.
 TUI_CONFIRM_PREVIEW = "onay ister:"
 TUI_APPROVAL_TITLE = "Bu işleme izin verilsin mi?"
-TUI_APPROVAL_ONCE = "Bir kez izin ver"
+TUI_APPROVAL_ONCE = "Evet"
 TUI_APPROVAL_ONCE_DESC = "Yalnız bu araç çağrısını çalıştırır."
-TUI_APPROVAL_SESSION = "Oturum boyunca izin ver"
+TUI_APPROVAL_SESSION = "Evet, bu oturumda bunu tekrar sorma"
 TUI_APPROVAL_SESSION_DESC = "Aynı araç veya komut bu oturumda tekrar sorulmaz."
-TUI_APPROVAL_DENY = "Reddet"
+TUI_APPROVAL_DENY = "Hayır, başka bir yol dene"
 TUI_APPROVAL_DENY_DESC = "Araç çalıştırılmaz; agent güvenli başka bir yol arar."
 #: Tam-ekran/TUI'de argümansız seçici komutu çağrılınca gösterilen yönlendirme.
 TUI_PICKER_NEEDS_ARG = "/{name} bu görünümde argüman ister. Örnek: /level high. Ayrıntı: /help."
@@ -407,9 +407,7 @@ APP_EVENT_SERIALIZE_FAILED = "Olay iletilemedi (serileştirilemedi): {olay}"
 #: Bir süreç bir oturum, bir oturumda aynı anda bir tur — ikinci `tur.calistir`
 #: mevcut turu sessizce üzerine yazmak yerine reddedilir; kullanıcı önce
 #: `tur.kes` ile mevcut turu durdurmalı ya da bitmesini beklemeli.
-APP_TURN_ALREADY_RUNNING = (
-    "Şu anda çalışan bir tur var. Durdurup yeniden gönderebilirsin."
-)
+APP_TURN_ALREADY_RUNNING = "Şu anda çalışan bir tur var. Durdurup yeniden gönderebilirsin."
 REPL_TURN_CANCELLED = "tur durduruldu"
 REPL_NO_FUSION_YET = "Önce bir fusion turu çalıştır (/fusion), sonra geri bildirim ver."
 REPL_LEARN_USAGE = "Kullanım: /learn <kalıcı olarak hatırlanacak kural>"

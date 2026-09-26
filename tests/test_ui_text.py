@@ -60,3 +60,18 @@ def test_iki_parcali_kimlik_oldugu_gibi_kalir():
 def test_saglayicisiz_kimlik_bozulmaz():
     """Beklenmedik biçim ekrandan bir şey EKSİLTMEMELİ."""
     assert format_model("yalnizca-model") == "yalnizca-model"
+
+
+def test_acilissiz_kapanis_oncesi_dusunme_sayilir():
+    """Ölçüldü: gemini_web `<think>` yazmadan düşünüp `</think>` ile bitirdi."""
+    from fusion_cli.ui.text import strip_thinking
+
+    ham = "The blog site is complete. Let me provide a summary.</think>Tamamlandı."
+    assert strip_thinking(ham) == "Tamamlandı."
+
+
+def test_normal_metindeki_kapanis_etiketi_yoksa_metin_korunur():
+    from fusion_cli.ui.text import strip_thinking
+
+    assert strip_thinking("Merhaba <b>dünya</b>") == "Merhaba <b>dünya</b>"
+    assert strip_thinking("<think>plan</think>Cevap") == "Cevap"

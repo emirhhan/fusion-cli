@@ -109,11 +109,16 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         altAjan: true,
       };
     }
-    case "ModelFallbackActivated":
+    case "ModelFallbackActivated": {
+      const gecis = `${String(veri.requested_model ?? "")} → ${String(veri.fallback_model ?? "")}`;
+      const neden = String(veri.reason ?? "");
+      // Seçilen web oturumu insan doğrulaması istediği için yedeğe geçildiyse
+      // sebep saklanmaz: arayüz bunu görüp "Giriş penceresini aç" kartını açar.
       return {
         metin: "yedek modele geçti",
-        ayrinti: `${String(veri.requested_model ?? "")} → ${String(veri.fallback_model ?? "")}`,
+        ayrinti: neden.includes("insan doğrulaması") ? `${gecis} · ${neden}` : gecis,
       };
+    }
     case "CapabilityActivated":
       return {
         metin: `${String(veri.name ?? "uzmanlık")} seçildi`,

@@ -17,6 +17,7 @@ from ..engines.agent.approval import ApprovalAnswer, ApprovalRequest
 from ..engines.agent.engine_tools import QuestionOption
 from ..ui import messages
 from .approval_preview import onizleme_diffi
+from .approval_summary import approval_summary
 from .protocol import encode_error, encode_event, encode_question
 from .serialize import event_to_dict
 
@@ -94,10 +95,13 @@ class ProtocolPrompter:
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür."""
+        baslik, hedef = approval_summary(request.tool.name, request.args)
         data = await self._ask_wire(
             {
                 "tur": "onay",
                 "arac": request.tool.name,
+                "baslik": baslik,
+                "hedef": hedef,
                 "argumanlar": _preview_args(request),
                 "tehlike": request.danger,
                 # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten

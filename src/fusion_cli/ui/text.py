@@ -46,6 +46,17 @@ def segment(text: str, *, streaming: bool = False) -> list[Segment]:
     index = 0
     total = len(text)
     in_thinking = False
+    # Açılışı olmayan kapanış: bazı modeller `<think>` yazmadan düşünür ve yalnız
+    # `</think>` ile bitirir. Ölçüldü (26 Eylül, gemini_web): "The blog site is
+    # complete… Let me provide a summary.</think>Tamamlandı…" kullanıcıya
+    # olduğu gibi gösteriliyordu. Kapanıştan önceki her şey düşünmedir.
+    # Akış sırasında karar verilemez (kapanış henüz gelmemiş olabilir); yalnız
+    # tamamlanmış metinde uygulanır.
+    first_close = text.find(THINK_CLOSE)
+    first_open = text.find(THINK_OPEN)
+    if not streaming and first_close != -1 and (first_open == -1 or first_close < first_open):
+        _append(segments, True, text[:first_close])
+        index = first_close + len(THINK_CLOSE)
     while index < total:
         tag = THINK_CLOSE if in_thinking else THINK_OPEN
         found = text.find(tag, index)

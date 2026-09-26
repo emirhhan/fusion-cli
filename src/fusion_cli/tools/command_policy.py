@@ -18,6 +18,7 @@ ortamında tam yetkiyle çalışır; burada karar verilen tek şey SORULUP sorul
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
 from .command_paths import escapes_project
 from .inline_python import is_inert_python
@@ -34,7 +35,7 @@ _READ_ONLY = frozenset(
         "echo", "printf", "date", "whoami", "hostname", "uname",
         "diff", "cmp", "sort", "uniq", "cut", "awk", "sed", "jq", "column",
         "du", "df", "ps", "top", "uptime", "id", "groups", "basename", "dirname",
-        "realpath", "readlink", "true", "false", "test",
+        "realpath", "readlink", "true", "false", "test", "sleep",
     }
 )  # fmt: skip
 
@@ -68,7 +69,9 @@ _INLINE_CODE_FLAGS = frozenset({"-c", "-e", "--eval"})
 
 #: `-m` ile onaysız çalıştırılabilen modüller. Hepsi projenin kendi kodunu
 #: denetleyen/çalıştıran araçlardır; `_DIRECT_TOOLING` ile aynı gerekçe.
-_MODULE_RUNNERS = frozenset({"pytest", "unittest", "ruff", "mypy", "tox", "compileall"})
+_MODULE_RUNNERS = frozenset(
+    {"pytest", "unittest", "ruff", "mypy", "tox", "compileall", "venv", "black", "isort"}
+)
 
 #: Projenin kendi kalite araçları. Bunlar projede TANIMLI kodu çalıştırır (test
 #: dosyaları, lint eklentileri) — yani teknik olarak keyfi kod yürütürler.
@@ -113,6 +116,55 @@ _GODOT_VERIFY_FLAGS = frozenset(
     {"--headless", "--path", "--quit", "--quit-after", "--verbose", "--editor"}
 )
 
+#: Proje içindeki dosya/klasörü değiştiren komutlar (Claude'un otomatik kipi gibi).
+#:
+#: Ölçüldü (26 Eylül): auto kip `mkdir`, `touch`, `cp`, `mv` için bile soruyordu;
+#: aynı işi `write_file` aracı zaten sormadan yapıyor. Proje dışına çıkan yol
+#: `escapes_project` ile önce elenir; `rm -rf` gibi yıkıcı kalıplar
+#: `safety.danger_reason` ile ayrıca sorulur.
+_WORKSPACE_MUTATORS = frozenset({"mkdir", "touch", "cp", "mv", "rm", "ln", "rmdir"})
+
+#: Kod biçimlendiriciler: yalnız proje dosyalarını yeniden yazar.
+_FORMATTERS = frozenset({"prettier", "black", "isort", "gofmt", "rustfmt", "biome", "autopep8"})
+
+#: Paket yöneticilerinin proje içine kuran alt komutları. Global kurulum
+#: (`-g`, `--global`, `--user`) ve yayımlama sorulur.
+_JS_INSTALL_SUBCOMMANDS = frozenset(
+    {"install", "i", "add", "ci", "remove", "uninstall", "rm", "update", "up"}
+)
+_GLOBAL_INSTALL_FLAGS = frozenset(
+    {"-g", "--global", "--user", "--system", "--break-system-packages"}
+)
+
+#: Projenin kendi betiğini çalıştıran kabuklar (`bash kurulum.sh`).
+_SHELL_RUNNERS = frozenset({"bash", "sh", "zsh"})
+
+#: `curl`'ü okuyucu olmaktan çıkaran, veri GÖNDEREN bayraklar.
+_CURL_SEND_FLAGS = frozenset(
+    {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form",
+     "-T", "--upload-file", "-X", "--request", "-K", "--config"}
+)  # fmt: skip
+
+#: Otomatik kipte onaysız geçen, YEREL etkili git alt komutları. Uzak depoya
+#: yazan (`push`), geçmişi yeniden yazan (`rebase`) ve kaydedilmemiş işi silen
+#: (`reset --hard`, `clean`) komutlar burada yoktur.
+_LOCAL_GIT_SUBCOMMANDS = frozenset(
+    {
+        "add",
+        "commit",
+        "checkout",
+        "switch",
+        "restore",
+        "stash",
+        "init",
+        "mv",
+        "rm",
+        "fetch",
+        "reset",
+    }
+)
+_GIT_DESTRUCTIVE_FLAGS = frozenset({"--hard", "--force", "-f", "--amend"})
+
 #: Onaysız geçilen git alt komutları — TEK KAYNAK.
 #:
 #: Git iki ayrı yoldan gelebilir (`git` aracı ve `run_shell`) ve ikisinde de aynı
@@ -156,7 +208,7 @@ _EXPANSIONS = ("$(", "${", "`")
 _FIND_UNSAFE = frozenset({"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprint"})
 
 
-def is_unattended_safe(command: str) -> bool:
+def is_unattended_safe(command: str, root: Path | None = None) -> bool:
     """Komut, kullanıcıya sorulmadan çalıştırılabilir mi?
 
     False dönmek "bu komut zararlı" demek DEĞİLDİR; "tanımıyorum, sorulmalı"
@@ -164,13 +216,13 @@ def is_unattended_safe(command: str) -> bool:
     """
     if not command.strip():
         return False
-    segments = _split(command)
+    segments = _split(command, root)
     if segments is None:
         return False
-    return all(_segment_safe(segment) for segment in segments)
+    return all(_segment_safe(segment, root) for segment in segments)
 
 
-def _split(command: str) -> list[str] | None:
+def _split(command: str, root: Path | None = None) -> list[str] | None:
     """Komutu tırnaklara saygı göstererek zincir parçalarına böl.
 
     Düz `str.split` tırnak içini de bölüyordu: `python3 -c "import sys; print(1)"`
@@ -199,6 +251,19 @@ def _split(command: str) -> list[str] | None:
             current = []
             index += len(pair) if pair in _DOUBLE_SEPARATORS else 1
             continue
+        elif char == "&" and command[index + 1 : index + 2] in {"", " ", "\n", "\t"}:
+            # Sondaki `&` komutu arka plana atar (`python3 app.py &`): sunucuyu
+            # başlatıp sınamak doğal akıştır; parçalar yine ayrı ayrı denetlenir.
+            segments.append("".join(current))
+            current = []
+            index += 1
+            continue
+        elif char == ">" or (char == "&" and command[index + 1 : index + 2] == ">"):
+            atla = _safe_redirect_length(command, index, root)
+            if atla is None:
+                return None
+            index += atla
+            continue
         elif char in _UNQUOTED_UNSAFE:
             return None
         current.append(command[index : index + step])
@@ -207,7 +272,39 @@ def _split(command: str) -> list[str] | None:
     return [segment.strip() for segment in segments if segment.strip()]
 
 
-def _segment_safe(segment: str) -> bool:
+def _safe_redirect_length(command: str, index: int, root: Path | None = None) -> int | None:
+    """`>`, `>>`, `&>`, `2>&1` yönlendirmesi proje İÇİNE mi yazıyor?
+
+    Hedef göreli ve kökten çıkmayan bir yol, `/dev/null` ya da başka bir
+    tanımlayıcı (`&1`) olmalıdır; aksi hâlde komut sorulur. Dönüş, komut
+    metninde atlanacak karakter sayısıdır (yönlendirme + hedef).
+    """
+    cursor = index
+    if command[cursor] == "&":
+        cursor += 1
+    cursor += 1  # '>'
+    if command[cursor : cursor + 1] == ">":
+        cursor += 1
+    if command[cursor : cursor + 1] == "&":
+        cursor += 1
+        start = cursor
+        while cursor < len(command) and command[cursor].isdigit():
+            cursor += 1
+        return cursor - index if cursor > start else None
+    while cursor < len(command) and command[cursor] == " ":
+        cursor += 1
+    start = cursor
+    while cursor < len(command) and command[cursor] not in " ;|&\n":
+        cursor += 1
+    target = command[start:cursor]
+    if not target or any(char in target for char in "$`'\""):
+        return None
+    if target != "/dev/null" and escapes_project("cat", [target], root):
+        return None
+    return cursor - index
+
+
+def _segment_safe(segment: str, root: Path | None = None) -> bool:
     try:
         parts = shlex.split(segment)
     except ValueError:
@@ -216,15 +313,58 @@ def _segment_safe(segment: str) -> bool:
     if not parts:
         return False
 
+    # `2>&1` yönlendirmesinden geriye kalan tanımlayıcı rakamı argüman değildir.
+    if len(parts) > 1 and parts[-1].isdigit() and segment.rstrip().endswith(" " + parts[-1]):
+        parts = parts[:-1]
+    if parts[0] == "sudo":
+        return False
     name = parts[0].rsplit("/", 1)[-1]
     arguments = parts[1:]
+    # `./run.sh`: projenin kendi betiği, `pytest` ile aynı güven seviyesi.
+    # Adı dışa dönük iş söyleyen betik (deploy/publish/release/push) sorulur.
+    if parts[0].startswith("./") and not escapes_project("cat", [parts[0]], root):
+        return not _outward_script(name) and not escapes_project(name, arguments, root)
 
     # Salt-okur komut da proje dışını okuyabilir (`cat ~/.ssh/id_rsa`): önce NEREYE
     # dokunduğuna bakılır, sonra komutun kendisine.
-    if escapes_project(name, arguments):
+    if escapes_project(name, arguments, root):
         return False
     if name == "git":
-        return bool(arguments) and arguments[0] in READONLY_GIT_SUBCOMMANDS
+        return _git_safe(arguments)
+    if name == "cd":
+        return len(arguments) <= 1
+    if name in {"rm", "rmdir"}:
+        # Özyinelemeli/zorlamalı silme her zaman sorulur (bkz. `safety`).
+        ozyinelemeli = any(a.startswith("-") and "r" in a.lower() for a in arguments)
+        jokerli = any(char in a for a in arguments for char in "*?")
+        return not ozyinelemeli and not jokerli
+    if name in _WORKSPACE_MUTATORS or name in _FORMATTERS:
+        return True
+    if name == "chmod":
+        return not any(argument.startswith("-R") for argument in arguments)
+    if name in _SHELL_RUNNERS:
+        return (
+            bool(arguments)
+            and not arguments[0].startswith("-")
+            and not _outward_script(arguments[0])
+        )
+    if name in {"npx", "bunx"}:
+        return bool(arguments) and not any(a in _INLINE_CODE_FLAGS for a in arguments)
+    if name in {"pip", "pip3"} or (name == "uv" and arguments[:1] == ["pip"]):
+        return _pip_safe(arguments[1:] if name == "uv" else arguments)
+    if name == "curl":
+        sends = any(
+            argument in _CURL_SEND_FLAGS or argument.startswith(("--data", "-d@"))
+            for argument in arguments
+        )
+        # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
+        # veri göndermek değildir; Claude'un otomatik kipi de bunu sormaz.
+        return not sends or _only_local_urls(arguments)
+    if name in {"source", "."}:
+        # Proje içindeki sanal ortamı etkinleştirmek; kök dışı yol yukarıda elendi.
+        return len(arguments) == 1
+    if name == "open":
+        return bool(arguments) and not arguments[0].startswith("-")
     if name == "find":
         return not any(argument in _FIND_UNSAFE for argument in arguments)
     if name in _PROJECT_TOOLING:
@@ -267,6 +407,8 @@ def _script_safe(name: str, arguments: list[str]) -> bool:
         return False
     if arguments[0] == "-m":
         # `python -m <modül>`: yalnızca tanınan kalite/test modülleri onaysız geçer.
+        if arguments[1:2] == ["pip"]:
+            return _pip_safe(arguments[2:])
         return len(arguments) > 1 and arguments[1].split(".")[0] in _MODULE_RUNNERS
     return not arguments[0].startswith("-")
 
@@ -280,4 +422,51 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
     """
     if name in _DIRECT_TOOLING:
         return True
-    return bool(arguments) and arguments[0] in _TOOLING_SUBCOMMANDS
+    if not arguments:
+        return name in {"npm", "pnpm", "yarn", "bun", "make"} and name != "npm"
+    if name in {"npm", "pnpm", "yarn", "bun"} and arguments[0] in _JS_INSTALL_SUBCOMMANDS:
+        return not any(argument in _GLOBAL_INSTALL_FLAGS for argument in arguments)
+    if name == "pnpm" and arguments[0] == "dlx":
+        return True
+    return arguments[0] in _TOOLING_SUBCOMMANDS
+
+
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"})
+
+
+def _only_local_urls(arguments: list[str]) -> bool:
+    """Komuttaki bütün adresler bu makineye mi gidiyor? Adres yoksa False."""
+    from urllib.parse import urlsplit
+
+    urls = [a for a in arguments if "://" in a or a.startswith(tuple(_LOCAL_HOSTS))]
+    if not urls:
+        return False
+    for url in urls:
+        host = urlsplit(url if "://" in url else f"http://{url}").hostname or ""
+        if host not in _LOCAL_HOSTS and f"[{host}]" not in _LOCAL_HOSTS:
+            return False
+    return True
+
+
+def _outward_script(path: str) -> bool:
+    """Betiğin adı dışa dönük bir iş mi söylüyor? (dağıtım, yayımlama, gönderme)"""
+    ad = path.rsplit("/", 1)[-1].lower()
+    return any(kelime in ad for kelime in ("deploy", "publish", "release", "push", "upload"))
+
+
+def _pip_safe(arguments: list[str]) -> bool:
+    """`pip install …` proje ortamına mı kuruyor? Global/kullanıcı kurulumu sorulur."""
+    if not arguments or arguments[0] not in {"install", "uninstall"}:
+        return False
+    return not any(argument in _GLOBAL_INSTALL_FLAGS for argument in arguments)
+
+
+def _git_safe(arguments: list[str]) -> bool:
+    """Salt-okur ya da YEREL etkili git komutu mu? Push/rebase/clean/--hard sorulur."""
+    if not arguments:
+        return False
+    if arguments[0] in READONLY_GIT_SUBCOMMANDS:
+        return True
+    if arguments[0] not in _LOCAL_GIT_SUBCOMMANDS:
+        return False
+    return not any(argument in _GIT_DESTRUCTIVE_FLAGS for argument in arguments[1:])

@@ -25,7 +25,12 @@ export interface Cevap {
 export interface Soru {
   tur: "onay" | "soru";
   arac?: string;
-  argumanlar?: Record<string, string>;
+  /** Çekirdek `ad='değer'` listesi gönderir; eski istemciler sözlük bekliyordu. */
+  argumanlar?: string[] | Record<string, string>;
+  /** İzin kartının insan dilindeki tek cümlelik başlığı. */
+  baslik?: string;
+  /** Komut, dosya yolu ya da adres — olduğu gibi gösterilir. */
+  hedef?: string;
   tehlike?: string | null;
   soru?: string;
   secenekler?: { deger?: string; etiket: string; aciklama?: string }[];

@@ -497,3 +497,11 @@ def test_yeni_desenler_gunluk_komutlari_yakalamaz(komut):
     """Proje içi `.env` bilinçli olarak serbest: Fusion kullanıcının kendi projesinde
     `.env` okur (CLAUDE.md "Sırlar"); `read_file` de engellemez."""
     assert danger_reason("run_shell", {"command": komut}) is None
+
+
+def test_tek_proje_dosyasini_zorla_silmek_tehlikeli_sayilmaz():
+    from fusion_cli.tools.safety import danger_reason
+
+    assert danger_reason("run_shell", {"command": "rm -f orders.db"}) is None
+    assert danger_reason("run_shell", {"command": "rm -f *"}) is not None
+    assert danger_reason("run_shell", {"command": "rm -rf build"}) is not None

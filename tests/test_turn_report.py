@@ -236,3 +236,49 @@ def test_run_shell_takma_adiyla_calisan_davranissal_olmayan_komut_kanit_sayilmaz
 
     assert report.is_verified is False
     assert "ÇALIŞTIRILMADI" in report.render()
+
+
+def _tarayici_kaniti() -> VerificationResult:
+    from fusion_cli.core.evidence import CriterionEvidence, EvidenceStatus
+    from fusion_cli.core.execution_plan import VerificationCheckKind
+
+    return VerificationResult(
+        ok=True,
+        warnings=("index.html içinde 2 dokunma hedefi küçük",),
+        evidence=(
+            CriterionEvidence(
+                criterion_id="tarayici_sayfalari",
+                kind=VerificationCheckKind.TOOL,
+                status=EvidenceStatus.PASSED,
+                summary="5 sayfa tarayıcıda açıldı",
+            ),
+        ),
+    )
+
+
+def test_tarayicida_acilip_gecen_statik_site_dogrulanmis_sayilir():
+    """Ölçüldü (26 Eylül): Fusion 5 HTML sayfasını tarayıcıda açıp denetledi, yine de
+    'doğrulama komutu çalıştırılmadı' deyip turu başarısız saydı."""
+    yazma = ToolUse(name="write_file", mutating=True, arguments={"path": "index.html"})
+    rapor = build_turn_report(
+        ("index.html", "style.css"),
+        (yazma,),
+        _tarayici_kaniti(),
+        require_behavioral_evidence=True,
+    )
+
+    assert rapor.is_verified is True
+    assert rapor.blocks_success is False
+    assert "ÇALIŞTIRILMADI" not in rapor.render()
+    assert "tarayıcıda açıldı" in rapor.render()
+
+
+def test_model_ozetindeki_acilissiz_dusunme_rapora_sizmaz():
+    yazma = ToolUse(name="write_file", mutating=True, arguments={"path": "index.html"})
+    rapor = build_turn_report(("index.html",), (yazma,), _tarayici_kaniti())
+
+    metin = rapor.render_with_model_text("Let me provide a summary.</think>Tamamlandı.")
+
+    assert "Let me provide" not in metin
+    assert metin.endswith("Tamamlandı.")
+    assert "dokunma hedefi" in metin

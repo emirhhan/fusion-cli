@@ -28,6 +28,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...core.evidence import CriterionEvidence, EvidenceStatus
+from ...core.execution_plan import VerificationCheckKind
 from ...core.tools import ToolContext
 from ...core.verification import VerificationResult
 
@@ -166,9 +168,23 @@ def _browser_verification_result(
     source: str,
 ) -> VerificationResult:
     blocking, warnings, advisories = page_findings_by_severity(observations)
+    # Sayfalar GERÇEKTEN açıldıysa bu bir davranış kanıtıdır: rapor, komut
+    # çalıştırılmadı diye turu doğrulanmamış saymamalı (bkz. `turn_report`).
+    kanit = (
+        (
+            CriterionEvidence(
+                criterion_id="tarayici_sayfalari",
+                kind=VerificationCheckKind.TOOL,
+                status=EvidenceStatus.FAILED if blocking else EvidenceStatus.PASSED,
+                summary=f"{len(observations)} sayfa {source} açılıp denetlendi",
+            ),
+        )
+        if observations
+        else ()
+    )
 
     if not blocking and not warnings and not advisories:
-        return VerificationResult(ok=True)
+        return VerificationResult(ok=True, evidence=kanit)
 
     summary = f"{source} {len(blocking)} engelleyici sorun" if blocking else ""
 
@@ -178,6 +194,7 @@ def _browser_verification_result(
         findings=blocking,
         warnings=warnings,
         advisories=advisories,
+        evidence=kanit,
     )
 
 

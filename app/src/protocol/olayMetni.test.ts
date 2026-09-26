@@ -2,6 +2,18 @@ import { describe, expect, it } from "vitest";
 import { olayAdimi } from "./olayMetni";
 
 describe("olayAdimi", () => {
+  it("yedeğe geçişin sebebi insan doğrulamasıysa ayrıntıda saklanmaz", () => {
+    const adim = olayAdimi({
+      olay: "ModelFallbackActivated",
+      requested_model: "chatgpt_web/main/auto",
+      fallback_model: "nvidia_nim/x",
+      reason: "web oturumu hatası: ChatGPT Web insan doğrulaması (captcha) istiyor.",
+    });
+    expect(adim?.ayrinti).toContain("insan doğrulaması");
+    const siradan = olayAdimi({ olay: "ModelFallbackActivated", requested_model: "a", fallback_model: "b", reason: "429" });
+    expect(siradan?.ayrinti).toBe("a → b");
+  });
+
   it("model çağrısında rolü ve modeli ayrıntıya koyar", () => {
     const adim = olayAdimi({ olay: "ModelCallStarted", role: "agent", model: "openrouter/x" });
     expect(adim).toEqual({ metin: "düşünüyor", ayrinti: "agent · openrouter/x" });

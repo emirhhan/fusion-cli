@@ -84,10 +84,12 @@ from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import coerce_arguments, render_tool_example, validate_arguments
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
+from ...ui.text import strip_thinking
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, learning_steps, reflexion, review
-from .approval import ApprovalPolicy, Decision, build_request
+from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
+from .clarify import clarification_hint
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import (
     ExecutionPolicy,
@@ -420,12 +422,25 @@ async def run_agent(
         if depth == 0 and not chat_mode and registry.get("ask_teacher") is not None
         else ""
     )
+    # Belirsiz yeni proje isteğinde koda başlamadan seçenekli soru (bkz. `clarify`).
+    netlestirme = (
+        clarification_hint(
+            task,
+            deps.tool_context.root,
+            can_ask=registry.get("ask_user") is not None,
+            first_turn=not any(message.role == "user" for message in history or ()),
+        )
+        if depth == 0 and not chat_mode and not internal
+        else None
+    )
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
-            part for part in (proje_ve_dis_bellek, harita, teacher_hint, extra_system) if part
+            part
+            for part in (proje_ve_dis_bellek, harita, teacher_hint, netlestirme, extra_system)
+            if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
         # hesaplanan ders/uzmanlık bloğu öneki kaydırıp sohbeti sıfırlıyordu.
@@ -904,7 +919,10 @@ async def _drive(
         messages.append(Message("assistant", result.text, tool_calls=result.tool_calls))
 
         if not result.tool_calls:
-            final_text = result.text
+            # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
+            # (26 Eylül, Motogate okuma turu): "I have the data…</think>| Sipariş No…"
+            # dosya değişmeyen turda olduğu gibi gösteriliyordu.
+            final_text = strip_thinking(result.text).strip()
             # `capability_wall`: bir araç işin kendisiyle yapılamayacağını bildirdiyse
             # kanıt istemek anlamsızdır. Modeli zorlamak onu uydurmaya iter ve dürüst
             # cevabı "İşlem tamamlanmadı" metniyle ezer — kullanıcı ne olduğunu
@@ -2130,7 +2148,9 @@ async def _execute(
             ToolOutcome.BLOCKED,
         )
     if tool is not None and tool.mutating:
-        decision = await deps.policy.decide(build_request(tool, args, deps.allowed_commands))
+        decision = await deps.policy.decide(
+            await resolve_request(tool, args, deps.allowed_commands, root=deps.tool_context.root)
+        )
         if decision is not Decision.ALLOW:
             # Engelleme (BLOCKED) HATA DEĞİLDİR: refleksiyon tetiklenmemeli, model
             # yalnızca farklı bir yol denemeli. Reddetme (DENIED) ise artık farklı

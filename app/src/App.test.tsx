@@ -695,10 +695,11 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
-  expect(screen.getByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
-  expect(screen.getByText("Daha sonra")).toBeTruthy();
+  // Görsel oluşturma artık çalışan bir sayfadır (web oturumu görseli üretir).
+  expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
+  expect(screen.getByLabelText("Görsel istemi")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
-  expect(screen.getByRole("heading", { name: "Video oluştur" })).toBeTruthy();
+  expect(await screen.findByRole("heading", { name: "Yakında" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await waitFor(() => expect(screen.queryByRole("button", { name: "Saklı sohbet" })).toBeNull());

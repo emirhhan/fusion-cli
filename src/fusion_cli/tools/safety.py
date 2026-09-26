@@ -38,7 +38,14 @@ def _dot_path(name: str) -> str:
 
 #: Tehlikeli kabuk komutu desenleri. Sıra önemsizdir; ilk eşleşen gerekçe gösterilir.
 DANGER_RULES: tuple[DangerRule, ...] = (
-    _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf]", "özyinelemeli/zorlamalı dosya silme"),
+    # Özyinelemeli silme ya da `-f` ile JOKERLİ toplu silme tehlikelidir; tek bir
+    # proje dosyasını `rm -f orders.db` ile silmek değildir (26 Eylül ölçümü: model
+    # sınama veritabanını sıfırlarken her seferinde soruluyordu).
+    _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]", "özyinelemeli/zorlamalı dosya silme"),
+    _rule(
+        r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+[^;&|]*[*?]",
+        "özyinelemeli/zorlamalı dosya silme",
+    ),
     _rule(r"\brm\s+-[a-zA-Z]*r", "özyinelemeli dosya silme"),
     _rule(r"\brm\s+-[a-zA-Z]*f\s+.*\*", "joker ile zorlamalı silme"),
     _rule(r":\(\)\s*\{.*\|.*&\s*\}", "fork bomb"),

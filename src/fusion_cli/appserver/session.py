@@ -101,6 +101,7 @@ from .hosted_connectors import (
     remove_hosted_connector,
     verify_hosted_connector,
 )
+from .image_create import create_image, image_providers
 from .instructions import get_instructions, instruction_block, save_instructions
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
@@ -371,13 +372,15 @@ class AppSession:
         result = await self._run_turn(prompt, browser_only=True)
         answer = result.get("metin")
         if isinstance(answer, str):
-            # Bazı NIM akışları açılış etiketini atlayıp kapanış etiketini bırakıyor.
-            if "</think>" in answer and "<think>" not in answer:
-                answer = answer.rsplit("</think>", 1)[1]
+            # Açılışsız `</think>` de `strip_thinking` içinde ayıklanır.
             result["metin"] = strip_thinking(answer).strip()
         return result
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
+        if request.name == "gorsel.saglayicilar":
+            return {"ok": True, "secenekler": image_providers(self._state.config)}
+        if request.name == "gorsel.olustur":
+            return await create_image(self._state.config, request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name == "chrome.durum":

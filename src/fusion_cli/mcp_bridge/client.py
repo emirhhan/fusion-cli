@@ -21,7 +21,7 @@ import logging
 import os
 import tempfile
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
 from typing import TextIO, cast
@@ -29,8 +29,9 @@ from typing import TextIO, cast
 from mcp import ClientSession
 
 from ..config.models import McpServerConfig, McpTransport
-from ..core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
+from ..core.tools import EffectResolver, Tool, ToolArgs, ToolContext, ToolEffect, ToolResult
 from ..tools import ToolRegistry
+from .ability_effects import ABILITY_INFO, EXECUTE_ABILITY, ability_gateway_resolver
 from .content import normalize_call_result
 from .failures import STATE_CONNECTED, classify_failure
 from .tool_effect import effect_from_annotations
@@ -303,6 +304,7 @@ class McpClient:
             current = self._statuses.get(server)
             if current is not None:
                 self._statuses[server] = replace(current, tool_count=len(tools))
+            resolver = self._ability_resolver(server, {remote.name for remote in tools})
             for remote in tools:
                 fusion_name = f"{server}__{remote.name}"
                 # Üzerine yazılır: bağlantı oturum boyunca yaşıyor ve aynı defter
@@ -316,10 +318,22 @@ class McpClient:
                         # Dış araç ne yaptığını söylemez: onay akışına girsin diye mutating.
                         mutating=True,
                         effect=remote.effect,
+                        effect_resolver=resolver if remote.name == EXECUTE_ABILITY else None,
                     )
                 )
                 added.append(fusion_name)
         return tuple(added)
+
+    def _ability_resolver(self, server: str, names: set[str]) -> EffectResolver | None:
+        """WordPress `mcp-adapter` geçidi varsa yetenek bazlı etki çözücüsü kur."""
+        if not {EXECUTE_ABILITY, ABILITY_INFO} <= names:
+            return None
+
+        async def info(ability: str) -> Mapping[str, object] | None:
+            result = await self.call(server, ABILITY_INFO, {"ability_name": ability})
+            return result.structured if result.ok else None
+
+        return ability_gateway_resolver(info)
 
     def _make_run(self, server: str, tool: str) -> _ToolRun:
         async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:

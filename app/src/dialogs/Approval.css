@@ -1,108 +1,146 @@
-.approval-backdrop {
-  align-items: flex-end;
-  background: linear-gradient(transparent, var(--surface-canvas));
+/* İzin/soru kartı: composer'ın hemen üstünde, composer genişliğinde. Sohbet
+   arkada görünür kalır; kart ekranı kaplamaz (Claude Code'daki gibi). */
+.prompt-dock {
+  bottom: 0;
   display: flex;
-  inset: auto 0 0;
   justify-content: center;
-  max-height: 100%;
-  padding: 32px var(--space-6) var(--space-4);
+  left: 0;
+  padding: 0 var(--space-4) var(--space-3);
   pointer-events: none;
   position: absolute;
+  right: 0;
   z-index: var(--z-overlay);
 }
 
-.approval {
+.prompt-card {
+  animation: prompt-card-in var(--duration-fast) var(--ease-standard);
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-overlay);
-  max-height: min(70vh, 540px);
-  max-width: 760px;
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgb(0 0 0 / 32%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(62vh, 520px);
+  max-width: 720px;
   outline: 0;
   overflow: auto;
-  padding: var(--space-5);
+  padding: 14px 16px 12px;
   pointer-events: auto;
   width: 100%;
 }
+.prompt-card[data-danger="true"] { border-color: color-mix(in srgb, var(--status-error, #f87171) 55%, var(--border-subtle)); }
+/* Taşan kart bütün olarak kayar; iç bölümler (diff) sıkışıp kesilmez. */
+.prompt-card > * { flex-shrink: 0; }
+.prompt-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-.approval:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
+@keyframes prompt-card-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
+@media (prefers-reduced-motion: reduce) { .prompt-card { animation: none; } }
 
-.approval__eyebrow {
+.prompt-card__eyebrow {
   color: var(--text-secondary);
   font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  margin-bottom: var(--space-2);
-  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
+.prompt-card__title { color: var(--text-primary); font-size: var(--text-base, 15px); font-weight: 600; line-height: 1.35; margin: -4px 0 0; }
 
-.approval h2 {
-  font-size: var(--text-lg);
-  line-height: var(--line-tight);
-  margin: 0;
-}
-
-.approval__explanation {
-  color: var(--text-secondary);
-  font-size: var(--text-sm);
-  margin: var(--space-2) 0 var(--space-4);
-}
-
-.approval__tool {
-  background: var(--surface-sidebar);
+.prompt-card__target {
+  background: var(--surface-canvas);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
+  color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-  padding: var(--space-3);
-}
-
-.approval__tool dl,
-.approval__tool dl div {
+  font-size: 12.5px;
   margin: 0;
-}
-
-.approval__tool dl {
-  display: grid;
-  gap: var(--space-1);
-  margin-top: var(--space-2);
-}
-
-.approval__tool dl div {
-  display: grid;
-  gap: var(--space-2);
-  grid-template-columns: minmax(72px, auto) 1fr;
-}
-
-.approval__tool dt {
-  color: var(--text-secondary);
-}
-
-.approval__tool dd {
-  margin: 0;
-}
-
-.approval__danger {
-  color: var(--text-danger);
-  font-size: var(--text-sm);
-  margin: var(--space-3) 0 0;
-}
-
-.approval__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  justify-content: flex-end;
-  margin-top: var(--space-5);
-}
-
-/* Onay kartındaki değişiklik önizlemesi: uzun diff kartı taşırmasın. */
-.approval__diff {
-  max-height: 260px;
+  max-height: 120px;
   overflow: auto;
-  margin-top: 4px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
+
+.prompt-card__danger { color: var(--status-error, #f87171); font-size: var(--text-sm); margin: 0; }
+.prompt-card__diff { max-height: 300px; overflow: auto; }
+
+.prompt-card__details summary { color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); }
+.prompt-card__details ul { color: var(--text-secondary); font-family: var(--font-mono); font-size: 12px; margin: 6px 0 0; padding-left: 16px; word-break: break-all; }
+
+.prompt-card__options { display: grid; gap: 2px; }
+.prompt-card__option {
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: var(--text-sm);
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 8px;
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.prompt-card__option:hover,
+.prompt-card__option:focus-visible { background: var(--surface-hover, rgb(255 255 255 / 6%)); outline: 0; }
+.prompt-card__option:focus-visible { border-color: var(--focus-ring); }
+.prompt-card__option[data-deny="true"] { color: var(--text-secondary); }
+
+.prompt-card__key {
+  align-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+.prompt-card__option[data-recommended="true"] .prompt-card__key { background: var(--text-primary); border-color: var(--text-primary); color: var(--surface-canvas); }
+
+.prompt-card__label { display: grid; flex: 1; gap: 1px; }
+.prompt-card__label small { color: var(--text-secondary); font-size: var(--text-xs); }
+.prompt-card__badge {
+  background: var(--surface-canvas);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  flex: none;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.prompt-card__other { display: flex; gap: 8px; padding: 4px 0 0 30px; }
+.prompt-card__other input {
+  background: var(--surface-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  color: var(--text-primary);
+  flex: 1;
+  font: inherit;
+  font-size: var(--text-sm);
+  min-height: 34px;
+  padding: 6px 10px;
+}
+.prompt-card__other input:focus-visible { border-color: var(--focus-ring); outline: 0; }
+.prompt-card__other button {
+  background: var(--text-primary);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--surface-canvas);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: 0 14px;
+}
+.prompt-card__other button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.prompt-card__hint { color: var(--text-tertiary, var(--text-secondary)); font-size: 11px; margin: 0; }

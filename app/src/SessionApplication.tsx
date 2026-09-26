@@ -81,6 +81,7 @@ import type { PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
 import { FeedbackDialog } from "./feedback/FeedbackDialog";
+import { ImageCreate } from "./imagecreate/ImageCreate";
 import type { ReportInput } from "./feedback/report";
 import { useCrashReporter } from "./feedback/useCrashReporter";
 
@@ -568,9 +569,16 @@ export function SessionUygulama({
   // durduğunu anlamıyordu. Artık kart olarak görünür ve eylem sunar.
   const sonAsistanMetni = [...(active?.messages ?? [])].reverse()
     .find((mesaj) => mesaj.rol === "asistan")?.metin ?? "";
+  // Yedeğe geçen turda sebep yalnız olay satırındadır: seçili web oturumu
+  // doğrulama isterken tur yedek modelle sürer ve cevap metni bunu söylemez.
+  // Ölçüldü: kullanıcı 120 sn sonra yalnız "zaman aşımı" görüyordu.
+  const sonOlayAyrintisi = [...(active?.messages ?? [])].reverse()
+    .flatMap((mesaj) => mesaj.rol === "olay" ? [...(mesaj.adimlar ?? [])].reverse() : [])
+    .find((adim) => adim.ayrinti && insanDogrulamasiGerekiyor(adim.ayrinti))?.ayrinti ?? "";
   useEffect(() => {
     if (insanDogrulamasiGerekiyor(sonAsistanMetni)) setDogrulamaUyarisi(sonAsistanMetni);
-  }, [sonAsistanMetni]);
+    else if (sonOlayAyrintisi) setDogrulamaUyarisi(sonOlayAyrintisi);
+  }, [sonAsistanMetni, sonOlayAyrintisi]);
   const { changeTheme, themePreference } = useAppTheme(active?.client);
   const hasOpenedSession = useRef(false);
   useEffect(() => { if (active) hasOpenedSession.current = true; }, [active]);
@@ -593,7 +601,7 @@ export function SessionUygulama({
       return;
     }
     try {
-      if (!active && !["image-create", "video-create"].includes(destination) && !destination.startsWith("project:")) {
+      if (!active && destination !== "video-create" && !destination.startsWith("project:")) {
         await controller.create({ root: await desktopDir() });
       }
             if (destination === "image-create" || destination === "video-create") {
@@ -914,6 +922,21 @@ export function SessionUygulama({
   // Açık onay konuşma penceresine de yayılır ve oradan gelen cevap aynı
   // `answer` yolundan geçer: iki ayrı onay mantığı olsaydı biri düzeltilirken
   // öteki eskirdi.
+  // Plan kipi: tur bitince Claude'daki gibi "planı uygula?" kartı. Kart yalnız
+  // plan kipinde, turun GERÇEKTEN bittiği anda ve son yanıt hata değilse çıkar.
+  const [planHazir, setPlanHazir] = useState<string | null>(null);
+  const oncekiCalisiyor = useRef(false);
+  useEffect(() => {
+    if (!active) return;
+    const bitti = oncekiCalisiyor.current && !active.running;
+    oncekiCalisiyor.current = active.running;
+    const son = active.messages[active.messages.length - 1];
+    if (bitti && approval === "plan" && son?.rol === "asistan" && !son.hata && son.metin.trim()) {
+      setPlanHazir(active.id);
+    }
+  }, [active?.running, active?.id, approval]);
+  const soruTuruRef = useRef<string | undefined>(undefined);
+  soruTuruRef.current = active?.question?.data.tur;
   useEffect(() => {
     if (!active) return;
     const soru = active.question;
@@ -938,8 +961,12 @@ export function SessionUygulama({
   useEffect(() => {
     if (!active) return;
     const id = active.id;
-    // Cevap biçimi ana penceredeki onay kutusuyla AYNIDIR: `{ secim }`.
-    const cikar = onVoiceAnswer((cevap) => controller.answer(id, { secim: cevap }));
+    // Cevap biçimi ana penceredeki kartla AYNIDIR: izin `{ secim }`, model
+    // sorusu (`ask_user`) `{ metin }` bekler; yanlış alan cevabı boşa düşürür.
+    const cikar = onVoiceAnswer((cevap) => controller.answer(
+      id,
+      soruTuruRef.current === "soru" ? { metin: cevap } : { secim: cevap },
+    ));
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active?.id, controller]);
 
@@ -963,7 +990,7 @@ export function SessionUygulama({
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
     return <Shell
       header={<AppHeader title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
-      content={<>{page === "image-create" || page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
+      content={<>{page === "image-create" ? <ImageCreate client={null} /> : page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
@@ -1066,8 +1093,10 @@ export function SessionUygulama({
   ) : (
     <EmptyState durum={active.running ? "thinking" : "idle"} projectName={projectName(active.root)} workspaceMode={workspaceMode} onSelectPrompt={setDraft} />
   );
-  const content = page === "image-create" || page === "video-create"
-    ? <section className="empty-state"><div className="empty-state__content"><h2>{page === "image-create" ? "Görsel oluştur" : "Video oluştur"}</h2><p>Daha sonra</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
+  const content = page === "image-create"
+    ? <ImageCreate client={active.client} />
+    : page === "video-create"
+    ? <section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section>
     : page === "skills"
     ? <SkillsCatalog client={active.client} onClose={() => setPage("chat")} />
     : page === "control"
@@ -1288,6 +1317,33 @@ export function SessionUygulama({
               messages={active.messages}
               onClose={() => setShareOpen(false)}
               title={active.title}
+            />
+          )}
+          {planHazir === active.id && !active.question && !active.running && (
+            <Approval
+              eyebrow="Plan hazır"
+              serbestCevap={false}
+              soru={{
+                tur: "soru",
+                soru: "Bu plan uygulansın mı?",
+                secenekler: [
+                  { etiket: "Evet, otomatik kipte uygula", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
+                  { etiket: "Evet, her adımda sor", aciklama: "Güvenli kipte uygular; her yazma ve komut için izin ister." },
+                  { etiket: "Hayır, planlamaya devam et", aciklama: "Plan kipinde kalır; planı birlikte düzeltebilirsiniz." },
+                ],
+                onerilen: "Evet, otomatik kipte uygula",
+              }}
+              onCevap={(cevap) => {
+                setPlanHazir(null);
+                const metin = String(cevap.metin ?? "");
+                const yeniKip: ApprovalMode | null = metin.startsWith("Evet, otomatik") ? "auto"
+                  : metin.startsWith("Evet, her") ? "security" : null;
+                if (!yeniKip) return;
+                setApproval(yeniKip);
+                void active.client.request("oturum.baslat", { mod: yeniKip }).then(() => {
+                  send("Planı onaylıyorum. Şimdi bu planı adım adım uygula ve her adımdan sonra doğrula.");
+                });
+              }}
             />
           )}
           {active.question && (

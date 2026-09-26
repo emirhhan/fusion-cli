@@ -339,9 +339,7 @@ def test_cozum_adimlari_saglayiciya_gore_degisir():
     """Komut sabit metin değil; oturumun sağlayıcı kimliğini taşır."""
     from fusion_cli.providers.web_browser import _cozum_adimlari
 
-    assert "fusion web-login chatgpt_web" in _cozum_adimlari(
-        WEB_BROWSER_PROVIDERS["chatgpt_web"]
-    )
+    assert "fusion web-login chatgpt_web" in _cozum_adimlari(WEB_BROWSER_PROVIDERS["chatgpt_web"])
 
 
 def _web_login_ayristir(argv: list[str]) -> None:
@@ -725,3 +723,38 @@ def test_chatgpt_gonder_secicisi_dil_bagimsiz_olani_once_dener():
 
     assert tanim.send_selectors[0] == 'form button[type="submit"]'
     assert tanim.send_selectors[0].islower() or "aria-label" not in tanim.send_selectors[0]
+
+
+class _DogrulamaSayfasi(_FakePage):
+    """Cloudflare ara sayfası: gövde boş, sinyal yalnız başlıkta."""
+
+    def __init__(self, title: str) -> None:
+        super().__init__("https://chatgpt.com/", "")
+        self._title = title
+        self.gidilen: list[str] = []
+
+    async def goto(self, url, **_kwargs):
+        self.gidilen.append(url)
+
+    async def title(self):
+        return self._title
+
+
+async def test_dogrulama_sayfasi_sohbet_acilir_acilmaz_bildirilir():
+    """Ölçüldü (26 Eylül): ChatGPT 'Bir dakika lütfen…' sayfasındayken model menüsü
+    12 sn bekleniyor, seçici hatası yeniden deneniyor ve 120 sn'lik dış sınır
+    doluyordu; kullanıcı yalnız 'zaman aşımı' görüyordu. Doğrulama artık sayfa
+    açılır açılmaz, model seçiminden ÖNCE bildirilir."""
+    from fusion_cli.providers.web_browser import _open_ready_conversation
+
+    sayfa = _DogrulamaSayfasi("Bir dakika lütfen...")
+    with pytest.raises(WebBrowserAuthError, match="insan doğrulaması"):
+        await _open_ready_conversation(sayfa, WEB_BROWSER_PROVIDERS["chatgpt_web"])
+    assert sayfa.gidilen == ["https://chatgpt.com/"]
+
+
+async def test_temiz_sohbet_sayfasi_acilista_engellenmez():
+    from fusion_cli.providers.web_browser import _open_ready_conversation
+
+    sayfa = _DogrulamaSayfasi("ChatGPT")
+    await _open_ready_conversation(sayfa, WEB_BROWSER_PROVIDERS["chatgpt_web"])

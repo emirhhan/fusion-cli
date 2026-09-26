@@ -332,6 +332,10 @@ class ToolContext:
 ToolExecutor = Callable[[ToolArgs, ToolContext], ToolResult | Awaitable[ToolResult]]
 
 
+#: Çağrının argümanından etkiyi bulan eşzamansız çözücü (bkz. `Tool.effect_resolver`).
+EffectResolver = Callable[[ToolArgs], Awaitable["ToolEffect | None"]]
+
+
 @dataclass(frozen=True, slots=True)
 class Tool:
     """Şema + executor + onay bayrağı."""
@@ -352,6 +356,9 @@ class Tool:
     advertised: bool = True
     #: Aracın etki sınıfı; onay politikası uzak ve yıkıcı işlemleri buna göre sıkılaştırır.
     effect: ToolEffect = ToolEffect.LOCAL
+    #: Etki çağrının argümanına bağlıysa (tek araçtan onlarca yetenek çalıştıran
+    #: ağ geçitleri) çağrı bazlı çözücü; `None` dönerse `effect` geçerli kalır.
+    effect_resolver: EffectResolver | None = None
 
     def schema(self) -> dict[str, object]:
         """Model çağrısına eklenecek function-calling şeması."""

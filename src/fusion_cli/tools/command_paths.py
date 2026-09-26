@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+from pathlib import Path
 
 #: İlk konumsal argümanı YOL değil DESEN/PROGRAM olan araçlar.
 #:
@@ -38,13 +39,15 @@ _HARMLESS_ABSOLUTE_PATHS = frozenset({"/dev/null"})
 _ATTACHED_VALUE = re.compile(r"^-[A-Za-z]+([/~$].*|\.\.(?:/.*)?)$")
 
 
-def escapes_project(name: str, arguments: list[str]) -> bool:
+def escapes_project(name: str, arguments: list[str], root: Path | None = None) -> bool:
     """Komutun argümanlarından biri proje kökünün dışını gösteriyor olabilir mi?
 
     Mutlak yol, `~` ile başlayan yol, `$` ile değişken (`$HOME`, `$X/..`) ve `..`
-    ile kökün üstüne çıkan göreli yol "proje dışı" sayılır.
+    ile kökün üstüne çıkan göreli yol "proje dışı" sayılır. Kök BİLİNİYORSA köke
+    giden mutlak yol proje içidir — ölçüldü (26 Eylül): model `cd <kökün tam
+    yolu> && python3 app.py` yazıyor ve her seferinde soruluyordu.
     """
-    return any(_escapes(candidate) for candidate in _path_candidates(name, arguments))
+    return any(_escapes(candidate, root) for candidate in _path_candidates(name, arguments))
 
 
 def _path_candidates(name: str, arguments: list[str]) -> list[str]:
@@ -72,13 +75,22 @@ def _argument_values(argument: str) -> list[str]:
     return values
 
 
-def _escapes(candidate: str) -> bool:
+def _escapes(candidate: str, root: Path | None = None) -> bool:
     if "$" in candidate:
         # Değişkenin neye açılacağını bilemeyiz; `$HOME/.ssh` de olabilir.
         return True
     if candidate.startswith("~"):
         return True
     if candidate.startswith("/"):
-        return candidate not in _HARMLESS_ABSOLUTE_PATHS
+        if candidate in _HARMLESS_ABSOLUTE_PATHS:
+            return False
+        return root is None or not _inside(candidate, root)
     normalized = posixpath.normpath(candidate)
     return normalized == ".." or normalized.startswith("../")
+
+
+def _inside(candidate: str, root: Path) -> bool:
+    """Mutlak yol, `..` çözüldükten sonra kökün içinde mi? (Sembolik bağ izlenmez.)"""
+    normalized = posixpath.normpath(candidate)
+    kok = posixpath.normpath(str(root))
+    return normalized == kok or normalized.startswith(kok.rstrip("/") + "/")

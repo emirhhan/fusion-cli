@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Protocol
 
 from ...config.permissions import is_allowed
@@ -82,6 +83,8 @@ class ApprovalRequest:
     #: Kabukta tanınan, yan etkisiz komut; kabuk dışında yerel ya da salt okunur
     #: uzak araç. Uzak yazma araçları False'tur ve auto kipte sorulur.
     unattended_safe: bool = True
+    #: Bu ÇAĞRININ etkisi (araç ağ geçidiyse yeteneğe göre çözülmüş olabilir).
+    effect: ToolEffect = ToolEffect.LOCAL
 
 
 class Prompter(Protocol):
@@ -161,9 +164,15 @@ class SecurityApproval:
 
 
 class PlanApproval:
-    """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz."""
+    """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
+
+    İstisna: uzak sistemi YALNIZ OKUYAN çağrı (ör. mağazada ürün aramak). Claude'un
+    plan kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır.
+    """
 
     async def decide(self, request: ApprovalRequest) -> Decision:
+        if request.effect is ToolEffect.REMOTE_READ and request.danger is None:
+            return Decision.ALLOW
         return Decision.BLOCKED
 
 
@@ -182,8 +191,28 @@ def build_policy(
     return AutoApproval(prompter, memory)
 
 
+async def resolve_request(
+    tool: Tool,
+    args: ToolArgs,
+    allowed_commands: frozenset[str] = frozenset(),
+    *,
+    root: Path | None = None,
+) -> ApprovalRequest:
+    """Onay isteğini, araç çağrı bazlı etki bildiriyorsa o etkiyle kur.
+
+    Çözücü `None` dönerse ya da yoksa aracın kendi etkisi geçerlidir.
+    """
+    effect = await tool.effect_resolver(args) if tool.effect_resolver is not None else None
+    return build_request(tool, args, allowed_commands, effect=effect, root=root)
+
+
 def build_request(
-    tool: Tool, args: ToolArgs, allowed_commands: frozenset[str] = frozenset()
+    tool: Tool,
+    args: ToolArgs,
+    allowed_commands: frozenset[str] = frozenset(),
+    *,
+    effect: ToolEffect | None = None,
+    root: Path | None = None,
 ) -> ApprovalRequest:
     """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır.
 
@@ -198,8 +227,9 @@ def build_request(
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
     kabuk = tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str)
     pre_allowed = kabuk and is_allowed(str(command), allowed_commands)
+    effect = effect or tool.effect
     danger = danger_reason(tool.name, args)
-    if danger is None and tool.effect is ToolEffect.REMOTE_DESTRUCTIVE:
+    if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
     return ApprovalRequest(
         tool=tool,
@@ -207,8 +237,9 @@ def build_request(
         danger=danger,
         pre_allowed=pre_allowed,
         unattended_safe=(
-            is_unattended_safe(str(command)) if kabuk else tool.effect in _UNATTENDED_EFFECTS
+            is_unattended_safe(str(command), root) if kabuk else effect in _UNATTENDED_EFFECTS
         ),
+        effect=effect,
     )
 
 
