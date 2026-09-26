@@ -123,13 +123,15 @@ def load_config(path: str | Path | None = None) -> Config:
 
     `path` verilirse yalnızca o dosya kullanıcı yapılandırması sayılır.
     """
+    # FUSION_CONFIG süreç ortamında AÇIKÇA verildiyse o dosya ZORUNLUDUR. Ölçüldü
+    # (27 Eylül): yol silinmiş bir geçici dosyayı gösterirken Fusion sessizce
+    # kullanıcı config'ine düştü ve kullanıcı farklı bir modelle çalıştığını fark
+    # etmedi. `.env`'den gelen değer ise yalnız bir adaydır: kullanıcıların
+    # `.env`'inde göreli `config.yaml` duruyor ve başka dizinde yok sayılmalı.
+    from_env = os.environ.get(ENV_CONFIG)
     load_environment()
 
     defaults = _read_yaml(bundled_defaults())
-    # FUSION_CONFIG AÇIKÇA verildiyse o dosya ZORUNLUDUR. Ölçüldü (27 Eylül): yol
-    # silinmiş bir geçici dosyayı gösterirken Fusion sessizce kullanıcı config'ine
-    # düştü ve kullanıcı farklı bir modelle çalıştığını fark etmedi.
-    from_env = os.environ.get(ENV_CONFIG)
     if path is None and from_env:
         path = from_env
     source = Path(path) if path is not None else _first_existing(user_config_candidates())
