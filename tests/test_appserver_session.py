@@ -31,6 +31,48 @@ def _sonuc(satirlar, kimlik):
     raise AssertionError(f"kimlik için sonuç bulunamadı: {kimlik}")
 
 
+async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini_alir(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.cli import session as cli_session
+
+    kwargs_seen = {}
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs_seen.update(kwargs)
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    oturum = _session(tmp_path, [])
+    oturum._workspace_mode = "sohbet"
+
+    result = await oturum._chrome_turn("İzinli sekmede alanı doldur")
+
+    assert result == {"ok": True, "metin": "bitti"}
+    assert kwargs_seen["chat_mode"] is False
+    assert kwargs_seen["system_prompt"] is None
+    assert kwargs_seen["allowed_tools"] == {
+        "chrome_page",
+        "chrome_click",
+        "chrome_type",
+        "chrome_navigate",
+        "chrome_screenshot",
+    }
+    assert oturum._workspace_mode == "sohbet"
+
+
+async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
+    oturum = _session(tmp_path, [])
+
+    async def fake_run_turn(_task, *, browser_only):
+        assert browser_only
+        return {"ok": True, "metin": "internal reasoning\n</think>\nİşlem tamamlandı."}
+
+    monkeypatch.setattr(oturum, "_run_turn", fake_run_turn)
+
+    assert await oturum._chrome_turn("test") == {"ok": True, "metin": "İşlem tamamlandı."}
+
+
 async def test_nim_secimi_katalog_ve_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
     from fusion_cli.providers.catalog import CatalogEntry
 

@@ -158,6 +158,7 @@ async def run_agent_task(
     approval_memory: ApprovalMemory | None = None,
     chat_mode: bool = False,
     workflow: bool = False,
+    allowed_tools: set[str] | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -228,6 +229,7 @@ async def run_agent_task(
             step_limit=step_limit,
             chat_mode=chat_mode,
             workflow=workflow,
+            allowed_tools=allowed_tools,
         )
 
         # Boş cevap YALNIZCA tur temiz bittiyse hatadır. Bütçe dolduğunda ya da
@@ -287,6 +289,7 @@ async def _run_agent_with_mcp(
     step_limit: int | None = None,
     chat_mode: bool = False,
     workflow: bool = False,
+    allowed_tools: set[str] | None = None,
 ) -> AgentOutcome:
     """`run_agent` çağır; yapılandırılmış dış MCP sunucuları varsa önce bağla.
 
@@ -306,6 +309,7 @@ async def _run_agent_with_mcp(
             history=history,
             plan_mode=plan_mode,
             chat_mode=chat_mode,
+            allowed_tools=allowed_tools,
             extra_system=extra_system,
             system_prompt=system_prompt,
             images=images,

@@ -54,6 +54,7 @@ from ..providers.capabilities import apprentice_active
 from ..providers.catalog import fetch_nim, probe_nim_tools
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
+from ..ui.text import strip_thinking
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_bridge import ChromeBridge
@@ -124,6 +125,14 @@ from .workspace import (
     workspace_status,
     write_entry,
 )
+
+CHROME_TURN_TOOLS = {
+    "chrome_page",
+    "chrome_click",
+    "chrome_type",
+    "chrome_navigate",
+    "chrome_screenshot",
+}
 
 
 def _build_health(config: Config) -> HealthRegistry:
@@ -359,8 +368,14 @@ class AppSession:
 
     async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
         """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
-        request = Request(id="chrome", name="tur.calistir", data={"gorev": prompt})
-        return await self._dispatch(request)
+        result = await self._run_turn(prompt, browser_only=True)
+        answer = result.get("metin")
+        if isinstance(answer, str):
+            # Bazı NIM akışları açılış etiketini atlayıp kapanış etiketini bırakıyor.
+            if "</think>" in answer and "<think>" not in answer:
+                answer = answer.rsplit("</think>", 1)[1]
+            result["metin"] = strip_thinking(answer).strip()
+        return result
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
         if request.name == "chrome.baslat":
@@ -1170,6 +1185,8 @@ class AppSession:
         task: str,
         attachment_context: str = "",
         images: tuple[str, ...] = (),
+        *,
+        browser_only: bool = False,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -1232,13 +1249,16 @@ class AppSession:
                 home=self._state.home,
                 history=self._state.history,
                 chrome_bridge=self._chrome,
+                allowed_tools=CHROME_TURN_TOOLS if browser_only else None,
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,
-                system_prompt=(None if self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT),
+                system_prompt=(
+                    None if browser_only or self._workspace_mode == "kod" else CHAT_SYSTEM_PROMPT
+                ),
                 # Sohbet kipi çalışma alanına dokunmaz: ölçüldü, "kampanya planı
                 # yap" isteği sohbette diske dosya yazıyordu (bkz. `chat_mode.py`).
-                chat_mode=self._workspace_mode != "kod",
+                chat_mode=self._workspace_mode != "kod" and not browser_only,
                 interactive=True,
                 capabilities=self._state.capabilities,
                 conversation_id=self._conversation_id or "app",
