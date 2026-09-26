@@ -1,0 +1,14 @@
+stokapp projesine tedarikçi fiyat listesinden toplu fiyat içe aktarma özelliği ekle.
+
+Gereksinimler:
+1. Yeni modül stokapp/aktarim.py içinde `fiyatlari_aktar(depo, csv_yolu) -> AktarimSonucu` fonksiyonu olsun.
+   CSV başlıkları: sku,liste_fiyati (ondalık ayırıcı nokta ya da virgül olabilir).
+2. Fiyat kuralı stokapp/fiyatlama.py içinde `satis_fiyati(liste_fiyati, maliyet)` olsun:
+   satış fiyatı = liste_fiyati * 0.96, TAM TL'ye yuvarlanır (0.5 yukarı), ama ASLA maliyetin altına düşmez
+   (altına düşüyorsa maliyet yukarı yuvarlanmış tam TL kullanılır).
+3. Bilinmeyen sku, boş/negatif/sayı olmayan fiyat içeren satırlar HATA sayılır. Tek bir hatalı satır bile
+   varsa HİÇBİR ürün güncellenmez (atomik) ve AktarimSonucu.hatalar satır numarasıyla hataları listeler.
+4. AktarimSonucu dataclass: guncellenen (sku listesi), hatalar (list[str]).
+5. CLI: `python -m stokapp.cli --depo urunler.json fiyat-aktar liste.csv` komutu; hata varsa çıkış kodu 1
+   ve hataları yazar, yoksa güncellenen sayısını yazar ve 0 döner.
+6. Kendi testlerini tests/ altına yaz ve çalıştır; mevcut testler bozulmasın.

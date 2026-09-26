@@ -38,6 +38,7 @@ from .models import (
     WebSessionConfig,
 )
 from .paths import (
+    ENV_CONFIG,
     bundled_defaults,
     credentials_file,
     env_file_candidates,
@@ -125,6 +126,12 @@ def load_config(path: str | Path | None = None) -> Config:
     load_environment()
 
     defaults = _read_yaml(bundled_defaults())
+    # FUSION_CONFIG AÇIKÇA verildiyse o dosya ZORUNLUDUR. Ölçüldü (27 Eylül): yol
+    # silinmiş bir geçici dosyayı gösterirken Fusion sessizce kullanıcı config'ine
+    # düştü ve kullanıcı farklı bir modelle çalıştığını fark etmedi.
+    from_env = os.environ.get(ENV_CONFIG)
+    if path is None and from_env:
+        path = from_env
     source = Path(path) if path is not None else _first_existing(user_config_candidates())
     if source is not None:
         if not source.is_file():

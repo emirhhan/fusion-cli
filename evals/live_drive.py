@@ -71,6 +71,13 @@ def _izle(session, **kw):
 _wb.build_browser_transport = _izle
 _wr.build_browser_transport = _izle
 
+import fusion_cli.engines.agent.loop as _loop
+_bp = _loop.build_provider
+def _saglayici(spec, **kw):
+    print('>> model', spec.model, 'yedek', list(spec.fallback), file=sys.stderr, flush=True)
+    return _bp(spec, **kw)
+_loop.build_provider = _saglayici
+
 sys.argv = ['fusion', 'app']
 from fusion_cli.cli.app import main
 main()

@@ -108,6 +108,10 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # Testlerde tip anotasyonu zorunlu değil; okunabilirlik önce gelir.
 "tests/*" = ["ANN"]
+# Uzun görev fikstürleri ajanın üzerinde çalışacağı örnek projelerdir; kasıtlı
+# olarak sade tutulur ve kalite kuralları ajanın ÜRETTİĞİ koda uygulanmaz.
+"evals/long_tasks/*/proje/*" = ["ANN"]
+"evals/long_tasks/*/gizli/*" = ["ANN"]
 # LiteLLM tip bilgisi yayımlamıyor. `Any` YALNIZCA bu SDK sınırında kullanılır ve
 # sınırın dışına çıkmadan `ModelResult`/`StreamItem` tiplerine normalize edilir.
 "src/fusion_cli/providers/litellm_provider.py" = ["ANN401"]
@@ -147,6 +151,8 @@ ignore = [
 files = ["src", "evals", "prompt_opt", "desktop_build"]
 strict = true
 warn_unreachable = true
+# Uzun görev fikstürleri ajanın üzerinde çalıştığı örnek projelerdir (bkz. ruff notu).
+exclude = ["evals/long_tasks/[^/]+/(proje|gizli)/"]
 
 [[tool.mypy.overrides]]
 # Tip bilgisi yayımlamayan kütüphaneler; sınırları providers ve memory katmanlarında.
