@@ -54,6 +54,11 @@ button.secondary:hover { background: #3b3b3b; border-color: var(--border-strong)
 button.quiet { justify-self: start; min-height: 36px; margin-top: 2px; background: transparent; border-color: var(--border); color: var(--muted); font-size: 12px; }
 button.quiet:hover { color: var(--text); border-color: var(--border-strong); background: #151515; }
 .button-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .78fr); gap: 8px; }
+.permission-details { border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; background: var(--surface); }
+.permission-details summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 600; }
+.permission-details[open] { display: grid; gap: 9px; }
+.permission-details p { font-size: 12px; }
+.permission-details button { justify-self: start; }
 .send-row { display: flex; gap: 8px; }
 .send-row #send { flex: 1; }
 .send-row #cancel { flex: 0 0 auto; }

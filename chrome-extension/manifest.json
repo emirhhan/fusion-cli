@@ -6,7 +6,7 @@
   "minimum_chrome_version": "116",
   "permissions": ["sidePanel", "storage", "scripting", "activeTab"],
   "host_permissions": ["http://127.0.0.1/*"],
-  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*", "<all_urls>"],
   "background": { "service_worker": "background.js" },
   "side_panel": { "default_path": "panel.html" },
   "action": { "default_title": "Fusion Browser" }

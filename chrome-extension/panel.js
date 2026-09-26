@@ -140,7 +140,15 @@ async function execute(command) {
   if (command.islem === "screenshot") {
     const [active] = await chrome.tabs.query({ active: true, windowId: tab.windowId });
     if (active?.id !== tab.id) throw new Error("Görüntü için izinli sekmeyi öne getirin.");
-    const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 65 });
+    if (!await chrome.permissions.contains({ origins: ["<all_urls>"] })) {
+      $("capture-permission").open = true;
+      throw new Error("Ekran görüntüsü için paneldeki Chrome iznini verin.");
+    }
+    const capture = await chrome.runtime.sendMessage({
+      type: "fusion.captureVisibleTab", windowId: tab.windowId,
+    });
+    if (!capture?.ok) throw new Error(capture?.error || "Ekran görüntüsü alınamadı.");
+    const image = capture.image;
     if (image.length > 4_000_000) throw new Error("Ekran görüntüsü çok büyük.");
     return { image };
   }
@@ -202,6 +210,12 @@ async function sendPrompt() {
 
 for (const [id, handler] of [
   ["connect", connect], ["select-tab", selectTab], ["send", sendPrompt],
+  ["grant-capture", async () => {
+    const allowed = await chrome.permissions.request({ origins: ["<all_urls>"] });
+    if (!allowed) throw new Error("Chrome ekran görüntüsü izni verilmedi.");
+    $("capture-permission").open = false;
+    error();
+  }],
   ["cancel", async () => {
     $("cancel").disabled = true;
     try {

@@ -86,6 +86,17 @@ describe("Chrome extension panel buttons", () => {
     expect(calls).toEqual([]);
   });
 
+  it("requests broad capture permission only after its button is clicked", async () => {
+    (document.getElementById("port") as HTMLInputElement).value = "8765";
+    (document.getElementById("token") as HTMLInputElement).value = "secret";
+    fireEvent.click(document.getElementById("connect")!);
+    await waitFor(() => expect(document.getElementById("status")?.textContent).toBe("Bağlı"));
+    expect(chromeMock.permissions.request).not.toHaveBeenCalled();
+    fireEvent.click(document.querySelector("#capture-permission summary")!);
+    fireEvent.click(document.getElementById("grant-capture")!);
+    await waitFor(() => expect(chromeMock.permissions.request).toHaveBeenCalledWith({ origins: ["<all_urls>"] }));
+  });
+
   it("running task exposes a working stop control", async () => {
     let resolveTurn!: (value: { ok: boolean; json: () => Promise<unknown> }) => void;
     const pendingTurn = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => { resolveTurn = resolve; });
