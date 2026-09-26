@@ -45,6 +45,8 @@ export interface Mesaj {
   gorevler?: GorevMaddesi[];
   /** Yalnız `rol === "oneriler"` için: turun kanıtından türeyen sonraki adımlar. */
   oneriler?: TakipOnerisi[];
+  /** Tur hatayla bitti: yanıtın altında "Hatayı bildir" sunulur. */
+  hata?: boolean;
 }
 
 /**
@@ -81,7 +83,17 @@ function SentAttachments({ ekler }: { ekler: MesajEki[] }) {
  * cevap okunmaz bir duvara dönüşüyordu: başlıklar, listeler ve kod blokları
  * ham işaretleriyle akıyordu. Kod artık kendi kartında, katlanmış durur.
  */
-function AssistantMessage({ text, onOpenFile }: { text: string; onOpenFile?: (path: string) => void }) {
+/** Başarısız tur yanıtı: çekirdek `ok=false` döndürdü ya da istek hiç tamamlanmadı. */
+export function hataMesajiMi(message: Mesaj): boolean {
+  return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
+}
+
+function AssistantMessage({ text, onOpenFile, onReport }: {
+  text: string;
+  onOpenFile?: (path: string) => void;
+  /** Verilirse yanıtın altında "Hatayı bildir" düğmesi çıkar. */
+  onReport?: () => void;
+}) {
   const copy = () => {
     void navigator.clipboard?.writeText(text);
   };
@@ -93,6 +105,11 @@ function AssistantMessage({ text, onOpenFile }: { text: string; onOpenFile?: (pa
       </div>
       <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
+        {onReport && (
+          <button className="conversation__report" onClick={onReport} type="button">
+            Hatayı bildir
+          </button>
+        )}
       </div>
     </article>
   );
@@ -133,12 +150,15 @@ export interface ConversationProps {
   showSteps?: boolean;
   /** Takip önerisine tıklanınca çağrılır. Verilmezse rozetler çizilmez. */
   onOneriSec?: (gorev: string) => void;
+  /** Başarısız yanıtın "Hatayı bildir" düğmesi. Verilmezse düğme çizilmez. */
+  onHataBildir?: (metin: string) => void;
 }
 
 export function Conversation({
   mesajlar,
   onOpenFile,
   onOneriSec,
+  onHataBildir,
   running = true,
   showSteps = false,
 }: ConversationProps) {
@@ -223,7 +243,11 @@ export function Conversation({
           }
           return (
             <div className="conversation__message conversation__message--assistant" key={index}>
-              <AssistantMessage onOpenFile={onOpenFile} text={message.metin} />
+              <AssistantMessage
+                onOpenFile={onOpenFile}
+                onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
+                text={message.metin}
+              />
             </div>
           );
         })}

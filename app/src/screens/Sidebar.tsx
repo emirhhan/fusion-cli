@@ -448,6 +448,7 @@ export function Sidebar({
               <button onClick={() => navigateFromProfile("account")} role="menuitem" type="button"><Icon name="user" /><span>Hesabım</span></button>
               <button onClick={() => navigateFromProfile("settings")} role="menuitem" type="button"><Icon name="settings" /><span>Ayarlar</span></button>
               <button onClick={() => navigateFromProfile("help")} role="menuitem" type="button"><Icon name="help" /><span>Yardım</span></button>
+              <button onClick={() => navigateFromProfile("feedback")} role="menuitem" type="button"><Icon name="chat" /><span>Geri bildirim gönder</span></button>
               <button aria-expanded={profileMoreOpen} onClick={() => setProfileMoreOpen((open) => !open)} role="menuitem" type="button"><Icon name="panel" /><span>Daha fazla</span><Icon name="chevron" size={16} /></button>
               {profileMoreOpen && <div aria-label="Ek araçlar" className="sidebar__profile-more" role="group">
                 <button onClick={() => navigateFromProfile("control-panel")} role="menuitem" type="button"><Icon name="panel" /><span>Kontrol Paneli</span></button>

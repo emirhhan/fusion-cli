@@ -457,13 +457,14 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       .request("tur.calistir", { gorev: task, ekler: attachments })
       .then((result) => {
         const text = typeof result.metin === "string" ? result.metin : "";
-        if (text) dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: text } });
+        const hata = result.ok === false ? { hata: true } : {};
+        if (text) dispatch({ type: "messageAdded", id, message: { rol: "asistan", metin: text, ...hata } });
       })
       .catch((reason) => {
         dispatch({
           type: "messageAdded",
           id,
-          message: { rol: "asistan", metin: `Hata: ${String(reason)}` },
+          message: { rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
         });
       })
       .finally(() => {

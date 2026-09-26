@@ -80,6 +80,9 @@ import { useDictation } from "./voice/useDictation";
 import type { PermissionBridge } from "./permissions/types";
 import { nativePermissionBridge } from "./platform/permissions";
 import { listenForFileDrops } from "./platform/drop";
+import { FeedbackDialog } from "./feedback/FeedbackDialog";
+import type { ReportInput } from "./feedback/report";
+import { useCrashReporter } from "./feedback/useCrashReporter";
 
 /** Sohbetin içinden çalışma klasörünü değiştiren komut. */
 const FOLDER_COMMAND = {
@@ -516,6 +519,9 @@ export function SessionUygulama({
   const fileQuerySeq = useRef(0);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  //: Açık rapor penceresi; `null` kapalı. Hata akışından gelirse ayrıntıyı taşır.
+  const [feedback, setFeedback] = useState<Partial<ReportInput> | null>(null);
+  const [crash, clearCrash] = useCrashReporter();
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
@@ -581,6 +587,11 @@ export function SessionUygulama({
   const history = useHistory(active?.client ?? null);
   const navigateSidebar = async (destination: string) => {
     setNewTaskError(null);
+    if (destination === "feedback") {
+      // Rapor penceresi oturum gerektirmez; boş uygulamada da açılır.
+      setFeedback({ tur: "geri-bildirim" });
+      return;
+    }
     try {
       if (!active && !["image-create", "video-create"].includes(destination) && !destination.startsWith("project:")) {
         await controller.create({ root: await desktopDir() });
@@ -933,7 +944,20 @@ export function SessionUygulama({
   }, [active?.id, controller]);
 
   if (controller.state.connectionError) {
-    return <div className="app-status-screen">Hata: {controller.state.connectionError}</div>;
+    const baglantiHatasi = controller.state.connectionError;
+    return (
+      <div className="app-status-screen">
+        <p>Hata: {baglantiHatasi}</p>
+        <button
+          className="conversation__report"
+          onClick={() => setFeedback({ tur: "hata", mesaj: "Fusion çekirdeğine bağlanılamadı.", ayrinti: baglantiHatasi })}
+          type="button"
+        >
+          Hatayı bildir
+        </button>
+        {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+      </div>
+    );
   }
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
@@ -1030,6 +1054,7 @@ export function SessionUygulama({
       running={active.running}
       showSteps={showSteps}
       onOneriSec={(gorev) => send(gorev)}
+      onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
       onOpenFile={(path) => {
         setSelectedPath(path);
         // Dosyanın İÇERİĞİNİ gösteren sekme önizlemedir; ağaç sekmesi yalnız
@@ -1241,6 +1266,21 @@ export function SessionUygulama({
               onCancel={() => setCloseAsked(false)}
               onConfirm={() => void invoke("kapatmayi_onayla")}
               running={active.running}
+            />
+          )}
+          {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+          {crash && !feedback && (
+            <Notification
+              baslik="Fusion bir hatayla karşılaştı"
+              metin="Arayüzde beklenmeyen bir hata oldu. Bize bildirirsen düzeltebiliriz; ne gönderileceğini göndermeden önce görürsün."
+              eylem={{
+                etiket: "Hatayı bildir",
+                onSelect: () => {
+                  setFeedback({ tur: "hata", mesaj: crash.mesaj, ayrinti: crash.ayrinti });
+                  clearCrash();
+                },
+              }}
+              onDismiss={clearCrash}
             />
           )}
           {shareOpen && (

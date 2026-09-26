@@ -73,9 +73,30 @@
 }
 
 .conversation__article:hover .conversation__actions,
-.conversation__article:focus-within .conversation__actions {
+.conversation__article:focus-within .conversation__actions,
+.conversation__actions:has(.conversation__report) {
   opacity: 1;
 }
+
+/* Başarısız yanıtta her zaman görünür: kullanıcı raporu aramak zorunda kalmaz. */
+.conversation__report {
+  align-items: center;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: var(--text-sm);
+  margin-left: var(--space-2);
+  min-height: 28px;
+  padding: 2px 12px;
+  transition: background var(--duration-fast) var(--ease-standard), color var(--duration-fast) var(--ease-standard);
+}
+
+.conversation__report:hover { background: var(--surface-hover, rgb(255 255 255 / 6%)); color: var(--text-primary); }
+.conversation__report:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 
 /* Gönderilen ekler: kullanıcı ne yolladığını geçmişte de görür. */

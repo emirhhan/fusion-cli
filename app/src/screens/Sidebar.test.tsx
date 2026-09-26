@@ -74,6 +74,16 @@ describe("Sidebar", () => {
     expect(screen.queryByRole("menu", { name: /profil menüsü/i })).toBeNull();
   });
 
+  it("profil menüsünden geri bildirim penceresine gider", () => {
+    const onNavigate = vi.fn();
+    render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /hesap menüsü/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /geri bildirim gönder/i }));
+
+    expect(onNavigate).toHaveBeenCalledWith("feedback");
+  });
+
   it("profil menüsünden bellek ve talimatların olduğu bölüme gider", () => {
     const onNavigate = vi.fn();
     render(<Sidebar oturumlar={[]} etkin={null} onNavigate={onNavigate} onSec={vi.fn()} onYeni={vi.fn()} />);
