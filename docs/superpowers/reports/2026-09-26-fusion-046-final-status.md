@@ -30,3 +30,10 @@
 ## Yayın kararı
 
 Yerel 0.4.6 paketi kurulu ve geri dönüş yedeği mevcut. Yukarıdaki canlı sınırlar kapanmadan genel sürüm olarak yayımlanmış sayılmamalıdır.
+
+## Ek: 26 Eylül akşamı (Claude devri)
+
+- `a466b7d`: Chrome yan panelinden gelen tur yalnız `chrome_*` araçlarıyla ve kod kipinde yürür; kapanış etiketi eksik `</think>` düşünme metni yanıttan ayıklanır. Kaynakta gerçek Chrome + model turu (alanı doldurma, Uygula, ikinci sayfaya gezinme, "Fusion agent 42") Codex oturumunda doğrulanmıştı; paketli sürümde aynı canlı tur tekrarlanmadı (bu oturumun macOS Erişilebilirlik izni yok, uygulamadaki eşleştirme düğmesine basılamadı).
+- `8e32a9e`: Sunucusuz hata raporu ve geri bildirim. Profil menüsünde "Geri bildirim gönder"; başarısız tur yanıtlarının (`ok=false` ya da istek hatası) altında her zaman görünen "Hatayı bildir"; arayüzde yakalanmamış hata olduğunda sağ üstte "Fusion bir hatayla karşılaştı" bildirimi; çekirdeğe bağlanılamayan ekranda da "Hatayı bildir". Rapor `github.com/emirhhan/fusion-cli/issues/new` adresine önceden doldurulmuş olarak açılır; kullanıcı klasörü, e-posta, `sk-`/`nvapi-`/`AIza`/`gh*_` anahtarları ve Bearer token'ları gizlenir; adres 7.000 karakteri aşarsa teknik ayrıntı kısaltılır. Hiçbir şey kullanıcı göndermeden dışarı çıkmaz.
+- Doğrulama: React 741/741 (99 dosya), tip denetimi ve üretim build'i temiz. Tarayıcı önizlemesinde hata satırı → pencere → ayrıntı önizleme → "GitHub'da aç" akışı tıklanarak denendi; üretilen adresin gerçek GitHub'da girişten sonra doldurulmuş sayfaya döndüğü (`return_to`) görüldü. İlk sürümde pencere her üst çizimde odağı metin alanına geri çekiyordu; ref ile düzeltildi.
+- Paket yeniden üretildi, imza doğrulandı ve `/Applications/Fusion.app`'e kuruldu; önceki kurulum `backups/Fusion-0.4.6-before-feedback.app`. Açılışta mevcut sohbetler ve projeler göründü (ekran görüntüsüyle incelendi).

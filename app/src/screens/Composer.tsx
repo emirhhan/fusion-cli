@@ -381,15 +381,17 @@ export function Composer({
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}
-              {/* Çalışırken de gönderilebilir: mesaj sıraya girer (bkz. useSessions). */}
-              <Button
-                aria-label="Sıraya ekle"
-                disabled={!draft.trim()}
-                icon="send"
-                iconOnly
-                onClick={send}
-              />
-              <Button aria-label="Durdur" icon="stop" iconOnly onClick={onStop} variant="primary" />
+              {/* Çalışırken de gönderilebilir: mesaj sıraya girer (bkz. useSessions).
+                  Düğme yalnız yazı varken çıkar; boşken soluk bir ok "gönder
+                  çalışmıyor" gibi okunuyordu. */}
+              {draft.trim() && (
+                <Button aria-label="Sıraya ekle" icon="send" iconOnly onClick={send} />
+              )}
+              {/* ChatGPT'deki gibi: tur sürerken ses düğmelerinin yerinde beyaz
+                  yuvarlak içinde kare durdur düğmesi — Fusion'ın çalıştığı buradan anlaşılır. */}
+              <button aria-label="Durdur" className="composer__stop" onClick={onStop} title="Durdur (Esc)" type="button">
+                <span aria-hidden="true" className="composer__stop-square" />
+              </button>
             </span>
           ) : (
             <span className="composer__actions">

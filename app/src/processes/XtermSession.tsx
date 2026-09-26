@@ -3,6 +3,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { macTerminalShortcut } from "./macShortcuts";
 import { SCROLLBACK_LINES, resolveMonoFont } from "./terminalTheme";
 import type { TerminalClosedEvent, TerminalSession } from "./terminalBridge";
 
@@ -47,7 +48,21 @@ export function createXtermAdapter(): XtermAdapter {
     },
     onData: (handler) => {
       const disposable = terminal.onData(handler);
-      return () => disposable.dispose();
+      // macOS satır/kelime kısayolları (bkz. `macShortcuts`). Eşleşen tuş
+      // kabuğa dizisiyle gider ve xterm'in kendi işlemesi durdurulur.
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type !== "keydown") return true;
+        const kisayol = macTerminalShortcut(event);
+        if (kisayol === null) return true;
+        event.preventDefault();
+        if (kisayol === "temizle") terminal.clear();
+        else handler(kisayol);
+        return false;
+      });
+      return () => {
+        terminal.attachCustomKeyEventHandler(() => true);
+        disposable.dispose();
+      };
     },
     write: (data) => terminal.write(data),
     fit: () => {

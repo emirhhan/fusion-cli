@@ -194,6 +194,18 @@
 @media (prefers-reduced-motion: reduce) { .composer__voice { transition: none; } }
 .composer__actions { align-items: center; display: flex; gap: 8px; }
 
+/* Tur sürerken: ses düğmesiyle aynı ölçüde, açık dolgu içinde koyu kare. */
+.composer__stop {
+  align-items: center; background: var(--control-primary); border: 0; border-radius: 50%;
+  cursor: pointer; display: flex; flex: none; height: 36px; justify-content: center; width: 36px;
+  transition: background var(--duration-fast) var(--ease-standard), transform var(--duration-fast) var(--ease-standard);
+}
+.composer__stop:hover { background: var(--text-primary); }
+.composer__stop:active { transform: scale(0.94); }
+.composer__stop:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.composer__stop-square { background: var(--surface-canvas); border-radius: 3px; display: block; height: 12px; width: 12px; }
+@media (prefers-reduced-motion: reduce) { .composer__stop { transition: none; } }
+
 /* İzin modu göstergesi. Sabit metin değil, seçili modu gösterir ve tıklanınca
    sıradakine geçer; Shift+Tab ile aynı döngü. Renk moda göre değişir ki
    kullanıcı güvenli modda olduğunu bir bakışta görsün. */

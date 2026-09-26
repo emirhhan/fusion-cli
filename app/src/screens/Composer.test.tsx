@@ -394,3 +394,15 @@ describe("Composer — @ ile dosya anma", () => {
     expect(onSend).toHaveBeenCalledWith("sıradan görev");
   });
 });
+
+it("tur sürerken ses düğmelerinin yerinde yuvarlak durdur düğmesi çıkar; boşken sıraya ekle görünmez", () => {
+  let durdu = false;
+  render(<Composer onSend={() => undefined} onStop={() => { durdu = true; }} onVoice={() => undefined} running />);
+
+  expect(screen.queryByLabelText("Sıraya ekle")).toBeNull();
+  expect(screen.queryByLabelText("Sesli konuşmayı aç")).toBeNull();
+  const durdur = screen.getByRole("button", { name: "Durdur" });
+  expect(durdur.className).toContain("composer__stop");
+  fireEvent.click(durdur);
+  expect(durdu).toBe(true);
+});
