@@ -191,10 +191,18 @@ class ChromeBridge:
     def _remember_element(self, args: dict[str, Any], result: dict[str, Any]) -> None:
         veri = result.get("veri")
         ref = args.get("ref")
+        if isinstance(ref, str) and not result.get("ok"):
+            # Okuma başarısızsa kart bunu açıkça söyler; kullanıcı körlemesine onaylamaz.
+            self._element_names[ref] = f"okunamayan öğe ({str(result.get('hata', ''))[:60]})"
+            return
         if result.get("ok") and isinstance(veri, dict) and isinstance(ref, str):
             name = veri.get("name")
             if isinstance(name, str) and name.strip():
                 self._element_names[ref] = name.strip()[:ELEMENT_NAME_LIMIT]
+            else:
+                # Adı okunamayan öğede bile kart "e13" değil öğenin türünü söyler.
+                kind = str(veri.get("role") or veri.get("tag") or "öğe")[:40]
+                self._element_names[ref] = f"adı okunamayan {kind}"
 
     async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
         if not self.running or not self.status()["bagli"]:

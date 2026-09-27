@@ -136,7 +136,9 @@ CHROME_NOTE = (
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
     "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "
     "chrome_page'i query olmadan çağırıp sayfayı oku; adresi biliyorsan menüde arama yerine "
-    "doğrudan git."
+    "doğrudan git. Tanıtım ya da giriş sayfasına düşersen hemen 'oturum kapalı' deme: önce "
+    "'tabs' ile açık sekmelere bak, sonra sitenin uygulama adresini dene (ör. Google Ads: "
+    "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle."
 )
 
 CHROME_TURN_TOOLS = {

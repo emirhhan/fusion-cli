@@ -24,8 +24,15 @@ export function pageAction(operation, args) {
     ].filter(Boolean).join(" ").toLowerCase();
     return type !== "password" && !/(password|passwd|otp|one.time|credit.card|cc.number|cvv|cvc)/.test(hint);
   };
-  const nameOf = (el) => (el.getAttribute("aria-label") || el.innerText || el.textContent || el.value ||
-    el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("name") || "")
+  // Erişilebilir ad: yalnız simgesi olan düğmelerin adı etikette, ipucunda ya da simgenin
+  // kendisindedir (ölçüldü: Google Ads'te adsız düğme izin kartında "e13" diye göründü).
+  const labelledBy = (el) => (el.getAttribute("aria-labelledby") || "").split(/\s+/)
+    .map((id) => id && document.getElementById(id)?.textContent).filter(Boolean).join(" ");
+  const iconName = (el) => el.querySelector?.("[aria-label]")?.getAttribute("aria-label") ||
+    el.querySelector?.("img[alt]")?.getAttribute("alt") || el.querySelector?.("svg title")?.textContent || "";
+  const nameOf = (el) => (el.getAttribute("aria-label") || labelledBy(el) || el.innerText || el.textContent ||
+    el.value || el.getAttribute("placeholder") || el.getAttribute("title") || el.getAttribute("data-tooltip") ||
+    el.getAttribute("mattooltip") || iconName(el) || el.getAttribute("name") || "")
     .replace(/\s+/g, " ").trim().slice(0, 120);
   const refs = globalThis.__fusionRefs || (globalThis.__fusionRefs = []);
   const refOf = (el) => {
@@ -55,6 +62,33 @@ export function pageAction(operation, args) {
     }
     return element;
   };
+  // Yalnız GÖRÜNEN metin. `innerText` saydam, ekran dışına itilmiş ya da aria-hidden
+  // şablonları da verir (ölçüldü: Google Ads'in gizli "ad blocker" uyarısı modeli yanılttı).
+  const BLOCK = /^(block|flex|grid|table|table-row|list-item|flow-root)$/;
+  const visibleText = () => {
+    const shown = new Map();
+    const isShown = (el) => {
+      if (!el || el === document.body) return true;
+      if (shown.has(el)) return shown.get(el);
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      const ok = style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 &&
+        el.getAttribute("aria-hidden") !== "true" && !(rect.right <= 0 && rect.width > 0) && isShown(el.parentElement);
+      shown.set(el, ok);
+      return ok;
+    };
+    const parts = [];
+    let length = 0;
+    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node && length < MAX_TEXT; node = walker.nextNode()) {
+      const text = node.nodeValue.replace(/\s+/g, " ").trim();
+      const parent = node.parentElement;
+      if (!text || !parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !isShown(parent)) continue;
+      parts.push(BLOCK.test(getComputedStyle(parent).display) ? `\n${text}` : ` ${text}`);
+      length += text.length + 1;
+    }
+    return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, MAX_TEXT);
+  };
   if (operation === "snapshot") {
     globalThis.__fusionRefs = [];
     const all = [...document.querySelectorAll(INTERACTIVE)].filter((el) => visibleBox(el) && safe(el));
@@ -64,7 +98,7 @@ export function pageAction(operation, args) {
     return {
       title: document.title, url: location.href,
       scroll: { y: Math.round(scrollY), height: document.documentElement.scrollHeight, viewport: innerHeight },
-      text: (document.body?.innerText || "").slice(0, MAX_TEXT),
+      text: visibleText(),
       elements: all.slice(0, MAX_ELEMENTS).map(describe),
       truncated: all.length > MAX_ELEMENTS,
     };
@@ -96,7 +130,7 @@ export function pageAction(operation, args) {
     const link = element.closest("a[href]");
     const href = link ? link.getAttribute("href").trim().toLowerCase() : "";
     return {
-      name: nameOf(element), tag: element.tagName.toLowerCase(), type,
+      name: nameOf(element), tag: element.tagName.toLowerCase(), type, role: element.getAttribute("role") || "",
       submit: type === "submit" || (element.tagName === "BUTTON" && !type && Boolean(element.form)),
       link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
     };

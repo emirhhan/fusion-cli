@@ -209,6 +209,16 @@ async def test_tiklamadan_once_okunan_oge_adi_izin_karti_icin_saklanir() -> None
         )
         await task
     assert bridge.element_name("e52") == "Yorum yap"
+    task = asyncio.create_task(bridge.invoke("describe", {"ref": "e13"}))
+    async with httpx.AsyncClient(trust_env=False) as client:
+        command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+        await client.post(
+            f"{address}/result",
+            headers=headers,
+            json={"id": command["id"], "ok": True, "veri": {"name": "", "tag": "button"}},
+        )
+    await task
+    assert bridge.element_name("e13") == "adı okunamayan button"
     assert bridge.element_name("e1") is None
     assert bridge.element_name(None) is None
     await bridge.close()

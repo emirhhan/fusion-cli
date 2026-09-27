@@ -263,6 +263,34 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     expect(matches.map((m) => action("describe", { ref: m.ref }).link)).toEqual([true, false, false]);
   });
 
+  it("yalnız simgesi olan düğmelerin adını etiketten, ipucundan ve simge başlığından okur", () => {
+    // Ölçüldü (27 Eylül): Google Ads'te adsız düğme izin kartında yalnız "e13" gösterdi.
+    document.body.insertAdjacentHTML("beforeend", `
+      <span id="etiket">Kampanyalar menüsü</span>
+      <button aria-labelledby="etiket"><svg></svg></button>
+      <button data-tooltip="Filtre ekle"><svg></svg></button>
+      <button><svg><title>Hesabı değiştir</title></svg></button>
+      <button><img alt="Raporlar" src="x.png"></button>`);
+    const { elements } = action("snapshot") as { elements: { name: string; tag: string }[] };
+    const adlar = elements.filter((e) => e.tag === "button").map((e) => e.name);
+    expect(adlar).toEqual(expect.arrayContaining(["Kampanyalar menüsü", "Filtre ekle", "Hesabı değiştir", "Raporlar"]));
+  });
+
+  it("sayfa metnine gizli uyarıları katmaz, görünen bakiye uyarısını katar", () => {
+    // Ölçüldü (27 Eylül): Google Ads'in gizli "ad blocker" şablonu metne karıştı; model
+    // olmayan bir reklam engelleyici bildirdi, görünen "Bakiye tükendi" uyarısını kaçırdı.
+    document.body.insertAdjacentHTML("beforeend", `
+      <div style="opacity:0">Google Ads can't work when you're using an ad blocker.</div>
+      <div aria-hidden="true">Gizli şablon</div>
+      <div style="visibility:hidden">Görünmez metin</div>
+      <div role="alert">Bakiye tükendi - hesabınıza para yükleyin.</div>`);
+    const { text } = action("snapshot") as { text: string };
+    expect(text).toContain("Bakiye tükendi");
+    expect(text).not.toContain("ad blocker");
+    expect(text).not.toContain("Gizli şablon");
+    expect(text).not.toContain("Görünmez metin");
+  });
+
   it("seçim kutusunda metinle seçer ve Enter gönderir", () => {
     const secim = document.getElementById("donem") as HTMLSelectElement;
     const { matches } = action("find", { query: "son 7" }) as { matches: { ref: string; tag: string }[] };
