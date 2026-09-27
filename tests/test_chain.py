@@ -232,3 +232,51 @@ async def test_stream_tek_saglayici_dogrudan_gecirilir():
 
     assert [item.text for item in items if isinstance(item, TextChunk)] == ["a", "b"]
     assert isinstance(items[-1], StreamDone)
+
+
+class _TakilanProvider:
+    """Hiç cevap üretmeyen sağlayıcı (ölçüldü: Gemini "3.1 Pro" web oturumu)."""
+
+    label = "gemini_web/main/auto"
+
+    async def complete(self, request: CompletionRequest) -> ModelResult:
+        import asyncio
+
+        await asyncio.sleep(3600)
+        raise AssertionError("ulaşılmamalı")
+
+    async def stream(self, request: CompletionRequest):
+        import asyncio
+
+        await asyncio.sleep(3600)
+        yield TextChunk("ulaşılmamalı")
+
+
+def _kisa_istek() -> CompletionRequest:
+    return CompletionRequest(
+        messages=(Message("user", "x"),), temperature=0.0, max_tokens=16, timeout_s=0.05
+    )
+
+
+async def test_takilan_birincil_suresi_dolunca_yedege_gecer_akista():
+    """Ölçüldü (27 Eylül): takılan web modeli turun bütün süresini yiyordu; yedek
+    hiç denenmeden "120 saniyede tamamlanmadı" ile tur düşüyordu."""
+    yayinci = _Publisher()
+    yedek = FakeProvider("nvidia_nim/yedek", chunks=("yedekten ", "cevap"))
+    zincir = FallbackProvider(
+        [_TakilanProvider(), yedek], role="agent", publisher=yayinci, only_when_unavailable=True
+    )
+    parcalar = [item async for item in zincir.stream(_kisa_istek())]
+    son = parcalar[-1]
+    assert isinstance(son, StreamDone) and son.result.ok
+    assert son.result.text == "yedekten cevap"
+    gecis = [e for e in yayinci.events if isinstance(e, ModelFallbackActivated)]
+    assert gecis and "yanıt vermedi" in gecis[0].reason
+
+
+async def test_takilan_birincil_complete_yolunda_da_yedege_gecer():
+    yedek = FakeProvider("nvidia_nim/yedek", chunks=("yedekten ", "cevap"))
+    sonuc = await FallbackProvider([_TakilanProvider(), yedek], role="agent").complete(
+        _kisa_istek()
+    )
+    assert sonuc.ok and sonuc.text == "yedekten cevap"

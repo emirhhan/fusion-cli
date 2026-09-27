@@ -163,6 +163,8 @@ def is_rate_limit_error(detail: str | None) -> bool:
 # girişi yapılmış ikinci oturum dururken yedi tur üst üste düştü.
 _UNAVAILABLE_MARKERS = (
     "devre açık:",
+    #: Yedek zincirinin süre sınırı (bkz. `providers.chain`): model hiç cevap üretmedi.
+    "yanıt vermedi:",
     "chrome profili hâlâ açık",
     "authentication:",
     "captcha",

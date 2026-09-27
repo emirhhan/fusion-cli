@@ -852,11 +852,17 @@ async def _drive(
             if remaining
             else (deps.config.runtime.request_timeout_s)
         )
+        # Her model kendi süresini alır (bkz. `providers.chain`): takılan birincil
+        # yedeğin süresini yemesin diye dış sınır zincir uzunluğuyla büyür, bütçeyi aşmaz.
+        attempts = 1 + len(_active_spec(deps, execution).fallback)
+        chain_timeout = (
+            min(call_timeout * attempts, remaining) if remaining else (call_timeout * attempts)
+        )
 
         try:
             # Transport idle timeouts do not bound a stream that keeps trickling
             # tokens forever. Bound the complete model call as well.
-            async with asyncio.timeout(max(0.01, call_timeout)):
+            async with asyncio.timeout(max(0.01, chain_timeout)):
                 result = await _call_model(
                     messages,
                     deps,
@@ -1296,6 +1302,18 @@ def _shell_contains_git_action(args: dict[str, object], action: str) -> bool:
     return bool(re.search(pattern, command, re.IGNORECASE))
 
 
+def _active_spec(deps: AgentDeps, execution: ExecutionPolicy) -> ModelSpec:
+    """Bu çağrıda kullanılacak model.
+
+    Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
+    zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
+    """
+    return deps.active_model_override or escalated_spec(
+        select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements),
+        execution.escalation,
+    )
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -1309,12 +1327,7 @@ async def _call_model(
 ) -> ModelResult:
     """Modeli akıtarak çağır; metin parçaları olay olarak yayınlanır."""
     runtime = deps.config.runtime
-    # Takılan adım bir üst modele yükselir: aynı modelle aynı duvara çarpmak yerine
-    # zincirde yukarı kayılır. `strict` rolde kullanıcının seçimi korunur.
-    spec = deps.active_model_override or escalated_spec(
-        select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements),
-        execution.escalation,
-    )
+    spec = _active_spec(deps, execution)
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,

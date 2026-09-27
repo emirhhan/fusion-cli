@@ -22,6 +22,7 @@ from .chrome_host import (
     candidate_extension_ids,
     clear_bridge_state,
     install_native_host,
+    read_bridge_state,
     write_bridge_state,
 )
 
@@ -34,6 +35,9 @@ EVENTS_WAIT_SECONDS = 20
 FEED_LIMIT = 200
 #: Panel cevabında izin verilen alanlar: onayda `secim`, soruda `metin`.
 ANSWER_FIELDS = ("secim", "metin")
+#: Açık köprü durum dosyası kaybolduysa kendini bu aralıkla yeniden duyurur. Eklenti
+#: (offscreen.js) 5 sn'de bir yeniden eşleşmeyi dener; 10 sn kopukluğu ~15 sn'de kapatır.
+ANNOUNCE_INTERVAL_S = 10.0
 #: İzin kartında gösterilen öğe adının üst sınırı (sayfa `nameOf` da 120'de keser).
 ELEMENT_NAME_LIMIT = 120
 
@@ -62,6 +66,7 @@ class ChromeBridge:
         #: Son `describe` sonuçları (ref → öğe adı); izin kartı adı gösterir.
         self._element_names: dict[str, str] = {}
         self._lifecycle = asyncio.Lock()
+        self._announcer: asyncio.Task[None] | None = None
 
     @property
     def running(self) -> bool:
@@ -94,13 +99,30 @@ class ChromeBridge:
                 with contextlib.suppress(OSError):
                     write_bridge_state(self._port, self._token)
                     await asyncio.to_thread(install_native_host, candidate_extension_ids())
+                self._announcer = asyncio.create_task(self._announce_loop())
             return self.status(reveal_token=True)
+
+    async def _announce_loop(self) -> None:
+        """Başka bir çekirdek kapanırken durum dosyasını sildiyse kendini yeniden duyur.
+
+        Ölçüldü (27 Eylül): ikinci çekirdek kapanınca eklenti hâlâ açık olan
+        uygulama köprüsünü bulamadı ve uygulama yeniden açılana kadar kopuk kaldı.
+        Dosya başka canlı bir köprüye aitse DOKUNULMAZ: en son açılan kazanır.
+        """
+        while self._server is not None:
+            await asyncio.sleep(ANNOUNCE_INTERVAL_S)
+            if self._server is not None and read_bridge_state() is None:
+                with contextlib.suppress(OSError):
+                    write_bridge_state(self._port, self._token)
 
     async def close(self) -> None:
         async with self._lifecycle:
             await self._close()
 
     async def _close(self) -> None:
+        announcer, self._announcer = self._announcer, None
+        if announcer is not None:
+            announcer.cancel()
         server, self._server = self._server, None
         if server is not None:
             with contextlib.suppress(OSError):

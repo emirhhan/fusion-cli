@@ -232,3 +232,23 @@ async def test_ust_uste_baslat_ve_kapat_anahtarsiz_kopru_birakmaz() -> None:
     tekrar = await bridge.start()
     assert tekrar["anahtar"] and read_bridge_state()["anahtar"] == tekrar["anahtar"]
     await bridge.close()
+
+
+async def test_baska_cekirdek_kapaninca_acik_kopru_kendini_yeniden_duyurur(monkeypatch) -> None:
+    """Ölçüldü (27 Eylül): ikinci bir çekirdek kapanırken durum dosyasını sildi;
+    hâlâ açık olan uygulama köprüsü duyurulmadığı için eklenti ona hiç dönmedi."""
+    from fusion_cli.appserver import chrome_bridge as modul
+    from fusion_cli.appserver.chrome_host import bridge_state_file, read_bridge_state
+
+    monkeypatch.setattr(modul, "ANNOUNCE_INTERVAL_S", 0.02)
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    bridge_state_file().unlink()
+    for _ in range(100):
+        if read_bridge_state() is not None:
+            break
+        await asyncio.sleep(0.01)
+    assert read_bridge_state()["anahtar"] == state["anahtar"]
+    await bridge.close()
+    await asyncio.sleep(0.05)
+    assert read_bridge_state() is None

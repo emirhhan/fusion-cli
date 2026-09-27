@@ -28,7 +28,9 @@ katman da tükendiğinde devreye girer.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Sequence
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Sequence
+from typing import TypeVar
 
 from ..core.errors import ProviderError
 from ..core.events import EventPublisher, ModelFallbackActivated
@@ -40,6 +42,8 @@ from ..core.types import (
     StreamItem,
     is_unavailable_error,
 )
+
+T = TypeVar("T")
 
 
 class FallbackProvider:
@@ -79,7 +83,11 @@ class FallbackProvider:
         for index, provider in enumerate(self._providers):
             if index and failures:
                 self._publish_fallback(provider.label, failures[-1])
-            result = await provider.complete(request)
+            try:
+                result = await self._bounded(index, provider.complete(request), request)
+            except TimeoutError:
+                failures.append(self._timed_out(provider, request))
+                continue
             # Ölçüt `ok` DEĞİL `is_usable`: model bazen boş cevap döndürüyor
             # (metin yok, araç çağrısı yok) ve bu teknik olarak başarılı bir
             # yanıttır — turu hiçbir iş yapmadan bitiriyordu.
@@ -96,7 +104,13 @@ class FallbackProvider:
             if index and failures:
                 self._publish_fallback(provider.label, failures[-1])
             stream = provider.stream(request)
-            first = await anext(stream, None)
+            try:
+                first = await self._bounded(index, anext(stream, None), request)
+            except TimeoutError:
+                # Takılan model yedeğin süresini yemesin: sıradakine geç.
+                failures.append(self._timed_out(provider, request))
+                await _close(stream)
+                continue
             if first is None:
                 continue
             if isinstance(first, StreamDone) and not first.result.is_usable:
@@ -113,6 +127,29 @@ class FallbackProvider:
                 yield item
             return
         yield StreamDone(self._all_failed(failures))
+
+    async def _bounded(self, index: int, work: Awaitable[T], request: CompletionRequest) -> T:
+        """Arkasında yedek olan modelin İLK çıktısını `request.timeout_s` ile sınırla.
+
+        Ölçüldü (27 Eylül): Gemini web oturumu cevap üretmeden takıldı; tek sınır
+        turun dış süresiydi ve o dolunca yedek hiç denenmeden tur düştü. Son model
+        sınırlanmaz: onun süresini turun dış sınırı zaten tutar.
+        """
+        if index >= len(self._providers) - 1:
+            return await work
+        return await asyncio.wait_for(work, request.timeout_s)
+
+    def _timed_out(self, provider: LlmProvider, request: CompletionRequest) -> ModelResult:
+        return ModelResult(
+            name=self._role,
+            model=provider.label,
+            text="",
+            latency_ms=int(request.timeout_s * 1000),
+            ok=False,
+            error=(
+                f"yanıt vermedi: {provider.label} {request.timeout_s:g} saniyede cevap üretmedi"
+            ),
+        )
 
     def _publish_fallback(self, fallback_model: str, failure: ModelResult) -> None:
         if self._publisher is None:
