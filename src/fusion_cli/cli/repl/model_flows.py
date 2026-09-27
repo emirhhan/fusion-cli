@@ -192,10 +192,6 @@ def choose_development(
     )
     if model_id is None:
         return FlowResult(config, reason)
-    if source.key == "nim-free":
-        verified, reason = catalog.probe_nim_tools(model_id)
-        if not verified:
-            return FlowResult(config, reason)
 
     return apply_development_model(config, model_id, paid=source.paid)
 
@@ -203,10 +199,24 @@ def choose_development(
 def apply_development_model(config: Config, model_id: str, *, paid: bool) -> FlowResult:
     """Seçilen modeli agent + hakem + havuzun tamamına uygula ve kalıcılaştır.
 
-    Seçim ekranı (plain REPL, prompt_toolkit) ile TUI modalı AYNI uygulama/kaydetme
-    yolundan geçsin diye ayrıldı; iki yol ayrı yazılsaydı biri kaydetmeyi ya da ücret
-    uyarısını unutabilirdi (RULES.md: ortak davranış tek yerde).
+    Seçim ekranı (plain REPL, prompt_toolkit), TUI modalı VE masaüstü uygulamasının
+    `/development uygula` komut tamamlaması AYNI uygulama/kaydetme yolundan geçsin
+    diye ayrıldı; dört yol ayrı yazılsaydı biri kaydetmeyi, ücret uyarısını ya da
+    doğrulamayı unutabilirdi (RULES.md: ortak davranış tek yerde).
+
+    NIM modeli STRICT (yedeksiz) uygulanmadan ÖNCE gerçek araç çağrısıyla doğrulanır.
+    Ölçüldü (27 Eylül): bu doğrulama yalnızca `choose_development` (CLI seçim ekranı)
+    içinde yapılıyordu; masaüstü uygulamasının `/development uygula …` komut
+    tamamlaması (`appserver/commands.py::_apply_development`) doğrudan bu fonksiyona
+    geliyor ve doğrulamayı hiç görmüyordu. Kullanıcı seçiciden `glm-5.3` seçtiğinde
+    (o gün NIM'de yanıt vermeyen bir model) hiçbir kontrol olmadan STRICT + yedeksiz
+    uygulanıyor, sonraki her tur boş/açıklamasız "cevap üretmedi" ile bitiyordu.
+    Doğrulama artık İKİ yolun da geçtiği TEK yerde durur.
     """
+    if model_id.startswith("nvidia_nim/"):
+        verified, reason = catalog.probe_nim_tools(model_id)
+        if not verified:
+            return FlowResult(config, reason)
     try:
         updated = model_select.apply_single_model(config, model_id)
     except ConfigError as error:

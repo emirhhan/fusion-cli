@@ -331,9 +331,19 @@ def _apply_development(state: ReplState, argument: str) -> CommandResult:
     wanted = model_id.strip()
     if not wanted:
         return _error(messages.APP_COMMAND_INVALID_SELECTION)
-    result = model_flows.apply_development_model(state.config, wanted, paid=source.paid)
+    onceki = state.config
+    result = model_flows.apply_development_model(onceki, wanted, paid=source.paid)
     state.config = result.config
-    return {"ok": True, "metin": result.message}
+    # `apply_development_model` başarısızlıkta (NIM araç doğrulaması geçmedi,
+    # kimlik geçersiz…) AYNI config nesnesini değiştirmeden döndürür (bkz. o
+    # fonksiyonun sözleşmesi); başarıda `replace()` ile YENİ bir nesne döner.
+    # Ölçüldü (27 Eylül): bu satır öncesinde her zaman `ok: True` dönüyordu —
+    # doğrulama reddettiğinde bile masaüstü seçim BAŞARILI sanılıyordu, çünkü
+    # doğrulama o güne kadar yalnızca `session.py`'nin AYRI bir ön-kontrolünde
+    # yapılıyordu ve bu fonksiyona hiç ulaşmıyordu. Doğrulama artık BURADA
+    # (`apply_development_model` içinde) yapıldığına göre sonuç da doğru
+    # yansımalı.
+    return {"ok": result.config is not onceki, "metin": result.message}
 
 
 def _apply_profile(state: ReplState, argument: str) -> CommandResult:

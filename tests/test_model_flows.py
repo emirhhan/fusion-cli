@@ -443,6 +443,55 @@ def test_apply_development_model_gecersiz_kimlik_config_i_degistirmez(config):
     assert "Geçersiz model kimliği" in sonuc.message
 
 
+def test_apply_development_model_nim_dogrulamasi_gecmeden_uygulanmaz(config, monkeypatch):
+    """Masaüstü uygulamasının `/development uygula …` komut tamamlaması da BU
+    fonksiyondan geçer (`appserver/commands.py::_apply_development`). Eskiden NIM
+    doğrulaması yalnızca CLI'nın `choose_development` seçim ekranında yapılıyordu;
+    masaüstünden seçilen bozuk bir NIM modeli hiçbir kontrol olmadan STRICT (yedeksiz)
+    uygulanıyordu (ölçüldü: `glm-5.3` NIM'de yanıt vermiyordu, kullanıcı boş/açıklamasız
+    "cevap üretmedi" ile karşılaştı). Doğrulama artık modeli STRICT uygulayan TEK
+    fonksiyonun içinde durur; iki çağrı yolu da (CLI ve masaüstü) aynı korumayı görür.
+    """
+    model = "nvidia_nim/z-ai/glm-5.3"
+    monkeypatch.setattr(
+        model_flows.catalog, "probe_nim_tools", lambda _model: (False, "Araç çağrısı doğrulanmadı.")
+    )
+
+    sonuc = model_flows.apply_development_model(config, model, paid=False)
+
+    assert sonuc.config is config
+    assert "doğrulanmadı" in sonuc.message
+    assert sonuc.config.agent.model != model
+
+
+def test_apply_development_model_nim_dogrulamasi_gecerse_uygulanir(config, monkeypatch):
+    model = "nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b"
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", lambda _model: (True, ""))
+
+    sonuc = model_flows.apply_development_model(config, model, paid=False)
+
+    assert sonuc.config.agent.model == model
+
+
+def test_apply_development_model_nim_disi_model_doğrulanmaz(config, monkeypatch):
+    """OpenRouter/web modeli araç sondasına hiç gitmemeli; sonda yalnız NIM'e özeldir."""
+    called = False
+
+    def _patlar(_model: str) -> tuple[bool, str]:
+        nonlocal called
+        called = True
+        return False, "çağrılmamalıydı"
+
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", _patlar)
+
+    sonuc = model_flows.apply_development_model(
+        config, "openrouter/qwen/qwen3.8-27b:free", paid=False
+    )
+
+    assert called is False
+    assert sonuc.config.agent.model == "openrouter/qwen/qwen3.8-27b:free"
+
+
 def test_entries_to_choices_kimlik_ve_rozet_uretir(config):
     entries = (CatalogEntry("chatgpt_web/main/auto", "chatgpt_web", 0),)
 
