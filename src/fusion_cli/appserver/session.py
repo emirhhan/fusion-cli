@@ -131,7 +131,10 @@ from .workspace import (
 #: model hesap seçim ekranında durup "hesap seçmemi ister misin?" diye sordu; salt
 #: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
 CHROME_NOTE = (
-    "Chrome sekmesi bağlı. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
+    "Kullanıcının kendi Chrome'u bağlı: oturum açık sitelerde (Google Ads, Instagram, Meta, "
+    "mağaza paneli) ve görevde Chrome geçtiğinde chrome_* araçlarını kullan; browser_* ayrı ve "
+    "oturumsuz bir tarayıcıdır, orada giriş sayfası görmen oturumun kapalı olduğu anlamına "
+    "gelmez. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
     "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
     "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "

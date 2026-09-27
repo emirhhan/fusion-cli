@@ -225,3 +225,15 @@ def verification_action_required_note() -> Message:
         "run_shell ile yalnız doğrulamayı tekrar etmek çözüm değildir. Araç çağrısını "
         "düz metin JSON veya kod bloğu olarak yazma; gerçekten çalıştır.",
     )
+
+
+def refusal_note(tool_names: list[str]) -> Message:
+    """Araç varken kalıp ret verildiğinde modele bir kez araçlarını hatırlat."""
+    araclar = ", ".join(tool_names[:8])
+    return Message(
+        "user",
+        "Bu bir ret cevabı gibi görünüyor, ama bu görev için araçların var "
+        f"({araclar}). Görevi araçlarla yapmaya başla. Gerçekten yapılamıyorsa hangi "
+        "aracı denediğini ve neden olmadığını somut olarak yaz.",
+        harness_note=True,
+    )

@@ -154,6 +154,29 @@ async function listen() {
   if (await connection()) void listen();
 }
 
+// --- Güncelleme ---------------------------------------------------------------
+
+const AUTO_UPDATE_KEY = "fusionAutoUpdate";
+/** Aynı sürüm için otomatik yenilemeyi bu süre içinde yinelemez (döngü koruması). */
+const AUTO_UPDATE_RETRY_MS = 5 * 60 * 1000;
+/** Kullanıcı "güncelleniyor" yazısını görebilsin diye kısa bekleme. */
+const AUTO_UPDATE_DELAY_MS = 1200;
+
+/**
+ * Eklenti dosyaları diskte yenilendiyse ve çalışan görev yoksa eklentiyi kendiliğinden
+ * yenile (Chrome yenilemede paneli kapatır; yeniden açılınca yeni sürüm çalışır).
+ * Yenileme sürümü değiştirmediyse tekrar denemez, yalnız "Şimdi güncelle" düğmesi kalır.
+ */
+async function autoUpdate(version) {
+  if (running() || typeof chrome.runtime.reload !== "function") return;
+  const local = chrome.storage.local;
+  const tried = local ? (await local.get(AUTO_UPDATE_KEY))[AUTO_UPDATE_KEY] : null;
+  if (tried?.version === version && Date.now() - tried.at < AUTO_UPDATE_RETRY_MS) return;
+  await local?.set({ [AUTO_UPDATE_KEY]: { version, at: Date.now() } });
+  $("update").firstElementChild.textContent = "Fusion Browser güncelleniyor…";
+  setTimeout(() => chrome.runtime.reload(), AUTO_UPDATE_DELAY_MS);
+}
+
 // --- Eylemler -----------------------------------------------------------------
 
 async function sendPrompt(text) {
@@ -308,4 +331,6 @@ const onDisk = await fetch(chrome.runtime.getURL?.("manifest.json") ?? "manifest
 const ping = chrome.runtime.sendMessage({ type: "fusion.ping" }).catch(() => null);
 const cevap = await Promise.race([ping, new Promise((resolve) => setTimeout(() => resolve(null), 1500))]);
 // Eklenti kendini yenileyebilir: kullanıcıyı chrome://extensions sayfasına yollamaya gerek yok.
-$("update").hidden = onDisk === loaded && Boolean(cevap?.surum);
+const outdated = onDisk !== loaded || !cevap?.surum;
+$("update").hidden = !outdated;
+if (outdated) await autoUpdate(onDisk);

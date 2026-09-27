@@ -100,6 +100,7 @@ from .execution_route import ExecutionRoute, choose_execution_route
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
+from .refusal import looks_like_refusal
 from .repo_context import repo_map_block
 from .turn_report import build_turn_report
 from .workspace_hint import find_workspace_for
@@ -753,6 +754,8 @@ class _State:
     evidence_reprompts: int = 0
     #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
     never_acted_prompts: int = 0
+    #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
+    refusal_nudged: bool = False
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
     exploration_pushes: int = 0
     #: Otomatik öğretmen danışması gerçekten yanıt verdi mi?
@@ -922,13 +925,25 @@ async def _drive(
             _publish_budget_stop(deps, budget, state)
             return _outcome(final_text, messages, state)
 
-        messages.append(Message("assistant", result.text, tool_calls=result.tool_calls))
+        # Araç çağrısıyla gelen metindeki düşünme taslağı geçmişe yazılmaz: bir sonraki
+        # çağrıda modele geri gider ve cevabı iki kez yazdırıyordu (ölçüldü, 27 Eylül).
+        history_text = strip_thinking(result.text).strip() if result.tool_calls else result.text
+        messages.append(Message("assistant", history_text, tool_calls=result.tool_calls))
 
         if not result.tool_calls:
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
             # (26 Eylül, Motogate okuma turu): "I have the data…</think>| Sipariş No…"
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
             final_text = strip_thinking(result.text).strip()
+            refusal_note = _refusal_note(
+                final_text, state, execution, _permitted(allowed_tools, registry, execution)
+            )
+            if refusal_note is not None:
+                messages.append(refusal_note)
+                continue
+            if state.refusal_nudged and looks_like_refusal(final_text):
+                # İkinci kez araç denemeden ret: dürüstçe başarısız dön, başarı sayma.
+                return _outcome(final_text, messages, state, ok=False)
             # `capability_wall`: bir araç işin kendisiyle yapılamayacağını bildirdiyse
             # kanıt istemek anlamsızdır. Modeli zorlamak onu uydurmaya iter ve dürüst
             # cevabı "İşlem tamamlanmadı" metniyle ezer — kullanıcı ne olduğunu
@@ -1407,6 +1422,25 @@ def _permitted(
             if not (registry.get(name) is not None and registry.get(name).mutating)  # type: ignore[union-attr]
         }
     return names
+
+
+def _refusal_note(
+    final_text: str,
+    state: _State,
+    execution: ExecutionPolicy,
+    tools: set[str] | None,
+) -> Message | None:
+    """Araç varken hiçbirini denemeden verilen kalıp ret: modele bir kez araçlarını hatırlat.
+
+    Ölçüldü (27 Eylül): tarayıcı görevinde Nemotron ve Gemini araç denemeden
+    "dil modeliyim, yardımcı olamıyorum" dedi ve tur başarılı sayıldı.
+    """
+    if state.refusal_nudged or state.tool_rounds or not execution.offer_tools or not tools:
+        return None
+    if not looks_like_refusal(final_text):
+        return None
+    state.refusal_nudged = True
+    return reflexion.refusal_note(sorted(tools))
 
 
 def _auto_continue_note(

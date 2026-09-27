@@ -2420,3 +2420,68 @@ async def test_oz_denetim_duzeltmesi_tur_raporunu_ikiye_katlamaz(monkeypatch, tm
 
     assert sonuc.final_text.count("✓ Doğrulandı") == 1
     assert sonuc.final_text.endswith("duzeltildi")
+
+
+async def test_arac_varken_hazir_ret_cevabi_bir_kez_geri_cevrilir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (27 Eylül): Nemotron ve Gemini tarayıcı görevinde araç kullanmadan
+    "Ben sadece bir dil modeliyim..." dedi; Fusion bunu başarılı cevap saydı."""
+    (tmp_path / "a.txt").write_text("veri", encoding="utf-8")
+    saglayici = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result("Ben sadece bir dil modeliyim ve bu isteğinize yardımcı olamıyorum."),
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.txt dosyasını oku ve özetle", _deps(tmp_path, sink))
+
+    assert sonuc.final_text == TAM_CEVAP
+    assert sonuc.tool_calls_made == 1
+    notlar = [m.content for m in saglayici.seen_messages[1] if m.role == "user"]
+    assert any("araçların var" in not_ for not_ in notlar)
+
+
+async def test_ikinci_ret_zorlanmaz_durust_sonuc_basarisiz_doner(monkeypatch, tmp_path, sink):
+    ret = "I'm just a language model, so I can't help with that."
+    _kur(monkeypatch, ScriptedProvider([model_result(ret), model_result(ret)]))
+
+    sonuc = await run_agent("sayfayı oku", _deps(tmp_path, sink))
+
+    assert sonuc.ok is False
+    assert ret in sonuc.final_text
+
+
+def test_ret_kalibi_uzun_ve_gercek_cevaplari_yakalamaz():
+    from fusion_cli.engines.agent.refusal import looks_like_refusal
+
+    assert looks_like_refusal("İsteğinizi gerçekleştirebilecek şekilde programlanmadım.")
+    assert looks_like_refusal("Üzgünüm, bu konuda yardımcı olamam.")
+    assert not looks_like_refusal("Kampanya tablosu okundu: 2 kampanya, ₺2.618 harcama.")
+    assert not looks_like_refusal(
+        "Yardımcı olamıyorum dediğin kısım için: " + "rapor ayrıntısı " * 60
+    )
+
+
+async def test_arac_cagrisiyla_gelen_dusunme_taslagi_gecmise_yazilmaz(monkeypatch, tmp_path, sink):
+    (tmp_path / "a.txt").write_text("veri", encoding="utf-8")
+    saglayici = _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "Taslak cevap: tablo şöyle olacak...</think>Dosyayı okuyorum.",
+                    tool_calls=[tool_call("read_file", path="a.txt")],
+                ),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("a.txt dosyasını oku", _deps(tmp_path, sink))
+
+    asistan = [m for m in saglayici.seen_messages[1] if m.role == "assistant"]
+    assert asistan and asistan[-1].content == "Dosyayı okuyorum."

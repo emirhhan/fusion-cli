@@ -72,8 +72,12 @@ export function pageAction(operation, args) {
       if (shown.has(el)) return shown.get(el);
       const style = getComputedStyle(el);
       const rect = el.getBoundingClientRect();
+      // aria-hidden GÖRSEL gizleme değildir: açılır pencere açıkken Google Ads ana içeriği
+      // (kampanya tablosu, bakiye uyarısı) ekran okuyucudan gizler ama ekranda gösterir.
+      const collapsed = (rect.width === 0 || rect.height === 0) &&
+        /hidden|clip/.test(`${style.overflow} ${style.overflowX} ${style.overflowY}`);
       const ok = style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity) !== 0 &&
-        el.getAttribute("aria-hidden") !== "true" && !(rect.right <= 0 && rect.width > 0) && isShown(el.parentElement);
+        !collapsed && !(rect.right <= 0 && rect.width > 0) && isShown(el.parentElement);
       shown.set(el, ok);
       return ok;
     };

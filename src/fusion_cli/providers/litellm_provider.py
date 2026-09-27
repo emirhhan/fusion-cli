@@ -126,13 +126,11 @@ class LiteLlmProvider:
         if request.tools:
             kwargs["tools"] = [dict(schema) for schema in request.tools]
             kwargs["tool_choice"] = "auto"
-            # Nemotron 3 can emit an empty content field alongside a tool call.
-            # NVIDIA's coding-agent guidance requires this chat-template option
-            # so the server parses reasoning and tool calls together.
-            if self._model.startswith("nvidia_nim/nvidia/nemotron-3-"):
-                kwargs["extra_body"] = {
-                    "chat_template_kwargs": {"force_nonempty_content": True}
-                }
+            # Nemotron 3'e `force_nonempty_content` GÖNDERİLMEZ. Ölçüldü (27 Eylül,
+            # 6/6 deneme): bu şablon seçeneği düşünme metnini `reasoning_content`
+            # yerine cevaba döküyor, çoğu zaman `</think>` ile, bazen yarıda kesilip
+            # işaretsiz; kullanıcı iki cevabı arka arkaya gördü. Seçeneksiz 6/6 araç
+            # çağrısı doğru ayrıştı ve boş içerikli araç turu geçmişte sorunsuz döndü.
         if self._api_key is not None:
             # Havuzdan gelen anahtar ortam değişkenini geçersiz kılar (çok-hesap).
             kwargs["api_key"] = self._api_key

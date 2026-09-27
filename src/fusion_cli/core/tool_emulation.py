@@ -53,6 +53,9 @@ LEGACY_PAYLOAD_CLOSE = "</tool_payload>"
 # Sınırlayıcılar satır başına SABİTLENMEZ: model çoğu zaman "Şunu yapıyorum."
 # dedikten sonra bloğu aynı satırda açıyor ve katı bir çapa bunu kaçırırdı.
 # İşaretler benzersiz büyük harfli dizeler olduğu için çapaya gerek de yok.
+#: Ayıklanan bloğun yerine bırakılan ayraç ve fazlasını daraltan desen.
+_BLOCK_GAP = "\n\n"
+_EXTRA_GAPS = re.compile(r"\n\s*\n(?:\s*\n)+")
 _BLOCK = re.compile(
     rf"{re.escape(CALL_OPEN)}\s*(?P<body>.*?)\s*{re.escape(CALL_CLOSE)}",
     re.DOTALL,
@@ -695,7 +698,11 @@ def parse_tool_calls(text: str) -> EmulatedParse:
             continue
         payloads[payload_id] = body
 
-    without_payloads = _LEGACY_PAYLOAD_BLOCK.sub("", _PAYLOAD_BLOCK.sub("", text))
+    # Ayıklanan blok iki yanındaki metni YAPIŞTIRMAZ: yerine paragraf boşluğu kalır.
+    # Ölçüldü (27 Eylül, Gemini web): "…maliyet ve" + "Önceki işlemle…" birleşti.
+    without_payloads = _LEGACY_PAYLOAD_BLOCK.sub(
+        _BLOCK_GAP, _PAYLOAD_BLOCK.sub(_BLOCK_GAP, text)
+    )
     # Kapanmamış blok tespiti HER İKİ biçimi de tanımalı: yalnızca kanonik işarete
     # bakmak, eski biçimde açılıp kapanmayan bir bloğu sessizce yok sayardı.
     if any(
@@ -763,7 +770,8 @@ def parse_tool_calls(text: str) -> EmulatedParse:
         for payload_id in artan:
             errors.append(f"payload kullanılmadı: {payload_id}")
 
-    outside = _LEGACY_BLOCK.sub("", _BLOCK.sub("", without_payloads))
+    outside = _LEGACY_BLOCK.sub(_BLOCK_GAP, _BLOCK.sub(_BLOCK_GAP, without_payloads))
+    outside = _EXTRA_GAPS.sub("\n\n", outside)
     if any(marker in outside for marker in (CALL_OPEN, CALL_CLOSE, LEGACY_CALL_OPEN)):
         errors.append("kapanmamış veya eşleşmeyen araç çağrısı sınır işareti")
 

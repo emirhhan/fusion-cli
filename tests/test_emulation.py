@@ -202,3 +202,18 @@ def test_gecersiz_json_metni_oldugu_gibi_birakilir():
     args = {"todos": "[bozuk"}
 
     assert coerce_arguments(_DIZI_SEMASI["function"], args) == args
+
+
+def test_blok_cikarilinca_iki_yanindaki_metin_birbirine_yapismaz():
+    """Ölçüldü (27 Eylül, Gemini web): cevap "…maliyet ve" + "Önceki işlemle…" diye
+    boşluksuz birleşti; ayıklanan blok iki yanındaki metni yapıştırıyordu."""
+    from fusion_cli.core.tool_emulation import CALL_CLOSE, CALL_OPEN, parse_tool_calls
+
+    metin = (
+        "Tablo okundu, tıklama başı maliyet ve"
+        f"{CALL_OPEN}\n{{\"name\": \"chrome_page\", \"arguments\": {{}}}}\n{CALL_CLOSE}"
+        "Önceki işlemle sayfaya erişildi."
+    )
+    sonuc = parse_tool_calls(metin)
+    assert [c.name for c in sonuc.calls] == ["chrome_page"]
+    assert "ve\n\nÖnceki" in sonuc.text

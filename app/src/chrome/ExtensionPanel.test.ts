@@ -158,6 +158,30 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     expect(reload).toHaveBeenCalled();
   });
 
+  it("çalışan görev yokken eski sürümü kendiliğinden yeniler, aynı sürümü tekrar denemez", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      kit = chromeKit({ backgroundVersion: null });
+      const reload = vi.fn();
+      const local = new Map<string, unknown>();
+      (kit.chromeMock.runtime as Record<string, unknown>).reload = reload;
+      (kit.chromeMock.storage as Record<string, unknown>).local = {
+        get: async (key: string) => (local.has(key) ? { [key]: local.get(key) } : {}),
+        set: async (values: Record<string, unknown>) => { for (const [k, v] of Object.entries(values)) local.set(k, v); },
+      };
+      await loadPanel();
+      await waitFor(() => expect($("update").textContent).toContain("güncelleniyor"));
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(reload).toHaveBeenCalledTimes(1);
+      await loadPanel();
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect($("update").hidden).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("arka plan güncelse güncelleme bandı gizli kalır", async () => {
     await loadPanel();
     await waitFor(() => expect(kit.chromeMock.runtime.sendMessage).toHaveBeenCalled());
@@ -281,13 +305,15 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     // olmayan bir reklam engelleyici bildirdi, görünen "Bakiye tükendi" uyarısını kaçırdı.
     document.body.insertAdjacentHTML("beforeend", `
       <div style="opacity:0">Google Ads can't work when you're using an ad blocker.</div>
-      <div aria-hidden="true">Gizli şablon</div>
       <div style="visibility:hidden">Görünmez metin</div>
-      <div role="alert">Bakiye tükendi - hesabınıza para yükleyin.</div>`);
+      <main aria-hidden="true"><div role="alert">Bakiye tükendi - hesabınıza para yükleyin.</div>
+        <table><tr><td>MG | ARAMA | SATIS | TR</td><td>₺2.618,62</td></tr></table></main>
+      <div role="dialog">Google Ads uygulamasını edinin</div>`);
     const { text } = action("snapshot") as { text: string };
+    // Açılır pencere varken Google Ads ana içeriği aria-hidden yapar ama ekranda gösterir.
     expect(text).toContain("Bakiye tükendi");
+    expect(text).toContain("MG | ARAMA | SATIS | TR");
     expect(text).not.toContain("ad blocker");
-    expect(text).not.toContain("Gizli şablon");
     expect(text).not.toContain("Görünmez metin");
   });
 
