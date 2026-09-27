@@ -11,6 +11,23 @@
   padding: 0 20px;
 }
 
+.app-header__nav {
+  align-items: center;
+  display: flex;
+  gap: var(--space-1);
+}
+
+.app-header__history {
+  align-items: center;
+  display: flex;
+}
+
+/* "chevron" ikonu sağa bakar (ileri); geri düğmesi aynı çizimi 180° çevirir —
+   ayrı bir ikon tanımlamaya gerek kalmaz. */
+.app-header__nav-back svg {
+  transform: rotate(180deg);
+}
+
 .app-header__identity {
   align-items: baseline;
   display: flex;

@@ -1,7 +1,11 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Shell } from "./Shell";
+
+const shellStyles = readFileSync(resolve(process.cwd(), "src/screens/Shell.css"), "utf8");
 
 function setNarrowViewport(narrow: boolean) {
   const listeners = new Set<(event: MediaQueryListEvent) => void>();
@@ -33,6 +37,8 @@ function setNarrowViewport(narrow: boolean) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  document.querySelector("[data-test-shell-styles]")?.remove();
+  document.documentElement.style.removeProperty("--titlebar-safe-left");
 });
 
 describe("Shell", () => {
@@ -57,6 +63,21 @@ describe("Shell", () => {
     expect(container.querySelector(".app-shell")?.getAttribute("data-sidebar-collapsed")).toBe(
       "true",
     );
+  });
+
+  it("kenar çubuğu daraltıldığında üst çubuğu trafik ışıklarından kaçırır", () => {
+    // jsdom `getComputedStyle` CSS özel özelliklerini (`var()`) çözmez; bu
+    // yüzden piksel değeri yerine kuralın KAYNAKTA var olduğu ve doğru
+    // seçiciye (yalnız daraltılmış kenar çubuğunda) bağlı olduğu doğrulanır.
+    // Piksel-doğru sonuç `e2e/` görsel regresyonuyla ayrıca doğrulanır.
+    expect(shellStyles).toMatch(
+      /\.app-shell\[data-sidebar-collapsed="true"\]\s*\.app-shell__header\s*\{[^}]*padding-left:\s*var\(--titlebar-safe-left/,
+    );
+
+    const { container } = render(
+      <Shell content="İçerik" header={<h1>Başlık</h1>} sidebar="Gezinme" sidebarCollapsed />,
+    );
+    expect(container.querySelector(".app-shell__header")).toBeTruthy();
   });
 
   it("mobil gezinmenin örtüsü sohbeti yeniden erişilebilir kılar", () => {

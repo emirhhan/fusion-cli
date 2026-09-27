@@ -30,6 +30,7 @@ import { Shell } from "./screens/Shell";
 import { Sidebar } from "./screens/Sidebar";
 import { useLayout } from "./state/useLayout";
 import { useInspectorLayout } from "./state/useInspectorLayout";
+import { useNavigationHistory } from "./state/useNavigationHistory";
 import {
   applyTheme,
   readThemePreference,
@@ -238,6 +239,19 @@ function projectName(root: string): string {
 
 /** Sayfa başlığını kendi içinde `PageHeader` ile gösteren tam ekran sayfalar. */
 const SAYFA_KENDI_BASLIGINI_TASIR = ["settings", "control", "connectors", "account"];
+
+/** Ana uygulamanın gezinebileceği sayfalar; üst çubuktaki geri/ileri
+ * düğmeleri bu sayfalar arasındaki geçmişi gezer (bkz. `useNavigationHistory`). */
+type Page =
+  | "chat"
+  | "skills"
+  | "control"
+  | "connectors"
+  | "help"
+  | "settings"
+  | "account"
+  | "image-create"
+  | "video-create";
 
 function ProjectInspector({
   activeTab,
@@ -530,7 +544,13 @@ export function SessionUygulama({
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskBusy, setNewTaskBusy] = useState(false);
   const [newTaskError, setNewTaskError] = useState<string | null>(null);
-  const [page, setPage] = useState<"chat" | "skills" | "control" | "connectors" | "help" | "settings" | "account" | "image-create" | "video-create">("chat");
+  // Sayfa geçişleri bir geçmiş yığınında tutulur: üst çubuktaki geri/ileri
+  // düğmeleri `setPage` çağıran TÜM mevcut yerlerle (aşağıda) değişmeden
+  // çalışır — `push` aynı imzayı taşır, yalnız kaynağı `useState` değil bu
+  // yığındır.
+  const pageHistory = useNavigationHistory<Page>("chat");
+  const page = pageHistory.current;
+  const setPage = pageHistory.push;
   const [settingsSection, setSettingsSection] = useState<"genel" | "kisisellestirme">("genel");
   // "Ayarlar" ve "Kontrol Paneli" aynı ekranı açar; başlık hangi kapıdan
   // girildiğini söyler, yoksa kullanıcı yanlış yere gittiğini sanıyordu.
@@ -1005,7 +1025,7 @@ export function SessionUygulama({
   if (!active) {
     if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
     return <Shell
-      header={<AppHeader title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
+      header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
       content={<>{page === "image-create" ? <ImageCreate client={null} /> : page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
@@ -1425,8 +1445,12 @@ export function SessionUygulama({
       }
       header={
         <AppHeader
+          canNavigateBack={pageHistory.canGoBack}
+          canNavigateForward={pageHistory.canGoForward}
           inspectorAvailable={page === "chat"}
           inspectorOpen={layout.inspectorOpen}
+          onNavigateBack={pageHistory.back}
+          onNavigateForward={pageHistory.forward}
           onShare={page === "chat" && active.messages.some((message) => message.rol === "kullanici" || message.rol === "asistan") ? () => setShareOpen(true) : undefined}
           onToggleInspector={layout.toggleInspector}
           onToggleSidebar={layout.toggleSidebar}

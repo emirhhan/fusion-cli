@@ -4,7 +4,20 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   height: 100%;
   min-width: 0;
-  padding: 10px 12px 12px;
+  /* Üstteki pay `--titlebar-inset` kadar büyür (yalnız macOS'ta, bkz.
+     tokens.css): trafik ışıkları bu payın üstüne biner, sohbet ve marka
+     satırı ışıkların ALTINDA kalmaz. Ayrı bir boş şerit ÇİZİLMEZ — pay
+     kenar çubuğunun kendi dolgusudur. */
+  padding: calc(10px + var(--titlebar-inset)) 12px 12px;
+  position: relative;
+}
+
+/* Üst pay içindeki boş alan pencereyi sürükletir. macOS dışında
+   `--titlebar-inset` 0 olduğundan yükseklik sıfırlanır ve görünmez. */
+.sidebar__titlebar-spacer {
+  height: var(--titlebar-inset);
+  inset: 0 0 auto;
+  position: absolute;
 }
 
 .sidebar__top,
@@ -487,9 +500,23 @@
   font-size: var(--text-xs);
   justify-content: space-between;
   margin: 12px 8px 3px;
+  position: relative;
+}
+.sidebar__projects-heading-actions {
+  display: flex;
+  gap: 2px;
+  /* "…" ve "+" yalnız üstüne gelince görünür — sabit görünmeleri başlığı
+     kalabalıklaştırıyordu. */
+  opacity: 0;
+}
+.sidebar__projects-heading:hover .sidebar__projects-heading-actions,
+.sidebar__projects-heading:focus-within .sidebar__projects-heading-actions,
+.sidebar__projects-heading-actions:has(button[aria-expanded="true"]) {
+  opacity: 1;
 }
 .sidebar__projects-heading button,
-.sidebar__project-options {
+.sidebar__project-options,
+.sidebar__project-new-chat {
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
@@ -499,16 +526,35 @@
   width: 28px;
 }
 .sidebar__projects-heading button:hover,
-.sidebar__project-options:hover { background: var(--surface-hover); }
+.sidebar__project-options:hover,
+.sidebar__project-new-chat:hover { background: var(--surface-hover); }
+.sidebar__project-new-chat {
+  align-items: center;
+  display: flex;
+  justify-content: center;
+}
 .sidebar__project-row { align-items: center; display: flex; width: 100%; }
 .sidebar__project-row .sidebar__project { flex: 1; min-width: 0; }
-.sidebar__project-options { opacity: 0; }
+.sidebar__project-options,
+.sidebar__project-new-chat { opacity: 0; }
 .sidebar__project-row:hover .sidebar__project-options,
 .sidebar__project-row:focus-within .sidebar__project-options,
-.sidebar__project-options[aria-expanded="true"] { opacity: 1; }
+.sidebar__project-options[aria-expanded="true"],
+.sidebar__project-row:hover .sidebar__project-new-chat,
+.sidebar__project-row:focus-within .sidebar__project-new-chat {
+  opacity: 1;
+}
 @media (hover: none) {
   .sidebar__project-options,
+  .sidebar__project-new-chat,
   .sidebar__session-move { opacity: 1; }
+}
+.sidebar__projects-menu { margin: 4px 8px 8px; }
+.sidebar__projects-menu-empty {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  margin: 0;
+  padding: 8px;
 }
 .sidebar__project-menu {
   background: var(--surface-menu, var(--surface-raised));

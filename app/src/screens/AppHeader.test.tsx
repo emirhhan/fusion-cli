@@ -48,6 +48,57 @@ describe("AppHeader", () => {
     );
   });
 
+  it("geri/ileri işleyicisi verilmezse gezinme düğmelerini çizmez", () => {
+    render(
+      <AppHeader
+        inspectorOpen
+        onToggleInspector={vi.fn()}
+        onToggleSidebar={vi.fn()}
+        sidebarCollapsed={false}
+        title="Sohbet"
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Geri git" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "İleri git" })).toBeNull();
+  });
+
+  it("geri/ileri işleyicileri verilince düğmeleri çizer ve yığın durumuna göre etkinleştirir", () => {
+    const onNavigateBack = vi.fn();
+    const onNavigateForward = vi.fn();
+    render(
+      <AppHeader
+        canNavigateBack
+        canNavigateForward={false}
+        inspectorOpen
+        onNavigateBack={onNavigateBack}
+        onNavigateForward={onNavigateForward}
+        onToggleInspector={vi.fn()}
+        onToggleSidebar={vi.fn()}
+        sidebarCollapsed={false}
+        title="Sohbet"
+      />,
+    );
+    const backButton = screen.getByRole("button", { name: "Geri git" });
+    const forwardButton = screen.getByRole("button", { name: "İleri git" });
+    expect(backButton.hasAttribute("disabled")).toBe(false);
+    expect(forwardButton.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(backButton);
+    expect(onNavigateBack).toHaveBeenCalledOnce();
+  });
+
+  it("başlık alanının boş kısmı pencereyi sürükletir", () => {
+    const { container } = render(
+      <AppHeader
+        inspectorOpen
+        onToggleInspector={vi.fn()}
+        onToggleSidebar={vi.fn()}
+        sidebarCollapsed={false}
+        title="Sohbet"
+      />,
+    );
+    expect(container.querySelector(".app-header__identity")?.hasAttribute("data-tauri-drag-region")).toBe(true);
+  });
+
   it("tema seçicisini BAŞLIKTA çizmez", () => {
     // Tema bir tercihtir ve yeri Ayarlar'dır. Başlıkta durması gereksiz yer
     // kaplıyor ve günlük kullanımda yanlışlıkla değiştirilmesine yol açıyordu.

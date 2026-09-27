@@ -15,6 +15,7 @@ const sessions = [
 afterEach(() => {
   cleanup();
   document.querySelector("[data-test-sidebar-styles]")?.remove();
+  document.documentElement.style.removeProperty("--titlebar-inset");
 });
 
 beforeEach(() => localStorage.clear());
@@ -343,6 +344,68 @@ describe("Sidebar yeni düzen", () => {
   });
 });
 
+describe("Sidebar — proje akordeonu ve Projeler menüsü", () => {
+  const project = { root: "/Projects/voltiva", name: "voltiva", pinned: false, updated_at: 1 };
+  const session = {
+    session_id: "chat", source: "fusion", title: "Site planı", project: "voltiva", projectRoot: project.root,
+  };
+
+  it("varsayılan olarak açıktır; tıklanınca sohbetlerini gizler ve tekrar tıklanınca gösterir", () => {
+    render(<Sidebar etkin={null} oturumlar={[session]} projeler={[project]} onYeni={vi.fn()} onSec={vi.fn()} />);
+    const projectButton = screen.getByRole("button", { name: "voltiva projesini aç" });
+    expect(projectButton.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Site planı")).toBeTruthy();
+
+    fireEvent.click(projectButton);
+    expect(projectButton.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("Site planı")).toBeNull();
+
+    fireEvent.click(projectButton);
+    expect(projectButton.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Site planı")).toBeTruthy();
+  });
+
+  it("projeyi kapatmak sohbeti navigasyona GÖTÜRMEZ — yalnız görünürlüğü değiştirir", () => {
+    const navigate = vi.fn();
+    render(
+      <Sidebar
+        etkin={null}
+        onNavigate={navigate}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[session]}
+        projeler={[project]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "voltiva projesini aç" }));
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("satıra gelince beliren düğme o projede yeni sohbet başlatır", () => {
+    const navigate = vi.fn();
+    render(
+      <Sidebar
+        etkin={null}
+        onNavigate={navigate}
+        onSec={vi.fn()}
+        onYeni={vi.fn()}
+        oturumlar={[session]}
+        projeler={[project]}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "voltiva projesinde yeni sohbet başlat" }));
+    expect(navigate).toHaveBeenCalledWith(`project:${project.root}`);
+  });
+
+  it("Projeler başlığının '…' menüsü gizli proje yokken bunu söyler", () => {
+    render(
+      <Sidebar etkin={null} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} projeler={[project]} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Proje listesi seçenekleri" }));
+    expect(screen.getByText("Gizlenmiş proje yok.")).toBeTruthy();
+  });
+});
+
 it("projeyi yeniden adlandırır, listeden kaldırır ve geri ekler", () => {
   const project = { root: "/Projects/voltiva", name: "voltiva", pinned: false, updated_at: 1 };
   render(<Sidebar etkin={null} oturumlar={[{
@@ -361,7 +424,10 @@ it("projeyi yeniden adlandırır, listeden kaldırır ve geri ekler", () => {
   fireEvent.click(screen.getByRole("button", { name: "Listeden kaldır" }));
   expect(screen.queryByRole("button", { name: "Yeni ad projesini aç" })).toBeNull();
   expect(screen.getByRole("region", { name: "Sohbetler" })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "voltiva projesini geri ekle" }));
+
+  // Gizlenen proje artık listede DEĞİL, "Projeler" başlığının "…" menüsünde durur.
+  fireEvent.click(screen.getByRole("button", { name: "Proje listesi seçenekleri" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "voltiva projesini geri ekle" }));
   expect(screen.getByRole("button", { name: "Yeni ad projesini aç" })).toBeTruthy();
 });
 
@@ -428,6 +494,24 @@ it("StrictMode ve depolama hatasında sabitleme arayüzünü çalışır tutar",
     expect(screen.getByRole("menuitemcheckbox", { name: "Sabitlemeyi kaldır" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("alert").textContent).toContain("kaydedilemedi");
   } finally { write.mockRestore(); }
+});
+
+describe("Sidebar — macOS başlık çubuğu payı", () => {
+  it("üstte pencereyi sürükleten görünmez bir şerit bırakır", () => {
+    const { container } = render(
+      <Sidebar etkin={null} onSec={vi.fn()} onYeni={vi.fn()} oturumlar={[]} />,
+    );
+    const spacer = container.querySelector(".sidebar__titlebar-spacer");
+    expect(spacer?.hasAttribute("data-tauri-drag-region")).toBe(true);
+  });
+
+  it("trafik ışığı payı kenar çubuğunun hem üst dolgusunu hem şeridin boyunu belirler", () => {
+    // jsdom `getComputedStyle` CSS özel özelliklerini (`var()`) çözmediği için
+    // piksel değeri yerine kuralın kaynakta doğru değişkene bağlı olduğu
+    // doğrulanır; piksel-doğru sonuç `e2e/` görsel regresyonuyla doğrulanır.
+    expect(sidebarStyles).toMatch(/\.sidebar\s*\{[^}]*padding:\s*calc\(10px \+ var\(--titlebar-inset\)\)/);
+    expect(sidebarStyles).toMatch(/\.sidebar__titlebar-spacer\s*\{[^}]*height:\s*var\(--titlebar-inset\)/);
+  });
 });
 
 describe("Sidebar — güncelleme ve daraltma", () => {

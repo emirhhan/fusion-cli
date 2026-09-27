@@ -59,6 +59,15 @@
   z-index: var(--z-header);
 }
 
+/* Kenar çubuğu daraltıldığında pencerenin sol üst köşesi artık kenar
+   çubuğuna değil doğrudan üst çubuğa denk gelir. macOS'ta trafik ışıkları
+   orada durur (bkz. tokens.css `--titlebar-safe-left`); düğmeler ışıkların
+   altına girmesin diye üst çubuk o kadar sağa kayar. Windows'ta/tarayıcıda
+   bu değişken 0 olduğu için hiçbir şey değişmez. */
+.app-shell[data-sidebar-collapsed="true"] .app-shell__header {
+  padding-left: var(--titlebar-safe-left, 0px);
+}
+
 .app-shell__main {
   container-name: conversation-workspace;
   container-type: inline-size;

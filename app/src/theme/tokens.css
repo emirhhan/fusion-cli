@@ -137,6 +137,21 @@
   --z-header: 10;
   --z-overlay: 30;
   --z-dialog: 40;
+
+  /* Varsayılan: sistemin kendi başlık çubuğu var, ekstra pay gerekmez. */
+  --titlebar-inset: 0px;
+}
+
+/* Yalnız macOS'ta ve yalnız yerli ana pencerede (main.tsx) ayarlanır: pencere
+   `titleBarStyle: "Overlay"` ile açılır ve trafik ışıkları içeriğin üstüne
+   biner. Kenar çubuğu ve üst çubuk bu payı kullanarak trafik ışıklarına yer
+   açar; ayrı ve boş bir şerit ÇİZİLMEZ. */
+:root[data-fusion-titlebar-inset="true"] {
+  --titlebar-inset: 28px;
+  /* Trafik ışığı kümesinin sol kenardan kapladığı genişlik (Apple HIG'e göre
+     ölçülü): kenar çubuğu daraltıldığında üst çubuk bu kadar sola çekilmez,
+     düğmeler ışıkların altına girmez. */
+  --titlebar-safe-left: 72px;
 }
 
 :root[data-theme="dark"] {
