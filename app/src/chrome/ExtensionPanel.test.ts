@@ -232,6 +232,15 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     expect(bulunan.matches[0].name).toBe("Kampanyalar");
   });
 
+  it("virgüllü aramada terimlerden herhangi birini bulur; boşsa yol gösterir", () => {
+    // Ölçüldü (27 Eylül): model "campaigns, kampanyalar" gibi aradı, tek öbek sanıldı, 0 sonuç.
+    const bulunan = action("find", { query: "campaigns, kampanya | ara" }) as { matches: { name: string }[] };
+    expect(bulunan.matches.map((m) => m.name)).toEqual(expect.arrayContaining(["Kampanyalar", "Ara"]));
+    const bos = action("find", { query: "page content, navigation" }) as { matches: unknown[]; ipucu?: string };
+    expect(bos.matches).toEqual([]);
+    expect(bos.ipucu).toContain("query olmadan");
+  });
+
   it("React kontrollü alana yerel ayarlayıcıyla yazar ve input olayı yayar", () => {
     const giris = document.getElementById("ara") as HTMLInputElement;
     const olaylar: string[] = [];

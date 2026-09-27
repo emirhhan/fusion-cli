@@ -46,4 +46,17 @@ async function loop() {
   }
 }
 
+/** Eklenti dosyaları diskte güncellendiyse (Fusion güncellemesi) arka plana söyle. */
+const UPDATE_CHECK_MS = 60000;
+async function checkUpdate() {
+  try {
+    const response = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const onDisk = (await response.json()).version;
+    if (onDisk && onDisk !== chrome.runtime.getManifest().version) {
+      await chrome.runtime.sendMessage({ type: "fusion.update" });
+    }
+  } catch { /* Denetim bir sonraki aralıkta yinelenir. */ }
+}
+setInterval(() => void checkUpdate(), UPDATE_CHECK_MS);
+
 void loop();

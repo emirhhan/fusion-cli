@@ -72,13 +72,21 @@ export function pageAction(operation, args) {
   if (operation === "find") {
     const query = String(args.query || "").toLocaleLowerCase("tr").trim();
     if (!query) throw new Error("Aranacak metni verin.");
+    // Modeller "campaigns, kampanyalar" gibi birden çok terimle arıyor; her biri ayrı
+    // aranır, biri tutarsa yeter (ölçüldü: tek öbek sanılıp hep 0 sonuç dönüyordu).
+    const terms = query.split(/[,|]/).map((term) => term.trim()).filter(Boolean);
     const hits = [...document.querySelectorAll(INTERACTIVE + ", label, h1, h2, h3, td, li, span, p, div")]
       .filter((el) => safe(el) && visibleBox(el))
-      .filter((el) => nameOf(el).toLocaleLowerCase("tr").includes(query))
+      .filter((el) => { const name = nameOf(el).toLocaleLowerCase("tr"); return terms.some((term) => name.includes(term)); })
       // En içteki eşleşme: "div > span > button" zincirinde düğmeyi döndür.
       .filter((el, _, list) => !list.some((other) => other !== el && el.contains(other)))
       .slice(0, 20);
-    return { query, matches: hits.map(describe) };
+    const result = { query, matches: hits.map(describe) };
+    if (!hits.length) {
+      result.ipucu = "Eşleşme yok. Sayfada ne olduğunu görmek için chrome_page'i query olmadan çağır; " +
+        "sayfadaki gerçek yazıyı ara ya da adresi biliyorsan doğrudan git.";
+    }
+    return result;
   }
   if (operation === "describe") {
     // Fusion tıklamadan ÖNCE sorar: "Gönder/Sil/Satın al" gibi düğmeler onay ister.

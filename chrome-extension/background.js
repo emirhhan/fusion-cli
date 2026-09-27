@@ -49,6 +49,18 @@ chrome.runtime.onMessage.addListener((message, _sender, reply) => {
     reply({ ok: true, surum: chrome.runtime.getManifest().version });
     return false;
   }
+  if (message?.type === "fusion.update") {
+    // Diskte yeni sürüm var (offscreen.js denetler). Açık paneli kesmemek için yalnız
+    // panel kapalıyken yenilenir; açıksa panel "Şimdi güncelle" düğmesini gösterir.
+    chrome.runtime.getContexts({ contextTypes: ["SIDE_PANEL"] })
+      .then((panels) => {
+        if (panels.length) { reply({ ok: false, sebep: "panel açık" }); return; }
+        reply({ ok: true });
+        chrome.runtime.reload();
+      })
+      .catch((cause) => reply({ ok: false, hata: String(cause?.message || cause) }));
+    return true;
+  }
   if (message?.type === "fusion.status") {
     chrome.storage.session.set({ fusionAuto: message.status }).then(() => reply({ ok: true }));
     return true;

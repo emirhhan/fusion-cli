@@ -11,6 +11,9 @@ describe("Chrome eklenti arka planı", () => {
     let onMessage!: (m: Record<string, unknown>, s: object, r: (v: unknown) => void) => boolean;
     const sendNativeMessage = vi.fn(async () => ({ ok: true, port: 5000, anahtar: "t" }));
     const createDocument = vi.fn(async () => undefined);
+    let panelAcik = true;
+    const getContexts = vi.fn(async () => (panelAcik ? [{ contextType: "SIDE_PANEL" }] : []));
+    const reload = vi.fn();
     Object.assign(chromeMock, {
       action: { onClicked: { addListener: (l: typeof actionClicked) => { actionClicked = l; } } },
       sidePanel: { open: vi.fn(async () => undefined) },
@@ -21,6 +24,8 @@ describe("Chrome eklenti arka planı", () => {
         onStartup: { addListener: vi.fn() },
         onInstalled: { addListener: vi.fn() },
         sendNativeMessage,
+        getContexts,
+        reload,
       },
     });
     vi.resetModules();
@@ -42,6 +47,16 @@ describe("Chrome eklenti arka planı", () => {
     const surum = vi.fn();
     onMessage({ type: "fusion.ping" }, {}, surum);
     expect(surum).toHaveBeenCalledWith({ ok: true, surum: "0.2.0" });
+
+    // Yeni sürüm diskte: panel açıkken kullanıcıyı kesmez, kapalıyken kendini yeniler.
+    const guncelle = vi.fn();
+    expect(onMessage({ type: "fusion.update" }, {}, guncelle)).toBe(true);
+    await vi.waitFor(() => expect(guncelle).toHaveBeenCalledWith({ ok: false, sebep: "panel açık" }));
+    expect(reload).not.toHaveBeenCalled();
+    panelAcik = false;
+    onMessage({ type: "fusion.update" }, {}, vi.fn());
+    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(getContexts).toHaveBeenCalledWith({ contextTypes: ["SIDE_PANEL"] });
 
     const goruntu = vi.fn();
     onMessage({ type: "fusion.captureVisibleTab", windowId: 3 }, {}, goruntu);

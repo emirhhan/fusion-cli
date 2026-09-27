@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Fusion Browser",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Fusion'ı Chrome'a bağlar: yan panelde sohbet eder, izin verdiğiniz sitelerde sayfayı okur, kaydırır ve tıklar.",
   "minimum_chrome_version": "116",
   "permissions": [

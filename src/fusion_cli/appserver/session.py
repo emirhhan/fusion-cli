@@ -134,7 +134,9 @@ CHROME_NOTE = (
     "Chrome sekmesi bağlı. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
     "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
-    "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle."
+    "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "
+    "chrome_page'i query olmadan çağırıp sayfayı oku; adresi biliyorsan menüde arama yerine "
+    "doğrudan git."
 )
 
 CHROME_TURN_TOOLS = {
