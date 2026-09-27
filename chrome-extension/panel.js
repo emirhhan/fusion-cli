@@ -174,7 +174,9 @@ async function autoUpdate(version) {
   if (tried?.version === version && Date.now() - tried.at < AUTO_UPDATE_RETRY_MS) return;
   await local?.set({ [AUTO_UPDATE_KEY]: { version, at: Date.now() } });
   $("update").firstElementChild.textContent = "Fusion Browser güncelleniyor…";
-  setTimeout(() => chrome.runtime.reload(), AUTO_UPDATE_DELAY_MS);
+  // Fonksiyon şimdi yakalanır: zamanlayıcı çalıştığında sayfa kapanıyor olabilir.
+  const reload = chrome.runtime.reload.bind(chrome.runtime);
+  setTimeout(reload, AUTO_UPDATE_DELAY_MS);
 }
 
 // --- Eylemler -----------------------------------------------------------------

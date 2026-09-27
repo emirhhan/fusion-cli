@@ -152,10 +152,17 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     kit = chromeKit({ backgroundVersion: null });
     const reload = vi.fn();
     (kit.chromeMock.runtime as Record<string, unknown>).reload = reload;
+    // Bu sürüm az önce denenmiş say: otomatik yenileme zamanlayıcısı kurulmasın,
+    // yalnız düğme sınansın (zamanlayıcı test bittikten sonra çalışıyordu).
+    (kit.chromeMock.storage as Record<string, unknown>).local = {
+      get: async () => ({ fusionAutoUpdate: { version: "0.2.0", at: Date.now() } }),
+      set: async () => undefined,
+    };
     await loadPanel();
     await waitFor(() => expect($("update").hidden).toBe(false));
+    expect(reload).not.toHaveBeenCalled();
     click("reload-extension");
-    expect(reload).toHaveBeenCalled();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("çalışan görev yokken eski sürümü kendiliğinden yeniler, aynı sürümü tekrar denemez", async () => {
