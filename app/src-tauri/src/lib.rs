@@ -295,8 +295,7 @@ async fn ses_penceresi_ac(app: tauri::AppHandle) -> Result<(), String> {
             let size = monitor.size();
             let origin = monitor.position();
             let x = (origin.x as f64 + size.width as f64) / scale - SES_MINI_BOYUT.0 - 24.0;
-            let y = (origin.y as f64 + size.height as f64 / 2.0) / scale
-                - SES_MINI_BOYUT.1 / 2.0;
+            let y = (origin.y as f64 + size.height as f64 / 2.0) / scale - SES_MINI_BOYUT.1 / 2.0;
             voice
                 .set_position(tauri::LogicalPosition::new(x, y))
                 .map_err(|error| error.to_string())?;
