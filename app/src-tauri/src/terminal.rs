@@ -388,6 +388,7 @@ fn spawn_shell(
             .map_err(|error| format!("PTY açılamadı: {error}"))?;
         let mut command = CommandBuilder::new(&shell);
         command.cwd(cwd);
+        apply_terminal_env(&mut command);
         match pair.slave.spawn_command(command) {
             Ok(child) => return Ok((pair, child)),
             Err(error) => errors.push(format!("{shell}: {error}")),
@@ -397,6 +398,14 @@ fn spawn_shell(
         "etkileşimli kabuk başlatılamadı: {}",
         errors.join("; ")
     ))
+}
+
+/// Fusion Dock'tan açıldığında ortamda `TERM` yoktur; kabuk ekran türünü
+/// bilmeyince `clear`, `vim`, `top` çalışmaz ("TERM environment variable not
+/// set"). Terminal görünümü xterm.js'tir ve 256 renk ile gerçek rengi destekler.
+fn apply_terminal_env(command: &mut CommandBuilder) {
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
 }
 
 #[cfg(unix)]
@@ -432,6 +441,14 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Condvar, Mutex, MutexGuard, OnceLock};
     use std::time::{Duration, Instant};
+
+    #[test]
+    fn kabuk_ekran_turunu_bilir_clear_calisir() {
+        let mut command = CommandBuilder::new("/bin/sh");
+        super::apply_terminal_env(&mut command);
+        assert_eq!(command.get_env("TERM").unwrap(), "xterm-256color");
+        assert_eq!(command.get_env("COLORTERM").unwrap(), "truecolor");
+    }
 
     type OutputLog = Arc<Mutex<Vec<TerminalOutput>>>;
     type ClosedLog = Arc<Mutex<Vec<TerminalClosed>>>;
