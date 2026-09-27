@@ -212,3 +212,23 @@ async def test_tiklamadan_once_okunan_oge_adi_izin_karti_icin_saklanir() -> None
     assert bridge.element_name("e1") is None
     assert bridge.element_name(None) is None
     await bridge.close()
+
+
+async def test_ust_uste_baslat_ve_kapat_anahtarsiz_kopru_birakmaz() -> None:
+    """Ölçüldü (27 Eylül): sekmeler geri yüklenirken aynı çekirdeğe chrome.baslat ve
+    chrome.durdur üst üste geldi; kapatma başlatmanın ortasında anahtarı sildi ve
+    durum dosyasına BOŞ anahtar yazıldı. Eklenti bu köprüye hiç bağlanamadı."""
+    from fusion_cli.appserver.chrome_host import read_bridge_state
+
+    bridge = ChromeBridge()
+    baslat = asyncio.create_task(bridge.start())
+    await asyncio.sleep(0)
+    await asyncio.gather(baslat, bridge.close())
+    durum = read_bridge_state()
+    if bridge.running:
+        assert durum is not None and durum["anahtar"] and durum["anahtar"] == bridge._token
+    else:
+        assert durum is None
+    tekrar = await bridge.start()
+    assert tekrar["anahtar"] and read_bridge_state()["anahtar"] == tekrar["anahtar"]
+    await bridge.close()

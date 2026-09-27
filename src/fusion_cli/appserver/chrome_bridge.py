@@ -61,6 +61,7 @@ class ChromeBridge:
         self._feed_changed = asyncio.Event()
         #: Son `describe` sonuçları (ref → öğe adı); izin kartı adı gösterir.
         self._element_names: dict[str, str] = {}
+        self._lifecycle = asyncio.Lock()
 
     @property
     def running(self) -> bool:
@@ -79,18 +80,27 @@ class ChromeBridge:
         }
 
     async def start(self) -> dict[str, Any]:
-        if self._server is None:
-            self._token = secrets.token_urlsafe(32)
-            self._server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
-            self._port = self._server.sockets[0].getsockname()[1]
-            # Eklenti Fusion'ı yerel mesajlaşmayla KENDİSİ bulur (bkz. `chrome_host`);
-            # yazılamazsa elle eşleştirme yolu yine çalışır.
-            with contextlib.suppress(OSError):
-                write_bridge_state(self._port, self._token)
-                await asyncio.to_thread(install_native_host, candidate_extension_ids())
-        return self.status(reveal_token=True)
+        # Başlatma ve kapatma sıralanır. Ölçüldü (27 Eylül): sekmeler geri yüklenirken
+        # `chrome.baslat` ile `chrome.durdur` üst üste geldi; kapatma, başlatmanın
+        # `await`ünde anahtarı silip durum dosyasına BOŞ anahtar yazdırdı.
+        async with self._lifecycle:
+            if self._server is None:
+                server = await asyncio.start_server(self._handle, "127.0.0.1", 0)
+                self._server = server
+                self._token = secrets.token_urlsafe(32)
+                self._port = server.sockets[0].getsockname()[1]
+                # Eklenti Fusion'ı yerel mesajlaşmayla KENDİSİ bulur (bkz. `chrome_host`);
+                # yazılamazsa elle eşleştirme yolu yine çalışır.
+                with contextlib.suppress(OSError):
+                    write_bridge_state(self._port, self._token)
+                    await asyncio.to_thread(install_native_host, candidate_extension_ids())
+            return self.status(reveal_token=True)
 
     async def close(self) -> None:
+        async with self._lifecycle:
+            await self._close()
+
+    async def _close(self) -> None:
         server, self._server = self._server, None
         if server is not None:
             with contextlib.suppress(OSError):
