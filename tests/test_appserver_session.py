@@ -1507,3 +1507,41 @@ async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path
     # Boşluklu değer komuta enjekte edilemez; bilinmeyen kip reddedilir.
     assert not (await oturum._chrome_settings({"model": "a b", "kaynak": "x"}))["ok"]
     assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]
+
+
+async def test_panel_konusmasi_uygulamanin_sohbetine_karismaz(tmp_path, monkeypatch):
+    """Kullanıcı isteği (28 Eylül): tarayıcı paneli konuşmaları kendi geçmişinde kalsın,
+    uygulamada görünmesin."""
+    from fusion_cli.cli import session as cli_session
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+    from fusion_cli.core.types import Message
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    oturum._state.history = [Message("user", "uygulama sohbeti")]
+    gorulen: list[list] = []
+
+    async def fake_run_agent_task(task, _config, **kwargs):
+        gorulen.append(list(kwargs["history"]))
+        kwargs["sinks"][0].handle(
+            ToolExecuted(name="chrome_page", args={}, outcome=ToolOutcome.OK, output="{}")
+        )
+        mesajlar = [*kwargs["history"], Message("user", task), Message("assistant", "tamam")]
+        return SimpleNamespace(ok=True, final_text="tamam", messages=mesajlar)
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    kayitlar: list[str] = []
+    monkeypatch.setattr(oturum._transcript_store, "record_user", kayitlar.append)
+
+    assert (await oturum._chrome_turn("sayfayı oku"))["metin"] == "tamam"
+    await oturum._chrome_turn("devam et")
+
+    assert gorulen[0] == []  # panel uygulamanın geçmişini görmez
+    assert [m.content for m in gorulen[1]] == ["sayfayı oku", "tamam"]  # kendi geçmişi sürer
+    assert [m.content for m in oturum._state.history] == ["uygulama sohbeti"]
+    assert kayitlar == []  # uygulamanın sohbet kaydına yazılmaz
+    assert not [s for s in satirlar if "ToolExecuted" in s]  # adımlar uygulamaya düşmez
+    assert any(item["tur"] == "adim" for item in oturum._chrome._feed)  # panele düşer
+
+    assert (await oturum._chrome_settings({"yeni": True}))["ok"] is not False
+    assert oturum._chrome_history == []

@@ -330,7 +330,12 @@ $("model").addEventListener("change", guard(async () => {
   const [kaynak, model] = $("model").value.split("|");
   if (kaynak && model) await loadSettings({ kaynak, model });
 }));
-$("new-chat").addEventListener("click", guard(async () => { error(); await saveThread({ ...thread, mesajlar: [], soru: null }); }));
+$("new-chat").addEventListener("click", guard(async () => {
+  error();
+  // Fusion'daki panel konuşmasını da sıfırla (uygulamanın sohbetleri etkilenmez).
+  if (await connection()) await request("/settings", { yeni: true });
+  await saveThread({ ...thread, mesajlar: [], soru: null });
+}));
 $("open-settings").addEventListener("click", () => {
   const sheet = $("settings");
   if (typeof sheet.showModal === "function") sheet.showModal();

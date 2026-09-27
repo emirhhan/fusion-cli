@@ -45,6 +45,7 @@ from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
 from ..core.events import Event
 from ..core.health import HealthRegistry
+from ..core.types import Message
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
@@ -131,9 +132,10 @@ from .workspace import (
 #: model hesap seçim ekranında durup "hesap seçmemi ister misin?" diye sordu; salt
 #: okuma görevinde görevde adı geçen ya da tek uygun hesabı seçmek beklenen adımdır.
 CHROME_NOTE = (
-    "Kullanıcının kendi Chrome'u bağlı: oturum açık sitelerde (Google Ads, Instagram, Meta, "
-    "mağaza paneli) ve görevde Chrome geçtiğinde chrome_* araçlarını kullan; browser_* ayrı ve "
-    "oturumsuz bir tarayıcıdır, orada giriş sayfası görmen oturumun kapalı olduğu anlamına "
+    "İnternet sitelerindeki işler (Google Ads, Instagram, Meta, mağaza paneli, herhangi bir "
+    "site) kullanıcının kendi Chrome'unda chrome_* araçlarıyla yapılır; Chrome kapalıysa Fusion "
+    "onu kendisi açar. browser_* ayrı ve oturumsuz bir tarayıcıdır, yalnız yerel projeyi "
+    "(localhost) denemek içindir; orada giriş sayfası görmen oturumun kapalı olduğu anlamına "
     "gelmez. Tarayıcı işlerinde okuma için gereken ara adımları (hesap veya "
     "sayfa seçimi, sekme açma, 'daha fazla göster', kaydırma) kendin yap: görevde adı geçen "
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
@@ -279,6 +281,10 @@ def _attachment_context(value: object) -> tuple[str, str | None]:
     )
 
 
+def _discard_line(_line: str) -> None:
+    """Yan panel turunun satırları masaüstü teline yazılmaz (bkz. `_run_turn`)."""
+
+
 class _MeteredSink:
     """Olayları yazan sink'i sarar ve tüketimi sayar.
 
@@ -367,6 +373,8 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
+        #: Yan panelin kendi konuşma geçmişi (uygulamanın sohbetinden ayrı).
+        self._chrome_history: list[Message] = []
         self._chrome = ChromeBridge(
             self._chrome_turn, self._cancel_turn, self._chrome_answer, self._chrome_settings
         )
@@ -411,6 +419,11 @@ class AppSession:
         Claude in Chrome'daki gibi panel modeli ve izin kipini kendisi seçer. Model
         masaüstündeki `/development uygula` komutuyla değişir: doğrulama aynıdır.
         """
+        if data.get("yeni") is True:
+            # Paneldeki "temizle": yeni panel konuşması, uygulamanın sohbeti etkilenmez.
+            if self._turn is not None and not self._turn.done():
+                return {"ok": False, "metin": "Görev sürerken yeni sohbet açılamaz."}
+            self._chrome_history = []
         mode = data.get("mod")
         if mode is not None:
             error = self._apply_mode(mode if isinstance(mode, str) else "")
@@ -1281,12 +1294,15 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_TURN_ALREADY_RUNNING}
         from ..cli.session import run_agent_task
 
-        self._transcript_store.record_user(task)
+        # Yan panelin konuşması uygulamanın sohbetine KARIŞMAZ: kendi geçmişi vardır,
+        # diske yazılmaz, adımları ve soruları yalnız panele akar (Claude in Chrome gibi).
+        if not browser_only:
+            self._transcript_store.record_user(task)
+        history = self._chrome_history if browser_only else self._state.history
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
-        # Yan panelin turunda adımlar ve sorular panele de akar (Claude in Chrome gibi).
-        writer = self._chrome.tee(self._writer) if browser_only else self._writer
+        writer = self._chrome.tee(_discard_line) if browser_only else self._writer
         sink = _MeteredSink(ProtocolSink(writer), self._usage)
         prompter = ProtocolPrompter(
             writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
@@ -1311,7 +1327,8 @@ class AppSession:
             # istek ilk tur henüz görünmediği için üst üste başlayabilir.
             memory_block = await asyncio.to_thread(self._personal_memory.prompt_block)
             # Chrome bağlıyken tarayıcı işlerinin sınırı (bkz. `CHROME_NOTE`).
-            chrome_note = CHROME_NOTE if self._chrome.status()["bagli"] else ""
+            # Köprü açıksa not verilir: eklenti o an bağlı olmasa da chrome_* Chrome'u açar.
+            chrome_note = CHROME_NOTE if self._chrome.running else ""
             extra_system = "\n\n".join(
                 part
                 for part in (
@@ -1333,7 +1350,7 @@ class AppSession:
                 mode=self._state.approval,
                 root=self._state.root,
                 home=self._state.home,
-                history=self._state.history,
+                history=history,
                 chrome_bridge=self._chrome,
                 allowed_tools=CHROME_TURN_TOOLS if browser_only else None,
                 extra_system=extra_system,
@@ -1359,12 +1376,16 @@ class AppSession:
         except asyncio.CancelledError:
             # İptal de bir sonuçtur: kaydedilmezse sekme yeniden açıldığında
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
-            self._transcript_store.record_assistant(messages.APP_TURN_CANCELLED)
+            if not browser_only:
+                self._transcript_store.record_assistant(messages.APP_TURN_CANCELLED)
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._turn = None
         # Çok-turlu sohbet: bu turun ürettiği geçmiş bir SONRAKİ `tur.calistir`e
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
+        if browser_only:
+            self._chrome_history = outcome.messages
+            return {"ok": outcome.ok, "metin": outcome.final_text or messages.APP_TURN_NO_ANSWER}
         self._state.history = outcome.messages
         # Transcript bir BAŞARI kaydı değil, NE OLDUĞU kaydıdır.
         #

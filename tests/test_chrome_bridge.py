@@ -282,3 +282,42 @@ async def test_panel_ayar_ucu_yalniz_izinli_alanlari_iletir() -> None:
     assert cevap.json() == {"ok": True, "mod": "auto"}
     assert gelen == [{"mod": "auto"}]
     await bridge.close()
+
+
+async def test_eklenti_bagli_degilse_chrome_acilir_ve_baglaninca_komut_gider() -> None:
+    """Kullanıcı isteği (28 Eylül): uygulamada 'şu sitede şunu yap' denince Fusion
+    Chrome'u kendisi açsın, eklenti bağlanınca işi orada yapsın."""
+    from fusion_cli.appserver import chrome_bridge as modul
+
+    acilis: list[str] = []
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+
+    async def chrome_ac() -> None:
+        acilis.append("açıldı")
+
+        async def eklenti():
+            async with httpx.AsyncClient(trust_env=False) as client:
+                command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+                await client.post(
+                    f"{address}/result",
+                    headers=headers,
+                    json={"id": command["id"], "ok": True, "veri": {"title": "Ads"}},
+                )
+
+        asyncio.get_running_loop().create_task(eklenti())
+
+    bridge._launch_browser = chrome_ac
+    sonuc = await bridge.invoke("snapshot", {})
+    assert acilis == ["açıldı"] and sonuc["veri"] == {"title": "Ads"}
+    await bridge.close()
+
+    # Köprü hiç çalışmıyorsa (uygulama yok) Chrome açılmaz, açık hata verilir.
+    kapali = ChromeBridge()
+    kapali._launch_browser = chrome_ac
+    with pytest.raises(ConnectionError):
+        await kapali.invoke("snapshot", {})
+    assert acilis == ["açıldı"]
+    assert modul.BROWSER_CONNECT_WAIT_SECONDS > 0

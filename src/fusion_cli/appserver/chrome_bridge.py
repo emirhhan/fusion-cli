@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import secrets
+import sys
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -38,6 +39,11 @@ ANSWER_FIELDS = ("secim", "metin")
 #: Açık köprü durum dosyası kaybolduysa kendini bu aralıkla yeniden duyurur. Eklenti
 #: (offscreen.js) 5 sn'de bir yeniden eşleşmeyi dener; 10 sn kopukluğu ~15 sn'de kapatır.
 ANNOUNCE_INTERVAL_S = 10.0
+#: Eklenti bağlı değilken Chrome açıldıktan sonra bağlanması için beklenen süre.
+#: Offscreen belge 5 sn'de bir eşleşmeyi dener; Chrome'un soğuk açılışı ~5-10 sn.
+BROWSER_CONNECT_WAIT_SECONDS = 25.0
+#: Bağlantı beklenirken durumun yoklanma aralığı.
+BROWSER_CONNECT_POLL_SECONDS = 0.5
 #: İzin kartında gösterilen öğe adının üst sınırı (sayfa `nameOf` da 120'de keser).
 ELEMENT_NAME_LIMIT = 120
 
@@ -69,6 +75,8 @@ class ChromeBridge:
         self._element_names: dict[str, str] = {}
         self._lifecycle = asyncio.Lock()
         self._announcer: asyncio.Task[None] | None = None
+        #: Eklenti bağlı değilken Chrome'u açan işlev (testte değiştirilir).
+        self._launch_browser: Callable[[], Awaitable[None]] = _open_chrome
 
     @property
     def running(self) -> bool:
@@ -207,10 +215,12 @@ class ChromeBridge:
                 self._element_names[ref] = f"adı okunamayan {kind}"
 
     async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
-        if not self.running or not self.status()["bagli"]:
+        if not self.running:
             raise ConnectionError(
                 "Chrome eklentisi bağlı değil. Ayarlar > Tarayıcı bölümünden bağla."
             )
+        if not self.status()["bagli"]:
+            await self._connect_browser()
         identifier = secrets.token_urlsafe(12)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[identifier] = future
@@ -222,6 +232,24 @@ class ChromeBridge:
         if operation == "describe":
             self._remember_element(args, result)
         return result
+
+    async def _connect_browser(self) -> None:
+        """Eklenti bağlı değil: Chrome'u aç ve eklentinin bağlanmasını bekle.
+
+        Kullanıcı isteği (28 Eylül): uygulamada "şu sitede şunu yap" denince iş
+        kullanıcının Chrome'unda yapılsın; Chrome kapalıysa Fusion açsın.
+        """
+        with contextlib.suppress(OSError):
+            await self._launch_browser()
+        deadline = time.monotonic() + BROWSER_CONNECT_WAIT_SECONDS
+        while time.monotonic() < deadline:
+            if self.status()["bagli"]:
+                return
+            await asyncio.sleep(BROWSER_CONNECT_POLL_SECONDS)
+        raise ConnectionError(
+            "Chrome açıldı ama Fusion Browser eklentisi bağlanmadı. Chrome'da eklentinin "
+            "yüklü ve açık olduğunu kontrol et."
+        )
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -291,7 +319,9 @@ class ChromeBridge:
             elif method == "POST" and target == "/answer":
                 result = self._answer(body)
             elif method == "POST" and target == "/settings" and self._on_settings is not None:
-                allowed = {key: body[key] for key in ("model", "kaynak", "mod") if key in body}
+                allowed = {
+                    key: body[key] for key in ("model", "kaynak", "mod", "yeni") if key in body
+                }
                 result = await self._on_settings(allowed)
             elif method == "POST" and target == "/disconnect":
                 self._connected = False
@@ -330,3 +360,14 @@ class ChromeBridge:
             )
         writer.write(("\r\n".join(headers) + "\r\n\r\n").encode() + payload)
         await writer.drain()
+
+
+async def _open_chrome() -> None:
+    """Kullanıcının Chrome'unu aç (macOS); başka sistemde bir şey yapmaz."""
+    if sys.platform != "darwin":
+        return
+    process = await asyncio.create_subprocess_exec(
+        "open", "-g", "-a", "Google Chrome",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+    )  # fmt: skip
+    await process.wait()
