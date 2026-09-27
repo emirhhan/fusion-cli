@@ -32,6 +32,8 @@ export type SessionAction =
   | { type: "eventReceived"; id: string; event: Record<string, unknown> }
   | { type: "runningChanged"; id: string; running: boolean }
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
+  /** Soru başka yerden (Chrome yan paneli) cevaplandı; yalnız aynı kartsa kapanır. */
+  | { type: "questionClosed"; id: string; questionId: string }
   | { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null; maliyetUsd: number | null }
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
   | { type: "crashed"; id: string; reason: string }
@@ -115,6 +117,9 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         ...session,
         question: action.question,
       }));
+    case "questionClosed":
+      return updateSession(state, action.id, (session) =>
+        session.question?.id === action.questionId ? { ...session, question: null } : session);
     case "contextMeasured":
       return updateSession(state, action.id, (session) => ({
         ...session,

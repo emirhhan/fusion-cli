@@ -138,7 +138,13 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
         },
         (handler) => lineHandlers.current.set(id, handler),
       );
-      client.onEvent((event) => dispatch({ type: "eventReceived", id, event }));
+      client.onEvent((event) => {
+        if (event.olay === "SoruKapandi" && typeof event.id === "string") {
+          dispatch({ type: "questionClosed", id, questionId: event.id });
+          return;
+        }
+        dispatch({ type: "eventReceived", id, event });
+      });
       client.onQuestion((questionId, data) => {
         if (data.tur === "onay") {
           dispatch({

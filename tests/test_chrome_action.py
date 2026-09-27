@@ -58,13 +58,14 @@ def test_tum_chrome_araclari_kayitli_ve_panel_turunda_sunuluyor():
 
 
 class _AdVerenKopru(_Kopru):
-    def __init__(self, ad: str, submit: bool = False) -> None:
+    def __init__(self, ad: str, submit: bool = False, link: bool = False) -> None:
         super().__init__()
-        self._ad, self._submit = ad, submit
+        self._ad, self._submit, self._link = ad, submit, link
 
     async def invoke(self, name, data):
         self.cagrilar.append((name, data))
-        return {"ok": True, "veri": {"name": self._ad, "type": "", "submit": self._submit}}
+        veri = {"name": self._ad, "type": "", "submit": self._submit, "link": self._link}
+        return {"ok": True, "veri": veri}
 
 
 async def test_siradan_tiklama_sorulmaz_gonderme_ve_silme_sorulur():
@@ -81,3 +82,20 @@ async def test_siradan_tiklama_sorulmaz_gonderme_ve_silme_sorulur():
     assert await etki("Delete campaign") is None
     assert await etki("Devam", submit=True) is None
     assert await chrome.chrome_click_effect({"ref": "e1"}, None) is None
+
+
+async def test_gonderi_karti_ve_baglanti_sorulmaz_eylem_dugmesi_sorulur():
+    """Ölçüldü (27 Eylül): Instagram gönderi kartının adı "1.234 beğenme, 12 yorum"
+    içeriyor ve "beğen" kuralına takılıp okuma turunu izin sorusunda durduruyordu."""
+
+    async def etki(ad, link=False):
+        baglam = SimpleNamespace(chrome=_AdVerenKopru(ad, link=link))
+        return await chrome.chrome_click_effect({"ref": "e1"}, baglam)
+
+    assert await etki("1.234 beğenme, 12 yorum") is ToolEffect.REMOTE_READ
+    assert await etki("Beğen") is None
+    assert await etki("Beğeni ekle ve paylaş", link=True) is ToolEffect.REMOTE_READ
+    assert await etki("Kampanyayı sil", link=True) is ToolEffect.REMOTE_READ
+    # Bağlantı olsa da oturumu kapatmak kullanıcıya sorulur.
+    assert await etki("Çıkış yap", link=True) is None
+    assert await etki("Log out", link=True) is None

@@ -84,9 +84,13 @@ export function pageAction(operation, args) {
     // Fusion tıklamadan ÖNCE sorar: "Gönder/Sil/Satın al" gibi düğmeler onay ister.
     const element = target();
     const type = (element.getAttribute("type") || "").toLowerCase();
+    // Gerçek bir adrese giden bağlantı yalnız gezinir ("#" ve javascript: iş yapabilir).
+    const link = element.closest("a[href]");
+    const href = link ? link.getAttribute("href").trim().toLowerCase() : "";
     return {
       name: nameOf(element), tag: element.tagName.toLowerCase(), type,
       submit: type === "submit" || (element.tagName === "BUTTON" && !type && Boolean(element.form)),
+      link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
     };
   }
   if (operation === "click") {

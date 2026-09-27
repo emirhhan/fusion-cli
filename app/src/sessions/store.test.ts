@@ -7,6 +7,19 @@ function client() {
 }
 
 describe("sessionReducer", () => {
+  it("Chrome panelinden cevaplanan soru kartını yalnız kimlik eşleşirse kapatır", () => {
+    let state = sessionReducer(initialSessionState, {
+      type: "created",
+      session: { id: "bir", title: "Bir", source: "fusion", root: "/bir", client: client() },
+    });
+    const soru = { id: "5", data: { tur: "onay", arac: "chrome_click" } as never };
+    state = sessionReducer(state, { type: "questionChanged", id: "bir", question: soru });
+    state = sessionReducer(state, { type: "questionClosed", id: "bir", questionId: "4" });
+    expect(state.sessions.bir.question?.id).toBe("5");
+    state = sessionReducer(state, { type: "questionClosed", id: "bir", questionId: "5" });
+    expect(state.sessions.bir.question).toBeNull();
+  });
+
   it("oturumları oluşturur, seçer ve başlığını günceller", () => {
     const first = client();
     const second = client();

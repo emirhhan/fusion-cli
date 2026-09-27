@@ -3,53 +3,89 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Fusion Browser</title>
+    <title>Fusion</title>
     <link rel="stylesheet" href="panel.css" />
   </head>
   <body>
-    <main>
-      <header>
-        <div class="brand-lockup">
-          <span class="brand-mark" aria-hidden="true">F</span>
-          <div><strong>Fusion Browser</strong><span class="eyebrow">Açık sekme araçları</span></div>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <img class="brand__mark" src="icons/fusion.svg" alt="" width="26" height="26" />
+          <strong>Fusion</strong>
+          <span id="status" class="status" data-state="offline" title="Fusion masaüstü bağlantısı"><i aria-hidden="true"></i><span>Bağlı değil</span></span>
         </div>
-        <span id="status" data-state="offline"><i aria-hidden="true"></i>Bağlı değil</span>
+        <div class="topbar__actions">
+          <button id="new-chat" class="icon-button" type="button" title="Paneli temizle" aria-label="Paneli temizle">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4.5v11M4.5 10h11" /></svg>
+          </button>
+          <button id="open-settings" class="icon-button" type="button" title="Bağlantı ayarları" aria-label="Bağlantı ayarları">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="5" cy="10" r="1.3" /><circle cx="10" cy="10" r="1.3" /><circle cx="15" cy="10" r="1.3" /></svg>
+          </button>
+        </div>
       </header>
-      <section id="pairing">
-        <div class="intro">
-          <h1>Fusion’a bağlan</h1>
-          <p>Fusion açıkken eklenti kendiliğinden bağlanır. Bağlanmazsa Fusion’da Ayarlar → Tarayıcı bölümündeki port ve anahtarı buraya girin.</p>
-        </div>
-        <div class="field-stack">
-          <label for="port">Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
-          <label for="token">Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
-        </div>
-        <button id="connect" class="primary">Bağlan<span aria-hidden="true">↗</span></button>
-      </section>
-      <section id="session" hidden>
-        <div class="intro">
-          <h1>Sekmeni bağla</h1>
-          <p id="tab-label">Sekme seçilmedi</p>
-        </div>
-        <div class="button-row">
-          <button id="select-tab" class="primary">Bu sekmeye izin ver<span aria-hidden="true">↗</span></button>
-          <button id="read-tab" class="secondary">Sayfayı oku</button>
-        </div>
-        <details id="capture-permission" class="permission-details">
-          <summary>Ekran görüntüsü izni</summary>
-          <p>Chrome, ekran görüntüsü almak için tüm sitelere erişim izni ister. Fusion yalnız seçtiğiniz etkin sekmenin görüntüsünü işler.</p>
-          <button id="grant-capture" class="secondary">Chrome iznini iste</button>
-        </details>
-        <pre id="snapshot" hidden></pre>
-        <div class="task-box">
-          <label for="prompt">Fusion’a görev ver <textarea id="prompt" rows="4" placeholder="Bu sayfayı özetle..."></textarea></label>
-          <div class="send-row"><button id="send" class="primary">Gönder<span aria-hidden="true">↗</span></button><button id="cancel" class="secondary" hidden>Durdur</button></div>
-        </div>
-        <div id="response" role="status" aria-live="polite"></div>
-        <button id="disconnect" class="quiet">Bağlantıyı kes</button>
-      </section>
-      <p id="error" role="alert"></p>
-    </main>
+
+      <div id="update" class="update" role="status" hidden>
+        <span>Fusion Browser güncellendi.</span>
+        <button id="reload-extension" class="chip-button" type="button">Şimdi güncelle</button>
+      </div>
+
+      <div id="tab-bar" class="tab-bar">
+        <img id="tab-icon" class="tab-bar__icon" alt="" width="16" height="16" hidden />
+        <span id="tab-label" class="tab-bar__label">Sekme bekleniyor</span>
+        <button id="select-tab" class="chip-button" type="button" hidden>Bu siteye izin ver</button>
+      </div>
+
+      <main id="thread" class="thread" aria-live="polite">
+        <section id="empty" class="empty">
+          <img src="icons/fusion.svg" alt="" width="44" height="44" />
+          <h1>Bu sekmede ne yapayım?</h1>
+          <p>Fusion sayfayı okur, kaydırır, tıklar ve yazar. Gönderme, silme ya da satın alma gibi adımlardan önce sana sorar.</p>
+          <div class="suggestions">
+            <button type="button" class="suggestion" data-prompt="Bu sayfayı kısaca özetle.">Bu sayfayı özetle</button>
+            <button type="button" class="suggestion" data-prompt="Sayfayı sonuna kadar kaydır ve önemli bilgileri madde madde çıkar.">Kaydır ve önemli bilgileri çıkar</button>
+            <button type="button" class="suggestion" data-prompt="Bu sayfada yapabileceğim işleri ve nerede olduklarını söyle.">Burada neler yapabilirim?</button>
+          </div>
+        </section>
+        <ol id="messages" class="messages"></ol>
+      </main>
+
+      <footer class="dock">
+        <section id="ask" class="ask" hidden tabindex="-1" aria-labelledby="ask-title"></section>
+        <p id="error" class="error" role="alert"></p>
+        <form id="composer" class="composer">
+          <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
+          <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" /></svg>
+          </button>
+          <button id="cancel" class="stop" type="button" title="Durdur" aria-label="Durdur" hidden>
+            <span aria-hidden="true"></span>
+          </button>
+        </form>
+        <p class="footnote">Fusion hata yapabilir; önemli işlemleri kontrol et.</p>
+      </footer>
+    </div>
+
+    <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+      <form method="dialog" class="sheet__head">
+        <h2 id="settings-title">Bağlantı</h2>
+        <button class="icon-button" value="close" aria-label="Kapat" title="Kapat">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9" /></svg>
+        </button>
+      </form>
+      <p class="sheet__text">Fusion masaüstü uygulaması açıkken panel kendiliğinden bağlanır. Bağlanmazsa Fusion'da Ayarlar → Tarayıcı bölümündeki port ve anahtarı gir.</p>
+      <div id="pairing" class="field-stack">
+        <label for="port">Yerel port <input id="port" inputmode="numeric" autocomplete="off" /></label>
+        <label for="token">Eşleştirme anahtarı <input id="token" type="password" autocomplete="off" /></label>
+        <button id="connect" class="primary" type="button">Bağlan</button>
+      </div>
+      <div class="sheet__group">
+        <h3>Ekran görüntüsü</h3>
+        <p class="sheet__text">Chrome ekran görüntüsü için tüm sitelere erişim ister. Fusion yalnız çalıştığı sekmenin görüntüsünü alır.</p>
+        <button id="grant-capture" class="secondary" type="button">Chrome iznini iste</button>
+      </div>
+      <button id="disconnect" class="quiet" type="button">Bağlantıyı kes</button>
+    </dialog>
+
     <script src="panel.js" type="module"></script>
   </body>
 </html>

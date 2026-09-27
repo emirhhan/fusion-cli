@@ -86,16 +86,27 @@ class PendingQuestions:
 class ProtocolPrompter:
     """Onay ve soruları tel üzerinden soran ``Prompter`` ve ``UserAsker``."""
 
-    def __init__(self, writer: Writer, pending: PendingQuestions, root: Path | None = None) -> None:
+    def __init__(
+        self,
+        writer: Writer,
+        pending: PendingQuestions,
+        root: Path | None = None,
+        element_name: Callable[[object], str | None] | None = None,
+    ) -> None:
         self._writer = writer
         self._pending = pending
+        #: Tarayıcıda tıklanacak öğenin adı (ref → ad); kart "e52" yerine adı gösterir.
+        self._element_name = element_name
         #: Önizleme diffi için proje kökü. Verilmezse önizleme üretilmez;
         #: onay akışı bundan bağımsız çalışır.
         self._root = root
 
     async def confirm(self, request: ApprovalRequest) -> ApprovalAnswer:
         """Onay isteğini ilet ve güvenli varsayılanla kullanıcı kararını döndür."""
-        baslik, hedef = approval_summary(request.tool.name, request.args)
+        element = (
+            self._element_name(request.args.get("ref")) if self._element_name is not None else None
+        )
+        baslik, hedef = approval_summary(request.tool.name, request.args, element=element or "")
         data = await self._ask_wire(
             {
                 "tur": "onay",

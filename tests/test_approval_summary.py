@@ -37,3 +37,43 @@ def test_yetenek_gecidinde_calisacak_yetenek_ve_parametreler_gosterilir():
     )
     assert baslik == "motogate üzerinde “woocommerce/product-update” çalıştırılsın mı?"
     assert '"fiyat": 100' in hedef
+
+
+def test_tarayici_tiklamasinda_ogenin_adi_ref_yerine_gosterilir():
+    """Ölçüldü (27 Eylül): kart yalnız "e52" gösteriyordu; kullanıcı neye
+    tıklanacağını bilmeden karar veriyordu."""
+    assert approval_summary("chrome_click", {"ref": "e52"}, element="Yorum yap") == (
+        "Bu öğeye tıklansın mı?",
+        "“Yorum yap” öğesine tıklanacak",
+    )
+    assert approval_summary("chrome_click", {"ref": "e52"}) == ("Bu öğeye tıklansın mı?", "e52")
+    assert approval_summary("chrome_action", {"action": "key", "value": "Enter"}) == (
+        "Bu tuşa basılsın mı?",
+        "Enter (açık formu gönderebilir)",
+    )
+
+
+async def test_prompter_tiklanacak_ogenin_adini_kopruden_alir():
+    import asyncio
+    import json
+
+    from fusion_cli.appserver.bridges import PendingQuestions, ProtocolPrompter
+    from fusion_cli.core.tools import ToolEffect
+    from fusion_cli.engines.agent.approval import ApprovalRequest
+    from fusion_cli.tools.builtin import build_registry
+
+    satirlar: list[str] = []
+    bekleyen = PendingQuestions()
+    prompter = ProtocolPrompter(
+        satirlar.append, bekleyen, element_name=lambda ref: "Paylaş" if ref == "e7" else None
+    )
+    arac = build_registry().get("chrome_click")
+    istek = ApprovalRequest(
+        tool=arac, args={"ref": "e7"}, danger=None, effect=ToolEffect.REMOTE_WRITE
+    )
+    gorev = asyncio.create_task(prompter.confirm(istek))
+    await asyncio.sleep(0)
+    soru = json.loads(satirlar[-1])
+    assert soru["veri"]["hedef"] == "“Paylaş” öğesine tıklanacak"
+    bekleyen.resolve(soru["id"], {"secim": "deny"})
+    await gorev

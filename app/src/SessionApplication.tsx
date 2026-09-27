@@ -131,6 +131,10 @@ function useConversation(client: ProtocolClient) {
   useEffect(() => {
     void client.request("oturum.durum", {}).catch(() => undefined);
     client.onEvent((event) => {
+      if (event.olay === "SoruKapandi") {
+        setQuestion((current) => (current?.id === event.id ? null : current));
+        return;
+      }
       setMessages((current) => olayEkle(current, event));
     });
     client.onQuestion((id, data) => {

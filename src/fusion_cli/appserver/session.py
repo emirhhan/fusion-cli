@@ -353,7 +353,7 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
-        self._chrome = ChromeBridge(self._chrome_turn, self._cancel_turn)
+        self._chrome = ChromeBridge(self._chrome_turn, self._cancel_turn, self._chrome_answer)
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -379,12 +379,22 @@ class AppSession:
 
     async def _chrome_turn(self, prompt: str) -> dict[str, Any]:
         """Yan panelden gelen görevi mevcut sohbetin aynı onay kapısında yürüt."""
+        self._chrome.publish({"tur": "basladi"})
         result = await self._run_turn(prompt, browser_only=True)
         answer = result.get("metin")
         if isinstance(answer, str):
             # Açılışsız `</think>` de `strip_thinking` içinde ayıklanır.
             result["metin"] = strip_thinking(answer).strip()
+        # Panel tur sürerken kapanıp açılabilir: sonuç akışta da durur.
+        self._chrome.publish({"tur": "bitti", "ok": result.get("ok"), "metin": result.get("metin")})
         return result
+
+    def _chrome_answer(self, question_id: str, data: dict[str, Any]) -> bool:
+        """Yan panelin izin/soru cevabı; masaüstündeki aynı kart da kapanır."""
+        resolved = self.pending.resolve(question_id, data)
+        if resolved:
+            self._writer(encode_event({"olay": "SoruKapandi", "id": question_id}))
+        return resolved
 
     async def _dispatch(self, request: Request) -> dict[str, Any]:
         if request.name == "gorsel.saglayicilar":
@@ -1219,8 +1229,12 @@ class AppSession:
 
         # Kullanım sayacı olayları ARADAN dinler: sayaç için ayrı bir yol
         # açmak, bazı çağrı yollarının muhasebeden düşmesine yol açardı.
-        sink = _MeteredSink(ProtocolSink(self._writer), self._usage)
-        prompter = ProtocolPrompter(self._writer, self.pending, root=self._state.root)
+        # Yan panelin turunda adımlar ve sorular panele de akar (Claude in Chrome gibi).
+        writer = self._chrome.tee(self._writer) if browser_only else self._writer
+        sink = _MeteredSink(ProtocolSink(writer), self._usage)
+        prompter = ProtocolPrompter(
+            writer, self.pending, root=self._state.root, element_name=self._chrome.element_name
+        )
         config = self._state.config
         if self._disabled_mcp:
             config = replace(
@@ -1390,8 +1404,11 @@ class AppSession:
         self._iptal_bekliyor = False
 
     def resolve_reply(self, reply: Reply) -> bool:
-        """Uygulamanın cevabını bekleyen soruya bağla."""
-        return self.pending.resolve(reply.id, reply.data)
+        """Uygulamanın cevabını bekleyen soruya bağla; paneldeki kart da kapanır."""
+        resolved = self.pending.resolve(reply.id, reply.data)
+        if resolved and self._chrome.running:
+            self._chrome.publish({"tur": "soru_kapandi", "id": reply.id})
+        return resolved
 
     async def close(self) -> None:
         """Çalışan turu ve oturuma ait bütün yardımcı süreçleri kapat."""

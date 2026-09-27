@@ -73,6 +73,48 @@ async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path,
     assert await oturum._chrome_turn("test") == {"ok": True, "metin": "İşlem tamamlandı."}
 
 
+async def test_panel_turu_adim_ve_soruyu_panele_akitir_cevap_iki_yeri_de_kapatir(
+    tmp_path, monkeypatch
+):
+    """Claude in Chrome gibi: panel turunun adımları ve izin kartı panelde görünür;
+    hangi taraf cevaplarsa diğerindeki kart kapanır."""
+    from fusion_cli.cli import session as cli_session
+    from fusion_cli.core.events import ToolExecuted, ToolOutcome
+
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs["sinks"][0].handle(
+            ToolExecuted(
+                name="chrome_action",
+                args={"action": "scroll"},
+                outcome=ToolOutcome.OK,
+                output="{}",
+            )
+        )
+        prompter = kwargs["prompter_factory"](None)
+        cevap = await prompter.ask("Hangisi?", ())
+        return SimpleNamespace(ok=True, final_text=f"seçim: {cevap}", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    tur = asyncio.create_task(oturum._chrome_turn("Kaydır"))
+    for _ in range(100):
+        if any(item["tur"] == "soru" for item in oturum._chrome._feed):
+            break
+        await asyncio.sleep(0.01)
+    akis = oturum._chrome._feed
+    assert [item["tur"] for item in akis[:2]] == ["basladi", "adim"]
+    soru = next(item for item in akis if item["tur"] == "soru")
+    assert oturum._chrome_answer(soru["id"], {"metin": "Birincisi"}) is True
+    assert (await tur)["metin"] == "seçim: Birincisi"
+    kapandi = [json.loads(satir)["veri"] for satir in satirlar if "SoruKapandi" in satir]
+    assert kapandi == [{"olay": "SoruKapandi", "id": soru["id"]}]
+    assert oturum._chrome._feed[-1]["tur"] == "bitti"
+    # Zaten cevaplanmış soru ikinci kez kapanmaz.
+    assert oturum._chrome_answer(soru["id"], {"metin": "x"}) is False
+
+
 async def test_nim_secimi_katalog_ve_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
     from fusion_cli.providers.catalog import CatalogEntry
 

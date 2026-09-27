@@ -128,3 +128,87 @@ async def test_panel_calisan_turu_durdurabilir() -> None:
         denied = await client.post(f"{address}/cancel", headers={"Origin": ORIGIN}, json={})
         assert denied.status_code == 401
     await bridge.close()
+
+
+async def test_panel_canli_adimlari_uzun_yoklamayla_alir_ve_soruyu_cevaplar() -> None:
+    """Claude in Chrome gibi: panel adımları canlı görür, izin kartını kendisi cevaplar."""
+    from fusion_cli.appserver.protocol import encode_event, encode_question
+
+    cevaplar: list[tuple[str, dict]] = []
+
+    def cevapla(kimlik: str, veri: dict) -> bool:
+        cevaplar.append((kimlik, veri))
+        return kimlik == "7"
+
+    bridge = ChromeBridge(on_answer=cevapla)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    yazilan: list[str] = []
+    yaz = bridge.tee(yazilan.append)
+    async with httpx.AsyncClient(trust_env=False) as client:
+        bekleyen = asyncio.create_task(
+            client.post(f"{address}/events", headers=headers, json={"after": 0})
+        )
+        await asyncio.sleep(0.05)
+        yaz(
+            encode_event(
+                {
+                    "olay": "ToolExecuted",
+                    "name": "chrome_action",
+                    "args": {"action": "scroll"},
+                    "outcome": "ok",
+                    "output": "{}",
+                }
+            )
+        )
+        yaz(encode_event({"olay": "TokenReceived", "text": "x"}))
+        cevap = (await bekleyen).json()
+        assert [olay["metin"] for olay in cevap["olaylar"]] == ["Sayfa aşağı kaydırıldı"]
+        son = cevap["son"]
+
+        yaz(encode_question("7", {"tur": "onay", "baslik": "Tıklansın mı?"}))
+        cevap = (
+            await client.post(f"{address}/events", headers=headers, json={"after": son})
+        ).json()
+        assert cevap["olaylar"][0]["tur"] == "soru" and cevap["olaylar"][0]["id"] == "7"
+
+        sonuc = await client.post(
+            f"{address}/answer", headers=headers, json={"id": "7", "veri": {"secim": "once"}}
+        )
+        assert sonuc.json() == {"ok": True}
+        assert cevaplar == [("7", {"secim": "once"})]
+        # Yalnız secim/metin alanları iletilir; kimliksiz cevap reddedilir.
+        await client.post(
+            f"{address}/answer",
+            headers=headers,
+            json={"id": "8", "veri": {"secim": "deny", "kod": "x"}},
+        )
+        assert cevaplar[-1] == ("8", {"secim": "deny"})
+        assert (
+            await client.post(f"{address}/answer", headers=headers, json={"veri": {}})
+        ).status_code == 400
+    # Masaüstü teline yazılan her satır aynen geçer.
+    assert len(yazilan) == 3
+    await bridge.close()
+
+
+async def test_tiklamadan_once_okunan_oge_adi_izin_karti_icin_saklanir() -> None:
+    bridge = ChromeBridge()
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        await client.get(f"{address}/status", headers=headers)
+        task = asyncio.create_task(bridge.invoke("describe", {"ref": "e52"}))
+        command = (await client.post(f"{address}/poll", headers=headers, json={})).json()
+        await client.post(
+            f"{address}/result",
+            headers=headers,
+            json={"id": command["id"], "ok": True, "veri": {"name": "  Yorum yap ", "tag": "div"}},
+        )
+        await task
+    assert bridge.element_name("e52") == "Yorum yap"
+    assert bridge.element_name("e1") is None
+    assert bridge.element_name(None) is None
+    await bridge.close()

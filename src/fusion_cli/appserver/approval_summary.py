@@ -17,9 +17,24 @@ _FILE_WRITE = {"write_file", "create_file"}
 _FILE_EDIT = {"edit_file", "multi_edit"}
 
 
-def approval_summary(tool_name: str, args: Mapping[str, object]) -> tuple[str, str]:
-    """(başlık, hedef) döndür. Hedef yoksa boş metin."""
+def approval_summary(
+    tool_name: str, args: Mapping[str, object], *, element: str = ""
+) -> tuple[str, str]:
+    """(başlık, hedef) döndür. Hedef yoksa boş metin.
+
+    `element`, tarayıcıda tıklanacak öğenin sayfadaki adıdır (bkz.
+    `ChromeBridge.element_name`); ref kimliği ("e52") kullanıcıya bir şey söylemez.
+    """
     family = tool_family(tool_name)
+    if tool_name == "chrome_click":
+        return "Bu öğeye tıklansın mı?", f"“{element}” öğesine tıklanacak" if element else _text(
+            args, "ref"
+        )
+    if tool_name == "chrome_action" and args.get("action") == "key":
+        return (
+            "Bu tuşa basılsın mı?",
+            f"{_text(args, 'value') or 'Enter'} (açık formu gönderebilir)",
+        )
     path = _text(args, "path", "file_path", "target")
     if family is ToolFamily.SHELL:
         return "Bu komut çalıştırılsın mı?", _text(args, "command", "cmd")

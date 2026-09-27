@@ -52,13 +52,21 @@ _READ_ACTIONS = frozenset({"scroll", "wait", "tabs", "open", "tab", "select", "s
 
 #: Tıklanınca geri dönüşü zor ya da dışa dönük iş yapan düğme adları (TR/EN).
 #: Claude in Chrome da gezinmeyi ve sıradan tıklamayı sormaz; göndermede durur.
+#:
+#: Fiiller KELİME olarak aranır. Ölçüldü (27 Eylül): Instagram gönderi kartının
+#: adı "1.234 beğenme, 12 yorum" içeriyor; alt dize araması bunu "beğen" sanıp
+#: salt okuma turunu izin sorusunda durduruyordu.
 _RISKY_CLICK = re.compile(
-    r"gönder|paylaş|yayınla|yayımla|\bsil\b|silin|kaldır|satın|ödeme|öde\b|siparişi|onayla|"
-    r"kaydet|uygula|etkinleştir|devre dışı|duraklat|yorum yap|yanıtla|takip et|beğen|abone|"
-    r"submit|send|\bpost\b|publish|share|delete|remove|buy|purchase|\bpay\b|checkout|"
-    r"confirm|save|apply|enable|disable|pause|follow|\blike\b|reply|comment",
+    r"\b(?:gönder|paylaş|yayınla|yayımla|sil|silin|kaldır|satın al|ödeme yap|öde|"
+    r"siparişi tamamla|siparişi onayla|onayla|kaydet|uygula|etkinleştir|devre dışı bırak|"
+    r"duraklat|yorum yap|yanıtla|takip et|beğen|abone ol|"
+    r"submit|send|post|publish|share|delete|remove|buy|purchase|pay|checkout|"
+    r"confirm|save|apply|enable|disable|pause|follow|like|reply|comment)\b",
     re.IGNORECASE,
 )
+
+#: Bağlantı olsa bile oturumu kapatan tıklamalar sorulur.
+_LOGOUT_LINK = re.compile(r"çıkış yap|oturumu kapat|log ?out|sign ?out", re.IGNORECASE)
 
 
 async def chrome_action_effect(args: ToolArgs, _context: ToolContext | None) -> ToolEffect | None:
@@ -87,6 +95,10 @@ async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> To
     if not isinstance(veri, dict):
         return None
     ad = f"{veri.get('name', '')} {veri.get('type', '')}"
+    if veri.get("link") and not veri.get("submit"):
+        # Gerçek adrese giden bağlantı yalnız gezinir; iş yapan şey sonraki sayfadaki
+        # düğmedir ve o ayrıca denetlenir. Tek istisna oturumu kapatmak.
+        return None if _LOGOUT_LINK.search(ad) else ToolEffect.REMOTE_READ
     if veri.get("submit") or _RISKY_CLICK.search(ad):
         return None
     return ToolEffect.REMOTE_READ

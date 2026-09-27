@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Fusion Browser",
-  "version": "0.2.0",
-  "description": "Fusion'ı Chrome'a bağlar: izin verdiğiniz sitelerde sekmeleri okur ve yönetir.",
+  "version": "0.3.0",
+  "description": "Fusion'ı Chrome'a bağlar: yan panelde sohbet eder, izin verdiğiniz sitelerde sayfayı okur, kaydırır ve tıklar.",
   "minimum_chrome_version": "116",
   "permissions": [
     "sidePanel",
@@ -29,6 +29,13 @@
     "default_path": "panel.html"
   },
   "action": {
-    "default_title": "Fusion Browser"
+    "default_title": "Fusion",
+    "default_icon": {
+      "32": "icons/fusion-32.png"
+    }
+  },
+  "icons": {
+    "32": "icons/fusion-32.png",
+    "128": "icons/fusion-128.png"
   }
 }

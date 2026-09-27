@@ -17,6 +17,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlsplit
 
+from .chrome_feed import panel_item
 from .chrome_host import (
     candidate_extension_ids,
     clear_bridge_state,
@@ -27,6 +28,14 @@ from .chrome_host import (
 MAX_REQUEST_BYTES = 4_194_304
 COMMAND_TIMEOUT_SECONDS = 30
 CONNECTION_STALE_SECONDS = 35
+#: `/events` uzun yoklamasının bekleme süresi; `/poll` ile aynı: bağlantı canlı sayılır.
+EVENTS_WAIT_SECONDS = 20
+#: Panelin geri dönüp okuyabileceği son öğe sayısı (panel kapanıp açılabilir).
+FEED_LIMIT = 200
+#: Panel cevabında izin verilen alanlar: onayda `secim`, soruda `metin`.
+ANSWER_FIELDS = ("secim", "metin")
+#: İzin kartında gösterilen öğe adının üst sınırı (sayfa `nameOf` da 120'de keser).
+ELEMENT_NAME_LIMIT = 120
 
 
 class ChromeBridge:
@@ -34,6 +43,7 @@ class ChromeBridge:
         self,
         on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         on_cancel: Callable[[], dict[str, Any]] | None = None,
+        on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
     ) -> None:
         self._server: asyncio.AbstractServer | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -44,6 +54,13 @@ class ChromeBridge:
         self._last_seen = 0.0
         self._on_turn = on_turn
         self._on_cancel = on_cancel
+        self._on_answer = on_answer
+        #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
+        self._feed: list[dict[str, Any]] = []
+        self._feed_seq = 0
+        self._feed_changed = asyncio.Event()
+        #: Son `describe` sonuçları (ref → öğe adı); izin kartı adı gösterir.
+        self._element_names: dict[str, str] = {}
 
     @property
     def running(self) -> bool:
@@ -57,6 +74,8 @@ class ChromeBridge:
             ),
             "port": self._port if self.running else None,
             "anahtar": self._token if self.running and reveal_token else None,
+            # Yeni açılan panel eski turları baştan oynatmasın diye akışın ucu.
+            "son": self._feed_seq,
         }
 
     async def start(self) -> dict[str, Any]:
@@ -89,6 +108,61 @@ class ChromeBridge:
         self._last_seen = 0.0
         self._token = ""
         self._port = 0
+        # Bekleyen `/events` yoklaması kapanışta hemen döner.
+        self._feed_changed.set()
+
+    def publish(self, item: dict[str, Any]) -> None:
+        """Panel akışına öğe ekle ve bekleyen uzun yoklamaları uyandır."""
+        self._feed_seq += 1
+        self._feed.append({"seq": self._feed_seq, **item})
+        del self._feed[:-FEED_LIMIT]
+        changed, self._feed_changed = self._feed_changed, asyncio.Event()
+        changed.set()
+
+    def tee(self, writer: Callable[[str], None]) -> Callable[[str], None]:
+        """Masaüstü teline yazan fonksiyonu, panelle ilgili satırları da yayanla sar."""
+
+        def write(line: str) -> None:
+            writer(line)
+            item = panel_item(line)
+            if item is not None:
+                self.publish(item)
+
+        return write
+
+    async def _events(self, after: object) -> dict[str, Any]:
+        start = after if isinstance(after, int) and after >= 0 else 0
+        if start >= self._feed_seq:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._feed_changed.wait(), EVENTS_WAIT_SECONDS)
+        items = [item for item in self._feed if item["seq"] > start]
+        return {"ok": True, "olaylar": items, "son": self._feed_seq}
+
+    def _answer(self, body: dict[str, Any]) -> dict[str, Any]:
+        identifier = body.get("id")
+        data = body.get("veri")
+        if not isinstance(identifier, str) or not identifier or len(identifier) > 64:
+            raise ValueError("Soru kimliği geçersiz")
+        if not isinstance(data, dict) or self._on_answer is None:
+            raise ValueError("Cevap geçersiz")
+        clean = {
+            key: value[:20_000]
+            for key, value in data.items()
+            if key in ANSWER_FIELDS and isinstance(value, str)
+        }
+        return {"ok": self._on_answer(identifier, clean)}
+
+    def element_name(self, ref: object) -> str | None:
+        """Tıklamadan önce okunan öğe adı; bilinmiyorsa `None`."""
+        return self._element_names.get(ref) if isinstance(ref, str) else None
+
+    def _remember_element(self, args: dict[str, Any], result: dict[str, Any]) -> None:
+        veri = result.get("veri")
+        ref = args.get("ref")
+        if result.get("ok") and isinstance(veri, dict) and isinstance(ref, str):
+            name = veri.get("name")
+            if isinstance(name, str) and name.strip():
+                self._element_names[ref] = name.strip()[:ELEMENT_NAME_LIMIT]
 
     async def invoke(self, operation: str, args: dict[str, Any]) -> dict[str, Any]:
         if not self.running or not self.status()["bagli"]:
@@ -100,9 +174,12 @@ class ChromeBridge:
         self._pending[identifier] = future
         await self._queue.put({"id": identifier, "islem": operation, "veri": args})
         try:
-            return await asyncio.wait_for(future, COMMAND_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(future, COMMAND_TIMEOUT_SECONDS)
         finally:
             self._pending.pop(identifier, None)
+        if operation == "describe":
+            self._remember_element(args, result)
+        return result
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -167,6 +244,10 @@ class ChromeBridge:
                 result = await self._on_turn(prompt.strip())
             elif method == "POST" and target == "/cancel" and self._on_cancel is not None:
                 result = self._on_cancel()
+            elif method == "POST" and target == "/events":
+                result = await self._events(body.get("after"))
+            elif method == "POST" and target == "/answer":
+                result = self._answer(body)
             elif method == "POST" and target == "/disconnect":
                 self._connected = False
                 self._last_seen = 0.0

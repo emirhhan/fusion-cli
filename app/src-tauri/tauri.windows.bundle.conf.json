@@ -14,7 +14,12 @@
       "../../chrome-extension/panel.js": "chrome-extension/panel.js",
       "../../chrome-extension/core.js": "chrome-extension/core.js",
       "../../chrome-extension/offscreen.html": "chrome-extension/offscreen.html",
-      "../../chrome-extension/offscreen.js": "chrome-extension/offscreen.js"
+      "../../chrome-extension/offscreen.js": "chrome-extension/offscreen.js",
+      "../../chrome-extension/panelView.js": "chrome-extension/panelView.js",
+      "../../chrome-extension/pageGlow.js": "chrome-extension/pageGlow.js",
+      "../../chrome-extension/icons/fusion.svg": "chrome-extension/icons/fusion.svg",
+      "../../chrome-extension/icons/fusion-32.png": "chrome-extension/icons/fusion-32.png",
+      "../../chrome-extension/icons/fusion-128.png": "chrome-extension/icons/fusion-128.png"
     },
     "windows": {
       "nsis": {
