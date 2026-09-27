@@ -97,7 +97,18 @@ def _action_text(args: Mapping[str, Any]) -> str:
         return "Başka sekmeye geçildi"
     if action == "select":
         return f"“{_quote(value)}” seçildi"
-    return "Tarayıcıda işlem yapıldı"
+    return _ACTION_TEXTS.get(str(action), "Tarayıcıda işlem yapıldı")
+
+
+_ACTION_TEXTS = {
+    "back": "Geri gidildi",
+    "forward": "İleri gidildi",
+    "reload": "Sayfa yenilendi",
+    "close": "Sekme kapatıldı",
+    "hover": "Öğenin üzerine gelindi",
+    "text": "Sayfanın tamamı okundu",
+    "click_at": "Ekrandaki noktaya tıklandı",
+}
 
 
 def _host(url: object) -> str:

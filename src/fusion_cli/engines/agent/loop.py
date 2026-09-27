@@ -576,6 +576,15 @@ async def run_agent(
     # bakmaz, yalnızca turda GERÇEKTEN mutasyon olup olmadığına bakar.
     if outcome.mutating_tool_calls_made == 0:
         should_review = False
+    # Tarayıcı araçları kayıtta "değiştirici" olsa da denetlenecek DOSYA bırakmaz.
+    # Ölçüldü (27 Eylül): Chrome okuma turunda öz-denetim fazladan bir model çağrısı
+    # yapıyor, panel hazır cevabı ancak ondan sonra görüyordu.
+    if all(
+        name.startswith(_BROWSER_TOOL_PREFIXES)
+        for name, _args, mutating in budget.successful_tool_evidence
+        if mutating
+    ):
+        should_review = False
     # Kullanıcı GERÇEKTEN reddettiyse (`USER_DENIED`) öz-denetim çalışmaz: `_drive`
     # bu turda modeli BİR DAHA ÇAĞIRMAYACAĞINI zaten garanti eder (bkz. döngü
     # başındaki kontrol); öz-denetim bir model çağrısı daha yaparak bunu ihlal
@@ -877,16 +886,28 @@ async def _drive(
                     timeout_s=call_timeout,
                 )
         except TimeoutError:
+            # Bu çağrının SÜRESİ (`chain_timeout`) `idle_timeout_s`'ten büyük olabilir
+            # (ör. sohbet kipi: 120s çağrı sınırı, 60s boşta-kalma sınırı). O durumda
+            # `time_stop_reason()` az önce BİTEN bu tek çağrının süresini "art arda
+            # ilerleme yok" (INACTIVITY) sayar — oysa henüz TEK bir çağrı denendi,
+            # birden çok turda ilerlemesizlik YOKTU. Ölçüldü (27 Eylül, NIM'in
+            # `glm-5.3`/`deepseek-v4.1-flash` uçları hiç yanıt vermeden takıldığında):
+            # `_halt` boş `final_text` ile dönüyor, kullanıcı hiçbir açıklama olmadan
+            # genel "model bir cevap üretmedi" mesajını görüyordu — asıl sebep
+            # (bu modelin süresinde yanıt vermediği) kayboluyordu.
+            #
+            # Asıl MUTLAK bütçe (`BudgetStop.DEADLINE`) veya araç-turu sayısı gibi
+            # gerçek çok-turlu sınırlar hâlâ `_halt` üzerinden yayınlanır (ders
+            # çıkarımı/öz-denetim bu bayrağa bakar); yalnızca kullanıcıya giden METİN
+            # asla boş kalmaz — bu çağrının özel açıklaması her durumda korunur.
+            timeout_message = (
+                f"Model yanıtı {call_timeout:g} saniyede tamamlanmadı. "
+                "Bu çağrı durduruldu; farklı bir model seçip yeniden deneyebilirsin."
+            )
             reason = budget.time_stop_reason()
             if reason is not None:
-                return _halt(final_text, messages, state, budget, reason, deps)
-            return _outcome(
-                f"Model yanıtı {call_timeout:g} saniyede tamamlanmadı. "
-                "Bu çağrı durduruldu; farklı bir model seçip yeniden deneyebilirsin.",
-                messages,
-                state,
-                ok=False,
-            )
+                return _halt(final_text or timeout_message, messages, state, budget, reason, deps)
+            return _outcome(timeout_message, messages, state, ok=False)
 
         state.model_calls_made += 1
         budget.record_model_call()
@@ -1388,6 +1409,8 @@ async def _call_model(
 
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
 #: ya da belirsizliği gideremez.
+#: Denetlenecek dosya bırakmayan, uzak sayfada çalışan araçların ad önekleri.
+_BROWSER_TOOL_PREFIXES = ("chrome_", "browser_")
 ALWAYS_ALLOWED = frozenset({"todo_write", "ask_user", "find_skill", "read_skill", "recall_lessons"})
 
 #: Web taşımasında bir okumada gösterilecek en fazla satır (SWE-agent ölçümü).

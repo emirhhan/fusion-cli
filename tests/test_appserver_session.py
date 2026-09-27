@@ -57,7 +57,12 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
         "chrome_click",
         "chrome_type",
         "chrome_navigate",
+        "web_search",
+        "web_fetch",
+        "todo_write",
     }
+    # Panel görevi yerel dosyaya ve kabuğa dokunamaz.
+    assert not {"run_shell", "write_file", "edit_file", "bash"} & kwargs_seen["allowed_tools"]
     assert oturum._workspace_mode == "sohbet"
 
 
@@ -115,20 +120,24 @@ async def test_panel_turu_adim_ve_soruyu_panele_akitir_cevap_iki_yeri_de_kapatir
     assert oturum._chrome_answer(soru["id"], {"metin": "x"}) is False
 
 
-async def test_nim_secimi_katalog_ve_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
-    from fusion_cli.providers.catalog import CatalogEntry
+async def test_nim_secimi_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
+    """NIM araç doğrulaması artık `model_flows.apply_development_model` içinde TEK
+    yerden yapılır (bkz. o fonksiyonun 27 Eylül tarihli gerekçesi) — bu modül
+    (`session.py`) eskiden kendi AYRI ön-kontrolünü yapıyordu (canlı katalogda ara +
+    ayrıca doğrula); bu ikinci yol kaldırıldığı için sonda artık merkezi konumda
+    (`fusion_cli.cli.repl.model_flows.catalog.probe_nim_tools`) yamanır. `run_command`
+    hâlâ ayrı bir thread'de çalışır (`asyncio.to_thread`): doğrulama ağa çıkan bir
+    çağrıdır ve oturumun event loop'unu bloklamamalı.
+    """
+    from fusion_cli.cli.repl import model_flows
 
-    monkeypatch.setattr(
-        "fusion_cli.appserver.session.fetch_nim",
-        lambda: (CatalogEntry("nvidia_nim/z-ai/glm-5.3", "nvidia_nim"),),
-    )
     called: list[str] = []
 
     def probe(model_id):
         called.append(model_id)
         return False, "Araç çağrısı doğrulanmadı."
 
-    monkeypatch.setattr("fusion_cli.appserver.session.probe_nim_tools", probe)
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", probe)
     session = _session(tmp_path, [])
     missing = await session._run_command({"ad": "development", "arguman":
                                           "uygula nim-free nvidia_nim/eksik"})
@@ -137,15 +146,13 @@ async def test_nim_secimi_katalog_ve_arac_dogrulamasindan_gecer(tmp_path, monkey
 
     assert missing["ok"] is False
     assert rejected == {"ok": False, "metin": "Araç çağrısı doğrulanmadı."}
-    assert called == ["nvidia_nim/z-ai/glm-5.3"]
+    assert called == ["nvidia_nim/eksik", "nvidia_nim/z-ai/glm-5.3"]
 
-    monkeypatch.setattr("fusion_cli.appserver.session.probe_nim_tools",
-                        lambda _model: (True, ""))
-    monkeypatch.setattr("fusion_cli.appserver.session.run_command",
-                        lambda *_args, **_kwargs: {"ok": True, "metin": "uygulandı"})
+    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", lambda _model: (True, ""))
     accepted = await session._run_command({"ad": "development", "arguman":
                                            "uygula nim-free nvidia_nim/z-ai/glm-5.3"})
-    assert accepted == {"ok": True, "metin": "uygulandı"}
+    assert accepted["ok"] is True
+    assert "nvidia_nim/z-ai/glm-5.3" in accepted["metin"]
 
 
 async def test_bilinmeyen_istek_hata_sonucu_doner(tmp_path):
@@ -1474,3 +1481,29 @@ async def test_plan_yurut_turundan_sonra_kok_konusma_korunur(tmp_path, monkeypat
         "3. turda sağlayıcıya giden mesajlar 1. turun kullanıcı mesajını içermiyor "
         f"(gönderilen: {[m.content[:80] for m in ucuncu_tur_mesajlari]})"
     )
+
+
+async def test_panel_ayarlari_modeli_komutla_degistirir_ve_kipi_ayarlar(tmp_path, monkeypatch):
+    """Claude in Chrome gibi: panel modeli ve 'Önce sor / Sormadan yap' kipini seçer."""
+    from fusion_cli.appserver import session as oturum_modulu
+
+    oturum = _session(tmp_path, [])
+    komutlar: list[dict] = []
+
+    async def sahte_komut(data):
+        komutlar.append(data)
+        return {"ok": True}
+
+    async def sahte_katalog(_config, *, workspace_mode):
+        return {"ok": True, "modeller": [{"model": "m1", "kaynak": "nim-free", "etiket": "m1"}]}
+
+    monkeypatch.setattr(oturum, "_run_command", sahte_komut)
+    monkeypatch.setattr(oturum_modulu, "list_selectable_models", sahte_katalog)
+
+    sonuc = await oturum._chrome_settings({"mod": "security"})
+    assert sonuc["ok"] and sonuc["mod"] == "security" and sonuc["modeller"][0]["model"] == "m1"
+    await oturum._chrome_settings({"model": "nvidia_nim/x", "kaynak": "nim-free"})
+    assert komutlar == [{"ad": "development", "arguman": "uygula nim-free nvidia_nim/x"}]
+    # Boşluklu değer komuta enjekte edilemez; bilinmeyen kip reddedilir.
+    assert not (await oturum._chrome_settings({"model": "a b", "kaynak": "x"}))["ok"]
+    assert not (await oturum._chrome_settings({"mod": "herkes"}))["ok"]

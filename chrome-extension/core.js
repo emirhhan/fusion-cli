@@ -65,7 +65,7 @@ export function pageAction(operation, args) {
   // Yalnız GÖRÜNEN metin. `innerText` saydam, ekran dışına itilmiş ya da aria-hidden
   // şablonları da verir (ölçüldü: Google Ads'in gizli "ad blocker" uyarısı modeli yanılttı).
   const BLOCK = /^(block|flex|grid|table|table-row|list-item|flow-root)$/;
-  const visibleText = () => {
+  const visibleText = (limit = MAX_TEXT) => {
     const shown = new Map();
     const isShown = (el) => {
       if (!el || el === document.body) return true;
@@ -84,14 +84,14 @@ export function pageAction(operation, args) {
     const parts = [];
     let length = 0;
     const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node && length < MAX_TEXT; node = walker.nextNode()) {
+    for (let node = walker.nextNode(); node && length < limit; node = walker.nextNode()) {
       const text = node.nodeValue.replace(/\s+/g, " ").trim();
       const parent = node.parentElement;
       if (!text || !parent || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(parent.tagName) || !isShown(parent)) continue;
       parts.push(BLOCK.test(getComputedStyle(parent).display) ? `\n${text}` : ` ${text}`);
       length += text.length + 1;
     }
-    return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, MAX_TEXT);
+    return parts.join("").replace(/\n\s*\n+/g, "\n").trim().slice(0, limit);
   };
   if (operation === "snapshot") {
     globalThis.__fusionRefs = [];
@@ -138,6 +138,46 @@ export function pageAction(operation, args) {
       submit: type === "submit" || (element.tagName === "BUTTON" && !type && Boolean(element.form)),
       link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
     };
+  }
+  if (operation === "text_page") {
+    // Uzun sayfanın TAMAMI parça parça (Claude'un get_page_text'i gibi).
+    const PAGE = MAX_TEXT;
+    const page = Math.max(1, Number(args.page) || 1);
+    const full = visibleText(PAGE * page + 1);
+    return { page, text: full.slice(PAGE * (page - 1), PAGE * page), has_more: full.length > PAGE * page };
+  }
+  if (operation === "hover") {
+    const element = target();
+    element.scrollIntoView({ block: "center" });
+    const rect = element.getBoundingClientRect();
+    const point = { bubbles: true, composed: true, clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+    for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "mousemove"]) {
+      element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
+    }
+    return { hovered: args.ref, name: nameOf(element) };
+  }
+  if (operation === "describe_at" || operation === "click_at") {
+    // Ekran görüntüsündeki koordinat (CSS piksel): Claude'un computer tıklaması gibi.
+    const x = Number(args.x);
+    const y = Number(args.y);
+    const element = Number.isFinite(x) && Number.isFinite(y) ? document.elementFromPoint(x, y) : null;
+    if (!element || !safe(element)) throw new Error("Bu noktada tıklanabilir öğe yok ya da hassas alan.");
+    if (operation === "describe_at") {
+      const link = element.closest("a[href]");
+      const href = link ? link.getAttribute("href").trim().toLowerCase() : "";
+      const type = (element.getAttribute("type") || "").toLowerCase();
+      return {
+        name: nameOf(element), tag: element.tagName.toLowerCase(), type, role: element.getAttribute("role") || "",
+        submit: type === "submit" || (element.tagName === "BUTTON" && !type && Boolean(element.form)),
+        link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
+      };
+    }
+    const point = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0 };
+    for (const type of ["pointerover", "pointerdown", "mousedown", "pointerup", "mouseup"]) {
+      element.dispatchEvent(new (type.startsWith("pointer") && globalThis.PointerEvent ? PointerEvent : MouseEvent)(type, point));
+    }
+    element.click();
+    return { clicked_at: [x, y], name: nameOf(element), url: location.href };
   }
   if (operation === "click") {
     const element = target();
@@ -310,7 +350,23 @@ export async function execute(command) {
     await setSelected(tab);
     return { selected: tab.id, url: tab.url };
   }
+  if (command.islem === "tab_close") {
+    const closing = await chrome.tabs.get(Number(veri.id));
+    await chrome.tabs.remove(closing.id);
+    if ((await getSelected())?.id === closing.id) await clearSelected();
+    return { closed: closing.id };
+  }
   const tab = await checkedTab();
+  if (command.islem === "history") {
+    if (veri.dir === "back") await chrome.tabs.goBack(tab.id);
+    else if (veri.dir === "forward") await chrome.tabs.goForward(tab.id);
+    else await chrome.tabs.reload(tab.id);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await waitForLoad(tab.id);
+    const now = await chrome.tabs.get(tab.id);
+    if (now.url && /^https?:/.test(now.url)) await setSelected(now);
+    return { url: now.url };
+  }
   if (command.islem === "screenshot") {
     if (!await chrome.permissions.contains({ origins: ["<all_urls>"] })) {
       throw new Error("Ekran görüntüsü için paneldeki Chrome iznini verin.");
@@ -318,7 +374,8 @@ export async function execute(command) {
     if (!tab.active) await chrome.tabs.update(tab.id, { active: true });
     const image = await chrome.tabs.captureVisibleTab(tab.windowId, { format: "jpeg", quality: 65 });
     if (image.length > 4_000_000) throw new Error("Ekran görüntüsü çok büyük.");
-    return { image };
+    // Sekmenin CSS piksel boyutu: Fusion görüntü koordinatını sayfa ölçeğine çevirir.
+    return { image, width: tab.width, height: tab.height };
   }
   if (command.islem === "navigate") {
     const destination = new URL(veri.url);
@@ -340,7 +397,7 @@ export async function execute(command) {
     return { found: false, waited_ms: limit };
   }
   const result = await runInTab(tab, command.islem, veri);
-  if (command.islem === "click" || command.islem === "key") {
+  if (command.islem === "click" || command.islem === "click_at" || command.islem === "key") {
     // Tıklama yeni sayfa açabilir; sonraki okuma yarım sayfa görmesin.
     await new Promise((resolve) => setTimeout(resolve, 300));
     await waitForLoad(tab.id, 8000);

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import binascii
+import contextlib
 import json
 import re
+import weakref
 from typing import Any
 
 from ..core.tool_content import ToolContent
@@ -46,9 +48,18 @@ async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
     )
 
 
+#: Son ekran görüntüsünün ölçeği (sayfa CSS pikseli / görüntü pikseli), bağlantı başına.
+#: `click_at` görüntü koordinatını bununla sayfa ölçeğine çevirir.
+_SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDictionary()
+
 #: Sayfada kalıcı iz BIRAKMAYAN işlemler: otomatik kipte sorulmaz, plan kipinde serbest.
 #: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
-_READ_ACTIONS = frozenset({"scroll", "wait", "tabs", "open", "tab", "select", "screenshot"})
+_READ_ACTIONS = frozenset(
+    {
+        "scroll", "wait", "tabs", "open", "tab", "select", "screenshot",
+        "back", "forward", "reload", "close", "hover", "text",
+    }
+)  # fmt: skip
 
 #: Tıklanınca geri dönüşü zor ya da dışa dönük iş yapan düğme adları (TR/EN).
 #: Claude in Chrome da gezinmeyi ve sıradan tıklamayı sormaz; göndermede durur.
@@ -69,8 +80,21 @@ _RISKY_CLICK = re.compile(
 _LOGOUT_LINK = re.compile(r"çıkış yap|oturumu kapat|log ?out|sign ?out", re.IGNORECASE)
 
 
-async def chrome_action_effect(args: ToolArgs, _context: ToolContext | None) -> ToolEffect | None:
-    """Kaydırma, bekleme, sekme ve seçim salt okuma sayılır; tuş (Enter formu gönderir) sorulur."""
+async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Kaydırma, bekleme, sekme ve seçim salt okuma sayılır; tuş (Enter formu gönderir) sorulur.
+
+    Koordinata tıklama (`click_at`) ref'li tıklamayla aynı kuralla denetlenir: noktadaki
+    öğenin adı okunur, gönder/sil/satın al gibiyse sorulur.
+    """
+    if args.get("action") == "click_at":
+        point = _point(args.get("value"), context)
+        if point is None or context is None or context.chrome is None:
+            return None
+        try:
+            result = await context.chrome.invoke("describe_at", {"x": point[0], "y": point[1]})
+        except (ConnectionError, TimeoutError):
+            return None
+        return _click_effect(result)
     return ToolEffect.REMOTE_READ if args.get("action") in _READ_ACTIONS else None
 
 
@@ -91,6 +115,11 @@ async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> To
         result = await context.chrome.invoke("describe", {"ref": ref})
     except (ConnectionError, TimeoutError):
         return None
+    return _click_effect(result)
+
+
+def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
+    """`describe` sonucundan tıklamanın etkisini çıkar; okunamazsa `None` (sorulur)."""
     veri = result.get("veri") if result.get("ok") else None
     if not isinstance(veri, dict):
         return None
@@ -144,9 +173,49 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         if "ref" not in data or not isinstance(value, str):
             return ToolResult.failure("select için 'ref' ve 'value' gerekli.")
         return await _call(context, "select", {**data, "value": value})
+    if action in {"back", "forward", "reload"}:
+        return await _call(context, "history", {"dir": action})
+    if action == "close":
+        if not isinstance(value, str) or not value.strip().isdigit():
+            return ToolResult.failure("close için 'value' alanına sekme id'sini yaz.")
+        return await _call(context, "tab_close", {"id": int(value)})
+    if action == "hover":
+        if "ref" not in data:
+            return ToolResult.failure("hover için 'ref' gerekli.")
+        return await _call(context, "hover", data)
+    if action == "text":
+        page = int(value) if isinstance(value, str) and value.strip().isdigit() else 1
+        return await _call(context, "text_page", {"page": max(1, page)})
+    if action == "click_at":
+        point = _point(value, context)
+        if point is None:
+            return ToolResult.failure(
+                "click_at için 'value' alanına ekran görüntüsündeki 'x,y' yaz."
+            )
+        return await _call(context, "click_at", {"x": point[0], "y": point[1]})
     return ToolResult.failure(
-        "action: scroll, wait, key, select, tabs, open, tab ya da screenshot olmalı."
+        "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
+        "reload, close, hover, text ya da click_at olmalı."
     )
+
+
+def _point(value: object, context: ToolContext | None) -> tuple[float, float] | None:
+    """Ekran görüntüsü koordinatını ('x,y') sayfanın CSS pikseline çevir.
+
+    Görüntü Retina'da iki kat piksel gelir; ölçek son ekran görüntüsünden
+    (`chrome_screenshot`) köprüye yazılır. Ekran görüntüsü yoksa ölçek 1'dir.
+    """
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*", value)
+    if match is None:
+        return None
+    chrome = context.chrome if context is not None else None
+    try:
+        scale = _SCREENSHOT_SCALES.get(chrome, 1.0) if chrome is not None else 1.0
+    except TypeError:
+        scale = 1.0
+    return round(float(match.group(1)) * scale, 1), round(float(match.group(2)) * scale, 1)
 
 
 async def chrome_navigate(args: ToolArgs, context: ToolContext) -> ToolResult:
@@ -179,7 +248,28 @@ async def chrome_screenshot(_args: ToolArgs, context: ToolContext) -> ToolResult
         return ToolResult.failure("Chrome görseli çözülemedi.")
     if len(decoded) > 3_000_000:
         return ToolResult.failure("Chrome görseli çok büyük.")
-    return ToolResult(
-        "İzinli Chrome sekmesinin ekran görüntüsü.",
-        content=(ToolContent.image("image/jpeg", encoded),),
-    )
+    size = jpeg_size(decoded)
+    css_width = data.get("width") if isinstance(data, dict) else None
+    note = "İzinli Chrome sekmesinin ekran görüntüsü."
+    if size is not None and isinstance(css_width, int) and css_width > 0:
+        # click_at görüntü koordinatı alır; köprü onu sayfa ölçeğine çevirir.
+        with contextlib.suppress(TypeError):
+            _SCREENSHOT_SCALES[context.chrome] = css_width / size[0]
+        note += f" Görüntü {size[0]}x{size[1]} px; tıklamak için chrome_action click_at 'x,y'."
+    return ToolResult(note, content=(ToolContent.image("image/jpeg", encoded),))
+
+
+def jpeg_size(data: bytes) -> tuple[int, int] | None:
+    """JPEG başlığından (SOF işareti) genişlik ve yüksekliği oku; okunamazsa `None`."""
+    index = 2
+    while index + 9 < len(data):
+        if data[index] != 0xFF:
+            return None
+        marker = data[index + 1]
+        length = int.from_bytes(data[index + 2 : index + 4], "big")
+        if marker in {0xC0, 0xC1, 0xC2}:
+            height = int.from_bytes(data[index + 5 : index + 7], "big")
+            width = int.from_bytes(data[index + 7 : index + 9], "big")
+            return width, height
+        index += 2 + length
+    return None

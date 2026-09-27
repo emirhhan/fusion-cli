@@ -43,7 +43,15 @@ beforeEach(() => {
       const next = eventQueue.shift() ?? await new Promise<Record<string, unknown>>((r) => { eventWaiter = r; });
       return { ok: true, json: async () => next };
     }
-    const result = path === "/turn" ? await turnResult : path === "/status" ? { son: 3 } : { ok: true };
+    const ayarlar = {
+      ok: true, model: "nvidia_nim/glm", mod: (init?.body && JSON.parse(init.body).mod) || "auto",
+      modeller: [
+        { model: "nvidia_nim/glm", kaynak: "nim-free", etiket: "glm" },
+        { model: "nvidia_nim/nemotron", kaynak: "nim-free", etiket: "nemotron" },
+      ],
+    };
+    const result = path === "/turn" ? await turnResult : path === "/status" ? { son: 3 }
+      : path === "/settings" ? ayarlar : { ok: true };
     return { ok: true, json: async () => result };
   }));
 });
@@ -124,6 +132,22 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     click("cancel");
     await waitFor(() => expect(paths()).toContain("/cancel"));
     await waitFor(() => expect($("messages").textContent).toContain("Durduruldu."));
+  });
+
+  it("Claude gibi panelden model seçer ve 'Önce sor' kipine geçer", async () => {
+    autoConnected();
+    await loadPanel();
+    const secici = $("model") as HTMLSelectElement;
+    await waitFor(() => expect(secici.options.length).toBe(2));
+    expect(secici.selectedOptions[0].textContent).toBe("glm");
+    secici.value = "nim-free|nvidia_nim/nemotron";
+    fireEvent.change(secici);
+    await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.model === "nvidia_nim/nemotron")).toBe(true));
+    expect(calls.find((c) => c.body.model === "nvidia_nim/nemotron")?.body).toEqual({ kaynak: "nim-free", model: "nvidia_nim/nemotron" });
+    expect($("mode").textContent).toBe("Otomatik onay");
+    click("mode");
+    await waitFor(() => expect($("mode").textContent).toBe("Elle onay"));
+    expect(calls.some((c) => c.path === "/settings" && c.body.mod === "security")).toBe(true);
   });
 
   it("model metnindeki HTML'i çalıştırmaz, düz metin gösterir", async () => {
@@ -322,6 +346,28 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     expect(text).toContain("MG | ARAMA | SATIS | TR");
     expect(text).not.toContain("ad blocker");
     expect(text).not.toContain("Görünmez metin");
+  });
+
+  it("uzun sayfayı parça parça okur, üzerine gelir ve koordinattaki öğeye tıklar", () => {
+    document.body.insertAdjacentHTML("beforeend", `<p>${"uzun metin ".repeat(3000)}</p><button id="menu">Menü</button>`);
+    const ilk = action("text_page", { page: 1 }) as { text: string; has_more: boolean };
+    expect(ilk.text.length).toBe(20000);
+    expect(ilk.has_more).toBe(true);
+    const ikinci = action("text_page", { page: 2 }) as { text: string; has_more: boolean };
+    expect(ikinci.has_more).toBe(false);
+
+    const menu = document.getElementById("menu")!;
+    const olaylar: string[] = [];
+    menu.addEventListener("mouseover", () => olaylar.push("hover"));
+    menu.addEventListener("click", () => olaylar.push("click"));
+    const { matches } = action("find", { query: "menü" }) as { matches: { ref: string }[] };
+    action("hover", { ref: matches[0].ref });
+    (document as { elementFromPoint?: unknown }).elementFromPoint = () => menu;
+    expect(action("describe_at", { x: 50, y: 20 })).toMatchObject({ name: "Menü", tag: "button" });
+    action("click_at", { x: 50, y: 20 });
+    expect(olaylar).toEqual(["hover", "click"]);
+    (document as { elementFromPoint?: unknown }).elementFromPoint = () => null;
+    expect(() => action("click_at", { x: 1, y: 1 })).toThrow("tıklanabilir öğe yok");
   });
 
   it("seçim kutusunda metinle seçer ve Enter gönderir", () => {

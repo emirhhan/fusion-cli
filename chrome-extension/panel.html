@@ -54,12 +54,16 @@
         <p id="error" class="error" role="alert"></p>
         <form id="composer" class="composer">
           <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
-          <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
-            <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" /></svg>
-          </button>
-          <button id="cancel" class="stop" type="button" title="Durdur" aria-label="Durdur" hidden>
-            <span aria-hidden="true"></span>
-          </button>
+          <div class="composer__bar">
+            <button id="mode" class="mode-chip" type="button" data-mode="auto" title="Otomatik onay: riskli işlemde durup sorar. Elle onay: her işlemden önce sorar.">Otomatik onay</button>
+            <select id="model" class="model-chip" aria-label="Model" title="Model"></select>
+            <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" /></svg>
+            </button>
+            <button id="cancel" class="stop" type="button" title="Durdur" aria-label="Durdur" hidden>
+              <span aria-hidden="true"></span>
+            </button>
+          </div>
         </form>
         <p class="footnote">Fusion hata yapabilir; önemli işlemleri kontrol et.</p>
       </footer>

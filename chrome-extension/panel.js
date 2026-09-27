@@ -78,6 +78,7 @@ function renderThread() {
   $("send").hidden = busy;
   $("cancel").hidden = !busy;
   $("new-chat").disabled = busy;
+  $("model").disabled = busy;
   if (thread.soru) renderAsk($("ask"), thread.soru, answer);
   else { $("ask").hidden = true; $("ask").replaceChildren(); }
   $("thread").scrollTop = $("thread").scrollHeight;
@@ -89,7 +90,10 @@ async function renderStatus() {
   $("status").dataset.state = bagli ? "online" : "offline";
   $("status").lastChild.textContent = bagli ? "Bağlı" : "Bağlı değil";
   $("pairing").hidden = auto.bagli && !manual;
-  if (bagli) void listen();
+  if (bagli) {
+    void listen();
+    loadSettings().catch(() => undefined);
+  }
 }
 
 async function renderTab() {
@@ -177,6 +181,39 @@ async function autoUpdate(version) {
   // Fonksiyon şimdi yakalanır: zamanlayıcı çalıştığında sayfa kapanıyor olabilir.
   const reload = chrome.runtime.reload.bind(chrome.runtime);
   setTimeout(reload, AUTO_UPDATE_DELAY_MS);
+}
+
+// --- Model ve izin kipi (Claude'daki model seçici ve "Önce sor") -------------------
+
+const MODE_LABELS = { auto: "Otomatik onay", security: "Elle onay", plan: "Yalnız plan" };
+
+function renderSettings(settings) {
+  if (!settings?.ok) return;
+  const mode = settings.mod || "auto";
+  $("mode").dataset.mode = mode;
+  $("mode").textContent = MODE_LABELS[mode] || mode;
+  const select = $("model");
+  const rows = settings.modeller || [];
+  select.replaceChildren(...rows.map((row) => {
+    const option = document.createElement("option");
+    option.value = `${row.kaynak}|${row.model}`;
+    option.textContent = row.etiket || row.model;
+    option.selected = row.model === settings.model;
+    return option;
+  }));
+  if (!rows.some((row) => row.model === settings.model)) {
+    const current = document.createElement("option");
+    current.value = "";
+    current.textContent = String(settings.model || "Model").split("/").pop();
+    current.selected = true;
+    select.prepend(current);
+  }
+}
+
+async function loadSettings(change = {}) {
+  const settings = await request("/settings", change);
+  if (settings.ok === false) throw new Error(settings.metin || "Ayar değiştirilemedi.");
+  renderSettings(settings);
 }
 
 // --- Eylemler -----------------------------------------------------------------
@@ -286,6 +323,13 @@ $("prompt").addEventListener("keydown", (event) => {
 document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
+$("mode").addEventListener("click", guard(async () => {
+  await loadSettings({ mod: $("mode").dataset.mode === "auto" ? "security" : "auto" });
+}));
+$("model").addEventListener("change", guard(async () => {
+  const [kaynak, model] = $("model").value.split("|");
+  if (kaynak && model) await loadSettings({ kaynak, model });
+}));
 $("new-chat").addEventListener("click", guard(async () => { error(); await saveThread({ ...thread, mesajlar: [], soru: null }); }));
 $("open-settings").addEventListener("click", () => {
   const sheet = $("settings");

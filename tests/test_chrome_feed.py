@@ -54,3 +54,11 @@ def test_soru_dusunme_ve_hata_gecer_ilgisiz_olay_gecmez() -> None:
         "tur": "hata",
         "metin": "Model yok",
     }
+
+
+def test_yeni_tarayici_islemleri_de_insan_diliyle_yazilir() -> None:
+    assert step_text("chrome_action", {"action": "back"}) == "Geri gidildi"
+    assert step_text("chrome_action", {"action": "text", "value": "2"}) == "Sayfanın tamamı okundu"
+    assert step_text("chrome_action", {"action": "click_at", "value": "10,20"}) == (
+        "Ekrandaki noktaya tıklandı"
+    )

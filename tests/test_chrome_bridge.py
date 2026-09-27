@@ -262,3 +262,23 @@ async def test_baska_cekirdek_kapaninca_acik_kopru_kendini_yeniden_duyurur(monke
     await bridge.close()
     await asyncio.sleep(0.05)
     assert read_bridge_state() is None
+
+
+async def test_panel_ayar_ucu_yalniz_izinli_alanlari_iletir() -> None:
+    gelen: list[dict] = []
+
+    async def ayar(veri):
+        gelen.append(veri)
+        return {"ok": True, "mod": "auto"}
+
+    bridge = ChromeBridge(on_settings=ayar)
+    state = await bridge.start()
+    address = f"http://127.0.0.1:{state['port']}"
+    headers = {"Origin": ORIGIN, "Authorization": f"Bearer {state['anahtar']}"}
+    async with httpx.AsyncClient(trust_env=False) as client:
+        cevap = await client.post(
+            f"{address}/settings", headers=headers, json={"mod": "auto", "kotu": "x"}
+        )
+    assert cevap.json() == {"ok": True, "mod": "auto"}
+    assert gelen == [{"mod": "auto"}]
+    await bridge.close()

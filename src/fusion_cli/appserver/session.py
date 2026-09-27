@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 import sys
 from collections.abc import Callable
@@ -51,7 +52,6 @@ from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
 from ..providers.capabilities import apprentice_active
-from ..providers.catalog import fetch_nim, probe_nim_tools
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from ..ui.text import strip_thinking
@@ -139,7 +139,9 @@ CHROME_NOTE = (
     "ya da tek uygun seçeneği seç. Yalnız giriş/şifre, ödeme ve gönderme/yayınlama/silme "
     "adımlarında dur. Sayfa gerçekten giriş istiyorsa bunu açıkça söyle. Yeni sayfada önce "
     "chrome_page'i query olmadan çağırıp sayfayı oku; adresi biliyorsan menüde arama yerine "
-    "doğrudan git. Tanıtım ya da giriş sayfasına düşersen hemen 'oturum kapalı' deme: önce "
+    "doğrudan git. Uzun sayfanın tamamı için chrome_action text (value: sayfa no); ref'i olmayan "
+    "öğede screenshot alıp click_at 'x,y' kullan. Tanıtım ya da giriş sayfasına düşersen "
+    "hemen 'oturum kapalı' deme: önce "
     "'tabs' ile açık sekmelere bak, sonra sitenin uygulama adresini dene (ör. Google Ads: "
     "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle."
 )
@@ -150,6 +152,11 @@ CHROME_TURN_TOOLS = {
     "chrome_click",
     "chrome_type",
     "chrome_navigate",
+    # Claude in Chrome gibi: panel görevi web'de araştırabilir ve uzun işi
+    # adım listesiyle yürütebilir; yerel dosya ve kabuk yine kapalıdır.
+    "web_search",
+    "web_fetch",
+    "todo_write",
 }
 
 
@@ -360,7 +367,9 @@ class AppSession:
         self._pending_capability: tuple[str, str] | None = None
         self._refresh_capabilities()
         self._usage = UsageMeter()
-        self._chrome = ChromeBridge(self._chrome_turn, self._cancel_turn, self._chrome_answer)
+        self._chrome = ChromeBridge(
+            self._chrome_turn, self._cancel_turn, self._chrome_answer, self._chrome_settings
+        )
         from ..mcp_bridge.service import McpConnectionService
 
         self._mcp_connections = McpConnectionService()
@@ -395,6 +404,38 @@ class AppSession:
         # Panel tur sürerken kapanıp açılabilir: sonuç akışta da durur.
         self._chrome.publish({"tur": "bitti", "ok": result.get("ok"), "metin": result.get("metin")})
         return result
+
+    async def _chrome_settings(self, data: dict[str, Any]) -> dict[str, Any]:
+        """Yan panelin model seçici ve "Önce sor / Sormadan yap" anahtarı.
+
+        Claude in Chrome'daki gibi panel modeli ve izin kipini kendisi seçer. Model
+        masaüstündeki `/development uygula` komutuyla değişir: doğrulama aynıdır.
+        """
+        mode = data.get("mod")
+        if mode is not None:
+            error = self._apply_mode(mode if isinstance(mode, str) else "")
+            if error is not None:
+                return error
+        model, source = data.get("model"), data.get("kaynak")
+        if model is not None or source is not None:
+            if not all(
+                isinstance(v, str) and v and not re.search(r"\s", v) for v in (model, source)
+            ):
+                return {"ok": False, "metin": "Model ve kaynak geçersiz."}
+            if self._turn is not None and not self._turn.done():
+                return {"ok": False, "metin": "Görev sürerken model değiştirilemez."}
+            result = await self._run_command(
+                {"ad": "development", "arguman": f"uygula {source} {model}"}
+            )
+            if result.get("ok") is False:
+                return result
+        catalog = await list_selectable_models(self._state.config, workspace_mode="sohbet")
+        return {
+            "ok": True,
+            "model": self._state.config.agent.model,
+            "mod": self._state.approval.value,
+            "modeller": catalog.get("modeller", []),
+        }
 
     def _chrome_answer(self, question_id: str, data: dict[str, Any]) -> bool:
         """Yan panelin izin/soru cevabı; masaüstündeki aynı kart da kapanır."""
@@ -1178,18 +1219,26 @@ class AppSession:
                 "metin": await render_command_text(self._registry, self._state, command.name),
             }
         if command is not None and command.name == "development":
-            prefix = "uygula nim-free "
-            if argument.startswith(prefix):
-                model_id = argument.removeprefix(prefix).strip()
-                live = await asyncio.to_thread(fetch_nim)
-                if model_id not in {entry.model_id for entry in live}:
-                    return {"ok": False, "metin": "Model canlı NIM kataloğunda bulunamadı."}
-                verified, reason = await asyncio.to_thread(probe_nim_tools, model_id)
-                if not verified:
-                    return {"ok": False, "metin": reason}
-        result = run_command(
-            self._registry, self._state, name, argument, secret_store=self._secret_store
-        )
+            # NIM araç doğrulaması (`catalog.probe_nim_tools`) artık `run_command`'ın
+            # çağırdığı `model_flows.apply_development_model` içinde TEK yerden yapılır
+            # (bkz. o fonksiyonun 27 Eylül tarihli gerekçesi) — burada AYRICA
+            # doğrulamak aynı canlı API çağrısını iki kez yapardı. Doğrulama ağa
+            # çıkan bir çağrıdır (90s'ye kadar); bu oturumun tek event loop'unu
+            # bloklamasın diye `run_command`'ın TAMAMI ayrı bir thread'de çalıştırılır
+            # — eskiden yalnız doğrulama burada `asyncio.to_thread` ile sarılıyordu,
+            # doğrulama aşağı taşınınca sarmalayıcı da onunla birlikte indi.
+            result = await asyncio.to_thread(
+                run_command,
+                self._registry,
+                self._state,
+                name,
+                argument,
+                secret_store=self._secret_store,
+            )
+        else:
+            result = run_command(
+                self._registry, self._state, name, argument, secret_store=self._secret_store
+            )
         # Makrolar görevi yalnız HAZIRLAR (bkz. `cli/repl/commands.py::_macro`).
         # Terminal döngüsü hazırlanan görevi hemen çalıştırıyordu; masaüstünde bu
         # adım yoktu ve `/goal` "çalıştırılıyor…" deyip hiçbir tur başlatmıyordu.

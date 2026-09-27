@@ -208,12 +208,22 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
 .ask__hint { margin: 0; color: var(--faint); font-size: 11px; }
 
 .composer {
-  display: flex; align-items: flex-end; gap: 8px; padding: 8px 8px 8px 14px; border: 1px solid var(--border);
-  border-radius: 22px; background: var(--field); transition: border-color var(--fast) var(--ease);
+  display: grid; gap: 4px; padding: 10px 8px 8px 14px; border: 1px solid var(--border);
+  border-radius: 20px; background: var(--field); transition: border-color var(--fast) var(--ease);
 }
+.composer__bar { display: flex; align-items: center; gap: 6px; }
+.mode-chip, .model-chip {
+  min-width: 0; height: 28px; border: 1px solid var(--border); border-radius: 999px; padding: 0 10px;
+  background: transparent; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.mode-chip:hover, .model-chip:hover { background: var(--hover); color: var(--text); }
+.mode-chip[data-mode="security"] { color: var(--signal-text); border-color: var(--signal-text); }
+.model-chip { margin-left: auto; max-width: 55%; text-overflow: ellipsis; appearance: none; padding-right: 12px; }
+.model-chip:disabled, .mode-chip:disabled { opacity: .5; cursor: default; }
 .composer:focus-within { border-color: var(--border-strong); }
 .composer textarea {
-  flex: 1; min-width: 0; max-height: 160px; padding: 6px 0; border: 0; background: transparent; color: var(--text);
+  min-width: 0; max-height: 160px; padding: 4px 6px 4px 0; border: 0; background: transparent; color: var(--text);
   font: inherit; line-height: 1.45; resize: none; outline: none;
 }
 .composer textarea::placeholder { color: var(--faint); }

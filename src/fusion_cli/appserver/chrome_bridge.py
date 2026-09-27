@@ -48,6 +48,7 @@ class ChromeBridge:
         on_turn: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
         on_cancel: Callable[[], dict[str, Any]] | None = None,
         on_answer: Callable[[str, dict[str, Any]], bool] | None = None,
+        on_settings: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._server: asyncio.AbstractServer | None = None
         self._queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -59,6 +60,7 @@ class ChromeBridge:
         self._on_turn = on_turn
         self._on_cancel = on_cancel
         self._on_answer = on_answer
+        self._on_settings = on_settings
         #: Yan panelin canlı akışı: adımlar, sorular, tur başı/sonu (bkz. `chrome_feed`).
         self._feed: list[dict[str, Any]] = []
         self._feed_seq = 0
@@ -288,6 +290,9 @@ class ChromeBridge:
                 result = await self._events(body.get("after"))
             elif method == "POST" and target == "/answer":
                 result = self._answer(body)
+            elif method == "POST" and target == "/settings" and self._on_settings is not None:
+                allowed = {key: body[key] for key in ("model", "kaynak", "mod") if key in body}
+                result = await self._on_settings(allowed)
             elif method == "POST" and target == "/disconnect":
                 self._connected = False
                 self._last_seen = 0.0

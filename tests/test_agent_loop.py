@@ -136,6 +136,43 @@ async def test_model_akisi_surekli_acik_kalsa_da_cagri_suresi_sinirlanir(
     assert provider.cancelled
 
 
+async def test_hicbir_sey_uretmeyen_model_bosta_kalma_sinirinda_da_aciklayici_mesaj_verir(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (27 Eylül): NIM'in `glm-5.3`/`deepseek-v4.1-flash` uçları canlı koşuda
+    HİÇ parça üretmeden takıldı. `idle_timeout_s`, sohbet kipinde `request_timeout_s`'ten
+    KÜÇÜK olabilir (bkz. `chat_mode.py`); bu durumda tek bir çağrının süresi dolduğunda
+    `budget.time_stop_reason()` bunu "art arda ilerleme yok" (INACTIVITY) sayıyordu —
+    oysa henüz TEK çağrı denenmişti. `_halt` o zaman BOŞ `final_text` ile dönüyor,
+    kullanıcı hiçbir açıklama görmeden genel "cevap üretmedi" mesajına düşüyordu.
+
+    Bu test tam o senaryoyu kurar: `idle_timeout_s` (0.05s) `request_timeout_s`
+    (0.2s)'ten küçüktür ve model HİÇBİR parça üretmez. Beklenen: kullanıcıya giden
+    metin yine de bu çağrının süresini ANLATIR, boş kalmaz.
+    """
+
+    class NeverRespondingProvider:
+        async def stream(self, request):
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                raise
+            return
+            yield  # pragma: no cover - jeneratör imzasını korumak için
+
+    _kur(monkeypatch, NeverRespondingProvider())
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.2})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+    deps.budget.idle_timeout_s = 0.05
+
+    result = await asyncio.wait_for(run_agent("naber", deps, chat_mode=True), timeout=2)
+
+    assert result.ok is False
+    assert result.final_text.strip() != ""
+    assert "saniyede tamamlanmadı" in result.final_text
+
+
 async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path, sink):
     paths = [f"src/part_{index}.py" for index in range(10)]
     (tmp_path / "src").mkdir()
@@ -2485,3 +2522,40 @@ async def test_arac_cagrisiyla_gelen_dusunme_taslagi_gecmise_yazilmaz(monkeypatc
 
     asistan = [m for m in saglayici.seen_messages[1] if m.role == "assistant"]
     assert asistan and asistan[-1].content == "Dosyayı okuyorum."
+
+
+async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (27 Eylül): Chrome okuma turunda cevap hazırken öz-denetim fazladan
+    bir model çağrısı yapıyor, panel cevabı ancak ondan sonra görüyordu. Tarayıcıda
+    denetlenecek dosya yoktur."""
+
+    class _Kopru:
+        async def invoke(self, name, data):
+            return {"ok": True, "veri": {"url": "https://ads.google.com/aw/overview"}}
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("chrome_navigate", url="ads.google.com")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    denetim_cagrildi = False
+
+    async def _izlenen_denetim(*args, **kwargs):
+        nonlocal denetim_cagrildi
+        denetim_cagrildi = True
+        return ""
+
+    monkeypatch.setattr(agent_loop.review, "review_turn", _izlenen_denetim)
+    deps = _deps(tmp_path, sink, runtime={"self_review": True})
+    deps = replace(deps, tool_context=replace(deps.tool_context, chrome=_Kopru()))
+
+    sonuc = await run_agent("Google Ads'i aç", deps)
+
+    assert sonuc.mutating_tool_calls_made == 1
+    assert denetim_cagrildi is False
