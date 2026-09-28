@@ -49,7 +49,18 @@ export function useHistory(client: ProtocolClient | null) {
 
   useEffect(() => {
     let active = true;
-    setSources([]);
+    // Sekmeye özgü seçim durumu (açık kaynak, seçili konuşma, dökümler…)
+    // her istemci değişiminde sıfırlanır — farklı bir sekmeye geçildiğinde
+    // önceki sekmenin gezinmesi taşınmamalı.
+    //
+    // AMA `sources` BURADA sıfırlanmıyor: Claude/Codex/Hermes geçmişi
+    // diskten okunan GLOBAL bir listedir, aktif sekmeye özgü değildir.
+    // Eskiden her sekme değişiminde `[]`'a düşürülüyordu; yeni sekmenin
+    // çekirdeği henüz `gecmis.kaynaklar` isteğine cevap verecek kadar hazır
+    // değilse (ya da istek herhangi bir sebeple başarısız olursa) kenar
+    // çubuğundaki "Devam et" bölümü BİR DAHA HİÇ dolmuyordu — yalnız
+    // uygulama yeniden başlayınca (taze istemciler) düzeliyordu. Liste artık
+    // yeni bir istek BAŞARIYLA dönene kadar olduğu gibi kalır.
     setSource(null);
     setSessions([]);
     setSessionCursor(null);
@@ -70,6 +81,8 @@ export function useHistory(client: ProtocolClient | null) {
         setSources(result.kaynaklar as HistorySourceRef[]);
       })
       .catch((reason) => {
+        // İstek başarısız olsa bile ÖNCEKİ kaynak listesi SİLİNMEZ (yukarıya
+        // bkz.) — yalnız hata bildirilir.
         if (active) setError(String(reason));
       });
     return () => {

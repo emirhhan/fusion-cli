@@ -72,6 +72,20 @@ def test_fusion_completed_ozet_sunar() -> None:
     }
 
 
+def test_tool_started_insan_cumlesini_tek_kaynaktan_ekler() -> None:
+    """Bkz. bug: araç çalışırken kullanıcıya soluk bir durum satırı gösterilmeli.
+
+    Cümle TEK KAYNAKTAN (`tool_progress.progress_text`) gelir; `event_to_dict`
+    bunu `ToolStarted` olayına özel `metin` alanı olarak ekler — arayüz kendi
+    çeviri tablosunu tutmaz.
+    """
+    sonuc = event_to_dict(E.ToolStarted(name="read_file", args={"path": "src/app.py"}))
+
+    assert sonuc["olay"] == "ToolStarted"
+    assert sonuc["name"] == "read_file"
+    assert sonuc["metin"] == "src/app.py okunuyor"
+
+
 def test_model_call_finished_sonucu_yapisal_olarak_serilesir() -> None:
     sonuc = event_to_dict(
         E.ModelCallFinished(

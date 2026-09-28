@@ -558,6 +558,62 @@ describe("useSessions", () => {
     expect(result.current.state.sessions.adli.title).toBe("Kendi başlığım");
   });
 
+  /* Bkz. bug: "Durdur"a basılıp "Tur iptal edildi" göründükten sonra sohbete
+     yeni mesaj gönderilemiyordu (Enter/gönder çalışmıyordu), uygulama
+     yeniden başlatılınca düzeliyordu. Kök neden: `tur.calistir` isteğinin
+     promise'i bazı iptallerde HİÇ çözülmüyor, bu yüzden `runningRequests`
+     referansı sonsuza dek dolu kalıp yeni mesajı sonsuza dek kuyrukta
+     bırakıyordu. `stop()` artık bir güvenli üst sınırda durumu ZORLA
+     sıfırlar. */
+  it("stop() sonrası tur.calistir promise'i hiç çözülmese bile üst sınırda durum sıfırlanır ve yeni mesaj gönderilir", async () => {
+    vi.useFakeTimers();
+    try {
+      const fake = fakeTransport();
+      const { result } = renderHook(() => useSessions(fake.transport));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.activeSession).not.toBeNull();
+
+      const turlar = () => fake.sent
+        .map(({ line }) => JSON.parse(line) as { ad: string; veri?: Record<string, unknown> })
+        .filter((request) => request.ad === "tur.calistir");
+
+      act(() => {
+        result.current.send("varsayilan", "ilk görev");
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(turlar()).toHaveLength(1);
+
+      // Kullanıcı Durdur'a basar; çekirdek `tur.calistir` cevabını HİÇ
+      // göndermez (asılı kalan iptal senaryosu).
+      act(() => {
+        result.current.stop("varsayilan");
+      });
+      expect(result.current.state.sessions.varsayilan.running).toBe(false);
+
+      // İkinci mesaj: promise hâlâ asılı olduğu için normalde KUYRUĞA girerdi.
+      act(() => {
+        result.current.send("varsayilan", "ikinci görev");
+      });
+      expect(turlar()).toHaveLength(1);
+
+      // Güvenli üst sınır dolar: durum zorla sıfırlanır ve kuyruktaki mesaj
+      // gerçekten çekirdeğe gönderilir.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+
+      expect(turlar()).toHaveLength(2);
+      expect(turlar()[1].veri?.gorev).toBe("ikinci görev");
+      expect(result.current.state.sessions.varsayilan.running).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("öneri gelene kadar sekme adlandırıldıysa öneriyi uygulamaz", () => {
     // Öneri eşzamansızdır; arada verilen ad kullanıcınındır.
     const client = {} as never;

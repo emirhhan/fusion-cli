@@ -17,8 +17,8 @@ import re
 MAX_REFUSAL_CHARS = 400
 
 _REFUSAL = re.compile(
-    r"dil modeliyim|yapay zek[aâ](?: dil)? modeliyim|yardımcı olam(?:ıyorum|am)|"
-    r"programlanmadım|bunu yapamam|"
+    r"dil modeliyim|dil modeli olarak|yapay zek[aâ](?: dil)? modeliyim|"
+    r"yardımcı olam(?:ıyorum|am)|programlanmadım|tasarlanmadım|bunu yapamam|"
     r"i'?m (?:just |only )?an? (?:ai |large )?language model|"
     r"i can(?:not|'t) (?:help|assist) with|i'?m (?:not able|unable) to help",
     re.IGNORECASE,

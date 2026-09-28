@@ -31,7 +31,14 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
   const son = messages[messages.length - 1];
   const bloklanabilir = son?.rol === "olay" && !son.adimlar?.some((item) => item.sonuc);
   if (!bloklanabilir) {
-    const acilan: Mesaj[] = [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
+    // Bloğun başlangıcı BURADA damgalanır: `ActivityLine`'daki süre sayacı
+    // bileşen yeniden bağlansa bile (sekme değişimi) bu sabit zamandan
+    // hesaplar; `Date.now()` bir bileşen ref'inde tutulsaydı yeniden
+    // bağlanınca kaybolurdu.
+    const acilan: Mesaj[] = [
+      ...messages,
+      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani: Date.now() },
+    ];
     return adim.diff ? [...acilan, degisiklikMesaji(adim)] : acilan;
   }
 

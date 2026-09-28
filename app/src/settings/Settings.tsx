@@ -117,11 +117,20 @@ export function Settings({
     try {
       const durum = (await client.request("kontrol.durum", {})) as ControlSnapshot & {
         ok?: boolean;
+        metin?: string;
       };
+      // Eskiden `ok` hiç kontrol edilmiyordu: çekirdek `{ok:false, metin:"…"}`
+      // döndürdüğünde bile (istek REDDEDİLMEZ, yalnız BAŞARISIZ sonuçla
+      // ÇÖZÜLÜR — bkz. `ProtocolClient`) ekran onu geçerli bir durum gibi
+      // gösteriyordu; kullanıcı hiçbir hata görmüyordu ama sayfa bozuk
+      // kalıyordu. `catch` bloğu da GERÇEK nedeni atıyor, sabit bir metinle
+      // örtüyordu — bu dosyanın altındaki `bellek`/`kontrol.anahtar_*`
+      // çağrıları gibi asıl sebep gösterilmeliydi.
+      if (durum?.ok === false) throw new Error(durum.metin || "Ayarlar okunamadı.");
       setControl(durum ?? null);
       setError(null);
-    } catch {
-      setError("Ayarlar okunamadı.");
+    } catch (reason) {
+      setError(`Ayarlar okunamadı: ${String(reason instanceof Error ? reason.message : reason)}`);
     }
   }, [client]);
 
@@ -187,7 +196,14 @@ export function Settings({
 
         <div className="settings__panel">
           <h3 className="settings__section-heading">{BOLUMLER.find((item) => item.id === bolum)?.etiket}</h3>
-          {error && <p className="settings__error" role="status">{error}</p>}
+          {error && (
+            <p className="settings__error" role="status">
+              {error}{" "}
+              <button className="settings__error-retry" onClick={() => void load()} type="button">
+                Yeniden dene
+              </button>
+            </p>
+          )}
           {bolum === "genel" && (
             <General
               historyOpen={historyOpen}

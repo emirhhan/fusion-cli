@@ -102,4 +102,20 @@ describe("ModelPicker", () => {
     expect(screen.queryByText("Hızlı")).toBeNull();
     expect(screen.getByText("Derin")).toBeTruthy();
   });
+
+  /* Bkz. bug: uzun model adı (ör. "nemotron-3-ultra-550b-a55b") seçilince
+     yazma kutusundaki yer tutucu alt satıra kayıyordu. Çip; adı kısaltacak
+     yapıya (ellipsis'e izin veren min-width:0 barındıran isim span'i) sahip
+     olmalı ve düğme kendi max-width'i içinde kalmalı — tam ad yalnız
+     `title` özniteliğinde saklanır, düğme metninde taşmaz. */
+  test("uzun model adında düğme adı kısaltmaya izin verecek yapıda kalır, tam ad title'da saklanır", () => {
+    const uzunAd = "nemotron-3-ultra-550b-a55b-cok-uzun-bir-surum-adi-daha-da-uzasin";
+    render(<ModelPicker active={uzunAd} onSelect={vi.fn()} options={[]} />);
+
+    const dugme = screen.getByRole("button", { name: new RegExp(`Model: ${uzunAd}`) });
+    expect(dugme.getAttribute("title")).toBe(uzunAd);
+    const isimSpani = dugme.querySelector(".model-picker__name");
+    expect(isimSpani?.textContent).toBe(uzunAd);
+    expect(dugme.className).toContain("model-picker__trigger");
+  });
 });

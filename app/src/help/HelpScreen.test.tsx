@@ -1,10 +1,30 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { HelpScreen } from "./HelpScreen";
 
+const kokDizin = dirname(fileURLToPath(import.meta.url));
+
 afterEach(cleanup);
 
 describe("HelpScreen", () => {
+  /* Bkz. bug: yardım paneli ekrana sığmıyordu ve kaydırılamıyordu (ebeveyn
+     kutu `overflow: hidden` taşıyor — Shell.css). Kök öğe kendi kaydırmasını
+     açmalı: `main.help` kaydırılabilir tek DOM köküdür. */
+  test("kök öğe kendi taşmasında kaydırılabilir (overflow-y açık)", () => {
+    const { container } = render(<HelpScreen onClose={vi.fn()} />);
+    const kok = container.querySelector("main.help");
+    expect(kok).toBeTruthy();
+
+    // jsdom gerçek düzen hesaplamaz; CSS dosyasının METNİ regresyona karşı
+    // korunur (bkz. `notify/notification.zindex.test.ts`ile aynı desen).
+    const css = readFileSync(join(kokDizin, "help.css"), "utf-8");
+    expect(css).toMatch(/\.help\s*{[^}]*overflow-y:\s*auto/s);
+    expect(css).toMatch(/\.help\s*{[^}]*height:\s*100%/s);
+  });
+
   test("kısayolları tuş ve anlamıyla listeler", () => {
     render(<HelpScreen onClose={vi.fn()} />);
 

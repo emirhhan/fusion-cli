@@ -35,6 +35,11 @@ export interface Mesaj {
   rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
+  /** Yalnız `rol === "olay"` için: bloğun İLK adımının başladığı `Date.now()`.
+   *  Süre sayacı bu SABİT zamandan hesaplanır (bkz. `ActivityLine`) — mesaj
+   *  oturum durumunda tutulduğu için sekme değişip geri dönünce ya da
+   *  bileşen yeniden bağlanınca sıfırlanmaz. */
+  baslangicZamani?: number;
   /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
   ekler?: MesajEki[];
   /** Yalnız `rol === "degisiklik"` için: dosyaya uygulanan unified diff. */
@@ -237,7 +242,11 @@ export function Conversation({
             }
             return (
               <div className="conversation__message conversation__message--event" key={index}>
-                <ActivityLine adimlar={message.adimlar ?? []} showSteps={showSteps} />
+                <ActivityLine
+                  adimlar={message.adimlar ?? []}
+                  baslangicZamani={message.baslangicZamani}
+                  showSteps={showSteps}
+                />
               </div>
             );
           }

@@ -12,7 +12,8 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 
-from ..core.events import Event, FusionCompleted
+from ..core.events import Event, FusionCompleted, ToolStarted
+from .tool_progress import progress_text
 
 
 def event_to_dict(event: Event) -> dict[str, object]:
@@ -23,6 +24,10 @@ def event_to_dict(event: Event) -> dict[str, object]:
     if dataclasses.is_dataclass(event):
         for field in dataclasses.fields(event):
             payload[field.name] = _plain(getattr(event, field.name))
+    if isinstance(event, ToolStarted):
+        # İnsan dilindeki cümle TEK KAYNAKTAN (`tool_progress.py`) gelir;
+        # arayüz kendi kalıbını uydurmaz, yalnız bu alanı basar.
+        payload["metin"] = progress_text(event.name, event.args)
     return payload
 
 

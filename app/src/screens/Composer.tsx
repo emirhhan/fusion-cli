@@ -377,7 +377,7 @@ export function Composer({
           </div>
           {running ? (
             <span className="composer__actions">
-              <ContextGauge olcu={context} />
+              <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}
@@ -395,7 +395,7 @@ export function Composer({
             </span>
           ) : (
             <span className="composer__actions">
-              <ContextGauge olcu={context} />
+              <ContextGauge olcu={context} onCompact={() => onSend("/compact")} />
               {maliyetRozetMetni(costUsd) && (
                 <span className="composer__cost">{maliyetRozetMetni(costUsd)}</span>
               )}

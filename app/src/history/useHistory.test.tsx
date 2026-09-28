@@ -3,6 +3,23 @@ import { describe, expect, it } from "vitest";
 import { ProtocolClient } from "../protocol/client";
 import { useHistory } from "./useHistory";
 
+/** `gecmis.kaynaklar` isteğine her zaman BAŞARISIZ cevap veren sahte istemci —
+ *  henüz hazır olmayan (yeni açılmış) bir sekmenin çekirdeğini taklit eder. */
+function basarisizKaynakIstemcisi() {
+  let receive: ((line: string) => void) | null = null;
+  const client = new ProtocolClient(
+    (line) => {
+      const request = JSON.parse(line) as { id: string; ad: string };
+      const veri = { ok: false, metin: "Oturum henüz hazır değil." };
+      queueMicrotask(() => receive?.(JSON.stringify({ tip: "sonuc", id: request.id, veri })));
+    },
+    (handler) => {
+      receive = handler;
+    },
+  );
+  return client;
+}
+
 function historyClient() {
   let receive: ((line: string) => void) | null = null;
   const client = new ProtocolClient(
@@ -79,6 +96,31 @@ describe("useHistory", () => {
     await waitFor(() => expect(result.current.sources).toEqual([
       { ad: "claude", komut: "/resumeclaude" },
     ]));
+  });
+
+  /* Bkz. bug: sol kenar çubuğundaki "Devam et" (Claude/Codex/Hermes geçmişi)
+     bölümü bir ara kayboluyordu, uygulama yeniden başlayınca geri geliyordu.
+     Kök neden: `client` her sekme değişiminde değişiyordu ve efekt `sources`u
+     HER SEFERİNDE `[]`'a düşürüyordu; yeni sekmenin çekirdeği henüz
+     `gecmis.kaynaklar`e cevap veremiyorsa liste bir daha hiç dolmuyordu.
+     Artık başarısız/asılı bir istek eski listeyi SİLMEZ. */
+  it("istemci değişip yeni istek başarısız olsa bile önceki kaynak listesini korur", async () => {
+    const ilkIstemci = historyClient();
+    const { result, rerender } = renderHook(
+      ({ client }) => useHistory(client),
+      { initialProps: { client: ilkIstemci as ProtocolClient | null } },
+    );
+    await waitFor(() => expect(result.current.sources).toEqual([
+      { ad: "claude", komut: "/resumeclaude" },
+    ]));
+
+    // Kullanıcı henüz hazır olmayan bir sekmeye geçer: yeni istemcinin
+    // isteği başarısız döner.
+    rerender({ client: basarisizKaynakIstemcisi() });
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    // "Devam et" bölümü GÖRÜNMEZ olmamalı: önceki liste hâlâ orada.
+    expect(result.current.sources).toEqual([{ ad: "claude", komut: "/resumeclaude" }]);
   });
 
   it("oturum ve önizleme sayfalarını aşamalı yükler", async () => {

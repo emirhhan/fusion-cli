@@ -74,6 +74,47 @@ afterEach(() => {
   localStorage.clear();
 });
 
+describe("Settings — kontrol.durum hataları", () => {
+  /* Bkz. bug: "Ayarlar okunamadı" hatası hangi isteğin neden başarısız
+     olduğunu hiç söylemiyordu — `catch` bloğu gerçek nedeni sabit bir
+     metinle örtüyordu. Ayrıca `kontrol.durum` `{ok:false}` döndürdüğünde
+     (istek REDDEDİLMEZ, başarısız bir SONUÇLA çözülür) ekran bunu hiç
+     kontrol etmeden geçerli veri gibi kullanıyordu. */
+  it("çekirdek {ok:false} dönerse gerçek nedeni gösterir ve 'Yeniden dene' ile düzelir", async () => {
+    let hazir = false;
+    const fake = {
+      request: vi.fn(async (name: string) => {
+        if (name === "kontrol.durum") {
+          return hazir
+            ? { ok: true, kok: "/p", gateway: {}, izin: {}, model: {}, saglayicilar: [] }
+            : { ok: false, metin: "oturum henüz hazır değil" };
+        }
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    ciz({ client: fake });
+
+    expect(await screen.findByText(/Ayarlar okunamadı: oturum henüz hazır değil/)).toBeTruthy();
+
+    hazir = true;
+    fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+
+    await waitFor(() => expect(screen.queryByText(/Ayarlar okunamadı/)).toBeNull());
+  });
+
+  it("istek reddedilirse (transport hatası) gerçek istisna mesajını gösterir", async () => {
+    const fake = {
+      request: vi.fn(async (name: string) => {
+        if (name === "kontrol.durum") throw new Error("Çekirdek bağlantısı kapatıldı.");
+        return { ok: true };
+      }),
+    } as unknown as ProtocolClient;
+    ciz({ client: fake });
+
+    expect(await screen.findByText(/Ayarlar okunamadı: Çekirdek bağlantısı kapatıldı\./)).toBeTruthy();
+  });
+});
+
 describe("Settings — yapı", () => {
   it("profil kısayolundan doğrudan bellek ve kalıcı talimatları açar", async () => {
     ciz({ initialSection: "kisisellestirme" });

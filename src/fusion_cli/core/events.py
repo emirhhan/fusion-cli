@@ -151,6 +151,21 @@ class ToolOutcome(Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolStarted(Event):
+    """Bir araç çağrısı BAŞLIYOR (onay gerekiyorsa onaydan SONRA yayınlanır).
+
+    `ToolExecuted` yalnız araç BİTİNCE gelir; araç saniyeler sürerse (büyük bir
+    arama, uzun bir kabuk komutu) kullanıcı o süre boyunca hiçbir şey görmez.
+    Bu olay, `ToolExecuted`in tersine SESSİZCE kaybolabilir: motor bunu yayınlar
+    yayınlamaz aracı çalıştırır, ikinci bir "bitti" olayına gerek duymaz — akışta
+    zaten `ToolExecuted` onu izler.
+    """
+
+    name: str
+    args: Mapping[str, object]
+
+
+@dataclass(frozen=True, slots=True)
 class ToolExecuted(Event):
     """Bir araç çağrısı sonuçlandı."""
 

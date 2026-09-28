@@ -65,6 +65,17 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
   const olay = String(veri.olay ?? "");
   const ad = typeof veri.name === "string" ? veri.name : "";
   switch (olay) {
+    case "ToolStarted": {
+      // Araç henüz BİTMEDİ; yalnız çalışmaya başladı (onay gerekiyorsa
+      // ondan SONRA — bkz. `engines/agent/loop.py::_execute`). Cümle
+      // TEK KAYNAKTAN (çekirdek `appserver/tool_progress.py`) gelir,
+      // arayüz kendi kalıbını uydurmaz; burada yalnız `veri.metin` basılır.
+      // Ardından gelecek `ToolExecuted` aynı bloğun son adımı olarak bu
+      // satırın yerini alır — "Düşünüyor…" göstergesinin yaptığı gibi.
+      const metin = typeof veri.metin === "string" && veri.metin ? veri.metin : `${ad} çalıştırılıyor`;
+      const { kaynak } = aracAyrintisi(veri.args);
+      return { metin, kaynak };
+    }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
       const baslik = ARAC_SONUCU[String(veri.outcome ?? "ok")] ?? ARAC_SONUCU.ok;

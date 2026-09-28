@@ -68,7 +68,7 @@ import {
   type VoicePrefsPayload,
 } from "./voice/bridge";
 import { openVoiceWindow } from "./voice/windowBridge";
-import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer, type VoiceTurnHandle } from "./voice/voiceTurn";
+import { cannedVoiceAnswer, findVoiceAnswer, speakVoiceAnswer, speakVoiceAnswerStreamed, type VoiceTurnHandle } from "./voice/voiceTurn";
 import { AccountGate } from "./account/AccountGate";
 import { AccountScreen } from "./account/AccountScreen";
 import { useAccount } from "./account/useAccount";
@@ -174,10 +174,20 @@ function useConversation(client: ProtocolClient) {
 }
 
 /** Yalnız `request` gerekir; kanca taşıma tipine bağlı olmamalı. */
-type TemaIstemcisi = Pick<ProtocolClient, "request">;
+export type TemaIstemcisi = Pick<ProtocolClient, "request">;
 
-function useAppTheme(client?: TemaIstemcisi) {
+/** Test edilebilirlik için dışa açık: bkz. `SessionApplication.theme.test.tsx`. */
+export function useAppTheme(client?: TemaIstemcisi) {
   const [themePreference, setThemePreference] = useState<ThemePreference>(readThemePreference);
+  // Yapılandırma BİR KEZ okunur (bkz. aşağıdaki efekt). `client` her aktif
+  // sekme değişiminde YENİ bir referanstır — her sekme kendi çekirdek
+  // sürecidir ve süreç KENDİ başlangıcında okuduğu yapılandırmanın bellek
+  // içi bir kopyasını taşır. Efekt eskiden `[client]` her değiştiğinde
+  // yeniden okuyordu: sekme A'da tema koyu iken sekme B (başka bir zamanda
+  // başlamış, hâlâ eski/açık değeri bellekte tutan bir süreç) açılınca genel
+  // (`document.documentElement`) tema B'nin BAYAT tercihine dönüyordu — tema
+  // sohbet başına davranıyormuş gibi görünüyordu, oysa GLOBAL olmalı.
+  const yapilandirmaOkundu = useRef(false);
 
   const syncWindowColor = (theme: "light" | "dark") => {
     if (!("__TAURI_INTERNALS__" in window)) return;
@@ -193,7 +203,10 @@ function useAppTheme(client?: TemaIstemcisi) {
   // kurulumunda hiç yazılmıyordu (0 bayt) ve yazma hatası yutulduğu için tercih
   // her açılışta `system`'e düşüyor, macOS koyu temadayken içerik beyaz kalıyordu.
   useEffect(() => {
-    if (!client) return;
+    // Yalnız İLK kullanılabilir istemciden, uygulama başına BİR KEZ okunur —
+    // sonraki sekme değişimleri (`client` değişse bile) tekrar tetiklemez.
+    if (!client || yapilandirmaOkundu.current) return;
+    yapilandirmaOkundu.current = true;
     let iptal = false;
     void (async () => {
       try {
@@ -910,7 +923,8 @@ export function SessionUygulama({
       return;
     }
     pendingBargeIn.current = false;
-    void speakVoiceAnswer(session.client, answer, publishVoiceRuntimeState)
+    // Cevap cümle cümle seslendirilir: ilk cümle hazır olur olmaz ses başlar.
+    void speakVoiceAnswerStreamed(session.client, answer, publishVoiceRuntimeState)
       .then((turn) => {
         activeVoiceTurn.current = turn;
         if (pendingBargeIn.current) void turn.cancel().catch(() => undefined);

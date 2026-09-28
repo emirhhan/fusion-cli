@@ -23,19 +23,41 @@
 .composer textarea {
   background: transparent;
   border: 0;
+  /* ChatGPT/Claude kalitesi: gövdeden bağımsız, KENDİ yazı tipi/boyutu/rengi
+     açıkça verilir — eskiden hiçbiri yoktu, kutu miras kalan hangi değer
+     neyse onu alıyordu ve dolgu üstte 1px / yanlarda 4px / altta 8px gibi
+     ASİMETRİKTİ: metin üst kenara neredeyse yapışık, kayışsız duruyordu. */
+  color: var(--text-primary);
   display: block;
   field-sizing: content;
-  line-height: 1.5;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.6;
   max-height: 180px;
   min-height: 28px;
   outline: 0;
-  padding: 1px var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-1);
   resize: none;
   width: 100%;
 }
 
 .composer textarea::placeholder {
   color: var(--text-secondary);
+}
+
+/* Yer tutucu HER ZAMAN tek satır kalır: kutu araç çubuğundaki uzun bir model
+   adı (chip) yüzünden daraldığında bile "İstediğin bir şeyi sor" alt satıra
+   kaymaz. `:placeholder-shown` yalnız kutu BOŞKEN eşleşir; kullanıcı çok
+   satırlı bir metin yazdığında normal satır kaydırma bozulmaz. */
+.composer textarea:placeholder-shown {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer__actions,
+.composer__tools {
+  min-width: 0;
 }
 
 .composer__toolbar,

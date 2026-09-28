@@ -14,6 +14,21 @@ describe("olayEkle", () => {
     expect(mesajlar[0].adimlar).toHaveLength(2);
   });
 
+  /* Bkz. bug: "Düşünüyor 25sn" sayacı sekme değişince sıfırlanıyordu çünkü
+     başlangıç zamanı yalnız bir bileşen ref'indeydi. Artık blok açılırken
+     `baslangicZamani` OTURUM durumuna (mesaj listesine) damgalanır ve
+     bileşen yeniden bağlansa bile aynı kalır. */
+  it("blok açılınca baslangicZamani damgalanır ve sonraki adımlarda değişmez", () => {
+    let mesajlar: Mesaj[] = [];
+    mesajlar = olayEkle(mesajlar, DUSUNUYOR);
+
+    const ilkDamga = mesajlar[0].baslangicZamani;
+    expect(typeof ilkDamga).toBe("number");
+
+    mesajlar = olayEkle(mesajlar, DUSUNUYOR);
+    expect(mesajlar[0].baslangicZamani).toBe(ilkDamga);
+  });
+
   it("blok başlığı son yapılan işi gösterir", () => {
     let mesajlar = olayEkle([], DUSUNUYOR);
     mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "write_file", args: { path: "a.py" } });

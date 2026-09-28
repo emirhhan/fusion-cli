@@ -53,6 +53,7 @@ from ...core.events import (
     ToolCallRepaired,
     ToolExecuted,
     ToolOutcome,
+    ToolStarted,
     TurnAnswered,
     TurnBudgetExhausted,
     VerificationFailed,
@@ -2234,6 +2235,13 @@ async def _execute(
             message = _decision_message(decision, plan_mode=plan_mode)
             return ToolResult.failure(message), _DECISION_OUTCOMES[decision]
 
+    # Onay SORULACAKSA (değiştirici araç) buraya ancak onaydan SONRA gelinir;
+    # araç henüz çalışmadı ama artık kesinlikle çalışacak. Arayüz bu olayı
+    # dinleyip "… okunuyor/… yapılıyor" gibi şimdiki-zamanlı, soluk bir durum
+    # satırı basar (bkz. `appserver/tool_progress.py`) — `ToolExecuted` yalnız
+    # BİTİNCE geldiği için uzun süren bir araç boyunca kullanıcı hiçbir şey
+    # görmüyordu.
+    deps.publisher.publish(ToolStarted(name=call.name, args=args))
     result = await registry.execute(call.name, args, deps.tool_context)
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
 

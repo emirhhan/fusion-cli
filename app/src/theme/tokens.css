@@ -47,6 +47,15 @@
   --control-primary: #0b0a0d;
   --focus-ring: var(--brand-signal-deep);
 
+  /* Metin seçim rengi (`::selection`): `--surface-accent-subtle` eskiden bu
+     amaçla kullanılıyordu ama o token yalnız hafif bir zemin tonu için
+     ölçülmüştü — koyu temadaki karşılığı (#1e2a12) neredeyse siyah zeminden
+     (#050505) ayırt edilmiyordu. Seçim BELİRGİN olmalı; burada zaten
+     ölçülmüş, yüksek kontrastlı marka çiftleri kullanılır (aşağıdaki
+     yorumlara bkz.). */
+  --selection-bg: var(--brand-signal-deep);
+  --selection-text: var(--text-inverse);
+
   /* --- Vurgu sözleşmesi ------------------------------------------------
      `--accent` DOLGU rengidir, metin rengi değildir. Üstüne yazılacak metin
      her zaman `--accent-on` olur (yeşil üstünde Obsidian: 16.02:1).
@@ -137,6 +146,12 @@
   --z-header: 10;
   --z-overlay: 30;
   --z-dialog: 40;
+  /* Bildirim (toast) her zaman en üstte durur: kod tabanındaki en yüksek
+     sabit z-index bile (bağlayıcı diyaloğu 1000) bunun altında kalmalı —
+     "Fusion bir hata ile karşılaştı" bildirimi eskiden gözlem panelinin
+     (`.app-shell__inspector`, z-index calc(--z-overlay + 1) = 31) ALTINDA
+     kalıp görünmüyordu. */
+  --z-toast: 2000;
 
   /* Varsayılan: sistemin kendi başlık çubuğu var, ekstra pay gerekmez. */
   --titlebar-inset: 0px;
@@ -190,6 +205,11 @@
   --accent: var(--brand-signal);
   --accent-on: var(--brand-obsidian);
   --accent-text: var(--brand-signal);
+  /* Koyu zeminde markanın parlak yeşili + Obsidian metin: dosyanın üstünde
+     zaten ölçülü belgelenen "Signal Green/Obsidian 16.02:1" çiftinin aynısı,
+     bu yüzden seçim koyu temada da belirgin okunur. */
+  --selection-bg: var(--brand-signal);
+  --selection-text: var(--text-inverse);
 }
 
 *,
@@ -245,7 +265,8 @@ button:disabled {
 }
 
 ::selection {
-  background: var(--surface-accent-subtle);
+  background: var(--selection-bg);
+  color: var(--selection-text);
 }
 
 :focus-visible {

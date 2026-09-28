@@ -3,6 +3,15 @@
    kademeyi paylaşır. */
 .settings { background: var(--surface-canvas); color: var(--text-primary); display: grid; gap: var(--space-5); grid-template-rows: auto minmax(0, 1fr); height: 100%; overflow: hidden; padding: var(--space-6) var(--space-8); }
 .settings__error { color: var(--text-warning); font-size: var(--text-sm); margin: 0; }
+.settings__error-retry {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+}
 
 .settings__grid { align-content: start; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); margin: 0 auto; max-width: var(--page-max-width); min-height: 0; overflow: auto; padding: 2px; width: 100%; }
 .settings__card { background: var(--surface-sidebar); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); display: grid; gap: var(--space-3); padding: var(--space-5); transition: border-color var(--duration-fast) var(--ease-standard); }

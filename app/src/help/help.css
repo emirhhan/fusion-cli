@@ -1,6 +1,17 @@
 /* Yardım ekranı — okunmak için var, süslenmek için değil. */
 
-.help { display: grid; gap: var(--space-4); padding: var(--space-6); }
+/* `.app-shell__main`'in ebeveyn kutusu `overflow: hidden` taşır (bkz.
+   Shell.css); bu ekran kendi kaydırmasını KENDİSİ açmazsa uzun içerik
+   (çok sayıda kısayol + SSS) ekranın altında KIRPILIYORDU — kaydırma çubuğu
+   hiç çıkmıyordu. `Settings` aynı gerekçeyle kendi yüksekliğini/taşmasını
+   tanımlar (bkz. `Settings.css`). */
+.help {
+  display: grid;
+  gap: var(--space-4);
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
 
 .help__card {
   background: var(--surface-raised);

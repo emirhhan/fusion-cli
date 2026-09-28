@@ -26,3 +26,24 @@ it("anıyı ekler, kullanımı kapatır ve tek kaydı kaldırır", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Anıyı kaldır: Kısa yaz" }));
   expect(await screen.findByText("Henüz kayıtlı anı yok.")).toBeTruthy();
 });
+
+/* Bkz. bug: "Hafıza okunamadı" hatası GERÇEK sebebi göstermeden çıkıyordu —
+   `load()`un catch bloğu sabit bir metinle nedeni örtüyordu; ekranın diğer
+   eylemleri (`add`/`remove`/`toggle`) gerçek nedeni zaten gösteriyordu. */
+it("gerçek başarısızlık nedenini gösterir ve 'Yeniden dene' isteği tekrarlar", async () => {
+  const request = vi.fn(async (name: string) => {
+    if (name === "bellek.listele") throw new Error("oturum henüz hazır değil");
+    return { ok: false };
+  });
+  render(<MemoryPanel client={{ request } as unknown as ProtocolClient} />);
+
+  expect(await screen.findByText(/Hafıza okunamadı: oturum henüz hazır değil/)).toBeTruthy();
+
+  request.mockImplementation(async (name: string) =>
+    name === "bellek.listele" ? { ok: true, etkin: true, anilar: [] } : { ok: false },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Yeniden dene" }));
+
+  await screen.findByText("Henüz kayıtlı anı yok.");
+  expect(screen.queryByText(/Hafıza okunamadı/)).toBeNull();
+});

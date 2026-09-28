@@ -65,4 +65,21 @@ describe("tasarım token'ları", () => {
     expect(css).toContain("prefers-reduced-motion: reduce");
     expect(css).toContain("--focus-ring:");
   });
+
+  /* Bkz. bug: metin seçildiğinde çıkan yeşil `::selection` rengi koyu temada
+     neredeyse görünmüyordu — eskiden `--surface-accent-subtle` kullanıyordu
+     ve koyu karşılığı (#1e2a12) neredeyse siyah zeminden (#050505) ayırt
+     edilmiyordu. Artık iki temada da ÖLÇÜLÜ, yüksek kontrastlı marka
+     çiftleri kullanılır (bkz. "Signal Green/Obsidian 16.02:1" ölçümü). */
+  it("::selection her iki temada da yüksek kontrastlı, ayrı bir token kullanır", () => {
+    expect(css).toMatch(/::selection\s*{\s*background:\s*var\(--selection-bg\);\s*color:\s*var\(--selection-text\);\s*}/);
+
+    const acikTema = css.slice(0, css.indexOf(':root[data-theme="dark"]'));
+    expect(acikTema).toContain("--selection-bg: var(--brand-signal-deep)");
+    expect(acikTema).toContain("--selection-text: var(--text-inverse)");
+
+    const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
+    expect(koyuTema).toContain("--selection-bg: var(--brand-signal)");
+    expect(koyuTema).toContain("--selection-text: var(--text-inverse)");
+  });
 });

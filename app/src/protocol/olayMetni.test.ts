@@ -25,6 +25,24 @@ describe("olayAdimi", () => {
       .toBeNull();
   });
 
+  /* Bkz. bug: model düşünürken/araç çalışırken sohbette hiçbir soluk durum
+     yazısı yoktu. `ToolStarted` çekirdeğin ürettiği (TEK KAYNAK) `metin`
+     alanını olduğu gibi basar — arayüz kendi çeviri tablosunu tutmaz. */
+  it("araç başlarken çekirdeğin ürettiği insan cümlesini basar", () => {
+    const adim = olayAdimi({
+      olay: "ToolStarted",
+      name: "read_file",
+      args: { path: "src/app.py" },
+      metin: "src/app.py okunuyor",
+    });
+    expect(adim).toEqual({ metin: "src/app.py okunuyor", kaynak: undefined });
+  });
+
+  it("çekirdek metin göndermezse (eski sürüm) ada dayalı bir yedek üretir", () => {
+    const adim = olayAdimi({ olay: "ToolStarted", name: "read_file", args: {} });
+    expect(adim?.metin).toBe("read_file çalıştırılıyor");
+  });
+
   it("araç adresini kaynak olarak taşır", () => {
     const adim = olayAdimi({
       olay: "ToolExecuted",

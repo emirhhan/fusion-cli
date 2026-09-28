@@ -16,8 +16,12 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       setItems(Array.isArray(result.anilar) ? result.anilar as SavedMemory[] : []);
       setEnabled(result.etkin !== false);
       setError(null);
-    } catch {
-      setError("Hafıza okunamadı. Yeniden dene.");
+    } catch (reason) {
+      // Diğer eylemler (`add`/`remove`/`toggle`) GERÇEK nedeni gösterir
+      // (`String(reason)`); yalnız `load` sabit, teşhis edilemez bir metin
+      // basıyordu. RULES "Hata mesajları eyleme dönüştürülebilir olur: ne
+      // oldu, neden" ilkesine aykırıydı.
+      setError(`Hafıza okunamadı: ${String(reason instanceof Error ? reason.message : reason)}`);
     }
   }, [client]);
   useEffect(() => { void load(); }, [load]);
@@ -63,7 +67,12 @@ export function MemoryPanel({ client }: { client: ProtocolClient }) {
       <input aria-label="Hafızayı kullan" checked={enabled} disabled={busy} onChange={(event) => void toggle(event.target.checked)} type="checkbox" />
       <span>Hafızayı kullan</span>
     </label>
-    {error && <p className="settings__inline-error" role="alert">{error}</p>}
+    {error && (
+      <p className="settings__inline-error" role="alert">
+        <span>{error}</span>
+        <button className="settings__error-retry" onClick={() => void load()} type="button">Yeniden dene</button>
+      </p>
+    )}
     <div className="settings__memory-add">
       <input aria-label="Yeni anı" maxLength={500} onChange={(event) => setDraft(event.target.value)} placeholder="Örneğin: Yanıtları Türkçe ve kısa yaz" value={draft} />
       <button disabled={busy || !draft.trim()} onClick={() => void add()} type="button">Ekle</button>

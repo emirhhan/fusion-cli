@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
 
 /**
@@ -27,24 +27,25 @@ export function activityState(adimlar: OlayAdimi[]): ActivityState {
   return adimlar[adimlar.length - 1]?.sonuc ?? "running";
 }
 
-/** Blok çalışırken geçen saniye. Bitmiş blokta sayaç hiç kurulmaz. */
-function useElapsedSeconds(running: boolean): number {
-  const [seconds, setSeconds] = useState(0);
-  const startedAt = useRef<number | null>(null);
+/**
+ * Blok çalışırken geçen saniye — TURUN BAŞLANGIÇ zamanından hesaplanır.
+ *
+ * `baslangicZamani` çağıran tarafından, oturumun mesaj durumunda saklanan
+ * SABİT bir `Date.now()` damgasıdır (bkz. `olayAkisi.ts`). Eskiden bu zaman
+ * yalnız bir `useRef` içinde tutuluyordu: kullanıcı başka bir sekmeye/sayfaya
+ * gidip dönünce `ActivityLine` yeniden bağlanıyor, ref sıfırlanıyor ve sayaç
+ * "25 sn" iken baştan "0 sn"ye dönüyordu. Başlangıç artık bileşenin DIŞINDA,
+ * kalıcı durumda tutulduğu için yeniden bağlanma sayaçtan bağımsızdır.
+ */
+function useElapsedSeconds(running: boolean, baslangicZamani: number | undefined): number {
+  const [, forceTick] = useState(0);
   useEffect(() => {
-    if (!running) {
-      startedAt.current = null;
-      setSeconds(0);
-      return;
-    }
-    startedAt.current = Date.now();
-    const timer = window.setInterval(() => {
-      if (startedAt.current === null) return;
-      setSeconds(Math.floor((Date.now() - startedAt.current) / TICK_MS));
-    }, TICK_MS);
+    if (!running || baslangicZamani === undefined) return;
+    const timer = window.setInterval(() => forceTick((tick) => tick + 1), TICK_MS);
     return () => window.clearInterval(timer);
-  }, [running]);
-  return seconds;
+  }, [running, baslangicZamani]);
+  if (!running || baslangicZamani === undefined) return 0;
+  return Math.floor((Date.now() - baslangicZamani) / TICK_MS);
 }
 
 function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
@@ -74,14 +75,16 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
 
 export interface ActivityLineProps {
   adimlar: OlayAdimi[];
+  /** Bloğun başladığı sabit `Date.now()` damgası; oturum durumundan gelir. */
+  baslangicZamani?: number;
   /** Ayarlardaki "adımları göster" tercihi. */
   showSteps?: boolean;
 }
 
-export function ActivityLine({ adimlar, showSteps = false }: ActivityLineProps) {
+export function ActivityLine({ adimlar, baslangicZamani, showSteps = false }: ActivityLineProps) {
   const durum = activityState(adimlar);
   const running = durum === "running";
-  const seconds = useElapsedSeconds(running);
+  const seconds = useElapsedSeconds(running, baslangicZamani);
   const sonuncu = adimlar[adimlar.length - 1];
 
   if (running) {

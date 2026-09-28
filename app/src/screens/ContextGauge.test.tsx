@@ -1,5 +1,5 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BAGLAM_KRITIK_ESIGI,
   BAGLAM_UYARI_ESIGI,
@@ -73,5 +73,57 @@ describe("ContextGauge", () => {
     expect(title).toMatch(/1\.234 girdi tokenı/);
     expect(title).toMatch(/penceresinin %12'si/);
     expect(title).toMatch(/Bu yüzde model penceresinin doluluğu değildir/);
+  });
+
+  /* Bkz. bug: halkaya tıklayınca/üzerine gelince hiçbir şey olmuyordu; tek
+     ipucu sönük bir `title` idi. Artık tıklama, kullanılan/toplam bağlam,
+     yüzde ve bir "sıkıştır" düğmesi taşıyan bir kart açar. */
+  describe("açılır kart", () => {
+    it("varsayılan olarak kapalıdır, halkaya tıklayınca açılır", () => {
+      render(<ContextGauge olcu={olcu(30)} />);
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      fireEvent.click(screen.getByRole("meter"));
+
+      const kart = screen.getByRole("dialog", { name: "Bağlam kullanımı" });
+      expect(kart.textContent).toMatch(/%30/);
+      expect(kart.textContent).toMatch(/7\.200 \/ 24\.000 karakter/);
+      expect(kart.textContent).toMatch(/konuşma geçmişi/i);
+    });
+
+    it("Escape ve dışarı tıklama kartı kapatır", () => {
+      render(
+        <div>
+          <button>dışarı</button>
+          <ContextGauge olcu={olcu(30)} />
+        </div>,
+      );
+      fireEvent.click(screen.getByRole("meter"));
+      expect(screen.getByRole("dialog")).toBeTruthy();
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("dialog")).toBeNull();
+
+      fireEvent.click(screen.getByRole("meter"));
+      fireEvent.mouseDown(screen.getByRole("button", { name: "dışarı" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("onCompact verilmişse 'Bağlamı sıkıştır' /compact gönderir ve kartı kapatır", () => {
+      const onCompact = vi.fn();
+      render(<ContextGauge olcu={olcu(92)} onCompact={onCompact} />);
+      fireEvent.click(screen.getByRole("meter"));
+
+      fireEvent.click(screen.getByRole("button", { name: /Bağlamı sıkıştır/ }));
+
+      expect(onCompact).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("onCompact verilmezse sıkıştır düğmesi çizilmez", () => {
+      render(<ContextGauge olcu={olcu(30)} />);
+      fireEvent.click(screen.getByRole("meter"));
+      expect(screen.queryByRole("button", { name: /Bağlamı sıkıştır/ })).toBeNull();
+    });
   });
 });

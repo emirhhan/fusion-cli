@@ -27,6 +27,20 @@ const DEFAULT_SESSION_ID = "varsayilan";
 // sohbet listesinden tek tıkla açılır.
 const MAX_RESTORED_SESSIONS = 8;
 const CORE_CLOSED = "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı.";
+/**
+ * "Durdur"a basıldıktan sonra çalışıyor durumunun ZORLA sıfırlanacağı üst
+ * sınır (ms). Normalde `tur.calistir` isteğinin promise'i çekirdek iptali
+ * onayladığında (`appserver/session.py` — `TURN_CANCEL_SETTLE_S = 2.0`)
+ * kendiliğinden çözülür ve durum zaten sıfırlanır.
+ *
+ * Ölçüldü: bazı iptallerde (tarayıcı/araç temizliği asılı kaldığında) o
+ * promise HİÇ çözülmüyor — `runningRequests` referansı sonsuza dek dolu
+ * kalıyor ve kullanıcı yeniden başlatana kadar yeni mesaj gönderemiyordu
+ * (mesaj sonsuza dek sıraya giriyordu). Bu üst sınır, çekirdeğin kendi
+ * bekleme süresinin (2 sn) iki katından fazla — ağ/IPC payı bırakır — ve
+ * "durum tam sıfırlanmalı" ilkesini bağlantı kesintisiz garanti eder.
+ */
+const TUR_IPTAL_GUVENLI_SURE_MS = 5_000;
 export type WorkspaceMode = "sohbet" | "kod";
 
 export function storedWorkspaceMode(id: string): WorkspaceMode | null {
@@ -108,6 +122,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
   //: Tur sürerken yazılan mesajlar. Claude'da mesaj kaybolmaz, sıraya girer;
   //: ölçüldü (17 Eylül) — Fusion ikinci mesajı reddedip yazılanı çöpe atıyordu.
   const kuyruk = useRef(new Map<string, { task: string; attachments: SessionAttachment[] }[]>());
+  //: `stop()` sonrası zorla-sıfırlama zamanlayıcıları (bkz. TUR_IPTAL_GUVENLI_SURE_MS).
+  const iptalZamanlayicilari = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   //: Kuyruk sürülürken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const oturumlarRef = useRef(state.sessions);
   oturumlarRef.current = state.sessions;
@@ -381,6 +397,8 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       lineHandlers.current.clear();
       requestedClose.current.clear();
       runningRequests.current.clear();
+      iptalZamanlayicilari.current.forEach((zamanlayici) => clearTimeout(zamanlayici));
+      iptalZamanlayicilari.current.clear();
     };
   }, [refreshStored, restoreSessions, transport]);
 
@@ -449,6 +467,32 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
     [state.sessions],
   );
 
+  /**
+   * Bir turun TAMAMEN bittiğini işaretle: çalışıyor bayrağı, çalışıyor
+   * kümesi VE varsa sıradaki kuyruklanmış görev — hepsi BİRLİKTE, tek
+   * yerden. Hem normal bitiş (`.finally()`) hem de `stop()`'un güvenli
+   * zaman aşımı BURADAN geçer; aksi hâlde ikisi durumu farklı ölçüde
+   * sıfırlar ve biri diğerinin bıraktığı yerde asılı kalır.
+   */
+  const turuTamamla = (id: string, client: ProtocolClient) => {
+    const zamanlayici = iptalZamanlayicilari.current.get(id);
+    if (zamanlayici !== undefined) {
+      clearTimeout(zamanlayici);
+      iptalZamanlayicilari.current.delete(id);
+    }
+    runningRequests.current.delete(id);
+    dispatch({ type: "runningChanged", id, running: false });
+    // Geçmiş tur SONUNDA büyür ve gerekirse özetlenir; ölçü de şimdi eskidi.
+    olcuyuTazele(id, client, dispatch);
+    const bekleyen = kuyruk.current.get(id) ?? [];
+    const sonraki = bekleyen.shift();
+    kuyruk.current.set(id, bekleyen);
+    // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
+    // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
+    // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
+    if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
+  };
+
   //: Turu çekirdeğe gönderen TEK yol: hem `send` hem kuyruk buradan geçer.
   //: Kuyruğu sürerken taze oturum haritası gerekir; `send` kapanışı eskimiş olur.
   const baslatRef = useRef<
@@ -473,19 +517,7 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
           message: { rol: "asistan", metin: `Hata: ${String(reason)}`, hata: true },
         });
       })
-      .finally(() => {
-        runningRequests.current.delete(id);
-        dispatch({ type: "runningChanged", id, running: false });
-        // Geçmiş tur SONUNDA büyür ve gerekirse özetlenir; ölçü de şimdi eskidi.
-        olcuyuTazele(id, session.client, dispatch);
-        const bekleyen = kuyruk.current.get(id) ?? [];
-        const sonraki = bekleyen.shift();
-        kuyruk.current.set(id, bekleyen);
-        // Kuyruktaki mesaj kullanıcı mesajı olarak ZATEN eklendi; yeniden ekleme.
-        // Doğrudan başlatılır: React durumu henüz "çalışmıyor"a dönmemiş olabilir
-        // ve normal `send` yolu mesajı tekrar kuyruğa atardı.
-        if (sonraki) baslatRef.current?.(id, sonraki.task, sonraki.attachments);
-      });
+      .finally(() => turuTamamla(id, session.client));
   };
 
   const runCommand = useCallback(
@@ -534,7 +566,24 @@ export function useSessions(transport: SessionTransport = tauriSessionTransport)
       const session = state.sessions[id];
       if (!session) return;
       void session.client.request("tur.kes", {}).catch(() => undefined);
+      // Görsel olarak HEMEN "çalışmıyor"a döner (Claude'daki gibi anında
+      // durdurma hissi). Gerçek sıfırlama normalde `turuTamamla` ile,
+      // `tur.calistir` isteğinin promise'i çekirdeğin iptali onaylamasıyla
+      // gelir; ama bazı iptallerde o promise HİÇ çözülmüyordu (bkz.
+      // TUR_IPTAL_GUVENLI_SURE_MS) ve `runningRequests` sonsuza dek dolu
+      // kalıp yeni mesajı sonsuza dek kuyrukta bırakıyordu. Bu zamanlayıcı,
+      // promise gelmese bile durumu üst sınırda ZORLA tam sıfırlar.
       dispatch({ type: "runningChanged", id, running: false });
+      const eskiZamanlayici = iptalZamanlayicilari.current.get(id);
+      if (eskiZamanlayici !== undefined) clearTimeout(eskiZamanlayici);
+      iptalZamanlayicilari.current.set(
+        id,
+        setTimeout(() => {
+          iptalZamanlayicilari.current.delete(id);
+          if (!runningRequests.current.has(id)) return; // Zaten normal yoldan bitti.
+          turuTamamla(id, session.client);
+        }, TUR_IPTAL_GUVENLI_SURE_MS),
+      );
     },
     [state.sessions],
   );

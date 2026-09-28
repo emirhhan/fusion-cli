@@ -12,7 +12,10 @@
   max-width: 360px;
   padding: var(--space-4);
   position: fixed;
-  z-index: var(--z-overlay);
+  /* --z-overlay (30) kullanılıyordu; sağ gözlem paneli 31'de durduğu için
+     bildirim onun ALTINDA kalıp görünmüyordu (bkz. Shell.css
+     `.app-shell__inspector`). Bildirim her katmanın üstünde olmalı. */
+  z-index: var(--z-toast);
 }
 
 .notification__body { display: grid; gap: var(--space-1); }

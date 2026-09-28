@@ -11,8 +11,15 @@
   color: var(--text-secondary);
   cursor: pointer;
   display: flex;
+  flex-shrink: 1;
   font-size: var(--text-xs);
   gap: var(--space-1);
+  /* Sabit max-width tek başına yetmiyordu: içindeki isim span'i flex
+     ögesi olarak varsayılan min-width:auto ile büzülmeyi reddediyor, uzun
+     model adında (ör. "nemotron-3-ultra-550b-a55b") düğme 190px'i aşıp
+     yazma kutusunun genişliğini çalıyordu — o da yer tutucunun alt satıra
+     kaymasına yol açıyordu. min-width:0 span'in gerçekten kısalmasını sağlar. */
+  min-width: 0;
   max-width: 190px;
   padding: var(--space-1) var(--space-2);
 }
@@ -23,6 +30,7 @@
 }
 
 .model-picker__name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

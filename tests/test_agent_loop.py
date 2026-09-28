@@ -16,6 +16,7 @@ from fusion_cli.core.events import (
     SubAgentStarted,
     ToolExecuted,
     ToolOutcome,
+    ToolStarted,
     TurnBudgetExhausted,
 )
 from fusion_cli.core.tools import ToolContext
@@ -381,6 +382,54 @@ async def test_arac_calistirmasi_olay_yayinlar(monkeypatch, tmp_path, sink):
 
     olay = next(e for e in sink.events if isinstance(e, ToolExecuted))
     assert olay.name == "read_file" and olay.outcome is ToolOutcome.OK
+
+
+async def test_arac_baslamadan_once_toolstarted_yayinlar(monkeypatch, tmp_path, sink):
+    """Bkz. bug: araç çalışırken kullanıcı hiçbir şey görmüyordu — yalnız
+
+    `ToolExecuted` (BİTİNCE) yayınlanıyordu. `ToolStarted` artık aracın
+    ÇALIŞTIRILMASINDAN hemen önce, `ToolExecuted`den ÖNCE yayınlanır; arayüz
+    bunu "… okunuyor" gibi soluk bir durum satırı olarak gösterir.
+    """
+    (tmp_path / "a.txt").write_text("x", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path="a.txt")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent("oku", _deps(tmp_path, sink))
+
+    baslama = next(e for e in sink.events if isinstance(e, ToolStarted))
+    assert baslama.name == "read_file"
+    assert baslama.args.get("path") == "a.txt"
+    # Sıra ÖNEMLİDİR: "başladı" olayı "bitti" olayından ÖNCE gelmeli.
+    indeksler = [i for i, e in enumerate(sink.events) if isinstance(e, (ToolStarted, ToolExecuted))]
+    assert isinstance(sink.events[indeksler[0]], ToolStarted)
+    assert isinstance(sink.events[indeksler[1]], ToolExecuted)
+
+
+async def test_reddedilen_cagri_icin_toolstarted_yayinlanmaz(monkeypatch, tmp_path, sink):
+    """Onay REDDEDİLEN bir çağrı hiç çalışmadı; "… yapılıyor" demek yalan olur."""
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.txt", content="x")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+
+    await run_agent(
+        "yaz", _deps(tmp_path, sink, mode=ApprovalMode.SECURITY, prompter=AlwaysReject())
+    )
+
+    assert not any(isinstance(e, ToolStarted) for e in sink.events)
 
 
 async def test_reddedilen_onay_hata_sayilmaz(monkeypatch, tmp_path, sink):
@@ -2559,3 +2608,26 @@ async def test_yalniz_tarayici_araci_kullanan_turda_oz_denetim_calismaz(
 
     assert sonuc.mutating_tool_calls_made == 1
     assert denetim_cagrildi is False
+
+
+async def test_sohbet_kipinde_de_kalip_ret_bir_kez_geri_cevrilir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (25 Eylül, kullanıcı sohbeti): "Desktop'ta kaç .md var?" sorusuna
+    sohbet kipinde "Dil modeli olarak ... tasarlanmadım" dendi; okuma araçları vardı."""
+    (tmp_path / "a.md").write_text("x", encoding="utf-8")
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(
+                    "Dil modeli olarak size bu konuda yardımcı olmak üzere tasarlanmadım."
+                ),
+                model_result(tool_calls=[tool_call("glob", pattern="*.md")]),
+                model_result("1"),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("Kaç tane .md dosyası var?", _deps(tmp_path, sink), chat_mode=True)
+
+    assert sonuc.final_text == "1"
+    assert sonuc.tool_calls_made == 1
