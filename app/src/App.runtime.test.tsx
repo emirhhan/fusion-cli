@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { RuntimeBackendStatus, RuntimeTransport } from "./runtime/types";
@@ -69,5 +69,29 @@ describe("App runtime kapısı", () => {
       }),
     );
     expect(tauri.listen).toHaveBeenCalledWith("fusion://ses-barge-in", expect.any(Function));
+  });
+
+  /* Ölçüldü (28 Eylül, Windows): kapatma Rust'ta durdurulup onay arayüzde
+     soruluyor; hazırlanıyor/hata/hesap/rehber ekranları onayı hiç çizmediği için
+     uygulama kapanmıyordu. Onay, çekirdek henüz bağlanmadan da görünmeli. */
+  it("çekirdek bağlanmadan da kapatma onayı gösterilir", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    const dinleyiciler = new Map<string, () => void>();
+    tauri.listen.mockImplementation(async (ad: string, geri: () => void) => {
+      dinleyiciler.set(ad, geri);
+      return () => undefined;
+    });
+    const transport: RuntimeTransport = {
+      status: vi.fn().mockResolvedValue({ state: "hazir", version: "0.3.0a1", message: "Hazır", can_repair: false }),
+      prepare: vi.fn(),
+      repair: vi.fn(),
+      listenProgress: vi.fn().mockResolvedValue(() => undefined),
+    };
+
+    render(<App runtimeTransport={transport} />);
+    await waitFor(() => expect(dinleyiciler.has("uygulama://kapatma-istegi")).toBe(true));
+    act(() => dinleyiciler.get("uygulama://kapatma-istegi")?.());
+
+    expect(await screen.findByRole("dialog", { name: "Fusion'ı kapat?" })).toBeTruthy();
   });
 });

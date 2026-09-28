@@ -158,6 +158,10 @@
      (`.app-shell__inspector`, z-index calc(--z-overlay + 1) = 31) ALTINDA
      kalıp görünmüyordu. */
   --z-toast: 2000;
+  /* Kapatma onayı her panelin (ayarlar 80, bağlayıcı diyaloğu 1000) üstünde
+     durur. Ölçüldü (28 Eylül, Windows): ayarlar açıkken kapatma istenince onay
+     ayarların ARKASINDA kalıyor, kapatma durdurulduğu için uygulama kapanmıyordu. */
+  --z-close-confirm: 1500;
 
   /* Varsayılan: sistemin kendi başlık çubuğu var, ekstra pay gerekmez. */
   --titlebar-inset: 0px;

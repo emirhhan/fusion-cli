@@ -1020,6 +1020,17 @@ export function SessionUygulama({
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active?.id, controller]);
 
+  // Kapatma Rust'ta DURDURULUR ve onay burada sorulur; bu yüzden onay HER ekranda
+  // çizilmelidir. Ölçüldü (28 Eylül, Windows): hata/hazırlanıyor/hesap/rehber
+  // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
+  const kapatmaOnayi = closeAsked ? (
+    <CloseConfirm
+      onCancel={() => setCloseAsked(false)}
+      onConfirm={() => void invoke("kapatmayi_onayla")}
+      running={active?.running}
+    />
+  ) : null;
+
   if (controller.state.connectionError) {
     const baglantiHatasi = controller.state.connectionError;
     return (
@@ -1033,24 +1044,25 @@ export function SessionUygulama({
           Hatayı bildir
         </button>
         {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+        {kapatmaOnayi}
       </div>
     );
   }
   if (!active) {
-    if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…</div>;
-    return <Shell
+    if (!hasOpenedSession.current) return <div className="app-status-screen">Hazırlanıyor…{kapatmaOnayi}</div>;
+    return <><Shell
       header={<AppHeader canNavigateBack={pageHistory.canGoBack} canNavigateForward={pageHistory.canGoForward} onNavigateBack={pageHistory.back} onNavigateForward={pageHistory.forward} title="Yeni sohbet" status="Hazır" inspectorOpen={false} onToggleInspector={() => undefined} onToggleSidebar={layout.toggleSidebar} sidebarCollapsed={layout.sidebarCollapsed} />}
       content={<>{page === "image-create" ? <ImageCreate client={null} /> : page === "video-create" ? <section className="empty-state"><div className="empty-state__content"><h2>Yakında</h2><p>Video oluşturma sonraki sürümde gelecek.</p><button type="button" onClick={() => setPage("chat")}>Sohbete dön</button></div></section> : <EmptyState projectName="Desktop" />}{newTaskError && <p role="alert">{newTaskError}</p>}<button type="button" onClick={() => void startDesktopChat()}>Desktop içinde yeni sohbet başlat</button></>}
       sidebarCollapsed={layout.sidebarCollapsed}
       onSidebarClose={layout.toggleSidebar}
       sidebar={<Sidebar collapsed={layout.sidebarCollapsed} etkin={null} onNavigate={(destination) => void navigateSidebar(destination)} onSil={(id) => controller.remove(id)} onMove={(id, root) => controller.move(id, root)} onYeni={() => void startDesktopChat()} onSec={(id) => { void controller.openStored(id).catch(() => setNewTaskError("Sohbet açılamadı. Yeniden dene.")); }} oturumlar={controller.storedConversations.map((conversation) => ({ session_id: conversation.id, source: "fusion", title: conversation.title, project: projectName(conversation.root), projectRoot: conversation.root, updated_at: conversation.updatedAt * 1000 }))} />}
-    />;
+    />{kapatmaOnayi}</>;
   }
 
   // Fusion hesapsız açılmaz. Kapı, çekirdek bağlandıktan sonra çizilir:
   // hesap bilgisi oradan okunuyor.
   if (active && !account.yukleniyor && account.durum && !account.durum.etkin) {
-    return <AccountGate account={account} />;
+    return <><AccountGate account={account} />{kapatmaOnayi}</>;
   }
 
   if (showOnboarding) {
@@ -1061,6 +1073,7 @@ export function SessionUygulama({
       })),
     ];
     return (
+      <>
       <ConnectedOnboarding
         client={active.client}
         onFinish={(projectId) => {
@@ -1071,6 +1084,8 @@ export function SessionUygulama({
         projects={projects}
         runtimeVersion={runtimeVersion}
       />
+      {kapatmaOnayi}
+      </>
     );
   }
 
@@ -1340,13 +1355,7 @@ export function SessionUygulama({
               onDismiss={() => setDogrulamaUyarisi(null)}
             />
           )}
-          {closeAsked && (
-            <CloseConfirm
-              onCancel={() => setCloseAsked(false)}
-              onConfirm={() => void invoke("kapatmayi_onayla")}
-              running={active.running}
-            />
-          )}
+          {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
           {crash && !feedback && (
             <Notification

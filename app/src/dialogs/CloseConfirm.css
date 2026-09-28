@@ -1,6 +1,6 @@
 .close-confirm {
   align-items: center; backdrop-filter: blur(3px); background: var(--surface-overlay);
-  display: flex; inset: 0; justify-content: center; position: absolute; z-index: var(--z-dialog);
+  display: flex; inset: 0; justify-content: center; position: fixed; z-index: var(--z-close-confirm);
 }
 .close-confirm__panel {
   background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg);
