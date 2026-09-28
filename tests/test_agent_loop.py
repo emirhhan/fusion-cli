@@ -174,6 +174,58 @@ async def test_hicbir_sey_uretmeyen_model_bosta_kalma_sinirinda_da_aciklayici_me
     assert "saniyede tamamlanmadı" in result.final_text
 
 
+class _SlowTricklingProvider:
+    """Parça parça ama çağrı sınırından UZUN süre yazan model."""
+
+    def __init__(self, chunks: int, gap_s: float) -> None:
+        self.chunks = chunks
+        self.gap_s = gap_s
+
+    async def stream(self, request):
+        from fusion_cli.core.types import StreamDone, TextChunk
+
+        for _ in range(self.chunks):
+            await asyncio.sleep(self.gap_s)
+            yield TextChunk("parça ")
+        yield StreamDone(model_result("uzun ama tamamlanmış cevap"))
+
+
+async def test_yazmaya_devam_eden_model_cagri_suresini_asinca_kesilmez(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (28 Eylül): büyük bir istekte model yazarken "60 saniyede
+    tamamlanmadı" ile kesildi. Sınır artık iki parça arasındaki sessizliğe uygulanır;
+    toplam süreyi yalnızca turun mutlak sınırı keser."""
+    _kur(monkeypatch, _SlowTricklingProvider(chunks=8, gap_s=0.03))
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.1})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+
+    result = await asyncio.wait_for(run_agent("uzun yaz", deps), timeout=2)
+
+    assert result.ok is True
+    assert result.final_text == "uzun ama tamamlanmış cevap"
+
+
+async def test_hazirlik_bosta_kalma_penceresini_yese_de_model_cagrisi_kesilmez(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (28 Eylül): "devam et" turunda hazırlık boşta-kalma penceresini
+    yedi ve model çağrısı 1,7 saniyeye daraltılıp cevapsız kesildi."""
+    _kur(monkeypatch, _SlowTricklingProvider(chunks=3, gap_s=0.05))
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 1.0})
+    deps.budget = agent_loop._new_budget(deps.config)
+    deps.budget.total_timeout_s = 5.0
+    deps.budget.idle_timeout_s = 0.1
+    # Hazırlığın boşta-kalma penceresinin neredeyse tamamını yediği an.
+    deps.budget._last_progress_at -= 0.09
+
+    result = await asyncio.wait_for(run_agent("devam et", deps, chat_mode=True), timeout=2)
+
+    assert result.ok is True
+    assert result.final_text == "uzun ama tamamlanmış cevap"
+
+
 async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path, sink):
     paths = [f"src/part_{index}.py" for index in range(10)]
     (tmp_path / "src").mkdir()

@@ -859,18 +859,27 @@ async def _drive(
         time_stop = budget.time_stop_reason()
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
-        remaining = budget.next_timeout_s()
+        if local_calls == 1:
+            # Turun ilk çağrısından önceki hazırlık (bağlam sıkıştırma, hatırlama,
+            # tarayıcı bağlantısı) "ilerlemesizlik" değildir. Ölçüldü (28 Eylül):
+            # hazırlık boşta-kalma penceresini yiyince "devam et" turu modele
+            # yalnızca 1,7 saniye verdi ve hiç cevap alamadan kesildi.
+            budget.record_progress()
+        # Çağrıyı yalnızca MUTLAK tur sınırı daraltır. Boşta-kalma sınırı araç
+        # turları arasındaki ilerlemesizliği ölçer; hâlâ yazan bir modeli kesmek
+        # için kullanılmaz — takılan akışı `_call_model`'in parça başı sınırı yakalar.
+        remaining = budget.remaining_s()
         call_timeout = (
             min(deps.config.runtime.request_timeout_s, remaining)
             if remaining
             else (deps.config.runtime.request_timeout_s)
         )
-        # Her model kendi süresini alır (bkz. `providers.chain`): takılan birincil
-        # yedeğin süresini yemesin diye dış sınır zincir uzunluğuyla büyür, bütçeyi aşmaz.
+        # Mutlak tur sınırı varsa dış sınır odur: yazmaya devam eden cevap kesilmez,
+        # sessiz kalan akışı parça başı sınır keser. Sınır yoksa (CLI) sonsuza dek
+        # damlayan akışa karşı zincir uzunluğuyla büyüyen eski üst sınır korunur —
+        # her model kendi süresini alır (bkz. `providers.chain`).
         attempts = 1 + len(_active_spec(deps, execution).fallback)
-        chain_timeout = (
-            min(call_timeout * attempts, remaining) if remaining else (call_timeout * attempts)
-        )
+        chain_timeout = remaining if remaining else call_timeout * attempts
 
         try:
             # Transport idle timeouts do not bound a stream that keeps trickling
@@ -954,7 +963,7 @@ async def _drive(
 
         if not result.tool_calls:
             # Açılışsız `</think>` dahil düşünme metni kullanıcıya gitmez. Ölçüldü
-            # (26 Eylül, Motogate okuma turu): "I have the data…</think>| Sipariş No…"
+            # (26 Eylül, Ornekmagaza okuma turu): "I have the data…</think>| Sipariş No…"
             # dosya değişmeyen turda olduğu gibi gösteriliyordu.
             final_text = strip_thinking(result.text).strip()
             refusal_note = _refusal_note(
@@ -1388,16 +1397,16 @@ async def _call_model(
     )
 
     result: ModelResult | None = None
-    async for item in provider.stream(request):
-        if isinstance(item, TextChunk):
-            # Beyan değil GÖZLEM: metin gerçekten aktıysa turun cevabı ekrana
-            # ulaşmış demektir ve `TurnAnswered` ikinci kez basmamalıdır. Sarmalayıcı
-            # zinciri ne olursa olsun (yedek, tekrar deneme) bu ölçüm doğrudur —
-            # sağlayıcının "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
-            if not item.provisional:
-                state.answer_streamed = True
-        elif isinstance(item, StreamDone):
-            result = item.result
+    # Sınır çağrının TAMAMINA değil, iki parça arasındaki sessizliğe uygulanır:
+    # uzun ama akmaya devam eden bir cevap kesilmez, hiç parça gelmeyen akış kesilir.
+    inactivity_s = request.timeout_s
+    loop = asyncio.get_running_loop()
+    async with asyncio.timeout(inactivity_s) as silence:
+        async for item in provider.stream(request):
+            silence.reschedule(loop.time() + inactivity_s)
+            _observe_stream_item(item, state)
+            if isinstance(item, StreamDone):
+                result = item.result
     return result or ModelResult(
         name=spec.name,
         model=spec.model,
@@ -1406,6 +1415,15 @@ async def _call_model(
         ok=False,
         error="Model akışı sonuç üretmeden bitti.",
     )
+
+
+def _observe_stream_item(item: object, state: _State) -> None:
+    # Beyan değil GÖZLEM: metin gerçekten aktıysa turun cevabı ekrana ulaşmış
+    # demektir ve `TurnAnswered` ikinci kez basmamalıdır. Sarmalayıcı zinciri ne
+    # olursa olsun (yedek, tekrar deneme) bu ölçüm doğrudur — sağlayıcının
+    # "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
+    if isinstance(item, TextChunk) and not item.provisional:
+        state.answer_streamed = True
 
 
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
