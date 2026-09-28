@@ -64,7 +64,7 @@ from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.redaction import redact
 from ...core.steering import SteeringQueue
-from ...core.tools import Tool, ToolContext, ToolFamily, ToolResult, tool_family
+from ...core.tools import TodoItem, Tool, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import (
     CompletionRequest,
     Message,
@@ -115,6 +115,11 @@ PLAN_MODE_PROMPT = (_PROMPTS / "plan_mode.md").read_text(encoding="utf-8")
 
 #: Yarım kalan turda en fazla kaç kez "devam et" enjekte edilir.
 MAX_AUTO_CONTINUE = 1
+#: İlerlemesizlik kapısında turu kesmeden önce verilen uyarı hakkı.
+#
+# Bir: uyarıyı dinleyen model ilk somut adıma geçer (ilerleme sayacı sıfırlanır);
+# dinlemeyen model için ikinci hak yalnız süreyi uzatır.
+MAX_STALL_RESCUES = 1
 #: Doğrulama kapısının bir turda en fazla kaç kez çalışacağı.
 #:
 #: 1 yetmiyordu: düzeltici tur KENDİ hatasını üretebiliyor. Gerçek koşuda kapı beş
@@ -243,6 +248,10 @@ class AgentOutcome:
     #: Tur bir BÜTÇE sınırına çarparak bitti mi? Sebep ayrıca yayınlanmıştır;
     #: `final_text` modelin cevabıdır, hata metni değildir.
     budget_stopped: bool = False
+    #: Bütçe durdurduysa sebebi (`BudgetStop` değeri); arayüz özet metnini kurar.
+    stop_reason: str | None = None
+    #: Tur bittiğindeki görev listesi; yarım kalan işin özetinde gösterilir.
+    todos: tuple[TodoItem, ...] = ()
 
     @property
     def made_no_changes(self) -> bool:
@@ -764,6 +773,8 @@ class _State:
     evidence_reprompts: int = 0
     #: "Hiç araç çağırmadan bitirme" kapısının kaç kez konuştuğu. Bir kezle sınırlı.
     never_acted_prompts: int = 0
+    #: İlerlemesizlik kapısında verilen "keşfi bırak" uyarısı sayısı (tur başına bir).
+    stall_rescues: int = 0
     #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
     refusal_nudged: bool = False
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
@@ -1090,6 +1101,18 @@ async def _drive(
                 continue
 
         if budget.idle:
+            rescue = (
+                _spend(deps, reflexion.stall_rescue_note())
+                if deps.tool_context.todos.has_pending and state.stall_rescues < MAX_STALL_RESCUES
+                else None
+            )
+            if rescue is not None:
+                # Bekleyen iş varken kesmek, 13 dakikalık keşfi çöpe atıyordu. Uyarı
+                # tur başına bir kez: dinlemeyen model için sonsuz hak açılmaz.
+                state.stall_rescues += 1
+                budget.idle_rounds = 0
+                messages.append(rescue)
+                continue
             return _halt(final_text, messages, state, budget, BudgetStop.NO_PROGRESS, deps)
         if _stuck_editing(state, plan_mode=plan_mode):
             state.edit_loop_pushes += 1
@@ -1180,6 +1203,8 @@ def _halt(
     # değildir; ikisini birden hata gibi basmak "✗ hata İş başarıyla
     # tamamlanmıştır" gibi kendiyle çelişen satırlar üretiyordu (ölçüldü).
     outcome.budget_stopped = True
+    outcome.stop_reason = reason.value
+    outcome.todos = deps.tool_context.todos.items
     return outcome
 
 
@@ -1211,6 +1236,8 @@ def _halt_local(
     text = final_text.strip()
     outcome = _outcome(text, messages, state, hit_step_limit=True, ok=False)
     outcome.budget_stopped = True
+    outcome.stop_reason = reason.value
+    outcome.todos = deps.tool_context.todos.items
     return outcome
 
 

@@ -113,6 +113,22 @@ def auto_continue_note() -> Message:
     return Message("user", AUTO_CONTINUE_NOTE, harness_note=True)
 
 
+#: İlerlemesiz turlar birikince, turu kesmeden ÖNCE gönderilen not.
+#
+# Ölçüldü (28 Eylül, büyük proje görevi): model 13 dakika boyunca yalnız arama ve
+# okuma yaptı, hiçbir görevi tamamlamadan "ilerleme yok" ile cevapsız kesildi.
+# Bekleyen görev varken doğru hamle keşfi bırakıp ilk somut değişikliği yapmaktır.
+STALL_RESCUE_NOTE = (
+    "[ilerleme-yok] Son turlarda yeni bir şey öğrenmedin ve hiçbir dosyayı "
+    "değiştirmedin. Aramayı bırak: elindeki bilgiyle görev listesindeki sıradaki "
+    "maddenin İLK somut değişikliğini şimdi yap. Bir engel varsa onu tek cümleyle açıkla."
+)
+
+
+def stall_rescue_note() -> Message:
+    return Message("user", STALL_RESCUE_NOTE, harness_note=True)
+
+
 #: Yanıt bütünlüğü sınıfına göre gönderilecek not.
 #
 # Üç kayıp biçimi farklı hamle ister: kesilmiş yanıtta yapılan işi koruyup devam

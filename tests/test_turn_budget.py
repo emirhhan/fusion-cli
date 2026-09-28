@@ -554,3 +554,61 @@ async def test_buyuk_dosyada_mesaj_hedefli_duzenlemeyi_ister(monkeypatch, tmp_pa
     assert "edit_file" in engellenen[0].output
     assert "TAMAMINI" not in engellenen[0].output
     assert hedef.read_text(encoding="utf-8").startswith("satir_0 = 0")
+
+
+async def test_bekleyen_gorev_varken_ilerlemesizlik_once_uyarir_sonra_ozetle_biter(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (28 Eylül): büyük görev keşfin ortasında cevapsız kesildi. Bekleyen
+    görev varken model önce keşfi bırakması için uyarılır; yine ilerlemezse tur
+    durur ve sonuç yarım kalan görev listesini taşır."""
+    from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
+
+    gorevler = (
+        '[{"content": "sunucuyu kur", "status": "in_progress"},'
+        ' {"content": "arayüzü düzenle", "status": "pending"}]'
+    )
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("todo_write", todos=gorevler)]),
+                *[
+                    model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
+                    for index in range(30)
+                ],
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "büyük işi yap", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
+    )
+
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert STALL_RESCUE_NOTE in notlar
+    assert not sonuc.ok
+    assert sonuc.stop_reason == BudgetStop.NO_PROGRESS.value
+    assert [item.content for item in sonuc.todos] == ["sunucuyu kur", "arayüzü düzenle"]
+
+
+async def test_gorev_listesi_yokken_ilerlemesizlik_uyarisiz_biter(monkeypatch, tmp_path, sink):
+    from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
+
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
+                for index in range(20)
+            ]
+        ),
+    )
+
+    sonuc = await run_agent(
+        "olmayan dosyaları oku", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
+    )
+
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert STALL_RESCUE_NOTE not in notlar
+    assert sonuc.stop_reason == BudgetStop.NO_PROGRESS.value

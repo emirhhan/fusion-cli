@@ -56,11 +56,20 @@ def score_round(signals: RoundSignals) -> float:
     ve bunu "ama arada başarısız çağrı da vardı" diye geri almak, çalışan turu
     öldürüyordu (ölçüldü).
     """
-    kazanc = signals.mutations * _MUTATION_WEIGHT + signals.new_reads * _READ_WEIGHT
+    # Tekrarlanan çağrı yeni bilgi getirmez; okuma sayısından düşülür.
+    gercek_okuma = max(0, signals.new_reads - signals.repeats)
+    kazanc = signals.mutations * _MUTATION_WEIGHT + gercek_okuma * _READ_WEIGHT
     if signals.mutations:
         return max(0.0, min(1.0, kazanc))
     ceza = signals.failures * _FAILURE_PENALTY + signals.repeats * _REPEAT_PENALTY
-    return max(0.0, min(1.0, kazanc - ceza))
+    puan = max(0.0, min(1.0, kazanc - ceza))
+    if gercek_okuma:
+        # Ölçüldü (28 Eylül, büyük proje görevi): her turda bir yeni dosya okuyan
+        # ama arada bir `list_dir` hatası alan model üç turda "ilerleme yok"
+        # sayılıp keşfin ortasında cevapsız kesildi. Ceza puanı düşürür ama gerçek
+        # bir yeni okumayı ilerleme olmaktan çıkarmaz.
+        return max(PROGRESS_THRESHOLD, puan)
+    return puan
 
 
 def progressed(signals: RoundSignals) -> bool:

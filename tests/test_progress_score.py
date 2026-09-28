@@ -38,10 +38,22 @@ def test_degisiklik_okumadan_daha_guclu_sinyal():
 
 
 def test_basarisiz_cagrilar_salt_okuma_turunda_puani_dusurur():
-    temiz = score_round(RoundSignals(new_reads=1))
-    hatali = score_round(RoundSignals(new_reads=1, failures=2))
+    temiz = score_round(RoundSignals(new_reads=2))
+    hatali = score_round(RoundSignals(new_reads=2, failures=2))
 
     assert hatali < temiz
+
+
+def test_hata_iceren_turda_gercek_yeni_okuma_yine_ilerlemedir():
+    """Ölçüldü (28 Eylül): okuma + başarısız `list_dir` turu ilerleme sayılmıyordu
+    ve büyük görev keşfin ortasında cevapsız kesildi."""
+    assert score_round(RoundSignals(new_reads=1, failures=1)) >= PROGRESS_THRESHOLD
+    assert score_round(RoundSignals(new_reads=1, failures=3)) >= PROGRESS_THRESHOLD
+
+
+def test_yalniz_tekrar_ve_hata_ureten_tur_ilerleme_degildir():
+    assert score_round(RoundSignals(new_reads=1, repeats=1, failures=1)) < PROGRESS_THRESHOLD
+    assert score_round(RoundSignals(failures=2)) < PROGRESS_THRESHOLD
 
 
 def test_gerceklesen_degisiklik_ceza_ile_silinmez():
