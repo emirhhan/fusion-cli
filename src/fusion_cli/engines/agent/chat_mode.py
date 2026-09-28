@@ -41,14 +41,6 @@ CHAT_MUTATION_REASON = (
 #: gerekçe.
 WORKSPACE_READ_REASON = "Bu tur salt okuma; değişiklik istiyorsan açıkça söyle."
 
-NATIVE_CHAT_TOTAL_TIMEOUT_S = 180.0
-NATIVE_CHAT_IDLE_TIMEOUT_S = 60.0
-
-
-def _cap(existing: float | None, limit: float) -> float:
-    return min(existing, limit) if existing is not None else limit
-
-
 def observe_execution(execution: ExecutionPolicy, reason: str) -> ExecutionPolicy:
     """Yürütme politikasını bir GÖZLEM turuna uyarla.
 
@@ -71,16 +63,12 @@ def observe_execution(execution: ExecutionPolicy, reason: str) -> ExecutionPolic
 
 def chat_execution(execution: ExecutionPolicy) -> ExecutionPolicy:
     """Yürütme politikasını sohbet turuna uyarla (`observe_execution`'ın sarmalayıcısı)."""
-    observed = observe_execution(execution, CHAT_MUTATION_REASON)
-    if observed.is_web:
-        return observed
-    # Yerel API sohbeti tek bir yavaş sağlayıcı yüzünden dakikalarca
-    # "düşünüyor" durumunda kalmamalı. Uzun araç görevleri kod kipindedir.
-    return replace(
-        observed,
-        total_timeout_s=_cap(observed.total_timeout_s, NATIVE_CHAT_TOTAL_TIMEOUT_S),
-        idle_timeout_s=_cap(observed.idle_timeout_s, NATIVE_CHAT_IDLE_TIMEOUT_S),
-    )
+    # Sohbet turuna ayrıca süre sınırı konmaz (Claude Code'da da yoktur). Eskiden
+    # 180 sn / 60 sn sınırı vardı; gerekçesi cevapsız takılan sağlayıcının kullanıcıyı
+    # dakikalarca "düşünüyor" ekranında bekletmesiydi. O durumu artık model akışının
+    # parça başı sessizlik sınırı yakalıyor (`loop._call_model`); yazmaya devam eden
+    # uzun bir cevabı kesmek için bir sebep kalmadı.
+    return observe_execution(execution, CHAT_MUTATION_REASON)
 
 
 def chat_tool_names(registry: ToolRegistry) -> frozenset[str]:

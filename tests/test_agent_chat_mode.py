@@ -25,10 +25,12 @@ def test_sohbet_kipinde_degistirme_kapali() -> None:
     assert "sohbet" in sohbet.mutation_block_reason.lower()
 
 
-def test_yerel_sohbet_suresi_sinirlanir_ama_web_siniri_korunur() -> None:
+def test_yerel_sohbete_sure_siniri_konmaz_web_siniri_korunur() -> None:
+    """Claude Code'da sohbet turuna süre sınırı yoktur; takılan sağlayıcıyı model
+    akışının parça başı sessizlik sınırı yakalar."""
     native = chat_execution(ExecutionPolicy(is_web=False))
-    assert native.total_timeout_s == 180.0
-    assert native.idle_timeout_s == 60.0
+    assert native.total_timeout_s is None
+    assert native.idle_timeout_s is None
     web = chat_execution(ExecutionPolicy(is_web=True, total_timeout_s=5400.0, idle_timeout_s=300.0))
     assert web.total_timeout_s == 5400.0
     assert web.idle_timeout_s == 300.0
