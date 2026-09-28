@@ -400,6 +400,30 @@ APP_TURN_NO_ANSWER = (
     "Tur tamamlanamadı ve model bir cevap üretmedi. "
     "Araç çıktılarını Denetçi panelinden inceleyip görevi daraltarak yeniden dene."
 )
+#: Bütçe durdurduğunda sebebin kısa, kullanıcı dilindeki karşılığı.
+APP_TURN_STOP_REASONS = {
+    "model_calls": "model çağrısı sınırına ulaşıldı",
+    "tool_rounds": "araç turu sınırına ulaşıldı",
+    "deadline": "turun süre sınırı doldu",
+    "inactivity": "uzun süre gerçek ilerleme olmadı",
+    "no_progress": "art arda turlarda ilerleme olmadı",
+    "repeated_call": "aynı araç çağrısı tekrarlandı",
+    "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi",
+    "empty_responses": "model art arda boş yanıt verdi",
+}
+#: Model hiç metin üretmeden tur bütçeyle kesildiğinde gösterilen özet başlığı.
+#:
+#: Ölçüldü (28 Eylül): 13 dakikalık büyük görev "model bir cevap üretmedi" ile
+#: bitti; kullanıcı neyin yapıldığını, neyin kaldığını ve neden durduğunu göremedi.
+APP_TURN_STOPPED_HEAD = "İş yarıda kaldı: {reason}."
+APP_TURN_STOPPED_TODOS = "Görevler: {done}/{total} tamamlandı."
+APP_TURN_STOPPED_HINT = 'Kaldığı yerden sürdürmek için "devam et" yaz.'
+#: Uzun iş bütçeyle kesilince kullanıcı beklemeden sürdürülürken gösterilir.
+APP_TURN_AUTO_CONTINUE = "Kaldığı yerden otomatik devam ediliyor ({n}/{total})"
+#: Otomatik devam turunun modele giden görevi; geçmiş zaten taşınır.
+APP_TURN_AUTO_CONTINUE_TASK = (
+    "devam et — görev listesindeki bekleyen maddelerden kaldığın yerden sürdür"
+)
 APP_NO_RUNNING_TURN = "Çalışan tur yok."
 #: Bir olay JSON'a çevrilemediğinde (bkz. `serialize.py::_plain`) sessizce
 #: kaybolmak yerine uygulamaya bildirilir; olay adı ekli, alan değeri değil.

@@ -116,3 +116,140 @@ async def test_iptal_edilen_tur_da_iz_birakir(tmp_path, monkeypatch):
 
     roller = [rol for rol, _ in _kayitli(oturum, tmp_path)]
     assert roller == ["user", "assistant"]
+
+
+async def test_butceyle_kesilen_cevapsiz_tur_ozetle_doner_ve_kaydedilir(tmp_path, monkeypatch):
+    """Ölçüldü (28 Eylül): büyük görev "model bir cevap üretmedi" ile bitiyor,
+    kullanıcı neyin yapılıp neyin kaldığını göremiyordu."""
+    from types import SimpleNamespace
+
+    from fusion_cli.core.tools import TodoItem, TodoStatus
+
+    async def _calistir(*_args, **_kwargs):
+        return SimpleNamespace(
+            ok=False,
+            final_text="",
+            messages=(),
+            budget_stopped=True,
+            stop_reason="no_progress",
+            todos=(
+                TodoItem("sunucuyu kur", TodoStatus.COMPLETED),
+                TodoItem("arayüzü düzenle", TodoStatus.PENDING),
+            ),
+        )
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    sonuc = await _tur(oturum, satirlar, "büyük işi yap")
+
+    assert sonuc["ok"] is False
+    assert "Görevler: 1/2 tamamlandı." in sonuc["metin"]
+    assert "devam et" in sonuc["metin"]
+    assert _kayitli(oturum, tmp_path)[-1] == ("assistant", sonuc["metin"])
+
+
+def _kesilen_sonuc(*, degisiklik: int, bekleyen: bool = True):
+    from types import SimpleNamespace
+
+    from fusion_cli.core.tools import TodoItem, TodoStatus
+
+    return SimpleNamespace(
+        ok=False,
+        final_text="",
+        messages=(),
+        budget_stopped=True,
+        stop_reason="no_progress",
+        mutating_tool_calls_made=degisiklik,
+        todos=(
+            TodoItem("sunucuyu kur", TodoStatus.COMPLETED),
+            TodoItem(
+                "arayüzü düzenle", TodoStatus.PENDING if bekleyen else TodoStatus.COMPLETED
+            ),
+        ),
+    )
+
+
+async def test_degisiklik_yapan_kesik_tur_kendiliginden_surdurulur(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    gorevler: list[str] = []
+    sonuclar = [
+        _kesilen_sonuc(degisiklik=2),
+        SimpleNamespace(ok=True, final_text="Tüm görevler bitti.", messages=()),
+    ]
+
+    async def _calistir(gorev, *_args, **_kwargs):
+        gorevler.append(gorev)
+        return sonuclar.pop(0)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    sonuc = await _tur(oturum, satirlar, "büyük işi yap")
+
+    assert sonuc == {"ok": True, "metin": "Tüm görevler bitti."}
+    assert len(gorevler) == 2
+    assert gorevler[1].startswith("devam et")
+    assert any("otomatik devam" in satir for satir in satirlar)
+
+
+async def test_degisiklik_yapmayan_kesik_tur_surdurulmez(tmp_path, monkeypatch):
+    cagri = 0
+
+    async def _calistir(*_args, **_kwargs):
+        nonlocal cagri
+        cagri += 1
+        return _kesilen_sonuc(degisiklik=0)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    sonuc = await _tur(oturum, satirlar, "büyük işi yap")
+
+    assert cagri == 1
+    assert "devam et" in sonuc["metin"]
+
+
+async def test_otomatik_devam_sinirli_sayida_yapilir(tmp_path, monkeypatch):
+    from fusion_cli.appserver.session import MAX_AUTO_CONTINUE_TURNS
+
+    cagri = 0
+
+    async def _calistir(*_args, **_kwargs):
+        nonlocal cagri
+        cagri += 1
+        return _kesilen_sonuc(degisiklik=1)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    await _tur(oturum, satirlar, "büyük işi yap")
+
+    assert cagri == 1 + MAX_AUTO_CONTINUE_TURNS
+
+
+async def test_gorevler_bittiyse_surdurulmez(tmp_path, monkeypatch):
+    cagri = 0
+
+    async def _calistir(*_args, **_kwargs):
+        nonlocal cagri
+        cagri += 1
+        return _kesilen_sonuc(degisiklik=3, bekleyen=False)
+
+    monkeypatch.setattr("fusion_cli.cli.session.run_agent_task", _calistir)
+    satirlar: list[str] = []
+    oturum = _session(tmp_path, satirlar)
+    await _sekme(oturum)
+
+    await _tur(oturum, satirlar, "büyük işi yap")
+
+    assert cagri == 1

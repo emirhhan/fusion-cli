@@ -43,8 +43,9 @@ from ..config.loader import load_config
 from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
-from ..core.events import Event
+from ..core.events import Event, StatusChanged
 from ..core.health import HealthRegistry
+from ..core.tools import TodoStatus
 from ..core.types import Message
 from ..engines.agent.approval import ApprovalMode
 from ..engines.agent.context_budget import context_budget
@@ -56,6 +57,7 @@ from ..providers.capabilities import apprentice_active
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from ..ui.text import strip_thinking
+from ..ui.turn_stop import turn_stopped_summary
 from .bridges import PendingQuestions, ProtocolPrompter, ProtocolSink, Writer
 from .capabilities import catalog, detail
 from .chrome_bridge import ChromeBridge
@@ -283,6 +285,32 @@ def _attachment_context(value: object) -> tuple[str, str | None]:
 
 def _discard_line(_line: str) -> None:
     """Yan panel turunun satırları masaüstü teline yazılmaz (bkz. `_run_turn`)."""
+
+
+#: Bütçeyle kesilen uzun işin kullanıcıya sorulmadan kaç kez sürdürüleceği.
+#
+# Üç: her devam turu kendi tam bütçesini alır; gerçek değişiklik yapmayan tur
+# zinciri koparır (bkz. `_should_auto_continue`), bu yüzden kaçak döngü olmaz.
+MAX_AUTO_CONTINUE_TURNS = 3
+#: Kendiliğinden sürdürülebilen durma sebepleri. Tekrar, bozuk araç çağrısı ve
+#: boş yanıt modelin kendisindeki bir sorundur; aynı modelle sürdürmek çözmez.
+_AUTO_CONTINUE_REASONS = frozenset(
+    {"no_progress", "inactivity", "model_calls", "tool_rounds", "deadline"}
+)
+
+
+def _should_auto_continue(outcome: object, auto_continues: int) -> bool:
+    """Bütçeyle kesilen tur kullanıcı beklemeden sürdürülmeli mi?"""
+    if auto_continues >= MAX_AUTO_CONTINUE_TURNS:
+        return False
+    if not getattr(outcome, "budget_stopped", False):
+        return False
+    if getattr(outcome, "stop_reason", None) not in _AUTO_CONTINUE_REASONS:
+        return False
+    todos = getattr(outcome, "todos", ())
+    bekleyen = any(item.status is not TodoStatus.COMPLETED for item in todos)
+    # Bu turda gerçek değişiklik yoksa sürdürmek aynı çıkmaza geri döner.
+    return bekleyen and getattr(outcome, "mutating_tool_calls_made", 0) > 0
 
 
 class _MeteredSink:
@@ -1279,6 +1307,7 @@ class AppSession:
         images: tuple[str, ...] = (),
         *,
         browser_only: bool = False,
+        auto_continues: int = 0,
     ) -> dict[str, Any]:
         """Görevi agent motoruyla çalıştır; olaylar tel üzerinden akar.
 
@@ -1399,7 +1428,28 @@ class AppSession:
         # Boş metinle "başarısız" dönmek kullanıcıya hiçbir şey söylemez.
         metin = outcome.final_text
         if not metin.strip() and not outcome.ok:
-            metin = messages.APP_TURN_NO_ANSWER
+            metin = (
+                turn_stopped_summary(outcome.stop_reason, outcome.todos)
+                if outcome.budget_stopped
+                else messages.APP_TURN_NO_ANSWER
+            )
+            # Özet de "ne oldu" kaydıdır: sekme yeniden açıldığında "devam et"
+            # turunun modeli neyin kaldığını buradan görür.
+            self._transcript_store.record_assistant(metin)
+        if _should_auto_continue(outcome, auto_continues):
+            # Uzun iş tek turun bütçesine sığmaz: gerçek değişiklik yapan ve görevi
+            # bekleyen tur, kullanıcı "devam et" yazmak zorunda kalmadan sürer.
+            # Geçmiş (`self._state.history`) taşındığı için model kaldığı yeri bilir.
+            sink.handle(
+                StatusChanged(
+                    messages.APP_TURN_AUTO_CONTINUE.format(
+                        n=auto_continues + 1, total=MAX_AUTO_CONTINUE_TURNS
+                    )
+                )
+            )
+            return await self._run_turn(
+                messages.APP_TURN_AUTO_CONTINUE_TASK, auto_continues=auto_continues + 1
+            )
         return {"ok": outcome.ok, "metin": metin}
 
     def _refresh_capabilities(self) -> None:
