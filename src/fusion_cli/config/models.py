@@ -86,7 +86,7 @@ class RuntimeConfig:
     #: düzeltici turlar da aynı bütçeden yer.
     agent_max_steps: int | None
     #: Ardışık kaç araç turu hiçbir ilerleme (başarılı araç / dosya dokunuşu)
-    #: üretmezse tur kesilir. Sessiz döngüye karşı son emniyet supabı.
+    #: üretmezse modele "sıradaki somut adımı at" notu gönderilir. Tur kesilmez.
     agent_max_idle_rounds: int
     #: Agent: tur bitince denetçi model sonucu kontrol eder, gerekirse düzeltir.
     self_review: bool

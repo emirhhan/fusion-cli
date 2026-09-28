@@ -460,8 +460,10 @@ async def test_kosu_oldurulen_turdan_ders_yazilmaz(monkeypatch, tmp_path, sink):
 
     sonuc = await run_agent("spor sitesi sayfasını yaz", deps, verify=False)
 
-    assert not sonuc.ok, "bu dizi ilerleme üretmiyor, tur öldürülmeliydi"
-    assert not cagrildi, "öldürülen turdan ders çıkarıldı — öz-zehirlenme geri geldi"
+    # Tur artık kesilmiyor (Claude Code'daki gibi); ama takılıp uyarı alan turdan
+    # ders çıkarılmaz.
+    assert sonuc.stalled, "bu dizi ilerleme üretmiyor, model uyarılmalıydı"
+    assert not cagrildi, "takılan turdan ders çıkarıldı — öz-zehirlenme geri geldi"
 
 
 async def test_kosu_temiz_turdan_ders_yazilir(monkeypatch, tmp_path, sink):

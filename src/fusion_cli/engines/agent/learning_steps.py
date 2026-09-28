@@ -138,6 +138,11 @@ def should_learn(outcome: AgentOutcome, *, plan_mode: bool, allow_read_only: boo
         return False
     if not outcome.ok or outcome.hit_step_limit:
         return False
+    # Tur artık ilerlemesizlikte kesilmiyor (Claude Code'daki gibi); ama takılıp
+    # uyarı alan turun izi harness notlarıyla dolu. Ondan ders çıkarmak eski
+    # öz-zehirlenmeyi geri getirirdi (bkz. madde 2).
+    if getattr(outcome, "stalled", False):
+        return False
     return not (
         not allow_read_only
         and outcome.mutating_tool_calls_made == 0

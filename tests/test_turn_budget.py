@@ -15,6 +15,7 @@ from fusion_cli.core.tools import ToolContext
 from fusion_cli.engines.agent import loop as agent_loop
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
 from fusion_cli.engines.agent.loop import AgentDeps, run_agent
+from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
 
 from .fakes import (
     AlwaysApprove,
@@ -176,10 +177,10 @@ async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path
     )
 
     sonuc = await run_agent(
-        "dur durak bilmez", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
+        "dur durak bilmez",
+        _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3, "agent_max_steps": None}),
     )
 
-    assert not sonuc.ok
     # Araç yalnız izin verilen tekrar sınırı kadar (2) çalışır; kalan sekiz çağrı
     # önbellekten cevaplanır.
     # Kapı hâlâ açıktır — sınırsız tekrar YOK — ama tekrar artık hata değil,
@@ -191,22 +192,26 @@ async def test_ayni_cagri_api_saglayicisinda_da_durdurulur(monkeypatch, tmp_path
     ]
     assert onbellekten, "tekrar eden okuma önbellekten cevaplanmalı"
     assert sonuc.tool_calls_made == 2
-    # Tur ilk tekrarda ÖLMEZ; model kendini toparlayamayınca ilerleme-yok kapısı
-    # bitirir. Böylece o ana kadar yapılmış iş korunur ve döngü sonsuza gitmez.
+    # Tur ilerlemesizlikte KESİLMEZ (Claude Code'da ilerleme kapısı yoktur); model
+    # döngüden çıkması için uyarılır ve işi kendisi bitirir.
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert STALL_RESCUE_NOTE in notlar
     tukendi = [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
-    assert tukendi and tukendi[-1].reason == BudgetStop.NO_PROGRESS.value
+    assert not tukendi
 
 
-async def test_ilerlemesiz_turlar_turu_bitirir_ve_sebebi_yayinlanir(monkeypatch, tmp_path, sink):
-    """Başarısız araç zinciri sonsuza kadar sürmez ve sessizce bitmez."""
-    # Her tur FARKLI ve var olmayan bir yol okunur: çağrılar tekrar etmediği için
-    # tekrar kapısı devreye girmez, ama hiçbir tur ilerleme üretmez.
+async def test_ilerlemesiz_turlar_turu_kesmez_modeli_uyarir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (28 Eylül): ilerleme kapısı büyük görevi keşfin ortasında cevapsız
+    kesiyordu. Claude Code'un döngüsü model işi bitirene kadar sürer."""
     _kur(
         monkeypatch,
         ScriptedProvider(
             [
-                model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
-                for index in range(20)
+                *[
+                    model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
+                    for index in range(7)
+                ],
+                model_result(TAM_CEVAP),
             ]
         ),
     )
@@ -216,11 +221,10 @@ async def test_ilerlemesiz_turlar_turu_bitirir_ve_sebebi_yayinlanir(monkeypatch,
         _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3}),
     )
 
-    assert not sonuc.ok
-    tukendi = [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
-    assert tukendi, "tur neden bittiği kullanıcıya bildirilmeli"
-    assert tukendi[-1].reason == BudgetStop.NO_PROGRESS.value
-    assert tukendi[-1].idle_rounds >= 3
+    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
+    assert notlar.count(STALL_RESCUE_NOTE) == 2
+    assert not [event for event in sink.events if isinstance(event, TurnBudgetExhausted)]
+    assert sonuc.final_text == TAM_CEVAP
 
 
 #: Otomatik-devam sezgiseli kısa/teslimsiz cevapları "yarım" sayar ve fazladan çağrı
@@ -554,61 +558,3 @@ async def test_buyuk_dosyada_mesaj_hedefli_duzenlemeyi_ister(monkeypatch, tmp_pa
     assert "edit_file" in engellenen[0].output
     assert "TAMAMINI" not in engellenen[0].output
     assert hedef.read_text(encoding="utf-8").startswith("satir_0 = 0")
-
-
-async def test_bekleyen_gorev_varken_ilerlemesizlik_once_uyarir_sonra_ozetle_biter(
-    monkeypatch, tmp_path, sink
-):
-    """Ölçüldü (28 Eylül): büyük görev keşfin ortasında cevapsız kesildi. Bekleyen
-    görev varken model önce keşfi bırakması için uyarılır; yine ilerlemezse tur
-    durur ve sonuç yarım kalan görev listesini taşır."""
-    from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
-
-    gorevler = (
-        '[{"content": "sunucuyu kur", "status": "in_progress"},'
-        ' {"content": "arayüzü düzenle", "status": "pending"}]'
-    )
-    _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("todo_write", todos=gorevler)]),
-                *[
-                    model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
-                    for index in range(30)
-                ],
-            ]
-        ),
-    )
-
-    sonuc = await run_agent(
-        "büyük işi yap", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
-    )
-
-    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
-    assert STALL_RESCUE_NOTE in notlar
-    assert not sonuc.ok
-    assert sonuc.stop_reason == BudgetStop.NO_PROGRESS.value
-    assert [item.content for item in sonuc.todos] == ["sunucuyu kur", "arayüzü düzenle"]
-
-
-async def test_gorev_listesi_yokken_ilerlemesizlik_uyarisiz_biter(monkeypatch, tmp_path, sink):
-    from fusion_cli.engines.agent.reflexion import STALL_RESCUE_NOTE
-
-    _kur(
-        monkeypatch,
-        ScriptedProvider(
-            [
-                model_result(tool_calls=[tool_call("read_file", path=f"yok-{index}.txt")])
-                for index in range(20)
-            ]
-        ),
-    )
-
-    sonuc = await run_agent(
-        "olmayan dosyaları oku", _deps(tmp_path, sink, runtime={"agent_max_idle_rounds": 3})
-    )
-
-    notlar = [m.content for m in sonuc.messages if m.role == "user" and m.harness_note]
-    assert STALL_RESCUE_NOTE not in notlar
-    assert sonuc.stop_reason == BudgetStop.NO_PROGRESS.value

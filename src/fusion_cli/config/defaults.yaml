@@ -182,23 +182,21 @@ runtime:
   # değişiklik yapmadan okursa, araç sınamasını geçmiş web öğretmeni devralır.
   # 0 = kapalı. Kullanıcının zorunlu/tek model seçimi bu yolla değiştirilmez.
   agent_teacher_takeover_tools: 10
-  # Ardışık araç turu üst sınırı. Model bir döngüye takılırsa tur burada kesilir.
-  # Yalnızca patolojik döngüye karşı emniyet supabı; normal uzun işleri kesmemesi
-  # için yüksek tutulur (25 pratikte çok işi yarıda kesiyordu).
+  # Model çağrısı üst sınırı. Boş (null) = sınır yok.
   #
-  # DİKKAT: bu sınır artık turun TAMAMI için geçerlidir. Öz-denetim ve doğrulama
-  # kapısının açtığı düzeltici turlar aynı bütçeden yer; eskiden her biri sıfırdan
-  # başlıyor ve bütçe çarpılıyordu.
-  agent_max_steps: 200
-  # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse tur kesilir.
+  # Claude Code'un belgelenmiş varsayılanı: döngü, model araç çağırmayı bırakıp
+  # cevabını verene kadar sürer; `max_turns` ve bütçe sınırı varsayılan olarak
+  # YOKTUR (bkz. code.claude.com/docs/en/agent-sdk/agent-loop). Kullanıcı her an
+  # durdurabilir ya da yön verebilir. Ölçüldü (28 Eylül): 200'lük sınır ve
+  # ilerleme kapısı büyük proje görevini yarıda kesiyordu. Sınır isteyen kullanıcı
+  # buraya bir sayı yazar; sınır dolunca iş özetlenir ve kaldığı yerden sürer.
+  agent_max_steps: null
+  # Ardışık kaç araç turu HİÇBİR ilerleme üretmezse modele "aramayı bırak, sıradaki
+  # somut adımı at" notu gönderilir. Tur KESİLMEZ (Claude Code'da ilerleme kapısı
+  # yoktur); not yalnız modeli döngüden çıkarmaya çalışır.
   #
-  # İlerleme = en az bir başarılı araç çağrısı ya da çalışma alanında dosya dokunuşu.
+  # İlerleme = başarılı yeni okuma ya da çalışma alanında dosya değişikliği.
   # Tek bir ilerlemesiz tur normaldir: model yanlış yolu dener, hatayı okur, düzeltir.
-  # Ardışık olması modelin kendini toparlayamadığını gösterir — kullanıcının gördüğü
-  # "aynı şeyi tekrar tekrar deniyor" davranışı budur.
-  #
-  # 3 bir başlangıç değeridir ve ölçümle doğrulanmamıştır: 1 normal toparlanmayı
-  # keserdi, çok yüksek bir değer döngüyü kesmezdi. Faz 4 ölçümünde sınanacak.
   agent_max_idle_rounds: 3
   # Tur bitince denetçi model sonucu kontrol eder; somut sorun bulursa TEK düzeltici
   # tur çalışır. Bir hakem çağrısı ekler, çıktı daha sağlam olur. Hız istiyorsan kapat.
