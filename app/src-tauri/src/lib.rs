@@ -495,7 +495,7 @@ fn tanima_baslat(
         return Err("Bu pakette konuşma tanıma yardımcısı yok.".into());
     }
     let mut command = std::process::Command::new(helper);
-    command.arg("tr-TR");
+    core_process::pencere_acmadan(&mut command).arg("tr-TR");
     start_recognition(app, manager.inner(), &mut command)
 }
 

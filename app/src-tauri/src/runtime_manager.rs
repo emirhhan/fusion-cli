@@ -211,7 +211,7 @@ fn run_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> Result<std::process::Output, RuntimeError> {
-    let mut child = Command::new(executable)
+    let mut child = crate::core_process::pencere_acmadan(&mut Command::new(executable))
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

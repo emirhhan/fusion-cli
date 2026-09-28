@@ -37,6 +37,23 @@ pub(crate) struct CoreLaunch {
 /// Verilen çalışma zamanı ikilisi için başlatma komutunu üretir. Argüman
 /// listesi sabittir: çekirdek her zaman uzun ömürlü, stdio üzerinden JSON
 /// konuşan `app` alt komutuyla açılır.
+/// Windows'ta alt süreci konsol penceresi AÇMADAN başlatır; diğer sistemlerde etkisizdir.
+///
+/// Ölçüldü (28 Eylül, kullanıcının Windows makinesi): açılışta arka arkaya çok
+/// sayıda terminal penceresi beliriyordu. Çekirdek bir konsol uygulamasıdır ve
+/// pencereli uygulamadan bayraksız başlatılınca kendi konsolunu açar; onun
+/// başlattığı her komut da o konsolu miras alır. `CREATE_NO_WINDOW` ile çekirdeğin
+/// konsolu görünmez olur ve çocukları aynı görünmez konsolu paylaşır.
+pub(crate) fn pencere_acmadan(command: &mut std::process::Command) -> &mut std::process::Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
 pub(crate) fn core_launch(executable: &Path) -> CoreLaunch {
     CoreLaunch {
         executable: executable.to_path_buf(),

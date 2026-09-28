@@ -131,12 +131,12 @@ impl SessionManager {
         }
 
         let launch = session_launch(executable, &root);
-        let mut child = Command::new(&launch.executable)
+        let mut child = crate::core_process::pencere_acmadan(&mut Command::new(&launch.executable))
             .args(&launch.args)
             .current_dir(&launch.current_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(cekirdek_gunlugu(session_id))
             .spawn()
             .map_err(|error| format!("Fusion çalışma zamanı başlatılamadı: {error}"))?;
         let output = child.stdout.take().ok_or("çekirdek çıktısı alınamadı")?;
@@ -293,6 +293,43 @@ impl SessionManager {
 /// uygulamada çalışma dizini `/` olur ve her sohbet dosya ağacında `/sbin`,
 /// `/usr`, `/var` gösterirdi — kullanıcı bunu bildirdi. Ev dizini hem güvenli
 /// hem anlamlı bir başlangıçtır; kullanıcı proje seçtiğinde zaten değişir.
+/// Çekirdeğin hata çıktısının yazılacağı yer.
+///
+/// Ölçüldü (28 Eylül): Windows'ta uygulama "Çekirdek bağlantısı kapatıldı" dedi;
+/// hata çıktısı `Stdio::null()` ile atıldığı için sebep hiçbir yerde yoktu. Çıktı
+/// artık oturum başına bir dosyaya yazılır (her başlatmada baştan). Dosya
+/// açılamazsa çekirdek yine başlar; günlük yokluğu açılışı engellemez.
+fn cekirdek_gunlugu(session_id: &str) -> Stdio {
+    let Some(dizin) = gunluk_dizini() else {
+        return Stdio::null();
+    };
+    if std::fs::create_dir_all(&dizin).is_err() {
+        return Stdio::null();
+    }
+    let ad: String = session_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(64)
+        .collect();
+    match std::fs::File::create(dizin.join(format!("core-{ad}.log"))) {
+        Ok(dosya) => Stdio::from(dosya),
+        Err(_) => Stdio::null(),
+    }
+}
+
+/// `…/Fusion/logs`: çalışma zamanı kökünün (`…/Fusion/runtime`) kardeşi.
+fn gunluk_dizini() -> Option<PathBuf> {
+    let home = varsayilan_kok().ok()?;
+    let runtime = crate::runtime_paths::RuntimePaths::for_home(&home).root;
+    Some(runtime.parent()?.join("logs"))
+}
+
 fn varsayilan_kok() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))

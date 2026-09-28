@@ -63,7 +63,7 @@ pub fn run_from_bundle() -> Result<(), String> {
 }
 
 fn smoke_core_protocol(executable: &Path) -> Result<(), String> {
-    let mut child = Command::new(executable)
+    let mut child = crate::core_process::pencere_acmadan(&mut Command::new(executable))
         .arg("app")
         .env("FUSION_SECRET_KEY", "fusion-runtime-smoke-only")
         .stdin(Stdio::piped())
