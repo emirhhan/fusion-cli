@@ -20,7 +20,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Çekirdeği kur
-        run: python -m pip install -e .
+        # Yayın çalışma zamanıyla aynı ekler (bkz. desktop.yml).
+        run: python -m pip install -e ".[desktop,mcp,gateway,voice,web]"
       - name: Açılış isteklerini dene
         env:
           PYTHONUTF8: "1"
