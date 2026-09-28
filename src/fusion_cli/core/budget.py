@@ -47,6 +47,8 @@ class BudgetStop(Enum):
     REPEATED_CALL = "repeated_call"
     CONTRACT_UNREPAIRABLE = "contract_unrepairable"
     EMPTY_RESPONSES = "empty_responses"
+    #: Bağlam her sıkıştırmadan hemen sonra yeniden eşiği aşıyor (tek dev çıktı).
+    CONTEXT_THRASH = "context_thrash"
     #: Kullanıcı bir değiştirici araç çağrısını GERÇEKTEN reddetti (insan "hayır"
     #: dedi — oturumun etkileşimsiz olup kimseye sorulamaması değil). Diğer
     #: sebeplerin aksine bu bir BÜTÇE olayı değildir: `TurnBudgetExhausted`
@@ -69,7 +71,8 @@ class TurnBudget:
     """Tur boyunca paylaşılan sayaçlar, sınırlar ve tekrar/ilerleme takibi."""
 
     clock: Clock
-    max_model_calls: int
+    #: `None`: model çağrısı sınırı yok (Claude Code'un varsayılanı, `max_turns`).
+    max_model_calls: int | None
     max_verify_rounds: int
     max_empty_retries: int
     max_contract_repairs: int
@@ -183,7 +186,7 @@ class TurnBudget:
 
     @property
     def model_calls_exhausted(self) -> bool:
-        return self.model_calls >= self.max_model_calls
+        return self.max_model_calls is not None and self.model_calls >= self.max_model_calls
 
     def take_empty_retry(self) -> bool:
         """Boş cevap için bir deneme hakkı al. Hak kalmadıysa False."""

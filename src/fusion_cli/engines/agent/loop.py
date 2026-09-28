@@ -98,6 +98,7 @@ from .execution_policy import (
     refresh_mutation_policy,
 )
 from .execution_route import ExecutionRoute, choose_execution_route
+from .history import needs_compression, total_chars
 from .plan_runner import run_execution_plan
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
@@ -775,6 +776,8 @@ class _State:
     never_acted_prompts: int = 0
     #: İlerlemesizlik kapısında verilen "keşfi bırak" uyarısı sayısı (tur başına bir).
     stall_rescues: int = 0
+    #: Sıkıştırmaya rağmen bağlamın eşikte kaldığı ardışık çağrı sayısı.
+    compaction_thrash: int = 0
     #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
     refusal_nudged: bool = False
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
@@ -870,6 +873,8 @@ async def _drive(
         time_stop = budget.time_stop_reason()
         if time_stop is not None:
             return _halt(final_text, messages, state, budget, time_stop, deps)
+        if not await _compact_before_call(messages, deps, state):
+            return _halt(final_text, messages, state, budget, BudgetStop.CONTEXT_THRASH, deps)
         if local_calls == 1:
             # Turun ilk çağrısından önceki hazırlık (bağlam sıkıştırma, hatırlama,
             # tarayıcı bağlantısı) "ilerlemesizlik" değildir. Ölçüldü (28 Eylül):
@@ -2663,6 +2668,44 @@ def _verification_correction_deps(deps: AgentDeps) -> AgentDeps:
         task_model_map={},
     )
     return replace(deps, config=correction_config)
+
+
+#: Sıkıştırmadan hemen sonra bağlam yine eşikteyse kaç denemede durulur.
+#
+# Claude Code belgesi: tek bir dev çıktı bağlamı her özetten hemen sonra yeniden
+# doldurursa "birkaç denemeden sonra" otomatik sıkıştırmayı bırakıp hata gösterir,
+# döngüye girmez. Üç, geçici bir büyük okumayı (sonraki turda temizlenir) tolere
+# eder ama kalıcı taşmayı sonsuz özet döngüsüne çevirmez.
+MAX_COMPACTION_THRASH = 3
+
+
+async def _compact_before_call(messages: list[Message], deps: AgentDeps, state: _State) -> bool:
+    """Model çağrısından ÖNCE bağlamı eşiğin altına indir; taşma kalıcıysa False.
+
+    Eskiden sıkıştırma yalnız tur BİTTİKTEN sonra yapılıyordu: uzun tek bir turda
+    geçmiş sınırsız büyüyor, sonunda modelin penceresi taşıyordu (ölçüldü, 28 Eylül).
+    """
+    selected = select_agent_spec(deps.config, deps.task_type, requirements=deps.task_requirements)
+    from .context_budget import context_budget
+
+    threshold = context_budget(deps.config, selected).compression_chars
+    if not needs_compression(messages, threshold_chars=threshold):
+        state.compaction_thrash = 0
+        return True
+    before = len(messages)
+    before_chars = total_chars(messages)
+    compacted = await compaction.compact_in_turn(
+        messages, config=deps.config, publisher=deps.publisher, threshold_chars=threshold
+    )
+    if total_chars(compacted) < before_chars:
+        messages[:] = compacted
+        deps.publisher.publish(ContextCompressed(before=before, after=len(compacted)))
+        deps.condensations += 1
+    if needs_compression(messages, threshold_chars=threshold):
+        state.compaction_thrash += 1
+        return state.compaction_thrash < MAX_COMPACTION_THRASH
+    state.compaction_thrash = 0
+    return True
 
 
 async def _maybe_compress(messages: list[Message], deps: AgentDeps) -> list[Message]:

@@ -12,6 +12,7 @@ bozan iki klasik hatayı önler:
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 from ...core.types import Message
 
@@ -67,6 +68,71 @@ def safe_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGE
     """
     start = max(0, len(messages) - keep_recent)
     while start < len(messages) and messages[start].role != "user":
+        start += 1
+    return 0 if start >= len(messages) else start
+
+
+#: Temizlenen eski araç çıktısının yerine konan not. Model gerekirse yeniden okur.
+CLEARED_TOOL_OUTPUT = (
+    "[eski araç çıktısı bağlamdan temizlendi ({chars} karakter); gerekirse yeniden oku]"
+)
+
+
+def clear_old_tool_outputs(
+    messages: Sequence[Message], threshold_chars: int | None = None
+) -> list[Message]:
+    """En ESKİ araç çıktılarından başlayarak geçmişi eşiğin altına indir.
+
+    Claude Code'un belgelenmiş davranışı: bağlam dolarken "önce eski araç
+    çıktılarını temizler, gerekirse sonra konuşmayı özetler". Çıktı en büyük ve
+    en kolay yeniden üretilen parçadır: dosya yeniden okunabilir, ama modelin
+    kararları ve kullanıcının istekleri yeniden üretilemez.
+
+    Sabit bir "son N mesajı koru" penceresi kullanılmaz: ölçüldü, 24 KB'lık birkaç
+    okuma 20 mesajlık pencereye sığıyor ve hiçbir şey temizlenemiyordu. Eşiğe
+    inilene kadar eskiden yeniye temizlenir; EN SON araç çıktısına hiç dokunulmaz,
+    çünkü model bir sonraki adımı ona bakarak atar. Mesaj silinmez, yalnız içeriği
+    kısalır; araç çağrısı ile sonucu arasındaki eşleşme bozulmaz.
+    """
+    limit = threshold_chars if threshold_chars is not None else COMPRESS_THRESHOLD_CHARS
+    sonuc = list(messages)
+    arac_indeksleri = [index for index, message in enumerate(sonuc) if message.role == "tool"]
+    toplam = total_chars(sonuc)
+    for index in arac_indeksleri[:-1]:
+        if toplam < limit:
+            break
+        message = sonuc[index]
+        not_metni = CLEARED_TOOL_OUTPUT.format(chars=len(message.content))
+        if len(message.content) <= len(not_metni):
+            continue
+        sonuc[index] = replace(message, content=not_metni)
+        toplam -= len(message.content) - len(not_metni)
+    return sonuc
+
+
+def task_anchor_length(messages: Sequence[Message]) -> int:
+    """Tur İÇİ sıkıştırmada korunacak baş: sistem mesajı ve ilk görev mesajı.
+
+    `root_anchor_length` ikinci kullanıcı mesajına kadar HER ŞEYİ korur; tek ve
+    uzun bir turda ikinci kullanıcı mesajı olmadığından turun tamamı "kök" sayılır
+    ve hiçbir şey özetlenemezdi (ölçüldü, 28 Eylül: büyük görevde bağlam sonuna
+    kadar büyüdü). Tur içinde korunması gereken yalnız kimlik ve görevdir.
+    """
+    for index, message in enumerate(messages):
+        if message.role == "user" and not message.harness_note:
+            return index + 1
+    return 0
+
+
+def round_cut(messages: Sequence[Message], keep_recent: int = KEEP_RECENT_MESSAGES) -> int:
+    """Son `keep_recent` mesajı koruyarak bir ARAÇ TURU sınırında kesme indeksi bul.
+
+    Tur içinde kullanıcı mesajı az olduğu için kesim bir asistan mesajının başına
+    da yapılabilir: asistan mesajı yeni bir turu başlatır, araç çağrısı ile
+    sonucu ayrılmaz. Güvenli nokta yoksa 0 döner.
+    """
+    start = max(0, len(messages) - keep_recent)
+    while start < len(messages) and messages[start].role not in {"user", "assistant"}:
         start += 1
     return 0 if start >= len(messages) else start
 

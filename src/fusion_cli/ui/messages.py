@@ -127,6 +127,10 @@ AGENT_BUDGET_REASONS = {
     "repeated_call": "aynı araç çağrısı değişiklik olmadan tekrarlandı; döngü sonlandırıldı",
     "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi; tur sonlandırıldı",
     "empty_responses": "model arka arkaya boş yanıt döndürdü; tur sonlandırıldı",
+    "context_thrash": (
+        "bağlam her sıkıştırmadan hemen sonra yeniden doldu (çok büyük bir çıktı); "
+        "tur sonlandırıldı"
+    ),
 }
 #: Tanınmayan bir sebep gelirse sessiz kalınmaz.
 AGENT_BUDGET_UNKNOWN = "tur bütçesi doldu ({reason}); sonlandırıldı"
@@ -410,6 +414,7 @@ APP_TURN_STOP_REASONS = {
     "repeated_call": "aynı araç çağrısı tekrarlandı",
     "contract_unrepairable": "model geçerli bir araç çağrısı üretemedi",
     "empty_responses": "model art arda boş yanıt verdi",
+    "context_thrash": "bağlam her sıkıştırmadan hemen sonra yeniden doldu",
 }
 #: Model hiç metin üretmeden tur bütçeyle kesildiğinde gösterilen özet başlığı.
 #:
