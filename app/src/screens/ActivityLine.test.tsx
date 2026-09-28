@@ -40,3 +40,19 @@ describe("ActivityLine — süre sayacı", () => {
     expect(screen.queryByText(/sn$/)).toBeNull();
   });
 });
+
+describe("ActivityLine — kalıcı adım izi (Claude gibi)", () => {
+  test("biten iş kaybolmaz, tıklanabilir özet bırakır; çalışırken biten adımlar görünür kalır", () => {
+    const adimlar = [
+      { metin: "a.py okunuyor", arac: "read_file", durum: "ok" },
+      { metin: "'x' web'de aranıyor", arac: "web_search", basladi: true },
+    ];
+    const { container, rerender } = render(<ActivityLine adimlar={adimlar} baslangicZamani={Date.now()} />);
+    expect(container.querySelector(".activity__trail")?.textContent).toContain("a.py okunuyor");
+    expect(container.querySelector(".activity__pulse")?.textContent).toBe("'x' web'de aranıyor");
+
+    rerender(<ActivityLine aktif={false} adimlar={[adimlar[0], { ...adimlar[1], basladi: false, durum: "ok" }]} />);
+    const ozet = container.querySelector(".activity__summary summary");
+    expect(ozet?.textContent).toBe("2 adım · 'x' web'de aranıyor");
+  });
+});

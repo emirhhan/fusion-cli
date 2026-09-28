@@ -188,6 +188,19 @@
 }
 
 .activity__pulse { color: var(--text-secondary); }
+/* Claude'daki gibi kalıcı adım izi: her araç tek soluk satır. */
+.activity__trail { display: grid; gap: 2px; margin: 0 0 4px; padding: 0; list-style: none; }
+.activity__trail li { display: flex; align-items: baseline; gap: 6px; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.5; }
+.activity__trail li[data-state="failed"] { color: var(--text-danger); }
+.activity__trail-text { overflow-wrap: anywhere; }
+.activity__trail-mark { flex: none; font-size: var(--text-xs); opacity: .8; }
+.activity__now { display: flex; align-items: baseline; gap: 8px; }
+.activity__summary > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); list-style: none; }
+.activity__summary > summary::-webkit-details-marker { display: none; }
+.activity__summary > summary::after { content: " ›"; display: inline-block; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__summary[open] > summary::after { transform: rotate(90deg); }
+.activity__summary > summary:hover { color: var(--text-primary); }
+.activity__summary[open] .activity__trail { margin-top: 6px; }
 
 /* Nabız yalnız hareket kabul eden kullanıcıda çalışır; kapalıyken satır
    sabit durur ve bilgi kaybı olmaz. */
@@ -242,10 +255,11 @@
 
 /* Canlı görev listesi: plan kartı akışta tek satır gibi durur, dikkat çalmaz. */
 .conversation__tasks {
-  border: 1px solid var(--cizgi, #e3e6ea);
+  border: 1px solid var(--border-subtle);
   border-radius: 10px;
   padding: 10px 14px;
-  background: var(--yuzey, #fff);
+  background: var(--surface-raised);
+  color: var(--text-primary);
   display: grid;
   gap: 6px;
   max-width: 640px;
@@ -255,7 +269,7 @@
   font-size: 0.78rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--soluk, #6b7280);
+  color: var(--text-secondary);
   display: flex;
   justify-content: space-between;
 }
@@ -277,7 +291,7 @@
 }
 
 .conversation__tasks li[data-durum="bitti"] {
-  color: var(--soluk, #6b7280);
+  color: var(--text-secondary);
   text-decoration: line-through;
 }
 

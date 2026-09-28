@@ -237,12 +237,13 @@ export function Conversation({
             // yalnız son çalışan gösterge görünür; eski çağrı göstergeleri
             // cevap gelince ekranda kalıp "düşünüyor 32 sn / 18 sn" gibi
             // birbirinden kopuk sayaçlar oluşturamaz.
-            if (activityState(message.adimlar ?? []) === "running" && (!running || index !== sonCalisanOlay)) {
-              return null;
-            }
+            // Eski bloklar KAYBOLMAZ: araç adımları kalıcı özet olarak kalır (Claude
+            // gibi). Yalnız son çalışan blok canlı göstergeyi ve sayacı taşır.
+            const aktif = running && index === sonCalisanOlay;
             return (
               <div className="conversation__message conversation__message--event" key={index}>
                 <ActivityLine
+                  aktif={aktif}
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
                   showSteps={showSteps}

@@ -146,6 +146,12 @@
   --z-header: 10;
   --z-overlay: 30;
   --z-dialog: 40;
+  /* Bileşenlerin kullandığı ama tanımsız kalan adlar: yedek renge düşüp koyu
+     temada beyaz kutu çizmesinler (ölçüldü: görev kartı koyu temada beyazdı). */
+  --status-error: var(--text-danger);
+  --text-tertiary: var(--text-secondary);
+  --text-base: 15px;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   /* Bildirim (toast) her zaman en üstte durur: kod tabanındaki en yüksek
      sabit z-index bile (bağlayıcı diyaloğu 1000) bunun altında kalmalı —
      "Fusion bir hata ile karşılaştı" bildirimi eskiden gözlem panelinin

@@ -35,7 +35,7 @@ describe("olayAdimi", () => {
       args: { path: "src/app.py" },
       metin: "src/app.py okunuyor",
     });
-    expect(adim).toEqual({ metin: "src/app.py okunuyor", kaynak: undefined });
+    expect(adim).toEqual({ metin: "src/app.py okunuyor", kaynak: undefined, arac: "read_file", basladi: true });
   });
 
   it("çekirdek metin göndermezse (eski sürüm) ada dayalı bir yedek üretir", () => {

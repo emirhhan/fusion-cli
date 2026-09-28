@@ -15,6 +15,12 @@ export type OlaySonucu = "completed" | "partial" | "failed";
 export interface OlayAdimi {
   /** Kısa başlık: "düşünüyor", "dosya yazdı"… */
   metin: string;
+  /** Adım bir araç çağrısıysa aracın adı; başlayan ve biten olay bununla eşleşir. */
+  arac?: string;
+  /** Araç başladı ama henüz bitmedi (`ToolStarted`). */
+  basladi?: boolean;
+  /** Araç bittiyse sonucu: ok | failed | denied | blocked. */
+  durum?: string;
   /** Başlığı açan tek satır: rol, model, dosya yolu. */
   ayrinti?: string;
   /** Varsa gidilen adres; arayüz bunu kaynak olarak gösterir. */
@@ -74,7 +80,7 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       // satırın yerini alır — "Düşünüyor…" göstergesinin yaptığı gibi.
       const metin = typeof veri.metin === "string" && veri.metin ? veri.metin : `${ad} çalıştırılıyor`;
       const { kaynak } = aracAyrintisi(veri.args);
-      return { metin, kaynak };
+      return { metin, kaynak, arac: ad, basladi: true };
     }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
@@ -85,7 +91,10 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       const diff = veri.outcome === "ok" && typeof veri.diff === "string" && veri.diff
         ? veri.diff
         : undefined;
-      return { metin: `${baslik}: ${ad}`, ayrinti, kaynak, diff, yol: diff ? ayrinti : undefined };
+      return {
+        metin: `${baslik}: ${ad}`, ayrinti, kaynak, diff, yol: diff ? ayrinti : undefined,
+        arac: ad, durum: String(veri.outcome ?? "ok"),
+      };
     }
     case "ModelCallStarted": {
       // Arka plan çağrıları (hakem, sentez, öz-denetim) kullanıcının ilerleme

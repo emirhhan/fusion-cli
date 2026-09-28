@@ -31,18 +31,22 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
   const son = messages[messages.length - 1];
   const bloklanabilir = son?.rol === "olay" && !son.adimlar?.some((item) => item.sonuc);
   if (!bloklanabilir) {
+    // Aynı turun önceki bloğu varsa sayaç ONUN başlangıcından sürer. Ölçüldü
+    // (28 Eylül): araya bir cevap parçası girince yeni blok açılıyor ve
+    // "düşünüyor 25 sn" tur ortasında 0'a dönüyordu.
+    const baslangicZamani = turunBaslangici(messages) ?? Date.now();
     // Bloğun başlangıcı BURADA damgalanır: `ActivityLine`'daki süre sayacı
     // bileşen yeniden bağlansa bile (sekme değişimi) bu sabit zamandan
     // hesaplar; `Date.now()` bir bileşen ref'inde tutulsaydı yeniden
     // bağlanınca kaybolurdu.
     const acilan: Mesaj[] = [
       ...messages,
-      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani: Date.now() },
+      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani },
     ];
     return adim.diff ? [...acilan, degisiklikMesaji(adim)] : acilan;
   }
 
-  const adimlar = [...(son.adimlar ?? []), adim];
+  const adimlar = adimiEkle(son.adimlar ?? [], adim);
   const guncel: Mesaj[] = [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
   return adim.diff ? [...guncel, degisiklikMesaji(adim)] : guncel;
 }
@@ -140,4 +144,31 @@ function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesa
     .map(([etiket, gorev]) => ({ etiket, gorev }));
   if (oneriler.length === 0) return messages;
   return [...messages, { rol: "oneriler", metin: "", oneriler }];
+}
+
+/** Turun (son kullanıcı mesajından sonraki) ilk bloğunun başlangıç zamanı. */
+function turunBaslangici(messages: Mesaj[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return undefined;
+    if (mesaj.rol === "olay" && mesaj.baslangicZamani !== undefined) {
+      const onceki = turunBaslangici(messages.slice(0, index));
+      return onceki ?? mesaj.baslangicZamani;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Biten aracı, başladığı adımın YERİNE yaz: Claude'daki gibi her araç tek satır
+ * kalır ("src/app.py okunuyor" → bitince aynı satır, sonucuyla). Eskiden biten
+ * araç "araç çalıştı: read_file" diye ayrı ve anlamsız bir satır açıyordu.
+ */
+function adimiEkle(adimlar: OlayAdimi[], adim: OlayAdimi): OlayAdimi[] {
+  const son = adimlar[adimlar.length - 1];
+  if (adim.arac && !adim.basladi && son?.basladi && son.arac === adim.arac) {
+    const birlesik: OlayAdimi = { ...adim, metin: son.metin, kaynak: son.kaynak ?? adim.kaynak, basladi: false };
+    return [...adimlar.slice(0, -1), birlesik];
+  }
+  return [...adimlar, adim];
 }

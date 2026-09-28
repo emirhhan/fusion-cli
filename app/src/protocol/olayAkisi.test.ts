@@ -184,3 +184,18 @@ describe("görev listesi", () => {
     expect(mesajlar.filter((mesaj) => mesaj.rol === "gorevler")).toHaveLength(0);
   });
 });
+
+describe("Claude gibi kalıcı adımlar ve tur sayacı", () => {
+  it("biten araç başladığı satırın yerine yazılır; sayaç tur boyunca aynı başlangıçtan sayar", () => {
+    let mesajlar: Mesaj[] = [{ rol: "kullanici", metin: "oku" }];
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "read_file", args: { path: "a.py" }, metin: "a.py okunuyor" });
+    const baslangic = mesajlar[1].baslangicZamani;
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "read_file", args: { path: "a.py" }, outcome: "ok", output: "" });
+    expect(mesajlar[1].adimlar).toHaveLength(1);
+    expect(mesajlar[1].adimlar?.[0]).toMatchObject({ metin: "a.py okunuyor", durum: "ok", basladi: false });
+    // Araya cevap parçası girip yeni blok açılsa da sayaç sıfırlanmaz.
+    mesajlar = [...mesajlar, { rol: "asistan", metin: "Şimdi yazıyorum." }];
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "write_file", args: {}, metin: "b.py yazılıyor" });
+    expect(mesajlar[mesajlar.length - 1].baslangicZamani).toBe(baslangic);
+  });
+});

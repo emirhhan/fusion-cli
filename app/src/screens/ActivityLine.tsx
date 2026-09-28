@@ -73,7 +73,38 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
   );
 }
 
+/** Araç adımının durumu için küçük işaret. */
+const DURUM_ISARETI: Record<string, string> = { ok: "✓", failed: "✗", denied: "—", blocked: "—" };
+
+/** Claude'daki gibi kalıcı adım izi: her araç tek soluk satır. */
+function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
+  return (
+    <ol className="activity__trail">
+      {adimlar.map((adim, index) => (
+        <li data-state={adim.durum ?? "running"} key={index}>
+          <span className="activity__trail-text">{adim.metin}</span>
+          {adim.durum && <span aria-hidden="true" className="activity__trail-mark">{DURUM_ISARETI[adim.durum] ?? ""}</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Biten işin özeti: "3 adım · src/app.py okunuyor ›" — tıklayınca açılır. */
+function ToolSummary({ adimlar }: { adimlar: OlayAdimi[] }) {
+  const son = adimlar[adimlar.length - 1];
+  const baslik = adimlar.length === 1 ? son.metin : `${adimlar.length} adım · ${son.metin}`;
+  return (
+    <details className="activity__summary">
+      <summary>{baslik}</summary>
+      <ToolTrail adimlar={adimlar} />
+    </details>
+  );
+}
+
 export interface ActivityLineProps {
+  /** Bu blok turun o an çalışan son bloğu mu? Değilse iz olarak çizilir. */
+  aktif?: boolean;
   adimlar: OlayAdimi[];
   /** Bloğun başladığı sabit `Date.now()` damgası; oturum durumundan gelir. */
   baslangicZamani?: number;
@@ -81,25 +112,37 @@ export interface ActivityLineProps {
   showSteps?: boolean;
 }
 
-export function ActivityLine({ adimlar, baslangicZamani, showSteps = false }: ActivityLineProps) {
+export function ActivityLine({ adimlar, aktif = true, baslangicZamani, showSteps = false }: ActivityLineProps) {
   const durum = activityState(adimlar);
-  const running = durum === "running";
+  const running = durum === "running" && aktif;
   const seconds = useElapsedSeconds(running, baslangicZamani);
   const sonuncu = adimlar[adimlar.length - 1];
+  // Yalnız araç adımları kalıcı iz bırakır; "düşünüyor" satırları geçicidir.
+  const araclar = adimlar.filter((adim) => adim.arac);
 
   if (running) {
+    const bitenler = sonuncu?.basladi ? araclar.slice(0, -1) : araclar;
+    // Biten araç zaten izde durur; canlı satır onu tekrar etmez, modelin sıradaki
+    // adımı düşündüğünü söyler.
+    const canli = sonuncu && (sonuncu.basladi || !sonuncu.arac) ? sonuncu.metin : "Düşünüyor";
     return (
       <div className="activity" data-state="running">
-        <span className="activity__pulse">{sonuncu?.metin ?? "Çalışıyor"}</span>
-        {seconds > 0 && <span className="activity__elapsed">{seconds} sn</span>}
+        {bitenler.length > 0 && <ToolTrail adimlar={bitenler} />}
+        <div className="activity__now">
+          <span className="activity__pulse">{canli ?? "Çalışıyor"}</span>
+          {seconds > 0 && <span className="activity__elapsed">{seconds} sn</span>}
+        </div>
       </div>
     );
   }
 
-  // Tamamlanan iş iz bırakmaz; yalnız kullanıcı dökümü açık istediyse kalır.
-  if (durum === "completed") {
-    return showSteps && adimlar.length > 0 ? (
-      <div className="activity" data-state="completed"><StepList adimlar={adimlar} /></div>
+  // Biten iş Claude'daki gibi soluk bir özet satırı bırakır; tıklayınca adımlar açılır.
+  if (durum === "completed" || durum === "running") {
+    if (showSteps && adimlar.length > 0) {
+      return <div className="activity" data-state="completed"><StepList adimlar={adimlar} /></div>;
+    }
+    return araclar.length > 0 ? (
+      <div className="activity" data-state="completed"><ToolSummary adimlar={araclar} /></div>
     ) : null;
   }
 
