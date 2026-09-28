@@ -8,8 +8,14 @@ from typing import Any
 from ..cli.repl import model_flows
 from ..config.keys import ProviderPreference, detect
 from ..config.models import Config
+from ..config.paths import user_data_dir
 from ..config.tool_policy import mutation_policy_for_model
+from ..providers import health_cache
 from ..providers.catalog import CatalogEntry
+
+#: Sağlıksız işaretli modelin açıklamasına eklenen uyarı. `doctor --live`
+#: sondasının bulduğu, YAKIN ZAMANDA yanıt vermeyen model için.
+_UNHEALTHY_SUFFIX = " (şu an yanıt vermiyor)"
 
 
 def _allowed_sources(config: Config) -> tuple[model_flows.Source, ...]:
@@ -58,12 +64,18 @@ async def list_selectable_models(
     Web arayüzünde henüz uygulanamayan bir model adı burada uydurulmaz.
     NIM katalog kaydı tek başına kullanılabilirlik kanıtı değildir: seçim anında
     gerçek araç çağrısı doğrulaması yapılır.
+
+    `fusion doctor --live` sondasının bulduğu, YAKIN ZAMANDA yanıt vermeyen
+    modeller burada GİZLENMEZ (sondaj eksik/eski olabilir) ama açıklamalarına
+    uyarı eklenir ve listenin SONUNA alınır — seçici açılırken ikinci bir ağ
+    çağrısı yapılmaz, yalnızca önceden yazılmış küçük bir dosya okunur.
     """
     sources = _allowed_sources(config)
     fetched = await asyncio.gather(
         *(asyncio.to_thread(source.fetcher) for source in sources if source.fetcher),
         return_exceptions=True,
     )
+    health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
     rows: list[dict[str, str]] = []
     seen: set[str] = set()
     curated_nim = {
@@ -85,19 +97,27 @@ async def list_selectable_models(
                 continue
             seen.add(entry.model_id)
             unverified_nim = source.key == "nim-free" and entry.model_id not in curated_nim
+            unhealthy = source.key == "nim-free" and entry.model_id in curated_nim and (
+                health_cache.is_known_unhealthy(health_path, entry.model_id)
+            )
+            aciklama = (
+                "NIM kataloğunda; seçerken araç yeteneği doğrulanır"
+                if unverified_nim
+                else source.label
+            )
             rows.append(
                 {
                     "model": entry.model_id,
                     "kaynak": source.key,
                     "etiket": entry.model_id.split("/")[-1],
-                    "aciklama": (
-                        "NIM kataloğunda; seçerken araç yeteneği doğrulanır"
-                        if unverified_nim
-                        else source.label
-                    ),
+                    "aciklama": aciklama + _UNHEALTHY_SUFFIX if unhealthy else aciklama,
                     "grup": _tier(config, entry.model_id),
+                    "saglikli": "hayir" if unhealthy else "evet",
                 }
             )
+    # Kararlı sıralama: yalnız sağlıksız işaretliler sona alınır, aksi hâlde
+    # kaynakların/kayıtların ORİJİNAL sırası korunur.
+    rows.sort(key=lambda row: row["saglikli"] == "hayir")
     for session in config.web_sessions:
         if not session.enabled or not session.login_verified or session.model in seen:
             continue

@@ -82,3 +82,43 @@ def test_canli_kontrol_varsayilan_kapali():
     rapor = doctor.diagnose(live=False)
 
     assert not any("canlı" in c.name.lower() for c in rapor.checks)
+
+
+def test_canli_kontrol_tum_kademe_bas_modellerini_sondalar_ve_saglik_onbellegine_yazar(
+    monkeypatch, tmp_path
+):
+    """`--live` yalnız üst düzey agent/judge'ı değil, HER kademenin baş modelini
+    de sondalamalı ve sonucu `health_cache`'e yazmalı — model seçici bu diskten
+    okur (bkz. `appserver/model_catalog.py::list_selectable_models`)."""
+    from fusion_cli.config.loader import load_config
+    from fusion_cli.core.types import ModelResult
+    from fusion_cli.providers import health_cache, litellm_provider
+
+    sondalanan: list[str] = []
+
+    class SahteSaglayici:
+        def __init__(self, model: str, *, role: str) -> None:
+            self._model = model
+
+        async def complete(self, request: object) -> ModelResult:
+            sondalanan.append(self._model)
+            basarili = "glm-5.3" not in self._model
+            return ModelResult(
+                name="sahte", model=self._model, text="pong" if basarili else "",
+                latency_ms=10, ok=basarili, error=None if basarili else "zaman aşımı",
+            )
+
+    monkeypatch.setattr(litellm_provider, "LiteLlmProvider", SahteSaglayici)
+    monkeypatch.setattr(litellm_provider, "configure_litellm", lambda: None)
+    monkeypatch.setattr("fusion_cli.config.paths.user_data_dir", lambda: tmp_path)
+
+    config = load_config()
+    doctor.diagnose(live=True)
+
+    beklenen_kademe_modelleri = {kademe.agent.models[0] for kademe in config.tiers}
+    assert beklenen_kademe_modelleri <= set(sondalanan)
+
+    onbellek = health_cache.load(tmp_path / health_cache.HEALTH_CACHE_FILENAME)
+    assert onbellek[config.agent.models[0]].ok is True
+    for model in beklenen_kademe_modelleri:
+        assert model in onbellek

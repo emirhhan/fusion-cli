@@ -109,6 +109,16 @@ WEB_PROVIDER_SUFFIX = "_web"
 #: Panel model kataloğu önbellek ömrü (saniye). Katalog sık değişmez; her panel
 #: açılışında sağlayıcının /models ucunu dövmemek için 5 dakika tutulur.
 CATALOG_CACHE_TTL_S = 300.0
+#: Model sağlık sondası önbellek ömrü (saniye).
+#
+# Sondaj (`fusion doctor --live`) gerçek bir çağrıdır ve model başına 60 saniyeye
+# kadar sürebilir (bkz. `providers/catalog.py::probe_nim_tools`); her seçici
+# açılışında yeniden çalıştırmak seçiciyi dakikalarca dondururdu. 6 saat, bir
+# günlük kullanım için birkaç sondajla (kullanıcı `doctor --live` çalıştırdıkça)
+# yetecek kadar uzun, ama ölü bir modelin gün boyu "yanıt vermiyor" etiketiyle
+# kilitli kalmaması için yeterince kısa tutuldu — sağlayıcı arızası genelde
+# saatler içinde düzelir ya da kalıcı hâle gelir.
+MODEL_HEALTH_CACHE_TTL_S = 21_600.0
 #: Web aramasından döndürülecek en fazla sonuç.
 MAX_WEB_RESULTS = 8
 #: `web_fetch` için elle takip edilecek en fazla yönlendirme. Her adım SSRF'e karşı

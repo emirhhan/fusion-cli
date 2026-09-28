@@ -123,6 +123,44 @@ async def test_aracsiz_model_gizlenir_diger_canli_nim_modelleri_kesfe_acilir(mon
     assert "doğrulanır" in result["modeller"][1]["aciklama"]
 
 
+async def test_sagliksiz_isaretli_curated_nim_modeli_sona_alinir_ve_uyarilir(monkeypatch, tmp_path):
+    from fusion_cli.config.models import ModelSpec
+    from fusion_cli.providers import health_cache
+
+    source = Source(
+        "nim-free",
+        "NIM",
+        lambda: (
+            CatalogEntry("nvidia_nim/olu-model", "nvidia_nim"),
+            CatalogEntry("nvidia_nim/canli-model", "nvidia_nim"),
+        ),
+    )
+    monkeypatch.setattr(model_catalog.model_flows, "sources", lambda _config: (source,))
+    monkeypatch.setattr(model_catalog, "detect", lambda: ProviderKeys(False, True))
+    monkeypatch.setattr(model_catalog, "user_data_dir", lambda: tmp_path)
+    health_cache.record(
+        tmp_path / health_cache.HEALTH_CACHE_FILENAME, "nvidia_nim/olu-model", ok=False
+    )
+    config = _config()
+    config.tiers = (
+        SimpleNamespace(
+            name="high",
+            agent=ModelSpec("agent", "nvidia_nim/olu-model"),
+            judge=ModelSpec("judge", "nvidia_nim/olu-model"),
+            candidates=(ModelSpec("aday", "nvidia_nim/canli-model"),),
+        ),
+    )
+
+    result = await model_catalog.list_selectable_models(config)
+
+    assert [row["model"] for row in result["modeller"]] == [
+        "nvidia_nim/canli-model",
+        "nvidia_nim/olu-model",
+    ]
+    assert "şu an yanıt vermiyor" in result["modeller"][1]["aciklama"]
+    assert "şu an yanıt vermiyor" not in result["modeller"][0]["aciklama"]
+
+
 def test_yedek_model_birincil_oldugu_buyuk_gorev_grubunda_gorunur():
     from fusion_cli.config.models import ModelSpec
 

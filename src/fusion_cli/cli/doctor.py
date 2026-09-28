@@ -241,27 +241,46 @@ def _optional() -> list[Check]:
 
 
 def _live(config: Config) -> list[Check]:
-    """Sağlayıcılara KÜÇÜK gerçek çağrı. Yalnızca `--live` ile çalışır ve kota harcar."""
+    """Sağlayıcılara KÜÇÜK gerçek çağrı. Yalnızca `--live` ile çalışır ve kota harcar.
+
+    Sonuç `providers/health_cache`'e de yazılır: model seçici (composer) bu
+    sondayı HER açılışında tekrarlayamaz (model başına 30 sn'ye kadar sürer),
+    bu yüzden en son `--live` koşusunun sonucunu diskten okur (bkz.
+    `appserver/model_catalog.py::list_selectable_models`).
+    """
     import asyncio
 
+    from ..config.paths import user_data_dir
     from ..core.types import CompletionRequest, Message
+    from ..providers import health_cache
     from ..providers.litellm_provider import LiteLlmProvider, configure_litellm
 
     configure_litellm()
     istek = CompletionRequest(
         messages=(Message("user", "ping"),), temperature=0.0, max_tokens=8, timeout_s=30
     )
+    health_path = user_data_dir() / health_cache.HEALTH_CACHE_FILENAME
 
     async def _dene(model: str) -> Check:
         sonuc = await LiteLlmProvider(model, role="doctor").complete(istek)
+        detail = "" if sonuc.ok else _short(sonuc.error)
+        health_cache.record(health_path, model, ok=sonuc.ok, detail=detail)
         return Check(
             f"canlı: {model}",
-            "yanıt verdi" if sonuc.ok else _short(sonuc.error),
+            "yanıt verdi" if sonuc.ok else detail,
             ok=sonuc.ok,
             remedy="" if sonuc.ok else "Model yanıt vermiyor; `/level` ile başka kademe dene.",
         )
 
-    modeller = tuple(dict.fromkeys([config.agent.models[0], config.judge.models[0]]))
+    # Yalnız üst düzey rolleri değil, TÜM kademelerin baş modellerini de
+    # sondala: kullanıcı `/level` ile hangi kademeye geçerse geçsin, seçici
+    # o kademenin de güncel sağlığını göstermeli.
+    modeller = tuple(
+        dict.fromkeys(
+            [config.agent.models[0], config.judge.models[0]]
+            + [tier.agent.models[0] for tier in config.tiers]
+        )
+    )
 
     async def _hepsi() -> list[Check]:
         return list(await asyncio.gather(*[_dene(model) for model in modeller]))

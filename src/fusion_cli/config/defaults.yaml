@@ -480,46 +480,46 @@ tiers:
         model: nvidia_nim/poolside/laguna-xs-2.1
         tags: [code, agent]
         fallback: [openrouter/poolside/laguna-xs-2.1:free]
+      # 2026-09-28 ÖLÇÜM: `agent` etiketi KALDIRILDI — canlı sondada sohbet
+      # doğru geldi (2.35s) ama `sum` ARAÇ ÇAĞRISI 60 sn sert üst sınırda hiç
+      # yanıt üretmeden takıldı (bkz. `medium` kademesindeki aynı tarihli ölçüm).
+      # Agent turu neredeyse her zaman araç çağırır; bu etiket kullanıcıyı
+      # "araç kullanabilir" diye yanıltırdı. Fusion havuzunda bir aday olarak
+      # kalmaya devam ediyor çünkü `candidate_hard_cap_s: 25.0` onu ORADA 60
+      # değil 25 saniyede keser — tek başına seçilebilir bir agent modeli
+      # OLARAK sunulmamalı.
       - name: nemotron-lightning
         model: nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b
-        tags: [general, agent]
+        tags: [general]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: medium
-    # 2026-09-22 DÜZELTME: bu kademenin tüm kimliği `gpt-oss-120b`'ydi — hem NIM
-    # birincili hem OpenRouter yedeği ölmüştü (bkz. üst seviye `agent:` yorumu).
-    # Yerine GERÇEKTEN farklı bir aile aranarak yedi NIM adayı canlı denendi:
-    #   mistral-large-2-instruct, ai21labs/jamba-1.5-large-instruct,
-    #   mistralai/mixtral-8x22b-v0.1, google/gemma-4-31b-it,
-    #   nvidia/llama-3.1-nemotron-70b-instruct → 404 (bu hesapta dağıtılmamış)
-    #   moonshotai/kimi-k3, google/gemma-4-31b-it → 45s+ hiç yanıt vermedi
-    # `NIM omurga` kısıtı (bkz. `tiers:` üstündeki yorum, `/provider nvidia`
-    # yedeği zorunluluğu) yüzünden OpenRouter-öncelikli bir birincil KABUL
-    # EDİLEMEZ — `test_kademelerin_omurgasi_nim_modelleridir` bunu zorunlu kılar.
-    # 2026-09-24'te Mistral Nemotron basit araç sondasını geçti ama izole GATE
-    # görevinin ilk yanıtı 261 sn sürdü ve hiç araç çağırmadan bitti; bu yüzden
-    # uzun kod görevleri için otomatik aday havuzuna eklenmedi.
+    # 2026-09-28 ÖLÇÜM (bu görev sırasında, depo dışından `httpx` ile gerçek
+    # sohbet + `sum` araç çağrısı sondası — bkz. `providers/catalog.py::probe_nim_tools`
+    # aynı yöntem): önceki baş model `deepseek-v4.1-flash` YİNE (üçüncü kez,
+    # 2026-09-22'den beri) 60 sn'lik sert üst sınırda TEK PARÇA ÜRETMEDEN takıldı
+    # (hem sohbet hem araç çağrısı). Artık "geçici tıkanıklık" sayılamaz — kalıcı
+    # arıza kabul edilip KADEMEDEN ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse
+    # kademelerden çıkar").
     #
-    # 2026-09-27 ÖLÇÜM: `deepseek-v4.1-flash` canlı `LiteLlmProvider.stream()`
-    # sondasında ("naber" sohbeti VE `sum` araç çağrısı) İKİ ayrı denemede (45s ve
-    # 110s üst sınırlarla) TEK bir parça bile üretmeden takıldı — 410/404 gibi
-    # açık bir hata YOK, bağlantı sessizce asılı kaldı. Bu, kalıcı bir "artık yok"
-    # sinyali (EOL/404) DEĞİL; NIM tarafında geçici bir tıkanıklık olabilir, bu
-    # yüzden baş model DEĞİŞTİRİLMEDİ (aksi hâlde bu kademe `low`'un baş modeliyle
-    # birebir aynı `agent.model` değerine düşer ve `appserver/tiers.py::active_tier_name`
-    # — kademe adını agent modelinden GERİ okuyan tek yer — `medium` seçildiğinde
-    # `low` görünürdü; `test_kademe_sec_baş_modeli_ve_hakemi_birlikte_degistirir`
-    # bunu yakaladı). Fallback zaten ÇALIŞAN bir modelle (`nemotron-super`,
-    # bu ölçümde sohbet 8.86s/araç 1.76s ile doğru cevap verdi) BAŞLIYOR — zincir
-    # başsız kalmaz, yalnızca baş modelin kendisi geçici olarak yanıt vermiyor.
-    label: DeepSeek V4.1 Flash — NIM orta kademe (baş model şu an yanıt vermiyor, bkz. yorum)
+    # Yerine GERÇEKTEN yanıt veren, farklı bir aile aranarak aynı oturumda NIM
+    # kataloğundaki adaylar yeniden denendi:
+    #   nvidia/nemotron-3-nano-omni-30b-a3b-reasoning → sohbet 2.68s, araç 3.58s (ikisi de doğru)
+    #   nvidia/nemotron-3.5-lightning-30b-a3b          → sohbet 2.35s doğru, ARAÇ 60s'de takıldı
+    #     (bu yüzden agent/judge başı OLAMAZ — agent turu neredeyse her zaman
+    #     araç çağırır; `low` kademesindeki aday listesinde araçsız bir seçenek
+    #     olarak kalmaya devam ediyor)
+    # `nano-omni-reasoning` baş model olarak seçildi: `low`'un baş modelinden
+    # (`nemotron-super`, 120B/12B) FARKLI bir mimari/boyut (30B/3B, reasoning
+    # ayarlı) olduğu için `active_tier_name` çakışması yaratmaz.
+    label: Nemotron 3 Nano Omni 30B (reasoning) — NIM orta kademe (~3s)
     agent:
-      name: deepseek-v4.1-flash
-      model: nvidia_nim/deepseek-ai/deepseek-v4.1-flash
+      name: nemotron-nano-omni
+      model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
       tags: [code, agent, reasoning]
       fallback:
+        - openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
         - nvidia_nim/nvidia/nemotron-3-super-120b-a12b
-        - openrouter/qwen/qwen3.8-27b:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
       name: hakem
@@ -534,35 +534,39 @@ tiers:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: deepseek-v4.1-flash
-        model: nvidia_nim/deepseek-ai/deepseek-v4.1-flash
+      - name: nemotron-nano-omni
+        model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
         tags: [reasoning, general]
-        fallback: [openrouter/qwen/qwen3.8-27b:free]
+        fallback: [openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free]
       - name: nemotron-super
         model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
         tags: [code, agent]
         fallback: [openrouter/nvidia/nemotron-3-super-120b-a12b:free]
 
   - name: high
-    # 2026-09-27 ÖLÇÜM: bu kademenin İKİ üyesi de (`glm-5.3-flash` baş model,
-    # `glm-5.3` birinci yedek) canlı sondada HİÇ parça üretmeden takıldı (45s VE
-    # 110s üst sınırla iki ayrı ölçüm) — 410/404 gibi açık bir hata YOK, bu yüzden
-    # kalıcı EOL sayılıp SİLİNMEDİ. Baş model DEĞİŞTİRİLMEDİ: `nemotron-3-ultra`ya
-    # almak bu kademeyi `ultra` kademesiyle birebir AYNI `agent.model` değerine
-    # düşürür ve `appserver/tiers.py::active_tier_name` (kademe adını agent
-    # modelinden GERİ okuyan tek yer) `high` seçildiğinde `ultra` görünmesine yol
-    # açar (test bunu `test_kademe_sec_baş_modeli_ve_hakemi_birlikte_degistirir`
-    # ile `medium`/`low` çakışmasında yakaladı, aynı hata burada da oluşurdu).
-    # Bunun yerine yedek SIRASI değişti: `nemotron-3-ultra` art arda İKİNCİ ölü
-    # halkayı (`glm-5.3`) beklemeden hemen ilk yedek olarak denenir.
-    label: GLM 5.3 Flash — güncel NIM modeli (şu an yanıt vermiyor, bkz. yorum)
+    # 2026-09-28 ÖLÇÜM: bu kademenin İKİ üyesi de (`glm-5.3-flash` baş model,
+    # `glm-5.3` birinci yedek) YİNE (ikinci kez, 2026-09-27'den beri) canlı
+    # sondada HİÇ parça üretmeden takıldı (60s sert üst sınırda) — `glm-5.3-flash`
+    # bu kez sohbet turunda "BOŞ İÇERİK" ile 58.86s'de, araç turunda 55.57s'de
+    # (araç çağrısı bu kez doğru geldi ama 55 saniyede — kullanıcının "neredeyse
+    # hiç çalışmıyor" şikâyetiyle birebir örtüşen bir gecikme). İki ardışık
+    # ölçümde de aynı sonuç: kalıcı arıza kabul edilip İKİ GLM ÜYESİ DE
+    # KADEMEDEN ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse kademelerden çıkar").
+    #
+    # Yerine, aynı oturumda canlı sondalanan `mistralai/mistral-nemotron` baş
+    # model oldu: sohbet 12.55s, araç 10.89s — YAVAŞ ama GERÇEKTEN yanıt
+    # veriyor ve `low`/`medium`'dan (nemotron-super, nano-omni-reasoning) FARKLI
+    # bir model ailesi (Mistral tabanlı), bu yüzden `active_tier_name` çakışması
+    # yaratmaz. `high` etiketi artık "daha büyük/yetenekli" değil "farklı aile,
+    # orta-yavaş" anlamına gelir — dürüst olmak, ölçülmemiş bir hız vaadinden
+    # iyidir.
+    label: Mistral Nemotron — NIM farklı aile, orta-yavaş (~12s)
     agent:
-      name: glm-5.3-flash
-      model: nvidia_nim/z-ai/glm-5.3-flash
+      name: mistral-nemotron
+      model: nvidia_nim/mistralai/mistral-nemotron
       tags: [code, agent, reasoning]
       fallback:
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
-        - nvidia_nim/z-ai/glm-5.3
         - openrouter/nvidia/nemotron-3-ultra-550b-a55b:free
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
     judge:
@@ -578,17 +582,10 @@ tiers:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: glm-5.3-flash
-        model: nvidia_nim/z-ai/glm-5.3-flash
+      - name: mistral-nemotron
+        model: nvidia_nim/mistralai/mistral-nemotron
         tags: [code, agent]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
-      - name: glm-5.3
-        model: nvidia_nim/z-ai/glm-5.3
-        tags: [code, agent]
-        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
-      # 2026-09-27: her iki GLM adayı da canlı sondada cevapsız kaldı (bkz.
-      # `agent:` yorumu) — havuzda çalışan TEK aday bile kalmamıştı. Çalışan bir
-      # aday (`ultra` kademesiyle aynı model) eklendi; GLM üyeleri kaldı.
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
@@ -621,31 +618,47 @@ tiers:
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
         tags: [reasoning, code]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
-      - name: glm-5.3-flash
-        model: nvidia_nim/z-ai/glm-5.3-flash
+      # 2026-09-28: `glm-5.3-flash` bu oturumda da (bkz. `high` kademesindeki
+      # ölçüm) 55-59 sn'de takılıyordu; havuzdan çıkarıldı, yerine `medium`
+      # kademesinin doğrulanmış başı kondu.
+      - name: nemotron-nano-omni
+        model: nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning
         tags: [code, agent]
-        fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
+        fallback: [openrouter/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free]
 
   - name: premium
-    # 2026-09-27 ÖLÇÜM: baş model `glm-5.3` canlı sondada (45s VE 110s üst sınırla
-    # iki ayrı ölçüm) HİÇ parça üretmeden takıldı — bkz. `high` kademesindeki aynı
-    # tarihli yorum, aynı model ailesi; 410/404 yok, kalıcı EOL sayılıp SİLİNMEDİ.
-    # Baş model DEĞİŞTİRİLMEDİ: `nemotron-3-ultra`ya almak bu kademeyi `ultra`
-    # kademesiyle birebir AYNI `agent.model` değerine düşürür ve
-    # `appserver/tiers.py::active_tier_name` `premium` seçildiğinde `ultra`
-    # görünmesine yol açar (bkz. `high` kademesindeki aynı gerekçe — test bunu
-    # `medium`/`low` çakışmasında zaten yakalamıştı). Yedek zinciri zaten ÇALIŞAN
-    # bir modelle (`nemotron-3-ultra`) başlıyordu, o kısım değişmedi.
+    # 2026-09-28 ÖLÇÜM: baş model `glm-5.3` YİNE (üçüncü kez, 2026-09-27'den
+    # beri) canlı sondada 60 sn sert üst sınırda TEK PARÇA ÜRETMEDEN takıldı
+    # (hem sohbet hem araç çağrısı) — bkz. `high` kademesindeki aynı tarihli
+    # ölçüm, aynı model ailesi. Artık kalıcı arıza kabul edilip KADEMEDEN
+    # ÇIKARILDI (talimat: "ölçümde hâlâ ölüyse kademelerden çıkar").
     #
-    # Son yedek `openrouter/inclusionai/ling-3.0-flash:free` AYRICA aynı sondada
-    # 404 döndü ("unavailable for free, use inclusionai/ling-3.0-flash instead")
-    # — bu kalıcı bir sinyal (OpenRouter'ın kendi ücretsiz katman kaldırması),
-    # dosyanın geri kalanında zaten "farklı aile" rolünü üstlenen `qwen3.8-27b`
-    # ile değiştirildi.
-    label: GLM 5.3 — güncel büyük NIM modeli (şu an yanıt vermiyor, bkz. yorum)
+    # `nemotron-3-ultra` buraya baş model olarak ALINAMAZ: `ultra` kademesiyle
+    # birebir aynı `agent.model` değerine düşürür ve `appserver/tiers.py::
+    # active_tier_name` `premium` seçildiğinde `ultra` görünmesine yol açardı
+    # (aynı çakışma daha önce `medium`/`low` arasında yaşanmış ve
+    # `test_kademe_sec_baş_modeli_ve_hakemi_birlikte_degistirir` ile
+    # yakalanmıştı). `low`/`medium`/`high`/`ultra` baş modellerinin TAMAMI
+    # (nemotron-super, nemotron-nano-omni-reasoning, mistral-nemotron,
+    # nemotron-3-ultra) bu oturumda zaten kullanıldığı için beşinci, GERÇEKTEN
+    # farklı bir NIM modeli arandı:
+    #   poolside/laguna-xs-2.1 → sohbet OK ama 41.39s (yavaş); araç çağrısı
+    #     503 "ResourceExhausted: Worker local total request limit reached"
+    #     (worker aşırı yüklü — İKİ ayrı ölçümde de aynı sonuç, tekrarlanabilir)
+    #   nvidia/nemotron-3.5-lightning-30b-a3b → sohbet OK (2.35s) ama araç
+    #     çağrısı 60s'de takıldı (agent/judge başı olamaz, bkz. `medium` yorumu)
+    # `laguna-xs` seçildi: 503 hatası ALTI SANİYE DEĞİL, ALT SANİYE içinde
+    # gelir (0.19-0.42s arası, üç ayrı ölçüm) — yani baş model tıkanınca zincir
+    # `glm-5.3`'ün 60 saniyelik SESSİZ ASILI KALMASI yerine HEMEN yedeğe düşer.
+    # Kullanıcının "takılmadan çalışan" isteği bu yüzden "her zaman en yetenekli
+    # baş modelle" değil "asla 60 saniye asılı kalmayan bir zincirle"
+    # karşılanıyor: pratikte bu kademenin gerçek işini çoğunlukla ilk yedek
+    # (`nemotron-3-ultra`) görür, `laguna-xs` hızlı-başarısız bir kapı gibi
+    # davranır. Bu dürüstçe etikette de yazılıdır.
+    label: Poolside Laguna XS — NIM (baş model kararsız, hızlı yedeğe düşer; bkz. yorum)
     agent:
-      name: glm-5.3
-      model: nvidia_nim/z-ai/glm-5.3
+      name: laguna-xs
+      model: nvidia_nim/poolside/laguna-xs-2.1
       tags: [code, agent, reasoning]
       fallback:
         - nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
@@ -664,9 +677,9 @@ tiers:
         - openrouter/nvidia/nemotron-3-super-120b-a12b:free
         - openrouter/qwen/qwen3.8-27b:free
     candidates:
-      - name: glm-5.3
-        model: nvidia_nim/z-ai/glm-5.3
-        tags: [reasoning, code]
+      - name: laguna-xs
+        model: nvidia_nim/poolside/laguna-xs-2.1
+        tags: [code, agent]
         fallback: [openrouter/nvidia/nemotron-3-ultra-550b-a55b:free]
       - name: nemotron-ultra
         model: nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b
