@@ -44,6 +44,21 @@ export interface OlayAdimi {
   dusunme?: string;
 }
 
+/**
+ * Uzun MUTLAK yolu son iki parçaya kısaltır.
+ *
+ * Ölçüldü: `/Users/kullanici/Desktop/ornek-proje/lib/x.ts` gibi bir yol adım
+ * satırının tamamını kaplıyor, satır kayıyor/kırpılıyordu. Kullanıcı zaten
+ * hangi PROJEDE çalıştığını bilir; onun için anlamlı olan son parçalardır
+ * ("lib/x.ts"). Göreli/kısa yollara dokunulmaz.
+ */
+function kisaYol(yol: string): string {
+  const mutlakMi = yol.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(yol);
+  if (!mutlakMi) return yol;
+  const parcalar = yol.split(/[\\/]+/).filter(Boolean);
+  return parcalar.length > 2 ? parcalar.slice(-2).join("/") : yol;
+}
+
 /** Araç argümanlarından okunabilir tek satır çıkar. */
 function aracAyrintisi(args: unknown): { ayrinti?: string; kaynak?: string } {
   if (!args || typeof args !== "object") return {};
@@ -52,8 +67,146 @@ function aracAyrintisi(args: unknown): { ayrinti?: string; kaynak?: string } {
   const path = typeof row.path === "string" ? row.path : undefined;
   const command = typeof row.command === "string" ? row.command : undefined;
   const query = typeof row.query === "string" ? row.query : undefined;
-  return { ayrinti: url ?? path ?? command ?? query, kaynak: url };
+  return { ayrinti: url ?? (path ? kisaYol(path) : undefined) ?? command ?? query, kaynak: url };
 }
+
+/** Alıntılanan metnin üst sınırı; durum satırı tek satırda kalmalı. */
+const TIRNAK_SINIRI = 60;
+
+function metinAl(args: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = args[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function tirnakla(value: string | undefined): string {
+  if (!value) return "";
+  const kirpik = value.length <= TIRNAK_SINIRI ? value : `${value.slice(0, TIRNAK_SINIRI - 1)}…`;
+  return `'${kirpik}'`;
+}
+
+function sunucuAdi(url: string | undefined): string {
+  if (!url) return "sayfa";
+  try {
+    return new URL(url.includes("://") ? url : `https://${url}`).host || url;
+  } catch {
+    return url;
+  }
+}
+
+function yolMetni(args: Record<string, unknown>): string {
+  const yol = metinAl(args, "path", "yol");
+  return yol ? kisaYol(yol) : "dosya";
+}
+
+function tarayiciGenel(fiil: string): (args: Record<string, unknown>) => string {
+  return () => `tarayıcı ile ${fiil}`;
+}
+
+function masaustuGenel(fiil: string): (args: Record<string, unknown>) => string {
+  return () => `masaüstünde ${fiil}`;
+}
+
+const ARAC_VARSAYILAN_METNI: Record<string, (args: Record<string, unknown>) => string> = {
+  read_file: (args) => `${yolMetni(args)} okunuyor`,
+  write_file: (args) => `${yolMetni(args)} yazılıyor`,
+  edit_file: (args) => `${yolMetni(args)} düzenleniyor`,
+  multi_edit: (args) => `${yolMetni(args)} düzenleniyor`,
+  list_dir: (args) => {
+    const yol = metinAl(args, "path", "yol");
+    return yol ? `${kisaYol(yol)} listeleniyor` : "dizin listeleniyor";
+  },
+  search_code: (args) => {
+    const sorgu = metinAl(args, "query", "pattern", "sorgu");
+    return sorgu ? `${tirnakla(sorgu)} kod içinde aranıyor` : "kod içinde arama yapılıyor";
+  },
+  glob: (args) => {
+    const desen = metinAl(args, "pattern", "desen");
+    return desen ? `${tirnakla(desen)} desenine uyan dosyalar bulunuyor` : "dosyalar bulunuyor";
+  },
+  git: (args) => {
+    const altKomut = metinAl(args, "subcommand", "komut");
+    return altKomut ? `git ${altKomut} çalıştırılıyor` : "git komutu çalıştırılıyor";
+  },
+  run_shell: (args) => {
+    const komut = metinAl(args, "command", "komut");
+    return komut ? `kabuk komutu ${tirnakla(komut)} çalıştırılıyor` : "kabuk komutu çalıştırılıyor";
+  },
+  todo_write: () => "görev listesi güncelleniyor",
+  web_search: (args) => {
+    const sorgu = metinAl(args, "query", "sorgu");
+    return sorgu ? `${tirnakla(sorgu)} web'de aranıyor` : "web'de arama yapılıyor";
+  },
+  web_fetch: (args) => `${sunucuAdi(metinAl(args, "url"))} getiriliyor`,
+  download_file: (args) => `${sunucuAdi(metinAl(args, "url"))} indiriliyor`,
+  extract_archive: (args) => `${yolMetni(args)} açılıyor`,
+  scaffold_web: () => "web iskeleti oluşturuluyor",
+  chrome_navigate: (args) => `chrome ile ${sunucuAdi(metinAl(args, "url"))} açılıyor`,
+  chrome_click: () => "chrome ile bir öğeye tıklanıyor",
+  chrome_type: (args) => {
+    const metin = metinAl(args, "text");
+    return metin ? `chrome ile ${tirnakla(metin)} yazılıyor` : "chrome ile yazı yazılıyor";
+  },
+  chrome_page: () => "chrome ile sayfa okunuyor",
+  chrome_action: (args) => {
+    const eylem = args.action;
+    if (eylem === "scroll") return "chrome ile sayfa kaydırılıyor";
+    if (eylem === "wait") return "chrome ile bekleniyor";
+    if (eylem === "key") return "chrome ile tuşa basılıyor";
+    if (eylem === "screenshot") return "chrome ile ekran görüntüsü alınıyor";
+    return "chrome ile sayfa etkileşimi yapılıyor";
+  },
+  browser_open: (args) => {
+    const url = metinAl(args, "url");
+    return url ? `tarayıcı ile ${sunucuAdi(url)} açılıyor` : "tarayıcı açılıyor";
+  },
+  browser_read: tarayiciGenel("sayfa okunuyor"),
+  browser_tabs_list: tarayiciGenel("sekmeler listeleniyor"),
+  browser_tab_select: tarayiciGenel("sekme seçiliyor"),
+  browser_tab_open: tarayiciGenel("yeni sekme açılıyor"),
+  browser_type: tarayiciGenel("yazı yazılıyor"),
+  browser_click: tarayiciGenel("bir öğeye tıklanıyor"),
+  browser_screenshot: tarayiciGenel("ekran görüntüsü alınıyor"),
+  browser_mirror: tarayiciGenel("ekran yansıtılıyor"),
+  browser_close: tarayiciGenel("tarayıcı kapatılıyor"),
+  desktop_windows: masaustuGenel("pencereler listeleniyor"),
+  desktop_window_focus: masaustuGenel("pencereye geçiliyor"),
+  desktop_accessibility: masaustuGenel("erişilebilirlik ağacı okunuyor"),
+  desktop_apps: masaustuGenel("uygulamalar listeleniyor"),
+  desktop_open: (args) => {
+    const hedef = metinAl(args, "path", "uygulama", "app");
+    return hedef ? `masaüstünde ${hedef} açılıyor` : "masaüstünde uygulama açılıyor";
+  },
+  desktop_screenshot: masaustuGenel("ekran görüntüsü alınıyor"),
+  desktop_click: masaustuGenel("bir öğeye tıklanıyor"),
+  desktop_type: masaustuGenel("yazı yazılıyor"),
+  desktop_key: masaustuGenel("tuşa basılıyor"),
+  desktop_scroll: masaustuGenel("sayfa kaydırılıyor"),
+};
+
+/**
+ * Bitmiş bir araç çağrısı için insan-okunur varsayılan metin.
+ *
+ * `ToolExecuted` normalde `adimiEkle` (bkz. `olayAkisi.ts`) ile kendisini AÇAN
+ * `ToolStarted` adımının metnini devralır. Ama araya giren bir blok sınırı ya
+ * da kayıp olay yüzünden eşleşme kurulamazsa (ölçüldü: "araç çalıştı: glob"
+ * gibi ham, anlamsız bir satır kalıyordu) buraya düşülür. Kalıplar bilinçli
+ * olarak çekirdeğin `appserver/tool_progress.py::_METINLER` sözlüğüyle AYNI
+ * cümleleri üretir — kullanıcı Başladı/Bitti arasında farklı bir ifadeyle
+ * karşılaşmasın diye. Çekirdek değişirse bu eşleme de güncellenmelidir;
+ * ikinci bir üretim yolu DEĞİL, çekirdeğin TEK kaynağının burada zorunlu bir
+ * yedeğidir (ağ/protokol kesintisinde bile arayüz anlamlı kalmalı).
+ */
+export function aracVarsayilanMetni(ad: string, args: unknown): string {
+  const row = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+  const uretici = ARAC_VARSAYILAN_METNI[ad];
+  if (uretici) return uretici(row);
+  const okunabilirAd = ad.replace(/_/g, " ").trim() || "araç";
+  return `${okunabilirAd} çalıştırılıyor`;
+}
+
 
 /**
  * Araç sonucunun başlığı. Reddedilen ya da kapsam dışı kalan çağrı "çalıştı"
@@ -84,16 +237,27 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
     }
     case "ToolExecuted": {
       const { ayrinti, kaynak } = aracAyrintisi(veri.args);
-      const baslik = ARAC_SONUCU[String(veri.outcome ?? "ok")] ?? ARAC_SONUCU.ok;
+      const durumAdi = String(veri.outcome ?? "ok");
       // Diff YALNIZ başarılı çağrıda taşınır. Engellenen ya da düşen bir
       // yazmanın diff'ini göstermek, yapılmamış bir değişikliği yapılmış gibi
       // sunardı — bu, `ARAC_SONUCU` ayrımının zaten kapattığı tuzağın aynısı.
       const diff = veri.outcome === "ok" && typeof veri.diff === "string" && veri.diff
         ? veri.diff
         : undefined;
+      // Dosya açma (`onOpenFile`) TAM yola muhtaçtır; `ayrinti` satırda
+      // görünsün diye KISALTILMIŞ olabilir (bkz. `kisaYol`). Bu yüzden `yol`
+      // ayrıntıdan değil, argümanın HAM `path`inden alınır.
+      const rawArgs = veri.args && typeof veri.args === "object" ? (veri.args as Record<string, unknown>) : {};
+      const hamYol = metinAl(rawArgs, "path", "yol");
+      // "ok" dışındaki sonuçlar (reddedildi/engellendi/başarısız) zaten kendi
+      // başlığıyla açık; yalnız "ok" durumunda ham "araç çalıştı: X" yerine
+      // insan-okunur varsayılan metin üretilir (bkz. `aracVarsayilanMetni`).
+      const metin = durumAdi === "ok"
+        ? aracVarsayilanMetni(ad, veri.args)
+        : `${ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok}: ${ad}`;
       return {
-        metin: `${baslik}: ${ad}`, ayrinti, kaynak, diff, yol: diff ? ayrinti : undefined,
-        arac: ad, durum: String(veri.outcome ?? "ok"),
+        metin, ayrinti, kaynak, diff, yol: diff ? (hamYol ?? ayrinti) : undefined,
+        arac: ad, durum: durumAdi,
       };
     }
     case "ModelCallStarted": {

@@ -59,8 +59,26 @@ describe("olayAdimi", () => {
     expect(adim?.kaynak).toBeUndefined();
   });
 
+  it("başarılı araç çağrısını insan-okunur metinle anlatır", () => {
+    // Ölçüldü: eşleşmeyen bitiş olayı ham "araç çalıştı: glob" satırı bırakıyordu.
+    expect(olayAdimi({ olay: "ToolExecuted", name: "glob", outcome: "ok", args: { pattern: "**/*.ts" } })?.metin)
+      .toBe("'**/*.ts' desenine uyan dosyalar bulunuyor");
+    expect(olayAdimi({ olay: "ToolExecuted", name: "write_file", outcome: "ok", args: {} })?.metin)
+      .toBe("dosya yazılıyor");
+    expect(olayAdimi({ olay: "ToolExecuted", name: "bilinmeyen_arac", outcome: "ok", args: {} })?.metin)
+      .toBe("bilinmeyen arac çalıştırılıyor");
+  });
+
+  it("uzun mutlak yolu satırda son iki parçaya kısaltır", () => {
+    const adim = olayAdimi({
+      olay: "ToolExecuted", name: "read_file", outcome: "ok",
+      args: { path: "/Users/kullanici/Desktop/ornek-proje/lib/x.ts" },
+    });
+    expect(adim?.metin).toBe("lib/x.ts okunuyor");
+    expect(adim?.ayrinti).toBe("lib/x.ts");
+  });
+
   it.each([
-    ["ok", "araç çalıştı: write_file"],
     ["failed", "araç başarısız: write_file"],
     ["denied", "araç reddedildi: write_file"],
     ["blocked", "araç engellendi: write_file"],

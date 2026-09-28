@@ -172,3 +172,4 @@ function adimiEkle(adimlar: OlayAdimi[], adim: OlayAdimi): OlayAdimi[] {
   }
   return [...adimlar, adim];
 }
+

@@ -91,13 +91,21 @@
   font-size: var(--text-xs);
 }
 
-/* Kısa mesajlar yeni sohbette ve açık konuşmada aynı tek satırlık düzende kalır. */
+/* Kısa mesajlar yeni sohbette ve açık konuşmada aynı tek satırlık düzende kalır.
+   `minmax(120px, 1fr)` — bağlam uyarısı + model çipi + Çalışma/Otomatik gibi
+   büzülmeyen araç kutuları aynı satırda çoksa, metin sütununun payına yalnız
+   ARTAN alan kalıyordu (`minmax(0, 1fr)` idi): dar konteynerde bu pay birkaç
+   piksele düşüyor, yazı tek harf genişliğinde alt alta diziliyor, kutu dikey
+   şişiyordu (ölçüldü: 700px konteynerde 62px'e, gerçek model adıyla daha da
+   aza düşüyordu). 120px "makul en az bir satırlık" taban — altına ARTIK
+   inmez; araçlar sığmazsa (nadiren, `@container` eşiğinin altında olur)
+   satır taşar, görünmez tek-karakter kutusundan daha iyi bir arıza biçimidir. */
 .composer[data-layout="compact"] {
   align-items: center;
   box-shadow: none;
   display: grid;
   gap: 6px;
-  grid-template-columns: 34px minmax(0, 1fr) auto auto auto;
+  grid-template-columns: 34px minmax(120px, 1fr) auto auto auto;
   min-height: 54px;
   padding: 5px 8px;
 }
@@ -122,7 +130,14 @@
   width: 36px;
 }
 
-@media (max-width: 700px) {
+/* Pencere genişliği DEĞİL, composer'ın GERÇEK konteyner genişliği ölçülür:
+   kenar çubuğu açıkken pencere geniş olsa bile composer dar olabilir, eski
+   `@media (max-width: 700px)` bunu göremiyordu (bkz. Shell.css
+   `.app-shell__workspace` — `conversation-workspace` adlı konteyner). Eşik
+   700'den 900'e çıkarıldı: bağlam uyarısı + model çipi + maliyet + Çalışma/
+   Otomatik aynı anda görünürken 700-900px arası konteynerde de metin sütunu
+   birkaç piksele düşüyordu (bkz. yukarı `minmax(120px, 1fr)` yorumu). */
+@container conversation-workspace (max-width: 900px) {
   .composer[data-layout="compact"] {
     display: block;
     padding: var(--space-3) var(--space-4);

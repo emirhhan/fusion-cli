@@ -46,6 +46,15 @@
 }
 
 .app-shell__workspace {
+  /* Composer normal sohbette `.app-shell__main`in KARDEŞİDİR (footer),
+     onun içinde değil — bu yüzden `conversation-workspace` konteyner adı
+     burada da tanımlanır. Kenar çubuğu hariç gerçek genişliği verir; pencere
+     genişliği (media query) kenar çubuğu açık/kapalıyken yanlış ölçerdi
+     (bkz. Composer.css'teki dar-ekran kırılma noktası). `.app-shell__main`
+     içindeki öğeler için en YAKIN adaş konteyner hâlâ `.app-shell__main`dir,
+     bu tanım yalnız footer'daki composer için devreye girer. */
+  container-name: conversation-workspace;
+  container-type: inline-size;
   display: grid;
   grid-column: 2;
   grid-template-rows: auto minmax(0, 1fr) auto;

@@ -145,7 +145,12 @@
 /* ChatGPT tarzı akış: rol etiketleri yerine boşluk ve hizalama konuşmacıyı
    ayırır; kullanıcı balonu sağda, asistan metni geniş okuma kolonunda kalır. */
 .conversation__role { display: none; }
-.conversation__message { margin-bottom: 24px; }
+/* DİKKAT: burada `.conversation__message { margin-bottom: ... }` YOKTU —
+   eskiden sabit `24px` ile YİNELENİYORDU (aynı seçici, temel kuralla eşit
+   özgüllük) ve dosyada SONRA geldiği için yukarı `.conversation__message--event`
+   sıkılaştırmasının (8px) üstüne biniyordu: ardışık araç adımları arasında
+   ~60-80px boşluk kalıyordu (ölçüldü). Temel kural (üstte, `var(--space-4)`)
+   zaten aynı işi token'la yapıyor; ikinci bir yol açılmaz (RULES). */
 .conversation__message--user { padding-left: 72px; }
 .conversation__bubble {
   background: var(--surface-message-user);

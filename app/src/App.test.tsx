@@ -102,7 +102,7 @@ describe("Uygulama", () => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Dosya oluştur" } });
     fireEvent.click(screen.getByRole("button", { name: "Gönder" }));
     fake.receive(JSON.stringify({ tip: "olay", veri: { olay: "ToolExecuted", name: "write_file" } }));
-    await waitFor(() => expect(screen.getByText(/write_file/)).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText(/dosya yazılıyor/).length).toBeGreaterThan(0));
   });
 
   it("görevi tur.calistir isteğiyle gönderir", () => {

@@ -33,7 +33,7 @@ describe("olayEkle", () => {
     let mesajlar = olayEkle([], DUSUNUYOR);
     mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "write_file", args: { path: "a.py" } });
 
-    expect(mesajlar[0].metin).toBe("araç çalıştı: write_file");
+    expect(mesajlar[0].metin).toBe("a.py yazılıyor");
   });
 
   it("tur sonucu ayrı satırda durur", () => {
