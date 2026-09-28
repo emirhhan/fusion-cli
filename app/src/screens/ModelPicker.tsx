@@ -39,7 +39,10 @@ export interface ModelPickerProps {
 export function shortModelName(model: string): string {
   if (!model) return "Model seç";
   const parcalar = model.split("/");
-  return parcalar[parcalar.length - 1] || model;
+  const ad = parcalar[parcalar.length - 1] || model;
+  // Çipte "nemotron-3-ultra-550b-a55b:free" yerine "nemotron-3-ultra": parametre
+  // boyutu (550b, a55b) ve ":free" eki yazma kutusunun yerini boşuna yiyordu.
+  return ad.replace(/:free$/, "").replace(/-\d+(?:\.\d+)?b-a\d+(?:\.\d+)?b(?=-|$)/gi, "") || ad;
 }
 
 export function ModelPicker({ active, activeLabel, busy = false, onOpen, onSelect, options }: ModelPickerProps) {

@@ -11,7 +11,7 @@ const SECENEKLER: ModelOption[] = [
 
 describe("shortModelName", () => {
   test("sağlayıcı önekini atıp son parçayı bırakır", () => {
-    expect(shortModelName("openrouter/openai/gpt-oss-20b:free")).toBe("gpt-oss-20b:free");
+    expect(shortModelName("openrouter/openai/gpt-oss-20b:free")).toBe("gpt-oss-20b");
     expect(shortModelName("gemini_web")).toBe("gemini_web");
   });
 
@@ -25,7 +25,7 @@ describe("ModelPicker", () => {
     render(<ModelPicker active="openrouter/openai/gpt-oss-20b:free" onSelect={vi.fn()} options={[]} />);
 
     const dugme = screen.getByRole("button");
-    expect(dugme.textContent).toContain("gpt-oss-20b:free");
+    expect(dugme.textContent).toContain("gpt-oss-20b");
     expect(dugme.getAttribute("title")).toBe("openrouter/openai/gpt-oss-20b:free");
   });
 
@@ -115,7 +115,16 @@ describe("ModelPicker", () => {
     const dugme = screen.getByRole("button", { name: new RegExp(`Model: ${uzunAd}`) });
     expect(dugme.getAttribute("title")).toBe(uzunAd);
     const isimSpani = dugme.querySelector(".model-picker__name");
-    expect(isimSpani?.textContent).toBe(uzunAd);
+    expect(isimSpani?.textContent).toBe(shortModelName(uzunAd));
     expect(dugme.className).toContain("model-picker__trigger");
+  });
+});
+
+describe("shortModelName — kısa çip adı", () => {
+  test("boyut eklerini ve :free'yi atar, adın parçası olan boyutu korur", () => {
+    expect(shortModelName("nvidia_nim/nvidia/nemotron-3-ultra-550b-a55b")).toBe("nemotron-3-ultra");
+    expect(shortModelName("openrouter/nvidia/nemotron-3-super-120b-a12b:free")).toBe("nemotron-3-super");
+    expect(shortModelName("nvidia_nim/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning")).toBe("nemotron-3-nano-omni-reasoning");
+    expect(shortModelName("nvidia_nim/z-ai/glm-5.3")).toBe("glm-5.3");
   });
 });

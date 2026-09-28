@@ -20,7 +20,7 @@
      yazma kutusunun genişliğini çalıyordu — o da yer tutucunun alt satıra
      kaymasına yol açıyordu. min-width:0 span'in gerçekten kısalmasını sağlar. */
   min-width: 0;
-  max-width: 190px;
+  max-width: 150px;
   padding: var(--space-1) var(--space-2);
 }
 
