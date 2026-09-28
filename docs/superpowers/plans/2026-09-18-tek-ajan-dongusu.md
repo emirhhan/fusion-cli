@@ -556,8 +556,8 @@ Kod yazılmadan önce kullanıcıya sorulacaklar:
 ---
 
 ### Critical Files for Implementation
-- /Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/loop.py
-- /Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/plan_runner.py
-- /Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/tools/files.py
-- /Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/execution_policy.py
-- /Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/approval.py
+- /Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/loop.py
+- /Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/plan_runner.py
+- /Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/tools/files.py
+- /Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/execution_policy.py
+- /Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/approval.py

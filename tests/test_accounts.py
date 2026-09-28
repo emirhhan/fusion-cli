@@ -99,11 +99,11 @@ class TestKurtarmaKodu:
 
 class TestHesapDeposu:
     def test_hesap_acilir_ve_listelenir(self, store):
-        sonuc = store.create(username="emirhan", email="e@ornek.com", password="parola1234")
+        sonuc = store.create(username="kullanici", email="e@ornek.com", password="parola1234")
 
-        assert sonuc.account.username == "emirhan"
+        assert sonuc.account.username == "kullanici"
         assert sonuc.recovery_code
-        assert [hesap.username for hesap in store.list_accounts()] == ["emirhan"]
+        assert [hesap.username for hesap in store.list_accounts()] == ["kullanici"]
 
     def test_kisa_parola_ve_bozuk_eposta_reddedilir(self, store):
         with pytest.raises(AccountError, match=str(PASSWORD_MIN_CHARS)):
@@ -112,32 +112,32 @@ class TestHesapDeposu:
             store.create(username="a", email="eposta-degil", password="parola1234")
 
     def test_ayni_kullanici_adi_ikinci_kez_acilamaz(self, store):
-        store.create(username="emirhan", email="e@ornek.com", password="parola1234")
+        store.create(username="kullanici", email="e@ornek.com", password="parola1234")
 
         with pytest.raises(AccountError, match="Kullanıcı adı"):
-            store.create(username="EMIRHAN", email="baska@ornek.com", password="parola1234")
+            store.create(username="KULLANICI", email="baska@ornek.com", password="parola1234")
 
     def test_giris_kullanici_adi_veya_eposta_ile_yapilir(self, store):
-        store.create(username="emirhan", email="e@ornek.com", password="parola1234")
+        store.create(username="kullanici", email="e@ornek.com", password="parola1234")
 
-        assert store.authenticate(identifier="emirhan", password="parola1234") is not None
+        assert store.authenticate(identifier="kullanici", password="parola1234") is not None
         assert store.authenticate(identifier="e@ornek.com", password="parola1234") is not None
-        assert store.authenticate(identifier="emirhan", password="yanlis1234") is None
+        assert store.authenticate(identifier="kullanici", password="yanlis1234") is None
         assert store.authenticate(identifier="yok", password="parola1234") is None
 
     def test_kurtarma_kodu_parolayi_degistirir_ve_tek_kullanimliktir(self, store):
-        sonuc = store.create(username="emirhan", email="e@ornek.com", password="parola1234")
+        sonuc = store.create(username="kullanici", email="e@ornek.com", password="parola1234")
 
         degisti = store.reset_password(
-            identifier="emirhan", recovery_code=sonuc.recovery_code, new_password="yeniparola1"
+            identifier="kullanici", recovery_code=sonuc.recovery_code, new_password="yeniparola1"
         )
 
         assert degisti is True
-        assert store.authenticate(identifier="emirhan", password="yeniparola1") is not None
+        assert store.authenticate(identifier="kullanici", password="yeniparola1") is not None
         # Aynı kod ikinci kez çalışmaz: ele geçen bir kod sonsuza kadar geçerli olamaz.
         assert (
             store.reset_password(
-                identifier="emirhan",
+                identifier="kullanici",
                 recovery_code=sonuc.recovery_code,
                 new_password="ucuncuparola",
             )
@@ -145,19 +145,21 @@ class TestHesapDeposu:
         )
 
     def test_yanlis_kurtarma_kodu_parolayi_degistirmez(self, store):
-        store.create(username="emirhan", email="e@ornek.com", password="parola1234")
+        store.create(username="kullanici", email="e@ornek.com", password="parola1234")
 
         assert (
             store.reset_password(
-                identifier="emirhan", recovery_code="AAAA-BBBB-CCCC-DDDD", new_password="yeni12345"
+                identifier="kullanici",
+                recovery_code="AAAA-BBBB-CCCC-DDDD",
+                new_password="yeni12345",
             )
             is False
         )
-        assert store.authenticate(identifier="emirhan", password="parola1234") is not None
+        assert store.authenticate(identifier="kullanici", password="parola1234") is not None
 
     def test_profil_guncellenir(self, store):
         hesap = store.create(
-            username="emirhan", email="e@ornek.com", password="parola1234"
+            username="kullanici", email="e@ornek.com", password="parola1234"
         ).account
 
         yeni = store.update_profile(
@@ -168,7 +170,7 @@ class TestHesapDeposu:
 
     def test_silinen_hesap_listede_kalmaz(self, store):
         hesap = store.create(
-            username="emirhan", email="e@ornek.com", password="parola1234"
+            username="kullanici", email="e@ornek.com", password="parola1234"
         ).account
 
         assert store.delete(hesap.account_id) is True

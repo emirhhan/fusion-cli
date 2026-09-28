@@ -18,9 +18,9 @@ from fusion_cli.appserver.approval_summary import approval_summary
         ),
         ("desktop_type", {"text": "merhaba"}, "Bilgisayarında bu işlem yapılsın mı?", "merhaba"),
         (
-            "novamira__update_product",
+            "wordpress-mcp__update_product",
             {"id": 5},
-            "novamira üzerinde “update_product” çalıştırılsın mı?",
+            "wordpress-mcp üzerinde “update_product” çalıştırılsın mı?",
             "",
         ),
         ("gizemli", {}, "“gizemli” aracı çalıştırılsın mı?", ""),
@@ -32,10 +32,10 @@ def test_izin_karti_insan_dilinde_baslik_ve_hedef_verir(arac, argumanlar, baslik
 
 def test_yetenek_gecidinde_calisacak_yetenek_ve_parametreler_gosterilir():
     baslik, hedef = approval_summary(
-        "motogate__mcp-adapter-execute-ability",
+        "ornekmagaza__mcp-adapter-execute-ability",
         {"ability_name": "woocommerce/product-update", "parameters": {"id": 5, "fiyat": 100}},
     )
-    assert baslik == "motogate üzerinde “woocommerce/product-update” çalıştırılsın mı?"
+    assert baslik == "ornekmagaza üzerinde “woocommerce/product-update” çalıştırılsın mı?"
     assert '"fiyat": 100' in hedef
 
 

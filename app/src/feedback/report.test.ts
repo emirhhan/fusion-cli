@@ -5,7 +5,7 @@ const ortam = { surum: "0.4.6", platform: "macOS arm64" };
 
 describe("redact", () => {
   it("kullanıcı klasörünü ~ ile değiştirir", () => {
-    expect(redact("/Users/emirhan/Desktop/proje/a.ts okunamadı")).toBe("~/Desktop/proje/a.ts okunamadı");
+    expect(redact("/Users/kullanici/Desktop/proje/a.ts okunamadı")).toBe("~/Desktop/proje/a.ts okunamadı");
   });
 
   it("API anahtarı ve Bearer token'ı gizler", () => {
@@ -60,7 +60,7 @@ describe("buildIssueUrl", () => {
   });
 
   it("gönderilen metin de gizlenir", () => {
-    const url = buildIssueUrl({ tur: "hata", mesaj: "/Users/emirhan/x bozuk" }, ortam);
-    expect(url).not.toContain("emirhan");
+    const url = buildIssueUrl({ tur: "hata", mesaj: "/Users/kullanici/x bozuk" }, ortam);
+    expect(url).not.toContain("kullanici");
   });
 });

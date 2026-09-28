@@ -44,11 +44,11 @@ cd app && npm run test:visual -- terminal.visual.ts --update-snapshots
 
 ## Görsel referanslar
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-empty-darwin.png`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-active-darwin.png`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-ansi-color-darwin.png`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-closed-error-darwin.png`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/e2e/workspace.visual.ts-snapshots/workspace-terminal-error-darwin.png`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-empty-darwin.png`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-active-darwin.png`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-ansi-color-darwin.png`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/e2e/terminal.visual.ts-snapshots/terminal-closed-error-darwin.png`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/e2e/workspace.visual.ts-snapshots/workspace-terminal-error-darwin.png`
 
 ## Doğrulama
 

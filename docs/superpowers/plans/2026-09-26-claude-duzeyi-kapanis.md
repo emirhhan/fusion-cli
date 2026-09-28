@@ -1,6 +1,6 @@
 # Claude düzeyi kapanış planı — 26 Eylül 2026
 
-Hedef: Fusion'ın kullanıcının günlük işlerini (uzun kodlama, Motogate/WooCommerce,
+Hedef: Fusion'ın kullanıcının günlük işlerini (uzun kodlama, Ornekmagaza/WooCommerce,
 Google Ads ve Meta yönetimi, tarayıcıda uzun akışlar, görsel üretimi, ses/hafıza/
 projeler) mevcut ücretsiz sağlayıcılarla **ölçülerek** yapabilmesi. Model gücü
 kapsam dışı; her fazda ölçülen kabul, kalite kapısı ve commit.
@@ -43,10 +43,10 @@ kapsam dışı; her fazda ölçülen kabul, kalite kapısı ve commit.
 - **Kabul**: her görev 2 kez koşulur; hedef en az 4/6 tam geçiş, sıfır sahte başarı.
   Tutmazsa sonuç ve kalan engel raporlanır.
 
-## Faz 3 — Motogate / WooCommerce
+## Faz 3 — Ornekmagaza / WooCommerce
 
-- Novamira MCP bağlantısı Fusion'da (`mcp_servers`, token ortam değişkeninden;
-  mevcut Novamira yenileme token'ı geçersiz → yeniden giriş gerekir).
+- WordPress MCP MCP bağlantısı Fusion'da (`mcp_servers`, token ortam değişkeninden;
+  mevcut WordPress MCP yenileme token'ı geçersiz → yeniden giriş gerekir).
 - Canlı görevler: ürün arama, fiyat/stok okuma, son siparişleri özetleme,
   B2B fiyat kuralına göre öneri listesi; **yazma testi kullanıcının seçtiği
   kapsamda** (bkz. karar 2), her yazma izin kartıyla.

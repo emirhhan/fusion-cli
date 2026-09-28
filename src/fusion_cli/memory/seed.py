@@ -1102,7 +1102,7 @@ _WRITTEN: tuple[tuple[str, LessonKind, str, tuple[str, ...]], ...] = (
     ),
     # --- Kendi mağaza MCP'si ------------------------------------------------ #
     (
-        "novamira wordpress woocommerce mağaza yönetimi",
+        "wordpress-mcp wordpress woocommerce mağaza yönetimi",
         _M,
         "Kendi mağaza MCP'n üzerinden yapılan değişiklik CANLI mağazaya gider: "
         "fiyat, stok ve yayın durumu anında müşteriye görünür. Önce tek ürün "

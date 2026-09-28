@@ -129,7 +129,7 @@ REFERANS_COZUMLER: dict[str, dict[str, str]] = {
     },
     "var-olan-sayfayi-iskeleyle-ezme": {
         "index.html": (
-            '<!DOCTYPE html>\n<html lang="tr">\n<head><title>Ekipman Zinciri</title></head>\n'
+            '<!DOCTYPE html>\n<html lang="tr">\n<head><title>Ornek Zincir</title></head>\n'
             '<body>\n  <h1 id="ozel">KULLANICININ ELLE YAZDIGI BOLUM - SILINMEMELI</h1>\n'
             '  <p class="onemli">Korunmasi gereken icerik</p>\n</body>\n</html>\n'
         )

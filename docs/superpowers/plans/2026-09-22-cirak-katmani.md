@@ -304,10 +304,10 @@ Canlı ölçüm mevcut 6 model içinde vision-input kabul eden hiçbiri çıkmaz
 
 ### Kritik dosyalar (implementasyon için)
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/defaults.yaml`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/eligibility.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/capabilities.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/model_select.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/loop.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/effects/detect.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/app/src/onboarding/Onboarding.tsx`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/defaults.yaml`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/eligibility.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/capabilities.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/model_select.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/loop.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/effects/detect.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/app/src/onboarding/Onboarding.tsx`

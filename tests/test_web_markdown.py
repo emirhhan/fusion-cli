@@ -11,7 +11,7 @@ def test_baslik_ve_paragraf_ayrilir() -> None:
 
 
 def test_yapisi_olmayan_metin_oldugu_gibi_kalir() -> None:
-    assert html_to_markdown("Merhaba Emirhan") == "Merhaba Emirhan"
+    assert html_to_markdown("Merhaba Kullanici") == "Merhaba Kullanici"
 
 
 def test_madde_listesi_isaretlenir() -> None:

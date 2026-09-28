@@ -66,7 +66,7 @@ ses dalgasında kalır.
 ## 4. Görsel kaynaklar ve karakter sistemi
 
 Son kullanıcı referansı
-`/Users/motogate/Downloads/fusiontalkingtype.png` içindeki parlak beyaz gövdeli,
+`/Users/kullanici/Downloads/fusiontalkingtype.png` içindeki parlak beyaz gövdeli,
 siyah ekran yüzlü ve yeşil ışıklı robottur. Depodaki eski 168 × 168
 `Fusion_Pixel_Expressions_Clean_v2` kareleri ana sohbet karakteri olmaktan
 çıkarılacaktır.

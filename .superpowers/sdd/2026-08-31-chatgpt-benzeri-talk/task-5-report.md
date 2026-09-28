@@ -95,7 +95,7 @@ The four skips are candidate-only screenshot writers disabled when no destinatio
 Command:
 
 ```text
-cd app && FUSION_CANDIDATE_DIR=/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk npx playwright test e2e/talk.visual.ts
+cd app && FUSION_CANDIDATE_DIR=/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk npx playwright test e2e/talk.visual.ts
 ```
 
 Result: exit 0.
@@ -126,10 +126,10 @@ Vite emitted its existing advisory that some generated chunks exceed 500 kB; it 
 
 ## Screenshots
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-listening-light.png` — 380 × 460 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-talking-dark.png` — 380 × 460 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-listening-light.png` — 360 × 112 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-approval-dark.png` — 360 × 112 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-listening-light.png` — 380 × 460 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-talking-dark.png` — 380 × 460 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-listening-light.png` — 360 × 112 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-approval-dark.png` — 360 × 112 px
 
 All four were opened and visually inspected at original resolution. They show one rounded surface without a square backing layer, readable light/dark contrast, correct traffic-light order, a centered normal title, and an accessible mini microphone.
 
@@ -236,7 +236,7 @@ Result: exit 0; 6 tests passed and 4 candidate-writer tests skipped as expected 
 Replacement preview capture command:
 
 ```text
-cd app && FUSION_CANDIDATE_DIR=/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk npx playwright test e2e/talk.visual.ts
+cd app && FUSION_CANDIDATE_DIR=/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk npx playwright test e2e/talk.visual.ts
 ```
 
 Result: exit 0; 10/10 tests passed.
@@ -271,10 +271,10 @@ Result: component test 12/12 passed; Talk visual suite 6 passed and 4 candidate-
 
 ### Replacement preview screenshots
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-listening-light.png` — 380 × 460 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-talking-dark.png` — 380 × 460 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-listening-light.png` — 360 × 112 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-approval-dark.png` — 360 × 112 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-listening-light.png` — 380 × 460 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-normal-talking-dark.png` — 380 × 460 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-listening-light.png` — 360 × 112 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/talk-mini-approval-dark.png` — 360 × 112 px
 
 ### Actual native Tauri screenshots
 
@@ -286,8 +286,8 @@ cd app && npx tauri build --debug --config /tmp/fusion-task5-native.json --bundl
 
 The build completed and produced `Fusion Task5 Native.app`. Computer Use launched that exact bundle, skipped onboarding, opened Talk, and toggled normal/mini through the live green callback. The screenshots were captured from the native app window and converted to PNG:
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-normal-dark.png` — 380 × 460 px
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-mini-dark.png` — 360 × 112 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-normal-dark.png` — 380 × 460 px
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-mini-dark.png` — 360 × 112 px
 
 Dark native screenshots were feasible under the host's active system theme; light mode is covered by the production-size preview contract. Native screenshot corner sampling reported white compositor pixels at `(0,0)` and dark panel pixels at top center (`#2C2E2B` normal, `#282A27` mini), demonstrating that the rounded corners expose the compositor rather than a square backing rectangle.
 

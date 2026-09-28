@@ -74,7 +74,7 @@ time="487.404" timestamp="2026-09-14T03:20:29.768397+03:00" hostname="unknown0e4
 > app@0.1.0 test
 > vitest run --environment jsdom
 
- RUN  v4.1.11 /Users/motogate/Desktop/01-Projeler/fusion-cli/app
+ RUN  v4.1.11 /Users/kullanici/Desktop/01-Projeler/fusion-cli/app
 
  Test Files  83 passed (83)
       Tests  605 passed (605)

@@ -21,7 +21,7 @@ def servis(tmp_path, monkeypatch):
     return AccountService(SqliteAccountStore(tmp_path / "accounts.db"))
 
 
-def _kayit(servis, ad="emirhan", posta="e@ornek.com", parola="parola1234"):
+def _kayit(servis, ad="kullanici", posta="e@ornek.com", parola="parola1234"):
     return servis.register(
         {"kullanici_adi": ad, "eposta": posta, "parola": parola, "avatar": "🏍️"}
     )
@@ -40,7 +40,7 @@ def test_kayit_hesabi_acar_ve_kurtarma_kodunu_bir_kez_verir(servis):
 
     assert sonuc["ok"] is True
     assert sonuc["kurtarma_kodu"]
-    assert sonuc["hesap"]["kullanici_adi"] == "emirhan"
+    assert sonuc["hesap"]["kullanici_adi"] == "kullanici"
     # Kod YALNIZ kayıtta döner; durum çağrısı onu bir daha göstermez.
     assert "kurtarma_kodu" not in servis.status()
 
@@ -48,7 +48,7 @@ def test_kayit_hesabi_acar_ve_kurtarma_kodunu_bir_kez_verir(servis):
 def test_yanitlar_parola_veya_karma_tasimaz(servis):
     """Hesap bilgisi arayüze kadar gider; karma oraya kadar gitmemeli."""
     sonuc = _kayit(servis)
-    giris = servis.login({"kimlik": "emirhan", "parola": "parola1234"})
+    giris = servis.login({"kimlik": "kullanici", "parola": "parola1234"})
 
     for yanit in (sonuc["hesap"], giris["hesap"], servis.status()["hesaplar"][0]):
         assert "parola" not in yanit
@@ -74,7 +74,7 @@ def test_hatali_giris_hangisinin_yanlis_oldugunu_soylemez(servis):
     _kayit(servis)
 
     yok = servis.login({"kimlik": "bulunmayan", "parola": "parola1234"})
-    yanlis = servis.login({"kimlik": "emirhan", "parola": "yanlisparola"})
+    yanlis = servis.login({"kimlik": "kullanici", "parola": "yanlisparola"})
 
     assert yok["ok"] is False and yanlis["ok"] is False
     assert yok["metin"] == yanlis["metin"]
@@ -85,14 +85,14 @@ def test_kurtarma_kodu_yeni_parola_belirler(servis):
 
     kurtarma = servis.recover(
         {
-            "kimlik": "emirhan",
+            "kimlik": "kullanici",
             "kurtarma_kodu": sonuc["kurtarma_kodu"],
             "yeni_parola": "yeniparola99",
         }
     )
 
     assert kurtarma["ok"] is True
-    assert servis.login({"kimlik": "emirhan", "parola": "yeniparola99"})["ok"] is True
+    assert servis.login({"kimlik": "kullanici", "parola": "yeniparola99"})["ok"] is True
 
 
 def test_silinen_hesap_listeden_ve_etkinden_dusulur(servis):

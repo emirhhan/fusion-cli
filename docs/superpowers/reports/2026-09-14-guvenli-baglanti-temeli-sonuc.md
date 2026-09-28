@@ -218,4 +218,4 @@ Plan belgesindeki sıra korunur; her biri ayrı plan ve ayrı onay ister:
    manifestlerinden gelen bağlantı kataloğu, UI'da etki/risk rozeti, plan kipinde
    salt okunur uzak araçlar.
 4. Async job + artifact omurgası, Fusion Browser eklentisi, Meshy/Blender/Godot,
-   Higgsfield, WordPress/Novamira, reklam ve araştırma fazları.
+   Higgsfield, WordPress/WordPress MCP, reklam ve araştırma fazları.

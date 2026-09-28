@@ -11,18 +11,18 @@ describe("isProjectRoot", () => {
   });
 
   it("ev dizinini tek başına proje saymaz", () => {
-    expect(isProjectRoot("/Users/emirhan")).toBe(false);
-    expect(isProjectRoot("/home/emirhan")).toBe(false);
+    expect(isProjectRoot("/Users/kullanici")).toBe(false);
+    expect(isProjectRoot("/home/kullanici")).toBe(false);
   });
 
   it("gerçek klasörleri proje sayar", () => {
-    expect(isProjectRoot("/Users/emirhan/Desktop")).toBe(true);
-    expect(isProjectRoot("/Users/emirhan/Desktop/fusion-cli")).toBe(true);
+    expect(isProjectRoot("/Users/kullanici/Desktop")).toBe(true);
+    expect(isProjectRoot("/Users/kullanici/Desktop/fusion-cli")).toBe(true);
   });
 });
 
 describe("projectName", () => {
   it("son klasör adını verir", () => {
-    expect(projectName("/Users/emirhan/Desktop/fusion-cli")).toBe("fusion-cli");
+    expect(projectName("/Users/kullanici/Desktop/fusion-cli")).toBe("fusion-cli");
   });
 });

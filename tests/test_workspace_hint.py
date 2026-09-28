@@ -29,7 +29,7 @@ def _proje(taban: Path, ad: str, yollar: tuple[str, ...]) -> Path:
 def test_kardes_dizindeki_proje_bulunur(tmp_path):
     yanlis = tmp_path / "fusion-cli"
     yanlis.mkdir()
-    dogru = _proje(tmp_path, "GATE HOLDING", ("app/page.tsx", "components/Sidebar.tsx"))
+    dogru = _proje(tmp_path, "ORNEK PROJE", ("app/page.tsx", "components/Sidebar.tsx"))
 
     bulunan = find_workspace_for(("app/page.tsx", "components/Sidebar.tsx"), yanlis)
 
@@ -40,7 +40,7 @@ def test_bir_alt_katman_da_taranir(tmp_path):
     """Kullanıcının projeleri çoğu zaman ortak bir klasörün altındadır."""
     yanlis = tmp_path / "kod" / "fusion-cli"
     yanlis.mkdir(parents=True)
-    dogru = _proje(tmp_path / "kod", "GATE HOLDING", ("app/page.tsx", "app/layout.tsx"))
+    dogru = _proje(tmp_path / "kod", "ORNEK PROJE", ("app/page.tsx", "app/layout.tsx"))
 
     assert find_workspace_for(("app/page.tsx", "app/layout.tsx"), yanlis) == dogru
 
@@ -80,7 +80,7 @@ def test_mutlak_yollar_yok_sayilir(tmp_path):
 
 
 def test_kardesin_cocugu_da_bulunur(tmp_path):
-    """Gerçek yerleşim: ~/Desktop/fusion-cli → ~/Desktop/projeler/GATE HOLDING.
+    """Gerçek yerleşim: ~/Desktop/fusion-cli → ~/Desktop/projeler/ORNEK PROJE.
 
     Hedef, kardeşin (`projeler`) çocuğuydu; yalnızca kardeşlere bakan bir tarama
     onu bulamıyordu.
@@ -88,7 +88,7 @@ def test_kardesin_cocugu_da_bulunur(tmp_path):
     yanlis = tmp_path / "fusion-cli"
     yanlis.mkdir()
     dogru = _proje(
-        tmp_path / "projeler", "GATE HOLDING", ("app/page.tsx", "components/Sidebar.tsx")
+        tmp_path / "projeler", "ORNEK PROJE", ("app/page.tsx", "components/Sidebar.tsx")
     )
 
     bulunan = find_workspace_for(("app/page.tsx", "components/Sidebar.tsx"), yanlis)

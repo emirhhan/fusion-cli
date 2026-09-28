@@ -9,7 +9,7 @@ kullanıcının "bu isteklerimin tümünü anlayıp yap" onayıyla üç salt-oku
 uygulama ajanlarını başlatırken kullanım limitine takıldı; hiçbir dosya değişmedi. Bu plan o
 incelemenin bulgularından devam eder.
 
-**Amaç:** Reklam, WordPress/Novamira, Meshy, Higgsfield gibi dış sistemler bağlanmadan ÖNCE,
+**Amaç:** Reklam, WordPress/WordPress MCP, Meshy, Higgsfield gibi dış sistemler bağlanmadan ÖNCE,
 uzak bir MCP aracının otomatik onay kipinde (auto) kullanıcıya sorulmadan değişiklik yapmasını
 engellemek ve stdio MCP sunucularına kayıtlı ortam değişkenlerini gerçekten ulaştırmak.
 
@@ -707,4 +707,4 @@ Belgedeki sıra korunur; her biri ayrı plan ve ayrı onay ister:
 3. **ConnectorManifest/capability kataloğu (belge Faz 2 devamı):** backend manifestlerinden
    gelen bağlantı kataloğu, UI'da etki/risk rozeti, plan kipinde salt okunur uzak araçlar.
 4. Async job + artifact omurgası, Fusion Browser eklentisi, Meshy/Blender/Godot, Higgsfield,
-   WordPress/Novamira, reklam ve araştırma fazları.
+   WordPress/WordPress MCP, reklam ve araştırma fazları.

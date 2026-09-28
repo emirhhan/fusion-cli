@@ -42,7 +42,7 @@ def _candidates(root: Path) -> list[Path]:
     """Kardeş dizinler VE onların çocukları.
 
     Çocuk katmanı şart: gerçek yerleşim ölçüldü — kullanıcı `~/Desktop/fusion-cli`
-    içinde açtı, aradığı proje `~/Desktop/projeler/GATE HOLDING` idi. Yani hedef,
+    içinde açtı, aradığı proje `~/Desktop/projeler/ORNEK PROJE` idi. Yani hedef,
     kardeşin (`projeler`) çocuğuydu. Yalnızca kardeşlere bakan bir tarama onu
     bulamıyordu.
     """

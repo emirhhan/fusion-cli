@@ -921,7 +921,7 @@ def test_rozet_cevabin_ardina_basilir():
 # --- çok satırlı araç çıktısı ---------------------------------------------- #
 #
 # Ölçüldü: `read_file` sonucu tek satıra eziliyordu —
-# `⎿  1 { 2 "name": "gate-holding", 3 "private": true, 4 "scripts": { 5 …`
+# `⎿  1 { 2 "name": "ornek-proje", 3 "private": true, 4 "scripts": { 5 …`
 # Satır numaraları içerikle aynı görsel ağırlıkta akınca "4" bir satır numarası
 # mı yoksa JSON'un parçası mı ayırt edilemiyordu. Claude Code okuma sonucunu
 # satır satır gösterir; yapının korunması bilginin kendisidir.

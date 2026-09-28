@@ -48,7 +48,7 @@
 2. Görsel oluştur ve video oluştur gezintileri hâlen işlevsiz boş ekran açıyor.
 3. Fusion motoru tek aday seçildiğinde çok modelli değerlendirme yapamıyor;
    arayüz bu durumu açıkça bildirmeli ve çok adaylı profile dönüş sağlamalı.
-4. Fusion'ın kendi deposunda değişiklik yapması, GATE HOLDING benzeri tarayıcı
+4. Fusion'ın kendi deposunda değişiklik yapması, ORNEK PROJE benzeri tarayıcı
    işi, reklam kontrolü ve otomasyon için ayrı uçtan uca kabul koşuları henüz
    tamamlanmadı.
 5. Tek sayfalık web üretimi yapısal ölçütü geçti, fakat 429,91 saniye sürdü;
@@ -128,10 +128,10 @@ artık araç açıklamalarında açıkça belirtiliyor; sürekli süreçlerin ö
 
 ## Gerçek kullanıcı iş akışından alınan görev bağlamı
 
-Yerel Claude geçmişindeki GATE HOLDING özeti incelendi. Gerçek görev; yedi
+Yerel Claude geçmişindeki ORNEK PROJE özeti incelendi. Gerçek görev; yedi
 modüllü Next.js kontrol merkezi, gerçek WooCommerce/Meta/Google Ads verileri,
 ödeme akışı, dashboard grafiklerinin görsel sadakati ve üretim test/build
-kapılarıydı. Bu bağlamdan izole bir Gate Holding kopyası üzerinde uzun koşu
+kapılarıydı. Bu bağlamdan izole bir Ornek Proje kopyası üzerinde uzun koşu
 başlatıldı; kopyaya `.env`, `node_modules`, `.next` ve git geçmişi alınmadı.
 İlk gözlemde bağımlılık kurulumu olmadan test çalışmadı ve model `npx` komutuna
 geçerek etkileşimsiz onay kapısına takıldı; bu koşu yayın başarısı sayılmadı.

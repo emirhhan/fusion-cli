@@ -74,7 +74,7 @@ zincirin tamamı kanıtlanmış olur.
 - [ ] **Step 1: İskeleti kur**
 
 ```bash
-cd /Users/motogate/Desktop/01-Projeler/fusion-cli
+cd /Users/kullanici/Desktop/01-Projeler/fusion-cli
 npm create tauri-app@latest app -- --template react-ts --manager npm --yes
 cd app && npm install
 ```
@@ -425,7 +425,7 @@ bir satır gösterir. Bu, zincirin uçtan uca çalıştığının kanıtıdır.
 - [ ] **Step 9: Commit**
 
 ```bash
-cd /Users/motogate/Desktop/01-Projeler/fusion-cli
+cd /Users/kullanici/Desktop/01-Projeler/fusion-cli
 git add app
 git commit -m "feat(app): Tauri iskeletini kur ve çekirdek köprüsünü bağla"
 ```

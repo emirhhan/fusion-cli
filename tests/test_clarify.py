@@ -20,7 +20,7 @@ from fusion_cli.engines.agent.clarify import clarification_hint
     [
         "Müşterilerin sipariş numarasıyla kargo durumunu sorgulayabileceği bir web uygulaması yap.",
         "Bana basit bir blog sitesi yap.",
-        "Motogate için stok takip paneli oluştur",
+        "Ornekmagaza için stok takip paneli oluştur",
         "bir telegram botu geliştir",
     ],
 )

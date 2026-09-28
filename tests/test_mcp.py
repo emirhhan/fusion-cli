@@ -598,22 +598,22 @@ class _YetenekOturumu(_SayfaliOturum):
 
 
 async def test_yetenek_gecidi_calistir_aracina_cagri_bazli_etki_baglar():
-    """Ölçüldü (Motogate/Novamira): 63 yetenek tek `execute-ability` aracından
+    """Ölçüldü (Ornekmagaza/WordPress MCP): 63 yetenek tek `execute-ability` aracından
     geçiyor; etki araçtan okunursa ürün aramak bile yıkıcı sayılıyordu."""
     from fusion_cli.core.tools import ToolEffect
     from fusion_cli.tools import ToolRegistry
 
     session = _YetenekOturumu()
     client = McpClient(())
-    client._sessions["motogate"] = session
+    client._sessions["ornekmagaza"] = session
     registry = ToolRegistry()
 
     await client.register_into(registry)
-    arac = registry.get("motogate__mcp-adapter-execute-ability")
+    arac = registry.get("ornekmagaza__mcp-adapter-execute-ability")
 
     assert arac.effect_resolver is not None
     okuma = await arac.effect_resolver({"ability_name": "woocommerce/products-query"}, None)
     yazma = await arac.effect_resolver({"ability_name": "woocommerce/product-update"}, None)
     assert okuma is ToolEffect.REMOTE_READ
     assert yazma is ToolEffect.REMOTE_DESTRUCTIVE
-    assert registry.get("motogate__mcp-adapter-get-ability-info").effect_resolver is None
+    assert registry.get("ornekmagaza__mcp-adapter-get-ability-info").effect_resolver is None

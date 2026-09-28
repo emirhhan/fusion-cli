@@ -1,6 +1,6 @@
 """Dev sunucusuyla çalışan projelerde de düzen ÖLÇÜLÜR.
 
-Ölçüldü (canlı koşu, GATE HOLDING): model `app/globals.css` dosyasını değiştirip
+Ölçüldü (canlı koşu, ORNEK PROJE): model `app/globals.css` dosyasını değiştirip
 "Lütfen uygulamayı geniş ekranda açıp kontrol et" diyerek turu kapattı. Tarayıcı
 kapısı (`browser_verification`) varsayılan olarak AÇIKTI ve tam da yatay taşmayı
 375/768/1440'ta ölçüyordu — ama hiç konuşmadı.

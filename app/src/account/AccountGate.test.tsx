@@ -24,8 +24,8 @@ function denetleyici(ekle: Partial<AccountController> = {}): AccountController {
 
 describe("hesapBasHarfleri", () => {
   test("kullanıcı adından en çok iki baş harf üretir", () => {
-    expect(hesapBasHarfleri({ kullanici_adi: "emirhan" })).toBe("E");
-    expect(hesapBasHarfleri({ kullanici_adi: "emirhan yildiz" })).toBe("EY");
+    expect(hesapBasHarfleri({ kullanici_adi: "kullanici" })).toBe("K");
+    expect(hesapBasHarfleri({ kullanici_adi: "kullanici yildiz" })).toBe("KY");
   });
 });
 
@@ -46,7 +46,7 @@ describe("AccountGate", () => {
             hesaplar: [
               {
                 kimlik: "1",
-                kullanici_adi: "emirhan",
+                kullanici_adi: "kullanici",
                 eposta: "e@ornek.com",
                 avatar: "",
                 olusturuldu: 0,
@@ -75,14 +75,14 @@ describe("AccountGate", () => {
     const kayit = vi.fn(async () => null);
     render(<AccountGate account={denetleyici({ kayit })} />);
 
-    fireEvent.change(screen.getByLabelText("Kullanıcı adınız"), { target: { value: "emirhan" } });
+    fireEvent.change(screen.getByLabelText("Kullanıcı adınız"), { target: { value: "kullanici" } });
     fireEvent.change(screen.getByLabelText("E-posta adresiniz"), { target: { value: "e@ornek.com" } });
     fireEvent.change(screen.getByLabelText("Şifreniz"), { target: { value: "parola1234" } });
     fireEvent.click(screen.getByRole("button", { name: "Kayıt Ol" }));
 
     await waitFor(() =>
       expect(kayit).toHaveBeenCalledWith({
-        kullanici_adi: "emirhan",
+        kullanici_adi: "kullanici",
         eposta: "e@ornek.com",
         parola: "parola1234",
         avatar: "",
@@ -94,7 +94,7 @@ describe("AccountGate", () => {
     const kayit = vi.fn(async () => ({
       hesap: {
         kimlik: "1",
-        kullanici_adi: "emirhan",
+        kullanici_adi: "kullanici",
         eposta: "e@ornek.com",
         avatar: "",
         olusturuldu: 0,
@@ -104,7 +104,7 @@ describe("AccountGate", () => {
     }));
     render(<AccountGate account={denetleyici({ kayit })} />);
 
-    fireEvent.change(screen.getByLabelText("Kullanıcı adınız"), { target: { value: "emirhan" } });
+    fireEvent.change(screen.getByLabelText("Kullanıcı adınız"), { target: { value: "kullanici" } });
     fireEvent.change(screen.getByLabelText("E-posta adresiniz"), { target: { value: "e@ornek.com" } });
     fireEvent.change(screen.getByLabelText("Şifreniz"), { target: { value: "parola1234" } });
     fireEvent.click(screen.getByRole("button", { name: "Kayıt Ol" }));

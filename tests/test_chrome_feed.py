@@ -16,7 +16,7 @@ def _tool(name: str, args: dict, output: str = "{}", outcome: str = "ok") -> str
 
 def test_tarayici_adimlari_insan_diliyle_yazilir() -> None:
     assert panel_item(
-        _tool("chrome_navigate", {"url": "https://www.instagram.com/moto.gate/"})
+        _tool("chrome_navigate", {"url": "https://www.instagram.com/ornek.magaza/"})
     ) == {
         "tur": "adim",
         "arac": "chrome_navigate",

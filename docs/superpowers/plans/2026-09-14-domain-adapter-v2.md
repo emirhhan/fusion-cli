@@ -83,7 +83,7 @@ parametreleriyle enjekte edilir. `domains.py` geriye uyumlu yeniden-dışa-açma
 
 Run:
 ```bash
-cd /Users/motogate/Desktop/01-Projeler/fusion-cli
+cd /Users/kullanici/Desktop/01-Projeler/fusion-cli
 git branch --show-current
 git rev-parse --short HEAD
 git status --short

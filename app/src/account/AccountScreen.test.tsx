@@ -6,9 +6,9 @@ import type { AccountController } from "./useAccount";
 
 afterEach(cleanup);
 
-const EMIRHAN: Hesap = {
+const KULLANICI: Hesap = {
   kimlik: "1",
-  kullanici_adi: "emirhan",
+  kullanici_adi: "kullanici",
   eposta: "e@ornek.com",
   avatar: "🏍️",
   olusturuldu: 0,
@@ -39,18 +39,18 @@ function denetleyici(hesaplar: Hesap[], ekle: Partial<AccountController> = {}): 
 
 describe("AccountScreen", () => {
   test("etkin hesabın bilgilerini gösterir", () => {
-    render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
 
     // Profil özeti açık, düzenleme formu isteğe bağlıdır.
-    expect(screen.getAllByText("emirhan").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("kullanici").length).toBeGreaterThan(0);
     expect(screen.getByText("e@ornek.com")).toBeTruthy();
     fireEvent.click(screen.getByText("Profili düzenle"));
-    expect(screen.getByLabelText("Kullanıcı adı")).toHaveProperty("value", "emirhan");
+    expect(screen.getByLabelText("Kullanıcı adı")).toHaveProperty("value", "kullanici");
   });
 
   test("profil değişikliği çekirdeğe iletilir", async () => {
     const guncelle = vi.fn(async () => true);
-    render(<AccountScreen account={denetleyici([EMIRHAN], { guncelle })} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByText("Profili düzenle"));
     fireEvent.change(screen.getByLabelText("Kullanıcı adı"), { target: { value: "emir" } });
@@ -61,7 +61,7 @@ describe("AccountScreen", () => {
 
   test("avatar seçimi düzenleme bölümü kapalıyken de kaydedilir", async () => {
     const guncelle = vi.fn(async () => true);
-    render(<AccountScreen account={denetleyici([EMIRHAN], { guncelle })} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI], { guncelle })} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Avatarı değiştir" }));
     fireEvent.click(screen.getByRole("button", { name: "Avatar: 🚀" }));
@@ -69,14 +69,14 @@ describe("AccountScreen", () => {
   });
 
   test("tek hesap varken değiştirilecek hesap olmadığı söylenir", () => {
-    render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByText("Hesap yönetimi"));
     expect(screen.getByText(/başka hesap yok/i)).toBeTruthy();
   });
 
   test("diğer hesaplar listelenir", () => {
-    render(<AccountScreen account={denetleyici([EMIRHAN, IKINCI])} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI, IKINCI])} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByText("Hesap yönetimi"));
     expect(screen.getByText("ikinci")).toBeTruthy();
@@ -87,7 +87,7 @@ describe("AccountScreen", () => {
      geri getirilemeyen bir şey için değil. */
   test("silme, kullanıcı adı elle yazılana kadar kapalıdır", () => {
     const sil = vi.fn(async () => true);
-    render(<AccountScreen account={denetleyici([EMIRHAN], { sil })} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI], { sil })} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByText("Hesabı sil"));
     const dugme = screen.getByRole("button", { name: /kalıcı olarak sil/i });
@@ -96,12 +96,12 @@ describe("AccountScreen", () => {
     fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "yanlis" } });
     expect(dugme.hasAttribute("disabled")).toBe(true);
 
-    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "emirhan" } });
+    fireEvent.change(screen.getByLabelText(/onaylamak için/i), { target: { value: "kullanici" } });
     expect(dugme.hasAttribute("disabled")).toBe(false);
   });
 
   test("silmenin neyi götürdüğünü açıkça yazar", () => {
-    render(<AccountScreen account={denetleyici([EMIRHAN])} onClose={vi.fn()} />);
+    render(<AccountScreen account={denetleyici([KULLANICI])} onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByText("Hesabı sil"));
     expect(screen.getByText(/kalıcı olarak silinir/i)).toBeTruthy();

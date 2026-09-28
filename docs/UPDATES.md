@@ -18,7 +18,7 @@ macOS ilk açılışta ayrıca uyarabilir. Güncellemeler Tauri imzasıyla doğr
 .venv/bin/python desktop_build/macos/build_update.py \
   --app app/src-tauri/target/release/bundle/macos/Fusion.app \
   --output dagitim/update \
-  --key /Users/motogate/.config/fusion-release/updater.key
+  --key /Users/kullanici/.config/fusion-release/updater.key
 ```
 
 4. `v<SÜRÜM>` GitHub Release'ine DMG, `.app.tar.gz`, `.sig` ve `latest.json`

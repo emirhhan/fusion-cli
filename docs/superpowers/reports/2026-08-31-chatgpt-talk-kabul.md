@@ -24,8 +24,8 @@ Durum: **KISMİ / BLOKLU**
 
 ## Taze ekran görüntüleri
 
-- [normal light](/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-normal-light.png)
-- [mini light](/Users/motogate/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-mini-light.png)
+- [normal light](/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-normal-light.png)
+- [mini light](/Users/kullanici/Desktop/01-Projeler/fusion-cli/artifacts/talk/native/talk-native-mini-light.png)
 
 Koyu moddaki iki dosya önceki captures olarak bırakıldı; final packaged HEAD için yeniden üretilemedi.
 

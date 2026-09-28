@@ -32,7 +32,7 @@ GERCEK_ISTEK = (
 
 PACKAGE_JSON = json.dumps(
     {
-        "name": "gate-holding",
+        "name": "ornek-proje",
         "private": True,
         "scripts": {"dev": "next dev", "start:all": "concurrently npm:dev npm:dev:market"},
     },

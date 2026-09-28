@@ -734,7 +734,7 @@ class ConsoleRenderer:
         Çok satırlı çıktı eskiden `\\n` yerine boşluk konarak tek satıra
         eziliyordu. `read_file` sonucu böyle görünüyordu:
 
-            ⎿  1 { 2 "name": "gate-holding", 3 "private": true, 4 "scripts": { 5 …
+            ⎿  1 { 2 "name": "ornek-proje", 3 "private": true, 4 "scripts": { 5 …
 
         Satır numaraları içerikle aynı görsel ağırlıkta akınca "4"ün numara mı
         yoksa verinin parçası mı olduğu ayırt edilemiyor. Dosyanın yapısı

@@ -4,7 +4,7 @@ WordPress'in `mcp-adapter` eklentisi sitedeki bütün yetenekleri (WooCommerce
 ürün/sipariş, dosya, PHP…) tek bir `mcp-adapter-execute-ability` aracından
 çalıştırır ve o aracın MCP işareti `destructiveHint=True`dur. Etki araçtan
 okunursa otomatik kip ürün aramayı bile sorar, plan kipi okumayı engeller —
-ölçüldü (26 Eylül, Motogate/Novamira, 63 yetenek).
+ölçüldü (26 Eylül, Ornekmagaza/WordPress MCP, 63 yetenek).
 
 Her yeteneğin kendi işareti `mcp-adapter-get-ability-info` çıktısında
 `meta.annotations` içindedir (`readonly`, `destructive`). Çözücü yetenek başına

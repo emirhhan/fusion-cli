@@ -10,7 +10,7 @@ Bu tasarım mevcut sınıflandırıcıyı, `todo_write` durumunu, `run_agent` al
 
 ## Güncel kaynak garantisi
 
-Geliştirme `/Users/motogate/Desktop/01-Projeler/fusion-cli` deposunun `fusion-runtime-hardening-20260827-022831` dalında, `268f70c06eff83fc96ed5b95b6321353444742a6` commitinden başlar. Bu dal 2026-09-04 tarihinde uzak eş dalın 116 commit önündedir.
+Geliştirme `/Users/kullanici/Desktop/01-Projeler/fusion-cli` deposunun `fusion-runtime-hardening-20260827-022831` dalında, `268f70c06eff83fc96ed5b95b6321353444742a6` commitinden başlar. Bu dal 2026-09-04 tarihinde uzak eş dalın 116 commit önündedir.
 
 Kurulu `/Applications/Fusion.app` sürümü `0.3.0-alpha.8`'dir. Kurulu runtime ile deponun paket kaynağı aynı SHA-256 özetini taşır; ancak son kaynak düzeltmeleri henüz yeniden paketlenmemiştir. Son kabul, güncel HEAD'den yeniden üretilen runtime ve macOS uygulamasında yapılacaktır.
 

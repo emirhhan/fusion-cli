@@ -6,8 +6,8 @@ afterEach(cleanup);
 
 describe("gorselAvatarMi", () => {
   test("yol ayıracı taşıyan avatar dosyadır, taşımayan emojidir", () => {
-    expect(gorselAvatarMi("/Users/emirhan/.config/fusion-cli/accounts/1/avatar.png")).toBe(true);
-    expect(gorselAvatarMi("C:\\\\Users\\\\emirhan\\\\avatar.png")).toBe(true);
+    expect(gorselAvatarMi("/Users/kullanici/.config/fusion-cli/accounts/1/avatar.png")).toBe(true);
+    expect(gorselAvatarMi("C:\\\\Users\\\\kullanici\\\\avatar.png")).toBe(true);
     expect(gorselAvatarMi("🏍️")).toBe(false);
     expect(gorselAvatarMi("")).toBe(false);
   });
@@ -15,31 +15,31 @@ describe("gorselAvatarMi", () => {
 
 describe("AvatarView", () => {
   test("emoji avatarı olduğu gibi gösterir", () => {
-    const { container } = render(<AvatarView avatar="🏍️" kullaniciAdi="emirhan" />);
+    const { container } = render(<AvatarView avatar="🏍️" kullaniciAdi="kullanici" />);
 
     expect(container.textContent).toBe("🏍️");
   });
 
   test("avatar yoksa baş harfe düşer", () => {
-    const { container } = render(<AvatarView avatar="" kullaniciAdi="emirhan" />);
+    const { container } = render(<AvatarView avatar="" kullaniciAdi="kullanici" />);
 
-    expect(container.textContent).toBe("E");
+    expect(container.textContent).toBe("K");
   });
 
   /* Kabuk yokken yerel dosya adresi üretilemez. Kırık bir görsel yerine baş
      harf göstermek, boş bir kutudan iyidir. */
   test("kabuk yokken dosya avatarı baş harfe düşer, kırık görsel basmaz", () => {
-    const { container } = render(<AvatarView avatar="/tmp/avatar.png" kullaniciAdi="emirhan" />);
+    const { container } = render(<AvatarView avatar="/tmp/avatar.png" kullaniciAdi="kullanici" />);
 
     expect(container.querySelector("img")).toBeNull();
-    expect(container.textContent).toBe("E");
+    expect(container.textContent).toBe("K");
   });
 });
 
 describe("AvatarPicker", () => {
   const varsayilan = {
     avatar: "",
-    kullaniciAdi: "emirhan",
+    kullaniciAdi: "kullanici",
     onSelect: vi.fn(),
     onUpload: vi.fn(async () => null),
   };

@@ -3,7 +3,7 @@
 Kaynak: 17 Eylül roadmap'i (`2026-09-17-claude-paritesi.md`) Faz 1-6 tamam, Faz 7
 açık. Bu plan Faz 7'yi kapatır ve ondan ÖNCE, roadmap'te olmayan ama kullanıcının
 asıl hedefini ("Fusion, Fusion'ı baştan yazabilmeli; reklamları yönetebilmeli;
-GATE HOLDING gibi bir tarayıcı işini yapabilmeli") bloke eden ölçülmüş hataları
+ORNEK PROJE gibi bir tarayıcı işini yapabilmeli") bloke eden ölçülmüş hataları
 düzeltir.
 
 ## Faz A — Depo haritası: kendi deposunda çalışabilme  [ENGEL]

@@ -381,10 +381,10 @@ gerekçelendirilir, boşluktan atılmaz).
 
 ### Kritik dosyalar (implementasyon için)
 
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/engine_tools.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/web_browser.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/web_control.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/memory/lessons.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/learning_steps.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/model_select.py`
-- `/Users/motogate/Desktop/01-Projeler/fusion-cli/src/fusion_cli/ui/text.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/engine_tools.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/web_browser.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/providers/web_control.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/memory/lessons.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/engines/agent/learning_steps.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/config/model_select.py`
+- `/Users/kullanici/Desktop/01-Projeler/fusion-cli/src/fusion_cli/ui/text.py`

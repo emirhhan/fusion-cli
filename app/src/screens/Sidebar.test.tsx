@@ -121,15 +121,15 @@ describe("Sidebar", () => {
     render(
       <Sidebar
         etkin={null}
-        hesap={{ kullanici_adi: "emirhan", eposta: "e@ornek.com", avatar: "🏍️" }}
+        hesap={{ kullanici_adi: "kullanici", eposta: "e@ornek.com", avatar: "🏍️" }}
         onSec={vi.fn()}
         onYeni={vi.fn()}
         oturumlar={[]}
       />,
     );
 
-    const profile = screen.getByRole("button", { name: /emirhan hesap menüsü/i });
-    expect(profile.textContent).toContain("emirhan");
+    const profile = screen.getByRole("button", { name: /kullanici hesap menüsü/i });
+    expect(profile.textContent).toContain("kullanici");
     expect(profile.textContent).toContain("e@ornek.com");
     expect(profile.textContent).not.toContain("Gemini");
   });
@@ -139,7 +139,7 @@ describe("Sidebar", () => {
     render(
       <Sidebar
         etkin={null}
-        hesap={{ kullanici_adi: "emirhan", eposta: "e@ornek.com", avatar: "" }}
+        hesap={{ kullanici_adi: "kullanici", eposta: "e@ornek.com", avatar: "" }}
         onCikis={onCikis}
         onSec={vi.fn()}
         onYeni={vi.fn()}

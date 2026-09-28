@@ -45,8 +45,9 @@ def test_sahibi_olmus_ya_da_silinmis_kopru_bildirilmez():
 
 
 def test_eklenti_kimligi_chrome_yontemiyle_hesaplanir():
-    yol = Path("/Users/motogate/Desktop/01-Projeler/fusion-cli/chrome-extension")
-    assert chrome_host.extension_id_for_path(yol) == "gifkppllofppjplfhapngpjhbplapnpc"
+    # Chrome: yolun SHA-256 özetinin ilk 32 onaltılık hanesi, 0-f → a-p.
+    yol = Path("/Users/kullanici/Desktop/01-Projeler/fusion-cli/chrome-extension")
+    assert chrome_host.extension_id_for_path(yol) == "eigpikpghdhbbefejciokiinjcpiegjc"
 
 
 def test_yuklu_fusion_browser_kimligi_profil_ayarlarindan_bulunur(tmp_path):

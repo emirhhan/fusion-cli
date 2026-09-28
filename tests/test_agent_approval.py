@@ -320,7 +320,7 @@ def _uzak_arac(effect_resolver=None):
         return ToolResult("tamam")
 
     return Tool(
-        name="motogate__mcp-adapter-execute-ability",
+        name="ornekmagaza__mcp-adapter-execute-ability",
         description="",
         parameters={},
         run=_run,

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fusion’ın uzun, çok dosyalı ve doğrulama gerektiren Gate Holding/MotoGate işlerinde gerçek çıktıyı kabul testleriyle kanıtlayarak Claude Code düzeyine yaklaşmasını sağlamak.
+**Goal:** Fusion’ın uzun, çok dosyalı ve doğrulama gerektiren Ornek Proje/OrnekMagaza işlerinde gerçek çıktıyı kabul testleriyle kanıtlayarak Claude Code düzeyine yaklaşmasını sağlamak.
 
 **Architecture:** Görevler önce araştırma ve planlama, sonra araçla uygulama, ardından bağımsız kabul ve adversarial inceleme döngüsünden geçecek. Her koşu model çağrısı, araç hatası, yeniden deneme, bağlam ve kabul sonucunu ayrı kaydedecek.
 
@@ -23,7 +23,7 @@
 - Uzun üretimde bağlamın büyümesi: transkript ve sıkıştırma gerçek token/süre kanıtı üretmeli.
 - Tarayıcı yerel adresi güvenlik kapısına takıldığında: model doğru yerel acceptance komutuna dönmeli.
 - “Bitti” beyanı ile gerçek çıktı ayrışması: bağımsız kabul koşulu başarısızsa tur başarısız sayılmalı.
-- Gate Holding/MotoGate gibi çok modüllü projede test/build/çalışan sayfa birlikte doğrulanmalı.
+- Ornek Proje/OrnekMagaza gibi çok modüllü projede test/build/çalışan sayfa birlikte doğrulanmalı.
 
 ### Task 1: Araç yönlendirmesi ve uzun görev telemetrisi
 
@@ -35,9 +35,9 @@
 
 ### Task 2: Gerçek proje acceptance fixture’ı
 
-**Files:** `evals/suite/gate_holding.yaml`, `evals/criteria/` ve testler.
+**Files:** `evals/suite/ornek_proje.yaml`, `evals/criteria/` ve testler.
 
-- [ ] Gate Holding’in `.env` içermeyen izole fixture’ını oluştur.
+- [ ] Ornek Proje’in `.env` içermeyen izole fixture’ını oluştur.
 - [ ] TypeScript, Vitest ve Next build sonuçlarını tek kabul komutunda doğrula.
 - [ ] Dashboard görsel/etkileşim ve veri kaynağı sözleşmelerini davranışsal kontrol et.
 
@@ -51,7 +51,7 @@
 
 ### Task 4: Üç tekrar ve adversarial rapor
 
-- [ ] Gate Holding görevini üç ayrı koşuda çalıştır.
-- [ ] MotoGate çoklu entegrasyon görevini üç ayrı koşuda çalıştır.
+- [ ] Ornek Proje görevini üç ayrı koşuda çalıştır.
+- [ ] OrnekMagaza çoklu entegrasyon görevini üç ayrı koşuda çalıştır.
 - [ ] Her başarısızlıkta kök nedeni düzelt ve yeniden koş.
 - [ ] Claude oturum çıktısı bulunursa aynı görevlerle karşılaştır; bulunamazsa karşılaştırmayı kanıtsız eşdeğerlik olarak sunma.

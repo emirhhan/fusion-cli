@@ -71,7 +71,7 @@ kaydetme") kapsamına GİRMESİ gereken ama muhtemelen o düzeltmeden ÖNCE
 eklenmiş bir kalıntı olabilir — ya da düzeltme yalnız YENİ kayıtları
 engelliyor, var olan yinelenenleri temizlemiyor. Bu proje belleğinde daha
 önce not edilmiş: Meta Ads MCP kullanıcının GERÇEK, iş-kritik bir bağlantısı
-(motogate/GATE HOLDING reklam hesapları için).
+(ornekmagaza/ORNEK PROJE reklam hesapları için).
 
 ## 4. Kalan iş — kullanıcıya sorulmalı
 

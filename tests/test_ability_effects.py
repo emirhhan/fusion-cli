@@ -1,6 +1,6 @@
 """WordPress MCP adaptörü: tek `execute-ability` aracının çağrı bazlı etkisi.
 
-Ölçüldü (26 Eylül, Motogate/Novamira): sunucu 63 yeteneği TEK bir
+Ölçüldü (26 Eylül, Ornekmagaza/WordPress MCP): sunucu 63 yeteneği TEK bir
 `mcp-adapter-execute-ability` aracından çalıştırıyor ve o aracın işareti
 `destructiveHint=True`. Etki araçtan okunursa otomatik kip ürün aramayı bile
 soruyor, plan kipi okumayı engelliyordu. Her yeteneğin kendi işareti

@@ -42,9 +42,9 @@ WEB_MODEL = "gemini_web/pro"
 #: değil; diske BU metnin inip inmediği önemli.
 DOLU_SAYFA = """<!DOCTYPE html>
 <html lang="tr">
-<head><meta charset="UTF-8"><title>Ekipman Zinciri</title></head>
+<head><meta charset="UTF-8"><title>Ornek Zincir</title></head>
 <body>
-  <header class="site-header"><a class="logo" href="/">Ekipman Zinciri</a></header>
+  <header class="site-header"><a class="logo" href="/">Ornek Zincir</a></header>
   <main>
     <section class="section"><h1>Spor Ekipmanları</h1></section>
   </main>

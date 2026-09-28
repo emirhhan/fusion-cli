@@ -202,7 +202,7 @@ const workspaceClient = {
 } as unknown as ProtocolClient;
 
 const accountPreview = {
-  durum: { hesaplar: [{ kimlik: "preview", kullanici_adi: "Emirhan", eposta: "emirhan@example.com", avatar: "", olusturuldu: 0 }], etkin: "preview", kurulum_gerekli: false },
+  durum: { hesaplar: [{ kimlik: "preview", kullanici_adi: "Kullanici", eposta: "kullanici@example.com", avatar: "", olusturuldu: 0 }], etkin: "preview", kurulum_gerekli: false },
   yukleniyor: false,
   hata: null,
   kayit: async () => null,

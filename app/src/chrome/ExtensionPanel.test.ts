@@ -241,7 +241,7 @@ describe("Çekirdek: sekme yönetimi", () => {
     const core = await import("../../../chrome-extension/core.js");
     const liste = await core.execute({ islem: "tabs" });
     expect(liste.tabs.map((t: { id: number }) => t.id)).toEqual([7, 8]);
-    const acilan = await core.execute({ islem: "tab_open", veri: { url: "https://www.instagram.com/moto.gate/" } });
+    const acilan = await core.execute({ islem: "tab_open", veri: { url: "https://www.instagram.com/ornek.magaza/" } });
     expect(acilan.opened).toBe(9);
     expect((await core.getSelected()).origin).toBe("https://www.instagram.com");
   });
@@ -301,8 +301,8 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     const olaylar: string[] = [];
     giris.addEventListener("input", () => olaylar.push(giris.value));
     const { matches } = action("find", { query: "ara" }) as { matches: { ref: string }[] };
-    action("type", { ref: matches[0].ref, text: "motogate" });
-    expect(olaylar).toEqual(["motogate"]);
+    action("type", { ref: matches[0].ref, text: "ornekmagaza" });
+    expect(olaylar).toEqual(["ornekmagaza"]);
   });
 
   it("tıklamadan önce düğmenin adını ve gönderme düğmesi olup olmadığını söyler", () => {

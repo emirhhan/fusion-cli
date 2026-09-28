@@ -27,7 +27,7 @@
 - Test: `app/src/voice/FusionAvatar.test.tsx`
 
 1. Önce `FusionAvatar.test.tsx` içinde her durumun doğru erişilebilir etiketi ve doğru `data-state` değeri verdiğini; `talking` durumunun iki kare arasında geçtiğini yaz ve kırmızı testi çalıştır: `cd app && npm test -- FusionAvatar.test.tsx`.
-2. `imagegen` ile `/Users/motogate/Downloads/fusiontalkingtype.png` referans alınarak şeffaf arka planlı, aynı açı/ışık/gövde oranına sahip yedi ifade üret. Kulakların ve neon halesinin hiçbir karede kırpılmadığını 1:1 önizlemede kontrol et.
+2. `imagegen` ile `/Users/kullanici/Downloads/fusiontalkingtype.png` referans alınarak şeffaf arka planlı, aynı açı/ışık/gövde oranına sahip yedi ifade üret. Kulakların ve neon halesinin hiçbir karede kırpılmadığını 1:1 önizlemede kontrol et.
 3. Görselleri yalnız yukarıdaki hedef adlara yerleştir; eski `app/src/brand/pixel/*.png` dosyalarını henüz silme.
 4. `FusionAvatar` eşlemesini yeni varlıklara geçir; `talking-a/b` animasyonunu `prefers-reduced-motion` altında sabit kareye düşür.
 5. Testi yeniden çalıştır; beklenen sonuç tüm `FusionAvatar` testlerinin geçmesidir.

@@ -190,7 +190,7 @@ _FILE_MUTATION_PATTERNS = (
     ),
 )
 
-# İngilizce kod görevleri de aynı kanıt kapısına girmeli. GATE HOLDING uzun
+# İngilizce kod görevleri de aynı kanıt kapısına girmeli. ORNEK PROJE uzun
 # koşusundaki "Implement a coherent stock import flow" hiçbir Türkçe fiile
 # uymadığı için mutasyon gereksinimi kurulmamış, ajan salt keşifte oyalanmıştı.
 _EN_FILE_MUTATION_PATTERNS = (
