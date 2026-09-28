@@ -94,4 +94,28 @@ describe("App runtime kapısı", () => {
 
     expect(await screen.findByRole("dialog", { name: "Fusion'ı kapat?" })).toBeTruthy();
   });
+
+  /* Ölçüldü (28 Eylül, Windows): "Çekirdek bağlantısı kapatıldı" dışında hiçbir
+     iz yoktu. Bağlantı kurulamayınca çekirdeğin son hata çıktısı gösterilmeli. */
+  it("çekirdeğe bağlanılamazsa son hata çıktısı gösterilir", async () => {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} });
+    tauri.invoke.mockImplementation(async (command: string) => {
+      if (command === "oturum_olustur") throw new Error("Çekirdek bağlantısı kapatıldı.");
+      if (command === "cekirdek_gunlugu") return "Traceback: ornek_modul hatası";
+      return undefined;
+    });
+    // Çekirdek olaylarına abone olunamaması = bağlantı kurulamadı.
+    tauri.listen.mockRejectedValue(new Error("Çekirdek bağlantısı kapatıldı."));
+    const transport: RuntimeTransport = {
+      status: vi.fn().mockResolvedValue({ state: "hazir", version: "0.3.0a1", message: "Hazır", can_repair: false }),
+      prepare: vi.fn(),
+      repair: vi.fn(),
+      listenProgress: vi.fn().mockResolvedValue(() => undefined),
+    };
+
+    render(<App runtimeTransport={transport} />);
+
+    expect(await screen.findByText("Çekirdeğin son hata çıktısı")).toBeTruthy();
+    expect(screen.getByText("Traceback: ornek_modul hatası")).toBeTruthy();
+  });
 });

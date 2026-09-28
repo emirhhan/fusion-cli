@@ -576,6 +576,10 @@ export function SessionUygulama({
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
   const [approval, setApproval] = useState<ApprovalMode>("auto");
   const [closeAsked, setCloseAsked] = useState(false);
+  /** Çekirdek bağlantısı koptuğunda çekirdeğin son hata çıktısı (varsa). */
+  const [cekirdekGunlugu, setCekirdekGunlugu] = useState<string | null>(null);
+  /** Çökme bildirimi kapatılan konuşma; aynı çökme bir daha gösterilmez. */
+  const [cokmeKapatilan, setCokmeKapatilan] = useState<string | null>(null);
   const [showOnboarding, setShowOnboarding] = useState(onboarding);
   const voiceRequest = useRef<{
     afterIndex: number;
@@ -1020,6 +1024,20 @@ export function SessionUygulama({
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active?.id, controller]);
 
+  // Ölçüldü (28 Eylül, Windows): "Çekirdek bağlantısı kapatıldı" dışında hiçbir
+  // iz yoktu; çekirdeğin hata çıktısı atılıyordu. Artık günlüğe yazılıyor ve
+  // bağlantı koptuğunda sonu burada gösterilip hata raporuna ekleniyor.
+  const aktifCoktu = active?.status === "crashed";
+  const baglantiKoptu = Boolean(controller.state.connectionError) || aktifCoktu;
+  useEffect(() => {
+    if (!baglantiKoptu) return;
+    let alive = true;
+    invoke<string | null>("cekirdek_gunlugu")
+      .then((metin) => { if (alive) setCekirdekGunlugu(metin ?? null); })
+      .catch(() => undefined);
+    return () => { alive = false; };
+  }, [baglantiKoptu]);
+
   // Kapatma Rust'ta DURDURULUR ve onay burada sorulur; bu yüzden onay HER ekranda
   // çizilmelidir. Ölçüldü (28 Eylül, Windows): hata/hazırlanıyor/hesap/rehber
   // ekranlarında onay hiç çizilmiyordu ve uygulama kapanmıyordu.
@@ -1036,9 +1054,19 @@ export function SessionUygulama({
     return (
       <div className="app-status-screen">
         <p>Hata: {baglantiHatasi}</p>
+        {cekirdekGunlugu && (
+          <details className="app-status-screen__log">
+            <summary>Çekirdeğin son hata çıktısı</summary>
+            <pre>{cekirdekGunlugu}</pre>
+          </details>
+        )}
         <button
           className="conversation__report"
-          onClick={() => setFeedback({ tur: "hata", mesaj: "Fusion çekirdeğine bağlanılamadı.", ayrinti: baglantiHatasi })}
+          onClick={() => setFeedback({
+            tur: "hata",
+            mesaj: "Fusion çekirdeğine bağlanılamadı.",
+            ayrinti: cekirdekGunlugu ? `${baglantiHatasi}\n\n${cekirdekGunlugu}` : baglantiHatasi,
+          })}
           type="button"
         >
           Hatayı bildir
@@ -1357,6 +1385,23 @@ export function SessionUygulama({
           )}
           {kapatmaOnayi}
           {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
+          {aktifCoktu && cokmeKapatilan !== active.id && !crash && !feedback && (
+            // Ölçüldü (28 Eylül): çekirdek konuşma sırasında kapanınca yalnız
+            // başlıkta "Bağlantı kesildi" yazıyordu; sebep hiçbir yerde yoktu.
+            <Notification
+              baslik="Fusion çekirdeği kapandı"
+              metin={active.error ?? "Bu konuşmanın çekirdeği beklenmedik şekilde kapandı."}
+              eylem={{
+                etiket: "Hatayı bildir",
+                onSelect: () => setFeedback({
+                  tur: "hata",
+                  mesaj: "Fusion çekirdeği konuşma sırasında kapandı.",
+                  ayrinti: [active.error, cekirdekGunlugu].filter(Boolean).join("\n\n"),
+                }),
+              }}
+              onDismiss={() => setCokmeKapatilan(active.id)}
+            />
+          )}
           {crash && !feedback && (
             <Notification
               baslik="Fusion bir hatayla karşılaştı"

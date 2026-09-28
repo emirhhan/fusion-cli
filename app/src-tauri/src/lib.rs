@@ -108,6 +108,14 @@ fn oturum_olustur(
     sessions.start(app, &executable, &oturum_id, root)
 }
 
+/// Bağlantı koptuğunda gösterilecek çekirdek hata çıktısının sonu (varsa).
+#[tauri::command]
+fn cekirdek_gunlugu() -> Option<String> {
+    /// Hata ekranında okunabilir kalacak kadar: son birkaç yüz satırlık iz.
+    const GUNLUK_SONU_BAYT: usize = 6_000;
+    session_manager::son_cekirdek_gunlugu(GUNLUK_SONU_BAYT)
+}
+
 #[tauri::command]
 fn oturuma_yaz(
     oturum_id: String,
@@ -700,6 +708,7 @@ pub fn run() {
             tanima_durdur,
             tanima_durum,
             kapatmayi_onayla,
+            cekirdek_gunlugu,
             runtime_durum,
             runtime_hazirla,
             runtime_onar,

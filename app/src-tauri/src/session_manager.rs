@@ -323,6 +323,31 @@ fn cekirdek_gunlugu(session_id: &str) -> Stdio {
     }
 }
 
+/// En son yazılan çekirdek günlüğünün sonu; arayüz bağlantı koptuğunda gösterir.
+///
+/// Sır sızmaması için çekirdek zaten hata çıktısına sır yazmaz (RULES.md "Sırlar");
+/// burada yalnız son `sinir` bayt döner, tam dosya değil.
+pub(crate) fn son_cekirdek_gunlugu(sinir: usize) -> Option<String> {
+    let dizin = gunluk_dizini()?;
+    let en_yeni = std::fs::read_dir(&dizin)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|giris| {
+            let ad = giris.file_name();
+            let ad = ad.to_string_lossy();
+            ad.starts_with("core-") && ad.ends_with(".log")
+        })
+        .filter_map(|giris| Some((giris.metadata().ok()?.modified().ok()?, giris.path())))
+        .max_by_key(|(zaman, _)| *zaman)?
+        .1;
+    let icerik = std::fs::read(&en_yeni).ok()?;
+    let baslangic = icerik.len().saturating_sub(sinir);
+    let metin = String::from_utf8_lossy(&icerik[baslangic..])
+        .trim()
+        .to_string();
+    (!metin.is_empty()).then_some(metin)
+}
+
 /// `…/Fusion/logs`: çalışma zamanı kökünün (`…/Fusion/runtime`) kardeşi.
 fn gunluk_dizini() -> Option<PathBuf> {
     let home = varsayilan_kok().ok()?;
