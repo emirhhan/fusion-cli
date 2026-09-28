@@ -24,4 +24,6 @@ jobs:
       - name: Açılış isteklerini dene
         env:
           PYTHONUTF8: "1"
-        run: python desktop_build/windows/smoke_core.py fusion app
+        # Takılırsa 90 sn sonra tüm iş parçacıklarının yığını hata çıktısına dökülür
+        # ve çekirdek kapanır; betik bu çıktıyı basar.
+        run: python desktop_build/windows/smoke_core.py python -X faulthandler -c "import faulthandler, sys; faulthandler.dump_traceback_later(90, exit=True); sys.argv = ['fusion', 'app']; from fusion_cli.cli.app import main; main()"
