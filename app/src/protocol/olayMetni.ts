@@ -42,6 +42,22 @@ export interface OlayAdimi {
    *  Veri zaten akışta taşınıyordu (`ModelCallFinished.result.reasoning`) ama
    *  masaüstünde hiç okunmuyordu; CLI'de `--show-thinking` ile görünüyordu. */
   dusunme?: string;
+  /** Aracın (sınırlı) çıktısı; akışta görünmez, adım satırı açılınca görünür. */
+  cikti?: string;
+  /** Kabuk aracının çalıştırdığı komut; adım satırı açılınca görünür. */
+  komut?: string;
+  /** Araç olmayan ama kalıcı iz bırakan adım (öğretmen, hafıza, resmi kaynak). */
+  kalici?: boolean;
+}
+
+/** Adım içinde gösterilen araç çıktısı üst sınırı (karakter).
+ *
+ *  Çekirdek uzun çıktıyı zaten diske (artefakt) alır; arayüzde amaç kanıtın
+ *  başını göstermektir. Sınır, açılan bir adımın ekranı kaplamaması içindir. */
+const CIKTI_SINIRI = 4000;
+
+function sinirla(metin: string): string {
+  return metin.length <= CIKTI_SINIRI ? metin : `${metin.slice(0, CIKTI_SINIRI)}\n…`;
 }
 
 /**
@@ -255,9 +271,14 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       const metin = durumAdi === "ok"
         ? aracVarsayilanMetni(ad, veri.args)
         : `${ARAC_SONUCU[durumAdi] ?? ARAC_SONUCU.ok}: ${ad}`;
+      const hamCikti = typeof veri.output === "string" ? veri.output.trim() : "";
+      const komut = metinAl(rawArgs, "command", "komut");
       return {
         metin, ayrinti, kaynak, diff, yol: diff ? (hamYol ?? ayrinti) : undefined,
         arac: ad, durum: durumAdi,
+        // Diff varsa çıktı tekrar gösterilmez: yazma aracının çıktısı zaten özetidir.
+        cikti: !diff && hamCikti ? sinirla(hamCikti) : undefined,
+        komut,
       };
     }
     case "ModelCallStarted": {
@@ -320,13 +341,21 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
       };
     case "TeacherPlanPrepared":
       return {
-        metin: veri.structured === true ? "öğretmenden plan alındı" : "öğretmen plan notu alındı",
+        metin: veri.structured === true ? "öğretmene danışıldı: plan alındı" : "öğretmene danışıldı: plan notu alındı",
         ayrinti: veri.structured === true ? `${Number(veri.steps ?? 0)} adım` : undefined,
+        kalici: true,
       };
+    case "PlatformChecked": {
+      const platformlar = Array.isArray(veri.platforms) ? veri.platforms.join(", ") : "dış platform";
+      return veri.method === "resmi-kaynak"
+        ? { metin: "resmi kaynak kontrol edildi", ayrinti: `${platformlar} · ${Number(veri.sources ?? 0)} kaynak`, kalici: true }
+        : { metin: "resmi kaynağa ulaşılamadı", ayrinti: `${platformlar} kısıtları doğrulanmadı`, kalici: true };
+    }
     case "TeacherMemoryUsed":
       return {
         metin: "hafızadan ilerleniyor",
         ayrinti: `${Number(veri.steps ?? 0)} adım · benzerlik ${Number(veri.similarity ?? 0).toFixed(2)}`,
+        kalici: true,
       };
     case "TeacherLessonRecorded":
       return {
@@ -340,11 +369,13 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
           veri.reused === true && veri.success !== true
             ? "sonraki benzer işte öğretmene yeniden sorulacak"
             : undefined,
+        kalici: true,
       };
     case "TeacherLimitationFound":
       return {
         metin: `${String(veri.topic ?? "İş")} yapılamıyor`,
         ayrinti: `${String(veri.reason ?? "")}. Alternatif: ${String(veri.alternative ?? "")}`,
+        kalici: true,
       };
     case "ExecutionPromoted":
       return {

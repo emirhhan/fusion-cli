@@ -55,4 +55,35 @@ describe("ActivityLine — kalıcı adım izi (Claude gibi)", () => {
     const ozet = container.querySelector(".activity__summary summary");
     expect(ozet?.textContent).toBe("2 adım · 'x' web'de aranıyor");
   });
+
+  test("ayrıntısı olan adım tek satırdır ve tıklanınca diff/komut/çıktı görünür", () => {
+    const adimlar = [
+      { metin: "src/app.py yazılıyor", arac: "write_file", durum: "ok", diff: "--- a\n+++ b\n+x = 1" },
+      { metin: "pytest çalıştırılıyor", arac: "run_shell", durum: "ok", komut: "pytest -q", cikti: "3 passed" },
+      { metin: "a.py okunuyor", arac: "read_file", durum: "ok" },
+    ];
+    const { container } = render(<ActivityLine aktif={false} adimlar={adimlar} />);
+    const satirlar = container.querySelectorAll(".activity__trail > li");
+    expect(satirlar).toHaveLength(3);
+    const acilir = container.querySelectorAll(".activity__trail-item");
+    expect(acilir).toHaveLength(2);
+    expect(acilir[0].querySelector("summary")?.textContent).toContain("src/app.py yazılıyor");
+    expect(acilir[0].querySelector('.diff-card__line[data-kind="add"]')?.textContent).toBe("+x = 1");
+    expect(acilir[1].querySelector(".activity__trail-command")?.textContent).toBe("$ pytest -q");
+    expect(acilir[1].querySelector(".activity__trail-output")?.textContent).toBe("3 passed");
+    expect((acilir[0] as HTMLDetailsElement).open).toBe(false);
+  });
+
+  test("öğretmen ve hafıza adımları araç olmasa da izde kalır", () => {
+    const adimlar = [
+      { metin: "düşünüyor" },
+      { metin: "öğretmene danışıldı: plan alındı", ayrinti: "3 adım", kalici: true },
+      { metin: "hafızadan ilerleniyor", ayrinti: "3 adım · benzerlik 0.62", kalici: true },
+    ];
+    const { container } = render(<ActivityLine aktif={false} adimlar={adimlar} />);
+    const ozet = container.querySelector(".activity__summary summary");
+    expect(ozet?.textContent).toBe("2 adım · hafızadan ilerleniyor");
+    expect(container.querySelector(".activity__trail")?.textContent).toContain("öğretmene danışıldı");
+    expect(container.querySelector(".activity__trail")?.textContent).not.toContain("düşünüyor");
+  });
 });

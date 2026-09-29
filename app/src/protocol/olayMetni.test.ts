@@ -5,8 +5,26 @@ describe("olayAdimi", () => {
   it("öğretmen görev kararı ve planını kısa adım olarak gösterir", () => {
     expect(olayAdimi({ olay: "TeacherTaskClassified", size: "orta-buyuk", reasons: ["istenen etki: workspace_mutation"] })?.metin)
       .toBe("orta-büyük görev belirlendi");
-    expect(olayAdimi({ olay: "TeacherPlanPrepared", steps: 2, structured: true })?.metin)
-      .toBe("öğretmenden plan alındı");
+    // Öğretmen danışması da kalıcı bir adım satırıdır: "Öğretmene danışıldı: plan alındı ›".
+    const plan = olayAdimi({ olay: "TeacherPlanPrepared", steps: 2, structured: true });
+    expect(plan?.metin).toBe("öğretmene danışıldı: plan alındı");
+    expect(plan?.kalici).toBe(true);
+  });
+  it("araç çıktısını ve komutu adım içinde sınırlı taşır", () => {
+    const adim = olayAdimi({
+      olay: "ToolExecuted", name: "run_shell", outcome: "ok",
+      args: { command: "pytest -q" }, output: "x".repeat(5000),
+    });
+    expect(adim?.komut).toBe("pytest -q");
+    expect(adim?.cikti?.length).toBeLessThan(4100);
+    expect(adim?.cikti?.endsWith("…")).toBe(true);
+  });
+  it("dış platform kontrolünü kısa adım olarak gösterir", () => {
+    const tamam = olayAdimi({ olay: "PlatformChecked", platforms: ["Instagram"], method: "resmi-kaynak", sources: 1 });
+    expect(tamam?.metin).toBe("resmi kaynak kontrol edildi");
+    expect(tamam?.ayrinti).toBe("Instagram · 1 kaynak");
+    const yok = olayAdimi({ olay: "PlatformChecked", platforms: ["Shopify"], method: "dogrulanamadi", sources: 0 });
+    expect(yok?.ayrinti).toBe("Shopify kısıtları doğrulanmadı");
   });
   it("hafızadan ilerlemeyi ve ders kaydını kısa adım olarak gösterir", () => {
     const hafiza = olayAdimi({ olay: "TeacherMemoryUsed", steps: 3, similarity: 0.625 });

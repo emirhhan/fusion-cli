@@ -46,6 +46,8 @@ export interface Mesaj {
   diff?: string;
   /** Model hâlâ yazıyor: balon geçicidir, tur bitince nihai cevap gelir. */
   akan?: boolean;
+  /** Araç adımlarının arasındaki kısa ara anlatım; nihai cevap değildir. */
+  ara?: boolean;
   /** Yalnız `rol === "gorevler"` için: modelin güncel görev listesi. */
   gorevler?: GorevMaddesi[];
   /** Yalnız `rol === "oneriler"` için: turun kanıtından türeyen sonraki adımlar. */
@@ -252,7 +254,10 @@ export function Conversation({
             );
           }
           return (
-            <div className="conversation__message conversation__message--assistant" key={index}>
+            <div
+              className={`conversation__message conversation__message--assistant${message.ara ? " conversation__message--narration" : ""}`}
+              key={index}
+            >
               <AssistantMessage
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}

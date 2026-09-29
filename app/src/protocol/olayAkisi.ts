@@ -11,7 +11,8 @@ import { olayAdimi, type OlayAdimi } from "./olayMetni";
  * Turun sonucu ("görev tamamlandı") bloğa KATILMAZ: o bir adım değil, akışın
  * kapanışıdır ve kendi satırında durur.
  */
-export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+  const messages = event.olay === "ToolStarted" ? araAnlatimiSabitle(gelen) : gelen;
   const akanSonuc = akanCevap(messages, event);
   if (akanSonuc) return akanSonuc;
 
@@ -39,16 +40,30 @@ export function olayEkle(messages: Mesaj[], event: Record<string, unknown>): Mes
     // bileşen yeniden bağlansa bile (sekme değişimi) bu sabit zamandan
     // hesaplar; `Date.now()` bir bileşen ref'inde tutulsaydı yeniden
     // bağlanınca kaybolurdu.
-    const acilan: Mesaj[] = [
+    // Diff akışa ayrı kart olarak DÜŞMEZ: adım satırının içinde durur ve satır
+    // açılınca görünür (Claude'daki gibi). Kod ve uzun çıktı akışı kaplamaz.
+    return [
       ...messages,
       { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani },
     ];
-    return adim.diff ? [...acilan, degisiklikMesaji(adim)] : acilan;
   }
 
   const adimlar = adimiEkle(son.adimlar ?? [], adim);
-  const guncel: Mesaj[] = [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
-  return adim.diff ? [...guncel, degisiklikMesaji(adim)] : guncel;
+  return [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
+}
+
+/**
+ * Araç başlarken akmakta olan metin bir ARA ANLATIMDIR ("Şimdi testleri
+ * çalıştırıyorum…"): aynı model çağrısı metinden sonra araç istedi. Eskiden bu
+ * metin sonraki model çağrısında siliniyordu ve kullanıcı adımlar arasındaki
+ * açıklamayı hiç göremiyordu. Nihai cevap asla araçtan önce gelmediği için
+ * yalnız bu noktada sabitlemek, nihai cevabı iki kez göstermez.
+ */
+function araAnlatimiSabitle(messages: Mesaj[]): Mesaj[] {
+  const son = messages[messages.length - 1];
+  if (son?.rol !== "asistan" || !son.akan) return messages;
+  if (!son.metin.trim()) return messages.slice(0, -1);
+  return [...messages.slice(0, -1), { rol: "asistan", metin: son.metin, ara: true }];
 }
 
 /** Araç çıktısındaki işaretlerin durum karşılığı. */
@@ -116,15 +131,6 @@ function akanCevap(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] |
   return null;
 }
 
-/**
- * Değişiklik KALICI bir mesajdır, çalışma bloğunun parçası değil.
- *
- * Çalışma göstergesi iş bitince kaybolur; dosyaya ne yazıldığı kaybolmamalı.
- * Kullanıcının elinde kalan tek kanıt budur.
- */
-function degisiklikMesaji(adim: OlayAdimi): Mesaj {
-  return { rol: "degisiklik", metin: adim.yol ?? "", diff: adim.diff };
-}
 
 
 /**

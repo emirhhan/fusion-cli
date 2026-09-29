@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { parseDiff } from "../markdown/DiffCard";
 import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
 
 /**
@@ -76,16 +77,56 @@ function StepList({ adimlar }: { adimlar: OlayAdimi[] }) {
 /** Araç adımının durumu için küçük işaret. */
 const DURUM_ISARETI: Record<string, string> = { ok: "✓", failed: "✗", denied: "—", blocked: "—" };
 
-/** Claude'daki gibi kalıcı adım izi: her araç tek soluk satır. */
+/** Adımın açılınca gösterdiği kanıt: diff, komut ve çıktı. Akışta görünmez. */
+function StepDetail({ adim }: { adim: OlayAdimi }) {
+  return (
+    <div className="activity__trail-body">
+      {adim.ayrinti && !adim.arac && <p className="activity__trail-note">{adim.ayrinti}</p>}
+      {adim.komut && <pre className="activity__trail-command">$ {adim.komut}</pre>}
+      {adim.diff && (
+        <pre className="activity__trail-diff">
+          {parseDiff(adim.diff).map((row, index) => (
+            <span className="diff-card__line" data-kind={row.kind} key={index}>{row.text || " "}</span>
+          ))}
+        </pre>
+      )}
+      {adim.cikti && <pre className="activity__trail-output">{adim.cikti}</pre>}
+    </div>
+  );
+}
+
+/** Adımın açılacak bir ayrıntısı var mı? Yoksa satır düz kalır, › çizilmez. */
+function acilabilir(adim: OlayAdimi): boolean {
+  return Boolean(adim.diff || adim.cikti || adim.komut || (!adim.arac && adim.ayrinti));
+}
+
+/** Claude'daki gibi kalıcı adım izi: her adım tek satır, tıklayınca açılır. */
 function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
   return (
     <ol className="activity__trail">
-      {adimlar.map((adim, index) => (
-        <li data-state={adim.durum ?? "running"} key={index}>
-          <span className="activity__trail-text">{adim.metin}</span>
-          {adim.durum && <span aria-hidden="true" className="activity__trail-mark">{DURUM_ISARETI[adim.durum] ?? ""}</span>}
-        </li>
-      ))}
+      {adimlar.map((adim, index) => {
+        const isaret = adim.durum && (
+          <span aria-hidden="true" className="activity__trail-mark">{DURUM_ISARETI[adim.durum] ?? ""}</span>
+        );
+        return (
+          <li data-state={adim.durum ?? (adim.kalici ? "ok" : "running")} key={index}>
+            {acilabilir(adim) ? (
+              <details className="activity__trail-item">
+                <summary>
+                  <span className="activity__trail-text">{adim.metin}</span>
+                  {isaret}
+                </summary>
+                <StepDetail adim={adim} />
+              </details>
+            ) : (
+              <>
+                <span className="activity__trail-text">{adim.metin}</span>
+                {isaret}
+              </>
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -117,8 +158,9 @@ export function ActivityLine({ adimlar, aktif = true, baslangicZamani, showSteps
   const running = durum === "running" && aktif;
   const seconds = useElapsedSeconds(running, baslangicZamani);
   const sonuncu = adimlar[adimlar.length - 1];
-  // Yalnız araç adımları kalıcı iz bırakır; "düşünüyor" satırları geçicidir.
-  const araclar = adimlar.filter((adim) => adim.arac);
+  // Araç adımları ve öğretmen/hafıza/resmi kaynak adımları kalıcı iz bırakır;
+  // "düşünüyor" satırları geçicidir.
+  const araclar = adimlar.filter((adim) => adim.arac || adim.kalici);
 
   if (running) {
     const bitenler = sonuncu?.basladi ? araclar.slice(0, -1) : araclar;

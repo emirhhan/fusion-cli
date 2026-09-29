@@ -78,7 +78,10 @@ describe("olayEkle", () => {
 });
 
 describe("değişiklik kartı", () => {
-  it("başarılı yazmanın diff'ini kalıcı bir mesaj olarak ekler", () => {
+  /* Davranış değişikliği: diff eskiden akışa ayrı, kalıcı bir kart olarak
+     düşüyordu. Claude'daki gibi kod akışta görünmez; diff adım satırının içinde
+     durur ve satır açılınca görünür (bkz. `ActivityLine`). */
+  it("başarılı yazmanın diff'ini adımın içinde taşır, akışa kart eklemez", () => {
     const sonuc = olayEkle([], {
       olay: "ToolExecuted",
       name: "write_file",
@@ -87,9 +90,10 @@ describe("değişiklik kartı", () => {
       diff: "--- a\n+++ b\n+var speed = 320",
     });
 
-    const degisiklik = sonuc.find((mesaj) => mesaj.rol === "degisiklik");
-    expect(degisiklik?.metin).toBe("scripts/Player.gd");
-    expect(degisiklik?.diff).toContain("var speed = 320");
+    expect(sonuc.some((mesaj) => mesaj.rol === "degisiklik")).toBe(false);
+    const adim = sonuc[0].adimlar?.[0];
+    expect(adim?.yol).toBe("scripts/Player.gd");
+    expect(adim?.diff).toContain("var speed = 320");
   });
 
   /* Engellenen bir yazmanın diff'ini göstermek, yapılmamış bir değişikliği
@@ -133,6 +137,28 @@ describe("akan cevap", () => {
     const akan = mesajlar.filter((mesaj) => mesaj.rol === "asistan");
     expect(akan).toHaveLength(1);
     expect(akan[0].metin).toBe("ikinci cevap");
+  });
+
+  it("araçtan önce akan metin ara anlatım olarak adımların arasında kalır", () => {
+    let mesajlar = olayEkle([], PARCA("Şimdi testleri çalıştırıyorum."));
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "run_shell", args: { command: "pytest" }, metin: "pytest çalıştırılıyor" });
+    mesajlar = olayEkle(mesajlar, DUSUNUYOR);
+    mesajlar = olayEkle(mesajlar, { olay: "TurnFinished" });
+
+    const anlatim = mesajlar.filter((mesaj) => mesaj.rol === "asistan");
+    expect(anlatim).toHaveLength(1);
+    expect(anlatim[0].metin).toBe("Şimdi testleri çalıştırıyorum.");
+    expect(anlatim[0].ara).toBe(true);
+    expect(anlatim[0].akan).toBeUndefined();
+    expect(mesajlar.findIndex((mesaj) => mesaj.rol === "asistan"))
+      .toBeLessThan(mesajlar.findIndex((mesaj) => mesaj.rol === "olay"));
+  });
+
+  it("araç istemeyen nihai cevap ara anlatıma dönüşmez", () => {
+    let mesajlar = olayEkle([], PARCA("Nihai cevap."));
+    mesajlar = olayEkle(mesajlar, { olay: "TurnFinished" });
+
+    expect(mesajlar.some((mesaj) => mesaj.rol === "asistan")).toBe(false);
   });
 
   it("arka plan çağrısının metni akışa girmez", () => {
