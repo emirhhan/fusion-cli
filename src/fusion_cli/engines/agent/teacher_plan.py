@@ -31,6 +31,8 @@ def classify_teacher_task(task: str) -> TeacherTaskDecision:
     # Birden fazla numaralı madde, sözcük tahmini olmadan açık bir iş dizisidir.
     if len(re.findall(r"(?m)^\s*\d+[.)]\s+", task)) > 1:
         reasons.append("birden fazla açık adım")
+    if len([part for part in task.split(";") if part.strip()]) > 1:
+        reasons.append("noktalı virgülle ayrılmış adımlar")
     return TeacherTaskDecision(
         size="orta-buyuk" if reasons else "basit",
         reasons=tuple(reasons),

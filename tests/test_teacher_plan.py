@@ -18,6 +18,7 @@ from fusion_cli.engines.agent.teacher_plan import (
         ("Merhaba", "basit"),
         ("README dosyasını oku ve özetle", "basit"),
         ("src/app.py dosyasındaki hatayı düzelt", "orta-buyuk"),
+        ("src/app.py içindeki add hatasını düzelt; mevcut testi çalıştır", "orta-buyuk"),
         ("Shopify API ile ürün yayımlama akışını kur ve doğrula", "orta-buyuk"),
     ],
 )
