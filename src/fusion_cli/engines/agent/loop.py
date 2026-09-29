@@ -252,6 +252,9 @@ class AgentOutcome:
     todos: tuple[TodoItem, ...] = ()
     #: Turda modele "ilerleme yok" uyarısı verildi mi? Ders çıkarımı bu turu atlar.
     stalled: bool = False
+    #: Tur model hatasıyla bittiyse HAM hata metni. Kullanıcıya dostça mesaj gider;
+    #: hatanın kalıcı mı geçici mi olduğu kararı bu ham metinden verilir.
+    model_error: str | None = None
 
     @property
     def made_no_changes(self) -> bool:
@@ -799,6 +802,8 @@ class _State:
     capability_wall: bool = False
     #: Bu çağrıda nihai cevap metni GERÇEKTEN aktı mı? `TurnAnswered` buna bakar.
     answer_streamed: bool = False
+    #: Son model çağrısında metin aktı mı? Aktıysa çağrı yeniden denenmez.
+    call_streamed: bool = False
     #: Arka arkaya başarısız olan DEĞİŞTİRİCİ çağrı sayısı. Düzenleme döngüsü kapısı.
     failed_mutations_in_row: int = 0
     #: Döngü kapısı bu turda kaç kez konuştu.
@@ -883,50 +888,18 @@ async def _drive(
         # Çağrıyı yalnızca MUTLAK tur sınırı daraltır. Boşta-kalma sınırı araç
         # turları arasındaki ilerlemesizliği ölçer; hâlâ yazan bir modeli kesmek
         # için kullanılmaz — takılan akışı `_call_model`'in parça başı sınırı yakalar.
-        remaining = budget.remaining_s()
-        call_timeout = (
-            min(deps.config.runtime.request_timeout_s, remaining)
-            if remaining
-            else (deps.config.runtime.request_timeout_s)
-        )
-        # Mutlak tur sınırı varsa dış sınır odur: yazmaya devam eden cevap kesilmez,
-        # sessiz kalan akışı parça başı sınır keser. Sınır yoksa (CLI) sonsuza dek
-        # damlayan akışa karşı zincir uzunluğuyla büyüyen eski üst sınır korunur —
-        # her model kendi süresini alır (bkz. `providers.chain`).
-        attempts = 1 + len(_active_spec(deps, execution).fallback)
-        chain_timeout = remaining if remaining else call_timeout * attempts
-
         try:
-            # Transport idle timeouts do not bound a stream that keeps trickling
-            # tokens forever. Bound the complete model call as well.
-            async with asyncio.timeout(max(0.01, chain_timeout)):
-                result = await _call_model(
-                    messages,
-                    deps,
-                    registry,
-                    allowed_tools,
-                    state=state,
-                    execution=execution,
-                    offer_tools=execution.offer_tools,
-                    timeout_s=call_timeout,
-                )
-        except TimeoutError:
-            # Bu çağrının SÜRESİ (`chain_timeout`) `idle_timeout_s`'ten büyük olabilir
-            # (ör. sohbet kipi: 120s çağrı sınırı, 60s boşta-kalma sınırı). O durumda
-            # `time_stop_reason()` az önce BİTEN bu tek çağrının süresini "art arda
-            # ilerleme yok" (INACTIVITY) sayar — oysa henüz TEK bir çağrı denendi,
-            # birden çok turda ilerlemesizlik YOKTU. Ölçüldü (27 Eylül, NIM'in
-            # `glm-5.3`/`deepseek-v4.1-flash` uçları hiç yanıt vermeden takıldığında):
-            # `_halt` boş `final_text` ile dönüyor, kullanıcı hiçbir açıklama olmadan
-            # genel "model bir cevap üretmedi" mesajını görüyordu — asıl sebep
-            # (bu modelin süresinde yanıt vermediği) kayboluyordu.
-            #
-            # Asıl MUTLAK bütçe (`BudgetStop.DEADLINE`) veya araç-turu sayısı gibi
-            # gerçek çok-turlu sınırlar hâlâ `_halt` üzerinden yayınlanır (ders
-            # çıkarımı/öz-denetim bu bayrağa bakar); yalnızca kullanıcıya giden METİN
-            # asla boş kalmaz — bu çağrının özel açıklaması her durumda korunur.
+            result = await _call_with_retries(
+                messages, deps, registry, allowed_tools, state=state, execution=execution
+            )
+        except _CallTimeoutError as timed_out:
+            # Bu çağrının SÜRESİ `idle_timeout_s`'ten büyük olabilir; o durumda
+            # `time_stop_reason()` BİTEN tek çağrıyı "art arda ilerleme yok" sayar.
+            # Ölçüldü (27 Eylül): `_halt` boş metinle dönüyor, kullanıcı asıl sebebi
+            # (modelin süresinde yanıt vermediği) göremiyordu. Gerçek çok-turlu
+            # sınırlar `_halt` üzerinden yayınlanır; kullanıcıya giden METİN boş kalmaz.
             timeout_message = (
-                f"Model yanıtı {call_timeout:g} saniyede tamamlanmadı. "
+                f"Model yanıtı {timed_out.seconds:g} saniyede tamamlanmadı. "
                 "Bu çağrı durduruldu; farklı bir model seçip yeniden deneyebilirsin."
             )
             reason = budget.time_stop_reason()
@@ -961,7 +934,9 @@ async def _drive(
                 ok=False,
             )
         if not result.ok:
-            return _outcome(result.error or "", messages, state, ok=False)
+            failed = _outcome(_model_failure_message(result.error), messages, state, ok=False)
+            failed.model_error = result.error
+            return failed
 
         if not result.is_usable:
             if budget.take_empty_retry():
@@ -1388,6 +1363,142 @@ def _active_spec(deps: AgentDeps, execution: ExecutionPolicy) -> ModelSpec:
     )
 
 
+#: Geçici model hatasında (hız sınırı, sunucu hatası, zaman aşımı) varsayılan yeniden
+#: deneme sayısı; asıl değer `runtime.model_retry_attempts`tan okunur.
+#
+# Claude Code belgesi (code.claude.com/docs/en/errors): geçici hatalar "10 kereye
+# kadar üstel geri çekilmeyle" yeniden denenir; bekleme ekranda geri sayımla
+# gösterilir. Ölçüldü (28 Eylül): Fusion aynı modeli yalnız 3 kez (1,5 sn, 4 sn)
+# deniyordu; NIM'in dakikalık sınırı 60 sn'de sıfırlandığı için 28 dakikalık iş ham
+# "RateLimitError 429" metniyle bitti.
+MAX_TRANSIENT_RETRIES = 10
+#: Üstel geri çekilmenin ilk beklemesi ve tavanı (sn). Tavan, NIM'in dakikalık hız
+#: sınırı penceresidir (60 sn / 40 istek, bkz. `defaults.yaml` `retry_delays_s`):
+#: daha uzun beklemek sınırın sıfırlanmasından sonra boşuna vakit kaybettirir.
+RETRY_BASE_DELAY_S = 2.0
+RETRY_MAX_DELAY_S = 60.0
+
+
+class _CallTimeoutError(Exception):
+    """Model çağrısı tüm denemelerde süresinde tamamlanmadı."""
+
+    def __init__(self, seconds: float) -> None:
+        super().__init__(seconds)
+        self.seconds = seconds
+
+
+def retry_delay_s(attempt: int) -> float:
+    """`attempt`. yeniden denemeden önceki bekleme (0'dan başlar)."""
+    return min(RETRY_BASE_DELAY_S * float(2**attempt), RETRY_MAX_DELAY_S)
+
+
+async def _call_with_retries(
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    allowed_tools: set[str] | None,
+    *,
+    state: _State,
+    execution: ExecutionPolicy,
+) -> ModelResult:
+    """Modeli çağır; geçici hatada üstel geri çekilmeyle yeniden dene.
+
+    Metin akmış bir çağrı yeniden DENENMEZ: ekrandaki cevabı ikinci kez baştan
+    yazdırırdı. Kalıcı hata (olmayan model, geçersiz anahtar, günlük kota) da
+    denenmez: beklemek onu çözmez.
+    """
+    budget = deps.require_budget()
+    attempt = 0
+    while True:
+        remaining = budget.remaining_s()
+        call_timeout = (
+            min(deps.config.runtime.request_timeout_s, remaining)
+            if remaining
+            else deps.config.runtime.request_timeout_s
+        )
+        # Mutlak tur sınırı varsa dış sınır odur: yazmaya devam eden cevap kesilmez,
+        # sessiz kalan akışı parça başı sınır keser. Sınır yoksa (CLI) sonsuza dek
+        # damlayan akışa karşı zincir uzunluğuyla büyüyen eski üst sınır korunur.
+        attempts = 1 + len(_active_spec(deps, execution).fallback)
+        chain_timeout = remaining if remaining else call_timeout * attempts
+        state.call_streamed = False
+        result: ModelResult | None = None
+        try:
+            async with asyncio.timeout(max(0.01, chain_timeout)):
+                result = await _call_model(
+                    messages,
+                    deps,
+                    registry,
+                    allowed_tools,
+                    state=state,
+                    execution=execution,
+                    offer_tools=execution.offer_tools,
+                    timeout_s=call_timeout,
+                )
+        except TimeoutError:
+            result = None
+        retryable = not state.call_streamed and (
+            result is None
+            or (not result.is_usable and not is_permanent_error(result.error))
+        )
+        out_of_time = budget.time_stop_reason() is not None
+        max_retries = deps.config.runtime.model_retry_attempts
+        if not retryable or attempt >= max_retries or out_of_time:
+            if result is None:
+                raise _CallTimeoutError(call_timeout)
+            return result
+        delay = retry_delay_s(attempt)
+        attempt += 1
+        neden = "yanıt vermedi" if result is None else _short_reason(result.error)
+        deps.publisher.publish(
+            StatusChanged(
+                f"Model geçici olarak {neden}; {delay:g} sn sonra yeniden deneniyor "
+                f"· deneme {attempt}/{max_retries}"
+            )
+        )
+        await _retry_sleep(delay)
+
+
+async def _retry_sleep(delay_s: float) -> None:
+    """Yeniden denemeden önce bekle (testler bu fonksiyonu sahtesiyle değiştirir)."""
+    await asyncio.sleep(delay_s)
+
+
+def _short_reason(error: str | None) -> str:
+    """Geçici hatanın kullanıcıya gösterilecek kısa adı; ham istisna metni gösterilmez."""
+    lowered = (error or "").lower()
+    if "429" in lowered or "rate" in lowered or "too many" in lowered:
+        return "hız sınırına takıldı"
+    if "timeout" in lowered or "timed out" in lowered:
+        return "zamanında yanıt vermedi"
+    if any(code in lowered for code in ("500", "502", "503", "504", "529", "overload")):
+        return "sunucu hatası verdi"
+    return "yanıt veremedi"
+
+
+def _model_failure_message(error: str | None) -> str:
+    """Tüm denemeler bitince kullanıcıya giden açıklama; ham istisna metni yerine.
+
+    Ölçüldü (28 Eylül): tur "RateLimitError: litellm.RateLimitError: …
+    Nvidia_nimException - Error code: 429" metniyle bitiyordu.
+    """
+    if not error:
+        return "Model bir yanıt üretemedi. Farklı bir model seçip yeniden deneyebilirsin."
+    if is_permanent_error(error):
+        return (
+            f"Model kullanılamıyor ({_short_reason(error)}). "
+            "Farklı bir model seçip yeniden deneyebilirsin."
+        )
+    if _short_reason(error) == "yanıt veremedi":
+        # Tanınmayan hata: sebebi saklamak kullanıcıyı çaresiz bırakır; ayrıntı eklenir.
+        return f"Model yanıt veremedi: {error}"
+    return (
+        f"Model yeniden denemelere rağmen {_short_reason(error)}. "
+        'Biraz sonra "devam et" yazarak kaldığın yerden sürdürebilir ya da farklı '
+        "bir model seçebilirsin."
+    )
+
+
 async def _call_model(
     messages: list[Message],
     deps: AgentDeps,
@@ -1452,6 +1563,7 @@ def _observe_stream_item(item: object, state: _State) -> None:
     # "akıtır mıyım" beyanına güvenmek yanıltıcı olurdu.
     if isinstance(item, TextChunk) and not item.provisional:
         state.answer_streamed = True
+        state.call_streamed = True
 
 
 #: Araç kısıtlaması olsa bile daima sunulan araçlar. Bunlar olmadan agent planlayamaz
@@ -2581,7 +2693,7 @@ async def _fix_findings(
         and not correction.ok
         and deps.budget is not None
         and deps.budget.stop is None
-        and not is_permanent_error(correction.final_text)
+        and not is_permanent_error(correction.model_error or correction.final_text)
     ):
         retry = await _run_verification_correction_attempt(
             correction_task,

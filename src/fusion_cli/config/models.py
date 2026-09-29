@@ -188,6 +188,10 @@ class RuntimeConfig:
     #: Varsayılan KAPALI: kullanıcı kök dışındaki projelerde/dosyalarda da çalışabilsin.
     #: `true` yapıldığında kök dışına erişim `PathAccessError` ile reddedilir.
     restrict_to_root: bool = False
+    #: Agent turunda geçici model hatasında (429, 5xx, zaman aşımı) yeniden deneme
+    #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 10:
+    #: Claude Code'un belgelenmiş varsayılanı (bkz. `loop.MAX_TRANSIENT_RETRIES`).
+    model_retry_attempts: int = 10
 
 
 @dataclass(frozen=True, slots=True)

@@ -581,7 +581,9 @@ async def test_model_hatasi_turu_bitirir(monkeypatch, tmp_path, sink):
 
     sonuc = await run_agent("gorev", _deps(tmp_path, sink))
 
-    assert sonuc.final_text == "saglayici coktu"
+    # Tanınmayan hatada ayrıntı saklanmaz; ham istisna yerine Türkçe açıklama gider.
+    assert sonuc.final_text == "Model yanıt veremedi: saglayici coktu"
+    assert sonuc.model_error == "saglayici coktu"
 
 
 async def test_plan_modunda_degistirici_arac_calismaz(monkeypatch, tmp_path, sink):

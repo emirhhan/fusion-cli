@@ -132,6 +132,8 @@ def make_config(**overrides):
         # ve her testi bekletirdi. Yeniden denemenin kendi davranışı
         # `test_retrying.py` içinde sahte uyutucuyla açıkça sınanır.
         "retry_delays_s": (),
+        # Tur düzeyi yeniden deneme de kapalı; davranışı `test_model_retry.py` sınar.
+        "model_retry_attempts": 0,
         "judge_timeout_s": 5.0,
         "judge_max_tokens": 64,
         "min_successful_candidates": 1,

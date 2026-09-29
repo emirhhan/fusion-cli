@@ -89,6 +89,13 @@ runtime:
   # bu süreler yalnızca beklemenin işe yaradığı arızalar için harcanır.
   # Boş liste ([]) yeniden denemeyi tamamen kapatır.
   retry_delays_s: [1.5, 4.0]
+  # Agent turunda geçici model hatası (429 hız sınırı, 5xx, zaman aşımı) bu kadar
+  # kez daha denenir; beklemeler üstel artar (2, 4, 8 … sn, en fazla 60 sn).
+  # Yukarıdaki kısa denemelerden AYRIDIR: onlar anlık dalgalanmayı, bu dakikalık
+  # hız sınırının sıfırlanmasını bekler. Claude Code'un belgelenmiş varsayılanı 10'dur
+  # (code.claude.com/docs/en/errors). Ölçüldü (28 Eylül): 3 denemeyle 28 dakikalık
+  # iş NIM'in 429 hatasıyla bitti. 0 = yeniden deneme yok.
+  model_retry_attempts: 10
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |
