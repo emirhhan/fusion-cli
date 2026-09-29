@@ -178,6 +178,22 @@ _FILE_MUTATION_PATTERNS = (
         r"\b(?:düzelt|duzelt|güncelle|guncelle|değiştir|degistir|"
         r"sil|kaldır|kaldir|oluştur|olustur|ekle)[a-zçğıöşü]*\b"
     ),
+    # Geliştirme emirleri. Ölçüldü (29 Eylül): "projesini tam anlamıyla geliştir ...
+    # her şeyi oku ... ayarla" görevi yalnız "proje ... oku" kalıbına uydu ve salt
+    # okuma sayıldı; yazma araçları kapandı, model dört koşuda tek dosya yazamadı.
+    # Kalıplar EMİR biçimleriyle sınırlıdır: "uygulama" (isim) ve "ayarlar" (isim)
+    # eşleşmez.
+    (
+        r"\b(?:geliştir|gelistir|iyileştir|iyilestir)(?:in|elim|ir misin|ir mısın)?\b|"
+        r"\b(?:uygula|ayarla)(?:yın|yin|yalım|yalim)?\b"
+    ),
+    # İstek bildiren kalıp: "<nesne> ... istiyorum / olsun". "bir fonksiyon daha
+    # istiyorum", "Apple benzeri bir UI'a sahip olsun istiyorum" bir şeyin
+    # yapılmasını ister; nesne listesi dosya üreten şeylerle sınırlıdır.
+    (
+        rf"\b(?:{_MUTATION_OBJECTS}|ui|özellik|ozellik|sistem|tasarım|tasarim|"
+        r"sunucu|entegrasyon)[a-zçğıöşü]*\b.{0,60}\b(?:istiyorum|isterim)\b"
+    ),
     # "Çalışır hale getir" ailesi: var olanı işler duruma sokmak dosya değiştirmeyi
     # gerektirir. Bu kalıp nesne-fiil desenlerine sığmıyordu (araya sıfat girer,
     # fiil ek alır) ve etki hiç kurulmadığı için model kanıtsız "yaptım" diyebiliyordu.
