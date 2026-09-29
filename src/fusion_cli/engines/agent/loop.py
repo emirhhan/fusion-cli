@@ -101,6 +101,7 @@ from .execution_policy import (
 from .execution_route import ExecutionRoute, choose_execution_route
 from .history import needs_compression, total_chars
 from .plan_runner import run_execution_plan
+from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .refusal import looks_like_refusal
@@ -111,7 +112,7 @@ from .teacher_flow import (
     settle_teacher_plan,
     teacher_is_ready,
 )
-from .teacher_plan import TeacherPlan
+from .teacher_plan import TeacherPlan, UnworkablePart
 from .turn_report import build_turn_report
 from .workspace_hint import find_workspace_for
 
@@ -325,6 +326,11 @@ class AgentDeps:
     pending_teacher_plan: TeacherPlan | None = None
     #: Bu turda hafızadan yeniden kullanılan plan dersi.
     reused_teacher_lesson: Lesson | None = None
+    #: Öğretmenin bu turda bildirdiği dış kısıtlar; cevapta anılmadıysa eklenir.
+    platform_limitations: list[UnworkablePart] = field(default_factory=list)
+    #: Bu turda adı geçen dış platformlar ve resmi kaynaktan doğrulanıp doğrulanmadığı.
+    platform_names: tuple[str, ...] = ()
+    platform_check_verified: bool = False
     #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
     #: yapılandırma dosyasında değiştirmez.
     active_model_override: ModelSpec | None = None
@@ -554,6 +560,7 @@ async def run_agent(
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
         await prepare_teacher_plan(task, messages, deps, registry)
+        await run_platform_check(task, messages, deps, registry)
 
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
@@ -696,6 +703,8 @@ async def run_agent(
     # hazırdı, ama ders çıkarımı bitene kadar ekrana hiçbir şey basılmadı ve
     # kullanıcı 20 dakika boş ekran gördü. Öğrenme muhasebedir; kullanıcıyı
     # bekletemez.
+    if not chat_mode and not internal and depth == 0:
+        ensure_limitations_disclosed(outcome, deps)
     _announce_answer(outcome, deps, depth=depth, internal=internal)
 
     await learning_steps.learn(

@@ -13,6 +13,7 @@ from fusion_cli.core.events import (
     ModelCallFinished,
     ModelCallStarted,
     NoFileChanges,
+    PlatformChecked,
     SelfReviewFinished,
     StatusChanged,
     TeacherLessonRecorded,
@@ -81,6 +82,18 @@ def test_hafizadan_plan_ve_ders_kaydi_terminalde_gorunur():
     assert "Hafızadan ilerleniyor: 3 adım" in output
     assert "Öğretmen planı hafızaya yazıldı" in output
     assert "Hafızadaki plan tutmadı" in output
+
+
+def test_platform_kontrolu_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(PlatformChecked(platforms=("Instagram",), method="resmi-kaynak", sources=1))
+    renderer.handle(PlatformChecked(platforms=("Shopify",), method="dogrulanamadi", sources=0))
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "Resmi kaynak kontrol edildi: Instagram (1 kaynak)" in output
+    assert "Shopify kısıtları doğrulanmadı" in output
 
 
 def test_tam_satirdan_sonra_bos_satir_eklenmez():

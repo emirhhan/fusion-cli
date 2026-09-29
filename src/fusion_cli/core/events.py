@@ -257,6 +257,16 @@ class TeacherLessonRecorded(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class PlatformChecked(Event):
+    """Dış platforma bağlı istekte resmi kaynak kontrolü yapıldı."""
+
+    platforms: tuple[str, ...]
+    #: "resmi-kaynak" (resmi dokümanda arandı) ya da "dogrulanamadi".
+    method: str
+    sources: int
+
+
+@dataclass(frozen=True, slots=True)
 class TeacherLimitationFound(Event):
     """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
 

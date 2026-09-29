@@ -54,6 +54,7 @@ from ..core.events import (
     ModelFallbackActivated,
     MutationUnavailable,
     NoFileChanges,
+    PlatformChecked,
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
@@ -254,6 +255,15 @@ class ConsoleRenderer:
             self._status(
                 messages.AGENT_TEACHER_PLAN.format(steps=event.steps)
                 if event.structured else messages.AGENT_TEACHER_PLAN_NOTE
+            )
+        elif isinstance(event, PlatformChecked):
+            template = (
+                messages.AGENT_PLATFORM_VERIFIED
+                if event.method == "resmi-kaynak"
+                else messages.AGENT_PLATFORM_UNVERIFIED
+            )
+            self._status(
+                template.format(platforms=", ".join(event.platforms), sources=event.sources)
             )
         elif isinstance(event, TeacherMemoryUsed):
             self._status(

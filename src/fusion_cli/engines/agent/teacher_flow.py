@@ -177,6 +177,7 @@ async def prepare_teacher_plan(
             return
     deps.pending_teacher_plan = plan
     _publish_todos(plan.steps, deps)
+    deps.platform_limitations.extend(plan.unworkables)
     for part in plan.unworkables:
         deps.publisher.publish(
             TeacherLimitationFound(

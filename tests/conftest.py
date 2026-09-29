@@ -76,3 +76,17 @@ def izole_sistem_anahtarligi(monkeypatch):
     monkeypatch.setattr(keys, "_keyring_master_key", lambda: None)
     monkeypatch.setattr(keys, "_local_master_key", lambda: None)
     monkeypatch.delenv(keys.FUSION_SECRET_ENV, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def izole_web_aramasi(monkeypatch):
+    """Hiçbir test gerçek arama motoruna çıkmasın.
+
+    Dış platform kontrolü (`platform_check`) istekte "Instagram", "Shopify" gibi
+    bir ad geçince `web_search` çalıştırır. Bu adları içeren eski testler aksi
+    halde ağa bağımlı, yavaş ve kararsız olurdu. Aramayı sınayan testler kendi
+    sahte uç noktalarını `monkeypatch` ile verir.
+    """
+    from fusion_cli.tools import web
+
+    monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (lambda _query: [],))

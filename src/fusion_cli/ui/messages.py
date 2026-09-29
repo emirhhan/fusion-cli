@@ -92,6 +92,8 @@ AGENT_TEACHER_PLAN = "Öğretmen planı: {steps} adım"
 AGENT_TEACHER_PLAN_NOTE = "Öğretmen planı düz metin notu olarak alındı"
 AGENT_TEACHER_MEMORY = "Hafızadan ilerleniyor: {steps} adım (benzerlik {similarity:.2f})"
 AGENT_TEACHER_LESSON_NEW = "Öğretmen planı hafızaya yazıldı"
+AGENT_PLATFORM_VERIFIED = "Resmi kaynak kontrol edildi: {platforms} ({sources} kaynak)"
+AGENT_PLATFORM_UNVERIFIED = "Resmi kaynağa ulaşılamadı: {platforms} kısıtları doğrulanmadı"
 AGENT_TEACHER_LESSON_REUSED_OK = "Hafızadaki plan tuttu; güveni arttı"
 AGENT_TEACHER_LESSON_REUSED_FAIL = (
     "Hafızadaki plan tutmadı; sonraki benzer işte öğretmene sorulacak"
