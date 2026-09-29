@@ -21,6 +21,7 @@ yapmaz: alt-ajan devri de dosya okumak da kayıt defterinden geçer.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import sys
@@ -780,6 +781,8 @@ class _State:
     compaction_thrash: int = 0
     #: Turda "ilerleme yok" uyarısı verildi mi? Böyle turdan ders çıkarılmaz.
     stalled: bool = False
+    #: (araç, sonuç özeti) → farklı argümanlarla aynı sonucu kaç kez verdi.
+    same_output_counts: dict[tuple[str, str], int] = field(default_factory=dict)
     #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
     refusal_nudged: bool = False
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
@@ -2182,6 +2185,27 @@ async def _run_tools(
             # yeniden istiyordu; ona hata vermek zinciri kırıyor, bilgiyi vermek
             # sürdürüyor ve YENİ İŞ YAPTIRMIYOR. Değiştirici araçlar bu yoldan
             # yararlanamaz: aynı yazma iki kez yapılmaz, orası hâlâ engellidir.
+            if tool is not None and not tool.mutating and seen + 1 >= REPEAT_BLOCK_AT:
+                # Önbellekteki sonucu tekrar tekrar vermek döngüyü beslemeye devam
+                # ediyordu. Ölçüldü (29 Eylül): model aynı glob'u onlarca kez istedi.
+                # Hermes Agent ve OpenClaw aynı noktada çağrıyı ENGELLER; tur kesilmez.
+                output = _repeat_block_message(call.name, seen + 1)
+                deps.publisher.publish(
+                    ToolExecuted(
+                        name=call.name,
+                        args=args,
+                        outcome=ToolOutcome.BLOCKED,
+                        output=output,
+                        diff=None,
+                    )
+                )
+                messages.append(
+                    Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
+                )
+                state.failed_tool_calls += 1
+                _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
+                errored = True
+                continue
             onbellek = budget.recall_read(signature)
             if onbellek is not None:
                 output = f"{_REPEATED_READ_NOTE}\n\n{onbellek}"
@@ -2309,6 +2333,10 @@ async def _run_tools(
             )
         )
         govde = result.output
+        if outcome is ToolOutcome.OK and tool is not None and not tool.mutating:
+            ayni = _same_output_note(state, call.name, result.output)
+            if ayni is not None:
+                govde = f"{govde}\n\n{ayni}"
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1
@@ -2478,6 +2506,45 @@ def _repeated_failure_note(
             "öğretmene danışmayı düşün — turu bu döngüde harcamak yerine."
         )
     return not_
+
+
+#: Birebir aynı OKUMA/ARAMA bu kaçıncı kez istenince çalıştırılmaz.
+#
+# Hermes Agent (`agent/tool_guardrails.py`, MIT): salt-okunur araç aynı sonucu 2.
+# kez verince uyarır, 5.'de çağrıyı engeller; OpenClaw ve OpenHands da benzer
+# eşiklerle engeller. Fusion 3. ve 4. tekrarda önbellekteki sonucu uyarıyla verir
+# (bkz. `_REPEATED_READ_NOTE`), 5.'de keser. Tur KESİLMEZ; model yalnız bu aramanın
+# bir işe yaramadığını açıkça öğrenir.
+REPEAT_BLOCK_AT = 5
+#: Aynı okuma aracı FARKLI argümanlarla bu kadar kez birebir aynı sonucu verince not
+#: eklenir. OpenClaw'ın "argument churn" dedektörünün karşılığı: model deseni hafifçe
+#: değiştirip (`mcp` → `**/lib/mcp/**`) aynı boş sonucu tekrar tekrar alıyordu.
+SAME_OUTPUT_WARN_AT = 3
+
+
+def _repeat_block_message(name: str, count: int) -> str:
+    return (
+        f"TOOL_CALL_BLOCKED: `{name}` çağrısını aynı argümanlarla {count}. kez istedin; "
+        "sonuç hiç değişmedi ve araç çalıştırılmadı. Bu aramayı bırak. Elindeki "
+        "sonuçlarla bir sonraki SOMUT adımı at (bulduğun dosyayı oku ya da düzenle); "
+        "aradığın şey yoksa farklı bir klasörde ya da farklı bir araçla ara, "
+        "bulunamıyorsa bunu kullanıcıya açıkça söyle."
+    )
+
+
+def _same_output_note(state: _State, name: str, output: str) -> str | None:
+    """Aynı araç farklı argümanlarla birebir aynı sonucu veriyorsa yönlendirici not."""
+    ozet = hashlib.sha256(output.encode("utf-8", "replace")).hexdigest()
+    anahtar = (name, ozet)
+    sayi = state.same_output_counts.get(anahtar, 0) + 1
+    state.same_output_counts[anahtar] = sayi
+    if sayi < SAME_OUTPUT_WARN_AT:
+        return None
+    return (
+        f"NOT: `{name}` son {sayi} farklı çağrıda birebir aynı sonucu verdi. Argümanı "
+        "değiştirmek sonucu değiştirmiyor. Elindeki bilgiyle ilerle; aradığın şey bu "
+        "klasörde yoksa başka bir klasörde ya da başka bir araçla ara."
+    )
 
 
 #: Tekrarlanan OKUMA çağrısında sonucun önüne konan not.
