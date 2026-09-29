@@ -110,6 +110,24 @@ def _cevap(veri: dict[str, Any], args: argparse.Namespace, kayit: dict[str, Any]
     return {"metin": ilk if args.soru_cevabi == "ilk" else ""}
 
 
+def _say(sayac: dict[str, int], veri: dict[str, Any]) -> None:
+    """Olayı rapor sayacına işle; arka plan model çağrıları sayılmaz."""
+    olay = veri.get("olay")
+    if olay == "ModelCallStarted" and not veri.get("background"):
+        sayac["model_cagrisi"] += 1
+    elif olay == "ToolExecuted":
+        if veri.get("name") == "ask_teacher":
+            sayac["ogretmen_cagrisi"] += 1
+        if veri.get("outcome") not in (None, "ok"):
+            sayac["arac_hatasi"] += 1
+    elif olay == "ModelFallbackActivated":
+        sayac["yedege_gecis"] += 1
+    elif olay == "ToolCallRepaired":
+        sayac["sozlesme_onarimi"] += 1
+    elif olay == "TeacherMemoryUsed":
+        sayac["hafizadan_plan"] += 1
+
+
 async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str, Any]:
     process = await asyncio.create_subprocess_exec(
         *_komut(args),
@@ -121,6 +139,12 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
     )
     assert process.stdin and process.stdout
     kayit: dict[str, Any] = {"izinler": [], "sorular": [], "araclar": [], "turlar": []}
+    # Uzun görev raporu için sayaçlar: model/öğretmen çağrısı, hata ve yedeğe geçiş.
+    sayac: dict[str, int] = {
+        "model_cagrisi": 0, "ogretmen_cagrisi": 0, "arac_hatasi": 0,
+        "yedege_gecis": 0, "sozlesme_onarimi": 0, "hafizadan_plan": 0,
+    }
+    kayit["sayaclar"] = sayac
     bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}
 
     def gonder(payload: dict[str, Any]) -> None:
@@ -135,6 +159,8 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
             except ValueError:
                 continue
             tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
+            if tip == "olay":
+                _say(sayac, veri)
             if tip == "olay" and veri.get("olay") == "ToolExecuted":
                 kayit["araclar"].append(veri.get("name"))
             elif tip == "soru":

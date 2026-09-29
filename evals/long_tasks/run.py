@@ -96,6 +96,7 @@ def kos(ad: str, sure: float) -> dict[str, Any]:
         "izin_sayisi": len(ajan.get("izinler", [])),
         "sorular": ajan.get("sorular", []),
         "arac_sayisi": len(ajan.get("araclar", [])),
+        "sayaclar": ajan.get("sayaclar", {}),
         "degisen_dosyalar": [s for s in degisen if s.strip() and "_gizli_kabul" not in s],
         "ajan_metni": str(tur.get("metin", ""))[:1500],
     }
