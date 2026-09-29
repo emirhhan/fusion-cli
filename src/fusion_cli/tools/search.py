@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -170,6 +170,64 @@ def _summarize(per_file: dict[str, tuple[int, str]]) -> list[str]:
     ]
 
 
+def glob_matcher(pattern: str) -> Callable[[str], bool]:
+    """Köke göreli POSIX yolu için glob eşleştiricisi döndür.
+
+    `Path.match` KULLANILMAZ. Ölçüldü (29 Eylül, Python 3.11): `**`'ı tek klasör
+    sayıyor; `**/lib/mcp/**/*.ts` ne `lib/mcp/server.ts`'i ne de derindeki
+    dosyaları buldu, model 36 dakika aynı aramayı tekrarladı. Kurallar yaygın
+    araçlarla (ripgrep, gitignore) aynıdır:
+
+    - `**/` sıfır ya da daha çok klasör, `*` tek klasör içinde her şey, `?` tek
+      karakter, `[abc]` karakter kümesi, `{ts,tsx}` seçenekler.
+    - Eğik çizgisiz desen (`*.ts`, `mcp`) her derinlikte ADLA eşleşir: dosya adıyla
+      ya da yoldaki bir KLASÖR adıyla. Model klasör bulmak için `glob("mcp")`
+      diyor; eskiden yalnız dosya adına bakıldığı için boş dönüyordu.
+    - Eğik çizgili desen köke göredir; ayrıca herhangi bir alt klasörden de
+      başlayabilir (`lib/x/*.ts`, `src/lib/x/a.ts`'i de bulur) — eski davranış.
+    """
+    desen = pattern.strip().removeprefix("./")
+    if "/" not in desen:
+        ad = _glob_regex(desen)
+        return lambda relative: any(ad.fullmatch(part) for part in relative.split("/"))
+    tam = _glob_regex(desen)
+    herhangi = _glob_regex("**/" + desen.removeprefix("**/"))
+    return lambda relative: bool(tam.fullmatch(relative) or herhangi.fullmatch(relative))
+
+
+def _glob_regex(pattern: str) -> re.Pattern[str]:
+    """Glob desenini düzenli ifadeye çevir (`**` klasörler arası geçer)."""
+    parca: list[str] = []
+    i = 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            parca.append("(?:[^/]+/)*")
+            i += 3
+        elif pattern.startswith("**", i):
+            parca.append(".*")
+            i += 2
+        elif pattern[i] == "*":
+            parca.append("[^/]*")
+            i += 1
+        elif pattern[i] == "?":
+            parca.append("[^/]")
+            i += 1
+        elif pattern[i] == "[" and (kapanis := pattern.find("]", i + 1)) > i + 1:
+            kume = pattern[i + 1 : kapanis].replace("\\", "\\\\")
+            if kume.startswith("!"):
+                kume = "^" + kume[1:]
+            parca.append(f"[{kume}]")
+            i = kapanis + 1
+        elif pattern[i] == "{" and (kapanis := pattern.find("}", i + 1)) > i:
+            secenekler = pattern[i + 1 : kapanis].split(",")
+            parca.append("(?:" + "|".join(re.escape(s) for s in secenekler) + ")")
+            i = kapanis + 1
+        else:
+            parca.append(re.escape(pattern[i]))
+            i += 1
+    return re.compile("".join(parca), re.DOTALL)
+
+
 def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
     pattern = require_str(args, "pattern")
     root = resolve_path(context, optional_str(args, "path", ".")).resolve()
@@ -189,12 +247,10 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
 
     matches: list[str] = []
     scan = _SearchScan(context=context, started=time.monotonic())
+    matcher = glob_matcher(pattern)
     for path in _searchable_files(root, scan):
         relative = path.relative_to(root) if root.is_dir() else Path(path.name)
-        matched = relative.match(pattern)
-        if not matched and pattern.startswith("**/"):
-            matched = relative.match(pattern[3:])
-        if not matched:
+        if not matcher(relative.as_posix()):
             continue
         matches.append(display_path(context, path))
         if len(matches) >= MAX_GLOB_MATCHES:

@@ -417,6 +417,54 @@ async def test_glob_desene_uyan_dosyalari_bulur(registry, context, tmp_path):
     assert "a.py" in cikti and "c.py" in cikti and "b.txt" not in cikti
 
 
+def _dosya(kok, goreli):
+    yol = kok / goreli
+    yol.parent.mkdir(parents=True, exist_ok=True)
+    yol.write_text("x", encoding="utf-8")
+
+
+async def test_glob_cift_yildiz_sifir_ve_cok_klasoru_kapsar(registry, context, tmp_path):
+    """Ölçüldü (29 Eylül): Python 3.11'in `Path.match`'i `**`'ı tek klasör sayıyordu;
+    `**/lib/mcp/**/*.ts` ne `lib/mcp/server.ts`'i ne derin dosyaları buldu ve model
+    36 dakika aynı aramayı tekrarladı."""
+    for goreli in (
+        "lib/mcp/server.ts",
+        "lib/mcp/tools/a.ts",
+        "src/lib/mcp/tools/derin/b.ts",
+        "lib/mcp/notlar.md",
+        "lib/baska/c.ts",
+    ):
+        _dosya(tmp_path, goreli)
+
+    cikti = (await _calistir(registry, context, "glob", pattern="**/lib/mcp/**/*.ts")).output
+
+    assert "server.ts" in cikti and "a.ts" in cikti and "b.ts" in cikti
+    assert "notlar.md" not in cikti and "c.ts" not in cikti
+
+
+async def test_egik_cizgisiz_desen_her_derinlikte_dosya_adiyla_eslesir(
+    registry, context, tmp_path
+):
+    _dosya(tmp_path, "a/b/c/derin.ts")
+    _dosya(tmp_path, "kok.ts")
+
+    cikti = (await _calistir(registry, context, "glob", pattern="*.ts")).output
+
+    assert "derin.ts" in cikti and "kok.ts" in cikti
+
+
+async def test_klasor_adi_aranirsa_icindeki_dosyalar_doner(registry, context, tmp_path):
+    """Model klasör bulmak için `glob("mcp")` diyor; yalnız dosya adına bakan eşleşme
+    boş dönüyordu ve model aramayı tekrarlıyordu."""
+    _dosya(tmp_path, "lib/mcp/server.ts")
+    _dosya(tmp_path, "baska/dosya.ts")
+
+    cikti = (await _calistir(registry, context, "glob", pattern="mcp")).output
+
+    assert "lib/mcp/server.ts" in cikti
+    assert "baska" not in cikti
+
+
 async def test_glob_gurultu_dizinlerini_atlar(registry, context, tmp_path):
     (tmp_path / "__pycache__").mkdir()
     (tmp_path / "__pycache__" / "x.py").write_text("x", encoding="utf-8")
@@ -608,3 +656,24 @@ async def test_glob_sonuclari_proje_kokune_goreli(registry, context, tmp_path):
 
     assert "app/page.tsx" in sonuc.output
     assert str(tmp_path) not in sonuc.output
+
+
+@pytest.mark.parametrize(
+    ("yol", "desen", "beklenen"),
+    [
+        ("lib/mcp/server.ts", "**/lib/mcp/**/*.ts", True),
+        ("a/lib/mcp/x/y/z.ts", "**/lib/mcp/**/*.ts", True),
+        ("lib/mcpx/a.ts", "**/lib/mcp/**/*.ts", False),
+        ("src/app.tsx", "**/*.{ts,tsx}", True),
+        ("src/app.js", "**/*.{ts,tsx}", False),
+        ("src/a1.py", "src/a?.py", True),
+        ("src/b.py", "src/[!a]*.py", True),
+        ("src/a.py", "src/[!a]*.py", False),
+        ("derin/src/a.py", "src/*.py", True),
+        ("README.md", "readme.md", False),
+    ],
+)
+def test_glob_eslestirici(yol, desen, beklenen):
+    from fusion_cli.tools.search import glob_matcher
+
+    assert glob_matcher(desen)(yol) is beklenen
