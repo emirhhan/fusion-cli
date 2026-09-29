@@ -121,6 +121,11 @@ SYSTEM_PROMPT = (_PROMPTS / "system.md").read_text(encoding="utf-8")
 #: Sohbet kipinin kimliği. Aynı motor ve aynı tek model kullanılır; fark, Fusion'ın
 #: kendiliğinden çalışma dizinini taramamasıdır. Kod kipi `SYSTEM_PROMPT` ile kalır.
 CHAT_SYSTEM_PROMPT = (_PROMPTS / "system_chat.md").read_text(encoding="utf-8")
+#: Yalnız araç çağırabilen API modellerine çekirdeğin ARDINDAN eklenen kapsamlı
+#: çalışma ve konuşma ilkeleri. Web modellerinin bağlamı dar olduğundan onlara
+#: verilmez; çekirdeğin bağlam bütçesi (`tests/test_system_prompt_diet.py`) bu
+#: katmanı kapsamaz.
+API_SYSTEM_PROMPT = (_PROMPTS / "system_api.md").read_text(encoding="utf-8")
 PLAN_MODE_PROMPT = (_PROMPTS / "plan_mode.md").read_text(encoding="utf-8")
 
 #: Yarım kalan turda en fazla kaç kez "devam et" enjekte edilir.
@@ -528,6 +533,18 @@ async def run_agent(
     # API yolunda mevcut ölçülmüş davranış (800 satır) korunur.
     if execution.is_web and deps.tool_context.read_window is None:
         deps.tool_context = replace(deps.tool_context, read_window=WEB_READ_WINDOW)
+    # Kapsamlı talimat katmanı yalnız kök sistem metnine, API modelinde ve bir kez
+    # eklenir. İç turlar sistem metnini geçmişten devralır (önek kaymasın); açık
+    # `system_prompt` veren çağıranlar (sohbet kipi, plan adımı) kendi metnini korur.
+    if (
+        not execution.is_web
+        and not internal
+        and system_prompt is None
+        and messages
+        and messages[0].role == "system"
+        and API_SYSTEM_PROMPT not in messages[0].content
+    ):
+        messages[0] = Message("system", f"{messages[0].content}\n\n{API_SYSTEM_PROMPT}")
     # Web AI'nın toplam süre sınırı bütçeye TUR BAŞINDA bir kez yazılır; iç içe
     # çağrılarda yeniden kurulsaydı süre sınırı her düzeltmede tazelenirdi.
     budget = deps.require_budget()

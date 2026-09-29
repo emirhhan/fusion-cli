@@ -137,7 +137,12 @@ async def test_uzun_turda_baglam_tur_bitmeden_sikistirilir(monkeypatch, tmp_path
         return "özet"
 
     monkeypatch.setattr(compaction, "_summarize", _ozet)
-    _dar_esik(monkeypatch, 12_000)
+    # API modelleri sistem metninde ayrıca kapsamlı talimat katmanını taşır
+    # (`API_SYSTEM_PROMPT`). Yapay dar eşik bu sabit payı da içermeli; aksi hâlde
+    # sıkıştırma sonrası bile bağlam dolu kalır ve tur "context_thrash" ile kesilir.
+    from fusion_cli.engines.agent.loop import API_SYSTEM_PROMPT
+
+    _dar_esik(monkeypatch, 12_000 + len(API_SYSTEM_PROMPT))
 
     sonuc = await run_agent(
         "dosyaları incele", _deps(tmp_path, sink, runtime={"agent_max_steps": 50})
