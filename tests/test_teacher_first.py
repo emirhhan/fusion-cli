@@ -238,6 +238,33 @@ async def test_ogretmen_bulgusu_duzeltici_tur_acar_ve_duzeltilmezse_basari_sayil
     assert result.ok is False
 
 
+async def test_son_denetim_gorev_gereksinimlerini_ogretmene_verir(monkeypatch, tmp_path) -> None:
+    """Ölçüldü (30 Eylül, canlı): denetim yalnız fark ve test çıktısını alıyordu;
+    öğretmen "maliyet tabanı yukarı yuvarlanır" gereksinimini göremediği için
+    gizli testte düşen hatayı temiz buldu ve tur sahte başarıyla bitti."""
+    (tmp_path / "src").mkdir()
+    plan = model_result(
+        '{"adimlar":["Dosyayı yaz"],"dosyalar":[],"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
+    )
+    deps, _sink, teacher, _apprentice = _setup(
+        monkeypatch,
+        tmp_path,
+        teacher_answers=[plan, model_result('{"bulgular": []}')],
+        apprentice_answers=[
+            model_result(
+                tool_calls=(tool_call("write_file", path="src/app.py", content="x = 1\n"),)
+            ),
+            model_result("Dosya yazıldı."),
+        ],
+    )
+
+    await run_agent("src/app.py dosyasını oluştur; maliyet tabanı yukarı yuvarlanır", deps)
+
+    denetim = teacher.seen_messages[1][0].content
+    assert "maliyet tabanı yukarı yuvarlanır" in denetim
+    assert "gereksinim" in denetim.lower()
+
+
 def test_ayni_hata_iki_kez_yasaninca_ogretmen_nedeni_hazirlanir() -> None:
     state = agent_loop._State()
     state.repeated_failures[("write_file", "izin reddedildi")] = 2

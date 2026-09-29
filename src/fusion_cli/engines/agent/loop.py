@@ -628,7 +628,7 @@ async def run_agent(
         outcome = await _fix_findings(verification, outcome, deps)
 
     if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
-        teacher_findings = await review_teacher_changes(outcome, deps, registry)
+        teacher_findings = await review_teacher_changes(task, outcome, deps, registry)
         if teacher_findings:
             teacher_gate = VerificationResult(
                 ok=False,
@@ -645,7 +645,7 @@ async def run_agent(
                     "\n\nÖğretmen bulgusu için doğrulanmış bir düzeltme yapılmadı."
                 )
             else:
-                remaining = await review_teacher_changes(outcome, deps, registry)
+                remaining = await review_teacher_changes(task, outcome, deps, registry)
                 if remaining is None or remaining:
                     outcome.ok = False
                     outcome.final_text += "\n\nÖğretmen bulgularının giderildiği doğrulanamadı."

@@ -312,10 +312,21 @@ def _diff_summary(deps: AgentDeps) -> str:
     return "\n\n".join(summaries)
 
 
+#: Denetime giden görev metni sınırı: öğretmen brief bütçesinin (25k) küçük bir
+#: kesri; gereksinim listeli uzun görevler (ölçülen örnek ~900 karakter) sığar.
+_REVIEW_TASK_CHARS = BRIEF_CHAR_BUDGET // 6
+
+
 async def review_teacher_changes(
-    outcome: AgentOutcome, deps: AgentDeps, registry: ToolRegistry
+    task: str, outcome: AgentOutcome, deps: AgentDeps, registry: ToolRegistry
 ) -> tuple[str, ...] | None:
-    """Dosya değişikliğini öğretmene denetlet; belirsiz yanıtı temiz sayma."""
+    """Dosya değişikliğini görev gereksinimlerine karşı öğretmene denetlet.
+
+    Görev metni pakete girer. Ölçüldü (30 Eylül, canlı): yalnız fark ve test
+    çıktısını gören öğretmen "maliyet tabanı yukarı yuvarlanır" gereksinimini
+    göremedi, gizli testte düşen hatayı temiz buldu ve tur sahte başarıyla bitti.
+    Belirsiz yanıt temiz sayılmaz.
+    """
     if not outcome.ok or not deps.tool_context.changes.paths:
         return None
     if not teacher_is_ready(deps, registry):
@@ -328,12 +339,17 @@ async def review_teacher_changes(
             word in str(use.arguments.get("command", "")) for word in ("test", "pytest", "build")
         )
     ]
-    durum = "Değişiklik farkı:\n" + await asyncio.to_thread(_diff_summary, deps)
+    durum = "Görev ve gereksinimler:\n" + redact(task)[:_REVIEW_TASK_CHARS]
+    durum += "\n\nDeğişiklik farkı:\n" + await asyncio.to_thread(_diff_summary, deps)
     durum += "\n\nTest çıktısı:\n" + ("\n".join(tests) or "Test çıktısı kaydedilmedi.")
     answer = await _ask(
         registry,
         deps,
-        question='Eksik veya yanlış var mı? Yalnız JSON {"bulgular": ["somut sorun"]} ver.',
+        question=(
+            "Görevdeki her gereksinimi farka karşı tek tek kontrol et; sayısal kural "
+            "ve kenar durumlarını örnek değerle dene. Karşılanmayan ya da yanlış "
+            'uygulanan gereksinim var mı? Yalnız JSON {"bulgular": ["somut sorun"]} ver.'
+        ),
         durum=durum,
     )
     if answer is None:
