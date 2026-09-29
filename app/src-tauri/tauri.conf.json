@@ -37,7 +37,9 @@
       "assetProtocol": {
         "enable": true,
         "scope": [
-          "$HOME/**"
+          "$HOME/**",
+          "$HOME/.local/share/fusion-cli/gallery/**",
+          "$LOCALDATA/fusion-cli/gallery/**"
         ]
       }
     }

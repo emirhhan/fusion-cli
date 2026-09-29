@@ -89,3 +89,23 @@ def test_indir_yalniz_galeriden_ve_secilen_yere_kopyalar(tmp_path) -> None:
     assert (
         export_image({"yol": str(image), "hedef": str(tmp_path / "a.exe")}, gallery)["ok"] is False
     )
+
+
+def test_galeri_dizini_masaustu_varlik_iznine_acikca_eklidir() -> None:
+    """Ölçüldü (30 Eylül, paketli 0.5.9): galeri görselleri "?" olarak görünüyordu.
+
+    Galeri `~/.local/share/fusion-cli/gallery` altında; Tauri'nin kapsam deseni
+    Unix'te `**` ile noktayla başlayan klasörü (`.local`) eşleştirmez. Bütün
+    gizli klasörleri açmak (~/.ssh dahil) yerine yalnız galeri yolu eklenir.
+    """
+    import json
+    from pathlib import Path
+
+    conf = json.loads(
+        (Path(__file__).resolve().parents[1] / "app/src-tauri/tauri.conf.json").read_text()
+    )
+    scope = conf["app"]["security"]["assetProtocol"]["scope"]
+
+    assert "$HOME/.local/share/fusion-cli/gallery/**" in scope
+    assert "$LOCALDATA/fusion-cli/gallery/**" in scope
+    assert not any(".ssh" in item or item == "$HOME/.*/**" for item in scope)
