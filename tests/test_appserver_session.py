@@ -66,6 +66,26 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert oturum._workspace_mode == "sohbet"
 
 
+async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, monkeypatch):
+    """Ölçüldü (29 Eylül, canlı hafıza testi): masaüstü turu `run_agent_task`'a
+    belleği geçirmiyordu; tur boş bellekle koşuyor, öğretmen planı ve dersler hiç
+    yazılıp okunmuyordu (`recall_lessons` aracı da sunulmuyordu)."""
+    from fusion_cli.cli import session as cli_session
+
+    kwargs_seen = {}
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs_seen.update(kwargs)
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    oturum = _session(tmp_path, [])
+
+    await oturum._chrome_turn("Sekmeyi oku")
+
+    assert kwargs_seen["memory"] is oturum._state.memory
+
+
 async def test_chrome_paneli_etiketi_eksik_model_dusuncesini_gostermez(tmp_path, monkeypatch):
     oturum = _session(tmp_path, [])
 

@@ -1408,6 +1408,9 @@ class AppSession:
                 step_limit=macros.mode_step_limit(turn_mode),
                 workflow=macros.mode_workflow(turn_mode),
                 approval_memory=self._state.approval_memory,
+                # Oturumun kalıcı belleği (dersler, öğretmen planları, kod indeksi).
+                # Verilmezse tur boş bellekle koşar ve hiçbir şey öğrenilmez.
+                memory=self._state.memory,
             )
 
         self._turn = asyncio.ensure_future(execute_turn())
