@@ -9,6 +9,8 @@ Davranış:
 - Geçici arızada gecikme kadar beklenip AYNI model tekrar çağrılır.
 - Gecikme listesi bitince son başarısız sonuç döner ve zincir yedeğe geçer.
 - Kalıcı hatada (olmayan model, geçersiz anahtar, günlük kota) hiç beklenmez.
+- Hız sınırında (429), zincirde bu modelden sonra bir yedek varsa beklenmez; iş
+  yedekle hemen sürer. Yedeksiz modelde aşağıdaki "aynı model" gerekçesi geçerlidir.
 
 Neden aynı model: sağlayıcının hız sınırı MODEL BAŞINADIR (NVIDIA NIM'de ölçüldü)
 ve 60 saniyede 40 isteğe izin verir. Dakikalık sınıra takılan bir çağrı, kısa bir
@@ -44,10 +46,15 @@ class RetryingProvider:
         *,
         delays_s: Sequence[float],
         sleeper: Sleeper | None = None,
+        yield_on_rate_limit: bool = False,
     ) -> None:
         #: Gecikme listesi deneme sayısını da TANIMLAR: n gecikme → n+1 deneme.
         #: Ayrı bir "max_attempts" ayarı olsaydı ikisi birbiriyle çelişebilirdi.
         self._delays_s = tuple(delays_s)
+        #: Zincirde bu modelden sonra bir yedek varsa hız sınırında (429) beklenmez;
+        #: sınır model başına olduğu için yedek hemen çalışabilir. Sonraki çağrı
+        #: zincirin başından, yani seçili modelden yine başlar.
+        self._yield_on_rate_limit = yield_on_rate_limit
         self._inner = inner
         self._sleeper = sleeper or SystemSleeper()
 
@@ -96,6 +103,8 @@ class RetryingProvider:
         araç çağrısı yok) ve bu teknik olarak başarılı bir yanıttır. Yeniden
         denenmezse tur hiçbir iş yapmadan biter.
         """
+        if self._yield_on_rate_limit and result.is_rate_limited:
+            return False
         return not result.is_usable and not is_permanent_error(result.error)
 
 
@@ -146,6 +155,14 @@ def wrap(
     """
     if not delays_s:
         return tuple(providers)
+    son = len(providers) - 1
     return tuple(
-        RetryingProvider(provider, delays_s=delays_s, sleeper=sleeper) for provider in providers
+        RetryingProvider(
+            provider,
+            delays_s=delays_s,
+            sleeper=sleeper,
+            # Yalnız ardından yedek gelen halka hız sınırında beklemeden bırakır.
+            yield_on_rate_limit=index < son,
+        )
+        for index, provider in enumerate(providers)
     )

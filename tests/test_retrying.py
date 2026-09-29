@@ -229,3 +229,54 @@ def test_her_saglayici_ayri_sarilir():
 
     assert len(sarilmis) == 2
     assert all(isinstance(item, RetryingProvider) for item in sarilmis)
+
+
+async def test_yedegi_olan_model_429da_beklemeden_birakir():
+    """Hız sınırı model başınadır: yedek varken aynı modeli beklemek işi durdurur.
+
+    Görev tanımı "bir model 429 alınca iş yedek modelle beklemeden sürmeli" der.
+    Yedeksiz (tek) modelde eski davranış korunur: kısa bekleyip aynı modeli dener.
+    """
+    inner = ScriptliProvider(_hata("429 Too Many Requests"), _basarili("geç"))
+    uyutucu = SahteUyutucu()
+
+    sonuc = await RetryingProvider(
+        inner, delays_s=GECIKMELER, sleeper=uyutucu, yield_on_rate_limit=True
+    ).complete(_istek())
+
+    assert not sonuc.ok
+    assert inner.cagri_sayisi == 1
+    assert uyutucu.beklemeler == []
+
+
+async def test_yedegi_olan_model_diger_gecici_hatada_yine_bekler():
+    inner = ScriptliProvider(_hata("500 sunucu hatası"), _basarili("oldu"))
+    uyutucu = SahteUyutucu()
+
+    sonuc = await RetryingProvider(
+        inner, delays_s=GECIKMELER, sleeper=uyutucu, yield_on_rate_limit=True
+    ).complete(_istek())
+
+    assert sonuc.ok
+    assert uyutucu.beklemeler == [34.0]
+
+
+async def test_stream_yedegi_olan_model_429da_beklemeden_birakir():
+    inner = ScriptliProvider(_hata("429 Too Many Requests"), _basarili("geç"))
+    uyutucu = SahteUyutucu()
+    saglayici = RetryingProvider(
+        inner, delays_s=GECIKMELER, sleeper=uyutucu, yield_on_rate_limit=True
+    )
+
+    ogeler = [item async for item in saglayici.stream(_istek())]
+
+    assert isinstance(ogeler[-1], StreamDone) and not ogeler[-1].result.ok
+    assert uyutucu.beklemeler == []
+
+
+def test_zincirde_yalniz_son_halka_429da_bekler():
+    birinci, ikinci = ScriptliProvider(_basarili()), ScriptliProvider(_basarili())
+
+    sarilmis = wrap([birinci, ikinci], delays_s=GECIKMELER)
+
+    assert [item._yield_on_rate_limit for item in sarilmis] == [True, False]
