@@ -32,6 +32,7 @@ from .web_browser import (
     _first_visible,
     _open_ready_conversation,
     _raise_if_blocked_early,
+    gemini_attach_file,
     provider_definition,
 )
 from .web_session import WebSessionCredential
@@ -45,6 +46,11 @@ IMAGE_SELECTORS: dict[str, tuple[str, ...]] = {
         'img[alt*="oluşturul" i]',
     ),
 }
+#: Referans görsel yükleyebilen sağlayıcılar. Gemini web'de canlı ölçüldü (29 Eylül):
+#: FLUX ile üretilen kırmızı kask yüklendi, "kaskı mat siyah yap" istemiyle 34 sn'de
+#: aynı kompozisyonda mat siyah kask döndü. ChatGPT web oturumu otomasyonda Cloudflare
+#: doğrulamasına düştüğü için orada yükleme denenmez.
+REFERENCE_PROVIDERS = frozenset({"gemini_web"})
 #: Arayüz simgeleri ve avatarlar görsel sayılmaz; üretilen görseller ≥ 512 px
 #: (ölçülen en küçük kenar 559).
 MIN_IMAGE_EDGE = 256
@@ -135,11 +141,19 @@ async def generate_images(
     *,
     pool: BrowserSessionPool | None = None,
     wait_s: float = IMAGE_WAIT_S,
+    reference: Path | None = None,
 ) -> list[GeneratedImage]:
-    """Yeni bir sohbette görsel üret ve dosyaya yaz; üretilmezse `WebBrowserError`."""
+    """Yeni bir sohbette görsel üret ve dosyaya yaz; üretilmezse `WebBrowserError`.
+
+    `reference` verilirse görsel önce sohbete yüklenir. Yükleme olmazsa istem
+    GÖNDERİLMEZ: referanssız üretilen görsel "düzenlendi/varyasyon" diye sunulursa
+    yapılmamış iş yapılmış gibi görünürdü.
+    """
     selectors = IMAGE_SELECTORS.get(session.provider)
     if not selectors:
         raise WebBrowserError(f"{session.provider} için görsel üretimi desteklenmiyor.")
+    if reference is not None and session.provider not in REFERENCE_PROVIDERS:
+        raise WebBrowserError(f"{session.provider} referans görsel yükleyemiyor.")
     definition = provider_definition(session.provider)
     manager = pool or _POOL
     async with manager.lock_for(session.provider, session.account):
@@ -147,6 +161,10 @@ async def generate_images(
         page = await context.new_page()
         try:
             await _open_ready_conversation(page, definition)
+            if reference is not None and not await gemini_attach_file(page, str(reference)):
+                raise WebBrowserError(
+                    f"Referans görsel {definition.name} sohbetine yüklenemedi; üretim yapılmadı."
+                )
             girdi = await _first_visible(page, definition.input_selectors, timeout_ms=15_000)
             if girdi is None:
                 raise WebBrowserError(f"{definition.name} mesaj alanı bulunamadı.")

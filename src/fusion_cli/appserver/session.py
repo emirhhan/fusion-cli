@@ -105,6 +105,7 @@ from .hosted_connectors import (
     verify_hosted_connector,
 )
 from .image_create import create_image, image_providers
+from .image_flows import export_image, list_flows, list_gallery, load_flow, save_flow
 from .instructions import get_instructions, instruction_block, save_instructions
 from .model_catalog import list_selectable_models
 from .personal_memory import PersonalMemory
@@ -490,6 +491,16 @@ class AppSession:
             return {"ok": True, "secenekler": image_providers(self._state.config)}
         if request.name == "gorsel.olustur":
             return await create_image(self._state.config, request.data)
+        if request.name == "gorsel.galeri":
+            return list_gallery()
+        if request.name == "gorsel.kaydet":
+            return export_image(request.data)
+        if request.name == "gorsel.akislar":
+            return list_flows()
+        if request.name == "gorsel.akis.kaydet":
+            return save_flow(request.data)
+        if request.name == "gorsel.akis.yukle":
+            return load_flow(request.data)
         if request.name == "chrome.baslat":
             return {"ok": True, **await self._chrome.start()}
         if request.name == "chrome.durum":

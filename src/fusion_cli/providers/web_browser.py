@@ -1784,9 +1784,13 @@ async def _prepare_prompt_for_composer(
     return _UPLOAD_NOTICE.format(chars=len(prompt))
 
 
-async def _try_gemini_file_upload(page: Any, content: str) -> bool:
-    """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
-    gecici_yol: str | None = None
+async def gemini_attach_file(page: Any, path: str) -> bool:
+    """Diskteki dosyayı Gemini web'in yükleme menüsüyle ekle; başarılıysa `True`.
+
+    Metin dosyası (uzun istem) ve görsel (görsel akışındaki referans) aynı
+    `Yükleme ve araçlar` → `Dosya yükleyin` yolunu kullanır. Hiçbir adımda
+    istisna sızdırmaz; çağıran başarısızlığa kendi politikasıyla karar verir.
+    """
     try:
         tetikleyici = await _first_visible(page, (_GEMINI_UPLOAD_MENU_TRIGGER,), timeout_ms=3_000)
         if tetikleyici is None:
@@ -1799,15 +1803,24 @@ async def _try_gemini_file_upload(page: Any, content: str) -> bool:
         dosya_girisleri = await page.query_selector_all("input[type=file]")
         if not dosya_girisleri:
             return False
-        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
-            tmp.write(content)
-            gecici_yol = tmp.name
         # Menü SON açıldığında eklenen giriş sondadır; öncekiler önceki
         # turlardan kalma gizli/yardımcı girişler olabilir (ölçüldü: 3 giriş).
-        await dosya_girisleri[-1].set_input_files(gecici_yol)
+        await dosya_girisleri[-1].set_input_files(path)
         await page.wait_for_timeout(_UPLOAD_SETTLE_MS)
         return True
     except Exception:
+        return False
+
+
+async def _try_gemini_file_upload(page: Any, content: str) -> bool:
+    """İçeriği Gemini web'e dosya olarak yükle; başarılıysa `True`."""
+    gecici_yol: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tmp:
+            tmp.write(content)
+            gecici_yol = tmp.name
+        return await gemini_attach_file(page, gecici_yol)
+    except OSError:
         return False
     finally:
         if gecici_yol is not None:

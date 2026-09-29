@@ -4,48 +4,93 @@ import { ImageCreate } from "./ImageCreate";
 
 afterEach(cleanup);
 
-function istemci(olustur: () => Promise<Record<string, unknown>>) {
+function istemci(olustur: (data: Record<string, unknown>) => Promise<Record<string, unknown>>) {
   return {
-    request: vi.fn(async (name: string) => {
+    request: vi.fn(async (name: string, data: Record<string, unknown>) => {
       if (name === "gorsel.saglayicilar") {
-        return { ok: true, secenekler: [{ deger: "gemini_web/main", etiket: "Gemini" }, { deger: "chatgpt_web/main", etiket: "ChatGPT" }] };
+        return {
+          ok: true,
+          secenekler: [
+            { deger: "nvidia_nim/black-forest-labs/flux.1-dev", etiket: "FLUX.1-dev (NVIDIA NIM)", referans: false },
+            { deger: "gemini_web/main", etiket: "Gemini", referans: true },
+          ],
+        };
       }
-      return olustur();
+      if (name === "gorsel.galeri") return { ok: true, dosyalar: [] };
+      if (name === "gorsel.akislar") return { ok: true, akislar: [] };
+      if (name === "gorsel.kaydet") return { ok: true };
+      if (name === "gorsel.akis.kaydet") return { ok: true, id: "akis-1" };
+      return olustur(data);
     }),
   };
 }
 
-describe("ImageCreate", () => {
-  it("istemi seçili sağlayıcıyla gönderir ve üretilen görseli listeler", async () => {
+describe("ImageCreate — düğümlü akış", () => {
+  it("başlangıç akışını çalıştırır; sonuç galeride kalır ve diske inmez", async () => {
     const client = istemci(async () => ({
-      ok: true, saglayici: "Gemini",
-      dosyalar: [{ yol: "/Users/u/Pictures/Fusion/a.png", genislik: 1024, yukseklik: 559 }],
+      ok: true, saglayici: "FLUX.1-dev",
+      dosyalar: [{ yol: "/veri/galeri/a.jpg", genislik: 1024, yukseklik: 1024 }],
     }));
-    render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} reveal={vi.fn()} />);
+    render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
 
-    await screen.findByRole("option", { name: "ChatGPT" });
-    fireEvent.change(screen.getByLabelText("Görsel istemi"), { target: { value: "kırmızı kask" } });
-    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
+    await screen.findAllByRole("option", { name: "FLUX.1-dev (NVIDIA NIM)" });
+    fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kırmızı kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
 
-    const gorsel = await screen.findByRole("img", { name: "kırmızı kask" });
-    expect(gorsel.getAttribute("src")).toBe("asset:///Users/u/Pictures/Fusion/a.png");
-    expect(client.request).toHaveBeenCalledWith("gorsel.olustur", { istem: "kırmızı kask", saglayici: "gemini_web/main" });
+    await screen.findByRole("img", { name: "kırmızı kask" });
+    const cagri = client.request.mock.calls.find(([name]) => name === "gorsel.olustur");
+    expect(cagri?.[1]).toMatchObject({ istem: "kırmızı kask", islem: "uret", saglayici: "nvidia_nim/black-forest-labs/flux.1-dev" });
+    expect(client.request.mock.calls.some(([name]) => name === "gorsel.kaydet")).toBe(false);
+    expect(screen.getByRole("status").textContent).toContain("Akış tamamlandı");
   });
 
-  it("hata metnini gösterir ve düğmeyi yeniden açar", async () => {
-    const client = istemci(async () => ({ ok: false, metin: "Gemini insan doğrulaması istiyor." }));
-    render(<ImageCreate client={client} toUrl={() => null} reveal={vi.fn()} />);
-    await screen.findByRole("option", { name: "Gemini" });
-    fireEvent.change(screen.getByLabelText("Görsel istemi"), { target: { value: "x" } });
-    fireEvent.click(screen.getByRole("button", { name: "Oluştur" }));
+  it("İndir yalnız kullanıcının seçtiği yere kopyalar", async () => {
+    const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
+    const kayitYeri = vi.fn(async () => "/Users/kullanici/Desktop/kask.jpg");
+    render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={kayitYeri} />);
+    await screen.findAllByRole("option", { name: "Gemini" });
+    fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+    await screen.findAllByRole("button", { name: "İndir" });
 
-    expect((await screen.findByRole("alert")).textContent).toContain("insan doğrulaması");
-    await waitFor(() => expect((screen.getByRole("button", { name: "Oluştur" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getAllByRole("button", { name: "İndir" })[0]);
+
+    await waitFor(() => expect(client.request).toHaveBeenCalledWith(
+      "gorsel.kaydet", { yol: "/veri/galeri/a.jpg", hedef: "/Users/kullanici/Desktop/kask.jpg" },
+    ));
   });
 
-  it("örnek isteme tıklayınca kutuya yazar", async () => {
-    render(<ImageCreate client={istemci(async () => ({ ok: true }))} toUrl={() => null} reveal={vi.fn()} />);
-    fireEvent.click(screen.getByRole("button", { name: /kırmızı motosiklet kaskı/ }));
-    expect((screen.getByLabelText("Görsel istemi") as HTMLTextAreaElement).value).toContain("kırmızı motosiklet kaskı");
+  it("eksik girdiyle çalıştırmaz ve nedenini söyler", async () => {
+    const client = istemci(async () => ({ ok: true }));
+    render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    await screen.findAllByRole("option", { name: "Gemini" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+
+    expect(await screen.findByText("Metin düğümü boş.")).toBeTruthy();
+    expect(client.request.mock.calls.some(([name]) => name === "gorsel.olustur")).toBe(false);
+  });
+
+  it("referans gerektiren düğümde yalnız referans alabilen sağlayıcı listelenir", async () => {
+    const client = istemci(async () => ({ ok: true }));
+    render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    await screen.findAllByRole("option", { name: "Gemini" });
+
+    fireEvent.click(screen.getByRole("button", { name: "+ Varyasyon" }));
+
+    const secici = screen.getByLabelText("Varyasyon sağlayıcısı") as HTMLSelectElement;
+    const etiketler = Array.from(secici.options).map((option) => option.textContent);
+    expect(etiketler).toEqual(["Sağlayıcı seç", "Gemini"]);
+  });
+
+  it("hatalı üretimde düğüm hatayı gösterir, sonraki işlem çalışmaz", async () => {
+    const client = istemci(async () => ({ ok: false, metin: "Gemini oturumu doğrulama bekliyor." }));
+    render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    await screen.findAllByRole("option", { name: "Gemini" });
+    fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Gemini oturumu doğrulama bekliyor.");
   });
 });

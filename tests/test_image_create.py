@@ -24,9 +24,10 @@ def _config(tmp_path: Path, *models: str):
 def test_saglayicilar_gemini_once_siralanir(tmp_path):
     config = _config(tmp_path, "chatgpt_web/main/auto", "gemini_web/main/auto")
 
-    secenekler = image_create.image_providers(config)
+    secenekler = image_create.image_providers(config, environ={})
 
     assert [s["etiket"] for s in secenekler] == ["Gemini", "ChatGPT"]
+    assert [s["referans"] for s in secenekler] == [True, False]
 
 
 async def test_bos_istem_reddedilir(tmp_path):
@@ -38,7 +39,8 @@ async def test_uretilen_dosyalar_doner_ve_hata_okunur_kalir(tmp_path, monkeypatc
     config = _config(tmp_path, "gemini_web/main/auto")
     monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
 
-    async def uret(_oturum, _kimlik, istem, klasor):
+    async def uret(_oturum, _kimlik, istem, klasor, **_kwargs):
+        (klasor / "a.png").write_bytes(b"\x89PNG")
         return [GeneratedImage(klasor / "a.png", 1024, 559)]
 
     monkeypatch.setattr(image_create, "generate_images", uret)

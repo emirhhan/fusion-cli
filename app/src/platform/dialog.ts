@@ -39,3 +39,19 @@ export async function selectVoiceModel(): Promise<string | null> {
   });
   return typeof selected === "string" ? selected : null;
 }
+
+/**
+ * Görseli "İndir" ile kaydetmek için yerel kayıt penceresini açar.
+ *
+ * Üretilen görseller kendiliğinden diske/Finder'a inmez; kullanıcı yalnız bu
+ * pencerede seçtiği yere kaydeder. İptalde `null` döner.
+ */
+export async function saveImageAs(defaultName: string): Promise<string | null> {
+  const { save } = await import("@tauri-apps/plugin-dialog");
+  const selected = await save({
+    defaultPath: defaultName,
+    filters: [{ extensions: ["png", "jpg", "jpeg"], name: "Görsel" }],
+    title: "Görseli kaydet",
+  });
+  return typeof selected === "string" ? selected : null;
+}

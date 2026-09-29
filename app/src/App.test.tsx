@@ -695,9 +695,10 @@ it("boş shell oluşturma sayfalarını açar ve saklı sohbetleri siler", async
   fireEvent.click(screen.getByRole("menuitem", { name: "Sil" }));
   await screen.findByRole("button", { name: "Desktop içinde yeni sohbet başlat" });
   fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
-  // Görsel oluşturma artık çalışan bir sayfadır (web oturumu görseli üretir).
+  // Görsel oluşturma düğümlü iş akışı sayfasıdır: başlangıçta Metin → Üret → Çıktı gelir.
   expect(await screen.findByRole("heading", { name: "Görsel oluştur" })).toBeTruthy();
-  expect(screen.getByLabelText("Görsel istemi")).toBeTruthy();
+  expect(screen.getByLabelText("Metin istemi")).toBeTruthy();
+  expect(screen.getByRole("region", { name: "Görsel iş akışı tuvali" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Video oluştur" }));
   expect(await screen.findByRole("heading", { name: "Yakında" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Saklı sohbet sohbet seçenekleri" }));
