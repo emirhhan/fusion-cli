@@ -215,3 +215,10 @@ RECOVERY_CODE_BYTES = 10
 # kullanıcı "doğrulama başarısız" görüyordu — oysa model hâlâ yazıyordu.
 # 420 sn, ölçülen en yavaş sağlayıcının (ChatGPT) tur süresiyle aynı tavandır.
 HOSTED_VERIFY_TIMEOUT_S = 420.0
+
+
+#: Tekrar kapısının aracı ÇALIŞTIRMADAN döndürdüğü engel mesajlarının önekleri.
+#: Bu çıktılar bir komutun sonucunu değil engeli anlatır; tur raporu onları
+#: doğrulama kanıtı saymaz (bkz. `engines/agent/turn_report.py`).
+TOOL_CALL_DUPLICATE_PREFIX = "TOOL_CALL_DUPLICATE:"
+TOOL_CALL_BLOCKED_PREFIX = "TOOL_CALL_BLOCKED:"

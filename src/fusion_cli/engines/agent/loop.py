@@ -39,6 +39,8 @@ from ...core.concurrency import BackgroundTasks
 from ...core.constants import (
     CAPABILITY_WALL_PREFIX,
     FILE_MISSING_PREFIX,
+    TOOL_CALL_BLOCKED_PREFIX,
+    TOOL_CALL_DUPLICATE_PREFIX,
     UNREACHABLE_RESOURCE_PREFIX,
 )
 from ...core.errors import ConfigError, FusionError
@@ -2634,7 +2636,7 @@ SAME_OUTPUT_WARN_AT = 3
 
 def _repeat_block_message(name: str, count: int) -> str:
     return (
-        f"TOOL_CALL_BLOCKED: `{name}` çağrısını aynı argümanlarla {count}. kez istedin; "
+        f"{TOOL_CALL_BLOCKED_PREFIX} `{name}` çağrısını aynı argümanlarla {count}. kez istedin; "
         "sonuç hiç değişmedi ve araç çalıştırılmadı. Bu aramayı bırak. Elindeki "
         "sonuçlarla bir sonraki SOMUT adımı at (bulduğun dosyayı oku ya da düzenle); "
         "aradığın şey yoksa farklı bir klasörde ya da farklı bir araçla ara, "
@@ -2683,7 +2685,7 @@ def _duplicate_call_message() -> str:
     yalnızca örnek olarak kalır.
     """
     return (
-        "TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın ve çalışma "
+        f"{TOOL_CALL_DUPLICATE_PREFIX} Bu çağrıyı aynı argümanlarla ZATEN yaptın ve çalışma "
         "alanında o zamandan beri ilgili bir değişiklik olmadı. Fusion çağrıyı "
         "çalıştırmadı — sonucu zaten elinde. Araç YASAK DEĞİL; yasak olan aynı "
         "çağrıyı aynı argümanlarla tekrarlamak.\n"

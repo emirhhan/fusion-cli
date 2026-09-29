@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from ...core.constants import TOOL_CALL_BLOCKED_PREFIX, TOOL_CALL_DUPLICATE_PREFIX
 from ...core.evidence import EvidenceStatus, ToolUse
 from ...core.tools import ToolFamily, tool_family
 from ...core.verification import VerificationResult
@@ -212,7 +213,7 @@ def build_turn_report(
     command_runs = tuple(
         _command_run(use, after=last_mutation is not None and index > last_mutation)
         for index, use in enumerate(tool_uses)
-        if _is_shell_call(use.name)
+        if _is_shell_call(use.name) and not _never_ran(use)
     )
     return TurnReport(
         changed_paths=changed_paths,
@@ -220,6 +221,17 @@ def build_turn_report(
         gate=gate,
         require_behavioral_evidence=require_behavioral_evidence,
     )
+
+
+def _never_ran(use: ToolUse) -> bool:
+    """Tekrar kapısı çağrıyı ÇALIŞTIRMADAN engelledi mi?
+
+    Ölçüldü (29 Eylül, canlı uzun görev): aynı `pytest` komutunun değişikliksiz
+    ikinci isteği engellendi; engel çıktısında çıkış kodu olmadığı için rapor
+    "çıkış None" ile doğrulamayı başarısız saydı, oysa ilk koşu geçmişti.
+    Zaman aşımı gibi GERÇEKTEN çalışmış komutlar bu kapsamda değildir.
+    """
+    return use.output.startswith((TOOL_CALL_DUPLICATE_PREFIX, TOOL_CALL_BLOCKED_PREFIX))
 
 
 def _last_mutation_index(tool_uses: tuple[ToolUse, ...]) -> int | None:

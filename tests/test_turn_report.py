@@ -282,3 +282,40 @@ def test_model_ozetindeki_acilissiz_dusunme_rapora_sizmaz():
     assert "Let me provide" not in metin
     assert metin.endswith("Tamamlandı.")
     assert "dokunma hedefi" in metin
+
+
+def test_calistirilmadan_engellenen_tekrar_komutu_dogrulama_kaniti_sayilmaz():
+    """Ölçüldü (29 Eylül, canlı uzun görev): model aynı `pytest` komutunu arada
+    değişiklik yapmadan ikinci kez istedi; tekrar kapısı onu çalıştırmadan
+    engelledi. Engel çıktısında çıkış kodu olmadığından rapor "çıkış None" ile
+    doğrulamayı BAŞARISIZ saydı ve gizli testleri 9/9 geçen tur ok=False bitti.
+    Çalışmayan bir çağrı kanıt değildir; önceki gerçek koşu kanıttır."""
+    engellenen = ToolUse(
+        name="run_shell",
+        ok=False,
+        mutating=True,
+        arguments={"command": "python -m pytest tests/ -v"},
+        output="TOOL_CALL_DUPLICATE: Bu çağrıyı aynı argümanlarla ZATEN yaptın.",
+    )
+    report = build_turn_report(
+        ("a.py",),
+        (_write("a.py"), _shell("python -m pytest tests/ -v", exit_code=0), engellenen),
+        gate=None,
+    )
+
+    assert report.is_verified is True
+    assert "✓ Doğrulandı" in report.render()
+
+
+def test_zaman_asimina_ugrayan_komut_yine_basarisiz_sayilir():
+    """Çalışıp bitmeyen komut kanıt değildir ama ÇALIŞMIŞTIR: başarısız kalır."""
+    zaman_asimi = ToolUse(
+        name="run_shell",
+        ok=False,
+        mutating=True,
+        arguments={"command": "python -m pytest"},
+        output="Komut 120s içinde bitmedi ve durduruldu.",
+    )
+    report = build_turn_report(("a.py",), (_write("a.py"), zaman_asimi), gate=None)
+
+    assert report.is_verified is False
