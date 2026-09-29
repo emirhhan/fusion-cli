@@ -56,7 +56,9 @@ class EventingProvider:
     async def stream(self, request: CompletionRequest) -> AsyncIterator[StreamItem]:
         self._publisher.publish(self._started())
         async for item in self._inner.stream(request):
-            if isinstance(item, TextChunk):
+            if isinstance(item, TextChunk) and item.text:
+                # Boş parça yalnız canlılık işaretidir (bkz. `litellm_provider.stream`);
+                # arayüze olay olarak gitmez.
                 self._publisher.publish(
                     TokenReceived(
                         channel=self._channel, text=item.text, provisional=item.provisional

@@ -155,6 +155,35 @@ async def test_akista_reasoning_parcalari_metne_karismaz(monkeypatch):
     assert sonuc is not None and sonuc.reasoning == "düşün"
 
 
+async def test_metinsiz_parcalar_canlilik_isareti_olarak_iletilir(monkeypatch):
+    """Ölçüldü (29 Eylül): model uzun bir dosyayı araç argümanı olarak yazarken akış
+    yalnız metin parçalarını iletiyordu; iki dakika "sessiz" sanılıp çağrı her
+    denemede kesildi. Araç argümanı ve düşünme parçaları boş, geçici bir parça
+    olarak iletilir: ekrana metin düşmez ama model "yazıyor" sayılır."""
+    arac_parcasi = SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content=None, tool_calls=[object()]))]
+    )
+    parcalar = [
+        arac_parcasi,
+        SimpleNamespace(
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None, reasoning_content="dü"))]
+        ),
+        arac_parcasi,
+    ]
+    _sdk(
+        monkeypatch,
+        akis=parcalar,
+        stream_chunk_builder=lambda chunks, messages: _yanit(""),
+    )
+
+    ogeler = [item async for item in _saglayici().stream(request())]
+
+    canlilik = [item for item in ogeler if not isinstance(item, StreamDone)]
+    assert len(canlilik) == 3
+    assert all(item.text == "" and item.provisional for item in canlilik)
+    assert isinstance(ogeler[-1], StreamDone)
+
+
 # --------------------------------------------------------------------------- #
 
 

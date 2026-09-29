@@ -107,6 +107,13 @@ class LiteLlmProvider:
                 text = _chunk_text(chunk)
                 if text:
                     yield TextChunk(text)
+                else:
+                    # Araç argümanı ya da düşünme parçası: metin yok ama model
+                    # ÇALIŞIYOR. Ölçüldü (29 Eylül): uzun bir dosyayı araç argümanı
+                    # olarak yazan model iki dakika "sessiz" sanılıp her denemede
+                    # kesildi. Boş, geçici parça ekrana metin düşürmez; yalnız
+                    # sessizlik sınırını tazeler (bkz. `loop._call_model`).
+                    yield TextChunk("", provisional=True)
         except Exception as exc:
             yield StreamDone(self._failure(exc, started))
             return
