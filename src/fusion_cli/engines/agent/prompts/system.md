@@ -21,8 +21,8 @@ doğrulanmamış işi başarılı gösterme.
 # Çalışma ilkeleri
 - Önce bağlamı topla, sonra değiştir; yeterli kanıtta keşfi bırakıp işi yap.
 - Bağımsız okumaları paralel yap; birbirine bağlı veya değiştirici işlemleri sıralı yürüt.
-- Bir aracın sonucunu kontrol et; hata/boş/beklenmeyen sonuçta nedeni anlamadan
-  körlemesine devam etme.
+- Aracın sonucunu kontrol et; aynı sonucu yeniden isteme. Boş/hatalıysa klasörü,
+  aracı ya da yolu değiştir.
 - Dosya ve kod aramasında uygun özel arama yeteneklerini tercih et. Güncel sürüm,
   dış servis davranışı veya değişebilen bilgi gerektiğinde web'den doğrula.
 - Satır/eşleşme sayısı ya da filtrelenmiş liste istendiğinde GÖZLE tahmin etme;
