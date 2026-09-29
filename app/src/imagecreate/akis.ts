@@ -23,6 +23,10 @@ export interface Dugum {
   yol?: string;
   /** İşlem düğümünün seçili sağlayıcısı. */
   saglayici?: string;
+  /** İşlem düğümünün kaç varyasyon üreteceği (1..MAX_ADET). */
+  adet?: number;
+  /** İşlemin ürettiği tüm görseller; `yol` bunlardan seçilen ve sonraki düğüme akandır. */
+  sonuclar?: string[];
   durum?: DugumDurumu;
   hata?: string;
 }
@@ -38,6 +42,11 @@ export interface Akis {
   dugumler: Dugum[];
   baglantilar: Baglanti[];
 }
+
+/** Bir işlem düğümünün tek çalıştırmada üretebileceği en fazla varyasyon.
+ *  Web oturumu her görseli ayrı sohbette üretir (15-60 sn); dört, bekleme
+ *  süresini dakikalar mertebesinde tutan üst sınırdır. */
+export const MAX_ADET = 4;
 
 export const ISLEM_TURLERI: readonly Islem[] = ["uret", "varyasyon", "buyut", "duzenle"];
 

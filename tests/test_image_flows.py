@@ -16,7 +16,7 @@ _FLOW = {
     "ad": "Kask akışı",
     "dugumler": [
         {"id": "m", "tur": "metin", "x": 1, "y": 2, "istem": "kask", "durum": "bitti"},
-        {"id": "u", "tur": "uret", "x": 3, "y": 4, "saglayici": "nvidia_nim/x"},
+        {"id": "u", "tur": "uret", "x": 3, "y": 4, "saglayici": "nvidia_nim/x", "adet": 3},
     ],
     "baglantilar": [{"kaynak": "m", "hedef": "u"}],
 }
@@ -35,6 +35,13 @@ def test_akis_kaydedilir_listelenir_ve_acilir(tmp_path) -> None:
         "y": 2.0,
         "istem": "kask",
     }
+
+
+def test_varyasyon_sayisi_saklanir_aralik_disi_atilir(tmp_path) -> None:
+    flow = validate_flow(_FLOW)
+    assert flow["dugumler"][1]["adet"] == 3
+    bozuk = {**_FLOW, "dugumler": [{**_FLOW["dugumler"][1], "adet": 99}]}
+    assert "adet" not in validate_flow({**bozuk, "baglantilar": []})["dugumler"][0]
 
 
 def test_ayni_kimlikle_kaydetme_uzerine_yazar(tmp_path) -> None:

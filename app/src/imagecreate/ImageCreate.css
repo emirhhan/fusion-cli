@@ -59,9 +59,33 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   min-height: 420px;
-  overflow: auto;
+  overflow: hidden;
   position: relative;
 }
+.akis-tuvali { cursor: grab; touch-action: none; }
+.akis-tuvali[data-surukleniyor="true"] { cursor: grabbing; }
+.akis-tuvali__sahne { left: 0; position: absolute; top: 0; transform-origin: 0 0; }
+.akis-tuvali__olcek {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  z-index: 2;
+}
+.akis-tuvali__olcek button { background: transparent; border: 0; color: var(--text-primary); font: inherit; font-size: var(--text-sm); min-width: 28px; padding: 3px 6px; }
+.akis-tuvali__olcek button:hover { background: var(--surface-hover); }
+.akis-tuvali__baglanti--gecici { pointer-events: none; stroke: var(--focus-ring); stroke-dasharray: 6 4; }
+.akis-dugum { cursor: default; }
+.akis-dugum__adet { align-items: center; color: var(--text-secondary); display: flex; font-size: var(--text-xs); gap: 6px; justify-content: space-between; }
+.akis-dugum__varyasyonlar { display: grid; gap: 4px; grid-template-columns: repeat(2, 1fr); }
+.akis-dugum__varyasyonlar button { border: 2px solid transparent !important; padding: 0 !important; }
+.akis-dugum__varyasyonlar button[aria-checked="true"] { border-color: var(--focus-ring) !important; }
+.akis-dugum__varyasyonlar img { border-radius: var(--radius-sm); display: block; width: 100%; }
 .akis-tuvali__baglantilar { height: 1600px; left: 0; overflow: visible; pointer-events: none; position: absolute; top: 0; width: 2400px; }
 .akis-tuvali__baglanti {
   cursor: pointer;

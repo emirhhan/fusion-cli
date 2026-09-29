@@ -24,6 +24,8 @@ _NODE_TYPES = frozenset({"metin", "gorsel", "uret", "varyasyon", "buyut", "duzen
 _MAX_NODES = 200
 _MAX_TEXT = 4_000
 _MAX_NAME = 120
+#: Düğüm başına varyasyon üst sınırı: `app/src/imagecreate/akis.ts::MAX_ADET`.
+_MAX_VARIATIONS = 4
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg")
 _FLOW_ID = re.compile(r"^[0-9a-f]{32}$")
 
@@ -74,6 +76,10 @@ def validate_flow(raw: object) -> dict[str, Any]:
         for key in ("istem", "yol", "saglayici"):
             if isinstance(node.get(key), str):
                 clean[key] = _text(node[key])
+        adet = node.get("adet")
+        # Arayüzdeki `MAX_ADET` ile aynı aralık; dışındaki değer saklanmaz.
+        if isinstance(adet, int) and not isinstance(adet, bool) and 1 <= adet <= _MAX_VARIATIONS:
+            clean["adet"] = adet
         nodes.append(clean)
     ids = {node["id"] for node in nodes}
     edges = []

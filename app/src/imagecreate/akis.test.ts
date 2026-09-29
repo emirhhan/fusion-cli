@@ -67,3 +67,40 @@ describe("görsel akış modeli", () => {
     expect(akisSorunlari(akis)).toEqual(["Metin düğümü boş."]);
   });
 });
+
+describe("varyasyonlu çalıştırma", () => {
+  it("adet kadar üretim ister, ilkini seçer ve hepsini sonuç olarak tutar", async () => {
+    const { akisiCalistir } = await import("./akisCalistir");
+    let sira = 0;
+    const istek = async () => ({ ok: true, dosyalar: [{ yol: `/g/${++sira}.jpg` }] });
+    const baslangic: Akis = {
+      ad: "x",
+      dugumler: [
+        { id: "m", tur: "metin", x: 0, y: 0, istem: "kask" },
+        { id: "u", tur: "uret", x: 0, y: 0, saglayici: "nim", adet: 3 },
+      ],
+      baglantilar: [{ kaynak: "m", hedef: "u" }],
+    };
+    const son = await akisiCalistir(baslangic, istek, () => undefined);
+    expect(son.dugumler[1].sonuclar).toEqual(["/g/1.jpg", "/g/2.jpg", "/g/3.jpg"]);
+    expect(son.dugumler[1].yol).toBe("/g/1.jpg");
+    expect(son.dugumler[1].durum).toBe("bitti");
+  });
+
+  it("bir kısmı üretilirse iş sürer ve eksik not edilir", async () => {
+    const { akisiCalistir } = await import("./akisCalistir");
+    let sira = 0;
+    const istek = async () => (++sira === 1 ? { ok: true, dosyalar: [{ yol: "/g/1.jpg" }] } : { ok: false, metin: "kota doldu" });
+    const baslangic: Akis = {
+      ad: "x",
+      dugumler: [
+        { id: "m", tur: "metin", x: 0, y: 0, istem: "kask" },
+        { id: "u", tur: "uret", x: 0, y: 0, saglayici: "nim", adet: 2 },
+      ],
+      baglantilar: [{ kaynak: "m", hedef: "u" }],
+    };
+    const son = await akisiCalistir(baslangic, istek, () => undefined);
+    expect(son.dugumler[1].durum).toBe("bitti");
+    expect(son.dugumler[1].hata).toBe("1/2 varyasyon üretildi: kota doldu");
+  });
+});
