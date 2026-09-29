@@ -7,6 +7,7 @@ from pathlib import Path
 import yaml
 
 from fusion_cli.config.loader import load_config
+from fusion_cli.config.models import WebSessionConfig
 from fusion_cli.core.tools import ToolContext
 from fusion_cli.core.types import ModelResult, ModelSpec
 from fusion_cli.engines.agent.approval import ApprovalMode, build_policy
@@ -97,6 +98,45 @@ async def test_soru_bos_olamaz(tmp_path, monkeypatch):
     sonuc = await _registry(deps).execute("ask_teacher", {"question": "  "}, deps.tool_context)
 
     assert sonuc.ok is False
+    assert not saglayici.seen
+
+
+async def test_tur_butcesi_dolunca_altinci_ogretmen_cagrisi_yapilmaz(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    deps = _deps(tmp_path, teacher=ModelSpec(name="ogretmen", model="sahte/ogretmen"))
+    registry = _registry(deps)
+
+    for _ in range(5):
+        assert (await registry.execute("ask_teacher", {"question": "soru"}, deps.tool_context)).ok
+    blocked = await registry.execute("ask_teacher", {"question": "soru"}, deps.tool_context)
+
+    assert blocked.ok is False
+    assert "turda öğretmen çağrısı sınırına" in blocked.output
+    assert len(saglayici.seen) == 5
+
+
+async def test_dogrulanmamis_web_oturumu_ogretmene_cikmaz(tmp_path, monkeypatch):
+    saglayici = _OgretmenSaglayici()
+    _ogretmen(monkeypatch, saglayici)
+    deps = _deps(
+        tmp_path,
+        teacher=ModelSpec(name="ogretmen", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                login_verified=False,
+            ),
+        ),
+    )
+
+    result = await _registry(deps).execute(
+        "ask_teacher", {"question": "Plan nedir?"}, deps.tool_context
+    )
+
+    assert result.ok is False
     assert not saglayici.seen
 
 

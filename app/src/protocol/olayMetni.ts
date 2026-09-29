@@ -313,6 +313,21 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         metin: String(veri.route ?? "") === "workflow" ? "planlı yürütme seçildi" : "hızlı yürütme seçildi",
         ayrinti: Array.isArray(veri.reasons) ? veri.reasons.join(" · ") : undefined,
       };
+    case "TeacherTaskClassified":
+      return {
+        metin: veri.size === "orta-buyuk" ? "orta-büyük görev belirlendi" : "basit görev belirlendi",
+        ayrinti: Array.isArray(veri.reasons) ? veri.reasons.join(" · ") : undefined,
+      };
+    case "TeacherPlanPrepared":
+      return {
+        metin: veri.structured === true ? "öğretmenden plan alındı" : "öğretmen plan notu alındı",
+        ayrinti: veri.structured === true ? `${Number(veri.steps ?? 0)} adım` : undefined,
+      };
+    case "TeacherLimitationFound":
+      return {
+        metin: `${String(veri.topic ?? "İş")} yapılamıyor`,
+        ayrinti: `${String(veri.reason ?? "")}. Alternatif: ${String(veri.alternative ?? "")}`,
+      };
     case "ExecutionPromoted":
       return {
         metin: "görev planlı yürütmeye yükseltildi",

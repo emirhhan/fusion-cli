@@ -226,7 +226,10 @@ async def test_hazirlik_bosta_kalma_penceresini_yese_de_model_cagrisi_kesilmez(
     assert result.final_text == "uzun ama tamamlanmış cevap"
 
 
-async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path, sink):
+async def test_uzun_kesifte_web_ogretmen_plan_ve_takilmada_cagrilir(monkeypatch, tmp_path, sink):
+    """Önce plan akışı eklendi: doğrulanmış öğretmen plan ve takılmada birer kez çağrılır."""
+    from fusion_cli.config.models import WebSessionConfig
+
     paths = [f"src/part_{index}.py" for index in range(10)]
     (tmp_path / "src").mkdir()
     for path in paths:
@@ -246,7 +249,12 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
             return ModelResult(
                 name="teacher",
                 model="gemini_web/main/auto",
-                text="Önce route testi yaz.",
+                text=(
+                    '{"adimlar":["Route testini yaz"],"dosyalar":[],"riskler":[],'
+                    '"yapilamayanlar":[],"dogrulama":[]}'
+                    if len(seen) == 1
+                    else "Önce route testi yaz."
+                ),
                 latency_ms=1,
                 ok=True,
             )
@@ -259,6 +267,15 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
         tmp_path,
         sink,
         teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
         runtime={"agent_max_idle_rounds": 20, "agent_max_steps": 16},
     )
 
@@ -274,16 +291,17 @@ async def test_uzun_kesifte_web_ogretmen_bir_kez_cagrilir(monkeypatch, tmp_path,
         for event in sink.events
         if isinstance(event, ToolExecuted) and event.name == "ask_teacher"
     ]
-    assert len(teacher_events) == 1
+    assert len(teacher_events) == 2
     assert deps.auto_teacher_used is True
-    assert len(seen) == 1
-    assert "Önce route testi yaz." in teacher_events[0].output
+    assert len(seen) == 2
+    assert "Önce route testi yaz." in teacher_events[1].output
     assert "owner@example.com" not in seen[0].messages[0].content
 
 
 async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
     monkeypatch, tmp_path, sink
 ):
+    """Ön plan eklendiği için eski devralma akışı plan ve son denetimi de tüketir."""
     from fusion_cli.config.models import WebSessionConfig
 
     target = tmp_path / "src" / "app.py"
@@ -310,6 +328,10 @@ async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
     )
     web_provider = ScriptedProvider(
         [
+            model_result(
+                '{"adimlar":["Dosyayı düzenle"],"dosyalar":["src/app.py"],'
+                '"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
+            ),
             model_result("İlk değişiklik: test yaz ve uygula."),
             model_result(
                 tool_calls=[
@@ -321,7 +343,16 @@ async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
                     )
                 ]
             ),
+            model_result(
+                tool_calls=[
+                    tool_call(
+                        "todo_write",
+                        todos=[{"content": "Dosyayı düzenle", "status": "completed"}],
+                    )
+                ]
+            ),
             model_result(TAM_CEVAP),
+            model_result('{"bulgular": []}'),
         ]
     )
 
@@ -351,7 +382,7 @@ async def test_ogretmen_ogudunden_sonra_okuma_dongusunu_devralip_duzenler(
     assert outcome.mutating_tool_calls_made == 1
     assert deps.active_model_override is not None
     assert deps.active_model_override.model == teacher.model
-    assert web_provider.calls == 3
+    assert web_provider.calls == 6
     assert any(
         isinstance(event, StatusChanged) and "devraldı" in event.message for event in sink.events
     )

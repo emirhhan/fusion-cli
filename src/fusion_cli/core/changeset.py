@@ -64,6 +64,11 @@ class ChangeSet:
         """Bu turda dokunulan yollar, kaydedilme sırasıyla."""
         return tuple(self._snapshots)
 
+    @property
+    def snapshots(self) -> tuple[Snapshot, ...]:
+        """İlk hâllerin salt-okunur görünümü; tur sonu denetimde diff kurulur."""
+        return tuple(self._snapshots.values())
+
     def record_created(self, path: Path) -> None:
         """Yalnız atomik, üzerine yazmayan oluşturma BAŞARILI olduktan sonra çağır.
 

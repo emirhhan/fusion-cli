@@ -306,13 +306,29 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
                 "Öğretmen yapılandırılmamış. `config.yaml`'a bir `teacher:` bölümü "
                 "eklemen gerekir (örnek: `defaults.yaml`'daki `teacher:` yorumu)."
             )
+        from .execution_policy import is_web_model
+
+        if is_web_model(deps.config, teacher.model) and not any(
+            session.model == teacher.model
+            and session.transport == "browser"
+            and session.enabled
+            and session.login_verified
+            for session in deps.config.web_sessions
+        ):
+            return ToolResult.failure("Giriş doğrulanmış bağlı web öğretmen oturumu yok.")
         question = args.get("question")
         if not isinstance(question, str) or not question.strip():
             return ToolResult.failure("'question' alanı boş olmayan bir metin olmalı.")
 
         from time import time as _simdi
 
-        from .teacher_budget import check_and_spend
+        from .teacher_budget import TURN_LIMIT, check_and_spend
+
+        if deps.teacher_calls_used >= TURN_LIMIT:
+            return ToolResult.failure(
+                f"Bu turda öğretmen çağrısı sınırına ulaşıldı ({TURN_LIMIT}). "
+                "Çırak mevcut bilgilerle devam edecek."
+            )
 
         butce = check_and_spend(context.root, now=_simdi())
         if not butce.allowed:
@@ -321,6 +337,7 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
                 f"Öğretmen çağrı bütçesi bu saat için doldu ({butce.limit}/saat). "
                 f"~{dakika} dakika sonra sıfırlanır. Ağa HİÇ ÇIKILMADI."
             )
+        deps.teacher_calls_used += 1
 
         durum_ham = args.get("durum")
         denenenler_ham = args.get("denenenler")

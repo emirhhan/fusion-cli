@@ -60,6 +60,9 @@ from ..core.events import (
     SubAgentFinished,
     SubAgentStarted,
     TeacherConsulted,
+    TeacherLimitationFound,
+    TeacherPlanPrepared,
+    TeacherTaskClassified,
     TierDegraded,
     TokenReceived,
     ToolCallRepaired,
@@ -242,6 +245,20 @@ class ConsoleRenderer:
         elif isinstance(event, TeacherConsulted):
             self._status(messages.AGENT_TEACHER)
             self._resume_work(messages.WORK_TEACHER)
+        elif isinstance(event, TeacherTaskClassified):
+            size = "orta-büyük" if event.size == "orta-buyuk" else "basit"
+            self._status(messages.AGENT_TEACHER_TASK.format(size=size))
+        elif isinstance(event, TeacherPlanPrepared):
+            self._status(
+                messages.AGENT_TEACHER_PLAN.format(steps=event.steps)
+                if event.structured else messages.AGENT_TEACHER_PLAN_NOTE
+            )
+        elif isinstance(event, TeacherLimitationFound):
+            self._status(
+                messages.AGENT_TEACHER_LIMITATION.format(
+                    topic=event.topic, reason=event.reason, alternative=event.alternative
+                )
+            )
         elif isinstance(event, SelfReviewStarted):
             # Ayrı satır basılmaz; sonucu hemen ardından geliyor.
             self._resume_work(messages.WORK_REVIEW)

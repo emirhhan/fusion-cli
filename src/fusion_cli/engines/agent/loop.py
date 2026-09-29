@@ -105,6 +105,7 @@ from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .refusal import looks_like_refusal
 from .repo_context import repo_map_block
+from .teacher_flow import prepare_teacher_plan, review_teacher_changes, teacher_is_ready
 from .turn_report import build_turn_report
 from .workspace_hint import find_workspace_for
 
@@ -308,6 +309,10 @@ class AgentDeps:
     health: HealthRegistry | None = None
     #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
     auto_teacher_used: bool = False
+    #: İlk plan, takılma ve son denetim aynı tur bütçesini paylaşır.
+    teacher_calls_used: int = 0
+    #: Öğretmen yok/bütçe dolu bildirimi bu turda bir kez gösterilir.
+    teacher_unavailable_notified: bool = False
     #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
     #: yapılandırma dosyasında değiştirmez.
     active_model_override: ModelSpec | None = None
@@ -434,7 +439,7 @@ async def run_agent(
         "Karmaşık çok dosyalı görevde kendi incelemenden sonra bir mimari risk veya "
         "doğrulama belirsizliği kalırsa `ask_teacher` ile tek somut soru sor. "
         "Sırları ve özel verileri öğretmene gönderme."
-        if depth == 0 and not chat_mode and registry.get("ask_teacher") is not None
+        if depth == 0 and not chat_mode and teacher_is_ready(deps, registry)
         else ""
     )
     # Belirsiz yeni proje isteğinde koda başlamadan seçenekli soru (bkz. `clarify`).
@@ -535,6 +540,9 @@ async def run_agent(
                 ok=False,
             )
 
+    if depth == 0 and not internal and not plan_mode and not chat_mode:
+        await prepare_teacher_plan(task, messages, deps, registry)
+
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
         deps.publisher.publish(
@@ -578,6 +586,32 @@ async def run_agent(
         # çağırmadan eski hareketsizlik süresine takılıyordu.
         budget.record_progress()
         outcome = await _fix_findings(verification, outcome, deps)
+
+    if depth == 0 and not internal and not plan_mode and not chat_mode and budget.stop is None:
+        teacher_findings = await review_teacher_changes(outcome, deps, registry)
+        if teacher_findings:
+            teacher_gate = VerificationResult(
+                ok=False,
+                summary="Öğretmen denetimi somut eksikler buldu.",
+                findings=teacher_findings,
+            )
+            prior_mutations = outcome.mutating_tool_calls_made
+            outcome = await _fix_findings(teacher_gate, outcome, deps)
+            if verify:
+                verification = await _verify(outcome, deps, plan_mode=plan_mode, depth=depth)
+            if outcome.mutating_tool_calls_made <= prior_mutations:
+                outcome.ok = False
+                outcome.final_text += (
+                    "\n\nÖğretmen bulgusu için doğrulanmış bir düzeltme yapılmadı."
+                )
+            else:
+                remaining = await review_teacher_changes(outcome, deps, registry)
+                if remaining is None or remaining:
+                    outcome.ok = False
+                    outcome.final_text += "\n\nÖğretmen bulgularının giderildiği doğrulanamadı."
+
+    if verification is not None and not verification.ok:
+        outcome.ok = False
 
     # Deterministik kapılar olasılıksal model hakeminden önce çalışır. Somut bir
     # derleme/statik/tarayıcı bulgusu varken hakeme bütçe harcatmak, düzeltilebilir
@@ -783,6 +817,8 @@ class _State:
     stalled: bool = False
     #: (araç, sonuç özeti) → farklı argümanlarla aynı sonucu kaç kez verdi.
     same_output_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: Aynı okuma çağrısı tekrar koruması tarafından engellendi mi?
+    repeat_blocked: bool = False
     #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
     refusal_nudged: bool = False
     #: Uzun okuma dizisinden sonra verilen tek ilerleme uyarısı.
@@ -1033,14 +1069,21 @@ async def _drive(
         if exploration_note is not None:
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
-            if (
-                auto_teacher
-                and not deps.auto_teacher_used
-                and registry.get("ask_teacher") is not None
-                and (allowed_tools is None or "ask_teacher" in allowed_tools)
-            ):
-                deps.auto_teacher_used = True
-                await _consult_teacher_on_plateau(messages, deps, registry, state)
+        teacher_stall = _teacher_stall_reason(state) or (
+            "okuma ve arama adımlarında ilerleme yok" if exploration_note else None
+        )
+        if (
+            auto_teacher
+            and execution.complex_task
+            and teacher_stall is not None
+            and not deps.auto_teacher_used
+            and teacher_is_ready(deps, registry)
+            and (allowed_tools is None or "ask_teacher" in allowed_tools)
+        ):
+            deps.auto_teacher_used = True
+            await _consult_teacher_on_plateau(
+                messages, deps, registry, state, reason=teacher_stall
+            )
         takeover = _teacher_takeover_spec(deps, state, execution, auto_teacher=auto_teacher)
         if takeover is not None:
             deps.active_model_override = takeover
@@ -1092,6 +1135,17 @@ async def _drive(
             state.stalled = True
             messages.append(reflexion.stall_rescue_note())
             deps.publisher.publish(StatusChanged(STALL_STATUS))
+            if (
+                auto_teacher
+                and execution.complex_task
+                and not deps.auto_teacher_used
+                and teacher_is_ready(deps, registry)
+                and (allowed_tools is None or "ask_teacher" in allowed_tools)
+            ):
+                deps.auto_teacher_used = True
+                await _consult_teacher_on_plateau(
+                    messages, deps, registry, state, reason="ilerleme yok uyarısı"
+                )
         if _stuck_editing(state, plan_mode=plan_mode):
             state.edit_loop_pushes += 1
             messages.append(reflexion.repeated_edit_note(state.failed_mutations_in_row))
@@ -1857,8 +1911,22 @@ def _teacher_takeover_spec(
     return ModelSpec(name="ogretmen-agent", model=teacher.model, tags=("strict",))
 
 
+def _teacher_stall_reason(state: _State) -> str | None:
+    """Var olan hata ve tekrar sinyallerinden somut danışma nedeni çıkar."""
+    if any(count >= _YINELENEN_HATA_ESIGI for count in state.repeated_failures.values()):
+        return "aynı araç hatası tekrarlandı"
+    if state.repeat_blocked:
+        return "tekrar koruması aynı okumayı engelledi"
+    if any(count >= SAME_OUTPUT_WARN_AT for count in state.same_output_counts.values()):
+        return "farklı aramalar aynı sonucu üretti"
+    if state.stalled:
+        return "ilerleme yok uyarısı"
+    return None
+
+
 async def _consult_teacher_on_plateau(
-    messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State
+    messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State,
+    *, reason: str = "okuma ve arama adımlarında ilerleme yok",
 ) -> None:
     """Ask the configured web teacher once when a complex task stalls in reading.
 
@@ -1880,8 +1948,8 @@ async def _consult_teacher_on_plateau(
         ),
         "durum": f"Görev özeti: {redact(original_task)[:700]}",
         "denenenler": (
-            f"Ajan {state.tool_calls_made} araç çağrısı yaptı; dosya değişikliği yok. "
-            "Okuma/arama adımlarında kaldı."
+            f"Ajan {state.tool_calls_made} araç çağrısı yaptı. "
+            f"Takılma nedeni: {reason}."
         ),
     }
     call = ToolCall(
@@ -2203,6 +2271,7 @@ async def _run_tools(
                     Message("tool", output, tool_call_id=call.id, name=call.name, ok=False)
                 )
                 state.failed_tool_calls += 1
+                state.repeat_blocked = True
                 _note_tool_use(state, call.name, tool, ok=False, arguments=args, output=output)
                 errored = True
                 continue

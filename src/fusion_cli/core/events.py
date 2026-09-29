@@ -224,6 +224,31 @@ class TeacherConsulted(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TeacherTaskClassified(Event):
+    """Kök görevin öğretmen öncesi boyut kararı."""
+
+    size: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherPlanPrepared(Event):
+    """Öğretmen planı çırağın görev listesine aktarıldı."""
+
+    steps: int
+    structured: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherLimitationFound(Event):
+    """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
+
+    topic: str
+    reason: str
+    alternative: str
+
+
+@dataclass(frozen=True, slots=True)
 class TierDegraded(Event):
     """Kullanıcının açıkça seçtiği web kademesi gelmedi (Faz 4, Görev 4).
 

@@ -32,6 +32,9 @@ from pathlib import Path
 
 #: Kova ile AYNI mantıkta ama çok daha kaba bir üst sınır — bkz. modül docstring'i.
 HOURLY_LIMIT = 60
+# Öğretmen protokolü planının üst sınırı: ilk plan, bir biçim düzeltmesi,
+# takılmada danışma, son denetim ve düzeltme denetimi beş çağrı yapabilir.
+TURN_LIMIT = 5
 WINDOW_S = 3600.0
 BUDGET_PATH = ".fusion/ogretmen-butce.json"
 

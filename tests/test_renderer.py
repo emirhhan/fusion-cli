@@ -15,6 +15,9 @@ from fusion_cli.core.events import (
     NoFileChanges,
     SelfReviewFinished,
     StatusChanged,
+    TeacherLimitationFound,
+    TeacherPlanPrepared,
+    TeacherTaskClassified,
     TokenReceived,
     TurnFinished,
     TurnOutcome,
@@ -43,6 +46,25 @@ def test_yarim_satir_varken_durum_satiri_metnin_ustune_binmez():
     satirlar = buffer.getvalue().splitlines()
     assert satirlar[0] == f"{MARK} yarim cumle"
     assert "araç çalıştı" in satirlar[1]
+
+
+def test_ogretmen_karari_plani_ve_siniri_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TeacherTaskClassified(size="orta-buyuk", reasons=("dosya değişikliği",)))
+    renderer.handle(TeacherPlanPrepared(steps=2, structured=True))
+    renderer.handle(
+        TeacherLimitationFound(
+            topic="Story çıkartması", reason="API desteklemiyor",
+            alternative="Bildirimle yayınla",
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "orta-büyük" in output
+    assert "2 adım" in output
+    assert "Bildirimle yayınla" in output
 
 
 def test_tam_satirdan_sonra_bos_satir_eklenmez():

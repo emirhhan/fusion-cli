@@ -2,6 +2,22 @@ import { describe, expect, it } from "vitest";
 import { olayAdimi } from "./olayMetni";
 
 describe("olayAdimi", () => {
+  it("öğretmen görev kararı ve planını kısa adım olarak gösterir", () => {
+    expect(olayAdimi({ olay: "TeacherTaskClassified", size: "orta-buyuk", reasons: ["istenen etki: workspace_mutation"] })?.metin)
+      .toBe("orta-büyük görev belirlendi");
+    expect(olayAdimi({ olay: "TeacherPlanPrepared", steps: 2, structured: true })?.metin)
+      .toBe("öğretmenden plan alındı");
+  });
+  it("yapılamayan dış işi gerekçe ve alternatifiyle gösterir", () => {
+    const adim = olayAdimi({
+      olay: "TeacherLimitationFound",
+      topic: "Story çıkartması",
+      reason: "API desteklemiyor",
+      alternative: "Telefona bildirim gönder",
+    });
+    expect(adim?.metin).toBe("Story çıkartması yapılamıyor");
+    expect(adim?.ayrinti).toContain("Telefona bildirim gönder");
+  });
   it("yedeğe geçişin sebebi insan doğrulamasıysa ayrıntıda saklanmaz", () => {
     const adim = olayAdimi({
       olay: "ModelFallbackActivated",
