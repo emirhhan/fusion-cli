@@ -108,3 +108,35 @@ seçilebiliyor.
 - Kurulu uygulama yeniden paketlenmedi. Arayüz değişikliklerinin paketli
   uygulamada görsel doğrulaması bu yüzden yapılmadı; tarayıcı önizlemesi Tauri
   kabuğu olmadan açılmıyor. DOM davranışı vitest ile doğrulandı.
+
+## Ek tur (30 Eylül 2026) — açık maddelerin kapatılması
+
+| Commit | Konu |
+|---|---|
+| `1a96947` | Çalıştırılmadan engellenen tekrar komutu doğrulama kanıtı sayılmaz ("çıkış None" kök nedeni) |
+| `0c3d3fd` | Tuvalde sürükleyerek bağlama, yakınlaştırma, kaydırma, düğüm başına 1-4 varyasyon |
+| `f93c7b3` | Masaüstü sürümü 0.5.9 |
+| `85b5184` | **Masaüstü turu kalıcı belleği ajana vermiyordu**: uygulamada dersler ve öğretmen planları hiç yazılıp okunmuyordu |
+| `90a3fb6` | Plan varken uzun okuma tek başına öğretmen danışması açmaz; takılma sorusu nedene özel |
+| `1ed3046` | Uzun görev kendi kaydedilen planını bulur (anahtar 120 karakter kırpılıyordu) |
+| `dc35006` | Öğretmen son denetimi görev gereksinimlerine karşı yapılır |
+
+**Canlı ölçümler (aynı `fiyat_aktarimi` görevi, gerçek NIM çırak + Gemini öğretmen):**
+
+| Koşu | Kod | Süre | Model | Öğretmen | Hafızadan plan | Gizli test | Sahte başarı |
+|---|---|---|---|---|---|---|---|
+| A | doğrulama düzeltmesi | 10,8 dk | 37 | 3 | 0 | 9/9 | yok |
+| B | anahtar düzeltmesi, 1. koşu | 6,8 dk | 27 | 2 | 0 | 8/9 | **var** |
+| C | anahtar düzeltmesi, 2. koşu | 16,0 dk | 65 | 2 | **1** | 8/9 | **var** |
+| D | gereksinimli denetim | 14,8 dk | 63 | 2 | **1** | 9/9 | yok |
+
+- Hafızadan tekrar kullanım canlı doğrulandı (C, D): ilk plan için öğretmene sorulmadı.
+- B ve C'de düşen gizli test: maliyet tabanı yukarı yuvarlanmalı (990,2 → 991), model
+  990 üretti ve kendi testleri bunu kapsamıyordu. Öğretmen denetimi o sırada görev
+  metnini görmüyordu; `dc35006` bunu düzeltti. D'de hata oluşmadı; denetimin bu hatayı
+  yakalayacağı tek koşuyla kanıtlanmış değildir.
+- 0.5.9 paketlendi ve `/Applications`'a kuruldu (0.5.7 yedeği
+  `~/Library/Application Support/Fusion/backups/`). Yeni ekranlar Tauri'siz geçici bir
+  önizleme sayfasında açık/koyu temada görsel olarak doğrulandı; paketli uygulamanın
+  arayüzünü otomatik sürmek izin denetimine takıldı.
+- Push ve `v0.5.9` etiketi izin denetimine takıldı ("dışarıya yayın"); kullanıcı çalıştırmalı.
