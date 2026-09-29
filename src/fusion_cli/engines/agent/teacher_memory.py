@@ -39,9 +39,13 @@ _STOPWORDS = frozenset({"ile", "için", "veya", "gibi", "bir", "the", "and"})
 #: Bu uzunluğun altındaki sözcükler ("ve", "de") benzerliğe katılmaz.
 _MIN_TOKEN_CHARS = 3
 
-#: Ders belleğindeki görev etiketi sınırı: `memory/lessons.py::MAX_LABEL_CHARS`
-#: ile aynıdır; daha uzun etiket gömülmez ve anlamsal aramada kaybolur.
-_TASK_LABEL_CHARS = 120
+#: Görev anahtarının uzunluğu: ders deposunun `task` alanını sakladığı sınır
+#: (`memory/lessons.py::_to_metadata`, 500). Benzerlik iki tarafta da bu
+#: biçimle hesaplanır. Ölçüldü (30 Eylül): anahtar 120 karaktere kırpılırken
+#: ~900 karakterlik aynı görev kendi planını bulamıyordu (Jaccard ≈ 0,1).
+#: 120 karakteri aşan anahtar gömülmez (`_embed_source`); anlamsal arama ders
+#: metniyle yapılır, eşleşme kararını bu anahtar verir.
+_TASK_KEY_CHARS = 500
 
 #: Geri çağırmada bakılan aday sayısı: benzerlik kararı burada verildiği için
 #: belleğin varsayılan `limit=4`'ünden geniş, istem bütçesini etkilemeyecek kadar dar.
@@ -86,8 +90,8 @@ def plan_steps_from_lesson(text: str) -> tuple[str, ...]:
     return tuple(match.group(2).strip() for match in _STEP_LINE.finditer(text))
 
 
-def _task_label(task: str) -> str:
-    return " ".join(task.split())[:_TASK_LABEL_CHARS]
+def _task_key(task: str) -> str:
+    return " ".join(task.split())[:_TASK_KEY_CHARS]
 
 
 def find_reusable_plan(
@@ -106,7 +110,7 @@ def find_reusable_plan(
             continue
         if lesson.success_count <= lesson.failure_count or not plan_steps_from_lesson(lesson.text):
             continue
-        similarity = task_similarity(task, lesson.task)
+        similarity = task_similarity(_task_key(task), lesson.task)
         if similarity >= MIN_TASK_SIMILARITY and (best is None or similarity > best[1]):
             best = (lesson, similarity)
     return best
@@ -131,7 +135,7 @@ def record_plan_outcome(
     lesson = Lesson(
         text=plan_lesson_text(plan),
         kind=LessonKind.SUCCESS,
-        task=_task_label(task),
+        task=_task_key(task),
         source=LessonSource.TEACHER,
         scope=TEACHER_PLAN_SCOPE,
         # Tetikleyici alanı doğrulama kanıtını taşır; metne girseydi aynı plan

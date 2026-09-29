@@ -244,3 +244,24 @@ async def run_agent_for(task, deps):
     from fusion_cli.engines.agent.loop import run_agent
 
     return await run_agent(task, deps)
+
+
+def test_uzun_gorev_kendi_kaydedilen_planini_bulur() -> None:
+    """Ölçüldü (30 Eylül, canlı): ~900 karakterlik görevin planı kaydedildi ama
+    aynı görev ikinci kez gelince bulunamadı; etiket 120 karaktere kırpılıyor,
+    benzerlik ise tam metinle hesaplanıyordu (Jaccard ≈ 0,1)."""
+    uzun = (
+        "stokapp projesine tedarikçi fiyat listesinden toplu fiyat içe aktarma özelliği ekle.\n"
+        "Gereksinimler:\n1. Yeni modül stokapp/aktarim.py içinde fiyatlari_aktar olsun.\n"
+        + "2. Satış fiyatı liste fiyatının yüzde doksan altısı, tam TL'ye yuvarlanır.\n" * 8
+    )
+    memory = _FakeLessons()
+    record_plan_outcome(
+        memory, task=uzun, plan=parse_teacher_plan(_PLAN_JSON), success=True,
+        workspace="/kok-1", tags=(),
+    )
+
+    found = find_reusable_plan(memory, uzun, workspace="/kok-2", tags=())
+
+    assert found is not None
+    assert found[1] == 1.0
