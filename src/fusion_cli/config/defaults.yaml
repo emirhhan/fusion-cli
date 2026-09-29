@@ -71,7 +71,13 @@ runtime:
   # 120s tam bir üretime yer bırakır, gerçekten takılan çağrıyı yine de düşürür.
   # (Not: max_tokens=8192 @ ~104 tok/s ≈ 79s; 120 altındaki değerler uzun kod
   #  üretimini ORTASINDA keser, o yüzden 120'nin altına inilmez.)
-  request_timeout_s: 120
+  #
+  # 600: Claude Code'un belgelenmiş istek zaman aşımı (`API_TIMEOUT_MS` varsayılanı
+  # 600000 ms, code.claude.com/docs/en/errors). Ölçüldü (29 Eylül): NIM, modelin büyük
+  # bir dosyayı araç argümanı olarak yazdığı sürede akışta hiç parça göndermedi;
+  # 120 sn'lik sessizlik sınırı her denemede çağrıyı kesti ve iş 10 denemede ilerlemedi.
+  # Akmaya devam eden çağrı zaten kesilmez; bu yalnız gerçekten takılanın üst sınırıdır.
+  request_timeout_s: 600
   # Sağlayıcı KÜTÜPHANESİ içi yeniden deneme (LiteLLM). Düşük tutulur: asıl yeniden
   # deneme aşağıdaki `retry_delays_s` ile bizim kontrolümüzde yapılır, çünkü
   # kütüphanenin gecikmesi ayarlanamıyor ve kalıcı hatayı geçiciden ayırt etmiyor.
