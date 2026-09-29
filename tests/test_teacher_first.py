@@ -250,3 +250,48 @@ def test_tekrar_korumasi_danismanlik_nedeni_olur() -> None:
     state.repeat_blocked = True
 
     assert agent_loop._teacher_stall_reason(state) == "tekrar koruması aynı okumayı engelledi"
+
+
+def test_plan_varken_yalniz_uzun_okuma_ogretmen_danismasi_acmaz(tmp_path) -> None:
+    """Ölçüldü (29 Eylül, canlı): plan alındıktan 30 sn sonra "okuma ve arama
+    adımlarında ilerleme yok" nedeniyle ikinci, genel bir öğretmen sorusu
+    gidiyordu; plan zaten ilk adımı söylemişti. Gerçek takılma yine danışır."""
+    from fusion_cli.engines.agent.teacher_plan import parse_teacher_plan
+
+    deps, _sink, _teacher, _apprentice = _setup_deps_only(tmp_path)
+    state = agent_loop._State()
+    assert agent_loop._plateau_reason(state, deps, exploration_note="not") is not None
+
+    deps.pending_teacher_plan = parse_teacher_plan(
+        '{"adimlar":["Oku"],"dosyalar":[],"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
+    )
+    assert agent_loop._plateau_reason(state, deps, exploration_note="not") is None
+    state.repeat_blocked = True
+    assert agent_loop._plateau_reason(state, deps, exploration_note="not") == (
+        "tekrar koruması aynı okumayı engelledi"
+    )
+
+
+def test_plan_varken_danisma_sorusu_takilma_nedenine_ozeldir(tmp_path) -> None:
+    from fusion_cli.engines.agent.teacher_plan import parse_teacher_plan
+
+    deps, _sink, _teacher, _apprentice = _setup_deps_only(tmp_path)
+    genel = agent_loop._plateau_question(deps, "ilerleme yok uyarısı")
+    deps.pending_teacher_plan = parse_teacher_plan(
+        '{"adimlar":["Oku"],"dosyalar":[],"riskler":[],"yapilamayanlar":[],"dogrulama":[]}'
+    )
+    ozel = agent_loop._plateau_question(deps, "aynı araç hatası tekrarlandı")
+
+    assert "ilk somut dosya değişikliği" in genel
+    assert "aynı araç hatası tekrarlandı" in ozel
+    assert "ilk somut dosya değişikliği" not in ozel
+
+
+def _setup_deps_only(tmp_path):
+    import pytest
+
+    monkeypatch = pytest.MonkeyPatch()
+    try:
+        return _setup(monkeypatch, tmp_path)
+    finally:
+        monkeypatch.undo()

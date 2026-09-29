@@ -1112,9 +1112,7 @@ async def _drive(
         if exploration_note is not None:
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
-        teacher_stall = _teacher_stall_reason(state) or (
-            "okuma ve arama adımlarında ilerleme yok" if exploration_note else None
-        )
+        teacher_stall = _plateau_reason(state, deps, exploration_note=exploration_note)
         if (
             auto_teacher
             and execution.complex_task
@@ -1967,6 +1965,41 @@ def _teacher_stall_reason(state: _State) -> str | None:
     return None
 
 
+def _has_teacher_plan(deps: AgentDeps) -> bool:
+    """Bu turda öğretmenden ya da hafızadan bir plan alındı mı?"""
+    return deps.pending_teacher_plan is not None or deps.reused_teacher_lesson is not None
+
+
+def _plateau_reason(
+    state: _State, deps: AgentDeps, *, exploration_note: str | None
+) -> str | None:
+    """Otomatik öğretmen danışması için somut takılma nedeni; yoksa None.
+
+    Plan varken "okuma uzun sürdü" tek başına neden değildir: plan zaten ilk
+    adımı söyledi. Ölçüldü (29 Eylül, canlı): plan alındıktan 30 sn sonra bu
+    yüzden ikinci, genel bir öğretmen sorusu gidiyordu.
+    """
+    reason = _teacher_stall_reason(state)
+    if reason is not None:
+        return reason
+    if exploration_note and not _has_teacher_plan(deps):
+        return "okuma ve arama adımlarında ilerleme yok"
+    return None
+
+
+def _plateau_question(deps: AgentDeps, reason: str) -> str:
+    """Takılma anına özel öğretmen sorusu."""
+    if _has_teacher_plan(deps):
+        return (
+            f"Önceki planı uygularken takıldım: {reason}. Bu takılmayı aşmak için "
+            "şimdi hangi somut adımı atmalıyım? Kısa, uygulanabilir cevap ver."
+        )
+    return (
+        "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
+        "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
+    )
+
+
 async def _consult_teacher_on_plateau(
     messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State,
     *, reason: str = "okuma ve arama adımlarında ilerleme yok",
@@ -1985,10 +2018,7 @@ async def _consult_teacher_on_plateau(
         "",
     )
     args: dict[str, object] = {
-        "question": (
-            "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
-            "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
-        ),
+        "question": _plateau_question(deps, reason),
         "durum": f"Görev özeti: {redact(original_task)[:700]}",
         "denenenler": (
             f"Ajan {state.tool_calls_made} araç çağrısı yaptı. "
