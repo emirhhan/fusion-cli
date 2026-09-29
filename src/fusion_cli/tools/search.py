@@ -100,6 +100,20 @@ class _SearchScan:
         return self.stopped is not None
 
 
+def _empty_note(message: str, root: Path) -> str:
+    """Boş sonuç: NEREDE arandığını ve sonraki adımı söyle.
+
+    OpenHands çalışma dizinini arama aracına yazar ("desenler bu dizine göredir").
+    Ölçüldü (29 Eylül): Fusion yalnız "(eşleşen dosya yok)" diyordu; model masaüstünü
+    taradığını bilmeden aynı aramayı hafifçe değiştirip tekrarladı.
+    """
+    return (
+        f"({message}) Aranan klasör: {root}. Aradığın şey başka bir klasördeyse "
+        "'path' alanına o klasörü yaz; klasör adıyla aramak için desene yalnız adı "
+        "yaz (ör. 'mcp'). Aynı aramayı tekrarlamak sonucu değiştirmez."
+    )
+
+
 def _bounded_result(lines: list[str], scan: _SearchScan, empty: str) -> ToolResult:
     if scan.stopped is None:
         output = "\n".join(lines) if lines else empty
@@ -154,8 +168,8 @@ def search_code(args: ToolArgs, context: ToolContext) -> ToolResult:
                     + f"\n… ({MAX_SEARCH_HITS}+ eşleşme; sonuç kısmidir, deseni daraltın)"
                 )
     if len(hits) > MAX_DETAILED_HITS:
-        return _bounded_result(_summarize(per_file), scan, "(eşleşme yok)")
-    return _bounded_result(hits, scan, "(eşleşme yok)")
+        return _bounded_result(_summarize(per_file), scan, _empty_note("eşleşme yok", root))
+    return _bounded_result(hits, scan, _empty_note("eşleşme yok", root))
 
 
 def _summarize(per_file: dict[str, tuple[int, str]]) -> list[str]:
@@ -256,7 +270,7 @@ def glob_files(args: ToolArgs, context: ToolContext) -> ToolResult:
         if len(matches) >= MAX_GLOB_MATCHES:
             scan.stopped = f"{MAX_GLOB_MATCHES} glob sonucu sınırına ulaştı"
             break
-    return _bounded_result(matches, scan, "(eşleşen dosya yok)")
+    return _bounded_result(matches, scan, _empty_note("eşleşen dosya yok", root))
 
 
 # --------------------------------------------------------------------------- #

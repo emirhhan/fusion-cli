@@ -292,8 +292,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="glob",
-        description="Dosya adı deseniyle dosya bul (ör. '**/*.py'). Belirli tipteki "
-        "dosyaları toplarken search_code'dan hızlıdır.",
+        description="Desenle dosya bul (ör. '**/*.py'); '**' her derinliği kapsar, "
+        "yalın ad (ör. 'mcp') o adlı klasör/dosyayı bulur.",
         parameters=_schema(
             {
                 "pattern": {**_STRING, "description": "glob deseni, ör. '**/*.py'"},

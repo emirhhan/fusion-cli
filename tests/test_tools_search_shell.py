@@ -403,7 +403,7 @@ async def test_eslesme_yoksa_bilgilendirir(registry, context, tmp_path):
 
     assert (
         await _calistir(registry, context, "search_code", pattern="yok")
-    ).output == "(eşleşme yok)"
+    ).output.startswith("(eşleşme yok) Aranan klasör:")
 
 
 async def test_glob_desene_uyan_dosyalari_bulur(registry, context, tmp_path):
@@ -471,7 +471,7 @@ async def test_glob_gurultu_dizinlerini_atlar(registry, context, tmp_path):
 
     assert (
         await _calistir(registry, context, "glob", pattern="**/*.py")
-    ).output == "(eşleşen dosya yok)"
+    ).output.startswith("(eşleşen dosya yok) Aranan klasör:")
 
 
 async def test_run_shell_ciktiyi_ve_cikis_kodunu_dondurur(registry, context):
