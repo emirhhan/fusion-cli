@@ -240,6 +240,23 @@ class TeacherPlanPrepared(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class TeacherMemoryUsed(Event):
+    """Benzer görevin başarılı planı hafızadan alındı; öğretmene sorulmadı."""
+
+    steps: int
+    similarity: float
+
+
+@dataclass(frozen=True, slots=True)
+class TeacherLessonRecorded(Event):
+    """Öğretmen planının sonucu ders belleğine işlendi."""
+
+    success: bool
+    #: Hafızadan alınan plan mı güncellendi, yoksa yeni plan mı yazıldı.
+    reused: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TeacherLimitationFound(Event):
     """Dış kısıt ve uygulanabilir alternatif işe başlamadan bildirildi."""
 

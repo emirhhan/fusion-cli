@@ -90,6 +90,12 @@ AGENT_TEACHER = "ask_teacher: web öğretmene danışılıyor…"
 AGENT_TEACHER_TASK = "Görev boyutu: {size}"
 AGENT_TEACHER_PLAN = "Öğretmen planı: {steps} adım"
 AGENT_TEACHER_PLAN_NOTE = "Öğretmen planı düz metin notu olarak alındı"
+AGENT_TEACHER_MEMORY = "Hafızadan ilerleniyor: {steps} adım (benzerlik {similarity:.2f})"
+AGENT_TEACHER_LESSON_NEW = "Öğretmen planı hafızaya yazıldı"
+AGENT_TEACHER_LESSON_REUSED_OK = "Hafızadaki plan tuttu; güveni arttı"
+AGENT_TEACHER_LESSON_REUSED_FAIL = (
+    "Hafızadaki plan tutmadı; sonraki benzer işte öğretmene sorulacak"
+)
 AGENT_TEACHER_LIMITATION = "{topic} yapılamıyor: {reason}. Alternatif: {alternative}"
 AGENT_SELF_REVIEW_CLEAN = "öz-denetim · sorun yok"
 AGENT_SELF_REVIEW_UNAVAILABLE = "öz-denetim · tamamlanamadı; sonuç denetlenmedi"

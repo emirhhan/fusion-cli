@@ -407,7 +407,9 @@ class _SahteDersBellegi:
         self.eklenenler.append(lesson)
         return True
 
-    def recall(self, task: str, *, scope=None, workspace: str = "") -> tuple[object, ...]:
+    def recall(
+        self, task: str, limit: int = 4, *, scope=None, workspace=None, tags=()
+    ) -> tuple[object, ...]:
         return ()
 
     def reinforce(self, texts: tuple[str, ...], *, success: bool) -> int:

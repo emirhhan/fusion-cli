@@ -265,7 +265,13 @@ def _sync_and_log_teacher_answer(
 
     lesson_written = False
     skip_reason = ""
-    if deps.lessons is not None and deps.config.runtime.teacher_lesson_sync:
+    # Otomatik plan/denetim cevapları burada yazılmaz: plan tur sonunda, yalnız
+    # başarılı sonuçla `teacher_memory.record_plan_outcome` üzerinden yazılır.
+    if (
+        deps.lessons is not None
+        and deps.config.runtime.teacher_lesson_sync
+        and not deps.teacher_lesson_sync_deferred
+    ):
         lesson_written, skip_reason = sync_teacher_lesson(
             deps.lessons, question=question, answer=answer
         )

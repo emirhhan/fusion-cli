@@ -15,7 +15,9 @@ from fusion_cli.core.events import (
     NoFileChanges,
     SelfReviewFinished,
     StatusChanged,
+    TeacherLessonRecorded,
     TeacherLimitationFound,
+    TeacherMemoryUsed,
     TeacherPlanPrepared,
     TeacherTaskClassified,
     TokenReceived,
@@ -65,6 +67,20 @@ def test_ogretmen_karari_plani_ve_siniri_terminalde_gorunur():
     assert "orta-büyük" in output
     assert "2 adım" in output
     assert "Bildirimle yayınla" in output
+
+
+def test_hafizadan_plan_ve_ders_kaydi_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(TeacherMemoryUsed(steps=3, similarity=0.62))
+    renderer.handle(TeacherLessonRecorded(success=True, reused=False))
+    renderer.handle(TeacherLessonRecorded(success=False, reused=True))
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "Hafızadan ilerleniyor: 3 adım" in output
+    assert "Öğretmen planı hafızaya yazıldı" in output
+    assert "Hafızadaki plan tutmadı" in output
 
 
 def test_tam_satirdan_sonra_bos_satir_eklenmez():

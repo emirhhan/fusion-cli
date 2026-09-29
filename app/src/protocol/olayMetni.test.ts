@@ -8,6 +8,16 @@ describe("olayAdimi", () => {
     expect(olayAdimi({ olay: "TeacherPlanPrepared", steps: 2, structured: true })?.metin)
       .toBe("öğretmenden plan alındı");
   });
+  it("hafızadan ilerlemeyi ve ders kaydını kısa adım olarak gösterir", () => {
+    const hafiza = olayAdimi({ olay: "TeacherMemoryUsed", steps: 3, similarity: 0.625 });
+    expect(hafiza?.metin).toBe("hafızadan ilerleniyor");
+    expect(hafiza?.ayrinti).toBe("3 adım · benzerlik 0.63");
+    expect(olayAdimi({ olay: "TeacherLessonRecorded", success: true, reused: false })?.metin)
+      .toBe("öğretmen planı hafızaya yazıldı");
+    const tutmadi = olayAdimi({ olay: "TeacherLessonRecorded", success: false, reused: true });
+    expect(tutmadi?.metin).toBe("hafızadaki plan tutmadı");
+    expect(tutmadi?.ayrinti).toContain("öğretmene yeniden sorulacak");
+  });
   it("yapılamayan dış işi gerekçe ve alternatifiyle gösterir", () => {
     const adim = olayAdimi({
       olay: "TeacherLimitationFound",

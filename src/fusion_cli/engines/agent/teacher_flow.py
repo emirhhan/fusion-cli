@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 
 from ...core.events import (
     StatusChanged,
+    TeacherLessonRecorded,
     TeacherLimitationFound,
+    TeacherMemoryUsed,
     TeacherPlanPrepared,
     TeacherTaskClassified,
     ToolExecuted,
@@ -22,6 +24,7 @@ from ...tools.files import display_path
 from ...tools.planning import todo_write
 from .repo_context import repo_map_block
 from .teacher_brief import BRIEF_CHAR_BUDGET
+from .teacher_memory import find_reusable_plan, plan_steps_from_lesson, record_plan_outcome
 from .teacher_plan import (
     TeacherPlanError,
     classify_teacher_task,
@@ -30,6 +33,7 @@ from .teacher_plan import (
 )
 
 if TYPE_CHECKING:
+    from ...core.verification import VerificationResult
     from ...tools.registry import ToolRegistry
     from .loop import AgentDeps, AgentOutcome
 
@@ -98,6 +102,7 @@ def _notify_unavailable(deps: AgentDeps, message: str) -> None:
 
 
 async def _ask(registry: ToolRegistry, deps: AgentDeps, *, question: str, durum: str) -> str | None:
+    deps.teacher_lesson_sync_deferred = True
     try:
         async with asyncio.timeout(deps.config.runtime.request_timeout_s):
             result = await registry.execute(
@@ -106,6 +111,8 @@ async def _ask(registry: ToolRegistry, deps: AgentDeps, *, question: str, durum:
     except TimeoutError:
         _notify_unavailable(deps, "Öğretmen yanıtı zaman aşımına uğradı; tek başıma ilerliyorum.")
         return None
+    finally:
+        deps.teacher_lesson_sync_deferred = False
     deps.publisher.publish(
         ToolExecuted(
             name="ask_teacher",
@@ -127,6 +134,8 @@ async def prepare_teacher_plan(
     decision = classify_teacher_task(task)
     deps.publisher.publish(TeacherTaskClassified(size=decision.size, reasons=decision.reasons))
     if decision.size == "basit":
+        return
+    if _apply_remembered_plan(task, messages, deps):
         return
     if not teacher_is_ready(deps, registry):
         _notify_unavailable(deps, "Bağlı öğretmen yok; tek başıma ilerliyorum.")
@@ -166,18 +175,8 @@ async def prepare_teacher_plan(
             )
             deps.publisher.publish(TeacherPlanPrepared(steps=0, structured=False))
             return
-    from ...core.tools import TodoStatus
-
-    items = [{"content": step, "status": TodoStatus.PENDING.value} for step in plan.steps]
-    todo_result = todo_write({"todos": items}, deps.tool_context)
-    deps.publisher.publish(
-        ToolExecuted(
-            name="todo_write",
-            args={"todos": items},
-            outcome=ToolOutcome.OK,
-            output=todo_result.output,
-        )
-    )
+    deps.pending_teacher_plan = plan
+    _publish_todos(plan.steps, deps)
     for part in plan.unworkables:
         deps.publisher.publish(
             TeacherLimitationFound(
@@ -199,6 +198,98 @@ async def prepare_teacher_plan(
         )
     )
     deps.publisher.publish(TeacherPlanPrepared(steps=len(plan.steps), structured=structured))
+
+
+def _publish_todos(steps: tuple[str, ...], deps: AgentDeps) -> None:
+    """Plan adımlarını `todo_write` ile aynı yapıda görev listesine aktar."""
+    from ...core.tools import TodoStatus
+
+    items = [{"content": step, "status": TodoStatus.PENDING.value} for step in steps]
+    todo_result = todo_write({"todos": items}, deps.tool_context)
+    deps.publisher.publish(
+        ToolExecuted(
+            name="todo_write",
+            args={"todos": items},
+            outcome=ToolOutcome.OK,
+            output=todo_result.output,
+        )
+    )
+
+
+def _lessons_enabled(deps: AgentDeps) -> bool:
+    return deps.lessons is not None and deps.config.runtime.lessons
+
+
+def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) -> bool:
+    """Benzer görevin başarılı planı varsa öğretmene sormadan onu uygula."""
+    if not _lessons_enabled(deps):
+        return False
+    from .learning_steps import _workspace, lesson_tags
+
+    assert deps.lessons is not None
+    found = find_reusable_plan(
+        deps.lessons, task, workspace=_workspace(deps), tags=lesson_tags(deps)
+    )
+    if found is None:
+        return False
+    lesson, similarity = found
+    steps = plan_steps_from_lesson(lesson.text)
+    deps.reused_teacher_lesson = lesson
+    _publish_todos(steps, deps)
+    messages.append(
+        Message(
+            "user",
+            "FUSION_NOT: Hafızadan: geçen sefer benzer bir işi "
+            f"(\"{lesson.task}\") şu planla başarıyla yapmıştık. Bu göreve uyarlayarak "
+            "izle, uymayan adımı atla ve sonucu doğrula:\n" + redact(lesson.text),
+            harness_note=True,
+        )
+    )
+    deps.publisher.publish(TeacherMemoryUsed(steps=len(steps), similarity=round(similarity, 2)))
+    deps.publisher.publish(StatusChanged(message="Hafızadan ilerliyorum; öğretmene sorulmadı."))
+    return True
+
+
+def settle_teacher_plan(
+    task: str,
+    outcome: AgentOutcome,
+    deps: AgentDeps,
+    *,
+    verification: VerificationResult | None,
+) -> None:
+    """Turun sonucunu bu turda kullanılan öğretmen planına işle.
+
+    Hafızadan gelen plan başarı/başarısızlığa göre güçlenir ya da zayıflar;
+    öğretmenden yeni alınan plan yalnız başarılı turda derse dönüşür.
+    """
+    from .learning_steps import _workspace, lesson_tags
+    from .verification import resolve_turn_success
+
+    reused, fresh = deps.reused_teacher_lesson, deps.pending_teacher_plan
+    deps.reused_teacher_lesson = deps.pending_teacher_plan = None
+    if not _lessons_enabled(deps) or (reused is None and fresh is None):
+        return
+    assert deps.lessons is not None
+    success = resolve_turn_success(
+        outcome_ok=outcome.ok, hit_step_limit=outcome.hit_step_limit, verification=verification
+    )
+    if reused is not None:
+        if deps.lessons.reinforce((reused.text,), success=success):
+            deps.publisher.publish(TeacherLessonRecorded(success=success, reused=True))
+        return
+    assert fresh is not None
+    changed = len(deps.tool_context.changes.paths)
+    gate = "geçti" if verification is not None and verification.ok else "çalışmadı"
+    if record_plan_outcome(
+        deps.lessons,
+        task=task,
+        plan=fresh,
+        success=success,
+        workspace=_workspace(deps),
+        tags=lesson_tags(deps),
+        evidence=f"{changed} dosya değişti; doğrulama kapısı {gate}",
+    ):
+        deps.publisher.publish(TeacherLessonRecorded(success=True, reused=False))
 
 
 def _diff_summary(deps: AgentDeps) -> str:

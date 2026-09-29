@@ -105,7 +105,13 @@ from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
 from .refusal import looks_like_refusal
 from .repo_context import repo_map_block
-from .teacher_flow import prepare_teacher_plan, review_teacher_changes, teacher_is_ready
+from .teacher_flow import (
+    prepare_teacher_plan,
+    review_teacher_changes,
+    settle_teacher_plan,
+    teacher_is_ready,
+)
+from .teacher_plan import TeacherPlan
 from .turn_report import build_turn_report
 from .workspace_hint import find_workspace_for
 
@@ -313,6 +319,12 @@ class AgentDeps:
     teacher_calls_used: int = 0
     #: Öğretmen yok/bütçe dolu bildirimi bu turda bir kez gösterilir.
     teacher_unavailable_notified: bool = False
+    #: Otomatik öğretmen çağrısı sürerken cevap anında ders olarak yazılmaz.
+    teacher_lesson_sync_deferred: bool = False
+    #: Bu turda öğretmenden alınan ve tur sonunda sonucuyla yazılacak plan.
+    pending_teacher_plan: TeacherPlan | None = None
+    #: Bu turda hafızadan yeniden kullanılan plan dersi.
+    reused_teacher_lesson: Lesson | None = None
     #: Yalnız mevcut kullanıcı turunda geçerli model devri; açık model seçimini
     #: yapılandırma dosyasında değiştirmez.
     active_model_override: ModelSpec | None = None
@@ -552,9 +564,11 @@ async def run_agent(
             # Plan motoru KÖK konuşmayı alır: sistem + önceki sohbet + bu turun
             # mesajı. Geçmişsiz plan her adımda kullanıcının önceki söylediklerini
             # kaybediyordu (gizli kelime vakası).
-            return await run_execution_plan(
+            planned = await run_execution_plan(
                 task, deps, run_agent, conversation=messages, self_review=self_review
             )
+            settle_teacher_plan(task, planned, deps, verification=None)
+            return planned
 
     outcome = await _drive(
         messages,
@@ -697,6 +711,7 @@ async def run_agent(
         await learning_steps.reinforce_recalled(
             outcome, deps, plan_mode=plan_mode, verification=verification
         )
+        settle_teacher_plan(task, outcome, deps, verification=verification)
     outcome.messages = await _maybe_compress(outcome.messages, deps)
     # Özetleme sayısı turun sonucuna taşınır: plan yürütücüsü onu checkpoint'e
     # yazar ve devam eden tur neyin özetlendiğini bilir.

@@ -275,7 +275,7 @@ class _SayanDersBellegi:
         return True
 
     def recall(self, task, limit=4, *, scope=None, workspace=None, tags=()):
-        self.recall_cagrilari.append(task)
+        self.recall_cagrilari.append((task, scope))
         return (self._ders,)
 
     def reinforce(self, texts, *, success):
@@ -289,6 +289,15 @@ class _SayanDersBellegi:
 
 
 async def test_dersler_kendiliginden_hatirlanmaz_ama_aracla_istenebilir(monkeypatch, tmp_path):
+    """Genel dersler istem metnine kendiliğinden girmez; model araçla ister.
+
+    Davranış değişikliği: orta-büyük görevde öğretmen planı hafızası
+    (`teacher_memory.find_reusable_plan`) yalnız `TEACHER_PLAN_SCOPE` kapsamıyla
+    bir sorgu yapar ve yalnız başarıyla kaydedilmiş öğretmen planını kullanır.
+    Bu sorgu genel dersleri istem metnine taşımaz; bu yüzden aşağıda ayrılır.
+    """
+    from fusion_cli.engines.agent.teacher_memory import TEACHER_PLAN_SCOPE
+
     sink = RecordingSink()
     bellek = _SayanDersBellegi()
 
@@ -315,7 +324,10 @@ async def test_dersler_kendiliginden_hatirlanmaz_ama_aracla_istenebilir(monkeypa
     await run_agent("godot sahnesini düzelt", deps)
 
     # Tur başında bellek sorgulanmaz; tek sorgu modelin araç çağrısından gelir.
-    assert bellek.recall_cagrilari == ["godot yolları"]
+    genel_sorgular = [
+        task for task, scope in bellek.recall_cagrilari if scope != TEACHER_PLAN_SCOPE
+    ]
+    assert genel_sorgular == ["godot yolları"]
     assert "res://" not in provider.seen_messages[0][0].content
     arac_sonucu = [m for m in provider.seen_messages[1] if m.role == "tool"]
     assert arac_sonucu and "res://" in arac_sonucu[-1].content

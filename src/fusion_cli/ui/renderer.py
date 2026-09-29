@@ -60,7 +60,9 @@ from ..core.events import (
     SubAgentFinished,
     SubAgentStarted,
     TeacherConsulted,
+    TeacherLessonRecorded,
     TeacherLimitationFound,
+    TeacherMemoryUsed,
     TeacherPlanPrepared,
     TeacherTaskClassified,
     TierDegraded,
@@ -253,6 +255,19 @@ class ConsoleRenderer:
                 messages.AGENT_TEACHER_PLAN.format(steps=event.steps)
                 if event.structured else messages.AGENT_TEACHER_PLAN_NOTE
             )
+        elif isinstance(event, TeacherMemoryUsed):
+            self._status(
+                messages.AGENT_TEACHER_MEMORY.format(
+                    steps=event.steps, similarity=event.similarity
+                )
+            )
+        elif isinstance(event, TeacherLessonRecorded):
+            if not event.reused:
+                self._status(messages.AGENT_TEACHER_LESSON_NEW)
+            elif event.success:
+                self._status(messages.AGENT_TEACHER_LESSON_REUSED_OK)
+            else:
+                self._status(messages.AGENT_TEACHER_LESSON_REUSED_FAIL)
         elif isinstance(event, TeacherLimitationFound):
             self._status(
                 messages.AGENT_TEACHER_LIMITATION.format(
