@@ -35,6 +35,7 @@ from ..core.types import (
     StreamItem,
     is_permanent_error,
 )
+from .stream_opening import first_meaningful
 
 
 class RetryingProvider:
@@ -76,7 +77,7 @@ class RetryingProvider:
         # olsun ver". Deneme sayısı yine gecikme listesinden türer, ayrı sayaç yok.
         for delay in (*self._delays_s, None):
             stream = self._inner.stream(request)
-            first = await anext(stream, None)
+            first = await first_meaningful(stream)
             # Metin akmadan gelen sonuç: hata da olabilir, araç çağrısından ibaret
             # başarılı bir cevap da. Ayrımı `_should_retry` yapar.
             erken = _opening_result(first, self._inner.label)

@@ -1703,13 +1703,16 @@ async def _call_model(
     )
 
     result: ModelResult | None = None
-    # Sınır çağrının TAMAMINA değil, iki parça arasındaki sessizliğe uygulanır:
-    # uzun ama akmaya devam eden bir cevap kesilmez, hiç parça gelmeyen akış kesilir.
+    # İlk gerçek yanıt için mutlak sınır; ardından iki parça arasındaki sessizlik
+    # sınırı. Boş geçici parçalar (modelin düşünmesi) ilk sınırı uzatamaz.
     inactivity_s = request.timeout_s
     loop = asyncio.get_running_loop()
     async with asyncio.timeout(inactivity_s) as silence:
         async for item in provider.stream(request):
-            silence.reschedule(loop.time() + inactivity_s)
+            if isinstance(item, StreamDone) or (
+                isinstance(item, TextChunk) and item.text and not item.provisional
+            ):
+                silence.reschedule(loop.time() + inactivity_s)
             _observe_stream_item(item, state)
             if isinstance(item, StreamDone):
                 result = item.result

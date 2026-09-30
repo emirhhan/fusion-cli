@@ -206,6 +206,22 @@ async def test_stream_daima_tek_streamdone_ile_biter():
     assert not items[-1].result.ok
 
 
+async def test_gecici_akil_yurutme_parcalari_bos_hatanin_yeniden_denenmesini_engellemez():
+    class ReasoningProvider(ScriptliProvider):
+        async def stream(self, request):
+            yield TextChunk("düşünce", provisional=True)
+            async for item in super().stream(request):
+                yield item
+
+    inner = ReasoningProvider(_hata("çıktı bütçesi doldu"), _basarili("kurtarıldı"))
+    uyutucu = SahteUyutucu()
+    items = [item async for item in _sar(inner, uyutucu).stream(_istek())]
+
+    assert inner.cagri_sayisi == 2
+    assert [item.text for item in items if isinstance(item, TextChunk)] == ["kurtarıldı"]
+    assert isinstance(items[-1], StreamDone) and items[-1].result.ok
+
+
 # --------------------------------------------------------------------------- #
 # wrap
 # --------------------------------------------------------------------------- #

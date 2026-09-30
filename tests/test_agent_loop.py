@@ -190,6 +190,33 @@ class _SlowTricklingProvider:
         yield StreamDone(model_result("uzun ama tamamlanmış cevap"))
 
 
+async def test_sadece_akil_yurutme_parcalari_ilk_yanit_suresini_uzatmaz(
+    monkeypatch, tmp_path, sink
+):
+    class ReasoningOnlyProvider:
+        cancelled = False
+
+        async def stream(self, request):
+            from fusion_cli.core.types import TextChunk
+
+            try:
+                while True:
+                    yield TextChunk("", provisional=True)
+                    await asyncio.sleep(0.02)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+
+    provider = ReasoningOnlyProvider()
+    _kur(monkeypatch, provider)
+    deps = _deps(tmp_path, sink, runtime={"request_timeout_s": 0.08})
+    result = await asyncio.wait_for(run_agent("açıkla", deps), timeout=1)
+
+    assert result.ok is False
+    assert "0.08 saniyede tamamlanmadı" in result.final_text
+    assert provider.cancelled
+
+
 async def test_yazmaya_devam_eden_model_cagri_suresini_asinca_kesilmez(
     monkeypatch, tmp_path, sink
 ):

@@ -211,6 +211,64 @@ async def test_stream_basarisiz_acilisi_atlayip_saglama_gecer():
     assert parcalar == ["iyi"]
 
 
+async def test_gecici_akil_yurutme_parcalari_yedegi_engellemez():
+    class ReasoningFailure(FakeProvider):
+        async def stream(self, request):
+            yield TextChunk("düşünce", provisional=True)
+            async for item in super().stream(request):
+                yield item
+
+    bozuk = ReasoningFailure("bozuk", ok=False, error="çıktı bütçesi doldu")
+    saglam = FakeProvider("saglam", chunks=("iyi",))
+    zincir = FallbackProvider([bozuk, saglam], role="agent")
+    items = [item async for item in zincir.stream(request())]
+
+    assert [item.text for item in items if isinstance(item, TextChunk)] == ["iyi"]
+    assert isinstance(items[-1], StreamDone) and items[-1].result.model == "saglam"
+
+
+async def test_secilen_model_yanit_uretemeden_butcesini_tuketirse_yedek_denenir():
+    saglam = FakeProvider("yedek", chunks=("cevap",))
+
+    class TruncatedProvider(FakeProvider):
+        async def stream(self, request):
+            yield StreamDone(
+                ModelResult(
+                    name="secilen",
+                    model="secilen",
+                    text="",
+                    latency_ms=1,
+                    ok=False,
+                    truncated=True,
+                    error="çıktı bütçesi doldu",
+                )
+            )
+
+    zincir = FallbackProvider(
+        [TruncatedProvider("secilen"), saglam], role="agent", only_when_unavailable=True
+    )
+    items = [item async for item in zincir.stream(request())]
+
+    assert isinstance(items[-1], StreamDone) and items[-1].result.model == "yedek"
+
+
+async def test_eksiksiz_cagri_da_butce_hatasindan_yedege_gecer():
+    secilen = SabitProvider(
+        ModelResult(
+            name="secilen", model="secilen", text="", latency_ms=1, ok=False, truncated=True
+        )
+    )
+    yedek = SabitProvider(
+        ModelResult(name="yedek", model="yedek", text="cevap", latency_ms=1, ok=True)
+    )
+
+    sonuc = await FallbackProvider(
+        [secilen, yedek], role="agent", only_when_unavailable=True
+    ).complete(_istek())
+
+    assert sonuc.model == "yedek"
+
+
 async def test_stream_hepsi_basarisizsa_tek_streamdone_ile_biter():
     zincir = FallbackProvider(
         [FakeProvider("a", ok=False, error="429"), FakeProvider("b", ok=False, error="500")],
@@ -272,6 +330,24 @@ async def test_takilan_birincil_suresi_dolunca_yedege_gecer_akista():
     assert son.result.text == "yedekten cevap"
     gecis = [e for e in yayinci.events if isinstance(e, ModelFallbackActivated)]
     assert gecis and "yanıt vermedi" in gecis[0].reason
+
+
+async def test_surekli_gecici_parca_gonderen_model_yedegi_engellemez():
+    class ReasoningOnlyProvider:
+        label = "dusunen"
+
+        async def stream(self, request):
+            import asyncio
+
+            while True:
+                yield TextChunk("düşünce", provisional=True)
+                await asyncio.sleep(0.01)
+
+    yedek = FakeProvider("yedek", chunks=("cevap",))
+    zincir = FallbackProvider([ReasoningOnlyProvider(), yedek], role="agent")
+    items = [item async for item in zincir.stream(_kisa_istek())]
+
+    assert isinstance(items[-1], StreamDone) and items[-1].result.model == "yedek"
 
 
 async def test_takilan_birincil_complete_yolunda_da_yedege_gecer():

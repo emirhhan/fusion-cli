@@ -42,6 +42,7 @@ from ..core.types import (
     StreamItem,
     is_unavailable_error,
 )
+from .stream_opening import first_meaningful
 
 T = TypeVar("T")
 
@@ -94,7 +95,7 @@ class FallbackProvider:
             if result.is_usable:
                 return result
             failures.append(result)
-            if self._only_when_unavailable and not is_unavailable_error(result.error):
+            if self._only_when_unavailable and not _no_answer_available(result):
                 break
         return self._all_failed(failures)
 
@@ -105,7 +106,7 @@ class FallbackProvider:
                 self._publish_fallback(provider.label, failures[-1])
             stream = provider.stream(request)
             try:
-                first = await self._bounded(index, anext(stream, None), request)
+                first = await self._bounded(index, first_meaningful(stream), request)
             except TimeoutError:
                 # Takılan model yedeğin süresini yemesin: sıradakine geç.
                 failures.append(self._timed_out(provider, request))
@@ -117,7 +118,7 @@ class FallbackProvider:
                 # Metin akmadan başarısız bitti: sonraki modele geçilebilir.
                 failures.append(first.result)
                 await _close(stream)
-                if self._only_when_unavailable and not is_unavailable_error(first.result.error):
+                if self._only_when_unavailable and not _no_answer_available(first.result):
                     break
                 continue
             yield first
@@ -191,3 +192,8 @@ async def _close(stream: AsyncIterator[StreamItem]) -> None:
         await closer()
     except Exception:
         return
+
+
+def _no_answer_available(result: ModelResult) -> bool:
+    """Seçili model yanıt üretemediyse yedeğe geçilebilir."""
+    return is_unavailable_error(result.error) or (result.truncated and not result.is_usable)
