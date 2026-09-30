@@ -272,7 +272,7 @@ describe("ConnectorsScreen", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
     fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "dosya sistemi" } });
-    const row = screen.getByText("Dosya sistemi").closest("tr")!;
+    const row = screen.getByText("Dosya sistemi").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
     const setup = screen.getByLabelText("Dosya sistemi kurulumu");
     fireEvent.change(within(setup).getByLabelText("İzin verilen klasör"), {
@@ -295,7 +295,7 @@ describe("ConnectorsScreen", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
     fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "brave" } });
-    const row = screen.getByText("Brave Search").closest("tr")!;
+    const row = screen.getByText("Brave Search").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
     const setup = screen.getByLabelText("Brave Search kurulumu");
     const secret = within(setup).getByLabelText("Brave API anahtarı");
@@ -318,7 +318,7 @@ describe("ConnectorsScreen", () => {
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
     fireEvent.change(screen.getByLabelText("Bağlantı ara"), { target: { value: "postgres" } });
-    const row = screen.getByText("PostgreSQL").closest("tr")!;
+    const row = screen.getByText("PostgreSQL").closest("li")!;
     fireEvent.click(within(row).getByRole("button", { name: "Kur" }));
     const setup = screen.getByLabelText("PostgreSQL kurulumu");
     fireEvent.change(within(setup).getByLabelText("PostgreSQL bağlantı adresi"), {
@@ -539,7 +539,7 @@ describe("ConnectorsScreen — silme", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     await waitFor(() => expect(client.request).toHaveBeenCalledWith("baglanti.listele", {}));
 
-    const row = screen.getByText("Linear").closest("tr")!;
+    const row = screen.getByText("Linear").closest("li")!;
     expect(within(row).getByText("Giriş gerekli")).toBeTruthy();
     fireEvent.click(within(row).getByRole("button", { name: "Bağlan" }));
 
@@ -553,7 +553,7 @@ describe("ConnectorsScreen — silme", () => {
     render(<ConnectorsScreen client={client} onClose={() => undefined} />);
     await waitFor(() => expect(client.request).toHaveBeenCalled());
 
-    const row = screen.getByText("Fetch").closest("tr")!;
+    const row = screen.getByText("Fetch").closest("li")!;
     expect(within(row).getByText(/uvx gerekir/)).toBeTruthy();
   });
 });

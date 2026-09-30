@@ -312,9 +312,8 @@ export function ConnectorsScreen({
             </Button>
           </>
         }
-        description="En çok kullanılan MCP sunucularına tek tıkla bağlan; özel sunucuyu Ekle ile tanımla."
-        eyebrow="MCP"
-        title="Bağlantılar"
+        description="Fusion'ı kullandığın araçlara bağla. Uygulamalar MCP üzerinden çalışır; özel sunucuyu Ekle ile tanımla."
+        title="Uygulamalar"
       />
 
       {notice && (
@@ -401,76 +400,49 @@ export function ConnectorsScreen({
             </section>
           )}
 
-          <table className="connectors__table">
-            <thead>
-              <tr>
-                <th>Bağlantı</th>
-                <th>Tür</th>
-                <th>Durum</th>
-                <th aria-label="Eylem" />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredCatalog.map((entry) => {
-                const row = rowByName.get(entry.id);
-                const connected = row?.durum === "bagli";
-                const pending = row?.durum === "giris_bekleniyor";
-                const loginNeeded = row?.durum === "giris_gerekli";
-                const runner = requiredRunner(entry);
-                return (
-                  <tr key={entry.id}>
-                    <td>
-                      <div className="connectors__cell">
-                        <ConnectorIcon entry={entry} size={30} />
-                        <div>
-                          <strong>{entry.label}</strong>
-                          <small>{entry.description}</small>
-                        </div>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="connectors__type">
-                        {entry.transport === "stdio" ? "Yerel" : "Uzak"}
-                        {entry.oauth ? " · OAuth" : ""}
-                        {runner ? ` · ${runner} gerekir` : ""}
-                      </span>
-                    </td>
-                    <td>
-                      {connected ? (
-                        <span className="connectors__status" data-ok="true">
-                          ✓ Bağlı
-                        </span>
-                      ) : pending ? (
-                        <span className="connectors__status">Giriş bekleniyor</span>
-                      ) : loginNeeded ? (
-                        <span className="connectors__status">Giriş gerekli</span>
-                      ) : (
-                        <span className="connectors__status connectors__status--muted">—</span>
-                      )}
-                    </td>
-                    <td className="connectors__action-cell">
-                      <button
-                        className="connectors__connect"
-                        data-connected={connected}
-                        disabled={mesgul(`add:${entry.id}`) || connected || pending}
-                        onClick={() => void connectCatalog(entry)}
-                        type="button"
-                      >
-                        {connected ? "Bağlı" : entry.setup?.length ? "Kur" : "Bağlan"}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredCatalog.length === 0 && (
-                <tr>
-                  <td className="connectors__empty" colSpan={4}>
-                    "{query}" için katalogda eşleşme yok. Özel sunucuyu Ekle ile tanımlayabilirsin.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          {/* ChatGPT'nin Uygulamalar dizini: simge, ad ve tek satır açıklama taşıyan
+              kartlar ızgarası. Tablo ("Tür / Durum" sütunları) teknik bir liste gibi
+              duruyordu; tür bilgisi kartın alt satırına indi. */}
+          <ul aria-label="Uygulamalar" className="connectors__grid">
+            {filteredCatalog.map((entry) => {
+              const row = rowByName.get(entry.id);
+              const connected = row?.durum === "bagli";
+              const pending = row?.durum === "giris_bekleniyor";
+              const loginNeeded = row?.durum === "giris_gerekli";
+              const runner = requiredRunner(entry);
+              const tur = [
+                entry.transport === "stdio" ? "Yerel" : "Uzak",
+                entry.oauth ? "OAuth" : "",
+                runner ? `${runner} gerekir` : "",
+              ].filter(Boolean).join(" · ");
+              return (
+                <li className="connectors__app" data-connected={connected} key={entry.id}>
+                  <ConnectorIcon entry={entry} size={40} />
+                  <div className="connectors__app-body">
+                    <strong>{entry.label}</strong>
+                    <p>{entry.description}</p>
+                    <small>
+                      {connected ? "✓ Bağlı" : pending ? "Giriş bekleniyor" : loginNeeded ? "Giriş gerekli" : tur}
+                    </small>
+                  </div>
+                  <button
+                    className="connectors__connect"
+                    data-connected={connected}
+                    disabled={mesgul(`add:${entry.id}`) || connected || pending}
+                    onClick={() => void connectCatalog(entry)}
+                    type="button"
+                  >
+                    {connected ? "Bağlı" : entry.setup?.length ? "Kur" : "Bağlan"}
+                  </button>
+                </li>
+              );
+            })}
+            {filteredCatalog.length === 0 && (
+              <li className="connectors__empty">
+                "{query}" için katalogda eşleşme yok. Özel sunucuyu Ekle ile tanımlayabilirsin.
+              </li>
+            )}
+          </ul>
         </>
       ) : (
         <section aria-label="Bağlı sunucular" className="connectors__connected">

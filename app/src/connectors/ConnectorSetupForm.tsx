@@ -29,6 +29,16 @@ export function ConnectorSetupForm({
           Vazgeç
         </button>
       </div>
+      {entry.guide && (
+        <ol className="connectors__guide">
+          {entry.guide.map((adim) => <li key={adim}>{adim}</li>)}
+          {entry.guideUrl && (
+            <li className="connectors__guide-link">
+              <a href={entry.guideUrl} rel="noreferrer noopener" target="_blank">Resmi sayfayı aç</a>
+            </li>
+          )}
+        </ol>
+      )}
       <div className="connectors__custom-form">
         {(entry.setup ?? []).map((field) => (
           <label key={field.id}>

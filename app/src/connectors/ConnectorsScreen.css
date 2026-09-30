@@ -157,8 +157,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  font: inherit;
-  font-size: var(--text-sm);
+  font-family: inherit;
   font-weight: 550;
   transition: background var(--duration-fast) var(--ease-standard),
     color var(--duration-fast) var(--ease-standard);
@@ -229,9 +228,12 @@
 
 /* --- Bağlan düğmesi -------------------------------------------------------- */
 .connectors__connect {
-  padding: var(--space-2) var(--space-4);
+  /* ChatGPT hap düğmesi: 32px yükseklik, tam yuvarlak köşe. */
+  min-height: 32px;
+  padding: 0 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-pill);
+  font-size: 13px;
   background: var(--surface-canvas);
   color: var(--text-primary);
   cursor: pointer;
@@ -646,3 +648,47 @@
   justify-content: flex-end;
   padding-top: var(--space-4);
 }
+
+/* ChatGPT Uygulamalar ızgarası. */
+.connectors__grid {
+  display: grid;
+  gap: 4px 16px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+}
+.connectors__app {
+  align-items: center;
+  border-radius: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  padding: 12px;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.connectors__app:hover { background: var(--surface-hover); }
+.connectors__app-body { display: grid; gap: 2px; min-width: 0; }
+.connectors__app-body strong { color: var(--text-primary); font-size: var(--text-sm); font-weight: 600; }
+.connectors__app-body p {
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 0;
+  overflow: hidden;
+}
+.connectors__app-body small { color: var(--text-secondary); font-size: var(--text-xs); opacity: .8; }
+.connectors__app[data-connected="true"] .connectors__app-body small { color: var(--text-success); opacity: 1; }
+/* Düğme yalnız üzerine gelince belirgin; ChatGPT satırı sakin durur. */
+.connectors__app .connectors__connect { opacity: .85; }
+.connectors__app:hover .connectors__connect,
+.connectors__app .connectors__connect:focus-visible { opacity: 1; }
+.connectors__grid .connectors__empty { color: var(--text-secondary); grid-column: 1 / -1; padding: 16px 12px; }
+
+/* Adım adım bağlanma rehberi (token alma). */
+.connectors__guide { color: var(--text-primary); display: grid; font-size: var(--text-sm); gap: 8px; line-height: 1.5; margin: 0 0 12px; padding-left: 20px; }
+.connectors__guide-link { list-style: none; margin-left: -20px; }
+.connectors__guide-link a { color: var(--accent-text); font-weight: 550; }

@@ -19,7 +19,9 @@
  */
 
 export type ConnectorTransport = "stdio" | "streamable_http";
-export type SetupFieldTarget = "argument" | "environment" | "secret_argument";
+/** `token`: uzak sunucuya `Authorization: Bearer` ile giden erişim token'ı
+ *  (OAuth istemci kaydı olmayan sunucular için; bkz. `McpServerConfig.token_env`). */
+export type SetupFieldTarget = "argument" | "environment" | "secret_argument" | "token";
 
 export interface SetupField {
   id: string;
@@ -56,6 +58,10 @@ export interface CatalogEntry {
   oauth?: boolean;
   /** Bağlantı kurulmadan önce kullanıcıdan alınması gereken alanlar. */
   setup?: readonly SetupField[];
+  /** Kurulum formunda gösterilen adım adım rehber (token alma gibi). */
+  guide?: readonly string[];
+  /** Rehberin başladığı resmi sayfa. */
+  guideUrl?: string;
 }
 
 /** Yerel girişlerin ihtiyaç duyduğu, ayrıca kurulması gereken çalıştırıcılar.
@@ -64,6 +70,36 @@ const RUNNERS = ["npx", "uvx"] as const;
 export type ConnectorRunner = (typeof RUNNERS)[number];
 
 const CATALOG: readonly CatalogEntry[] = [
+  {
+    // Meta'nın barındırdığı MCP dinamik istemci kaydını reddediyor; client_id
+    // olmadan OAuth başlamıyor (ölçüldü, bkz. `McpServerConfig.token_env`).
+    // Aynı sunucu `Authorization: Bearer` kabul ettiği için kullanıcı kendi
+    // token'ını yapıştırarak uygulama kaydı ya da App Review olmadan bağlanır.
+    id: "meta-ads",
+    label: "Meta Reklamları",
+    description: "Facebook ve Instagram reklam hesapları, kampanyalar ve içgörüler.",
+    category: "Ticaret",
+    tint: "#0866ff",
+    glyph: "Me",
+    transport: "streamable_http",
+    url: "https://mcp.facebook.com/ads",
+    guideUrl: "https://business.facebook.com/settings/system-users",
+    guide: [
+      "Meta İşletme Ayarları'nda Kullanıcılar bölümünden bir sistem kullanıcısı oluştur (çalışan rolü yeterli).",
+      "Reklam hesabını bu sistem kullanıcısına varlık olarak ata; yalnız okuma için görüntüleme izni yeterli.",
+      "Sistem kullanıcısı için yeni bir token oluştur: izinlerde ads_read'i (değişiklik yaptırmak istersen ads_management'ı da) seç, süreyi süresiz bırak.",
+      "Üretilen token'ı kopyala ve aşağıya yapıştır. Token şifreli depoda saklanır, yapılandırma dosyasına yazılmaz.",
+    ],
+    setup: [
+      {
+        id: "token",
+        label: "Meta erişim token'ı",
+        placeholder: "EAA…",
+        secret: true,
+        target: "token",
+      },
+    ],
+  },
   // --- Banner (öne çıkan 3) ------------------------------------------------ //
   {
     id: "shopify",
@@ -333,5 +369,13 @@ export function addPayloadFor(
     url: entry.url,
     kapsamlar: entry.scopes ?? "",
     client_id: "",
+    ...tokenField(entry, values),
   };
+}
+
+/** Uzak sunucunun Bearer token'ı; alan yoksa ya da boşsa payload'a girmez. */
+function tokenField(entry: CatalogEntry, values: Readonly<Record<string, string>>): { token?: string } {
+  const field = entry.setup?.find((item) => item.target === "token");
+  const token = field ? values[field.id]?.trim() : "";
+  return token ? { token } : {};
 }
