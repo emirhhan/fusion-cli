@@ -587,9 +587,9 @@ async def run_agent(
             )
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
+        await _publish_intro(task, messages, deps, execution)
         await prepare_teacher_plan(task, messages, deps, registry)
         await run_platform_check(task, messages, deps, registry)
-        await _publish_intro(task, messages, deps, execution)
 
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)

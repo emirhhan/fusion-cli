@@ -121,3 +121,38 @@ async def test_giris_saglayicisi_kurulamazsa_ana_tur_surer(monkeypatch, tmp_path
 
     assert sonuc.ok
     assert (tmp_path / "a.py").read_text() == "x = 1\n"
+
+
+async def test_giris_paragrafi_ogretmen_ve_platform_isinden_once_gelir(
+    monkeypatch, tmp_path
+) -> None:
+    """Kullanıcı ilk yanıtı öğretmen beklenirken de görür."""
+    from fusion_cli.engines.agent import loop
+
+    deps, _sink = _deps(tmp_path)
+    provider = ScriptedProvider(
+        [
+            model_result(tool_calls=(tool_call("write_file", path="a.py", content="x = 1\n"),)),
+            model_result("Modül eklendi."),
+        ]
+    )
+    _patch(monkeypatch, provider)
+    sira: list[str] = []
+
+    async def giris(*_args):
+        sira.append("giris")
+        return "İsteğini aldım; dosyayı ekleyip doğrulayacağım."
+
+    async def ogretmen(*_args):
+        sira.append("ogretmen")
+
+    async def platform(*_args):
+        sira.append("platform")
+
+    monkeypatch.setattr(loop, "intro_paragraph", giris)
+    monkeypatch.setattr(loop, "prepare_teacher_plan", ogretmen)
+    monkeypatch.setattr(loop, "run_platform_check", platform)
+
+    await run_agent("a.py dosyasını oluştur ve içine x değişkenini yaz", deps)
+
+    assert sira[:3] == ["giris", "ogretmen", "platform"]
