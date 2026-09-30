@@ -26,7 +26,40 @@
 .settings__row { align-items: center; display: flex; gap: var(--space-3); justify-content: space-between; }
 .settings__row > span { color: var(--text-secondary); font-size: var(--text-sm); }
 .settings__row select { background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-primary); font: inherit; font-size: var(--text-sm); min-height: 40px; padding: 0 var(--space-3); }
-.settings__row--check { justify-content: start; }
+/* ChatGPT ayar satırı: metin solda, anahtar sağda. Onay kutusu tarayıcının
+   varsayılan mavi kutusu olarak görünüyordu; aynı input anahtara biçimlenir. */
+.settings__row--check { flex-direction: row-reverse; justify-content: space-between; }
+.settings__row--check input[type="checkbox"],
+.settings input[type="checkbox"][aria-label="Hafızayı kullan"] {
+  appearance: none;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  flex: none;
+  height: 20px;
+  margin: 0;
+  position: relative;
+  transition: background var(--duration-fast) var(--ease-standard);
+  width: 34px;
+}
+.settings__row--check input[type="checkbox"]::after,
+.settings input[type="checkbox"][aria-label="Hafızayı kullan"]::after {
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+  content: "";
+  height: 16px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+  width: 16px;
+}
+.settings__row--check input[type="checkbox"]:checked,
+.settings input[type="checkbox"][aria-label="Hafızayı kullan"]:checked { background: var(--control-primary); }
+.settings__row--check input[type="checkbox"]:checked::after,
+.settings input[type="checkbox"][aria-label="Hafızayı kullan"]:checked::after { background: var(--surface-canvas); transform: translateX(14px); }
+.settings__row--check input[type="checkbox"]:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings__row select:focus-visible,
 .settings__row input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
@@ -317,8 +350,8 @@
 }
 .settings__section-heading {
   border-bottom: 1px solid var(--settings-border);
-  font-size: 16px;
-  font-weight: 500;
+  font-size: 18px;
+  font-weight: 600;
   margin: 0 0 6px;
   padding: 2px 0 22px;
 }
