@@ -62,3 +62,56 @@ async def test_bilinmeyen_saglayici(tmp_path, secim):
         _config(tmp_path, "gemini_web/main/auto"), {"istem": "x", "saglayici": secim}
     )
     assert sonuc["ok"] is False
+
+
+async def test_nim_flux_dev_orana_uygun_boyutla_uretir(tmp_path, monkeypatch):
+    config = _config(tmp_path)
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+    yakalanan: dict = {}
+
+    async def uret(model, istem, klasor, *, api_key, size):
+        yakalanan.update(model=model.model, istem=istem, size=size)
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", *size)]
+
+    monkeypatch.setattr(image_create, "generate_nim_image", uret)
+    sonuc = await image_create.create_image(
+        config,
+        {"istem": "dağ", "saglayici": "nvidia_nim/black-forest-labs/flux.1-dev", "oran": "16:9"},
+        environ={"NVIDIA_NIM_API_KEY": "test"},
+    )
+    assert sonuc["ok"] is True
+    assert yakalanan["size"] == (1344, 768)
+    # Boyutu gerçekten uygulanan modelde oran istem metnine ayrıca eklenmez.
+    assert "en-boy" not in yakalanan["istem"]
+
+
+async def test_boyut_almayan_saglayiciya_oran_istemde_soylenir(tmp_path, monkeypatch):
+    config = _config(tmp_path, "gemini_web/main/auto")
+    monkeypatch.setattr(image_create, "image_output_dir", lambda: tmp_path)
+    yakalanan: dict = {}
+
+    async def uret(_oturum, _kimlik, istem, klasor, **_kwargs):
+        yakalanan["istem"] = istem
+        (klasor / "a.png").write_bytes(b"\x89PNG")
+        return [GeneratedImage(klasor / "a.png", 1024, 1024)]
+
+    monkeypatch.setattr(image_create, "generate_images", uret)
+    sonuc = await image_create.create_image(config, {"istem": "dağ", "oran": "9:16"})
+    assert sonuc["ok"] is True
+    assert "en-boy oranı 9:16" in yakalanan["istem"]
+
+
+async def test_desteklenmeyen_oran_reddedilir(tmp_path):
+    sonuc = await image_create.create_image(
+        _config(tmp_path, "gemini_web/main/auto"), {"istem": "dağ", "oran": "7:3"}
+    )
+    assert sonuc == {"ok": False, "metin": "Desteklenmeyen en-boy oranı: 7:3"}
+
+
+def test_oran_boyutlari_flux_sinirlarinda_ve_32_katinda():
+    from fusion_cli.providers.nim_image import ASPECT_SIZES
+
+    for genislik, yukseklik in ASPECT_SIZES.values():
+        for kenar in (genislik, yukseklik):
+            assert 672 <= kenar <= 1568 and kenar % 32 == 0

@@ -73,7 +73,7 @@ def validate_flow(raw: object) -> dict[str, Any]:
             "x": _number(node.get("x")),
             "y": _number(node.get("y")),
         }
-        for key in ("istem", "yol", "saglayici"):
+        for key in ("istem", "yol", "saglayici", "oran"):
             if isinstance(node.get(key), str):
                 clean[key] = _text(node[key])
         adet = node.get("adet")

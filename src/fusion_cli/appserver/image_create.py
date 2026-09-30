@@ -21,6 +21,7 @@ from typing import Any
 from ..config.keys import NIM_ENV, environ_snapshot
 from ..config.models import Config
 from ..providers.nim_image import (
+    ASPECT_SIZES,
     NIM_IMAGE_MODELS,
     NIM_PREFIX,
     NimImageError,
@@ -125,8 +126,16 @@ async def create_image(
             "NVIDIA NIM anahtarı ekle ya da Gemini web'e bağlan.",
         }
     secim = str(data.get("saglayici") or secenekler[0]["deger"])
+    oran = str(data.get("oran") or "1:1")
+    if oran not in ASPECT_SIZES:
+        return {"ok": False, "metin": f"Desteklenmeyen en-boy oranı: {oran}"}
     istem_son = _compose(islem, istem)
     nim = nim_model_from_choice(secim)
+    if nim is not None and nim.aspect_sizes:
+        return await _create_with_nim(nim, istem_son, referans, environ, istem, ASPECT_SIZES[oran])
+    # Boyut parametresi olmayan sağlayıcıya oran istemde söylenir.
+    if oran != "1:1":
+        istem_son = f"{istem_son}\n\nGörselin en-boy oranı {oran} olsun."
     if nim is not None:
         return await _create_with_nim(nim, istem_son, referans, environ, istem)
     return await _create_with_web(config, secim, istem_son, referans, istem)
@@ -138,6 +147,7 @@ async def _create_with_nim(
     referans: Path | None,
     environ: Mapping[str, str] | None,
     istem: str,
+    size: tuple[int, int] = ASPECT_SIZES["1:1"],
 ) -> dict[str, Any]:
     if referans is not None:
         return {"ok": False, "metin": f"{nim.label} referans görsel almaz; Gemini web seç."}
@@ -145,7 +155,9 @@ async def _create_with_nim(
     if not anahtar:
         return {"ok": False, "metin": "NVIDIA NIM anahtarı bulunamadı."}
     try:
-        gorseller = await generate_nim_image(nim, prompt, image_output_dir(), api_key=anahtar)
+        gorseller = await generate_nim_image(
+            nim, prompt, image_output_dir(), api_key=anahtar, size=size
+        )
     except NimImageError as error:
         return {"ok": False, "metin": str(error)}
     return _result(nim.label, gorseller, istem)

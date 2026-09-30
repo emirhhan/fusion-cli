@@ -174,6 +174,13 @@ const workspaceClient = {
       mcp: [{ ad: "figma", aciklama: "Figma tasarım dosyaları ve düğümleri", kaynak: "fusion", tur: "mcp", etkin: false, izinler: ["yerel komut", "dış araçlar"] }],
     };
     if (name === "yetenek.detay") return { ok: true, tur: data.tur, ad: data.ad, icerik: "Bu uzmanlık, görevin gerektirdiği dosyaları önce okur; değişiklikten sonra test ve görsel kanıt toplar.", kesildi: false };
+    if (name === "saglayici.katalog") return { ok: true, saglayicilar: [
+      { id: "gemini_web", ad: "Gemini", tur: "web", eylem: "oturum", bagli: true, olcum_gecti: true, hesap: "main", secili_model: "" },
+      { id: "chatgpt_web", ad: "ChatGPT", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+      { id: "claude_web", ad: "Claude", tur: "web", eylem: "oturum", bagli: false, hesap: "main" },
+      { id: "nvidia_nim", ad: "NVIDIA NIM", tur: "anahtar", eylem: "anahtar", bagli: true, ortam: "NVIDIA_NIM_API_KEY" },
+      { id: "openrouter", ad: "OpenRouter", tur: "anahtar", eylem: "anahtar", bagli: false, ortam: "OPENROUTER_API_KEY" },
+    ] };
     if (name === "kontrol.durum") return { ok: true, kok: "/Projects/fusion-cli",
       model: { agent: "openrouter/qwen3-coder", hakem: "nvidia_nim/llama-3.3-70b", adaylar: ["openrouter/deepseek-r1", "nvidia_nim/qwen3-next"], saglayici: "auto", yogunluk: "high" },
       izin: { mod: "ask", kokle_sinirli: false },

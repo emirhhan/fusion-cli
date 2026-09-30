@@ -25,6 +25,23 @@ function istemci(olustur: (data: Record<string, unknown>) => Promise<Record<stri
   };
 }
 
+describe("ImageCreate — basit kip", () => {
+  it("seçilen en-boy oranını çekirdeğe gönderir, kare oranı göndermez", async () => {
+    const olustur = vi.fn(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/o.jpg" }] }));
+    render(<ImageCreate client={istemci(olustur)} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
+    await screen.findByRole("option", { name: "Gemini" });
+    fireEvent.change(screen.getByLabelText("Nasıl bir görsel istiyorsun?"), { target: { value: "dağ" } });
+    fireEvent.click(screen.getByRole("radio", { name: "16:9" }));
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+    await waitFor(() => expect(olustur).toHaveBeenCalledWith(expect.objectContaining({ istem: "dağ", oran: "16:9" })));
+
+    fireEvent.click(screen.getByRole("radio", { name: "1:1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+    await waitFor(() => expect(olustur).toHaveBeenCalledTimes(2));
+    expect(olustur.mock.calls[1][0]).not.toHaveProperty("oran");
+  });
+});
+
 describe("ImageCreate — düğümlü akış", () => {
   it("basit modda istemi alır ve sonucu iş akışında sürdürür", async () => {
     const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));

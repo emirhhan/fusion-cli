@@ -212,7 +212,13 @@
   position: absolute; transform: translateX(-50%); width: calc(100% - 48px);
 }
 .image-create__prompt textarea { background: transparent; border: 0; color: var(--text-primary); font: inherit; font-size: 15px; line-height: 1.5; max-height: 160px; min-height: 44px; outline: none; padding: 4px 0; resize: none; }
-.image-create__prompt-bar { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+.image-create__prompt-bar { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.image-create__prompt-bar .image-create__go { margin-left: auto; }
+.image-create__ratios { display: flex; gap: 2px; }
+.image-create__ratios button { align-items: center; background: transparent; border: 0; border-radius: var(--radius-pill); color: var(--text-secondary); cursor: pointer; display: inline-flex; font: inherit; font-size: 12px; gap: 6px; min-height: 32px; padding: 0 10px; }
+.image-create__ratios button:hover { background: var(--surface-hover); color: var(--text-primary); }
+.image-create__ratios button[aria-checked="true"] { background: var(--surface-selected); color: var(--text-primary); font-weight: 550; }
+.image-create__ratio-box { border: 1.5px solid currentColor; border-radius: 2px; display: inline-block; height: 12px; max-width: 16px; }
 .image-create__prompt-bar select { background: var(--surface-hover); border: 0; border-radius: var(--radius-pill); color: var(--text-primary); font: inherit; font-size: 13px; min-height: 32px; padding: 0 12px; }
 .image-create__go { align-items: center; background: var(--control-primary); border: 0; border-radius: 50%; color: var(--surface-canvas); cursor: pointer; display: inline-flex; height: 36px; justify-content: center; width: 36px; }
 .image-create__go:disabled { cursor: default; opacity: .35; }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Icon } from "../ui/Icon";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
-import { akisSorunlari, atalar, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
+import { akisSorunlari, atalar, baslangicAkisi, DUGUM_ETIKETI, ORANLAR, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
 import { akisiCalistir, type UretilenGorsel } from "./akisCalistir";
 import { AkisTuvali, type SaglayiciSecenegi } from "./AkisTuvali";
 import "./ImageCreate.css";
@@ -285,6 +285,18 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
               <option value="">Model seç</option>
               {secenekler.map((item) => <option key={item.deger} value={item.deger}>{item.etiket}</option>)}
             </select>
+            <div aria-label="En-boy oranı" className="image-create__ratios" role="radiogroup">
+              {ORANLAR.map((oran) => {
+                const secili = (basitAkis.dugumler.find((dugum) => dugum.id === "uret-1")?.oran ?? "1:1") === oran;
+                const [en, boy] = oran.split(":").map(Number);
+                return (
+                  <button aria-checked={secili} aria-label={oran} key={oran} onClick={() => setBasitAkis(dugumGuncelle(basitAkis, "uret-1", { oran }))} role="radio" title={`En-boy oranı ${oran}`} type="button">
+                    <span aria-hidden="true" className="image-create__ratio-box" style={{ aspectRatio: `${en} / ${boy}` }} />
+                    {oran}
+                  </button>
+                );
+              })}
+            </div>
             <button aria-label="Görsel oluştur" className="image-create__go" disabled={calisiyor || !client} onClick={() => void calistir()} title={calisiyor ? "Üretiliyor…" : "Görsel oluştur"} type="button">
               {calisiyor ? <span className="image-create__spinner" /> : <Icon name="arrowUp" size={18} />}
             </button>

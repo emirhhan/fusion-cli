@@ -41,7 +41,7 @@ export async function akisiCalistir(
     const istem = islemIstemi(akis, dugum);
     const referans = girdiler(akis, dugum.id).gorsel?.yol;
     const adet = Math.min(Math.max(1, Math.round(dugum.adet ?? 1)), MAX_ADET);
-    const imza = JSON.stringify([dugum.tur, istem, referans ?? "", dugum.saglayici ?? "", adet]);
+    const imza = JSON.stringify([dugum.tur, istem, referans ?? "", dugum.saglayici ?? "", adet, dugum.oran ?? "1:1"]);
     // Akış baştan kurulmaz: girdisi değişmemiş ve sonucu olan düğüm yeniden
     // üretilmez. Kullanıcının açıkça "▶" ile çalıştırdığı düğüm her zaman yeniden üretilir.
     if (dugum.yol && dugum.girdiImzasi === imza && dugum.id !== secenekler.hedef) continue;
@@ -51,7 +51,7 @@ export async function akisiCalistir(
     let hata: string | null = null;
     // Varyasyonlar sırayla istenir: aynı web oturumu tek sohbeti aynı anda işler.
     for (let sira = 0; sira < adet; sira += 1) {
-      const tur = await tekUretim(istek, { istem, saglayici: dugum.saglayici ?? "", islem: dugum.tur as Islem, referans });
+      const tur = await tekUretim(istek, { istem, saglayici: dugum.saglayici ?? "", islem: dugum.tur as Islem, referans, oran: dugum.oran });
       if (typeof tur === "string") { hata = tur; break; }
       uretilen.push(...tur);
       bildir(dugumGuncelle(akis, dugum.id, { sonuclar: uretilen.map((gorsel) => gorsel.yol) }), tur);
@@ -77,7 +77,7 @@ export async function akisiCalistir(
 /** Tek çekirdek çağrısı: üretilen görseller ya da kullanıcıya gösterilecek hata metni. */
 async function tekUretim(
   istek: IstekFn,
-  veri: { istem: string; saglayici: string; islem: Islem; referans?: string },
+  veri: { istem: string; saglayici: string; islem: Islem; referans?: string; oran?: string },
 ): Promise<UretilenGorsel[] | string> {
   let sonuc: Record<string, unknown>;
   try {
@@ -86,6 +86,7 @@ async function tekUretim(
       saglayici: veri.saglayici,
       islem: veri.islem,
       ...(veri.referans ? { referans: veri.referans } : {}),
+      ...(veri.oran && veri.oran !== "1:1" ? { oran: veri.oran } : {}),
     });
   } catch (reason) {
     return `Görsel üretilemedi: ${String(reason)}`;

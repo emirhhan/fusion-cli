@@ -37,6 +37,18 @@ NIM_IMAGE_TIMEOUT_S = 120.0
 #: Üretim boyutu: iki modelin de ölçüldüğü değer.
 _EDGE = 1024
 
+#: En-boy oranı → (genişlik, yükseklik). FLUX.1-dev NIM ucu kenar başına 672–1568
+#: aralığını ve 32'nin katlarını kabul eder (Comfy-Org/NIMnodes'un NIM FLUX düğümü,
+#: 30 Eylül 2026'da okundu). Değerler FLUX'un ~1 megapiksellik standart kovalarıdır;
+#: kare dışındaki oranlar da aynı piksel bütçesinde kalır.
+ASPECT_SIZES: dict[str, tuple[int, int]] = {
+    "1:1": (_EDGE, _EDGE),
+    "16:9": (1344, 768),
+    "9:16": (768, 1344),
+    "4:3": (1152, 864),
+    "3:4": (864, 1152),
+}
+
 #: Tohum üst sınırı: FLUX uçlarının kabul ettiği 32 bit işaretsiz aralık.
 _SEED_LIMIT = 2**32
 
@@ -45,11 +57,14 @@ _SEED_LIMIT = 2**32
 class NimImageModel:
     model: str
     label: str
+    #: Kare dışı boyutları kabul ettiği doğrulandı mı? Doğrulanmayan modele
+    #: yalnız ölçülmüş 1024×1024 gönderilir; oran istemde metin olarak kalır.
+    aspect_sizes: bool = False
 
 
 #: Canlı ölçümde çalışan modeller, hızlıdan yavaşa.
 NIM_IMAGE_MODELS: tuple[NimImageModel, ...] = (
-    NimImageModel("black-forest-labs/flux.1-dev", "FLUX.1-dev (NVIDIA NIM)"),
+    NimImageModel("black-forest-labs/flux.1-dev", "FLUX.1-dev (NVIDIA NIM)", aspect_sizes=True),
     NimImageModel("black-forest-labs/flux.2-klein-4b", "FLUX.2 klein 4B (NVIDIA NIM)"),
 )
 
@@ -84,12 +99,14 @@ async def generate_nim_image(
     api_key: str,
     client: httpx.AsyncClient | None = None,
     now: datetime | None = None,
+    size: tuple[int, int] = (_EDGE, _EDGE),
 ) -> list[GeneratedImage]:
     """Tek görsel üret ve `out_dir` altına yaz; başarısızlıkta `NimImageError`."""
+    width, height = size if model.aspect_sizes else (_EDGE, _EDGE)
     body = {
         "prompt": prompt,
-        "width": _EDGE,
-        "height": _EDGE,
+        "width": width,
+        "height": height,
         # Sabit tohum aynı istemde hep aynı görseli verir; akışı yeniden
         # çalıştıran kullanıcı yeni bir sonuç bekler.
         "seed": secrets.randbelow(_SEED_LIMIT),

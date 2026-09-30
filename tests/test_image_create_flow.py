@@ -47,7 +47,7 @@ def test_nim_anahtari_varsa_olculmus_modeller_listelenir() -> None:
 async def test_nim_ile_uretim_galeriye_yazar_ve_istemi_saklar(galeri, monkeypatch) -> None:
     alinan: dict[str, object] = {}
 
-    async def uret(model, istem, klasor, *, api_key):
+    async def uret(model, istem, klasor, *, api_key, size=(1024, 1024)):
         alinan.update(model=model.model, istem=istem, anahtar=api_key)
         yol = klasor / "a.jpg"
         yol.write_bytes(b"\xff\xd8")

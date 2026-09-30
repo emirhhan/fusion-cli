@@ -25,6 +25,8 @@ export interface Dugum {
   saglayici?: string;
   /** İşlem düğümünün kaç varyasyon üreteceği (1..MAX_ADET). */
   adet?: number;
+  /** Üretimin en-boy oranı ("16:9" gibi); yoksa kare. */
+  oran?: string;
   /** İşlemin ürettiği tüm görseller; `yol` bunlardan seçilen ve sonraki düğüme akandır. */
   sonuclar?: string[];
   /** Son çalıştırmanın girdi imzası; girdisi değişmeyen biten düğüm yeniden üretilmez. */
@@ -245,3 +247,6 @@ export function sonrakiDugumEkle(
     id,
   };
 }
+
+/** Seçilebilen en-boy oranları; çekirdekteki `ASPECT_SIZES` ile aynı küme. */
+export const ORANLAR = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
