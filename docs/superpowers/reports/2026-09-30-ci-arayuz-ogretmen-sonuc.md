@@ -67,12 +67,27 @@ model turu bu ortamda denenemedi.
 Dokuz sekme 1280 ve 820 px'te tıklanarak denetlendi: konsol hatası ve yatay
 taşma yok. Modeller sekmesindeki sıkışık anahtar/değer düzeni düzeltildi.
 
+## İkinci tur
+
+- **En-boy oranı:** 1:1, 16:9, 9:16, 4:3, 3:4. FLUX.1-dev NIM ucuna gerçek boyut
+  gider (672–1568, 32'nin katı; kaynak Comfy-Org/NIMnodes). Kare dışı boyutu
+  doğrulanmamış FLUX.2 klein ve Gemini'ye oran istemde söylenir.
+- **Kontrol Paneli:** ChatGPT ayar düzeni; "Abonelik oturumları" ve "API
+  anahtarları" grupları, durum noktası, ayırıcı çizgili satırlar.
+- **Meta rehberi:** sistem kullanıcısı token'ı bir uygulama seçmeden üretilemiyor;
+  uygulama oluşturma ve uygulamayı varlık olarak atama adımları eklendi.
+- **Ayarlar:** onay kutuları ChatGPT tarzı anahtar; bölüm başlığı büyüdü. Koyu
+  temada 1280/820/390 px'te dokuz sekme konsol hatası ve taşma olmadan açıldı.
+
 ## Açık kalanlar
 
-- Hiçbir değişiklik paketli macOS uygulamasında ve canlı modelle denenmedi.
-- ChatGPT'nin kendisiyle yan yana piksel karşılaştırması yapılamadı (bu ortamda
-  ChatGPT oturumu yok); değerler bilinen ChatGPT tasarım ölçülerine göre ayarlandı.
-- Kontrol Paneli (sağlayıcılar) önizlemede veri olmadan boş; yeniden tasarlanmadı.
-- Görsel oluşturmada en-boy oranı seçimi eklenmedi: NIM FLUX'un kabul ettiği
-  boyutlar doğrulanmadan sabit yazılmadı.
-- Meta rehberindeki adımlar Meta'nın güncel arayüzüyle canlı doğrulanmadı.
+- Bulut ortamının ağ politikası chatgpt.com, florafauna.ai, NVIDIA ve OpenRouter
+  API'lerini engelliyor; ortamda API anahtarı da yok. Bu yüzden ChatGPT/Flora ile
+  yan yana piksel karşılaştırması ve canlı model ölçümü (öğretmen kalitesi, Claude
+  gibi konuşma) yapılamadı. Kullanıcı referans ekran görüntüsü yüklerse karşılaştırma,
+  ağ izni ve anahtar eklenirse canlı ölçüm yapılabilir.
+- Paketli macOS uygulamasında denenmedi. `app/e2e/*-darwin.png` görsel test
+  referansları arayüz değiştiği için eskidi; bir Mac'te `npx playwright test
+  --update-snapshots` ile yenilenmeli.
+- Rust `clippy` ve `cargo test` bu ortamda GTK kütüphaneleri olmadığı için derlenmedi
+  (Rust koduna dokunulmadı; `cargo fmt --check` temiz).
