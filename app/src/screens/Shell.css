@@ -57,7 +57,8 @@
   container-type: inline-size;
   display: grid;
   grid-column: 2;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "header" "notices" "main" "composer";
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
 }
@@ -276,3 +277,11 @@
 .app-shell[data-inspector-placement="bottom"][data-inspector-open="false"] {
   grid-template-rows: minmax(0, 1fr) 0;
 }
+
+/* Bildirim şeridi: başlık ile sohbet arasında, akışın içinde. Kart yer açar;
+   sağ panelin, sohbetin ya da yazma kutusunun üstüne binmez. Boşken yüksekliği sıfır. */
+.app-shell__header { grid-area: header; }
+.app-shell__notices { display: grid; gap: var(--space-2); grid-area: notices; min-width: 0; }
+.app-shell__notices:not(:empty) { padding: var(--space-2) var(--space-4) 0; }
+.app-shell__workspace > .app-shell__main { grid-area: main; }
+.app-shell__workspace > .app-shell__composer { grid-area: composer; }

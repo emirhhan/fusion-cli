@@ -52,7 +52,10 @@ describe("HistoryPicker", () => {
     expect(history.openSource).toHaveBeenCalledWith("claude");
   });
 
-  it("önizlemeyi gösterir ve hassas değerleri sakin bir uyarıyla bildirir", async () => {
+  /* Davranış değişikliği (30 Eylül): devir başarılı olunca pencere kendiliğinden
+     kapanır ve sonuç (hassas değer sayısı dahil) çağırana iletilir; uyarıyı
+     sohbet ekranı gösterir. Eskiden ikinci bir "Konuşmaya geç" tıklaması gerekiyordu. */
+  it("devralınca pencereyi kapatır ve sonucu çağırana iletir", async () => {
     const session = {
       kaynak: "codex" as const,
       oturum_id: "cx1",
@@ -71,14 +74,18 @@ describe("HistoryPicker", () => {
       ],
     });
     const onResume = vi.fn(async () => ({ id: "new", secretCount: 2 }));
+    const onClose = vi.fn();
+    const onResumed = vi.fn();
     render(
-      <HistoryPicker history={history} onClose={vi.fn()} onResume={onResume} open />,
+      <HistoryPicker history={history} onClose={onClose} onResume={onResume} onResumed={onResumed} open />,
     );
 
     expect(screen.getByText("Uygulamayı yap")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Bu konuşmayı devral" }));
     await waitFor(() => expect(onResume).toHaveBeenCalledWith(session));
-    expect(await screen.findByText(/2 hassas değer/i)).toBeTruthy();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(onResumed).toHaveBeenCalledWith({ id: "new", secretCount: 2 });
+    expect(screen.queryByRole("button", { name: "Konuşmaya geç" })).toBeNull();
   });
 
   it("arama kutusu çekirdeğe sorar; yerelde filtrelemez", async () => {

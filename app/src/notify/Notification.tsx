@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import "./notification.css";
 
 /**
- * Bildirim kartı — macOS bildirim merkezindeki gibi, sağ üstte.
+ * Bildirim kartı — başlığın altındaki şeritte, akışın içinde (hiçbir şeyi kapatmaz).
  *
  * Neden var: bazı durumlarda Fusion tek başına ilerleyemez ve kullanıcının
  * BİR ŞEY YAPMASI gerekir — sağlayıcı insan doğrulaması (captcha) istediğinde

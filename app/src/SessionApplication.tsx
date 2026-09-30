@@ -605,6 +605,8 @@ export function SessionUygulama({
   const guncellemeSurumu = useUpdateAvailable();
   const inspectorPlacement = useInspectorPlacement();
   const [dogrulamaUyarisi, setDogrulamaUyarisi] = useState<string | null>(null);
+  /** Devralınan konuşmada fark edilen hassas değer sayısı; bildirim şeridinde gösterilir. */
+  const [gizliDegerSayisi, setGizliDegerSayisi] = useState(0);
   // Sağlayıcı insan doğrulaması isterse Fusion tek başına ilerleyemez. Bu,
   // sohbetin içine gömülü bir hata satırı olarak kayboluyordu; kullanıcı neden
   // durduğunu anlamıyordu. Artık kart olarak görünür ve eylem sunar.
@@ -1364,10 +1366,15 @@ export function SessionUygulama({
           value={draft}
         /></>
       ) : undefined}
-      content={
+      notices={
         <>
-          {content}
-          {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {gizliDegerSayisi > 0 && (
+            <Notification
+              baslik="Konuşma devralındı"
+              metin={`${gizliDegerSayisi} hassas değer fark edildi. Fusion bunları ekranda göstermedi; uygun olduğunda ilgili anahtarları yenilemeniz iyi olur.`}
+              onDismiss={() => setGizliDegerSayisi(0)}
+            />
+          )}
           {dogrulamaUyarisi && (
             <Notification
               baslik="Sağlayıcı doğrulama istiyor"
@@ -1383,8 +1390,6 @@ export function SessionUygulama({
               onDismiss={() => setDogrulamaUyarisi(null)}
             />
           )}
-          {kapatmaOnayi}
-          {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
           {aktifCoktu && cokmeKapatilan !== active.id && !crash && !feedback && (
             // Ölçüldü (28 Eylül): çekirdek konuşma sırasında kapanınca yalnız
             // başlıkta "Bağlantı kesildi" yazıyordu; sebep hiçbir yerde yoktu.
@@ -1416,6 +1421,14 @@ export function SessionUygulama({
               onDismiss={clearCrash}
             />
           )}
+        </>
+      }
+      content={
+        <>
+          {content}
+          {newTaskError && !newTaskOpen && <p role="alert">{newTaskError}</p>}
+          {kapatmaOnayi}
+          {feedback && <FeedbackDialog initial={feedback} onClose={() => setFeedback(null)} />}
           {shareOpen && (
             <ShareDialog
               messages={active.messages}
@@ -1460,6 +1473,10 @@ export function SessionUygulama({
             <HistoryPicker
               history={history}
               onClose={() => setHistoryOpen(false)}
+              onResumed={(result) => {
+                setPage("chat");
+                setGizliDegerSayisi(result.secretCount);
+              }}
               onResume={(session) => controller.resume({
                 source: session.kaynak,
                 sessionId: session.oturum_id,

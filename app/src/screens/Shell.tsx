@@ -55,6 +55,8 @@ interface ShellProps {
   content: ReactNode;
   emptyChat?: boolean;
   header?: ReactNode;
+  /** Bildirim kartları: başlığın altında AKIŞIN İÇİNDE durur, hiçbir şeyin üstüne binmez. */
+  notices?: ReactNode;
   inspector?: ReactNode;
   inspectorCollapsed?: boolean;
   inspectorHeight?: number;
@@ -73,6 +75,7 @@ export function Shell({
   content,
   emptyChat = false,
   header,
+  notices,
   inspector,
   inspectorCollapsed = false,
   inspectorHeight = 280,
@@ -195,6 +198,7 @@ export function Shell({
       </aside>
       <section className="app-shell__workspace">
         {header && <header className="app-shell__header">{header}</header>}
+        <div aria-label="Bildirimler" className="app-shell__notices" role="region">{notices}</div>
         {emptyChat && composer ? (
           <main className="app-shell__main">
             <div className="app-shell__welcome">

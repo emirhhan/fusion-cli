@@ -19,6 +19,8 @@ interface HistoryPickerProps {
   history: HistoryController;
   onClose: () => void;
   onResume: (session: HistorySessionRef) => Promise<{ id: string; secretCount: number }>;
+  /** Devir başarılı olunca: pencere kapanır, çağıran sohbet ekranına geçer. */
+  onResumed?: (result: { id: string; secretCount: number }) => void;
   open: boolean;
 }
 
@@ -31,12 +33,11 @@ function formatDate(timestamp: number | null): string {
   }).format(new Date(timestamp * 1000));
 }
 
-export function HistoryPicker({ history, onClose, onResume, open }: HistoryPickerProps) {
+export function HistoryPicker({ history, onClose, onResume, onResumed, open }: HistoryPickerProps) {
   const dialog = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
   const [resuming, setResuming] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
-  const [secretCount, setSecretCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -87,7 +88,11 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
     setResumeError(null);
     try {
       const result = await onResume(history.selected);
-      setSecretCount(result.secretCount);
+      // Devralınan konuşmaya doğrudan geçilir; ikinci bir "Konuşmaya geç"
+      // tıklaması beklenmez (kullanıcı bildirdi, 30 Eylül). Hassas değer
+      // uyarısını çağıran sohbet ekranında gösterir.
+      onResumed?.(result);
+      onClose();
     } catch (reason) {
       setResumeError(String(reason));
     } finally {
@@ -218,28 +223,22 @@ export function HistoryPicker({ history, onClose, onResume, open }: HistoryPicke
           </section>
         </div>
 
-        {(history.error || resumeError || secretCount !== null) && (
-          <div aria-live="polite" className="history-picker__notice" data-error={Boolean(history.error || resumeError)}>
-            {history.error || resumeError || ((secretCount ?? 0) > 0
-              ? `${secretCount} hassas değer fark edildi. Fusion bunları ekranda göstermedi; uygun olduğunda ilgili anahtarları yenilemeniz iyi olur.`
-              : "Konuşma hazır. Kaldığınız yerden devam edebilirsiniz.")}
+        {(history.error || resumeError) && (
+          <div aria-live="polite" className="history-picker__notice" data-error="true">
+            {history.error || resumeError}
           </div>
         )}
 
         <footer className="history-picker__footer">
           <Button onClick={onClose} variant="ghost">Vazgeç</Button>
-          {secretCount !== null ? (
-            <Button onClick={onClose} variant="primary">Konuşmaya geç</Button>
-          ) : (
-            <Button
-              disabled={!history.selected}
-              loading={resuming}
-              onClick={() => void resume()}
-              variant="primary"
-            >
-              Bu konuşmayı devral
-            </Button>
-          )}
+          <Button
+            disabled={!history.selected}
+            loading={resuming}
+            onClick={() => void resume()}
+            variant="primary"
+          >
+            Bu konuşmayı devral
+          </Button>
         </footer>
       </div>
     </div>

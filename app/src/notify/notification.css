@@ -1,21 +1,21 @@
-/* macOS bildirim kartı: sağ üstte, yüzeyden kalkık, kendiliğinden kapanmaz. */
+/* Bildirim kartı: başlığın altındaki şeritte, akışın içinde; kendiliğinden kapanmaz. */
 
 .notification {
+  align-items: center;
   background: var(--surface-raised);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-3);
-  inset-block-start: calc(var(--header-height, 48px) + var(--space-4));
-  inset-inline-end: var(--space-4);
-  max-width: 360px;
-  padding: var(--space-4);
-  position: fixed;
-  /* --z-overlay (30) kullanılıyordu; sağ gözlem paneli 31'de durduğu için
-     bildirim onun ALTINDA kalıp görünmüyordu (bkz. Shell.css
-     `.app-shell__inspector`). Bildirim her katmanın üstünde olmalı. */
-  z-index: var(--z-toast);
+  justify-content: space-between;
+  margin-inline: auto;
+  max-width: 880px;
+  padding: var(--space-3) var(--space-4);
+  /* Akışın içinde durur (bkz. Shell.css `.app-shell__notices`). Eskiden sağ üstte
+     sabit ve en üst katmandaydı; sağ paneli ve düğmeleri kapatıyordu. */
+  position: relative;
+  width: 100%;
 }
 
 .notification__body { display: grid; gap: var(--space-1); }

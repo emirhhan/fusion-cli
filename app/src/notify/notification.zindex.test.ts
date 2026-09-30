@@ -18,9 +18,16 @@ function dosyaOku(goreliYol: string): string {
 }
 
 describe("bildirim katman sırası", () => {
-  test("bildirim --z-toast kullanır, --z-overlay/--z-dialog değil", () => {
+  /* Davranış değişikliği (30 Eylül): kart sağ üstte sabit ve en üst katmandayken
+     sağ paneli ve düğmeleri kapatıyordu (kullanıcı bildirdi). Artık başlığın
+     altındaki bildirim şeridinde AKIŞIN İÇİNDE durur; hiçbir şeyin üstüne binmez. */
+  test("bildirim akışın içinde durur: sabit konum ya da katman kullanmaz", () => {
     const css = dosyaOku("notification.css");
-    expect(css).toMatch(/\.notification\s*{[^}]*z-index:\s*var\(--z-toast\)/s);
+    const kural = css.match(/\.notification\s*{([^}]*)}/s)?.[1] ?? "";
+    expect(kural).not.toMatch(/position:\s*(fixed|absolute)/);
+    expect(kural).not.toMatch(/z-index/);
+    const shellCss = dosyaOku("../screens/Shell.css");
+    expect(shellCss).toMatch(/\.app-shell__notices\s*{[^}]*grid-area:\s*notices/s);
   });
 
   test("--z-toast, kod tabanındaki bilinen en yüksek sabit z-index'ten büyük", () => {
