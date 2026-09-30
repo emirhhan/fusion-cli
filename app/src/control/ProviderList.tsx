@@ -294,10 +294,7 @@ export function ProviderList({ client, onChanged = () => undefined }: {
   return (
     <section aria-label="Sağlayıcılar" className="provider-list">
       <header className="provider-list__head">
-        <div>
-          <span>BAĞLANTILAR</span>
-          <h3>Sağlayıcılar</h3>
-        </div>
+        <h3>Model sağlayıcıları</h3>
         <input
           aria-label="Sağlayıcı ara"
           className="provider-list__search"
@@ -318,8 +315,16 @@ export function ProviderList({ client, onChanged = () => undefined }: {
         </p>
       )}
 
-      <ul className="provider-list__rows">
-        {filtered.map((row) => (
+      {/* ChatGPT ayar düzeni: abonelik oturumları ve API anahtarları ayrı gruplarda. */}
+      {([["web", "Abonelik oturumları", "Kendi ChatGPT, Gemini ya da Claude aboneliğinle; anahtar gerekmez."], ["anahtar", "API anahtarları", "Ücretsiz katmanı olan sağlayıcılar; anahtar şifreli kasada saklanır."]] as const).map(([tur, baslik, aciklama]) => {
+        const grup = filtered.filter((row) => row.tur === tur);
+        if (grup.length === 0) return null;
+        return (
+          <div className="provider-list__group" key={tur}>
+            <h4>{baslik}</h4>
+            <p className="provider-list__group-hint">{aciklama}</p>
+            <ul className="provider-list__rows">
+              {grup.map((row) => (
           <li key={row.id}>
             <button
               aria-expanded={open === row.id}
@@ -339,7 +344,7 @@ export function ProviderList({ client, onChanged = () => undefined }: {
                 )}
               </span>
               <span className="provider-list__name">{row.ad}</span>
-              <span className="provider-list__state">{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil"}</span>
+              <span className="provider-list__state" data-bagli={row.bagli}>{row.tur === "anahtar" ? (row.bagli ? "anahtar kayıtlı" : "anahtar yok") : row.bagli ? (row.olcum_gecti ? "bağlı · dosya yazabilir" : "bağlı · yalnız okur") : "bağlı değil"}</span>
             </button>
 
             {open === row.id && (
@@ -484,8 +489,11 @@ export function ProviderList({ client, onChanged = () => undefined }: {
               </div>
             )}
           </li>
-        ))}
-      </ul>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
     </section>
   );
 }

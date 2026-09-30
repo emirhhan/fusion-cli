@@ -10,7 +10,8 @@
 .control-panel__nav button:hover, .control-panel__nav button[aria-current="page"] { background: var(--surface-hover); color: var(--text-primary); }
 .control-panel__nav button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .control-panel__layout { display: grid; align-content: start; gap: 14px; min-width: 0; }
-.control-panel__section { background: var(--surface-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 18px; }
+/* ChatGPT ayar sayfası: kart çerçevesi yok, içerik okuma kolonunda. */
+.control-panel__section { background: transparent; border: 0; max-width: 760px; padding: 0; }
 .control-panel__section--wide { grid-column: 1 / -1; }
 .control-panel__section-heading { align-items: start; display: flex; justify-content: space-between; margin-bottom: 14px; }
 .control-panel__section-heading h3 { font-size: var(--text-md); margin: 2px 0; }

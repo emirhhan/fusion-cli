@@ -7,33 +7,26 @@
 }
 
 .provider-list__head {
+  align-items: center;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
   gap: 16px;
-  margin-bottom: 14px;
+  justify-content: space-between;
+  margin-bottom: 8px;
 }
 
-.provider-list__head span {
-  font-size: var(--text-2xs);
-  letter-spacing: 0.12em;
-  color: var(--text-secondary);
-}
-
-.provider-list__head h3 {
-  margin: 2px 0 0;
-  font-size: var(--text-md);
-}
+.provider-list__head h3 { font-size: var(--text-lg); font-weight: 600; margin: 0; }
 
 .provider-list__search {
-  width: 160px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--surface-canvas);
+  background: var(--surface-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
   color: inherit;
   font-size: var(--text-sm);
+  min-height: 34px;
+  padding: 0 14px;
+  width: 200px;
 }
+.provider-list__search:focus { border-color: var(--border-strong); outline: none; }
 
 .provider-list__notice {
   margin: 0 0 10px;
@@ -41,67 +34,71 @@
   color: var(--text-secondary);
 }
 
+/* ChatGPT ayar grupları: başlık, tek satır açıklama, ayırıcı çizgili satırlar. */
+.provider-list__group { margin-top: 20px; }
+.provider-list__group h4 { font-size: var(--text-sm); font-weight: 600; margin: 0; }
+.provider-list__group-hint { color: var(--text-secondary); font-size: 13px; margin: 2px 0 8px; }
+
 .provider-list__rows {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 4px;
 }
+.provider-list__rows > li + li { border-top: 1px solid var(--border-subtle); }
 
-/* Satır KISA: ad ve durum. Uzun anahtar kutuları burada değil, ayrıntıda. */
 .provider-list__row {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 32px 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  gap: 12px;
+  min-height: 56px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 10px;
   background: transparent;
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background var(--duration-fast, 150ms) ease, border-color var(--duration-fast, 150ms) ease;
+  transition: background var(--duration-fast, 150ms) ease;
 }
+/* Sağda açılır işaret: satırın tıklanınca ayrıntı açtığını söyler. */
+.provider-list__row::after { color: var(--text-secondary); content: "›"; font-size: 18px; grid-column: 3; justify-self: end; transition: transform var(--duration-fast) var(--ease-standard); }
+.provider-list__row { grid-template-columns: 32px 1fr auto 12px; }
+.provider-list__row::after { grid-column: 4; }
+.provider-list__row[aria-expanded="true"]::after { transform: rotate(90deg); }
 
 .provider-list__row:hover,
-.provider-list__row:focus-visible {
-  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
-  border-color: var(--border-subtle);
-}
-
-.provider-list__row[aria-expanded="true"] {
-  background: var(--surface-hover, rgba(127, 127, 127, 0.08));
-  border-color: var(--border-subtle);
-}
+.provider-list__row:focus-visible,
+.provider-list__row[aria-expanded="true"] { background: var(--surface-hover); }
 
 .provider-list__mark {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-xs);
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
   background: var(--surface-canvas);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
-.provider-list__name {
-  font-size: var(--text-sm);
-}
+.provider-list__name { font-size: var(--text-sm); font-weight: 550; }
 
 .provider-list__state {
-  font-size: var(--text-xs);
+  align-items: center;
   color: var(--text-secondary);
+  display: inline-flex;
+  font-size: 13px;
+  gap: 6px;
 }
-
-.provider-list__row[data-bagli="true"] .provider-list__state {
-  color: var(--text-success);
-}
+.provider-list__state::before { background: var(--border-strong); border-radius: 50%; content: ""; height: 7px; width: 7px; }
+.provider-list__state[data-bagli="true"] { color: var(--text-primary); }
+.provider-list__state[data-bagli="true"]::before { background: var(--text-success); }
 
 .provider-list__detail {
   display: grid;
