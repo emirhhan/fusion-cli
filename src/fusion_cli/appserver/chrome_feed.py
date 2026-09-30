@@ -39,9 +39,26 @@ def panel_item(line: str) -> dict[str, Any] | None:
         return {"tur": "dusunuyor"}
     if event == "ErrorOccurred":
         return {"tur": "hata", "metin": str(data.get("message", ""))[:MAX_ERROR]}
-    if event == "ToolExecuted" and str(data.get("name", "")).startswith("chrome_"):
+    if event == "ToolExecuted" and str(data.get("name", "")) in _VISIBLE_TOOLS:
         return _step(data)
     return None
+
+
+_VISIBLE_TOOLS = frozenset(
+    {
+        "chrome_page",
+        "chrome_action",
+        "chrome_click",
+        "chrome_type",
+        "chrome_navigate",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "multi_edit",
+        "run_shell",
+        "ask_teacher",
+    }
+)
 
 
 def _step(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -63,6 +80,18 @@ def _step(data: Mapping[str, Any]) -> dict[str, Any]:
 
 def step_text(name: str, args: Mapping[str, Any], output: str = "") -> str:
     """Aracın ne yaptığını tek kısa cümleyle söyle."""
+    if name == "ask_teacher":
+        return "Öğretmene danışıldı"
+    if name == "run_shell":
+        return "Proje komutu çalıştırıldı"
+    if name in {"read_file", "write_file", "edit_file", "multi_edit"}:
+        action = {
+            "read_file": "okundu",
+            "write_file": "yazıldı",
+            "edit_file": "düzenlendi",
+            "multi_edit": "düzenlendi",
+        }[name]
+        return f"{_quote(args.get('path')) or 'Dosya'} {action}"
     if name == "chrome_navigate":
         return f"{_host(args.get('url'))} açıldı"
     if name == "chrome_page":

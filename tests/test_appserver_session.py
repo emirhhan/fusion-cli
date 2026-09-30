@@ -66,6 +66,31 @@ async def test_chrome_panel_turnu_sohbet_kipinde_de_yalniz_tarayıcı_araclarini
     assert oturum._workspace_mode == "sohbet"
 
 
+async def test_chrome_paneli_kod_kipinde_proje_ve_ogretmen_araclarini_kisitlamaz(
+    tmp_path, monkeypatch
+):
+    from fusion_cli.cli import session as cli_session
+
+    kwargs_seen = {}
+
+    async def fake_run_agent_task(_task, _config, **kwargs):
+        kwargs_seen.update(kwargs)
+        return SimpleNamespace(ok=True, final_text="bitti", messages=[])
+
+    monkeypatch.setattr(cli_session, "run_agent_task", fake_run_agent_task)
+    oturum = _session(tmp_path, [])
+    oturum._workspace_mode = "kod"
+
+    assert await oturum._chrome_turn("Bu siteden component al ve projeye uygula") == {
+        "ok": True,
+        "metin": "bitti",
+    }
+    assert kwargs_seen["allowed_tools"] is None
+    assert kwargs_seen["chat_mode"] is False
+    assert kwargs_seen["chrome_bridge"] is oturum._chrome
+    assert kwargs_seen["root"] == tmp_path
+
+
 async def test_masaustu_turu_oturumun_kalici_bellegini_ajana_verir(tmp_path, monkeypatch):
     """Ölçüldü (29 Eylül, canlı hafıza testi): masaüstü turu `run_agent_task`'a
     belleği geçirmiyordu; tur boş bellekle koşuyor, öğretmen planı ve dersler hiç

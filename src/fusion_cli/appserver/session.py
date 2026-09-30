@@ -148,7 +148,11 @@ CHROME_NOTE = (
     "öğede screenshot alıp click_at 'x,y' kullan. Tanıtım ya da giriş sayfasına düşersen "
     "hemen 'oturum kapalı' deme: önce "
     "'tabs' ile açık sekmelere bak, sonra sitenin uygulama adresini dene (ör. Google Ads: "
-    "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle."
+    "ads.google.com/aw/overview); oturumun kapalı olduğunu ancak giriş formunu görünce söyle. "
+    "Kullanıcı bir siteden component alıp projeye uygulamanı isterse önce sayfayı Chrome "
+    "eklentisiyle incele, sonra çalışma alanındaki dosyaları okuyup düzenle ve sonucu "
+    "doğrula. Uygulama yolunda somut bir belirsizlik veya tekrarlanan hata varsa "
+    "ask_teacher ile tek net soru sor; yanıtı değerlendirip işe devam et."
 )
 
 CHROME_TURN_TOOLS = {
@@ -1392,7 +1396,9 @@ class AppSession:
                 home=self._state.home,
                 history=history,
                 chrome_bridge=self._chrome,
-                allowed_tools=CHROME_TURN_TOOLS if browser_only else None,
+                allowed_tools=(
+                    CHROME_TURN_TOOLS if browser_only and self._workspace_mode != "kod" else None
+                ),
                 extra_system=extra_system,
                 # Görsel ekler modele GERÇEKTEN gider; yol metni ayrıca kalır.
                 images=images,

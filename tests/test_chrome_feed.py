@@ -48,7 +48,7 @@ def test_soru_dusunme_ve_hata_gecer_ilgisiz_olay_gecmez() -> None:
         "tur": "dusunuyor"
     }
     assert panel_item(encode_event({"olay": "ModelCallStarted", "background": True})) is None
-    assert panel_item(_tool("read_file", {"path": "a.py"})) is None
+    assert panel_item(_tool("unknown_tool", {})) is None
     assert panel_item("bozuk satır") is None
     assert panel_item(encode_event({"olay": "ErrorOccurred", "message": "Model yok"})) == {
         "tur": "hata",
@@ -61,4 +61,16 @@ def test_yeni_tarayici_islemleri_de_insan_diliyle_yazilir() -> None:
     assert step_text("chrome_action", {"action": "text", "value": "2"}) == "Sayfanın tamamı okundu"
     assert step_text("chrome_action", {"action": "click_at", "value": "10,20"}) == (
         "Ekrandaki noktaya tıklandı"
+    )
+
+
+def test_panel_kod_ve_ogretmen_adimlarini_da_gosterir() -> None:
+    assert panel_item(_tool("read_file", {"path": "src/App.tsx"}))["metin"] == (
+        "src/App.tsx okundu"
+    )
+    assert panel_item(_tool("write_file", {"path": "src/App.tsx"}))["metin"] == (
+        "src/App.tsx yazıldı"
+    )
+    assert panel_item(_tool("ask_teacher", {"question": "Nasıl uygulanır?"}))["metin"] == (
+        "Öğretmene danışıldı"
     )
