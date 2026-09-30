@@ -294,6 +294,12 @@
 
 .sidebar__session[data-etkin="true"] .sidebar__session-dot::before { opacity: 0.9; }
 
+/* ChatGPT'de sohbet satırı yalnız başlıktır; Fusion'ın kendi sohbetlerindeki
+   nötr işaret kaldırıldı. İçe aktarılan (Claude/Codex) sohbetler kaynak
+   simgesini korur: nereden geldiği Fusion'a özgü bilgidir. */
+.sidebar__session-dot { display: none; }
+.sidebar__session:has(> .sidebar__session-dot) { grid-template-columns: minmax(0, 1fr); }
+
 .sidebar__session[data-etkin="true"] {
   background: var(--surface-selected);
 }

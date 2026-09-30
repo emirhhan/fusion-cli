@@ -10,8 +10,9 @@
   border: 1px solid var(--border-subtle);
   /* Ekrana özgü kapsül köşesi: girdi kutusunun karakteristik ölçüsü ölçek
      kademelerinden birine denk düşmüyor, yuvarlanırsa tanınır biçimi bozulur. */
-  border-radius: 24px;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 8%);
+  border-radius: 28px;
+  /* ChatGPT kapsülü: çok ince çevre gölgesi + yumuşak alt gölge. */
+  box-shadow: 0 4px 12px rgb(0 0 0 / 5%), 0 0 1px rgb(0 0 0 / 30%);
   padding: var(--space-3) var(--space-4);
   position: relative;
 }
@@ -106,7 +107,7 @@
   display: grid;
   gap: 6px;
   grid-template-columns: 34px minmax(120px, 1fr) auto auto auto;
-  min-height: 54px;
+  min-height: 56px;
   padding: 5px 8px;
 }
 .composer[data-layout="compact"] textarea {
@@ -124,8 +125,9 @@
 .composer[data-layout="compact"] .composer__actions > button[aria-label="Gönder"]:disabled { display: none; }
 .composer[data-layout="compact"] .composer__voice { border: 0; height: 32px; width: 32px; }
 .composer[data-layout="compact"] .composer__voice--conversation {
-  background: #4f8df7;
-  color: #fff;
+  /* ChatGPT'nin sesli sohbet düğmesi: açıkta siyah, koyuda beyaz daire. */
+  background: var(--control-primary);
+  color: var(--surface-canvas);
   height: 36px;
   width: 36px;
 }
@@ -272,3 +274,12 @@
   object-fit: cover;
   display: block;
 }
+
+.composer__disclaimer {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  margin: 8px 0 0;
+  text-align: center;
+}
+/* Boş sohbette composer ortadadır; uyarı altına değil sayfa akışına aittir. */
+[data-empty-chat="true"] .composer__disclaimer { display: none; }

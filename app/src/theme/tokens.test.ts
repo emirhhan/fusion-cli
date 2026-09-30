@@ -10,9 +10,9 @@ describe("tasarım token'ları", () => {
 
   it("ölçülmüş renkleri taşır", () => {
     expect(css).toContain("--surface-canvas: #ffffff");
-    expect(css).toContain("--surface-sidebar: #f9f9fa");
-    expect(css).toContain("--surface-selected: #efeff0");
-    expect(css).toContain("--surface-message-user: #f5f5f5");
+    expect(css).toContain("--surface-sidebar: #f9f9f9");
+    expect(css).toContain("--surface-selected: #ececec");
+    expect(css).toContain("--surface-message-user: #f4f4f4");
     // Vurgu tonu BİLEREK referanstan ayrıldı: mor, markanın rengi değil.
     // Yeşil vurgunun açık temadaki sakin karşılığı bu.
     expect(css).toContain("--surface-accent-subtle: #eef7dc");
@@ -36,9 +36,9 @@ describe("tasarım token'ları", () => {
 
   it("koyu temayı marka yüzeylerine bağlar", () => {
     const koyuTema = css.slice(css.indexOf(':root[data-theme="dark"]'));
-    expect(koyuTema).toContain("--surface-canvas: #050505");
-    expect(koyuTema).toContain("--surface-sidebar: #111111");
-    expect(koyuTema).toContain("--text-primary: #f3f5f6");
+    expect(koyuTema).toContain("--surface-canvas: #212121");
+    expect(koyuTema).toContain("--surface-sidebar: #181818");
+    expect(koyuTema).toContain("--text-primary: #ececec");
     expect(koyuTema).toContain("--focus-ring: var(--brand-signal)");
   });
 

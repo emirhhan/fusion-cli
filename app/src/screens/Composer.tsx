@@ -431,6 +431,8 @@ export function Composer({
           )}
         </div>
       </div>
+      {/* ChatGPT'deki gibi uyarı composer'ın altında durur; konuşmayı bölmez. */}
+      <p className="composer__disclaimer">Fusion hata yapabilir. Önemli değişiklikleri ve test kanıtlarını kontrol et.</p>
     </div>
   );
 }

@@ -15,14 +15,14 @@
   --brand-signal-deep: #446b00;
 
   --surface-canvas: #ffffff;
-  --surface-sidebar: #f9f9fa;
-  --surface-selected: #efeff0;
-  --surface-message-user: #f5f5f5;
+  --surface-sidebar: #f9f9f9;
+  --surface-selected: #ececec;
+  --surface-message-user: #f4f4f4;
   /* Referanstaki mor vurgu, markanın yeşiline çevrildi: vurgu artık
      ürün kimliğinin parçası, referansın rastgele bir değeri değil. */
   --surface-accent-subtle: #eef7dc;
   --surface-raised: #ffffff;
-  --surface-hover: #f2f2f3;
+  --surface-hover: #efefef;
   --surface-overlay: rgb(0 0 0 / 32%);
   --settings-dialog-bg: #ffffff;
   --settings-nav-bg: #f9f9fa;
@@ -36,7 +36,7 @@
   /* Saf siyah yerine Obsidian: marka mürekkebi. Fark göz için küçük,
      kimlik için belirleyici. */
   --text-primary: #0b0a0d;
-  --text-secondary: #7c7c7d;
+  --text-secondary: #5d5d5d;
   --text-inverse: #ffffff;
   --text-danger: #b42318;
   --text-success: #087a55;
@@ -80,7 +80,8 @@
   --kenar-cubugu-genislik: 260px;
   --inspector-width: 420px;
   --sidebar-rail-width: 68px;
-  --icerik-en-fazla: 640px;
+  /* ChatGPT okuma kolonu: 48rem. */
+  --icerik-en-fazla: 768px;
   --header-height: 56px;
 
   --space-1: 4px;
@@ -184,30 +185,30 @@
      yüzey (kenar çubuğu), Soft White mürekkep, Signal Green vurgu.
      Ölçülen kontrastlar: Soft White/Carbon 16.30:1, ikincil metin 7.05:1,
      Signal Green/Obsidian 16.02:1 — üçü de WCAG AA'nın epey üstünde. */
-  --surface-canvas: #050505;
-  --surface-sidebar: #111111;
+  --surface-canvas: #212121;
+  --surface-sidebar: #181818;
   --surface-selected: #2f2f2f;
   --surface-message-user: #303030;
   --surface-accent-subtle: #1e2a12;
-  --surface-raised: #2f2f2f;
-  --surface-menu: #333333;
+  --surface-raised: #303030;
+  --surface-menu: #353535;
   --surface-hover: #2a2a2a;
   --surface-overlay: rgb(0 0 0 / 64%);
-  --settings-dialog-bg: #181818;
-  --settings-nav-bg: #382724;
-  --settings-border: #34302e;
-  --settings-text: #f5f5f5;
-  --settings-muted: #a39a97;
-  --settings-input-bg: #47332f;
-  --settings-selected: #4b3935;
+  --settings-dialog-bg: #212121;
+  --settings-nav-bg: #181818;
+  --settings-border: #303030;
+  --settings-text: #ececec;
+  --settings-muted: #afafaf;
+  --settings-input-bg: #303030;
+  --settings-selected: #2f2f2f;
   --settings-ring: #a8c6ff;
-  --text-primary: #f3f5f6;
-  --text-secondary: #b4b4b4;
+  --text-primary: #ececec;
+  --text-secondary: #afafaf;
   --text-inverse: #0b0a0d;
   --text-danger: #ff9b95;
   --text-success: #69d3ac;
   --text-warning: #f4c66e;
-  --border-subtle: #3a3a3a;
+  --border-subtle: #353535;
   --border-strong: #565656;
   --control-primary: #f3f5f6;
   /* Koyu zeminde markanın kendi yeşili doğrudan kullanılabilir. */
