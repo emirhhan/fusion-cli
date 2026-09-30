@@ -48,8 +48,29 @@ describe("ImageCreate — düğümlü akış", () => {
     fireEvent.click(screen.getByRole("button", { name: "Düzenleyerek devam et" }));
     const metinler = screen.getAllByLabelText("Metin istemi") as HTMLTextAreaElement[];
     expect(metinler).toHaveLength(2);
-    expect(metinler[0].value).toBe("kask");
+    // Basit istem iş akışına taşınmaz; düzenleme için ayrı, boş bir talimat açılır.
+    expect(metinler[0].value).toBe("");
     expect(metinler[1].value).toBe("");
+    fireEvent.change(metinler[1], { target: { value: "arka planı mavi yap" } });
+    fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
+    await waitFor(() => expect(client.request.mock.calls.some(([name, data]) =>
+      name === "gorsel.olustur" && data.islem === "duzenle" && data.referans === "/veri/galeri/a.jpg",
+    )).toBe(true));
+  });
+
+  it("basit mod, yarım bırakılmış iş akışından bağımsız görsel üretir", async () => {
+    const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
+    render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
+    await screen.findByRole("option", { name: "Gemini" });
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ Varyasyon" }));
+    fireEvent.click(screen.getByRole("button", { name: "Basit oluştur" }));
+    fireEvent.change(screen.getByLabelText("Nasıl bir görsel istiyorsun?"), { target: { value: "kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+
+    await screen.findByRole("img", { name: "kask" });
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
+    expect(screen.getByRole("button", { name: "Varyasyon düğümünü sil" })).toBeTruthy();
   });
 
   it("başlangıç akışını çalıştırır; sonuç galeride kalır ve diske inmez", async () => {

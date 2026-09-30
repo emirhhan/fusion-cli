@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
-import { akisSorunlari, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
+import { akisSorunlari, atalar, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
 import { akisiCalistir, type UretilenGorsel } from "./akisCalistir";
 import { AkisTuvali, type SaglayiciSecenegi } from "./AkisTuvali";
 import "./ImageCreate.css";
@@ -38,12 +38,14 @@ function secenekleriOku(sonuc: Record<string, unknown>): SaglayiciSecenegi[] {
 export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveImageAs }: ImageCreateProps) {
   const [secenekler, setSecenekler] = useState<SaglayiciSecenegi[]>([]);
   const [akis, setAkis] = useState<Akis>(() => baslangicAkisi());
+  const [basitAkis, setBasitAkis] = useState<Akis>(() => baslangicAkisi());
   const [galeri, setGaleri] = useState<UretilenGorsel[]>([]);
   const [kayitlilar, setKayitlilar] = useState<KayitliAkis[]>([]);
   const [calisiyor, setCalisiyor] = useState(false);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [secimIcin, setSecimIcin] = useState<string | null>(null);
   const [mod, setMod] = useState<"basit" | "akis">("basit");
+  const [hedef, setHedef] = useState<string | null>(null);
 
   const istek = useCallback(async (name: string, data: Record<string, unknown>) => {
     if (!client) throw new Error("Çekirdek bağlı değil.");
@@ -59,6 +61,10 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
       setSecenekler(liste);
       const varsayilan = liste[0]?.deger ?? "";
       setAkis((mevcut) => ({
+        ...mevcut,
+        dugumler: mevcut.dugumler.map((dugum) => (dugum.tur === "uret" && !dugum.saglayici ? { ...dugum, saglayici: varsayilan } : dugum)),
+      }));
+      setBasitAkis((mevcut) => ({
         ...mevcut,
         dugumler: mevcut.dugumler.map((dugum) => (dugum.tur === "uret" && !dugum.saglayici ? { ...dugum, saglayici: varsayilan } : dugum)),
       }));
@@ -86,18 +92,28 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
     });
   };
 
-  const calistir = async () => {
-    const sorunlar = akisSorunlari(akis);
+  const calistir = async (dalHedefi: string | null = null) => {
+    const calisacakAkis = mod === "basit" ? basitAkis : akis;
+    const guncelle = mod === "basit" ? setBasitAkis : setAkis;
+    const kapsam = dalHedefi ? new Set([...atalar(calisacakAkis, dalHedefi), dalHedefi]) : null;
+    const dogrulanacak = kapsam ? {
+      ...calisacakAkis,
+      dugumler: calisacakAkis.dugumler.filter((dugum) => kapsam.has(dugum.id)),
+      baglantilar: calisacakAkis.baglantilar.filter((baglanti) => kapsam.has(baglanti.kaynak) && kapsam.has(baglanti.hedef)),
+    } : calisacakAkis;
+    const sorunlar = akisSorunlari(dogrulanacak);
     if (sorunlar.length) { setBilgi(sorunlar[0]); return; }
     setCalisiyor(true);
     setBilgi(null);
     try {
-      const son = await akisiCalistir(akis, istek, (guncel, yeni) => {
-        setAkis(guncel);
+      const son = await akisiCalistir(calisacakAkis, istek, (guncel, yeni) => {
+        guncelle(guncel);
         if (yeni.length) setGaleri((onceki) => [...yeni, ...onceki]);
-      }, mod === "basit" ? { hedef: "uret-1" } : {});
-      const hata = son.dugumler.find((dugum) => dugum.durum === "hata");
-      setBilgi(hata ? `${DUGUM_ETIKETI[hata.tur]}: ${hata.hata}` : "Akış tamamlandı; sonuçlar galeride.");
+      }, mod === "basit" ? { hedef: "uret-1" } : dalHedefi ? { hedef: dalHedefi } : {});
+      const hata = son.dugumler.find((dugum) => dugum.durum === "hata" && (!kapsam || kapsam.has(dugum.id)));
+      setBilgi(hata ? `${DUGUM_ETIKETI[hata.tur]}: ${hata.hata}` : dalHedefi
+        ? "Seçili dal tamamlandı; sonuçlar galeride."
+        : "Akış tamamlandı; sonuçlar galeride.");
     } finally {
       setCalisiyor(false);
     }
@@ -119,8 +135,10 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
   const yukle = async (id: string) => {
     if (!id) return;
     const sonuc = await istek("gorsel.akis.yukle", { id }).catch(() => ({ ok: false }) as Record<string, unknown>);
-    if (sonuc.ok === true && sonuc.akis && typeof sonuc.akis === "object") setAkis(sonuc.akis as Akis);
-    else setBilgi("Akış açılamadı.");
+    if (sonuc.ok === true && sonuc.akis && typeof sonuc.akis === "object") {
+      setAkis(sonuc.akis as Akis);
+      setHedef(null);
+    } else setBilgi("Akış açılamadı.");
   };
 
   const indir = async (yol: string) => {
@@ -152,6 +170,7 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
       dugumler: [...devam.akis.dugumler, { id: metinId, tur: "metin", istem: "", x: 40, y: 300 }],
       baglantilar: [...devam.akis.baglantilar, { kaynak: metinId, hedef: devam.id }],
     } : devam.akis);
+    setHedef(devam.id);
     setMod("akis");
     setBilgi(`${DUGUM_ETIKETI[tur]} düğümü eklendi. Talimatı ve sağlayıcıyı kontrol edip akışı çalıştır.`);
   };
@@ -165,9 +184,9 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
       {mod === "basit" && (
         <div className="image-create__simple">
           <label htmlFor="image-simple-prompt">Nasıl bir görsel istiyorsun?</label>
-          <textarea id="image-simple-prompt" onChange={(event) => setAkis(dugumGuncelle(akis, "metin-1", { istem: event.target.value }))} value={akis.dugumler.find((dugum) => dugum.id === "metin-1")?.istem ?? ""} />
+          <textarea id="image-simple-prompt" onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: event.target.value }))} value={basitAkis.dugumler.find((dugum) => dugum.id === "metin-1")?.istem ?? ""} />
           <label htmlFor="image-simple-provider">Görsel modeli</label>
-          <select id="image-simple-provider" onChange={(event) => setAkis(dugumGuncelle(akis, "uret-1", { saglayici: event.target.value }))} value={akis.dugumler.find((dugum) => dugum.id === "uret-1")?.saglayici ?? ""}>
+          <select id="image-simple-provider" onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "uret-1", { saglayici: event.target.value }))} value={basitAkis.dugumler.find((dugum) => dugum.id === "uret-1")?.saglayici ?? ""}>
             <option value="">Sağlayıcı seç</option>
             {secenekler.map((item) => <option key={item.deger} value={item.deger}>{item.etiket}</option>)}
           </select>
@@ -186,11 +205,12 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           <option value="">Kayıtlı akışlar</option>
           {kayitlilar.map((item) => <option key={item.id} value={item.id}>{item.ad}</option>)}
         </select>
-        <button disabled={calisiyor} onClick={() => setAkis(baslangicAkisi(secenekler[0]?.deger))} type="button">Yeni</button>
+        <button disabled={calisiyor} onClick={() => { setAkis(baslangicAkisi(secenekler[0]?.deger)); setHedef(null); }} type="button">Yeni</button>
         <button disabled={calisiyor || !client} onClick={() => void kaydet()} type="button">Kaydet</button>
-        <button className="image-create__run" disabled={calisiyor || !client} onClick={() => void calistir()} type="button">
+        <button className="image-create__run" disabled={calisiyor || !client} onClick={() => void calistir(hedef)} type="button">
           {calisiyor ? "Çalışıyor…" : "Çalıştır"}
         </button>
+        {hedef && <button disabled={calisiyor || !client} onClick={() => void calistir()} type="button">Tüm akışı çalıştır</button>}
       </div>
       </>}
       {!secenekler.length && client && (
