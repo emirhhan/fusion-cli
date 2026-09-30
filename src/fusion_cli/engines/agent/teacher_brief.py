@@ -27,6 +27,29 @@ BRIEF_CHAR_BUDGET = 25_000
 
 _KIRPMA_NOTU = "\n\n[…brief 25.000 karakter sınırına sığdırılırken kırpıldı…]"
 
+#: Tek dosyadan alınan kesitin üst sınırı. 25.000'lik bütçede durum, denenenler
+#: ve soruya yer bırakıp üç dört dosyanın kilit bölümünü taşıyacak büyüklük;
+#: tek büyük dosyanın bütçenin tamamını yemesini önler.
+EXCERPT_CHAR_BUDGET = 6_000
+
+#: Öğretmenin rolü ve cevap biçimi. Ölçüldü (30 Eylül): paket yalnız "## Durum /
+#: ## Soru" taşıyordu; web öğretmeni kimin sorduğunu, dosyaları göremediğini ve
+#: çırağın ne tür bir cevaba ihtiyaç duyduğunu bilmeden genel, uzun ve uygulanamaz
+#: tavsiyeler veriyordu.
+TEACHER_FRAME = (
+    "## Rolün\n"
+    "Sen kıdemli bir yazılım mühendisisin. Bir kodlama ajanı (çırak) kullanıcının "
+    "projesinde çalışıyor ve takıldığı yerde sana danışıyor. Dosyalara erişimin "
+    "yok; yalnız aşağıdaki durumu ve kod kesitlerini görüyorsun.\n\n"
+    "## Cevap biçimi\n"
+    "1. En olası kök neden ya da doğru yaklaşım (bir iki cümle).\n"
+    "2. Uygulanacak somut adımlar: dosya ve fonksiyon adıyla, sırayla.\n"
+    "3. Gerekiyorsa yalnız değişen kısmı gösteren kısa kod parçası.\n"
+    "4. Değişikliği doğrulayacak komut ya da kontrol.\n"
+    "Kesitte görmediğin API'yi ya da dosyayı var sayma; emin olmadığın yeri "
+    "açıkça söyle. Kısa ve doğrudan yaz, kullanıcının dilinde."
+)
+
 
 @dataclass(frozen=True, slots=True)
 class TeacherBrief:
@@ -42,6 +65,7 @@ def compile_brief(
     denenenler: str,
     question: str,
     touched_paths: Iterable[str] = (),
+    code_excerpts: Iterable[tuple[str, str]] = (),
     char_budget: int = BRIEF_CHAR_BUDGET,
 ) -> TeacherBrief:
     """Durum + ilgili kod + denenenler + soruyu tek bir brief'te birleştir.
@@ -50,13 +74,17 @@ def compile_brief(
     denenenler kısalır, soru asla kaybolmaz (öğretmenin cevaplayacağı şey budur).
     """
     ilgili_kod = "\n".join(f"- {yol}" for yol in dict.fromkeys(touched_paths))
+    kesitler = "\n\n".join(
+        f"### {yol}\n```\n{_kesit(icerik)}\n```" for yol, icerik in code_excerpts if icerik.strip()
+    )
     bolumler = [
         ("## Durum", durum.strip()),
         ("## İlgili kod", ilgili_kod),
+        ("## Kod kesitleri", kesitler),
         ("## Denenenler", denenenler.strip()),
         ("## Soru", question.strip()),
     ]
-    parcalar = [f"{baslik}\n{govde}" for baslik, govde in bolumler if govde]
+    parcalar = [TEACHER_FRAME] + [f"{baslik}\n{govde}" for baslik, govde in bolumler if govde]
     brief = "\n\n".join(parcalar)
     if len(brief) <= char_budget:
         return TeacherBrief(text=brief, truncated=False)
@@ -77,3 +105,11 @@ def _kirp(brief: str, question: str, char_budget: int) -> str:
         return (soru_bolumu[: char_budget - len(_KIRPMA_NOTU)]) + _KIRPMA_NOTU
     govde = brief[: brief.rfind(soru_bolumu)] if soru_bolumu in brief else brief
     return govde[:kalan_pay] + _KIRPMA_NOTU + ayrac + soru_bolumu
+
+
+def _kesit(icerik: str) -> str:
+    """Tek dosyanın kesiti: sınırı aşarsa başı ve sonu korunur (imza ve son eklenen kod)."""
+    if len(icerik) <= EXCERPT_CHAR_BUDGET:
+        return icerik.rstrip()
+    yarim = EXCERPT_CHAR_BUDGET // 2
+    return f"{icerik[:yarim].rstrip()}\n[…dosyanın ortası kısaltıldı…]\n{icerik[-yarim:].lstrip()}"

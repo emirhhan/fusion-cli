@@ -61,3 +61,12 @@ def test_json_sink_sirri_yazmaz():
     yazilan = tampon.getvalue()
     assert "sk-GIZLIANAHTAR1234567" not in yazilan
     assert REDACTED_MARK in yazilan
+
+
+def test_openrouter_ve_nim_anahtar_bicimleri_maskelenir():
+    from fusion_cli.core.redaction import redact
+
+    metin = "or=sk-or-v1-0123456789abcdef0123 nim=nvapi-AbCdEf0123456789_xyz"
+    temiz = redact(metin)
+    assert "sk-or-v1-0123" not in temiz
+    assert "nvapi-AbCdEf" not in temiz

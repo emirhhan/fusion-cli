@@ -78,3 +78,38 @@ def test_char_budget_parametresi_ozellestirilebilir():
 
     assert len(brief.text) <= 200
     assert brief.truncated is True
+
+
+def test_ogretmen_rolu_ve_cevap_bicimi_paketin_basinda_durur():
+    brief = compile_brief(durum="d", denenenler="", question="neden?")
+    assert brief.text.startswith("## Rolün\n")
+    assert "## Cevap biçimi" in brief.text
+    assert brief.text.rstrip().endswith("neden?")
+
+
+def test_kod_kesitleri_eklenir_ve_uzun_dosya_ortadan_kisaltilir():
+    from fusion_cli.engines.agent.teacher_brief import EXCERPT_CHAR_BUDGET
+
+    uzun = "BAS\n" + "x" * (EXCERPT_CHAR_BUDGET * 2) + "\nSON"
+    brief = compile_brief(
+        durum="d", denenenler="", question="q", code_excerpts=[("src/a.py", uzun)]
+    )
+    assert "### src/a.py" in brief.text
+    assert "BAS" in brief.text and "SON" in brief.text
+    assert "[…dosyanın ortası kısaltıldı…]" in brief.text
+
+
+def test_ogretmen_kesitleri_env_dosyasini_okumaz_ve_anahtari_maskeler(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+    from fusion_cli.engines.agent.engine_tools import _teacher_excerpts
+
+    env = tmp_path / ".env"
+    env.write_text("OPENROUTER_API_KEY=sk-or-v1-gercekgibi0123456789abcdef\n", encoding="utf-8")
+    kod = tmp_path / "app.py"
+    kod.write_text('KEY = "sk-or-v1-gercekgibi0123456789abcdef"\nprint(KEY)\n', encoding="utf-8")
+    context = ToolContext(root=tmp_path)
+    context.touched.update({env, kod})
+
+    kesitler = dict(_teacher_excerpts(context))
+    assert list(kesitler) == ["app.py"]
+    assert "sk-or-v1-gercekgibi" not in kesitler["app.py"]

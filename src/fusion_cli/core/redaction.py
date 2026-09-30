@@ -33,7 +33,9 @@ _SENSITIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Common JSON auth/config fields. Keep the key, replace only the value so
     # diagnostics remain useful without exposing bearer/access/refresh tokens.
     # OpenAI/benzeri anahtarlar: sk-... , anahtar önekleri
-    re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
+    # OpenAI `sk-…` ve OpenRouter `sk-or-v1-…` (tire içerir); NVIDIA NIM `nvapi-…`.
+    re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
+    re.compile(r"\bnvapi-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\b(gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{10,}\b"),
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS erişim anahtarı
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),  # Google API anahtarı

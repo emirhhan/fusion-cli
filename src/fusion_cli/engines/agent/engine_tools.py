@@ -360,6 +360,7 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             denenenler=denenenler,
             question=question,
             touched_paths=touched_paths,
+            code_excerpts=_teacher_excerpts(context),
         )
         deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
 
@@ -860,3 +861,31 @@ def _history_page_output(page: _HistoryPage) -> str:
         )
     body = page.body[: READ_SESSION_CHAR_BUDGET - len(metadata)]
     return body + metadata
+
+
+#: Öğretmene kesit olarak gönderilen en fazla dosya sayısı; düzenlenenler önce gelir.
+_TEACHER_EXCERPT_FILES = 4
+
+
+def _teacher_excerpts(context: ToolContext) -> list[tuple[str, str]]:
+    """Öğretmene gidecek kod kesitleri: önce düzenlenen, sonra tam okunan dosyalar.
+
+    Web öğretmeni dosyalara erişemez; yalnız yol listesi göndermek onu kodu
+    görmeden tahmin yürütmeye zorluyordu. Gizli bilgi taşıyabilecek dosyalar
+    (`.env*`) hiç okunmaz, diğerlerindeki anahtar biçimli değerler maskelenir.
+    """
+    from ...core.redaction import redact
+
+    sirali = [*sorted(context.touched), *sorted(context.fully_read - context.touched)]
+    kesitler: list[tuple[str, str]] = []
+    for yol in sirali:
+        if len(kesitler) >= _TEACHER_EXCERPT_FILES:
+            break
+        if yol.name.startswith(".env") or not yol.is_file():
+            continue
+        try:
+            icerik = yol.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        kesitler.append((display_path(context, yol), redact(icerik)))
+    return kesitler
