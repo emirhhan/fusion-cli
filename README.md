@@ -91,6 +91,25 @@ make check
 Kullanıcı kurulumundan farkı: repo içinde `.venv`, **editable** kurulum ve proje
 bazlı `.env`. Koddaki değişikliği anında görürsün.
 
+### GitHub üzerinden bulut geliştirme (Claude Code)
+
+Depoyu bulut çalışma alanında açıp Python 3.11+ ile şu komutları çalıştır:
+
+```bash
+python -m pip install -e '.[dev]'
+make check
+```
+
+Bu yol etkileşimli kurulum sihirbazını çalıştırmaz ve testler için API anahtarı
+gerektirmez. Claude Code proje talimatlarını kökteki `CLAUDE.md` dosyasından okur;
+geliştirmeye başlamadan `RULES.md` dosyasını da incelemelidir. Masaüstü arayüzünde
+çalışacaksan Node.js/npm kurulu ortamda `cd app && npm ci && npm run check` kullan.
+Masaüstü uygulamasını paketlemek ayrıca Rust ve platforma özgü araçlar gerektirir.
+
+Gerçek sağlayıcılarla deneme yapmak istersen anahtarları yalnızca bulut ortamının
+gizli değişkenlerine ekle. `.env` dosyasını, oturum kayıtlarını ve anahtar içeren
+çıktıları Git'e ekleme; `.env.example` yalnızca boş alanları gösterir.
+
 ### API anahtarları
 
 | Sağlayıcı | Durum | Nereden |
