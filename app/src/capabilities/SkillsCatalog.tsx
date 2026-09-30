@@ -36,18 +36,29 @@ function decode(payload: Record<string, unknown>): CatalogItem[] {
   return groups.flatMap(([key, kind]) => Array.isArray(payload[key]) ? payload[key].map((raw) => itemFrom(raw, kind)) : []);
 }
 
+/** "claude+codex" → "Claude · Codex". Köşeli parantezli ham kaynak adı teknik duruyordu. */
 function sourceLabels(source: string): string {
-  return source.split("+").map((value) => `[${value}]`).join(" ");
+  return source.split("+").map((value) => value.charAt(0).toLocaleUpperCase("tr-TR") + value.slice(1)).join(" · ");
 }
 
 const kindLabels: Record<CapabilityKind, string> = {
   beceri: "Beceri", ajan: "Ajan", talimat: "Proje talimatı", mcp: "MCP",
 };
 
+/** Sekme sırası: ChatGPT'deki gibi tür başına filtre. */
+const KIND_TABS: [CapabilityKind | "tümü", string][] = [
+  ["tümü", "Tümü"], ["beceri", "Beceriler"], ["ajan", "Ajanlar"], ["talimat", "Talimatlar"], ["mcp", "MCP"],
+];
+
+/** Kart simgesi: adın ilk harfi, türe göre tonlanmış kare. */
+function SkillAvatar({ item }: { item: CatalogItem }) {
+  return <span aria-hidden="true" className="skills-catalog__avatar" data-kind={item.tur}>{item.ad.charAt(0).toLocaleUpperCase("tr-TR")}</span>;
+}
+
 export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onClose: () => void }) {
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState("tümü");
+  const [kind, setKind] = useState<CapabilityKind | "tümü">("tümü");
   const [selected, setSelected] = useState<CatalogItem | null>(null);
   const [detail, setDetail] = useState("");
   const [notice, setNotice] = useState("");
@@ -61,14 +72,17 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     return () => { active = false; };
   }, [client]);
 
-  const sources = useMemo(() => Array.from(new Set(items.flatMap((item) => item.kaynak.split("+")))), [items]);
   const filtered = useMemo(() => {
     const term = query.trim().toLocaleLowerCase("tr");
     return items.filter((item) =>
-      (source === "tümü" || item.kaynak.split("+").includes(source)) &&
+      (kind === "tümü" || item.tur === kind) &&
       (!term || `${item.ad} ${item.aciklama} ${item.kaynak}`.toLocaleLowerCase("tr").includes(term)),
     );
-  }, [items, query, source]);
+  }, [items, query, kind]);
+  // Etkin olanlar üstte: kullanıcı varsayılan açık becerileri ilk bakışta görür
+  // (OmniRoute/Hermes'teki "aktif beceriler" listesi gibi).
+  const etkinler = filtered.filter((item) => item.etkin && item.tur !== "talimat");
+  const digerleri = filtered.filter((item) => !(item.etkin && item.tur !== "talimat"));
 
   const open = (item: CatalogItem) => {
     setSelected(item);
@@ -96,34 +110,43 @@ export function SkillsCatalog({ client, onClose }: { client: ProtocolClient; onC
     }).catch((reason) => setError(String(reason)));
   };
 
+  const kart = (item: CatalogItem) => (
+    <article className="skills-catalog__card" data-enabled={item.etkin} key={`${item.tur}:${item.ad}`} data-selected={selected?.tur === item.tur && selected.ad === item.ad}>
+      <button aria-label={`${item.ad} ayrıntılarını aç`} className="skills-catalog__row" onClick={() => open(item)} type="button">
+        <SkillAvatar item={item} />
+        <span className="skills-catalog__summary">
+          <strong>{item.ad}</strong>
+          <span>{item.aciklama || "Açıklama sağlanmamış."}</span>
+          <small>{kindLabels[item.tur]} · {sourceLabels(item.kaynak)}</small>
+        </span>
+      </button>
+      {item.tur !== "talimat" && <button aria-checked={item.etkin} aria-label={`${item.ad} oturum etkinliği`} className="skills-catalog__switch" onClick={() => toggle(item)} role="switch" type="button"><span /></button>}
+    </article>
+  );
+
   return (
     <main className="skills-catalog">
       <header className="skills-catalog__header">
-        <div><span>Çalışma alanı</span><h2>Katalog</h2><p>Fusion, Claude, Codex, Hermes, proje talimatları ve bağlı MCP araçları.</p></div>
+        <div><h2>Beceriler</h2><p>Fusion'ın bu çalışma alanında kullandığı beceriler, ajanlar, proje talimatları ve MCP araçları. Claude, Codex ve Hermes'ten gelenler de burada.</p></div>
         <button aria-label="Kataloğu kapat" onClick={onClose} type="button">Kapat</button>
       </header>
       <div className="skills-catalog__toolbar">
-        <input aria-label="Beceri ve ajan ara" onChange={(event) => setQuery(event.target.value)} placeholder="Ara" type="search" value={query} />
-        <div aria-label="Kaynağa göre filtrele" role="group">
-          {["tümü", ...sources].map((value) => <button aria-pressed={source === value} key={value} onClick={() => setSource(value)} type="button">{value === "tümü" ? "Tümü" : `[${value}]`}</button>)}
+        <input aria-label="Beceri ve ajan ara" onChange={(event) => setQuery(event.target.value)} placeholder="Beceri ara" type="search" value={query} />
+        <div aria-label="Türe göre filtrele" className="skills-catalog__tabs" role="tablist">
+          {KIND_TABS.map(([value, label]) => <button aria-selected={kind === value} key={value} onClick={() => setKind(value)} role="tab" type="button">{label}</button>)}
         </div>
       </div>
       {error && <p className="skills-catalog__error" role="alert">{error}</p>}
       <div className="skills-catalog__layout">
         <section aria-label="Yetenek kataloğu" className="skills-catalog__list">
-          {filtered.length === 0 ? <p className="skills-catalog__empty">Eşleşen öğe yok.</p> : filtered.map((item) => (
-            <article data-enabled={item.etkin} key={`${item.tur}:${item.ad}`}>
-              <button aria-label={`${item.ad} ayrıntılarını aç`} className="skills-catalog__row" onClick={() => open(item)} type="button">
-                <span className="skills-catalog__kind">{kindLabels[item.tur]}</span>
-                <span className="skills-catalog__summary"><strong>{item.ad}</strong><small>{sourceLabels(item.kaynak)}</small><span>{item.aciklama || "Açıklama sağlanmamış."}</span></span>
-                <span className="skills-catalog__permissions">{item.izinler.map((permission) => <small key={permission}>{permission}</small>)}</span>
-              </button>
-              {item.tur !== "talimat" && <button aria-checked={item.etkin} aria-label={`${item.ad} oturum etkinliği`} className="skills-catalog__switch" onClick={() => toggle(item)} role="switch" type="button"><span /></button>}
-            </article>
-          ))}
+          {filtered.length === 0 && <p className="skills-catalog__empty">Eşleşen öğe yok.</p>}
+          {etkinler.length > 0 && <h3 className="skills-catalog__group">Etkin · {etkinler.length}</h3>}
+          {etkinler.length > 0 && <div className="skills-catalog__grid">{etkinler.map(kart)}</div>}
+          {digerleri.length > 0 && <h3 className="skills-catalog__group">{etkinler.length > 0 ? "Diğerleri" : "Tümü"}</h3>}
+          {digerleri.length > 0 && <div className="skills-catalog__grid">{digerleri.map(kart)}</div>}
         </section>
         <aside aria-label="Yetenek ayrıntısı" className="skills-catalog__detail">
-          {selected ? <><div><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}</span><h2>{selected.ad}</h2></div><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => useNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Kaynağını, izin kapsamını ve talimatını görmek için bir öğe seç.</p>}
+          {selected ? <><div className="skills-catalog__detail-head"><SkillAvatar item={selected} /><div><h2>{selected.ad}</h2><span>{kindLabels[selected.tur]} · {sourceLabels(selected.kaynak)}{selected.izinler.length > 0 ? ` · ${selected.izinler.join(", ")}` : ""}</span></div></div><pre>{detail || "Yükleniyor…"}</pre>{selected.tur !== "talimat" && <button disabled={!selected.etkin} onClick={() => useNext(selected)} type="button">Bu {selected.tur === "beceri" ? "beceriyi" : selected.tur === "ajan" ? "ajanı" : "MCP'yi"} sonraki turda kullan</button>}{notice && <p aria-live="polite">{notice}</p>}</> : <p>Ne yaptığını, nereden geldiğini ve hangi izinleri kullandığını görmek için bir beceri seç.</p>}
         </aside>
       </div>
     </main>

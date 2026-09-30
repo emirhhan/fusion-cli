@@ -25,9 +25,13 @@ describe("SkillsCatalog", () => {
   it("kaynakları, izinleri ve birleşik Claude/Codex etiketini gösterir", async () => {
     render(<SkillsCatalog client={client()} onClose={() => undefined} />);
     expect(await screen.findByText("frontend-design")).toBeTruthy();
-    expect(screen.getByText("[claude] [codex]")).toBeTruthy();
-    expect(screen.getAllByText("dosya okuma").length).toBeGreaterThan(0);
+    expect(screen.getByText("Beceri · Claude · Codex")).toBeTruthy();
     expect(screen.getByText("github")).toBeTruthy();
+    // Etkin olanlar üstte kendi başlığı altında toplanır.
+    expect(screen.getByText("Etkin · 2")).toBeTruthy();
+    // İzinler ayrıntıda görünür.
+    fireEvent.click(screen.getByRole("button", { name: "frontend-design ayrıntılarını aç" }));
+    expect(screen.getByText(/dosya okuma/)).toBeTruthy();
   });
 
   it("arar, detay açar, oturumluk kapatır ve sonraki tur için seçer", async () => {
