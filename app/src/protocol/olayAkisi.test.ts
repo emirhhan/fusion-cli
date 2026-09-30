@@ -251,3 +251,20 @@ describe("Claude gibi kalıcı adımlar ve tur sayacı", () => {
     expect(mesajlar[mesajlar.length - 1].baslangicZamani).toBe(baslangic);
   });
 });
+
+describe("olayEkle — tur token sayacı", () => {
+  it("ön plan çağrılarının çıktı tokenı toplanır, arka plan sayılmaz", () => {
+    let akis = olayEkle([{ rol: "kullanici", metin: "yap" }], { olay: "ModelCallStarted", role: "agent", model: "m" });
+    akis = olayEkle(akis, { olay: "ModelCallFinished", role: "agent", result: { usage: { completion_tokens: 1200 } } });
+    akis = olayEkle(akis, { olay: "ModelCallFinished", role: "judge", background: true, result: { usage: { completion_tokens: 900 } } });
+    akis = olayEkle(akis, { olay: "ModelCallFinished", role: "agent", result: { usage: { completion_tokens: 834 } } });
+    const blok = akis.find((mesaj) => mesaj.rol === "olay");
+    expect(blok?.tokenSayisi).toBe(2034);
+  });
+
+  it("kullanım bildirmeyen sağlayıcıda sayı uydurulmaz", () => {
+    let akis = olayEkle([{ rol: "kullanici", metin: "yap" }], { olay: "ModelCallStarted", role: "agent", model: "web" });
+    akis = olayEkle(akis, { olay: "ModelCallFinished", role: "agent", result: { usage: { completion_tokens: 0 } } });
+    expect(akis.find((mesaj) => mesaj.rol === "olay")?.tokenSayisi).toBeUndefined();
+  });
+});

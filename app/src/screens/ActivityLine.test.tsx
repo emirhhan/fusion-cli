@@ -36,7 +36,7 @@ describe("ActivityLine — süre sayacı", () => {
 
   test("baslangicZamani verilmezse (eski/eksik durum) sayaç basılmaz ama çalışıyor satırı görünür", () => {
     render(<ActivityLine adimlar={[CALISAN_ADIM]} />);
-    expect(screen.getByText("düşünüyor")).toBeTruthy();
+    expect(screen.getByText("Düşünüyor…")).toBeTruthy();
     expect(screen.queryByText(/sn$/)).toBeNull();
   });
 });
@@ -48,12 +48,14 @@ describe("ActivityLine — kalıcı adım izi (Claude gibi)", () => {
       { metin: "'x' web'de aranıyor", arac: "web_search", basladi: true },
     ];
     const { container, rerender } = render(<ActivityLine adimlar={adimlar} baslangicZamani={Date.now()} />);
+    // Çalışırken biten adımlar Claude'daki gibi tek özet satırında toplanır.
+    expect(container.querySelector(".activity__summary summary")?.textContent).toBe("1 dosya okundu");
     expect(container.querySelector(".activity__trail")?.textContent).toContain("a.py okunuyor");
-    expect(container.querySelector(".activity__pulse")?.textContent).toBe("'x' web'de aranıyor");
+    expect(container.querySelector(".activity__pulse")?.textContent).toBe("'x' web'de aranıyor…");
 
     rerender(<ActivityLine aktif={false} adimlar={[adimlar[0], { ...adimlar[1], basladi: false, durum: "ok" }]} />);
     const ozet = container.querySelector(".activity__summary summary");
-    expect(ozet?.textContent).toBe("2 adım · 'x' web'de aranıyor");
+    expect(ozet?.textContent).toBe("1 dosya okundu, web'e bakıldı");
   });
 
   test("ayrıntısı olan adım tek satırdır ve tıklanınca diff/komut/çıktı görünür", () => {
@@ -82,8 +84,21 @@ describe("ActivityLine — kalıcı adım izi (Claude gibi)", () => {
     ];
     const { container } = render(<ActivityLine aktif={false} adimlar={adimlar} />);
     const ozet = container.querySelector(".activity__summary summary");
-    expect(ozet?.textContent).toBe("2 adım · hafızadan ilerleniyor");
+    expect(ozet?.textContent).toBe("Öğretmene danışıldı: plan alındı, hafızadan ilerleniyor");
     expect(container.querySelector(".activity__trail")?.textContent).toContain("öğretmene danışıldı");
     expect(container.querySelector(".activity__trail")?.textContent).not.toContain("düşünüyor");
+  });
+});
+
+describe("ActivityLine — Claude durum satırı", () => {
+  test("süre dakika/saniye, token bin olarak yazılır", () => {
+    vi.useFakeTimers();
+    try {
+      const baslangic = Date.now() - 554_000;
+      render(<ActivityLine adimlar={[CALISAN_ADIM]} baslangicZamani={baslangic} tokenSayisi={2034} />);
+      expect(screen.getByText("9 dk 14 sn · 2,0 bin token")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

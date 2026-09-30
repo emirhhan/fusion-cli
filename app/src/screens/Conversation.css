@@ -160,6 +160,8 @@
 }
 .conversation__text { font-size: 0.98rem; line-height: 1.65; }
 .conversation__message--assistant .conversation__article { padding: 0 8px; }
+/* Adım satırları anlatım metniyle aynı sol çizgiden başlar. */
+.conversation__message--event { padding: 0 8px; }
 
 /* Canlı durum yalnız ekran okuyucuya duyurulur; görsel durum ActivityLine'da
    zaten bir kez gösterilir. Bu kural eksik olduğunda sayfanın solunda ikinci
@@ -219,13 +221,16 @@
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .activity__trail-diff .diff-card__line { white-space: pre-wrap; }
-.conversation__message--narration { opacity: .92; }
-.activity__now { display: flex; align-items: baseline; gap: 8px; }
+.conversation__message--narration { opacity: .92; margin-bottom: var(--space-2); }
+.activity__now { display: flex; align-items: baseline; gap: 8px; font-size: var(--text-sm); }
+/* Claude'un dönen yıldızı; çalışıldığını metin değişmese de gösterir. */
+.activity__spark { display: inline-block; color: var(--accent, var(--text-primary)); line-height: 1; }
+.activity__summary[data-failed="true"] > summary { color: var(--text-danger); }
 .activity__summary,
 .activity > .activity__trail { flex: 1 1 100%; min-width: 0; }
 .activity__summary > summary { cursor: pointer; color: var(--text-secondary); font-size: var(--text-sm); list-style: none; }
 .activity__summary > summary::-webkit-details-marker { display: none; }
-.activity__summary > summary::after { content: " ›"; display: inline-block; transition: transform var(--duration-fast) var(--ease-standard); }
+.activity__summary > summary::after { content: "›"; display: inline-block; margin-left: 6px; transition: transform var(--duration-fast) var(--ease-standard); }
 .activity__summary[open] > summary::after { transform: rotate(90deg); }
 .activity__summary > summary:hover { color: var(--text-primary); }
 .activity__summary[open] .activity__trail { margin-top: 6px; }
@@ -234,6 +239,11 @@
    sabit durur ve bilgi kaybı olmaz. */
 @media (prefers-reduced-motion: no-preference) {
   .activity__pulse { animation: activity-pulse 1.4s ease-in-out infinite; }
+  .activity__spark { animation: activity-spark 2.4s linear infinite; }
+}
+
+@keyframes activity-spark {
+  to { transform: rotate(360deg); }
 }
 
 @keyframes activity-pulse {

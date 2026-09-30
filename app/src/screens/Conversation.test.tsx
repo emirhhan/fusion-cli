@@ -54,7 +54,7 @@ describe("Conversation", () => {
       />,
     );
     expect(screen.queryByText("Çalışma")).toBeNull();
-    expect(container.querySelector(".activity__pulse")?.textContent).toBe("dosya yazıyor");
+    expect(container.querySelector(".activity__pulse")?.textContent).toBe("Dosya yazıyor…");
     expect(container.querySelector('[data-state="running"]')).not.toBeNull();
     expect(container.querySelector("details")).toBeNull();
   });

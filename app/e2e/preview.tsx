@@ -27,6 +27,7 @@ import { Settings } from "../src/settings/Settings";
 import { VoiceMode, type VoiceState } from "../src/voice/VoiceMode";
 import { Onboarding, type OnboardingValue } from "../src/onboarding";
 import { AccountScreen } from "../src/account/AccountScreen";
+import { ImageCreate } from "../src/imagecreate/ImageCreate";
 import type { AccountController } from "../src/account/useAccount";
 
 const params = new URLSearchParams(location.search);
@@ -41,6 +42,38 @@ const messages = [
   { rol: "kullanici" as const, metin: "Fusion için profesyonel bir macOS uygulaması hazırla." },
   { rol: "olay" as const, metin: "7 arayüz testi ve üretim derlemesi tamamlandı" },
   { rol: "asistan" as const, metin: "Uygulama kabuğunu tamamladım. Sol navigasyon, konuşma alanı ve bağlamsal denetçi aynı tasarım sistemiyle çalışıyor.\n\nAçık ve koyu tema ile dar pencere davranışları da doğrulandı." },
+];
+
+/** Görsel oluştur önizlemesi: gerçek dosya yerine renk geçişli SVG'ler. */
+const GORSEL_RENKLERI = [["#ff9a8b", "#6a5acd"], ["#43cea2", "#185a9d"], ["#f7971e", "#ffd200"], ["#654ea3", "#eaafc8"], ["#1d2b64", "#f8cdda"], ["#00c9ff", "#92fe9d"]];
+function gorselAdresi(yol: string): string {
+  const sira = Number(yol.match(/(\d+)/)?.[1] ?? 0) % GORSEL_RENKLERI.length;
+  const [a, b] = GORSEL_RENKLERI[sira];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="768" height="768"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="768" height="768" fill="url(#g)"/><circle cx="520" cy="260" r="120" fill="white" opacity=".35"/></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+const imageClient = {
+  request: async (name: string) => {
+    if (name === "gorsel.saglayicilar") return { ok: true, secenekler: [{ deger: "nim/flux.1-dev", etiket: "FLUX.1 dev (NIM)", referans: false }, { deger: "gemini_web/main", etiket: "Gemini (web)", referans: true }] };
+    if (name === "gorsel.galeri") return { ok: true, dosyalar: [0, 1, 2, 3, 4, 5].map((sira) => ({ yol: `/galeri/gorsel-${sira}.png`, genislik: 1024, yukseklik: 1024, istem: ["Gün batımında sisli bir dağ köyü, sinematik", "Minimal ürün fotoğrafı, beyaz zemin", "Neon ışıklı yağmurlu sokak", "Suluboya çiçek deseni", "İzometrik küçük ofis", "Soyut dalga dokusu"][sira], saglayici: "FLUX.1 dev (NIM)" })) };
+    if (name === "gorsel.akislar") return { ok: true, akislar: [] };
+    return { ok: true };
+  },
+};
+
+/** Claude tarzı akış: anlatım, gruplanmış adımlar ve canlı durum satırı. */
+const runningMessages = [
+  { rol: "kullanici" as const, metin: "Testleri düzelt ve kalite kapısını çalıştır." },
+  { rol: "asistan" as const, metin: "Önce son commit'leri ve rapor dosyalarını okuyorum.", ara: true },
+  {
+    rol: "olay" as const, metin: "", tokenSayisi: 2034, baslangicZamani: Date.now() - 554_000,
+    adimlar: [
+      { metin: "git log çalıştırılıyor", arac: "run_shell", durum: "ok", komut: "git log --oneline -5", cikti: "9ec8b36 docs: …" },
+      { metin: "dosyalar aranıyor", arac: "glob", durum: "ok" },
+      { metin: "Makefile okunuyor", arac: "read_file", durum: "ok", ayrinti: "Makefile" },
+      { metin: "pytest çalıştırılıyor", arac: "run_shell", basladi: true },
+    ],
+  },
 ];
 
 const composerCommands = [
@@ -357,7 +390,7 @@ function Preview() {
     <>
       <Shell
         emptyChat={state === "empty"}
-        composer={capabilities || control || settings || account ? undefined : (
+        composer={capabilities || connectors || control || settings || account || state === "image" ? undefined : (
           <Composer
             workspaceMode={previewMode}
             onWorkspaceModeChange={setPreviewMode}
@@ -379,7 +412,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={messages} running={false} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" ? <ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : messages} running={state === "running"} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
         header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}

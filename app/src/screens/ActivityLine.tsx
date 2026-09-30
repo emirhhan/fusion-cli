@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { parseDiff } from "../markdown/DiffCard";
+import { adimOzeti, sureMetni, tokenMetni } from "../protocol/adimOzeti";
 import type { OlayAdimi, OlaySonucu } from "../protocol/olayMetni";
 
 /**
@@ -23,6 +24,11 @@ const SONUC_METNI: Record<Exclude<OlaySonucu, "completed">, string> = {
   failed: "Tamamlanamadı",
   partial: "Kısmen tamamlandı",
 };
+
+function ilkHarfBuyuk(metin: string): string {
+  const kirpik = metin.replace(/[….]+$/u, "");
+  return kirpik.charAt(0).toLocaleUpperCase("tr-TR") + kirpik.slice(1);
+}
 
 export function activityState(adimlar: OlayAdimi[]): ActivityState {
   return adimlar[adimlar.length - 1]?.sonuc ?? "running";
@@ -131,12 +137,12 @@ function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
   );
 }
 
-/** Biten işin özeti: "3 adım · src/app.py okunuyor ›" — tıklayınca açılır. */
+/** Biten işin özeti: "3 komut çalıştırıldı, 4 dosya okundu ›" — tıklayınca açılır. */
 function ToolSummary({ adimlar }: { adimlar: OlayAdimi[] }) {
-  const son = adimlar[adimlar.length - 1];
-  const baslik = adimlar.length === 1 ? son.metin : `${adimlar.length} adım · ${son.metin}`;
+  const baslik = adimOzeti(adimlar) || adimlar[adimlar.length - 1].metin;
+  const hata = adimlar.some((adim) => adim.durum === "failed");
   return (
-    <details className="activity__summary">
+    <details className="activity__summary" data-failed={hata ? "true" : undefined}>
       <summary>{baslik}</summary>
       <ToolTrail adimlar={adimlar} />
     </details>
@@ -151,9 +157,13 @@ export interface ActivityLineProps {
   baslangicZamani?: number;
   /** Ayarlardaki "adımları göster" tercihi. */
   showSteps?: boolean;
+  /** Turun şimdiye dek ürettiği çıktı token'ı (sağlayıcı bildirdiyse). */
+  tokenSayisi?: number;
 }
 
-export function ActivityLine({ adimlar, aktif = true, baslangicZamani, showSteps = false }: ActivityLineProps) {
+export function ActivityLine({
+  adimlar, aktif = true, baslangicZamani, showSteps = false, tokenSayisi,
+}: ActivityLineProps) {
   const durum = activityState(adimlar);
   const running = durum === "running" && aktif;
   const seconds = useElapsedSeconds(running, baslangicZamani);
@@ -167,12 +177,19 @@ export function ActivityLine({ adimlar, aktif = true, baslangicZamani, showSteps
     // Biten araç zaten izde durur; canlı satır onu tekrar etmez, modelin sıradaki
     // adımı düşündüğünü söyler.
     const canli = sonuncu && (sonuncu.basladi || !sonuncu.arac) ? sonuncu.metin : "Düşünüyor";
+    // Claude'un durum satırı: "9m 14s · 2.0k tokens · Running tools…". Ham
+    // saniye ("1313 sn") okunmuyordu; süre dakika/saat olarak yazılır.
+    const olculer = [
+      seconds > 0 ? sureMetni(seconds) : null,
+      tokenSayisi ? tokenMetni(tokenSayisi) : null,
+    ].filter(Boolean).join(" · ");
     return (
       <div className="activity" data-state="running">
-        {bitenler.length > 0 && <ToolTrail adimlar={bitenler} />}
+        {bitenler.length > 0 && <ToolSummary adimlar={bitenler} />}
         <div className="activity__now">
-          <span className="activity__pulse">{canli ?? "Çalışıyor"}</span>
-          {seconds > 0 && <span className="activity__elapsed">{seconds} sn</span>}
+          <span aria-hidden="true" className="activity__spark">✳</span>
+          <span className="activity__pulse">{ilkHarfBuyuk(canli ?? "Çalışıyor")}…</span>
+          {olculer && <span className="activity__elapsed">{olculer}</span>}
         </div>
       </div>
     );

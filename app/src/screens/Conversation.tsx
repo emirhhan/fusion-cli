@@ -40,6 +40,8 @@ export interface Mesaj {
    *  oturum durumunda tutulduğu için sekme değişip geri dönünce ya da
    *  bileşen yeniden bağlanınca sıfırlanmaz. */
   baslangicZamani?: number;
+  /** Turun şimdiye dek ürettiği çıktı token'ı; sağlayıcı bildirmediyse yok. */
+  tokenSayisi?: number;
   /** Kullanıcının o mesajla birlikte gönderdiği ekler. */
   ekler?: MesajEki[];
   /** Yalnız `rol === "degisiklik"` için: dosyaya uygulanan unified diff. */
@@ -95,8 +97,10 @@ export function hataMesajiMi(message: Mesaj): boolean {
   return message.rol === "asistan" && (message.hata === true || message.metin.startsWith("Hata:"));
 }
 
-function AssistantMessage({ text, onOpenFile, onReport }: {
+function AssistantMessage({ text, onOpenFile, onReport, ara = false }: {
   text: string;
+  /** Adımlar arasındaki ara anlatım: Claude'daki gibi düz metin, eylem satırı yok. */
+  ara?: boolean;
   onOpenFile?: (path: string) => void;
   /** Verilirse yanıtın altında "Hatayı bildir" düğmesi çıkar. */
   onReport?: () => void;
@@ -110,14 +114,14 @@ function AssistantMessage({ text, onOpenFile, onReport }: {
       <div className="conversation__text">
         <Markdown onOpenFile={onOpenFile} text={text} />
       </div>
-      <div className="conversation__actions">
+      {!ara && <div className="conversation__actions">
         <Button aria-label="Yanıtı kopyala" icon="copy" iconOnly onClick={copy} />
         {onReport && (
           <button className="conversation__report" onClick={onReport} type="button">
             Hatayı bildir
           </button>
         )}
-      </div>
+      </div>}
     </article>
   );
 }
@@ -248,6 +252,7 @@ export function Conversation({
                   aktif={aktif}
                   adimlar={message.adimlar ?? []}
                   baslangicZamani={message.baslangicZamani}
+                  tokenSayisi={message.tokenSayisi}
                   showSteps={showSteps}
                 />
               </div>
@@ -259,6 +264,7 @@ export function Conversation({
               key={index}
             >
               <AssistantMessage
+                ara={message.ara === true}
                 onOpenFile={onOpenFile}
                 onReport={onHataBildir && hataMesajiMi(message) ? () => onHataBildir(message.metin) : undefined}
                 text={message.metin}
@@ -266,7 +272,6 @@ export function Conversation({
             </div>
           );
         })}
-        <p className="conversation__disclaimer">Fusion hata yapabilir. Önemli değişiklikleri ve test kanıtlarını kontrol et.</p>
       </div>
       {/* Ekran okuyucu için durum; görsel gösterge `ActivityLine`'dadır.
           Tamamlanan iş DUYURULMAZ: her basit soruda "Tamamlandı" demek

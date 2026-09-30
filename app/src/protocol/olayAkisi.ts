@@ -24,6 +24,9 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
     return [...araAnlatimiSabitle(messages), { rol: "asistan", metin, ara: true }];
   }
 
+  const tokenSonuc = tokenEkle(messages, event);
+  if (tokenSonuc) return tokenSonuc;
+
   const gorevSonuc = gorevListesi(messages, event);
   if (gorevSonuc) return gorevSonuc;
 
@@ -48,6 +51,7 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
     // (28 Eylül): araya bir cevap parçası girince yeni blok açılıyor ve
     // "düşünüyor 25 sn" tur ortasında 0'a dönüyordu.
     const baslangicZamani = turunBaslangici(messages) ?? Date.now();
+    const tokenSayisi = turunTokeni(messages);
     // Bloğun başlangıcı BURADA damgalanır: `ActivityLine`'daki süre sayacı
     // bileşen yeniden bağlansa bile (sekme değişimi) bu sabit zamandan
     // hesaplar; `Date.now()` bir bileşen ref'inde tutulsaydı yeniden
@@ -56,7 +60,7 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
     // açılınca görünür (Claude'daki gibi). Kod ve uzun çıktı akışı kaplamaz.
     return [
       ...messages,
-      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani },
+      { rol: "olay", metin: adim.metin, adimlar: [adim], baslangicZamani, tokenSayisi },
     ];
   }
 
@@ -171,6 +175,43 @@ function takipOnerileri(messages: Mesaj[], event: Record<string, unknown>): Mesa
     .map(([etiket, gorev]) => ({ etiket, gorev }));
   if (oneriler.length === 0) return messages;
   return [...messages, { rol: "oneriler", metin: "", oneriler }];
+}
+
+/**
+ * Ön plan model çağrısının çıktı token'ını turun son bloğuna ekle.
+ *
+ * Claude'un durum satırı "9m 14s · 2.0k tokens" der; çekirdek kullanımı
+ * `ModelCallFinished.result.usage` içinde zaten gönderiyordu, arayüz okumuyordu.
+ * Sağlayıcı kullanım bildirmezse (web oturumları) sayı uydurulmaz, satırda yer
+ * almaz. Arka plan çağrıları (hakem, öz-denetim) kullanıcının turu sayılmaz.
+ */
+function tokenEkle(messages: Mesaj[], event: Record<string, unknown>): Mesaj[] | null {
+  if (event.olay !== "ModelCallFinished" || event.background === true) return null;
+  const sonuc = event.result as { usage?: { completion_tokens?: unknown } } | undefined;
+  const adet = sonuc?.usage?.completion_tokens;
+  if (typeof adet !== "number" || adet <= 0) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return null;
+    if (mesaj.rol === "olay" && !mesaj.adimlar?.some((item) => item.sonuc)) {
+      const guncel = [...messages];
+      guncel[index] = { ...mesaj, tokenSayisi: (mesaj.tokenSayisi ?? 0) + adet };
+      // Olay ayrıca adım olarak da işlenebilir (düşünme metni); sayaç güncellendi.
+      const adim = olayAdimi(event);
+      return adim ? olayEkle(guncel, { ...event, result: { ...(event.result as object), usage: undefined } }) : guncel;
+    }
+  }
+  return null;
+}
+
+/** Turun önceki bloklarının token toplamı; yeni blok sayacı oradan sürdürür. */
+function turunTokeni(messages: Mesaj[]): number | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const mesaj = messages[index];
+    if (mesaj.rol === "kullanici") return undefined;
+    if (mesaj.rol === "olay" && mesaj.tokenSayisi !== undefined) return mesaj.tokenSayisi;
+  }
+  return undefined;
 }
 
 /** Turun (son kullanıcı mesajından sonraki) ilk bloğunun başlangıç zamanı. */
