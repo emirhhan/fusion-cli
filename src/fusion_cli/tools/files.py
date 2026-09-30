@@ -168,11 +168,7 @@ def read_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if is_artifact:
         # Tool output can contain one enormous line. Split only artifacts into
         # bounded display segments so reading one cannot offload itself again.
-        lines = [
-            line[i : i + 6_000]
-            for line in lines
-            for i in range(0, len(line), 6_000)
-        ]
+        lines = [line[i : i + 6_000] for line in lines for i in range(0, len(line), 6_000)]
     if not lines:
         return ToolResult("(boş dosya)")
 

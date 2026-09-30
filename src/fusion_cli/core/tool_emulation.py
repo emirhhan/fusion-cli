@@ -700,9 +700,7 @@ def parse_tool_calls(text: str) -> EmulatedParse:
 
     # Ayıklanan blok iki yanındaki metni YAPIŞTIRMAZ: yerine paragraf boşluğu kalır.
     # Ölçüldü (27 Eylül, Gemini web): "…maliyet ve" + "Önceki işlemle…" birleşti.
-    without_payloads = _LEGACY_PAYLOAD_BLOCK.sub(
-        _BLOCK_GAP, _PAYLOAD_BLOCK.sub(_BLOCK_GAP, text)
-    )
+    without_payloads = _LEGACY_PAYLOAD_BLOCK.sub(_BLOCK_GAP, _PAYLOAD_BLOCK.sub(_BLOCK_GAP, text))
     # Kapanmamış blok tespiti HER İKİ biçimi de tanımalı: yalnızca kanonik işarete
     # bakmak, eski biçimde açılıp kapanmayan bir bloğu sessizce yok sayardı.
     if any(

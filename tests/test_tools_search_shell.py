@@ -401,9 +401,9 @@ async def test_gecersiz_regex_anlasilir_hata_verir(registry, context):
 async def test_eslesme_yoksa_bilgilendirir(registry, context, tmp_path):
     (tmp_path / "a.py").write_text("bos", encoding="utf-8")
 
-    assert (
-        await _calistir(registry, context, "search_code", pattern="yok")
-    ).output.startswith("(eşleşme yok) Aranan klasör:")
+    assert (await _calistir(registry, context, "search_code", pattern="yok")).output.startswith(
+        "(eşleşme yok) Aranan klasör:"
+    )
 
 
 async def test_glob_desene_uyan_dosyalari_bulur(registry, context, tmp_path):
@@ -442,9 +442,7 @@ async def test_glob_cift_yildiz_sifir_ve_cok_klasoru_kapsar(registry, context, t
     assert "notlar.md" not in cikti and "c.ts" not in cikti
 
 
-async def test_egik_cizgisiz_desen_her_derinlikte_dosya_adiyla_eslesir(
-    registry, context, tmp_path
-):
+async def test_egik_cizgisiz_desen_her_derinlikte_dosya_adiyla_eslesir(registry, context, tmp_path):
     _dosya(tmp_path, "a/b/c/derin.ts")
     _dosya(tmp_path, "kok.ts")
 
@@ -469,9 +467,9 @@ async def test_glob_gurultu_dizinlerini_atlar(registry, context, tmp_path):
     (tmp_path / "__pycache__").mkdir()
     (tmp_path / "__pycache__" / "x.py").write_text("x", encoding="utf-8")
 
-    assert (
-        await _calistir(registry, context, "glob", pattern="**/*.py")
-    ).output.startswith("(eşleşen dosya yok) Aranan klasör:")
+    assert (await _calistir(registry, context, "glob", pattern="**/*.py")).output.startswith(
+        "(eşleşen dosya yok) Aranan klasör:"
+    )
 
 
 async def test_run_shell_ciktiyi_ve_cikis_kodunu_dondurur(registry, context):

@@ -104,18 +104,20 @@ def probe_nim_tools(model_id: str, timeout_s: float = 90.0) -> tuple[bool, str]:
         "model": model_id.removeprefix("nvidia_nim/"),
         "messages": [{"role": "user", "content": "Use the sum tool to add 2 and 3."}],
         "max_tokens": 80,
-        "tools": [{
-            "type": "function",
-            "function": {
-                "name": "sum",
-                "description": "Add two integers",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
-                    "required": ["a", "b"],
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": "sum",
+                    "description": "Add two integers",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
+                        "required": ["a", "b"],
+                    },
                 },
-            },
-        }],
+            }
+        ],
         "tool_choice": "auto",
     }
     try:
@@ -170,8 +172,7 @@ def _is_free(item: dict[str, object]) -> bool:
     if not isinstance(pricing, dict):
         return False
     return all(
-        str(pricing.get(field, "")).strip() in _FREE_PRICES
-        for field in ("prompt", "completion")
+        str(pricing.get(field, "")).strip() in _FREE_PRICES for field in ("prompt", "completion")
     )
 
 

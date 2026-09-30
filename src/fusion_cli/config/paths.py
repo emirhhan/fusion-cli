@@ -45,8 +45,8 @@ def base_config_dir() -> Path:
     """
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-        return Path(base) / APP_NAME
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / APP_NAME
 
 
@@ -54,8 +54,8 @@ def base_data_dir() -> Path:
     """Hesaptan BAĞIMSIZ kalıcı veri kökü."""
     if sys.platform == "win32":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home() / "AppData" / "Local")
-        return Path(base) / APP_NAME
-    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
     return Path(base) / APP_NAME
 
 

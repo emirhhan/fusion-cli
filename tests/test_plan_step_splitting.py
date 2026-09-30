@@ -124,13 +124,9 @@ class TestBolmeDongusu:
         assert step.goal in sebep
 
     @pytest.mark.asyncio
-    async def test_bolme_tutarsa_daha_fazla_denenmez(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_bolme_tutarsa_daha_fazla_denenmez(self, monkeypatch: pytest.MonkeyPatch) -> None:
         istekler: list[str] = []
-        bolunmus = _plan(
-            _adim("step-1a", "Yalnız dizini listele", StepStatus.PENDING)
-        )
+        bolunmus = _plan(_adim("step-1a", "Yalnız dizini listele", StepStatus.PENDING))
 
         async def sahte_plan(task, deps, agent, remaining, **kwargs):  # type: ignore[no-untyped-def]
             istekler.append(task)

@@ -56,9 +56,7 @@ def _project_context(root: Path, task: str) -> str:
                 keys = re.findall(r'^\s*"([^"\n]+)"\s*:', snippet, re.MULTILINE)
             else:
                 sections = re.findall(r"^\s*\[([^\]\n]+)\]", snippet, re.MULTILINE)
-                keys = sections + re.findall(
-                    r"^\s*([A-Za-z_][\w.-]*)\s*=", snippet, re.MULTILINE
-                )
+                keys = sections + re.findall(r"^\s*([A-Za-z_][\w.-]*)\s*=", snippet, re.MULTILINE)
             pieces.append(f"{name} anahtarları: {redact(', '.join(keys[:40]))}")
     # Kullanıcının açıkça andığı çalışma alanı dosyalarını yalnız göreli adlarıyla
     # göster. İçerikleri bilinmeyen dosyalar öğretmene kopyalanmaz.
@@ -169,7 +167,8 @@ async def prepare_teacher_plan(
             structured = False
             messages.append(
                 Message(
-                    "user", f"FUSION_NOT: Öğretmen plan notu:\n{redact(answer)}",
+                    "user",
+                    f"FUSION_NOT: Öğretmen plan notu:\n{redact(answer)}",
                     harness_note=True,
                 )
             )
@@ -241,7 +240,7 @@ def _apply_remembered_plan(task: str, messages: list[Message], deps: AgentDeps) 
         Message(
             "user",
             "FUSION_NOT: Hafızadan: geçen sefer benzer bir işi "
-            f"(\"{lesson.task}\") şu planla başarıyla yapmıştık. Bu göreve uyarlayarak "
+            f'("{lesson.task}") şu planla başarıyla yapmıştık. Bu göreve uyarlayarak '
             "izle, uymayan adımı atla ve sonucu doğrula:\n" + redact(lesson.text),
             harness_note=True,
         )

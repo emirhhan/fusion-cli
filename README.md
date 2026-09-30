@@ -96,9 +96,17 @@ bazlı `.env`. Koddaki değişikliği anında görürsün.
 Depoyu bulut çalışma alanında açıp Python 3.11+ ile şu komutları çalıştır:
 
 ```bash
-python -m pip install -e '.[dev]'
+python3 -m venv .venv
+make install
+.venv/bin/python -m playwright install chromium
 make check
 ```
+
+Sistem Python'una doğrudan `pip install` yapma: Debian tabanlı imajlarda dağıtımın
+kurduğu paketler (ör. PyYAML) kaldırılamadığı için kurulum yarıda kalır. `make`
+hedefleri `.venv` varsa onu kullanır. `make install` paketlemeyle aynı ekleri
+(`dev,desktop,mcp,gateway,voice,web`) kurar; yalnız `.[dev]` mypy ve testler için
+yetmez.
 
 Bu yol etkileşimli kurulum sihirbazını çalıştırmaz ve testler için API anahtarı
 gerektirmez. Claude Code proje talimatlarını kökteki `CLAUDE.md` dosyasından okur;

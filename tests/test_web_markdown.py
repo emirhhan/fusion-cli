@@ -49,9 +49,7 @@ def test_tablo_markdown_tablosuna_cevrilir() -> None:
         "<table><thead><tr><th>Dosya</th><th>Durum</th></tr></thead>"
         "<tbody><tr><td>fiyat.py</td><td>düzeltildi</td></tr></tbody></table>"
     )
-    assert html_to_markdown(html) == (
-        "| Dosya | Durum |\n| --- | --- |\n| fiyat.py | düzeltildi |"
-    )
+    assert html_to_markdown(html) == ("| Dosya | Durum |\n| --- | --- |\n| fiyat.py | düzeltildi |")
 
 
 def test_bag_adres_ile_yazilir() -> None:

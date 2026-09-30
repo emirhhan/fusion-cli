@@ -42,7 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("suite", type=Path, help="Görev seti (YAML) yolu")
     run_parser.add_argument("--out", type=Path, default=None, help="Raporun yazılacağı JSON")
     run_parser.add_argument(
-        "--model", default=None,
+        "--model",
+        default=None,
         help="Yalnız bu değerlendirme için model kimliği; kayıtlı seçimi değiştirmez",
     )
     run_parser.add_argument(

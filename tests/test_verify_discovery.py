@@ -349,9 +349,7 @@ def test_dizin_degistiren_onekle_calisan_komut_davranis_kaniti_sayilir():
     """
     assert is_behavioral_command("cd /Users/x/w-api-S3 && python -m pytest tests/ -v") is True
     assert is_behavioral_command("cd /Users/x/w-api-S3; python -m pytest tests/ -v") is True
-    assert (
-        is_behavioral_command("source .venv/bin/activate && pytest -q tests/") is True
-    )
+    assert is_behavioral_command("source .venv/bin/activate && pytest -q tests/") is True
     assert is_behavioral_command("FOO=1 pytest -q") is True
     assert is_behavioral_command("cd /Users/x/w-api-S3 && cargo build") is False
     assert is_behavioral_command("cd /Users/x/w-api-S3 && pytest -q || true") is False

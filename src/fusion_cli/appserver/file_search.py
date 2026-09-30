@@ -93,7 +93,5 @@ def search_project_files(
         # Tavan aşıldıysa arayüz bunu SÖYLEMELİ: aranan dosya listede yoksa
         # kullanıcı "yok" mu "kesildi" mi bilmeli.
         "kisitli": kisitli,
-        "sonuclar": [
-            {"yol": item.path, "vurgu": list(item.positions)} for item in eslesmeler
-        ],
+        "sonuclar": [{"yol": item.path, "vurgu": list(item.positions)} for item in eslesmeler],
     }

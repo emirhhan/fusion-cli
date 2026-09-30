@@ -78,9 +78,7 @@ async def test_eval_runner_saglayici_oturumu_yoksa_olcum_yazmaz(
         await runner.run("görev", root=tmp_path)
 
 
-async def test_eval_runner_chrome_profili_aciksa_sifir_basari_raporlamaz(
-    monkeypatch, tmp_path
-):
+async def test_eval_runner_chrome_profili_aciksa_sifir_basari_raporlamaz(monkeypatch, tmp_path):
     async def fake_run_agent(request, deps):
         return AgentOutcome(
             final_text="web oturumu hatası: Bu Fusion Chrome profili hâlâ açık.",

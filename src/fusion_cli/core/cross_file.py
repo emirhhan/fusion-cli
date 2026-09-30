@@ -216,8 +216,7 @@ def missing_node_references(root: Path) -> tuple[str, ...]:
         except OSError:
             continue
         kaynaklar = {
-            eslesme.group("id"): eslesme.group("path")
-            for eslesme in _EXT_RESOURCE.finditer(metin)
+            eslesme.group("id"): eslesme.group("path") for eslesme in _EXT_RESOURCE.finditer(metin)
         }
         for dugum in _NODE.finditer(metin):
             ref = _SCRIPT_REF.search(dugum.group("govde"))
@@ -264,9 +263,7 @@ def _children_of(metin: str, yol: str) -> set[str]:
 
 
 #: Düğümün YOKLUĞUNA karşı korunan erişim: `has_node("X")`, `get_node_or_null("X")`.
-_GUARDED_REF = re.compile(
-    r'(?:has_node|get_node_or_null)\(\s*"(?P<ad>[^"]+)"\s*\)'
-)
+_GUARDED_REF = re.compile(r'(?:has_node|get_node_or_null)\(\s*"(?P<ad>[^"]+)"\s*\)')
 
 
 def _expected_children(root: Path, res_path: str) -> set[str]:
@@ -282,12 +279,9 @@ def _expected_children(root: Path, res_path: str) -> set[str]:
         kaynak = dosya.read_text(encoding="utf-8")
     except OSError:
         return set()
-    korunan = {
-        ad.split("/")[0] for ad in (e.group("ad") for e in _GUARDED_REF.finditer(kaynak))
-    }
+    korunan = {ad.split("/")[0] for ad in (e.group("ad") for e in _GUARDED_REF.finditer(kaynak))}
     beklenen = {
-        eslesme.group("kisa") or eslesme.group("uzun")
-        for eslesme in _CHILD_REF.finditer(kaynak)
+        eslesme.group("kisa") or eslesme.group("uzun") for eslesme in _CHILD_REF.finditer(kaynak)
     }
     return {ad for ad in beklenen if ad not in korunan}
 

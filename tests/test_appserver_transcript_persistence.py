@@ -165,9 +165,7 @@ def _kesilen_sonuc(*, degisiklik: int, bekleyen: bool = True):
         mutating_tool_calls_made=degisiklik,
         todos=(
             TodoItem("sunucuyu kur", TodoStatus.COMPLETED),
-            TodoItem(
-                "arayüzü düzenle", TodoStatus.PENDING if bekleyen else TodoStatus.COMPLETED
-            ),
+            TodoItem("arayüzü düzenle", TodoStatus.PENDING if bekleyen else TodoStatus.COMPLETED),
         ),
     )
 

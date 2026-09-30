@@ -93,8 +93,11 @@ async def test_kontrol_durumu_secili_web_modelini_dogru_etiketler(tmp_path: Path
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
     web = WebSessionConfig(
-        model="gemini_web/main/auto", provider="gemini_web",
-        transport="browser", selected_model="3.1 Pro", login_verified=True,
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        transport="browser",
+        selected_model="3.1 Pro",
+        login_verified=True,
     )
     config = session._state.config
     session._state.config = replace(
@@ -115,8 +118,11 @@ async def test_kontrol_durumu_ogretmen_oturumunu_gosterir(tmp_path: Path):
     lines: list[str] = []
     session = AppSession(lines.append, root=tmp_path, home=tmp_path / "home")
     web = WebSessionConfig(
-        model="gemini_web/main/auto", provider="gemini_web",
-        transport="browser", selected_model="3.1 Pro", login_verified=True,
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        transport="browser",
+        selected_model="3.1 Pro",
+        login_verified=True,
     )
     config = session._state.config
     session._state.config = replace(

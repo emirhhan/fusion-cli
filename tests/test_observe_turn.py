@@ -114,9 +114,7 @@ async def test_gozlem_turunda_yazma_cagrisi_engellenir_ve_diske_dosya_dusmez(
 
     assert not (tmp_path / "kopya.py").exists()
     engellenen = [
-        olay
-        for olay in sink.events
-        if isinstance(olay, ToolExecuted) and olay.name == "write_file"
+        olay for olay in sink.events if isinstance(olay, ToolExecuted) and olay.name == "write_file"
     ]
     assert engellenen and engellenen[0].outcome is ToolOutcome.BLOCKED
 

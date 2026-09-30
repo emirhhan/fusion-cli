@@ -198,7 +198,8 @@ def _verified_web_teacher(sessions: tuple[WebSessionConfig, ...]) -> ModelSpec |
     """
     supported = {"chatgpt_web", "gemini_web"}
     available = [
-        session for session in sessions
+        session
+        for session in sessions
         if session.provider in supported and session.enabled and session.login_verified
     ]
     if not available:

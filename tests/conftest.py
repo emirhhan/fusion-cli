@@ -12,8 +12,42 @@ biçimidir: CI'da yeşil, geliştiricide kırmızı (ya da tersi).
 from __future__ import annotations
 
 import gc
+import os
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def ortam_sizintisini_geri_al(monkeypatch):
+    """Her test aynı süreç ortamıyla başlasın ve bitsin.
+
+    Üretim kodu sırları `os.environ`'a doğrudan yazıyor (`.env` yükleme, sır
+    deposu, gateway). `monkeypatch` bunları geri almaz. Ölçüldü (30 Eylül): bir
+    testin bıraktığı `OPENROUTER_API_KEY` sonraki `load_config()`'i NIM'siz
+    budatıp `test_keys` testini yalnız tam koşuda düşürüyordu.
+
+    Geliştiricinin kabuğundaki gerçek anahtarlar da testlere girmez: aksi hâlde
+    test anahtarlı makinede geçer, CI'da düşerdi.
+    """
+    from fusion_cli.config import keys
+
+    for degisken in (keys.OPENROUTER_ENV, keys.NIM_ENV):
+        monkeypatch.delenv(degisken, raising=False)
+    onceki = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(onceki)
+
+
+@pytest.fixture
+def yazma_yasagi_kurulabilir():
+    """`chmod` ile yazma yasağı kurulabilen ortam şartı.
+
+    root dosya izinlerini yok sayar (bulut kapsayıcıları root çalışır); orada
+    "yazılamayan dosya" senaryosu kurulamaz ve test yanlış yere işaret ederdi.
+    """
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root dosya izinlerini yok sayar; yazma yasağı kurulamaz")
 
 
 @pytest.fixture(autouse=True)

@@ -508,9 +508,7 @@ async def _agent_turn(
                 evidence_from_turn(
                     outcome,
                     tool_context,
-                    verification_command=next(
-                        iter(state.config.runtime.verification_commands), ""
-                    ),
+                    verification_command=next(iter(state.config.runtime.verification_commands), ""),
                 )
             )
             if oneriler:

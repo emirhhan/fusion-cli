@@ -55,8 +55,12 @@ async def test_strict_kipte_kullanilamaz_modelden_yedege_gecilir() -> None:
             return self._sonuc
 
     kullanilamaz = ModelResult(
-        name="agent", model="chatgpt_web", text="", latency_ms=0, ok=False,
-        error="authentication: captcha"
+        name="agent",
+        model="chatgpt_web",
+        text="",
+        latency_ms=0,
+        ok=False,
+        error="authentication: captcha",
     )
     calisan = ModelResult(name="agent", model="gemini_web", text="oldu", latency_ms=1, ok=True)
 
@@ -101,9 +105,11 @@ async def test_strict_kipte_kalite_hatasinda_yedege_gecilmez() -> None:
     zincir = FallbackProvider(
         [_Sahte("secilen", zayif), yedek], role="agent", only_when_unavailable=True
     )
-    sonuc = await zincir.complete(CompletionRequest(
+    sonuc = await zincir.complete(
+        CompletionRequest(
             messages=(Message("user", "merhaba"),), temperature=0.0, max_tokens=64, timeout_s=5.0
-        ))
+        )
+    )
 
     assert yedek.cagrildi is False
     assert sonuc.ok is False

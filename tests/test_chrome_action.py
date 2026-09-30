@@ -171,9 +171,10 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     assert "click_at" in goruntu.output
 
     # Görüntü 2880 px, sayfa 1440 CSS px: (400, 300) → (200, 150).
-    assert await chrome.chrome_action_effect(
-        {"action": "click_at", "value": "400,300"}, baglam
-    ) is ToolEffect.REMOTE_READ
+    assert (
+        await chrome.chrome_action_effect({"action": "click_at", "value": "400,300"}, baglam)
+        is ToolEffect.REMOTE_READ
+    )
     assert (await chrome.chrome_action({"action": "click_at", "value": "400, 300"}, baglam)).ok
     assert ("describe_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar
     assert ("click_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar

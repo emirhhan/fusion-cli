@@ -75,9 +75,7 @@ def _metin_degistir(args: dict[str, Any], mevcut: list[str]) -> list[str] | None
 
 
 def _diff(yol: str, mevcut: list[str], yeni: list[str]) -> str:
-    satirlar = list(
-        difflib.unified_diff(mevcut, yeni, fromfile=f"a/{yol}", tofile=f"b/{yol}", n=2)
-    )
+    satirlar = list(difflib.unified_diff(mevcut, yeni, fromfile=f"a/{yol}", tofile=f"b/{yol}", n=2))
     if not satirlar:
         return ""
     if len(satirlar) > MAX_SATIR:

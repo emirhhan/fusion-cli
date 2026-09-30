@@ -217,9 +217,7 @@ async def test_sadece_akil_yurutme_parcalari_ilk_yanit_suresini_uzatmaz(
     assert provider.cancelled
 
 
-async def test_yazmaya_devam_eden_model_cagri_suresini_asinca_kesilmez(
-    monkeypatch, tmp_path, sink
-):
+async def test_yazmaya_devam_eden_model_cagri_suresini_asinca_kesilmez(monkeypatch, tmp_path, sink):
     """Ölçüldü (28 Eylül): büyük bir istekte model yazarken "60 saniyede
     tamamlanmadı" ile kesildi. Sınır artık iki parça arasındaki sessizliğe uygulanır;
     toplam süreyi yalnızca turun mutlak sınırı keser."""

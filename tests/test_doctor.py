@@ -65,7 +65,9 @@ def test_surum_ve_ortam_bilgisi_raporlanir():
         assert beklenen in adlar, f"{beklenen} kontrolü yok"
 
 
-def test_yazilamayan_dizin_sorun_olarak_isaretlenir(monkeypatch, tmp_path):
+def test_yazilamayan_dizin_sorun_olarak_isaretlenir(
+    monkeypatch, tmp_path, yazma_yasagi_kurulabilir
+):
     yasak = tmp_path / "yazilamaz"
     yasak.mkdir()
     yasak.chmod(0o500)
@@ -104,8 +106,12 @@ def test_canli_kontrol_tum_kademe_bas_modellerini_sondalar_ve_saglik_onbellegine
             sondalanan.append(self._model)
             basarili = "glm-5.3" not in self._model
             return ModelResult(
-                name="sahte", model=self._model, text="pong" if basarili else "",
-                latency_ms=10, ok=basarili, error=None if basarili else "zaman aşımı",
+                name="sahte",
+                model=self._model,
+                text="pong" if basarili else "",
+                latency_ms=10,
+                ok=basarili,
+                error=None if basarili else "zaman aşımı",
             )
 
     monkeypatch.setattr(litellm_provider, "LiteLlmProvider", SahteSaglayici)

@@ -74,9 +74,7 @@ def _ozet(rapor: ProbeReport, *, gecti: bool, olculdu: bool) -> str:
         # ilki modelin bloğu üretmemesi ya da arayüzün yutması, ikincisi biçim hatası.
         isaret_var = any(ornek.has_call_markers for ornek in rapor.samples)
         sebep = (
-            "blok üretildi ama ayrıştırılamadı"
-            if isaret_var
-            else "model hiç araç bloğu üretmedi"
+            "blok üretildi ama ayrıştırılamadı" if isaret_var else "model hiç araç bloğu üretmedi"
         )
         return (
             f"Ölçüm geçmedi: {sebep}. "

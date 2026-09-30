@@ -50,8 +50,7 @@ def test_yapilandirilmis_ogretmen_plani_ayristirilir() -> None:
 def test_eksik_adimli_plan_reddedilir() -> None:
     with pytest.raises(TeacherPlanError):
         parse_teacher_plan(
-            '{"adimlar": [], "dosyalar": [], "riskler": [], '
-            '"yapilamayanlar": [], "dogrulama": []}'
+            '{"adimlar": [], "dosyalar": [], "riskler": [], "yapilamayanlar": [], "dogrulama": []}'
         )
 
 

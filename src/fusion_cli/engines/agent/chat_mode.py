@@ -41,6 +41,7 @@ CHAT_MUTATION_REASON = (
 #: gerekçe.
 WORKSPACE_READ_REASON = "Bu tur salt okuma; değişiklik istiyorsan açıkça söyle."
 
+
 def observe_execution(execution: ExecutionPolicy, reason: str) -> ExecutionPolicy:
     """Yürütme politikasını bir GÖZLEM turuna uyarla.
 

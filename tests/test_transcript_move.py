@@ -27,9 +27,12 @@ def test_sohbet_diger_projenin_gecmisine_tasinir(tmp_path: Path) -> None:
     assert [ref.conversation_id for ref in list_conversations(tmp_path / "memory", target)] == [
         "chat-1"
     ]
-    assert [message.content for message in load_transcript_messages(
-        tmp_path / "memory", target, conversation_id="chat-1"
-    )] == ["Bir uygulama geliştir", "İlk adımı yaptım"]
+    assert [
+        message.content
+        for message in load_transcript_messages(
+            tmp_path / "memory", target, conversation_id="chat-1"
+        )
+    ] == ["Bir uygulama geliştir", "İlk adımı yaptım"]
 
 
 def test_sohbet_hedef_yoksa_kaynagi_korur(tmp_path: Path) -> None:

@@ -211,6 +211,7 @@ def test_barindirmali_satir_liste_sozlesmesine_uyar():
     assert isinstance(hosted["argumanlar"], list)
     assert isinstance(hosted["komut"], str)
 
+
 def test_ayni_adres_farkli_adla_ikinci_kez_eklenemez():
     """Ad kontrolü yetmiyordu: aynı adres yalnız harf farkıyla iki kez giriyordu.
 

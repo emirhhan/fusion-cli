@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fusion_cli.core.cross_file import promised_key_conflicts, runtime_script_conflicts
 
-RELOADSUZ = '''extends Node2D
+RELOADSUZ = """extends Node2D
 
 func _ready():
 \tvar p = CharacterBody2D.new()
@@ -18,7 +18,7 @@ func _ready():
 \tscript.source_code = "extends CharacterBody2D"
 \tp.set_script(script)
 \tadd_child(p)
-'''
+"""
 
 RELOADLU = RELOADSUZ.replace("\tp.set_script(script)", "\tscript.reload()\n\tp.set_script(script)")
 
@@ -107,7 +107,7 @@ def test_godot_projesi_olmayan_kokte_iddia_yok(tmp_path):
     assert promised_key_conflicts(tmp_path) == ()
 
 
-SAHNE_SPRITESIZ = '''[gd_scene format=3]
+SAHNE_SPRITESIZ = """[gd_scene format=3]
 
 [ext_resource type="Script" path="res://player.gd" id="1"]
 
@@ -117,7 +117,7 @@ SAHNE_SPRITESIZ = '''[gd_scene format=3]
 script = ExtResource("1")
 
 [node name="CollisionShape2D" type="CollisionShape2D" parent="Player"]
-'''
+"""
 
 SAHNE_SPRITELI = SAHNE_SPRITESIZ + '\n[node name="Sprite2D" type="Sprite2D" parent="Player"]\n'
 
@@ -286,7 +286,7 @@ def test_project_godot_icindeki_kirik_yol_da_bildirilir(tmp_path):
     assert "scenes/main.tscn" in bulgular[0]
 
 
-SAHNE_KOK_COCUKLU = '''[gd_scene format=3]
+SAHNE_KOK_COCUKLU = """[gd_scene format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 
@@ -294,7 +294,7 @@ SAHNE_KOK_COCUKLU = '''[gd_scene format=3]
 script = ExtResource("1")
 
 [node name="UI" type="CanvasLayer" parent="."]
-'''
+"""
 
 
 def test_kok_dugumun_cocugu_parent_nokta_yazar(tmp_path):
@@ -306,9 +306,7 @@ def test_kok_dugumun_cocugu_parent_nokta_yazar(tmp_path):
     """
     from fusion_cli.core.cross_file import missing_node_references
 
-    (tmp_path / "main.gd").write_text(
-        "extends Node2D\n\n@onready var ui = $UI\n", encoding="utf-8"
-    )
+    (tmp_path / "main.gd").write_text("extends Node2D\n\n@onready var ui = $UI\n", encoding="utf-8")
     (tmp_path / "main.tscn").write_text(SAHNE_KOK_COCUKLU, encoding="utf-8")
 
     assert missing_node_references(tmp_path) == ()

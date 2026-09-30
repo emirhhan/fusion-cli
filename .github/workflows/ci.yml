@@ -20,6 +20,9 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Bağımlılıkları kur
         run: make install
+      # Davranış değerlendirmesi ve web oturumu testleri gerçek Chromium açar.
+      - name: Chromium'u kur
+        run: python -m playwright install --with-deps chromium
       # Yerelde çalıştırılan kapının birebir aynısı; CI'a özel kural yoktur.
       # `make check` = lint + type + test + deadlock.
       - name: Kalite kapısı

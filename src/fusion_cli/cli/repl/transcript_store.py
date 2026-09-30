@@ -116,8 +116,7 @@ def move_conversation(
     if _conversation_digest(conversation_id) in _deleted_conversations(destination):
         raise ValueError("Hedef projede bu sohbet kimliği daha önce silinmiş.")
     if any(
-        ref.conversation_id == conversation_id
-        for ref in list_conversations(base_dir, target_root)
+        ref.conversation_id == conversation_id for ref in list_conversations(base_dir, target_root)
     ):
         raise ValueError("Hedef projede aynı kimlikli sohbet zaten var.")
     try:

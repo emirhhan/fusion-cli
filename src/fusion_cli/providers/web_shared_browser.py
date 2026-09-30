@@ -275,23 +275,23 @@ class SharedProfileBrowser:
         if sys.platform == "win32":  # pragma: no cover - POSIX dışı
             async with _exclusive_file_lock(path.with_suffix(".fallback"), deadline):
                 yield
-            return
-        descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
-        try:
-            while True:
-                try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError:
-                    if time.monotonic() >= deadline:
-                        raise SharedBrowserError(_LOCK_TIMEOUT_MESSAGE) from None
-                    await asyncio.sleep(POLL_INTERVAL_S)
+        else:
+            descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
             try:
-                yield
+                while True:
+                    try:
+                        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= deadline:
+                            raise SharedBrowserError(_LOCK_TIMEOUT_MESSAGE) from None
+                        await asyncio.sleep(POLL_INTERVAL_S)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
             finally:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-        finally:
-            os.close(descriptor)
+                os.close(descriptor)
 
 
 _LOCK_TIMEOUT_MESSAGE = (

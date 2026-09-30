@@ -73,7 +73,8 @@ class _Page:
 async def test_canli_model_menusu_yalniz_secenekleri_dondurur():
     page = _Page()
     assert await model_choices_on_page(page, WEB_BROWSER_PROVIDERS["gemini_web"]) == (
-        "Flash", "Pro"
+        "Flash",
+        "Pro",
     )
 
 
@@ -88,17 +89,19 @@ async def test_otomatik_web_secenegi_iki_kez_gorunmez(monkeypatch):
     from fusion_cli.config.models import WebSessionConfig
 
     session = WebSessionConfig(
-        model="gemini_web/main/auto", provider="gemini_web", account="main",
-        transport="browser", enabled=True, login_verified=True,
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        account="main",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
     )
     config = replace(make_config(), web_sessions=(session,))
 
     async def choices(*args):
         return ("Otomatik", "3.1 Pro")
 
-    monkeypatch.setattr(
-        "fusion_cli.providers.web_browser.discover_browser_models", choices
-    )
+    monkeypatch.setattr("fusion_cli.providers.web_browser.discover_browser_models", choices)
     monkeypatch.setattr("fusion_cli.providers.web_registry.web_registry_for", lambda c: None)
 
     result = await web_control.session_model_choices(config, "gemini_web", "main")
@@ -113,8 +116,13 @@ async def test_web_modeli_canli_menuye_gore_kaydedilir(
     from fusion_cli.config.models import WebSessionConfig
 
     session = WebSessionConfig(
-        model="gemini_web/main/auto", provider="gemini_web", account="main",
-        transport="browser", enabled=True, login_verified=True, tool_eval_passed=True,
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        account="main",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        tool_eval_passed=True,
     )
     config = replace(make_config(), web_sessions=(session,))
 
@@ -138,9 +146,14 @@ async def test_ayni_model_tekrar_secilince_arac_olcumu_korunur(monkeypatch):
     from fusion_cli.config.models import WebSessionConfig
 
     session = WebSessionConfig(
-        model="gemini_web/main/auto", provider="gemini_web", account="main",
-        transport="browser", enabled=True, login_verified=True,
-        selected_model="Pro", tool_eval_passed=True,
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        account="main",
+        transport="browser",
+        enabled=True,
+        login_verified=True,
+        selected_model="Pro",
+        tool_eval_passed=True,
     )
     config = replace(make_config(), web_sessions=(session,))
 
@@ -148,9 +161,7 @@ async def test_ayni_model_tekrar_secilince_arac_olcumu_korunur(monkeypatch):
         return {"ok": True, "secenekler": ["Otomatik", "Pro"]}
 
     monkeypatch.setattr(web_control, "session_model_choices", choices)
-    monkeypatch.setattr(
-        "fusion_cli.config.writer.write_web_sessions", lambda config: None
-    )
+    monkeypatch.setattr("fusion_cli.config.writer.write_web_sessions", lambda config: None)
     updated, result = await web_control.set_session_model_choice(
         config, "gemini_web", "main", "Pro"
     )

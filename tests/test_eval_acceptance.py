@@ -95,9 +95,7 @@ def test_kota_yuzunden_olculemeyen_tur_yalan_basari_degildir():
 
 
 def test_basarili_gorev_yalan_basari_sayilmaz():
-    gozlem = TaskExecution(
-        task_id="t", claimed_success=True, changed_files=frozenset({"a.py"})
-    )
+    gozlem = TaskExecution(task_id="t", claimed_success=True, changed_files=frozenset({"a.py"}))
 
     sonuc = score_task(_task(), gozlem)
     assert sonuc.success is True
@@ -106,9 +104,7 @@ def test_basarili_gorev_yalan_basari_sayilmaz():
 
 def test_tekrarlarda_tek_yalan_basari_bile_gorevi_isaretler():
     """Eşiği sıfır olan metrik çoğunluğa yuvarlanamaz."""
-    birlesik = merge_runs(
-        [_sonuc("t", basarili=True), _sonuc("t", basarili=False, yalan=True)]
-    )
+    birlesik = merge_runs([_sonuc("t", basarili=True), _sonuc("t", basarili=False, yalan=True)])
 
     assert birlesik.false_success is True
 

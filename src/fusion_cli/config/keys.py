@@ -91,14 +91,16 @@ def _uses_local_vault() -> bool:
 
 
 def _local_master_key() -> str | None:
-    from .local_vault import local_master_key
-    from .paths import user_data_dir
+    # Yerel kasa POSIX'e özgüdür (`fcntl`); Windows'ta modül hiç içe aktarılmaz.
+    if sys.platform != "win32":
+        from .local_vault import local_master_key
+        from .paths import user_data_dir
 
-    try:
-        return local_master_key(user_data_dir())
-    except (OSError, ValueError):
-        _logger.exception("Yerel kasa açılamadı; mevcut kayıtlar korunuyor.")
-        return None
+        try:
+            return local_master_key(user_data_dir())
+        except (OSError, ValueError):
+            _logger.exception("Yerel kasa açılamadı; mevcut kayıtlar korunuyor.")
+    return None
 
 
 def _keyring_master_key() -> str | None:

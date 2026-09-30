@@ -38,9 +38,7 @@ _COMMENTS = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 _SESSION_SECRET_FALLBACK = re.compile(
     r"process\.env\.(?:SESSION_SECRET|AUTH_SECRET)\s*(?:\|\||\?\?)\s*[\"'`]"
 )
-_LOCAL_ORIGIN_BYPASS = re.compile(
-    r"\b(?:originUrl|originURL)\.hostname\s*\)"
-)
+_LOCAL_ORIGIN_BYPASS = re.compile(r"\b(?:originUrl|originURL)\.hostname\s*\)")
 
 
 class NextRouteVerifier:

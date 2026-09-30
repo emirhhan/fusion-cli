@@ -364,10 +364,9 @@ class ChromeBridge:
 
 async def _open_chrome() -> None:
     """Kullanıcının Chrome'unu aç (macOS); başka sistemde bir şey yapmaz."""
-    if sys.platform != "darwin":
-        return
-    process = await asyncio.create_subprocess_exec(
-        "open", "-g", "-a", "Google Chrome",
-        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
-    )  # fmt: skip
-    await process.wait()
+    if sys.platform == "darwin":
+        process = await asyncio.create_subprocess_exec(
+            "open", "-g", "-a", "Google Chrome",
+            stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+        )  # fmt: skip
+        await process.wait()

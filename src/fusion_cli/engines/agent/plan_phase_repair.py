@@ -61,9 +61,7 @@ def _temiz_baslangic(step: PlanStep) -> PlanStep:
     (gözlem turu, kapalı yazma araçları) yeniden başlatır ve mekanik onarımın
     açtığı yolu hemen kapatır.
     """
-    return replace(
-        step, status=StepStatus.PENDING, attempts=0, last_progress_fingerprint=""
-    )
+    return replace(step, status=StepStatus.PENDING, attempts=0, last_progress_fingerprint="")
 
 
 def _first_dependent_execution(plan: ExecutionPlan, step_id: str) -> PlanStep | None:
@@ -111,9 +109,7 @@ def repair_discovery_phase(
         # kontrolü mümkün kılıyor. Burada yapılacak mekanik bir şey yok.
         return None
 
-    kalan_kontroller = tuple(
-        check for check in step.verification_checks if check not in cakisan
-    )
+    kalan_kontroller = tuple(check for check in step.verification_checks if check not in cakisan)
     # Kontrolü kalmayan başarı koşulu adımda KALIR: koşul hâlâ doğrudur, yalnız
     # makinece ölçülmez. Koşulu silmek, adımın ne yapacağını da silmek olurdu.
     yeni_kesif = _temiz_baslangic(replace(step, verification_checks=kalan_kontroller))

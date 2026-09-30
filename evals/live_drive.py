@@ -141,8 +141,12 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
     kayit: dict[str, Any] = {"izinler": [], "sorular": [], "araclar": [], "turlar": []}
     # Uzun görev raporu için sayaçlar: model/öğretmen çağrısı, hata ve yedeğe geçiş.
     sayac: dict[str, int] = {
-        "model_cagrisi": 0, "ogretmen_cagrisi": 0, "arac_hatasi": 0,
-        "yedege_gecis": 0, "sozlesme_onarimi": 0, "hafizadan_plan": 0,
+        "model_cagrisi": 0,
+        "ogretmen_cagrisi": 0,
+        "arac_hatasi": 0,
+        "yedege_gecis": 0,
+        "sozlesme_onarimi": 0,
+        "hafizadan_plan": 0,
     }
     kayit["sayaclar"] = sayac
     bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}

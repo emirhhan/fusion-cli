@@ -47,12 +47,26 @@ def test_kullanici_dosyasi_varsayilanin_uzerine_derin_birlestirilir(tmp_path):
 
 
 def test_dogrulanmis_web_oturumu_ogretmen_olarak_baglanir(tmp_path):
-    path = _yaz(tmp_path, {"web_sessions": [
-        {"provider": "chatgpt_web", "model": "chatgpt_web/main/auto",
-         "enabled": True, "login_verified": True},
-        {"provider": "gemini_web", "model": "gemini_web/main/auto",
-         "enabled": True, "login_verified": True, "selected_model": "3.1 Pro"},
-    ]})
+    path = _yaz(
+        tmp_path,
+        {
+            "web_sessions": [
+                {
+                    "provider": "chatgpt_web",
+                    "model": "chatgpt_web/main/auto",
+                    "enabled": True,
+                    "login_verified": True,
+                },
+                {
+                    "provider": "gemini_web",
+                    "model": "gemini_web/main/auto",
+                    "enabled": True,
+                    "login_verified": True,
+                    "selected_model": "3.1 Pro",
+                },
+            ]
+        },
+    )
 
     config = load_config(path)
 
@@ -61,15 +75,25 @@ def test_dogrulanmis_web_oturumu_ogretmen_olarak_baglanir(tmp_path):
 
 
 def test_ogretmen_secimi_korunur_dogrulanmamis_oturum_atlanir(tmp_path):
-    path = _yaz(tmp_path, {"teacher": {"name": "benim", "model": "chatgpt_web/main/auto"},
-                            "web_sessions": [{"provider": "gemini_web",
-                                              "model": "gemini_web/main/auto",
-                                              "login_verified": True}]})
+    path = _yaz(
+        tmp_path,
+        {
+            "teacher": {"name": "benim", "model": "chatgpt_web/main/auto"},
+            "web_sessions": [
+                {"provider": "gemini_web", "model": "gemini_web/main/auto", "login_verified": True}
+            ],
+        },
+    )
     assert load_config(path).teacher.model == "chatgpt_web/main/auto"
 
-    unverified = _yaz(tmp_path, {"web_sessions": [{"provider": "gemini_web",
-                                                    "model": "gemini_web/main/auto",
-                                                    "login_verified": False}]})
+    unverified = _yaz(
+        tmp_path,
+        {
+            "web_sessions": [
+                {"provider": "gemini_web", "model": "gemini_web/main/auto", "login_verified": False}
+            ]
+        },
+    )
     assert load_config(unverified).teacher is None
 
 

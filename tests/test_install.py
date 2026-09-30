@@ -282,7 +282,7 @@ def test_olmayan_dosya_olusturulur(tmp_path):
     assert sonuc.changed is True and rc.exists()
 
 
-def test_yazilamayan_dosyada_patlamaz(tmp_path):
+def test_yazilamayan_dosyada_patlamaz(tmp_path, yazma_yasagi_kurulabilir):
     """Kurulum, shell dosyası yazılamıyor diye çökmemeli."""
     from fusion_cli.install import ensure_on_path
 

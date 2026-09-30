@@ -63,9 +63,7 @@ def test_basarisiz_arac_adi_kanita_gecer(tmp_path):
 
 
 def test_yinelenen_basarisiz_arac_bir_kez_sayilir(tmp_path):
-    sonuc = _SahteSonuc(
-        tool_uses=(_SahteKullanim("git", False), _SahteKullanim("git", False))
-    )
+    sonuc = _SahteSonuc(tool_uses=(_SahteKullanim("git", False), _SahteKullanim("git", False)))
 
     assert evidence_from_turn(sonuc, _baglam(tmp_path)).failed_tools == ("git",)
 

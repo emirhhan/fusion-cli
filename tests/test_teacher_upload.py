@@ -119,9 +119,7 @@ async def test_gemini_de_input_yoksa_kirpmaya_duser(monkeypatch):
 
     tetikleyici = _TiklanabilirEleman()
     secenek = _TiklanabilirEleman()
-    monkeypatch.setattr(
-        browser, "_first_visible", AsyncMock(side_effect=[tetikleyici, secenek])
-    )
+    monkeypatch.setattr(browser, "_first_visible", AsyncMock(side_effect=[tetikleyici, secenek]))
     prompt = "a" * (MAX_WEB_PROMPT_CHARS + 1_000)
 
     sonuc = await _prepare_prompt_for_composer(_TamAkisSayfasi(dosya_girisleri=[]), _GEMINI, prompt)
@@ -137,9 +135,7 @@ async def test_gemini_de_basarili_yukleme_bildirimi_doner_ve_icerik_dosyaya_yazi
 
     tetikleyici = _TiklanabilirEleman()
     secenek = _TiklanabilirEleman()
-    monkeypatch.setattr(
-        browser, "_first_visible", AsyncMock(side_effect=[tetikleyici, secenek])
-    )
+    monkeypatch.setattr(browser, "_first_visible", AsyncMock(side_effect=[tetikleyici, secenek]))
     eski_giris = _SahteDosyaGirisi()
     yeni_giris = _SahteDosyaGirisi()
     sayfa = _TamAkisSayfasi(dosya_girisleri=[eski_giris, yeni_giris])

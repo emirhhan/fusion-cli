@@ -1496,12 +1496,11 @@ async def _deliver_turn(
 
 def _native_login_executable() -> str | None:
     """macOS'ta elle giriş için kurulu normal Chrome'u bul."""
-    if sys.platform != "darwin":
-        return None
-    for base in (Path("/Applications"), Path.home() / "Applications"):
-        executable = base / "Google Chrome.app/Contents/MacOS/Google Chrome"
-        if executable.is_file():
-            return str(executable)
+    if sys.platform == "darwin":
+        for base in (Path("/Applications"), Path.home() / "Applications"):
+            executable = base / "Google Chrome.app/Contents/MacOS/Google Chrome"
+            if executable.is_file():
+                return str(executable)
     return None
 
 

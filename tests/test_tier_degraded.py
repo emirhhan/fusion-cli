@@ -74,7 +74,11 @@ class _SahteSaglayici:
 
 async def test_uyusmazlik_varsa_tier_degraded_yayinlanir():
     result = ModelResult(
-        name="ogretmen", model="gemini_web/main/pro", text="c", latency_ms=1, ok=True,
+        name="ogretmen",
+        model="gemini_web/main/pro",
+        text="c",
+        latency_ms=1,
+        ok=True,
         served_by="Flash-Lite",
     )
     publisher = _Publisher()
@@ -90,7 +94,11 @@ async def test_uyusmazlik_varsa_tier_degraded_yayinlanir():
 
 async def test_auto_kademede_tier_degraded_yayinlanmaz():
     result = ModelResult(
-        name="ogretmen", model="gemini_web/main/auto", text="c", latency_ms=1, ok=True,
+        name="ogretmen",
+        model="gemini_web/main/auto",
+        text="c",
+        latency_ms=1,
+        ok=True,
         served_by="Flash-Lite",
     )
     publisher = _Publisher()
@@ -103,7 +111,11 @@ async def test_auto_kademede_tier_degraded_yayinlanmaz():
 
 async def test_uyusma_varsa_tier_degraded_yayinlanmaz():
     result = ModelResult(
-        name="ogretmen", model="gemini_web/main/pro", text="c", latency_ms=1, ok=True,
+        name="ogretmen",
+        model="gemini_web/main/pro",
+        text="c",
+        latency_ms=1,
+        ok=True,
         served_by="Gemini 3 Pro",
     )
     publisher = _Publisher()
@@ -117,7 +129,11 @@ async def test_uyusma_varsa_tier_degraded_yayinlanmaz():
 async def test_model_call_finished_yine_yayinlanir():
     """Yeni olay ESKİ olayın yerini almaz, YANINA eklenir."""
     result = ModelResult(
-        name="ogretmen", model="gemini_web/main/pro", text="c", latency_ms=1, ok=True,
+        name="ogretmen",
+        model="gemini_web/main/pro",
+        text="c",
+        latency_ms=1,
+        ok=True,
         served_by="Flash-Lite",
     )
     publisher = _Publisher()

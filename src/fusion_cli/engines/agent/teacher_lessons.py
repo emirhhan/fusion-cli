@@ -27,9 +27,7 @@ _CATISMA_ISARETLERI = ("değil", "yapma", "kullanma", "etme", "asla", "sakın", 
 _LESSON_TEXT_LIMIT = 2_000
 
 
-def sync_teacher_lesson(
-    memory: LessonMemory, *, question: str, answer: str
-) -> tuple[bool, str]:
+def sync_teacher_lesson(memory: LessonMemory, *, question: str, answer: str) -> tuple[bool, str]:
     """Öğretmen cevabını derse çevirip belleğe yaz.
 
     `(yazıldı_mı, atlama_gerekçesi)` döner — gerekçe yalnız `yazıldı_mı=False`

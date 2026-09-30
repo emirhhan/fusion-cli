@@ -52,9 +52,7 @@ async def test_hiz_sinirinda_beklenip_ayni_cagri_yeniden_denenir(
     )
     _kur(monkeypatch, saglayici)
 
-    sonuc = await run_agent(
-        "görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3})
-    )
+    sonuc = await run_agent("görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3}))
 
     assert sonuc.ok
     assert sonuc.final_text.startswith("Tamamlandı")
@@ -69,9 +67,7 @@ async def test_kalici_hata_yeniden_denenmez(monkeypatch, tmp_path, sink, bekleme
         ScriptedProvider([model_result(ok=False, error="401 Unauthorized: invalid API key")]),
     )
 
-    sonuc = await run_agent(
-        "görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3})
-    )
+    sonuc = await run_agent("görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3}))
 
     assert not sonuc.ok
     assert beklemeler == []
@@ -86,9 +82,7 @@ async def test_denemeler_bitince_ham_istisna_yerine_turkce_aciklama(
         ScriptedProvider([model_result(ok=False, error=HIZ_SINIRI) for _ in range(5)]),
     )
 
-    sonuc = await run_agent(
-        "görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 2})
-    )
+    sonuc = await run_agent("görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 2}))
 
     assert not sonuc.ok
     assert len(beklemeler) == 2

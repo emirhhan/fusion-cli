@@ -681,9 +681,7 @@ class _PlanRun:
             # ziyarette hak kalmadığı için koşu hiçbir şey teslim etmeden
             # duraklatıldı. Kontrolü bağlı yürütme adımına taşımak yeni yetki
             # açmaz ve cevabı değişmeyen bir soruyu tekrar sormaz.
-            onarilmis = repair_discovery_phase(
-                self.current, step, frozenset(unavailable)
-            )
+            onarilmis = repair_discovery_phase(self.current, step, frozenset(unavailable))
             if onarilmis is not None:
                 self.current = onarilmis
                 self.save()
@@ -720,9 +718,7 @@ class _PlanRun:
             # plan anlattı ve adım "kurtarma hakkı tükendi" ile duraklatıldı — hiçbir
             # asset indirilmedi.
             observe = False
-        guidance = (
-            repair_guidance(self.repair_findings) if step.step_id in self.repair_ids else ""
-        )
+        guidance = repair_guidance(self.repair_findings) if step.step_id in self.repair_ids else ""
         local_repair = False
         while True:
             executed = await self.execute(
@@ -959,9 +955,7 @@ class _PlanRun:
             merged = merge_replanned_plan(self.current, generated.plan, step.step_id, fingerprint)
             if merged is not None:
                 break
-            son_hata = (
-                "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti."
-            )
+            son_hata = "Yeniden plan aynı başarısız hedefi tekrarladı veya geçersiz bir dal üretti."
         if merged is None:
             # Bölme de tutmadıysa karar KULLANICININ: model bu adımı kendi başına
             # aşamıyor ve körlemesine denemeye devam etmek bütçeyi yakmaktan başka

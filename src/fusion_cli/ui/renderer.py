@@ -256,7 +256,8 @@ class ConsoleRenderer:
         elif isinstance(event, TeacherPlanPrepared):
             self._status(
                 messages.AGENT_TEACHER_PLAN.format(steps=event.steps)
-                if event.structured else messages.AGENT_TEACHER_PLAN_NOTE
+                if event.structured
+                else messages.AGENT_TEACHER_PLAN_NOTE
             )
         elif isinstance(event, NarrationPublished):
             self._status(event.text)
@@ -280,9 +281,7 @@ class ConsoleRenderer:
             )
         elif isinstance(event, TeacherMemoryUsed):
             self._status(
-                messages.AGENT_TEACHER_MEMORY.format(
-                    steps=event.steps, similarity=event.similarity
-                )
+                messages.AGENT_TEACHER_MEMORY.format(steps=event.steps, similarity=event.similarity)
             )
         elif isinstance(event, TeacherLessonRecorded):
             if not event.reused:

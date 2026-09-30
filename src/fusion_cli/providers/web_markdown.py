@@ -27,9 +27,33 @@ _ATILAN = frozenset({"script", "style", "button", "svg", "noscript", "template"}
 #: Kod bloğunun üstüne sağlayıcının bastığı dil etiketleri; içerik değil süstür.
 _DIL_ETIKETLERI = frozenset(
     {
-        "plaintext", "text", "python", "bash", "shell", "sh", "json", "yaml", "yml",
-        "javascript", "typescript", "html", "css", "sql", "ini", "toml", "gdscript",
-        "markdown", "md", "diff", "xml", "java", "go", "rust", "c", "c++", "cpp",
+        "plaintext",
+        "text",
+        "python",
+        "bash",
+        "shell",
+        "sh",
+        "json",
+        "yaml",
+        "yml",
+        "javascript",
+        "typescript",
+        "html",
+        "css",
+        "sql",
+        "ini",
+        "toml",
+        "gdscript",
+        "markdown",
+        "md",
+        "diff",
+        "xml",
+        "java",
+        "go",
+        "rust",
+        "c",
+        "c++",
+        "cpp",
     }
 )
 #: `class="language-python"` gibi sınıflardan dil adını çıkarır.

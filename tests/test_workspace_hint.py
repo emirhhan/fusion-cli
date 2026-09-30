@@ -87,9 +87,7 @@ def test_kardesin_cocugu_da_bulunur(tmp_path):
     """
     yanlis = tmp_path / "fusion-cli"
     yanlis.mkdir()
-    dogru = _proje(
-        tmp_path / "projeler", "ORNEK PROJE", ("app/page.tsx", "components/Sidebar.tsx")
-    )
+    dogru = _proje(tmp_path / "projeler", "ORNEK PROJE", ("app/page.tsx", "components/Sidebar.tsx"))
 
     bulunan = find_workspace_for(("app/page.tsx", "components/Sidebar.tsx"), yanlis)
 

@@ -138,8 +138,7 @@ def suggest_followups(
             Followup(
                 label=f"Değişiklikleri gözden geçir ({_dosya_ozeti(evidence.changed_files)})",
                 prompt=(
-                    "Bu turda yaptığın değişiklikleri gözden geçir ve riskli bir yer "
-                    "varsa söyle."
+                    "Bu turda yaptığın değişiklikleri gözden geçir ve riskli bir yer varsa söyle."
                 ),
                 reason="changed_files",
             )

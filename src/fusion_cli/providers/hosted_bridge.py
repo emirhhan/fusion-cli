@@ -59,9 +59,7 @@ class HostedSessionChannel:
         timeout_s = session.timeout_s
         if self.timeout_floor_s is not None:
             timeout_s = max(timeout_s, self.timeout_floor_s)
-        transport = build_browser_transport(
-            session, timeout_s=timeout_s, trace_dir=self.trace_dir
-        )
+        transport = build_browser_transport(session, timeout_s=timeout_s, trace_dir=self.trace_dir)
         turn = await transport(self._credential(session), tuple(history), session.model)
         history.append(Message(role="assistant", content=turn.text))
         self._trim(history)

@@ -76,10 +76,7 @@ def evaluate(report: RunReport) -> AcceptanceVerdict:
             AcceptanceCheck(
                 name="oturum tamamlanması",
                 passed=tamamlanma >= MIN_COMPLETION_RATE,
-                detail=(
-                    f"{report.measured_task_count}/{report.task_count} ölçüldü "
-                    f"(eşik: tamamı)"
-                ),
+                detail=(f"{report.measured_task_count}/{report.task_count} ölçüldü (eşik: tamamı)"),
             ),
             AcceptanceCheck(
                 name="ortalama tur süresi",

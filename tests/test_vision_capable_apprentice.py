@@ -63,15 +63,13 @@ def test_zincirde_gercek_bir_vision_tagli_aday_var():
     config = load_config()
 
     vision_adaylari = [
-        candidate
-        for candidate in (config.agent, *config.candidates)
-        if "vision" in candidate.tags
+        candidate for candidate in (config.agent, *config.candidates) if "vision" in candidate.tags
     ]
 
     assert vision_adaylari, "hiçbir agent adayında ölçülmüş vision etiketi yok"
-    assert any(
-        "nemotron-3-nano-omni" in candidate.model for candidate in vision_adaylari
-    ), "ölçülen vision modeli zincirde/havuzda yok"
+    assert any("nemotron-3-nano-omni" in candidate.model for candidate in vision_adaylari), (
+        "ölçülen vision modeli zincirde/havuzda yok"
+    )
 
 
 async def test_view_image_araci_vision_tagsiz_agentta_da_calisir(tmp_path, monkeypatch):

@@ -109,8 +109,10 @@ def test_basarili_ve_benzer_plan_yeniden_kullanilir() -> None:
     memory = _FakeLessons((_plan_lesson(_TASK),))
 
     found = find_reusable_plan(
-        memory, "src/app.py dosyasındaki add hatasını düzelt ve testleri çalıştır",
-        workspace="", tags=(),
+        memory,
+        "src/app.py dosyasındaki add hatasını düzelt ve testleri çalıştır",
+        workspace="",
+        tags=(),
     )
 
     assert found is not None
@@ -147,8 +149,12 @@ def test_basarili_turun_plani_kanitla_yazilir_ve_tekrarinda_guclenir() -> None:
     plan = parse_teacher_plan(_PLAN_JSON)
 
     assert record_plan_outcome(
-        memory, task="src/app.py hatasını düzelt", plan=plan, success=True,
-        workspace="/kok", tags=("python",),
+        memory,
+        task="src/app.py hatasını düzelt",
+        plan=plan,
+        success=True,
+        workspace="/kok",
+        tags=("python",),
     )
     lesson = memory.lessons[0]
     assert lesson.source is LessonSource.TEACHER
@@ -157,8 +163,12 @@ def test_basarili_turun_plani_kanitla_yazilir_ve_tekrarinda_guclenir() -> None:
     assert lesson.workspace == "/kok"
 
     record_plan_outcome(
-        memory, task="src/app.py hatasını düzelt", plan=plan, success=True,
-        workspace="/kok", tags=("python",),
+        memory,
+        task="src/app.py hatasını düzelt",
+        plan=plan,
+        success=True,
+        workspace="/kok",
+        tags=("python",),
     )
     assert len(memory.lessons) == 1
     assert memory.lessons[0].success_count == 2
@@ -218,7 +228,8 @@ async def test_otomatik_plan_cevabi_tur_bitmeden_ders_olarak_yazilmaz(
 
     plan_lessons = [lesson for lesson in memory.lessons if lesson.scope == TEACHER_PLAN_SCOPE]
     other_teacher = [
-        lesson for lesson in memory.lessons
+        lesson
+        for lesson in memory.lessons
         if lesson.source is LessonSource.TEACHER and lesson.scope != TEACHER_PLAN_SCOPE
     ]
     assert result.ok is True
@@ -253,12 +264,17 @@ def test_uzun_gorev_kendi_kaydedilen_planini_bulur() -> None:
     uzun = (
         "stokapp projesine tedarikçi fiyat listesinden toplu fiyat içe aktarma özelliği ekle.\n"
         "Gereksinimler:\n1. Yeni modül stokapp/aktarim.py içinde fiyatlari_aktar olsun.\n"
-        + "2. Satış fiyatı liste fiyatının yüzde doksan altısı, tam TL'ye yuvarlanır.\n" * 8
+        + "2. Satış fiyatı liste fiyatının yüzde doksan altısı, tam TL'ye yuvarlanır.\n"
+        * 8
     )
     memory = _FakeLessons()
     record_plan_outcome(
-        memory, task=uzun, plan=parse_teacher_plan(_PLAN_JSON), success=True,
-        workspace="/kok-1", tags=(),
+        memory,
+        task=uzun,
+        plan=parse_teacher_plan(_PLAN_JSON),
+        success=True,
+        workspace="/kok-1",
+        tags=(),
     )
 
     found = find_reusable_plan(memory, uzun, workspace="/kok-2", tags=())

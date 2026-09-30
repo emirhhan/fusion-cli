@@ -217,6 +217,7 @@ def _run_listen_build(
     return result, output
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS yardımcısı codesign ile imzalanır")
 @pytest.mark.parametrize("arch", ["arm64", "x86_64"])
 def test_macos_listen_adapter_contract_builds_fusion_listen(tmp_path: Path, arch: str):
     result, output = _run_listen_build(
@@ -610,6 +611,9 @@ def test_runtime_derlemesi_izlenen_readme_dosyasini_korur(tmp_path: Path, monkey
         executable.chmod(0o755)
 
     monkeypatch.setattr(runtime_builder, "_run_pyinstaller", fake_pyinstaller)
+    # Test README korunmasını sınar; hedef üçlüsü paketlenen platformlarla
+    # (macOS/Windows) sınırlı olduğu için Linux'ta da koşsun diye sabitlenir.
+    monkeypatch.setattr(runtime_builder, "platform_target", lambda *_: "aarch64-apple-darwin")
 
     build_runtime(output, tmp_path / "work")
 

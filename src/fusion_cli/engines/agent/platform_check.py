@@ -97,8 +97,10 @@ async def run_platform_check(
             except TimeoutError:
                 continue
             if result.ok and result.output.strip() and "sonuç bulunamadı" not in result.output:
-                sources.append(f"[{platform.name} · {platform.docs_domain}]\n"
-                               + redact(result.output)[:_RESULT_CHARS])
+                sources.append(
+                    f"[{platform.name} · {platform.docs_domain}]\n"
+                    + redact(result.output)[:_RESULT_CHARS]
+                )
     deps.platform_check_verified = bool(sources)
     deps.platform_names = names
     if sources:

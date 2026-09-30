@@ -86,10 +86,10 @@ def stop_all_login_processes() -> None:
         try:
             if process.poll() is not None:
                 continue
-            if os.name == "posix":
-                os.killpg(pid, signal.SIGTERM)
-            else:  # pragma: no cover - Windows paketinde süreç grubu API'si farklıdır
+            if sys.platform == "win32":  # pragma: no cover - süreç grubu API'si farklıdır
                 process.terminate()
+            else:
+                os.killpg(pid, signal.SIGTERM)
         except OSError:
             pass
         finally:
@@ -384,7 +384,9 @@ async def set_session_model_choice(
                 tool_eval_passed=(
                     item.tool_eval_passed if selected == item.selected_model else False
                 ),
-            ) if item is session else item
+            )
+            if item is session
+            else item
             for item in config.web_sessions
         ),
     )

@@ -153,9 +153,7 @@ async def test_dusen_adimin_geri_alinan_dosyalari_duraklama_metninde_ve_gecmiste
             final_text="denedim", messages=[Message("assistant", "denedim")], model_calls_made=1
         )
 
-    result = await run_execution_plan(
-        "iş", _FakeDeps(ToolContext(root=tmp_path)), agent, plan=plan
-    )
+    result = await run_execution_plan("iş", _FakeDeps(ToolContext(root=tmp_path)), agent, plan=plan)
 
     assert not result.ok
     assert "Geri alınan değişiklikler: a.py, b.py" in result.final_text

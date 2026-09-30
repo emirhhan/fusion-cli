@@ -148,9 +148,13 @@ def install_native_host(extension_ids: set[str], home: Path | None = None) -> li
 
     `FUSION_NO_NATIVE_HOST` tanımlıysa (testler) hiçbir şey yazılmaz.
     """
-    if sys.platform != "darwin" or os.environ.get("FUSION_NO_NATIVE_HOST"):
-        return []
-    home = home or Path.home()
+    if sys.platform == "darwin" and not os.environ.get("FUSION_NO_NATIVE_HOST"):
+        return _write_native_host(extension_ids, home or Path.home())
+    return []
+
+
+def _write_native_host(extension_ids: set[str], home: Path) -> list[Path]:
+    """macOS'ta başlatıcı betiği ve her Chrome dizinine bildirim dosyasını yaz."""
     betik = base_config_dir() / "chrome-host.sh"
     betik.parent.mkdir(parents=True, exist_ok=True)
     komut = " ".join(f"'{parca}'" for parca in _host_command())

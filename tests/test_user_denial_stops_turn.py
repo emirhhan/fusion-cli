@@ -78,9 +78,7 @@ class _EtkilesimsizOnayci:
         return ApprovalAnswer.UNAVAILABLE
 
 
-async def test_kullanici_reddedince_tur_ikinci_model_cagrisi_yapmadan_biter(
-    monkeypatch, tmp_path
-):
+async def test_kullanici_reddedince_tur_ikinci_model_cagrisi_yapmadan_biter(monkeypatch, tmp_path):
     sink = RecordingSink()
     provider = _kur(
         monkeypatch,

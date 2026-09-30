@@ -1132,9 +1132,7 @@ async def _drive(
             and (allowed_tools is None or "ask_teacher" in allowed_tools)
         ):
             deps.auto_teacher_used = True
-            await _consult_teacher_on_plateau(
-                messages, deps, registry, state, reason=teacher_stall
-            )
+            await _consult_teacher_on_plateau(messages, deps, registry, state, reason=teacher_stall)
         takeover = _teacher_takeover_spec(deps, state, execution, auto_teacher=auto_teacher)
         if takeover is not None:
             deps.active_model_override = takeover
@@ -1605,8 +1603,7 @@ async def _call_with_retries(
         except TimeoutError:
             result = None
         retryable = not state.call_streamed and (
-            result is None
-            or (not result.is_usable and not is_permanent_error(result.error))
+            result is None or (not result.is_usable and not is_permanent_error(result.error))
         )
         out_of_time = budget.time_stop_reason() is not None
         max_retries = deps.config.runtime.model_retry_attempts
@@ -2042,9 +2039,7 @@ def _has_teacher_plan(deps: AgentDeps) -> bool:
     return deps.pending_teacher_plan is not None or deps.reused_teacher_lesson is not None
 
 
-def _plateau_reason(
-    state: _State, deps: AgentDeps, *, exploration_note: str | None
-) -> str | None:
+def _plateau_reason(state: _State, deps: AgentDeps, *, exploration_note: str | None) -> str | None:
     """Otomatik öğretmen danışması için somut takılma nedeni; yoksa None.
 
     Plan varken "okuma uzun sürdü" tek başına neden değildir: plan zaten ilk
@@ -2073,8 +2068,12 @@ def _plateau_question(deps: AgentDeps, reason: str) -> str:
 
 
 async def _consult_teacher_on_plateau(
-    messages: list[Message], deps: AgentDeps, registry: ToolRegistry, state: _State,
-    *, reason: str = "okuma ve arama adımlarında ilerleme yok",
+    messages: list[Message],
+    deps: AgentDeps,
+    registry: ToolRegistry,
+    state: _State,
+    *,
+    reason: str = "okuma ve arama adımlarında ilerleme yok",
 ) -> None:
     """Ask the configured web teacher once when a complex task stalls in reading.
 
@@ -2093,8 +2092,7 @@ async def _consult_teacher_on_plateau(
         "question": _plateau_question(deps, reason),
         "durum": f"Görev özeti: {redact(original_task)[:700]}",
         "denenenler": (
-            f"Ajan {state.tool_calls_made} araç çağrısı yaptı. "
-            f"Takılma nedeni: {reason}."
+            f"Ajan {state.tool_calls_made} araç çağrısı yaptı. Takılma nedeni: {reason}."
         ),
     }
     call = ToolCall(

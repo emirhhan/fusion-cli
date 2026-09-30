@@ -80,10 +80,21 @@ def test_ogretmen_varsa_arac_sunulur(tmp_path):
 
 def test_kayitli_web_oturumu_ajanin_ogretmen_aracini_acar(tmp_path):
     path = tmp_path / "config.yaml"
-    path.write_text(yaml.safe_dump({"web_sessions": [{
-        "provider": "gemini_web", "model": "gemini_web/main/auto",
-        "login_verified": True, "enabled": True,
-    }]}), encoding="utf-8")
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "web_sessions": [
+                    {
+                        "provider": "gemini_web",
+                        "model": "gemini_web/main/auto",
+                        "login_verified": True,
+                        "enabled": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     deps = _deps(tmp_path)
     deps.config = load_config(path)
 

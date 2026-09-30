@@ -86,9 +86,7 @@ def _tar_uyeleri(arsiv: tarfile.TarFile, kok: Path) -> list[tuple[tarfile.TarInf
         if not (bilgi.isfile() or bilgi.islnk() or bilgi.issym()):
             # Aygıt dosyası, FIFO: bir asset paketinde işi yoktur.
             raise _ArchiveError(f"Arşivde olağandışı üye var, açılmadı: {bilgi.name}")
-        uye = _dogrula(
-            bilgi.name, bilgi.size, kok, baglanti_mi=bilgi.islnk() or bilgi.issym()
-        )
+        uye = _dogrula(bilgi.name, bilgi.size, kok, baglanti_mi=bilgi.islnk() or bilgi.issym())
         toplam += uye.boyut
         _siniri_denetle(len(uyeler) + 1, toplam)
         uyeler.append((bilgi, uye))

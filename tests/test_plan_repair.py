@@ -90,9 +90,7 @@ async def test_final_bozulan_adimi_onarir_bagimsizi_korur(tmp_path, recovery, ex
     called = []
 
     async def agent(task, agent_deps, **kwargs):
-        name = next(
-            step.step_id for step in plan.steps if f"[Plan adımı {step.step_id}]" in task
-        )
+        name = next(step.step_id for step in plan.steps if f"[Plan adımı {step.step_id}]" in task)
         called.append(name)
         path = {"create": "a.txt", "independent": "b.txt", "finish": "c.txt"}[name]
         (tmp_path / path).write_text("sağlam")
@@ -157,9 +155,7 @@ async def test_kesif_adimi_ilk_denemede_de_gozlemle_calisir(tmp_path):
         seen.append((agent_deps.execution.allow_mutation, kwargs.get("allowed_tools")))
         return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
 
-    result = await run_execution_plan(
-        "iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,))
-    )
+    result = await run_execution_plan("iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,)))
     assert result.ok
     assert len(seen) == 1
     allow_mutation, allowed_tools = seen[0]
@@ -195,9 +191,7 @@ async def test_kesif_adimi_istemi_gozlem_notu_tasir(tmp_path):
         seen_prompts.append(task)
         return AgentOutcome(final_text="okundu", messages=[], model_calls_made=1)
 
-    result = await run_execution_plan(
-        "iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,))
-    )
+    result = await run_execution_plan("iş", deps, agent, plan=ExecutionPlan("kesif", "iş", (step,)))
     assert result.ok
     assert len(seen_prompts) == 1
     assert "GÖZLEM TURU" in seen_prompts[0]
@@ -593,9 +587,7 @@ def test_final_onarim_yonergesi_bozulan_kosulu_birebir_tasir():
     """
     from fusion_cli.engines.agent.plan_runner import repair_guidance
 
-    yonerge = repair_guidance(
-        ("indirilen varlıklar üründe HİÇ kullanılmamış: assets/player.png",)
-    )
+    yonerge = repair_guidance(("indirilen varlıklar üründe HİÇ kullanılmamış: assets/player.png",))
 
     assert "BOZULAN KOŞULLAR" in yonerge
     assert "assets/player.png" in yonerge

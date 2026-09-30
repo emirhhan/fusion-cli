@@ -8,6 +8,7 @@ import os
 import platform
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -62,8 +63,9 @@ def terminate_process_tree(pid: int, *, force: bool) -> None:
                 timeout=10,
             )
         return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
+    if sys.platform != "win32":  # süreç grubu API'si yalnız POSIX'te var
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(pid, signal.SIGKILL if force else signal.SIGTERM)
 
 
 _MAX_BUFFER = 256 * 1024

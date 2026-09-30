@@ -267,9 +267,7 @@ async def run_agent_task(
             )
         )
         if oneriler:
-            bus.publish(
-                FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler))
-            )
+            bus.publish(FollowupsSuggested(tuple((item.label, item.prompt) for item in oneriler)))
         bus.publish(TurnOutcome(status=status, elapsed_s=time.monotonic() - started_at))
         bus.publish(TurnFinished())
         return outcome

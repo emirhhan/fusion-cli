@@ -151,9 +151,7 @@ class SqliteAccountStore:
             return None
         return _account(row) if verify_secret(password, row["password_hash"]) else None
 
-    def reset_password(
-        self, *, identifier: str, recovery_code: str, new_password: str
-    ) -> bool:
+    def reset_password(self, *, identifier: str, recovery_code: str, new_password: str) -> bool:
         """Kurtarma koduyla parolayı değiştir; kod TEK KULLANIMLIKTIR."""
         if len(new_password) < PASSWORD_MIN_CHARS:
             raise AccountError(f"Parola en az {PASSWORD_MIN_CHARS} karakter olmalı.")
@@ -175,9 +173,7 @@ class SqliteAccountStore:
             )
         return True
 
-    def update_profile(
-        self, account_id: str, *, username: str, email: str, avatar: str
-    ) -> Account:
+    def update_profile(self, account_id: str, *, username: str, email: str, avatar: str) -> Account:
         with self._connect() as connection:
             try:
                 connection.execute(

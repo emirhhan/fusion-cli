@@ -390,9 +390,7 @@ def unused_manifest_assets(manifest: Path, root: Path) -> tuple[str, ...]:
     varliklar = [
         name
         for name in entries
-        if isinstance(name, str)
-        and name
-        and Path(name).suffix.casefold() in _USABLE_ASSET_SUFFIXES
+        if isinstance(name, str) and name and Path(name).suffix.casefold() in _USABLE_ASSET_SUFFIXES
     ]
     if not varliklar:
         return ()

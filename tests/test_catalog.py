@@ -8,11 +8,14 @@ import pytest
 from fusion_cli.providers import catalog
 
 
-@pytest.mark.parametrize(("status", "tool_calls", "expected"), [
-    (200, [{"function": {"name": "sum", "arguments": '{"a":2,"b":3}'}}], True),
-    (200, [], False),
-    (404, [], False),
-])
+@pytest.mark.parametrize(
+    ("status", "tool_calls", "expected"),
+    [
+        (200, [{"function": {"name": "sum", "arguments": '{"a":2,"b":3}'}}], True),
+        (200, [], False),
+        (404, [], False),
+    ],
+)
 def test_nim_modeli_secmeden_once_arac_cagrisi_dogrulanir(
     monkeypatch, status, tool_calls, expected
 ):
@@ -31,9 +34,11 @@ def test_nim_modeli_secmeden_once_arac_cagrisi_dogrulanir(
         def post(self, url, *, headers, json):
             assert headers == {"Authorization": "Bearer test-key"}
             assert json["model"] == "z-ai/glm-5.3"
-            return httpx.Response(status, json={"choices": [{"message": {
-                "tool_calls": tool_calls
-            }}]}, request=httpx.Request("POST", url))
+            return httpx.Response(
+                status,
+                json={"choices": [{"message": {"tool_calls": tool_calls}}]},
+                request=httpx.Request("POST", url),
+            )
 
     monkeypatch.setattr(catalog.httpx, "Client", Client)
     ok, reason = catalog.probe_nim_tools("nvidia_nim/z-ai/glm-5.3")

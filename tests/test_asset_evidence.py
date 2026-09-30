@@ -254,9 +254,7 @@ def test_belge_duzeyi_manifestinde_lisans_yoksa_gecmez(tmp_path):
     """Tolerans BİÇİMdedir: eksik lisans yine düşer."""
     (tmp_path / "player.png").write_bytes(_png(8, 8))
     manifest = tmp_path / "ASSETS.json"
-    manifest.write_text(
-        json.dumps({"source": "https://example.com/pack", "files": ["player.png"]})
-    )
+    manifest.write_text(json.dumps({"source": "https://example.com/pack", "files": ["player.png"]}))
 
     bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
 
@@ -266,9 +264,7 @@ def test_belge_duzeyi_manifestinde_lisans_yoksa_gecmez(tmp_path):
 def test_belge_duzeyi_manifesti_indirilmemis_dosyayi_gizlemez(tmp_path):
     manifest = tmp_path / "ASSETS.json"
     manifest.write_text(
-        json.dumps(
-            {"source": "https://example.com/p", "license": "CC0", "files": ["yok.png"]}
-        )
+        json.dumps({"source": "https://example.com/p", "license": "CC0", "files": ["yok.png"]})
     )
 
     bulgular = " ".join(validate_asset_inventory(manifest, tmp_path))
@@ -408,7 +404,7 @@ def test_sahnede_anilan_varlik_kullanilmis_sayilir(tmp_path):
     (tmp_path / "Tiles").mkdir()
     (tmp_path / "Tiles/tile_0000.png").write_bytes(_png(8, 8))
     (tmp_path / "main.tscn").write_text(
-        '[gd_scene format=3]\n'
+        "[gd_scene format=3]\n"
         '[ext_resource type="Texture2D" path="res://Tiles/tile_0000.png" id="1"]\n'
     )
     manifest = _kenney_manifest(tmp_path, ["Tiles/tile_0000.png"])

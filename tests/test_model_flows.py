@@ -250,10 +250,12 @@ def test_katalog_bos_donerse_sebebi_soylenir(config, monkeypatch):
 
 def test_nim_modeli_arac_dogrulamasi_gecmeden_kaydedilmez(config, monkeypatch):
     model = "nvidia_nim/z-ai/glm-5.3"
-    monkeypatch.setattr(model_flows.catalog, "fetch_nim",
-                        lambda: (CatalogEntry(model, "nvidia_nim"),))
-    monkeypatch.setattr(model_flows.catalog, "probe_nim_tools",
-                        lambda _model: (False, "Araç çağrısı doğrulanmadı."))
+    monkeypatch.setattr(
+        model_flows.catalog, "fetch_nim", lambda: (CatalogEntry(model, "nvidia_nim"),)
+    )
+    monkeypatch.setattr(
+        model_flows.catalog, "probe_nim_tools", lambda _model: (False, "Araç çağrısı doğrulanmadı.")
+    )
 
     sonuc = model_flows.choose_development(config, picker=_sirayla("nim-free", model))
 

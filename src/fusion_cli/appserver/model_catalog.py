@@ -97,8 +97,10 @@ async def list_selectable_models(
                 continue
             seen.add(entry.model_id)
             unverified_nim = source.key == "nim-free" and entry.model_id not in curated_nim
-            unhealthy = source.key == "nim-free" and entry.model_id in curated_nim and (
-                health_cache.is_known_unhealthy(health_path, entry.model_id)
+            unhealthy = (
+                source.key == "nim-free"
+                and entry.model_id in curated_nim
+                and (health_cache.is_known_unhealthy(health_path, entry.model_id))
             )
             aciklama = (
                 "NIM kataloğunda; seçerken araç yeteneği doğrulanır"

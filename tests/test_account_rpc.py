@@ -22,9 +22,7 @@ def servis(tmp_path, monkeypatch):
 
 
 def _kayit(servis, ad="kullanici", posta="e@ornek.com", parola="parola1234"):
-    return servis.register(
-        {"kullanici_adi": ad, "eposta": posta, "parola": parola, "avatar": "🏍️"}
-    )
+    return servis.register({"kullanici_adi": ad, "eposta": posta, "parola": parola, "avatar": "🏍️"})
 
 
 def test_ilk_acilista_kurulum_gerekli_bildirilir(servis):

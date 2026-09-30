@@ -11,8 +11,13 @@ import fcntl
 import logging
 import os
 import secrets
+import sys
 import tempfile
 from pathlib import Path
+
+# Yalnız macOS'ta içe aktarılır (`keys._uses_local_vault`); `fcntl` ve `O_NOFOLLOW`
+# POSIX'e özgüdür. Bu satır mypy'ın modülü Windows hedefinde denetlememesini sağlar.
+assert sys.platform != "win32"
 
 _logger = logging.getLogger(__name__)
 

@@ -35,9 +35,16 @@ def _sign(path: Path) -> None:
 
 def build() -> bool:
     """Yardımcıyı derle. Başarılıysa True döner."""
-    if sys.platform != "darwin":
+    if sys.platform == "darwin":
+        built = _build_macos()
+    else:
         print("Konuşma yardımcısı yalnız macOS'ta derlenir; atlandı.")
-        return False
+        built = False
+    return built
+
+
+def _build_macos() -> bool:
+    """swiftc ile derle ve imzala."""
     if shutil.which("swiftc") is None:
         print("swiftc bulunamadı; konuşma tanıma bu pakette kapalı olacak.")
         return False

@@ -66,9 +66,7 @@ async def test_sohbet_turu_dosya_yazmaz(tmp_path: Path, monkeypatch) -> None:
             [
                 model_result(
                     "Planı dosyaya yazıyorum.",
-                    tool_calls=(
-                        tool_call("write_file", path="kampanya.md", content="plan"),
-                    ),
+                    tool_calls=(tool_call("write_file", path="kampanya.md", content="plan"),),
                 ),
                 model_result("Kampanya planı: hedef kitle, bütçe, takvim."),
             ]

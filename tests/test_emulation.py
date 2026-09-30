@@ -211,7 +211,7 @@ def test_blok_cikarilinca_iki_yanindaki_metin_birbirine_yapismaz():
 
     metin = (
         "Tablo okundu, tıklama başı maliyet ve"
-        f"{CALL_OPEN}\n{{\"name\": \"chrome_page\", \"arguments\": {{}}}}\n{CALL_CLOSE}"
+        f'{CALL_OPEN}\n{{"name": "chrome_page", "arguments": {{}}}}\n{CALL_CLOSE}'
         "Önceki işlemle sayfaya erişildi."
     )
     sonuc = parse_tool_calls(metin)

@@ -1,5 +1,3 @@
-
-
 def test_iceaktarilmamis_varlik_varsa_kapi_once_iceaktarir(tmp_path):
     """Godot bir PNG'yi ancak içe aktardıktan sonra yükleyebilir.
 

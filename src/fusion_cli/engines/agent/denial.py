@@ -25,9 +25,7 @@ from __future__ import annotations
 #: döner. Kullanıcının "hayır" dediği bir işlemi model başka bir yoldan yine de
 #: yapmaya çalışırsa kullanıcının kararı yok sayılmış olur; doğru davranış durup
 #: sormaktır.
-DENIAL_STOP_ANSWER = (
-    "`{tool}` çağrısını onaylamadınız; tur burada durduruldu. Nasıl devam edeyim?"
-)
+DENIAL_STOP_ANSWER = "`{tool}` çağrısını onaylamadınız; tur burada durduruldu. Nasıl devam edeyim?"
 
 #: Reddedilen çağrının kendi tool-sonucu mesajı (konuşma geçmişine yazılır).
 #:
@@ -44,8 +42,7 @@ DENIED_TOOL_RESULT = "Kullanıcı bu işlemi reddetti; tur bu adımda durduruldu
 #: çalıştırılmasa da eşleşen bir "atlandı" mesajı gönderilmezse sağlayıcı isteğin
 #: tamamını (çağrı/sonuç sayısı uyuşmadığı için) reddeder.
 SKIPPED_TOOL_RESULT = (
-    "Bu turda önceki bir işlem reddedildiği için tur durduruldu; bu çağrı hiç "
-    "çalıştırılmadı."
+    "Bu turda önceki bir işlem reddedildiği için tur durduruldu; bu çağrı hiç çalıştırılmadı."
 )
 
 #: Onay SORULAMADI (oturum etkileşimsiz: TTY yok, boru hattı, CI). Kullanıcının

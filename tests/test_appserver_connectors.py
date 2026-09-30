@@ -202,9 +202,7 @@ async def test_yoklamasi_basarisiz_baglanti_kaydedilmez(tmp_path, monkeypatch):
     monkeypatch.setattr("fusion_cli.appserver.connectors.write_mcp_servers", yazilan.append)
 
     async def _dusen(config):
-        return McpConnectionStatus(
-            server=config.name, state="hata", message="Alan adı çözülemedi."
-        )
+        return McpConnectionStatus(server=config.name, state="hata", message="Alan adı çözülemedi.")
 
     fake.verify = _dusen
 

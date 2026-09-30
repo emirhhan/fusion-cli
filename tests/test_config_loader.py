@@ -1,5 +1,3 @@
-
-
 def test_acikca_verilen_fusion_config_yoksa_sessizce_baska_dosyaya_dusulmez(monkeypatch, tmp_path):
     """Ölçüldü: silinmiş geçici config'i gösteren FUSION_CONFIG sessizce kullanıcı
     config'ine düşüyor, tur beklenmeyen modelle çalışıyordu."""

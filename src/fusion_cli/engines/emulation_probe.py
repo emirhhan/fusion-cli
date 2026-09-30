@@ -209,8 +209,7 @@ async def probe_emulation(
                 # Sınıra takılmışken denemeye devam etmek sınırı DERİNLEŞTİRİR:
                 # her deneme yeni bir konuşma isteğidir. Ölçüm burada durur.
                 raise FusionError(
-                    "Sağlayıcı oran sınırına takıldı; ölçüm durduruldu. "
-                    "Sınır kalkınca tekrar dene."
+                    "Sağlayıcı oran sınırına takıldı; ölçüm durduruldu. Sınır kalkınca tekrar dene."
                 )
             raise FusionError(f"Ölçüm sırasında sağlayıcı hatası: {result.error}")
         history.append(Message("assistant", result.text))

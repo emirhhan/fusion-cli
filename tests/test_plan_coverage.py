@@ -194,7 +194,6 @@ async def test_yeniden_planlamada_kapsama_kapisi_calismaz():
     assert sonuc.missing == ()
 
 
-
 def test_asset_adimina_sira_talimati_eklenir():
     """Manifest ÖNCE yazılırsa adım düşer; sıra kapı düşmeden önce söylenir.
 
@@ -420,9 +419,7 @@ def test_bildirilmeyen_ama_dokunulan_dosya_da_adima_baglanir(tmp_path):
     )
     kosu.evidence["gameplay"] = StepCheckpointEvidence(
         step_id="gameplay",
-        tool_uses=(
-            ToolUse("write_file", arguments={"path": "scenes/Player.tscn"}, mutating=True),
-        ),
+        tool_uses=(ToolUse("write_file", arguments={"path": "scenes/Player.tscn"}, mutating=True),),
     )
     bulgu = "Player.tscn: 'Player' düğümüne bağlı Player.gd script'i `$Sprite2D` kullanıyor"
 
@@ -435,7 +432,7 @@ DEADCELLS_GOREVI = GOREV + " deadcells e benzeyen bir oyun olsun"
 
 
 def test_deadcells_istegi_dusman_adimi_zorunlu_kilar():
-    """"Dead Cells benzeri" demek dövüş demektir.
+    """ "Dead Cells benzeri" demek dövüş demektir.
 
     Ölçüldü (13 Eylül, koşu 32): oyun çalıştı, assetler ve hareket tamamdı;
     kullanıcının ilk cümlesi "düşman yok, saldıracağımız bir şey yok" oldu. Plan
