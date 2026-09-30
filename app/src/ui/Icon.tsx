@@ -1,6 +1,12 @@
 import type { ReactNode, SVGProps } from "react";
 
 export type IconName =
+  | "download"
+  | "sparkle"
+  | "expand"
+  | "edit"
+  | "close"
+  | "arrowUp"
   | "folder"
   | "folderOpen"
   | "image"
@@ -30,6 +36,12 @@ export type IconName =
   | "tests";
 
 const paths: Record<IconName, ReactNode> = {
+  download: <><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></>,
+  sparkle: <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3Zm6 12 .8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8L18 15Z" />,
+  expand: <><path d="M15 3h6v6" /><path d="M9 21H3v-6" /><path d="m21 3-7 7" /><path d="m3 21 7-7" /></>,
+  edit: <><path d="M4 20h4L19 9l-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></>,
+  close: <><path d="M6 6l12 12" /><path d="M18 6 6 18" /></>,
+  arrowUp: <><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /></>,
   folder: <path d="M3 7V5a2 2 0 0 1 2-2h5l3 3h6a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7h18" />,
   /* Proje satırı açıkken kapalı klasörün yerini alır: aynı gövde, kapak
      üstte kalkık — Finder'daki "açık klasör" göstergesiyle aynı dil. */

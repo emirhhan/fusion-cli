@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Icon } from "../ui/Icon";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
 import { akisSorunlari, atalar, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
@@ -46,6 +47,8 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
   const [secimIcin, setSecimIcin] = useState<string | null>(null);
   const [mod, setMod] = useState<"basit" | "akis">("basit");
   const [hedef, setHedef] = useState<string | null>(null);
+  /** Büyük görüntüleyicide açık görselin galerideki sırası. */
+  const [acik, setAcik] = useState<number | null>(null);
 
   const istek = useCallback(async (name: string, data: Record<string, unknown>) => {
     if (!client) throw new Error("Çekirdek bağlı değil.");
@@ -175,32 +178,32 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
     setBilgi(`${DUGUM_ETIKETI[tur]} düğümü eklendi. Talimatı ve sağlayıcıyı kontrol edip akışı çalıştır.`);
   };
 
+  const basitIstem = basitAkis.dugumler.find((dugum) => dugum.id === "metin-1")?.istem ?? "";
+  const acikGorsel = acik !== null ? galeri[acik] : undefined;
+
+  /** Galeri kutucuğunun ve görüntüleyicinin ortak eylemleri. */
+  const eylemler = (yol: string) => (
+    <>
+      {secimIcin && <button aria-label="Düğüme kullan" className="image-create__act image-create__act--text" onClick={() => galeridenSec(yol)} title="Düğüme kullan" type="button">Düğüme kullan</button>}
+      <button aria-label="İndir" className="image-create__act" onClick={() => void indir(yol)} title="İndir" type="button"><Icon name="download" size={18} /></button>
+      <button aria-label="Varyasyonla devam et" className="image-create__act" onClick={() => { setAcik(null); sonucUzerindenDevamEt(yol, "varyasyon"); }} title="Varyasyon" type="button"><Icon name="sparkle" size={18} /></button>
+      <button aria-label="Büyüterek devam et" className="image-create__act" onClick={() => { setAcik(null); sonucUzerindenDevamEt(yol, "buyut"); }} title="Büyüt" type="button"><Icon name="expand" size={18} /></button>
+      <button aria-label="Düzenleyerek devam et" className="image-create__act" onClick={() => { setAcik(null); sonucUzerindenDevamEt(yol, "duzenle"); }} title="Düzenle" type="button"><Icon name="edit" size={18} /></button>
+    </>
+  );
+
   return (
-    <section aria-label="Görsel oluştur" className="image-create">
-      <div aria-label="Görsel oluşturma modu" className="image-create__modes" role="group">
-        <button aria-pressed={mod === "basit"} onClick={() => setMod("basit")} type="button">Basit oluştur</button>
-        <button aria-pressed={mod === "akis"} onClick={() => setMod("akis")} type="button">İş akışı</button>
-      </div>
-      {mod === "basit" && (
-        <div className="image-create__simple">
-          <label htmlFor="image-simple-prompt">Nasıl bir görsel istiyorsun?</label>
-          <textarea id="image-simple-prompt" onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: event.target.value }))} value={basitAkis.dugumler.find((dugum) => dugum.id === "metin-1")?.istem ?? ""} />
-          <label htmlFor="image-simple-provider">Görsel modeli</label>
-          <select id="image-simple-provider" onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "uret-1", { saglayici: event.target.value }))} value={basitAkis.dugumler.find((dugum) => dugum.id === "uret-1")?.saglayici ?? ""}>
-            <option value="">Sağlayıcı seç</option>
-            {secenekler.map((item) => <option key={item.deger} value={item.deger}>{item.etiket}</option>)}
-          </select>
-          <button disabled={calisiyor || !client} onClick={() => void calistir()} type="button">{calisiyor ? "Üretiliyor…" : "Görsel oluştur"}</button>
+    <section aria-label="Görsel oluştur" className="image-create" data-mode={mod}>
+      {/* Sayfa başlığı kabuğun üst çubuğunda; burada yalnız kip seçici durur. */}
+      <header className="image-create__top">
+        <div aria-label="Görsel oluşturma modu" className="image-create__modes" role="group">
+          <button aria-pressed={mod === "basit"} onClick={() => setMod("basit")} type="button">Basit oluştur</button>
+          <button aria-pressed={mod === "akis"} onClick={() => setMod("akis")} type="button">İş akışı</button>
         </div>
-      )}
+      </header>
       {mod === "akis" && <>
       <div aria-label="Akış araçları" className="image-create__toolbar" role="toolbar">
         <input aria-label="Akış adı" onChange={(event) => setAkis({ ...akis, ad: event.target.value })} value={akis.ad} />
-        <div className="image-create__add">
-          {EKLENEBILIR.map((tur) => (
-            <button disabled={calisiyor} key={tur} onClick={() => dugumEkle(tur)} type="button">+ {DUGUM_ETIKETI[tur]}</button>
-          ))}
-        </div>
         <select aria-label="Kayıtlı akışlar" onChange={(event) => void yukle(event.target.value)} value="">
           <option value="">Kayıtlı akışlar</option>
           {kayitlilar.map((item) => <option key={item.id} value={item.id}>{item.ad}</option>)}
@@ -218,7 +221,14 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
       )}
       {bilgi && <p className="image-create__info" role="status">{bilgi}</p>}
       <div className="image-create__workspace">
-        {mod === "akis" && <AkisTuvali
+        {mod === "akis" && <div className="image-create__canvas">
+        {/* Flora'daki gibi düğüm paleti tuvalin üstünde yüzer. */}
+        <div aria-label="Düğüm ekle" className="image-create__add" role="group">
+          {EKLENEBILIR.map((tur) => (
+            <button disabled={calisiyor} key={tur} onClick={() => dugumEkle(tur)} type="button">+ {DUGUM_ETIKETI[tur]}</button>
+          ))}
+        </div>
+        <AkisTuvali
           akis={akis}
           calisiyor={calisiyor}
           onChange={setAkis}
@@ -226,23 +236,28 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           onIndir={(yol) => void indir(yol)}
           secenekler={secenekler}
           toUrl={toUrl}
-        />}
+        />
+        </div>}
         <aside aria-label="Galeri" className="image-create__gallery">
-          <h2>Galeri</h2>
-          {!galeri.length && <p>Üretilen görseller burada kalır; "İndir" demeden diske kaydedilmez.</p>}
-          <ul>
-            {galeri.map((gorsel) => {
+          {mod === "akis" && <h2>Galeri</h2>}
+          {!galeri.length && !calisiyor && (
+            <div className="image-create__empty">
+              <strong>Hayal et, Fusion çizsin.</strong>
+              <p>Üretilen görseller burada kalır; "İndir" demeden diske kaydedilmez.</p>
+            </div>
+          )}
+          <ul className="image-create__grid">
+            {calisiyor && mod === "basit" && <li aria-label="Üretiliyor" className="image-create__tile image-create__tile--loading" />}
+            {galeri.map((gorsel, sira) => {
               const adres = toUrl(gorsel.yol);
               return (
-                <li key={gorsel.yol}>
-                  {adres ? <img alt={gorsel.istem || "Üretilen görsel"} src={adres} /> : <div className="image-create__noimg">{gorsel.yol.split("/").pop()}</div>}
-                  <small>{gorsel.saglayici}{gorsel.genislik ? ` · ${gorsel.genislik}×${gorsel.yukseklik}` : ""}</small>
-                  <div>
-                    {secimIcin && <button onClick={() => galeridenSec(gorsel.yol)} type="button">Düğüme kullan</button>}
-                    <button onClick={() => void indir(gorsel.yol)} type="button">İndir</button>
-                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "varyasyon")} type="button">Varyasyonla devam et</button>
-                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "buyut")} type="button">Büyüterek devam et</button>
-                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "duzenle")} type="button">Düzenleyerek devam et</button>
+                <li className="image-create__tile" key={gorsel.yol}>
+                  <button aria-label={`${gorsel.istem || "Görsel"} büyük aç`} className="image-create__open" onClick={() => setAcik(sira)} type="button">
+                    {adres ? <img alt={gorsel.istem || "Üretilen görsel"} loading="lazy" src={adres} /> : <div className="image-create__noimg">{gorsel.yol.split("/").pop()}</div>}
+                  </button>
+                  <div className="image-create__overlay">
+                    <p>{gorsel.istem}</p>
+                    <div className="image-create__acts">{eylemler(gorsel.yol)}</div>
                   </div>
                 </li>
               );
@@ -250,6 +265,54 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           </ul>
         </aside>
       </div>
+      {mod === "basit" && (
+        <div className="image-create__prompt">
+          <textarea
+            aria-label="Nasıl bir görsel istiyorsun?"
+            onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: event.target.value }))}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                if (!calisiyor && client && basitIstem.trim()) void calistir();
+              }
+            }}
+            placeholder="Hayal ettiğin görseli tarif et…"
+            rows={2}
+            value={basitIstem}
+          />
+          <div className="image-create__prompt-bar">
+            <select aria-label="Görsel modeli" onChange={(event) => setBasitAkis(dugumGuncelle(basitAkis, "uret-1", { saglayici: event.target.value }))} value={basitAkis.dugumler.find((dugum) => dugum.id === "uret-1")?.saglayici ?? ""}>
+              <option value="">Model seç</option>
+              {secenekler.map((item) => <option key={item.deger} value={item.deger}>{item.etiket}</option>)}
+            </select>
+            <button aria-label="Görsel oluştur" className="image-create__go" disabled={calisiyor || !client} onClick={() => void calistir()} title={calisiyor ? "Üretiliyor…" : "Görsel oluştur"} type="button">
+              {calisiyor ? <span className="image-create__spinner" /> : <Icon name="arrowUp" size={18} />}
+            </button>
+          </div>
+        </div>
+      )}
+      {acikGorsel && (
+        <div aria-label="Görsel görüntüleyici" aria-modal="true" className="image-create__viewer" onKeyDown={(event) => {
+          if (event.key === "Escape") setAcik(null);
+          if (event.key === "ArrowRight" && acik !== null) setAcik(Math.min(galeri.length - 1, acik + 1));
+          if (event.key === "ArrowLeft" && acik !== null) setAcik(Math.max(0, acik - 1));
+        }} role="dialog" tabIndex={-1} ref={(element) => element?.focus()}>
+          <button aria-label="Görüntüleyiciyi kapat" className="image-create__viewer-close" onClick={() => setAcik(null)} type="button"><Icon name="close" size={20} /></button>
+          <div className="image-create__viewer-stage" onClick={() => setAcik(null)}>
+            {toUrl(acikGorsel.yol) && <img alt="" onClick={(event) => event.stopPropagation()} src={toUrl(acikGorsel.yol) ?? undefined} />}
+          </div>
+          <aside className="image-create__viewer-side">
+            <h2>İstem</h2>
+            <p>{acikGorsel.istem || "İstem kaydı yok."}</p>
+            <dl>
+              <dt>Model</dt><dd>{acikGorsel.saglayici || "—"}</dd>
+              {acikGorsel.genislik > 0 && <><dt>Boyut</dt><dd>{acikGorsel.genislik}×{acikGorsel.yukseklik}</dd></>}
+            </dl>
+            <button className="image-create__reuse" onClick={() => { setBasitAkis(dugumGuncelle(basitAkis, "metin-1", { istem: acikGorsel.istem })); setMod("basit"); setAcik(null); }} type="button">İstemi yeniden kullan</button>
+            <div className="image-create__acts image-create__acts--side">{eylemler(acikGorsel.yol)}</div>
+          </aside>
+        </div>
+      )}
     </section>
   );
 }
