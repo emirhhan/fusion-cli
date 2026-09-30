@@ -84,11 +84,15 @@ const CATALOG: readonly CatalogEntry[] = [
     transport: "streamable_http",
     url: "https://mcp.facebook.com/ads",
     guideUrl: "https://business.facebook.com/settings/system-users",
+    // Adımlar Meta'nın sistem kullanıcısı akışına göre (30 Eylül 2026 araması:
+    // "Add assets", "Generate new token", süre "Never"). Token üretimi bir uygulama
+    // seçmeyi zorunlu kılar; uygulama App Review gerektirmez, kullanıcının kendisine aittir.
     guide: [
-      "Meta İşletme Ayarları'nda Kullanıcılar bölümünden bir sistem kullanıcısı oluştur (çalışan rolü yeterli).",
-      "Reklam hesabını bu sistem kullanıcısına varlık olarak ata; yalnız okuma için görüntüleme izni yeterli.",
-      "Sistem kullanıcısı için yeni bir token oluştur: izinlerde ads_read'i (değişiklik yaptırmak istersen ads_management'ı da) seç, süreyi süresiz bırak.",
-      "Üretilen token'ı kopyala ve aşağıya yapıştır. Token şifreli depoda saklanır, yapılandırma dosyasına yazılmaz.",
+      "developers.facebook.com'da \"İşletme\" türünde bir uygulama oluştur (varsa bu adımı atla). İncelemeye göndermen gerekmez.",
+      "Meta İşletme Ayarları'nda Kullanıcılar → Sistem kullanıcıları'ndan bir sistem kullanıcısı ekle; çalışan rolü yeterli.",
+      "\"Varlık ekle\" (Add assets) ile reklam hesabını ve oluşturduğun uygulamayı bu kullanıcıya ata.",
+      "\"Yeni token oluştur\"a (Generate new token) bas, uygulamanı seç, süreyi \"Hiçbir zaman\" (Never) yap ve ads_read iznini işaretle; değişiklik yaptırmak istersen ads_management'ı da ekle.",
+      "Meta token'ı yalnız bir kez gösterir: kopyala ve aşağıya yapıştır. Şifreli depoda saklanır, yapılandırma dosyasına yazılmaz.",
     ],
     setup: [
       {
