@@ -7,11 +7,13 @@ import io
 from rich.console import Console
 
 from fusion_cli.core.events import (
+    ApprenticeHandoff,
     Channel,
     ErrorOccurred,
     ExecutionCompleted,
     ModelCallFinished,
     ModelCallStarted,
+    NarrationPublished,
     NoFileChanges,
     PlatformChecked,
     SelfReviewFinished,
@@ -58,7 +60,8 @@ def test_ogretmen_karari_plani_ve_siniri_terminalde_gorunur():
     renderer.handle(TeacherPlanPrepared(steps=2, structured=True))
     renderer.handle(
         TeacherLimitationFound(
-            topic="Story çıkartması", reason="API desteklemiyor",
+            topic="Story çıkartması",
+            reason="API desteklemiyor",
             alternative="Bildirimle yayınla",
         )
     )
@@ -82,6 +85,24 @@ def test_hafizadan_plan_ve_ders_kaydi_terminalde_gorunur():
     assert "Hafızadan ilerleniyor: 3 adım" in output
     assert "Öğretmen planı hafızaya yazıldı" in output
     assert "Hafızadaki plan tutmadı" in output
+
+
+def test_anlatim_ve_cirak_devri_terminalde_gorunur():
+    renderer, buffer = _renderer()
+
+    renderer.handle(NarrationPublished(text="İsteği şöyle anladım: modül ekleyeceğim."))
+    renderer.handle(
+        ApprenticeHandoff(
+            selected_model="chatgpt_web/main/auto",
+            apprentice_model="nvidia_nim/c",
+            teacher_model="chatgpt_web/main/auto",
+        )
+    )
+    renderer.handle(TurnFinished())
+
+    output = buffer.getvalue()
+    assert "İsteği şöyle anladım" in output
+    assert "işi nvidia_nim/c yapıyor" in output
 
 
 def test_platform_kontrolu_terminalde_gorunur():
@@ -182,7 +203,11 @@ def test_show_thinking_acikken_yapili_reasoning_alani_basilir():
     console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
     renderer = ConsoleRenderer(console, show_thinking=True)
     result = ModelResult(
-        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
         reasoning="önce X'i dene, olmazsa Y",
     )
 
@@ -194,7 +219,11 @@ def test_show_thinking_acikken_yapili_reasoning_alani_basilir():
 def test_show_thinking_kapaliyken_yapili_reasoning_basilmaz():
     renderer, buffer = _renderer()
     result = ModelResult(
-        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
         reasoning="gizli düşünme",
     )
 
@@ -209,7 +238,11 @@ def test_reasoning_kose_parantez_icerse_bile_bozulmaz():
     console = Console(file=buffer, force_terminal=False, width=200, no_color=True)
     renderer = ConsoleRenderer(console, show_thinking=True)
     result = ModelResult(
-        name="agent", model="m", text="cevap", latency_ms=100, ok=True,
+        name="agent",
+        model="m",
+        text="cevap",
+        latency_ms=100,
+        ok=True,
         reasoning="liste: [a, b, c]",
     )
 

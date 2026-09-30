@@ -345,6 +345,12 @@ export function olayAdimi(veri: Record<string, unknown>): OlayAdimi | null {
         ayrinti: veri.structured === true ? `${Number(veri.steps ?? 0)} adım` : undefined,
         kalici: true,
       };
+    case "ApprenticeHandoff":
+      return {
+        metin: "iş çırak modele devredildi",
+        ayrinti: `${String(veri.selected_model ?? "")} dosya yazamıyor; işi ${String(veri.apprentice_model ?? "")} yapıyor${veri.teacher_model ? `, ${String(veri.teacher_model)} öğretmen` : ""}`,
+        kalici: true,
+      };
     case "PlatformChecked": {
       const platformlar = Array.isArray(veri.platforms) ? veri.platforms.join(", ") : "dış platform";
       return veri.method === "resmi-kaynak"

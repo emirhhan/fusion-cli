@@ -16,6 +16,14 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const akanSonuc = akanCevap(messages, event);
   if (akanSonuc) return akanSonuc;
 
+  if (event.olay === "NarrationPublished") {
+    // Giriş paragrafı ve adım geçişleri adımların ARASINDA normal metin olarak
+    // durur (Claude gibi). Akmakta olan balon varsa önce ara anlatıma sabitlenir.
+    const metin = typeof event.text === "string" ? event.text.trim() : "";
+    if (!metin) return messages;
+    return [...araAnlatimiSabitle(messages), { rol: "asistan", metin, ara: true }];
+  }
+
   const gorevSonuc = gorevListesi(messages, event);
   if (gorevSonuc) return gorevSonuc;
 
@@ -29,7 +37,11 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
     return [...messages, { rol: "olay", metin: adim.metin, adimlar: [adim] }];
   }
 
-  const son = messages[messages.length - 1];
+  // Görev listesi kartı her güncellemede sona taşınır; bloğu BÖLMEMELİ.
+  // Ölçüldü (30 Eylül): her todo_write yeni blok açtırıyor, sohbet "4 adım ·",
+  // "3 adım ·" diye alt alta satırlara bölünüyordu.
+  const sonIndeks = sonBlokIndeksi(messages);
+  const son = sonIndeks >= 0 ? messages[sonIndeks] : undefined;
   const bloklanabilir = son?.rol === "olay" && !son.adimlar?.some((item) => item.sonuc);
   if (!bloklanabilir) {
     // Aynı turun önceki bloğu varsa sayaç ONUN başlangıcından sürer. Ölçüldü
@@ -48,8 +60,17 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
     ];
   }
 
-  const adimlar = adimiEkle(son.adimlar ?? [], adim);
-  return [...messages.slice(0, -1), { ...son, adimlar, metin: adim.metin }];
+  const adimlar = adimiEkle(son?.adimlar ?? [], adim);
+  const guncel = [...messages];
+  guncel[sonIndeks] = { ...(son as Mesaj), adimlar, metin: adim.metin };
+  return guncel;
+}
+
+/** Sondaki görev listesi kartı atlanarak son mesajın konumu. */
+function sonBlokIndeksi(messages: Mesaj[]): number {
+  let indeks = messages.length - 1;
+  while (indeks >= 0 && messages[indeks].rol === "gorevler") indeks -= 1;
+  return indeks;
 }
 
 /**

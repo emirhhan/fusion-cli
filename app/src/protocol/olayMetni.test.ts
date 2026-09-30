@@ -19,6 +19,15 @@ describe("olayAdimi", () => {
     expect(adim?.cikti?.length).toBeLessThan(4100);
     expect(adim?.cikti?.endsWith("…")).toBe(true);
   });
+  it("çırak devrini kalıcı adım olarak gösterir", () => {
+    const adim = olayAdimi({
+      olay: "ApprenticeHandoff", selected_model: "chatgpt_web/main/auto",
+      apprentice_model: "nvidia_nim/cirak", teacher_model: "chatgpt_web/main/auto",
+    });
+    expect(adim?.metin).toBe("iş çırak modele devredildi");
+    expect(adim?.ayrinti).toContain("chatgpt_web/main/auto öğretmen");
+    expect(adim?.kalici).toBe(true);
+  });
   it("dış platform kontrolünü kısa adım olarak gösterir", () => {
     const tamam = olayAdimi({ olay: "PlatformChecked", platforms: ["Instagram"], method: "resmi-kaynak", sources: 1 });
     expect(tamam?.metin).toBe("resmi kaynak kontrol edildi");

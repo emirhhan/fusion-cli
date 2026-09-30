@@ -26,6 +26,7 @@ from rich.padding import Padding
 from rich.text import Text
 
 from ..core.events import (
+    ApprenticeHandoff,
     CandidatesStarted,
     Channel,
     ContextCompressed,
@@ -53,6 +54,7 @@ from ..core.events import (
     ModelCallStarted,
     ModelFallbackActivated,
     MutationUnavailable,
+    NarrationPublished,
     NoFileChanges,
     PlatformChecked,
     SelfReviewFinished,
@@ -255,6 +257,17 @@ class ConsoleRenderer:
             self._status(
                 messages.AGENT_TEACHER_PLAN.format(steps=event.steps)
                 if event.structured else messages.AGENT_TEACHER_PLAN_NOTE
+            )
+        elif isinstance(event, NarrationPublished):
+            self._status(event.text)
+        elif isinstance(event, ApprenticeHandoff):
+            ogretmen = f", {event.teacher_model} öğretmen" if event.teacher_model else ""
+            self._status(
+                messages.AGENT_APPRENTICE_HANDOFF.format(
+                    selected=event.selected_model,
+                    apprentice=event.apprentice_model,
+                    teacher=ogretmen,
+                )
             )
         elif isinstance(event, PlatformChecked):
             template = (

@@ -45,11 +45,13 @@ from ...core.constants import (
 )
 from ...core.errors import ConfigError, FusionError
 from ...core.events import (
+    ApprenticeHandoff,
     Channel,
     ContextCompressed,
     EventPublisher,
     ExecutionRouteSelected,
     MutationUnavailable,
+    NarrationPublished,
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
@@ -89,8 +91,10 @@ from ...tools.emulation import coerce_arguments, render_tool_example, validate_a
 from ...tools.files import resolve_path
 from ...tools.preview import file_diff
 from ...ui.text import strip_thinking
+from ..effects.model import EffectKind
 from ..effects.runner import maybe_run_effect_workflow
 from . import compaction, denial, learning_steps, reflexion, review
+from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .clarify import clarification_hint
@@ -102,6 +106,7 @@ from .execution_policy import (
 )
 from .execution_route import ExecutionRoute, choose_execution_route
 from .history import needs_compression, total_chars
+from .narration import intro_paragraph, todo_transitions
 from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
@@ -513,6 +518,10 @@ async def run_agent(
         # istemediği bir dosya değişikliğinin kanıtını arayıp turu düşürüyordu.
         # Bir kapı turu reddediyorsa dayandığı iddia O TURDA söylenmiş olmalı.
         deps.execution = policy_for(deps.config, selected_spec, task)
+        handed = _hand_off_to_apprentice(task, selected_spec, deps, plan_mode=plan_mode)
+        if handed:
+            # Öğretmen bu tur eklendiyse `ask_teacher` aracı defterde olmalı.
+            registry = build_agent_registry(deps, depth=depth, run_agent=run_agent)
     execution = deps.execution
     if chat_mode:
         # Sohbet turu: değiştirme kapalı, kanıt kapıları kapalı, yalnız okuyan araçlar.
@@ -580,6 +589,7 @@ async def run_agent(
     if depth == 0 and not internal and not plan_mode and not chat_mode:
         await prepare_teacher_plan(task, messages, deps, registry)
         await run_platform_check(task, messages, deps, registry)
+        await _publish_intro(task, messages, deps, execution)
 
     if not plan_mode and not chat_mode and depth == 0:
         route = choose_execution_route(deps.config.runtime.workflow_mode, requested=workflow)
@@ -1447,6 +1457,65 @@ def _shell_contains_git_action(args: dict[str, object], action: str) -> bool:
         rf"git\b(?:(?![;&|\n]).){{0,180}}\b{re.escape(action)}\b"
     )
     return bool(re.search(pattern, command, re.IGNORECASE))
+
+
+async def _publish_intro(
+    task: str, messages: list[Message], deps: AgentDeps, execution: ExecutionPolicy
+) -> None:
+    """Karmaşık işte, işe başlamadan kullanıcıya kısa giriş paragrafı yaz.
+
+    Yalnız API modellerinde istenir: web modelleri metni zaten kendileri yazar
+    ve her web çağrısı onlarca saniye sürer. Giriş modele de not olarak verilir
+    ki aynı cümleleri tekrarlamasın.
+    """
+    if not execution.complex_task or execution.is_web:
+        return
+    intro = await intro_paragraph(task, _active_spec(deps, execution), deps.config, deps.publisher)
+    if not intro:
+        return
+    deps.publisher.publish(NarrationPublished(text=intro))
+    messages.append(
+        Message(
+            "user",
+            f"FUSION_NOT: Kullanıcıya şu girişi zaten yazdın; tekrar etme, işe başla:\n{intro}",
+            harness_note=True,
+        )
+    )
+
+
+def _hand_off_to_apprentice(
+    task: str, selected: ModelSpec, deps: AgentDeps, *, plan_mode: bool
+) -> bool:
+    """Seçili model yazamıyor ama görev yazma istiyorsa turu çırağa devret.
+
+    Yalnız yetenek kısıtında devredilir; kullanıcı kipi (sohbet, plan) ya da
+    salt okuma isteği devri tetiklemez. Yapılandırma değişmez, devir tur kapsamlıdır.
+    """
+    execution = deps.execution
+    if (
+        execution is None
+        or plan_mode
+        or execution.allow_mutation
+        or not execution.mutation_blocked_by_capability
+        or execution.required_effect != EffectKind.WORKSPACE_MUTATION.value
+    ):
+        return False
+    apprentice = apprentice_spec(deps.config)
+    if apprentice is None:
+        return False
+    teacher = teacher_for_turn(deps.config, selected)
+    if teacher is not None and deps.config.teacher is None:
+        deps.config = replace(deps.config, teacher=teacher)
+    deps.active_model_override = apprentice
+    deps.execution = policy_for(deps.config, apprentice, task)
+    deps.publisher.publish(
+        ApprenticeHandoff(
+            selected_model=selected.model,
+            apprentice_model=apprentice.model,
+            teacher_model=teacher.model if teacher is not None else "",
+        )
+    )
+    return True
 
 
 def _active_spec(deps: AgentDeps, execution: ExecutionPolicy) -> ModelSpec:
@@ -2393,9 +2462,13 @@ async def _run_tools(
             continue
 
         pending_diff = file_diff(call.name, args, deps.tool_context)
+        todos_before = tuple(deps.tool_context.todos.items)
         result, outcome = await _execute(
             call, args, deps, registry, execution=execution, plan_mode=plan_mode
         )
+        if outcome is ToolOutcome.OK and call.name == "todo_write":
+            for sentence in todo_transitions(todos_before, tuple(deps.tool_context.todos.items)):
+                deps.publisher.publish(NarrationPublished(text=sentence))
         _note_tool_use(
             state,
             call.name,

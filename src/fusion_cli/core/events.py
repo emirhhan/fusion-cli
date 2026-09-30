@@ -257,6 +257,23 @@ class TeacherLessonRecorded(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class NarrationPublished(Event):
+    """Kullanıcıya adımlar arasında yazılan kısa anlatım (giriş ya da adım geçişi)."""
+
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class ApprenticeHandoff(Event):
+    """Seçili model dosya yazamadığı için iş bu tur çırak modele devredildi."""
+
+    selected_model: str
+    apprentice_model: str
+    #: Seçili web modeli bu tur öğretmen olarak danışılacak mı?
+    teacher_model: str
+
+
+@dataclass(frozen=True, slots=True)
 class PlatformChecked(Event):
     """Dış platforma bağlı istekte resmi kaynak kontrolü yapıldı."""
 

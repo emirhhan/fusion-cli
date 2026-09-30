@@ -77,6 +77,32 @@ describe("olayEkle", () => {
   });
 });
 
+describe("Claude gibi akış", () => {
+  it("görev listesi kartı adım bloğunu bölmez", () => {
+    let mesajlar = olayEkle([], { olay: "ToolStarted", name: "read_file", args: { path: "a.py" }, metin: "a.py okunuyor" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "read_file", args: { path: "a.py" }, outcome: "ok", output: "x" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "todo_write", outcome: "ok", output: "▶ Oku\n☐ Yaz" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "read_file", args: { path: "b.py" }, metin: "b.py okunuyor" });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolExecuted", name: "read_file", args: { path: "b.py" }, outcome: "ok", output: "y" });
+
+    const bloklar = mesajlar.filter((mesaj) => mesaj.rol === "olay");
+    expect(bloklar).toHaveLength(1);
+    expect(bloklar[0].adimlar?.length).toBe(2);
+    expect(mesajlar[mesajlar.length - 1].rol).toBe("gorevler");
+  });
+
+  it("giriş ve adım geçişi anlatımı adımların arasında metin olarak durur", () => {
+    let mesajlar = olayEkle([], { olay: "NarrationPublished", text: "İsteği şöyle anladım: önce yapıyı okuyacağım." });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "read_file", args: { path: "a.py" }, metin: "a.py okunuyor" });
+    mesajlar = olayEkle(mesajlar, { olay: "NarrationPublished", text: "Şimdi “Testi yaz” adımına geçiyorum." });
+    mesajlar = olayEkle(mesajlar, { olay: "ToolStarted", name: "write_file", args: { path: "t.py" }, metin: "t.py yazılıyor" });
+
+    expect(mesajlar.map((mesaj) => mesaj.rol)).toEqual(["asistan", "olay", "asistan", "olay"]);
+    expect(mesajlar[0].ara).toBe(true);
+    expect(mesajlar[2].metin).toContain("Testi yaz");
+  });
+});
+
 describe("değişiklik kartı", () => {
   /* Davranış değişikliği: diff eskiden akışa ayrı, kalıcı bir kart olarak
      düşüyordu. Claude'daki gibi kod akışta görünmez; diff adım satırının içinde
