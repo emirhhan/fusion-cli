@@ -18,8 +18,15 @@ class KeyringBackend(Protocol):
 class _SystemKeyring:
     def get_password(self, service: str, account: str) -> str | None:
         import keyring
+        from keyring.errors import NoKeyringError
 
-        return keyring.get_password(service, account)
+        # Anahtarlığı olmayan sistemde (başsız Linux, CI) kayıtlı token da yoktur.
+        # Hata yükseltmek, kimlik doğrulama istemeyen HTTP MCP bağlantısını bile
+        # tamamen düşürüyordu.
+        try:
+            return keyring.get_password(service, account)
+        except NoKeyringError:
+            return None
 
     def set_password(self, service: str, account: str, value: str) -> None:
         import keyring
