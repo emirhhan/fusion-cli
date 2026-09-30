@@ -34,8 +34,11 @@ INTRO_TIMEOUT_S = 30.0
 _TASK_CHARS = 2_000
 
 _INTRO_PROMPT = (
-    "Aşağıdaki isteğe işe başlamadan önce kullanıcıya iki üç cümlelik kısa bir "
-    "giriş yaz: isteği nasıl anladığını ve nasıl ilerleyeceğini söyle. Kod, liste, "
+    "Aşağıdaki isteğe işe başlamadan önce kullanıcıya bir iki cümlelik giriş yaz: "
+    "ilk olarak neye bakacağını ve işi nasıl ilerleteceğini birinci tekil şahıs ve "
+    'şimdiki zamanla söyle. Örnek: "Önce hata veren testi ve çağırdığı modülü '
+    'okuyorum, sonra düzeltip testi yeniden çalıştıracağım." "Anladığım kadarıyla", '
+    '"Elbette", "Harika" gibi girişlerle başlama; isteği tekrar etme. Kod, liste, '
     "başlık yazma; soru sorma; henüz bir şey yapmış gibi konuşma. Kullanıcının "
     "dilinde yaz.\n\nİstek:\n{task}"
 )

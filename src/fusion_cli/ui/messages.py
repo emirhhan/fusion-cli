@@ -408,6 +408,11 @@ APP_UNDECODABLE_LINE = "çözülemeyen satır"
 APP_UNMATCHED_REPLY_ID = "eşleşmeyen cevap kimliği"
 APP_BACKGROUND_TASK_FAILED = "arka plan isteği başarısız"
 APP_TURN_CANCELLED = "Tur iptal edildi."
+#: İptal edilen turun modele kalan izi; bir sonraki istekte bağlam olarak görünür.
+APP_TURN_CANCELLED_CONTEXT = (
+    "Kullanıcı bu turu yarıda durdurdu. Yapılmış değişiklikler çalışma alanında "
+    "duruyor olabilir; devam istenirse önce mevcut durumu kontrol et."
+)
 
 #: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
 #:

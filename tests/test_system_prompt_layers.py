@@ -44,9 +44,9 @@ def test_api_katmani_calisma_ve_konusma_ilkelerini_tasir() -> None:
     text = API_PROMPT.read_text(encoding="utf-8")
 
     for phrase in (
-        "giriş yaz",
-        "ara anlatım",
-        "Bitişte kısa bir özet",
+        "İlk araçtan önce",
+        "ara not",
+        "Bitişte önce sonucu söyle",
         "aynı argümanla ikinci kez çağırma",
         "resmi\n  dokümandan",
         "Kapsam",

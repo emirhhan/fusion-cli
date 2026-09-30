@@ -184,18 +184,21 @@ async def test_nim_secimi_arac_dogrulamasindan_gecer(tmp_path, monkeypatch):
 
     monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", probe)
     session = _session(tmp_path, [])
-    missing = await session._run_command({"ad": "development", "arguman":
-                                          "uygula nim-free nvidia_nim/eksik"})
-    rejected = await session._run_command({"ad": "development", "arguman":
-                                           "uygula nim-free nvidia_nim/z-ai/glm-5.3"})
+    missing = await session._run_command(
+        {"ad": "development", "arguman": "uygula nim-free nvidia_nim/eksik"}
+    )
+    rejected = await session._run_command(
+        {"ad": "development", "arguman": "uygula nim-free nvidia_nim/z-ai/glm-5.3"}
+    )
 
     assert missing["ok"] is False
     assert rejected == {"ok": False, "metin": "Araç çağrısı doğrulanmadı."}
     assert called == ["nvidia_nim/eksik", "nvidia_nim/z-ai/glm-5.3"]
 
     monkeypatch.setattr(model_flows.catalog, "probe_nim_tools", lambda _model: (True, ""))
-    accepted = await session._run_command({"ad": "development", "arguman":
-                                           "uygula nim-free nvidia_nim/z-ai/glm-5.3"})
+    accepted = await session._run_command(
+        {"ad": "development", "arguman": "uygula nim-free nvidia_nim/z-ai/glm-5.3"}
+    )
     assert accepted["ok"] is True
     assert "nvidia_nim/z-ai/glm-5.3" in accepted["metin"]
 
@@ -1084,6 +1087,11 @@ async def test_tur_kes_calisan_turu_gercekten_iptal_eder(tmp_path, monkeypatch):
     tur_sonucu = _sonuc(satirlar, "1")
     assert tur_sonucu == {"ok": False, "metin": messages.APP_TURN_CANCELLED}
     assert oturum._turn is None
+    # Durdurulan istek geçmişte kalır; sonraki "devam et" onu görür.
+    assert [(m.role, m.content) for m in oturum._state.history[-2:]] == [
+        ("user", "iş"),
+        ("assistant", messages.APP_TURN_CANCELLED_CONTEXT),
+    ]
 
 
 async def test_web_baglan_oturumu_yapilandirmaya_yazar(tmp_path):
@@ -1131,32 +1139,32 @@ async def test_web_cikis_oturumu_kaldirir(tmp_path):
 async def test_web_dogrulama_ogretmeni_ayni_oturumda_acar(tmp_path, monkeypatch):
     from fusion_cli.config.model_select import apply_single_model
 
+    # Senaryo: NIM anahtarı kurulu, ajan çalışır durumda. Anahtar ortamdan
+    # verilmezse `_route_roles_if_idle` rolleri web oturumuna bağlar ve test
+    # geliştiricinin kabuğundaki anahtara bağımlı kalır.
+    monkeypatch.setenv("NVIDIA_NIM_API_KEY", "test-anahtari")
     satirlar: list[str] = []
     oturum = _session(tmp_path, satirlar)
     selected = apply_single_model(oturum._state.config, "nvidia_nim/z-ai/glm-5.3")
     oturum._state.config = replace(
-        selected, source=tmp_path / "config.yaml",
-        web_sessions=(), teacher=None,
+        selected,
+        source=tmp_path / "config.yaml",
+        web_sessions=(),
+        teacher=None,
     )
-    await oturum.handle(Request("1", "web.baglan", {
-        "saglayici": "gemini_web", "hesap": "main"
-    }))
+    await oturum.handle(Request("1", "web.baglan", {"saglayici": "gemini_web", "hesap": "main"}))
 
     async def verified(*_args):
         return {"ok": True}
 
     monkeypatch.setattr("fusion_cli.appserver.session.verify_web_session", verified)
-    await oturum.handle(Request("2", "web.dogrula", {
-        "saglayici": "gemini_web", "hesap": "main"
-    }))
+    await oturum.handle(Request("2", "web.dogrula", {"saglayici": "gemini_web", "hesap": "main"}))
 
     assert oturum._state.config.teacher is not None
     assert oturum._state.config.teacher.model == "gemini_web/main/auto"
     assert oturum._state.config.agent.model == "nvidia_nim/z-ai/glm-5.3"
     assert oturum._state.config.agent.strict is True
-    await oturum.handle(Request("3", "web.cikis", {
-        "saglayici": "gemini_web", "hesap": "main"
-    }))
+    await oturum.handle(Request("3", "web.cikis", {"saglayici": "gemini_web", "hesap": "main"}))
     assert oturum._state.config.teacher is None
 
 

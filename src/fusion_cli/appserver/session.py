@@ -1427,6 +1427,13 @@ class AppSession:
             # soru cevapsız durur ve kullanıcı turun neden bittiğini göremez.
             if not browser_only:
                 self._transcript_store.record_assistant(messages.APP_TURN_CANCELLED)
+                # Durdurulan istek geçmişte kalır (Claude'daki gibi): yoksa "devam et"
+                # dendiğinde model neyin yarıda kaldığını hiç görmüyordu.
+                self._state.history = [
+                    *self._state.history,
+                    Message("user", task),
+                    Message("assistant", messages.APP_TURN_CANCELLED_CONTEXT),
+                ]
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._turn = None
