@@ -27,6 +27,8 @@ export interface Dugum {
   adet?: number;
   /** İşlemin ürettiği tüm görseller; `yol` bunlardan seçilen ve sonraki düğüme akandır. */
   sonuclar?: string[];
+  /** Son çalıştırmanın girdi imzası; girdisi değişmeyen biten düğüm yeniden üretilmez. */
+  girdiImzasi?: string;
   durum?: DugumDurumu;
   hata?: string;
 }
@@ -200,5 +202,46 @@ export function baslangicAkisi(saglayici = ""): Akis {
       { kaynak: "metin-1", hedef: "uret-1" },
       { kaynak: "uret-1", hedef: "cikti-1" },
     ],
+  };
+}
+
+/** Düğümün tüm ataları (girdilerini üreten düğümler, özyinelemeli). */
+export function atalar(akis: Akis, id: string): Set<string> {
+  const sonuc = new Set<string>();
+  const yigin = [id];
+  while (yigin.length) {
+    const simdiki = yigin.pop() as string;
+    for (const baglanti of akis.baglantilar) {
+      if (baglanti.hedef === simdiki && !sonuc.has(baglanti.kaynak)) {
+        sonuc.add(baglanti.kaynak);
+        yigin.push(baglanti.kaynak);
+      }
+    }
+  }
+  return sonuc;
+}
+
+/** Yeni düğümün kaynağın ne kadar sağına konacağı (px): kart genişliği + boşluk. */
+const SONRAKI_DUGUM_ARALIGI = 280;
+
+/**
+ * Bir sonuçtan akışı sürdür: kaynağın sağına bağlı yeni bir işlem düğümü ekle.
+ * Flora'daki gibi akış baştan kurulmadan, üretilen görselden büyümeye devam eder.
+ */
+export function sonrakiDugumEkle(
+  akis: Akis, kaynakId: string, tur: Islem, saglayici?: string,
+): { akis: Akis; id: string } {
+  const kaynak = akis.dugumler.find((dugum) => dugum.id === kaynakId);
+  const id = `${tur}-${Date.now().toString(36)}-${akis.dugumler.length}`;
+  const kardes = akis.baglantilar.filter((baglanti) => baglanti.kaynak === kaynakId).length;
+  const yeni: Dugum = {
+    id, tur, saglayici,
+    x: (kaynak?.x ?? 0) + SONRAKI_DUGUM_ARALIGI,
+    // Aynı kaynaktan açılan dallar alt alta dizilir, üst üste binmez.
+    y: (kaynak?.y ?? 0) + kardes * 220,
+  };
+  return {
+    akis: { ...akis, dugumler: [...akis.dugumler, yeni], baglantilar: [...akis.baglantilar, { kaynak: kaynakId, hedef: id }] },
+    id,
   };
 }

@@ -1,4 +1,4 @@
-import { calismaSirasi, dugumGuncelle, girdiler, MAX_ADET, type Akis, type Dugum, type Islem } from "./akis";
+import { atalar, calismaSirasi, dugumGuncelle, girdiler, MAX_ADET, type Akis, type Dugum, type Islem } from "./akis";
 
 export interface UretilenGorsel {
   yol: string;
@@ -22,19 +22,31 @@ export function islemIstemi(akis: Akis, dugum: Dugum): string {
  * verir; bir işlem başarısız olursa kalan işlemler çalıştırılmaz (sonraki
  * düğümler zaten o görsele bağlıdır).
  */
+export interface CalistirSecenekleri {
+  /** Verilirse yalnız bu düğüm ve eksik/değişmiş ataları çalışır. */
+  hedef?: string;
+}
+
 export async function akisiCalistir(
   baslangic: Akis,
   istek: IstekFn,
   bildir: (akis: Akis, yeni: UretilenGorsel[]) => void,
+  secenekler: CalistirSecenekleri = {},
 ): Promise<Akis> {
   let akis = baslangic;
+  const kapsam = secenekler.hedef ? new Set([...atalar(baslangic, secenekler.hedef), secenekler.hedef]) : null;
   for (const planli of calismaSirasi(baslangic)) {
+    if (kapsam && !kapsam.has(planli.id)) continue;
     const dugum = akis.dugumler.find((item) => item.id === planli.id) as Dugum;
-    akis = dugumGuncelle(akis, dugum.id, { durum: "calisiyor", hata: undefined });
-    bildir(akis, []);
     const istem = islemIstemi(akis, dugum);
     const referans = girdiler(akis, dugum.id).gorsel?.yol;
     const adet = Math.min(Math.max(1, Math.round(dugum.adet ?? 1)), MAX_ADET);
+    const imza = JSON.stringify([dugum.tur, istem, referans ?? "", dugum.saglayici ?? "", adet]);
+    // Akış baştan kurulmaz: girdisi değişmemiş ve sonucu olan düğüm yeniden
+    // üretilmez. Kullanıcının açıkça "▶" ile çalıştırdığı düğüm her zaman yeniden üretilir.
+    if (dugum.yol && dugum.girdiImzasi === imza && dugum.id !== secenekler.hedef) continue;
+    akis = dugumGuncelle(akis, dugum.id, { durum: "calisiyor", hata: undefined });
+    bildir(akis, []);
     const uretilen: UretilenGorsel[] = [];
     let hata: string | null = null;
     // Varyasyonlar sırayla istenir: aynı web oturumu tek sohbeti aynı anda işler.
@@ -54,6 +66,7 @@ export async function akisiCalistir(
       durum: "bitti",
       yol: uretilen[0].yol,
       sonuclar: uretilen.map((gorsel) => gorsel.yol),
+      girdiImzasi: imza,
       hata: hata ? `${uretilen.length}/${adet} varyasyon üretildi: ${hata}` : undefined,
     });
     bildir(akis, []);

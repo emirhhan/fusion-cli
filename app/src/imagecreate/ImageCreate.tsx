@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { assetUrl } from "../platform/assetUrl";
 import { saveImageAs } from "../platform/dialog";
-import { akisSorunlari, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, type Akis, type DugumTuru } from "./akis";
+import { akisSorunlari, baslangicAkisi, DUGUM_ETIKETI, dugumGuncelle, kaydedilebilir, sonrakiDugumEkle, type Akis, type DugumTuru, type Islem } from "./akis";
 import { akisiCalistir, type UretilenGorsel } from "./akisCalistir";
 import { AkisTuvali, type SaglayiciSecenegi } from "./AkisTuvali";
 import "./ImageCreate.css";
@@ -43,6 +43,7 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
   const [calisiyor, setCalisiyor] = useState(false);
   const [bilgi, setBilgi] = useState<string | null>(null);
   const [secimIcin, setSecimIcin] = useState<string | null>(null);
+  const [mod, setMod] = useState<"basit" | "akis">("basit");
 
   const istek = useCallback(async (name: string, data: Record<string, unknown>) => {
     if (!client) throw new Error("Çekirdek bağlı değil.");
@@ -94,7 +95,7 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
       const son = await akisiCalistir(akis, istek, (guncel, yeni) => {
         setAkis(guncel);
         if (yeni.length) setGaleri((onceki) => [...yeni, ...onceki]);
-      });
+      }, mod === "basit" ? { hedef: "uret-1" } : {});
       const hata = son.dugumler.find((dugum) => dugum.durum === "hata");
       setBilgi(hata ? `${DUGUM_ETIKETI[hata.tur]}: ${hata.hata}` : "Akış tamamlandı; sonuçlar galeride.");
     } finally {
@@ -135,8 +136,45 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
     setSecimIcin(null);
   };
 
+  const sonucUzerindenDevamEt = (yol: string, tur: Islem) => {
+    const kaynak = akis.dugumler.find((dugum) => dugum.yol === yol);
+    const yeniKaynakId = `gorsel-${Date.now().toString(36)}-${akis.dugumler.length}`;
+    const kaynakId = kaynak?.id ?? yeniKaynakId;
+    const taban: Akis = kaynak ? akis : {
+      ...akis,
+      dugumler: [...akis.dugumler, { id: yeniKaynakId, tur: "gorsel", yol, x: 40, y: 400 }],
+    };
+    const saglayici = secenekler.find((item) => item.referans)?.deger;
+    const devam = sonrakiDugumEkle(taban, kaynakId, tur, saglayici);
+    const metinId = `metin-${Date.now().toString(36)}-${devam.akis.dugumler.length}`;
+    setAkis(tur === "duzenle" ? {
+      ...devam.akis,
+      dugumler: [...devam.akis.dugumler, { id: metinId, tur: "metin", istem: "", x: 40, y: 300 }],
+      baglantilar: [...devam.akis.baglantilar, { kaynak: metinId, hedef: devam.id }],
+    } : devam.akis);
+    setMod("akis");
+    setBilgi(`${DUGUM_ETIKETI[tur]} düğümü eklendi. Talimatı ve sağlayıcıyı kontrol edip akışı çalıştır.`);
+  };
+
   return (
     <section aria-label="Görsel oluştur" className="image-create">
+      <div aria-label="Görsel oluşturma modu" className="image-create__modes" role="group">
+        <button aria-pressed={mod === "basit"} onClick={() => setMod("basit")} type="button">Basit oluştur</button>
+        <button aria-pressed={mod === "akis"} onClick={() => setMod("akis")} type="button">İş akışı</button>
+      </div>
+      {mod === "basit" && (
+        <div className="image-create__simple">
+          <label htmlFor="image-simple-prompt">Nasıl bir görsel istiyorsun?</label>
+          <textarea id="image-simple-prompt" onChange={(event) => setAkis(dugumGuncelle(akis, "metin-1", { istem: event.target.value }))} value={akis.dugumler.find((dugum) => dugum.id === "metin-1")?.istem ?? ""} />
+          <label htmlFor="image-simple-provider">Görsel modeli</label>
+          <select id="image-simple-provider" onChange={(event) => setAkis(dugumGuncelle(akis, "uret-1", { saglayici: event.target.value }))} value={akis.dugumler.find((dugum) => dugum.id === "uret-1")?.saglayici ?? ""}>
+            <option value="">Sağlayıcı seç</option>
+            {secenekler.map((item) => <option key={item.deger} value={item.deger}>{item.etiket}</option>)}
+          </select>
+          <button disabled={calisiyor || !client} onClick={() => void calistir()} type="button">{calisiyor ? "Üretiliyor…" : "Görsel oluştur"}</button>
+        </div>
+      )}
+      {mod === "akis" && <>
       <div aria-label="Akış araçları" className="image-create__toolbar" role="toolbar">
         <input aria-label="Akış adı" onChange={(event) => setAkis({ ...akis, ad: event.target.value })} value={akis.ad} />
         <div className="image-create__add">
@@ -154,12 +192,13 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           {calisiyor ? "Çalışıyor…" : "Çalıştır"}
         </button>
       </div>
+      </>}
       {!secenekler.length && client && (
         <p className="image-create__error" role="alert">Görsel üretebilen bağlı sağlayıcı yok. Ayarlar → Sağlayıcılar'dan NVIDIA NIM anahtarı ekle ya da Gemini web'e bağlan.</p>
       )}
       {bilgi && <p className="image-create__info" role="status">{bilgi}</p>}
       <div className="image-create__workspace">
-        <AkisTuvali
+        {mod === "akis" && <AkisTuvali
           akis={akis}
           calisiyor={calisiyor}
           onChange={setAkis}
@@ -167,7 +206,7 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
           onIndir={(yol) => void indir(yol)}
           secenekler={secenekler}
           toUrl={toUrl}
-        />
+        />}
         <aside aria-label="Galeri" className="image-create__gallery">
           <h2>Galeri</h2>
           {!galeri.length && <p>Üretilen görseller burada kalır; "İndir" demeden diske kaydedilmez.</p>}
@@ -181,6 +220,9 @@ export function ImageCreate({ client, toUrl = assetUrl, chooseSavePath = saveIma
                   <div>
                     {secimIcin && <button onClick={() => galeridenSec(gorsel.yol)} type="button">Düğüme kullan</button>}
                     <button onClick={() => void indir(gorsel.yol)} type="button">İndir</button>
+                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "varyasyon")} type="button">Varyasyonla devam et</button>
+                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "buyut")} type="button">Büyüterek devam et</button>
+                    <button onClick={() => sonucUzerindenDevamEt(gorsel.yol, "duzenle")} type="button">Düzenleyerek devam et</button>
                   </div>
                 </li>
               );

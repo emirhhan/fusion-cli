@@ -104,3 +104,66 @@ describe("varyasyonlu çalıştırma", () => {
     expect(son.dugumler[1].hata).toBe("1/2 varyasyon üretildi: kota doldu");
   });
 });
+
+describe("canlı, büyüyen akış", () => {
+  it("sonuçtan bağlı yeni işlem düğümü ekler", async () => {
+    const { sonrakiDugumEkle } = await import("./akis");
+    const baslangic: Akis = {
+      ad: "x",
+      dugumler: [{ id: "u", tur: "uret", x: 100, y: 50, saglayici: "nim", yol: "/g/1.jpg", durum: "bitti" }],
+      baglantilar: [],
+    };
+    const { akis, id } = sonrakiDugumEkle(baslangic, "u", "varyasyon", "gemini");
+    const yeni = akis.dugumler.find((dugum) => dugum.id === id);
+    expect(yeni?.tur).toBe("varyasyon");
+    expect(yeni?.saglayici).toBe("gemini");
+    expect(yeni!.x).toBeGreaterThan(100);
+    expect(akis.baglantilar).toContainEqual({ kaynak: "u", hedef: id });
+  });
+
+  it("yalnız hedef düğüm ve eksik girdileri çalışır; girdisi değişmeyen biten düğüm yeniden üretilmez", async () => {
+    const { akisiCalistir } = await import("./akisCalistir");
+    const cagrilar: string[] = [];
+    const istek = async (_ad: string, veri: Record<string, unknown>) => {
+      cagrilar.push(String(veri.islem));
+      return { ok: true, dosyalar: [{ yol: `/g/${cagrilar.length}.jpg` }] };
+    };
+    const baslangic: Akis = {
+      ad: "x",
+      dugumler: [
+        { id: "m", tur: "metin", x: 0, y: 0, istem: "kask" },
+        { id: "u", tur: "uret", x: 0, y: 0, saglayici: "nim" },
+        { id: "v", tur: "varyasyon", x: 0, y: 0, saglayici: "gemini" },
+      ],
+      baglantilar: [{ kaynak: "m", hedef: "u" }, { kaynak: "u", hedef: "v" }],
+    };
+    const ilk = await akisiCalistir(baslangic, istek, () => undefined, { hedef: "u" });
+    expect(cagrilar).toEqual(["uret"]);
+    expect(ilk.dugumler.find((dugum) => dugum.id === "v")?.durum).toBeUndefined();
+
+    await akisiCalistir(ilk, istek, () => undefined);
+    // "Üret" girdisi değişmediği için tekrar çalışmaz; yalnız eksik "Varyasyon" üretilir.
+    expect(cagrilar).toEqual(["uret", "varyasyon"]);
+  });
+
+  it("girdisi değişen biten düğüm yeniden çalışır", async () => {
+    const { akisiCalistir } = await import("./akisCalistir");
+    const cagrilar: string[] = [];
+    const istek = async (_ad: string, veri: Record<string, unknown>) => {
+      cagrilar.push(String(veri.istem));
+      return { ok: true, dosyalar: [{ yol: `/g/${cagrilar.length}.jpg` }] };
+    };
+    let akis: Akis = {
+      ad: "x",
+      dugumler: [
+        { id: "m", tur: "metin", x: 0, y: 0, istem: "kask" },
+        { id: "u", tur: "uret", x: 0, y: 0, saglayici: "nim" },
+      ],
+      baglantilar: [{ kaynak: "m", hedef: "u" }],
+    };
+    akis = await akisiCalistir(akis, istek, () => undefined);
+    akis = { ...akis, dugumler: akis.dugumler.map((dugum) => (dugum.id === "m" ? { ...dugum, istem: "mavi kask" } : dugum)) };
+    await akisiCalistir(akis, istek, () => undefined);
+    expect(cagrilar).toEqual(["kask", "mavi kask"]);
+  });
+});

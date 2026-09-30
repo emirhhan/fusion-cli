@@ -26,12 +26,39 @@ function istemci(olustur: (data: Record<string, unknown>) => Promise<Record<stri
 }
 
 describe("ImageCreate — düğümlü akış", () => {
+  it("basit modda istemi alır ve sonucu iş akışında sürdürür", async () => {
+    const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
+    render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
+    await screen.findByRole("option", { name: "Gemini" });
+    fireEvent.change(screen.getByLabelText("Nasıl bir görsel istiyorsun?"), { target: { value: "kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+    await screen.findByRole("img", { name: "kask" });
+    fireEvent.click(screen.getByRole("button", { name: "Varyasyonla devam et" }));
+    expect(screen.getByRole("region", { name: "Görsel iş akışı tuvali" })).toBeTruthy();
+    expect(screen.getByText("Varyasyon düğümü eklendi. Talimatı ve sağlayıcıyı kontrol edip akışı çalıştır.")).toBeTruthy();
+  });
+
+  it("galeriden düzenleme dalı açınca bağımsız metin girdisi ister", async () => {
+    const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
+    render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
+    await screen.findByRole("option", { name: "Gemini" });
+    fireEvent.change(screen.getByLabelText("Nasıl bir görsel istiyorsun?"), { target: { value: "kask" } });
+    fireEvent.click(screen.getByRole("button", { name: "Görsel oluştur" }));
+    await screen.findByRole("img", { name: "kask" });
+    fireEvent.click(screen.getByRole("button", { name: "Düzenleyerek devam et" }));
+    const metinler = screen.getAllByLabelText("Metin istemi") as HTMLTextAreaElement[];
+    expect(metinler).toHaveLength(2);
+    expect(metinler[0].value).toBe("kask");
+    expect(metinler[1].value).toBe("");
+  });
+
   it("başlangıç akışını çalıştırır; sonuç galeride kalır ve diske inmez", async () => {
     const client = istemci(async () => ({
       ok: true, saglayici: "FLUX.1-dev",
       dosyalar: [{ yol: "/veri/galeri/a.jpg", genislik: 1024, yukseklik: 1024 }],
     }));
     render(<ImageCreate client={client} toUrl={(yol) => `asset://${yol}`} chooseSavePath={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
 
     await screen.findAllByRole("option", { name: "FLUX.1-dev (NVIDIA NIM)" });
     fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kırmızı kask" } });
@@ -48,6 +75,7 @@ describe("ImageCreate — düğümlü akış", () => {
     const client = istemci(async () => ({ ok: true, dosyalar: [{ yol: "/veri/galeri/a.jpg" }] }));
     const kayitYeri = vi.fn(async () => "/Users/kullanici/Desktop/kask.jpg");
     render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={kayitYeri} />);
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
     await screen.findAllByRole("option", { name: "Gemini" });
     fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kask" } });
     fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
@@ -63,6 +91,7 @@ describe("ImageCreate — düğümlü akış", () => {
   it("eksik girdiyle çalıştırmaz ve nedenini söyler", async () => {
     const client = istemci(async () => ({ ok: true }));
     render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
     await screen.findAllByRole("option", { name: "Gemini" });
 
     fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
@@ -74,6 +103,7 @@ describe("ImageCreate — düğümlü akış", () => {
   it("referans gerektiren düğümde yalnız referans alabilen sağlayıcı listelenir", async () => {
     const client = istemci(async () => ({ ok: true }));
     render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
     await screen.findAllByRole("option", { name: "Gemini" });
 
     fireEvent.click(screen.getByRole("button", { name: "+ Varyasyon" }));
@@ -86,6 +116,7 @@ describe("ImageCreate — düğümlü akış", () => {
   it("hatalı üretimde düğüm hatayı gösterir, sonraki işlem çalışmaz", async () => {
     const client = istemci(async () => ({ ok: false, metin: "Gemini oturumu doğrulama bekliyor." }));
     render(<ImageCreate client={client} toUrl={() => null} chooseSavePath={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "İş akışı" }));
     await screen.findAllByRole("option", { name: "Gemini" });
     fireEvent.change(screen.getByLabelText("Metin istemi"), { target: { value: "kask" } });
     fireEvent.click(screen.getByRole("button", { name: "Çalıştır" }));
