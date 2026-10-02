@@ -267,7 +267,15 @@ async def _run_wp(wp_cli: str, root: Path, *args: str) -> tuple[int, str]:
         raw, _ = await asyncio.wait_for(process.communicate(), timeout=WP_STEP_TIMEOUT_S)
     except TimeoutError as exc:
         process.kill()
-        raise WordPressSetupError(f"`wp {' '.join(args[:3])}` zaman aşımına uğradı") from exc
+        # Ölçüldü (3 Ekim 2026, 12. kabul koşusu): model Wordfence/Autoptimize gibi ağır
+        # eklentiler kurunca SQLite'lı sitede her `wp` komutu asılı kaldı; model nedenini
+        # bilmeden aynı komutları yineledi. `--skip-plugins` WP-CLI'nin kaçış kapısıdır.
+        raise WordPressSetupError(
+            f"`wp {' '.join(args[:3])}` {WP_STEP_TIMEOUT_S:.0f} sn içinde bitmedi. Son kurulan "
+            "bir eklenti siteyi kilitlemiş olabilir: `wp plugin list --skip-plugins` ile bak, "
+            "şüpheli eklentiyi `wp plugin deactivate <ad> --skip-plugins` ile kapat ve "
+            "start_preview'ı tekrar çağır."
+        ) from exc
     text = raw.decode("utf-8", errors="replace")
     lines = [line for line in text.splitlines() if "Deprecated" not in line and line.strip()]
     return process.returncode or 0, "\n".join(lines)

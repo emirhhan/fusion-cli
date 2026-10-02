@@ -7,6 +7,7 @@ zorunlu `index.php` içermediği için WordPress'te hiç açılmıyordu ve site 
 
 from __future__ import annotations
 
+import asyncio
 import io
 import shutil
 import stat
@@ -273,3 +274,15 @@ def test_php_ortami_bellegi_artirir_ve_kullanici_ayarini_ezmez(tmp_path):
 
     kendi = php_env({"PATH": "/usr/bin", "PHP_INI_SCAN_DIR": "/benim"})
     assert kendi["PHP_INI_SCAN_DIR"] == "/benim"
+
+
+async def test_asili_kalan_wp_komutu_eklenti_kacis_kapisini_soyler(tmp_path, monkeypatch):
+    """Ölçüldü (12. kabul koşusu): ağır eklentiler SQLite'lı sitede her `wp` komutunu astı."""
+    kok = tmp_path / "site"
+    _tema(kok)
+    wp, _ = _sahte_wp(tmp_path, kurulu=False)
+    monkeypatch.setattr(wordpress_setup, "WP_STEP_TIMEOUT_S", 0.05)
+    await asyncio.to_thread(Path(wp).write_text, "#!/bin/sh\nsleep 5\n", encoding="utf-8")
+
+    with pytest.raises(WordPressSetupError, match="--skip-plugins"):
+        await setup_wordpress(kok, "http://127.0.0.1:8774", wp_cli=wp)
