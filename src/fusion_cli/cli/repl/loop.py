@@ -38,7 +38,6 @@ from ...core.events import (
     TurnFinished,
 )
 from ...core.followups import suggest_followups
-from ...core.health import HealthRegistry
 from ...core.tools import ToolContext
 from ...core.types import FusionResult
 from ...engines.agent.compaction import compress
@@ -47,6 +46,7 @@ from ...memory.factory import Memory
 from ...observability.bus import EventBus
 from ...observability.tracing import LangfuseTracer
 from ...providers.capabilities import apprentice_active
+from ...providers.health_setup import build_health
 from ...ui import banner, messages, theme
 from ...ui.renderer import ConsoleRenderer
 from ..prompter import ConsolePrompter
@@ -76,16 +76,6 @@ def apprentice_switch_notice(config: Config) -> str | None:
     return messages.APPRENTICE_SWITCH_NOTICE.format(model=config.agent.model, onerilen=onerilen)
 
 
-def _build_health(config: Config) -> HealthRegistry:
-    """Oturum için sağlık kaydını yapılandırma eşiklerinden kur."""
-    runtime = config.runtime
-    return HealthRegistry(
-        failure_threshold=runtime.circuit_failure_threshold,
-        cooldown_s=runtime.circuit_cooldown_s,
-        alpha=runtime.reliability_alpha,
-    )
-
-
 async def run_repl(
     config: Config,
     *,
@@ -109,7 +99,7 @@ async def run_repl(
             root=root,
             home=Path.home(),
             extra_roots=extra_roots,
-            health=_build_health(config),
+            health=build_health(config),
         )
         return await run_tui_repl(state, console)
 
@@ -119,7 +109,7 @@ async def run_repl(
         root=root,
         home=Path.home(),
         extra_roots=extra_roots,
-        health=_build_health(config),
+        health=build_health(config),
     )
     # Ev dizini GEÇİLİR: dinamik `/resume<kaynak>` komutları ancak böyle kaydolur.
     # Argümansız çağrı bu yüzeyi sessizce komutsuz bırakıyordu.

@@ -186,7 +186,10 @@ def test_ayni_ad_iki_kaynakta_varsa_ilki_kazanir(tmp_path):
 def test_olmayan_dizin_kesfi_dusurmez(tmp_path):
     registry = CapabilityRegistry(tmp_path / "yok", tmp_path / "yok2")
 
-    assert registry.skills() == () and registry.agents() == ()
+    # Kullanıcı dizinleri yok; yalnız pakete gömülü yerleşik ekip bulunur.
+    assert registry.skills() == ()
+    assert registry.agents()
+    assert {agent.source for agent in registry.agents()} == {"fusion"}
 
 
 def test_skill_metni_okunur(library):

@@ -8,7 +8,8 @@ import { HistoryPicker } from "../src/dialogs/HistoryPicker";
 import type { HistoryController } from "../src/history/useHistory";
 import { AppHeader } from "../src/screens/AppHeader";
 import { Composer } from "../src/screens/Composer";
-import { Conversation } from "../src/screens/Conversation";
+import { Conversation, type Mesaj } from "../src/screens/Conversation";
+import { olayEkle } from "../src/protocol/olayAkisi";
 import { EmptyState } from "../src/screens/EmptyState";
 import { Inspector } from "../src/screens/Inspector";
 import { Shell } from "../src/screens/Shell";
@@ -42,6 +43,24 @@ const messages = [
   { rol: "kullanici" as const, metin: "Fusion için profesyonel bir macOS uygulaması hazırla." },
   { rol: "olay" as const, metin: "7 arayüz testi ve üretim derlemesi tamamlandı" },
   { rol: "asistan" as const, metin: "Uygulama kabuğunu tamamladım. Sol navigasyon, konuşma alanı ve bağlamsal denetçi aynı tasarım sistemiyle çalışıyor.\n\nAçık ve koyu tema ile dar pencere davranışları da doğrulandı." },
+];
+
+/** Ekip önizlemesi: gerçek olay akışından (olayEkle) üretilir, elle kart yazılmaz. */
+const ekipBasla = (sub_id: string, persona: string, title: string, color: string, task: string) => ({
+  olay: "SubAgentStarted", sub_id, persona, title, avatar: persona, color, task, group_size: 3,
+});
+const teamMessages = [
+  { rol: "kullanici" as const, metin: "Kafe için tek sayfalık bir site yap; görselleri de üret." },
+  ...[
+    ekipBasla("arastirmaci-1", "arastirmaci", "Araştırmacı", "turuncu", "Benzer kafe sitelerini incele ve bölüm yapısını çıkar"),
+    ekipBasla("tasarimci-1", "tasarimci", "Arayüz Tasarımcısı", "pembe", "Ana sayfanın düzenini, tipografisini ve renk sistemini kur"),
+    ekipBasla("gorselci-1", "gorselci", "Görsel Üretici", "sari", "Hero 1920×1080 ve 3 ürün görselini üret, sayfaya yerleştir"),
+    { olay: "ToolStarted", name: "web_search", args: { query: "üçüncü dalga kafe sitesi" }, agent_id: "arastirmaci-1" },
+    { olay: "ToolExecuted", name: "web_search", args: { query: "üçüncü dalga kafe sitesi" }, outcome: "ok", output: "8 sonuç", agent_id: "arastirmaci-1" },
+    { olay: "SubAgentFinished", sub_id: "arastirmaci-1", ok: true, summary: "6 bölüm önerildi: hero, menü, hikâye, ürünler, yorumlar, iletişim", elapsed_s: 48, tool_calls: 4 },
+    { olay: "ToolStarted", name: "write_file", args: { path: "site/css/ana.css" }, agent_id: "tasarimci-1" },
+    { olay: "ToolStarted", name: "generate_image", args: { prompt: "sıcak ışıklı kafe", width: 1920, height: 1080 }, agent_id: "gorselci-1" },
+  ].reduce<Mesaj[]>((akis, olay) => olayEkle(akis, olay), []),
 ];
 
 /** Görsel oluştur önizlemesi: gerçek dosya yerine renk geçişli SVG'ler. */
@@ -419,7 +438,7 @@ function Preview() {
           />
         )}
         content={<>
-          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" ? <ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : messages} running={state === "running"} />}
+          {account ? <AccountScreen account={accountPreview} client={workspaceClient} onClose={() => undefined} /> : settings ? <Settings client={workspaceClient} onClose={() => undefined} onThemeChange={() => undefined} themePreference={theme === "dark" ? "dark" : "light"} /> : capabilities ? <SkillsCatalog client={workspaceClient} onClose={() => undefined} /> : connectors ? <ConnectorsScreen client={workspaceClient} onClose={() => undefined} /> : control ? <ControlPanel client={workspaceClient} onClose={() => undefined} /> : state === "image" ? <ImageCreate chooseSavePath={async () => null} client={imageClient} toUrl={gorselAdresi} /> : state === "empty" ? <EmptyState workspaceMode={previewMode} /> : <Conversation mesajlar={state === "running" ? runningMessages : state === "team" ? teamMessages : messages} running={state === "running" || state === "team"} />}
           {state === "approval" && <Approval onCevap={() => undefined} soru={{ tur: "onay", arac: "write_file", argumanlar: { path: "app/src/App.tsx" }, tehlike: null, onerilen: "once", secenekler: [{ deger: "deny", etiket: "Reddet" }, { deger: "once", etiket: "Bir kez izin ver" }] }} />}
         </>}
         header={<AppHeader inspectorAvailable={!capabilities && !control && !settings && !account} inspectorOpen={!capabilities && !control && !settings && !account && inspectorOpen} onToggleInspector={() => undefined} onToggleSidebar={() => undefined} projectName="fusion-cli" sidebarCollapsed={false} status="Hazır" title={account ? "Hesabım" : settings ? "Ayarlar" : capabilities ? "Beceriler ve Ajanlar" : control ? "Kontrol Paneli" : "macOS uygulaması"} />}

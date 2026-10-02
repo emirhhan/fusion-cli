@@ -13,21 +13,30 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 
 from ..config.key_pool import collect_keys
+from ..config.keys import environ_snapshot
 from ..core.clock import SystemClock
 from ..core.protocols import Clock
+from ..core.rate_control import RateControl
 
 
 class KeyPool:
     """Tek bir sağlayıcının anahtar havuzu (rotasyon + hız-sınırı cooldown'ı)."""
 
     def __init__(
-        self, keys: Sequence[str], *, cooldown_s: float, clock: Clock | None = None
+        self,
+        keys: Sequence[str],
+        *,
+        cooldown_s: float,
+        clock: Clock | None = None,
+        start: int = 0,
     ) -> None:
         self._keys = tuple(keys)
         self._cooldown_s = cooldown_s
         self._clock = clock or SystemClock()
         self._cooled_until: dict[str, float] = {}
-        self._rotation = 0
+        #: Dönüşün başlangıç sırası. Tur başına kurulan havuz hep ilk anahtardan
+        #: başlasaydı yük tek hesaba yığılırdı; paylaşılan sayaç bunu dağıtır.
+        self._rotation = start
 
     @property
     def size(self) -> int:
@@ -81,3 +90,14 @@ class KeyPoolRegistry:
             )
             self._pools[env_name] = pool
         return pool
+
+
+def ledger_key_pool(env_name: str, rate: RateControl) -> KeyPool:
+    """Sırası paylaşılan defterden gelen havuz (soğuma ise kapıda paylaşılır).
+
+    Tek anahtarlı sağlayıcıda sayaç hiç artırılmaz: dönüş yoktur, deftere boşuna
+    yazılmaz.
+    """
+    keys = collect_keys(env_name, environ_snapshot())
+    start = rate.ledger.next_index(f"rotation:{env_name}") if len(keys) > 1 else 0
+    return KeyPool(keys, cooldown_s=rate.cooldown_s, start=start)

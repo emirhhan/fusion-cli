@@ -192,6 +192,20 @@ class RuntimeConfig:
     #: sayısı; beklemeler üstel artar. 0 = yeniden deneme yok. Varsayılan 10:
     #: Claude Code'un belgelenmiş varsayılanı (bkz. `loop.MAX_TRANSIENT_RETRIES`).
     model_retry_attempts: int = 10
+    #: Sağlayıcı kimliği → MODEL başına dakikalık istek sınırı. Bilinen sınır önden
+    #: korunur (paralel ajanlar ve sekmeler ortak kovadan hak alır) ki 429 hiç
+    #: gelmesin. Listede olmayan sağlayıcı yavaşlatılmaz; yalnız 429'u paylaşılır.
+    rate_limit_per_minute: dict[str, float] = field(default_factory=dict)
+    #: Kovadan hak için en fazla bu kadar beklenir; daha uzunsa çağrı yapılmadan
+    #: zincirdeki yedeğe geçilir.
+    rate_pace_max_wait_s: float = 3.0
+    #: `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Asıl hız sınırını
+    #: paylaşılan defter korur; bu tavan bağlamı ve kullanıcının takip edebileceği
+    #: kart sayısını sınırlar.
+    max_parallel_agents: int = 4
+    #: Ajan bir dosyayı değiştirince o dosya için çalışacak kullanıcı komutları
+    #: (`{path}` yerine dosya yolu). Boş = kanca yok (varsayılan davranış).
+    post_edit_commands: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

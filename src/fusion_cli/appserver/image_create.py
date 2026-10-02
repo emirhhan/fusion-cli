@@ -18,29 +18,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from ..config.keys import NIM_ENV, environ_snapshot
 from ..config.models import Config
-from ..providers.nim_image import (
-    ASPECT_SIZES,
-    NIM_IMAGE_MODELS,
-    NIM_PREFIX,
-    NimImageError,
-    NimImageModel,
-    generate_nim_image,
-    nim_model_from_choice,
+from ..providers.image_generation import (
+    GenerationResult,
+    ImageGenerationError,
+    image_choices,
+    render_images,
 )
-from ..providers.web_browser import WebBrowserError
-from ..providers.web_image import (
-    IMAGE_SELECTORS,
-    REFERENCE_PROVIDERS,
-    GeneratedImage,
-    generate_images,
-)
-from ..providers.web_registry import web_registry_for
+from ..providers.nim_image import ASPECT_SIZES, nim_model_from_choice
 from .image_flows import gallery_dir, write_sidecar
-
-#: Sağlayıcı sırası: canlı doğrulanan önce.
-_PREFERENCE = ("gemini_web", "chatgpt_web")
 
 #: İşlem → modele giden istem kalıbı. Web modelleri gerçek bir "büyütme"
 #: aracı sunmaz; büyütme, referans görselin aynı içerikle yüksek çözünürlükte
@@ -64,28 +50,10 @@ def image_providers(
     config: Config, *, environ: Mapping[str, str] | None = None
 ) -> list[dict[str, Any]]:
     """Görsel üretebilen sağlayıcılar (arayüzdeki seçici için), referans yetenekleriyle."""
-    oturumlar = [s for s in config.web_sessions if s.provider in IMAGE_SELECTORS]
-    oturumlar.sort(key=lambda s: _PREFERENCE.index(s.provider))
-    secenekler: list[dict[str, Any]] = [
-        {
-            "deger": f"{s.provider}/{s.account}",
-            "etiket": _label(s.provider, s.account),
-            "referans": s.provider in REFERENCE_PROVIDERS,
-        }
-        for s in oturumlar
+    return [
+        {"deger": choice.value, "etiket": choice.label, "referans": choice.reference}
+        for choice in image_choices(config, environ=environ)
     ]
-    ortam = environ if environ is not None else environ_snapshot()
-    if ortam.get(NIM_ENV, "").strip():
-        secenekler += [
-            {"deger": NIM_PREFIX + item.model, "etiket": item.label, "referans": False}
-            for item in NIM_IMAGE_MODELS
-        ]
-    return secenekler
-
-
-def _label(provider: str, account: str) -> str:
-    ad = {"gemini_web": "Gemini", "chatgpt_web": "ChatGPT"}.get(provider, provider)
-    return ad if account == "main" else f"{ad} ({account})"
 
 
 def _compose(islem: str, istem: str) -> str:
@@ -131,72 +99,34 @@ async def create_image(
         return {"ok": False, "metin": f"Desteklenmeyen en-boy oranı: {oran}"}
     istem_son = _compose(islem, istem)
     nim = nim_model_from_choice(secim)
+    olcu: tuple[int, int] | None = None
     if nim is not None and nim.aspect_sizes:
-        return await _create_with_nim(nim, istem_son, referans, environ, istem, ASPECT_SIZES[oran])
-    # Boyut parametresi olmayan sağlayıcıya oran istemde söylenir.
-    if oran != "1:1":
+        olcu = ASPECT_SIZES[oran]
+    elif oran != "1:1":
+        # Boyut parametresi olmayan sağlayıcıya oran istemde söylenir.
         istem_son = f"{istem_son}\n\nGörselin en-boy oranı {oran} olsun."
-    if nim is not None:
-        return await _create_with_nim(nim, istem_son, referans, environ, istem)
-    return await _create_with_web(config, secim, istem_son, referans, istem)
-
-
-async def _create_with_nim(
-    nim: NimImageModel,
-    prompt: str,
-    referans: Path | None,
-    environ: Mapping[str, str] | None,
-    istem: str,
-    size: tuple[int, int] = ASPECT_SIZES["1:1"],
-) -> dict[str, Any]:
-    if referans is not None:
-        return {"ok": False, "metin": f"{nim.label} referans görsel almaz; Gemini web seç."}
-    anahtar = (environ if environ is not None else environ_snapshot()).get(NIM_ENV, "").strip()
-    if not anahtar:
-        return {"ok": False, "metin": "NVIDIA NIM anahtarı bulunamadı."}
     try:
-        gorseller = await generate_nim_image(
-            nim, prompt, image_output_dir(), api_key=anahtar, size=size
-        )
-    except NimImageError as error:
-        return {"ok": False, "metin": str(error)}
-    return _result(nim.label, gorseller, istem)
-
-
-async def _create_with_web(
-    config: Config, secim: str, prompt: str, referans: Path | None, istem: str
-) -> dict[str, Any]:
-    registry = web_registry_for(config)
-    oturum = next((s for s in config.web_sessions if f"{s.provider}/{s.account}" == secim), None)
-    if oturum is None or oturum.provider not in IMAGE_SELECTORS:
-        return {"ok": False, "metin": f"Bilinmeyen sağlayıcı: {secim}"}
-    if registry is None:
-        return {"ok": False, "metin": "Web oturumu kayıt defteri kurulamadı."}
-    if referans is not None and oturum.provider not in REFERENCE_PROVIDERS:
-        return {
-            "ok": False,
-            "metin": f"{_label(oturum.provider, oturum.account)} referans görsel almaz.",
-        }
-    try:
-        gorseller = await generate_images(
-            oturum,
-            registry.credential_for(oturum),
-            prompt,
+        sonuc = await render_images(
+            config,
+            secim,
+            istem_son,
             image_output_dir(),
+            size=olcu,
             reference=referans,
+            environ=environ,
         )
-    except WebBrowserError as error:
-        return {"ok": False, "metin": str(error).removeprefix("authentication: ")}
-    return _result(_label(oturum.provider, oturum.account), gorseller, istem)
+    except ImageGenerationError as error:
+        return {"ok": False, "metin": str(error)}
+    return _result(sonuc, istem)
 
 
-def _result(label: str, gorseller: list[GeneratedImage], istem: str) -> dict[str, Any]:
-    for gorsel in gorseller:
-        write_sidecar(gorsel.path, prompt=istem, provider=label)
+def _result(sonuc: GenerationResult, istem: str) -> dict[str, Any]:
+    for gorsel in sonuc.images:
+        write_sidecar(gorsel.path, prompt=istem, provider=sonuc.label)
     return {
         "ok": True,
-        "saglayici": label,
+        "saglayici": sonuc.label,
         "dosyalar": [
-            {"yol": str(g.path), "genislik": g.width, "yukseklik": g.height} for g in gorseller
+            {"yol": str(g.path), "genislik": g.width, "yukseklik": g.height} for g in sonuc.images
         ],
     }

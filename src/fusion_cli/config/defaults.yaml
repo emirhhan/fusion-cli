@@ -102,6 +102,24 @@ runtime:
   # (code.claude.com/docs/en/errors). Ölçüldü (28 Eylül): 3 denemeyle 28 dakikalık
   # iş NIM'in 429 hatasıyla bitti. 0 = yeniden deneme yok.
   model_retry_attempts: 10
+  # Sağlayıcı başına MODEL başı dakikalık istek sınırı; önden korunur ki 429 hiç
+  # gelmesin. Masaüstünde her sekme ayrı süreçtir ve paralel alt ajanlar aynı modeli
+  # aynı anda çağırır: kova bütün süreçlerde ORTAKTIR (bkz. providers/rate_gate.py).
+  # NIM: 40 istek / 60 sn, model başına (ölçüldü; bkz. providers/retrying.py).
+  # Ölçülmemiş sağlayıcı buraya yazılmaz: yalnız 429'u sekmeler arası paylaşılır.
+  rate_limit_per_minute:
+    nvidia_nim: 40
+  # Kovadan hak için en fazla beklenecek süre. 40/dk'da bir hak 1,5 sn'de dolar;
+  # 3 sn iki hak aralığıdır. Daha uzun bekleme gerekiyorsa çağrı yedeğe bırakılır.
+  rate_pace_max_wait_s: 3.0
+  # `spawn_agents` ile aynı anda koşabilecek alt ajan sayısı. Gerekçe (TAHMİN,
+  # canlı ölçümle güncellenecek): bir ajan ücretsiz modelde dakikada ~6-10 çağrı
+  # yapar; 4 ajan NIM'in model başı 40/dk sınırına yaklaşır. Aşanı ortak kova
+  # yavaşlatır.
+  max_parallel_agents: 4
+  # Ajan bir dosyayı değiştirince çalışacak komutlar; `{path}` dosya yoluyla değişir.
+  # Örnek: ["npx prettier --write {path}"]. Boş liste = kanca yok.
+  post_edit_commands: []
   temperature: 0.3
   # Varsayılan reasoning yoğunluğu. Mode'dan (kademe) AYRIDIR: kademe modeli seçer,
   # bu ayar model destekliyorsa düşünme yoğunluğunu belirler. auto | low | medium |

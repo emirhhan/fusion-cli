@@ -49,6 +49,31 @@ ASPECT_SIZES: dict[str, tuple[int, int]] = {
     "3:4": (864, 1152),
 }
 
+#: FLUX.1-dev NIM ucunun kabul ettiği kenar aralığı ve adımı (aynı kaynak: Comfy-Org/
+#: NIMnodes FLUX düğümü). Hedef piksel bütçesi FLUX'un ~1 MP kovasıdır.
+FLUX_EDGE_MIN = 672
+FLUX_EDGE_MAX = 1568
+FLUX_EDGE_STEP = 32
+FLUX_PIXEL_BUDGET = _EDGE * _EDGE
+
+
+def flux_size_for(width: int, height: int) -> tuple[int, int]:
+    """İstenen orana en yakın, ucun kabul ettiği üretim ölçüsü (~1 MP).
+
+    Sonuç oranı birebir tutmayabilir (adım 32, kenar 672–1568); son ölçüye
+    getirme kırpma ile yapılır (bkz. `tools.image_ops.fit_cover`).
+    """
+    ratio = width / height
+    raw_w = (FLUX_PIXEL_BUDGET * ratio) ** 0.5
+    raw_h = raw_w / ratio
+
+    def _snap(edge: float) -> int:
+        stepped = round(edge / FLUX_EDGE_STEP) * FLUX_EDGE_STEP
+        return max(FLUX_EDGE_MIN, min(FLUX_EDGE_MAX, stepped))
+
+    return _snap(raw_w), _snap(raw_h)
+
+
 #: Tohum üst sınırı: FLUX uçlarının kabul ettiği 32 bit işaretsiz aralık.
 _SEED_LIMIT = 2**32
 
@@ -141,7 +166,8 @@ async def generate_nim_image(
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S")
     path = out_dir / f"fusion-{stamp}-{secrets.token_hex(3)}{suffix}"
     await asyncio.to_thread(_write, path, data)
-    return [GeneratedImage(path, _EDGE, _EDGE)]
+    # Bildirilen ölçü İSTENEN ölçüdür; eskiden kare dışı üretim de 1024×1024 yazılıyordu.
+    return [GeneratedImage(path, width, height)]
 
 
 def _write(path: Path, data: bytes) -> None:

@@ -182,3 +182,69 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     riskli = SimpleNamespace(chrome=_EkranKopru("Satın al"))
     assert await chrome.chrome_action_effect({"action": "click_at", "value": "1,1"}, riskli) is None
     assert not (await chrome.chrome_action({"action": "click_at", "value": "abc"}, baglam)).ok
+
+
+class _CevapliKopru(_Kopru):
+    def __init__(self, veri: dict) -> None:
+        super().__init__()
+        self._veri = veri
+
+    async def invoke(self, name, data):
+        self.cagrilar.append((name, data))
+        return {"ok": True, "veri": self._veri}
+
+
+async def test_iz_birakmayan_tiklama_modele_acikca_bildirilir():
+    baglam = SimpleNamespace(chrome=_CevapliKopru({"clicked": "e1", "changed": False}))
+
+    sonuc = await chrome.chrome_click({"ref": "e1"}, baglam)
+
+    assert sonuc.ok and chrome.NO_CHANGE_NOTE in sonuc.output
+
+
+async def test_iz_birakan_tiklamaya_not_eklenmez():
+    baglam = SimpleNamespace(chrome=_CevapliKopru({"clicked": "e1", "changed": True}))
+
+    sonuc = await chrome.chrome_click({"ref": "e1"}, baglam)
+
+    assert chrome.NO_CHANGE_NOTE not in sonuc.output
+
+
+async def test_oturmayan_yazma_hata_olarak_doner():
+    baglam = SimpleNamespace(chrome=_CevapliKopru({"verified": False, "value": "12"}))
+
+    sonuc = await chrome.chrome_type({"ref": "e2", "text": "1234"}, baglam)
+
+    assert not sonuc.ok and "oturmadı" in sonuc.output and "'12'" in sonuc.output
+
+
+async def test_yukleme_proje_dosyasini_base64_olarak_gonderir(tmp_path):
+    from fusion_cli.core.tools import ToolContext
+
+    (tmp_path / "logo.png").write_bytes(b"\x89PNG-veri")
+    kopru = _CevapliKopru({"uploaded": ["logo.png"], "count": 1})
+    baglam = ToolContext(root=tmp_path, chrome=kopru)
+
+    sonuc = await chrome.chrome_action(
+        {"action": "upload", "ref": "e5", "value": "logo.png"}, baglam
+    )
+
+    assert sonuc.ok
+    ad, veri = kopru.cagrilar[0]
+    assert ad == "upload" and veri["ref"] == "e5"
+    assert veri["files"][0]["name"] == "logo.png" and veri["files"][0]["mime"] == "image/png"
+
+
+async def test_yukleme_sinirini_asan_dosya_gonderilmez(tmp_path, monkeypatch):
+    from fusion_cli.core.tools import ToolContext
+
+    monkeypatch.setattr(chrome, "MAX_UPLOAD_BYTES", 4)
+    (tmp_path / "buyuk.bin").write_bytes(b"12345678")
+    kopru = _CevapliKopru({})
+
+    sonuc = await chrome.chrome_action(
+        {"action": "upload", "ref": "e5", "value": "buyuk.bin"},
+        ToolContext(root=tmp_path, chrome=kopru),
+    )
+
+    assert not sonuc.ok and kopru.cagrilar == []

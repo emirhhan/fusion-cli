@@ -11,7 +11,7 @@ import logging
 
 from ..config.models import Config
 from ..core.errors import FusionError
-from ..core.health import HealthRegistry
+from ..providers.health_setup import build_health
 from .app import GatewayApp
 
 #: Varsayılan yerel adres ve port. Koda gömülü sihirli değer değil, gateway sabiti.
@@ -23,13 +23,7 @@ _logger = logging.getLogger(__name__)
 
 def build_app(config: Config) -> GatewayApp:
     """Oturum sağlığıyla birlikte gateway uygulamasını kur (test edilebilir)."""
-    runtime = config.runtime
-    health = HealthRegistry(
-        failure_threshold=runtime.circuit_failure_threshold,
-        cooldown_s=runtime.circuit_cooldown_s,
-        alpha=runtime.reliability_alpha,
-    )
-    return GatewayApp(config, health=health)
+    return GatewayApp(config, health=build_health(config))
 
 
 def serve(config: Config, *, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> None:

@@ -42,7 +42,11 @@ class JsonRenderer:
 
 
 def _fields(event: Event) -> dict[str, object]:
-    return {field.name: getattr(event, field.name) for field in dataclasses.fields(event)}
+    fields = {field.name: getattr(event, field.name) for field in dataclasses.fields(event)}
+    # Ana ajanın olayında kimlik boştur; satır biçimi alt ajan olmadan değişmesin.
+    if not fields.get("agent_id"):
+        fields.pop("agent_id", None)
+    return fields
 
 
 def _encode(value: object) -> object:

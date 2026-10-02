@@ -31,6 +31,8 @@ _PERMISSION_LABELS = {
     "web_fetch": "ağ erişimi",
     "read_url_content": "ağ erişimi",
     "spawn_agent": "alt ajan",
+    "spawn_agents": "alt ajan",
+    "site_crawl": "ağ erişimi",
 }
 
 

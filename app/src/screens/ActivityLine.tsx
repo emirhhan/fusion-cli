@@ -44,7 +44,7 @@ export function activityState(adimlar: OlayAdimi[]): ActivityState {
  * "25 sn" iken baştan "0 sn"ye dönüyordu. Başlangıç artık bileşenin DIŞINDA,
  * kalıcı durumda tutulduğu için yeniden bağlanma sayaçtan bağımsızdır.
  */
-function useElapsedSeconds(running: boolean, baslangicZamani: number | undefined): number {
+export function useElapsedSeconds(running: boolean, baslangicZamani: number | undefined): number {
   const [, forceTick] = useState(0);
   useEffect(() => {
     if (!running || baslangicZamani === undefined) return;
@@ -107,7 +107,7 @@ function acilabilir(adim: OlayAdimi): boolean {
 }
 
 /** Claude'daki gibi kalıcı adım izi: her adım tek satır, tıklayınca açılır. */
-function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
+export function ToolTrail({ adimlar }: { adimlar: OlayAdimi[] }) {
   return (
     <ol className="activity__trail">
       {adimlar.map((adim, index) => {

@@ -223,3 +223,23 @@ HOSTED_VERIFY_TIMEOUT_S = 420.0
 #: doğrulama kanıtı saymaz (bkz. `engines/agent/turn_report.py`).
 TOOL_CALL_DUPLICATE_PREFIX = "TOOL_CALL_DUPLICATE:"
 TOOL_CALL_BLOCKED_PREFIX = "TOOL_CALL_BLOCKED:"
+
+#: Paylaşılan hız defterinin SQLite kilit bekleme süresi (sn). Defter işlemleri
+#: tek satırlık okuma/yazmadır (mikrosaniyeler); 2 sn yalnız aynı anda çok sekme
+#: yazarken sıra bekleyen süreci korur, takılı bir kilit turu dondurmaz.
+RATE_LEDGER_BUSY_TIMEOUT_S = 2.0
+
+#: `site_crawl` iki istek arasında en az bu kadar bekler (robots.txt `Crawl-delay`
+#: daha uzunsa o geçerli). 1 sn: küçük sitelerin bile rahat kaldırdığı, yaygın kabul
+#: gören nazik tarama hızı; tek kullanıcının bir siteyi incelemesi için yeterli.
+CRAWL_DELAY_S = 1.0
+#: Bir taramada en fazla sayfa ve derinlik (kullanıcı daha azını isteyebilir).
+CRAWL_MAX_PAGES = 100
+CRAWL_MAX_DEPTH = 4
+
+#: `chrome_action upload` ile sayfaya verilecek dosyaların toplam üst sınırı. Dosya
+#: base64 olarak yerel köprüden ve `chrome.scripting` argümanı olarak sayfaya geçer;
+#: bu yolun büyük dosyadaki davranışı ÖLÇÜLMEDİ. 10 MB, tipik form yüklemelerini
+#: (fotoğraf, PDF, ürün görseli) karşılayan temkinli değerdir; aşan dosya için
+#: kullanıcıya elle yükleme önerilir.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024

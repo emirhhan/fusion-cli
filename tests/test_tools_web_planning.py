@@ -26,7 +26,7 @@ def context(tmp_path):
 def test_sayfa_okuma_indirme_baglantisinin_adresini_kaybetmez(monkeypatch, context):
     monkeypatch.setattr(
         web,
-        "_fetch_following_redirects",
+        "fetch_following_redirects",
         lambda url: (
             "text/html",
             '<h1>Asset pack</h1><a href="/media/pack.zip"><b>Download</b></a>'

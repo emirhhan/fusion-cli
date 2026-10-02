@@ -67,6 +67,7 @@ from ...core.evidence import ToolUse
 from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
+from ...core.protocols import TurnJournal
 from ...core.redaction import redact
 from ...core.steering import SteeringQueue
 from ...core.tools import TodoItem, Tool, ToolContext, ToolFamily, ToolResult, tool_family
@@ -98,6 +99,7 @@ from .apprentice_handoff import apprentice_spec, teacher_for_turn
 from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .clarify import clarification_hint
+from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import (
     ExecutionPolicy,
@@ -326,6 +328,10 @@ class AgentDeps:
     #: Oturum boyunca paylaşılan sağlayıcı sağlığı (circuit breaker + güvenilirlik).
     #: Verilirse sağlıksız model turlar arası atlanır. Verilmezse breaker kurulmaz.
     health: HealthRegistry | None = None
+    #: Verilirse kök turun konuşması her araç turundan sonra diske yazılır; süreç
+    #: tur ortasında kapanırsa sekme kaldığı adımdan sürdürebilir. Alt ajanlar ve
+    #: iç (denetim) turları yazmaz: günlük kullanıcının asıl turunu taşır.
+    journal: TurnJournal | None = None
     #: Aynı üst görevde otomatik web öğretmene yalnız bir kez danışılır.
     auto_teacher_used: bool = False
     #: İlk plan, takılma ve son denetim aynı tur bütçesini paylaşır.
@@ -1109,6 +1115,8 @@ async def _drive(
             plan_mode=plan_mode,
         )
         budget.record_round(progressed=progressed(_round_signals(deps, state, before)))
+        if deps.journal is not None and not internal:
+            deps.journal.save(messages)
         if state.tool_contract_abort:
             budget.halt(BudgetStop.REPEATED_CALL)
             _publish_budget_stop(deps, budget, state)
@@ -2266,6 +2274,13 @@ def _is_rerunnable(name: str) -> bool:
 # --------------------------------------------------------------------------- #
 
 
+def _post_edit_commands(deps: AgentDeps) -> tuple[str, ...]:
+    """Kullanıcının düzenleme kancaları; yapılandırmasız (alt sistem testi) bağlamda yok."""
+    config = getattr(deps, "config", None)
+    runtime = getattr(config, "runtime", None)
+    return tuple(getattr(runtime, "post_edit_commands", ()))
+
+
 async def _run_tools(
     calls: tuple[ToolCall, ...],
     messages: list[Message],
@@ -2553,6 +2568,15 @@ async def _run_tools(
             ayni = _same_output_note(state, call.name, result.output)
             if ayni is not None:
                 govde = f"{govde}\n\n{ayni}"
+        hooks = _post_edit_commands(deps) if call.name in EDIT_TOOLS else ()
+        if outcome is ToolOutcome.OK and hooks:
+            raw_path = args.get("path")
+            if isinstance(raw_path, str) and raw_path:
+                hook_note = await run_post_edit_hooks(
+                    hooks, deps.tool_context.root / raw_path, deps.tool_context.root
+                )
+                if hook_note is not None:
+                    govde = f"{govde}\n\n{hook_note}"
         if outcome is ToolOutcome.FAILED:
             imza = (call.name, _failure_signature(result.output))
             state.repeated_failures[imza] = state.repeated_failures.get(imza, 0) + 1

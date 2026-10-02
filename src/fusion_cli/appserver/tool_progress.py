@@ -111,6 +111,27 @@ def _download_file(args: Mapping[str, object]) -> str:
     return f"{_host(url)} indiriliyor" if url else "dosya indiriliyor"
 
 
+def _site_crawl(args: Mapping[str, object]) -> str:
+    url = _text(args, "url")
+    return f"{_host(url)} taranıyor" if url else "site taranıyor"
+
+
+def _generate_image(args: Mapping[str, object]) -> str:
+    genislik, yukseklik = args.get("width"), args.get("height")
+    olcu = f" ({genislik}×{yukseklik})" if genislik and yukseklik else ""
+    return f"{_path_metni(args)} görseli üretiliyor{olcu}"
+
+
+def _optimize_image(args: Mapping[str, object]) -> str:
+    return f"{_path_metni(args)} web için hazırlanıyor"
+
+
+def _spawn_agents(args: Mapping[str, object]) -> str:
+    gorevler = args.get("gorevler")
+    adet = len(gorevler) if isinstance(gorevler, list) else 0
+    return f"{adet} ajan görevlendiriliyor" if adet else "ekip görevlendiriliyor"
+
+
 def _extract_archive(args: Mapping[str, object]) -> str:
     return f"{_path_metni(args)} açılıyor"
 
@@ -189,6 +210,10 @@ _METINLER: dict[str, Callable[[Mapping[str, object]], str]] = {
     "web_search": _web_search,
     "web_fetch": _web_fetch,
     "download_file": _download_file,
+    "site_crawl": _site_crawl,
+    "generate_image": _generate_image,
+    "optimize_image": _optimize_image,
+    "spawn_agents": _spawn_agents,
     "extract_archive": _extract_archive,
     "scaffold_web": _scaffold_web,
     "chrome_navigate": _chrome_navigate,

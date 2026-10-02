@@ -96,12 +96,27 @@ def credentials_file() -> Path:
     return user_data_dir() / "secrets.enc"
 
 
+def capabilities_dir() -> Path:
+    """`fusion yetenek kur` ile kurulan repoların yeri (skill/ajan keşfine dahil)."""
+    return user_data_dir() / "yetenekler"
+
+
+def trash_dir() -> Path:
+    """Fusion çöpü: ajanın sildiği her şey buraya taşınır (bkz. `tools.safe_delete`)."""
+    return user_data_dir() / "cop"
+
+
 def memory_dir() -> Path:
     """Vektör belleğinin tutulduğu dizin. Ortam değişkeniyle taşınabilir."""
     override = os.environ.get(ENV_MEMORY_DIR)
     if override:
         return Path(override).expanduser()
     return user_data_dir() / "memory"
+
+
+def bundled_roster_dir() -> Path:
+    """Pakete gömülü yerleşik ajan ekibi (kişilik dosyaları)."""
+    return Path(__file__).resolve().parent / "roster"
 
 
 def bundled_defaults() -> Path:

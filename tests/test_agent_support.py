@@ -332,7 +332,7 @@ def test_alt_ajan_baglami_touched_kumesini_paylasir():
     from pathlib import Path
 
     from fusion_cli.core.tools import ToolContext
-    from fusion_cli.engines.agent.engine_tools import derive_sub_context
+    from fusion_cli.engines.agent.team import derive_sub_context
 
     ana = ToolContext(root=Path("/proje"), extra_roots=(Path("/paylasilan"),))
     alt = derive_sub_context(ana)

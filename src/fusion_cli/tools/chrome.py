@@ -6,10 +6,12 @@ import base64
 import binascii
 import contextlib
 import json
+import mimetypes
 import re
 import weakref
 from typing import Any
 
+from ..core.constants import MAX_UPLOAD_BYTES
 from ..core.tool_content import ToolContent
 from ..core.tools import ToolArgs, ToolContext, ToolEffect, ToolResult
 from .args import require_str
@@ -38,14 +40,52 @@ async def chrome_page(args: ToolArgs, context: ToolContext) -> ToolResult:
     return await _call(context, "snapshot", {})
 
 
+async def chrome_assets(_args: ToolArgs, context: ToolContext) -> ToolResult:
+    """Bağlı sekmedeki görselleri (gerçek ölçüleriyle), arka planları ve paleti topla."""
+    return await _call(context, "assets", {})
+
+
+#: Tıklama sayfada iz bırakmadığında modele eklenen not. Otomatik yeniden tıklama
+#: YAPILMAZ: "sepete ekle", "gönder" gibi işlemler iki kez çalışabilir.
+NO_CHANGE_NOTE = (
+    "NOT: Tıklamadan sonra sayfada görünür bir değişiklik olmadı (adres, metin, açılır "
+    "pencere, seçim aynı). Öğe doğru mu? chrome_page ile yeniden oku; gerekirse farklı "
+    "öğeyi ya da screenshot + click_at dene. Aynı tıklamayı körlemesine tekrarlama."
+)
+
+
+def with_action_check(result: ToolResult) -> ToolResult:
+    """Eylem sonucu `changed: false` taşıyorsa modele açık not ekle."""
+    if not result.ok:
+        return result
+    try:
+        veri = json.loads(result.output)
+    except json.JSONDecodeError:
+        return result
+    if isinstance(veri, dict) and veri.get("changed") is False:
+        return ToolResult(f"{result.output}\n{NO_CHANGE_NOTE}")
+    return result
+
+
 async def chrome_click(args: ToolArgs, context: ToolContext) -> ToolResult:
-    return await _call(context, "click", {"ref": require_str(args, "ref")})
+    return with_action_check(await _call(context, "click", {"ref": require_str(args, "ref")}))
 
 
 async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
-    return await _call(
+    result = await _call(
         context, "type", {"ref": require_str(args, "ref"), "text": require_str(args, "text")}
     )
+    if not result.ok:
+        return result
+    with contextlib.suppress(json.JSONDecodeError):
+        veri = json.loads(result.output)
+        if isinstance(veri, dict) and veri.get("verified") is False:
+            return ToolResult.failure(
+                "Yazılan metin alana oturmadı (iki yöntem denendi). Alandaki değer: "
+                f"{veri.get('value', '')!r}. Alanı chrome_page ile yeniden oku; maskeli ya da "
+                "özel bir editörse önce tıklayıp odakla, sonra tekrar yaz."
+            )
+    return result
 
 
 #: Son ekran görüntüsünün ölçeği (sayfa CSS pikseli / görüntü pikseli), bağlantı başına.
@@ -57,7 +97,7 @@ _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDi
 _READ_ACTIONS = frozenset(
     {
         "scroll", "wait", "tabs", "open", "tab", "select", "screenshot",
-        "back", "forward", "reload", "close", "hover", "text",
+        "back", "forward", "reload", "close", "hover", "text", "assets",
     }
 )  # fmt: skip
 
@@ -150,7 +190,7 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
         return await _call(context, "wait", {"text": value, "timeout_ms": 20_000})
     if action == "key":
         data["key"] = value if isinstance(value, str) and value else "Enter"
-        return await _call(context, "key", data)
+        return with_action_check(await _call(context, "key", data))
     if action == "screenshot":
         return await chrome_screenshot(args, context)
     if action == "tabs":
@@ -192,10 +232,14 @@ async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:
             return ToolResult.failure(
                 "click_at için 'value' alanına ekran görüntüsündeki 'x,y' yaz."
             )
-        return await _call(context, "click_at", {"x": point[0], "y": point[1]})
+        return with_action_check(await _call(context, "click_at", {"x": point[0], "y": point[1]}))
+    if action == "upload":
+        return await _upload(data, value, context)
+    if action == "assets":
+        return await chrome_assets(args, context)
     return ToolResult.failure(
         "action: scroll, wait, key, select, tabs, open, tab, screenshot, back, forward, "
-        "reload, close, hover, text ya da click_at olmalı."
+        "reload, close, hover, text, click_at, upload ya da assets olmalı."
     )
 
 
@@ -273,3 +317,33 @@ def jpeg_size(data: bytes) -> tuple[int, int] | None:
             return width, height
         index += 2 + length
     return None
+
+
+async def _upload(data: dict[str, Any], value: object, context: ToolContext) -> ToolResult:
+    """Projedeki dosyaları sayfanın dosya seçme alanına koy (göndermez)."""
+    if "ref" not in data or not isinstance(value, str) or not value.strip():
+        return ToolResult.failure(
+            "upload için 'ref' (dosya alanı) ve 'value' (dosya yolları) gerekli."
+        )
+    from .files import resolve_path
+
+    files: list[dict[str, str]] = []
+    toplam = 0
+    for raw in (part.strip() for part in value.split(",") if part.strip()):
+        path = resolve_path(context, raw)
+        if not path.is_file():
+            return ToolResult.failure(f"Dosya yok: {raw}")
+        icerik = path.read_bytes()
+        toplam += len(icerik)
+        if toplam > MAX_UPLOAD_BYTES:
+            return ToolResult.failure(
+                f"Yükleme sınırı aşıldı ({MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."
+            )
+        files.append(
+            {
+                "name": path.name,
+                "mime": mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                "data": base64.b64encode(icerik).decode("ascii"),
+            }
+        )
+    return await _call(context, "upload", {**data, "files": files})

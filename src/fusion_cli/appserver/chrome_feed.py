@@ -47,7 +47,7 @@ def panel_item(line: str) -> dict[str, Any] | None:
 _VISIBLE_TOOLS = frozenset(
     {
         "chrome_page",
-        "chrome_action",
+            "chrome_action",
         "chrome_click",
         "chrome_type",
         "chrome_navigate",

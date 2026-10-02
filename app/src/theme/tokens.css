@@ -164,6 +164,32 @@
      ayarların ARKASINDA kalıyor, kapatma durdurulduğu için uygulama kapanmıyordu. */
   --z-close-confirm: 1500;
 
+  /* Ekip (alt ajan) kişilik renkleri: avatar zemini (-zemin) + sembol/vurgu
+     mürekkebi (-murekkep). Mürekkep zemin üstünde metin kontrastı ≥4.5:1
+     verecek koyulukta seçildi; renk YALNIZ kimlik içindir, durum bildirmez. */
+  --ekip-mor-zemin: #efe9ff;
+  --ekip-mor-murekkep: #5b3cc4;
+  --ekip-mavi-zemin: #e5f0ff;
+  --ekip-mavi-murekkep: #1f5fbf;
+  --ekip-pembe-zemin: #ffe8f3;
+  --ekip-pembe-murekkep: #b02a6b;
+  --ekip-yesil-zemin: #e3f6ea;
+  --ekip-yesil-murekkep: #17703f;
+  --ekip-turuncu-zemin: #fff0e0;
+  --ekip-turuncu-murekkep: #a2480b;
+  --ekip-camgobegi-zemin: #e0f6f8;
+  --ekip-camgobegi-murekkep: #0d6b77;
+  --ekip-sari-zemin: #fff6d6;
+  --ekip-sari-murekkep: #7d5d00;
+  --ekip-kirmizi-zemin: #ffe7e5;
+  --ekip-kirmizi-murekkep: #b3261e;
+  --ekip-gri-zemin: #efefef;
+  --ekip-gri-murekkep: #4a4a4a;
+  /* Bileşenin kullandığı etkin kişilik rengi; `data-renk` seçicisi ezer
+     (bkz. team/TeamCards.css). Tanımsız kişilik gri görünür. */
+  --ekip-zemin: var(--ekip-gri-zemin);
+  --ekip-murekkep: var(--ekip-gri-murekkep);
+
   /* Varsayılan: sistemin kendi başlık çubuğu var, ekstra pay gerekmez. */
   --titlebar-inset: 0px;
 }
@@ -221,6 +247,26 @@
      bu yüzden seçim koyu temada da belirgin okunur. */
   --selection-bg: var(--brand-signal);
   --selection-text: var(--text-inverse);
+
+  /* Ekip renkleri koyu temada: zemin koyulaşır, mürekkep açılır (aynı oran). */
+  --ekip-mor-zemin: #2d2546;
+  --ekip-mor-murekkep: #c7b6ff;
+  --ekip-mavi-zemin: #1d2b42;
+  --ekip-mavi-murekkep: #9cc4ff;
+  --ekip-pembe-zemin: #3d2232;
+  --ekip-pembe-murekkep: #ffadd5;
+  --ekip-yesil-zemin: #1b3326;
+  --ekip-yesil-murekkep: #8fe0b0;
+  --ekip-turuncu-zemin: #3d2a17;
+  --ekip-turuncu-murekkep: #ffc28a;
+  --ekip-camgobegi-zemin: #173236;
+  --ekip-camgobegi-murekkep: #8ce1ea;
+  --ekip-sari-zemin: #37301a;
+  --ekip-sari-murekkep: #f5d878;
+  --ekip-kirmizi-zemin: #3e2020;
+  --ekip-kirmizi-murekkep: #ffa69f;
+  --ekip-gri-zemin: #353535;
+  --ekip-gri-murekkep: #d6d6d6;
 }
 
 *,

@@ -33,6 +33,7 @@ from ..core.events import (
 )
 from ..core.followups import suggest_followups
 from ..core.health import HealthRegistry
+from ..core.protocols import TurnJournal
 from ..core.tools import ChromeControl, ToolContext
 from ..core.types import (
     CompletionRequest,
@@ -49,11 +50,13 @@ from ..engines.agent.verification import build_verifier
 from ..engines.fusion import run_fusion
 from ..memory.checkpoint_store import JsonCheckpointStore
 from ..memory.factory import Memory, build_memory, null_memory
+from ..observability.audit import AuditSink
 from ..observability.bus import EventBus
 from ..observability.cost import CostTracker
 from ..observability.json_sink import JsonRenderer
 from ..observability.trace_store import TraceStore, TraceWriter
 from ..observability.tracing import LangfuseTracer
+from ..providers.health_setup import build_health
 from ..tools.capabilities import CapabilityRegistry
 from ..ui import messages
 
@@ -159,6 +162,8 @@ async def run_agent_task(
     chat_mode: bool = False,
     workflow: bool = False,
     allowed_tools: set[str] | None = None,
+    health: HealthRegistry | None = None,
+    journal: TurnJournal | None = None,
 ) -> AgentOutcome:
     """Görevi agent motoruyla (araçlar + onay + öz-denetim) çalıştır.
 
@@ -176,6 +181,10 @@ async def run_agent_task(
     async with EventBus() as bus:
         for sink in sinks:
             bus.subscribe(sink)
+        # Her araç sonucu kalıcı denetim günlüğüne de yazılır (silinmez).
+        bus.subscribe(
+            AuditSink(config.memory_dir / "audit", conversation_id, root=root or Path.cwd())
+        )
 
         # Prompter veriyolunu tanır: terminali devralmadan önce bekleyen olayları
         # boşaltır, böylece onay paneli akan çıktının ortasına düşmez.
@@ -215,6 +224,10 @@ async def run_agent_task(
             background=background,
             checkpoint_store=JsonCheckpointStore(config.memory_dir / "workflow-checkpoints"),
             conversation_id=conversation_id,
+            # Kayıt verilmezse tur kendi kaydını kurar: circuit breaker ve ortak hız
+            # defteri tek atışlık `fusion agent`ta da çalışmalı (eskiden hiç yoktu).
+            health=health or build_health(config),
+            journal=journal,
         )
         outcome = await _run_agent_with_mcp(
             task,

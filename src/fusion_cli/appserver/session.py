@@ -44,7 +44,6 @@ from ..config.model_select import select_agent_spec
 from ..config.models import Config, McpServerConfig
 from ..config.paths import credentials_file
 from ..core.events import Event, StatusChanged
-from ..core.health import HealthRegistry
 from ..core.tools import TodoStatus
 from ..core.types import Message
 from ..engines.agent.approval import ApprovalMode
@@ -53,7 +52,9 @@ from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..history.sanitize import sanitize_message
 from ..mcp_bridge.failures import STATE_LOGIN_REQUIRED
 from ..memory.factory import build_memory
+from ..memory.turn_journal import FileTurnJournal
 from ..providers.capabilities import apprentice_active
+from ..providers.health_setup import build_health
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
 from ..ui import messages
 from ..ui.text import strip_thinking
@@ -169,25 +170,13 @@ CHROME_TURN_TOOLS = {
 }
 
 
-def _build_health(config: Config) -> HealthRegistry:
-    """Oturum için sağlık kaydını yapılandırma eşiklerinden kur.
-
-    `cli/repl/loop.py::_build_health` ile aynı mantık — terminal REPL'i
-    kurduğu gibi appserver da kurar, aksi halde `/health` her zaman boş
-    döner ve sağlayıcı circuit breaker'ı turlar arasında hiç yaşamaz.
-    """
-    runtime = config.runtime
-    return HealthRegistry(
-        failure_threshold=runtime.circuit_failure_threshold,
-        cooldown_s=runtime.circuit_cooldown_s,
-        alpha=runtime.reliability_alpha,
-    )
-
-
 def _refresh_teacher(config: Config) -> Config:
     """Refresh web teacher without losing unsaved in-session model choices."""
     return replace(config, teacher=load_config(config.source).teacher)
 
+
+#: Tur günlüğü dosya adında konuşma kimliğinin güvenli karakterleri.
+_SAFE_JOURNAL_ID = re.compile(r"[^a-zA-Z0-9._-]+")
 
 #: Modele gönderilecek tek görselin üst sınırı. Büyük bir görsel isteği şişirir,
 #: çoğu uçta reddedilir ve kullanıcıya sebebi belirsiz bir hata döner.
@@ -365,7 +354,7 @@ class AppSession:
             memory=build_memory(config, root=root),
             root=root,
             home=home,
-            health=_build_health(config),
+            health=build_health(config),
         )
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
@@ -916,6 +905,33 @@ class AppSession:
         self._transcript_store = TranscriptStore(
             self._state.config.memory_dir, self._root, conversation_id=self._conversation_id
         )
+        self._restore_interrupted_turn()
+
+    def _turn_journal(self, task: str) -> FileTurnJournal:
+        """Bu konuşmanın tur günlüğü (transcript klasöründe, konuşma başına tek dosya)."""
+        kimlik = _SAFE_JOURNAL_ID.sub("_", self._conversation_id or FALLBACK_CONVERSATION_ID)
+        return FileTurnJournal(
+            self._transcript_store.base_dir / "journals" / f"{kimlik}.json", task=task
+        )
+
+    def _restore_interrupted_turn(self) -> None:
+        """Süreç tur ortasında kapandıysa o turun adımlarını geçmişe geri yükle.
+
+        Transcript yalnız soru ve cevabı taşır; yarıda kalan turun araç adımları
+        orada yoktur ve "devam et" modele hiçbir şey göstermezdi. Günlük tam
+        konuşmayı taşır. Bildirim bir kez yazılır; geçmiş her açılışta yüklenir
+        (yeni bir tur başlayana ya da günlük silinene kadar).
+        """
+        journal = self._turn_journal("")
+        entry = journal.load()
+        if entry is None or not entry.messages:
+            return
+        self._state.history = list(entry.messages)
+        if entry.notified:
+            return
+        gorev = entry.task.strip()[: messages.APP_TURN_INTERRUPTED_TASK_CHARS]
+        self._transcript_store.record_assistant(messages.APP_TURN_INTERRUPTED.format(gorev=gorev))
+        journal.mark_notified(entry)
 
     def _start_session(self, data: dict[str, Any]) -> dict[str, Any]:
         """`oturum.baslat`: kök dizin, ev dizini, onay modu ve motoru kurar.
@@ -1417,8 +1433,13 @@ class AppSession:
                 # Oturumun kalıcı belleği (dersler, öğretmen planları, kod indeksi).
                 # Verilmezse tur boş bellekle koşar ve hiçbir şey öğrenilmez.
                 memory=self._state.memory,
+                # Sekmenin sağlık kaydı: devre durumu turlar arasında yaşar.
+                health=self._state.health,
+                journal=journal,
             )
 
+        # Tarayıcı paneli turu sekmenin konuşması değildir; günlüğe yazılmaz.
+        journal = None if browser_only else self._turn_journal(task)
         self._turn = asyncio.ensure_future(execute_turn())
         try:
             outcome = await self._turn
@@ -1437,6 +1458,9 @@ class AppSession:
             return {"ok": False, "metin": messages.APP_TURN_CANCELLED}
         finally:
             self._turn = None
+            # Tur her yoldan bitti (cevap, hata, iptal): yarıda kalmış sayılmaz.
+            if journal is not None:
+                journal.clear()
         # Çok-turlu sohbet: bu turun ürettiği geçmiş bir SONRAKİ `tur.calistir`e
         # taşınsın diye durumda saklanır (bkz. `tui_loop.py:417` ile aynı desen).
         if browser_only:

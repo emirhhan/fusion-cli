@@ -40,6 +40,26 @@ export function pageAction(operation, args) {
     if (index === -1) { refs.push(el); index = refs.length - 1; }
     return `e${index}`;
   };
+  // Sayfanın TAMAMI: açık shadow root'lar (web bileşenleri) ve aynı kaynaktan
+  // iframe'ler de taranır. Ölçüldü: shadow DOM'daki düğmeler snapshot'ta hiç
+  // görünmüyordu ve model "düğme yok" deyip işi bırakıyordu.
+  const deepAll = (selector) => {
+    const found = [];
+    const visit = (root, depth) => {
+      if (!root || depth > 6) return;
+      found.push(...root.querySelectorAll(selector));
+      for (const host of root.querySelectorAll("*")) {
+        if (host.shadowRoot) visit(host.shadowRoot, depth + 1);
+        if (host.tagName === "IFRAME") {
+          let inner = null;
+          try { inner = host.contentDocument; } catch { inner = null; }
+          if (inner) visit(inner, depth + 1);
+        }
+      }
+    };
+    visit(document, 0);
+    return found;
+  };
   const describe = (el) => {
     const rect = el.getBoundingClientRect();
     const item = {
@@ -95,7 +115,7 @@ export function pageAction(operation, args) {
   };
   if (operation === "snapshot") {
     globalThis.__fusionRefs = [];
-    const all = [...document.querySelectorAll(INTERACTIVE)].filter((el) => visibleBox(el) && safe(el));
+    const all = deepAll(INTERACTIVE).filter((el) => visibleBox(el) && safe(el));
     // Görünür alandakiler önce: uzun sayfada model önce ekranda olanı görmeli.
     all.sort((a, b) => Number(b.getBoundingClientRect().top >= 0 && b.getBoundingClientRect().top < innerHeight) -
       Number(a.getBoundingClientRect().top >= 0 && a.getBoundingClientRect().top < innerHeight));
@@ -113,7 +133,7 @@ export function pageAction(operation, args) {
     // Modeller "campaigns, kampanyalar" gibi birden çok terimle arıyor; her biri ayrı
     // aranır, biri tutarsa yeter (ölçüldü: tek öbek sanılıp hep 0 sonuç dönüyordu).
     const terms = query.split(/[,|]/).map((term) => term.trim()).filter(Boolean);
-    const hits = [...document.querySelectorAll(INTERACTIVE + ", label, h1, h2, h3, td, li, span, p, div")]
+    const hits = deepAll(INTERACTIVE + ", label, h1, h2, h3, td, li, span, p, div")
       .filter((el) => safe(el) && visibleBox(el))
       .filter((el) => { const name = nameOf(el).toLocaleLowerCase("tr"); return terms.some((term) => name.includes(term)); })
       // En içteki eşleşme: "div > span > button" zincirinde düğmeyi döndür.
@@ -209,7 +229,33 @@ export function pageAction(operation, args) {
     }
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
-    return { typed: args.ref, length: args.text.length };
+    // Yazılanı GERİ OKU: bazı editörler (maskeli alan, zengin metin) ilk yöntemi
+    // sessizce yutar. Tutmadıysa tuş tuş yazma denenir; yazma tekrarlanabilir bir
+    // işlemdir (değeri ayarlar), ikinci deneme yan etki çoğaltmaz.
+    const current = () => (element.isContentEditable || element.getAttribute("role") === "textbox"
+      ? element.innerText : element.value) ?? "";
+    let verified = current().replace(/\s+/g, " ").trim() === String(args.text).replace(/\s+/g, " ").trim();
+    if (!verified) {
+      element.focus();
+      if (element.isContentEditable) {
+        element.textContent = "";
+      } else {
+        const proto = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(element, "");
+      }
+      for (const char of String(args.text)) {
+        element.dispatchEvent(new KeyboardEvent("keydown", { key: char, bubbles: true }));
+        if (!document.execCommand("insertText", false, char)) {
+          if (element.isContentEditable) element.textContent += char;
+          else element.value += char;
+        }
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, data: char, inputType: "insertText" }));
+        element.dispatchEvent(new KeyboardEvent("keyup", { key: char, bubbles: true }));
+      }
+      element.dispatchEvent(new Event("change", { bubbles: true }));
+      verified = current().replace(/\s+/g, " ").trim() === String(args.text).replace(/\s+/g, " ").trim();
+    }
+    return { typed: args.ref, length: args.text.length, verified, value: verified ? undefined : current().slice(0, 200) };
   }
   if (operation === "select") {
     const element = target();
@@ -241,6 +287,74 @@ export function pageAction(operation, args) {
       scrollBy({ top: amount, behavior: "instant" });
     }
     return { y: Math.round(scrollY), height: document.documentElement.scrollHeight };
+  }
+  if (operation === "signature") {
+    // Tıklamanın sayfada bir şey değiştirip değiştirmediğini anlamak için küçük imza.
+    const active = document.activeElement;
+    return {
+      url: location.href,
+      title: document.title,
+      text: (document.body?.innerText || "").length,
+      nodes: document.getElementsByTagName("*").length,
+      active: active ? `${active.tagName}:${nameOf(active)}` : "",
+      dialogs: deepAll("dialog[open], [role='dialog'], [role='alertdialog'], [aria-modal='true']").filter(visibleBox).length,
+      expanded: deepAll("[aria-expanded='true']").length,
+      checked: deepAll("input:checked, [aria-checked='true'], [aria-selected='true'], [aria-pressed='true']").length,
+    };
+  }
+  if (operation === "upload") {
+    const element = target();
+    if (!element.matches("input[type='file']")) throw new Error("Bu öğe bir dosya seçme alanı değil.");
+    const files = (args.files || []).map((file) => {
+      const bytes = Uint8Array.from(atob(file.data), (char) => char.charCodeAt(0));
+      return new File([bytes], file.name, { type: file.mime || "application/octet-stream" });
+    });
+    if (!files.length) throw new Error("Yüklenecek dosya yok.");
+    if (files.length > 1 && !element.multiple) throw new Error("Bu alan tek dosya kabul ediyor.");
+    const transfer = new DataTransfer();
+    files.forEach((file) => transfer.items.add(file));
+    element.files = transfer.files;
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return { uploaded: files.map((file) => file.name), count: element.files.length };
+  }
+  if (operation === "assets") {
+    // Sayfanın görsel varlıkları: gerçek ölçüleriyle görseller, CSS arka plan
+    // görselleri, paylaşım görseli ve sitenin renk/yazı tipi paleti. Fusion
+    // bunları "bu siteye benzeyen bir site yap" ya da görsel toplama işinde kullanır.
+    const absolute = (value) => { try { return new URL(value, location.href).href; } catch { return ""; } };
+    const images = [...document.images]
+      .filter((img) => (img.currentSrc || img.src) && !(img.currentSrc || img.src).startsWith("data:"))
+      .map((img) => ({
+        src: absolute(img.currentSrc || img.src), alt: (img.alt || "").slice(0, 160),
+        width: img.naturalWidth, height: img.naturalHeight, visible: visibleBox(img),
+      }))
+      .filter((item) => item.width >= 48 && item.height >= 48);
+    const backgrounds = [];
+    for (const el of document.querySelectorAll("body *")) {
+      if (backgrounds.length >= 60) break;
+      const value = getComputedStyle(el).backgroundImage;
+      const match = value && value !== "none" ? /url\(["']?([^"')]+)["']?\)/.exec(value) : null;
+      if (match && !match[1].startsWith("data:")) backgrounds.push(absolute(match[1]));
+    }
+    const meta = (name) => document.querySelector(`meta[property='${name}'], meta[name='${name}']`)?.content || "";
+    const icon = document.querySelector("link[rel~='icon']")?.href || "";
+    const style = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      const css = getComputedStyle(el);
+      return { color: css.color, background: css.backgroundColor, font: css.fontFamily.split(",")[0].trim(), size: css.fontSize };
+    };
+    const unique = (list) => [...new Set(list.filter(Boolean))];
+    return {
+      url: location.href,
+      title: document.title,
+      images: unique(images.map((item) => item.src)).map((src) => images.find((item) => item.src === src)).slice(0, 150),
+      backgrounds: unique(backgrounds),
+      og_image: absolute(meta("og:image")),
+      icon,
+      palette: { body: style("body"), heading: style("h1, h2"), link: style("a"), button: style("button, .btn, [role='button']") },
+    };
   }
   if (operation === "text") {
     return { found: (document.body?.innerText || "").includes(String(args.text || "")), url: location.href };
@@ -396,11 +510,19 @@ export async function execute(command) {
     }
     return { found: false, waited_ms: limit };
   }
+  const acts = command.islem === "click" || command.islem === "click_at" || command.islem === "key";
+  // Eylemden ÖNCE ve SONRA imza: eylem sayfada iz bırakmadıysa model bunu bilmeli.
+  // Otomatik ikinci tıklama YAPILMAZ: sepete ekle gibi işlemler iki kez çalışabilir.
+  const before = acts ? await runInTab(tab, "signature", {}).catch(() => null) : null;
   const result = await runInTab(tab, command.islem, veri);
-  if (command.islem === "click" || command.islem === "click_at" || command.islem === "key") {
+  if (acts) {
     // Tıklama yeni sayfa açabilir; sonraki okuma yarım sayfa görmesin.
     await new Promise((resolve) => setTimeout(resolve, 300));
     await waitForLoad(tab.id, 8000);
+    const after = await runInTab(tab, "signature", {}).catch(() => null);
+    if (before && after && result && typeof result === "object") {
+      result.changed = JSON.stringify(before) !== JSON.stringify(after);
+    }
   }
   return result;
 }

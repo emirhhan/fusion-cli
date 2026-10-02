@@ -1,5 +1,7 @@
 import type { GorevMaddesi, Mesaj, TakipOnerisi } from "../screens/Conversation";
-import { olayAdimi, type OlayAdimi } from "./olayMetni";
+import { adimiEkle } from "./adimBirlestir";
+import { olayAdimi } from "./olayMetni";
+import { ekipOlayi } from "../team/ekipOlaylari";
 
 /**
  * Olayı sohbet akışına ekle.
@@ -12,6 +14,9 @@ import { olayAdimi, type OlayAdimi } from "./olayMetni";
  * kapanışıdır ve kendi satırında durur.
  */
 export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[] {
+  // Alt ajan olayları ana bloğa değil, ajanın kendi kartına düşer.
+  const ekipSonuc = ekipOlayi(gelen, event);
+  if (ekipSonuc) return ekipSonuc;
   const messages = event.olay === "ToolStarted" ? araAnlatimiSabitle(gelen) : gelen;
   const akanSonuc = akanCevap(messages, event);
   if (akanSonuc) return akanSonuc;
@@ -226,18 +231,3 @@ function turunBaslangici(messages: Mesaj[]): number | undefined {
   }
   return undefined;
 }
-
-/**
- * Biten aracı, başladığı adımın YERİNE yaz: Claude'daki gibi her araç tek satır
- * kalır ("src/app.py okunuyor" → bitince aynı satır, sonucuyla). Eskiden biten
- * araç "araç çalıştı: read_file" diye ayrı ve anlamsız bir satır açıyordu.
- */
-function adimiEkle(adimlar: OlayAdimi[], adim: OlayAdimi): OlayAdimi[] {
-  const son = adimlar[adimlar.length - 1];
-  if (adim.arac && !adim.basladi && son?.basladi && son.arac === adim.arac) {
-    const birlesik: OlayAdimi = { ...adim, metin: son.metin, kaynak: son.kaynak ?? adim.kaynak, basladi: false };
-    return [...adimlar.slice(0, -1), birlesik];
-  }
-  return [...adimlar, adim];
-}
-

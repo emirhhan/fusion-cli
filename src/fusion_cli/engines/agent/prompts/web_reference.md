@@ -111,8 +111,24 @@ Her etkileşimli öğe için dört durum tanımla: `:hover`, `:focus-visible`, `
 
 ## Görseller
 
-Ağdaki placeholder servislerine (via.placeholder.com, placehold.it, lorempixel.com)
-GÜVENME — kapandılar, sayfa kırık açılır.
+**`generate_image` aracın varsa GERÇEK görsel üret, yer tutucu bırakma.** Önce görsel
+planını çıkar (her görselin amacı, tam ölçüsü, sayfadaki yeri, alt metni), sonra her
+biri için `generate_image(prompt, width, height, path, alt, ilk_ekran)` çağır:
+
+| Yer | Ölçü | Not |
+|---|---|---|
+| Hero (ilk ekran) | 1920×1080 | `ilk_ekran: true` — öncelikli yüklenir |
+| Bölüm/kart görseli | 1200×900 veya 1200×1200 | tembel yüklenir |
+| Paylaşım (OG) görseli | 1200×630 | `<meta property="og:image">` |
+
+- Bütün istemlerde aynı üslup cümlesini tekrarla (renkler, ışık, ton): görseller
+  birbirine benzemeli. Görselde YAZI isteme; metin HTML'de durur.
+- Aracın döndürdüğü `<img>` önerisini olduğu gibi kullan (ölçü, srcset, loading).
+- Var olan/indirilen görseli web'e hazırlamak için `optimize_image` kullan.
+
+Araç yoksa aşağıdaki yer tutucu yolu geçerlidir. Ağdaki placeholder servislerine
+(via.placeholder.com, placehold.it, lorempixel.com) GÜVENME — kapandılar, sayfa
+kırık açılır.
 
 **Yer tutucu görseli ELLE YAZMA.** `format.js` içindeki hazır fonksiyonu çağır:
 

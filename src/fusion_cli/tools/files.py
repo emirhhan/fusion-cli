@@ -63,6 +63,22 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     return concrete
 
 
+def writable_path(context: ToolContext, raw: str) -> Path:
+    """Yazılacak yolu çözümle; bağlamın yazma alanı varsa dışına çıkılmaz."""
+    path = resolve_path(context, raw)
+    scope = context.write_scope
+    if scope is None:
+        return path
+    concrete = path.resolve()
+    if any(concrete == izin.resolve() or izin.resolve() in concrete.parents for izin in scope):
+        return path
+    alanlar = ", ".join(str(izin) for izin in scope) or "(boş)"
+    raise PathAccessError(
+        f"Bu alt ajanın yazma alanı dışında: {raw}. İzinli alan: {alanlar}. "
+        "Başka bir dosyayı değiştirmek gerekiyorsa sonucu ana ajana bildir."
+    )
+
+
 def atomic_write(path: Path, content: str) -> None:
     """Geçici dosyaya yaz, sonra yerine taşı.
 
@@ -228,7 +244,7 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
     if kurtarma is not None:
         return kurtarma
 
-    path = resolve_path(context, require_str(args, "path"))
+    path = writable_path(context, require_str(args, "path"))
     if "content" in args:
         content = require_text(args, "content")
         context.pending.take()  # eski saklanan içerik ASLA kullanılmaz
@@ -366,7 +382,7 @@ def _missing_edit_target(path: Path, context: ToolContext) -> ToolResult:
 
 
 def edit_file(args: ToolArgs, context: ToolContext) -> ToolResult:
-    path = resolve_path(context, require_str(args, "path"))
+    path = writable_path(context, require_str(args, "path"))
     # Gönderilmemiş `old` ile BOŞ `old` farklı hatalardır: ilki eksik alan,
     # ikincisi yanlış araç seçimidir ve farklı bir düzeltme gerektirir.
     if isinstance(args.get("old"), str) and not str(args["old"]).strip():
@@ -415,7 +431,7 @@ def _apply_edit(
 
 
 def multi_edit(args: ToolArgs, context: ToolContext) -> ToolResult:
-    path = resolve_path(context, require_str(args, "path"))
+    path = writable_path(context, require_str(args, "path"))
     edits = parse_edits(require_list(args, "edits"))
 
     if not path.exists():

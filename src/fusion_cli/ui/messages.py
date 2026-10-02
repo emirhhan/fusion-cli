@@ -83,8 +83,8 @@ DIFF_SUMMARY = "{added} ekleme, {removed} silme"
 DIFF_TRUNCATED = "… (+{count} satır daha)"
 #: Araç sonucu kırpıldı. Kırpma SÖYLENİR; kullanıcı eksik baktığını bilmeli.
 RESULT_TRUNCATED = "… (+{count} satır daha)"
-AGENT_SUBAGENT_STARTED = "alt-ajan devraldı: {task}"
-AGENT_SUBAGENT_FINISHED = "alt-ajan bitti · {count} araç çağrısı"
+AGENT_SUBAGENT_STARTED = "{title} devraldı: {task}"
+AGENT_SUBAGENT_FINISHED = "{title} bitti · {count} araç çağrısı"
 AGENT_COUNCIL = "council: çoklu modele danışılıyor…"
 AGENT_TEACHER = "ask_teacher: web öğretmene danışılıyor…"
 AGENT_TEACHER_TASK = "Görev boyutu: {size}"
@@ -413,6 +413,14 @@ APP_TURN_CANCELLED_CONTEXT = (
     "Kullanıcı bu turu yarıda durdurdu. Yapılmış değişiklikler çalışma alanında "
     "duruyor olabilir; devam istenirse önce mevcut durumu kontrol et."
 )
+
+#: Süreç tur ortasında kapandıysa (çökme, güncelleme) sekme açılınca gösterilir.
+APP_TURN_INTERRUPTED = (
+    "Önceki iş uygulama kapandığı için yarıda kaldı: «{gorev}». "
+    'Yapılan adımlar geri yüklendi; "devam et" yazarsan kaldığı yerden sürdürürüm.'
+)
+#: Görev metninin bildirimde gösterilecek en fazla karakteri.
+APP_TURN_INTERRUPTED_TASK_CHARS = 120
 
 #: Tur yarım bittiğinde ve model hiçbir metin üretmediğinde gösterilir.
 #:

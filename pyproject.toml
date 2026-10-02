@@ -27,6 +27,10 @@ dependencies = [
     "cryptography>=42,<51",
     # API keys and web-session cookies use the OS credential vault when available.
     "keyring>=25,<27",
+    # Ajanın ürettiği görseli tam ölçüye getirme ve srcset kopyaları (WebP/AVIF).
+    # macOS `sips` Windows'ta yok; Pillow iki platformda aynı. 11.3 AVIF yazabilen
+    # ilk sürüm; 12.3 ile WebP+AVIF doğrulandı (1 Ekim 2026).
+    "pillow>=11.3,<13",
 ]
 
 [project.optional-dependencies]
@@ -80,7 +84,7 @@ where = ["src"]
 # ilk komutta çökertir: prompt dosyaları import anında okunuyor. `tests/test_packaging.py`
 # bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
-"fusion_cli.config" = ["*.yaml"]
+"fusion_cli.config" = ["*.yaml", "roster/*.md"]
 "fusion_cli.tools" = ["scaffold/*"]
 "fusion_cli.engines.agent" = ["prompts/*"]
 "fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]

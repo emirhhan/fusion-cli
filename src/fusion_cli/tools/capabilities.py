@@ -22,6 +22,8 @@ import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from ..config.paths import bundled_roster_dir, capabilities_dir
+
 #: Claude araç adları → Fusion araç adları. Bir agent kısıtlı araç seti bildirdiğinde
 #: bu eşleme kullanılır; bilinmeyen ad sessizce yok sayılır.
 CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
@@ -35,6 +37,16 @@ CLAUDE_TOOL_MAP: dict[str, frozenset[str]] = {
     "webfetch": frozenset({"web_fetch", "read_url_content"}),
     "ls": frozenset({"list_dir"}),
     "task": frozenset({"spawn_agent"}),
+}
+
+#: Kişilik alanları: frontmatter anahtarı → `Capability` alanı. Türkçe ve İngilizce
+#: yazım ikisi de kabul edilir; kullanıcı kendi ajanını hangisiyle yazarsa.
+_PERSONA_KEYS: dict[str, str] = {
+    "unvan": "title",
+    "title": "title",
+    "avatar": "avatar",
+    "renk": "color",
+    "color": "color",
 }
 
 #: Bir skill talimatından modele verilecek en fazla karakter.
@@ -55,6 +67,12 @@ class Capability:
     source: str
     #: Agent'lar için bildirilen Claude araç adları. Boş ya da ("*",) → tam yetki.
     tools: tuple[str, ...] = ()
+    #: Kişilik: arayüzde ajan kartında görünen ünvan, avatar kimliği ve renk adı.
+    #: Claude/Codex agent biçiminde olmayan alanlardır; o araçlar yok sayar.
+    #: Boşsa arayüz addan türetilmiş bir varsayılan gösterir.
+    title: str = ""
+    avatar: str = ""
+    color: str = ""
 
 
 def parse_frontmatter(text: str) -> dict[str, object]:
@@ -80,6 +98,8 @@ def parse_frontmatter(text: str) -> dict[str, object]:
             fields["tools"] = _parse_tools(value.strip())
         elif name in ("name", "description"):
             fields[name] = value.strip().strip("'\"")
+        elif name in _PERSONA_KEYS:
+            fields[_PERSONA_KEYS[name]] = value.strip().strip("'\"")
     return fields
 
 
@@ -156,6 +176,32 @@ def load_skill_page(path: Path, *, offset: int = 0, budget: int = SKILL_TEXT_BUD
     )
 
 
+#: Skill ek dosyası olarak okunabilen uzantılar (metin). Görsel/ikili dosya verilmez.
+_SKILL_TEXT_SUFFIXES = frozenset({".md", ".txt", ".yaml", ".yml", ".json", ".toml", ".py", ".sh"})
+#: Listelenecek en fazla ek dosya.
+_MAX_SKILL_FILES = 40
+
+
+def skill_files(skill_md: Path) -> list[str]:
+    """SKILL.md yanındaki okunabilir ek dosyalar (skill klasörüne göreli)."""
+    folder = skill_md.parent
+    found = [
+        path.relative_to(folder).as_posix()
+        for path in sorted(folder.rglob("*"))
+        if path.is_file() and path != skill_md and path.suffix.lower() in _SKILL_TEXT_SUFFIXES
+    ]
+    return found[:_MAX_SKILL_FILES]
+
+
+def skill_file(skill_md: Path, relative: str) -> Path | None:
+    """Ek dosyanın yolu; skill klasörü dışına çıkıyorsa ya da listede yoksa None."""
+    folder = skill_md.parent.resolve()
+    target = (folder / relative).resolve()
+    if not target.is_relative_to(folder) or not target.is_file():
+        return None
+    return target if target.suffix.lower() in _SKILL_TEXT_SUFFIXES else None
+
+
 def load_agent_prompt(path: Path) -> str:
     """Agent tanımının gövdesi (frontmatter sonrası)."""
     try:
@@ -229,6 +275,8 @@ class CapabilityRegistry:
             (self._root / ".fusion" / "skills", "proje"),
             (self._home / ".codex" / "skills", "codex"),
             (self._home / ".hermes" / "skills", "hermes"),
+            # `fusion yetenek kur` ile kurulan repolar (ör. stickman-video-director).
+            (capabilities_dir(), "kurulu"),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:
@@ -236,6 +284,9 @@ class CapabilityRegistry:
             (self._home / ".claude" / "agents", "claude"),
             (self._root / ".claude" / "agents", "proje"),
             (self._home / ".codex" / "agents", "codex"),
+            *((folder / "agents", "kurulu") for folder in _installed_folders()),
+            # Yerleşik ekip EN SONDA: kullanıcı aynı adla kendi ajanını yazarsa o kazanır.
+            (bundled_roster_dir(), "fusion"),
         )
 
     def _discover_skills(self) -> tuple[Capability, ...]:
@@ -264,6 +315,13 @@ class CapabilityRegistry:
                 if toml_capability is not None:
                     _merge(found, toml_capability)
         return tuple(found.values())
+
+
+def _installed_folders() -> tuple[Path, ...]:
+    root = capabilities_dir()
+    if not root.is_dir():
+        return ()
+    return tuple(sorted(child for child in root.iterdir() if child.is_dir()))
 
 
 def _merge(found: dict[str, Capability], capability: Capability) -> None:
@@ -319,6 +377,9 @@ def _to_capability(path: Path, source: str, *, fallback: str) -> Capability:
         path=path,
         source=source,
         tools=tuple(tools) if isinstance(tools, tuple) else (),
+        title=str(fields.get("title") or ""),
+        avatar=str(fields.get("avatar") or ""),
+        color=str(fields.get("color") or ""),
     )
 
 

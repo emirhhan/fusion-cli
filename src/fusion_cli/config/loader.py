@@ -481,6 +481,8 @@ def _convert(value: object, target: object, where: str) -> object:
 
     if get_origin(target) is tuple:
         return _convert_tuple(value, target, where)
+    if get_origin(target) is dict:
+        return _convert_dict(value, target, where)
 
     if target is bool:
         return _expect(value, bool, "boolean", where)
@@ -522,6 +524,16 @@ def _optional_inner(target: object) -> object | None:
         return None
     members = [arg for arg in get_args(target) if arg is not type(None)]
     return members[0] if len(members) == 1 else None
+
+
+def _convert_dict(value: object, target: object, where: str) -> dict[str, object]:
+    """`dict[str, X]`: anahtarlar metin, değerler `X` tipine çevrilir."""
+    (key_type, item_type) = get_args(target)
+    if key_type is not str:
+        raise ConfigError(f"{where}: yalnız metin anahtarlı sözlük desteklenir")
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where}: sözlük bekleniyordu, gelen: {type(value).__name__}")
+    return {str(key): _convert(item, item_type, f"{where}.{key}") for key, item in value.items()}
 
 
 def _convert_tuple(value: object, target: object, where: str) -> tuple[object, ...]:

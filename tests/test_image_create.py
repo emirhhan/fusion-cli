@@ -7,6 +7,7 @@ import pytest
 
 from fusion_cli.appserver import image_create
 from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.providers import image_generation
 from fusion_cli.providers.web_browser import WebBrowserError
 from fusion_cli.providers.web_image import GeneratedImage
 
@@ -43,7 +44,7 @@ async def test_uretilen_dosyalar_doner_ve_hata_okunur_kalir(tmp_path, monkeypatc
         (klasor / "a.png").write_bytes(b"\x89PNG")
         return [GeneratedImage(klasor / "a.png", 1024, 559)]
 
-    monkeypatch.setattr(image_create, "generate_images", uret)
+    monkeypatch.setattr(image_generation, "generate_images", uret)
     sonuc = await image_create.create_image(config, {"istem": "kırmızı kask"})
     assert sonuc["ok"] is True
     assert sonuc["dosyalar"][0]["genislik"] == 1024
@@ -51,7 +52,7 @@ async def test_uretilen_dosyalar_doner_ve_hata_okunur_kalir(tmp_path, monkeypatc
     async def engel(*_a, **_k):
         raise WebBrowserError("authentication: Gemini insan doğrulaması (captcha) istiyor.")
 
-    monkeypatch.setattr(image_create, "generate_images", engel)
+    monkeypatch.setattr(image_generation, "generate_images", engel)
     sonuc = await image_create.create_image(config, {"istem": "x"})
     assert sonuc == {"ok": False, "metin": "Gemini insan doğrulaması (captcha) istiyor."}
 
@@ -74,7 +75,7 @@ async def test_nim_flux_dev_orana_uygun_boyutla_uretir(tmp_path, monkeypatch):
         (klasor / "a.png").write_bytes(b"\x89PNG")
         return [GeneratedImage(klasor / "a.png", *size)]
 
-    monkeypatch.setattr(image_create, "generate_nim_image", uret)
+    monkeypatch.setattr(image_generation, "generate_nim_image", uret)
     sonuc = await image_create.create_image(
         config,
         {"istem": "dağ", "saglayici": "nvidia_nim/black-forest-labs/flux.1-dev", "oran": "16:9"},
@@ -96,7 +97,7 @@ async def test_boyut_almayan_saglayiciya_oran_istemde_soylenir(tmp_path, monkeyp
         (klasor / "a.png").write_bytes(b"\x89PNG")
         return [GeneratedImage(klasor / "a.png", 1024, 1024)]
 
-    monkeypatch.setattr(image_create, "generate_images", uret)
+    monkeypatch.setattr(image_generation, "generate_images", uret)
     sonuc = await image_create.create_image(config, {"istem": "dağ", "oran": "9:16"})
     assert sonuc["ok"] is True
     assert "en-boy oranı 9:16" in yakalanan["istem"]

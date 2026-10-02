@@ -1,0 +1,108 @@
+/* Ekip kartları — her alt ajan kendi kartında.
+   Renk YALNIZ kimliktir (avatar zemini + ince sol vurgu); durum ayrı işaretlenir
+   (nabız noktası, "bitti", "yarım kaldı"). Kişilik renkleri tokens.css'tedir. */
+
+.team-cards { display: grid; gap: var(--space-2); margin: var(--space-1) 0 var(--space-3); }
+.team-cards__label {
+  margin: 0; color: var(--text-secondary);
+  font-size: var(--text-xs); font-weight: 600;
+  letter-spacing: var(--tracking-eyebrow); text-transform: uppercase;
+}
+.team-cards__grid {
+  display: grid; gap: var(--space-2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 248px), 1fr));
+}
+.team-cards[data-count="1"] .team-cards__grid { grid-template-columns: minmax(0, 1fr); }
+
+/* Kişilik rengi tek seçiciden dağıtılır; bileşen ham renk taşımaz. */
+[data-renk="mor"] { --ekip-zemin: var(--ekip-mor-zemin); --ekip-murekkep: var(--ekip-mor-murekkep); }
+[data-renk="mavi"] { --ekip-zemin: var(--ekip-mavi-zemin); --ekip-murekkep: var(--ekip-mavi-murekkep); }
+[data-renk="pembe"] { --ekip-zemin: var(--ekip-pembe-zemin); --ekip-murekkep: var(--ekip-pembe-murekkep); }
+[data-renk="yesil"] { --ekip-zemin: var(--ekip-yesil-zemin); --ekip-murekkep: var(--ekip-yesil-murekkep); }
+[data-renk="turuncu"] { --ekip-zemin: var(--ekip-turuncu-zemin); --ekip-murekkep: var(--ekip-turuncu-murekkep); }
+[data-renk="camgobegi"] { --ekip-zemin: var(--ekip-camgobegi-zemin); --ekip-murekkep: var(--ekip-camgobegi-murekkep); }
+[data-renk="sari"] { --ekip-zemin: var(--ekip-sari-zemin); --ekip-murekkep: var(--ekip-sari-murekkep); }
+[data-renk="kirmizi"] { --ekip-zemin: var(--ekip-kirmizi-zemin); --ekip-murekkep: var(--ekip-kirmizi-murekkep); }
+[data-renk="gri"] { --ekip-zemin: var(--ekip-gri-zemin); --ekip-murekkep: var(--ekip-gri-murekkep); }
+
+.agent-avatar {
+  position: relative; display: inline-grid; place-items: center; flex: none;
+  border-radius: var(--radius-pill);
+  background: var(--ekip-zemin); color: var(--ekip-murekkep);
+}
+/* Çalışan ajanın avatarı ince bir halka taşır; hareket kabul edilmiyorsa sabit kalır. */
+.agent-avatar[data-running="true"]::after {
+  content: ""; position: absolute; inset: -3px;
+  border: 1.5px solid transparent; border-top-color: var(--ekip-murekkep);
+  border-radius: inherit;
+}
+
+.agent-card {
+  display: grid; gap: 6px; min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--ekip-murekkep);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--duration-normal) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard);
+}
+.agent-card:hover { box-shadow: var(--shadow-md); }
+.agent-card[data-state="bitti"],
+.agent-card[data-state="yarim"] { box-shadow: none; }
+.agent-card[data-state="yarim"] { border-left-color: var(--text-warning); }
+
+.agent-card__head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.agent-card__who { display: grid; min-width: 0; line-height: var(--line-tight); }
+.agent-card__title {
+  overflow: hidden; color: var(--text-primary);
+  font-size: var(--text-sm); font-weight: 600; text-overflow: ellipsis; white-space: nowrap;
+}
+.agent-card__state { color: var(--text-secondary); font-size: var(--text-xs); }
+.agent-card[data-state="yarim"] .agent-card__state { color: var(--text-warning); }
+
+.agent-card__task {
+  display: -webkit-box; margin: 0; overflow: hidden;
+  color: var(--text-primary); font-size: var(--text-sm); line-height: 1.45;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.agent-card__now,
+.agent-card__result {
+  display: flex; align-items: baseline; gap: 8px; margin: 0;
+  color: var(--text-secondary); font-size: var(--text-xs); line-height: 1.5;
+}
+.agent-card__now-text,
+.agent-card__result { overflow-wrap: anywhere; }
+.agent-card__dot {
+  flex: none; width: 6px; height: 6px; border-radius: var(--radius-pill);
+  background: var(--ekip-murekkep); transform: translateY(-1px);
+}
+
+.agent-card__steps > summary {
+  width: fit-content; cursor: pointer; list-style: none;
+  color: var(--text-secondary); font-size: var(--text-xs);
+  border-radius: var(--radius-xs);
+}
+.agent-card__steps > summary::-webkit-details-marker { display: none; }
+.agent-card__steps > summary::after {
+  content: "›"; display: inline-block; margin-left: 6px;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+.agent-card__steps[open] > summary::after { transform: rotate(90deg); }
+.agent-card__steps > summary:hover { color: var(--text-primary); }
+.agent-card__steps > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.agent-card__steps[open] .activity__trail { margin-top: 6px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .agent-avatar[data-running="true"]::after { animation: agent-ring 1.2s linear infinite; }
+  .agent-card__dot { animation: agent-dot 1.4s ease-in-out infinite; }
+}
+
+@keyframes agent-ring { to { transform: rotate(360deg); } }
+@keyframes agent-dot { 50% { opacity: .35; } }
+
+/* Sohbet satırı flex'tir; ekip grubu sütunun tamamını kullanır ki paralel
+   kartlar yan yana sığsın (aksi hâlde içerik genişliğine büzülüp alt alta iner). */
+.conversation__message--team { display: block; padding: 0 8px; margin-bottom: var(--space-3); }
+.conversation__message--team .team-cards { width: 100%; }

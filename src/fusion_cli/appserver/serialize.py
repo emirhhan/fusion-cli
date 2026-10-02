@@ -24,6 +24,10 @@ def event_to_dict(event: Event) -> dict[str, object]:
     if dataclasses.is_dataclass(event):
         for field in dataclasses.fields(event):
             payload[field.name] = _plain(getattr(event, field.name))
+    # Ana ajanın olayında kimlik boştur; tel üzerinde taşınmaz (eski istemciler
+    # alanı tanımaz, boş değer yalnız gürültü olurdu).
+    if not payload.get("agent_id"):
+        payload.pop("agent_id", None)
     if isinstance(event, ToolStarted):
         # İnsan dilindeki cümle TEK KAYNAKTAN (`tool_progress.py`) gelir;
         # arayüz kendi kalıbını uydurmaz, yalnız bu alanı basar.

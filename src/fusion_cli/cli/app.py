@@ -35,7 +35,13 @@ if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
     from .doctor import DoctorReport
 from ..ui.renderer import ConsoleRenderer
 from ..ui.tables import cost_summary
-from . import knowledge_commands, memory_commands
+from . import (
+    capability_commands,
+    knowledge_commands,
+    memory_commands,
+    paperclip_command,
+    trash_commands,
+)
 from .prompter import ConsolePrompter
 from .repl import run_repl
 from .session import Observers, build_observers, open_memory, run_agent_task, run_task
@@ -50,6 +56,9 @@ config_app = typer.Typer(no_args_is_help=True, help="Yapılandırmayı görünt�
 app.add_typer(config_app, name="config")
 app.add_typer(memory_commands.app, name="memory")
 app.add_typer(knowledge_commands.app, name="knowledge")
+app.add_typer(trash_commands.app, name="cop")
+app.add_typer(capability_commands.app, name="yetenek")
+app.command("paperclip")(paperclip_command.paperclip)
 
 console = Console()
 

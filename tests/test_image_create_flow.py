@@ -10,7 +10,7 @@ import pytest
 
 from fusion_cli.appserver import image_create
 from fusion_cli.config.models import WebSessionConfig
-from fusion_cli.providers import web_image
+from fusion_cli.providers import image_generation, web_image
 from fusion_cli.providers.web_browser import WebBrowserError
 from fusion_cli.providers.web_image import GeneratedImage
 
@@ -53,7 +53,7 @@ async def test_nim_ile_uretim_galeriye_yazar_ve_istemi_saklar(galeri, monkeypatc
         yol.write_bytes(b"\xff\xd8")
         return [GeneratedImage(yol, 1024, 1024)]
 
-    monkeypatch.setattr(image_create, "generate_nim_image", uret)
+    monkeypatch.setattr(image_generation, "generate_nim_image", uret)
 
     sonuc = await image_create.create_image(
         _config(), {"istem": "kırmızı kask", "saglayici": _NIM}, environ=_ENV
@@ -112,7 +112,7 @@ async def test_duzenleme_istemi_referansla_web_saglayiciya_gider(galeri, monkeyp
         yol.write_bytes(b"\x89PNG")
         return [GeneratedImage(yol, 1024, 1024)]
 
-    monkeypatch.setattr(image_create, "generate_images", uret)
+    monkeypatch.setattr(image_generation, "generate_images", uret)
 
     sonuc = await image_create.create_image(
         _config("gemini_web/main/auto"),

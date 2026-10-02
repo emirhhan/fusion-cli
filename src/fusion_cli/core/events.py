@@ -12,7 +12,7 @@ kanallarda akar; dinleyici her kanalı ayrı tamponlar, satırlar birbirini böl
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Protocol, runtime_checkable
 
@@ -29,7 +29,15 @@ class Channel(Enum):
 
 @dataclass(frozen=True, slots=True)
 class Event:
-    """Tüm olayların kökü."""
+    """Tüm olayların kökü.
+
+    `agent_id` olayı HANGİ alt ajanın ürettiğini söyler; ana ajanın olaylarında
+    boştur. Alt ajanlar paralel koşunca adımları tek kanalda karışır; arayüz her
+    ajanın kartını bu alanla ayırır. Alan yalnız anahtar sözcükle verilir ve
+    varsayılanı boştur: mevcut olay kurucuları değişmez.
+    """
+
+    agent_id: str = field(default="", kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,9 +200,21 @@ class ToolCallRepaired(Event):
 
 @dataclass(frozen=True, slots=True)
 class SubAgentStarted(Event):
-    """Bir alt-göreve temiz bağlamlı alt-ajan atandı."""
+    """Bir alt-göreve temiz bağlamlı alt-ajan atandı.
+
+    `agent_id` (kök alan) başlatan ajandır; `sub_id` yeni ajanın kimliğidir ve
+    o ajanın bütün olaylarında `agent_id` olarak görünür. Kişilik alanları
+    arayüzdeki kartı çizer (ünvan, avatar, renk).
+    """
 
     task: str
+    sub_id: str = ""
+    persona: str = ""
+    title: str = ""
+    avatar: str = ""
+    color: str = ""
+    #: Aynı anda başlatılan kardeş ajan sayısı (paralel grup); tek ajanda 1.
+    group_size: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +222,11 @@ class SubAgentFinished(Event):
     """Alt-ajan işini bitirdi."""
 
     tool_calls: int
+    sub_id: str = ""
+    ok: bool = True
+    #: Kartta gösterilecek tek satırlık sonuç (ajanın cevabının başı).
+    summary: str = ""
+    elapsed_s: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

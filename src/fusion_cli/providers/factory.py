@@ -21,13 +21,15 @@ from collections.abc import Sequence
 from ..core.events import Channel, EventPublisher
 from ..core.health import HealthRegistry
 from ..core.protocols import Clock, LlmProvider, Sleeper
+from ..core.rate_control import RateControl
 from ..core.types import ModelSpec
 from .chain import FallbackProvider
 from .circuit import CircuitBreakingProvider
 from .eventing import EventingProvider
-from .key_pool import KeyPoolRegistry
+from .key_pool import KeyPool, KeyPoolRegistry, ledger_key_pool
 from .key_rotation import KeyRotatingProvider
 from .litellm_provider import LiteLlmProvider, configure_litellm
+from .rate_gate import gate, keyed_label
 from .registry import ProviderKind, provider_for_model
 from .retrying import wrap as wrap_with_retry
 from .web_registry import WebSessionRegistry, unconfigured_web_provider
@@ -75,17 +77,27 @@ def build_provider(
         # LiteLLM ağır ve web-only kullanımda gereksizdir; yalnızca gerçek API
         # yaprağı kurulurken yüklenir.
         configure_litellm()
+        rate = health.rate_control if health is not None else None
+        provider_id = definition.id if definition is not None else ""
+
+        def _gated(inner: LlmProvider, key: str) -> LlmProvider:
+            if rate is None:
+                return inner
+            return gate(inner, rate, key=key, provider_id=provider_id, clock=clock, sleeper=sleeper)
+
         # Sağlayıcının anahtar havuzunda BİRDEN ÇOK anahtar varsa istekler bunlar
         # arasında döndürülür (biri hız sınırına takılınca öteki devreye girer).
-        if key_pools is not None and definition is not None and definition.auth_env is not None:
-            pool = key_pools.for_env(definition.auth_env)
-            if pool.size > 1:
-                return KeyRotatingProvider(
-                    lambda key: LiteLlmProvider(model, role=spec.name, clock=clock, api_key=key),
-                    pool,
-                    label=model,
-                )
-        return LiteLlmProvider(model, role=spec.name, clock=clock)
+        pool = _key_pool(definition.auth_env if definition is not None else None, key_pools, rate)
+        if pool is not None and pool.size > 1:
+            return KeyRotatingProvider(
+                lambda key: _gated(
+                    LiteLlmProvider(model, role=spec.name, clock=clock, api_key=key),
+                    keyed_label(model, key),
+                ),
+                pool,
+                label=model,
+            )
+        return _gated(LiteLlmProvider(model, role=spec.name, clock=clock), model)
 
     # `strict` seçimi KALİTE için katı yapar: kullanıcının seçtiği model cevap
     # verebildiği sürece başka modele kayılmaz. Ama hiç cevap veremiyorsa (oturum
@@ -120,3 +132,21 @@ def build_provider(
     return EventingProvider(
         inner, publisher=publisher, role=spec.name, channel=channel, background=background
     )
+
+
+def _key_pool(
+    auth_env: str | None, key_pools: KeyPoolRegistry | None, rate: RateControl | None
+) -> KeyPool | None:
+    """Sağlayıcının anahtar havuzu: açık kayıt defteri ya da paylaşılan defterden.
+
+    Masaüstü ve REPL tur başına sağlayıcı kurar; süreç içi bir havuz her turda
+    sıfırlanırdı. Defterle kurulan havuz sırasını ve soğumayı süreçler arası
+    defterden okur, böylece tur başına yeniden kurmak durumu kaybettirmez.
+    """
+    if auth_env is None:
+        return None
+    if key_pools is not None:
+        return key_pools.for_env(auth_env)
+    if rate is None:
+        return None
+    return ledger_key_pool(auth_env, rate)

@@ -9,7 +9,9 @@ oradaki onay + tehlike kontrolüne tabi olur.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
+from ..config.paths import trash_dir
 from ..core.constants import (
     GIT_TIMEOUT_S,
     MAX_OUTPUT_CHARS,
@@ -19,12 +21,21 @@ from ..core.constants import (
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
+from .safe_delete import (
+    DeleteRefusedError,
+    is_complex_recursive_delete,
+    move_to_trash,
+    simple_rm_targets,
+)
 
 __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     command = require_str(args, "command")
+    deleted = _guarded_delete(command, context)
+    if deleted is not None:
+        return deleted
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -44,6 +55,40 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     body = _combine(process.stdout, process.stderr)
     text = f"(çıkış kodu {process.returncode})\n{body}".strip()
     return ToolResult(text, ok=process.returncode == 0)
+
+
+def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
+    """Silme komutunu geri alınabilir hâle getir ya da reddet (bkz. `safe_delete`).
+
+    Onay akışından SONRA, çalıştırma anında uygulanır: kullanıcı "evet" demiş olsa
+    bile korumalı yer silinmez ve hiçbir klasör kalıcı olarak gitmez.
+    """
+    targets = simple_rm_targets(command)
+    if targets is None:
+        if is_complex_recursive_delete(command):
+            return ToolResult.failure(
+                "SİLME REDDEDİLDİ: özyinelemeli silme yalnız sade biçimde çalışır "
+                "(`rm -r <tam yol>`), böylece geri alınabilir çöpe taşınır. Boru, &&, "
+                "joker (*), find -delete, xargs rm ve git clean ile silme yapılmaz."
+            )
+        return None
+    try:
+        moved, missing = move_to_trash(
+            targets,
+            cwd=context.root,
+            root=context.root,
+            home=Path.home(),
+            trash_root=trash_dir(),
+        )
+    except DeleteRefusedError as refused:
+        return ToolResult.failure(str(refused))
+    except OSError as exc:
+        return ToolResult.failure(f"Silinemedi (çöpe taşınamadı): {exc}")
+    lines = [f"(çıkış kodu 0)\nKalıcı silinmedi; Fusion çöpüne taşındı ({len(moved)}):"]
+    lines += [f"- {entry.original}  [geri al: fusion cop geri-al {entry.id}]" for entry in moved]
+    if missing:
+        lines.append("Zaten yoktu: " + ", ".join(missing))
+    return ToolResult("\n".join(lines))
 
 
 def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:

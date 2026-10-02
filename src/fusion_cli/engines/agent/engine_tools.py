@@ -16,10 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from ...core.events import (
-    Channel,
     CouncilConsulted,
-    SubAgentFinished,
-    SubAgentStarted,
     TeacherConsulted,
 )
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
@@ -28,23 +25,29 @@ from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
     Capability,
     CapabilityRegistry,
-    load_agent_prompt,
     load_skill_page,
-    map_tools,
     search,
+    skill_file,
+    skill_files,
 )
 from ...tools.files import display_path, resolve_path
 from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
 from ...ui import messages
 from . import learning_steps
+from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
+from .team import (
+    MAX_AGENT_DEPTH,
+    SubTask,
+    run_subagent,
+    spawn_agent_tool,
+    spawn_agents_tool,
+)
+from .web_tools import web_work_tools
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
-
-#: Alt-ajan iç içe çağrı sınırı. Runaway özyinelemeyi keser.
-MAX_AGENT_DEPTH = 1
 
 #: Tek `read_session` sonucunun modele taşıyabileceği en fazla karakter. 12 bin
 #: karakter, bir araç sayfasını küçük tutarken birkaç kısa turu birlikte görmeye
@@ -86,7 +89,8 @@ def build_agent_registry(
     """Temel araçlara motora bağlı olanları ekleyerek çalışma-anı defteri üret."""
     registry = deps.base_registry
     extended = _clone(registry)
-    extended.register(_spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
+    extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
+    extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
     extended.register_alias("invoke_subagent", "spawn_agent")
     extended.register(_council_tool(deps))
@@ -106,6 +110,11 @@ def build_agent_registry(
         extended.register(_ask_user_tool(deps.asker, deps))
     if deps.home is not None:
         extended.register(build_history_tool(deps.home))
+    image_tool = generate_image_tool(deps)
+    if image_tool is not None:
+        extended.register(image_tool)
+    for web_tool in web_work_tools():
+        extended.register(web_tool)
     _register_forged_tools(extended, deps)
     return extended
 
@@ -147,71 +156,6 @@ def _clone(registry: ToolRegistry) -> ToolRegistry:
 
 
 # --------------------------------------------------------------------------- #
-
-
-def derive_sub_context(context: ToolContext) -> ToolContext:
-    """Alt-ajan için bağlam türet: görev listesi AYRI, değişiklik kümesi ORTAK.
-
-    Alt-ajan temiz bir görev listesiyle çalışmalı — ana ajanın listesini ezmesi
-    kullanıcının takip ettiği planı bozardı. Ama `touched` PAYLAŞILIR: alt-ajanın
-    yazdığı dosya, `depth>0` olduğu için kendi doğrulama kapısını çalıştırmaz;
-    küme de ayrı olsaydı ana kapı o dosyayı hiç görmez ve değişiklik iki kapının
-    arasından sızardı.
-
-    Erişim sınırı da aynen taşınır: alt-ajan ana ajandan daha geniş bir alana
-    yazamamalı, yoksa kısıtlama alt-ajan çağırarak aşılırdı.
-    """
-    return ToolContext(
-        root=context.root,
-        touched=context.touched,
-        changes=context.changes,
-        restrict_to_root=context.restrict_to_root,
-        extra_roots=context.extra_roots,
-    )
-
-
-def _spawn_agent_tool(
-    deps: AgentDeps, *, depth: int, run_agent: Callable[..., Awaitable[AgentOutcome]]
-) -> Tool:
-    async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        from .loop import AgentDeps as _Deps
-
-        subtask = args.get("task")
-        if not isinstance(subtask, str) or not subtask.strip():
-            return ToolResult.failure("'task' alanı boş olmayan bir metin olmalı.")
-        if depth >= MAX_AGENT_DEPTH:
-            return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; bu görevi kendin yap.")
-
-        deps.publisher.publish(SubAgentStarted(task=subtask))
-        # Alt-ajan TEMİZ bağlamla ve KENDİ görev listesiyle çalışır; ana ajanın
-        # listesini ezmez. Çıktısı ayrı bir kanaldan akar, satırlar karışmaz.
-        sub_deps = _Deps(
-            config=deps.config,
-            publisher=deps.publisher,
-            policy=deps.policy,
-            tool_context=derive_sub_context(context),
-            base_registry=deps.base_registry,
-            asker=deps.asker,
-            channel=Channel.SUBAGENT,
-        )
-        outcome = await run_agent(subtask, sub_deps, depth=depth + 1, self_review=False)
-        deps.publisher.publish(SubAgentFinished(tool_calls=outcome.tool_calls_made))
-        return ToolResult(outcome.final_text or "(alt-ajan boş yanıt verdi)")
-
-    return Tool(
-        name="spawn_agent",
-        description="Odaklı bir ALT-GÖREVİ temiz bağlamlı bir alt-ajana devret; alt-ajan "
-        "işi kendi araçlarıyla yapıp özet döner. Büyük bir görevi bağımsız parçalara "
-        "böldüğünde kullan (ör. 'şu modülü araştır'). Basit işlerde kullanma.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "task": {**_STRING, "description": "alt-ajana verilecek net, bağımsız görev"}
-            },
-            "required": ["task"],
-        },
-        run=_run,
-    )
 
 
 def _council_tool(deps: AgentDeps) -> Tool:
@@ -631,18 +575,39 @@ def _read_skill_tool(library: CapabilityRegistry) -> Tool:
         offset = args.get("offset", 0)
         if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
             return ToolResult.failure("offset sıfır ya da pozitif bir tam sayı olmalı.")
-        return ToolResult(load_skill_page(skill.path, offset=offset))
+        extra = args.get("file")
+        if isinstance(extra, str) and extra.strip():
+            target = skill_file(skill.path, extra.strip())
+            if target is None:
+                return ToolResult.failure(
+                    f"'{extra}' bu skill'in dosyası değil. Kullanılabilir: "
+                    + (", ".join(skill_files(skill.path)) or "(ek dosya yok)")
+                )
+            return ToolResult(load_skill_page(target, offset=offset))
+        page = load_skill_page(skill.path, offset=offset)
+        files = skill_files(skill.path)
+        if offset == 0 and files:
+            page += (
+                "\n\n[Bu skill'in ek dosyaları — talimat anıyorsa read_skill(name, file=...) "
+                "ile oku: " + ", ".join(files) + "]"
+            )
+        return ToolResult(page)
 
     return Tool(
         name="read_skill",
         description=(
             "Bir SKILL'in talimatını yükle (find_skill ile bulduğun ad). Çıktı "
-            "KIRPILDI diyorsa aynı adı bildirilen offset ile yeniden çağır."
+            "KIRPILDI diyorsa aynı adı bildirilen offset ile yeniden çağır. Skill'in "
+            "references/ gibi ek dosyaları file ile okunur."
         ),
         parameters={
             "type": "object",
             "properties": {
                 "name": _STRING,
+                "file": {
+                    **_STRING,
+                    "description": "skill klasöründeki ek dosya (ör. references/examples.md)",
+                },
                 "offset": {
                     "type": "integer",
                     "description": "Kaçıncı karakterden itibaren okunacağı.",
@@ -676,43 +641,20 @@ def _invoke_agent_tool(
     deps: AgentDeps, *, depth: int, run_agent: Callable[..., Awaitable[AgentOutcome]]
 ) -> Tool:
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        from .loop import AgentDeps as _Deps
-
         library = deps.capabilities
         name, task = str(args.get("name", "")), str(args.get("task", ""))
         if library is None or not name or not task.strip():
             return ToolResult.failure("'name' ve 'task' alanları dolu olmalı.")
-        agent = library.get_agent(name)
-        if agent is None:
+        if library.get_agent(name) is None:
             return ToolResult.failure(f"'{name}' adlı agent yok. find_agent ile ara.")
         if depth >= MAX_AGENT_DEPTH:
             return ToolResult.failure("Alt-ajan derinlik sınırına ulaşıldı; görevi kendin yap.")
-
-        deps.publisher.publish(SubAgentStarted(task=f"{name}: {task}"))
-        sub_deps = _Deps(
-            config=deps.config,
-            publisher=deps.publisher,
-            policy=deps.policy,
-            tool_context=derive_sub_context(context),
-            base_registry=deps.base_registry,
-            asker=deps.asker,
-            code_index=deps.code_index,
-            lessons=deps.lessons,
-            capabilities=library,
-            channel=Channel.SUBAGENT,
+        # Uzmanın kendi talimatı sistem promptuna eklenir; kısıtladığı araç seti
+        # varsa yalnızca onlar sunulur (bkz. `team.resolve_persona`).
+        run = await run_subagent(
+            deps, SubTask(task=task.strip(), persona=name), depth=depth, run_agent=run_agent
         )
-        outcome = await run_agent(
-            task,
-            sub_deps,
-            depth=depth + 1,
-            self_review=False,
-            # Uzmanın kendi talimatı sistem promptuna eklenir; kısıtladığı araç
-            # seti varsa yalnızca onlar sunulur.
-            extra_system=load_agent_prompt(agent.path),
-            allowed_tools=map_tools(agent.tools),
-        )
-        deps.publisher.publish(SubAgentFinished(tool_calls=outcome.tool_calls_made))
-        return ToolResult(outcome.final_text or "(uzman boş yanıt verdi)")
+        return ToolResult(run.text if run.text else "(uzman boş yanıt verdi)")
 
     return Tool(
         name="invoke_agent",

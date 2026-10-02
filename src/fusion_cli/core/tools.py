@@ -113,6 +113,10 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "download_file": ToolFamily.WEB,
     "read_url_content": ToolFamily.WEB,
     "spawn_agent": ToolFamily.DELEGATION,
+    "spawn_agents": ToolFamily.DELEGATION,
+    "site_crawl": ToolFamily.WEB,
+    "generate_image": ToolFamily.FILES,
+    "optimize_image": ToolFamily.FILES,
     "invoke_subagent": ToolFamily.DELEGATION,
     "invoke_agent": ToolFamily.DELEGATION,
     "council": ToolFamily.DELEGATION,
@@ -316,6 +320,10 @@ class ToolContext:
     #: hem gecikme hem context rot üretir; API yolunda mevcut ölçülmüş davranış
     #: (800 satır) korunur. Model `limit` ile bu pencereyi AŞAMAZ; daraltabilir.
     read_window: int | None = None
+    #: Paralel alt ajanın yazabileceği yollar. `None` = sınır yok (ana ajan ve tek
+    #: alt ajan). Doluysa dosya yazan araçlar bu yolların dışına yazmaz: aynı anda
+    #: koşan iki ajan aynı dosyayı ezmesin diye zamanlayıcı alanları ayrık verir.
+    write_scope: tuple[Path, ...] | None = None
     #: Bu turda kayıt defterinde bulunan araç adları.
     #:
     #: Yapı denetimi buna bakar: bir biçimi zaten doğru üreten araç varken

@@ -22,6 +22,7 @@ from enum import Enum
 
 from .clock import SystemClock
 from .protocols import Clock
+from .rate_control import RateControl
 
 
 class CircuitPhase(Enum):
@@ -172,12 +173,16 @@ class HealthRegistry:
         cooldown_s: float,
         alpha: float,
         clock: Clock | None = None,
+        rate_control: RateControl | None = None,
     ) -> None:
         self._threshold = failure_threshold
         self._cooldown_s = cooldown_s
         self._alpha = alpha
         self._clock = clock or SystemClock()
         self._entries: dict[str, ModelHealth] = {}
+        #: Süreçler arası hız defteri. Sağlık kaydı süreç içidir; defter bütün
+        #: sekmelerle paylaşılır. Yoksa (test, gateway) önden ayar yapılmaz.
+        self.rate_control = rate_control
 
     def for_model(self, model_id: str) -> ModelHealth:
         """Modelin sağlık kaydını getir; yoksa oluştur (tembel)."""

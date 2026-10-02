@@ -8,6 +8,8 @@ import { assetUrl } from "../platform/assetUrl";
 import { Markdown } from "../markdown/Markdown";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
+import type { AjanKarti } from "../team/ekipOlaylari";
+import { TeamCards } from "../team/TeamCards";
 import { useStickToBottom } from "./useStickToBottom";
 
 export interface MesajEki {
@@ -32,7 +34,7 @@ export interface GorevMaddesi {
 
 export interface Mesaj {
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip";
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
   /** Yalnız `rol === "olay"` için: bloğun İLK adımının başladığı `Date.now()`.
@@ -56,6 +58,10 @@ export interface Mesaj {
   oneriler?: TakipOnerisi[];
   /** Tur hatayla bitti: yanıtın altında "Hatayı bildir" sunulur. */
   hata?: boolean;
+  /** Yalnız `rol === "ekip"` için: bu grupta koşan alt ajan kartları. */
+  ajanlar?: AjanKarti[];
+  /** Yalnız `rol === "ekip"` için: aynı anda başlatılan ajan sayısı. */
+  grupBoyutu?: number;
 }
 
 /**
@@ -235,6 +241,13 @@ export function Conversation({
                     </button>
                   ))}
                 </div>
+              </div>
+            );
+          }
+          if (message.rol === "ekip") {
+            return (
+              <div className="conversation__message conversation__message--team" key={index}>
+                <TeamCards ajanlar={message.ajanlar ?? []} canli={running} />
               </div>
             );
           }

@@ -9,6 +9,7 @@ olursa hata anında elde hiçbir şey kalmaz.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from enum import Enum
 from typing import Any, cast
 
@@ -39,8 +40,11 @@ def event_from_payload(payload: object) -> Event | None:
         if field.name not in payload:
             continue
         kwargs[field.name] = _coerce(field.name, payload[field.name])
+    # Olay kurucuları alan alan farklı tip ister; değerler yukarıda alan adına göre
+    # geri kuruldu, uyumsuzluk aşağıdaki TypeError ile yakalanır.
+    kurucu: Callable[..., Event] = tip
     try:
-        return tip(**kwargs)
+        return kurucu(**kwargs)
     except (TypeError, ValueError):
         return None
 

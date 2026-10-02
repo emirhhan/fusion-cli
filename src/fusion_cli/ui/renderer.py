@@ -134,6 +134,8 @@ class ConsoleRenderer:
         self._pending_status: str | None = None
         #: Bu turda açılış beyanı basıldı mı? İLK öncü daha geniş yer alır.
         self._turn_opened = False
+        #: Koşan alt ajanların kimliği → kişilik ünvanı (bitiş satırında ad için).
+        self._sub_titles: dict[str, str] = {}
 
     # -- EventSink ---------------------------------------------------------- #
 
@@ -240,10 +242,19 @@ class ConsoleRenderer:
         elif isinstance(event, ToolCallRepaired):
             self._status(messages.AGENT_TOOL_CALL_REPAIRED)
         elif isinstance(event, SubAgentStarted):
-            self._status(messages.AGENT_SUBAGENT_STARTED.format(task=_shorten(event.task, 60)))
+            self._sub_titles[event.sub_id] = event.title or "alt-ajan"
+            self._status(
+                messages.AGENT_SUBAGENT_STARTED.format(
+                    title=self._sub_titles[event.sub_id], task=_shorten(event.task, 60)
+                )
+            )
             self._resume_work(messages.WORK_SUBAGENT)
         elif isinstance(event, SubAgentFinished):
-            self._status(messages.AGENT_SUBAGENT_FINISHED.format(count=event.tool_calls))
+            self._status(
+                messages.AGENT_SUBAGENT_FINISHED.format(
+                    title=self._sub_titles.pop(event.sub_id, "alt-ajan"), count=event.tool_calls
+                )
+            )
         elif isinstance(event, CouncilConsulted):
             self._status(messages.AGENT_COUNCIL)
             self._resume_work(messages.WORK_COUNCIL)

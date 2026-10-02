@@ -56,10 +56,10 @@ def web_fetch(args: ToolArgs, context: ToolContext) -> ToolResult:
         return ToolResult.failure(_unreachable(reason))
 
     try:
-        content_type, body, final_url = _fetch_following_redirects(url)
+        content_type, body, final_url = fetch_following_redirects(url)
     except httpx.HTTPError as exc:
         return ToolResult.failure(_unreachable(f"{type(exc).__name__}: {exc}"))
-    except _BlockedRedirectError as exc:
+    except BlockedRedirectError as exc:
         return ToolResult.failure(f"Yönlendirme engellendi: {exc}")
 
     text = page_text(body, final_url) if _looks_like_html(content_type, body) else body
@@ -122,11 +122,11 @@ def _unreachable(reason: str) -> str:
     )
 
 
-class _BlockedRedirectError(Exception):
+class BlockedRedirectError(Exception):
     """Bir yönlendirme SSRF doğrulamasını geçemedi ya da zincir çok uzadı."""
 
 
-def _fetch_following_redirects(url: str) -> tuple[str, str, str]:
+def fetch_following_redirects(url: str) -> tuple[str, str, str]:
     """Yönlendirmeleri ELLE, her adımı SSRF'e karşı doğrulayarak takip et.
 
     `httpx`'in kendi `follow_redirects`'i ara hedefleri denetlemez; dış bir URL
@@ -145,8 +145,8 @@ def _fetch_following_redirects(url: str) -> tuple[str, str, str]:
             current = urljoin(current, location)
             reason = url_block_reason(current)
             if reason is not None:
-                raise _BlockedRedirectError(reason)
-        raise _BlockedRedirectError(f"en fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı")
+                raise BlockedRedirectError(reason)
+        raise BlockedRedirectError(f"en fazla {MAX_WEB_REDIRECTS} yönlendirme aşıldı")
 
 
 def web_search(args: ToolArgs, context: ToolContext) -> ToolResult:

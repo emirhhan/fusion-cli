@@ -77,7 +77,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="chrome_action",
-        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|hover|text|back|forward|reload",
+        description="scroll|wait|key|select|tabs|open|tab|close|screenshot|click_at|hover|text|back|forward|reload|upload|assets",
         parameters=_schema({"action": _STRING, "ref": _STRING, "value": _STRING}, ["action"]),
         run=chrome.chrome_action,
         mutating=True,
@@ -360,8 +360,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="download_file",
-        description="Kamuya açık dosyayı projeye indir; mevcut dosyayı ezmez. "
-        "Önce lisansı doğrula, ardından ASSETS.json kaydı oluştur. Arşivi ayrı aç.",
+        description="Kamuya açık dosyayı projeye indir; var olanı ezmez. "
+        "Önce lisansı doğrula, sonra ASSETS.json kaydı yaz. Arşivi ayrı aç.",
         parameters=_schema({"url": _STRING, "path": _STRING}, ["url", "path"]),
         run=download.download_file,
         mutating=True,
