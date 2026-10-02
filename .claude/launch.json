@@ -4,8 +4,25 @@
     {
       "name": "fusion-app",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "app", "run", "dev"],
+      "runtimeArgs": [
+        "--prefix",
+        "app",
+        "run",
+        "dev"
+      ],
       "port": 1420
+    },
+    {
+      "name": "chrome-panel",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4180",
+        "--directory",
+        "chrome-extension"
+      ],
+      "port": 4180
     }
   ]
 }

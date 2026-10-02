@@ -219,7 +219,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, summary:focus
   transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 .mode-chip:hover, .model-chip:hover { background: var(--hover); color: var(--text); }
-.mode-chip { appearance: none; padding-right: 12px; flex-shrink: 1; max-width: 45%; text-overflow: ellipsis; }
+/* Seçici en uzun seçeneğe ("Düzenlemeleri kabul et") göre genişliyor, model çipini
+   sıkıştırıyordu: `field-sizing` seçili metne göre boyutlar (Chrome 123+). */
+.mode-chip { appearance: none; field-sizing: content; padding-right: 12px; flex-shrink: 0; max-width: 45%; text-overflow: ellipsis; }
 .mode-chip[data-mode="security"] { color: var(--signal-text); border-color: var(--signal-text); }
 .mode-chip[data-mode="bypass"] { color: var(--danger); border-color: var(--danger); }
 .model-chip { margin-left: auto; max-width: 55%; text-overflow: ellipsis; appearance: none; padding-right: 12px; }
