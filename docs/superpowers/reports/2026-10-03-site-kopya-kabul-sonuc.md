@@ -27,6 +27,15 @@ Bunlar için 11. koşudan önce eklenenler: `urunler.json`'da `fiyat_sayi`/`para
 "para birimini TRY yap" notu; kapanış doğrulaması tarayıcıyla ölçüp 404 kaynakları da
 "doğrulanmadı" sayar; `start_preview` kabuk adımından sonra da yeniden çağrılabilir.
 
+**11. koşu** (tüm düzeltmelerle, 253 araç çağrısı, ~70 dk): ürün görselleri düzeltildi (0 kırık),
+fiyatlar TL, logo/Oswald üst bilgi, 40 fiyatlı ürün ana sayfada, mağaza 20+ ürün, ödeme formu;
+kabul denetimi 14/17. Son adımlarda model `woocommerce.php` şablonunu bozdu ve ürün sayfaları
+"Shop" listesi oldu; ana sayfa hatasız olduğu için kapanış kapısı görmedi → `start_preview`
+artık sitenin bir ürün sayfasını da ölçüp karşılaştırıyor (`1ac627d`).
+**12. koşu**: model "her eklentisiyle" diye Wordfence/Autoptimize/iyzico/PayTR kurdu; SQLite'lı
+sitede her `wp` komutu asılı kaldı, koşu durduruldu → asılı kalan wp adımı artık
+`--skip-plugins` kaçış kapısını söylüyor (`17d25fc`). Sıradaki koşu bu ikisini sınar.
+
 ## Fusion'da kalıcı olarak değişenler
 
 1. **Öğretmen** — araçsız istek araç çerçevesiz gider; plan isteği `PLAN_FRAME` + çırağın araç
