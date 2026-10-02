@@ -46,6 +46,11 @@ from .diffing import bounded_diff
 _INVENTED_MIN_PARTS = 3
 
 
+#: Kökü her makinede var olabilen ama altı başka ortama ait olan dizinler: Linux'ta
+#: `/mnt` vardır, `/mnt/data` (sanal ortam yolu) yoktur. CI'da (Ubuntu) ölçüldü.
+_SECOND_LEVEL_TOPS = frozenset({"Users", "home", "mnt", "workspace", "sandbox"})
+
+
 def invented_path_reason(raw: str, root: Path) -> str | None:
     """Mutlak yol bu bilgisayarda hiç var olmayan bir kökten mi geliyor?
 
@@ -62,7 +67,7 @@ def invented_path_reason(raw: str, root: Path) -> str | None:
     top = Path("/", parts[1])
     if not top.exists():
         uydurma = str(top)
-    elif parts[1] in ("Users", "home") and not Path("/", parts[1], parts[2]).exists():
+    elif parts[1] in _SECOND_LEVEL_TOPS and not Path("/", parts[1], parts[2]).exists():
         uydurma = str(Path("/", parts[1], parts[2]))
     else:
         return None
