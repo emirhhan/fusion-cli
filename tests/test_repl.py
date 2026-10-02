@@ -147,14 +147,17 @@ def test_onay_modu_komutla_degisir(registry, state):
 
 
 def test_onay_modu_dongusel_ilerler(state):
+    """Shift+Tab dört kipi döner; "İzinleri atla" tek tuşla yanlışlıkla açılmaz."""
     baslangic = state.approval
     goruilen = {baslangic}
 
-    for _ in range(len(ApprovalMode)):
+    for _ in range(len(ApprovalMode) - 1):
         goruilen.add(state.cycle_approval())
 
-    assert goruilen == set(ApprovalMode)
+    assert goruilen == set(ApprovalMode) - {ApprovalMode.BYPASS}
     assert state.approval is baslangic  # tam tur
+    state.approval = ApprovalMode.BYPASS
+    assert state.cycle_approval() is ApprovalMode.AUTO
 
 
 def test_gorev_tipi_dogrulanir(registry, state):

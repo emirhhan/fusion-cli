@@ -125,6 +125,7 @@ export function renderAsk(container, question, onAnswer) {
   container.append(title);
   if (!isQuestion && data.hedef) container.append(el("pre", "ask__target", String(data.hedef)));
   if (data.tehlike) container.append(el("p", "ask__danger", `Dikkat: ${data.tehlike}`));
+  else if (data.neden) container.append(el("p", "ask__reason", data.neden));
   const options = (data.secenekler || []).map((option) => isQuestion
     ? { label: option.etiket, hint: option.aciklama, answer: { metin: option.etiket }, deny: false }
     : { label: option.etiket, answer: { secim: option.deger }, deny: option.deger === "deny" });

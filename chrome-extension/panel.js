@@ -183,15 +183,15 @@ async function autoUpdate(version) {
   setTimeout(reload, AUTO_UPDATE_DELAY_MS);
 }
 
-// --- Model ve izin kipi (Claude'daki model seçici ve "Önce sor") -------------------
-
-const MODE_LABELS = { auto: "Otomatik onay", security: "Elle onay", plan: "Yalnız plan" };
+// --- Model ve izin kipi (Claude'daki model seçici ve izin kipleri) ----------------
 
 function renderSettings(settings) {
   if (!settings?.ok) return;
   const mode = settings.mod || "auto";
-  $("mode").dataset.mode = mode;
-  $("mode").textContent = MODE_LABELS[mode] || mode;
+  const chip = $("mode");
+  chip.value = mode;
+  chip.dataset.mode = mode;
+  chip.title = chip.selectedOptions[0]?.title || mode;
   const select = $("model");
   const rows = settings.modeller || [];
   select.replaceChildren(...rows.map((row) => {
@@ -323,8 +323,8 @@ $("prompt").addEventListener("keydown", (event) => {
 document.querySelectorAll(".suggestion").forEach((button) =>
   button.addEventListener("click", guard(() => sendPrompt(button.dataset.prompt))));
 $("cancel").addEventListener("click", guard(cancel));
-$("mode").addEventListener("click", guard(async () => {
-  await loadSettings({ mod: $("mode").dataset.mode === "auto" ? "security" : "auto" });
+$("mode").addEventListener("change", guard(async () => {
+  await loadSettings({ mod: $("mode").value });
 }));
 $("model").addEventListener("change", guard(async () => {
   const [kaynak, model] = $("model").value.split("|");

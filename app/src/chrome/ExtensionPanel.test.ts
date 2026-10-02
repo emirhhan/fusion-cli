@@ -134,7 +134,7 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     await waitFor(() => expect($("messages").textContent).toContain("Durduruldu."));
   });
 
-  it("Claude gibi panelden model seçer ve 'Önce sor' kipine geçer", async () => {
+  it("Claude gibi panelden model seçer ve Manuel kipe geçer", async () => {
     autoConnected();
     await loadPanel();
     const secici = $("model") as HTMLSelectElement;
@@ -144,10 +144,12 @@ describe("Chrome eklenti paneli (Claude in Chrome gibi sohbet)", () => {
     fireEvent.change(secici);
     await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.model === "nvidia_nim/nemotron")).toBe(true));
     expect(calls.find((c) => c.body.model === "nvidia_nim/nemotron")?.body).toEqual({ kaynak: "nim-free", model: "nvidia_nim/nemotron" });
-    expect($("mode").textContent).toBe("Otomatik onay");
-    click("mode");
-    await waitFor(() => expect($("mode").textContent).toBe("Elle onay"));
-    expect(calls.some((c) => c.path === "/settings" && c.body.mod === "security")).toBe(true);
+    const kip = $("mode") as HTMLSelectElement;
+    expect(kip.selectedOptions[0].textContent).toBe("Otomatik");
+    expect([...kip.options].map((o) => o.value)).toEqual(["auto", "security", "edits", "plan", "bypass"]);
+    kip.value = "security";
+    fireEvent.change(kip);
+    await waitFor(() => expect(calls.some((c) => c.path === "/settings" && c.body.mod === "security")).toBe(true));
   });
 
   it("model metnindeki HTML'i çalıştırmaz, düz metin gösterir", async () => {
@@ -346,6 +348,19 @@ describe("Sayfa içi eylemler (pageAction)", () => {
     expect(text).toContain("MG | ARAMA | SATIS | TR");
     expect(text).not.toContain("ad blocker");
     expect(text).not.toContain("Görünmez metin");
+  });
+
+  it("Enter'dan önce odaktaki alanı tarif eder: arama kutusu ile mesaj kutusu ayrılır", () => {
+    document.body.insertAdjacentHTML("beforeend", `
+      <form role="search" action="/ara"><input id="q" type="text" placeholder="Ürün ara"></form>
+      <textarea id="msg" placeholder="Mesaj yaz"></textarea>
+      <form><input id="kupon" name="kupon"><button>Siparişi tamamla</button></form>`);
+    (document.getElementById("q") as HTMLInputElement).focus();
+    expect(action("describe_key")).toMatchObject({ search: true, editable: false });
+    (document.getElementById("msg") as HTMLTextAreaElement).focus();
+    expect(action("describe_key")).toMatchObject({ search: false, editable: true });
+    (document.getElementById("kupon") as HTMLInputElement).focus();
+    expect(action("describe_key")).toMatchObject({ in_form: true, submit_name: "Siparişi tamamla" });
   });
 
   it("uzun sayfayı parça parça okur, üzerine gelir ve koordinattaki öğeye tıklar", () => {

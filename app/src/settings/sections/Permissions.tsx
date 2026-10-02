@@ -1,3 +1,4 @@
+import { APPROVAL_MODES } from "../../screens/ApprovalModeMenu";
 import { Button } from "../../ui/Button";
 
 /**
@@ -8,23 +9,11 @@ import { Button } from "../../ui/Button";
  * yanında yazar.
  */
 
-export const PERMISSION_MODES = [
-  {
-    id: "security",
-    etiket: "Her işlemde sor",
-    aciklama: "Değiştiren her işlem için ayrı ayrı onay ister.",
-  },
-  {
-    id: "auto",
-    etiket: "Otomatik uygula",
-    aciklama: "Fusion kendi ilerler; yıkıcı işlemde yine sorar.",
-  },
-  {
-    id: "plan",
-    etiket: "Yalnız planla",
-    aciklama: "Hiçbir şeyi değiştirmez; sadece okur ve plan çıkarır.",
-  },
-] as const;
+export const PERMISSION_MODES = APPROVAL_MODES.map((mod) => ({
+  id: mod.id,
+  etiket: mod.label,
+  aciklama: mod.hint,
+}));
 
 export function Permissions({
   mod,

@@ -159,6 +159,25 @@ export function pageAction(operation, args) {
       link: Boolean(href) && !href.startsWith("#") && !href.startsWith("javascript:"),
     };
   }
+  if (operation === "describe_key") {
+    // Fusion Enter'a basmadan ÖNCE sorar: arama kutusunda Enter gezinmedir, mesaj
+    // kutusunda ya da "Gönder/Satın al" düğmeli formda göndermedir.
+    const element = args.ref ? target() : (document.activeElement || document.body);
+    const form = element.form || element.closest?.("form") || null;
+    const submit = form?.querySelector("button[type='submit'], input[type='submit'], button:not([type])");
+    const type = (element.getAttribute("type") || "").toLowerCase();
+    const role = element.getAttribute("role") || "";
+    const hint = ["placeholder", "name", "aria-label", "title"].map((a) => element.getAttribute(a) || "").join(" ");
+    return {
+      tag: element.tagName.toLowerCase(), type, role, name: nameOf(element), hint,
+      search: type === "search" || role === "searchbox" || role === "combobox" ||
+        Boolean(element.closest?.("[role='search']")) || /\b(ara|arama|search|bul|filtre|filter)\b/i.test(hint) ||
+        /search|arama/i.test(form?.getAttribute("action") || ""),
+      editable: Boolean(element.matches?.("textarea, [contenteditable='true'], [contenteditable=''], [role='textbox']")),
+      in_form: Boolean(form),
+      submit_name: submit ? nameOf(submit) : "",
+    };
+  }
   if (operation === "text_page") {
     // Uzun sayfanın TAMAMI parça parça (Claude'un get_page_text'i gibi).
     const PAGE = MAX_TEXT;

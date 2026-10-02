@@ -40,8 +40,9 @@ düzenleme kancaları; kalıcı geri sarma, Lighthouse/axe ve sandbox yapılmad�
 - `tests/test_chrome_page_action.py`: `pageAction` gerçek Chromium'da 8 senaryo.
 
 ## Silme güvenliği (1 Ekim olayı)
-- `tools/safe_delete.py`: sade `rm` → Fusion çöpüne (30 gün), korumalı yerler hiç silinmez,
-  karmaşık özyinelemeli silme reddedilir. `fusion cop liste|geri-al`.
+- `tools/safe_delete.py`: sade `rm` (joker dahil) → Fusion çöpüne (30 gün); yalnız `/` ve ev
+  dizini silinemez, Masaüstü/çok projeli klasör kartta DİKKAT ile sorulur (2 Ekim: kesin ret
+  kaldırıldı). `fusion cop liste|geri-al`.
 - `make_tool` araçları silme/taşıma/süreç/dinamik kod kullanamaz (otomatik kipte onaysız
   `shutil.rmtree` açığı).
 - `observability/audit.py`: kalıcı araç denetim günlüğü (`memory/audit/<sohbet>.jsonl`).

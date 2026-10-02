@@ -28,7 +28,7 @@ from .inline_python import is_inert_python
 #: `env` ve `printenv` bilinçli olarak YOK: argümansız çağrıldıklarında ortamı —
 #: API anahtarları dahil — modele döker; `env sh -c "..."` ise ARDINDAKİ komutu
 #: çalıştırır ve okuyucu kılığında her şeyi geçirirdi.
-_READ_ONLY = frozenset(
+READ_ONLY_COMMANDS = frozenset(
     {
         "ls", "dir", "pwd", "cat", "bat", "head", "tail", "wc", "file", "stat",
         "grep", "egrep", "fgrep", "rg", "ag", "find", "fd", "tree", "which", "type",
@@ -132,7 +132,7 @@ _FORMATTERS = frozenset({"prettier", "black", "isort", "gofmt", "rustfmt", "biom
 _JS_INSTALL_SUBCOMMANDS = frozenset(
     {"install", "i", "add", "ci", "remove", "uninstall", "rm", "update", "up"}
 )
-_GLOBAL_INSTALL_FLAGS = frozenset(
+GLOBAL_INSTALL_FLAGS = frozenset(
     {"-g", "--global", "--user", "--system", "--break-system-packages"}
 )
 
@@ -140,7 +140,7 @@ _GLOBAL_INSTALL_FLAGS = frozenset(
 _SHELL_RUNNERS = frozenset({"bash", "sh", "zsh"})
 
 #: `curl`'ü okuyucu olmaktan çıkaran, veri GÖNDEREN bayraklar.
-_CURL_SEND_FLAGS = frozenset(
+CURL_SEND_FLAGS = frozenset(
     {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "-F", "--form",
      "-T", "--upload-file", "-X", "--request", "-K", "--config"}
 )  # fmt: skip
@@ -323,7 +323,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
     # `./run.sh`: projenin kendi betiği, `pytest` ile aynı güven seviyesi.
     # Adı dışa dönük iş söyleyen betik (deploy/publish/release/push) sorulur.
     if parts[0].startswith("./") and not escapes_project("cat", [parts[0]], root):
-        return not _outward_script(name) and not escapes_project(name, arguments, root)
+        return not is_outward_script(name) and not escapes_project(name, arguments, root)
 
     # Salt-okur komut da proje dışını okuyabilir (`cat ~/.ssh/id_rsa`): önce NEREYE
     # dokunduğuna bakılır, sonra komutun kendisine.
@@ -346,7 +346,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         return (
             bool(arguments)
             and not arguments[0].startswith("-")
-            and not _outward_script(arguments[0])
+            and not is_outward_script(arguments[0])
         )
     if name in {"npx", "bunx"}:
         return bool(arguments) and not any(a in _INLINE_CODE_FLAGS for a in arguments)
@@ -354,12 +354,12 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         return _pip_safe(arguments[1:] if name == "uv" else arguments)
     if name == "curl":
         sends = any(
-            argument in _CURL_SEND_FLAGS or argument.startswith(("--data", "-d@"))
+            argument in CURL_SEND_FLAGS or argument.startswith(("--data", "-d@"))
             for argument in arguments
         )
         # Kendi yerel sunucusunu sınamak (`curl -X POST localhost:5000/...`) dışa
         # veri göndermek değildir; Claude'un otomatik kipi de bunu sormaz.
-        return not sends or _only_local_urls(arguments)
+        return not sends or only_local_urls(arguments)
     if name in {"source", "."}:
         # Proje içindeki sanal ortamı etkinleştirmek; kök dışı yol yukarıda elendi.
         return len(arguments) == 1
@@ -375,7 +375,7 @@ def _segment_safe(segment: str, root: Path | None = None) -> bool:
         if all(argument in _VERSION_FLAGS for argument in arguments) and arguments:
             return True
         return name in _SCRIPT_RUNNERS and _script_safe(name, arguments)
-    return name in _READ_ONLY
+    return name in READ_ONLY_COMMANDS
 
 
 def _godot_verify_safe(arguments: list[str]) -> bool:
@@ -425,7 +425,7 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
     if not arguments:
         return name in {"npm", "pnpm", "yarn", "bun", "make"} and name != "npm"
     if name in {"npm", "pnpm", "yarn", "bun"} and arguments[0] in _JS_INSTALL_SUBCOMMANDS:
-        return not any(argument in _GLOBAL_INSTALL_FLAGS for argument in arguments)
+        return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
     if name == "pnpm" and arguments[0] == "dlx":
         return True
     return arguments[0] in _TOOLING_SUBCOMMANDS
@@ -434,7 +434,7 @@ def _tooling_safe(name: str, arguments: list[str]) -> bool:
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1"})
 
 
-def _only_local_urls(arguments: list[str]) -> bool:
+def only_local_urls(arguments: list[str]) -> bool:
     """Komuttaki bütün adresler bu makineye mi gidiyor? Adres yoksa False."""
     from urllib.parse import urlsplit
 
@@ -448,7 +448,7 @@ def _only_local_urls(arguments: list[str]) -> bool:
     return True
 
 
-def _outward_script(path: str) -> bool:
+def is_outward_script(path: str) -> bool:
     """Betiğin adı dışa dönük bir iş mi söylüyor? (dağıtım, yayımlama, gönderme)"""
     ad = path.rsplit("/", 1)[-1].lower()
     return any(kelime in ad for kelime in ("deploy", "publish", "release", "push", "upload"))
@@ -458,7 +458,7 @@ def _pip_safe(arguments: list[str]) -> bool:
     """`pip install …` proje ortamına mı kuruyor? Global/kullanıcı kurulumu sorulur."""
     if not arguments or arguments[0] not in {"install", "uninstall"}:
         return False
-    return not any(argument in _GLOBAL_INSTALL_FLAGS for argument in arguments)
+    return not any(argument in GLOBAL_INSTALL_FLAGS for argument in arguments)
 
 
 def _git_safe(arguments: list[str]) -> bool:

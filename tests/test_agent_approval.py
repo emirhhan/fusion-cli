@@ -43,9 +43,23 @@ async def test_zararsiz_degisiklik_modlara_gore_karara_baglanir(mod, beklenen):
 async def test_auto_modda_yikici_komut_yine_de_sorulur():
     politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
 
-    karar = await politika.decide(build_request(_arac("run_shell"), {"command": "rm -rf build"}))
+    karar = await politika.decide(
+        build_request(_arac("run_shell"), {"command": "git reset --hard"})
+    )
 
     assert karar is Decision.DENIED
+
+
+async def test_auto_modda_proje_ici_sade_silme_cope_gittigi_icin_sorulmaz(tmp_path):
+    """Sade `rm -rf build` kalıcı silmez, Fusion çöpüne gider: sormak gereksizdir."""
+    politika = build_policy(ApprovalMode.AUTO, AlwaysReject())
+    (tmp_path / "build").mkdir()
+
+    istek = build_request(_arac("run_shell"), {"command": "rm -rf build"}, root=tmp_path)
+
+    assert istek.danger is None
+    assert "Fusion çöpüne taşınır" in (istek.note or "")
+    assert await politika.decide(istek) is Decision.ALLOW
 
 
 async def test_auto_modda_yikici_olmayan_komut_sorulmaz():
@@ -118,7 +132,7 @@ async def test_yikici_istekte_oturum_izni_bir_defalik_sayilir():
 
     prompter = _OturumOnayi()
     politika = build_policy(ApprovalMode.AUTO, prompter)
-    request = build_request(_arac("run_shell"), {"command": "rm -rf build"})
+    request = build_request(_arac("run_shell"), {"command": "git reset --hard"})
 
     assert await politika.decide(request) is Decision.ALLOW
     assert await politika.decide(request) is Decision.ALLOW
@@ -267,14 +281,15 @@ async def test_auto_modda_salt_okunur_uzak_arac_sorulmaz():
     assert karar is Decision.ALLOW
 
 
-async def test_security_modda_salt_okunur_uzak_arac_yine_sorulur():
+async def test_manuel_kipte_salt_okunur_uzak_arac_sorulmaz_yazan_sorulur():
+    """Manuel kip Claude'daki gibi "değişiklikten önce sorar": okuma değişiklik değildir."""
     politika = build_policy(ApprovalMode.SECURITY, AlwaysReject())
 
-    karar = await politika.decide(
-        build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
-    )
+    okuma = build_request(_arac("ads__get_insights", effect=ToolEffect.REMOTE_READ), {})
+    yazma = build_request(_arac("ads__set_budget", effect=ToolEffect.REMOTE_WRITE), {})
 
-    assert karar is Decision.DENIED
+    assert await politika.decide(okuma) is Decision.ALLOW
+    assert await politika.decide(yazma) is Decision.DENIED
 
 
 def test_arac_etkisi_varsayilan_olarak_yereldir():

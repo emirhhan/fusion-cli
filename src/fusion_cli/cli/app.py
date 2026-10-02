@@ -28,7 +28,7 @@ from ..config.readiness import Readiness
 from ..core.errors import FusionError
 from ..core.tools import ToolContext
 from ..core.types import ModelSpec, VerdictSource
-from ..engines.agent.approval import ApprovalMode
+from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..ui import messages, theme
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi
@@ -240,8 +240,9 @@ def agent(
         "auto",
         "--mode",
         "-m",
-        help="Onay modu: auto (otomatik, yıkıcı komutta sorar) | "
-        "plan (yalnız planla) | security (her değişikliği sor)",
+        help="Onay modu: auto (yalnız riskli işlemde sorar) | edits (düzenlemeler "
+        "sorulmaz) | security/manual (her değişikliği sor) | plan (yalnız planla) | "
+        "bypass (hiçbir şey sorma)",
     ),
     no_memory: bool = typer.Option(
         False, "--no-memory", help="Belleği kullanma ve yazma (ders çıkarımı kapalı)."
@@ -324,7 +325,7 @@ async def _with_web_cleanup(coro: Awaitable[T]) -> T:
 
 def _parse_mode(raw: str) -> ApprovalMode:
     try:
-        return ApprovalMode(raw.strip().lower())
+        return parse_mode(raw)
     except ValueError:
         valid = ", ".join(item.value for item in ApprovalMode)
         raise typer.BadParameter(messages.RUN_UNKNOWN_MODE.format(given=raw, valid=valid)) from None

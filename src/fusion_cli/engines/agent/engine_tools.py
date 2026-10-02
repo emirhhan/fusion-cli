@@ -35,6 +35,7 @@ from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
 from ...ui import messages
 from . import learning_steps
+from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
 from .team import (
@@ -115,6 +116,10 @@ def build_agent_registry(
         extended.register(image_tool)
     for web_tool in web_work_tools():
         extended.register(web_tool)
+    conversation = getattr(deps, "conversation_id", "")
+    memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
+    if conversation and memory_dir is not None:
+        extended.register(recent_actions_tool(memory_dir, conversation))
     _register_forged_tools(extended, deps)
     return extended
 

@@ -1,0 +1,25 @@
+.depo-uyarisi {
+  display: grid; gap: 6px;
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--text-warning);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: var(--text-xs); line-height: 1.5;
+}
+.depo-uyarisi__metin { margin: 0; }
+.depo-uyarisi__metin strong { color: var(--text-primary); }
+.depo-uyarisi__projeler { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.depo-uyarisi__proje {
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: transparent; color: var(--text-primary);
+  font-size: var(--text-xs); cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+.depo-uyarisi__proje:hover { background: var(--surface-hover); }
+.depo-uyarisi__proje:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.depo-uyarisi__kalan { color: var(--text-secondary); }

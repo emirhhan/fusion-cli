@@ -132,7 +132,7 @@ describe("Composer — izin modu klavye kısayolları", () => {
     const textbox = screen.getByRole("textbox", { name: "Mesaj" });
 
     expect(fireEvent.keyDown(textbox, { key: "Tab", shiftKey: true })).toBe(false);
-    expect(onApprovalChange).toHaveBeenCalledWith("plan");
+    expect(onApprovalChange).toHaveBeenCalledWith("security");
 
     expect(fireEvent.keyDown(textbox, { key: "Tab" })).toBe(true);
   });
@@ -242,28 +242,41 @@ describe("Composer — slash paleti ve ekler", () => {
 describe("Composer — izin modu", () => {
   it("seçili izin modunu gösterir; sabit metin basmaz", () => {
     render(<Composer approval="security" onSend={() => undefined} />);
-    expect(screen.getByText(/Güvenli/i)).toBeTruthy();
+    expect(screen.getByText("Manuel")).toBeTruthy();
     expect(screen.queryByText("Agent · Otomatik")).toBeNull();
   });
 
-  it("Shift+Tab izin modunu sırayla değiştirir", () => {
+  it("Shift+Tab izin modunu Claude'daki sırayla döndürür; İzinleri atla döngüde yok", () => {
     const secilen: string[] = [];
-    render(
+    const { rerender } = render(
       <Composer approval="auto" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
     );
-    const kutu = screen.getByLabelText("Mesaj");
-
-    fireEvent.keyDown(kutu, { key: "Tab", shiftKey: true });
-    expect(secilen).toEqual(["plan"]);
+    for (const kip of ["security", "edits", "plan"] as const) {
+      fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
+      rerender(<Composer approval={kip} onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />);
+    }
+    fireEvent.keyDown(screen.getByLabelText("Mesaj"), { key: "Tab", shiftKey: true });
+    expect(secilen).toEqual(["security", "edits", "plan", "auto"]);
   });
 
-  it("tıklayarak da mod değiştirilebilir", () => {
+  it("menüden açıklamalı beş kip seçilir; rakam tuşu da seçer", () => {
     const secilen: string[] = [];
     render(
       <Composer approval="plan" onApprovalChange={(m) => secilen.push(m)} onSend={() => undefined} />,
     );
-    fireEvent.click(screen.getByRole("button", { name: /Yalnız plan/ }));
-    expect(secilen).toEqual(["security"]);
+    fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
+    const secenekler = screen.getAllByRole("menuitemradio");
+    expect(secenekler.map((s) => s.querySelector("strong")?.textContent)).toEqual([
+      "Otomatik", "Manuel", "Düzenlemeleri kabul et", "Plan", "İzinleri atla",
+    ]);
+    expect(secenekler[3].getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(secenekler[2]);
+    expect(secilen).toEqual(["edits"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /İzin modu: Plan/ }));
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "5" });
+    expect(secilen).toEqual(["edits", "bypass"]);
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });
 

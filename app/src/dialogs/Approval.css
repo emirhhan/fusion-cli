@@ -64,6 +64,7 @@
 }
 
 .prompt-card__danger { color: var(--status-error, #f87171); font-size: var(--text-sm); margin: 0; }
+.prompt-card__reason { color: var(--text-secondary); font-size: var(--text-sm); margin: 0; }
 .prompt-card__diff { max-height: 300px; overflow: auto; }
 
 .prompt-card__details summary { color: var(--text-secondary); cursor: pointer; font-size: var(--text-xs); }

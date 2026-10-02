@@ -87,6 +87,7 @@ function olcuyuTazele(
     id: string;
     baglam: BaglamOlcusu | null;
     maliyetUsd: number | null;
+    depoProjeleri: string[];
   }) => void,
 ): void {
   void client
@@ -97,10 +98,16 @@ function olcuyuTazele(
         id,
         baglam: baglamOlcusuOku(result.baglam),
         maliyetUsd: maliyetOku(result.maliyet_usd),
+        depoProjeleri: depoOku(result.depo),
       }),
     )
     // Çekirdek kapandıysa gösterge son ölçüde kalır; kapanış ayrıca bildirilir.
     .catch(() => undefined);
+}
+
+/** `oturum.durum.depo`: yalnız metin dizisi kabul edilir; başka her şey boş liste. */
+function depoOku(deger: unknown): string[] {
+  return Array.isArray(deger) ? deger.filter((item): item is string => typeof item === "string") : [];
 }
 
 function nextSessionId(): string {

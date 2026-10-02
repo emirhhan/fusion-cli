@@ -122,7 +122,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
-from .turn_report import build_turn_report
+from .turn_report import build_turn_report, claims_command_success
 from .workspace_hint import find_workspace_for
 
 _PROMPTS = Path(__file__).parent / "prompts"
@@ -594,7 +594,11 @@ async def run_agent(
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
         await _publish_intro(task, messages, deps, execution)
-        await prepare_teacher_plan(task, messages, deps, registry)
+        # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
+        # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
+        # dönüştü ve ajan cevap yerine dosya yazdı.
+        if execution.allow_mutation:
+            await prepare_teacher_plan(task, messages, deps, registry)
         await run_platform_check(task, messages, deps, registry)
 
     if not plan_mode and not chat_mode and depth == 0:
@@ -804,6 +808,10 @@ def _apply_turn_report(
     text = report.render()
     if not text:
         return
+    if report.is_verified is False and claims_command_success(outcome.final_text):
+        # Kanıtsız "testler geçti" yanlış başarıdır: tur başarılı sayılmaz, ders
+        # öğrenilmez. Genel "doğrulandı" yalnız uyarı alır (`render_with_model_text`).
+        report = replace(report, false_claim=True)
     outcome.final_text = report.render_with_model_text(outcome.final_text)
     if report.blocks_success:
         outcome.ok = False
@@ -860,6 +868,8 @@ class _State:
     mutating_tool_calls_made: int = 0
     failed_tool_calls: int = 0
     model_calls_made: int = 0
+    #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
+    max_tokens_scale: int = 1
     #: Yinelenen olduğu için engellenen çağrı sayısı (bkz. AgentOutcome).
     already_done_calls: int = 0
     #: Denenen her araç çağrısı, SIRAYLA. Engellenen ve düşen çağrılar da girer:
@@ -1549,6 +1559,10 @@ MAX_TRANSIENT_RETRIES = 10
 #: sınırı penceresidir (60 sn / 40 istek, bkz. `defaults.yaml` `retry_delays_s`):
 #: daha uzun beklemek sınırın sıfırlanmasından sonra boşuna vakit kaybettirir.
 RETRY_BASE_DELAY_S = 2.0
+#: Çıktı bütçesinin en fazla kaç katına büyütüleceği. 4: varsayılan bütçe düşünen
+#: modelin uzun bir planı da yazmasına yeter; daha fazlası tek çağrıyı dakikalarca
+#: uzatır ve bağlam penceresini zorlar.
+MAX_TOKENS_ESCALATION = 4
 RETRY_MAX_DELAY_S = 60.0
 
 
@@ -1610,6 +1624,23 @@ async def _call_with_retries(
                 )
         except TimeoutError:
             result = None
+        if (
+            result is not None
+            and result.truncated
+            and not result.is_usable
+            and state.max_tokens_scale < MAX_TOKENS_ESCALATION
+        ):
+            # Aynı bütçeyle tekrar denemek aynı sonucu verir (model yine düşünmeye
+            # harcar). Ölçüldü (30 Eylül): ilk tur "çıktı bütçesi doldu" ile bitti ve
+            # kullanıcıya ayar değiştirmesi söylendi. Bütçe büyütülüp hemen denenir.
+            state.max_tokens_scale *= 2
+            deps.publisher.publish(
+                StatusChanged(
+                    "Model çıktı bütçesini düşünmeye harcadı; bütçe "
+                    f"{state.max_tokens_scale} katıyla yeniden deneniyor"
+                )
+            )
+            continue
         retryable = not state.call_streamed and (
             result is None or (not result.is_usable and not is_permanent_error(result.error))
         )
@@ -1688,7 +1719,7 @@ async def _call_model(
     request = CompletionRequest(
         messages=tuple(messages),
         temperature=runtime.temperature,
-        max_tokens=runtime.max_tokens,
+        max_tokens=runtime.max_tokens * state.max_tokens_scale,
         timeout_s=timeout_s or runtime.request_timeout_s,
         max_retries=runtime.max_retries,
         tools=(

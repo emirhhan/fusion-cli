@@ -46,7 +46,7 @@ from ..config.paths import credentials_file
 from ..core.events import Event, StatusChanged
 from ..core.tools import TodoStatus
 from ..core.types import Message
-from ..engines.agent.approval import ApprovalMode
+from ..engines.agent.approval import ApprovalMode, parse_mode
 from ..engines.agent.context_budget import context_budget
 from ..engines.agent.loop import CHAT_SYSTEM_PROMPT, AgentOutcome
 from ..history.sanitize import sanitize_message
@@ -56,6 +56,7 @@ from ..memory.turn_journal import FileTurnJournal
 from ..providers.capabilities import apprentice_active
 from ..providers.health_setup import build_health
 from ..tools.capabilities import CapabilityRegistry, load_agent_prompt, load_skill_text
+from ..tools.safe_delete import is_container_root, project_folders
 from ..ui import messages
 from ..ui.text import strip_thinking
 from ..ui.turn_stop import turn_stopped_summary
@@ -359,6 +360,8 @@ class AppSession:
         #: Uygulamanın sekmesine karşılık gelen konuşma kimliği. `oturum.baslat`
         #: ile gelir; gelmeden önce okuma proje genelini gösterir.
         self._conversation_id: str | None = None
+        #: (kök, depo projeleri) — durum her turdan sonra sorulduğu için önbellekli.
+        self._depo_cache: tuple[Path, list[str]] | None = None
         #: İptal edilen turun kapanması bekleniyor mu?
         self._iptal_bekliyor = False
         self._state.history = load_transcript_messages(config.memory_dir, root)
@@ -990,7 +993,7 @@ class AppSession:
         if not isinstance(value, str) or not value:
             return None
         try:
-            self._state.approval = ApprovalMode(value)
+            self._state.approval = parse_mode(value)
         except ValueError:
             valid = ", ".join(mode.value for mode in ApprovalMode)
             return {
@@ -1202,7 +1205,27 @@ class AppSession:
             # Görev 1) — ikinci bir sayaç DEĞİL, `kullanim.durum`u da besleyen
             # AYNI `self._usage`'dan okunur.
             "maliyet_usd": round(self._usage.total.cost_usd, 4),
+            # Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler; arayüz uyarır.
+            "depo": self._container_projects(),
         }
+
+    def _container_projects(self) -> list[str]:
+        """Kök birden çok proje içeriyorsa projelerin köke göreli yolları (önbellekli).
+
+        Ölçüldü (1 Ekim olayı): Fusion `~/Desktop`'ta açıktı; "projeyi sil" bütün
+        Masaüstünü hedef aldı. Kullanıcı neyin içinde çalıştığını görmeli.
+        """
+        root = self._state.root.resolve()
+        cached = self._depo_cache
+        if cached is not None and cached[0] == root:
+            return cached[1]
+        projects = (
+            [path.relative_to(root).as_posix() for path in project_folders(root)]
+            if is_container_root(root, Path.home())
+            else []
+        )
+        self._depo_cache = (root, projects)
+        return projects
 
     def _gateway_status(self) -> dict[str, Any]:
         if self._gateway_process_id is None:

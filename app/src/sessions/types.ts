@@ -57,6 +57,9 @@ export interface SessionModel {
    * yanıtından gelir (bkz. `useSessions.ts::olcuyuTazele`), henüz
    * okunmadıysa `null`. */
   maliyetUsd: number | null;
+  /** Kök bir proje DEPOSUYSA (Masaüstü gibi) içindeki projeler, köke göreli;
+   *  tek projede açıksa boş. Aynı `oturum.durum` yanıtından gelir. */
+  depoProjeleri: string[];
   client: ProtocolClient;
 }
 

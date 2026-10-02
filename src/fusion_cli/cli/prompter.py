@@ -60,6 +60,8 @@ class ConsolePrompter:
                     f"[{theme.ERROR}]{messages.DANGER_WARNING.format(reason=request.danger)}"
                     f"[/{theme.ERROR}]"
                 )
+            elif request.note:
+                self._console.print(f"[{theme.DIM}]{request.note}[/{theme.DIM}]")
             answer = self._ask(messages.CONFIRM_QUESTION)
         # Boş cevap iki anlama gelir: kullanıcı Enter'a bastı (onay) ya da ortam
         # etkileşimsiz (cevap yok). İkincisi kullanıcının REDDİ değildir — kimseye

@@ -5,6 +5,12 @@ import { MicIcon } from "../voice/MicIcon";
 import "./Composer.css";
 import { AttachmentChip } from "./AttachmentChip";
 import { ModelPicker, type ModelOption } from "./ModelPicker";
+import {
+  ApprovalModeMenu,
+  approvalInfo,
+  nextApprovalMode,
+  type ApprovalMode,
+} from "./ApprovalModeMenu";
 import { ContextGauge } from "./ContextGauge";
 import type { BaglamOlcusu } from "../protocol/types";
 import type { WorkspaceMode } from "../sessions/useSessions";
@@ -26,24 +32,9 @@ export function maliyetRozetMetni(costUsd: number | null): string | null {
   return `$${costUsd.toFixed(costUsd < 0.01 ? 4 : 2)}`;
 }
 
-/** İzin modu — çekirdekteki `ApprovalMode` ile aynı değerler. */
-export type ApprovalMode = "auto" | "plan" | "security";
+export type { ApprovalMode } from "./ApprovalModeMenu";
 
-/** Sıra, Shift+Tab'ın döneceği sıradır: terminaldeki davranışın aynısı. */
-const APPROVAL_ORDER: ApprovalMode[] = ["auto", "plan", "security"];
 const COMPACT_MESSAGE_CHARACTER_LIMIT = 90;
-
-const APPROVAL_LABEL: Record<ApprovalMode, string> = {
-  auto: "Otomatik",
-  plan: "Yalnız plan",
-  security: "Güvenli mod",
-};
-
-const APPROVAL_HINT: Record<ApprovalMode, string> = {
-  auto: "Fusion kendi ilerler, yıkıcı işlemde sorar.",
-  plan: "Yalnız planlar; hiçbir şeyi değiştirmez.",
-  security: "Her işlem için ayrı ayrı onay ister.",
-};
 
 export interface ComposerCommand {
   ad: string;
@@ -198,11 +189,8 @@ export function Composer({
     setDraft("");
     onSend(task);
   };
-  /** Sıradaki izin modu. Terminaldeki Shift+Tab döngüsüyle aynı sıra. */
-  const nextApproval = (): ApprovalMode => {
-    const index = APPROVAL_ORDER.indexOf(approval);
-    return APPROVAL_ORDER[(index + 1) % APPROVAL_ORDER.length];
-  };
+  /** Sıradaki izin modu (Shift+Tab). "İzinleri atla" döngüde yoktur. */
+  const nextApproval = (): ApprovalMode => nextApprovalMode(approval);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     // Esc çalışan turu durdurur (Claude'daki davranış). Boş kutuda da çalışır;
@@ -361,18 +349,9 @@ export function Composer({
               </button>
             )}
             {workspaceMode === "sohbet" && onWorkspaceModeChange ? null : onApprovalChange ? (
-              <button
-                aria-label={`İzin modu: ${APPROVAL_LABEL[approval]}. Değiştirmek için tıkla ya da Shift+Tab.`}
-                className="composer__approval"
-                data-mode={approval}
-                onClick={() => onApprovalChange(nextApproval())}
-                title={APPROVAL_HINT[approval]}
-                type="button"
-              >
-                {APPROVAL_LABEL[approval]}
-              </button>
+              <ApprovalModeMenu mode={approval} onChange={onApprovalChange} />
             ) : (
-              <span className="composer__agent">{APPROVAL_LABEL[approval]}</span>
+              <span className="composer__agent">{approvalInfo(approval).label}</span>
             )}
           </div>
           {running ? (

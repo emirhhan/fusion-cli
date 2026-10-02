@@ -123,6 +123,7 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "todo_write": ToolFamily.META,
     "ask_user": ToolFamily.META,
     "read_session": ToolFamily.META,
+    "recent_actions": ToolFamily.META,
     "find_skill": ToolFamily.META,
     "read_skill": ToolFamily.META,
     "find_agent": ToolFamily.META,
@@ -141,6 +142,10 @@ class ToolEffect(Enum):
     LOCAL = "local"
     #: Uzak sistemi yalnız okur.
     REMOTE_READ = "remote_read"
+    #: Uzak sayfayla etkileşir ama kalıcı iz bırakmaz: alana yazma, sıradan tıklama,
+    #: tuş. Gönderme/satın alma ayrı bir eylemdir ve o REMOTE_WRITE'tır. Otomatik
+    #: kipte sorulmaz; Manuel kipte sorulur, plan kipinde yapılmaz.
+    REMOTE_INTERACT = "remote_interact"
     #: Uzak sistemde değişiklik yapabilir.
     REMOTE_WRITE = "remote_write"
     #: Uzak sistemde geri alınamaz değişiklik yapabilir (silme, yayın, harcama).

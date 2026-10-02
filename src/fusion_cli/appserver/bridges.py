@@ -115,6 +115,8 @@ class ProtocolPrompter:
                 "hedef": hedef,
                 "argumanlar": _preview_args(request),
                 "tehlike": request.danger,
+                # Neden soruluyor / silme hedefi (tehlike değil, bilgi).
+                "neden": None if request.danger else request.note,
                 # Kullanıcı "ne değişecek" sorusunu argümanlardan değil diff'ten
                 # okumalı (bkz. `approval_preview`).
                 "diff": self._onizleme(request),

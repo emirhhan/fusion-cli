@@ -51,6 +51,8 @@ def _preview(request: ApprovalRequest) -> str:
     head = f"[{theme.DIM}]{messages.TUI_CONFIRM_PREVIEW}[/{theme.DIM}] {body}"
     if request.danger:
         return f"{head}\n[{theme.ERROR}]{request.danger}[/{theme.ERROR}]"
+    if request.note:
+        return f"{head}\n[{theme.DIM}]{request.note}[/{theme.DIM}]"
     return head
 
 

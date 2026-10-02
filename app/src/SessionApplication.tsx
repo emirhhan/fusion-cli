@@ -53,6 +53,7 @@ import { Settings } from "./settings/Settings";
 import { useShowSteps } from "./settings/useShowSteps";
 import { useInspectorPlacement } from "./settings/useInspectorPlacement";
 import { desktopDir } from "@tauri-apps/api/path";
+import { DepoUyarisi } from "./workspace/DepoUyarisi";
 import { ProjectPicker } from "./screens/ProjectPicker";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -1288,6 +1289,7 @@ export function SessionUygulama({
       emptyChat={page === "chat" && active.messages.length === 0 && !active.running}
       composer={page === "chat" ? (
         <><ProjectPicker root={active.root} projects={controller.recentProjects} onSelect={async (root) => { await controller.create({ root, mode: "kod" }); setPage("chat"); }} onNew={() => requestTaskFolder()} onSettings={() => { setControlTitle("Proje ayarları"); setPage("control"); }} />
+        <DepoUyarisi kok={active.root} projeler={active.depoProjeleri} onAc={(kok) => { void controller.create({ root: kok, mode: "kod" }).then(() => setPage("chat")); }} />
         <Composer
           workspaceMode={workspaceMode}
           onWorkspaceModeChange={(mode) => {
@@ -1445,7 +1447,8 @@ export function SessionUygulama({
                 soru: "Bu plan uygulansın mı?",
                 secenekler: [
                   { etiket: "Evet, otomatik kipte uygula", aciklama: "Proje içindeki işleri sormadan yapar; riskli işlemlerde yine sorar." },
-                  { etiket: "Evet, her adımda sor", aciklama: "Güvenli kipte uygular; her yazma ve komut için izin ister." },
+                  { etiket: "Evet, düzenlemeleri kabul ederek uygula", aciklama: "Dosya düzenlemeleri sorulmaz; komutlar için izin ister." },
+                  { etiket: "Evet, her adımda sor", aciklama: "Manuel kipte uygular; her yazma ve komut için izin ister." },
                   { etiket: "Hayır, planlamaya devam et", aciklama: "Plan kipinde kalır; planı birlikte düzeltebilirsiniz." },
                 ],
                 onerilen: "Evet, otomatik kipte uygula",
@@ -1454,6 +1457,7 @@ export function SessionUygulama({
                 setPlanHazir(null);
                 const metin = String(cevap.metin ?? "");
                 const yeniKip: ApprovalMode | null = metin.startsWith("Evet, otomatik") ? "auto"
+                  : metin.startsWith("Evet, düzenlemeleri") ? "edits"
                   : metin.startsWith("Evet, her") ? "security" : null;
                 if (!yeniKip) return;
                 setApproval(yeniKip);

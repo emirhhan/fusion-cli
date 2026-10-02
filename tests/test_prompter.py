@@ -57,9 +57,20 @@ async def test_onay_ekrani_diff_onizlemesi_gosterir(tmp_path):
 async def test_yikici_komutta_gerekce_gosterilir(tmp_path):
     prompter, buffer = _prompter(tmp_path)
 
-    await prompter.confirm(build_request(_arac("run_shell"), {"command": "rm -rf build"}))
+    await prompter.confirm(build_request(_arac("run_shell"), {"command": "git reset --hard"}))
 
     assert "geri alınamaz" in buffer.getvalue()
+
+
+async def test_cope_giden_silmede_hedef_notu_gosterilir(tmp_path):
+    """Sade `rm` yıkıcı değil (çöpe gider); kart yine de neyin nereye gittiğini söyler."""
+    prompter, buffer = _prompter(tmp_path)
+    (tmp_path / "build").mkdir()
+
+    istek = build_request(_arac("run_shell"), {"command": "rm -rf build"}, root=tmp_path)
+    await prompter.confirm(istek)
+
+    assert "Fusion çöpüne taşınır" in buffer.getvalue()
 
 
 async def test_soru_sirasinda_canli_gosterge_duraklatilir(tmp_path):

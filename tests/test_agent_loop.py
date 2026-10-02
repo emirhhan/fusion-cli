@@ -2404,8 +2404,8 @@ async def test_onaylanmayan_cagri_tekrar_kapisini_kilitlemez(monkeypatch, tmp_pa
         monkeypatch,
         ScriptedProvider(
             [
-                model_result(tool_calls=(tool_call("run_shell", command="echo merhaba"),)),
-                model_result(tool_calls=(tool_call("run_shell", command="echo merhaba"),)),
+                model_result(tool_calls=(tool_call("run_shell", command="npm install"),)),
+                model_result(tool_calls=(tool_call("run_shell", command="npm install"),)),
                 model_result(TAM_CEVAP),
             ]
         ),
@@ -2522,7 +2522,7 @@ async def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar(
         ScriptedProvider(
             [
                 model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
-                model_result("Tüm testler geçti."),
+                model_result("a.py dosyasını yazdım."),
             ]
         ),
     )
@@ -2531,6 +2531,28 @@ async def test_son_degisiklikten_sonra_test_calismadiysa_dogrulanmadi_yazar(
 
     assert "ÇALIŞTIRILMADI" in sonuc.final_text
     assert sonuc.ok is True, "kanıt eksikliği turu başarısız SAYMAZ; dürüst bir uyarıdır"
+
+
+async def test_kanitsiz_test_gecti_iddiasi_turu_basarisiz_yapar(monkeypatch, tmp_path, sink):
+    """Eksik kanıt uyarıdır; kanıt yokken "testler geçti" demek ise YANLIŞ BAŞARIDIR.
+
+    Ölçüldü (1 Ekim, WordPress sohbeti): hiçbir komut çalışmadan "tamamlandı ve
+    doğrulandı" dendi ve tur başarılı sayıldı.
+    """
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("write_file", path="a.py", content="x")]),
+                model_result("Tüm testler geçti."),
+            ]
+        ),
+    )
+
+    sonuc = await run_agent("a.py yaz", _deps(tmp_path, sink, runtime={"self_review": False}))
+
+    assert "GEÇERSİZ" in sonuc.final_text
+    assert sonuc.ok is False
 
 
 async def test_son_degisiklikten_sonra_basarisiz_test_turu_basarisiz_yapar(

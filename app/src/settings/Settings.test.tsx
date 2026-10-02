@@ -254,9 +254,10 @@ describe("Settings — İzinler", () => {
     bolum("İzinler");
 
     await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
-    const otomatik = screen.getByText("Otomatik uygula").closest(".settings__choice");
+    const otomatik = screen.getByText("Otomatik").closest(".settings__choice");
     expect(otomatik?.getAttribute("data-active")).toBe("true");
-    expect(screen.getByText(/yıkıcı işlemde yine sorar/i)).toBeTruthy();
+    expect(screen.getByText(/yalnız riskli işlemde sorar/i)).toBeTruthy();
+    expect(screen.getByText("İzinleri atla")).toBeTruthy();
   });
 
   it("klasör değiştirme isteğini iletir", async () => {
@@ -276,9 +277,10 @@ describe("Settings — İzinler", () => {
     bolum("İzinler");
     await waitFor(() => expect(screen.getByText("/Users/test/Fusion")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: /Her işlemde sor/ }));
-
+    fireEvent.click(screen.getByRole("button", { name: /Manuel/ }));
     expect(onRunCommand).toHaveBeenCalledWith("/security");
+    fireEvent.click(screen.getByRole("button", { name: /Düzenlemeleri kabul et/ }));
+    expect(onRunCommand).toHaveBeenCalledWith("/edits");
   });
 });
 

@@ -2,23 +2,25 @@
 
 Ölçülen zarar (1 Ekim 2026): kullanıcının "bu projeyi sil" isteğinde Fusion
 `~/Desktop/01-Projeler` altındaki projelerin neredeyse tamamını sildi. Çöp boştu,
-yedek yoktu; tek bir proje rastlantısal bir yedekten kurtarıldı. Onay sormak yetmez:
-kullanıcı yorgunken "evet" der, model yolu yanlış kurar.
+yedek yoktu; tek bir proje rastlantısal bir yedekten kurtarıldı.
 
-Bu modül üç kural koyar:
+Kurallar:
 
-1. **Sade silme komutu çöpe taşınır.** `rm -rf <yol>` gibi düz bir komut kalıcı
-   silmek yerine Fusion çöpüne TAŞINIR (aynı diskte anlık). `fusion cop` ile geri alınır.
-2. **Korumalı yerler hiç silinmez.** Ev dizini, Masaüstü, Belgeler vb., proje kökünün
-   ÜST klasörleri ve içinde birden çok proje barındıran klasörler — onay verilse bile.
-3. **Karmaşık özyinelemeli silme reddedilir.** Boru, `&&`, `find -delete`, `xargs rm`
-   ile kurulan silme hedefi kesin bilinemediği için çalıştırılmaz; model sade biçimde
-   yazmaya yönlendirilir.
+1. **Sade silme komutu çöpe taşınır.** `rm -rf <yol>` (joker dahil: `rm -rf ./*`)
+   kalıcı silmek yerine Fusion çöpüne TAŞINIR (aynı diskte anlık). `fusion cop` ile
+   geri alınır.
+2. **Kullanıcı silmek isterse silinir.** Masaüstü, proje kökünün üst klasörü ya da
+   içinde birden çok proje olan klasör REDDEDİLMEZ; onay kartında DİKKAT notuyla
+   gösterilir ve otomatik kipte bile sorulur (`caution_reason`). Kullanıcı 2 Ekim'de
+   açıkça istedi: "gerçekten bir şey silmek istersem silemeyecek miyim".
+3. **Yalnız iki yer hiç silinmez:** dosya sisteminin kökü ve ev dizininin kendisi
+   (`forbidden_reason`) — ikisi de çöpe taşınamaz (çöp onların içindedir).
 """
 
 from __future__ import annotations
 
 import json
+import posixpath
 import re
 import shlex
 import shutil
@@ -34,8 +36,11 @@ _RECURSIVE_DELETE = re.compile(
     r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]|\bfind\b.*\s-delete\b|\bfind\b.*-exec\s+rm\b|"
     r"\bxargs\b.*\brm\b|\brmtree\b|\bgit\s+clean\s+-[a-zA-Z]*[fdx]"
 )
-#: Sade komutta bulunmaması gereken kabuk işleçleri.
-_SHELL_META = re.compile(r"[;&|<>`$()\n*?{}\[\]]")
+#: Sade komutta bulunmaması gereken kabuk işleçleri. Joker (`*?[]`) burada YOK:
+#: `rm -rf ./*` Fusion tarafından genişletilip her öğe ayrı ayrı çöpe taşınır.
+_SHELL_META = re.compile(r"[;&|<>`$()\n{}]")
+#: Kabuğun genişleteceği joker karakterleri.
+_GLOB_CHARS = frozenset("*?[")
 #: `rm`'in kabul edilen seçenek harfleri.
 _RM_FLAGS = frozenset("rRfvid")
 #: Ev dizini altında hiçbir zaman silinmeyen standart klasörler.
@@ -66,7 +71,10 @@ class TrashEntry:
 
 
 def simple_rm_targets(command: str) -> tuple[str, ...] | None:
-    """Komut düz bir `rm [-seçenek] yol...` ise hedefleri, değilse None."""
+    """Komut düz bir `rm [-seçenek] yol...` ise hedefleri, değilse None.
+
+    Jokerli hedef (`./*`) olduğu gibi döner; `expand_targets` onu kabuk gibi açar.
+    """
     if _SHELL_META.search(command):
         return None
     try:
@@ -83,9 +91,40 @@ def simple_rm_targets(command: str) -> tuple[str, ...] | None:
         elif not options_done and part.startswith("-") and len(part) > 1:
             if not set(part[1:]) <= _RM_FLAGS:
                 return None
+        elif _GLOB_CHARS & set(part.rpartition("/")[0]):
+            # `*/build`: joker klasör bileşeninde; kabuğa bırakılır (sade değil).
+            return None
         else:
             targets.append(part)
     return tuple(targets) if targets else None
+
+
+def expand_targets(targets: tuple[str, ...], cwd: Path) -> list[Path]:
+    """Hedefleri kabuğun yapacağı gibi aç: göreli yol `cwd`'ye, joker eşleşmelere.
+
+    Kabuk gibi gizli dosyalar `*` ile eşleşmez; eşleşmeyen joker olduğu gibi kalır
+    (rm de "yok" der).
+    """
+    paths: list[Path] = []
+    for raw in targets:
+        # `..` metin olarak çözülür (bağ izlenmez): `rm ..` bağın hedefini değil
+        # üst klasörü taşır ve çöpteki adı ".." olmaz.
+        base = Path(posixpath.normpath(cwd / Path(raw).expanduser()))
+        matches = _shell_glob(base) if _GLOB_CHARS & set(base.name) else []
+        paths.extend(matches)
+        if not matches:
+            paths.append(base)
+    return paths
+
+
+def _shell_glob(base: Path) -> list[Path]:
+    """Son bileşendeki jokeri kabuk gibi aç: `*` noktayla başlayan adlarla eşleşmez."""
+    hidden_ok = base.name.startswith(".")
+    return sorted(
+        match
+        for match in base.parent.glob(base.name)
+        if hidden_ok or not match.name.startswith(".")
+    )
 
 
 def is_complex_recursive_delete(command: str) -> bool:
@@ -93,19 +132,65 @@ def is_complex_recursive_delete(command: str) -> bool:
     return bool(_RECURSIVE_DELETE.search(command)) and simple_rm_targets(command) is None
 
 
-def protected_reason(path: Path, root: Path, home: Path) -> str | None:
-    """Bu yol hiçbir koşulda silinmemeli mi? Gerekçe ya da None."""
+def forbidden_reason(path: Path, home: Path, trash_root: Path | None = None) -> str | None:
+    """Bu yol HİÇBİR koşulda silinemez mi? Yalnız kök, ev dizini ve çöpün kendisi."""
+    target = path.resolve()
+    if target == Path(target.anchor) or target == home.resolve():
+        return "dosya sisteminin kökü ya da ev dizininin kendisi"
+    if trash_root is not None and trash_root.resolve().is_relative_to(target):
+        return "Fusion çöpünü içeren klasör (kendi içine taşınamaz)"
+    return None
+
+
+def caution_reason(path: Path, root: Path, home: Path) -> str | None:
+    """Silinebilir ama kullanıcının bilerek onaylaması gereken yer mi? Gerekçe ya da None.
+
+    Bu bir RET değildir: onay kartında DİKKAT notu olur ve otomatik kip sorar.
+    """
     target = path.resolve()
     home = home.resolve()
-    if target == Path(target.anchor) or target == home:
-        return "dosya sisteminin kökü ya da ev dizini"
+    resolved_root = root.resolve()
     if target.parent == home and target.name in _PROTECTED_HOME_DIRS:
         return f"ev dizinindeki standart klasör (~/{target.name})"
-    if root.resolve().is_relative_to(target) and target != root.resolve():
-        return "çalışılan projenin ÜST klasörü (içinde başka projeler olabilir)"
+    if target == resolved_root:
+        return "çalışılan klasörün KENDİSİ"
+    if resolved_root.is_relative_to(target):
+        return "çalışılan klasörün ÜST klasörü (içinde başka projeler olabilir)"
+    if not target.is_relative_to(resolved_root):
+        return "çalışılan klasörün DIŞINDA"
     if target.is_dir() and _project_count(target) >= MULTI_PROJECT_THRESHOLD:
         return "içinde birden çok proje bulunan klasör"
     return None
+
+
+def project_folders(folder: Path, depth: int = 2) -> list[Path]:
+    """Klasörün altındaki proje klasörleri (iki kat derine bakılır)."""
+    try:
+        children = sorted(
+            child for child in folder.iterdir() if child.is_dir() and not child.is_symlink()
+        )
+    except OSError:
+        return []
+    found: list[Path] = []
+    for child in children:
+        if child.name in ("node_modules", ".git") or child.name.startswith("."):
+            continue
+        if any((child / marker).exists() for marker in _PROJECT_MARKERS):
+            found.append(child)
+        elif depth > 1:
+            found.extend(project_folders(child, depth - 1))
+    return found
+
+
+def is_container_root(root: Path, home: Path) -> bool:
+    """Kök tek bir proje değil, projelerin durduğu bir klasör mü?"""
+    resolved = root.resolve()
+    home = home.resolve()
+    if resolved == home or (resolved.parent == home and resolved.name in _PROTECTED_HOME_DIRS):
+        return True
+    if any((resolved / marker).exists() for marker in _PROJECT_MARKERS):
+        return False
+    return len(project_folders(resolved)) >= MULTI_PROJECT_THRESHOLD
 
 
 def _project_count(folder: Path, depth: int = 2) -> int:
@@ -132,16 +217,18 @@ def move_to_trash(
 ) -> tuple[list[TrashEntry], list[str]]:
     """Hedefleri Fusion çöpüne taşı; (taşınanlar, atlananlar) döner.
 
-    Korumalı bir hedef varsa HİÇBİRİ taşınmaz: yarım kalan toplu silme kullanıcıyı
-    neyin gidip neyin kaldığını çözmeye zorlar.
+    Yasak bir hedef varsa HİÇBİRİ taşınmaz: yarım kalan toplu silme kullanıcıyı
+    neyin gidip neyin kaldığını çözmeye zorlar. `root` imza uyumu için durur;
+    dikkat gerektiren yerler onay aşamasında (`caution_reason`) sorulur.
     """
-    paths = [(cwd / Path(raw).expanduser()) for raw in targets]
+    del root
+    paths = expand_targets(targets, cwd)
     for path in paths:
-        reason = protected_reason(path, root, home)
+        reason = forbidden_reason(path, home, trash_root)
         if reason is not None:
             raise DeleteRefusedError(
-                f"SİLME REDDEDİLDİ: {path} — {reason}. Fusion bu yolu onay verilse bile "
-                "silmez. Silinmesi gereken tek bir proje ya da dosyaysa onun TAM yolunu ver."
+                f"SİLME REDDEDİLDİ: {path} — {reason}. Bu yol çöpe taşınamaz. Silinmesi "
+                "gereken bir klasör ya da dosyaysa onun TAM yolunu ver."
             )
     _purge_expired(trash_root)
     moved: list[TrashEntry] = []
@@ -204,3 +291,6 @@ def _purge_expired(trash_root: Path) -> None:
     for entry in list_trash(trash_root):
         if entry.deleted_at < limit:
             shutil.rmtree(trash_root / entry.id, ignore_errors=True)
+
+
+#: Önizlemede sayılacak en fazla dosya; daha büyük klasör "N+ öğe" diye gösterilir.

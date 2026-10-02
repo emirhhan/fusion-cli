@@ -63,6 +63,43 @@ _NO_CHANGE_CLAIMS = re.compile(
 )
 
 
+#: Modelin "doğruladım" iddiası. Kanıt yokken bu cümleler kullanıcıya gerçek gibi
+#: gitmemeli. Ölçüldü (1 Ekim, WordPress sohbeti): hiçbir komut çalışmadan "Tema
+#: dosyaları tamamlandı ve doğrulandı ... tüm PHP dosyaları" dendi.
+_VERIFY_CLAIMS = re.compile(
+    r"doğrula(?:ndı|dım|nmıştır|ndılar)|test (?:edildi|ettim|edilmiştir)|testler(?:i)? geç"
+    r"|hatasız|sorunsuz çalış|sözdizimi (?:temiz|hatası yok|doğru)|hiçbir (?:sözdizimi )?hata yok"
+    r"|lint (?:temiz|geçti)|\bverified\b|tests? pass(?:ed|es)?|all tests|no (?:syntax )?errors",
+    re.IGNORECASE,
+)
+
+#: Kanıtsız iddia uyarısı (raporda ajanın metninin üstünde durur).
+UNVERIFIED_CLAIM_WARNING = (
+    "⚠ Ajan doğrulama yaptığını söylüyor ama bu turda hiçbir doğrulama başarıyla "
+    "çalışmadı; bu iddia GEÇERSİZ."
+)
+
+
+#: Komut çalıştırmadan söylenemeyecek SOMUT başarı iddiası (test/lint/sözdizimi).
+#: Genel "doğrulandı" dosyayı okuyarak da söylenebilir; yalnız uyarı alır. Bunlar
+#: ise kanıtsızsa yalandır ve turu başarısız yapar.
+_COMMAND_CLAIMS = re.compile(
+    r"test (?:edildi|ettim|edilmiştir)|testler(?:i)? geç|lint (?:temiz|geçti)"
+    r"|sözdizimi (?:temiz|hatası yok)|tests? pass(?:ed|es)?|all tests",
+    re.IGNORECASE,
+)
+
+
+def claims_verification(text: str) -> bool:
+    """Metin bir doğrulama/test başarısı iddia ediyor mu?"""
+    return bool(_VERIFY_CLAIMS.search(text))
+
+
+def claims_command_success(text: str) -> bool:
+    """Metin, ancak bir komut çalıştırılarak bilinebilecek bir başarı iddia ediyor mu?"""
+    return bool(_COMMAND_CLAIMS.search(text))
+
+
 @dataclass(frozen=True, slots=True)
 class CommandRun:
     """Turda denenen tek `run_shell` çağrısının doğrulama açısından kaydı."""
@@ -87,6 +124,8 @@ class TurnReport:
     gate: VerificationResult | None = None
     #: Çok dosyalı uzun kod görevinde son değişiklikten sonra davranış kanıtı zorunludur.
     require_behavioral_evidence: bool = False
+    #: Model kanıt yokken doğrulama iddia etti mi? (`build_turn_report` doldurur.)
+    false_claim: bool = False
 
     @property
     def _behavioral_evidence(self) -> tuple[CommandRun, ...]:
@@ -134,6 +173,8 @@ class TurnReport:
             return True
         if self.require_behavioral_evidence and self.is_verified is False:
             return True
+        if self.false_claim:
+            return True
         return any(run.exit_code not in (None, 0) for run in self._behavioral_evidence)
 
     def render(self) -> str:
@@ -157,7 +198,8 @@ class TurnReport:
                 "açıklaması gösterilmedi."
             )
         if self.is_verified is False and model_text.strip():
-            return report + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
+            uyari = f"{UNVERIFIED_CLAIM_WARNING}\n\n" if claims_verification(model_text) else ""
+            return report + uyari + "Ajanın açıklaması (doğrulanmamış):\n\n" + model_text
         return report + model_text
 
     def _gate_blocks(self) -> tuple[str, ...]:

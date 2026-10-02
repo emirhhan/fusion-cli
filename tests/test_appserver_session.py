@@ -890,7 +890,7 @@ async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdur
     provider = ScriptedProvider(
         [
             model_result(tool_calls=[tool_call("list_dir", path=".")]),
-            model_result(tool_calls=[tool_call("run_shell", command="rm -rf build")]),
+            model_result(tool_calls=[tool_call("run_shell", command="git reset --hard")]),
             model_result("model ÜÇÜNCÜ kez ÇAĞRILMAMALI"),
         ]
     )
@@ -915,11 +915,11 @@ async def test_masaustunde_shell_reddi_ucuncu_model_cagrisi_yapmadan_turu_durdur
         agent=replace(oturum._state.config.agent, model="test/scripted-model"),
     )
     # Kod kipi: sohbet kipi mutasyonu hiç sormadan (BLOCKED) reddeder; masaüstü
-    # uygulamasındaki "build klasörünü sil" senaryosu kod kipinde geçer.
+    # uygulamasındaki "değişiklikleri sıfırla" senaryosu kod kipinde geçer.
     oturum._workspace_mode = "kod"
 
     gorev = asyncio.ensure_future(
-        oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "build klasörünü sil"}))
+        oturum.handle(Request(id="1", name="tur.calistir", data={"gorev": "sıfırla"}))
     )
 
     async def _soru_bekle() -> dict:

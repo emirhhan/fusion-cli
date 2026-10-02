@@ -147,6 +147,11 @@
   .composer[data-layout="compact"] .composer__toolbar,
   .composer[data-layout="compact"] .composer__tools { display: flex; }
   .composer[data-layout="compact"] .composer__toolbar { justify-content: space-between; }
+  /* Çok dar konteynerde (denetçi açık, ~300px) araçlar ile ses/model düğmeleri
+     üst üste biniyordu: sığmayan grup alt satıra iner, üstüne binmez. */
+  .composer__toolbar { flex-wrap: wrap; row-gap: 6px; }
+  .composer__tools { flex-wrap: wrap; max-width: 100%; min-width: auto; row-gap: 6px; }
+  .composer__actions { margin-left: auto; }
   .composer[data-layout="compact"] textarea { width: 100%; }
 }
 

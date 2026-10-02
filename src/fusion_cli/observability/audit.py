@@ -29,11 +29,33 @@ AUDIT_OUTPUT_CHARS = 400
 _SAFE_ID = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
+def audit_path(directory: Path, conversation_id: str) -> Path:
+    """Bir konuşmanın denetim günlüğü dosyası (yazan ve okuyan aynı adı kullanır)."""
+    return directory / f"{_SAFE_ID.sub('_', conversation_id) or 'oturum'}.jsonl"
+
+
+def read_recent(path: Path, limit: int) -> list[dict[str, object]]:
+    """Günlüğün son `limit` kaydı (eskiden yeniye); okunamazsa boş liste."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    records: list[dict[str, object]] = []
+    for line in lines[-limit:]:
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict):
+            records.append(item)
+    return records
+
+
 class AuditSink:
     """`ToolExecuted` olaylarını kalıcı denetim günlüğüne ekleyen dinleyici."""
 
     def __init__(self, directory: Path, conversation_id: str, *, root: Path) -> None:
-        self._path = directory / f"{_SAFE_ID.sub('_', conversation_id) or 'oturum'}.jsonl"
+        self._path = audit_path(directory, conversation_id)
         self._root = str(root)
 
     @property

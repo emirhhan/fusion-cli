@@ -36,18 +36,23 @@ def _dot_path(name: str) -> str:
     return rf"(^|[\s'\"=:/]){name}(/|$|[\s'\"])"
 
 
+_RECURSIVE_DELETE = "özyinelemeli/zorlamalı dosya silme"
+_RECURSIVE_ONLY = "özyinelemeli dosya silme"
+_WILDCARD_DELETE = "joker ile zorlamalı silme"
+
+#: Sade `rm` komutunda görüldüğünde YIKICI sayılmayan gerekçeler: o komut kalıcı
+#: silmez, Fusion çöpüne taşınır (`safe_delete`) ve geri alınabilir.
+TRASHABLE_DELETE_REASONS = frozenset({_RECURSIVE_DELETE, _RECURSIVE_ONLY, _WILDCARD_DELETE})
+
 #: Tehlikeli kabuk komutu desenleri. Sıra önemsizdir; ilk eşleşen gerekçe gösterilir.
 DANGER_RULES: tuple[DangerRule, ...] = (
     # Özyinelemeli silme ya da `-f` ile JOKERLİ toplu silme tehlikelidir; tek bir
     # proje dosyasını `rm -f orders.db` ile silmek değildir (26 Eylül ölçümü: model
     # sınama veritabanını sıfırlarken her seferinde soruluyordu).
-    _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]", "özyinelemeli/zorlamalı dosya silme"),
-    _rule(
-        r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+[^;&|]*[*?]",
-        "özyinelemeli/zorlamalı dosya silme",
-    ),
-    _rule(r"\brm\s+-[a-zA-Z]*r", "özyinelemeli dosya silme"),
-    _rule(r"\brm\s+-[a-zA-Z]*f\s+.*\*", "joker ile zorlamalı silme"),
+    _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR]", _RECURSIVE_DELETE),
+    _rule(r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*f[a-zA-Z]*\s+[^;&|]*[*?]", _RECURSIVE_DELETE),
+    _rule(r"\brm\s+-[a-zA-Z]*r", _RECURSIVE_ONLY),
+    _rule(r"\brm\s+-[a-zA-Z]*f\s+.*\*", _WILDCARD_DELETE),
     _rule(r":\(\)\s*\{.*\|.*&\s*\}", "fork bomb"),
     _rule(r"\bmkfs\b", "dosya sistemi biçimlendirme"),
     _rule(r"\bdd\s+if=", "ham disk yazma"),

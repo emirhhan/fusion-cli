@@ -243,3 +243,7 @@ CRAWL_MAX_DEPTH = 4
 #: (fotoğraf, PDF, ürün görseli) karşılayan temkinli değerdir; aşan dosya için
 #: kullanıcıya elle yükleme önerilir.
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
+#: `php -l` tek dosyayı milisaniyeler içinde ayrıştırır; 10 sn soğuk başlatmayı
+#: (Homebrew PHP'nin ilk açılışı) karşılayan geniş pay. Aşan dosya "doğrulanamadı" olur.
+PHP_LINT_TIMEOUT_S = 10.0

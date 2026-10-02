@@ -92,14 +92,19 @@ async def chrome_type(args: ToolArgs, context: ToolContext) -> ToolResult:
 #: `click_at` görüntü koordinatını bununla sayfa ölçeğine çevirir.
 _SCREENSHOT_SCALES: weakref.WeakKeyDictionary[object, float] = weakref.WeakKeyDictionary()
 
-#: Sayfada kalıcı iz BIRAKMAYAN işlemler: otomatik kipte sorulmaz, plan kipinde serbest.
-#: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
+#: Sayfayı YALNIZ okuyan işlemler: hiçbir kipte sorulmaz, plan kipinde serbest.
 _READ_ACTIONS = frozenset(
     {
-        "scroll", "wait", "tabs", "open", "tab", "select", "screenshot",
+        "scroll", "wait", "tabs", "open", "tab", "screenshot",
         "back", "forward", "reload", "close", "hover", "text", "assets",
     }
 )  # fmt: skip
+#: Sayfayla etkileşen ama kalıcı iz bırakmayan işlemler: otomatik kipte sorulmaz.
+#: Seçim kutusu değeri yalnız formu değiştirir; gönderme ayrı bir tıklama/Enter'dır.
+_INTERACT_ACTIONS = frozenset({"select"})
+
+#: Enter'ın mesaj/yorum GÖNDERDİĞİ alanlar (ad, yer tutucu ya da form düğmesi).
+_MESSAGE_FIELD = re.compile(r"\b(?:mesaj|message|sohbet|chat|dm)\b", re.IGNORECASE)
 
 #: Tıklanınca geri dönüşü zor ya da dışa dönük iş yapan düğme adları (TR/EN).
 #: Claude in Chrome da gezinmeyi ve sıradan tıklamayı sormaz; göndermede durur.
@@ -121,26 +126,71 @@ _LOGOUT_LINK = re.compile(r"çıkış yap|oturumu kapat|log ?out|sign ?out", re.
 
 
 async def chrome_action_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
-    """Kaydırma, bekleme, sekme ve seçim salt okuma sayılır; tuş (Enter formu gönderir) sorulur.
+    """Kaydırma, bekleme ve sekme okumadır; seçim ve tuş etkileşimdir.
 
     Koordinata tıklama (`click_at`) ref'li tıklamayla aynı kuralla denetlenir: noktadaki
-    öğenin adı okunur, gönder/sil/satın al gibiyse sorulur.
+    öğenin adı okunur, gönder/sil/satın al gibiyse sorulur. Enter yalnız mesaj/yorum
+    kutusunda ya da riskli düğmeli formda sorulur (`_key_effect`).
     """
-    if args.get("action") == "click_at":
+    action = args.get("action")
+    if action == "click_at":
         point = _point(args.get("value"), context)
         if point is None or context is None or context.chrome is None:
             return None
-        try:
-            result = await context.chrome.invoke("describe_at", {"x": point[0], "y": point[1]})
-        except (ConnectionError, TimeoutError):
-            return None
-        return _click_effect(result)
-    return ToolEffect.REMOTE_READ if args.get("action") in _READ_ACTIONS else None
+        result = await _describe(context, "describe_at", {"x": point[0], "y": point[1]})
+        return None if result is None else _click_effect(result)
+    if action == "key":
+        return await _key_effect(args, context)
+    if action in _INTERACT_ACTIONS:
+        return ToolEffect.REMOTE_INTERACT
+    return ToolEffect.REMOTE_READ if action in _READ_ACTIONS else None
 
 
 async def chrome_read_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
-    """Gezinme ve alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir."""
+    """Gezinme yalnız okur."""
     return ToolEffect.REMOTE_READ
+
+
+async def chrome_type_effect(_args: ToolArgs, _context: ToolContext | None) -> ToolEffect:
+    """Alana yazma kalıcı iz bırakmaz: gönderme ayrı bir eylemdir."""
+    return ToolEffect.REMOTE_INTERACT
+
+
+async def _key_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
+    """Tab/ok/Escape iz bırakmaz; Enter'ın ne yapacağı odaktaki alana bakılarak anlaşılır.
+
+    Ölçüldü (2 Ekim, kullanıcı): otomatik kipte arama kutusuna yazıp Enter'a basmak
+    bile soruluyordu. Arama kutusunda Enter gezinmedir; mesaj/yorum kutusunda ya da
+    "Gönder/Satın al" düğmeli formda göndermedir ve sorulur.
+    """
+    key = args.get("value")
+    if isinstance(key, str) and key and key != "Enter":
+        return ToolEffect.REMOTE_INTERACT
+    if context is None or context.chrome is None:
+        return None
+    ref = args.get("ref")
+    result = await _describe(context, "describe_key", {"ref": ref} if isinstance(ref, str) else {})
+    veri = result.get("veri") if result is not None and result.get("ok") else None
+    if not isinstance(veri, dict):
+        return None
+    if veri.get("search"):
+        return ToolEffect.REMOTE_INTERACT
+    ipucu = f"{veri.get('name', '')} {veri.get('hint', '')} {veri.get('submit_name', '')}"
+    if veri.get("editable") or _RISKY_CLICK.search(ipucu) or _MESSAGE_FIELD.search(ipucu):
+        return None
+    return ToolEffect.REMOTE_INTERACT
+
+
+async def _describe(
+    context: ToolContext, operation: str, data: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Eklentiden öğe tarifini al; bağlantı yoksa None (çağrı sorulur)."""
+    if context.chrome is None:
+        return None
+    try:
+        return await context.chrome.invoke(operation, data)
+    except (ConnectionError, TimeoutError):
+        return None
 
 
 async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> ToolEffect | None:
@@ -151,11 +201,8 @@ async def chrome_click_effect(args: ToolArgs, context: ToolContext | None) -> To
     ref = args.get("ref")
     if context is None or context.chrome is None or not isinstance(ref, str):
         return None
-    try:
-        result = await context.chrome.invoke("describe", {"ref": ref})
-    except (ConnectionError, TimeoutError):
-        return None
-    return _click_effect(result)
+    result = await _describe(context, "describe", {"ref": ref})
+    return None if result is None else _click_effect(result)
 
 
 def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
@@ -170,7 +217,7 @@ def _click_effect(result: dict[str, Any]) -> ToolEffect | None:
         return None if _LOGOUT_LINK.search(ad) else ToolEffect.REMOTE_READ
     if veri.get("submit") or _RISKY_CLICK.search(ad):
         return None
-    return ToolEffect.REMOTE_READ
+    return ToolEffect.REMOTE_INTERACT
 
 
 async def chrome_action(args: ToolArgs, context: ToolContext) -> ToolResult:

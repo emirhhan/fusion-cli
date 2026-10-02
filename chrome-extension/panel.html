@@ -55,7 +55,13 @@
         <form id="composer" class="composer">
           <textarea id="prompt" rows="1" placeholder="Fusion'a yaz…" aria-label="Fusion'a görev ver"></textarea>
           <div class="composer__bar">
-            <button id="mode" class="mode-chip" type="button" data-mode="auto" title="Otomatik onay: riskli işlemde durup sorar. Elle onay: her işlemden önce sorar.">Otomatik onay</button>
+            <select id="mode" class="mode-chip" data-mode="auto" aria-label="İzin modu" title="Otomatik: Fusion karar verir, yalnız riskli işlemde sorar.">
+              <option value="auto" title="Fusion karar verir; yalnız gönder/sil/satın al gibi riskli işlemde sorar.">Otomatik</option>
+              <option value="security" title="Okuma dışındaki her işlemden (tıklama, yazma) önce sorar.">Manuel</option>
+              <option value="edits" title="Yazma ve sıradan tıklamalar sorulmaz; tanınmayan işlem sorulur.">Düzenlemeleri kabul et</option>
+              <option value="plan" title="Sayfayı yalnız okur, plan çıkarır; tıklamaz, yazmaz.">Plan</option>
+              <option value="bypass" title="Hiçbir şey sormaz. Dikkat: gönderme ve satın alma da sorulmaz.">İzinleri atla</option>
+            </select>
             <select id="model" class="model-chip" aria-label="Model" title="Model"></select>
             <button id="send" class="send" type="submit" title="Gönder" aria-label="Gönder">
               <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 15.5v-11M5.5 9 10 4.5 14.5 9" /></svg>

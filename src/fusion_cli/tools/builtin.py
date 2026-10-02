@@ -100,7 +100,7 @@ _TOOLS: tuple[Tool, ...] = (
         run=chrome.chrome_type,
         mutating=True,
         effect=ToolEffect.REMOTE_WRITE,
-        effect_resolver=chrome.chrome_read_effect,
+        effect_resolver=chrome.chrome_type_effect,
     ),
     Tool(
         name="chrome_navigate",

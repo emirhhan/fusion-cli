@@ -25,6 +25,8 @@ import re
 import shutil
 from pathlib import Path
 
+from ...tools.safe_delete import is_container_root, project_folders
+
 #: Bilinen proje-talimat dosyası adları, öncelik sırasıyla. İlk bulunan kullanılır;
 #: birden fazlası varsa aynı bilgiyi iki kez göndermek gürültüdür.
 CANDIDATE_FILENAMES: tuple[str, ...] = (
@@ -174,6 +176,30 @@ def workspace_summary(root: Path) -> str:
     )
 
 
+#: Depo uyarısında adı sayılacak en fazla proje.
+_CONTAINER_LIST_LIMIT = 12
+
+
+def container_root_note(root: Path, home: Path) -> str:
+    """Kök bir PROJE DEPOSUysa (Masaüstü, içinde birden çok proje) modele uyarı.
+
+    Ölçüldü (1 Ekim olayı): Fusion `~/Desktop`'ta açıktı; "projeyi tamamiyle sil"
+    isteğinde model "proje" = çalışma kökü sandı ve Masaüstündeki projeleri sildi.
+    Kullanıcının kastettiği tek bir alt klasördü (`sneaksup-wp`).
+    """
+    if not is_container_root(root, home):
+        return ""
+    projeler = [p.relative_to(root.resolve()).as_posix() for p in project_folders(root.resolve())]
+    liste = ", ".join(projeler[:_CONTAINER_LIST_LIMIT]) or "(işaretli proje yok)"
+    return (
+        "DİKKAT — BU KÖK BİR PROJE DEPOSU: içinde ayrı projeler var ("
+        + liste
+        + "). Kullanıcı 'proje', 'site', 'uygulama' dediğinde bu kökün TAMAMINI değil "
+        "içindeki TEK bir projeyi kasteder. Hangisi olduğu açık değilse ask_user ile sor. "
+        "Kökün tamamını silme, taşıma ya da toptan yeniden düzenleme."
+    )
+
+
 def read_all_instructions(root: Path, home: Path | None) -> str:
     """Proje talimatı ve dış araç belleklerini birlikte döndür.
 
@@ -195,7 +221,7 @@ def read_all_instructions(root: Path, home: Path | None) -> str:
                 "arch": platform.machine(),
                 "executables": {
                     name: path
-                    for name in ("git", "python3", "node", "npm", "godot")
+                    for name in ("git", "python3", "node", "npm", "php", "godot")
                     if (path := shutil.which(name))
                 },
             },
@@ -205,6 +231,9 @@ def read_all_instructions(root: Path, home: Path | None) -> str:
         "sistemi varsayma. Listelenen çalıştırılabilir dosyalar PATH üzerinde bulundu; "
         "sürümleri henüz doğrulanmadı. Yeni kurulumdan önce mevcut aracı denetle."
     )
+    depo = container_root_note(root, home or Path.home())
+    if depo:
+        ortam = f"{ortam}\n{depo}"
     ozet = workspace_summary(root)
     proje_talimati = read_project_instructions(root)
     if home is None:

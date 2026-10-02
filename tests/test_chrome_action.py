@@ -15,11 +15,39 @@ class _Kopru:
         return {"ok": True, "veri": {"tamam": True}}
 
 
-async def test_iz_birakmayan_islemler_salt_okuma_tus_sorulur():
-    for islem in ("scroll", "wait", "tabs", "open", "tab", "select", "screenshot"):
+async def test_iz_birakmayan_islemler_salt_okuma_secim_etkilesim_enter_bakilarak():
+    for islem in ("scroll", "wait", "tabs", "open", "tab", "screenshot"):
         assert await chrome.chrome_action_effect({"action": islem}, None) is ToolEffect.REMOTE_READ
-    # Enter bir formu gönderebilir: aracın kendi (sorulan) etkisi geçerli kalır.
+    secim = await chrome.chrome_action_effect({"action": "select"}, None)
+    assert secim is ToolEffect.REMOTE_INTERACT
+    tab = await chrome.chrome_action_effect({"action": "key", "value": "Tab"}, None)
+    assert tab is ToolEffect.REMOTE_INTERACT
+    # Enter bir formu gönderebilir; odak okunamazsa aracın kendi (sorulan) etkisi kalır.
     assert await chrome.chrome_action_effect({"action": "key"}, None) is None
+
+
+class _OdakKoprusu(_Kopru):
+    def __init__(self, veri: dict) -> None:
+        super().__init__()
+        self._veri = veri
+
+    async def invoke(self, name, data):
+        self.cagrilar.append((name, data))
+        return {"ok": True, "veri": self._veri}
+
+
+async def test_enter_arama_kutusunda_sorulmaz_mesaj_ve_siparis_formunda_sorulur():
+    """Ölçüldü (2 Ekim, kullanıcı): otomatik kipte arama kutusunda Enter bile soruluyordu."""
+
+    async def etki(veri):
+        baglam = SimpleNamespace(chrome=_OdakKoprusu(veri))
+        return await chrome.chrome_action_effect({"action": "key", "value": "Enter"}, baglam)
+
+    assert await etki({"search": True, "name": "Ürün ara"}) is ToolEffect.REMOTE_INTERACT
+    assert await etki({"in_form": True, "submit_name": "Filtrele"}) is ToolEffect.REMOTE_INTERACT
+    assert await etki({"editable": True, "hint": "Mesaj yaz"}) is None
+    assert await etki({"in_form": True, "submit_name": "Siparişi tamamla"}) is None
+    assert await etki({"hint": "Mesaj gönder"}) is None
 
 
 async def test_islemler_eklenti_komutlarina_eslenir():
@@ -75,8 +103,8 @@ async def test_siradan_tiklama_sorulmaz_gonderme_ve_silme_sorulur():
         baglam = SimpleNamespace(chrome=_AdVerenKopru(ad, submit))
         return await chrome.chrome_click_effect({"ref": "e1"}, baglam)
 
-    assert await etki("Kampanyalar") is ToolEffect.REMOTE_READ
-    assert await etki("Yorumları görüntüle") is ToolEffect.REMOTE_READ
+    assert await etki("Kampanyalar") is ToolEffect.REMOTE_INTERACT
+    assert await etki("Yorumları görüntüle") is ToolEffect.REMOTE_INTERACT
     assert await etki("Paylaş") is None
     assert await etki("Gönder") is None
     assert await etki("Delete campaign") is None
@@ -92,7 +120,7 @@ async def test_gonderi_karti_ve_baglanti_sorulmaz_eylem_dugmesi_sorulur():
         baglam = SimpleNamespace(chrome=_AdVerenKopru(ad, link=link))
         return await chrome.chrome_click_effect({"ref": "e1"}, baglam)
 
-    assert await etki("1.234 beğenme, 12 yorum") is ToolEffect.REMOTE_READ
+    assert await etki("1.234 beğenme, 12 yorum") is ToolEffect.REMOTE_INTERACT
     assert await etki("Beğen") is None
     assert await etki("Beğeni ekle ve paylaş", link=True) is ToolEffect.REMOTE_READ
     assert await etki("Kampanyayı sil", link=True) is ToolEffect.REMOTE_READ
@@ -173,7 +201,7 @@ async def test_koordinata_tiklama_retina_olcegini_cevirir_ve_riskliyse_sorulur()
     # Görüntü 2880 px, sayfa 1440 CSS px: (400, 300) → (200, 150).
     assert (
         await chrome.chrome_action_effect({"action": "click_at", "value": "400,300"}, baglam)
-        is ToolEffect.REMOTE_READ
+        is ToolEffect.REMOTE_INTERACT
     )
     assert (await chrome.chrome_action({"action": "click_at", "value": "400, 300"}, baglam)).ok
     assert ("describe_at", {"x": 200.0, "y": 150.0}) in kopru.cagrilar

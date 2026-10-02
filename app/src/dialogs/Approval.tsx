@@ -126,6 +126,7 @@ export function Approval({ soru, onCevap, eyebrow, serbestCevap = true }: Approv
         <h2 className="prompt-card__title" id="prompt-card-title">{baslik}</h2>
         {!soruMu && soru.hedef && !soru.diff && <pre className="prompt-card__target">{soru.hedef}</pre>}
         {soru.tehlike && <p className="prompt-card__danger">Dikkat: {soru.tehlike}</p>}
+        {!soru.tehlike && soru.neden && <p className="prompt-card__reason">{soru.neden}</p>}
         {soru.diff && (
           <div className="prompt-card__diff">
             {/* Karar argümandan değil SONUCUNDAN verilir: ne değişecek, burada. */}

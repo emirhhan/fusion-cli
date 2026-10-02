@@ -34,7 +34,13 @@ export type SessionAction =
   | { type: "questionChanged"; id: string; question: { id: string; data: Soru } | null }
   /** Soru başka yerden (Chrome yan paneli) cevaplandı; yalnız aynı kartsa kapanır. */
   | { type: "questionClosed"; id: string; questionId: string }
-  | { type: "contextMeasured"; id: string; baglam: BaglamOlcusu | null; maliyetUsd: number | null }
+  | {
+      type: "contextMeasured";
+      id: string;
+      baglam: BaglamOlcusu | null;
+      maliyetUsd: number | null;
+      depoProjeleri: string[];
+    }
   | { type: "statusChanged"; id: string; status: SessionStatus; error?: string | null }
   | { type: "crashed"; id: string; reason: string }
   | { type: "cleared"; id: string }
@@ -69,6 +75,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         question: null,
         baglam: null,
         maliyetUsd: null,
+        depoProjeleri: [],
       };
       return {
         ...state,
@@ -125,6 +132,7 @@ export function sessionReducer(state: SessionState, action: SessionAction): Sess
         ...session,
         baglam: action.baglam,
         maliyetUsd: action.maliyetUsd,
+        depoProjeleri: action.depoProjeleri,
       }));
     case "statusChanged":
       return updateSession(state, action.id, (session) => ({

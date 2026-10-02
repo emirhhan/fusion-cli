@@ -8,6 +8,7 @@ oradaki onay + tehlike kontrolüne tabi olur.
 
 from __future__ import annotations
 
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -21,18 +22,17 @@ from ..core.constants import (
 from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
-from .safe_delete import (
-    DeleteRefusedError,
-    is_complex_recursive_delete,
-    move_to_trash,
-    simple_rm_targets,
-)
+from .files import invented_path_reason
+from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 
 __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
 
 def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     command = require_str(args, "command")
+    uydurma = _invented_path(command, context.root)
+    if uydurma is not None:
+        return ToolResult.failure(uydurma)
     deleted = _guarded_delete(command, context)
     if deleted is not None:
         return deleted
@@ -57,20 +57,35 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     return ToolResult(text, ok=process.returncode == 0)
 
 
-def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
-    """Silme komutunu geri alınabilir hâle getir ya da reddet (bkz. `safe_delete`).
+#: Argümanında çoğu kez desen/URL yolu taşıyan komutlar; yol denetimi yapılmaz.
+_PATTERN_COMMANDS = frozenset({"grep", "rg", "sed", "awk", "echo", "printf", "curl", "wget", "git"})
 
-    Onay akışından SONRA, çalıştırma anında uygulanır: kullanıcı "evet" demiş olsa
-    bile korumalı yer silinmez ve hiçbir klasör kalıcı olarak gitmez.
+
+def _invented_path(command: str, root: Path) -> str | None:
+    """Komuttaki mutlak yollardan biri var olmayan bir kökteyse gerekçe."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if not tokens or tokens[0].rsplit("/", 1)[-1] in _PATTERN_COMMANDS:
+        return None
+    for token in tokens:
+        reason = invented_path_reason(token, root)
+        if reason is not None:
+            return reason
+    return None
+
+
+def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
+    """Sade `rm` komutunu kalıcı silme yerine Fusion çöpüne taşı (bkz. `safe_delete`).
+
+    Onay akışından SONRA, çalıştırma anında uygulanır. Sade olmayan silme
+    (`find -delete`, boru, betik) REDDEDİLMEZ: onay kartı onun KALICI olduğunu
+    söyler ve kullanıcı onaylarsa olduğu gibi çalışır — kullanıcı silmek istediğini
+    silebilmeli.
     """
     targets = simple_rm_targets(command)
     if targets is None:
-        if is_complex_recursive_delete(command):
-            return ToolResult.failure(
-                "SİLME REDDEDİLDİ: özyinelemeli silme yalnız sade biçimde çalışır "
-                "(`rm -r <tam yol>`), böylece geri alınabilir çöpe taşınır. Boru, &&, "
-                "joker (*), find -delete, xargs rm ve git clean ile silme yapılmaz."
-            )
         return None
     try:
         moved, missing = move_to_trash(

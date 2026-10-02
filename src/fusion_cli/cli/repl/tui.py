@@ -72,7 +72,13 @@ _WHEEL_AS_ARROWS_OFF = "\x1b[?1007l\x1b[?1l"
 _CHROME_ROWS = 6
 
 #: Onay modunun durum satırındaki rengi — riskli mod göze çarpsın.
-_MODE_COLORS = {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}
+_MODE_COLORS = {
+    "auto": theme.OK,
+    "edits": theme.OK,
+    "plan": theme.WARN,
+    "security": theme.ERROR,
+    "bypass": theme.ERROR,
+}
 
 
 def format_status(mode: str, engine: str) -> str:

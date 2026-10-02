@@ -16,7 +16,7 @@ from ...config.permissions import load_allowed_commands
 from ...core.changeset import ChangeSet
 from ...core.health import HealthRegistry
 from ...core.types import FusionResult, Message
-from ...engines.agent.approval import ApprovalMemory, ApprovalMode
+from ...engines.agent.approval import ApprovalMemory, ApprovalMode, next_mode
 from ...memory.factory import Memory
 from ...observability.cost import CostTracker
 from ...tools.capabilities import CapabilityRegistry
@@ -137,8 +137,7 @@ class ReplState:
 
     def cycle_approval(self) -> ApprovalMode:
         """Onay modunu sırayla döndür (shift-tab davranışı)."""
-        modes = tuple(ApprovalMode)
-        self.approval = modes[(modes.index(self.approval) + 1) % len(modes)]
+        self.approval = next_mode(self.approval)
         return self.approval
 
     def reset_history(self) -> int:

@@ -1,14 +1,19 @@
 """Onay politikaları — "bu değişikliğe izin var mı?" sorusunun tek cevap yeri.
 
-Üç mod tek bir protokolün arkasındadır; motor hangi modda olduğunu bilmez, yalnızca
-`decide` çağırır. Yeni bir mod eklemek yeni bir sınıf yazmaktır.
+Beş kip tek bir protokolün arkasındadır (Claude'un izin kipleriyle aynı adlar);
+motor hangi kipte olduğunu bilmez, yalnızca `decide` çağırır.
 
-    auto      değiştirici işlemlere otomatik evet — AMA yıkıcı komutta yine sorar
-    plan      hiçbir değişikliğe izin yok; yalnızca keşif ve plan
-    security  her değiştirici işlem tek tek sorulur
+    auto      Fusion karar verir: projede iş gören her şey sorulmadan yapılır;
+              yalnız riskli olan (proje dışı, sistem, yayın/push, uzak sunucu,
+              dikkat gerektiren silme, uzak sistemde değişiklik) sorulur
+    edits     dosya düzenlemeleri ve tanınan güvenli komutlar sorulmaz; kalan sorulur
+    security  "Manuel": okuma dışındaki her işlem tek tek sorulur
+    plan      hiçbir değişikliğe izin yok; yalnız okuma, keşif ve plan
+    bypass    hiçbir şey sorulmaz (silinen yine Fusion çöpüne gider)
 
-`auto` modunun yıkıcı komutlarda bile sorması bilinçlidir: otomatik onay hız içindir,
-geri alınamaz bir işlemi sessizce yapmak için değil.
+Yıkıcı komut (`danger`) auto, edits ve security kiplerinde DAİMA sorulur ve oturum
+iznine dönüşmez: otomatik onay hız içindir, geri alınamaz bir işlemi sessizce
+yapmak için değil. Sade `rm` yıkıcı sayılmaz — çöpe gider ve geri alınır.
 """
 
 from __future__ import annotations
@@ -20,8 +25,11 @@ from typing import Protocol
 
 from ...config.permissions import is_allowed
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolEffect, ToolFamily, tool_family
+from ...tools.auto_policy import auto_risk, is_read_only_command
 from ...tools.command_policy import is_unattended_safe
-from ...tools.safety import danger_reason
+from ...tools.delete_preview import delete_caution, describe_delete, script_danger
+from ...tools.safe_delete import simple_rm_targets
+from ...tools.safety import TRASHABLE_DELETE_REASONS, danger_reason
 
 #: Uzak sistemde geri alınamaz değişiklik yapabilen aracın onay gerekçesi.
 REMOTE_DESTRUCTIVE_REASON = (
@@ -29,16 +37,58 @@ REMOTE_DESTRUCTIVE_REASON = (
     "(silme, yayınlama veya harcama). Her çağrıda ayrıca onay istenir."
 )
 
-#: Gözetimsiz (auto kipte sormadan) çalışabilecek etki sınıfları.
-_UNATTENDED_EFFECTS = frozenset({ToolEffect.LOCAL, ToolEffect.REMOTE_READ})
+#: Uzak sistemde değişiklik yapan aracın otomatik kipte sorulma gerekçesi.
+REMOTE_WRITE_REASON = "uzak sistemde değişiklik yapıyor"
+
+#: Gözetimsiz ("Düzenlemeleri kabul et" kipinde sormadan) çalışabilecek etki sınıfları.
+_UNATTENDED_EFFECTS = frozenset(
+    {ToolEffect.LOCAL, ToolEffect.REMOTE_READ, ToolEffect.REMOTE_INTERACT}
+)
 
 
 class ApprovalMode(Enum):
-    """Kullanıcının seçtiği onay politikası."""
+    """Kullanıcının seçtiği onay politikası (Claude'un izin kipleri)."""
 
     AUTO = "auto"
-    PLAN = "plan"
+    ACCEPT_EDITS = "edits"
     SECURITY = "security"
+    PLAN = "plan"
+    BYPASS = "bypass"
+
+
+#: Shift+Tab döngüsü (Claude'daki sıra). "İzinleri atla" BİLEREK yok: tek tuşla
+#: yanlışlıkla açılmamalı; `/bypass` ile açıkça seçilir.
+CYCLE_MODES = (
+    ApprovalMode.AUTO,
+    ApprovalMode.SECURITY,
+    ApprovalMode.ACCEPT_EDITS,
+    ApprovalMode.PLAN,
+)
+
+
+def next_mode(mode: ApprovalMode) -> ApprovalMode:
+    """Döngüdeki sıradaki kip; döngü dışındaki kipten (bypass) Otomatik'e dönülür."""
+    if mode not in CYCLE_MODES:
+        return ApprovalMode.AUTO
+    return CYCLE_MODES[(CYCLE_MODES.index(mode) + 1) % len(CYCLE_MODES)]
+
+
+#: Kipin elle yazılabilen öteki adları (Claude'daki adlar dahil).
+_MODE_ALIASES = {
+    "manual": ApprovalMode.SECURITY,
+    "manuel": ApprovalMode.SECURITY,
+    "default": ApprovalMode.SECURITY,
+    "accept-edits": ApprovalMode.ACCEPT_EDITS,
+    "acceptedits": ApprovalMode.ACCEPT_EDITS,
+    "bypass-permissions": ApprovalMode.BYPASS,
+    "bypasspermissions": ApprovalMode.BYPASS,
+}
+
+
+def parse_mode(raw: str) -> ApprovalMode:
+    """Kip adını çöz; bilinmiyorsa `ValueError`."""
+    value = raw.strip().lower()
+    return _MODE_ALIASES.get(value) or ApprovalMode(value)
 
 
 class Decision(Enum):
@@ -85,6 +135,12 @@ class ApprovalRequest:
     unattended_safe: bool = True
     #: Bu ÇAĞRININ etkisi (araç ağ geçidiyse yeteneğe göre çözülmüş olabilir).
     effect: ToolEffect = ToolEffect.LOCAL
+    #: Otomatik kipte neden sorulduğu; None ise otomatik kip sormaz (`auto_policy`).
+    risk: str | None = None
+    #: Çağrı YALNIZ okuyor mu? Manuel kip sormaz, plan kipi izin verir.
+    read_only: bool = False
+    #: Onay kartında gösterilecek ek bilgi (silme hedefi, sorulma nedeni).
+    note: str | None = None
 
 
 class Prompter(Protocol):
@@ -123,57 +179,79 @@ class ApprovalMemory:
             self._scopes.add(_scope(request))
 
 
-class AutoApproval:
-    """Değiştirici işlemlere otomatik evet; yıkıcı ve TANINMAYAN komutlarda sorar.
+class _AskingApproval:
+    """Kipin serbest bıraktığını sormadan geçirir, kalanı sorar ve hatırlar.
 
-    Karar eskiden yalnızca `danger`'a bakıyordu: tehlike kalıbına uymayan her kabuk
-    komutu sessizce çalışıyordu. Kalıp listesi ne kadar uzasa da `node -e`, hazır
-    bir script ya da `>` ile dosya sıfırlama gibi yollar dışarıda kalıyordu.
-    Artık kabuk için soru terstir — tanımadığımız komut sorulur (`command_policy`).
+    Yıkıcı (`danger`) çağrı hiçbir kipte serbest değildir; kullanıcının izin
+    listesindeki komut (`pre_allowed`) her soran kipte serbesttir.
     """
 
     def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
         self._prompter = prompter
         self._memory = memory if memory is not None else ApprovalMemory()
 
+    def _allows(self, request: ApprovalRequest) -> bool:
+        raise NotImplementedError
+
     async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.danger is None and request.unattended_safe:
+        if request.danger is None and (request.pre_allowed or self._allows(request)):
             return Decision.ALLOW
         if self._memory.is_remembered(request):
             return Decision.ALLOW
         return await _ask_and_remember(self._prompter, request, self._memory)
 
 
-class SecurityApproval:
-    """Her değiştirici işlemi tek tek sorar.
+class AutoApproval(_AskingApproval):
+    """Otomatik: Fusion karar verir, yalnız RİSKLİ olanı sorar (`auto_policy`).
+
+    Eskiden beyaz listeye bakıyordu ve `php -l`, `lsof`, `unzip` gibi sıradan
+    komutlarda bile soruyordu; kullanıcı (2 Ekim) "gereksiz yerlerde soru
+    soruyor, sormasın" dedi. Beyaz liste artık "Düzenlemeleri kabul et" kipidir.
+    """
+
+    def _allows(self, request: ApprovalRequest) -> bool:
+        return request.risk is None
+
+
+class AcceptEditsApproval(_AskingApproval):
+    """Düzenlemeleri kabul et: dosya düzenlemeleri ve tanınan güvenli komutlar serbest."""
+
+    def _allows(self, request: ApprovalRequest) -> bool:
+        return request.unattended_safe
+
+
+class SecurityApproval(_AskingApproval):
+    """Manuel: okuma dışındaki her işlem tek tek sorulur.
 
     İstisna: kullanıcının kendi izin listesine yazdığı komutlar sorulmaz — kullanıcı
     o kararı zaten vermiştir. Yıkıcı komutlar bu istisnadan yararlanamaz.
     """
 
-    def __init__(self, prompter: Prompter, memory: ApprovalMemory | None = None) -> None:
-        self._prompter = prompter
-        self._memory = memory if memory is not None else ApprovalMemory()
-
-    async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.pre_allowed and request.danger is None:
-            return Decision.ALLOW
-        if self._memory.is_remembered(request):
-            return Decision.ALLOW
-        return await _ask_and_remember(self._prompter, request, self._memory)
+    def _allows(self, request: ApprovalRequest) -> bool:
+        return request.read_only
 
 
 class PlanApproval:
     """Plan modu: hiçbir değişikliğe izin verilmez, kullanıcıya da sorulmaz.
 
-    İstisna: uzak sistemi YALNIZ OKUYAN çağrı (ör. mağazada ürün aramak). Claude'un
-    plan kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır.
+    Okumaya izin verilir — `ls`, `grep`, `git log` gibi salt okuyan kabuk komutu ve
+    uzak sistemi YALNIZ okuyan çağrı (ör. mağazada ürün aramak). Claude'un plan
+    kipi de okumaya izin verir; plan gerçek veriye dayanmalıdır. Eskiden kabuk
+    tamamen kapalıydı ve model plan için `git log` bile çalıştıramıyordu.
     """
 
     async def decide(self, request: ApprovalRequest) -> Decision:
-        if request.effect is ToolEffect.REMOTE_READ and request.danger is None:
+        if request.read_only and request.danger is None:
             return Decision.ALLOW
         return Decision.BLOCKED
+
+
+class BypassApproval:
+    """İzinleri atla: hiçbir şey sorulmaz. Sade `rm` yine çöpe gider (`shell`)."""
+
+    async def decide(self, request: ApprovalRequest) -> Decision:
+        del request
+        return Decision.ALLOW
 
 
 def build_policy(
@@ -186,8 +264,12 @@ def build_policy(
     """
     if mode is ApprovalMode.PLAN:
         return PlanApproval()
+    if mode is ApprovalMode.BYPASS:
+        return BypassApproval()
     if mode is ApprovalMode.SECURITY:
         return SecurityApproval(prompter, memory)
+    if mode is ApprovalMode.ACCEPT_EDITS:
+        return AcceptEditsApproval(prompter, memory)
     return AutoApproval(prompter, memory)
 
 
@@ -215,32 +297,68 @@ def build_request(
     effect: ToolEffect | None = None,
     root: Path | None = None,
 ) -> ApprovalRequest:
-    """Onay isteğini kur; yıkıcılık tespiti ve izin listesi kontrolü burada yapılır.
+    """Onay isteğini kur; yıkıcılık, risk ve izin listesi kontrolü burada yapılır.
 
-    Uzak araçlar kabuk komutu gibi ele alınır: auto kip TANIMADIĞI şeyi sormadan
-    yapmaz. Eskiden kabuk dışındaki her araç `unattended_safe=True` sayılıyordu;
-    bir reklam MCP'sinin bütçe değiştiren aracı auto kipte kullanıcı görmeden
-    çalışabiliyordu.
+    Uzak araçlar kabuk komutu gibi ele alınır: bir reklam MCP'sinin bütçe değiştiren
+    aracı (REMOTE_WRITE) otomatik kipte sorulur; okuyan ve sayfayla etkileşen araç
+    sorulmaz.
     """
     command = args.get("command")
     # Sınıflandırma TEK KAYNAKTAN (`core.tools.tool_family`) okunur: birebir ad
     # karşılaştırması `bash`/`shell`/`execute_command` takma adıyla çağrılan bir
     # kabuk komutunu kaçırır ve onun güvenlik/izin-listesi denetimini atlardı.
-    kabuk = tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str)
-    pre_allowed = kabuk and is_allowed(str(command), allowed_commands)
     effect = effect or tool.effect
+    if tool_family(tool.name) is ToolFamily.SHELL and isinstance(command, str):
+        return _shell_request(tool, args, command, allowed_commands, effect, root)
     danger = danger_reason(tool.name, args)
     if danger is None and effect is ToolEffect.REMOTE_DESTRUCTIVE:
         danger = REMOTE_DESTRUCTIVE_REASON
+    risk = None if effect in _UNATTENDED_EFFECTS else REMOTE_WRITE_REASON
     return ApprovalRequest(
         tool=tool,
         args=args,
         danger=danger,
-        pre_allowed=pre_allowed,
-        unattended_safe=(
-            is_unattended_safe(str(command), root) if kabuk else effect in _UNATTENDED_EFFECTS
-        ),
+        unattended_safe=effect in _UNATTENDED_EFFECTS,
         effect=effect,
+        risk=risk,
+        read_only=effect is ToolEffect.REMOTE_READ,
+        note=risk,
+    )
+
+
+def _shell_request(
+    tool: Tool,
+    args: ToolArgs,
+    command: str,
+    allowed_commands: frozenset[str],
+    effect: ToolEffect,
+    root: Path | None,
+) -> ApprovalRequest:
+    """Kabuk komutunun onay isteği: kart komutu değil SONUCU göstermeli."""
+    danger = danger_reason(tool.name, args)
+    trashed = simple_rm_targets(command) is not None
+    if trashed and danger in TRASHABLE_DELETE_REASONS:
+        # Sade `rm` kalıcı silmez, Fusion çöpüne taşır (`shell._guarded_delete`).
+        danger = None
+    home = Path.home()
+    if danger is None and root is not None:
+        danger = script_danger(command, root, home)
+    caution = delete_caution(command, root, home) if root is not None else None
+    target = describe_delete(command, root, home) if root is not None else ""
+    risk = caution or auto_risk(command, root)
+    if danger is not None and target:
+        danger = f"{danger}. {target}"
+    note = ". ".join(part for part in (risk, target) if part) or None
+    return ApprovalRequest(
+        tool=tool,
+        args=args,
+        danger=danger,
+        pre_allowed=is_allowed(command, allowed_commands),
+        unattended_safe=(trashed and caution is None) or is_unattended_safe(command, root),
+        effect=effect,
+        risk=risk,
+        read_only=is_read_only_command(command),
+        note=note,
     )
 
 

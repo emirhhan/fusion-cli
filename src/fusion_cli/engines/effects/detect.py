@@ -258,6 +258,35 @@ _WORKSPACE_READ_PATTERNS = (
     r"\b(?:git status|git diff|git log)\b",
 )
 
+#: Ajanın GEÇMİŞ işi hakkında soru: "neyi sildin?", "silmiş olabilir misin?",
+#: "hangi dosyaları değiştirdin", "ne yaptın". Bunlar iş emri DEĞİLDİR.
+#
+# Ölçüldü (1 Ekim olayı): "hatalı bir şey silmiş olabilir misin?" içindeki "sil"
+# kökü yüzünden dosya değiştirme isteği sayıldı; öğretmen kurtarma planı verdi ve
+# ajan cevap yerine 11 dosyayı yeniden yazıp "tamamlandı ve doğrulandı" dedi.
+_PAST_SECOND_PERSON = r"\b[a-zçğıöşü]{2,}(?:d|t)(?:ı|i|u|ü)n(?:ız|iz|uz|üz)?\b"  # sildin, yaptınız
+_EVIDENTIAL_QUESTION = r"\b[a-zçğıöşü]{2,}m(?:ı|i|u|ü)ş\s+(?:olabilir\s+)?m(?:ı|i|u|ü)"
+_QUESTION_SIGNAL = (
+    r"\?|\bm(?:ı|i|u|ü)(?:s(?:ın|in|un|ün)(?:ız|iz|uz|üz)?)?\b|"
+    r"\b(?:ne|neyi|neleri|hangi|hangisini|nereye|nerede|neden|niye|nasıl|kaç)\b"
+)
+#: Cümlede emir varsa geçmiş zaman sorusu sayılmaz: "sildin, geri al".
+_IMPERATIVE = (
+    r"\b(?:geri al|düzelt|duzelt|sil|yap|ekle|kur|oluştur|olustur|yaz|değiştir|degistir|"
+    r"kaldır|kaldir|taşı|tasi|güncelle|guncelle|devam et|başlat|baslat|çalıştır|calistir|"
+    r"uygula|getir|indir|yükle|yukle|gönder|gonder)\b(?!\s*m[ıiuü])"
+)
+
+
+def is_history_question(text: str) -> bool:
+    """Mesaj ajanın geçmiş işini SORUYOR mu (iş istemiyor mu)?"""
+    lowered = " ".join(text.lower().split())
+    past = re.search(_PAST_SECOND_PERSON, lowered) or re.search(_EVIDENTIAL_QUESTION, lowered)
+    if past is None or re.search(_QUESTION_SIGNAL, lowered) is None:
+        return False
+    return re.search(_IMPERATIVE, lowered) is None
+
+
 _REPO_REFERENCE = re.compile(
     r"(?<![\w.-])(?P<owner>[A-Za-z0-9_.-]+)/(?P<repo>[A-Za-z0-9_.-]+?)(?:\.git)?(?=$|[\s,;:)'\"])",
     re.IGNORECASE,
@@ -336,6 +365,8 @@ def required_effect_for(task: str, kind: object | None = None) -> str | None:
     lowered = _ANSWER_FORMAT_PATTERN.sub(" ", lowered)
     if any(marker in f" {lowered}" for marker in _EXPLANATION_MARKERS):
         return None
+    if is_history_question(lowered):
+        return EffectKind.WORKSPACE_READ.value
     if _matches(lowered, _GIT_PUSH_PATTERNS):
         return EffectKind.GIT_PUSH.value
     if _matches(lowered, _GIT_COMMIT_PATTERNS):

@@ -46,6 +46,7 @@ from .javascript_verify import (
     find_node_executable,
 )
 from .next_route_verify import NextRouteVerifier
+from .php_verify import PhpVerifier, find_php_executable
 from .script_verify import ScriptPathVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
@@ -147,7 +148,14 @@ def build_verifier(
         javascript_checker = (
             NodeJavaScriptSyntaxChecker(node_path) if node_path is not None else None
         )
-        verifiers.append(WebVerifier(tool_context, javascript_checker=javascript_checker))
+        verifiers.append(
+            WebVerifier(
+                tool_context,
+                javascript_checker=javascript_checker,
+                # PHP ve WordPress teması da web çıktısıdır (bkz. `php_verify`).
+                php=PhpVerifier(tool_context, find_php_executable()),
+            )
+        )
     if config.runtime.browser_verification and tool_context is not None:
         # Playwright kurulu değilse bu kapı sessizce geçer; kendi içinde karar verir.
         verifiers.append(BrowserVerifier(tool_context))
@@ -209,11 +217,30 @@ class WebVerifier:
         tool_context: ToolContext,
         *,
         javascript_checker: JavaScriptSyntaxChecker | None = None,
+        php: PhpVerifier | None = None,
     ) -> None:
         self._context = tool_context
         self._javascript_checker = javascript_checker
+        self._php = php
 
     async def verify(self) -> VerificationResult:
+        markup = await self._verify_markup()
+        if self._php is None:
+            return markup
+        php = await self._php.verify()
+        if php.ok and not php.warnings and not php.evidence:
+            return markup
+        findings = (*markup.findings, *php.findings)
+        return VerificationResult(
+            ok=markup.ok and php.ok,
+            summary="; ".join(part for part in (markup.summary, php.summary) if part),
+            findings=findings,
+            warnings=(*markup.warnings, *php.warnings),
+            advisories=markup.advisories,
+            evidence=(*markup.evidence, *php.evidence),
+        )
+
+    async def _verify_markup(self) -> VerificationResult:
         files: dict[str, str] = {}
 
         for path in self._context.touched:

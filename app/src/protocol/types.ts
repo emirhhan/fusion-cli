@@ -32,6 +32,8 @@ export interface Soru {
   /** Komut, dosya yolu ya da adres — olduğu gibi gösterilir. */
   hedef?: string;
   tehlike?: string | null;
+  /** Neden soruluyor / silme hedefi — tehlike değil, bilgi. */
+  neden?: string | null;
   soru?: string;
   secenekler?: { deger?: string; etiket: string; aciklama?: string }[];
   onerilen?: string | null;

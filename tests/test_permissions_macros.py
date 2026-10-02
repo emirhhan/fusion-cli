@@ -113,7 +113,7 @@ async def test_izinli_olsa_bile_yikici_komut_sorulur():
     policy = build_policy(ApprovalMode.SECURITY, AlwaysReject())
 
     karar = await policy.decide(
-        build_request(tool, {"command": "rm -rf build"}, frozenset({"rm -rf build"}))
+        build_request(tool, {"command": "git reset --hard"}, frozenset({"git reset --hard"}))
     )
 
     assert karar is Decision.DENIED

@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ...engines.agent.approval import ApprovalMode
+from ...engines.agent.approval import ApprovalMode, next_mode
 from ...ui import messages, theme
 
 #: Yapıştırma bu satır ya da bu karakter sayısını aşarsa tek satırlık yer tutucuya
@@ -51,7 +51,13 @@ PROMPT_SYMBOL = "❯"
 STATUS_MARK = "⏵"
 
 #: Onay modunun durum çubuğundaki rengi — riskli mod göze çarpsın.
-_MODE_COLORS = {"auto": theme.OK, "plan": theme.WARN, "security": theme.ERROR}
+_MODE_COLORS = {
+    "auto": theme.OK,
+    "edits": theme.OK,
+    "plan": theme.WARN,
+    "security": theme.ERROR,
+    "bypass": theme.ERROR,
+}
 
 
 class ReplInput:
@@ -75,8 +81,7 @@ class ReplInput:
         return self._session is not None
 
     def cycle_mode(self) -> ApprovalMode:
-        modes = tuple(ApprovalMode)
-        self.mode = modes[(modes.index(self.mode) + 1) % len(modes)]
+        self.mode = next_mode(self.mode)
         return self.mode
 
     def toggle_fold(self) -> None:

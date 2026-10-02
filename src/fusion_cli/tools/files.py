@@ -41,6 +41,36 @@ from .args import (
 )
 from .diffing import bounded_diff
 
+#: Bir yolun "uydurma" sayılması için en az bileşen sayısı (`/mnt/data/x`). Tek
+#: bileşenli `/api` gibi metinler çoğu kez URL yolu ya da desendir, yol değil.
+_INVENTED_MIN_PARTS = 3
+
+
+def invented_path_reason(raw: str, root: Path) -> str | None:
+    """Mutlak yol bu bilgisayarda hiç var olmayan bir kökten mi geliyor?
+
+    Ölçüldü (30 Eylül): model web öğretmeninin sanal ortam yolunu
+    (`/Users/mnt/data/...`) kopyaladı; komut sessizce yanlış yere gitti. Var
+    olmayan kök (`/mnt`, `/workspace`) ya da var olmayan kullanıcı dizini
+    (`/Users/mnt`, `/home/user`) uydurmadır; dosya henüz yok diye değil.
+    """
+    if os.name != "posix" or not raw.startswith("/"):
+        return None
+    parts = Path(raw).parts
+    if len(parts) < _INVENTED_MIN_PARTS:
+        return None
+    top = Path("/", parts[1])
+    if not top.exists():
+        uydurma = str(top)
+    elif parts[1] in ("Users", "home") and not Path("/", parts[1], parts[2]).exists():
+        uydurma = str(Path("/", parts[1], parts[2]))
+    else:
+        return None
+    return (
+        f"Bu yol bu bilgisayarda YOK: {raw} ({uydurma} hiç yok; başka bir ortamın yolu "
+        f"gibi görünüyor). Proje kökü: {root}. Yolları köke göreli yaz."
+    )
+
 
 def resolve_path(context: ToolContext, raw: str) -> Path:
     """Kullanıcı/model yolunu çözümle: `~` açılır, göreli yol köke bağlanır.
@@ -50,6 +80,9 @@ def resolve_path(context: ToolContext, raw: str) -> Path:
     fırlatılır. Böylece `..` ile dışarı taşma ve köke sızdıran symlink engellenir.
     """
     path = Path(raw).expanduser()
+    uydurma = invented_path_reason(str(path), context.root)
+    if uydurma is not None:
+        raise PathAccessError(uydurma)
     resolved = path if path.is_absolute() else context.root / path
     if not context.restrict_to_root:
         return resolved

@@ -702,10 +702,18 @@ _COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand("agent", messages.CMD_AGENT, _use_agent, group="Motor"),
     SlashCommand("fusion", messages.CMD_FUSION, _use_fusion, group="Motor"),
     SlashCommand("auto", messages.CMD_AUTO, _set_mode(ApprovalMode.AUTO), group="Onay modu"),
-    SlashCommand("plan", messages.CMD_PLAN, _set_mode(ApprovalMode.PLAN), group="Onay modu"),
     SlashCommand(
-        "security", messages.CMD_SECURITY, _set_mode(ApprovalMode.SECURITY), group="Onay modu"
+        "edits", messages.CMD_EDITS, _set_mode(ApprovalMode.ACCEPT_EDITS), group="Onay modu"
     ),
+    SlashCommand(
+        "security",
+        messages.CMD_SECURITY,
+        _set_mode(ApprovalMode.SECURITY),
+        ("manual", "manuel"),
+        group="Onay modu",
+    ),
+    SlashCommand("plan", messages.CMD_PLAN, _set_mode(ApprovalMode.PLAN), group="Onay modu"),
+    SlashCommand("bypass", messages.CMD_BYPASS, _set_mode(ApprovalMode.BYPASS), group="Onay modu"),
     SlashCommand("reset", messages.CMD_RESET, _reset, group="Agent"),
     SlashCommand("compact", messages.CMD_COMPACT, lambda state, argument: "", group="Agent"),
     SlashCommand("type", messages.CMD_TASK_TYPE, _set_task_type, group="Fusion", usage="<tip>"),
