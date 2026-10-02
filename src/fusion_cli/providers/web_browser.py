@@ -39,6 +39,8 @@ from ..config.models import WebSessionConfig
 from ..config.paths import user_data_dir
 from ..core.constants import MIN_BROWSER_TURN_S
 from ..core.redaction import redact
+from ..core.refusal import looks_like_refusal
+from ..core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from ..core.types import Message, ToolCall
 from ..core.window_mode import WindowMode
 from .web_markdown import html_to_markdown
@@ -489,6 +491,34 @@ async def ensure_model_choice(page: Any, definition: BrowserProviderDefinition, 
     return choice
 
 
+async def switch_to_adjacent_model(
+    page: Any, definition: BrowserProviderDefinition, current: str
+) -> str:
+    """Menüde `current`'a KOMŞU modeli seç; adını döndür (seçilemediyse boş).
+
+    Önce bir alt sıradaki (menülerde daha hızlı/hafif olan), yoksa bir üst sıradaki
+    denenir. Menü sırası sağlayıcının kendi sırasıdır; ad uydurulmaz.
+    """
+    if await _model_menu(page, definition, wait_ms=12000) is None:
+        return ""
+    options = await _visible_model_options(page, definition)
+    wanted = _model_label(current).casefold()
+    index = next(
+        (i for i, (label, _) in enumerate(options) if _model_label(label).casefold() == wanted),
+        None,
+    )
+    neighbours = (
+        [] if index is None else [i for i in (index - 1, index + 1) if 0 <= i < len(options)]
+    )
+    if not neighbours:
+        with contextlib.suppress(Exception):
+            await page.keyboard.press("Escape")
+        return ""
+    label, item = options[neighbours[0]]
+    await item.click(timeout=5000)
+    return label
+
+
 async def discover_browser_models(
     session: WebSessionConfig, credential: WebSessionCredential | None = None
 ) -> tuple[str, ...]:
@@ -673,6 +703,9 @@ def format_browser_prompt(
     if continuation:
         govde = _format_continuation(messages, gecmis)
         return trim_to_prompt_budget(govde) if trim else govde
+    if not _offers_tools(messages):
+        govde = _format_plain(messages)
+        return trim_to_prompt_budget(govde) if trim else govde
     calls_by_id = {call.id: call for message in messages for call in message.tool_calls}
     rendered: list[str] = []
     for message in messages:
@@ -702,6 +735,36 @@ def format_browser_prompt(
     rendered.append(_task_reminder(messages))
     govde = "\n\n".join(part for part in rendered if part)
     return trim_to_prompt_budget(govde) if trim else govde
+
+
+def _offers_tools(messages: Sequence[Message]) -> bool:
+    """Bu konuşmada araç sunuluyor ya da kullanılmış mı?"""
+    return any(
+        message.role == "tool"
+        or message.tool_calls
+        or (message.role == "system" and TOOL_INSTRUCTIONS_LEAD in message.content)
+        for message in messages
+    )
+
+
+def _format_plain(messages: Sequence[Message]) -> str:
+    """Araçsız istek (öğretmen sorusu, hakem, ders çıkarımı): araç çerçevesi eklenmez.
+
+    Ölçüldü (2 Ekim 2026, Gemini web "Pro", 4 çağrı): araçsız tek bir soruya da
+    "yeni bir araç çağır… İLK iş todo_write ile plan yaz" talimatı ekleniyordu. Model
+    var olmayan aracı çağırmaya çalışıp 130-340 sn sonra kalıp ret verdi ("Ben bir dil
+    modeliyim ve isteğinizi gerçekleştirebilecek şekilde tasarlanmadım") — "WordPress
+    temasında zorunlu iki dosya hangileridir?" sorusuna bile. Öğretmen bu yüzden hiçbir
+    plan sorusunu cevaplayamıyordu.
+    """
+    if len(messages) == 1:
+        return _browser_message_content(messages[0])
+    labels = {"system": "SİSTEM", "assistant": "ASİSTAN"}
+    return "\n\n".join(
+        f"### {ROLE_PREFIX}{labels.get(message.role, 'KULLANICI')}\n"
+        f"{_browser_message_content(message)}"
+        for message in messages
+    )
 
 
 def _task_reminder(messages: Sequence[Message]) -> str:
@@ -1077,6 +1140,10 @@ class BrowserSessionPool:
         self._conversations: dict[tuple[str, str, str], ConversationState] = {}
         #: Hesap başına yeni-sohbet hız kovası (bkz. `ConversationPacer`).
         self._pacers: dict[tuple[str, str], ConversationPacer] = {}
+        #: (sağlayıcı, hesap, seçili model) → kalıp ret sonrası geçilen çalışan model.
+        self._model_fallbacks: dict[tuple[str, str, str], str] = {}
+        #: Süre sınırında cevap vermeyen (sağlayıcı, hesap, seçili model) üçlüleri.
+        self._timed_out_choices: set[tuple[str, str, str]] = set()
         self._guard = asyncio.Lock()
 
     def schedule_idle_release(self, provider: str, account: str) -> None:
@@ -1109,6 +1176,29 @@ class BrowserSessionPool:
 
     def lock_for(self, provider: str, account: str) -> asyncio.Lock:
         return self._locks.setdefault((provider, account), asyncio.Lock())
+
+    def model_choice(self, session: WebSessionConfig) -> str:
+        """Bu süreçte kullanılacak model: kalıp ret sonrası geçilen yedek ya da seçili olan."""
+        key = (session.provider, session.account, session.selected_model)
+        return self._model_fallbacks.get(key, session.selected_model)
+
+    def remember_model_choice(self, session: WebSessionConfig, choice: str) -> None:
+        key = (session.provider, session.account, session.selected_model)
+        self._model_fallbacks[key] = choice
+        self._timed_out_choices.discard(key)
+
+    def note_choice_timed_out(self, session: WebSessionConfig) -> None:
+        """Seçili model süre sınırında cevap vermedi; sıradaki denemede komşusu denenir."""
+        if session.selected_model:
+            self._timed_out_choices.add((session.provider, session.account, session.selected_model))
+
+    def choice_timed_out(self, session: WebSessionConfig) -> bool:
+        key = (session.provider, session.account, session.selected_model)
+        return key in self._timed_out_choices
+
+    def discard_page(self, page: Any) -> None:
+        """Sohbete dönüşmemiş sayfayı kapatılmak üzere sıraya al (bkz. `flush_closed`)."""
+        self._closing.append(page)
 
     def pacer_for(self, provider: str, account: str) -> ConversationPacer:
         """Hesabın yeni-sohbet hız kovası; ilk çağrıda dolu olarak kurulur."""
@@ -1367,6 +1457,8 @@ def build_browser_transport(
                     await manager.drop_conversation(
                         session.provider, session.account, conversation_digest(messages[:1])
                     )
+                    manager.note_choice_timed_out(session)
+                    await manager.flush_closed()
                     raise WebBrowserError(
                         f"{definition.name} yanıtı {limit:.0f} saniyede tamamlanmadı"
                     ) from error
@@ -1402,6 +1494,79 @@ async def _pace_new_conversation(
     return bekleme
 
 
+async def _apply_model_choice(
+    manager: BrowserSessionPool,
+    session: WebSessionConfig,
+    definition: BrowserProviderDefinition,
+    page: Any,
+) -> str:
+    """Mesajdan önce modeli seç; önceki deneme süre aşımına uğradıysa komşusuna geç.
+
+    Ölçüldü (2 Ekim 2026, Gemini web "3.1 Pro"): öğretmen plan sorusu 180 sn sınırını
+    üç denemede de aştı (546 sn) ve hiçbir cevap dönmedi; sayfada plan sonradan
+    oluşmuştu. Aynı modelle üç kez beklemek yerine ikinci deneme komşu modelle yapılır.
+    """
+    choice = manager.model_choice(session)
+    if choice and manager.choice_timed_out(session):
+        komsu = await switch_to_adjacent_model(page, definition, choice)
+        if komsu:
+            _logger.warning(
+                "web modeli sure sinirini asti: saglayici=%s hesap=%s secili=%s yedek=%s",
+                session.provider,
+                session.account,
+                choice,
+                komsu,
+            )
+            manager.remember_model_choice(session, komsu)
+            return komsu
+    await ensure_model_choice(page, definition, choice)
+    return choice
+
+
+async def _retry_with_adjacent_model(
+    manager: BrowserSessionPool,
+    session: WebSessionConfig,
+    definition: BrowserProviderDefinition,
+    page: Any,
+    prompt: str,
+    refusal: str,
+    choice: str,
+    limit_s: float,
+) -> tuple[str, str]:
+    """Seçili model kalıp ret verdiyse aynı sohbette komşu modelle bir kez yeniden sor.
+
+    Ölçüldü (2 Ekim 2026, Gemini web Plus hesabı, 6 çağrı): "3.1 Pro" seçiliyken
+    "WordPress temasında zorunlu iki dosya hangileridir?" dahil HER soruya 85-340 sn
+    sonra "Ben yalnızca bir dil modeliyim…" cevabı geldi; aynı soru "3.6 Flash" ile
+    25 sn'de doğru cevaplandı. Öğretmen bu yüzden hiçbir plan veremiyordu.
+
+    Geçiş bu süreç boyunca hatırlanır (`remember_model_choice`): her yeni sohbette aynı
+    reddi dakikalarca beklemek yerine doğrudan çalışan modele gidilir. Dönen kademe
+    üst katmana `served_by` olarak ulaşır; kullanıcı seçtiği modelden sapmayı görür.
+    """
+    try:
+        komsu = await switch_to_adjacent_model(page, definition, choice)
+        if not komsu:
+            return refusal, choice
+        _logger.warning(
+            "web modeli kalip ret verdi: saglayici=%s hesap=%s secili=%s yedek=%s",
+            session.provider,
+            session.account,
+            choice,
+            komsu,
+        )
+        answer = await _send_turn(page, definition, prompt, previous=refusal, limit_s=limit_s)
+    except WebBrowserError:
+        return refusal, choice
+    if looks_like_refusal(strip_role_headers(answer)):
+        # Komşu model de reddetti: ret gerçek olabilir; kullanıcının seçimine dön.
+        with contextlib.suppress(WebBrowserError):
+            await ensure_model_choice(page, definition, choice)
+        return answer, choice
+    manager.remember_model_choice(session, komsu)
+    return answer, komsu
+
+
 async def _deliver_turn(
     manager: BrowserSessionPool,
     session: WebSessionConfig,
@@ -1431,7 +1596,7 @@ async def _deliver_turn(
 
     if resumable and state is not None:
         await _raise_if_blocked_early(state.page, definition)
-        await ensure_model_choice(state.page, definition, session.selected_model)
+        choice = await _apply_model_choice(manager, session, definition, state.page)
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
         prompt = format_browser_prompt(
@@ -1449,26 +1614,34 @@ async def _deliver_turn(
             None, browser_profile_dir(session.provider, session.account)
         ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
-        await _open_ready_conversation(page, definition)
-        await ensure_model_choice(page, definition, session.selected_model)
-        prompt = format_browser_prompt(messages, trim=False)
-        answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
+        try:
+            await _open_ready_conversation(page, definition)
+            choice = await _apply_model_choice(manager, session, definition, page)
+            prompt = format_browser_prompt(messages, trim=False)
+            answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
+        except BaseException:
+            # Sohbet henüz havuza kaydedilmedi: sayfa burada bırakılmazsa açık kalır.
+            # Ölçüldü (2 Ekim 2026): süresi dolan iki tur, paylaşılan Chrome'da hâlâ
+            # cevap üreten iki sahipsiz Gemini sekmesi bıraktı.
+            manager.discard_page(page)
+            raise
+
+    if choice and looks_like_refusal(strip_role_headers(answer)):
+        answer, choice = await _retry_with_adjacent_model(
+            manager, session, definition, state.page, prompt, answer, choice, limit_s
+        )
 
     # Çerçeve, cevaba sızmadan burada kesilir: aşağıdaki katmanların hiçbiri
     # taşıma biçimini tanımak zorunda değildir.
     answer = strip_role_headers(answer)
 
     kademe = await observed_tier(state.page, definition)
-    if (
-        session.selected_model
-        and kademe
-        and not _model_choice_matches_observed(session.selected_model, kademe)
-    ):
+    if choice and kademe and not _model_choice_matches_observed(choice, kademe):
         raise WebBrowserError(
             f"{definition.name} seçili modelden farklı bir kademeye geçti: {kademe}"
         )
-    if not kademe and session.selected_model:
-        kademe = session.selected_model
+    if not kademe and choice:
+        kademe = choice
     if kademe and kademe != state.tier:
         # Kademe DEĞİŞTİĞİNDE yazılır: her tur aynı satırı basmak günlüğü doldurur,
         # oysa bilgi olan şey değişimin kendisidir (oturum düştü, kullanıcı kip

@@ -59,6 +59,24 @@ class TeacherBrief:
     truncated: bool
 
 
+#: İş BAŞLAMADAN istenen plan için çerçeve. Ölçüldü (2 Ekim 2026, kabul koşuları):
+#: plan sorusu da "kök neden / adımlar / kod parçası / doğrulama" biçimini dayatan
+#: `TEACHER_FRAME` ile gidiyordu; öğretmen JSON yerine düzyazı yazdı, plan ayrıştırılamadı.
+#: Ayrıca çırağın araçlarını bilmediği için "Docker ile WordPress + MySQL kur" planladı —
+#: oysa `start_preview` aynı işi tek çağrıda yapıyordu.
+PLAN_FRAME = (
+    "## Rolün\n"
+    "Sen kıdemli bir yazılım mühendisisin. Bir kodlama ajanı (çırak) kullanıcının "
+    "görevine başlamadan önce senden uygulama planı istiyor. Dosyalara erişimin yok; "
+    "yalnız aşağıdaki görevi, proje özetini ve çırağın araç listesini görüyorsun.\n\n"
+    "## Cevap biçimi\n"
+    "YALNIZ tek bir JSON nesnesi döndür; önüne ya da arkasına açıklama yazma. Adımlar "
+    "sıralı, somut ve çırağın ARAÇLARIYLA uygulanabilir olsun: bir işi yapan hazır araç "
+    "varsa adımı o araçla yaz ve aracın zaten yaptığı kurulumu elle planlama. "
+    "Kullanıcının dilinde yaz."
+)
+
+
 def compile_brief(
     *,
     durum: str,
@@ -67,6 +85,7 @@ def compile_brief(
     touched_paths: Iterable[str] = (),
     code_excerpts: Iterable[tuple[str, str]] = (),
     char_budget: int = BRIEF_CHAR_BUDGET,
+    frame: str = TEACHER_FRAME,
 ) -> TeacherBrief:
     """Durum + ilgili kod + denenenler + soruyu tek bir brief'te birleştir.
 
@@ -84,7 +103,7 @@ def compile_brief(
         ("## Denenenler", denenenler.strip()),
         ("## Soru", question.strip()),
     ]
-    parcalar = [TEACHER_FRAME] + [f"{baslik}\n{govde}" for baslik, govde in bolumler if govde]
+    parcalar = [frame] + [f"{baslik}\n{govde}" for baslik, govde in bolumler if govde]
     brief = "\n\n".join(parcalar)
     if len(brief) <= char_budget:
         return TeacherBrief(text=brief, truncated=False)

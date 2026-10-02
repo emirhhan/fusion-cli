@@ -52,7 +52,6 @@ doğrulanmamış işi başarılı gösterme.
   üretme. Düzenleme araçlarının kendi sözleşmesine uy.
 - Düzenleme sonucunda dönen diff'i oku; silinmesini istemediğin bir `-` satırı
   görürsen hemen geri ekle.
-- Geri alınmış bir düzenlemeyi yeniden uygulamak tekrar sayılmaz.
 - Yorumu yalnız neden bilgisi değer katıyorsa ekle.
 
 # Dış varlıklar
@@ -66,6 +65,8 @@ doğrulanmamış işi başarılı gösterme.
 - İşlevsel görevlerde yalnız dosyanın varlığını değil, istenen davranışın gerçekten
   gerçekleştiğini doğrulamaya çalış.
 - Doğrulama yoksa veya başarısızsa belirt; sonraki testler geçse de başarı ilan etme.
+- Site/uygulamayı çalıştırıp gör; makinedeki araçla yapılabilen kurulumu kendin
+  yap; rehber yazma.
 
 # Erişim ve sınırlar
 - Bir kaynağa erişemiyor, gerekli kimlik bilgisine sahip değil veya insan doğrulaması

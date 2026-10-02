@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 
 from fusion_cli.core.model_capability import ToolSupport
-from fusion_cli.core.tool_emulation import CALL_CLOSE, CALL_OPEN
+from fusion_cli.core.tool_emulation import CALL_CLOSE, CALL_OPEN, TOOL_INSTRUCTIONS_LEAD
 from fusion_cli.core.types import CompletionRequest, Message, TextChunk
 from fusion_cli.engines.agent import reflexion
 from fusion_cli.engines.agent.classify import TaskKind, classify_task
@@ -190,7 +190,9 @@ def test_rol_basligi_cevaba_tasinmaz():
 
 
 def test_prompt_uydurma_teslimi_yasaklar():
-    prompt = format_browser_prompt((Message("user", GERCEK_ISTEK),))
+    prompt = format_browser_prompt(
+        (Message("system", TOOL_INSTRUCTIONS_LEAD), Message("user", GERCEK_ISTEK))
+    )
 
     assert "YALNIZCA bu turda gerçekten çağırdığın araçlarla" in prompt
     assert "ask_user" in prompt

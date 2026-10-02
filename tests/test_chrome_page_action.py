@@ -191,3 +191,12 @@ def test_gorsel_varliklari_gercek_olculeriyle_toplanir(sayfa):
     assert "http://magaza.test/arka.png" in sonuc["backgrounds"]
     assert sonuc["og_image"] == "http://magaza.test/og.png"
     assert sonuc["palette"]["body"]["font"]
+
+
+def test_tasarim_olcumu_eklentinin_sayfa_kodunda_calisir(sayfa):
+    """`site_design` eklenti bağlıyken bu işlemi çağırır: ölçüm kodu pageAction içinde çalışmalı."""
+    sonuc = sayfa.islem("design")
+
+    assert sonuc["url"] == "http://magaza.test/" and sonuc["title"] == "Test"
+    assert {"fonts", "colors", "scale", "sections", "products", "images"} <= set(sonuc)
+    assert any(gorsel["src"].endswith("/urun.png") for gorsel in sonuc["images"])

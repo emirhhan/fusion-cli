@@ -281,6 +281,7 @@ function ProjectInspector({
   root,
   selectedPath,
   width,
+  requestedPreview = null,
 }: {
   activeTab: InspectorTabId;
   client: ProtocolClient;
@@ -296,6 +297,7 @@ function ProjectInspector({
   root: string;
   selectedPath: string | null;
   width: number;
+  requestedPreview?: { url: string; seq: number } | null;
 }) {
   const [revision, setRevision] = useState(0);
   const processes = useProcesses(client);
@@ -331,7 +333,9 @@ function ProjectInspector({
           </>
         ),
         terminal: <TerminalPanel cwd={root} />,
-        preview: <PreviewPanel client={client} selectedPath={selectedPath} />,
+        preview: (
+          <PreviewPanel client={client} requestedUrl={requestedPreview} selectedPath={selectedPath} />
+        ),
       }}
     />
   );
@@ -572,6 +576,8 @@ export function SessionUygulama({
   // Seçili dosya BURADA durur: hem çalışma panelindeki ağaç hem sohbetteki
   // kod kartı aynı seçimi değiştirir.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Ajanın çalıştırdığı site (`PreviewReady`): önizleme panelinde açılır.
+  const [requestedPreview, setRequestedPreview] = useState<{ url: string; seq: number } | null>(null);
   const showSteps = useShowSteps();
   // İzin modu arayüzde GERÇEK durumu göstermeli: eskiden "Agent · Otomatik"
   // sabit yazıyordu ve security'ye geçince bile değişmiyordu.
@@ -964,6 +970,27 @@ export function SessionUygulama({
     return () => void cikar.then((f) => f()).catch(() => undefined);
   }, [active]);
 
+  // Ajan siteyi çalıştırınca (`PreviewReady`) önizleme paneli KENDİLİĞİNDEN açılır;
+  // kullanıcı "nasıl önizlerim" diye sormak zorunda kalmamalı (ölçüldü, 2 Ekim).
+  const openPreview = useCallback((url: string) => {
+    setSelectedPath(null);
+    setRequestedPreview((current) => ({ url, seq: (current?.seq ?? 0) + 1 }));
+    inspectorLayout.setActiveTab("preview");
+    layout.openInspector();
+  }, [inspectorLayout, layout]);
+  const gorulenOnizleme = useRef("");
+  useEffect(() => {
+    if (!active) return;
+    const kartlar = active.messages.filter((message) => message.rol === "onizleme");
+    const son = kartlar[kartlar.length - 1];
+    const anahtar = son ? `${active.id}|${kartlar.length}|${son.metin}` : "";
+    if (!son || anahtar === gorulenOnizleme.current) return;
+    const ilkBakis = gorulenOnizleme.current === "";
+    gorulenOnizleme.current = anahtar;
+    // Sekme açılırken eski kart yüzünden panel zıplamasın; yalnız canlı turda aç.
+    if (!ilkBakis || active.running) openPreview(son.metin);
+  }, [active?.messages, active?.id, active?.running, openPreview]);
+
   // Açık onay konuşma penceresine de yayılır ve oradan gelen cevap aynı
   // `answer` yolundan geçer: iki ayrı onay mantığı olsaydı biri düzeltilirken
   // öteki eskirdi.
@@ -1178,6 +1205,7 @@ export function SessionUygulama({
       showSteps={showSteps}
       onOneriSec={(gorev) => send(gorev)}
       onHataBildir={(metin) => setFeedback({ tur: "hata", mesaj: "Bir görev hatayla bitti.", ayrinti: metin })}
+      onOpenPreview={openPreview}
       onOpenFile={(path) => {
         setSelectedPath(path);
         // Dosyanın İÇERİĞİNİ gösteren sekme önizlemedir; ağaç sekmesi yalnız
@@ -1561,6 +1589,7 @@ export function SessionUygulama({
           onSelectPath={setSelectedPath}
           onWidthChange={inspectorLayout.setWidth}
           placement={inspectorPlacement}
+          requestedPreview={requestedPreview}
           root={active.root}
           selectedPath={selectedPath}
           width={inspectorLayout.width}

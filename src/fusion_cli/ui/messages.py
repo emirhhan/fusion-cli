@@ -83,6 +83,7 @@ DIFF_SUMMARY = "{added} ekleme, {removed} silme"
 DIFF_TRUNCATED = "… (+{count} satır daha)"
 #: Araç sonucu kırpıldı. Kırpma SÖYLENİR; kullanıcı eksik baktığını bilmeli.
 RESULT_TRUNCATED = "… (+{count} satır daha)"
+AGENT_PREVIEW_READY = "önizleme çalışıyor → {url} (tarayıcıda aç)"
 AGENT_SUBAGENT_STARTED = "{title} devraldı: {task}"
 AGENT_SUBAGENT_FINISHED = "{title} bitti · {count} araç çağrısı"
 AGENT_COUNCIL = "council: çoklu modele danışılıyor…"

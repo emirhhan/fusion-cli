@@ -38,6 +38,9 @@ tamamlar, tekrar etmez.
 - Araç hata verdiyse hata metnini oku ve nedenine göre davran; aynı hatayı iki kez
   aldıysan yaklaşımı değiştir ya da öğretmene tek, somut bir soru sor.
 - Büyük dosyada yalnız gereken bölgeyi oku ve yalnız o bölgeyi düzenle.
+- Tek araç çağrısında uzun dosya yazma: ~150 satırı aşacak içeriği birden çok dosyaya
+  böl (ör. stilleri bileşen dosyalarına ayır) ya da önce iskeleti yazıp `edit_file` ile
+  bölüm bölüm ekle. Uzun tek çağrı süre sınırını aşar ve baştan yazılır.
 
 # Doğrulama
 - Her anlamlı değişiklikten sonra en yakın kontrolü çalıştır: ilgili test, tip denetimi,

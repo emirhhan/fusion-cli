@@ -372,6 +372,11 @@ def _compact_schema(parameters: object) -> object:
     return sade
 
 
+#: Taklit araç sözleşmesinin ilk satırı. Web taşıması, turda araç sunulup
+#: sunulmadığını bu satırın varlığından anlar (bkz. `web_browser.format_browser_prompt`).
+TOOL_INSTRUCTIONS_LEAD = "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan."
+
+
 def render_tool_instructions(
     schemas: Sequence[Mapping[str, object]], *, compact: bool = False
 ) -> str:
@@ -381,7 +386,7 @@ def render_tool_instructions(
     korunur çünkü modelin ARACI seçmesi için gereken bilgi odur.
     """
     lines = [
-        "Araç kullanacaksan yalnız aşağıdaki çağrı biçimlerini kullan.",
+        TOOL_INSTRUCTIONS_LEAD,
         "",
         "Kısa değer çağrısı:",
         render_call({"name": "read_file", "arguments": {"path": "src/app.py"}}),

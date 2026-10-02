@@ -90,3 +90,27 @@ async def test_denemeler_bitince_ham_istisna_yerine_turkce_aciklama(
     assert "hız sınırına takıldı" in sonuc.final_text
     assert "devam et" in sonuc.final_text
     assert sonuc.model_error == HIZ_SINIRI
+
+
+async def test_sure_sinirinda_bitmeyen_cagridan_sonra_modele_kisa_adim_notu_gider(
+    monkeypatch, tmp_path, sink, beklemeler
+):
+    """Ölçüldü (2 Ekim 2026, NIM Nemotron 3 Ultra): tema dosyası yazan çağrı 600 sn
+    sınırını iki kez aştı; aynı istek aynen yinelendiği için sonuç değişmedi."""
+    gorulen: list[list[str]] = []
+    cagri = {"n": 0}
+
+    async def _model(messages, deps, registry, allowed_tools, **_kwargs):
+        cagri["n"] += 1
+        gorulen.append([m.content for m in messages if m.harness_note])
+        if cagri["n"] == 1:
+            raise TimeoutError
+        return model_result("Tamamlandı: istenen iş yapıldı ve doğrulandı.")
+
+    monkeypatch.setattr(agent_loop, "_call_model", _model)
+
+    sonuc = await run_agent("görev", _deps(tmp_path, sink, runtime={"model_retry_attempts": 3}))
+
+    assert sonuc.ok and cagri["n"] == 2
+    assert agent_loop.SHORTER_AFTER_TIMEOUT_NOTE not in gorulen[0]
+    assert gorulen[1].count(agent_loop.SHORTER_AFTER_TIMEOUT_NOTE) == 1

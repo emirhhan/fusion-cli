@@ -48,6 +48,7 @@ from .javascript_verify import (
 from .next_route_verify import NextRouteVerifier
 from .php_verify import PhpVerifier, find_php_executable
 from .script_verify import ScriptPathVerifier
+from .site_verify import SiteVerifier
 from .verify_discovery import discover_auto_commands
 from .visual_verify import VisualVerifier
 from .web_verify import inspect_web_output_by_severity
@@ -148,12 +149,15 @@ def build_verifier(
         javascript_checker = (
             NodeJavaScriptSyntaxChecker(node_path) if node_path is not None else None
         )
+        php_path = find_php_executable()
         verifiers.append(
             WebVerifier(
                 tool_context,
                 javascript_checker=javascript_checker,
                 # PHP ve WordPress teması da web çıktısıdır (bkz. `php_verify`).
-                php=PhpVerifier(tool_context, find_php_executable()),
+                php=PhpVerifier(tool_context, php_path),
+                # Sözdizimi temiz ≠ site açılıyor: PHP/WordPress sitesi çalıştırılıp ölçülür.
+                site=SiteVerifier(tool_context, php_path),
             )
         )
     if config.runtime.browser_verification and tool_context is not None:
@@ -218,27 +222,30 @@ class WebVerifier:
         *,
         javascript_checker: JavaScriptSyntaxChecker | None = None,
         php: PhpVerifier | None = None,
+        site: SiteVerifier | None = None,
     ) -> None:
         self._context = tool_context
         self._javascript_checker = javascript_checker
         self._php = php
+        self._site = site
 
     async def verify(self) -> VerificationResult:
-        markup = await self._verify_markup()
-        if self._php is None:
-            return markup
-        php = await self._php.verify()
-        if php.ok and not php.warnings and not php.evidence:
-            return markup
-        findings = (*markup.findings, *php.findings)
-        return VerificationResult(
-            ok=markup.ok and php.ok,
-            summary="; ".join(part for part in (markup.summary, php.summary) if part),
-            findings=findings,
-            warnings=(*markup.warnings, *php.warnings),
-            advisories=markup.advisories,
-            evidence=(*markup.evidence, *php.evidence),
-        )
+        result = await self._verify_markup()
+        for part in (self._php, self._site):
+            if part is None:
+                continue
+            other = await part.verify()
+            if other.ok and not other.warnings and not other.evidence:
+                continue
+            result = VerificationResult(
+                ok=result.ok and other.ok,
+                summary="; ".join(text for text in (result.summary, other.summary) if text),
+                findings=(*result.findings, *other.findings),
+                warnings=(*result.warnings, *other.warnings),
+                advisories=(*result.advisories, *other.advisories),
+                evidence=(*result.evidence, *other.evidence),
+            )
+        return result
 
     async def _verify_markup(self) -> VerificationResult:
         files: dict[str, str] = {}

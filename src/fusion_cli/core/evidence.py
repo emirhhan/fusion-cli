@@ -30,6 +30,12 @@ class CriterionEvidence:
     artifact: str = ""
     command: str = ""
     output: str = ""
+    #: Kanıt işin ÇALIŞTIĞINI mı gösteriyor, yoksa yalnız biçimini mi (sözdizimi)?
+    #:
+    #: Ölçüldü (2 Ekim): `php -l` temiz geçince rapor "✓ Doğrulandı" diyordu; tema
+    #: zorunlu `index.php`'si olmadığı için WordPress'te hiç açılmıyordu. Sözdizimi
+    #: kanıtı tek başına "doğrulandı" saydırmaz.
+    behavioral: bool = True
 
 
 @dataclass(frozen=True, slots=True)

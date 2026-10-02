@@ -10,11 +10,13 @@ Bu dosya sahte bir Playwright yüzeyiyle çalışır: ağ yok, tarayıcı yok.
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 
 from fusion_cli.config.models import WebSessionConfig
+from fusion_cli.core.tool_emulation import TOOL_INSTRUCTIONS_LEAD
 from fusion_cli.core.types import Message, ToolCall
 from fusion_cli.providers import web_browser
 from fusion_cli.providers.web_browser import (
@@ -49,10 +51,13 @@ class _FakeContext:
     def __init__(self, log: list[tuple[str, str]]) -> None:
         self._log = log
         self.pages_created = 0
+        self.pages: list[_FakePage] = []
 
     async def new_page(self) -> _FakePage:
         self.pages_created += 1
-        return _FakePage(self._log)
+        page = _FakePage(self._log)
+        self.pages.append(page)
+        return page
 
 
 @pytest.fixture
@@ -446,10 +451,33 @@ def test_normal_markdown_basligi_korunur():
 
 
 def test_prompt_rol_basligini_tekrarlamamayi_soyler():
-    prompt = format_browser_prompt((Message("user", "görev"),))
+    prompt = format_browser_prompt(
+        (Message("system", TOOL_INSTRUCTIONS_LEAD), Message("user", "görev"))
+    )
 
     assert "FUSION//" in prompt
     assert "başlıkları" in prompt
+
+
+def test_aracsiz_tek_soru_arac_cercevesi_olmadan_gider():
+    """Ölçüldü (2 Ekim 2026, Gemini web "Pro"): öğretmen sorusuna "yeni bir araç çağır,
+    todo_write ile plan yaz" talimatı ekleniyordu; model kalıp ret veriyordu."""
+    soru = "WordPress temasında zorunlu iki dosya hangileridir?"
+
+    prompt = format_browser_prompt((Message("user", soru),))
+
+    assert prompt == soru
+
+
+def test_aracsiz_sistemli_istekte_arac_talimati_yok():
+    prompt = format_browser_prompt(
+        (Message("system", "Sen bir hakemsin."), Message("user", "Hangisi doğru?"))
+    )
+
+    assert "Sen bir hakemsin." in prompt
+    assert prompt.rstrip().endswith("Hangisi doğru?")
+    assert "todo_write" not in prompt
+    assert "araç çağır" not in prompt
 
 
 async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
@@ -475,7 +503,10 @@ async def test_transport_cevaptaki_rol_basligini_temizler(pool, monkeypatch):
 
 def test_gorev_promptun_sonunda_tekrarlanir():
     prompt = format_browser_prompt(
-        (Message("system", "uzun sistem promptu"), Message("user", "app/page.tsx'i düzenle"))
+        (
+            Message("system", f"uzun sistem promptu\n{TOOL_INSTRUCTIONS_LEAD}"),
+            Message("user", "app/page.tsx'i düzenle"),
+        )
     )
 
     assert prompt.rstrip().endswith("app/page.tsx'i düzenle")
@@ -527,3 +558,140 @@ def test_dosya_adi_satiri_yanlislikla_ayiklanmaz():
     cevap = "Değişen dosya:\napp/page.tsx"
 
     assert "app/page.tsx" in web_browser.strip_role_headers(cevap)
+
+
+# --- seçili model kalıp ret verirse komşu modele geçilir -------------------- #
+#
+# Ölçüldü (2 Ekim 2026, Gemini web Plus hesabı): "3.1 Pro" seçiliyken her soruya
+# 85-340 sn sonra "Ben yalnızca bir dil modeliyim…" geldi; "3.6 Flash" 25 sn'de
+# doğru cevapladı. Öğretmen hiçbir plan sorusunu cevaplayamıyordu.
+
+_RET = "Ben bir dil modeliyim ve isteğinizi gerçekleştirebilecek şekilde tasarlanmadım."
+
+
+def _secili(model: str) -> WebSessionConfig:
+    return WebSessionConfig(
+        model="gemini_web/main/auto",
+        provider="gemini_web",
+        account="main",
+        transport="browser",
+        tool_support="emulated",
+        selected_model=model,
+    )
+
+
+def _kalip_ret_ortami(monkeypatch, cevaplar: dict[str, str]) -> dict[str, list[str]]:
+    """Seçili modele göre cevap veren sahte sayfa; seçimleri ve gönderimleri kaydeder."""
+    kayit: dict[str, list[str]] = {"secim": [], "gonderim": []}
+    durum = {"model": ""}
+
+    async def _ensure(page, definition, choice):
+        durum["model"] = choice
+        kayit["secim"].append(choice)
+        return choice
+
+    async def _switch(page, definition, current):
+        komsu = "3.6 Flash" if current == "3.1 Pro" else ""
+        if komsu:
+            durum["model"] = komsu
+        return komsu
+
+    async def _send(page, definition, prompt, *, previous="", limit_s=180.0):
+        kayit["gonderim"].append(durum["model"])
+        return cevaplar[durum["model"]]
+
+    async def _tier(page, definition):
+        return durum["model"].split()[-1] if durum["model"] else ""
+
+    monkeypatch.setattr(web_browser, "ensure_model_choice", _ensure)
+    monkeypatch.setattr(web_browser, "switch_to_adjacent_model", _switch)
+    monkeypatch.setattr(web_browser, "_send_turn", _send)
+    monkeypatch.setattr(web_browser, "observed_tier", _tier)
+    return kayit
+
+
+async def test_secili_model_kalip_ret_verirse_komsu_modelle_yeniden_sorulur(pool, monkeypatch):
+    kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": _RET, "3.6 Flash": "index.php ve style.css"})
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    cevap = await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+
+    assert cevap.text == "index.php ve style.css"
+    assert cevap.tier == "Flash"
+    assert kayit["gonderim"] == ["3.1 Pro", "3.6 Flash"]
+
+
+async def test_kalip_ret_sonrasi_yeni_sohbet_dogrudan_calisan_modelle_acilir(pool, monkeypatch):
+    kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": _RET, "3.6 Flash": "cevap"})
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+    await transport(WebSessionCredential(), (Message("user", "ilk soru"),), "m")
+    kayit["gonderim"].clear()
+
+    await transport(WebSessionCredential(), (Message("user", "başka soru"),), "m")
+
+    # İkinci sohbet reddi yeniden beklemez: doğrudan çalışan modelle gönderilir.
+    assert kayit["gonderim"] == ["3.6 Flash"]
+
+
+async def test_komsu_model_de_reddederse_ret_oldugu_gibi_doner(pool, monkeypatch):
+    kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": _RET, "3.6 Flash": _RET})
+    transport = build_browser_transport(_secili("3.1 Pro"), pool=pool)
+
+    cevap = await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+
+    assert cevap.text == _RET
+    # Kullanıcının seçimine geri dönülür ve yedek HATIRLANMAZ.
+    assert kayit["secim"][-1] == "3.1 Pro"
+    assert pool.model_choice(_secili("3.1 Pro")) == "3.1 Pro"
+
+
+async def test_model_secilmemisse_kalip_ret_yeniden_sorulmaz(pool, monkeypatch):
+    kayit = _kalip_ret_ortami(monkeypatch, {"": _RET})
+    transport = build_browser_transport(_secili(""), pool=pool)
+
+    cevap = await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+
+    assert cevap.text == _RET
+    assert kayit["gonderim"] == [""]
+
+
+async def test_sure_asan_secili_modelden_sonraki_deneme_komsu_modelle_yapilir(pool, monkeypatch):
+    """Ölçüldü (2 Ekim 2026): "3.1 Pro" plan sorusunda 180 sn sınırını üç denemede de
+    aştı (546 sn); aynı modeli üç kez beklemek yerine ikinci deneme komşuyla yapılır."""
+    kayit = _kalip_ret_ortami(monkeypatch, {"3.1 Pro": "geç cevap", "3.6 Flash": "plan"})
+    asil_gonder = web_browser._send_turn
+
+    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0):
+        if kayit["secim"][-1:] == ["3.1 Pro"] and not kayit["gonderim"]:
+            kayit["gonderim"].append("3.1 Pro")
+            await asyncio.sleep(60)
+        return await asil_gonder(page, definition, prompt, previous=previous, limit_s=limit_s)
+
+    monkeypatch.setattr(web_browser, "_send_turn", _yavas)
+    monkeypatch.setattr(web_browser, "MIN_BROWSER_TURN_S", 0.05)
+    oturum = _secili("3.1 Pro")
+    transport = build_browser_transport(oturum, pool=pool, timeout_s=0.05)
+
+    with pytest.raises(web_browser.WebBrowserError, match="tamamlanmadı"):
+        await transport(WebSessionCredential(), (Message("user", "plan ver"),), "m")
+    cevap = await transport(WebSessionCredential(), (Message("user", "plan ver"),), "m")
+
+    assert cevap.text == "plan" and cevap.tier == "Flash"
+    assert pool.model_choice(oturum) == "3.6 Flash"
+
+
+async def test_sure_asan_yeni_sohbetin_sayfasi_acik_birakilmaz(pool, monkeypatch):
+    """Ölçüldü (2 Ekim 2026): süresi dolan iki tur, paylaşılan Chrome'da hâlâ cevap
+    üreten iki sahipsiz sekme bıraktı (sohbet havuza kaydedilmeden iptal ediliyordu)."""
+
+    async def _yavas(page, definition, prompt, *, previous="", limit_s=180.0):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(web_browser, "_send_turn", _yavas)
+    monkeypatch.setattr(web_browser, "MIN_BROWSER_TURN_S", 0.05)
+    transport = build_browser_transport(_session(), pool=pool, timeout_s=0.05)
+
+    with pytest.raises(web_browser.WebBrowserError, match="tamamlanmadı"):
+        await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
+
+    assert all(page.is_closed() for page in pool.fake_context.pages)  # type: ignore[attr-defined]

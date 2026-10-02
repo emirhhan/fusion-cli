@@ -160,6 +160,19 @@ class TurnReport:
             return None
         if any(item.status is not EvidenceStatus.PASSED for item in gate.evidence):
             return None
+        if not any(item.behavioral for item in gate.evidence):
+            # Yalnız sözdizimi denetlendi: iş ÇALIŞTIRILIP görülmedi.
+            return None
+        return "; ".join(item.summary for item in gate.evidence)
+
+    @property
+    def _static_only_evidence(self) -> str | None:
+        """Kapı geçti ama yalnız biçim denetledi (ör. `php -l`); özeti, yoksa None."""
+        gate = self.gate
+        if gate is None or not gate.ok or not gate.evidence:
+            return None
+        if any(item.behavioral for item in gate.evidence):
+            return None
         return "; ".join(item.summary for item in gate.evidence)
 
     @property
@@ -229,6 +242,12 @@ class TurnReport:
         kapi_kaniti = self._gate_passed_evidence
         if not evidence and kapi_kaniti:
             return f"✓ Doğrulandı: {kapi_kaniti}.\nDeğişen dosyalar: {dosyalar}"
+        bicim = self._static_only_evidence
+        if not evidence and bicim:
+            return (
+                f"ⓘ Yalnız sözdizimi denetlendi: {bicim}.\nDeğişen dosyalar: {dosyalar}\n"
+                "Site çalıştırılıp açılmadı; çalıştığı DOĞRULANMADI (start_preview ile görülür)."
+            )
         if not evidence:
             return (
                 f"ⓘ Değişen dosyalar: {dosyalar}\n"

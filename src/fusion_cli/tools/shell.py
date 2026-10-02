@@ -24,6 +24,7 @@ from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
 from .files import invented_path_reason
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
+from .wordpress_setup import php_env
 
 __all__ = ["READONLY_GIT_SUBCOMMANDS", "git", "run_shell"]
 
@@ -46,6 +47,7 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
             text=True,
             timeout=SHELL_TIMEOUT_S,
             cwd=context.root,
+            env=_shell_env(),
         )
     except subprocess.TimeoutExpired as timeout:
         return ToolResult.failure(_timeout_message(timeout))
@@ -104,6 +106,16 @@ def _guarded_delete(command: str, context: ToolContext) -> ToolResult | None:
     if missing:
         lines.append("Zaten yoktu: " + ", ".join(missing))
     return ToolResult("\n".join(lines))
+
+
+def _shell_env() -> dict[str, str]:
+    """Kabuk ortamı: Homebrew PATH'i ve çalışan bir WP-CLI.
+
+    Ölçüldü (2 Ekim, kabul koşusu): ajanın `wp core download` komutu PHP'nin 128 MB
+    sınırında çöktü ve model WordPress'i curl ile elle kurmaya saptı. Kullanıcı
+    kendi WP_CLI_PHP_ARGS'ını vermişse ona dokunulmaz.
+    """
+    return php_env()
 
 
 def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:

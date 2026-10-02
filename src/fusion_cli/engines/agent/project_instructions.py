@@ -26,6 +26,7 @@ import shutil
 from pathlib import Path
 
 from ...tools.safe_delete import is_container_root, project_folders
+from ...tools.wordpress_setup import tool_path
 
 #: Bilinen proje-talimat dosyası adları, öncelik sırasıyla. İlk bulunan kullanılır;
 #: birden fazlası varsa aynı bilgiyi iki kez göndermek gürültüdür.
@@ -200,6 +201,14 @@ def container_root_note(root: Path, home: Path) -> str:
     )
 
 
+#: ORTAM bloğunda varlığı ölçülen araçlar. Ölçüldü (2 Ekim): `wp`, `mysql`, `docker`
+#: kuruluyken listede yoktu; model kullanıcıya bunları kurmasını söyleyen rehber yazdı.
+_MEASURED_EXECUTABLES = (
+    "git", "python3", "node", "npm", "php", "wp", "composer", "mysql", "docker", "brew",
+    "godot",
+)  # fmt: skip
+
+
 def read_all_instructions(root: Path, home: Path | None) -> str:
     """Proje talimatı ve dış araç belleklerini birlikte döndür.
 
@@ -221,15 +230,17 @@ def read_all_instructions(root: Path, home: Path | None) -> str:
                 "arch": platform.machine(),
                 "executables": {
                     name: path
-                    for name in ("git", "python3", "node", "npm", "php", "godot")
-                    if (path := shutil.which(name))
+                    for name in _MEASURED_EXECUTABLES
+                    if (path := shutil.which(name, path=tool_path()))
                 },
             },
             ensure_ascii=False,
         )
         + "\nDosya yollarını bu çalışma köküne göreli yaz; başka bir kök veya işletim "
         "sistemi varsayma. Listelenen çalıştırılabilir dosyalar PATH üzerinde bulundu; "
-        "sürümleri henüz doğrulanmadı. Yeni kurulumdan önce mevcut aracı denetle."
+        "sürümleri henüz doğrulanmadı. Yeni kurulumdan önce mevcut aracı denetle. "
+        "Bu araçlarla yapılabilen kurulumu KENDİN yap; kullanıcıya komut listesi verme. "
+        "Kullanıcı sonucu görmek/önizlemek/çalıştırmak isterse start_preview çağır."
     )
     depo = container_root_note(root, home or Path.home())
     if depo:

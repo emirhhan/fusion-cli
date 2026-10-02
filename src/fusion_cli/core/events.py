@@ -199,6 +199,21 @@ class ToolCallRepaired(Event):
 
 
 @dataclass(frozen=True, slots=True)
+class PreviewReady(Event):
+    """Ajan projeyi yerel sunucuda çalıştırdı; kullanıcı bu adresi açabilir.
+
+    Masaüstü uygulaması bu olayla önizleme panelini adresle açar. Ölçüldü (2 Ekim):
+    önizleme paneli vardı ama ajan ona hiç adres veremiyordu; kullanıcı "nasıl
+    önizlerim" deyince kurulum rehberi okuyordu.
+    """
+
+    url: str
+    kind: str
+    root: str
+    title: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SubAgentStarted(Event):
     """Bir alt-göreve temiz bağlamlı alt-ajan atandı.
 

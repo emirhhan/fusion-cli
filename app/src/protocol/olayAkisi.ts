@@ -21,6 +21,21 @@ export function olayEkle(gelen: Mesaj[], event: Record<string, unknown>): Mesaj[
   const akanSonuc = akanCevap(messages, event);
   if (akanSonuc) return akanSonuc;
 
+  if (event.olay === "PreviewReady" && typeof event.url === "string") {
+    // Ajan siteyi çalıştırdı: sohbette tıklanabilir kart (aynı adres tekrar
+    // gelirse eski kart güncellenir, alt alta çoğalmaz).
+    const kart: Mesaj = {
+      rol: "onizleme",
+      metin: event.url,
+      onizleme: {
+        url: event.url,
+        baslik: typeof event.title === "string" ? event.title : undefined,
+        tur: typeof event.kind === "string" ? event.kind : undefined,
+      },
+    };
+    return [...araAnlatimiSabitle(messages).filter((m) => !(m.rol === "onizleme" && m.metin === event.url)), kart];
+  }
+
   if (event.olay === "NarrationPublished") {
     // Giriş paragrafı ve adım geçişleri adımların ARASINDA normal metin olarak
     // durur (Claude gibi). Akmakta olan balon varsa önce ara anlatıma sabitlenir.

@@ -75,6 +75,20 @@ def _project_context(root: Path, task: str) -> str:
     return "\n".join(piece for piece in pieces if piece)
 
 
+#: Araç özetinde açıklamadan alınan en fazla karakter (ilk cümle çoğu araçta sığar).
+_TOOL_SUMMARY_CHARS = 160
+
+
+def _tool_summary(registry: ToolRegistry) -> str:
+    """Çırağın araçları: öğretmen planı bunlara göre kursun."""
+    lines = [
+        f"- {tool.name}: {' '.join(tool.description.split())[:_TOOL_SUMMARY_CHARS]}"
+        for tool in registry
+        if tool.name != "ask_teacher"
+    ]
+    return "Çırağın araçları (plan adımları bunlarla uygulanır):\n" + "\n".join(lines)
+
+
 def teacher_is_ready(deps: AgentDeps, registry: ToolRegistry) -> bool:
     """Yalnız giriş doğrulanmış etkin tarayıcı öğretmeni kullan."""
     teacher = deps.config.teacher
@@ -99,12 +113,16 @@ def _notify_unavailable(deps: AgentDeps, message: str) -> None:
     deps.publisher.publish(StatusChanged(message=message))
 
 
-async def _ask(registry: ToolRegistry, deps: AgentDeps, *, question: str, durum: str) -> str | None:
+async def _ask(
+    registry: ToolRegistry, deps: AgentDeps, *, question: str, durum: str, bicim: str = ""
+) -> str | None:
     deps.teacher_lesson_sync_deferred = True
     try:
         async with asyncio.timeout(deps.config.runtime.request_timeout_s):
             result = await registry.execute(
-                "ask_teacher", {"question": question, "durum": durum}, deps.tool_context
+                "ask_teacher",
+                {"question": question, "durum": durum, "bicim": bicim},
+                deps.tool_context,
             )
     except TimeoutError:
         _notify_unavailable(deps, "Öğretmen yanıtı zaman aşımına uğradı; tek başıma ilerliyorum.")
@@ -120,6 +138,12 @@ async def _ask(registry: ToolRegistry, deps: AgentDeps, *, question: str, durum:
         )
     )
     if not result.ok:
+        if (result.structured or {}).get("teacher") == "refused":
+            # Oturum ayakta, yalnız bu soru cevaplanmadı: öğretmen tur boyunca kapatılmaz.
+            deps.publisher.publish(
+                StatusChanged(message="Öğretmen bu soruyu yanıtlamadı; plan olmadan ilerliyorum.")
+            )
+            return None
         _notify_unavailable(deps, "Öğretmene ulaşılamadı; tek başıma ilerliyorum.")
         return None
     return result.output
@@ -147,7 +171,11 @@ async def prepare_teacher_plan(
         "gerekçesi ve uygulanabilir alternatifiyle belirt."
     )
     answer = await _ask(
-        registry, deps, question=question, durum=redact(f"Görev: {task}\n\nProje: {context}")
+        registry,
+        deps,
+        question=question,
+        durum=redact(f"Görev: {task}\n\nProje: {context}\n\n{_tool_summary(registry)}"),
+        bicim="plan",
     )
     if answer is None:
         return
@@ -158,8 +186,13 @@ async def prepare_teacher_plan(
         repair = await _ask(
             registry,
             deps,
-            question="Önceki cevabını istenen alanlarla geçerli JSON planına düzelt.",
+            question=(
+                "Aşağıdaki önceki cevabını şu alanlarla geçerli tek bir JSON nesnesine çevir: "
+                "adimlar, dosyalar, riskler, yapilamayanlar (konu, gerekce, alternatif), "
+                "dogrulama. İçeriği değiştirme, yalnız biçimi düzelt."
+            ),
             durum=redact(answer),
+            bicim="plan",
         )
         try:
             plan = parse_teacher_plan(repair or "")

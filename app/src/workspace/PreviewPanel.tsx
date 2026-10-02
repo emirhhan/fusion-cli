@@ -43,6 +43,9 @@ export interface PreviewPanelProps {
   client: ProtocolClient;
   openExternal?: (url: string) => Promise<void>;
   selectedPath: string | null;
+  /** Ajanın başlattığı önizleme (`PreviewReady`): gelince web kipinde açılır. `seq`
+   *  aynı adresin yeniden istenmesini (sayfa yenilensin) ayırt eder. */
+  requestedUrl?: { url: string; seq: number } | null;
 }
 
 async function openWithSystem(url: string): Promise<void> {
@@ -53,7 +56,12 @@ async function openWithSystem(url: string): Promise<void> {
 type PreviewMode = "file" | "web";
 type PreviewViewport = "desktop" | "tablet" | "mobile";
 
-export function PreviewPanel({ client, openExternal = openWithSystem, selectedPath }: PreviewPanelProps) {
+export function PreviewPanel({
+  client,
+  openExternal = openWithSystem,
+  selectedPath,
+  requestedUrl = null,
+}: PreviewPanelProps) {
   const [asset, setAsset] = useState<PreviewAsset | null>(null);
   const [assetError, setAssetError] = useState<string | null>(null);
   const [assetLoading, setAssetLoading] = useState(false);
@@ -102,6 +110,15 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
     return () => URL.revokeObjectURL(url);
   }, [asset]);
 
+  useEffect(() => {
+    if (!requestedUrl || !isLocalPreviewUrl(requestedUrl.url)) return;
+    setMode("web");
+    setInput(requestedUrl.url);
+    inputValueRef.current = requestedUrl.url;
+    void openAddress(requestedUrl.url);
+    // Yalnız yeni istek tetikler; `openAddress` her çizimde yeniden kurulur.
+  }, [requestedUrl?.seq]);
+
   const validateAddress = async (value: string): Promise<string | null> => {
     const run = ++validationRun.current;
     setFrameChecking(true);
@@ -125,8 +142,8 @@ export function PreviewPanel({ client, openExternal = openWithSystem, selectedPa
       if (run === validationRun.current) setFrameChecking(false);
     }
   };
-  const openLocal = async () => {
-    const value = input.trim();
+  const openLocal = async () => openAddress(input.trim());
+  const openAddress = async (value: string) => {
     if (!isLocalPreviewUrl(value)) {
       validationRun.current += 1;
       setFrameChecking(false);

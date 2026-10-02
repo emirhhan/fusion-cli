@@ -115,6 +115,9 @@ _TOOL_FAMILIES: Mapping[str, ToolFamily] = {
     "spawn_agent": ToolFamily.DELEGATION,
     "spawn_agents": ToolFamily.DELEGATION,
     "site_crawl": ToolFamily.WEB,
+    "site_design": ToolFamily.WEB,
+    # Projeyi çalıştırıp sayfayı açar ve ölçer: tarayıcı doğrulamasıyla aynı aile.
+    "start_preview": ToolFamily.BROWSER,
     "generate_image": ToolFamily.FILES,
     "optimize_image": ToolFamily.FILES,
     "invoke_subagent": ToolFamily.DELEGATION,
@@ -361,6 +364,12 @@ class Tool:
     run: ToolExecutor
     #: True ise araç dosya/sistem durumunu değiştirir ve onay akışına girer.
     mutating: bool = False
+    #: True ise araç değiştirici olsa da sonucu ÇALIŞMA ALANININ GÜNCEL HALİNE bağlıdır
+    #: (projeyi çalıştır, derle, ölç): dosyalar değiştikten sonra aynı argümanlarla yeniden
+    #: çağrılması tekrar DEĞİLDİR. Ölçüldü (2 Ekim 2026, 8. kabul koşusu): model temayı
+    #: yazıp `start_preview`'ı yeniden çağırdı, tekrar kapısı "zaten yaptın" diye engelledi;
+    #: tema hiç etkinleşmedi ve model boş siteyi curl ile çözmeye çalıştı.
+    reruns_on_change: bool = False
     #: False ise araç ÇALIŞIR ama modele sunulan listede görünmez.
     #
     # Takma adlar içindir. `view_file` ile `read_file` aynı şeydir ve ikisi de

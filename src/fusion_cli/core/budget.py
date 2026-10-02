@@ -91,6 +91,9 @@ class TurnBudget:
     idle_rounds: int = 0
     #: Başarılı her değiştirici araçtan sonra artar; tekrar imzasını tazeler.
     mutation_epoch: int = 0
+    #: Başarılı kabuk adımı sayısı; yalnız `after_shell` imzalarını ilerletir (kabuğun
+    #: kendi tekrarı yine tekrardır).
+    shell_epoch: int = 0
     seen_calls: dict[CallSignature, int] = field(default_factory=dict)
     #: Değiştirici olarak üretilmiş imzalar.
     #
@@ -228,14 +231,21 @@ class TurnBudget:
 
     # --- tekrar ve ilerleme ------------------------------------------------ #
 
-    def signature(self, name: str, encoded_arguments: str, *, mutating: bool) -> CallSignature:
+    def signature(
+        self, name: str, encoded_arguments: str, *, mutating: bool, after_shell: bool = False
+    ) -> CallSignature:
         """Bir araç çağrısının tekrar imzasını üret.
 
         Değiştirici araçlarda çağ SIFIRLANIR: aynı yazma iki kez istendiyse bu her
         durumda tekrardır. Okuma araçlarında güncel çağ kullanılır, çünkü çalışma
         alanı değiştikten sonra aynı dosyayı yeniden okumak yeni bilgi getirir.
+
+        `after_shell`: çalıştırıp ölçen araçlar (`start_preview`) kabuk adımlarını da
+        değişiklik sayar. Ölçüldü (3 Ekim 2026, 10. kabul koşusu): ürünler `php` betiğiyle
+        eklendi (kabuk), sonra `start_preview` "değişiklik olmadı" diye engellendi.
         """
-        imza = (name, encoded_arguments, 0 if mutating else self.mutation_epoch)
+        epoch = 0 if mutating else self.mutation_epoch + (self.shell_epoch if after_shell else 0)
+        imza = (name, encoded_arguments, epoch)
         if mutating:
             self.mutating_signatures.add(imza)
         return imza
@@ -325,6 +335,17 @@ class TurnBudget:
         `TOOL_CALL_DUPLICATE` ile engellendi ve zincir öldü.
         """
         self.mutation_epoch += 1
+        self.forget_failed_calls()
+
+    def forget_failed_calls(self) -> None:
+        """Düşen çağrıları yapılmamış say; çağı İLERLETMEDEN.
+
+        Ölçüldü (2 Ekim 2026, 10. kabul koşusu): `write_file` hedef bir dizin olduğu için
+        düştü; model dizini `rm -rf` ile kaldırdı (kabuk çağı ilerletmez) ve aynı yazmayı
+        yeniden istedi — `TOOL_CALL_DUPLICATE` ile iki kez engellendi, sonunda dosyayı
+        `cat <<EOF` ile yazdı. Başarılı bir kabuk komutu düşen çağrının ön koşulunu
+        düzeltmiş olabilir; çağ ilerletilmez ki aynı komutun tekrarı yine tekrar sayılsın.
+        """
         for imza in self.failed_signatures:
             self.forget_call(imza)
         self.failed_signatures.clear()

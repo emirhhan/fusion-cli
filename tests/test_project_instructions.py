@@ -56,7 +56,8 @@ def test_bos_projeye_de_gercek_ortam_aktarilir(tmp_path, monkeypatch):
     monkeypatch.setattr("platform.system", lambda: "Darwin")
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr(
-        "shutil.which", lambda name: "/opt/homebrew/bin/godot" if name == "godot" else None
+        "shutil.which",
+        lambda name, path=None: "/opt/homebrew/bin/godot" if name == "godot" else None,
     )
     result = instructions.read_all_instructions(tmp_path, None)
     assert str(tmp_path.resolve()) in result

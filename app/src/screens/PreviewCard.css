@@ -1,0 +1,49 @@
+/* Ajanın çalıştırdığı sitenin kartı: sohbette tek tıkla açılır. */
+
+.preview-card {
+  align-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+
+.preview-card__dot {
+  background: var(--text-success);
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--text-success) 18%, transparent);
+  flex-shrink: 0;
+  height: 8px;
+  width: 8px;
+}
+
+.preview-card__body { display: grid; flex: 1 1 200px; gap: 2px; min-width: 0; }
+.preview-card__title { color: var(--text-primary); font-size: var(--text-sm); }
+.preview-card__meta {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-card__meta code { font-family: var(--font-mono); }
+
+.preview-card__actions { display: flex; flex-shrink: 0; gap: var(--space-2); }
+.preview-card__button {
+  background: var(--surface-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--text-xs);
+  min-height: 30px;
+  padding: 0 var(--space-3);
+}
+.preview-card__button:hover { background: var(--surface-selected); }
+.preview-card__button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.preview-card__button--primary { background: var(--control-primary); color: var(--surface-canvas); }
+.preview-card__button--primary:hover { background: var(--control-primary); opacity: .88; }

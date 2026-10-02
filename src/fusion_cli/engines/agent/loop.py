@@ -69,6 +69,7 @@ from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.protocols import TurnJournal
 from ...core.redaction import redact
+from ...core.refusal import looks_like_refusal
 from ...core.steering import SteeringQueue
 from ...core.tools import TodoItem, Tool, ToolContext, ToolFamily, ToolResult, tool_family
 from ...core.types import (
@@ -83,10 +84,15 @@ from ...core.types import (
 )
 from ...core.verification import VerificationResult, Verifier
 from ...core.web_response import classify_response
-from ...providers.capabilities import TaskRequirements, infer_task_requirements
+from ...providers.capabilities import (
+    TaskRequirements,
+    capabilities_for,
+    infer_task_requirements,
+)
 from ...providers.factory import build_provider
 from ...providers.web_registry import web_registry_for
 from ...tools import ToolRegistry, build_registry
+from ...tools.auto_policy import is_read_only_command
 from ...tools.capabilities import CapabilityRegistry
 from ...tools.emulation import coerce_arguments, render_tool_example, validate_arguments
 from ...tools.files import resolve_path
@@ -113,7 +119,6 @@ from .plan_runner import run_execution_plan
 from .platform_check import ensure_limitations_disclosed, run_platform_check
 from .playbook_stage import maybe_run_playbook
 from .project_instructions import read_all_instructions
-from .refusal import looks_like_refusal
 from .repo_context import repo_map_block
 from .teacher_flow import (
     prepare_teacher_plan,
@@ -122,6 +127,7 @@ from .teacher_flow import (
     teacher_is_ready,
 )
 from .teacher_plan import TeacherPlan, UnworkablePart
+from .turn_hints import design_hint, preview_hint, scope_hint
 from .turn_report import build_turn_report, claims_command_success
 from .workspace_hint import find_workspace_for
 
@@ -489,13 +495,30 @@ async def run_agent(
         if depth == 0 and not chat_mode and not internal
         else None
     )
+    # İsteğe özel yönlendirme: önizleme, çok büyük kapsam, siteye benzetme (bkz. `turn_hints`).
+    istek_notlari = (
+        (
+            preview_hint(task, available=registry.get("start_preview") is not None),
+            scope_hint(task),
+            design_hint(task, available=registry.get("site_design") is not None),
+        )
+        if depth == 0 and not chat_mode and not internal
+        else ()
+    )
     messages = _initial_messages(
         task,
         history,
         plan_mode=plan_mode,
         extra_system="\n\n".join(
             part
-            for part in (proje_ve_dis_bellek, harita, teacher_hint, netlestirme, extra_system)
+            for part in (
+                proje_ve_dis_bellek,
+                harita,
+                teacher_hint,
+                netlestirme,
+                *istek_notlari,
+                extra_system,
+            )
             if part
         ),
         # İç düzeltici turlar sistem metnini geçmişten miras alır; yeniden
@@ -1141,9 +1164,14 @@ async def _drive(
             state.exploration_pushes += 1
             messages.append(Message("user", exploration_note, harness_note=True))
         teacher_stall = _plateau_reason(state, deps, exploration_note=exploration_note)
+        # Gerçek takılma (aynı hata, tekrar koruması, ilerleme yok) görev BÜYÜKLÜĞÜNE
+        # bakmaz. Ölçüldü (2 Ekim, kabul koşusu): görev "basit" sınıflandırıldı, model
+        # aynı "Access denied" hatasını üç kez aldı ve öğretmen hazır olduğu halde
+        # hiç sorulmadı. Yalnız "okuma uzun sürdü" nedeni karmaşık işe özeldir.
+        gercek_takilma = _teacher_stall_reason(state) is not None
         if (
             auto_teacher
-            and execution.complex_task
+            and (execution.complex_task or gercek_takilma)
             and teacher_stall is not None
             and not deps.auto_teacher_used
             and teacher_is_ready(deps, registry)
@@ -1204,7 +1232,6 @@ async def _drive(
             deps.publisher.publish(StatusChanged(STALL_STATUS))
             if (
                 auto_teacher
-                and execution.complex_task
                 and not deps.auto_teacher_used
                 and teacher_is_ready(deps, registry)
                 and (allowed_tools is None or "ask_teacher" in allowed_tools)
@@ -1574,6 +1601,18 @@ class _CallTimeoutError(Exception):
         self.seconds = seconds
 
 
+#: Süre sınırında bitmeyen çağrıdan sonra modele eklenen not. Aynı isteği aynen yinelemek
+#: aynı sonucu verir. Ölçüldü (2 Ekim 2026, NIM Nemotron 3 Ultra): araç çağrısı parça
+#: parça akmıyor (250 satırlık dosya 181 sn tek sessizlik); tema dosyası yazan çağrı 600 sn
+#: sınırını iki kez aştı ve her seferinde baştan başladı — 20 dakikada tek dosya yazılamadı.
+SHORTER_AFTER_TIMEOUT_NOTE = (
+    "FUSION_NOT: Önceki cevabın süre sınırında tamamlanmadı; büyük olasılıkla tek çağrıda "
+    "çok uzun bir içerik yazıyordun. Şimdi KISA bir adım at: tek çağrıda en fazla ~100 "
+    "satır yaz, büyük dosyayı birden çok dosyaya böl ya da önce iskeleti yazıp sonra "
+    "edit_file ile bölüm bölüm ekle."
+)
+
+
 def retry_delay_s(attempt: int) -> float:
     """`attempt`. yeniden denemeden önceki bekleme (0'dan başlar)."""
     return min(RETRY_BASE_DELAY_S * float(2**attempt), RETRY_MAX_DELAY_S)
@@ -1652,6 +1691,8 @@ async def _call_with_retries(
             return result
         delay = retry_delay_s(attempt)
         attempt += 1
+        if result is None and not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
+            messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
         neden = "yanıt vermedi" if result is None else _short_reason(result.error)
         deps.publisher.publish(
             StatusChanged(
@@ -2093,8 +2134,20 @@ def _plateau_reason(state: _State, deps: AgentDeps, *, exploration_note: str | N
     return None
 
 
-def _plateau_question(deps: AgentDeps, reason: str) -> str:
-    """Takılma anına özel öğretmen sorusu."""
+def _plateau_question(deps: AgentDeps, reason: str, state: _State | None = None) -> str:
+    """Takılma anına özel öğretmen sorusu.
+
+    Takılma bir HATAYSA soru o hatayı taşır. Ölçüldü (2 Ekim, kabul koşusu): model
+    "Access denied" hatasını üç kez aldı; öğretmene "çok dosyalı göreve başlarken ilk
+    değişiklik ne olmalı?" diye genel bir soru gitti ve hata hiç söylenmedi.
+    """
+    hata = _top_failure(state) if state is not None else None
+    if hata is not None:
+        arac, imza, sayi = hata
+        return (
+            f"`{arac}` şu hatayı {sayi} kez verdi ve aşamadım: {imza[:300]}. Kök neden ne "
+            "olabilir ve görevi sürdürmek için SIRADAKİ SOMUT adım (komut/araç) ne? Kısa cevap ver."
+        )
     if _has_teacher_plan(deps):
         return (
             f"Önceki planı uygularken takıldım: {reason}. Bu takılmayı aşmak için "
@@ -2104,6 +2157,14 @@ def _plateau_question(deps: AgentDeps, reason: str) -> str:
         "Bu çok dosyalı göreve başlarken ilk somut dosya değişikliği ve "
         "onu doğrulayacak test ne olmalı? Kısa, uygulanabilir cevap ver."
     )
+
+
+def _top_failure(state: _State) -> tuple[str, str, int] | None:
+    """En çok yinelenen araç hatası (araç, hata satırı, sayı); eşik altındaysa None."""
+    if not state.repeated_failures:
+        return None
+    (arac, imza), sayi = max(state.repeated_failures.items(), key=lambda item: item[1])
+    return (arac, imza, sayi) if sayi >= _YINELENEN_HATA_ESIGI else None
 
 
 async def _consult_teacher_on_plateau(
@@ -2128,7 +2189,7 @@ async def _consult_teacher_on_plateau(
         "",
     )
     args: dict[str, object] = {
-        "question": _plateau_question(deps, reason),
+        "question": _plateau_question(deps, reason, state),
         "durum": f"Görev özeti: {redact(original_task)[:700]}",
         "denenenler": (
             f"Ajan {state.tool_calls_made} araç çağrısı yaptı. Takılma nedeni: {reason}."
@@ -2278,7 +2339,7 @@ def _line_count(path: Path) -> int:
 _FULL_WRITE_TOOLS = frozenset({"write_file"})
 
 
-def _is_rerunnable(name: str) -> bool:
+def _is_rerunnable(name: str, tool: Tool | None = None) -> bool:
     """Onay açısından değiştirici sayılan ama TEKRAR EDİLMESİ meşru olan araç mı.
 
     Tekrar imzasında değiştirici araçların çağı sıfırlanır ("aynı yazma iki kez
@@ -2296,7 +2357,12 @@ def _is_rerunnable(name: str) -> bool:
     ad karşılaştırması `"bash" != "run_shell"` olduğu için bu istisnayı hiç
     görmedi ve tam da çözmek için var olduğu ölü kilit takma ad altında geri
     geldi (bkz. `engines/agent/turn_report.py::_is_shell_call`, aynı yaklaşım).
+
+    Kabuk dışındaki araçlar bunu kendileri beyan eder (`Tool.reruns_on_change`): projeyi
+    çalıştırıp ölçen `start_preview` da değişiklikten sonra yeniden çağrılmak İÇİN vardır.
     """
+    if tool is not None and tool.reruns_on_change:
+        return True
     return tool_family(name) is ToolFamily.SHELL
 
 
@@ -2369,7 +2435,8 @@ async def _run_tools(
         signature = budget.signature(
             call.name,
             _encode_arguments(args),
-            mutating=tool is not None and tool.mutating and not _is_rerunnable(call.name),
+            mutating=tool is not None and tool.mutating and not _is_rerunnable(call.name, tool),
+            after_shell=tool is not None and tool.reruns_on_change,
         )
         seen = budget.count_call(signature)
 
@@ -2563,8 +2630,14 @@ async def _run_tools(
                 # olduğunda da ilerletmek, aynı komutun tekrar imzasını her
                 # seferinde tazeliyor ve tekrar kapısını `run_shell` için işlevsiz
                 # bırakıyordu (bkz. `_is_rerunnable`).
-                if not _is_rerunnable(call.name):
+                if not _is_rerunnable(call.name, tool):
                     budget.record_mutation()
+                else:
+                    # Kabuk/çalıştırma başarılıysa düşen çağrıların ön koşulu değişmiş
+                    # olabilir (bkz. `forget_failed_calls`); çağ yine ilerlemez.
+                    budget.forget_failed_calls()
+                    if tool is not None and not tool.reruns_on_change:
+                        budget.shell_epoch += 1
         elif outcome is ToolOutcome.FAILED:
             state.failed_tool_calls += 1
             errored = True
@@ -2621,6 +2694,10 @@ async def _run_tools(
             )
             if not_ is not None:
                 govde = f"{govde}\n\n{not_}"
+        gorseller = result.images
+        if gorseller and not _agent_reads_images(deps):
+            gorseller = ()
+            govde = f"{govde}\n\n{IMAGES_NOT_SENT_NOTE}"
         messages.append(
             Message(
                 "tool",
@@ -2628,10 +2705,24 @@ async def _run_tools(
                 tool_call_id=call.id,
                 name=call.name,
                 ok=result.ok,
-                images=result.images,
+                images=gorseller,
             )
         )
     return errored
+
+
+#: Görsel okuyamayan agent modeline araç sonucundaki görsel GÖNDERİLMEZ. Ölçüldü (2 Ekim
+#: 2026, NIM Nemotron 3 Ultra): ekran görüntüsü taşıyan tek araç sonucu (`site_design`)
+#: sonraki HER isteği "Received multimodal data but multimodal processing is not enabled"
+#: ile düşürdü; devre açıldı ve tur orada kaldı.
+IMAGES_NOT_SENT_NOTE = (
+    "[Ekran görüntüsü bu modele gönderilmedi: model görsel okuyamıyor. Görsel dosyaya "
+    "kaydedildiyse içeriğini view_image(path, question) ile sorabilirsin.]"
+)
+
+
+def _agent_reads_images(deps: AgentDeps) -> bool:
+    return capabilities_for(deps.config.agent, deps.config.web_sessions).images
 
 
 def _encode_arguments(args: dict[str, object]) -> str:
@@ -2665,7 +2756,12 @@ async def _execute(
         return ToolResult.failure(
             f"Araç bu adımın izin verilen kapsamında değil. Bu adımda kullanılabilir: {allowed}"
         ), ToolOutcome.BLOCKED
-    if tool is not None and tool.mutating and not execution.allow_mutation:
+    if (
+        tool is not None
+        and tool.mutating
+        and not execution.allow_mutation
+        and not _reads_only(tool.name, args)
+    ):
         # Yetenek kapısı onaydan ÖNCE gelir: kullanıcıya sormanın anlamı yok, bu
         # model bu işi güvenilir yapamıyor. Şema hiç sunulmadığı için buraya normalde
         # gelinmez; ikinci savunma hattıdır.
@@ -2703,6 +2799,21 @@ async def _execute(
     return result, ToolOutcome.OK if result.ok else ToolOutcome.FAILED
 
 
+def _reads_only(tool_name: str, args: dict[str, object]) -> bool:
+    """Kabuk çağrısı YALNIZ okuyor mu (`ls`, `pwd`, `git log`)?
+
+    Ölçüldü (2 Ekim, kabul koşusu): değiştirme yetkisi olmayan modelde `ls -la` ve
+    `pwd` bile "bu model dosya değiştiremez" diye engellendi; model klasörü
+    göremeden tur boşa döndü. Okuma değişiklik değildir.
+    """
+    command = args.get("command")
+    return (
+        tool_family(tool_name) is ToolFamily.SHELL
+        and isinstance(command, str)
+        and is_read_only_command(command)
+    )
+
+
 def _parse_arguments_checked(raw: str) -> tuple[dict[str, object], str | None]:
     """Ham argümanları ayrıştır; bozuk JSON kanıtını SİLMEDEN.
 
@@ -2734,6 +2845,9 @@ _YINELENEN_HATA_ESIGI = 2
 _OGRETMEN_ONERI_ESIGI = _YINELENEN_HATA_ESIGI + 1
 
 
+_SHELL_FRAME = re.compile(r"^\(çıkış kodu -?\d+\)$|^\[stderr\]$")
+
+
 def _failure_signature(output: str) -> str:
     """Hata metnini karşılaştırılabilir bir imzaya indir.
 
@@ -2741,7 +2855,14 @@ def _failure_signature(output: str) -> str:
     öneriler aynı hatada bile değişebilir. Yol/ad gibi ayrıntılar İMZANIN
     PARÇASIDIR — farklı dosyada aynı hata farklı iştir, yinelenme sayılmaz.
     """
-    return output.strip().splitlines()[0].strip() if output.strip() else ""
+    # Kabuk çıktısı hep "(çıkış kodu N)" ile başlar: o satır imza olsaydı birbiriyle
+    # ilgisiz her kabuk hatası "aynı hata" sayılırdı. Asıl hata satırı alınır.
+    satirlar = [
+        satir.strip()
+        for satir in output.strip().splitlines()
+        if satir.strip() and not _SHELL_FRAME.match(satir.strip())
+    ]
+    return satirlar[0] if satirlar else output.strip()
 
 
 def _repeated_failure_note(
@@ -2766,11 +2887,15 @@ def _repeated_failure_note(
         return None
     not_ = (
         f"FUSION_NOT: `{tool_name}` aynı hatayı {count} kez verdi ve aracın kendi "
-        "önerisi işe yaramadı. Aynı yolu tekrar deneme; FARKLI ARGÜMANLARLA çağır. "
-        "Sık karşılaşılan sebep yol biçimidir: 'res://' ekini kaldırmayı ya da "
-        "eklemeyi, göreli yol yerine tam yol vermeyi dene. Bu da olmazsa başka bir "
-        "araçla aynı sonuca ulaşmayı dene."
+        "önerisi işe yaramadı. Aynı yolu tekrar deneme; FARKLI ARGÜMANLARLA çağır ya "
+        "da yaklaşımı değiştir (başka bir araç, başka bir yöntem)."
     )
+    if "res://" in output:
+        # Godot'ya özel ölçülmüş çare yalnız o hatada söylenir.
+        not_ += (
+            " Sebep çoğu kez yol biçimidir: 'res://' ekini kaldırmayı ya da eklemeyi, "
+            "göreli yol yerine tam yol vermeyi dene."
+        )
     if teacher_available and count >= _OGRETMEN_ONERI_ESIGI:
         not_ += (
             " Bu hata FARKLI yaklaşımlara rağmen sürüyorsa `ask_teacher` ile web "

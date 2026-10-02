@@ -15,11 +15,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from ...config.models import Config
 from ...core.events import (
     CouncilConsulted,
+    StatusChanged,
     TeacherConsulted,
 )
+from ...core.refusal import looks_like_refusal
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
+from ...core.types import CompletionRequest, ModelResult, ModelSpec
 from ...memory.code_index import format_matches
 from ...memory.lessons import as_prompt_block
 from ...tools.capabilities import (
@@ -38,6 +42,7 @@ from . import learning_steps
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
+from .preview_tools import preview_tool
 from .team import (
     MAX_AGENT_DEPTH,
     SubTask,
@@ -46,6 +51,10 @@ from .team import (
     spawn_agents_tool,
 )
 from .web_tools import web_work_tools
+
+#: Asıl öğretmen cevap vermezse denenecek en fazla yedek öğretmen. Her deneme bir web
+#: oturumunda 30-120 sn sürebilir (ölçüldü, 29 Eylül); birden fazlası turu boğar.
+TEACHER_FALLBACKS = 1
 
 if TYPE_CHECKING:  # pragma: no cover - yalnızca tip denetimi için
     from .loop import AgentDeps, AgentOutcome
@@ -89,7 +98,10 @@ def build_agent_registry(
 ) -> ToolRegistry:
     """Temel araçlara motora bağlı olanları ekleyerek çalışma-anı defteri üret."""
     registry = deps.base_registry
-    extended = _clone(registry)
+    # Chrome eklentisine giden yol yoksa (`fusion agent`, terminal) chrome_* araçları
+    # sunulmaz. Ölçüldü (2 Ekim, kabul koşusu): model bunları dört kez çağırdı ve her
+    # seferinde "yalnız masaüstü uygulamasında" cevabı aldı.
+    extended = _clone(registry, chrome=getattr(deps.tool_context, "chrome", None) is not None)
     extended.register(spawn_agent_tool(deps, depth=depth, run_agent=run_agent))
     extended.register(spawn_agents_tool(deps, depth=depth, run_agent=run_agent))
     # Bazı modeller bu adı tercih eder; farklı isimlendirme hataya dönüşmesin.
@@ -116,6 +128,7 @@ def build_agent_registry(
         extended.register(image_tool)
     for web_tool in web_work_tools():
         extended.register(web_tool)
+    extended.register(preview_tool(deps))
     conversation = getattr(deps, "conversation_id", "")
     memory_dir = getattr(getattr(deps, "config", None), "memory_dir", None)
     if conversation and memory_dir is not None:
@@ -152,10 +165,26 @@ def _register_forged_tools(registry: ToolRegistry, deps: AgentDeps) -> None:
             registry.register(uretilmis)
 
 
-def _clone(registry: ToolRegistry) -> ToolRegistry:
+def teacher_candidates(config: Config, teacher: ModelSpec) -> list[ModelSpec]:
+    """Asıl öğretmen ve ardından girişi doğrulanmış diğer tarayıcı oturumları."""
+    adaylar = [teacher]
+    for session in config.web_sessions:
+        if (
+            session.model != teacher.model
+            and session.transport == "browser"
+            and session.enabled
+            and session.login_verified
+        ):
+            adaylar.append(ModelSpec(name=f"ogretmen-yedek-{len(adaylar)}", model=session.model))
+    return adaylar[: TEACHER_FALLBACKS + 1]
+
+
+def _clone(registry: ToolRegistry, *, chrome: bool = True) -> ToolRegistry:
     """Temel defteri kopyala; çalışma-anı eklemeleri paylaşılan defteri kirletmesin."""
     clone = ToolRegistry()
     for tool in registry:
+        if not chrome and tool.name.startswith("chrome_"):
+            continue
         clone.register(tool)
     return clone
 
@@ -247,10 +276,8 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
     """
 
     async def _run(args: ToolArgs, context: ToolContext) -> ToolResult:
-        from ...core.types import CompletionRequest, Message
-        from ...providers.factory import build_provider
-        from ...providers.web_registry import web_registry_for
-        from .teacher_brief import compile_brief
+        from ...core.types import Message
+        from .teacher_brief import PLAN_FRAME, TEACHER_FRAME, compile_brief
 
         teacher = deps.config.teacher
         if teacher is None:
@@ -310,6 +337,8 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             question=question,
             touched_paths=touched_paths,
             code_excerpts=_teacher_excerpts(context),
+            # İç akışın (`teacher_flow`) plan isteği; şemada yoktur, model veremez.
+            frame=PLAN_FRAME if args.get("bicim") == "plan" else TEACHER_FRAME,
         )
         deps.publisher.publish(TeacherConsulted(question=question, brief_truncated=brief.truncated))
 
@@ -321,15 +350,14 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
             timeout_s=runtime.request_timeout_s,
             max_retries=runtime.max_retries,
         )
-        provider = build_provider(
-            teacher,
-            publisher=deps.publisher,
-            retry_delays_s=runtime.retry_delays_s,
-            web_sessions=web_registry_for(deps.config),
-        )
-        result = await provider.complete(request)
-        if not result.ok or not result.text:
-            return ToolResult.failure(f"Öğretmene ulaşılamadı: {result.error or 'bilinmeyen hata'}")
+        result, refused = await _consult_candidates(deps, teacher, request)
+        if result is None or not result.ok or not result.text:
+            if refused:
+                return _teacher_refused()
+            hata = result.error if result is not None else None
+            return ToolResult.failure(f"Öğretmene ulaşılamadı: {hata or 'bilinmeyen hata'}")
+        if looks_like_refusal(result.text):
+            return _teacher_refused()
 
         _lesson_written, skip_reason = _sync_and_log_teacher_answer(
             deps, context, question=question, durum=durum, answer=result.text
@@ -368,6 +396,62 @@ def _ask_teacher_tool(deps: AgentDeps) -> Tool:
         },
         run=_run,
     )
+
+
+#: `ask_teacher` sonucunda "öğretmen reddetti" işareti. Ulaşılamayan öğretmenden farklıdır:
+#: oturum ayaktadır, yalnız BU soru cevaplanmamıştır; sonraki soru cevaplanabilir.
+TEACHER_REFUSED = "refused"
+
+
+def _teacher_refused() -> ToolResult:
+    return ToolResult.failure(
+        "Öğretmenler soruyu kalıp bir retle geri çevirdi; çırak mevcut bilgilerle "
+        "devam etsin, soruyu daha somut biçimde yeniden sorabilir.",
+        structured={"teacher": TEACHER_REFUSED},
+    )
+
+
+async def _consult_candidates(
+    deps: AgentDeps, teacher: ModelSpec, request: CompletionRequest
+) -> tuple[ModelResult | None, bool]:
+    """Adayları sırayla sor; (son sonuç, herhangi biri kalıp ret verdi mi) döndür.
+
+    Ölçüldü (2 Ekim 2026, kabul koşuları): Gemini web aynı plan sorusunu bir çağrıda
+    cevapladı, bir sonrakinde kalıp retle geri çevirdi; yedek ChatGPT oturumu captcha
+    bekliyordu. Sonuç "öğretmene ulaşılamadı" oldu ve tur boyunca bir daha sorulmadı.
+    Kalıp ret veren ilk adaya bu yüzden BİR kez daha sorulur.
+    """
+    # Sağlayıcı katmanı yalnız gerektiğinde yüklenir; testler de bu adı yamalar.
+    from ...providers.factory import build_provider
+    from ...providers.web_registry import web_registry_for
+
+    runtime = deps.config.runtime
+
+    async def _sor(aday: ModelSpec) -> ModelResult:
+        provider = build_provider(
+            aday,
+            publisher=deps.publisher,
+            retry_delays_s=runtime.retry_delays_s,
+            web_sessions=web_registry_for(deps.config),
+        )
+        return await provider.complete(request)
+
+    result: ModelResult | None = None
+    reddeden: ModelSpec | None = None
+    for aday in teacher_candidates(deps.config, teacher):
+        if result is not None:
+            deps.publisher.publish(
+                StatusChanged(f"Öğretmen cevap vermedi; yedek öğretmen deneniyor ({aday.model})")
+            )
+        result = await _sor(aday)
+        if result.ok and result.text and not looks_like_refusal(result.text):
+            return result, False
+        if result.ok and result.text and reddeden is None:
+            reddeden = aday
+    if reddeden is None:
+        return result, False
+    deps.publisher.publish(StatusChanged("Öğretmen soruyu geri çevirdi; bir kez daha soruluyor"))
+    return await _sor(reddeden), True
 
 
 def _view_image_tool(deps: AgentDeps) -> Tool:

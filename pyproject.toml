@@ -85,7 +85,7 @@ where = ["src"]
 # bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
 "fusion_cli.config" = ["*.yaml", "roster/*.md"]
-"fusion_cli.tools" = ["scaffold/*"]
+"fusion_cli.tools" = ["scaffold/*", "assets/*"]
 "fusion_cli.engines.agent" = ["prompts/*"]
 "fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]
 "fusion_cli.engines.fusion" = ["prompts/*"]
@@ -143,6 +143,8 @@ ignore = [
 # Etkileşimli tarayıcı araçları da playwright Page/Browser sınırında çalışır; `Any`
 # bu dosyanın dışına çıkmaz, sonuçlar `ToolResult` olarak döner.
 "src/fusion_cli/tools/browser.py" = ["ANN401"]
+# Tasarım ölçümü de aynı Playwright Page sınırında çalışır; dışarı sözlük ve dosya çıkar.
+"src/fusion_cli/tools/site_design.py" = ["ANN401"]
 # Tarayıcı oturumu taşıyıcısı playwright nesnelerini tutar ama onu import ETMEZ
 # (`core` üçüncü parti tanımaz); alan tipleri bu yüzden gevşek kalır.
 "src/fusion_cli/core/browser_session.py" = ["ANN401"]

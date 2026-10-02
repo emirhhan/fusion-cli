@@ -2674,10 +2674,20 @@ async def test_ikinci_ret_zorlanmaz_durust_sonuc_basarisiz_doner(monkeypatch, tm
 
 
 def test_ret_kalibi_uzun_ve_gercek_cevaplari_yakalamaz():
-    from fusion_cli.engines.agent.refusal import looks_like_refusal
+    from fusion_cli.core.refusal import looks_like_refusal
 
     assert looks_like_refusal("İsteğinizi gerçekleştirebilecek şekilde programlanmadım.")
     assert looks_like_refusal("Üzgünüm, bu konuda yardımcı olamam.")
+    # Ölçüldü (2 Ekim 2026, Gemini web "3.1 Pro"): kalıp ret her seferinde başka sözcüklerle geldi.
+    assert looks_like_refusal(
+        "Ben yalnızca metin tabanlı bir yapay zeka platformu olduğum için isteğinizi "
+        "yerine getirebilecek kabiliyete sahip değilim."
+    )
+    assert looks_like_refusal(
+        "Ben yalnızca bir dil modeli olduğum ve gerekli bilgiye ya da beceriye sahip "
+        "olmadığım için bu isteğinize yardımcı olamıyorum."
+    )
+    assert not looks_like_refusal("Bu araç yalnızca metin tabanlı dosyaları okur.")
     assert not looks_like_refusal("Kampanya tablosu okundu: 2 kampanya, ₺2.618 harcama.")
     assert not looks_like_refusal(
         "Yardımcı olamıyorum dediğin kısım için: " + "rapor ayrıntısı " * 60
@@ -2763,3 +2773,199 @@ async def test_sohbet_kipinde_de_kalip_ret_bir_kez_geri_cevrilir(monkeypatch, tm
 
     assert sonuc.final_text == "1"
     assert sonuc.tool_calls_made == 1
+
+
+async def test_ayni_hata_yinelenince_ogretmene_fusion_kendisi_danisir(monkeypatch, tmp_path, sink):
+    """Ölçüldü (2 Ekim, kabul koşusu): model aynı "Access denied" hatasını üç kez aldı;
+    öğretmen hazırdı ama otomatik danışma yalnız "karmaşık" görevde açıktı ve görev
+    "basit" sayılmıştı; model sormadı.
+    Kullanıcı: "öğretmene sor özelliği var, neden sormuyor?"
+    """
+    from fusion_cli.config.models import WebSessionConfig
+
+    hata = 'echo "Error: Database connection error (1698)" >&2; exit 1'
+    _kur(
+        monkeypatch,
+        ScriptedProvider(
+            [
+                model_result(tool_calls=[tool_call("run_shell", command=f"true; {hata}")]),
+                model_result(tool_calls=[tool_call("run_shell", command=f": ; {hata}")]),
+                model_result(tool_calls=[tool_call("run_shell", command=f"echo; {hata}")]),
+                model_result(TAM_CEVAP),
+            ]
+        ),
+    )
+    sorular = []
+
+    class _Ogretmen:
+        async def complete(self, request):
+            sorular.append(request.messages[0].content)
+            return ModelResult(
+                name="teacher",
+                model="gemini_web/main/auto",
+                text="MySQL gerekmez; SQLite sürücüsüyle kur.",
+                latency_ms=1,
+                ok=True,
+            )
+
+    monkeypatch.setattr(
+        "fusion_cli.providers.factory.build_provider", lambda *_a, **_k: _Ogretmen()
+    )
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
+    )
+
+    sonuc = await run_agent("veritabanını kur", deps)
+
+    assert len(sorular) == 1, "takılmada turda bir kez sorulur"
+    assert "Database connection error (1698)" in sorular[0], "soru hatanın kendisini taşır"
+    ogut = [m for m in sonuc.messages if m.role == "tool" and m.name == "ask_teacher"]
+    assert ogut and "MySQL gerekmez" in ogut[0].content
+
+
+async def test_ogretmen_kalip_retle_cevap_verirse_yedek_ogretmen_sorulur(
+    monkeypatch, tmp_path, sink
+):
+    """Ölçüldü (2 Ekim, kabul koşusu): Gemini web plan istemine iki kez "ben bir dil
+    modeliyim" dedi; girişi doğrulanmış ChatGPT web hiç denenmedi."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    sorulan_modeller: list[str] = []
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                sorulan_modeller.append(spec.model)
+                metin = (
+                    "Ben bir dil modeliyim ve bunu yapmak için tasarlanmadım."
+                    if spec.model.startswith("gemini")
+                    else "Önce temayı yaz, sonra önizlemeyi başlat."
+                )
+                return ModelResult(name="t", model=spec.model, text=metin, latency_ms=1, ok=True)
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    oturum = {"transport": "browser", "enabled": True, "login_verified": True}
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", **oturum),
+            WebSessionConfig(model="chatgpt_web/main/auto", provider="chatgpt_web", **oturum),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute(
+        "ask_teacher", {"question": "nasıl başlamalıyım?"}, deps.tool_context
+    )
+
+    assert sorulan_modeller == ["gemini_web/main/auto", "chatgpt_web/main/auto"]
+    assert sonuc.ok and "Önce temayı yaz" in sonuc.output
+
+
+async def test_kalip_ret_veren_ogretmene_bir_kez_daha_sorulur(monkeypatch, tmp_path, sink):
+    """Ölçüldü (2 Ekim, kabul koşuları): Gemini aynı plan sorusunu bir çağrıda cevapladı,
+    sonrakinde reddetti; yedek ChatGPT captcha bekliyordu ve tur öğretmensiz kaldı."""
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    cevaplar = {
+        "gemini_web/main/auto": [
+            ModelResult(name="t", model="g", text="Ben bir dil modeliyim.", latency_ms=1, ok=True),
+            ModelResult(
+                name="t", model="g", text='{"adimlar": ["temayı yaz"]}', latency_ms=1, ok=True
+            ),
+        ],
+        "chatgpt_web/main/auto": [
+            ModelResult(name="t", model="c", text="", latency_ms=1, ok=False, error="captcha"),
+        ],
+    }
+    sorulan: list[str] = []
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                sorulan.append(spec.model)
+                return cevaplar[spec.model].pop(0)
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    oturum = {"transport": "browser", "enabled": True, "login_verified": True}
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(model="gemini_web/main/auto", provider="gemini_web", **oturum),
+            WebSessionConfig(model="chatgpt_web/main/auto", provider="chatgpt_web", **oturum),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute("ask_teacher", {"question": "plan ver"}, deps.tool_context)
+
+    assert sorulan == ["gemini_web/main/auto", "chatgpt_web/main/auto", "gemini_web/main/auto"]
+    assert sonuc.ok and "temayı yaz" in sonuc.output
+
+
+async def test_ogretmen_iki_kez_reddederse_ulasilamadi_degil_reddetti_doner(
+    monkeypatch, tmp_path, sink
+):
+    from fusion_cli.config.models import WebSessionConfig
+    from fusion_cli.engines.agent.engine_tools import TEACHER_REFUSED, build_agent_registry
+
+    def _saglayici(spec, **_kwargs):
+        class _Ogretmen:
+            async def complete(self, request):
+                return ModelResult(
+                    name="t", model=spec.model, text="Ben bir dil modeliyim.", latency_ms=1, ok=True
+                )
+
+        return _Ogretmen()
+
+    monkeypatch.setattr("fusion_cli.providers.factory.build_provider", _saglayici)
+    deps = _deps(
+        tmp_path,
+        sink,
+        teacher=ModelSpec(name="teacher", model="gemini_web/main/auto"),
+        web_sessions=(
+            WebSessionConfig(
+                model="gemini_web/main/auto",
+                provider="gemini_web",
+                transport="browser",
+                enabled=True,
+                login_verified=True,
+            ),
+        ),
+    )
+    defter = build_agent_registry(deps, depth=0, run_agent=run_agent)
+
+    sonuc = await defter.execute("ask_teacher", {"question": "plan ver"}, deps.tool_context)
+
+    assert not sonuc.ok and sonuc.structured == {"teacher": TEACHER_REFUSED}
+
+
+def test_chrome_baglantisi_yokken_chrome_araclari_sunulmaz(tmp_path, sink):
+    from fusion_cli.engines.agent.engine_tools import build_agent_registry
+
+    deps = _deps(tmp_path, sink)
+    adlar = set(build_agent_registry(deps, depth=0, run_agent=run_agent).names())
+
+    assert not any(ad.startswith("chrome_") for ad in adlar)
+    assert {"site_design", "start_preview"} <= adlar

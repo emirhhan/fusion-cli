@@ -234,6 +234,8 @@ def _tema(tmp_path: Path) -> Path:
     (tema / "template-parts").mkdir(parents=True)
     (tema / "style.css").write_text("/*\nTheme Name: Deneme\n*/", encoding="utf-8")
     (tema / "template-parts" / "content.php").write_text("<?php echo 1;", encoding="utf-8")
+    # WordPress'in zorunlu genel şablonu (yoksa tema etkinleşmez; bkz. php_verify).
+    (tema / "index.php").write_text("<?php get_header();", encoding="utf-8")
     return tema
 
 

@@ -294,6 +294,13 @@ def write_file(args: ToolArgs, context: ToolContext) -> ToolResult:
                 "'content' alanı eksik ve saklanmış içerik de yok. Dosyanın tam içeriğini gönder."
             )
 
+    if path.is_dir():
+        # Ölçüldü (2 Ekim 2026, 10. kabul koşusu): model `mkdir -p …/content-product.php`
+        # ile yanlışlıkla dizin açtı; "dosya var, önce oku" mesajı onu okumaya yolladı.
+        return ToolResult.failure(
+            f"Bu bir dizin, dosya değil: {display_path(context, path)}. Dizini kaldır "
+            "(run_shell: rmdir) ya da dosyayı başka bir adla yaz."
+        )
     existed = path.exists()
     # Bu turda agent'ın KENDİ oluşturduğu dosya "okunmuş" sayılır: kaybedilecek,
     # görülmemiş bir satırı yoktur. Aksi halde iskele kurup doldurma akışı kilitlenir

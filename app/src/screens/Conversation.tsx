@@ -9,6 +9,7 @@ import { Markdown } from "../markdown/Markdown";
 import { DiffCard } from "../markdown/DiffCard";
 import { ActivityLine, activityState } from "./ActivityLine";
 import type { AjanKarti } from "../team/ekipOlaylari";
+import { PreviewCard } from "./PreviewCard";
 import { TeamCards } from "../team/TeamCards";
 import { useStickToBottom } from "./useStickToBottom";
 
@@ -34,7 +35,9 @@ export interface GorevMaddesi {
 
 export interface Mesaj {
   metin: string;
-  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip";
+  rol: "kullanici" | "asistan" | "olay" | "degisiklik" | "gorevler" | "oneriler" | "ekip" | "onizleme";
+  /** Yalnız `rol === "onizleme"` için: ajanın çalıştırdığı sitenin adresi. */
+  onizleme?: { url: string; baslik?: string; tur?: string };
   /** Yalnız `rol === "olay"` için: blokta toplanan adımlar. */
   adimlar?: OlayAdimi[];
   /** Yalnız `rol === "olay"` için: bloğun İLK adımının başladığı `Date.now()`.
@@ -169,6 +172,8 @@ export interface ConversationProps {
   onOneriSec?: (gorev: string) => void;
   /** Başarısız yanıtın "Hatayı bildir" düğmesi. Verilmezse düğme çizilmez. */
   onHataBildir?: (metin: string) => void;
+  /** Önizleme kartındaki "Uygulamada aç"; verilmezse yalnız bağlantı gösterilir. */
+  onOpenPreview?: (url: string) => void;
 }
 
 export function Conversation({
@@ -176,6 +181,7 @@ export function Conversation({
   onOpenFile,
   onOneriSec,
   onHataBildir,
+  onOpenPreview,
   running = true,
   showSteps = false,
 }: ConversationProps) {
@@ -241,6 +247,18 @@ export function Conversation({
                     </button>
                   ))}
                 </div>
+              </div>
+            );
+          }
+          if (message.rol === "onizleme" && message.onizleme) {
+            return (
+              <div className="conversation__message conversation__message--preview" key={index}>
+                <PreviewCard
+                  baslik={message.onizleme.baslik}
+                  onOpen={onOpenPreview}
+                  tur={message.onizleme.tur}
+                  url={message.onizleme.url}
+                />
               </div>
             );
           }

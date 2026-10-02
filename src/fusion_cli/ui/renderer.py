@@ -57,6 +57,7 @@ from ..core.events import (
     NarrationPublished,
     NoFileChanges,
     PlatformChecked,
+    PreviewReady,
     SelfReviewFinished,
     SelfReviewStarted,
     StatusChanged,
@@ -241,6 +242,8 @@ class ConsoleRenderer:
             self._resume_work(messages.WORK_THINKING)
         elif isinstance(event, ToolCallRepaired):
             self._status(messages.AGENT_TOOL_CALL_REPAIRED)
+        elif isinstance(event, PreviewReady):
+            self._status(messages.AGENT_PREVIEW_READY.format(url=event.url))
         elif isinstance(event, SubAgentStarted):
             self._sub_titles[event.sub_id] = event.title or "alt-ajan"
             self._status(

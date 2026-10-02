@@ -155,8 +155,18 @@ _MUTATION_OBJECTS = (
     r"import|bağımlılık|bagimlilik|ayar|seçenek|secenek|kural|komut)"
 )
 
+#: Türkçe rica biçimleri: "yapmanı istiyorum", "yapmasını", "yapar mısın",
+#: "yapabilir misin". Ölçüldü (2 Ekim): "wordpress tabanlı bir website yapmanı
+#: istiyorum ..." emir kipi olmadığı için etki tanınmadı, görev "basit" sayıldı ve
+#: öğretmene plan sorulmadı.
+_REQUEST_SUFFIX = (
+    r"(?:man[ıi]|mas[ıi]n[ıi]|ar m[ıi]s[ıi]n|ir m[ıi]s[ıi]n|[ıi]r m[ıi]s[ıi]n|"
+    r"abilir misin|ebilir misin)"
+)
+
 _FILE_MUTATION_PATTERNS = (
     rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}\b",
+    rf"\b{_MUTATION_OBJECTS}[a-zçğıöşü]*.{{0,50}}\b{_MUTATION_VERBS}{_REQUEST_SUFFIX}\b",
     # Dosya adı fiilden ÖNCE ya da SONRA gelebilir: "index.html yaz" / "yaz index.html".
     rf"{_FILENAME}.{{0,40}}\b{_MUTATION_VERBS}\b",
     rf"\b{_MUTATION_VERBS}\b.{{0,40}}{_FILENAME}",
@@ -439,7 +449,9 @@ def _positive_action_clauses(text: str) -> str:
     positive = [
         clause
         for clause in clauses
-        if not any(word in clause for word in _NEGATED_ACTION_WORDS)
+        # Tam sözcük aranır: alt dize araması "website yapmanı istiyorum" isteğini
+        # "yapma" sanıp atıyordu (ölçüldü, 2 Ekim).
+        if not any(re.search(rf"\b{word}\b", clause) for word in _NEGATED_ACTION_WORDS)
         and not _EN_NEGATED_MUTATION.search(clause)
     ]
     return " ".join(positive)

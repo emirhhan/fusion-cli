@@ -77,6 +77,7 @@ class PhpVerifier:
             findings.extend(
                 await asyncio.to_thread(missing_theme_references, path, self._context.root)
             )
+        findings.extend(await asyncio.to_thread(missing_required_theme_files, files))
         if not findings:
             # `php -l` gerçekten çalıştıysa bu bir doğrulama KANITIDIR: rapor "doğrulama
             # çalıştırılmadı" demesin (bkz. `turn_report._gate_passed_evidence`).
@@ -88,6 +89,8 @@ class PhpVerifier:
                         status=EvidenceStatus.PASSED,
                         summary=f"php -l {len(files)} dosyada temiz, tema başvuruları mevcut",
                         command="php -l",
+                        # Sözdizimi temiz ≠ site açılıyor (bkz. `CriterionEvidence.behavioral`).
+                        behavioral=False,
                     ),
                 )
                 if self._php is not None
@@ -139,6 +142,24 @@ def theme_root(path: Path) -> Path | None:
         except OSError:
             continue
     return None
+
+
+#: WordPress'in bir temayı etkinleştirmek için ŞART koştuğu dosyalar (biri yeterli).
+#: Ölçüldü (2 Ekim): Fusion'ın yazdığı temada `index.php` yoktu; WordPress "Şablon
+#: eksik" diyerek temayı reddetti ve site hiç görünmedi — `php -l` bunu göremez.
+_REQUIRED_THEME_TEMPLATES = ("index.php", "templates/index.html")
+
+
+def missing_required_theme_files(files: list[Path]) -> list[str]:
+    """Dokunulan temalarda WordPress'in şart koştuğu şablon yoksa bulgu."""
+    findings: list[str] = []
+    for theme in dict.fromkeys(filter(None, (theme_root(path) for path in files))):
+        if not any((theme / name).is_file() for name in _REQUIRED_THEME_TEMPLATES):
+            findings.append(
+                f"WordPress teması '{theme.name}' etkinleştirilemez: zorunlu `index.php` "
+                "(blok temada `templates/index.html`) yok. Genel şablon olarak index.php yaz."
+            )
+    return findings
 
 
 def missing_theme_references(path: Path, root: Path) -> list[str]:
