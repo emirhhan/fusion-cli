@@ -325,3 +325,38 @@ def test_bir_siteye_benzetme_isteginde_once_tasarim_olcumu_istenir():
 )
 def test_benzetme_olmayan_istek_tasarim_notu_almaz(istek):
     assert design_hint(istek, available=True) is None
+
+
+async def test_kaynakta_urun_sayfasi_varsa_sitenin_urun_sayfasi_da_olculur(monkeypatch):
+    """Ölçüldü (3 Ekim 2026, 11. kabul koşusu): bozulan ürün şablonu her ürün sayfasını
+    "Shop" listesi yaptı; ana sayfa hatasızdı ve kapanış doğrulaması bunu görmedi."""
+    from fusion_cli.engines.agent import preview_tools
+    from fusion_cli.tools.preview_probe import LinkCheck
+
+    kaynak = [
+        {"url": "https://m.test/"},
+        {"url": "https://m.test/u/1", "product": {"name": "Hoodie", "images": [], "options": []}},
+    ]
+    olculen = {}
+
+    async def _probe(url, **kwargs):
+        olculen["url"] = url
+        return PageProbe(
+            url=url, status=200, title="Ürün", visible_chars=100, page_errors=(),
+            measured={"url": url, "texts": [{"tag": "a", "text": "ERKEK"}]},
+        )  # fmt: skip
+
+    monkeypatch.setattr(preview_tools, "probe", _probe)
+    ana = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Önizleme", visible_chars=500,
+        page_errors=(), measured={"url": "http://127.0.0.1:8770/"},
+        links=(LinkCheck("http://127.0.0.1:8770/shop/", 200),
+               LinkCheck("http://127.0.0.1:8770/product/ayakkabi/", 200)),
+    )  # fmt: skip
+
+    farklar = await preview_tools._product_page_differences(kaynak, ana)
+
+    assert olculen["url"] == "http://127.0.0.1:8770/product/ayakkabi/"
+    assert len(farklar) == 1 and "ürün ölçülemedi (ilk başlık 'ERKEK')" in farklar[0]
+    # Kaynakta ürün sayfası yoksa ya da açılan sayfa zaten ürünse ek ölçüm yapılmaz.
+    assert await preview_tools._product_page_differences([{"url": "https://m.test/"}], ana) == ()

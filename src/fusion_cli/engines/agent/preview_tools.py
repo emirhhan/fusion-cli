@@ -139,7 +139,46 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         PreviewReady(url=url, kind=kind.value, root=str(root), title=sonuc.title)
     )
     shot = await asyncio.to_thread(_save_screenshot, root, sonuc.screenshot)
-    return _result(url, kind.value, sonuc, setup, shot, _differences(kaynak, sonuc))
+    farklar = _differences(kaynak, sonuc)
+    if farklar is not None:
+        farklar = (*farklar, *await _product_page_differences(kaynak, sonuc))
+    return _result(url, kind.value, sonuc, setup, shot, farklar)
+
+
+#: Ürün ayrıntı sayfası sayılan iç bağlantı yolları (WooCommerce, Türkçe kalıcı bağlantı).
+_PRODUCT_PATH = re.compile(r"/(?:product|urun)/[^/?#]+/?$")
+
+
+async def _product_page_differences(
+    kaynak: list[dict[str, Any]], sonuc: PageProbe
+) -> tuple[str, ...]:
+    """Kaynakta ürün sayfası ölçülmüşse sitenin bir ürün sayfasını da ölçüp karşılaştır.
+
+    Ölçüldü (3 Ekim 2026, 11. kabul koşusu): son adımlarda `woocommerce.php` şablonu
+    bozuldu ve her ürün sayfası "Shop" listesi göstermeye başladı; ana sayfa hatasızdı ve
+    kapanış doğrulaması yalnız ona baktığı için iş "doğrulandı" diye bitti.
+    """
+    reference = next((page for page in kaynak if page.get("product")), None)
+    if reference is None or (sonuc.measured or {}).get("product"):
+        return ()
+    link = next((item.url for item in sonuc.links if _PRODUCT_PATH.search(item.url)), None)
+    if link is None:
+        return ()
+    urun = await probe(
+        link,
+        measure_script=site_design.probe_script(),
+        viewport=(site_design.VIEWPORT["width"], site_design.VIEWPORT["height"]),
+    )
+    if urun.measured is None:
+        return ()
+    if not urun.measured.get("product"):
+        baslik = (urun.measured.get("texts") or [{}])[0].get("text", "")
+        return (
+            f"ÜRÜN SAYFASI ({link}): kaynaktaki ürün sayfasında fiyat, galeri ve 'sepete "
+            f"ekle' düğmesi var; bu sayfada ürün ölçülemedi (ilk başlık '{baslik}'). "
+            "Ürün şablonu yanlış/bozuk olabilir.",
+        )
+    return tuple(f"{fark} [{link}]" for fark in design_compare.compare(reference, urun.measured))
 
 
 def _differences(kaynak: list[dict[str, Any]], sonuc: PageProbe) -> tuple[str, ...] | None:
