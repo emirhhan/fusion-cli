@@ -124,3 +124,13 @@ def izole_web_aramasi(monkeypatch):
     from fusion_cli.tools import web
 
     monkeypatch.setattr(web, "SEARCH_ENDPOINTS", (lambda _query: [],))
+
+
+@pytest.fixture(autouse=True)
+def _yerlesik_beceriler_yalitilir(tmp_path_factory, monkeypatch):
+    """Pakete gömülü beceriler keşif testlerinin beklediği listeye karışmasın.
+
+    Yerleşik beceriyi ölçen test bu yamayı kendi içinde geri alır.
+    """
+    bos = tmp_path_factory.mktemp("yerlesik-beceri-yok")
+    monkeypatch.setattr("fusion_cli.tools.capabilities.bundled_skills_dir", lambda: bos)

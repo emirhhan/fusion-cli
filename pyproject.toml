@@ -84,7 +84,7 @@ where = ["src"]
 # ilk komutta çökertir: prompt dosyaları import anında okunuyor. `tests/test_packaging.py`
 # bu listeyi dosya sistemine karşı doğrular.
 [tool.setuptools.package-data]
-"fusion_cli.config" = ["*.yaml", "roster/*.md"]
+"fusion_cli.config" = ["*.yaml", "roster/*.md", "skills/*/SKILL.md"]
 "fusion_cli.tools" = ["scaffold/*", "assets/*"]
 "fusion_cli.engines.agent" = ["prompts/*"]
 "fusion_cli.gateway" = ["*.html", "static/*.css", "static/*.js", "static/fonts/*"]

@@ -22,7 +22,7 @@ import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from ..config.paths import bundled_roster_dir, capabilities_dir
+from ..config.paths import bundled_roster_dir, bundled_skills_dir, capabilities_dir
 
 #: Claude araç adları → Fusion araç adları. Bir agent kısıtlı araç seti bildirdiğinde
 #: bu eşleme kullanılır; bilinmeyen ad sessizce yok sayılır.
@@ -177,7 +177,14 @@ def load_skill_page(path: Path, *, offset: int = 0, budget: int = SKILL_TEXT_BUD
 
 
 #: Skill ek dosyası olarak okunabilen uzantılar (metin). Görsel/ikili dosya verilmez.
-_SKILL_TEXT_SUFFIXES = frozenset({".md", ".txt", ".yaml", ".yml", ".json", ".toml", ".py", ".sh"})
+#: Kod şablonları da metindir: Remotion/animasyon becerilerinin örnekleri .tsx/.css/.html
+#: dosyalarında duruyor ve eskiden okunamıyordu.
+_SKILL_TEXT_SUFFIXES = frozenset(
+    {
+        ".md", ".txt", ".yaml", ".yml", ".json", ".toml", ".py", ".sh",
+        ".ts", ".tsx", ".js", ".jsx", ".mjs", ".css", ".html", ".svg",
+    }
+)  # fmt: skip
 #: Listelenecek en fazla ek dosya.
 _MAX_SKILL_FILES = 40
 
@@ -277,6 +284,8 @@ class CapabilityRegistry:
             (self._home / ".hermes" / "skills", "hermes"),
             # `fusion yetenek kur` ile kurulan repolar (ör. stickman-video-director).
             (capabilities_dir(), "kurulu"),
+            # Yerleşik beceriler EN SONDA: kullanıcı aynı adla kendi becerisini yazarsa o kazanır.
+            (bundled_skills_dir(), "fusion"),
         )
 
     def _agent_roots(self) -> tuple[tuple[Path, str], ...]:

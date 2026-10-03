@@ -119,6 +119,11 @@ def bundled_roster_dir() -> Path:
     return Path(__file__).resolve().parent / "roster"
 
 
+def bundled_skills_dir() -> Path:
+    """Pakete gömülü yerleşik beceriler (SKILL.md biçimi)."""
+    return Path(__file__).resolve().parent / "skills"
+
+
 def bundled_defaults() -> Path:
     """Pakete gömülü `defaults.yaml`. Her zaman mevcuttur; varsayılanların tek kaynağıdır."""
     return Path(__file__).resolve().parent / "defaults.yaml"

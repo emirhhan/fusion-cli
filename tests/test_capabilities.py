@@ -312,3 +312,21 @@ def test_read_skill_araci_devam_offsetini_kabul_eder(tmp_path):
 
     assert "SON-BOLUM" in sayfalar[-1]
     assert not tool.run({"name": "uzun", "offset": -1}, context).ok
+
+
+def test_yerlesik_web_arayuz_becerisi_ve_kod_sablonlari_okunur(tmp_path, monkeypatch):
+    """web_reference.md eskiden hiçbir yerden yüklenmiyordu; artık yerleşik beceri.
+    Remotion/animasyon örnekleri .tsx/.css dosyalarında olduğu için okunabilir olmalı."""
+    from fusion_cli.config.paths import bundled_skills_dir
+    from fusion_cli.tools import capabilities
+
+    monkeypatch.setattr(capabilities, "bundled_skills_dir", bundled_skills_dir)
+    beceri = tmp_path / "home" / ".claude" / "skills" / "hareket"
+    beceri.mkdir(parents=True)
+    (beceri / "SKILL.md").write_text("---\nname: hareket\ndescription: d\n---\nx", encoding="utf-8")
+    (beceri / "ornek.tsx").write_text("export const A = 1;", encoding="utf-8")
+
+    registry = capabilities.CapabilityRegistry(tmp_path / "home", tmp_path / "proje")
+
+    assert "web-arayuz" in [item.name for item in registry.skills()]
+    assert "ornek.tsx" in capabilities.skill_files(beceri / "SKILL.md")
