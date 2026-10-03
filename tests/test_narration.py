@@ -87,6 +87,9 @@ async def test_karmasik_iste_once_giris_paragrafi_yazilir(monkeypatch, tmp_path)
     assert anlatim and anlatim[0].startswith("İsteği şöyle anladım")
     # Giriş, işi yapan ilk çağrıdan önce gelir ve araçsız istenir.
     assert provider.seen_requests[0] == []
+    # Ama hangi araçların gerçekten var olduğunu bilir: olmayan eklentiyi vaat etmez.
+    giris_istemi = provider.seen_messages[0][0].content
+    assert "write_file" in giris_istemi and "listede olmayan" in giris_istemi
 
 
 async def test_basit_sohbette_giris_paragrafi_istenmez(monkeypatch, tmp_path) -> None:

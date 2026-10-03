@@ -40,16 +40,28 @@ _INTRO_PROMPT = (
     'okuyorum, sonra düzeltip testi yeniden çalıştıracağım." "Anladığım kadarıyla", '
     '"Elbette", "Harika" gibi girişlerle başlama; isteği tekrar etme. Kod, liste, '
     "başlık yazma; soru sorma; henüz bir şey yapmış gibi konuşma. Kullanıcının "
-    "dilinde yaz.\n\nİstek:\n{task}"
+    "dilinde yaz.\n\nElindeki araçlar: {tools}. Yalnız bunlarla yapabileceğin şeyi söyle; "
+    "listede olmayan bir aracı, eklentiyi ya da bağlantıyı kullanacağını söyleme.\n\n"
+    "İstek:\n{task}"
 )
 
 
 async def intro_paragraph(
-    task: str, spec: ModelSpec, config: Config, publisher: EventPublisher | None
+    task: str,
+    spec: ModelSpec,
+    config: Config,
+    publisher: EventPublisher | None,
+    tool_names: tuple[str, ...] = (),
 ) -> str:
-    """Araçsız kısa giriş metni; üretilemezse boş döner (iş beklemeden başlar)."""
+    """Araçsız kısa giriş metni; üretilemezse boş döner (iş beklemeden başlar).
+
+    Ölçüldü (17. kabul koşusu): giriş araç listesini bilmiyordu ve bağlı olmayan
+    Fusion Browser eklentisini kullanacağını yazdı; bu cümle modele "zaten
+    söyledin" notu olarak geri verildiği için sonraki adımları da kirletebilir.
+    """
+    istem = _INTRO_PROMPT.format(task=task[:_TASK_CHARS], tools=", ".join(tool_names) or "yok")
     request = CompletionRequest(
-        messages=(Message("user", _INTRO_PROMPT.format(task=task[:_TASK_CHARS])),),
+        messages=(Message("user", istem),),
         temperature=config.runtime.utility_temperature,
         max_tokens=INTRO_MAX_TOKENS,
         timeout_s=INTRO_TIMEOUT_S,

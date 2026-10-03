@@ -107,6 +107,7 @@ from .approval import ApprovalPolicy, Decision, resolve_request
 from .chat_mode import WORKSPACE_READ_REASON, chat_execution, chat_tool_names, observe_execution
 from .clarify import clarification_hint
 from .edit_hooks import EDIT_TOOLS, run_post_edit_hooks
+from .edit_streak import next_streak, streak_note
 from .engine_tools import UserAsker, build_agent_registry
 from .execution_policy import (
     ExecutionPolicy,
@@ -617,7 +618,7 @@ async def run_agent(
             )
 
     if depth == 0 and not internal and not plan_mode and not chat_mode:
-        await _publish_intro(task, messages, deps, execution)
+        await _publish_intro(task, messages, deps, execution, tuple(registry.names()))
         # Salt okuma turunda (soru, geçmiş sorgusu) öğretmenden İŞ PLANI istenmez.
         # Ölçüldü (1 Ekim olayı): "silmiş olabilir misin?" sorusu kurtarma planına
         # dönüştü ve ajan cevap yerine dosya yazdı.
@@ -912,6 +913,8 @@ class _State:
     stalled: bool = False
     #: (araç, sonuç özeti) → farklı argümanlarla aynı sonucu kaç kez verdi.
     same_output_counts: dict[tuple[str, str], int] = field(default_factory=dict)
+    #: Aynı dosyaya ardışık düzenleme serisi: (yol, sayı). Bkz. `edit_streak`.
+    edit_streak: tuple[str, int] = ("", 0)
     #: Aynı okuma çağrısı tekrar koruması tarafından engellendi mi?
     repeat_blocked: bool = False
     #: Araç varken kalıp ret cevabı bir kez geri çevrildi mi? (bkz. `refusal.py`)
@@ -1506,7 +1509,11 @@ def _shell_contains_git_action(args: dict[str, object], action: str) -> bool:
 
 
 async def _publish_intro(
-    task: str, messages: list[Message], deps: AgentDeps, execution: ExecutionPolicy
+    task: str,
+    messages: list[Message],
+    deps: AgentDeps,
+    execution: ExecutionPolicy,
+    tool_names: tuple[str, ...],
 ) -> None:
     """Karmaşık işte, işe başlamadan kullanıcıya kısa giriş paragrafı yaz.
 
@@ -1516,7 +1523,9 @@ async def _publish_intro(
     """
     if not execution.complex_task or execution.is_web:
         return
-    intro = await intro_paragraph(task, _active_spec(deps, execution), deps.config, deps.publisher)
+    intro = await intro_paragraph(
+        task, _active_spec(deps, execution), deps.config, deps.publisher, tool_names
+    )
     if not intro:
         return
     deps.publisher.publish(NarrationPublished(text=intro))
@@ -2685,6 +2694,14 @@ async def _run_tools(
             ayni = _same_output_note(state, call.name, result.output)
             if ayni is not None:
                 govde = f"{govde}\n\n{ayni}"
+        if outcome is ToolOutcome.OK and call.name in EDIT_TOOLS:
+            yol = args.get("path")
+            state.edit_streak = next_streak(state.edit_streak, yol if isinstance(yol, str) else "")
+            seri = streak_note(state.edit_streak)
+            if seri is not None:
+                govde = f"{govde}\n\n{seri}"
+        elif outcome is ToolOutcome.OK and tool is not None and tool.mutating:
+            state.edit_streak = ("", 0)
         hooks = _post_edit_commands(deps) if call.name in EDIT_TOOLS else ()
         if outcome is ToolOutcome.OK and hooks:
             raw_path = args.get("path")
