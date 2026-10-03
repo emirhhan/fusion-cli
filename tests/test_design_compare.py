@@ -112,3 +112,19 @@ def test_urun_sayfasinda_dugme_ve_secenek_farklari_soylenir():
     assert "zemin kaynakta rgb(22, 38, 255), sayfanda rgb(0, 0, 0)" in metin
     assert "yazı rengi" not in metin
     assert "seçenekler (S, M) var, sayfanda yok" in metin
+
+
+def test_kartta_yinelenen_ad_soylenir():
+    yapilan = {
+        "products": [
+            {"name": "Air 1", "text": "Air 1 Air 1 $8,999 Sepete Ekle Sepete Ekle"},
+        ]
+    }
+
+    metin = "\n".join(design_compare.compare({"products": []}, yapilan))
+
+    assert "ÜRÜN KARTI: ad kartta iki kez yazılıyor ('Air 1')" in metin
+    assert (
+        design_compare.compare({"products": []}, {"products": [{"name": "A", "text": "A 1 TL"}]})
+        == []
+    )

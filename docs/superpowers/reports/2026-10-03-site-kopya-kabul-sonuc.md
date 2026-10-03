@@ -36,6 +36,12 @@ artık sitenin bir ürün sayfasını da ölçüp karşılaştırıyor (`1ac627d
 sitede her `wp` komutu asılı kaldı, koşu durduruldu → asılı kalan wp adımı artık
 `--skip-plugins` kaçış kapısını söylüyor (`17d25fc`). Sıradaki koşu bu ikisini sınar.
 
+**13. koşu** (~45 dk): kabul denetimi **15/17** — ürün sayfası başlık/fiyat/galeri/sepete ekle
+çalışıyor, sepete ekleme sayacı artıyor, 0 kırık kaynak, ödeme formu var. Kalan: sepet
+sayfası içeriği boş geliyor (tema sayfa şablonu), para birimi hâlâ `$` (model `para_birimi`
+notunu uygulamadı), ana sayfada ürün şeridi yerine görsel ızgaraları, mağaza kartında ad ve
+düğme iki kez (kanca iki kez bağlanmış).
+
 ## Fusion'da kalıcı olarak değişenler
 
 1. **Öğretmen** — araçsız istek araç çerçevesiz gider; plan isteği `PLAN_FRAME` + çırağın araç

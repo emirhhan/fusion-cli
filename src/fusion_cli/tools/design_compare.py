@@ -191,12 +191,25 @@ def _section_pair(position: int, wanted: dict[str, Any], actual: dict[str, Any])
 
 def _products(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
     wanted, actual = len(reference.get("products", [])), len(built.get("products", []))
+    found: list[str] = []
     if wanted >= MIN_LISTING_PRODUCTS and actual < wanted // 2:
-        return [
+        found.append(
             f"ÜRÜNLER: kaynak sayfada {wanted}+ ürün kartı (görsel + ad + fiyat) var, sayfanda "
             f"{actual}. Ürünleri mağazaya ekle ve bu sayfada listele."
-        ]
-    return []
+        )
+    # Ölçüldü (13. kabul koşusu): kartta ürün adı ve "Sepete Ekle" iki kez çıktı; şablon
+    # kancası iki kez bağlanmıştı ve model ekranı göremediği için fark etmedi.
+    yinelenen = [
+        item["name"]
+        for item in built.get("products", [])[:12]
+        if item.get("name") and str(item.get("text", "")).count(str(item["name"])) >= 2
+    ]
+    if yinelenen:
+        found.append(
+            f"ÜRÜN KARTI: ad kartta iki kez yazılıyor ('{yinelenen[0]}'); şablon kancası ya "
+            "da başlık iki kez bağlanmış, birini kaldır."
+        )
+    return found
 
 
 def _product_page(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:

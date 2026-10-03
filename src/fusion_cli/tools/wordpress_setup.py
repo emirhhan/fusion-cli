@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import os
 import re
 import secrets
@@ -191,7 +192,33 @@ async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[st
         # 2026, 8. kabul koşusu): ürünler eklendiği halde /shop/ boş "coming-soon" sayfası
         # döndü; model nedenini curl çıktısında aradı. Yerel önizlemede mağaza açık olmalı.
         await _run_wp(wp_cli, root, "option", "update", "woocommerce_coming_soon", "no")
+        birim = catalog_currency(root)
+        if birim:
+            # Kaynak sitenin para birimi mağazaya uygulanır. Ölçüldü (13. kabul koşusu):
+            # özet "para birimini TRY yap" dediği halde model mağazayı dolar bıraktı.
+            await _run_wp(wp_cli, root, "option", "update", "woocommerce_currency", birim)
+            steps.append(f"Mağaza para birimi: {birim} (kaynak siteden)")
     return steps
+
+
+#: `site_design`'ın yazdığı ürün kataloğu (proje kökünde).
+CATALOG_FILE = Path("tasarim-kaynak") / "urunler.json"
+_CURRENCY_CODE = re.compile(r"^[A-Z]{3}$")
+
+
+def catalog_currency(root: Path) -> str:
+    """Ölçülen kataloğun para birimi (ISO kodu); katalog yoksa boş."""
+    try:
+        items = json.loads((root / CATALOG_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(items, list):
+        return ""
+    for item in items:
+        birim = item.get("para_birimi") if isinstance(item, dict) else None
+        if isinstance(birim, str) and _CURRENCY_CODE.fullmatch(birim):
+            return birim
+    return ""
 
 
 async def _install_core(wp_cli: str, root: Path, url: str) -> Path:

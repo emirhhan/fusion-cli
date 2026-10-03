@@ -286,3 +286,21 @@ async def test_asili_kalan_wp_komutu_eklenti_kacis_kapisini_soyler(tmp_path, mon
 
     with pytest.raises(WordPressSetupError, match="--skip-plugins"):
         await setup_wordpress(kok, "http://127.0.0.1:8774", wp_cli=wp)
+
+
+async def test_kaynak_katalogun_para_birimi_magazaya_uygulanir(tmp_path):
+    """Ölçüldü (13. kabul koşusu): model "para birimini TRY yap" notunu uygulamadı."""
+    kok = tmp_path / "site"
+    _tema(kok)
+    for klasor in ("wp-includes", "wp-admin", "wp-content/plugins/woocommerce", "tasarim-kaynak"):
+        (kok / klasor).mkdir(parents=True)
+    (kok / "wp-config.php").write_text("<?php", encoding="utf-8")
+    (kok / "tasarim-kaynak" / "urunler.json").write_text(
+        '[{"ad": "x", "fiyat": "1 TL", "fiyat_sayi": 1, "para_birimi": "TRY"}]', encoding="utf-8"
+    )
+    wp, kayit = _sahte_wp(tmp_path, kurulu=True)
+
+    sonuc = await setup_wordpress(kok, "http://127.0.0.1:8775", wp_cli=wp)
+
+    assert "option update woocommerce_currency TRY" in kayit.read_text(encoding="utf-8")
+    assert "Mağaza para birimi: TRY (kaynak siteden)" in sonuc.steps
