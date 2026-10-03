@@ -368,8 +368,9 @@ async def test_liste_sepet_ve_odeme_sayfalari_da_olculur_ve_stilsizlik_soylenir(
         "LİSTE SAYFASI (http://127.0.0.1:8770/shop/): ÜRÜN IZGARASI: ürün kartları tek sütun"
         in metin
     )
-    assert "SEPET SAYFASI (http://127.0.0.1:8770/cart/): FORM ÖĞELERİ: 5/6" in metin
-    assert "ÖDEME SAYFASI" in metin
+    # Üç sayfa aynı ölçümü verdi: bulgu bir kez, ilk görüldüğü sayfayla söylenir.
+    assert metin.count("FORM ÖĞELERİ: 5/6") == 1
+    assert "LİSTE SAYFASI (http://127.0.0.1:8770/shop/): FORM ÖĞELERİ: 5/6" in metin
 
 
 async def test_woocommerce_stilleri_kapatilmissa_onizleme_uyarir(tmp_path):
@@ -493,3 +494,33 @@ def test_php_hatasinin_mesaji_dosyasi_ve_satiri_bildirilir():
     assert satirlar[0].startswith('Fatal error: Uncaught Error: Class "Sneaksup_Nav_Walker"')
     assert "header.php:42" in satirlar[0]
     assert page_error_lines("<p>her şey yolunda</p>") == ()
+
+
+async def test_ana_sayfada_soylenen_bulgu_alt_sayfada_tekrarlanmaz(monkeypatch):
+    """Ölçüldü (17. kabul koşusu): ortak üst bilgideki kırık menü bağlantıları mağaza ve
+    sepet sayfasında yeniden yazıldı; asıl sayfa sorunları gürültüde kayboldu."""
+    from fusion_cli.engines.agent import preview_tools
+    from fusion_cli.tools.preview_probe import LinkCheck
+
+    kirik = LinkCheck("http://127.0.0.1:8770/erkek/", 404)
+
+    async def _probe(url, **kwargs):
+        return PageProbe(
+            url=url, status=200, title="s", visible_chars=300, page_errors=(),
+            measured={"url": url, "health": {"controls": 4, "unstyledControls": 4}},
+            links=(kirik,),
+        )  # fmt: skip
+
+    monkeypatch.setattr(preview_tools, "probe", _probe)
+    ana = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        measured={"url": "http://127.0.0.1:8770/"},
+        links=(kirik, LinkCheck("http://127.0.0.1:8770/sepet/", 200),
+               LinkCheck("http://127.0.0.1:8770/odeme/", 200)),
+    )  # fmt: skip
+
+    farklar = await preview_tools._other_page_differences([], ana, ana.problems)
+
+    assert not any("erkek" in fark for fark in farklar)
+    form = [fark for fark in farklar if "FORM ÖĞELERİ" in fark]
+    assert len(form) == 1 and form[0].startswith("SEPET SAYFASI")

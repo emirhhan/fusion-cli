@@ -141,7 +141,8 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
     shot = await asyncio.to_thread(_save_screenshot, root, sonuc.screenshot)
     farklar = _differences(kaynak, sonuc)
     if farklar is not None:
-        farklar = (*farklar, *await _other_page_differences(kaynak, sonuc))
+        soylenen = (*sonuc.problems, *farklar)
+        farklar = (*farklar, *await _other_page_differences(kaynak, sonuc, soylenen))
     ek_sorunlar: tuple[str, ...] = ()
     if kind is preview_server.PreviewKind.WORDPRESS:
         dosya = await asyncio.to_thread(woocommerce_styles_disabled, root)
@@ -167,14 +168,17 @@ MAX_EXTRA_PAGES = 4
 
 
 async def _other_page_differences(
-    kaynak: list[dict[str, Any]], sonuc: PageProbe
+    kaynak: list[dict[str, Any]], sonuc: PageProbe, said: tuple[str, ...] = ()
 ) -> tuple[str, ...]:
     """Ana sayfa dışındaki sayfa türlerini de ölç: ürün, liste, sepet, ödeme.
 
     Her sayfa için kaynaksız yerleşim sağlığı (tek sütun ızgara, stilsiz form) raporlanır;
-    kaynakta karşılığı olan sayfa türü (ürün, liste) kaynakla da karşılaştırılır.
+    kaynakta karşılığı olan sayfa türü (ürün, liste) kaynakla da karşılaştırılır. Ana
+    sayfada ya da önceki bir sayfada söylenmiş bulgu tekrarlanmaz. Ölçüldü (17. kabul
+    koşusu): ortak üst bilgideki kırık menü bağlantıları her sayfada yeniden yazıldı.
     """
     found: list[str] = []
+    seen_findings = set(said)
     seen = 0
     for label, pattern in _PAGE_KINDS:
         if seen >= MAX_EXTRA_PAGES:
@@ -183,11 +187,15 @@ async def _other_page_differences(
         if link is None:
             continue
         seen += 1
-        found.extend(await _measure_other_page(label, link, kaynak))
+        for finding in await _measure_other_page(label, link, kaynak):
+            if finding not in seen_findings:
+                seen_findings.add(finding)
+                found.append(f"{label} ({link}): {finding}")
     return tuple(found)
 
 
 async def _measure_other_page(label: str, link: str, kaynak: list[dict[str, Any]]) -> list[str]:
+    """Tek bir sayfanın bulguları (sayfa etiketi olmadan)."""
     sayfa = await probe(
         link,
         measure_script=site_design.probe_script(),
@@ -195,14 +203,14 @@ async def _measure_other_page(label: str, link: str, kaynak: list[dict[str, Any]
     )
     if sayfa.measured is None:
         return []
-    found = [f"{label} ({link}): {sorun}" for sorun in sayfa.problems]
+    found = list(sayfa.problems)
     reference = design_compare.pick_reference(kaynak, sayfa.measured)
     if label == "ÜRÜN SAYFASI":
         reference = next((page for page in kaynak if page.get("product")), None)
         if reference is not None and not sayfa.measured.get("product"):
             baslik = (sayfa.measured.get("texts") or [{}])[0].get("text", "")
             found.append(
-                f"{label} ({link}): kaynaktaki ürün sayfasında fiyat, galeri ve 'sepete ekle' "
+                "kaynaktaki ürün sayfasında fiyat, galeri ve 'sepete ekle' "
                 f"düğmesi var; bu sayfada ürün ölçülemedi (ilk başlık '{baslik}'). Ürün "
                 "şablonu yanlış/bozuk olabilir."
             )
@@ -212,7 +220,7 @@ async def _measure_other_page(label: str, link: str, kaynak: list[dict[str, Any]
         if reference is not None and label in ("ÜRÜN SAYFASI", "LİSTE SAYFASI")
         else design_compare.health_findings(sayfa.measured)
     )
-    found.extend(f"{label} ({link}): {fark}" for fark in farklar)
+    found.extend(farklar)
     return found
 
 
