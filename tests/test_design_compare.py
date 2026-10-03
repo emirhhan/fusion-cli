@@ -141,7 +141,7 @@ def test_kaynaksiz_yerlesim_sagligi_tek_sutun_ve_stilsiz_formu_soyler():
 
     metin = "\n".join(design_compare.health_findings(yapilan))
 
-    assert "ÜRÜN IZGARASI: ürün kartları tek sütun ve 1368px" in metin
+    assert "ÜRÜN IZGARASI: ürün kartları tek sütunda alt alta (kart 1368px" in metin
     assert "FORM ÖĞELERİ: 7/8" in metin
     assert "YATAY TAŞMA" in metin
     saglikli = {

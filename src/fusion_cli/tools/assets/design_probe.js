@@ -36,7 +36,12 @@
         padding: cs.padding, gap: cs.gap, display: cs.display, font: typo(el),
       };
     };
-    const signature = (el) => `${el.tagName}.${[...el.classList].sort().join(".")}`;
+    // Kart imzası: etiket + ilk iki KALICI sınıf. Rakamlı (post-218, product_cat-47) ve konum
+    // sınıfları (first, last) karta özgüdür; ölçüldü (17. kabul koşusu): WooCommerce'in 24
+    // kartı bu yüzden hiç gruplanmadı, mağaza sayfasında "0 ürün" ölçüldü.
+    const VOLATILE_CLASS = /\d|^(first|last|odd|even|active|current|selected|is-.*)$/;
+    const signature = (el) => `${el.tagName}.${[...el.classList]
+      .filter((name) => !VOLATILE_CLASS.test(name)).slice(0, 2).join(".")}`;
     const trimHtml = (el, max) => {
       const clone = el.cloneNode(true);
       clone.querySelectorAll("script, style, svg path").forEach((n) => n.remove());
@@ -205,6 +210,7 @@
           name: (img.alt || (nameEl && textOf(nameEl)) || "").slice(0, 120),
           price: leaf ? textOf(leaf).slice(0, 40) : "", image: src, link,
           text: textOf(item).slice(0, 160), _w: Math.round(item.getBoundingClientRect().width),
+          _x: Math.round(item.getBoundingClientRect().left),
         });
       }
     }
@@ -337,6 +343,9 @@
     // sütun 1368 px görsel, formlar tarayıcı varsayılanı oldu — hiçbir ölçüm bunu söylemedi.
     const cardWidths = products.slice(0, 8).map((item) => item._w || 0).filter(Boolean);
     const widestCard = cardWidths.length ? Math.max(...cardWidths) : 0;
+    // Tek sütun = kartlar alt alta (aynı sol kenar). Ölçüldü (17. kabul koşusu): 216px dar
+    // kartlar alt alta dizildi; yalnız genişliğe bakan ölçü bunu kaçırdı.
+    const columns = new Set(products.slice(0, 8).map((item) => item._x)).size;
     const controls = [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea, button")]
       .filter(shown);
     const unstyled = controls.filter((el) => {
@@ -349,7 +358,8 @@
       viewport: innerWidth,
       products: products.length,
       widestCard,
-      singleColumn: products.length >= 3 && widestCard >= innerWidth * 0.8,
+      columns,
+      singleColumn: products.length >= 3 && (columns === 1 || widestCard >= innerWidth * 0.8),
       controls: controls.length,
       unstyledControls: unstyled.length,
       overflowX: document.documentElement.scrollWidth > innerWidth + 2,

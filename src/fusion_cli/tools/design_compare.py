@@ -63,8 +63,9 @@ def health_findings(built: dict[str, Any]) -> list[str]:
     found: list[str] = []
     if health.get("singleColumn"):
         found.append(
-            f"ÜRÜN IZGARASI: ürün kartları tek sütun ve {health.get('widestCard')}px genişlikte "
-            f"({health.get('viewport')}px ekranda). Kartları çok sütunlu ızgaraya al "
+            "ÜRÜN IZGARASI: ürün kartları tek sütunda alt alta "
+            f"(kart {health.get('widestCard')}px, ekran {health.get('viewport')}px). "
+            "Kartları çok sütunlu ızgaraya al "
             "(ör. grid, 4 sütun, kart ~250-360px); listeleme için stil eksik."
         )
     unstyled, controls = health.get("unstyledControls", 0), health.get("controls", 0)

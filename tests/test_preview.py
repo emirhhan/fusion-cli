@@ -365,7 +365,7 @@ async def test_liste_sepet_ve_odeme_sayfalari_da_olculur_ve_stilsizlik_soylenir(
     ]
     metin = "\n".join(farklar)
     assert (
-        "LİSTE SAYFASI (http://127.0.0.1:8770/shop/): ÜRÜN IZGARASI: ürün kartları tek sütun"
+        "LİSTE SAYFASI (http://127.0.0.1:8770/shop/): ÜRÜN IZGARASI: ürün kartları tek sütunda"
         in metin
     )
     # Üç sayfa aynı ölçümü verdi: bulgu bir kez, ilk görüldüğü sayfayla söylenir.

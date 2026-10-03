@@ -277,3 +277,38 @@ async def test_eklenti_yanit_vermezse_olcum_bassiz_tarayiciyla_surer(monkeypatch
 def test_fiyat_metni_sayi_ve_para_birimine_cozulur(metin, beklenen):
     """Ölçüldü (10. kabul koşusu): model "7.499,00 TL"yi 749900 dolar yaptı."""
     assert design.parse_price(metin) == beklenen
+
+
+async def test_karta_ozgu_siniflar_gruplamayi_bozmaz_ve_tek_sutun_olculur():
+    """Ölçüldü (3 Ekim 2026, 17. kabul koşusu): WooCommerce her karta `post-218`,
+    `product_cat-47`, `first` gibi sınıflar ekler; 24 kart hiç gruplanmadı ("0 ürün") ve
+    alt alta dizilmiş dar kartlar tek sütun sayılmadı."""
+    from playwright.async_api import async_playwright
+
+    kartlar = "".join(
+        f'<li class="product type-product post-{n} {"first" if n % 4 == 0 else ""} '
+        f'product_cat-{n + 40}"><a href="/product/a{n}/"><img src="/u{n}.png" width="216" '
+        f'height="216"></a><h3>Ayakkabı {n}</h3><span class="price">₺7,499.00</span></li>'
+        for n in range(6)
+    )
+    sayfa = f'<!doctype html><html><head><meta charset="utf-8"></head><body><ul class="products">{kartlar}</ul></body></html>'  # noqa: E501
+
+    async def _rota(route):
+        if route.request.url.endswith(".png"):
+            await route.fulfill(body=_PNG, content_type="image/png")
+        else:
+            await route.fulfill(body=sayfa, content_type="text/html; charset=utf-8")
+
+    async with async_playwright() as driver:
+        try:
+            browser = await driver.chromium.launch()
+        except Exception as exc:  # pragma: no cover - tarayıcı ikilisi yoksa
+            pytest.skip(f"Chromium yok: {exc}")
+        page = await browser.new_page(viewport={"width": 1440, "height": 900})
+        await page.route("**/*", _rota)
+        await page.goto("https://m.test/magaza/")
+        olcum = await page.evaluate(design.probe_script(), {})
+        await browser.close()
+
+    assert len(olcum["products"]) == 6
+    assert olcum["health"]["columns"] == 1 and olcum["health"]["singleColumn"] is True
