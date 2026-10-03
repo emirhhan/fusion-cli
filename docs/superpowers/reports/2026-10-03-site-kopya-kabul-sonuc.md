@@ -42,6 +42,12 @@ sayfası içeriği boş geliyor (tema sayfa şablonu), para birimi hâlâ `$` (m
 notunu uygulamadı), ana sayfada ürün şeridi yerine görsel ızgaraları, mağaza kartında ad ve
 düğme iki kez (kanca iki kez bağlanmış).
 
+**14. koşu** (~50 dk, para birimi kurulumda uygulanıyor, yinelenen kart uyarısı, düşünme
+bütçesi dolunca düşük yoğunluk): kabul denetimi **16/17** — 0 kırık kaynak, 74 fiyatlı ürün ana
+sayfada, mağaza 24 ürün, ürün sayfası 3 görsel + fiyat (TL) + sepete ekle, **sepete ekleme ve sepet
+sayfası çalışıyor**; tek eksik ödeme sayfasında form (WooCommerce Blocks ödeme bloğu temanın
+sayfa şablonunda render olmuyor).
+
 ## Fusion'da kalıcı olarak değişenler
 
 1. **Öğretmen** — araçsız istek araç çerçevesiz gider; plan isteği `PLAN_FRAME` + çırağın araç
