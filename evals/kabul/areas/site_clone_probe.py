@@ -89,7 +89,8 @@ def probe_store(base_url: str, pages: WooPages, source_url: str) -> StoreProbe:
         from playwright.sync_api import sync_playwright
     except ImportError as hata:
         raise ProbeUnavailableError("playwright kurulu değil") from hata
-    kaynak_alan = urlparse(source_url).hostname or ""
+    # Alt alan adları (cdn.site.com) da kaynağa hotlink'tir; www. öneki atılır.
+    kaynak_alan = (urlparse(source_url).hostname or "").removeprefix("www.")
     try:
         with sync_playwright() as oynatici:
             tarayici = oynatici.chromium.launch()
@@ -116,6 +117,7 @@ def _run(
     ana_html = sayfa.content()
     ana_png = sayfa.screenshot(full_page=True)
     kenar = sayfa.locator(DEFAULT_SIDEBAR_SELECTOR).count()
+    kirik_ana = _broken_images(sayfa)
     checks = [
         Check(
             "ana_sayfa_acildi",
@@ -123,14 +125,44 @@ def _run(
             f"HTTP {ana.status if ana else 'yok'}",
         ),
         Check("varsayilan_kenar_cubugu_yok", kenar == 0, f"{kenar} varsayılan widget"),
+        _image_check("ana_sayfa_gorselleri", kirik_ana),
     ]
     sutun = _grid(sayfa, pages.shop)
+    checks.append(_image_check("magaza_gorselleri", _broken_images(sayfa)))
     checks.append(_product_form(sayfa, pages.product))
     checks.append(_add_to_cart(sayfa, pages))
     odeme, not_ = _checkout(sayfa, pages.checkout)
     checks.append(odeme)
     checks.append(Check("kaynaga_hotlink_yok", not hotlink, f"{len(hotlink)} istek {host} alanına"))
     return StoreProbe(tuple(checks), sutun, _source_similarity(tarayici, source_url, ana_png), not_)
+
+
+#: Kırık (yüklenmemiş) ya da WooCommerce yer tutucusu görsel oranı bu değeri
+#: aşarsa madde düşer. Başlangıç eşiği; taban ölçümüyle sabitlenecek.
+MAX_BROKEN_IMAGE_RATIO = 0.1
+_BROKEN_IMAGES_JS = """() => {
+  const imgs = [...document.images].filter(i => i.offsetParent !== null);
+  const bad = imgs.filter(i => (i.complete && i.naturalWidth === 0)
+    || /woocommerce-placeholder|placeholder\\.(png|jpg|webp)/.test(i.currentSrc || i.src));
+  return [bad.length, imgs.length];
+}"""
+
+
+def _broken_images(sayfa: Page) -> tuple[int, int]:
+    """Görünür görsellerden kırık ya da yer tutucu olanların sayısı ve toplam."""
+    sayfa.wait_for_timeout(1500)
+    kirik, toplam = sayfa.evaluate(_BROKEN_IMAGES_JS)
+    return int(kirik), int(toplam)
+
+
+def _image_check(name: str, counts: tuple[int, int]) -> Check:
+    kirik, toplam = counts
+    oran = kirik / toplam if toplam else 1.0
+    return Check(
+        name,
+        toplam > 0 and oran <= MAX_BROKEN_IMAGE_RATIO,
+        f"{kirik}/{toplam} görsel kırık ya da yer tutucu (en çok {MAX_BROKEN_IMAGE_RATIO:.0%})",
+    )
 
 
 def _note_hotlink(hotlink: list[str], url: str, host: str) -> None:
