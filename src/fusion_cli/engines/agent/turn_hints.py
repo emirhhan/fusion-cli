@@ -80,8 +80,28 @@ def scope_hint(task: str) -> str | None:
     return SCOPE_NOTE if len(signals) >= BIG_SCOPE_MIN_SIGNALS else None
 
 
-def design_hint(task: str, *, available: bool) -> str | None:
-    """İstek bir adres VE benzerlik sözü taşıyorsa ölçüm aracına yönlendir."""
-    if not available or _URL.search(task) is None or _LOOKALIKE.search(task) is None:
+_WORDPRESS = re.compile(
+    r"wordpress|woocommerce|e-?ticaret|mağaza|magaza|online shop", re.IGNORECASE
+)
+CLONE_NOTE = (
+    "Kullanıcı VAR OLAN bir sitenin WordPress/WooCommerce kopyasını istiyor. Temayı SIFIRDAN "
+    "YAZMA: ilk iş clone_site(url) çağır. O araç görünümü (CSS, görseller, başlık/altlık) "
+    "birebir yakalar, temayı yazar, WooCommerce'i kurar ve ürünleri aktarır; sonucundaki "
+    "SIRADAKİ ADIMLAR'ı uygula. Kapanışta kullanıcıya söyle: logo, ürün görselleri ve "
+    "metinler başka markaya ait, yerel çalışma için alındı; yayına almadan önce kendi "
+    "içerikleriyle değiştirmeli."
+)
+
+
+def design_hint(task: str, *, available: bool, clone_available: bool = False) -> str | None:
+    """İstek bir adres VE benzerlik sözü taşıyorsa ölçüm/kopya aracına yönlendir.
+
+    WordPress/e-ticaret kopyasında `clone_site` (görünüm deterministik kopyalanır);
+    diğer sitelerde ölçüm yolu. Ölçüldü: 17 koşuda model ölç-sıfırdan-yaz yolunu
+    seçti ve hiçbirinde mağaza kabul düzeyine gelmedi.
+    """
+    if _URL.search(task) is None or _LOOKALIKE.search(task) is None:
         return None
-    return DESIGN_NOTE
+    if clone_available and _WORDPRESS.search(task) is not None:
+        return CLONE_NOTE
+    return DESIGN_NOTE if available else None

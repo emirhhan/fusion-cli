@@ -502,7 +502,11 @@ async def run_agent(
         (
             preview_hint(task, available=registry.get("start_preview") is not None),
             scope_hint(task),
-            design_hint(task, available=registry.get("site_design") is not None),
+            design_hint(
+                task,
+                available=registry.get("site_design") is not None,
+                clone_available=registry.get("clone_site") is not None,
+            ),
         )
         if depth == 0 and not chat_mode and not internal
         else ()

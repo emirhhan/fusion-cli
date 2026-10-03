@@ -39,6 +39,7 @@ from ...tools.forge import forge_tool, load_forged_tools
 from ...tools.registry import ToolRegistry
 from ...ui import messages
 from . import learning_steps
+from .clone_tools import clone_tools
 from .history_tools import recent_actions_tool
 from .image_tools import generate_image_tool
 from .image_view import DEFAULT_QUESTION, describe_image
@@ -126,7 +127,7 @@ def build_agent_registry(
     image_tool = generate_image_tool(deps)
     if image_tool is not None:
         extended.register(image_tool)
-    for web_tool in web_work_tools():
+    for web_tool in (*web_work_tools(), *clone_tools()):
         extended.register(web_tool)
     extended.register(preview_tool(deps))
     conversation = getattr(deps, "conversation_id", "")
