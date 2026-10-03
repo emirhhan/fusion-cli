@@ -260,7 +260,9 @@ def _image_queue(report: DesignReport) -> list[str]:
     for page in report.pages:
         ranked = sorted(page.get("images", []), key=lambda i: -(i["shown"][0] * i["shown"][1]))
         rest.extend(item["src"] for item in ranked)
-    return [*logos, *sectional, *products, *galleries, *rest]
+    # Ürün görselleri bölüm görsellerinden ÖNCE: sınır (MAX_IMAGE_DOWNLOADS) dolunca
+    # kataloğun görselsiz kalmasını önler (ölçüldü: 48 üründen 11'i görselsiz aktarıldı).
+    return [*logos, *products, *galleries, *sectional, *rest]
 
 
 def collect_products(report: DesignReport, folder_label: str) -> list[dict[str, Any]]:
