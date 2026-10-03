@@ -31,6 +31,15 @@ from ..core.types import (
 CIRCUIT_OPEN_ERROR = "devre açık: model geçici olarak sağlıksız, atlanıyor"
 
 
+def _budget_exhausted(result: ModelResult) -> bool:
+    """Çıktı bütçesi düşünmeye gitti: model sağlıklı, sorun istenen bütçede.
+
+    Bu bir model arızası sayılmaz; sayılırsa üç denemede devre açılıyor ve
+    motorun bütçe/düşünme kurtarması hiç çalışamıyordu (ölçüldü, 4 Ekim).
+    """
+    return result.truncated and not result.is_usable
+
+
 class CircuitBreakingProvider:
     """Tek bir modeli, devresi açıksa atlayan sarmalayıcı."""
 
@@ -47,6 +56,8 @@ class CircuitBreakingProvider:
         if not self._health.allow():
             return self._skipped()
         result = await self._inner.complete(request)
+        if _budget_exhausted(result):
+            return result
         # Kota hatası sıradan arıza değildir: sağlayıcı "şimdi olmaz" diyor ve aynı
         # soğumayla dönmek tur bütçesini yakar. Ayrımı burada yapmak, artan geri
         # çekilmeyi bütün sağlayıcılar için tek yerde açar.
@@ -67,6 +78,8 @@ class CircuitBreakingProvider:
         async for item in self._inner.stream(request):
             if isinstance(item, TextChunk) and item.text:
                 produced = True
+            elif isinstance(item, StreamDone) and _budget_exhausted(item.result):
+                recorded = True
             elif isinstance(item, StreamDone):
                 self._health.record(
                     ok=item.result.is_usable,

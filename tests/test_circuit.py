@@ -193,3 +193,32 @@ def test_health_komutu_skor_ve_durumu_gosterir(tmp_path):
     mesaj = _run(_state(tmp_path, health=registry), "/health")
     assert "nvidia/model" in mesaj
     assert "AÇIK" in mesaj
+
+
+class _TruncatedProvider(FakeProvider):
+    """Çıktı bütçesini düşünmeye harcayan model: boş metin, finish_reason=length."""
+
+    def _result(self):
+        from dataclasses import replace
+
+        return replace(super()._result(), ok=False, error="bütçe doldu", truncated=True)
+
+
+async def test_dusunme_butceyi_yerse_devre_acilmaz():
+    """Ölçüldü (4 Ekim taban koşusu): üç 'bütçe doldu' devreyi açtı ve motorun
+    düşünmeyi kapatan kurtarması hiç çalışamadı."""
+    saglik = _health(threshold=3)
+    saglayici = CircuitBreakingProvider(_TruncatedProvider("m"), health=saglik, role="r")
+
+    for _ in range(5):
+        sonuc = await saglayici.complete(request())
+
+    assert sonuc.truncated and saglik.phase is CircuitPhase.CLOSED
+
+
+async def test_zincir_tum_basarisizliklarda_kesilme_bayragini_korur():
+    zincir = FallbackProvider([_TruncatedProvider("m")], role="r")
+
+    sonuc = await zincir.complete(request())
+
+    assert not sonuc.is_usable and sonuc.truncated

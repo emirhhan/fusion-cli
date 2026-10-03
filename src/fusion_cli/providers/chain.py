@@ -179,6 +179,11 @@ class FallbackProvider:
             latency_ms=max((failure.latency_ms for failure in failures), default=0),
             ok=False,
             error=errors or "tüm sağlayıcılar yanıt veremedi",
+            # Düşünme bütçeyi yediyse bu bilgi taşınmalı: motor ancak bu bayrakla
+            # bütçeyi büyütüp düşünmeyi kapatarak kurtarır. Ölçüldü (4 Ekim taban
+            # koşusu): bayrak burada düşüyordu, aynı bütçeyle 3 kez denendi ve
+            # devre kesici modeli "sağlıksız" sayıp tur takıldı.
+            truncated=any(failure.truncated for failure in failures),
         )
 
 
