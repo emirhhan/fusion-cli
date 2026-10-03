@@ -61,6 +61,40 @@ def test_buyuk_ama_az_sayida_cikti_da_temizlenir():
     assert temiz[-1].content == "b" * 24_000
 
 
+def _yazim_konusmasi(yazim_sayisi: int, icerik: str) -> list[Message]:
+    mesajlar = [Message("system", "kimlik"), Message("user", "siteyi yaz")]
+    for index in range(yazim_sayisi):
+        cagri = tool_call("write_file", path=f"dosya{index}.php", content=icerik)
+        mesajlar.append(Message("assistant", "", tool_calls=(cagri,)))
+        mesajlar.append(Message("tool", "yazıldı", name="write_file", tool_call_id=str(index)))
+    return mesajlar
+
+
+def test_toplam_boyut_arac_argumanlarini_da_sayar():
+    """Ölçüldü (17. kabul koşusu): dosya içerikleri argümanda kaldığı için sayılmıyor,
+    sıkıştırma hiç tetiklenmiyordu."""
+    mesajlar = _yazim_konusmasi(3, "p" * 10_000)
+
+    assert history.total_chars(mesajlar) > 30_000
+    assert history.needs_compression(mesajlar, threshold_chars=30_000)
+
+
+def test_eski_yazim_argumanlari_taslaga_iner_son_yazim_ve_yol_korunur():
+    import json
+
+    mesajlar = _yazim_konusmasi(5, "p" * 10_000)
+
+    temiz = history.clear_old_tool_outputs(mesajlar, threshold_chars=25_000)
+
+    assert history.total_chars(temiz) < 25_000
+    eski = json.loads(temiz[2].tool_calls[0].arguments)
+    assert eski["path"] == "dosya0.php" and eski["content"].startswith("[bağlamdan temizlendi")
+    assert json.loads(temiz[-2].tool_calls[0].arguments)["content"] == "p" * 10_000
+    assert [m.tool_calls[0].id for m in temiz if m.tool_calls] == [
+        m.tool_calls[0].id for m in mesajlar if m.tool_calls
+    ]
+
+
 def test_tur_ici_baslik_sistem_ve_gorevdir():
     mesajlar = [
         Message("system", "kimlik"),

@@ -11,6 +11,7 @@ bozan iki klasik hatayı önler:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Sequence
 from dataclasses import replace
 
@@ -51,8 +52,17 @@ WEB_COMPRESS_THRESHOLD_CHARS = 24_000
 
 
 def total_chars(messages: Sequence[Message]) -> int:
-    """Geçmişin kabaca büyüklüğü."""
-    return sum(len(message.content) for message in messages)
+    """Geçmişin kabaca büyüklüğü: içerik ARTI araç çağrısı argümanları.
+
+    Ölçüldü (17. kabul koşusu): yalnız `content` sayılıyordu; `write_file`/
+    `edit_file` argümanlarındaki dosya içerikleri (~222 bin karakter, geçmişin
+    %43'ü) görünmüyordu. Sayılan ~292 bin karakter eşiğin altında kaldı, gerçek
+    ~514 bin; sıkıştırma hiç tetiklenmedi ve istem 185 bin token'a çıktı.
+    """
+    return sum(
+        len(message.content) + sum(len(call.arguments) for call in message.tool_calls)
+        for message in messages
+    )
 
 
 def needs_compression(messages: Sequence[Message], threshold_chars: int | None = None) -> bool:
@@ -107,7 +117,55 @@ def clear_old_tool_outputs(
             continue
         sonuc[index] = replace(message, content=not_metni)
         toplam -= len(message.content) - len(not_metni)
+    if toplam >= limit:
+        sonuc = _stub_old_tool_arguments(sonuc, toplam, limit)
     return sonuc
+
+
+#: Bu uzunluğu aşan eski araç argümanı alanları (dosya içeriği, düzenleme metni)
+#: taslağa indirilir; yol ve kısa alanlar korunur ki model ne yaptığını bilsin.
+STUB_FIELD_MIN_CHARS = 400
+STUBBED_FIELD = "[bağlamdan temizlendi: {chars} karakter; içerik dosyada, gerekirse oku]"
+
+
+def _stub_arguments(arguments: str) -> str:
+    """JSON argümandaki uzun metin alanlarını taslağa indir; JSON geçerli kalır."""
+    try:
+        veri = json.loads(arguments)
+    except ValueError:
+        return arguments
+    if not isinstance(veri, dict):
+        return arguments
+    kisaltilmis = {
+        anahtar: STUBBED_FIELD.format(chars=len(deger))
+        if isinstance(deger, str) and len(deger) > STUB_FIELD_MIN_CHARS
+        else deger
+        for anahtar, deger in veri.items()
+    }
+    return json.dumps(kisaltilmis, ensure_ascii=False)
+
+
+def _stub_old_tool_arguments(messages: list[Message], toplam: int, limit: int) -> list[Message]:
+    """Eski assistant mesajlarının büyük araç argümanlarını eskiden yeniye kısalt.
+
+    Araç çıktıları temizlendikten sonra hâlâ eşik aşılıyorsa çağrılır. EN SON
+    assistant mesajına dokunulmaz (model bir sonraki adımı ona bakarak atar).
+    Çağrı kimliği ve adı korunur; çağrı-sonuç eşleşmesi bozulmaz.
+    """
+    indeksler = [i for i, m in enumerate(messages) if m.role == "assistant" and m.tool_calls]
+    for index in indeksler[:-1]:
+        if toplam < limit:
+            break
+        message = messages[index]
+        cagrilar = tuple(
+            replace(call, arguments=_stub_arguments(call.arguments)) for call in message.tool_calls
+        )
+        once = sum(len(call.arguments) for call in message.tool_calls)
+        sonra = sum(len(call.arguments) for call in cagrilar)
+        if sonra < once:
+            messages[index] = replace(message, tool_calls=cagrilar)
+            toplam -= once - sonra
+    return messages
 
 
 def task_anchor_length(messages: Sequence[Message]) -> int:
