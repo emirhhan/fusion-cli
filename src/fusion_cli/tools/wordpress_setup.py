@@ -148,7 +148,7 @@ async def setup_wordpress(
     theme = project_theme(root)
     problems: list[str] = []
     if theme is not None:
-        code, output = await _run_wp(wp_cli, root, "theme", "activate", theme)
+        code, output = await run_wp(wp_cli, root, "theme", "activate", theme)
         if code == 0:
             steps.append(f"Tema etkinleştirildi: {theme}")
         else:
@@ -179,7 +179,7 @@ async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[st
     for slug in wanted:
         if (root / "wp-content" / "plugins" / slug).is_dir():
             continue
-        code, output = await _run_wp(wp_cli, root, "plugin", "install", slug, "--activate")
+        code, output = await run_wp(wp_cli, root, "plugin", "install", slug, "--activate")
         if code == 0:
             steps.append(f"Eklenti kuruldu: {slug}")
         else:
@@ -191,12 +191,12 @@ async def _plugins(wp_cli: str, root: Path, wanted: list[str], problems: list[st
         # Yeni WooCommerce mağazası ziyaretçiye "Yakında" sayfası gösterir. Ölçüldü (2 Ekim
         # 2026, 8. kabul koşusu): ürünler eklendiği halde /shop/ boş "coming-soon" sayfası
         # döndü; model nedenini curl çıktısında aradı. Yerel önizlemede mağaza açık olmalı.
-        await _run_wp(wp_cli, root, "option", "update", "woocommerce_coming_soon", "no")
+        await run_wp(wp_cli, root, "option", "update", "woocommerce_coming_soon", "no")
         birim = catalog_currency(root)
         if birim:
             # Kaynak sitenin para birimi mağazaya uygulanır. Ölçüldü (13. kabul koşusu):
             # özet "para birimini TRY yap" dediği halde model mağazayı dolar bıraktı.
-            await _run_wp(wp_cli, root, "option", "update", "woocommerce_currency", birim)
+            await run_wp(wp_cli, root, "option", "update", "woocommerce_currency", birim)
             steps.append(f"Mağaza para birimi: {birim} (kaynak siteden)")
     return steps
 
@@ -268,18 +268,18 @@ def _safe_extract(archive: zipfile.ZipFile, target: Path) -> None:
 
 
 async def _wp(wp_cli: str, root: Path, *args: str) -> str:
-    code, output = await _run_wp(wp_cli, root, *args)
+    code, output = await run_wp(wp_cli, root, *args)
     if code != 0:
         raise WordPressSetupError(f"`wp {' '.join(args[:3])}` başarısız: {output[-600:]}")
     return output
 
 
 async def _wp_ok(wp_cli: str, root: Path, *args: str) -> bool:
-    code, _ = await _run_wp(wp_cli, root, *args)
+    code, _ = await run_wp(wp_cli, root, *args)
     return code == 0
 
 
-async def _run_wp(wp_cli: str, root: Path, *args: str) -> tuple[int, str]:
+async def run_wp(wp_cli: str, root: Path, *args: str) -> tuple[int, str]:
     env = php_env()
     process = await asyncio.create_subprocess_exec(
         wp_cli,
