@@ -695,3 +695,98 @@ async def test_sure_asan_yeni_sohbetin_sayfasi_acik_birakilmaz(pool, monkeypatch
         await transport(WebSessionCredential(), (Message("user", "soru"),), "m")
 
     assert all(page.is_closed() for page in pool.fake_context.pages)  # type: ignore[attr-defined]
+
+
+# --- insan doğrulaması: pencere açılır, kullanıcı çözer, tur sürer ---------------- #
+#
+# Fusion captcha'yı AŞMAZ. Ölçüldü (2 Ekim 2026): ChatGPT oturumu günlerce doğrulama
+# bekledi; her tur "fusion web-login çalıştır" diyerek düştü ve öğretmen yedeği hiç çalışmadı.
+
+_DOGRULAMA = web_browser.WebBrowserAuthError(
+    "authentication: ChatGPT insan doğrulaması (captcha) istiyor. [sayfa işareti: just a moment]"
+)
+
+
+class _SahteTarayici:
+    def __init__(self, gosterebilir: bool = True) -> None:
+        self.gosterebilir = gosterebilir
+        self.notlar: list[str] = []
+        self.yeniden_gizlendi = 0
+
+    async def reveal_window(self, notice: str) -> bool:
+        self.notlar.append(notice)
+        return self.gosterebilir
+
+    async def reassert_window(self, *, headless) -> None:
+        self.yeniden_gizlendi += 1
+
+
+async def test_insan_dogrulamasinda_pencere_acilir_ve_cozulunce_adim_yinelenir(pool, monkeypatch):
+    tarayici = _SahteTarayici()
+    monkeypatch.setattr(web_browser, "_shared_profile_browser", lambda *_a: tarayici)
+    monkeypatch.setattr(web_browser, "HUMAN_VERIFY_POLL_S", 0.0)
+    temiz = {"n": 0}
+
+    async def _temizlendi(page, definition, wait_s):
+        temiz["n"] += 1
+        return True
+
+    monkeypatch.setattr(web_browser, "_wait_until_challenge_clears", _temizlendi)
+    acilis: list[int] = []
+
+    async def _ac(page, definition):
+        acilis.append(1)
+        if len(acilis) == 1:
+            raise _DOGRULAMA
+
+    monkeypatch.setattr(web_browser, "_open_ready_conversation", _ac)
+    transport = build_browser_transport(_session(), pool=pool)
+
+    cevap = await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
+
+    assert cevap.text.startswith("tamam-")
+    assert acilis == [1, 1] and temiz["n"] == 1
+    assert "insan doğrulaması istiyor: açılan Chrome penceresinde" in tarayici.notlar[0]
+    assert tarayici.yeniden_gizlendi >= 1  # yeni sekme + doğrulama sonrası
+
+
+async def test_dogrulama_suresinde_cozulmezse_ayni_hata_doner(pool, monkeypatch):
+    tarayici = _SahteTarayici()
+    monkeypatch.setattr(web_browser, "_shared_profile_browser", lambda *_a: tarayici)
+
+    async def _temizlenmedi(page, definition, wait_s):
+        return False
+
+    monkeypatch.setattr(web_browser, "_wait_until_challenge_clears", _temizlenmedi)
+
+    async def _ac(page, definition):
+        raise _DOGRULAMA
+
+    monkeypatch.setattr(web_browser, "_open_ready_conversation", _ac)
+    transport = build_browser_transport(_session(), pool=pool)
+
+    with pytest.raises(web_browser.WebBrowserAuthError, match="insan doğrulaması"):
+        await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
+    assert tarayici.yeniden_gizlendi >= 1  # yeni sekme + doğrulama sonrası
+
+
+async def test_gorunmez_kipte_pencere_acilamazsa_beklenmez(pool, monkeypatch):
+    tarayici = _SahteTarayici(gosterebilir=False)
+    monkeypatch.setattr(web_browser, "_shared_profile_browser", lambda *_a: tarayici)
+    beklendi = {"n": 0}
+
+    async def _bekle(page, definition, wait_s):
+        beklendi["n"] += 1
+        return True
+
+    monkeypatch.setattr(web_browser, "_wait_until_challenge_clears", _bekle)
+
+    async def _ac(page, definition):
+        raise _DOGRULAMA
+
+    monkeypatch.setattr(web_browser, "_open_ready_conversation", _ac)
+    transport = build_browser_transport(_session(), pool=pool)
+
+    with pytest.raises(web_browser.WebBrowserAuthError):
+        await transport(WebSessionCredential(), (Message("user", "yap"),), "m")
+    assert beklendi["n"] == 0

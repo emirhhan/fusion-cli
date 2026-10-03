@@ -44,6 +44,11 @@ HIDE_SCRIPT_TEMPLATE = (
     "(first process whose unix id is {pid}) to false"
 )
 
+REVEAL_SCRIPT_TEMPLATE = (
+    'tell application "System Events" to tell (first process whose unix id is {pid}) to '
+    "(set visible to true) & (set frontmost to true)"
+)
+
 #: `osascript` çağrısının üst süre sınırı. Yerel bir Apple Event'tir ve milisaniyeler
 #: sürer; sınır yalnız yanıt vermeyen System Events'in turu bloklamasını engeller.
 HIDE_TIMEOUT_S = 5.0
@@ -149,3 +154,33 @@ async def _hide_process(pid: int) -> WindowHideResult:
         )
         return WindowHideResult(is_hidden=False, message=HIDE_FAILED_MESSAGE)
     return WindowHideResult(is_hidden=True)
+
+
+async def reveal_profile_window(profile: Path) -> bool:
+    """Gizlenmiş Chrome penceresini kullanıcının önüne getir (insan doğrulaması için).
+
+    Hata fırlatmaz; başarısızlık False döner ve günlüğe yazılır.
+    """
+    if not supports_window_hiding():
+        return False
+    pid = await _wait_profile_process_id(profile)
+    if pid is None:
+        return False
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["osascript", "-e", REVEAL_SCRIPT_TEMPLATE.format(pid=pid)],
+            capture_output=True,
+            text=True,
+            timeout=HIDE_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        _logger.warning("Tarayıcı penceresi öne getirilemedi (pid=%s): %s", pid, error)
+        return False
+    if result.returncode != 0:
+        _logger.warning(
+            "Tarayıcı penceresi öne getirilemedi (pid=%s): %s", pid, result.stderr.strip()
+        )
+        return False
+    return True

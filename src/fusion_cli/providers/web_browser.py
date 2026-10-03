@@ -30,7 +30,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -1567,6 +1567,73 @@ async def _retry_with_adjacent_model(
     return answer, komsu
 
 
+#: İnsan doğrulaması penceresi açıldıktan sonra sayfanın yeniden yoklanma aralığı.
+HUMAN_VERIFY_POLL_S = 3.0
+#: Doğrulama beklemesi tur bütçesinden bu kadar önce biter ki tur hâlâ cevap alabilsin.
+HUMAN_VERIFY_RESERVE_S = 20.0
+_HUMAN_VERIFY_TOKEN = "insan doğrulaması"
+
+
+def _is_human_verification(error: BaseException) -> bool:
+    return isinstance(error, WebBrowserAuthError) and _HUMAN_VERIFY_TOKEN in str(error)
+
+
+async def _open_past_human_verification(
+    page: Any,
+    definition: BrowserProviderDefinition,
+    session: WebSessionConfig,
+    limit_s: float,
+    step: Callable[[Any, BrowserProviderDefinition], Awaitable[None]],
+) -> None:
+    """Adımı çalıştır; insan doğrulaması çıkarsa pencereyi kullanıcıya aç, çözülünce yinele.
+
+    Fusion captcha'yı AŞMAZ; kullanıcı çözer. Eskiden tur "fusion web-login çalıştır"
+    diyerek düşüyordu ve kullanıcı bunu her seferinde elle yapıyordu (ölçüldü: 2 Ekim
+    2026, ChatGPT oturumu günlerce doğrulama bekledi, öğretmen yedeği hiç çalışmadı).
+    Şimdi gizli pencere öne getirilir, panele not düşülür, sayfa temizlenene kadar
+    (tur bütçesi içinde) beklenir ve aynı adım bir kez daha denenir.
+    """
+    try:
+        await step(page, definition)
+        return
+    except WebBrowserAuthError as error:
+        if not _is_human_verification(error):
+            raise
+        hata = error
+    browser = _shared_profile_browser(None, browser_profile_dir(session.provider, session.account))
+    wait_s = max(0.0, limit_s - HUMAN_VERIFY_RESERVE_S)
+    notice = (
+        f"{definition.name} insan doğrulaması istiyor: açılan Chrome penceresinde doğrulamayı "
+        f"tamamla, Fusion {wait_s:.0f} sn bekleyip kaldığı yerden sürer."
+    )
+    if wait_s <= 0 or not await browser.reveal_window(notice):
+        raise hata
+    _logger.warning(
+        "insan dogrulamasi bekleniyor: saglayici=%s hesap=%s", session.provider, session.account
+    )
+    try:
+        if not await _wait_until_challenge_clears(page, definition, wait_s):
+            raise hata
+    finally:
+        await browser.reassert_window(headless=session.headless)
+    await step(page, definition)
+
+
+async def _wait_until_challenge_clears(
+    page: Any, definition: BrowserProviderDefinition, wait_s: float
+) -> bool:
+    deadline = time.monotonic() + wait_s
+    while time.monotonic() < deadline:
+        await asyncio.sleep(HUMAN_VERIFY_POLL_S)
+        try:
+            body = await _page_chrome_text(page, definition)
+            if await _challenge_signal(page, definition, body=body) is None:
+                return True
+        except Exception as error:  # sayfa yenileniyor olabilir; beklemeye devam
+            _logger.debug("doğrulama yoklaması atlandı: %s", error)
+    return False
+
+
 async def _deliver_turn(
     manager: BrowserSessionPool,
     session: WebSessionConfig,
@@ -1595,7 +1662,9 @@ async def _deliver_turn(
     )
 
     if resumable and state is not None:
-        await _raise_if_blocked_early(state.page, definition)
+        await _open_past_human_verification(
+            state.page, definition, session, limit_s, _raise_if_blocked_early
+        )
         choice = await _apply_model_choice(manager, session, definition, state.page)
         # `trim=False`: kırpma-ya-da-yükleme kararı `_send_turn`'e taşındı, çünkü
         # yalnız o `page`'e erişebilir (bkz. Faz 4, Görev 2).
@@ -1615,7 +1684,9 @@ async def _deliver_turn(
         ).reassert_window(headless=session.headless)
         state = ConversationState(page=page)
         try:
-            await _open_ready_conversation(page, definition)
+            await _open_past_human_verification(
+                page, definition, session, limit_s, _open_ready_conversation
+            )
             choice = await _apply_model_choice(manager, session, definition, page)
             prompt = format_browser_prompt(messages, trim=False)
             answer = await _send_turn(page, definition, prompt, limit_s=limit_s)
@@ -2409,7 +2480,9 @@ def _human_verification_message(definition: BrowserProviderDefinition, marker: s
     return (
         f"authentication: {definition.name} insan doğrulaması (captcha) istiyor. "
         "Bunu otomatik aşmak mümkün değil — doğrulamayı görünür tarayıcıda KENDİN "
-        f"tamamlaman gerekiyor.\n{_cozum_adimlari(definition)}\n[sayfa işareti: {marker}]"
+        "tamamlaman gerekiyor. Oturum `hidden` (gizli) kipteyse Fusion pencereyi kendisi "
+        f"açıp bekler; `headless` kipte açamaz.\n{_cozum_adimlari(definition)}\n"
+        f"[sayfa işareti: {marker}]"
     )
 
 

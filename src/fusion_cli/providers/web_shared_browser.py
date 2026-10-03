@@ -34,6 +34,7 @@ from .macos_window import (
     UNSUPPORTED_MESSAGE,
     WindowHideResult,
     hide_profile_window,
+    reveal_profile_window,
     supports_window_hiding,
 )
 
@@ -80,6 +81,7 @@ class SharedBrowserHooks:
     #: Varsayılanı gerçek macOS uygulamasıdır; testler sahtesini verir. Başarısızlık
     #: turu düşürmez, sonuç nesnesiyle bildirilir.
     hide_window: Callable[[Path], Awaitable[WindowHideResult]] = field(default=hide_profile_window)
+    reveal_window: Callable[[Path], Awaitable[bool]] = field(default=reveal_profile_window)
     #: Bu platform pencereyi gizleyebilir mi? Gizleyemiyorsa gizli kip görünmez
     #: kipe düşer (bkz. `resolve_window_mode`).
     can_hide_window: bool = field(default_factory=supports_window_hiding)
@@ -174,6 +176,18 @@ class SharedProfileBrowser:
         mode = resolve_window_mode(requested, can_hide=self._hooks.can_hide_window)
         if mode is WindowMode.HIDDEN:
             await self._settle_window(requested=requested, mode=mode)
+
+    async def reveal_window(self, notice: str) -> bool:
+        """Pencereyi kullanıcının önüne getir ve panele neden açıldığını yaz.
+
+        İnsan doğrulaması (captcha) içindir: Fusion bunu aşamaz, kullanıcı tamamlar.
+        Görünmez (headless) Chrome'un penceresi yoktur; o durumda False döner.
+        """
+        if _running_window_mode(self._profile) is WindowMode.HEADLESS:
+            return False
+        shown = await self._hooks.reveal_window(self._profile)
+        _write_window_notice(self._profile, notice if shown else None)
+        return shown
 
     async def release(self, *, force: bool, timeout_s: float) -> None:
         """Kirayı bırak; son kiracıysa ya da `force` verildiyse Chrome'u kapat.
