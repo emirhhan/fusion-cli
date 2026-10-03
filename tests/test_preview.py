@@ -524,3 +524,30 @@ async def test_ana_sayfada_soylenen_bulgu_alt_sayfada_tekrarlanmaz(monkeypatch):
     assert not any("erkek" in fark for fark in farklar)
     form = [fark for fark in farklar if "FORM ÖĞELERİ" in fark]
     assert len(form) == 1 and form[0].startswith("SEPET SAYFASI")
+
+
+async def test_urun_ve_sepet_baglantisi_varsa_sepete_ekleme_denenir(monkeypatch):
+    """Ölçüldü (17. kabul koşusu): "SEPETE EKLE" form dışındaydı, sepet hep boş kaldı."""
+    from fusion_cli.engines.agent import preview_tools
+    from fusion_cli.tools.preview_probe import LinkCheck
+
+    denenen: list[tuple[str, str]] = []
+
+    async def _dene(urun, sepet):
+        denenen.append((urun, sepet))
+        return "SEPETE EKLEME ÇALIŞMIYOR: …"
+
+    monkeypatch.setattr(preview_tools.shop_flow, "cart_flow_problem", _dene)
+    ana = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        links=(LinkCheck("http://127.0.0.1:8770/product/a/", 200),
+               LinkCheck("http://127.0.0.1:8770/sepet/", 200)),
+    )  # fmt: skip
+
+    assert await preview_tools._cart_flow(ana) == ("SEPETE EKLEME ÇALIŞMIYOR: …",)
+    assert denenen == [("http://127.0.0.1:8770/product/a/", "http://127.0.0.1:8770/sepet/")]
+    sepetsiz = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        links=(LinkCheck("http://127.0.0.1:8770/product/a/", 200),),
+    )  # fmt: skip
+    assert await preview_tools._cart_flow(sepetsiz) == ()

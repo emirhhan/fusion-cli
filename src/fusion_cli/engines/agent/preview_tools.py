@@ -26,7 +26,7 @@ from urllib.parse import urljoin, urlparse
 from ...core.events import PreviewReady, StatusChanged
 from ...core.tool_content import ToolContent
 from ...core.tools import Tool, ToolArgs, ToolContext, ToolResult
-from ...tools import design_compare, preview_server, site_design
+from ...tools import design_compare, preview_server, shop_flow, site_design
 from ...tools.files import resolve_path
 from ...tools.preview_probe import SCREENSHOT_HEIGHT, SCREENSHOT_WIDTH, PageProbe, probe
 from ...tools.wordpress_setup import (
@@ -148,19 +148,36 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         dosya = await asyncio.to_thread(woocommerce_styles_disabled, root)
         if dosya:
             ek_sorunlar = (WC_STYLES_OFF_NOTE.format(dosya=dosya),)
+        ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc))
     return _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
+
+
+async def _cart_flow(sonuc: PageProbe) -> tuple[str, ...]:
+    """Mağazada ürün ve sepet bağlantısı varsa ürünü sepete eklemeyi gerçekten dene."""
+    links = [item.url for item in sonuc.links if item.status < 400]
+    product = next((link for link in links if _PRODUCT_PATH.search(link)), None)
+    cart = next((link for link in links if _CART_PATH.search(link)), None)
+    if product is None or cart is None:
+        return ()
+    try:
+        sorun = await shop_flow.cart_flow_problem(product, cart)
+    except RuntimeError:
+        return ()  # tarayıcı yoksa deneme yapılamaz; diğer ölçümler yine raporlanır
+    return (sorun,) if sorun else ()
 
 
 #: Ana sayfadan sonra ölçülen sayfa türleri: ad, iç bağlantı deseni. Ölçüldü (3 Ekim 2026,
 #: 11. ve 16. kabul koşuları): yalnız ana sayfa ölçülünce ürün şablonunun bozulması ve
 #: mağaza/sepet/ödeme sayfalarının çıplak HTML kalması hiç raporlanmadı.
+_PRODUCT_PATH = re.compile(r"/(?:product|urun)/[^/?#]+/?$")
+_CART_PATH = re.compile(r"/(?:cart|sepet)/?$")
 _PAGE_KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("ÜRÜN SAYFASI", re.compile(r"/(?:product|urun)/[^/?#]+/?$")),
+    ("ÜRÜN SAYFASI", _PRODUCT_PATH),
     (
         "LİSTE SAYFASI",
         re.compile(r"/(?:shop|magaza|product-category|urun-kategori|kategori)(?:/|$)"),
     ),
-    ("SEPET SAYFASI", re.compile(r"/(?:cart|sepet)/?$")),
+    ("SEPET SAYFASI", _CART_PATH),
     ("ÖDEME SAYFASI", re.compile(r"/(?:checkout|odeme)/?$")),
 )
 #: Ana sayfa dışında ölçülecek en fazla sayfa (her biri bir tarayıcı açılışı, ~3 sn).
