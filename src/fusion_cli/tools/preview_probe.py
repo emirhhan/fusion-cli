@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import re
 import urllib.error
 import urllib.request
@@ -39,6 +40,28 @@ _PAGE_ERRORS = re.compile(
     r"kritik bir hata|veritabanı bağlantısı kurulurken hata",
     re.IGNORECASE,
 )
+
+#: Bir hata satırından modele gidecek en fazla karakter (mesaj + dosya:satır).
+MAX_ERROR_LINE = 300
+
+
+def page_error_lines(body: str) -> tuple[str, ...]:
+    """Sayfadaki PHP/WordPress hatalarını MESAJIYLA döndür (dosya ve satır dahil).
+
+    Ölçüldü (3 Ekim 2026, 17. kabul koşusu): yalnız kalıbın kendisi ("Fatal error")
+    bildiriliyordu; düzeltmeyi belirleyen "Class ... not found in header.php:42" modele
+    hiç gitmedi.
+    """
+    text = html.unescape(re.sub(r"<[^>]+>", "", body))
+    found: list[str] = []
+    line_end = -1
+    for match in _PAGE_ERRORS.finditer(text):
+        if match.start() < line_end:
+            continue  # aynı satırdaki ikinci kalıp ("Fatal error: Uncaught Error")
+        newline = text.find("\n", match.start())
+        line_end = newline if newline >= 0 else len(text)
+        found.append(" ".join(text[match.start() : line_end].split())[:MAX_ERROR_LINE])
+    return tuple(dict.fromkeys(found))
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,7 +183,7 @@ def _http_probe(url: str) -> _HttpResult:
     parser = _PageText()
     with contextlib.suppress(Exception):
         parser.feed(body)
-    errors = tuple(dict.fromkeys(m.group(0) for m in _PAGE_ERRORS.finditer(body)))
+    errors = page_error_lines(body)
     host = urlparse(url).netloc
     links = tuple(
         dict.fromkeys(
@@ -182,7 +205,7 @@ def _check_links(url: str, links: tuple[str, ...], home_text: str = "") -> tuple
     checks: list[LinkCheck] = []
     for link in links[:MAX_LINKS]:
         status, body = _fetch(link)
-        hata = next((m.group(0) for m in _PAGE_ERRORS.finditer(body)), "")
+        hata = next(iter(page_error_lines(body)), "")
         parser = _PageText()
         with contextlib.suppress(Exception):
             parser.feed(body)

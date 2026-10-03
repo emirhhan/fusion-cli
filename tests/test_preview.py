@@ -475,3 +475,21 @@ def test_tema_woocommerce_stillerini_kapatinca_dosyasi_bulunur(tmp_path):
     )
     assert woocommerce_styles_disabled(tmp_path) == "wp-content/themes/kopya/functions.php"
     assert woocommerce_styles_disabled(tmp_path / "yok") is None
+
+
+def test_php_hatasinin_mesaji_dosyasi_ve_satiri_bildirilir():
+    """Ölçüldü (3 Ekim 2026, 17. kabul koşusu): önizleme yalnız "sayfada hata: Fatal error"
+    dedi; modelin düzeltmesi gereken "Class ... not found in header.php:42" hiç gitmedi."""
+    from fusion_cli.tools.preview_probe import page_error_lines
+
+    govde = (
+        "<html><body><style>.x{color:red}</style>\n<b>Fatal error</b>:  Uncaught Error: Class "
+        "&quot;Sneaksup_Nav_Walker&quot; not found in /site/wp-content/themes/t/header.php:42\n"
+        "Stack trace:\n#0 {main}\n  thrown in <b>/site/wp-content/themes/t/header.php</b> on "
+        "line <b>42</b><br />\n</body></html>"
+    )
+    satirlar = page_error_lines(govde)
+    assert len(satirlar) == 1
+    assert satirlar[0].startswith('Fatal error: Uncaught Error: Class "Sneaksup_Nav_Walker"')
+    assert "header.php:42" in satirlar[0]
+    assert page_error_lines("<p>her şey yolunda</p>") == ()
