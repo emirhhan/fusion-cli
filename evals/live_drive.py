@@ -115,6 +115,15 @@ def _say(sayac: dict[str, int], veri: dict[str, Any]) -> None:
     olay = veri.get("olay")
     if olay == "ModelCallStarted" and not veri.get("background"):
         sayac["model_cagrisi"] += 1
+        # Ana döngüyü web modeli karşıladıysa (öğretmen devri ya da web yedeği) iş
+        # "Nemotron yaptı" sayılmaz; öğretmen danışması kendi rolüyle ayrıdır.
+        if "_web/" in str(veri.get("model", "")) and veri.get("role") != "ogretmen":
+            sayac["web_model_cagrisi"] += 1
+    elif olay == "ModelCallFinished" and not veri.get("background"):
+        kullanim = (veri.get("result") or {}).get("usage") or {}
+        istem = int(kullanim.get("prompt_tokens") or 0)
+        sayac["istem_token"] += istem
+        sayac["en_buyuk_istem"] = max(sayac["en_buyuk_istem"], istem)
     elif olay == "ToolExecuted":
         if veri.get("name") == "ask_teacher":
             sayac["ogretmen_cagrisi"] += 1
@@ -128,7 +137,9 @@ def _say(sayac: dict[str, int], veri: dict[str, Any]) -> None:
         sayac["hafizadan_plan"] += 1
 
 
-async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str, Any]:
+async def drive(
+    args: argparse.Namespace, stderr: IO[bytes] | None, olay_gunlugu: IO[bytes] | None = None
+) -> dict[str, Any]:
     process = await asyncio.create_subprocess_exec(
         *_komut(args),
         cwd=args.kok,
@@ -147,6 +158,9 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
         "yedege_gecis": 0,
         "sozlesme_onarimi": 0,
         "hafizadan_plan": 0,
+        "web_model_cagrisi": 0,
+        "istem_token": 0,
+        "en_buyuk_istem": 0,
     }
     kayit["sayaclar"] = sayac
     bekleyen: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -157,20 +171,37 @@ async def drive(args: argparse.Namespace, stderr: IO[bytes] | None) -> dict[str,
 
     async def oku() -> None:
         assert process.stdout
-        while line := await process.stdout.readline():
+        while True:
             try:
-                mesaj = json.loads(line)
-            except ValueError:
+                line = await process.stdout.readline()
+            except ValueError as hata:  # satır akış sınırını aştı; atlanır, okuma sürer
+                kayit.setdefault("surucu_hatalari", []).append(repr(hata)[:500])
                 continue
-            tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
-            if tip == "olay":
-                _say(sayac, veri)
-            if tip == "olay" and veri.get("olay") == "ToolExecuted":
-                kayit["araclar"].append(veri.get("name"))
-            elif tip == "soru":
-                gonder({"tip": "cevap", "id": mesaj["id"], "veri": _cevap(veri, args, kayit)})
-            elif tip == "sonuc" and mesaj.get("id") in bekleyen:
-                bekleyen.pop(mesaj["id"]).set_result(veri)
+            if not line:
+                break
+            try:
+                isle(line)
+            # Sınır: tek bir bozuk mesaj okuyucuyu öldürürse çekirdek cevap bekleyip
+            # sonsuza kadar takılıyordu (ölçüldü: kabul koşusu 9+ dk onayda kaldı).
+            except Exception as hata:  # sınır: hata kayda yazılır, okuma sürer
+                kayit.setdefault("surucu_hatalari", []).append(repr(hata)[:500])
+
+    def isle(line: bytes) -> None:
+        try:
+            mesaj = json.loads(line)
+        except ValueError:
+            return
+        tip, veri = mesaj.get("tip"), mesaj.get("veri") or {}
+        if tip == "olay":
+            _say(sayac, veri)
+            if olay_gunlugu is not None:
+                olay_gunlugu.write(line)
+        if tip == "olay" and veri.get("olay") == "ToolExecuted":
+            kayit["araclar"].append(veri.get("name"))
+        elif tip == "soru":
+            gonder({"tip": "cevap", "id": mesaj["id"], "veri": _cevap(veri, args, kayit)})
+        elif tip == "sonuc" and mesaj.get("id") in bekleyen:
+            bekleyen.pop(mesaj["id"]).set_result(veri)
 
     async def istek(ad: str, veri: dict[str, Any], sure: float) -> dict[str, Any]:
         kimlik = f"{ad}-{len(kayit['turlar'])}-{time.monotonic_ns()}"
@@ -233,11 +264,14 @@ def main() -> None:
     parser.add_argument("--log", action="store_true")
     parser.add_argument("--chrome", default="", help="eşleştirme bilgisinin yazılacağı dosya")
     parser.add_argument("--eslestirme-suresi", type=float, default=900)
+    parser.add_argument("--olaylar", default="", help="çekirdek olaylarının yazılacağı JSONL")
     args = parser.parse_args()
     Path(args.kok).mkdir(parents=True, exist_ok=True)
     with contextlib.ExitStack() as stack:
         stderr = stack.enter_context(Path(args.stderr).open("wb")) if args.stderr else None
-        print(json.dumps(asyncio.run(drive(args, stderr)), ensure_ascii=False, indent=2))
+        olaylar = stack.enter_context(Path(args.olaylar).open("wb")) if args.olaylar else None
+        sonuc = asyncio.run(drive(args, stderr, olaylar))
+        print(json.dumps(sonuc, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":
