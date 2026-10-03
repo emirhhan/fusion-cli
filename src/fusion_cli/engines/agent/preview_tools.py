@@ -35,7 +35,7 @@ from ...tools.wordpress_setup import (
     find_wp_cli,
     setup_wordpress,
 )
-from .php_verify import find_php_executable
+from .php_verify import WC_STYLES_OFF_NOTE, find_php_executable, woocommerce_styles_disabled
 
 if TYPE_CHECKING:
     from .loop import AgentDeps
@@ -141,44 +141,79 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
     shot = await asyncio.to_thread(_save_screenshot, root, sonuc.screenshot)
     farklar = _differences(kaynak, sonuc)
     if farklar is not None:
-        farklar = (*farklar, *await _product_page_differences(kaynak, sonuc))
-    return _result(url, kind.value, sonuc, setup, shot, farklar)
+        farklar = (*farklar, *await _other_page_differences(kaynak, sonuc))
+    ek_sorunlar: tuple[str, ...] = ()
+    if kind is preview_server.PreviewKind.WORDPRESS:
+        dosya = await asyncio.to_thread(woocommerce_styles_disabled, root)
+        if dosya:
+            ek_sorunlar = (WC_STYLES_OFF_NOTE.format(dosya=dosya),)
+    return _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
 
 
-#: Ürün ayrıntı sayfası sayılan iç bağlantı yolları (WooCommerce, Türkçe kalıcı bağlantı).
-_PRODUCT_PATH = re.compile(r"/(?:product|urun)/[^/?#]+/?$")
+#: Ana sayfadan sonra ölçülen sayfa türleri: ad, iç bağlantı deseni. Ölçüldü (3 Ekim 2026,
+#: 11. ve 16. kabul koşuları): yalnız ana sayfa ölçülünce ürün şablonunun bozulması ve
+#: mağaza/sepet/ödeme sayfalarının çıplak HTML kalması hiç raporlanmadı.
+_PAGE_KINDS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("ÜRÜN SAYFASI", re.compile(r"/(?:product|urun)/[^/?#]+/?$")),
+    (
+        "LİSTE SAYFASI",
+        re.compile(r"/(?:shop|magaza|product-category|urun-kategori|kategori)(?:/|$)"),
+    ),
+    ("SEPET SAYFASI", re.compile(r"/(?:cart|sepet)/?$")),
+    ("ÖDEME SAYFASI", re.compile(r"/(?:checkout|odeme)/?$")),
+)
+#: Ana sayfa dışında ölçülecek en fazla sayfa (her biri bir tarayıcı açılışı, ~3 sn).
+MAX_EXTRA_PAGES = 4
 
 
-async def _product_page_differences(
+async def _other_page_differences(
     kaynak: list[dict[str, Any]], sonuc: PageProbe
 ) -> tuple[str, ...]:
-    """Kaynakta ürün sayfası ölçülmüşse sitenin bir ürün sayfasını da ölçüp karşılaştır.
+    """Ana sayfa dışındaki sayfa türlerini de ölç: ürün, liste, sepet, ödeme.
 
-    Ölçüldü (3 Ekim 2026, 11. kabul koşusu): son adımlarda `woocommerce.php` şablonu
-    bozuldu ve her ürün sayfası "Shop" listesi göstermeye başladı; ana sayfa hatasızdı ve
-    kapanış doğrulaması yalnız ona baktığı için iş "doğrulandı" diye bitti.
+    Her sayfa için kaynaksız yerleşim sağlığı (tek sütun ızgara, stilsiz form) raporlanır;
+    kaynakta karşılığı olan sayfa türü (ürün, liste) kaynakla da karşılaştırılır.
     """
-    reference = next((page for page in kaynak if page.get("product")), None)
-    if reference is None or (sonuc.measured or {}).get("product"):
-        return ()
-    link = next((item.url for item in sonuc.links if _PRODUCT_PATH.search(item.url)), None)
-    if link is None:
-        return ()
-    urun = await probe(
+    found: list[str] = []
+    seen = 0
+    for label, pattern in _PAGE_KINDS:
+        if seen >= MAX_EXTRA_PAGES:
+            break
+        link = next((item.url for item in sonuc.links if pattern.search(item.url)), None)
+        if link is None:
+            continue
+        seen += 1
+        found.extend(await _measure_other_page(label, link, kaynak))
+    return tuple(found)
+
+
+async def _measure_other_page(label: str, link: str, kaynak: list[dict[str, Any]]) -> list[str]:
+    sayfa = await probe(
         link,
         measure_script=site_design.probe_script(),
         viewport=(site_design.VIEWPORT["width"], site_design.VIEWPORT["height"]),
     )
-    if urun.measured is None:
-        return ()
-    if not urun.measured.get("product"):
-        baslik = (urun.measured.get("texts") or [{}])[0].get("text", "")
-        return (
-            f"ÜRÜN SAYFASI ({link}): kaynaktaki ürün sayfasında fiyat, galeri ve 'sepete "
-            f"ekle' düğmesi var; bu sayfada ürün ölçülemedi (ilk başlık '{baslik}'). "
-            "Ürün şablonu yanlış/bozuk olabilir.",
-        )
-    return tuple(f"{fark} [{link}]" for fark in design_compare.compare(reference, urun.measured))
+    if sayfa.measured is None:
+        return []
+    found = [f"{label} ({link}): {sorun}" for sorun in sayfa.problems]
+    reference = design_compare.pick_reference(kaynak, sayfa.measured)
+    if label == "ÜRÜN SAYFASI":
+        reference = next((page for page in kaynak if page.get("product")), None)
+        if reference is not None and not sayfa.measured.get("product"):
+            baslik = (sayfa.measured.get("texts") or [{}])[0].get("text", "")
+            found.append(
+                f"{label} ({link}): kaynaktaki ürün sayfasında fiyat, galeri ve 'sepete ekle' "
+                f"düğmesi var; bu sayfada ürün ölçülemedi (ilk başlık '{baslik}'). Ürün "
+                "şablonu yanlış/bozuk olabilir."
+            )
+            return found
+    farklar = (
+        design_compare.compare(reference, sayfa.measured)
+        if reference is not None and label in ("ÜRÜN SAYFASI", "LİSTE SAYFASI")
+        else design_compare.health_findings(sayfa.measured)
+    )
+    found.extend(f"{label} ({link}): {fark}" for fark in farklar)
+    return found
 
 
 def _differences(kaynak: list[dict[str, Any]], sonuc: PageProbe) -> tuple[str, ...] | None:
@@ -264,6 +299,7 @@ def _result(
     setup: WordPressSetup | None,
     shot: str = "",
     differences: tuple[str, ...] | None = None,
+    extra_problems: tuple[str, ...] = (),
 ) -> ToolResult:
     lines = [f"Önizleme çalışıyor: {url} ({kind}). Kullanıcı bu adresi açabilir."]
     if setup is not None and setup.steps:
@@ -275,7 +311,7 @@ def _result(
             f"`.fusion/{setup.credentials.name}` dosyasında (parolayı sohbete yazma)."
         )
     lines.append(f"Ölçüm: {sonuc.summary()}.")
-    problems = [*(setup.problems if setup is not None else ()), *sonuc.problems]
+    problems = [*(setup.problems if setup is not None else ()), *sonuc.problems, *extra_problems]
     konsol = [
         error
         for error in sonuc.console_errors

@@ -204,7 +204,7 @@
         products.push({
           name: (img.alt || (nameEl && textOf(nameEl)) || "").slice(0, 120),
           price: leaf ? textOf(leaf).slice(0, 40) : "", image: src, link,
-          text: textOf(item).slice(0, 160),
+          text: textOf(item).slice(0, 160), _w: Math.round(item.getBoundingClientRect().width),
         });
       }
     }
@@ -332,8 +332,32 @@
       .map(describeSection).filter((section) => section.height >= 40)
       .sort((a, b) => a.top - b.top).slice(0, MAX_SECTIONS);
 
+    // Yerleşim sağlığı (kaynak gerekmez). Ölçüldü (3 Ekim 2026, 16. kabul koşusu): model
+    // WooCommerce'in stillerini kapatıp mağaza/sepet/ödeme için stil yazmadı; mağaza tek
+    // sütun 1368 px görsel, formlar tarayıcı varsayılanı oldu — hiçbir ölçüm bunu söylemedi.
+    const cardWidths = products.slice(0, 8).map((item) => item._w || 0).filter(Boolean);
+    const widestCard = cardWidths.length ? Math.max(...cardWidths) : 0;
+    const controls = [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea, button")]
+      .filter(shown);
+    const unstyled = controls.filter((el) => {
+      const cs = getComputedStyle(el);
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+      // Tarayıcı varsayılanı: yatay iç boşluk toplamı ≤12px (düğme 6+6, alan 2+2), köşe yok.
+      return pad <= 12 && parseFloat(cs.borderRadius) === 0;
+    });
+    const health = {
+      viewport: innerWidth,
+      products: products.length,
+      widestCard,
+      singleColumn: products.length >= 3 && widestCard >= innerWidth * 0.8,
+      controls: controls.length,
+      unstyledControls: unstyled.length,
+      overflowX: document.documentElement.scrollWidth > innerWidth + 2,
+      bodyWords: textOf(document.body).split(" ").length,
+    };
+
     return {
-      url: location.href, title: document.title, description: meta("description"),
+      url: location.href, title: document.title, description: meta("description"), health,
       logo: (() => {
         const img = header && header.querySelector("img, svg");
         return img ? (img.tagName === "IMG" ? abs(img.currentSrc || img.src) : trimHtml(img, 3000)) : "";

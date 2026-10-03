@@ -53,9 +53,36 @@ def pick_reference(pages: list[dict[str, Any]], built: dict[str, Any]) -> dict[s
     return None
 
 
+def health_findings(built: dict[str, Any]) -> list[str]:
+    """Kaynak gerekmeyen yerleşim sorunları: tek sütun ürün ızgarası, stilsiz form öğeleri.
+
+    Ölçüldü (3 Ekim 2026, 16. kabul koşusu): model WooCommerce'in stillerini kapatıp mağaza,
+    sepet ve ödeme için stil yazmadı; sayfalar çıplak HTML'di ve hiçbir ölçüm bunu söylemedi.
+    """
+    health = built.get("health") or {}
+    found: list[str] = []
+    if health.get("singleColumn"):
+        found.append(
+            f"ÜRÜN IZGARASI: ürün kartları tek sütun ve {health.get('widestCard')}px genişlikte "
+            f"({health.get('viewport')}px ekranda). Kartları çok sütunlu ızgaraya al "
+            "(ör. grid, 4 sütun, kart ~250-360px); listeleme için stil eksik."
+        )
+    unstyled, controls = health.get("unstyledControls", 0), health.get("controls", 0)
+    if controls and unstyled >= max(2, controls // 2):
+        found.append(
+            f"FORM ÖĞELERİ: {unstyled}/{controls} giriş/düğme tarayıcı varsayılanıyla (stilsiz) "
+            "görünüyor. Bu sayfanın form ve düğmelerine kaynak sitedeki ölçülerle stil ver "
+            "(ya da eklentinin kendi stillerini kapatma)."
+        )
+    if health.get("overflowX"):
+        found.append("YATAY TAŞMA: sayfa ekrandan geniş; bir öğe viewport'u aşıyor.")
+    return found
+
+
 def compare(reference: dict[str, Any], built: dict[str, Any]) -> list[str]:
     """Kaynak ölçümle yapılan sayfa arasındaki farklar, önem sırasıyla."""
     differences = [
+        *health_findings(built),
         *_invisible_text(built),
         *_header(reference, built),
         *_fonts(reference, built),

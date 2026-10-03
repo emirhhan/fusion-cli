@@ -327,6 +327,65 @@ def test_benzetme_olmayan_istek_tasarim_notu_almaz(istek):
     assert design_hint(istek, available=True) is None
 
 
+async def test_liste_sepet_ve_odeme_sayfalari_da_olculur_ve_stilsizlik_soylenir(monkeypatch):
+    """Ölçüldü (16. kabul koşusu): mağaza tek sütun dev görsel, sepet/ödeme çıplak form;
+    yalnız ana sayfa ölçüldüğü için hiçbiri raporlanmadı."""
+    from fusion_cli.engines.agent import preview_tools
+    from fusion_cli.tools.preview_probe import LinkCheck
+
+    olculen: list[str] = []
+
+    async def _probe(url, **kwargs):
+        olculen.append(url)
+        health = {"viewport": 1440, "products": 4, "widestCard": 1368, "singleColumn": True,
+                  "controls": 6, "unstyledControls": 5, "overflowX": False}  # fmt: skip
+        return PageProbe(
+            url=url, status=200, title="s", visible_chars=300, page_errors=(),
+            measured={"url": url, "health": health, "products": [], "texts": [{"text": "Mağaza"}]},
+        )  # fmt: skip
+
+    monkeypatch.setattr(preview_tools, "probe", _probe)
+    ana = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="Ö", visible_chars=500, page_errors=(),
+        measured={"url": "http://127.0.0.1:8770/"},
+        links=(
+            LinkCheck("http://127.0.0.1:8770/shop/", 200),
+            LinkCheck("http://127.0.0.1:8770/cart/", 200),
+            LinkCheck("http://127.0.0.1:8770/checkout/", 200),
+            LinkCheck("http://127.0.0.1:8770/hakkimizda/", 200),
+        ),
+    )  # fmt: skip
+
+    farklar = await preview_tools._other_page_differences([{"url": "https://m.test/"}], ana)
+
+    assert olculen == [
+        "http://127.0.0.1:8770/shop/",
+        "http://127.0.0.1:8770/cart/",
+        "http://127.0.0.1:8770/checkout/",
+    ]
+    metin = "\n".join(farklar)
+    assert (
+        "LİSTE SAYFASI (http://127.0.0.1:8770/shop/): ÜRÜN IZGARASI: ürün kartları tek sütun"
+        in metin
+    )
+    assert "SEPET SAYFASI (http://127.0.0.1:8770/cart/): FORM ÖĞELERİ: 5/6" in metin
+    assert "ÖDEME SAYFASI" in metin
+
+
+async def test_woocommerce_stilleri_kapatilmissa_onizleme_uyarir(tmp_path):
+    from fusion_cli.engines.agent.php_verify import woocommerce_styles_disabled
+
+    tema = tmp_path / "wp-content" / "themes" / "klon"
+    tema.mkdir(parents=True)
+    (tema / "functions.php").write_text(
+        "<?php add_filter('woocommerce_enqueue_styles', '__return_empty_array');",
+        encoding="utf-8",
+    )
+    assert woocommerce_styles_disabled(tmp_path) == "wp-content/themes/klon/functions.php"
+    (tema / "functions.php").write_text("<?php add_theme_support('woocommerce');", encoding="utf-8")
+    assert woocommerce_styles_disabled(tmp_path) is None
+
+
 async def test_kaynakta_urun_sayfasi_varsa_sitenin_urun_sayfasi_da_olculur(monkeypatch):
     """Ölçüldü (3 Ekim 2026, 11. kabul koşusu): bozulan ürün şablonu her ürün sayfasını
     "Shop" listesi yaptı; ana sayfa hatasızdı ve kapanış doğrulaması bunu görmedi."""
@@ -337,10 +396,10 @@ async def test_kaynakta_urun_sayfasi_varsa_sitenin_urun_sayfasi_da_olculur(monke
         {"url": "https://m.test/"},
         {"url": "https://m.test/u/1", "product": {"name": "Hoodie", "images": [], "options": []}},
     ]
-    olculen = {}
+    olculen: list[str] = []
 
     async def _probe(url, **kwargs):
-        olculen["url"] = url
+        olculen.append(url)
         return PageProbe(
             url=url, status=200, title="Ürün", visible_chars=100, page_errors=(),
             measured={"url": url, "texts": [{"tag": "a", "text": "ERKEK"}]},
@@ -354,12 +413,14 @@ async def test_kaynakta_urun_sayfasi_varsa_sitenin_urun_sayfasi_da_olculur(monke
                LinkCheck("http://127.0.0.1:8770/product/ayakkabi/", 200)),
     )  # fmt: skip
 
-    farklar = await preview_tools._product_page_differences(kaynak, ana)
+    farklar = await preview_tools._other_page_differences(kaynak, ana)
 
-    assert olculen["url"] == "http://127.0.0.1:8770/product/ayakkabi/"
-    assert len(farklar) == 1 and "ürün ölçülemedi (ilk başlık 'ERKEK')" in farklar[0]
-    # Kaynakta ürün sayfası yoksa ya da açılan sayfa zaten ürünse ek ölçüm yapılmaz.
-    assert await preview_tools._product_page_differences([{"url": "https://m.test/"}], ana) == ()
+    assert olculen[0] == "http://127.0.0.1:8770/product/ayakkabi/"
+    urun = [f for f in farklar if f.startswith("ÜRÜN SAYFASI")]
+    assert len(urun) == 1 and "ürün ölçülemedi (ilk başlık 'ERKEK')" in urun[0]
+    # Kaynakta ürün sayfası yoksa "ürün ölçülemedi" denmez; sayfa yalnız sağlık için ölçülür.
+    farklar = await preview_tools._other_page_differences([{"url": "https://m.test/"}], ana)
+    assert not any("ürün ölçülemedi" in f for f in farklar)
 
 
 async def test_ana_sayfayla_ayni_icerigi_gosteren_baglanti_sorun_sayilir(tmp_path):
@@ -397,3 +458,20 @@ async def test_kaynak_siteye_istek_atan_sayfa_uyarilir(monkeypatch):
     farklar = preview_tools._differences(kaynak, sonuc)
 
     assert farklar is not None and "KAYNAK SİTEYE İSTEK: sayfan m.test" in farklar[1]
+
+
+def test_tema_woocommerce_stillerini_kapatinca_dosyasi_bulunur(tmp_path):
+    """Ölçüldü (3 Ekim 2026, 16. kabul koşusu): tema WooCommerce stillerini kapattı ve
+    mağaza/sepet/ödeme için stil yazmadı; sayfalar çıplak HTML kaldı."""
+    from fusion_cli.engines.agent.php_verify import woocommerce_styles_disabled
+
+    tema = tmp_path / "wp-content" / "themes" / "kopya"
+    tema.mkdir(parents=True)
+    (tema / "functions.php").write_text("<?php add_theme_support('woocommerce');", "utf-8")
+    assert woocommerce_styles_disabled(tmp_path) is None
+
+    (tema / "functions.php").write_text(
+        "<?php add_filter( 'woocommerce_enqueue_styles', '__return_empty_array' );", "utf-8"
+    )
+    assert woocommerce_styles_disabled(tmp_path) == "wp-content/themes/kopya/functions.php"
+    assert woocommerce_styles_disabled(tmp_path / "yok") is None

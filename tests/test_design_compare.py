@@ -128,3 +128,29 @@ def test_kartta_yinelenen_ad_soylenir():
         design_compare.compare({"products": []}, {"products": [{"name": "A", "text": "A 1 TL"}]})
         == []
     )
+
+
+def test_kaynaksiz_yerlesim_sagligi_tek_sutun_ve_stilsiz_formu_soyler():
+    """Ölçüldü (16. kabul koşusu): mağaza tek sütun 1368px görsel, formlar tarayıcı varsayılanı."""
+    yapilan = {
+        "health": {
+            "viewport": 1440, "products": 6, "widestCard": 1368, "singleColumn": True,
+            "controls": 8, "unstyledControls": 7, "overflowX": True,
+        }
+    }  # fmt: skip
+
+    metin = "\n".join(design_compare.health_findings(yapilan))
+
+    assert "ÜRÜN IZGARASI: ürün kartları tek sütun ve 1368px" in metin
+    assert "FORM ÖĞELERİ: 7/8" in metin
+    assert "YATAY TAŞMA" in metin
+    saglikli = {
+        "health": {
+            "products": 6,
+            "widestCard": 320,
+            "singleColumn": False,
+            "controls": 8,
+            "unstyledControls": 1,
+        }
+    }
+    assert design_compare.health_findings(saglikli) == []

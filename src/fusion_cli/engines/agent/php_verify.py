@@ -199,3 +199,35 @@ def _strip_comments(source: str) -> str:
     return "\n".join(
         line for line in without_blocks.splitlines() if not line.lstrip().startswith(("//", "#"))
     )
+
+
+#: Eklentinin kendi stillerini toptan kapatan kalıp. Ölçüldü (3 Ekim 2026, 16. kabul koşusu):
+#: tema bunu ekleyip mağaza/sepet/ödeme için stil yazmadı; sayfalar çıplak HTML oldu.
+_WC_STYLES_OFF = re.compile(
+    r"woocommerce_enqueue_styles['\"]\s*,\s*['\"]__return_empty_array|"
+    r"woocommerce_enqueue_styles['\"]\s*,\s*['\"]__return_false",
+)
+
+
+def woocommerce_styles_disabled(root: Path) -> str | None:
+    """Tema WooCommerce'in stillerini kapatıyorsa bunu yapan dosyayı döndür."""
+    themes = root / "wp-content" / "themes"
+    if not themes.is_dir():
+        return None
+    for path in themes.rglob("*.php"):
+        if path.name.startswith("twenty") or "/twenty" in path.as_posix():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if _WC_STYLES_OFF.search(text):
+            return path.relative_to(root).as_posix()
+    return None
+
+
+WC_STYLES_OFF_NOTE = (
+    "WooCommerce'in kendi stilleri kapatılmış ({dosya}: woocommerce_enqueue_styles → boş). "
+    "Mağaza, ürün, sepet ve ödeme sayfaları artık yalnız senin stiline bağlı; bu sayfalar "
+    "için eksiksiz stil yazmadıysan o satırı kaldır."
+)
