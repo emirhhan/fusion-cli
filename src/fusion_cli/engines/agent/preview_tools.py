@@ -188,7 +188,19 @@ def _differences(kaynak: list[dict[str, Any]], sonuc: PageProbe) -> tuple[str, .
     reference = design_compare.pick_reference(kaynak, sonuc.measured)
     if reference is None:
         return None
-    return (str(reference.get("url", "")), *design_compare.compare(reference, sonuc.measured))
+    farklar = list(design_compare.compare(reference, sonuc.measured))
+    kaynak_host = urlparse(str(kaynak[0].get("url", ""))).netloc.removeprefix("www.")
+    if kaynak_host and any(
+        host.removeprefix("www.").endswith(kaynak_host) for host in sonuc.external_hosts
+    ):
+        # Ölçüldü (16. kabul koşusu): model sepet/favori işlemlerini kaynak sitenin canlı
+        # API'sine bağladı; site kendi WooCommerce'i yerine başkasının sunucusuyla konuşuyordu.
+        farklar.insert(
+            0,
+            f"KAYNAK SİTEYE İSTEK: sayfan {kaynak_host} alan adına istek atıyor. Kopya kendi "
+            "WordPress/WooCommerce'iyle çalışmalı; kaynak sitenin betik/API çağrılarını kaldır.",
+        )
+    return (str(reference.get("url", "")), *farklar)
 
 
 #: Son önizleme ekran görüntüsü (proje içinde): görsel okuyamayan model `view_image` ile

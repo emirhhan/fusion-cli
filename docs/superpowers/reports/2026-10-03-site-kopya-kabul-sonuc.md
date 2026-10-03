@@ -56,6 +56,14 @@ tanımıyor ama şablon anahtarı `chat_template_kwargs.enable_thinking=false` t
 161 sn/4130 token → 29 sn/2973 token, araç çağrısı geçerli). Düzeltme: düşünme bütçesi dolunca
 yeniden deneme bu anahtarla yapılır (`CompletionRequest.disable_thinking`).
 
+**16. koşu** (düşünme anahtarıyla, ~55 dk): kabul denetimi **16/17** ve bu kez ekran görüntüleri de
+doğruluyor — sepet sayfası gerçek (1 ürün, toplamlar, "Ödemeye git"), ödeme sayfası gerçek form
+(fatura adresi; ödeme yöntemi tanımlı değil), 0 kırık kaynak, 44 fiyatlı ürün ana sayfada, mağaza
+29 ürün, ürün sayfası tam. Kalan: kahraman bu kez video değil kampanya görseli; kapanış öğretmen
+denetimi modelin sepet/favori JS'ini kaynak sitenin canlı API'sine bağladığını yakaladı →
+ölçüm örneklerinden satır içi olay kodu çıkarıldı ve kaynak alan adına istek atan sayfa
+"KAYNAK SİTEYE İSTEK" diye uyarılıyor. Tur NIM 429 ile kapandı (ücretsiz katman).
+
 ## Fusion'da kalıcı olarak değişenler
 
 1. **Öğretmen** — araçsız istek araç çerçevesiz gider; plan isteği `PLAN_FRAME` + çırağın araç

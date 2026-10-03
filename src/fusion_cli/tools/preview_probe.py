@@ -64,6 +64,8 @@ class PageProbe:
     measured: dict[str, Any] | None = None
     #: Sayfanın istediği ama yüklenemeyen kaynaklar: "HTTP 404 /yol/dosya.jpg".
     failed_resources: tuple[str, ...] = ()
+    #: Sayfanın istek attığı dış alan adları (yazı tipi CDN'i, kaynak sitenin API'si…).
+    external_hosts: tuple[str, ...] = ()
 
     @property
     def problems(self) -> tuple[str, ...]:
@@ -138,6 +140,7 @@ async def probe(
         screenshot=seen.screenshot,
         measured=seen.measured,
         failed_resources=seen.failed,
+        external_hosts=seen.external_hosts,
     )
 
 
@@ -205,6 +208,7 @@ class _BrowserResult:
     console: tuple[str, ...] = ()
     measured: dict[str, Any] | None = None
     failed: tuple[str, ...] = ()
+    external_hosts: tuple[str, ...] = ()
 
 
 async def _browser_probe(
@@ -217,10 +221,14 @@ async def _browser_probe(
     host = urlparse(url).netloc
     measured: dict[str, Any] | None = None
 
+    external: list[str] = []
+
     def _note_response(status: int, target: str) -> None:
-        # Yalnız sitenin KENDİ kaynakları: dış servis hatası sitenin sorunu değildir.
         parsed = urlparse(target)
-        if status >= 400 and parsed.netloc == host and target.rstrip("/") != url.rstrip("/"):
+        if parsed.netloc and parsed.netloc != host:
+            external.append(parsed.netloc)
+            return  # dış servis hatası sitenin sorunu değildir
+        if status >= 400 and target.rstrip("/") != url.rstrip("/"):
             failed.append(f"HTTP {status} {parsed.path}")
 
     async with async_playwright() as driver:
@@ -241,7 +249,11 @@ async def _browser_probe(
         finally:
             await browser.close()
     return _BrowserResult(
-        shot, tuple(dict.fromkeys(errors)), measured, tuple(dict.fromkeys(failed))
+        shot,
+        tuple(dict.fromkeys(errors)),
+        measured,
+        tuple(dict.fromkeys(failed)),
+        tuple(dict.fromkeys(external)),
     )
 
 

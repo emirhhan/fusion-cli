@@ -381,3 +381,19 @@ async def test_ana_sayfayla_ayni_icerigi_gosteren_baglanti_sorun_sayilir(tmp_pat
     sorunlar = "\n".join(sonuc.problems)
     assert "ana sayfayla aynı içeriği gösteriyor" in sorunlar and "sepet.html" in sorunlar
     assert "hakkimizda.html" not in sorunlar
+
+
+async def test_kaynak_siteye_istek_atan_sayfa_uyarilir(monkeypatch):
+    """Ölçüldü (16. kabul koşusu): model sepet işlemlerini kaynak sitenin canlı API'sine bağladı."""
+    from fusion_cli.engines.agent import preview_tools
+
+    kaynak = [{"url": "https://www.m.test/", "sections": [], "products": []}]
+    sonuc = PageProbe(
+        url="http://127.0.0.1:8770/", status=200, title="x", visible_chars=200, page_errors=(),
+        measured={"url": "http://127.0.0.1:8770/", "sections": [], "products": []},
+        external_hosts=("fonts.gstatic.com", "api.m.test"),
+    )  # fmt: skip
+
+    farklar = preview_tools._differences(kaynak, sonuc)
+
+    assert farklar is not None and "KAYNAK SİTEYE İSTEK: sayfan m.test" in farklar[1]

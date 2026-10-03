@@ -40,6 +40,14 @@
     const trimHtml = (el, max) => {
       const clone = el.cloneNode(true);
       clone.querySelectorAll("script, style, svg path").forEach((n) => n.remove());
+      // Kaynak sitenin satır içi olay kodu (onclick=…) örnekten çıkarılır. Ölçüldü (3 Ekim
+      // 2026, 16. kabul koşusu): model örnekteki `PrimeWidgets…toggleWishlist` çağrısını
+      // taklit edip sepet/favori işlemlerini kaynak sitenin canlı API'sine bağladı.
+      clone.querySelectorAll("*").forEach((n) => {
+        for (const attr of [...n.attributes]) {
+          if (/^on/i.test(attr.name) || /^(javascript:)/i.test(attr.value)) n.removeAttribute(attr.name);
+        }
+      });
       return clone.outerHTML.replace(/\s+/g, " ").slice(0, max);
     };
 
