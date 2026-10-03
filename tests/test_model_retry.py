@@ -8,6 +8,8 @@ kullanıcıya geri sayımla gösterilir; kalıcı hata denenmez.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from fusion_cli.core.events import StatusChanged
@@ -114,3 +116,28 @@ async def test_sure_sinirinda_bitmeyen_cagridan_sonra_modele_kisa_adim_notu_gide
     assert sonuc.ok and cagri["n"] == 2
     assert agent_loop.SHORTER_AFTER_TIMEOUT_NOTE not in gorulen[0]
     assert gorulen[1].count(agent_loop.SHORTER_AFTER_TIMEOUT_NOTE) == 1
+
+
+async def test_dusunme_butcesi_dolunca_kisa_adim_notu_ve_dusuk_yogunluk(
+    monkeypatch, tmp_path, sink, beklemeler
+):
+    """Ölçüldü (3 Ekim 2026, 14. kabul koşusu): 8192 token düşünmeyle bitti; yalnız bütçeyi
+    ikiye katlayan ikinci çağrı 600 sn sınırını aştı."""
+    from fusion_cli.core.types import ModelSpec
+
+    gorulen: list[tuple[list[str], object]] = []
+
+    async def _model(messages, deps, registry, allowed_tools, **kwargs):
+        gorulen.append(([m.content for m in messages if m.harness_note], kwargs.get("state")))
+        if len(gorulen) == 1:
+            return replace(model_result(ok=False, error="çıktı bütçesi"), truncated=True)
+        return model_result("Tamamlandı: istenen iş yapıldı ve doğrulandı.")
+
+    monkeypatch.setattr(agent_loop, "_call_model", _model)
+    deps = _deps(tmp_path, sink, agent=ModelSpec(name="a", model="test/model", tags=("reasoning",)))
+
+    sonuc = await run_agent("görev", deps)
+
+    assert sonuc.ok and len(gorulen) == 2
+    assert agent_loop.SHORTER_AFTER_TIMEOUT_NOTE in gorulen[1][0]
+    assert gorulen[1][1].reasoning_relief is True

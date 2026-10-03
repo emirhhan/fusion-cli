@@ -68,6 +68,7 @@ from ...core.health import HealthRegistry
 from ...core.memory import CodeIndex, Lesson, LessonMemory
 from ...core.progress import RoundSignals, progressed
 from ...core.protocols import TurnJournal
+from ...core.reasoning import ReasoningEffort
 from ...core.redaction import redact
 from ...core.refusal import looks_like_refusal
 from ...core.steering import SteeringQueue
@@ -893,6 +894,8 @@ class _State:
     model_calls_made: int = 0
     #: Çıktı bütçesi çarpanı: model bütçeyi düşünmeye harcayıp cevapsız kalırsa büyür.
     max_tokens_scale: int = 1
+    #: Çıktı bütçesi düşünmeye gittiyse turun kalanında düşünme yoğunluğu düşürülür.
+    reasoning_relief: bool = False
     #: Yinelenen olduğu için engellenen çağrı sayısı (bkz. AgentOutcome).
     already_done_calls: int = 0
     #: Denenen her araç çağrısı, SIRAYLA. Engellenen ve düşen çağrılar da girer:
@@ -1673,10 +1676,17 @@ async def _call_with_retries(
             # harcar). Ölçüldü (30 Eylül): ilk tur "çıktı bütçesi doldu" ile bitti ve
             # kullanıcıya ayar değiştirmesi söylendi. Bütçe büyütülüp hemen denenir.
             state.max_tokens_scale *= 2
+            # Yalnız bütçeyi büyütmek yetmedi. Ölçüldü (3 Ekim 2026, 14. kabul koşusu):
+            # 8192 token düşünmeyle bitti, 16384 ile aynı çağrı 600 sn sınırını aştı.
+            # Bundan sonra düşünme yoğunluğu düşürülür ve modele kısa adım notu gider.
+            state.reasoning_relief = True
+            if not any(m.content == SHORTER_AFTER_TIMEOUT_NOTE for m in messages):
+                messages.append(Message("user", SHORTER_AFTER_TIMEOUT_NOTE, harness_note=True))
             deps.publisher.publish(
                 StatusChanged(
                     "Model çıktı bütçesini düşünmeye harcadı; bütçe "
-                    f"{state.max_tokens_scale} katıyla yeniden deneniyor"
+                    f"{state.max_tokens_scale} katıyla ve düşük düşünme yoğunluğuyla "
+                    "yeniden deneniyor"
                 )
             )
             continue
@@ -1768,7 +1778,9 @@ async def _call_model(
             if offer_tools
             else ()
         ),
-        reasoning_effort=effort_for_spec(spec, runtime.reasoning_effort),
+        reasoning_effort=effort_for_spec(
+            spec, ReasoningEffort.LOW if state.reasoning_relief else runtime.reasoning_effort
+        ),
     )
     provider = build_provider(
         spec,
