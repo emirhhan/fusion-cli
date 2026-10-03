@@ -44,9 +44,11 @@ düğme iki kez (kanca iki kez bağlanmış).
 
 **14. koşu** (~50 dk, para birimi kurulumda uygulanıyor, yinelenen kart uyarısı, düşünme
 bütçesi dolunca düşük yoğunluk): kabul denetimi **16/17** — 0 kırık kaynak, 74 fiyatlı ürün ana
-sayfada, mağaza 24 ürün, ürün sayfası 3 görsel + fiyat (TL) + sepete ekle, **sepete ekleme ve sepet
-sayfası çalışıyor**; tek eksik ödeme sayfasında form (WooCommerce Blocks ödeme bloğu temanın
-sayfa şablonunda render olmuyor).
+sayfada, mağaza 24 ürün, ürün sayfası 3 görsel + fiyat (TL) + sepete ekle, sepete ekleme sayacı
+çalışıyor. Ekran görüntüleri yanlış pozitifi gösterdi: sepet ve ödeme adresleri 200 dönüp **ana
+sayfayı** render ediyor (temada `page.php` yok, WooCommerce sayfaları öne düşüyor); kabul
+denetimi fiyat metnine kandığı için 16/17 saydı, gerçek puan 14/17. Düzeltme: önizleme, izlediği
+iç bağlantı ana sayfayla aynı içeriği gösteriyorsa "sayfa şablonu eksik olabilir" der.
 
 ## Fusion'da kalıcı olarak değişenler
 

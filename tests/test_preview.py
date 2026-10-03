@@ -360,3 +360,24 @@ async def test_kaynakta_urun_sayfasi_varsa_sitenin_urun_sayfasi_da_olculur(monke
     assert len(farklar) == 1 and "ürün ölçülemedi (ilk başlık 'ERKEK')" in farklar[0]
     # Kaynakta ürün sayfası yoksa ya da açılan sayfa zaten ürünse ek ölçüm yapılmaz.
     assert await preview_tools._product_page_differences([{"url": "https://m.test/"}], ana) == ()
+
+
+async def test_ana_sayfayla_ayni_icerigi_gosteren_baglanti_sorun_sayilir(tmp_path):
+    """Ölçüldü (14. kabul koşusu): sepet ve ödeme sayfaları 200 dönüp ana sayfayı gösterdi."""
+    govde = '<a href="/sepet.html">Sepet</a><a href="/hakkimizda.html">Hakkımızda</a>'
+    _sayfa(tmp_path, govde=govde)
+    _sayfa(tmp_path, "sepet.html", govde=govde)  # ana sayfanın birebir kopyası
+    (tmp_path / "hakkimizda.html").write_text(
+        "<html><body><main><h1>Hakkımızda</h1><p>Bambaşka bir sayfa, kendi metniyle.</p>"
+        "</main></body></html>",
+        encoding="utf-8",
+    )
+
+    onizleme = await preview_server.start(
+        tmp_path, PreviewKind.STATIC, preview_server.free_port(), php=None, entry="index.html"
+    )
+    sonuc = await probe(onizleme.url, browser=False)
+
+    sorunlar = "\n".join(sonuc.problems)
+    assert "ana sayfayla aynı içeriği gösteriyor" in sorunlar and "sepet.html" in sorunlar
+    assert "hakkimizda.html" not in sorunlar

@@ -46,6 +46,8 @@ class LinkCheck:
     url: str
     status: int
     error: str = ""
+    #: Sayfa ana sayfayla aynı metni gösteriyor (şablon eksik: istek ana sayfaya düşüyor).
+    same_as_home: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +78,13 @@ class PageProbe:
             if link.status >= 400 or link.status == 0 or link.error:
                 ek = f", {link.error}" if link.error else ""
                 found.append(f"bağlantı açılmıyor: {link.url} (HTTP {link.status}{ek})")
+            elif link.same_as_home:
+                # Ölçüldü (3 Ekim 2026, 14. kabul koşusu): temada `page.php` yoktu; sepet ve
+                # ödeme sayfaları 200 dönüp ANA SAYFAYI gösterdi, araç "açıldı" dedi.
+                found.append(
+                    f"bağlantı ana sayfayla aynı içeriği gösteriyor: {link.url} (sayfa şablonu "
+                    "eksik olabilir, ör. page.php)"
+                )
         if self.failed_resources:
             # Ölçüldü (2 Ekim 2026, 8. kabul koşusu): tema 12 görsele bağlanıyordu ama
             # dosyalar hiç kopyalanmamıştı; kahraman alanı boş göründü, araç "sayfa hatasız
@@ -112,7 +121,7 @@ async def probe(
     alanına konur (kaynak siteyle karşılaştırma için; ikinci bir tarayıcı açılmaz).
     """
     base = await asyncio.to_thread(_http_probe, url)
-    links = await asyncio.to_thread(_check_links, url, base.links)
+    links = await asyncio.to_thread(_check_links, url, base.links, base.text)
     seen = _BrowserResult()
     if browser:
         with contextlib.suppress(Exception):
@@ -139,6 +148,8 @@ class _HttpResult:
     visible_chars: int
     page_errors: tuple[str, ...]
     links: tuple[str, ...]
+    #: Görünür metin (ana sayfayla karşılaştırma için).
+    text: str = ""
 
 
 def _http_probe(url: str) -> _HttpResult:
@@ -159,17 +170,22 @@ def _http_probe(url: str) -> _HttpResult:
             and "wp-login" not in absolute
         )
     )
-    visible = len(" ".join(" ".join(parser.text).split()))
-    return _HttpResult(status, parser.title.strip(), visible, errors, links)
+    text = " ".join(" ".join(parser.text).split())
+    return _HttpResult(status, parser.title.strip(), len(text), errors, links, text)
 
 
-def _check_links(url: str, links: tuple[str, ...]) -> tuple[LinkCheck, ...]:
+def _check_links(url: str, links: tuple[str, ...], home_text: str = "") -> tuple[LinkCheck, ...]:
     del url
     checks: list[LinkCheck] = []
     for link in links[:MAX_LINKS]:
         status, body = _fetch(link)
         hata = next((m.group(0) for m in _PAGE_ERRORS.finditer(body)), "")
-        checks.append(LinkCheck(link.split("#")[0], status, hata))
+        parser = _PageText()
+        with contextlib.suppress(Exception):
+            parser.feed(body)
+        text = " ".join(" ".join(parser.text).split())
+        same = bool(home_text) and len(home_text) >= MIN_VISIBLE_CHARS and text == home_text
+        checks.append(LinkCheck(link.split("#")[0], status, hata, same_as_home=same))
     return tuple(checks)
 
 
