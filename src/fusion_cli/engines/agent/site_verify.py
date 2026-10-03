@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 from ...core.evidence import CriterionEvidence, EvidenceStatus
@@ -60,7 +62,7 @@ class SiteVerifier:
             # (3 Ekim 2026, 10. kabul koşusu): 18 ürün görseli 404 veriyordu, kapı yalnız
             # HTTP'ye baktığı için "✓ Doğrulandı" dedi ve model işi bitti ilan etti.
             url = str(running.last_probe.get("url") or running.url)
-            return _result(await probe(url))
+            return _with_open_findings(_result(await probe(url)), running.last_probe)
         if kind is PreviewKind.WORDPRESS and not _runnable_wordpress(root):
             return VerificationResult(ok=True, warnings=(NOT_RUNNABLE_NOTE,))
         if self._php is None:
@@ -82,6 +84,32 @@ class SiteVerifier:
         finally:
             with contextlib.suppress(Exception):
                 preview_server.stop(preview)
+
+
+#: Son önizlemede açık kalan bulguların kapı raporundaki öneki.
+OPEN_FINDINGS_NOTE = "son start_preview ölçümünde açık kaldı (düzeltip yeniden ölç)"
+
+
+def _with_open_findings(
+    result: VerificationResult, last_probe: Mapping[str, object]
+) -> VerificationResult:
+    """Son önizlemenin kaynak farklarını ve sepet sorunlarını kapıya ekle.
+
+    Ölçüldü (17. kabul koşusu): son start_preview 17 fark ve çalışmayan sepet
+    bildirmişken kapı yalnız HTTP/konsola baktığı için rapor "✓ Doğrulandı" dedi.
+    Bulgular son değişiklikten önce ölçülmüş olabilir; bu yüzden kapı onları
+    "yeniden ölç" notuyla geri verir, tahminle kapatmaz.
+    """
+    acik = last_probe.get("open_findings")
+    if not isinstance(acik, tuple | list) or not acik:
+        return result
+    bulgular = tuple(f"{OPEN_FINDINGS_NOTE}: {bulgu}" for bulgu in acik)
+    return replace(
+        result,
+        ok=False,
+        summary=f"{result.summary + '; ' if result.summary else ''}{len(bulgular)} açık bulgu",
+        findings=(*result.findings, *bulgular),
+    )
 
 
 def _runnable_wordpress(root: Path) -> bool:

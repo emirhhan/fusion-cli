@@ -551,3 +551,17 @@ async def test_urun_ve_sepet_baglantisi_varsa_sepete_ekleme_denenir(monkeypatch)
         links=(LinkCheck("http://127.0.0.1:8770/product/a/", 200),),
     )  # fmt: skip
     assert await preview_tools._cart_flow(sepetsiz) == ()
+
+
+def test_onizleme_ilk_satiri_durumu_once_soyler():
+    """Ölçüldü (17. kabul koşusu): başarısız önizleme 'çalışıyor' diye başlıyordu;
+    takılma sorusu ilk satırdan üretildiği için öğretmen 'hata yok' dedi."""
+    from fusion_cli.engines.agent.preview_tools import _status_line
+
+    hata = _status_line("http://x/", "wordpress", 500, ["PHP Fatal error: a.php:3"], ())
+    sorunlu = _status_line("http://x/", "wordpress", 200, [], ("ürün sayısı 4/24",))
+    temiz = _status_line("http://x/", "wordpress", 200, [], ())
+
+    assert hata.startswith("BAŞARISIZ: HTTP 500") and "a.php:3" in hata
+    assert sorunlu.startswith("SORUNLU:") and "1 kaynak farkı" in sorunlu
+    assert temiz.startswith("Önizleme çalışıyor")

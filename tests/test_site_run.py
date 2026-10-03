@@ -304,3 +304,19 @@ async def test_kaynak_katalogun_para_birimi_magazaya_uygulanir(tmp_path):
 
     assert "option update woocommerce_currency TRY" in kayit.read_text(encoding="utf-8")
     assert "Mağaza para birimi: TRY (kaynak siteden)" in sonuc.steps
+
+
+def test_kapi_son_onizlemedeki_acik_farklari_dogrulandi_saymaz():
+    """Ölçüldü (17. kabul koşusu): 17 fark ve çalışmayan sepet açıkken kapı yalnız
+    HTTP'ye baktı ve '✓ Doğrulandı' dedi."""
+    from fusion_cli.core.verification import VerificationResult
+    from fusion_cli.engines.agent.site_verify import _with_open_findings
+
+    temiz = VerificationResult(ok=True)
+    acik = {"open_findings": ("ÜRÜNLER: kaynak 24+, sayfanda 4", "sepete ekleme çalışmıyor")}
+
+    sonuc = _with_open_findings(temiz, acik)
+
+    assert not sonuc.ok
+    assert len(sonuc.findings) == 2 and "ÜRÜNLER" in sonuc.findings[0]
+    assert _with_open_findings(temiz, {"open_findings": ()}) is temiz

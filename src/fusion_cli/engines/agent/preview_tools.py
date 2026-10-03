@@ -149,6 +149,9 @@ async def run_preview(deps: AgentDeps, args: ToolArgs, context: ToolContext) -> 
         if dosya:
             ek_sorunlar = (WC_STYLES_OFF_NOTE.format(dosya=dosya),)
         ek_sorunlar = (*ek_sorunlar, *await _cart_flow(sonuc))
+    # Kapanış kapısı (site_verify) bunları okur: açık fark ya da çalışmayan sepet
+    # varken tur "doğrulandı" diye bitmesin.
+    preview.last_probe["open_findings"] = (*(farklar[1:] if farklar else ()), *ek_sorunlar)
     return _result(url, kind.value, sonuc, setup, shot, farklar, ek_sorunlar)
 
 
@@ -317,6 +320,27 @@ def _port(root: Path) -> int:
     return preview_server.free_port()
 
 
+def _status_line(
+    url: str, kind: str, status: int, problems: list[str], differences: tuple[str, ...]
+) -> str:
+    """Çıktının ilk satırı: DURUM önce gelir.
+
+    Ölçüldü (17. kabul koşusu): başarısız önizleme de "Önizleme çalışıyor…" diye
+    başlıyordu; takılma sorusu hatanın ilk satırından üretildiği için öğretmene
+    "şu hatayı verdi: Önizleme çalışıyor" gitti, öğretmen "hata yok" dedi ve iki tur
+    boşa gitti.
+    """
+    if not 0 < status < 400:
+        ilk = problems[0] if problems else "sayfa açılmadı"
+        return f"BAŞARISIZ: HTTP {status or 'yanıt yok'} — {ilk} ({url})"
+    if problems or differences:
+        return (
+            f"SORUNLU: sayfa açılıyor: {url} ({kind}) ama {len(problems)} sorun ve "
+            f"{len(differences)} kaynak farkı var; aşağıdakileri düzelt."
+        )
+    return f"Önizleme çalışıyor: {url} ({kind}). Kullanıcı bu adresi açabilir."
+
+
 def _result(
     url: str,
     kind: str,
@@ -326,7 +350,9 @@ def _result(
     differences: tuple[str, ...] | None = None,
     extra_problems: tuple[str, ...] = (),
 ) -> ToolResult:
-    lines = [f"Önizleme çalışıyor: {url} ({kind}). Kullanıcı bu adresi açabilir."]
+    problems = [*(setup.problems if setup is not None else ()), *sonuc.problems, *extra_problems]
+    farklar = tuple(differences[1:]) if differences else ()
+    lines = [_status_line(url, kind, sonuc.status, problems, farklar)]
     if setup is not None and setup.steps:
         lines.append("Kurulum: " + "; ".join(setup.steps) + ".")
     if setup is not None and setup.credentials is not None:
@@ -336,7 +362,6 @@ def _result(
             f"`.fusion/{setup.credentials.name}` dosyasında (parolayı sohbete yazma)."
         )
     lines.append(f"Ölçüm: {sonuc.summary()}.")
-    problems = [*(setup.problems if setup is not None else ()), *sonuc.problems, *extra_problems]
     konsol = [
         error
         for error in sonuc.console_errors
@@ -348,11 +373,11 @@ def _result(
         lines.append("SORUNLAR (düzelt ve start_preview'ı tekrar çağır):")
         lines.extend(f"- {problem}" for problem in problems)
     else:
-        lines.append("Sayfa hatasız açıldı. Ekran görüntüsü ekte; tasarımı istekle karşılaştır.")
+        lines.append("Sayfa hatasız açıldı.")
     if shot:
         lines.append(f"Ekran görüntüsü dosyası: {shot}")
     if differences is not None:
-        kaynak_url, *farklar = differences
+        kaynak_url = differences[0]
         if farklar:
             lines.append(
                 f"KAYNAKLA FARKLAR ({kaynak_url} ile aynı ölçümle karşılaştırıldı) — düzelt ve "
