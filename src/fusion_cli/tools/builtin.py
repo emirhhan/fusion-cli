@@ -18,6 +18,7 @@ from . import (
     desktop_inspect,
     download,
     files,
+    jobs,
     planning,
     scaffold_tool,
     search,
@@ -264,8 +265,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="scaffold_web",
-        description="Sıfırdan web sitesi kur: tokens.css, format.js ve index.html "
-        "iskeleti yazar; dosya ezmez. Var olan siteyi düzenlerken kullanma.",
+        description="Sıfırdan site iskeleti (tokens.css, format.js, index.html); dosya "
+        "ezmez. Var olan sitede kullanma.",
         parameters=_schema({"path": {**_STRING, "description": "Hedef dizin (varsayılan: .)"}}, []),
         run=scaffold_tool.scaffold_web,
         mutating=True,
@@ -305,8 +306,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="git",
-        description="Salt-okunur git komutu çalıştır (status, diff, log, branch, show…). "
-        "Onay gerektirmez. Commit/push gibi değiştirici git için run_shell kullan.",
+        description="Salt-okunur git (status, diff, log, show…); onaysız. Commit/push için "
+        "run_shell.",
         parameters=_schema(
             {
                 "subcommand": {
@@ -320,17 +321,31 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="run_shell",
-        description="Proje kökünde kabuk komutu çalıştır. Koddan sonra test/lint/build "
-        "ile doğrula. Sürekli çalışan komutları ön planda başlatma. Onay gerekir.",
-        parameters=_schema({"command": _STRING}, ["command"]),
+        description="Proje kökünde kabuk komutu (onaylı); test/lint/build ile doğrula. "
+        "120 sn'den uzun işi background=true ile başlat.",
+        parameters=_schema(
+            {
+                "command": _STRING,
+                "background": {"type": "boolean"},
+            },
+            ["command"],
+        ),
         run=shell.run_shell,
         mutating=True,
     ),
     Tool(
+        name="job_status",
+        description="Arka plan işi durumu/son çıktısı; wait_s bekler, stop durdurur.",
+        parameters=_schema(
+            {"id": _STRING, "wait_s": _INTEGER, "stop": {"type": "boolean"}}, ["id"]
+        ),
+        run=jobs.job_status,
+        mutating=True,
+    ),
+    Tool(
         name="todo_write",
-        description="Görev listesini TAMAMEN güncelle. Çok adımlı işlerde plan çıkar ve "
-        "ilerledikçe güncelle (bir maddeyi in_progress yap, bitince completed). "
-        "Basit tek adımlı işlerde kullanma.",
+        description="Görev listesini TAMAMEN güncelle; çok adımlı işte plan çıkar, "
+        "ilerledikçe durumları güncelle. Tek adımlı işte kullanma.",
         parameters=_schema(
             {
                 "todos": {
@@ -353,8 +368,8 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="web_search",
-        description="Web'de ara (ücretsiz, anahtarsız). Güncel bilgi, sürüm değişikliği "
-        "ya da hata mesajı çözümü gerektiğinde kullan; ezberden emin konuşma.",
+        description="Web'de ara (ücretsiz). Güncel bilgi, sürüm ya da hata çözümü "
+        "gerektiğinde kullan; ezberden emin konuşma.",
         parameters=_schema({"query": {**_STRING, "description": "arama sorgusu"}}, ["query"]),
         run=web.web_search,
     ),
@@ -470,8 +485,7 @@ _TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         name="browser_mirror",
-        description="Açık sayfayı CSS/JS/görselleriyle diske aynala; giriş oturumu "
-        "korunur. Tek sayfa iner, dinamik veri yerelde çalışmayabilir.",
+        description="Sayfayı CSS/JS/görselleriyle diske aynala (giriş oturumu korunur).",
         parameters=_schema(
             {
                 "path": {**_STRING, "description": "Hedef dizin (varsayılan: ayna)"},

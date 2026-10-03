@@ -23,6 +23,7 @@ from ..core.tools import ToolArgs, ToolContext, ToolResult
 from .args import require_str
 from .command_policy import READONLY_GIT_SUBCOMMANDS
 from .files import invented_path_reason
+from .jobs import start_job
 from .safe_delete import DeleteRefusedError, move_to_trash, simple_rm_targets
 from .wordpress_setup import php_env
 
@@ -37,6 +38,8 @@ def run_shell(args: ToolArgs, context: ToolContext) -> ToolResult:
     deleted = _guarded_delete(command, context)
     if deleted is not None:
         return deleted
+    if args.get("background") is True:
+        return start_job(command, context, _shell_env())
     try:
         # shell=True bilinçli: kullanıcı boru/yönlendirme içeren komut yazabilmeli.
         # Komut buraya gelmeden önce tehlike kontrolünden ve onay akışından geçer.
@@ -135,10 +138,11 @@ def _timeout_message(timeout: subprocess.TimeoutExpired) -> str:
     lead = (
         f"Komut {SHELL_TIMEOUT_S:.0f}s içinde bitmedi ve durduruldu. Sürekli çalışan bir "
         "süreç (dev sunucusu, izleyici) olabilir: böyle bir komut zaten hiç bitmez.\n"
-        "Yapılacak: aynı komutu tekrar çalıştırma. Çıktıya bakıp sürecin başlayıp "
-        "başlamadığını anla; sürekli çalışması gerekiyorsa kullanıcıdan onu kendi "
-        "terminalinde başlatmasını iste, doğrulama için biten bir komut (build, test, "
-        "lint) kullan."
+        "Yapılacak: aynı komutu tekrar çalıştırma (ön planda). Uzun ama BİTEN bir iş "
+        "(npm install, render, build, export) ise run_shell(command=..., background=true) "
+        "ile arka planda başlat ve job_status(id, wait_s) ile bekle. Hiç bitmeyen bir "
+        "sunucuysa (dev sunucusu) start_preview kullan ya da arka planda başlatıp "
+        "doğrulama için biten bir komut (build, test, lint) çalıştır."
     )
     if not partial:
         return f"{lead}\nKomut durdurulana kadar hiç çıktı üretmedi."

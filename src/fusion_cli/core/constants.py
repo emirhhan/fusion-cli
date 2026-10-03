@@ -61,6 +61,14 @@ MAX_CHECKPOINT_OUTPUT_CHARS = 8_000
 
 #: Kabuk komutu için zaman aşımı (saniye).
 SHELL_TIMEOUT_S = 120.0
+#: Arka plan işinin durumunu sorarken tek çağrıda beklenebilecek en uzun süre (saniye).
+#: Remotion render'ı ve npm install dakikalar sürer; modelin her 2 sn'de bir sormasını
+#: değil tek çağrıda beklemesini isteriz. Üst sınır, NIM'in 600 sn'lik istek
+#: süresiyle aynıdır: bir araç çağrısı bir model çağrısından uzun sürmez.
+JOB_MAX_WAIT_S = 600.0
+#: Arka plan işi günlüğünden modele gösterilen son kesit (karakter); kabuk
+#: çıktısı sınırının (MAX_OUTPUT_CHARS) yarısı — durum sorgusu tekrarlanabilir.
+JOB_LOG_TAIL_CHARS = 10_000
 #: JavaScript sözdizimi denetimi için zaman aşımı (saniye).
 #:
 #: Arena çıktısındaki 300 satırlık betikte `node --check` beş ölçümde 0,03-0,04
